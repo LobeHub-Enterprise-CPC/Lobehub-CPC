@@ -105,23 +105,28 @@ const FeedbackContent = memo<FeedbackContentProps>(({ initialValues }) => {
 
   return (
     <Flexbox gap={16}>
-      <p style={{ color: 'var(--colorTextSecondary)', fontSize: 14, margin: 0 }}>
-        <Trans
-          i18nKey="feedback.emailContact"
-          ns="common"
-          values={{ email: BRANDING_EMAIL.business }}
-          components={{
-            email: (
-              <a
-                href={`mailto:${BRANDING_EMAIL.business}`}
-                rel="noopener noreferrer"
-                style={{ color: 'inherit', textDecoration: 'underline' }}
-                target="_blank"
-              />
-            ),
-          }}
-        />
-      </p>
+      {/* No enterprise business mailbox configured under custom branding
+          (see branding.ts) — drop the line rather than interpolate
+          `undefined` into the sentence or link to `mailto:undefined`. */}
+      {BRANDING_EMAIL.business && (
+        <p style={{ color: 'var(--colorTextSecondary)', fontSize: 14, margin: 0 }}>
+          <Trans
+            i18nKey="feedback.emailContact"
+            ns="common"
+            values={{ email: BRANDING_EMAIL.business }}
+            components={{
+              email: (
+                <a
+                  href={`mailto:${BRANDING_EMAIL.business}`}
+                  rel="noopener noreferrer"
+                  style={{ color: 'inherit', textDecoration: 'underline' }}
+                  target="_blank"
+                />
+              ),
+            }}
+          />
+        </p>
+      )}
 
       <Form form={form} initialValues={initialValues} layout="vertical">
         <Form.Item

@@ -4,7 +4,7 @@
 
 export const LOBE_CHAT_CLOUD = 'LobeHub Cloud';
 
-export const BRANDING_NAME = 'LobeHub';
+export const BRANDING_NAME = 'TiTu Work';
 export const BRANDING_LOGO_URL = '';
 
 /**
@@ -16,34 +16,50 @@ export const BRANDING_LOGO_URL = '';
  * `DEFAULT_INBOX_TITLE` and the i18n brand post-processor, so overriding this
  * one constant renames the assistant everywhere.
  */
-export const BRANDING_INBOX_TITLE = 'Lobe AI';
+export const BRANDING_INBOX_TITLE = 'TiTu Work AI';
 
-export const ORG_NAME = 'LobeHub';
+/**
+ * No graceful "unset" exists for this one — `COPYRIGHT`/`COPYRIGHT_FULL`
+ * always render *some* org name — so this defaults to `BRANDING_NAME` rather
+ * than staying `'LobeHub'`. Replace with the real legal entity name once
+ * known; until then this is a placeholder, not a considered choice.
+ */
+export const ORG_NAME = BRANDING_NAME;
 
+// Left unset on purpose: no confirmed enterprise help/privacy/terms pages or
+// hosted-subscription plan yet. `withLinks`-style filtering (see About.tsx)
+// already drops any UI item built from an unset field here.
 export const BRANDING_URL = {
   help: undefined,
   privacy: undefined,
-  subscription: 'https://app.lobehub.com/settings/plans',
+  subscription: undefined,
   support: undefined,
   terms: undefined,
 };
 
+// Left unset on purpose: no enterprise-owned Discord/GitHub/social presence
+// yet. Every call site either drops the link when falsy (About.tsx's
+// `withLinks`) or renders a no-op `href={undefined}` anchor.
 export const SOCIAL_URL = {
-  discord: 'https://discord.gg/AYFPHvv2jT',
-  github: 'https://github.com/lobehub',
-  medium: 'https://medium.com/@lobehub',
-  x: 'https://x.com/lobehub',
-  youtube: 'https://www.youtube.com/@lobehub',
+  discord: undefined,
+  github: undefined,
+  medium: undefined,
+  x: undefined,
+  youtube: undefined,
 };
 
 export const FILE_URL = {
   importFromNotionGuide: 'https://hub-apac-1.lobeobjects.space/assets/notion.mp4',
 };
 
+// Left unset on purpose: no confirmed enterprise support/business mailbox
+// yet. `About.tsx` already drops the affected contact items when falsy;
+// `FeedbackModal/FeedbackContent.tsx` was patched alongside this change to
+// do the same for its email-contact line.
 export const BRANDING_EMAIL = {
-  business: 'hello@lobehub.com',
+  business: undefined,
   replyTo: undefined,
-  support: 'support@lobehub.com',
+  support: undefined,
 };
 
 export const BRANDING_PROVIDER = 'lobehub';
