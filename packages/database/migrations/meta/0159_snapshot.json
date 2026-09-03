@@ -6,9 +6,9 @@
   },
   "dialect": "postgresql",
   "enums": {},
-  "id": "1cfa2fb1-5c64-43d1-8f6a-9d3230e71c69",
+  "id": "43bcb7a7-ed55-4141-9eae-4bb79a7582f3",
   "policies": {},
-  "prevId": "93eec6de-9b47-4504-a1cf-9729c128b64f",
+  "prevId": "1cfa2fb1-5c64-43d1-8f6a-9d3230e71c69",
   "roles": {},
   "schemas": {},
   "sequences": {
@@ -8947,7 +8947,7 @@
           "name": "command_text",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "blocked": {
           "name": "blocked",
@@ -8958,6 +8958,18 @@
         "matched_rule_id": {
           "name": "matched_rule_id",
           "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "policy_field": {
+          "name": "policy_field",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
