@@ -1,5 +1,6 @@
 'use client';
 
+import { CLI_INSTALL_COMMAND } from '@lobechat/business-const';
 import { CopyButton, Flexbox, Icon } from '@lobehub/ui';
 import { Button, TabsIndicator, TabsList, TabsRoot, TabsTab } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cssVar } from 'antd-style';
@@ -9,7 +10,6 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 
 import CommandLine from '@/components/CommandLine';
-import { CLI_INSTALL_COMMAND } from '@/features/Apps/const';
 
 import { acceptanceHomePath } from '../Viewer/routes';
 
