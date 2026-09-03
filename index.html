@@ -33,9 +33,11 @@
       }
       #loading-brand img {
         display: block;
-        /* Matches ProductLogo's `type="mono"` filter (Custom.tsx) — the React
-           shell that takes over right after this static markup uses the same
-           filter, so there's no color flash at the handoff. */
+        /* Desaturated on purpose: this is a wait indicator, not a logo
+           placement, and full-colour artwork at 40px reads as chrome the app
+           is about to draw. AppShellSkeleton, which replaces this markup once
+           React commits, drops the mark for the product wordmark — so expect a
+           mark-to-name handoff here, not a like-for-like swap. */
         filter: grayscale(100%);
       }
     </style>
@@ -120,11 +122,15 @@
         <!--
           Boot-time asset, not a component: this paints before any JS bundle
           runs, so it can't read the BRANDING_* constants (see
-          packages/business/const/src/branding.ts). It has to reference the
-          same overlaid path those constants use instead
-          (BRANDING_LOGO_URL === "/branding/logo-head.png"), which
-          scripts/sync-branding.mjs copies onto this submodule's public/ at
-          build/dev time from the outer repo's branding/public/branding/.
+          packages/business/const/src/branding.ts) and has to hard-code a path
+          under public/branding/ instead. scripts/sync-branding.mjs overlays
+          that directory onto this submodule's public/ at build/dev time from
+          the outer repo's branding/public/branding/, and the submodule
+          gitignores it — so the customer's artwork is never committed here.
+
+          The head-only crop, not BRANDING_LOGO_URL ("/branding/logo.png"):
+          that one carries the full mascot including its labelled base, which
+          at 40px collapses into noise.
         -->
         <img alt="" height="40" src="/branding/logo-head.png" />
       </div>

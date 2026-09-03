@@ -27,7 +27,7 @@ export const APP_SHELL_FALLBACK_ID = 'app-shell-fallback';
 
 /**
  * A boot that hands over inside a second reads as a transition, not a wait, so
- * the shell stays a bare brand mark. Past that the user is waiting on something
+ * the shell stays a bare wordmark. Past that the user is waiting on something
  * and deserves to be told so.
  *
  * Measured from the document, not from this component: the static HTML logo is
@@ -68,10 +68,12 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
 
     color: ${cssVar.colorTextQuaternary};
   `,
-  // The mark carries the fade, not the whole stack: multiplying it into the
-  // caption too leaves quaternary text at ~0.2 alpha, which is unreadable.
-  mark: css`
-    opacity: 0.48;
+  // A wordmark is text, so it takes the mark's place but not its fade: the
+  // stack renders in `colorTextQuaternary`, and the 0.48 that softened the
+  // mono glyph would leave the product name at ~0.2 alpha — the same trap the
+  // caption below sidesteps by restating its own color.
+  wordmark: css`
+    color: ${cssVar.colorTextTertiary};
   `,
   // Floated rather than stacked in flow: a caption that joins the column would
   // push the brand mark off the center it shares with the app that replaces it.
@@ -172,8 +174,8 @@ const AppShellSkeleton = memo<AppShellSkeletonProps>(({ id }) => {
           >
             <div className={styles.contentBrand}>
               <div className={styles.brand}>
-                <div className={styles.mark}>
-                  <ProductLogo size={56} type={'mono'} />
+                <div className={styles.wordmark}>
+                  <ProductLogo size={40} type={'text'} />
                 </div>
                 {waiting && <LoadingHint />}
               </div>
