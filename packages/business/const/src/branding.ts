@@ -5,7 +5,17 @@
 export const LOBE_CHAT_CLOUD = 'LobeHub Cloud';
 
 export const BRANDING_NAME = 'TiTu Work';
-export const BRANDING_LOGO_URL = '';
+/**
+ * `/branding/logo-head.png` is served from the *submodule's* `public/`
+ * directory, not this package — it only exists there at build/dev time,
+ * copied in by `scripts/sync-branding.mjs` from the outer repo's
+ * `branding/public/branding/` (gitignored inside the submodule, so the
+ * customer's logo file itself never lands in this git history). Left empty
+ * this always 404s; every consumer already falls back to a bundled default
+ * when this is falsy, so an empty string was "safe" but wrong — it kept
+ * showing lobehub's own default avatars instead of the customer's mascot.
+ */
+export const BRANDING_LOGO_URL = '/branding/logo-head.png';
 
 /**
  * Display name of the built-in default assistant (the inbox agent).
