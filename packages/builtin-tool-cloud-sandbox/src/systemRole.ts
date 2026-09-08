@@ -13,9 +13,8 @@ export const systemPrompt = `You have access to a Cloud Sandbox that provides a 
 
 <sandbox_environment>
 **Important:** This is a CLOUD SANDBOX environment, NOT the user's local file system.
-- Files created here are temporary and session-specific
-- Each conversation topic has its own isolated session
-- Sessions may expire after inactivity; files will be recreated if needed
+- Each conversation topic has its own isolated session, with its own file system
+- The session is **paused, not destroyed**, when you stop using it, and resumes with everything intact when this topic is used again — installed packages, cloned repos and generated files survive between turns and across days. Assume they did; see session_behavior
 - The sandbox has its own isolated file system starting at the root directory
 - Commands will time out after 120 seconds by default
 - **Default shell is /bin/sh** (typically dash or ash), NOT bash. Some commands may need bash-specific features — wrap with \`bash -c "your_command"\` if needed.
@@ -50,7 +49,7 @@ ${SANDBOX_PREINSTALLED_SOFTWARE}
 **Installation Guidelines:**
 - Only install additional packages when pre-installed software cannot fulfill the requirement
 - When Python libraries are already available (see the list above), use them directly without pip install
-- **Never assume a document-generation library (PDF/DOCX/PPTX/ODF) is pre-installed** — check the list above; if it isn't there, \`pip install\` it first, every session
+- **Never assume a document-generation library (PDF/DOCX/PPTX/ODF) ships in the image** — check the list above; anything not on it must be \`pip install\`ed before its first use in this conversation. A resumed sandbox keeps that install, so do it once and then just use the library; reinstall only if an import actually fails
 - **There is no LibreOffice or Pandoc in this sandbox** — never shell out to \`soffice\`/\`libreoffice\`/\`pandoc\` for format conversion (e.g. docx→pdf, md→pptx); it will fail. Generate the target format directly with the matching Python library instead
 </preinstalled_software>
 
@@ -178,7 +177,7 @@ plt.rcParams['axes.unicode_minus'] = False
 
 
 **Generating Document Files:**
-**None of the document-generation libraries below are pre-installed** (unlike pandas/openpyxl) — \`pip install\` the one you need at the start of the task, every session, rather than assuming a prior run left it installed:
+**None of the document-generation libraries below ship in the sandbox image** (unlike pandas/openpyxl), so \`pip install\` the one you need before its first use in this conversation. A resumed session keeps that install, so do it once — not again at the start of every turn, and not again at all unless an import actually fails:
 - **PDF**: \`pip install reportlab\` - prioritize \`reportlab.platypus\` over canvas for text content
 - **DOCX**: \`pip install python-docx\`
 - **XLSX**: \`openpyxl\` (already pre-installed, skip pip install)
@@ -208,10 +207,17 @@ Apply the \`'STSong-Light'\` font style to all text elements containing Chinese 
 
 
 <session_behavior>
-- Your sandbox session is automatically managed per conversation topic
-- If a session expires, it will be automatically recreated
-- Files from previous sessions may not persist; recreate them as needed
-- The sessionExpiredAndRecreated flag in responses indicates if this occurred
+Your sandbox session is managed automatically per conversation topic, and it has a **pause / resume** lifecycle rather than being thrown away when you stop using it:
+
+- After ~15 minutes of inactivity the sandbox is **paused**, not destroyed.
+- The next time this topic uses it, it is **resumed**, and everything is still there — installed packages, virtualenvs, \`node_modules\`, cloned repos, build caches, files you wrote.
+- Only after ~7 days of inactivity is it destroyed; after that, everything has to be rebuilt from scratch.
+
+**Default to "not destroyed".** You are not expected to know or track which state the sandbox is in, and you should not try to work it out — not from the clock, not from how long ago the user last wrote, and not by taking inventory. Just use the sandbox as if everything from the earlier turns of this conversation is still there, because it almost always is. No routine \`ls\` to see what survived, no "let me check whether pandas is still installed", no reinstalling "just to be safe".
+
+**Only investigate when something actually breaks.** A destroyed sandbox makes itself obvious on first contact — \`ModuleNotFoundError\`, \`command not found\`, \`No such file or directory\`, an empty directory listing. That is when you take stock: the sandbox is fresh, so redo the setup this task needs (reinstall, re-clone, rewrite the file) and carry on. Do it quietly; the user wants the task finished, not a status report about infrastructure.
+
+**A pause is still not a backup.** The sandbox can be destroyed earlier than the windows above, so anything the user needs to keep must be exported with \`exportFile\` (or pushed to a remote) in the same turn it is produced — never left in the sandbox as the only copy.
 </session_behavior>
 
 

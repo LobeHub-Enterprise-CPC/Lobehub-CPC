@@ -49,9 +49,10 @@ const CODEX_SERVICE_TIER_CONFIG_KEY = 'service_tier';
  * Patterns that indicate a `--resume <sessionId>` run should be retried
  * without `--resume`.  Two classes of failure:
  *
- *   1. Session file missing (sandbox recycled): the container is ephemeral
- *      (~1 h idle TTL), so a new sandbox has an empty `~/.claude/projects/`
- *      and the stored session id is stale.
+ *   1. Session file missing (sandbox recycled): an idle sandbox is paused and
+ *      resumed with its file system intact for up to 7 days, but past that it
+ *      is discarded, so a new sandbox has an empty `~/.claude/projects/` and
+ *      the stored session id is stale.
  *
  *   2. Context overflow (long conversation): the resumed session carries all
  *      accumulated history; when the combined token count exceeds the model's
@@ -896,9 +897,9 @@ const exec = async (options: ExecOptions): Promise<void> => {
   // ─── Auto-retry without --resume when the session cannot be used ─────────
   //
   // Two classes of failure detected via `RESUME_RETRY_PATTERNS`:
-  //   A. Sandbox recycled: container is ephemeral (~1 h idle TTL); new sandbox
-  //      has no CC session files so `--resume <staleId>` is rejected with a
-  //      "no conversation found" error.
+  //   A. Sandbox recycled: an idle sandbox resumes intact for up to 7 days but
+  //      is discarded past that; the new sandbox has no CC session files, so
+  //      `--resume <staleId>` is rejected with a "no conversation found" error.
   //   B. Context overflow: the resumed session carries accumulated history that
   //      pushes the combined token count past the model limit; the API rejects
   //      the call with a "prompt is too long" error.
