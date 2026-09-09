@@ -1,8 +1,7 @@
 import type { LobeChatDatabase } from '@lobechat/database';
 import { and, count, desc, eq, gte, lte } from 'drizzle-orm';
 
-import { commandExecutionLogs } from '@/database/schemas';
-
+import { commandExecutionLogs } from './schema';
 import type {
   CommandExecutionLogItem,
   CommandExecutionTarget,

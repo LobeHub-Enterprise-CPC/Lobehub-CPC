@@ -1,17 +1,53 @@
-import { boolean, index, integer, pgTable, text, uuid } from 'drizzle-orm/pg-core';
-
-import { createdAt, updatedAt } from './_helpers';
-import { users } from './user';
+import {
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 /**
- * Command governance: lets an admin restrict which shell commands a user may
- * run when an agent dispatches a command-execution tool (local desktop,
- * a remote device connected via `lh connect`, or a cloud sandbox).
+ * Database schema for command governance and per-user execution policy.
  *
- * Gated end-to-end by `COMMAND_GOVERNANCE_ENABLED` (see
- * `apps/server/src/services/governance/policyGate.ts`) — when the flag is off,
- * these tables are never read or written by the tool-execution chokepoint.
+ * ## Why this lives here and not in `packages/database/src/schemas`
+ *
+ * These three tables are ours, not upstream's. While they sat in the submodule's
+ * schema barrel they were also in the submodule's drizzle chain, which collided
+ * with canary's migration indices on every merge — `0158`/`0159` had to be
+ * renumbered to `0161`/`0162` once already, snapshots rebuilt by hand each time.
+ *
+ * Ownership now sits with the shell repo's enterprise chain
+ * (`packages/enterprise/src/database/migrations`, bookkeeping in
+ * `__drizzle_enterprise_migrations`), which has its own journal and snapshot
+ * chain and therefore cannot collide with canary's. This file is the single
+ * definition of the tables: the shell's `packages/enterprise/drizzle.config.ts`
+ * lists it alongside its own schemas, so `drizzle-kit generate` picks it up from
+ * here. `packages/database/migrations` is once again byte-identical to canary.
+ *
+ * Two consequences worth knowing before editing:
+ *
+ * 1. **Self-contained on purpose.** No `@/database/schemas/_helpers` import, and
+ *    no path alias of any kind: `drizzle-kit` reads this file from the shell
+ *    root, where the submodule's tsconfig aliases do not resolve. The timestamp
+ *    columns are spelled out below instead.
+ * 2. **No `.references(() => users.id)`.** `users` belongs to the submodule's
+ *    chain; importing it would pull it into the enterprise config's schema graph
+ *    and `drizzle-kit generate` would try to create `users` there too. The three
+ *    foreign keys to `users` still exist in the database — they are written by
+ *    hand in `0008_command_governance.sql`. Keep them in sync if these columns
+ *    change.
  */
+
+const createdAtColumn = () =>
+  timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
+const updatedAtColumn = () =>
+  timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date());
 
 /** How a rule's `pattern` is matched against the command text. */
 export const commandGovernancePatternTypes = ['exact', 'prefix', 'regex'] as const;
@@ -38,9 +74,7 @@ export const commandGovernanceRules = pgTable(
   {
     id: uuid('id').defaultRandom().primaryKey().notNull(),
 
-    userId: text('user_id')
-      .references(() => users.id, { onDelete: 'cascade' })
-      .notNull(),
+    userId: text('user_id').notNull(),
 
     pattern: text('pattern').notNull(),
     patternType: text('pattern_type', { enum: commandGovernancePatternTypes }).notNull(),
@@ -53,8 +87,8 @@ export const commandGovernanceRules = pgTable(
     /** Admin identifier that created the rule (opaque to this table). */
     createdBy: text('created_by'),
 
-    createdAt: createdAt(),
-    updatedAt: updatedAt(),
+    createdAt: createdAtColumn(),
+    updatedAt: updatedAtColumn(),
   },
   (t) => [
     index('command_governance_rules_user_id_idx').on(t.userId),
@@ -98,9 +132,7 @@ export const commandExecutionLogs = pgTable(
   {
     id: uuid('id').defaultRandom().primaryKey().notNull(),
 
-    userId: text('user_id')
-      .references(() => users.id, { onDelete: 'cascade' })
-      .notNull(),
+    userId: text('user_id').notNull(),
 
     executionTarget: text('execution_target', { enum: commandExecutionTargets }).notNull(),
     deviceId: text('device_id'),
@@ -125,7 +157,7 @@ export const commandExecutionLogs = pgTable(
     errorMessage: text('error_message'),
     durationMs: integer('duration_ms'),
 
-    createdAt: createdAt(),
+    createdAt: createdAtColumn(),
   },
   (t) => [
     index('command_execution_logs_user_id_idx').on(t.userId),
@@ -137,3 +169,56 @@ export const commandExecutionLogs = pgTable(
 
 export type CommandExecutionLogItem = typeof commandExecutionLogs.$inferSelect;
 export type NewCommandExecutionLog = typeof commandExecutionLogs.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// User-level execution policy
+//
+// Deliberately separate from the command tables above: those are a command-text
+// blacklist for the cloud sandbox (a one-shot, already-isolated environment
+// where the AIO API accepts no policy parameters), this one is a per-user
+// filesystem/network allowlist for surfaces that share the host.
+// ---------------------------------------------------------------------------
+
+/**
+ * `auto` leaves the existing per-device/per-run negotiation
+ * (`decideSandbox`) in charge; `host`/`sandbox` force every run on this
+ * user's surfaces to skip or use the Local Sandbox respectively. Defaults to
+ * `sandbox` — a policy row existing at all is the admin opting this user into
+ * being fenced, so the default must not let a run quietly skip it.
+ */
+export const userExecutionPolicyCommandModes = ['auto', 'host', 'sandbox'] as const;
+export type UserExecutionPolicyCommandMode = (typeof userExecutionPolicyCommandModes)[number];
+
+export const userExecutionPolicies = pgTable('user_execution_policies', {
+  id: uuid('id').defaultRandom().primaryKey().notNull(),
+
+  userId: text('user_id').notNull().unique(),
+
+  enabled: boolean('enabled').default(true).notNull(),
+
+  // Filesystem — field names mirror `SandboxPolicy` 1:1 so the server can
+  // pass a fetched row straight through without a translation layer.
+  writableRoots: jsonb('writable_roots').$type<string[]>().notNull().default([]),
+  readableRoots: jsonb('readable_roots').$type<string[]>(),
+  deniedWriteRoots: jsonb('denied_write_roots').$type<string[]>(),
+  deniedReadRoots: jsonb('denied_read_roots').$type<string[]>(),
+
+  // Network
+  allowNetwork: boolean('allow_network').default(false).notNull(),
+  allowedNetworkDomains: jsonb('allowed_network_domains').$type<string[]>(),
+
+  // Other
+  envAllowlist: jsonb('env_allowlist').$type<string[]>(),
+  commandMode: text('command_mode', { enum: userExecutionPolicyCommandModes })
+    .notNull()
+    .default('sandbox'),
+
+  /** Admin identifier that created/last edited the policy (opaque to this table). */
+  createdBy: text('created_by'),
+
+  createdAt: createdAtColumn(),
+  updatedAt: updatedAtColumn(),
+});
+
+export type UserExecutionPolicyItem = typeof userExecutionPolicies.$inferSelect;
+export type NewUserExecutionPolicy = typeof userExecutionPolicies.$inferInsert;

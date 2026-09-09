@@ -1127,20 +1127,6 @@
       "when": 1788849739068,
       "tag": "0160_acceptance_check_assets",
       "breakpoints": true
-    },
-    {
-      "idx": 161,
-      "version": "7",
-      "when": 1788240075106,
-      "tag": "0161_short_darkstar",
-      "breakpoints": true
-    },
-    {
-      "idx": 162,
-      "version": "7",
-      "when": 1788429069014,
-      "tag": "0162_path_policy_field_columns",
-      "breakpoints": true
     }
   ],
   "version": "6"
