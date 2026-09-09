@@ -1,5 +1,4 @@
 import { CategoryBar, useThemeColorRange } from '@lobehub/charts';
-import { ModelIcon } from '@lobehub/icons';
 import { Collapse, Flexbox } from '@lobehub/ui';
 import { Avatar, Skeleton, Tag } from '@lobehub/ui/base-ui';
 import { cssVar } from 'antd-style';
@@ -8,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 
 import { ProviderIcon } from '@/components/Branding';
 import InlineTable from '@/components/InlineTable';
+import { ModelIcon } from '@/components/LobeIcons';
 import { type UsageLog, type UsageRecordItem } from '@/types/usage/usageRecord';
 import { formatPrice } from '@/utils/format';
 

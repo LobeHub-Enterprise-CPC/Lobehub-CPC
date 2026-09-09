@@ -15,7 +15,7 @@ export const INBOX: BuiltinAgentDefinition = {
   avatar: DEFAULT_INBOX_AVATAR,
   runtime: (ctx) => ({
     plugins: [AgentDocumentsIdentifier, UserInteractionIdentifier, ...(ctx.plugins || [])],
-    systemRole: createSystemRole(ctx.userLocale),
+    systemRole: createSystemRole(ctx.userLocale, { name: ctx.agentName, title: ctx.agentTitle }),
   }),
 
   slug: BUILTIN_AGENT_SLUGS.inbox,

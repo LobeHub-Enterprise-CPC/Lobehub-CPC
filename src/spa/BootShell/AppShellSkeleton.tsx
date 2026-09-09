@@ -25,20 +25,7 @@ const CSS_VAR_CLASS = 'lobe-vars';
 
 export const APP_SHELL_FALLBACK_ID = 'app-shell-fallback';
 
-/**
- * A boot that hands over inside a second reads as a transition, not a wait, so
- * the shell stays a bare wordmark. Past that the user is waiting on something
- * and deserves to be told so.
- *
- * Measured from the document, not from this component: the static HTML logo is
- * already on screen before any bundle runs, and the shell itself only mounts
- * `BOOT_SHELL_DELAY` after React's first commit. Timing from mount would restart
- * the clock the user has been watching all along, and on the slow boots that
- * need the hint most it would arrive last.
- */
 const HINT_DELAY = 1000;
-
-const sinceDocument = () => performance.now() - (window.__LOBE_BOOT_T_HTML__ ?? 0);
 
 // The X half of the transform is the centering, not the motion — it has to be
 // restated in both frames or the keyframe overwrites it and the caption jumps
@@ -68,13 +55,6 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
 
     color: ${cssVar.colorTextQuaternary};
   `,
-  // A wordmark is text, so it takes the mark's place but not its fade: the
-  // stack renders in `colorTextQuaternary`, and the 0.48 that softened the
-  // mono glyph would leave the product name at ~0.2 alpha — the same trap the
-  // caption below sidesteps by restating its own color.
-  wordmark: css`
-    color: ${cssVar.colorTextTertiary};
-  `,
   // Floated rather than stacked in flow: a caption that joins the column would
   // push the brand mark off the center it shares with the app that replaces it.
   hint: css`
@@ -83,7 +63,6 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
     inset-inline-start: 50%;
 
     font-size: 13px;
-    color: ${cssVar.colorTextTertiary};
     white-space: nowrap;
 
     animation: ${slideUp} 0.42s ${cssVar.motionEaseOut} both;
@@ -121,7 +100,7 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
 const LoadingHint = memo(() => {
   const { t } = useTranslation('common');
 
-  return <div className={styles.hint}>{t('loading')}</div>;
+  return <div className={styles.hint}>{t('stillLoading')}</div>;
 });
 
 LoadingHint.displayName = 'AppShellLoadingHint';
@@ -132,14 +111,12 @@ interface AppShellSkeletonProps {
 
 const AppShellSkeleton = memo<AppShellSkeletonProps>(({ id }) => {
   const { isDark, navPanelBackground, navPanelWidth, showLeftPanel } = readBootShellGeometry();
-  const [waiting, setWaiting] = useState(() => sinceDocument() >= HINT_DELAY);
+  const [waiting, setWaiting] = useState(false);
 
   useEffect(() => {
-    if (waiting) return;
-
-    const timer = setTimeout(() => setWaiting(true), HINT_DELAY - sinceDocument());
+    const timer = setTimeout(() => setWaiting(true), HINT_DELAY);
     return () => clearTimeout(timer);
-  }, [waiting]);
+  }, []);
 
   return (
     <div aria-hidden className={`${CSS_VAR_CLASS} ${styles.root}`} id={id}>
@@ -174,9 +151,10 @@ const AppShellSkeleton = memo<AppShellSkeletonProps>(({ id }) => {
           >
             <div className={styles.contentBrand}>
               <div className={styles.brand}>
-                <div className={styles.wordmark}>
-                  <ProductLogo size={40} type={'text'} />
-                </div>
+                {/* The wordmark has to route through the branding slot: this
+                    is the first thing on screen every boot, so an upstream mark
+                    here undoes the rename everywhere else. */}
+                <ProductLogo size={40} type={'text'} />
                 {waiting && <LoadingHint />}
               </div>
             </div>

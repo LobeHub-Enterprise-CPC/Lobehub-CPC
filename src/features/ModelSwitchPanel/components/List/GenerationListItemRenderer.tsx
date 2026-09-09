@@ -146,7 +146,6 @@ const GenerationListItemRenderer = memo<GenerationListItemRendererProps>(
                 <ModelItemComponent
                   {...item.model}
                   providerId={item.provider.id}
-                  showBadge={false}
                   showPopover={false}
                 />
               </DropdownMenuSubmenuTrigger>
@@ -189,7 +188,6 @@ const GenerationListItemRenderer = memo<GenerationListItemRendererProps>(
                 <ModelItemComponent
                   {...item.data.model}
                   providerId={singleProvider.id}
-                  showBadge={false}
                   showPopover={false}
                 />
               </DropdownMenuSubmenuTrigger>

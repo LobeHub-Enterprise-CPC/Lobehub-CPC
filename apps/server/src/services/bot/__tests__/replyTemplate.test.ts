@@ -10,6 +10,10 @@ import {
   renderErrorWithDetails,
   renderFinalReply,
   renderGroupRejected,
+  renderGuestCopy,
+  renderGuestPairing,
+  renderGuestRejected,
+  renderGuestTruncated,
   renderInlineError,
   renderLLMGenerating,
   renderSenderRejected,
@@ -505,6 +509,19 @@ describe('replyTemplate', () => {
       expect(renderAgentError(undefined, undefined, undefined)).toBe('**Agent Execution Failed**');
     });
 
+    // The raw runtime message must never reach an IM channel — it is
+    // server-side triage material only (b4aa51baa, #13998). Classification is
+    // what earns the user a reason; the message itself stays out of every tier.
+    it('never leaks the raw error message, on any tier', () => {
+      const secret = 'connect ECONNREFUSED 10.0.0.7:5432';
+
+      expect(renderAgentError('NoAvailableProvider', secret, 'op-1')).not.toContain(secret);
+      expect(
+        renderAgentError('SomeNewErrorCode', secret, 'op-1', undefined, 'harness'),
+      ).not.toContain(secret);
+      expect(renderAgentError('SomeNewErrorCode', secret, 'op-1')).not.toContain(secret);
+    });
+
     it('surfaces a network message for ProviderNetworkError instead of a bare op id', () => {
       const en = renderAgentError('ProviderNetworkError', 'fetch failed', 'op-net');
       expect(en).toContain('Network error talking to the model provider');
@@ -642,6 +659,21 @@ describe('replyTemplate', () => {
     });
   });
 
+  describe('Guest Policy replies', () => {
+    it('renders Guest-specific rejection copy in English and Chinese', () => {
+      expect(renderGuestRejected('disabled')).toContain('Guest Mode is disabled');
+      expect(renderGuestRejected('allowlist')).toContain("aren't authorized to use this bot");
+      expect(renderGuestRejected('disabled', 'zh-CN')).toContain('已禁用访客模式');
+    });
+
+    it('renders Guest pairing codes and operational failures', () => {
+      expect(renderGuestPairing('code', 'en-US', { code: 'PAIR123' })).toContain('PAIR123');
+      expect(renderGuestPairing('code', 'en-US', { code: 'PAIR123' })).toContain('Guest Mode');
+      expect(renderGuestPairing('capacity-exceeded')).toContain('too many Guest Mode');
+      expect(renderGuestPairing('unavailable', 'zh-CN')).toContain('暂时不可用');
+    });
+  });
+
   // ==================== renderSenderRejected ====================
 
   describe('renderSenderRejected', () => {
@@ -715,6 +747,33 @@ describe('replyTemplate', () => {
       expect(renderCommandReply('cmdStopNotActive', 'zh-CN')).toContain('没有正在执行');
       expect(renderCommandReply('cmdStopRequested', 'zh-CN')).toBe('已发出停止请求。');
       expect(renderCommandReply('cmdStopUnable', 'zh-CN')).toContain('无法停止');
+    });
+  });
+
+  // ==================== renderGuestCopy ====================
+
+  describe('renderGuestCopy', () => {
+    it('returns the English Guest Mode copy by default', () => {
+      expect(renderGuestCopy('guestMediaUnavailable')).toBe(
+        'This attachment can’t be delivered in Telegram Guest Mode.',
+      );
+      expect(renderGuestTruncated(4096)).toContain('4096');
+      expect(renderGuestTruncated(1024)).toContain('1024');
+      expect(renderGuestCopy('guestLinkPromptDm')).toContain('send /start');
+    });
+
+    it('returns the Chinese Guest Mode copy when locale is zh-CN', () => {
+      expect(renderGuestCopy('guestMediaUnavailable', 'zh-CN')).toBe(
+        '该附件无法通过 Telegram 访客模式送达。',
+      );
+      expect(renderGuestTruncated(4096, 'zh-CN')).toContain('4096');
+      expect(renderGuestTruncated(1024, 'zh-CN')).toContain('1024');
+      expect(renderGuestCopy('guestLinkPromptDm', 'zh-CN')).toContain('/start');
+      expect(renderGuestCopy('guestLinkButton', 'zh-CN')).toBe('打开机器人');
+    });
+
+    it('falls back to English for locales without a Guest Mode dictionary', () => {
+      expect(renderGuestCopy('guestLinkButton', 'fr-FR')).toBe('Open Bot');
     });
   });
 

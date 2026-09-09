@@ -1,5 +1,6 @@
 import { BRANDING_PROVIDER } from '@lobechat/business-const';
 import { isLobeHubModelAvailable } from '@lobechat/business-model-bank/model-config';
+import { REQUEST_TOPIC_ID_HEADER } from '@lobechat/const';
 import { type ChatCompletionErrorPayload } from '@lobechat/model-runtime';
 import { AGENT_RUNTIME_ERROR_SET } from '@lobechat/model-runtime';
 import { ChatErrorType, RequestTrigger } from '@lobechat/types';
@@ -59,10 +60,12 @@ export const POST = checkAuth(async (req: Request, { params, userId, serverDB })
       ...traceOptions,
       // Route-attempt context for business runtimes (router metrics, spend
       // accounting) — mirrors the cloud chat route's metadata contract.
+      // topicId comes from the request header, which is set on every chat
+      // request; `tracePayload` only carries one when tracing is enabled.
       metadata: {
         provider,
         sessionId: tracePayload?.sessionId,
-        topicId: tracePayload?.topicId,
+        topicId: req.headers.get(REQUEST_TOPIC_ID_HEADER) ?? tracePayload?.topicId,
         trigger: RequestTrigger.Chat,
       },
       signal: req.signal,

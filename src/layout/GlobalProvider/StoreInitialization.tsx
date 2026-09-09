@@ -19,6 +19,14 @@ import { useUserStateRedirect } from './useUserStateRedirect';
 
 const DeferredStoreInitialization = lazy(() => import('./DeferredStoreInitialization'));
 
+/** Subscribe only after the durable cache is hydrated by CacheHydrationGate. */
+export const BuiltinAgentInitialization = () => {
+  const isLogin = useUserStore(authSelectors.isLogin);
+  const useInitBuiltinAgent = useAgentStore((s) => s.useInitBuiltinAgent);
+  useInitBuiltinAgent(INBOX_SESSION_ID, { isLogin: Boolean(isLogin) });
+  return null;
+};
+
 const StoreInitialization = memo(() => {
   // prefetch error ns to avoid don't show error content correctly
   useTranslation('error');
@@ -34,8 +42,6 @@ const StoreInitialization = memo(() => {
     s.useInitSystemStatus,
     s.useCheckServerVersion,
   ]);
-
-  const useInitBuiltinAgent = useAgentStore((s) => s.useInitBuiltinAgent);
 
   // init the system preference
   useInitSystemStatus();
@@ -70,9 +76,6 @@ const StoreInitialization = memo(() => {
    * which would cause unnecessary API requests with invalid login state.
    */
   const isLoginOnInit = Boolean(isLogin);
-
-  // init inbox agent via builtin agent mechanism
-  useInitBuiltinAgent(INBOX_SESSION_ID, { isLogin: isLoginOnInit });
 
   const onUserStateSuccess = useUserStateRedirect();
 
