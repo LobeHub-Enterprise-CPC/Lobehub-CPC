@@ -1,4 +1,3 @@
-import { ModelIcon } from '@lobehub/icons';
 import { Flexbox } from '@lobehub/ui';
 import { ActionIcon, Avatar } from '@lobehub/ui/base-ui';
 import { cssVar } from 'antd-style';
@@ -8,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 
 import { ProviderIcon } from '@/components/Branding';
 import ImperativeModal from '@/components/ImperativeModal';
+import { ModelIcon } from '@/components/LobeIcons';
 import StatisticCard from '@/components/StatisticCard';
 import TitleWithPercentage from '@/components/StatisticCard/TitleWithPercentage';
 import { type UsageLog } from '@/types/usage/usageRecord';

@@ -24,6 +24,10 @@ const Ollama = dynamic(() => import('./ollama'), {
   loading: () => <SurfaceSkeleton header={false} variant={'form'} />,
   ssr: false,
 });
+const Unsloth = dynamic(() => import('./unsloth'), {
+  loading: () => <SurfaceSkeleton header={false} variant={'form'} />,
+  ssr: false,
+});
 const ComfyUI = dynamic(() => import('./comfyui'), {
   loading: () => <SurfaceSkeleton header={false} variant={'form'} />,
   ssr: false,
@@ -100,6 +104,9 @@ const ProviderDetailPage = (props: ProviderDetailPageProps) => {
     }
     case 'vertexai': {
       return <VertexAI />;
+    }
+    case 'unsloth': {
+      return <Unsloth />;
     }
     default: {
       return <DefaultPage id={id} />;

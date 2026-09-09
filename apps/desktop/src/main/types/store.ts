@@ -1,4 +1,5 @@
 import type {
+  CompletionSoundSettings,
   DataSyncConfig,
   ImessageBridgeConfig,
   NetworkProxySettings,
@@ -15,6 +16,10 @@ export type ExecutionCommandMode = 'auto' | 'host' | 'sandbox';
 
 export interface ElectronMainStore {
   appTrayVisible: boolean;
+  completionSound?: Partial<Omit<CompletionSoundSettings, 'systemSoundDisabled'>> & {
+    directory?: string;
+    files?: { file: string; mime: string }[];
+  };
   dataSyncConfig: DataSyncConfig;
   /**
    * Explicit completion state for the multi-step desktop onboarding flow.

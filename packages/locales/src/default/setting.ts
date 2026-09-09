@@ -1,4 +1,30 @@
 export default {
+  'completionSound.title': 'In-app completion sound',
+  'completionSound.enabled': 'Play completion sound',
+  'completionSound.desc':
+    'Play a chime when a chat finishes while LobeHub is in the foreground. The sound, volume and imports stay on this device and are not synced.',
+  'completionSound.sound': 'Sound',
+  'completionSound.default': 'LobeHub chime',
+  'completionSound.import': 'Import sound',
+  'completionSound.importHint':
+    'Choose WAV, MP3 or OGG (up to 1 MB), or openpeon.json from an extracted OpenPeon pack. Only task completion sounds are imported.',
+  'completionSound.preview': 'Preview',
+  'completionSound.reset': 'Use default',
+  'completionSound.volume': 'Volume',
+  'completionSound.error':
+    'Could not load, save or play the sound. Check the audio file or OpenPeon pack and try again.',
+  'completionSound.retry': 'Reload settings',
+  'completionSound.banner.title': 'Background notification',
+  'completionSound.banner.label': 'Notification sound',
+  'completionSound.banner.desc':
+    'Sound the notification banner carries when a chat finishes while LobeHub is in the background. macOS Focus and per-app notification settings still apply.',
+  'completionSound.banner.system': 'System default',
+  'completionSound.banner.lobehub': 'LobeHub chime',
+  'completionSound.banner.previewTitle': 'Notification preview',
+  'completionSound.banner.previewBody': 'This is how a finished chat will sound in the background.',
+  'completionSound.banner.systemMuted':
+    'macOS has notification sounds turned off for LobeHub, so background notifications stay silent. Turn them back on in System Settings › Notifications › LobeHub.',
+
   '_cloud.officialProvider': '{{name}} Official Model Service',
   'about.title': 'About',
   'agentImport.action': 'Copy to Workspace...',
@@ -401,9 +427,6 @@ export default {
   // Heterogeneous agent CLI status (shown on agent profile page in integration mode)
   'heterogeneousStatus.account.label': 'Account',
   'heterogeneousStatus.apiMode.configureProvider': 'Go to provider settings',
-  'heterogeneousStatus.apiMode.enableInLabs': 'Enable in Labs',
-  'heterogeneousStatus.apiMode.labDisabled':
-    'API mode is a Labs experiment. Enable it to use the LobeHub default provider or a configured API provider instead of the agent subscription.',
   'heterogeneousStatus.apiMode.localOnly': 'Available only for Desktop local execution',
   'heterogeneousStatus.apiMode.defaultProvider': 'LobeHub',
   'heterogeneousStatus.apiMode.model': 'Model',
@@ -701,6 +724,7 @@ export default {
   'group.aiConfig': 'Agent',
   'group.common': 'General',
   'group.developer': 'Developer',
+  'group.personal': 'Personal',
   'group.profile': 'Account',
   'group.subscription': 'Plans',
   'group.system': 'System',
@@ -1005,7 +1029,9 @@ export default {
   'settingAgent.modelPolicy.fixedTip':
     'The model is fixed in Agent Profile and cannot be switched while chatting.',
   'settingAgent.modelPolicy.title': 'Model',
-  'settingAgent.runtimeConfig.title': 'Model & Tools',
+  'settingAgent.runtimeConfig.reasoningEffortHint':
+    'Your default reasoning effort for this model. Shared by every agent using it; each topic keeps the effort it started with and can change it from the chat input.',
+  'settingAgent.runtimeConfig.title': 'Model & Reasoning Effort',
   'settingAgent.selectionPolicy.membersCannotSwitch': 'Locked',
   'settingAgent.selectionPolicy.membersCannotSwitchWhenShared': 'Locked when shared',
   'settingAgent.selectionPolicy.membersCanSwitch': 'Can switch',
@@ -3283,7 +3309,7 @@ When I am ___, I need ___
   'workspaceSetting.devices.unknownEnroller': 'an unknown member',
   'workspaceSetting.group.admin': 'Admin',
   'workspaceSetting.group.agent': 'Agent',
-  'workspaceSetting.group.general': 'General',
+  'workspaceSetting.group.workspace': 'Workspace',
   'workspaceSetting.labels.actions.archive': 'Archive',
   'workspaceSetting.labels.actions.create': 'New label',
   'workspaceSetting.labels.actions.unarchive': 'Restore',
@@ -3327,12 +3353,6 @@ When I am ___, I need ___
   'workspaceSetting.tab.labels': 'Labels',
   'workspaceSetting.tab.members': 'Members',
   'workspaceSetting.storage.comingSoon': 'Workspace-scoped data import & export is coming soon.',
-  'workspaceSetting.storage.danger.reset.confirm.content':
-    'Every workspace setting goes back to its default, for everyone in the workspace. Agents, conversations, and files are not touched.',
-  'workspaceSetting.storage.danger.reset.confirm.ok': 'Reset Settings',
-  'workspaceSetting.storage.danger.reset.desc':
-    'Restore all workspace settings to defaults. Workspace data will not be deleted.',
-  'workspaceSetting.storage.danger.reset.title': 'Reset Workspace Settings',
   'workspaceSetting.storage.telemetry.desc':
     'Help us improve {{appName}} with anonymous workspace usage data',
   'workspaceSetting.storage.telemetry.title': 'Send Anonymous Workspace Usage Data',
@@ -3451,6 +3471,9 @@ When I am ___, I need ___
   'tools.builtins.find-skills.description':
     'Helps users discover and install agent skills when they ask "how do I do X", "find a skill for X", or want to extend capabilities',
   'tools.builtins.find-skills.title': 'Find Skills',
+  'tools.builtins.lobe-computer-use.title': 'Computer Use',
+  'tools.builtins.lobe-computer-use.description':
+    'Use desktop applications, interact with controls, and capture the screen.',
   'tools.builtins.lobe-agent-browser.description':
     'Browser automation CLI for AI agents. Use when tasks involve website or Electron interaction such as navigation, form filling, clicking, screenshot capture, scraping data, login flows, and end-to-end app testing.',
   'tools.builtins.lobe-agent-browser.title': 'Agent Browser',
