@@ -1,7 +1,7 @@
+import { buildTenantPath, parseTenantPath, stripTenantPath } from '@lobechat/const/tenantPath';
 import { describe, expect, it } from 'vitest';
 
 import { isRegistrableSlug, isReservedSlug, RESERVED_SLUGS } from '../reservedSlugs';
-import { buildTenantPath, parseTenantPath, stripTenantPath } from '../tenantPath';
 
 describe('parseTenantPath', () => {
   it('splits a tenant-prefixed path', () => {

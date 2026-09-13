@@ -1,6 +1,6 @@
-import { WORKSPACE_MIRRORED_FIRST_SEGMENTS } from '@/features/Workspace/workspaceAwarePath';
+import { isWellFormedTenantSlug, TENANT_PREFIX } from '@lobechat/const/tenantPath';
 
-import { isWellFormedTenantSlug, TENANT_PREFIX } from './tenantPath';
+import { WORKSPACE_MIRRORED_FIRST_SEGMENTS } from '@/features/Workspace/workspaceAwarePath';
 
 /**
  * Segments that can never be registered as a tenant slug or a workspace slug.

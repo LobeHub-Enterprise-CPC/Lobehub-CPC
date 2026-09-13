@@ -1,4 +1,4 @@
-import { parseTenantPath, TENANT_PREFIX } from '@/features/Tenant/tenantPath';
+import { parseTenantPath, TENANT_PREFIX } from '@lobechat/const/tenantPath';
 
 export const DEBUG_PROXY_BASE = '/_dangerous_local_dev_proxy';
 
