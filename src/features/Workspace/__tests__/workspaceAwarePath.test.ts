@@ -143,3 +143,56 @@ describe('buildWorkspaceAwarePath', () => {
     expect(buildWorkspaceAwarePath('/settings?foo=bar', 'acme')).toBe('/acme/settings?foo=bar');
   });
 });
+
+describe('buildWorkspaceAwarePath under a tenant prefix', () => {
+  // The failure this suite exists for is SILENT. The main-area route tree has a
+  // `:workspaceSlug` segment, so an unhandled `/t/...` url does not throw — it
+  // resolves with `workspaceSlug = 't'` and renders a 404 or the wrong page.
+  // `spa/BootShell/routeScope.ts` records the same bug shape for the dev-proxy
+  // prefix being eaten as a slug.
+
+  it('applies the workspace prefix INSIDE the tenant prefix', () => {
+    expect(buildWorkspaceAwarePath('/t/acme/agent', 'ws')).toBe('/t/acme/ws/agent');
+    expect(buildWorkspaceAwarePath('/t/acme/settings/general', 'ws')).toBe(
+      '/t/acme/ws/settings/general',
+    );
+  });
+
+  it('never yields a path whose first segment is the workspace slug', () => {
+    // i.e. never `/ws/t/acme/...` — the tenant must stay outermost, or the
+    // tenant segment lands inside the workspace subtree and stops being parsed.
+    const out = buildWorkspaceAwarePath('/t/acme/agent', 'ws');
+    expect(out.startsWith('/t/')).toBe(true);
+    expect(out.startsWith('/ws/')).toBe(false);
+  });
+
+  it('still recognises personal-only paths through the tenant prefix', () => {
+    // Before the fix these read `t` as the first segment, matched no allowlist,
+    // and silently skipped the workspace prefix for every path alike — making
+    // the personal/workspace distinction disappear rather than be respected.
+    expect(buildWorkspaceAwarePath('/t/acme/apps', 'ws')).toBe('/t/acme/apps');
+    expect(buildWorkspaceAwarePath('/t/acme/me', 'ws')).toBe('/t/acme/me');
+    expect(buildWorkspaceAwarePath('/t/acme/settings/llm', 'ws')).toBe('/t/acme/settings/llm');
+  });
+
+  it('still skips non-mirrored first segments through the tenant prefix', () => {
+    expect(buildWorkspaceAwarePath('/t/acme/downloads', 'ws')).toBe('/t/acme/downloads');
+  });
+
+  it('does not double-apply when the workspace prefix is already there', () => {
+    expect(buildWorkspaceAwarePath('/t/acme/ws/agent', 'ws')).toBe('/t/acme/ws/agent');
+  });
+
+  it('behaves exactly as before when there is no tenant prefix', () => {
+    expect(buildWorkspaceAwarePath('/agent', 'ws')).toBe('/ws/agent');
+    expect(buildWorkspaceAwarePath('/apps', 'ws')).toBe('/apps');
+  });
+
+  it('treats the tenant root exactly as it treats the unprefixed root', () => {
+    // `/` already maps to `/ws/` (trailing slash and all) — the tenant-prefixed
+    // root must inherit that, not invent its own rule. Asserted as an invariant
+    // against the unprefixed case so the two cannot drift.
+    const unprefixed = buildWorkspaceAwarePath('/', 'ws');
+    expect(buildWorkspaceAwarePath('/t/acme', 'ws')).toBe(`/t/acme${unprefixed}`);
+  });
+});
