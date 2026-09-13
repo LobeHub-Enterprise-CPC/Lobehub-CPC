@@ -1,7 +1,7 @@
 import type { FlowControl } from '@upstash/qstash';
 import debug from 'debug';
 
-import { appEnv } from '@/envs/app';
+import { getInternalApiUrl } from '@/envs/appUrl';
 import { injectActiveTraceHeaders } from '@/libs/observability/traceparent';
 import { qstashClient, workflowClient } from '@/libs/qstash';
 
@@ -97,7 +97,7 @@ export interface ExecuteNightlyReviewUserPayload {
 }
 
 const getWorkflowUrl = (path: string): string => {
-  const baseUrl = appEnv.INTERNAL_APP_URL || appEnv.APP_URL;
+  const baseUrl = getInternalApiUrl();
 
   if (!baseUrl) {
     throw new Error('INTERNAL_APP_URL or APP_URL is required to trigger nightly review workflows');

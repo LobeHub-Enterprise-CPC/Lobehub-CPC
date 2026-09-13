@@ -73,6 +73,20 @@ export const config = {
     '/oauth(.*)',
     '/oidc(.*)',
     '/market-auth-callback(.*)',
+
+    // Tenant-scoped mirrors of every client route above: `/t/{slug}/...`.
+    //
+    // One entry covers the whole subtree because the tenant prefix is handled as
+    // a router BASENAME (src/spa/appBasename.ts), not as a route segment — the
+    // SPA strips `/t/{slug}` before matching, so the paths underneath are the
+    // same ones already listed. Without this entry the middleware never runs for
+    // a tenant url, the rewrite to `/spa/<variant>/...` never happens, and App
+    // Router 404s on a path it has no page for.
+    //
+    // `/api`, `/trpc` and `/webapi` stay deliberately unmatched here for the
+    // same reason as above, and each resolves the tenant segment itself.
+    '/t/:slug',
+    '/t/:slug/(.*)',
   ],
 };
 

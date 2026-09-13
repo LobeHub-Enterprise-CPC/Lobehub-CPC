@@ -7,6 +7,7 @@ import NextThemeProvider from '@/layout/GlobalProvider/NextThemeProvider';
 import { bootTiming } from '@/libs/bootTiming';
 import { createAppRouter } from '@/utils/router';
 
+import { resolveAppBasename } from './appBasename';
 import BootShell from './BootShell';
 import { isMainLayoutLocation } from './BootShell/routeScope';
 import { startAppInitialization } from './initialize/bootstrap';
@@ -16,11 +17,12 @@ import { createSPARoot } from './runtime';
 bootTiming.mark('bundle-eval');
 startAppInitialization();
 
-const debugProxyBase = '/_dangerous_local_dev_proxy';
-const basename =
-  window.__DEBUG_PROXY__ || window.location.pathname.startsWith(debugProxyBase)
-    ? debugProxyBase
-    : undefined;
+// The tenant prefix rides the same mechanism as the debug proxy — see
+// `appBasename.ts` for why a basename rather than a route segment.
+const { basename } = resolveAppBasename({
+  debugProxy: window.__DEBUG_PROXY__,
+  pathname: window.location.pathname,
+});
 
 const router = createAppRouter(desktopRoutes, { basename });
 

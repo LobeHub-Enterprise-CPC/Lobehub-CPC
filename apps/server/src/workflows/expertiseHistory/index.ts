@@ -1,6 +1,7 @@
 import debug from 'debug';
 
 import { appEnv } from '@/envs/app';
+import { getInternalApiUrl } from '@/envs/appUrl';
 
 import { runExpertiseHistoryWorkflow } from './run';
 import type {
@@ -40,7 +41,7 @@ export class ExpertiseHistoryWorkflow {
       return { workflowRunId: `local-${runId}` };
     }
 
-    const baseUrl = appEnv.INTERNAL_APP_URL || appEnv.APP_URL;
+    const baseUrl = getInternalApiUrl();
     if (!baseUrl) throw new Error('INTERNAL_APP_URL or APP_URL is required');
     const { workflowClient } = await import('@/libs/qstash');
     return workflowClient.trigger({
@@ -54,7 +55,7 @@ export class ExpertiseHistoryWorkflow {
   }
 
   static async triggerTopic(payload: ExpertiseHistoryTopicWorkflowPayload) {
-    const baseUrl = appEnv.INTERNAL_APP_URL || appEnv.APP_URL;
+    const baseUrl = getInternalApiUrl();
     if (!baseUrl) throw new Error('INTERNAL_APP_URL or APP_URL is required');
     const { workflowClient } = await import('@/libs/qstash');
     return workflowClient.trigger({

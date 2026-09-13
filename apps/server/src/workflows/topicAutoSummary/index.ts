@@ -1,7 +1,7 @@
 import type { FlowControl } from '@upstash/qstash';
 import type { Client } from '@upstash/workflow';
 
-import { appEnv } from '@/envs/app';
+import { getInternalApiUrl } from '@/envs/appUrl';
 import { OtelWorkflowClient } from '@/libs/qstash';
 
 import type { DispatchTopicAutoSummaryPayload, ExecuteTopicAutoSummaryPayload } from './types';
@@ -18,7 +18,7 @@ const getClient = (): Client => {
 };
 
 const getUrl = (path: string) => {
-  const baseUrl = appEnv.INTERNAL_APP_URL || appEnv.APP_URL;
+  const baseUrl = getInternalApiUrl();
   if (!baseUrl) throw new Error('APP_URL is required to trigger topic auto-summary workflows');
   return new URL(path, baseUrl).toString();
 };

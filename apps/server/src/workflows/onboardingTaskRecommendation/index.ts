@@ -1,4 +1,4 @@
-import { appEnv } from '@/envs/app';
+import { getInternalApiUrl } from '@/envs/appUrl';
 import { injectActiveTraceHeaders } from '@/libs/observability/traceparent';
 import { workflowClient } from '@/libs/qstash';
 
@@ -57,7 +57,7 @@ export class OnboardingTaskRecommendationWorkflow {
     input: ProcessOnboardingTaskRecommendationPayload,
     options: TriggerOptions = {},
   ) {
-    const baseUrl = appEnv.INTERNAL_APP_URL || appEnv.APP_URL;
+    const baseUrl = getInternalApiUrl();
     if (!process.env.QSTASH_TOKEN || !baseUrl) {
       throw new Error('Onboarding task recommendation workflow is unavailable');
     }

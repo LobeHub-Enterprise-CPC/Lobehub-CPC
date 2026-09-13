@@ -1,4 +1,4 @@
-import { appEnv } from '@/envs/app';
+import { getInternalApiUrl } from '@/envs/appUrl';
 import { injectActiveTraceHeaders } from '@/libs/observability/traceparent';
 import { workflowClient } from '@/libs/qstash';
 
@@ -30,7 +30,7 @@ export class UnderstandingWorkflowUnavailableError extends Error {
 
 export class OnboardingUnderstandingWorkflow {
   static assertAvailable() {
-    const baseUrl = appEnv.INTERNAL_APP_URL || appEnv.APP_URL;
+    const baseUrl = getInternalApiUrl();
     if (!process.env.QSTASH_TOKEN || !baseUrl) {
       throw new UnderstandingWorkflowUnavailableError();
     }
