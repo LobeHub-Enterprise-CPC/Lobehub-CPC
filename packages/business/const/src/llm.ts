@@ -5,6 +5,13 @@ export const DEFAULT_PROVIDER = 'deepseek';
 export const DEFAULT_MINI_MODEL = 'gpt-5.6-luna';
 export const DEFAULT_MINI_PROVIDER = 'openai';
 
+/**
+ * Last-resort model for sub-agents spawned via `lobe-agent.callSubAgent` (see
+ * resolveSubAgentModel in @lobechat/const). Paired with DEFAULT_PROVIDER, so it
+ * has to be a model that provider serves.
+ */
+export const DEFAULT_SUB_AGENT_MODEL = 'deepseek-v4-flash';
+
 export const DEFAULT_ONBOARDING_MODEL = 'gemini-3-flash-preview';
 export const DEFAULT_ONBOARDING_PROVIDER = 'google';
 

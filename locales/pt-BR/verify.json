@@ -407,7 +407,7 @@
   "acceptance.workspace.merge.title": "Mesclar aceitação",
   "acceptance.workspace.merge.windowHint": "Apenas as {{count}} aceitações mais recentes estão listadas aqui.",
   "acceptance.workspace.onboarding.agent.description": "Copie este prompt para o seu agente de codificação e deixe-o concluir a configuração.",
-  "acceptance.workspace.onboarding.agent.prompt": "Leia https://lobehub.com/acceptance/skill.md e siga as instruções para instalar o Acceptance.",
+  "acceptance.workspace.onboarding.agent.prompt": "Leia {{url}}/acceptance/skill.md e siga as instruções para instalar o Acceptance.",
   "acceptance.workspace.onboarding.agent.title": "Instalar com um Agente",
   "acceptance.workspace.onboarding.description": "Adicione a habilidade Acceptance ao seu projeto e, em seguida, inicie uma revisão a partir do seu agente de codificação.",
   "acceptance.workspace.onboarding.enable.description": "Execute isso a partir da raiz do seu projeto.",

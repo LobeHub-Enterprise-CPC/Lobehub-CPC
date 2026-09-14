@@ -407,7 +407,7 @@
   "acceptance.workspace.merge.title": "Akzeptanz zusammenführen",
   "acceptance.workspace.merge.windowHint": "Nur die {{count}} zuletzt bearbeiteten Akzeptanzen werden hier angezeigt.",
   "acceptance.workspace.onboarding.agent.description": "Kopieren Sie diese Eingabeaufforderung in Ihren Coding-Agenten und lassen Sie ihn die Einrichtung abschließen.",
-  "acceptance.workspace.onboarding.agent.prompt": "Lesen Sie https://lobehub.com/acceptance/skill.md und folgen Sie den Anweisungen, um Acceptance zu installieren.",
+  "acceptance.workspace.onboarding.agent.prompt": "Lesen Sie {{url}}/acceptance/skill.md und folgen Sie den Anweisungen, um Acceptance zu installieren.",
   "acceptance.workspace.onboarding.agent.title": "Mit einem Agenten installieren",
   "acceptance.workspace.onboarding.description": "Fügen Sie die Acceptance-Funktion zu Ihrem Projekt hinzu und starten Sie dann eine Überprüfung mit Ihrem Coding-Agenten.",
   "acceptance.workspace.onboarding.enable.description": "Führen Sie dies aus dem Stammverzeichnis Ihres Projekts aus.",

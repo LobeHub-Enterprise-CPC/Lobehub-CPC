@@ -407,7 +407,7 @@
   "acceptance.workspace.merge.title": "合併驗收",
   "acceptance.workspace.merge.windowHint": "此處僅列出最近的 {{count}} 個驗收。",
   "acceptance.workspace.onboarding.agent.description": "將此提示複製到您的程式代理，讓它完成設置。",
-  "acceptance.workspace.onboarding.agent.prompt": "閱讀 https://lobehub.com/acceptance/skill.md 並按照指示安裝 Acceptance。",
+  "acceptance.workspace.onboarding.agent.prompt": "閱讀 {{url}}/acceptance/skill.md 並按照指示安裝 Acceptance。",
   "acceptance.workspace.onboarding.agent.title": "使用代理安裝",
   "acceptance.workspace.onboarding.description": "將 Acceptance 技能添加到您的專案中，然後從您的程式代理開始審查。",
   "acceptance.workspace.onboarding.enable.description": "從您的專案根目錄執行此操作。",

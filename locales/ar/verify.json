@@ -407,7 +407,7 @@
   "acceptance.workspace.merge.title": "دمج القبول",
   "acceptance.workspace.merge.windowHint": "فقط أحدث {{count}} من القبولات مدرجة هنا.",
   "acceptance.workspace.onboarding.agent.description": "انسخ هذا الموجه إلى وكيل البرمجة الخاص بك ودعه يكمل الإعداد.",
-  "acceptance.workspace.onboarding.agent.prompt": "اقرأ https://lobehub.com/acceptance/skill.md واتبع التعليمات لتثبيت Acceptance.",
+  "acceptance.workspace.onboarding.agent.prompt": "اقرأ {{url}}/acceptance/skill.md واتبع التعليمات لتثبيت Acceptance.",
   "acceptance.workspace.onboarding.agent.title": "التثبيت باستخدام وكيل",
   "acceptance.workspace.onboarding.description": "أضف مهارة Acceptance إلى مشروعك، ثم ابدأ مراجعة من وكيل البرمجة الخاص بك.",
   "acceptance.workspace.onboarding.enable.description": "قم بتشغيل هذا من جذر مشروعك.",

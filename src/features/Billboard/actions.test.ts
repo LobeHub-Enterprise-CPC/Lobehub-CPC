@@ -202,7 +202,7 @@ describe('runBillboardAction', () => {
       await desktopActions.runBillboardAction('resetOnboarding');
 
       expect(resetOnboarding).toHaveBeenCalledTimes(1);
-      expect(openExternalLink).toHaveBeenCalledWith('https://app.lobehub.com/onboarding');
+      expect(openExternalLink).toHaveBeenCalledWith(`${OFFICIAL_URL}/onboarding`);
     } finally {
       restoreDesktopMock();
     }

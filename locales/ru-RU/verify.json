@@ -407,7 +407,7 @@
   "acceptance.workspace.merge.title": "Объединить принятие",
   "acceptance.workspace.merge.windowHint": "Здесь перечислены только {{count}} самых последних принятий.",
   "acceptance.workspace.onboarding.agent.description": "Скопируйте этот запрос в вашего кодового агента и позвольте ему завершить настройку.",
-  "acceptance.workspace.onboarding.agent.prompt": "Прочитайте https://lobehub.com/acceptance/skill.md и следуйте инструкциям для установки Acceptance.",
+  "acceptance.workspace.onboarding.agent.prompt": "Прочитайте {{url}}/acceptance/skill.md и следуйте инструкциям для установки Acceptance.",
   "acceptance.workspace.onboarding.agent.title": "Установить с помощью агента",
   "acceptance.workspace.onboarding.description": "Добавьте навык Acceptance в ваш проект, затем начните обзор с вашего кодового агента.",
   "acceptance.workspace.onboarding.enable.description": "Запустите это из корневой директории вашего проекта.",
