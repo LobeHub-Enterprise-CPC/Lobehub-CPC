@@ -1,30 +1,21 @@
 import type { AgentRuntimeContext } from '@lobechat/agent-runtime';
 import { extractActivatedToolIdsFromMessages } from '@lobechat/agent-runtime';
-import { builtinSkills } from '@lobechat/builtin-skills';
 import { getShellSyntaxGuidance } from '@lobechat/builtin-tool-local-system';
 import { builtinTools } from '@lobechat/builtin-tools';
-import type { AgentManagementContext } from '@lobechat/context-engine';
-import { buildExpertiseContextSnapshot, SkillEngine } from '@lobechat/context-engine';
+import type { AgentManagementContext, SkillEngine } from '@lobechat/context-engine';
+import { buildExpertiseContextSnapshot } from '@lobechat/context-engine';
 import type { LobeChatDatabase } from '@lobechat/database';
-import { buildTaskManagerDefaultsPrompt, resourcesTreePrompt } from '@lobechat/prompts';
+import { buildTaskManagerDefaultsPrompt } from '@lobechat/prompts';
 import type { LobeAgentAgencyConfig, WorkingDirConfig, WorkspaceInitResult } from '@lobechat/types';
-import {
-  buildGoalOverviewContext,
-  getActivePluginIds,
-  getWorkingDirEffectivePath,
-} from '@lobechat/types';
+import { buildGoalOverviewContext, getWorkingDirEffectivePath } from '@lobechat/types';
 import debug from 'debug';
 
 import type { AgentModel } from '@/database/models/agent';
-import { AgentSkillModel } from '@/database/models/agentSkill';
 import { DeviceModel } from '@/database/models/device';
 import { ExpertiseModel } from '@/database/models/expertise';
 import { GoalGraphModel } from '@/database/models/goalGraph';
 import type { MessageModel } from '@/database/models/message';
 import type { TopicModel } from '@/database/models/topic';
-import { UserPersonaModel } from '@/database/models/userMemory/persona';
-import { isDeviceCapablePlan } from '@/helpers/executionTarget';
-import { shouldEnableBuiltinSkill } from '@/helpers/skillFilters';
 import type { ServerUserMemoryConfig } from '@/server/modules/Mecha/ContextEngineering/types';
 import type { AgentDocumentsService } from '@/server/services/agentDocuments';
 import {
@@ -36,9 +27,11 @@ import { FileService } from '@/server/services/file';
 
 import { pruneRegeneratedBranch } from '../pruneRegeneratedBranch';
 import { resolveDeviceWorkingDirectoryConfig } from '../resolveDeviceWorkingDirectory';
-import { applyShareGateToToolSet, filterPluginsByShareGate } from '../shareGate';
+import { applyShareGateToToolSet } from '../shareGate';
 import type { ExecRunContext, InternalExecAgentParams, ResolvedWorkspaceInit } from '../types';
 import { isWorkspaceCacheFresh, upsertWorkspaceScan } from '../workspaceInitCache';
+import { prepareOperationSkills } from './operationSkills';
+import { resolveOperationUserMemory } from './operationUserMemory';
 import type { ToolDiscoveryResult } from './toolDiscovery';
 import type { RunAttachments } from './turnSetup';
 
@@ -559,32 +552,7 @@ export const prepareOperation = async (
   await throwIfExecutionAborted('tool preparation');
 
   // 10. Fetch user persona for memory injection (reuses globalMemoryEnabled from step 8)
-  let userMemory: ServerUserMemoryConfig | undefined;
-
-  if (globalMemoryEnabled) {
-    try {
-      const personaModel = new UserPersonaModel(deps.db, deps.userId);
-      const persona = await personaModel.getLatestPersonaDocument();
-
-      if (persona?.persona) {
-        userMemory = {
-          fetchedAt: Date.now(),
-          memories: {
-            contexts: [],
-            experiences: [],
-            persona: {
-              narrative: persona.persona,
-              tagline: persona.tagline,
-            },
-            preferences: [],
-          },
-        };
-        log('execAgent: fetched user persona (version: %d)', persona.version);
-      }
-    } catch (error) {
-      log('execAgent: failed to fetch user persona: %O', error);
-    }
-  }
+  const userMemory = await resolveOperationUserMemory(deps, globalMemoryEnabled);
 
   // 11. Get existing messages if provided.
   const historyMessages = await loadHistoryMessages();
@@ -813,164 +781,15 @@ export const prepareOperation = async (
   // Combines builtin skills + user DB skills + agent-document skill bundles,
   // filters by platform via enableChecker, and pairs with agent's enabled
   // plugin IDs for downstream SkillResolver consumption.
-  let operationSkillSet;
-  try {
-    const builtinMetas = builtinSkills.map((s) => ({
-      content: s.content,
-      description: s.description,
-      identifier: s.identifier,
-      name: s.name,
-    }));
-    const skillModel = new AgentSkillModel(deps.db, deps.userId, deps.workspaceId);
-    const { data: dbSkills } = await skillModel.findAll();
-
-    // Pinned skills need their SKILL.md body injected into context directly,
-    // not lazily via the `activateSkill` tool. Gate on the agent's genuinely
-    // pinned entries (`getActivePluginIds(agentConfig.plugins)`), NOT the
-    // fully-expanded `agentPlugins`: the latter also carries turn-scoped tool
-    // ids (mentions, selected tools, `lobe-topic-reference`, …), which would
-    // eager-activate an auto-mode skill whose identifier merely collides with
-    // one of them. `findAll` uses `skillListColumns` (no `content`), so fetch
-    // bodies only for the pinned subset to keep the op-param payload bounded.
-    // Non-pinned skills stay content-less here and remain lazily activatable.
-    // Content lives in the DB `content` column already (SKILL.md body), so no
-    // zip unpack is needed; mirror `activateSkill` by appending the resource
-    // tree so pinned ZIP/GitHub skills keep their `readReference` paths.
-    const pinnedSkillIds = new Set(getActivePluginIds(agentConfig.plugins));
-    const pinnedDbSkillIds = dbSkills
-      .filter((s) => pinnedSkillIds.has(s.identifier))
-      .map((s) => s.id);
-    const pinnedDbContent = new Map(
-      (await skillModel.findByIds(pinnedDbSkillIds)).map((s) => {
-        const hasResources = !!(s.resources && Object.keys(s.resources).length > 0);
-        const content =
-          hasResources && s.resources
-            ? `${s.content ?? ''}\n\n${resourcesTreePrompt(s.name, s.resources)}`
-            : (s.content ?? undefined);
-        return [s.identifier, content] as const;
-      }),
-    );
-    const dbMetas = dbSkills.map((s) => ({
-      content: pinnedDbContent.get(s.identifier),
-      description: s.description ?? '',
-      identifier: s.identifier,
-      name: s.name,
-    }));
-
-    // Agent-document skill bundles surfaced as runtime skills via the shared
-    // `getAgentSkills` source of truth (prefix + index-child resolution lives
-    // there; see `AgentDocumentsService.getAgentSkills`). Identifier is
-    // prefixed (`agent-skills:<filename>`) so it can't collide with builtin
-    // / DB skill names, and we re-use it as `name` so the prompt's
-    // `<skill name="...">` line and the model's `activateSkill(name)` call
-    // carry the same value.
-    const agentSkills = await deps.agentDocumentsService.getAgentSkills(resolvedAgentId);
-    const agentSkillMetas = agentSkills.map((skill) => ({
-      // `getAgentSkills` already resolves the bundle body, so pinned
-      // agent-document skills inject directly without an extra fetch; only
-      // attach it for the pinned subset to keep the payload lean.
-      content: pinnedSkillIds.has(skill.identifier) ? skill.content : undefined,
-      description: skill.description,
-      identifier: skill.identifier,
-      name: skill.name,
-    }));
-
-    const projectMetas = workspaceInit.workspace.skills.map((s) => ({
-      description: s.description ?? '',
-      identifier: `${s.scope === 'device' ? 'device' : 'project'}:${s.name}`,
-      location: s.path,
-      name: s.name,
-      source: s.scope === 'device' ? ('device' as const) : ('project' as const),
-    }));
-
-    if (projectMetas.length) {
-      log(
-        'execAgent: workspace skills merged: %d (activeDeviceId=%s)',
-        projectMetas.length,
-        activeDeviceId ?? 'none',
-      );
-    }
-
-    // Inject the project-root agent instructions (AGENTS.md / CLAUDE.md) as
-    // trailing blocks on the system role — after the agent's persona and any
-    // page/task/additional instructions. `agentConfig` is read by
-    // `createOperation` below, so appending here still reaches the LLM.
-    if (workspaceInit.workspace.instructions.length) {
-      const block = workspaceInit.workspace.instructions
-        .map(
-          ({ content, source }) =>
-            `<project_instructions source="${source}">\n${content}\n</project_instructions>`,
-        )
-        .join('\n\n');
-      agentConfig.systemRole = agentConfig.systemRole
-        ? `${agentConfig.systemRole}\n\n${block}`
-        : block;
-      log(
-        'execAgent: injected %d project instruction file(s): %s',
-        workspaceInit.workspace.instructions.length,
-        workspaceInit.workspace.instructions.map((i) => i.source).join(', '),
-      );
-    }
-
-    // Precedence on name collision: project > db > agent-skills > builtin.
-    // Agent-skills carry the `agent-skills:` prefix in their `name`, so they
-    // can only collide with each other — but we still dedupe by name to keep
-    // a single shape for the SkillEngine input.
-    //
-    // Disabled skills are dropped here, not just rule-gated later: this
-    // `skills` array is the sole candidate pool SkillEngine/SkillResolver
-    // build `<available_skills>` from AND the pool `activateSkill` resolves
-    // against, so a disabled identifier absent here is neither listed nor
-    // activatable — mirrors the tool-manifest treatment above (installedPlugins/
-    // additionalManifests), which this array had never received.
-    //
-    // Shared runs only see skills allowed by the share configuration. The
-    // candidate pool must be trimmed here rather than left to
-    // `SkillEngine.generate`, which annotates activation state on its input
-    // rather than shrinking it. Reuse `filterPluginsByShareGate` (id-list
-    // intersection, not tool-specific) to keep this pool the single
-    // enforcement point — an empty/missing allowlist collapses it to nothing.
-    const shareAllowedSkillIds = shareGate
-      ? new Set(
-          filterPluginsByShareGate(
-            [...projectMetas, ...dbMetas, ...agentSkillMetas, ...builtinMetas].map(
-              (skill) => skill.identifier,
-            ),
-            shareGate,
-          ),
-        )
-      : undefined;
-    const seenNames = new Set<string>();
-    const skills = [...projectMetas, ...dbMetas, ...agentSkillMetas, ...builtinMetas].filter(
-      (skill) => {
-        if (disabledPluginIds.includes(skill.identifier)) return false;
-        if (shareAllowedSkillIds && !shareAllowedSkillIds.has(skill.identifier)) return false;
-        if (seenNames.has(skill.name)) return false;
-        seenNames.add(skill.name);
-        return true;
-      },
-    );
-
-    // Device-only builtin skills (agent-browser) are gated on the run's
-    // execution plan, not the compile-time `isDesktop` constant (always false
-    // on the server). Gate the static `<available_skills>` listing on the
-    // device-CAPABLE plan rather than `activeDeviceId`: `device-unrouted`
-    // runs let the model pick a device mid-run, and this skill set is built
-    // once per operation — gating on `activeDeviceId` would hide the skill
-    // forever in those runs. Activation/loading apply the same plan gate via
-    // `ToolExecutionContext.deviceCapable`; only actual command execution is
-    // gated at the device tool layer.
-    const skillEngine = new SkillEngine({
-      enableChecker: (skill) =>
-        shouldEnableBuiltinSkill(skill.identifier, {
-          canExecuteOnDevice: executionPlan ? isDeviceCapablePlan(executionPlan) : false,
-        }),
-      skills,
-    });
-    operationSkillSet = skillEngine.generate(agentPlugins ?? []);
-  } catch (error) {
-    log('execAgent: failed to build operationSkillSet: %O', error);
-  }
+  const operationSkillSet = await prepareOperationSkills(deps, {
+    agentConfig,
+    agentPlugins,
+    disabledPluginIds,
+    executionPlan,
+    resolvedAgentId,
+    shareGate,
+    workspace: workspaceInit.workspace,
+  });
 
   // Resolve learned expertise once so every step in this operation uses the exact same snapshot.
   // ContextEngine owns the Lab-controlled injection decision via enableExpertise.

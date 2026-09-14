@@ -2438,6 +2438,39 @@ describe('AgentModel', () => {
       expect(hetero).not.toHaveProperty('agencyConfig');
     });
 
+    it('returns only active device bindings without exposing the full runtime config', async () => {
+      await serverDB.insert(agents).values([
+        {
+          id: 'device-codex',
+          userId,
+          virtual: false,
+          agencyConfig: {
+            executionTarget: 'device',
+            boundDeviceId: 'desktop-alpha',
+            heterogeneousProvider: { type: 'codex', env: { PRIVATE_VALUE: 'hidden' } },
+          },
+        },
+        {
+          id: 'server-codex',
+          userId,
+          virtual: false,
+          agencyConfig: {
+            executionTarget: 'local',
+            boundDeviceId: 'stale-desktop',
+            heterogeneousProvider: { type: 'codex' },
+          },
+        },
+      ]);
+      const result = await agentModel.queryAgents();
+      expect(result.find((agent) => agent.id === 'device-codex')).toMatchObject({
+        heteroType: 'codex',
+        boundDeviceId: 'desktop-alpha',
+      });
+      expect(result.find((agent) => agent.id === 'server-codex')?.boundDeviceId).toBeUndefined();
+      expect(result.every((agent) => !('agencyConfig' in agent))).toBe(true);
+      expect(JSON.stringify(result)).not.toContain('hidden');
+    });
+
     it('should exclude virtual agents', async () => {
       // Create a virtual agent
       await agentModel.create({
@@ -2454,6 +2487,24 @@ describe('AgentModel', () => {
 
       expect(result.some((a: { title: string | null }) => a.title === 'Virtual Agent')).toBe(false);
       expect(result.some((a: { title: string | null }) => a.title === 'Regular Agent')).toBe(true);
+    });
+
+    it('can include the owned inbox without exposing other virtual or foreign agents', async () => {
+      await serverDB.insert(agents).values([
+        { id: 'own-inbox', userId, slug: INBOX_SESSION_ID, virtual: true },
+        { id: 'other-inbox', userId: userId2, slug: INBOX_SESSION_ID, virtual: true },
+        { id: 'internal-agent', userId, slug: 'page-copilot', virtual: true },
+        { id: 'regular-agent', userId, title: 'Regular', virtual: false },
+      ]);
+
+      const ordinary = await agentModel.queryAgents();
+      expect(ordinary.map((agent) => agent.id)).toEqual(['regular-agent']);
+      const selectable = await agentModel.queryAgents({ includeInbox: true });
+      expect(selectable.map((agent) => agent.id).sort()).toEqual(['own-inbox', 'regular-agent']);
+      expect(selectable.find((agent) => agent.id === 'own-inbox')).toMatchObject({
+        title: DEFAULT_INBOX_TITLE,
+        avatar: DEFAULT_INBOX_AVATAR,
+      });
     });
 
     it('should only return agents for the current user', async () => {

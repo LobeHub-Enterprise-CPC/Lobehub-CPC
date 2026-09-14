@@ -1113,6 +1113,41 @@
       "when": 1788426057228,
       "tag": "0158_free_clint_barton",
       "breakpoints": true
+    },
+    {
+      "idx": 159,
+      "version": "7",
+      "when": 1789282654799,
+      "tag": "0159_channel_mvp",
+      "breakpoints": true
+    },
+    {
+      "idx": 160,
+      "version": "7",
+      "when": 1789294266015,
+      "tag": "0160_channel_thread_followers",
+      "breakpoints": true
+    },
+    {
+      "idx": 161,
+      "version": "7",
+      "when": 1789300182516,
+      "tag": "0161_channel_member_environment",
+      "breakpoints": true
+    },
+    {
+      "idx": 162,
+      "version": "7",
+      "when": 1789358263059,
+      "tag": "0162_channel_discussions",
+      "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "7",
+      "when": 1789361902775,
+      "tag": "0163_channel_discussion_rounds",
+      "breakpoints": true
     }
   ],
   "version": "6"

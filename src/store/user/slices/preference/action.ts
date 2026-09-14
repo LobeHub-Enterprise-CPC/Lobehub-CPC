@@ -1,3 +1,4 @@
+import { mutate } from '@/libs/swr';
 import { userService } from '@/services/user';
 import { type StoreSetter } from '@/store/types';
 import { type UserStore } from '@/store/user';
@@ -31,6 +32,8 @@ export class PreferenceActionImpl {
     const { updatePreference } = this.#get();
     const nextLab = merge(this.#get().preference.lab, lab);
     await updatePreference({ lab: nextLab }, action || n('updateLab'));
+    // Recheck after persistence: the optimistic toggle can precede the server opt-in.
+    if (lab.enableChannel !== undefined) await mutate('channel-availability');
   };
 
   updatePreference = async (preference: Partial<UserPreference>, action?: any): Promise<void> => {

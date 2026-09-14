@@ -18,11 +18,11 @@ import {
 
 import { AiModelModel } from '@/database/models/aiModel';
 
-import type { RuntimeExecutorContext } from '../context';
+import type { RuntimeContextBuilderContext } from '../context';
 import { log } from '../executorHelpers';
 
 interface ResolveServerCallLlmContextHintsInput {
-  ctx: RuntimeExecutorContext;
+  ctx: RuntimeContextBuilderContext;
   llmPayload: CallLLMPayload;
   model: string;
   provider: string;

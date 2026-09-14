@@ -15,6 +15,7 @@ type LabFeatureI18nKey =
   | 'agentGraphConfig'
   | 'agentProviderBinding'
   | 'artifactDeployment'
+  | 'channel'
   | 'claudeCodeSdk'
   | 'codexAppServer'
   | 'desktopSplitView'
@@ -47,6 +48,12 @@ export interface LabFeatureItem {
  * visible and searchable without a second registration.
  */
 export const LAB_FEATURES: LabFeatureItem[] = [
+  {
+    flag: 'enableChannel',
+    i18nKey: 'channel',
+    searchKeywords: ['channel', 'channels', 'multi-agent', '频道'],
+    stage: 'alpha',
+  },
   {
     flag: 'enableAgentGraphConfig',
     i18nKey: 'agentGraphConfig',

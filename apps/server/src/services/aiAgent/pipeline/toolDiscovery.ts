@@ -165,7 +165,18 @@ export interface ToolDiscoveryResult {
  */
 export const discoverTools = async (
   deps: ToolDiscoveryDeps,
-  ctx: ExecRunContext,
+  ctx: Pick<
+    ExecRunContext,
+    | 'agentConfig'
+    | 'appContext'
+    | 'canUseDevice'
+    | 'model'
+    | 'prompt'
+    | 'provider'
+    | 'resolvedAgentId'
+    | 'shareGate'
+  > &
+    Partial<Pick<ExecRunContext, 'topicId' | 'assistantMessageId'>>,
   input: ToolDiscoveryInput,
 ): Promise<ToolDiscoveryResult> => {
   const {
@@ -688,14 +699,15 @@ export const discoverTools = async (
         executionPlan.kind === 'device-unrouted' && executionPlan.reason === 'bound-device-offline'
           ? 'The device fixed by this agent is offline. Ask an editor to bring it online or change the agent device policy.'
           : 'The device fixed by this agent is unavailable for this run. Ask an editor to check the agent device policy.';
-      await deps.messageModel.update(assistantMessageId, {
-        content: '',
-        error: {
-          body: { detail },
-          message: 'Fixed agent device unavailable',
-          type: 'ServerAgentRuntimeError',
-        },
-      });
+      if (assistantMessageId)
+        await deps.messageModel.update(assistantMessageId, {
+          content: '',
+          error: {
+            body: { detail },
+            message: 'Fixed agent device unavailable',
+            type: 'ServerAgentRuntimeError',
+          },
+        });
       throw new TRPCError({
         cause: { data: { code: 'FixedAgentDeviceUnavailable' } },
         code: 'PRECONDITION_FAILED',

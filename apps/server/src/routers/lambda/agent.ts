@@ -758,6 +758,7 @@ export const agentRouter = router({
     .input(
       z
         .object({
+          includeInbox: z.boolean().optional(),
           keyword: z.string().optional(),
           limit: z.number().max(100).optional(),
           offset: z.number().optional(),

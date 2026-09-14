@@ -75,6 +75,22 @@ async function readRouterSources() {
 }
 
 describe('desktop router shared definition', () => {
+  it.each(mainAreaVariants)(
+    '%s only registers Channels in the personal route tree',
+    (_, factory) => {
+      const routes = createMainAreaRoutes(factory);
+      expect(
+        matchRoutes(routes, '/channels/example')?.some(
+          (m) => m.route.path === 'channels/:channelId?',
+        ),
+      ).toBe(true);
+      expect(
+        matchRoutes(routes, '/workspace/channels/example')?.some(
+          (m) => m.route.path === 'channels/:channelId?',
+        ) ?? false,
+      ).toBe(false);
+    },
+  );
   it('defers platform route factories until React renders their route elements', () => {
     const createHomeElement = vi.fn(() => <div>Home</div>);
     const createWorkspaceSettingsIndexElement = vi.fn(() => <div>Workspace settings</div>);
