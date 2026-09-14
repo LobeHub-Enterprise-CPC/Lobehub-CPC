@@ -54,6 +54,8 @@ import type {
   PlatformInfo,
   ReactToMessageParams,
   ReactToMessageState,
+  ReadDocumentParams,
+  ReadDocumentState,
   ReadMessagesParams,
   ReadMessagesState,
   ReplyToThreadParams,
@@ -134,6 +136,8 @@ export type {
   PlatformInfo,
   ReactToMessageParams,
   ReactToMessageState,
+  ReadDocumentParams,
+  ReadDocumentState,
   ReadMessagesParams,
   ReadMessagesState,
   ReplyToThreadParams,
@@ -180,6 +184,12 @@ export interface MessageRuntimeService {
   listThreads: (params: ListThreadsParams) => Promise<ListThreadsState>;
   pinMessage: (params: PinMessageParams) => Promise<PinMessageState>;
   reactToMessage: (params: ReactToMessageParams) => Promise<ReactToMessageState>;
+  /**
+   * Read a cloud document linked from the chat. Optional: only platforms
+   * with a document API (Feishu/Lark docx) implement it; the runtime reports
+   * "not supported" elsewhere and `messageCapabilities` trims the tool.
+   */
+  readDocument?: (params: ReadDocumentParams) => Promise<ReadDocumentState>;
   readMessages: (params: ReadMessagesParams) => Promise<ReadMessagesState>;
   replyToThread: (params: ReplyToThreadParams) => Promise<ReplyToThreadState>;
   searchMessages: (params: SearchMessagesParams) => Promise<SearchMessagesState>;
@@ -292,6 +302,46 @@ export class MessageExecutionRuntime {
     } catch (e) {
       return {
         content: `readMessages error: ${(e as Error).message}`,
+        success: false,
+      };
+    }
+  }
+
+  async readDocument(params: ReadDocumentParams): Promise<BuiltinServerRuntimeOutput> {
+    if (!this.service.readDocument) {
+      return {
+        content: `readDocument is not supported on ${params.platform}`,
+        success: false,
+      };
+    }
+    if (!params.url && !params.documentId) {
+      return {
+        content: 'readDocument error: pass the document `url` (preferred) or its `documentId`',
+        success: false,
+      };
+    }
+    try {
+      const result = await this.service.readDocument(params);
+      const header = [
+        `Document${result.title ? `: ${result.title}` : ''}`,
+        result.url ? `URL: ${result.url}` : undefined,
+        result.documentId
+          ? `ID: ${result.documentId}${result.kind ? ` (${result.kind})` : ''}`
+          : undefined,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      const truncatedHint = result.truncated
+        ? '\n\n[Content truncated — the document is longer than what fits here]'
+        : '';
+      return {
+        content: `${header}\n\n${result.content?.trim() || '(empty document)'}${truncatedHint}`,
+        state: result,
+        success: true,
+      };
+    } catch (e) {
+      return {
+        content: `readDocument error: ${(e as Error).message}`,
         success: false,
       };
     }

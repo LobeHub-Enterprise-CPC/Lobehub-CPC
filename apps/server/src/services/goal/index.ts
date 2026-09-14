@@ -20,7 +20,7 @@ import type {
   TaskTopicHandoff,
   WorkVersionEventItem,
 } from '@lobechat/types';
-import { experimentOwner } from '@lobechat/utils/goalGraph';
+import { experimentOwner, provenanceParentId } from '@lobechat/utils/goalGraph';
 import { TRPCError } from '@trpc/server';
 import { sql } from 'drizzle-orm';
 
@@ -54,7 +54,7 @@ import {
   TERMINAL_NODE_STATUSES,
 } from './decideNextMove';
 import { experimentResults, exploreGraph } from './exploreGraph';
-import { GoalManagerService } from './manager';
+import { answeredProblem, GoalManagerService, problemKey } from './manager';
 import {
   resolveMaxConcurrentTasks,
   resolveOperationLeaseTimeout,
@@ -62,6 +62,7 @@ import {
   VERIFY_SETTLE_GRACE_MS,
 } from './recoveryPolicy';
 import { GoalSupervisorService } from './supervisor';
+import { claimGoalTask } from './taskClaim';
 import { TaskRecoveryCoordinator } from './taskRecoveryCoordinator';
 import {
   type GoalTickOptions,
@@ -216,13 +217,11 @@ export class GoalService {
           code: 'BAD_REQUEST',
           message: 'Main Agent requires 1–100 management turns',
         });
-      if (options.exploration || options.supervision?.enabled || input.tasks?.length) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message:
-            'Manager mode owns initial and subsequent planning; do not combine with exploration, supervision or seed tasks',
-        });
-      }
+      // Exploration, supervision and seed tasks used to be rejected here, on the
+      // premise that a main Agent owns planning outright. They are layers, not
+      // rivals: the system planner leads, supervision recovers known transport
+      // failures, and the main Agent is handed whatever neither can route (see
+      // `gateOrTakeOver`). Ordering resolves what exclusivity used to.
       await assertAgentUsableBy(this.db, creatorAgentId, {
         userId: this.userId,
         workspaceId: this.workspaceId,
@@ -302,21 +301,15 @@ export class GoalService {
       });
       if (!problem) throw new Error('Failed to seed goal problem');
 
-      const seeds =
-        input.tasks ??
-        (config?.exploration
-          ? [
-              {
-                title: input.title,
-                description: `Produce one initial baseline experiment for this Goal. ${input.problemDescription ?? requirement ?? input.title}\nExploration method: ${config.exploration.instruction}\nExecute the baseline only; later experiments are scheduled by the Goal coordinator. Include a self-contained result and evidence.`,
-              },
-            ]
-          : []);
-      for (const seed of seeds) {
-        const { description, title } = typeof seed === 'string' ? { title: seed } : seed;
+      // An exploration baseline is the goal's first candidate answer, so it
+      // lives inside an experiment container the explorer can branch from.
+      // Caller-supplied seed tasks are ordinary work: they attach straight to
+      // the problem the way a planned or manager-submitted task does.
+      if (config?.exploration && !input.tasks) {
+        const description = `Produce one initial baseline experiment for this Goal. ${input.problemDescription ?? requirement ?? input.title}\nExploration method: ${config.exploration.instruction}\nExecute the baseline only; later experiments are scheduled by the Goal coordinator. Include a self-contained result and evidence.`;
         const experiment = await authorGraph.createNode(goal.id, {
           kind: 'experiment',
-          title,
+          title: input.title,
           description,
           questionId: problem.id,
           createdByAgentId: input.createdByAgentId,
@@ -327,9 +320,20 @@ export class GoalService {
           createdByAgentId: input.createdByAgentId,
           description,
           kind: 'task',
+          title: input.title,
+        });
+        if (!taskNode) throw new Error('Failed to seed goal task');
+      }
+      for (const seed of input.tasks ?? []) {
+        const { description, title } = typeof seed === 'string' ? { title: seed } : seed;
+        const taskNode = await authorGraph.createNode(goal.id, {
+          createdByAgentId: input.createdByAgentId,
+          description,
+          kind: 'task',
           title,
         });
         if (!taskNode) throw new Error('Failed to seed goal task');
+        await authorGraph.createEdge(goal.id, problem.id, taskNode.id, 'decomposes');
       }
     } catch (error) {
       await this.goalModel.delete(goal.id).catch(() => {});
@@ -1224,8 +1228,15 @@ export class GoalService {
     const at = Date.now();
     const graph = await this.requireGraph(goalId);
     if (graph.goal.config?.manager) {
+      // The system's own planner leads whenever the Goal has one: a main Agent is
+      // the fallback for problems that planner cannot express, not a replacement
+      // for it. With exploration configured this call only settles a turn already
+      // in flight; new turns start from `gateOrTakeOver` below, where the
+      // coordinator has run out of moves. A Goal whose only planner is the main
+      // Agent keeps being led by it.
       const result = await new GoalManagerService(this.db, this.userId, this.workspaceId).advance(
         graph,
+        { mayStartTurn: !graph.goal.config.exploration },
       );
       if (result) return result;
     }
@@ -1424,7 +1435,7 @@ export class GoalService {
             ).reviewFailure(graph, acting!.id, task);
             if (supervision) return observe(supervision);
             return observe(
-              await this.openFailureDecision(graph, acting!.id, task.id, move.message, effects),
+              await this.gateOrTakeOver(graph, acting!.id, task.id, move.message, effects),
             );
           }
 
@@ -1571,11 +1582,7 @@ export class GoalService {
     let acceptanceId: string | undefined;
     let task: TaskItem | undefined;
     try {
-      const parentId = graph.edges.find(
-        (edge) =>
-          edge.sourceNodeId === (experimentOwner(graph, frontier.id) ?? frontier.id) &&
-          edge.kind === 'derived_from',
-      )?.targetNodeId;
+      const parentId = provenanceParentId(graph, frontier.id);
       const parent = graph.nodes.find((node) => node.id === parentId);
       const description = [
         frontier.description ?? frontier.title,
@@ -1714,13 +1721,24 @@ export class GoalService {
       };
     }
 
+    // Nothing failed: somebody settled the Task while this advance was deciding.
+    // Opening a gate would ask them to judge their own decision.
+    if (recovery.outcome === 'settled') {
+      return {
+        goalId: graph.goal.id,
+        message: `Task ${task.identifier} was settled while recovery was being decided`,
+        nodeId,
+        outcome: 'no_progress',
+        taskId: task.id,
+      };
+    }
     const exhaustedReason =
       recovery.outcome === 'exhausted-cost'
         ? 'Goal cost budget was exhausted'
         : recovery.outcome === 'exhausted-rounds'
           ? 'Task attempt budget was exhausted'
           : 'Automatic recovery could not start the next attempt';
-    return this.openFailureDecision(graph, nodeId, task.id, exhaustedReason, effects);
+    return this.gateOrTakeOver(graph, nodeId, task.id, exhaustedReason, effects);
   };
 
   /** Claim the task for dispatch and start its run. */
@@ -1778,12 +1796,10 @@ export class GoalService {
       ).countRunningTasks(goalId);
       if (inFlight >= resolveMaxConcurrentTasks(graph.goal)) return 'at-capacity' as const;
 
-      return new TaskModel(tx, this.userId, this.workspaceId).updateStatusIfCurrent(
-        task.id,
-        task.status,
-        'running',
-        { error: null, startedAt: new Date() },
-      );
+      return claimGoalTask(new TaskModel(tx, this.userId, this.workspaceId), task, 'running', {
+        error: null,
+        startedAt: new Date(),
+      });
     });
 
     if (claimed === 'stopped')
@@ -1995,13 +2011,24 @@ export class GoalService {
       };
     }
 
+    // Nothing failed: somebody settled the Task while this advance was deciding.
+    // Opening a gate would ask them to judge their own decision.
+    if (recovery.outcome === 'settled') {
+      return {
+        goalId: graph.goal.id,
+        message: `Task ${task.identifier} was settled while recovery was being decided`,
+        nodeId,
+        outcome: 'no_progress',
+        taskId: task.id,
+      };
+    }
     const reason =
       recovery.outcome === 'exhausted-cost'
         ? 'Goal cost budget was exhausted after an operation was abandoned'
         : recovery.outcome === 'exhausted-rounds'
           ? 'Task attempt budget was exhausted after an operation was abandoned'
           : 'Automatic recovery could not restart an abandoned operation';
-    return this.openFailureDecision(graph, nodeId, task.id, reason, effects);
+    return this.gateOrTakeOver(graph, nodeId, task.id, reason, effects);
   };
 
   private buildTaskInstruction = (
@@ -2100,15 +2127,22 @@ export class GoalService {
 
         const createdIds: string[] = [];
         for (const draft of draftTasks) {
-          const experiment = currentProblem
-            ? await writer.createNode(goalId, {
-                kind: 'experiment',
-                title: draft.title,
-                description: draft.instruction,
-                questionId: currentProblem.id,
-              })
-            : undefined;
-          if (currentProblem && !experiment)
+          // An experiment is a container for a candidate answer, not the
+          // default shell around every planned step. Only a direction the
+          // planner marked with a hypothesis gets one; a certain delivery step
+          // attaches straight to the problem, the same shape a manager-planned
+          // Task takes.
+          const hypothesis = draft.hypothesis?.trim();
+          const experiment =
+            currentProblem && hypothesis
+              ? await writer.createNode(goalId, {
+                  kind: 'experiment',
+                  title: draft.title,
+                  description: hypothesis,
+                  questionId: currentProblem.id,
+                })
+              : undefined;
+          if (currentProblem && hypothesis && !experiment)
             throw new Error('Failed to create a planned experiment');
           const node = await writer.createNode(goalId, {
             scopeId: experiment?.id,
@@ -2117,6 +2151,8 @@ export class GoalService {
             title: draft.title,
           });
           if (!node) throw new Error('Failed to create a planned task');
+          if (!experiment && currentProblem)
+            await writer.createEdge(goalId, currentProblem.id, node.id, 'decomposes');
           createdIds.push(node.id);
           committedEffects.push({ nodeId: node.id, type: 'created_node', detail: draft.title });
         }
@@ -2340,6 +2376,44 @@ export class GoalService {
       outcome: 'advanced',
       taskId,
     };
+  };
+
+  /**
+   * Every stop-on-a-person funnels through here, so this is the one place a main
+   * Agent can be offered the problem before the Goal parks on its owner.
+   *
+   * The coordinator only reaches this point once its own policy is out of moves:
+   * the failure matched no recovery branch, the attempt budget ran out, or the
+   * reason is one it cannot classify. That is precisely the class of problem the
+   * deterministic lane cannot express, so it is handed over rather than escalated.
+   * A main Agent that cannot help answers `escalate`, and the gate opens anyway —
+   * one turn later, with a diagnosis attached.
+   */
+  private gateOrTakeOver = async (
+    graph: GoalGraphSnapshot,
+    nodeId: string,
+    taskId: string,
+    reason: string,
+    effects: GoalAdvanceEffect[] = [],
+  ): Promise<GoalTickResult> => {
+    const takeover = await new GoalManagerService(this.db, this.userId, this.workspaceId).takeOver(
+      graph,
+      { reason, taskId },
+    );
+    if (takeover) return takeover;
+    // When the main Agent already looked at THIS problem, the gate carries what it
+    // said: the person answering should see the Agent's reasoning, not just the
+    // coordinator's own reason for stopping.
+    const answered = answeredProblem(graph.goal.config?.managerState);
+    const diagnosis =
+      answered?.key === problemKey({ reason, taskId }) ? answered.reason.slice(0, 600) : undefined;
+    return this.openFailureDecision(
+      graph,
+      nodeId,
+      taskId,
+      diagnosis ? `${reason} — main Agent: ${diagnosis}` : reason,
+      effects,
+    );
   };
 
   private openFailureDecision = async (

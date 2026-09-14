@@ -22,12 +22,16 @@ vi.mock('../serverRuntimes', () => ({
 }));
 
 vi.mock('@/server/services/composio', () => ({
-  ComposioService: vi.fn().mockImplementation(() => ({})),
+  ComposioService: vi.fn().mockImplementation(function () {
+    return {};
+  }),
 }));
 vi.mock('@/server/services/market', () => ({
-  MarketService: vi.fn().mockImplementation(() => ({
-    executeLobehubSkill: mocks.executeLobehubSkill,
-  })),
+  MarketService: vi.fn().mockImplementation(function () {
+    return {
+      executeLobehubSkill: mocks.executeLobehubSkill,
+    };
+  }),
 }));
 // Governance is mocked here purely to isolate BuiltinToolsExecutor's wiring
 // (does it call checkCommand/logCommandExecution with the right shape, does a

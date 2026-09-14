@@ -1127,6 +1127,20 @@
       "when": 1788849739068,
       "tag": "0160_acceptance_check_assets",
       "breakpoints": true
+    },
+    {
+      "idx": 161,
+      "version": "7",
+      "when": 1789038060245,
+      "tag": "0161_acceptance_comments",
+      "breakpoints": true
+    },
+    {
+      "idx": 162,
+      "version": "7",
+      "when": 1789308031904,
+      "tag": "0162_fts_capture_version",
+      "breakpoints": true
     }
   ],
   "version": "6"

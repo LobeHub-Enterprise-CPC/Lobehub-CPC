@@ -1,8 +1,8 @@
 'use client';
 
 import { experimentOwner } from '@lobechat/utils/goalGraph';
-import { Accordion, AccordionItem, Flexbox } from '@lobehub/ui';
-import { Tag, Text } from '@lobehub/ui/base-ui';
+import { Flexbox } from '@lobehub/ui';
+import { Accordion, type AccordionItemType, Tag, Text } from '@lobehub/ui/base-ui';
 import { createStaticStyles } from 'antd-style';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -19,7 +19,7 @@ import Activity from './Activity';
 import Deliverables from './Deliverables';
 import Findings from './Findings';
 import Frontier, { type FrontierActions } from './Frontier';
-import { buildGoalGraphView, hasReviewableResult } from './goalGraphViewModel';
+import { buildGoalGraphView, opensOnResultSurface } from './goalGraphViewModel';
 import Graph from './Graph';
 
 /**
@@ -75,11 +75,10 @@ const ProcessControl = memo<ProcessControlProps>(
     );
 
     // Every click funnels here: keep the map highlight (spatial continuity) and
-    // open the drill-down. Only a Task with a delivery to read — settled, or
-    // delivered and under Acceptance judgment — lands on its result-focused
-    // review surface; a Task still running, waiting, or in trouble opens the
-    // original Task detail, because its result panel would be an empty shell
-    // and the question is what the run is doing, not what it produced.
+    // open the drill-down. A Task with a delivery to read, or a healthy run in
+    // flight, lands on its result surface — the live run while it works, the
+    // report once it settles. A Task waiting or in trouble opens the original
+    // Task detail, where configuration and failure context live.
     const select = useCallback(
       (nodeId: string) => {
         setSelectedId(nodeId);
@@ -97,7 +96,7 @@ const ProcessControl = memo<ProcessControlProps>(
           )
         )
           openTaskDetail(taskId);
-        else if (view && hasReviewableResult(view)) openTaskResult(taskId);
+        else if (view && opensOnResultSurface(view)) openTaskResult(taskId);
         else openTaskDetail(taskId);
       },
       [goalId, graph, openGoalNode, openTaskDetail, openTaskResult],
@@ -155,86 +154,90 @@ const ProcessControl = memo<ProcessControlProps>(
 
         {!hasExperiments && map}
 
-        <Accordion defaultExpandedKeys={['deliverables', 'findings', 'activity']} gap={0}>
-          {/* The structured acceptance standard the terminal goal acceptance is
-            gated on. Collapsed by default — reference material, like the task
-            detail's 交付验收 section. Prose-only legacy goals have none. */}
-          {!!acceptanceConfig && (
-            <AccordionItem
-              itemKey={'acceptance'}
-              paddingBlock={6}
-              paddingInline={0}
-              title={
-                <Flexbox horizontal align={'center'} gap={8}>
-                  <Text fontSize={14} weight={600}>
-                    {t('goalAcceptance.title')}
-                  </Text>
-                  {criteriaIds.length > 0 && <Tag size={'small'}>{criteriaIds.length}</Tag>}
-                  <Text fontSize={12} type={'secondary'}>
-                    {t('goalAcceptance.gateHint')}
-                  </Text>
-                </Flexbox>
-              }
-            >
-              <Flexbox className={styles.section}>
-                <GoalAcceptanceCriteria criteriaIds={criteriaIds} goalId={goalId} />
-              </Flexbox>
-            </AccordionItem>
-          )}
-          {/* Between the standard and the conclusions on purpose: 验收标准 says
-              what counts as done, 交付物 what was produced, 结论 what the goal now
-              believes about it. Findings routinely cite these artifacts. */}
-          <AccordionItem
-            itemKey={'deliverables'}
-            paddingBlock={6}
-            paddingInline={0}
-            title={
-              <Flexbox horizontal align={'center'} gap={8}>
-                <Text fontSize={14} weight={600}>
-                  {t('goalProcess.deliverables.title')}
-                </Text>
-                {graph.artifacts.length > 0 && <Tag size={'small'}>{graph.artifacts.length}</Tag>}
-              </Flexbox>
-            }
-          >
-            <Flexbox className={styles.section}>
-              <Deliverables graph={graph} />
-            </Flexbox>
-          </AccordionItem>
-          <AccordionItem
-            itemKey={'findings'}
-            paddingBlock={6}
-            paddingInline={0}
-            title={
-              <Flexbox horizontal align={'center'} gap={8}>
-                <Text fontSize={14} weight={600}>
-                  {t('goalProcess.findings.title')}
-                </Text>
-                {graph.findings.length > 0 && <Tag size={'small'}>{graph.findings.length}</Tag>}
-              </Flexbox>
-            }
-          >
-            <Flexbox className={styles.section}>
-              <Findings graph={graph} onSelect={select} />
-            </Flexbox>
-          </AccordionItem>
-          <AccordionItem
-            itemKey={'activity'}
-            paddingBlock={6}
-            paddingInline={0}
-            title={
-              <Flexbox horizontal align={'center'} gap={8}>
-                <Text fontSize={14} weight={600}>
-                  {t('goalProcess.activity.title')}
-                </Text>
-              </Flexbox>
-            }
-          >
-            <Flexbox className={styles.section}>
-              <Activity graph={graph} onSelect={select} />
-            </Flexbox>
-          </AccordionItem>
-        </Accordion>
+        <Accordion
+          defaultValue={['deliverables', 'findings', 'activity']}
+          gap={0}
+          indicatorPlacement="inline"
+          styles={{ header: { paddingBlock: 6, paddingInline: 0 } }}
+          items={
+            [
+              // The structured acceptance standard the terminal goal acceptance is
+              // gated on. Collapsed by default — reference material, like the task
+              // detail's 交付验收 section. Prose-only legacy goals have none.
+              !!acceptanceConfig && {
+                children: (
+                  <Flexbox className={styles.section}>
+                    <GoalAcceptanceCriteria criteriaIds={criteriaIds} goalId={goalId} />
+                  </Flexbox>
+                ),
+                key: 'acceptance',
+                title: (
+                  <Flexbox horizontal align={'center'} gap={8}>
+                    <Text fontSize={14} weight={600}>
+                      {t('goalAcceptance.title')}
+                    </Text>
+                    {criteriaIds.length > 0 && <Tag size={'small'}>{criteriaIds.length}</Tag>}
+                    <Text fontSize={12} type={'secondary'}>
+                      {t('goalAcceptance.gateHint')}
+                    </Text>
+                  </Flexbox>
+                ),
+              },
+              // Between the standard and the conclusions on purpose: 验收标准 says
+              // what counts as done, 交付物 what was produced, 结论 what the goal now
+              // believes about it. Findings routinely cite these artifacts.
+              {
+                children: (
+                  <Flexbox className={styles.section}>
+                    <Deliverables graph={graph} />
+                  </Flexbox>
+                ),
+                key: 'deliverables',
+                title: (
+                  <Flexbox horizontal align={'center'} gap={8}>
+                    <Text fontSize={14} weight={600}>
+                      {t('goalProcess.deliverables.title')}
+                    </Text>
+                    {graph.artifacts.length > 0 && (
+                      <Tag size={'small'}>{graph.artifacts.length}</Tag>
+                    )}
+                  </Flexbox>
+                ),
+              },
+              {
+                children: (
+                  <Flexbox className={styles.section}>
+                    <Findings graph={graph} onSelect={select} />
+                  </Flexbox>
+                ),
+                key: 'findings',
+                title: (
+                  <Flexbox horizontal align={'center'} gap={8}>
+                    <Text fontSize={14} weight={600}>
+                      {t('goalProcess.findings.title')}
+                    </Text>
+                    {graph.findings.length > 0 && <Tag size={'small'}>{graph.findings.length}</Tag>}
+                  </Flexbox>
+                ),
+              },
+              {
+                children: (
+                  <Flexbox className={styles.section}>
+                    <Activity graph={graph} onSelect={select} />
+                  </Flexbox>
+                ),
+                key: 'activity',
+                title: (
+                  <Flexbox horizontal align={'center'} gap={8}>
+                    <Text fontSize={14} weight={600}>
+                      {t('goalProcess.activity.title')}
+                    </Text>
+                  </Flexbox>
+                ),
+              },
+            ].filter(Boolean) as AccordionItemType[]
+          }
+        />
       </Flexbox>
     );
   },

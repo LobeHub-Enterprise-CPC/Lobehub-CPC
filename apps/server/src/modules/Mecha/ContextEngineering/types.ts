@@ -13,6 +13,7 @@ import type {
   LobeToolManifest,
   OnboardingContext,
   PlanTodoConfig,
+  ProjectInstructionFile,
   SkillMeta,
   ToolDiscoveryConfig,
   TopicReferenceItem,
@@ -112,7 +113,11 @@ export interface ServerMessagesEngineParams {
   discordContext?: DiscordContext;
   // ========== Eval context ==========
   /** Eval context for injecting environment prompts into system message */
+  /** Borrowed-connector attribution, injected into the system message. */
+  connectorOwnershipNote?: string;
   evalContext?: EvalContext;
+  /** A project's root instruction files, injected into the system message. */
+  projectInstructions?: ProjectInstructionFile[];
   // ========== Onboarding context ==========
   /** Onboarding context for injecting phase guidance and documents */
   onboardingContext?: OnboardingContext;
