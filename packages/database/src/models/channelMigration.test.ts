@@ -39,7 +39,7 @@ it('creates the final Channel schema, integrity constraints, and runtime indexes
     await db.exec(migration);
 
     const tables = (
-      await db.query(
+      await db.query<{ table_name: string }>(
         "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE 'channel%' ORDER BY table_name",
       )
     ).rows.map(({ table_name }) => table_name);

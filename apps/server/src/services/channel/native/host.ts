@@ -11,6 +11,7 @@ import {
   AgentRuntime,
   createAgentRuntimeExecutors,
   GeneralChatAgent,
+  normalizeAgentState,
 } from '@lobechat/agent-runtime';
 import { CHANNEL_INSTRUCTIONS, channelContext } from '@lobechat/heterogeneous-agents/channel/input';
 import type { ChannelMemberConfig, ChatToolPayload, UIChatMessage } from '@lobechat/types';
@@ -31,7 +32,7 @@ export interface ChannelNativeCapabilities {
   enabledToolIds?: string[];
   modelParameters?: Record<string, unknown>;
   modelRuntimeConfig?: AgentState['modelRuntimeConfig'];
-  runtimeMetadata?: AgentState['metadata'];
+  runtimeContext?: Pick<AgentState, 'binding' | 'plan' | 'principal' | 'world'>;
   systemRole?: string;
   toolExecutorMap?: AgentState['toolExecutorMap'];
   /** Resolved, authorized native tool manifests and execution adapter. */
@@ -137,11 +138,12 @@ export async function runChannelNative(input: {
     );
     const history = await store.messages();
     let state = AgentRuntime.createInitialState({
+      ...input.capabilities.runtimeContext,
       operationId: run.id,
-      metadata: {
-        ...input.capabilities.runtimeMetadata,
+      origin: {
         agentId: input.config.agentId ?? run.memberId,
         topicId: run.sessionId,
+        userId: input.ownerId,
       },
       messages: history,
       systemRole: input.capabilities.systemRole ?? input.config.systemRole,
@@ -163,7 +165,7 @@ export async function runChannelNative(input: {
         provider: input.config.provider,
       },
     });
-    if (resuming) state = checkpoint!.state as AgentState;
+    if (resuming) state = normalizeAgentState(checkpoint!.state as AgentState);
     const contextBuilder =
       input.capabilities.context ||
       createChannelContextBuilder(

@@ -166,7 +166,7 @@ describe('Channel Native uses ordinary agent configuration and tool discovery', 
 
   it('inherits the ordinary memory snapshot and honors an Agent memory opt-out', async () => {
     const enabled = await loadChannelNativeCapabilities(db, 'owner', member);
-    expect(enabled.runtimeMetadata?.userMemory?.memories.persona.narrative).toBe(
+    expect(enabled.runtimeContext?.world?.userMemory?.memories?.persona?.narrative).toBe(
       'Prefers concise Chinese answers',
     );
     const agent = await mocks.agent();
@@ -176,7 +176,7 @@ describe('Channel Native uses ordinary agent configuration and tool discovery', 
     });
     mocks.persona.mockClear();
     const disabled = await loadChannelNativeCapabilities(db, 'owner', member);
-    expect(disabled.runtimeMetadata?.userMemory).toBeUndefined();
+    expect(disabled.runtimeContext?.world?.userMemory).toBeUndefined();
     expect(disabled.enabledToolIds).not.toContain('lobe-user-memory');
     expect(mocks.persona).not.toHaveBeenCalled();
   });
@@ -187,7 +187,11 @@ describe('Channel Native uses ordinary agent configuration and tool discovery', 
       const result = await loadChannelNativeCapabilities(db, 'owner', member);
       expect(result.tools.some((t) => t.function.name.startsWith('lobe-web-browsing'))).toBe(true);
       expect(result.tools.some((t) => t.function.name.startsWith('lobe-skills'))).toBe(true);
-      expect(result.systemRole).toBe('Current agent instructions');
+      expect(result.systemRole).toBe(
+        slug === 'inbox'
+          ? 'Current agent instructions'
+          : 'Current agent instructions\n\nPreferred reply language: en-US. Use this language unless the user explicitly asks to switch.',
+      );
     },
   );
 
@@ -222,7 +226,9 @@ describe('Channel Native uses ordinary agent configuration and tool discovery', 
     });
     expect(result.modelRuntimeConfig).toEqual({ model: 'gpt-4o', provider: 'openai' });
     expect(result.modelParameters).toEqual(DEFAULT_AGENT_CONFIG.params);
-    expect(result.systemRole).toBe('Current agent instructions');
+    expect(result.systemRole).toBe(
+      'Current agent instructions\n\nPreferred reply language: en-US. Use this language unless the user explicitly asks to switch.',
+    );
     expect(mocks.agent).toHaveBeenCalledWith(member.agentId);
   });
 
@@ -274,8 +280,10 @@ describe('Channel Native uses ordinary agent configuration and tool discovery', 
     expect(result.enabledToolIds).toContain('my-mcp');
     expect(result.toolManifestMap['my-mcp']).toMatchObject(manifest);
     const state = AgentRuntime.createInitialState({
+      ...result.runtimeContext,
       operationId: 'channel-run',
-      metadata: { ...result.runtimeMetadata, topicId: 'channel-session' },
+      origin: { topicId: 'channel-session' },
+      binding: { device: { id: 'late-bound-device', systemInfo: { workingDirectory: '/work' } } },
     });
     mocks.execute.mockResolvedValue({ success: true, content: 'Found' });
     await result.toolTransport!.run(
@@ -295,6 +303,7 @@ describe('Channel Native uses ordinary agent configuration and tool discovery', 
         userId: 'owner',
         memoryToolPermission: 'read-only',
         topicId: 'channel-session',
+        workingDirectory: '/work',
         toolManifestMap: result.toolManifestMap,
       }),
     );

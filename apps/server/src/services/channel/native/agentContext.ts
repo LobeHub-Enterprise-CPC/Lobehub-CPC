@@ -16,11 +16,19 @@ export const createChannelAgentContextBuilder = (
       ...options,
       operationId: input.state.operationId,
       stepIndex: input.state.stepCount,
-      agentConfig: { ...options.agentConfig, systemRole: input.state.systemRole },
     });
-    const result = await builder.build(input);
+    const result = await builder.build({
+      ...input,
+      state: {
+        ...input.state,
+        world: {
+          ...input.state.world,
+          agent: { ...input.state.world?.agent, systemRole: input.state.systemRole },
+        },
+      },
+    });
     const modelParameters = {
-      ...options.agentConfig?.params,
+      ...input.state.world?.agent?.params,
       ...(result.modelParameters as object),
     };
     const accounting = countContextTokens({

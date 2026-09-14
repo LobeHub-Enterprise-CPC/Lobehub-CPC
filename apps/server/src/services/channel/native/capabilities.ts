@@ -146,23 +146,30 @@ export async function loadChannelNativeCapabilities(
     toolManifestMap: discovery.toolManifestMap,
     toolSourceMap: discovery.toolSourceMap,
     toolExecutorMap: discovery.toolExecutorMap,
-    runtimeMetadata: {
-      agentConfig,
-      activeDeviceId: discovery.activeDeviceId,
-      activeDeviceScope: discovery.activeDeviceScope,
-      deviceAccessPolicy,
-      deviceSystemInfo: { workingDirectory: config.workingDirectory },
-      executionPlan: discovery.executionPlan,
-      operationSkillSet,
-      userMemory: await resolveOperationUserMemory({ db, userId: ownerId }, globalMemoryEnabled),
+    runtimeContext: {
+      binding: {
+        device: {
+          id: discovery.activeDeviceId,
+          systemInfo: config.workingDirectory ? { workingDirectory: config.workingDirectory } : {},
+        },
+      },
+      principal: {
+        actor: { deviceScope: discovery.activeDeviceScope },
+        policy: { deviceAccess: deviceAccessPolicy },
+      },
+      plan: { execution: discovery.executionPlan, skills: operationSkillSet },
+      world: {
+        agent: agentConfig,
+        connectorOwnershipNote: discovery.connectorOwnershipNote,
+        searchDecision: discovery.searchDecision,
+        userTimezone: generalSettings?.timezone,
+        userMemory: await resolveOperationUserMemory({ db, userId: ownerId }, globalMemoryEnabled),
+      },
     },
     context: createChannelAgentContextBuilder({
-      agentConfig,
       contextWindowTokens,
-      searchDecision: discovery.searchDecision,
       serverDB: db,
       userId: ownerId,
-      userTimezone: generalSettings?.timezone,
     }),
     toolTransport: {
       maxRetries: 0,
@@ -171,8 +178,8 @@ export async function loadChannelNativeCapabilities(
         const manifest = context.effectiveManifestMap[call.identifier];
         if (!manifest?.api.some((api: { name: string }) => api.name === call.apiName))
           throw new Error('Tool is not authorized for this Channel member');
-        const metadata = context.state.metadata;
-        const plan = metadata?.executionPlan;
+        const state = context.state;
+        const plan = state.plan?.execution;
         return {
           attempts: 1,
           result: await service.executeTool(
@@ -184,14 +191,14 @@ export async function loadChannelNativeCapabilities(
               agentVisibility: agentConfig.visibility,
               operationId: context.operationId,
               // Sandbox providers use a conversation key; each Native session stays isolated.
-              topicId: metadata?.topicId,
+              topicId: state.origin?.topicId,
               toolCallId: call.id,
               toolManifestMap: context.effectiveManifestMap,
               skipResultTruncation: true,
               activatedSkills: context.activatedSkills as StepActivatedSkill[] | undefined,
               currentTodos: context.currentTodos,
-              activeDeviceId: resolveRunActiveDeviceId(metadata),
-              activeDeviceScope: metadata?.activeDeviceScope,
+              activeDeviceId: resolveRunActiveDeviceId(state),
+              activeDeviceScope: state.principal?.actor?.deviceScope,
               deviceCapable: plan ? isDeviceCapablePlan(plan) : undefined,
               deviceExecutionTarget: plan?.target,
               localSandbox: plan
@@ -199,7 +206,7 @@ export async function loadChannelNativeCapabilities(
                 : undefined,
               localSandboxNetwork: agentConfig.agencyConfig?.localSandboxNetwork === true,
               memoryToolPermission: agentConfig.chatConfig?.memory?.toolPermission,
-              workingDirectory: metadata?.deviceSystemInfo?.workingDirectory,
+              workingDirectory: state.binding?.device?.systemInfo?.workingDirectory,
               executionTimeoutMs: resolveToolTimeoutMs({
                 apiName: call.apiName,
                 args: context.parsedArgs,

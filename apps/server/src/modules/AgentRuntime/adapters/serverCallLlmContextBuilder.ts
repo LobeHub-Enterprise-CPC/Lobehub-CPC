@@ -817,7 +817,7 @@ const getAppUrl = (): string | undefined => {
 };
 
 const resolveWorkspaceContext = async (
-  ctx: RuntimeExecutorContext,
+  ctx: RuntimeContextBuilderContext,
   state: AgentState,
 ): Promise<WorkspaceContext | undefined> => {
   // A share visitor converses under the CREATOR's identity: the creator's

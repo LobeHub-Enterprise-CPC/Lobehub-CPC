@@ -25,6 +25,12 @@ describe('Channel context uses ordinary per-step tool resolution', () => {
     const state = AgentRuntime.createInitialState({
       operationId: 'channel-run',
       systemRole: 'Agent persona\nChannel author and thread instructions',
+      world: {
+        agent: { systemRole: 'Agent persona', params: { temperature: 0.4 } },
+        userTimezone: 'Asia/Shanghai',
+        connectorOwnershipNote: 'Connector belongs to the owner',
+        projectInstructions: [{ source: 'AGENTS.md', content: 'Use the project convention' }],
+      },
       tools: [],
       toolManifestMap: { 'discovered-tool': manifest },
       operationToolSet: {
@@ -45,10 +51,8 @@ describe('Channel context uses ordinary per-step tool resolution', () => {
       preserveThinkingForPayload: true,
     });
     const context = createChannelAgentContextBuilder({
-      agentConfig: { systemRole: 'Agent persona', params: { temperature: 0.4 } },
       serverDB: {} as LobeChatDatabase,
       userId: 'owner',
-      userTimezone: 'Asia/Shanghai',
       contextWindowTokens: 128000,
     });
     const result = await context.build({
@@ -64,11 +68,16 @@ describe('Channel context uses ordinary per-step tool resolution', () => {
     expect(result.preserveThinking).toBe(true);
     expect(build).toHaveBeenCalledWith(
       expect.objectContaining({
-        ctx: expect.objectContaining({
-          userTimezone: 'Asia/Shanghai',
-          agentConfig: expect.objectContaining({ systemRole: state.systemRole }),
+        state: expect.objectContaining({
+          world: expect.objectContaining({
+            userTimezone: 'Asia/Shanghai',
+            agent: expect.objectContaining({ systemRole: state.systemRole }),
+            connectorOwnershipNote: 'Connector belongs to the owner',
+            projectInstructions: [{ source: 'AGENTS.md', content: 'Use the project convention' }],
+          }),
         }),
       }),
     );
+    expect(state.world?.agent?.systemRole).toBe('Agent persona');
   });
 });

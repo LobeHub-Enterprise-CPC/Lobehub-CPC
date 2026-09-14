@@ -1157,9 +1157,6 @@ table channel_jobs {
     (channel_id, id) [name: 'channel_jobs_scope_idx', unique]
     (status, created_at) [name: 'channel_jobs_queue_idx']
     (channel_id, status) [name: 'channel_jobs_channel_status_idx']
-    
-    
-    
   }
 }
 
@@ -1201,8 +1198,6 @@ table channel_messages {
     (channel_id, thread_id, sequence) [name: 'channel_messages_request_sequence_idx']
     (channel_id, id) [name: 'channel_messages_routing_pending_idx']
     (channel_id, request_key) [name: 'channel_messages_request_idx', unique]
-    
-    
   }
 }
 
@@ -1250,8 +1245,6 @@ table channel_runs {
     channel_id [name: 'channel_runs_channel_idx']
     (channel_id, id) [name: 'channel_runs_unsettled_idx']
     member_id [name: 'channel_runs_active_member_idx', unique]
-    
-    
   }
 }
 
@@ -1286,7 +1279,6 @@ table channel_sessions {
 
   indexes {
     (member_id, scope) [name: 'channel_sessions_member_scope_idx', unique]
-    
   }
 }
 
@@ -1301,7 +1293,6 @@ table channel_threads {
   indexes {
     (channel_id, root_message_id) [name: 'channel_threads_root_idx', unique]
     (channel_id, id) [name: 'channel_threads_scope_idx', unique]
-    
   }
 }
 
@@ -1365,6 +1356,49 @@ table chat_groups_agents {
     (chat_group_id, agent_id) [pk]
     user_id [name: 'chat_groups_agents_user_id_idx']
     workspace_id [name: 'chat_groups_agents_workspace_id_idx']
+  }
+}
+
+table command_execution_logs {
+  id uuid [pk, not null, default: `gen_random_uuid()`]
+  user_id text [not null]
+  execution_target text [not null]
+  device_id text
+  tool_identifier text [not null]
+  api_name text [not null]
+  command_text text
+  blocked boolean [not null]
+  matched_rule_id uuid
+  path text
+  policy_field text
+  success boolean
+  error_message text
+  duration_ms integer
+  created_at "timestamp with time zone" [not null, default: `now()`]
+
+  indexes {
+    user_id [name: 'command_execution_logs_user_id_idx']
+    created_at [name: 'command_execution_logs_created_at_idx']
+    execution_target [name: 'command_execution_logs_execution_target_idx']
+    blocked [name: 'command_execution_logs_blocked_idx']
+  }
+}
+
+table command_governance_rules {
+  id uuid [pk, not null, default: `gen_random_uuid()`]
+  user_id text [not null]
+  pattern text [not null]
+  pattern_type text [not null]
+  scope text [not null, default: 'all']
+  action text [not null, default: 'deny']
+  enabled boolean [not null, default: true]
+  created_by text
+  created_at "timestamp with time zone" [not null, default: `now()`]
+  updated_at "timestamp with time zone" [not null, default: `now()`]
+
+  indexes {
+    user_id [name: 'command_governance_rules_user_id_idx']
+    (user_id, enabled) [name: 'command_governance_rules_user_id_enabled_idx']
   }
 }
 
@@ -3888,6 +3922,23 @@ table users {
     created_at [name: 'users_created_at_idx']
     created_at [name: 'users_banned_true_created_at_idx']
   }
+}
+
+table user_execution_policies {
+  id uuid [pk, not null, default: `gen_random_uuid()`]
+  user_id text [not null, unique]
+  enabled boolean [not null, default: true]
+  writable_roots jsonb [not null, default: `[]`]
+  readable_roots jsonb
+  denied_write_roots jsonb
+  denied_read_roots jsonb
+  allow_network boolean [not null, default: false]
+  allowed_network_domains jsonb
+  env_allowlist jsonb
+  command_mode text [not null, default: 'sandbox']
+  created_by text
+  created_at "timestamp with time zone" [not null, default: `now()`]
+  updated_at "timestamp with time zone" [not null, default: `now()`]
 }
 
 table user_memories {

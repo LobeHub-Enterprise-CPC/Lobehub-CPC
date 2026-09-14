@@ -1,4 +1,5 @@
 import { isDesktop } from '@lobechat/const';
+import type { DeviceListItem } from '@lobechat/types';
 import { agentDisplayName } from '@lobechat/types';
 import { t } from 'i18next';
 
@@ -45,7 +46,7 @@ export async function resolveChannelCandidates(agentIds: string[]) {
     }),
   );
   const hasHeterogeneous = agents.some((agent) => agent.agencyConfig?.heterogeneousProvider);
-  const [devices, currentDeviceId] = hasHeterogeneous
+  const [devices, currentDeviceId]: [DeviceListItem[], string | undefined] = hasHeterogeneous
     ? await Promise.all([deviceService.listDevices(), resolveCurrentDeviceId()])
     : [[], undefined];
   const context = isDesktop ? globalAgentContextManager.getContext() : undefined;
