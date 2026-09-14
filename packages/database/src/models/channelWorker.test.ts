@@ -23,14 +23,13 @@ vi.mock('@/server/services/channel/device', () => ({
   },
 }));
 vi.mock('@/server/services/channel/gate', () => ({ isChannelEnabled: vi.fn() }));
-vi.mock('@/server/services/channel/native/host', () => ({
-  runChannelNative: vi.fn(),
-  isChannelApprovalCheckpoint: () => false,
-}));
+vi.mock('@/server/services/channel/native/host', () => ({ runChannelNative: vi.fn() }));
 vi.mock('@/server/services/channel/native/capabilities', () => ({
-  loadChannelNativeCapabilities: vi.fn(),
+  checkChannelNativeAvailability: vi.fn(),
 }));
-vi.mock('@/server/services/channel/artifact', () => ({ channelArtifactCapability: vi.fn() }));
+vi.mock('@/server/services/channel/artifact', () => ({
+  resolveChannelArtifactRunIds: async () => [],
+}));
 vi.mock('@/server/services/channel/serverDefault', () => ({
   settleChannelServerDefaultOperation: vi.fn(),
 }));

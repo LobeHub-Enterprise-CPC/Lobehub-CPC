@@ -8,8 +8,6 @@ import { channelAudit, channelRuns, channels } from '@/database/privateSchemas/c
 import type { LobeChatDatabase } from '@/database/type';
 import { FileService } from '@/server/services/file';
 
-import type { ChannelNativeCapabilities } from './native/host';
-
 /** Content-addressed object plus an immutable owner/Run-scoped record. */
 export async function saveChannelArtifact(
   db: LobeChatDatabase,
@@ -92,12 +90,12 @@ export async function getChannelArtifactUrl(
   };
 }
 
-/** Review only immutable artifacts whose public final is inside this Run's sealed context. */
-export async function channelArtifactCapability(
+/** Runs whose published snapshot is inside this Run's sealed public context; nothing else is readable. */
+export async function resolveChannelArtifactRunIds(
   db: LobeChatDatabase,
   ownerId: string,
-  run: typeof channelRuns.$inferSelect,
-): Promise<ChannelNativeCapabilities> {
+  run: Pick<typeof channelRuns.$inferSelect, 'channelId' | 'manifest'>,
+): Promise<string[]> {
   const detail = await new ChannelModel(db, ownerId).detail(run.channelId);
   const thread = detail.threads.find((item) => item.id === run.manifest.threadId);
   const visible = new Set(
@@ -112,74 +110,14 @@ export async function channelArtifactCapability(
       )
       .map((message) => message.id),
   );
-  const allowed = detail.artifacts.filter((artifact) =>
-    detail.runs.some(
-      (source) =>
-        source.id === artifact.runId &&
-        source.publishedMessageId &&
-        visible.has(source.publishedMessageId),
-    ),
-  );
-  const identifier = 'channel-artifact';
-  const parameters = {
-    type: 'object',
-    properties: {
-      runId: { type: 'string', enum: allowed.map((artifact) => artifact.runId) },
-      offset: { type: 'integer', minimum: 0 },
-      length: { type: 'integer', minimum: 1, maximum: 20000 },
-    },
-    required: ['runId'],
-    additionalProperties: false,
-  };
-  if (!allowed.length) return { tools: [], toolManifestMap: {} };
-  const description = `Read an immutable workspace snapshot for review. Includes baseline commit, baseline and final diff/file hashes/content, and observed command/test results. This is source evidence, not member claims. Authorized Run IDs: ${allowed.map((artifact) => artifact.runId).join(', ')}. Page through large snapshots using character offset and length.`;
-  return {
-    tools: [
-      {
-        type: 'function',
-        function: { name: `${identifier}____read____builtin`, description, parameters },
-      },
-    ],
-    toolManifestMap: {
-      [identifier]: { identifier, api: [{ name: 'read', description, parameters }] },
-    },
-    toolTransport: {
-      run: async (call) => {
-        const args = JSON.parse(call.arguments) as {
-          runId: string;
-          offset?: number;
-          length?: number;
-        };
-        if (!allowed.some((artifact) => artifact.runId === args.runId))
-          throw new Error('Snapshot is outside the authorized public context');
-        const [record] = await db
-          .select()
-          .from(channelAudit)
-          .where(
-            and(
-              eq(channelAudit.channelId, run.channelId),
-              eq(channelAudit.id, `chn_artifact_${args.runId}`),
-            ),
-          );
-        if (typeof record?.details.key !== 'string') throw new Error('Snapshot not found');
-        const content = await new FileService(db, ownerId).getFileContent(record.details.key);
-        if (createHash('sha256').update(content).digest('hex') !== record.details.sha256)
-          throw new Error('Snapshot integrity check failed');
-        const offset = Math.max(0, Math.floor(args.offset || 0));
-        const length = Math.min(20000, Math.max(1, Math.floor(args.length || 20000)));
-        return {
-          attempts: 1,
-          result: {
-            success: true,
-            content: JSON.stringify({
-              sha256: record.details.sha256,
-              offset,
-              totalLength: content.length,
-              content: content.slice(offset, offset + length),
-            }),
-          },
-        };
-      },
-    },
-  };
+  return detail.artifacts
+    .filter((artifact) =>
+      detail.runs.some(
+        (source) =>
+          source.id === artifact.runId &&
+          source.publishedMessageId &&
+          visible.has(source.publishedMessageId),
+      ),
+    )
+    .map((artifact) => artifact.runId);
 }

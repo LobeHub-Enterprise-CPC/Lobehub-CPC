@@ -1,10 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 
-import type { channelRuns } from '@/database/privateSchemas/channel';
 import type { LobeChatDatabase } from '@/database/type';
+import { channelArtifactRuntime } from '@/server/services/toolExecution/serverRuntimes/channelArtifact';
+import type { ToolExecutionContext } from '@/server/services/toolExecution/types';
 
-import { channelArtifactCapability } from './artifact';
+import { resolveChannelArtifactRunIds } from './artifact';
+import { buildChannelArtifactManifest } from './artifactTool';
 
 const { detail } = vi.hoisted(() => ({ detail: vi.fn() }));
 vi.mock('@/database/models/channel', () => ({
@@ -32,22 +34,27 @@ describe('Channel artifact public context boundary', () => {
         runId,
       })),
     });
-    const capabilities = await channelArtifactCapability({} as LobeChatDatabase, 'owner', {
+    const allowed = await resolveChannelArtifactRunIds({} as LobeChatDatabase, 'owner', {
       channelId: 'channel',
-      manifest: { threadId: 'thread', cutoffSequence: 5 },
-    } as typeof channelRuns.$inferSelect);
-    const parameters = capabilities.tools[0].function.parameters as {
-      properties: { runId: { enum: string[] } };
+      manifest: { threadId: 'thread', cutoffSequence: 5 } as never,
+    });
+    expect(allowed).toEqual(['prefix', 'reply']);
+    const manifest = buildChannelArtifactManifest(allowed)!;
+    expect(manifest.api[0].parameters.properties.runId.enum).toEqual(['prefix', 'reply']);
+    expect(buildChannelArtifactManifest([])).toBeUndefined();
+
+    // Invocation re-checks the run's allowlist; the enum is advisory to the model only.
+    const runtime = channelArtifactRuntime.factory({
+      serverDB: { select: vi.fn() } as never,
+      userId: 'owner',
+      channelContext: { artifactRunIds: allowed, channelId: 'channel', fence: 1, runId: 'run' },
+    } as unknown as ToolExecutionContext) as {
+      read: (args: { runId: string }) => Promise<unknown>;
     };
-    expect(parameters.properties.runId.enum).toEqual(['prefix', 'reply']);
     for (const runId of ['future-main', 'sibling', 'unpublished'])
-      await expect(
-        capabilities.toolTransport!.run(
-          { arguments: JSON.stringify({ runId }) } as Parameters<
-            NonNullable<typeof capabilities.toolTransport>['run']
-          >[0],
-          {} as Parameters<NonNullable<typeof capabilities.toolTransport>['run']>[1],
-        ),
-      ).rejects.toThrow('outside');
+      await expect(runtime.read({ runId })).resolves.toMatchObject({
+        success: false,
+        content: expect.stringContaining('outside'),
+      });
   });
 });
