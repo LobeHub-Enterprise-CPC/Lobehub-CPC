@@ -161,6 +161,8 @@ export const UserLabSchema = z.object({
    * enable artifact deployment features (publish artifacts to a hosted URL)
    */
   enableArtifactDeployment: z.boolean().optional(),
+  /** Enable the personal Channel internal preview. */
+  enableChannel: z.boolean().optional(),
   /**
    * run Claude Code hetero sessions through the Claude Agent SDK instead of CLI spawn
    */

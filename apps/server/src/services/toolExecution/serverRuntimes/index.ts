@@ -7,6 +7,8 @@
  * - Per-request runtimes (e.g., CloudSandbox - needs topicId, userId)
  */
 
+import { PageAgentIdentifier } from '@lobechat/builtin-tool-page-agent';
+
 import type { ToolExecutionContext } from '../types';
 import { acceptanceEvidenceRuntime } from './acceptanceEvidence';
 import { activatorRuntime } from './activator';
@@ -34,7 +36,6 @@ import { localSystemRuntime } from './localSystem';
 import { memoryRuntime } from './memory';
 import { messageRuntime } from './message';
 import { notebookRuntime } from './notebook';
-import { pageAgentRuntime } from './pageAgent';
 import { remoteDeviceRuntime } from './remoteDevice';
 import { selfFeedbackIntentRuntime } from './selfFeedbackIntent';
 import { skillManagementRuntime } from './skillManagement';
@@ -100,7 +101,11 @@ registerRuntimes([
   agentSignalReviewRuntime,
   agentSignalReflectionRuntime,
   agentSignalFeedbackIntentRuntime,
-  pageAgentRuntime,
+  {
+    identifier: PageAgentIdentifier,
+    // Ordinary tool discovery and headless workers do not need the editor runtime.
+    factory: async (context) => (await import('./pageAgent')).pageAgentRuntime.factory(context),
+  },
   verifyResultRuntime,
 ]);
 

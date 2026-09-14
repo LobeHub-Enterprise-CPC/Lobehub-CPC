@@ -17,6 +17,20 @@ import { type ToolExecutionService } from '@/server/services/toolExecution';
 
 import { type IStreamEventManager } from './types';
 
+/** Context engineering is reusable by hosts with their own message persistence. */
+export type RuntimeContextBuilderContext = Pick<
+  RuntimeExecutorContext,
+  | 'agentShareVisitor'
+  | 'modelRuntimeConfig'
+  | 'operationId'
+  | 'serverDB'
+  | 'stepIndex'
+  | 'topicId'
+  | 'tracingContextEngine'
+  | 'userId'
+  | 'workspaceId'
+>;
+
 export interface RuntimeExecutorContext {
   /**
    * Cancels tool work that is still in flight for this step. Driven by the

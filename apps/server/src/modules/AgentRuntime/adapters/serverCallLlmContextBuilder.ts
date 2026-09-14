@@ -47,7 +47,7 @@ import { MarketService } from '@/server/services/market';
 import { OnboardingService } from '@/server/services/onboarding';
 import { toAgentContextDocuments } from '@/utils/agentDocumentContextMapping';
 
-import type { RuntimeExecutorContext } from '../context';
+import type { RuntimeContextBuilderContext } from '../context';
 import { buildPostProcessUrl, log, resolveRuntimeHistoryCount } from '../executorHelpers';
 import { loadConnectedComposioIds } from './composioConnectedIds';
 import {
@@ -57,7 +57,7 @@ import {
 import type { ServerCallLlmTooling } from './serverCallLlmTooling';
 
 interface BuildServerCallLlmContextInput {
-  ctx: RuntimeExecutorContext;
+  ctx: RuntimeContextBuilderContext;
   llmPayload: CallLLMPayload;
   model: string;
   provider: string;
@@ -817,7 +817,7 @@ const getAppUrl = (): string | undefined => {
 };
 
 const resolveWorkspaceContext = async (
-  ctx: RuntimeExecutorContext,
+  ctx: RuntimeContextBuilderContext,
   state: AgentState,
 ): Promise<WorkspaceContext | undefined> => {
   // A share visitor converses under the CREATOR's identity: the creator's

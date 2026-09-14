@@ -16,6 +16,8 @@ const createNewPageMock = vi.hoisted(() => vi.fn());
 const messageErrorMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
 const openConnectAgentModalMock = vi.hoisted(() => vi.fn());
+const openCreateChannelModalMock = vi.hoisted(() => vi.fn());
+const channelContext = vi.hoisted(() => ({ enabled: false, workspaceId: null as string | null }));
 const openCreateGroupModalMock = vi.hoisted(() => vi.fn());
 const agentModalMock = vi.hoisted(() => ({
   current: undefined as { openCreateGroupModal: (id?: string, v?: string) => void } | undefined,
@@ -45,6 +47,15 @@ vi.mock('swr/mutation', () => ({
     trigger: vi.fn(),
   }),
 }));
+
+vi.mock('swr', () => ({ default: () => ({ data: { enabled: channelContext.enabled } }) }));
+vi.mock('@/business/client/hooks/useActiveWorkspaceId', () => ({
+  useActiveWorkspaceId: () => channelContext.workspaceId,
+}));
+vi.mock('@/features/Channels/CreateChannel', () => ({
+  openCreateChannelModal: openCreateChannelModalMock,
+}));
+vi.mock('@/services/channel', () => ({ channelService: { availability: vi.fn() } }));
 
 vi.mock('@/components/ChatGroupWizard/templates', () => ({
   useGroupTemplates: () => [],
@@ -107,6 +118,29 @@ describe('useCreateMenuItems', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     agentModalMock.current = undefined;
+    channelContext.enabled = false;
+    channelContext.workspaceId = null;
+  });
+
+  it('does not duplicate Channel creation in the Agent menu when Channels are enabled', () => {
+    channelContext.enabled = true;
+    const { result } = renderHook(() => useCreateMenuItems());
+    expect(
+      result.current
+        .createTopLevelMenuItems()
+        .some((item) => isActionItem(item) && item.key === 'createChannel'),
+    ).toBe(false);
+  });
+
+  it('does not expose personal Channel creation in workspace mode even with cached availability', () => {
+    channelContext.enabled = true;
+    channelContext.workspaceId = 'workspace';
+    const { result } = renderHook(() => useCreateMenuItems());
+    expect(
+      result.current
+        .createTopLevelMenuItems()
+        .some((item) => isActionItem(item) && item.key === 'createChannel'),
+    ).toBe(false);
   });
 
   it('adds Agent-list and Market entries while omitting Page creation', async () => {

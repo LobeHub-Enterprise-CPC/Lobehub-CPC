@@ -31,6 +31,8 @@ export interface DeviceToolCallResult {
   error?: string;
   /** Structured availability context for callers that can choose whether to retry. */
   errorData?: DeviceUnavailableErrorData;
+  /** The request may have reached the device, but no terminal response was observed. */
+  executionUnknown?: boolean;
   state?: unknown;
   success: boolean;
 }
@@ -193,9 +195,12 @@ export class GatewayHttpClient {
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      return toFailedToolCallResult(
-        describeGatewayResponseFailure(res.status, text, 'tool call', params),
-      );
+      return {
+        ...toFailedToolCallResult(
+          describeGatewayResponseFailure(res.status, text, 'tool call', params),
+        ),
+        executionUnknown: true,
+      };
     }
 
     const data = await res.json();
@@ -223,6 +228,9 @@ export class GatewayHttpClient {
       // time. Every other failure path here puts the failure text in `content`.
       content: deviceContent || (typeof data.error === 'string' ? data.error : ''),
       error: data.error,
+      ...(typeof data.executionUnknown === 'boolean' && {
+        executionUnknown: data.executionUnknown,
+      }),
       state: data.state,
       success: data.success ?? true,
     };

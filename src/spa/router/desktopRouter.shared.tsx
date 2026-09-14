@@ -1139,6 +1139,14 @@ export const sharedMainAreaChildren: RouteObject[] = [
 const createMainAreaChildrenDefinition = (options: MainAreaRouteOptions = {}): RouteObject[] => [
   ...sharedMainAreaChildren,
 
+  // Channels are personal-only; never mirror them beneath a workspace slug.
+  {
+    path: 'channels/:channelId?',
+    element: dynamicElement(() => import('@/routes/(main)/channels'), 'Desktop > Channels'),
+    errorElement: <ErrorBoundary resetPath="/channels" />,
+    handle: { meta: routeMeta({ Skeleton: ConversationLayoutSkeleton }) },
+  },
+
   // Installer downloads (personal-only — never mirrored under /:workspaceSlug).
   //
   // Upstream removed its own downloads hub; this distribution keeps a route

@@ -4,12 +4,12 @@ import type {
   ContextBuildOutput,
 } from '@lobechat/agent-runtime';
 
-import type { RuntimeExecutorContext } from '../context';
+import type { RuntimeContextBuilderContext } from '../context';
 import { buildServerCallLlmContext } from './serverCallLlmContextBuilder';
 import { resolveServerCallLlmTooling } from './serverCallLlmTooling';
 
 export class ServerContextBuilder implements ContextBuilder {
-  constructor(private readonly ctx: RuntimeExecutorContext) {}
+  constructor(private readonly ctx: RuntimeContextBuilderContext) {}
 
   async build(input: ContextBuildInput): Promise<ContextBuildOutput> {
     const tooling = resolveServerCallLlmTooling(

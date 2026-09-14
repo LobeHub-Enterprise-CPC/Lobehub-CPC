@@ -45,6 +45,8 @@ export interface SpawnAgentOptions {
    * connected client renders live token streaming.
    */
   includePartialMessages?: boolean;
+  /** False when the host already composed and sanitized the complete child environment. */
+  inheritEnv?: boolean;
   /** Initial model selected through the agent protocol after session setup (Droid/TRAE ACP). */
   initialModel?: string;
   /**
@@ -89,6 +91,13 @@ export interface SpawnAgentOptions {
    */
   uploadImage?: UploadHeterogeneousImage;
 }
+
+const buildSpawnEnv = (options: SpawnAgentOptions): NodeJS.ProcessEnv =>
+  ({
+    ...(options.inheritEnv === false ? {} : process.env),
+    ...(options.agentType === 'codebuddy' ? { CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS: '1' } : {}),
+    ...options.env,
+  }) as NodeJS.ProcessEnv;
 
 export interface SpawnAgentHandle {
   /**
@@ -535,7 +544,7 @@ const spawnGrokAcpAgent = async (
     commandPath: command,
     cwd,
     detached: options.detached,
-    env: { ...process.env, ...options.env },
+    env: buildSpawnEnv(options),
     onEvents: bridge.onEvents,
     onRawMessage: teeAcpRawStdout(options.onRawStdout),
     onRuntimeStatus: () => {},
@@ -563,7 +572,7 @@ const spawnCursorAcpAgent = async (
     commandPath: command,
     cwd,
     detached: options.detached,
-    env: { ...process.env, ...options.env },
+    env: buildSpawnEnv(options),
     onEvents: bridge.onEvents,
     onRawMessage: teeAcpRawStdout(options.onRawStdout),
     onRuntimeStatus: () => {},
@@ -590,7 +599,7 @@ const spawnDroidAcpAgent = async (
     clientVersion: 'lobehub-cli',
     commandPath: command,
     cwd,
-    env: { ...process.env, ...options.env },
+    env: buildSpawnEnv(options),
     initialModel: options.initialModel,
     onEvents: bridge.onEvents,
     onRawMessage: teeAcpRawStdout(options.onRawStdout),
@@ -690,11 +699,7 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
     inputArgs: inputPlan.args,
     resumeSessionId: options.resumeSessionId,
   });
-  const childEnv = {
-    ...process.env,
-    ...(options.agentType === 'codebuddy' ? { CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS: '1' } : {}),
-    ...options.env,
-  };
+  const childEnv = buildSpawnEnv(options);
   const initialModel =
     options.agentType === 'codex'
       ? (await resolveCodexInitialModel({ args, env: childEnv }))?.model
@@ -876,7 +881,7 @@ export const spawnTraeAcpAgent = async (options: SpawnAgentOptions): Promise<Spa
     isPathLikeCommand(requestedCommand) && !path.isAbsolute(requestedCommand)
       ? path.resolve(cwd, requestedCommand)
       : requestedCommand;
-  const childEnv = { ...process.env, ...options.env };
+  const childEnv = buildSpawnEnv(options);
   const { detectHeterogeneousCliCommand } = await import('./resolveCliCommand');
   const commandStatus = await detectHeterogeneousCliCommand('trae', command, childEnv);
   if (!commandStatus.available || !commandStatus.path) {

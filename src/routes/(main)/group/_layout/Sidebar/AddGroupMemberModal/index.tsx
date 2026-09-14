@@ -1,37 +1,15 @@
 'use client';
 
-import { Flexbox } from '@lobehub/ui';
-import { Divider } from 'antd';
-import { createStaticStyles } from 'antd-style';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';
 
 import ImperativeModal from '@/components/ImperativeModal';
+import { AgentMemberSelection } from '@/features/AgentMemberSelection';
 import { groupKeys } from '@/libs/swr/keys';
 import { agentService } from '@/services/agent';
 
-import { type AgentItemData } from './AgentItem';
-import AvailableAgentList from './AvailableAgentList';
-import SelectedAgentList from './SelectedAgentList';
 import { useAgentSelectionStore } from './store';
-
-const styles = createStaticStyles(({ css, cssVar }) => ({
-  container: css`
-    display: flex;
-    flex-direction: row;
-
-    height: 500px;
-    padding: 12px;
-    border: 1px solid ${cssVar.colorBorderSecondary};
-    border-radius: ${cssVar.borderRadius}px;
-  `,
-  rightColumn: css`
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-  `,
-}));
 
 export interface AddGroupMemberModalProps {
   existingMembers?: string[];
@@ -46,6 +24,7 @@ const AddGroupMemberModal = memo<AddGroupMemberModalProps>(
     const { t } = useTranslation(['chat', 'common']);
 
     const selectedAgentIds = useAgentSelectionStore((s) => s.selectedAgentIds);
+    const setSelectedAgents = useAgentSelectionStore((s) => s.setSelectedAgents);
     const clearSelection = useAgentSelectionStore((s) => s.clearSelection);
 
     // Fetch agents from the new API (non-virtual agents only)
@@ -53,11 +32,6 @@ const AddGroupMemberModal = memo<AddGroupMemberModalProps>(
       open ? groupKeys.queryAgents() : null,
       () => agentService.queryAgents(),
     );
-
-    // Filter out existing members
-    const availableAgents = useMemo<AgentItemData[]>(() => {
-      return allAgents.filter((agent) => !existingMembers.includes(agent.id));
-    }, [allAgents, existingMembers]);
 
     // Clear selection when modal closes
     useEffect(() => {
@@ -98,15 +72,14 @@ const AddGroupMemberModal = memo<AddGroupMemberModalProps>(
         onCancel={handleCancel}
         onOk={handleConfirm}
       >
-        <Flexbox horizontal className={styles.container} gap={8}>
-          {/* Left Column - Available Agents */}
-          <AvailableAgentList agents={availableAgents} isLoading={isLoadingAgents} />
-
-          <Divider orientation={'vertical'} style={{ height: '100%' }} />
-
-          {/* Right Column - Selected Agents */}
-          <SelectedAgentList agents={allAgents} />
-        </Flexbox>
+        <AgentMemberSelection
+          agents={allAgents}
+          disabled={isAdding}
+          existingMembers={existingMembers}
+          isLoading={isLoadingAgents}
+          selectedAgentIds={selectedAgentIds}
+          onChange={setSelectedAgents}
+        />
       </ImperativeModal>
     );
   },
