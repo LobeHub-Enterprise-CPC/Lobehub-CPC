@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
+import { setToolIdNamespace } from '../../engine/tools/ToolNameResolver';
 import type { LobeToolManifest } from '../../engine/tools/types';
 import type { SkillMeta } from '../../providers/SkillContextProvider';
 import type { PipelineContext } from '../../types';
@@ -325,5 +326,50 @@ describe('ActivationResultTrimProcessor', () => {
       expect(result.messages[0]).toBe(original);
       expect(result.metadata.activationResultTrim).toBeUndefined();
     });
+  });
+});
+
+// Regression: the trimmed confirmation used to rebuild `Successfully
+// activated tools: ...` from the canonical `lobe-*` identifier, undoing the
+// wire-namespace swap that `ActivatorExecutionRuntime` already applied to the
+// same text on the first response — so a white-label deployment leaked the
+// `lobe-` prefix back to the model on every request after the first.
+describe('ActivationResultTrimProcessor with a configured tool-id namespace', () => {
+  afterEach(() => {
+    setToolIdNamespace(undefined);
+  });
+
+  it('rewrites the lobe- prefix in the trimmed activateTools confirmation', async () => {
+    setToolIdNamespace('ttw');
+    const processor = new ActivationResultTrimProcessor({ injectedManifests: [credsManifest] });
+    const result = await processor.process(createContext([activateToolsMessage()]));
+
+    const content = result.messages[0].content as string;
+    expect(content).toContain(
+      'Successfully activated tools: ttw-creds.listCreds, ttw-creds.createCred.',
+    );
+    expect(content).not.toContain('lobe-creds');
+  });
+
+  it('rewrites the lobe- prefix in already-active and not-found lists', async () => {
+    setToolIdNamespace('ttw');
+    const processor = new ActivationResultTrimProcessor({ injectedManifests: [credsManifest] });
+    const result = await processor.process(
+      createContext([
+        activateToolsMessage({
+          pluginState: {
+            activatedTools: [{ apiCount: 2, identifier: 'lobe-creds', name: 'Creds' }],
+            alreadyActive: ['lobe-web-browsing'],
+            notFound: ['lobe-nonexistent'],
+          },
+        }),
+      ]),
+    );
+
+    const content = result.messages[0].content as string;
+    expect(content).toContain('Already active: ttw-web-browsing.');
+    expect(content).toContain('Not found: ttw-nonexistent.');
+    expect(content).not.toContain('lobe-web-browsing');
+    expect(content).not.toContain('lobe-nonexistent');
   });
 });

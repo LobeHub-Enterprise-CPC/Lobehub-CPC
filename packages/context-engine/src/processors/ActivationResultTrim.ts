@@ -1,6 +1,7 @@
 import debug from 'debug';
 
 import { BaseProcessor } from '../base/BaseProcessor';
+import { toWireToolIdentifier } from '../engine/tools/ToolNameResolver';
 import type { LobeToolManifest } from '../engine/tools/types';
 import type { SkillMeta } from '../providers/SkillContextProvider';
 import type { Message, PipelineContext, ProcessorOptions } from '../types';
@@ -223,12 +224,17 @@ export class ActivationResultTrimProcessor extends BaseProcessor {
     const parts: string[] = [];
 
     // List the newly callable APIs (`identifier.apiName`) so the model knows
-    // exactly which functions the activation added to the tools array.
+    // exactly which functions the activation added to the tools array. Wire-map
+    // the identifier the same way `ActivatorExecutionRuntime` does at the
+    // source — this trim replaces that already-mapped text, so an unmapped
+    // canonical `lobe-*` identifier here would leak it back in on every
+    // subsequent request.
     const activatedApiNames = activatedTools.flatMap((tool) => {
       const manifest = this.injectedManifestsById.get(tool.identifier!)!;
+      const wireIdentifier = toWireToolIdentifier(tool.identifier!);
       return manifest.api.length > 0
-        ? manifest.api.map((api) => `${tool.identifier}.${api.name}`)
-        : [tool.identifier!];
+        ? manifest.api.map((api) => `${wireIdentifier}.${api.name}`)
+        : [wireIdentifier];
     });
     if (activatedApiNames.length > 0) {
       parts.push(`Successfully activated tools: ${activatedApiNames.join(', ')}.`);
@@ -241,10 +247,10 @@ export class ActivationResultTrimProcessor extends BaseProcessor {
     }
 
     if (state?.alreadyActive?.length) {
-      parts.push(`Already active: ${state.alreadyActive.join(', ')}.`);
+      parts.push(`Already active: ${state.alreadyActive.map(toWireToolIdentifier).join(', ')}.`);
     }
     if (state?.notFound?.length) {
-      parts.push(`Not found: ${state.notFound.join(', ')}.`);
+      parts.push(`Not found: ${state.notFound.map(toWireToolIdentifier).join(', ')}.`);
     }
 
     parts.push('Usage instructions for the activated items are in the system prompt.');
