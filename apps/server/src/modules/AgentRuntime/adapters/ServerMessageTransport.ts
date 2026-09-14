@@ -9,8 +9,7 @@ import type {
 import { parse } from '@lobechat/conversation-flow';
 import type { CreateMessageParams, UIChatMessage, UpdateMessageParams } from '@lobechat/types';
 
-import { type MessageModel } from '@/database/models/message';
-
+import type { RuntimeMessageStore } from '../context';
 import {
   createConversationParentMissingError,
   isMidOperationReferenceMissingError,
@@ -22,7 +21,7 @@ import { unwrapPgError } from '../pgError';
  */
 export class ServerMessageTransport implements MessageTransport {
   constructor(
-    private readonly messageModel: MessageModel,
+    private readonly messageModel: RuntimeMessageStore,
     private readonly options: {
       postProcessUrl?: (
         path: string | null,

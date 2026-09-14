@@ -93,6 +93,31 @@ export interface AgentShareVisitorContext {
 }
 
 /**
+ * Marker for a Channel native-agent run — a member of a multi-agent Channel
+ * discussion executed through `execAgent` off a private transcript.
+ *
+ * Stamped once at operation creation onto `state.principal.actor.channel`
+ * and read back by per-step consumers: Agent Signal emission is suppressed
+ * for the run, and the `channel-artifact` server runtime resolves the
+ * snapshots the member may read from `artifactRunIds` without re-deriving
+ * the Channel's public context.
+ *
+ * SECURITY: always built server-side by the Channel worker from the Run row
+ * it claimed — never from client input.
+ */
+export interface ChannelRunContext {
+  /**
+   * Runs whose published workspace snapshots sit inside this Run's sealed
+   * public context. The only snapshots the member may read.
+   */
+  artifactRunIds: string[];
+  channelId: string;
+  /** Fencing generation of the claimed Run; a stale worker fails closed. */
+  fence: number;
+  runId: string;
+}
+
+/**
  * The billing-safe projection of {@link AgentShareVisitorContext}: only the ids
  * needed to attribute a charge, with every permission / redaction field
  * dropped. This is the ONLY shape allowed to reach spend metadata.
