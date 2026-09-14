@@ -1,4 +1,5 @@
 import { MessageToolIdentifier } from '@lobechat/builtin-tool-message';
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ToolExecutionContext } from '../../types';
@@ -1181,7 +1182,7 @@ describe('messageRuntime', () => {
 
       expect(result.success).toBe(true);
       expect(result.state.status).toBe('queued');
-      expect(result.content).toContain('send any message to the LobeHub WeChat bot');
+      expect(result.content).toContain(`send any message to the ${BRANDING_NAME} WeChat bot`);
     });
 
     it('directs the user to Settings → Messenger when the platform is unlinked', async () => {
