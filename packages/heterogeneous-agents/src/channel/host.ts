@@ -130,11 +130,16 @@ export class CodexChannelHost {
         await file.close();
       }
       await rename(temporary, this.file(key));
-      const directory = await open(this.journalDirectory, 'r');
-      try {
-        await directory.sync();
-      } finally {
-        await directory.close();
+      // Windows refuses to fsync a directory handle (Node reports EPERM), which failed
+      // every receipt write and left Channel runs unconfirmed. NTFS journals the
+      // rename's metadata itself, so the directory sync is a POSIX-only step.
+      if (process.platform !== 'win32') {
+        const directory = await open(this.journalDirectory, 'r');
+        try {
+          await directory.sync();
+        } finally {
+          await directory.close();
+        }
       }
     } finally {
       await unlink(temporary).catch((error) => {
