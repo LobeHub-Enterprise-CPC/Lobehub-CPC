@@ -12,6 +12,15 @@ const alias = {
   // internal implementations whose source files import alias paths that only exist
   // in the outer workspace, causing vite import-analysis to fail when running tests
   // from this repo. Pin the package to the local stub so tests here stay hermetic.
+  // The bare-specifier alias below is a prefix match (no trailing `$`), so
+  // without this entry `@lobechat/business-model-runtime/hooks` also matches
+  // it and gets rewritten to `.../src/index.ts/hooks` — a path under a file,
+  // not a directory. List the subpath first, same as business-model-bank
+  // below, so it wins before the general entry can swallow it.
+  '@lobechat/business-model-runtime/hooks': resolve(
+    __dirname,
+    './packages/business/model-runtime/src/hooks.ts',
+  ),
   '@lobechat/business-model-runtime': resolve(
     __dirname,
     './packages/business/model-runtime/src/index.ts',
