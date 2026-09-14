@@ -407,7 +407,7 @@
   "acceptance.workspace.merge.title": "ادغام پذیرش",
   "acceptance.workspace.merge.windowHint": "فقط {{count}} پذیرش اخیر در اینجا فهرست شده‌اند.",
   "acceptance.workspace.onboarding.agent.description": "این درخواست را به عامل کدنویسی خود کپی کنید و اجازه دهید تنظیمات را کامل کند.",
-  "acceptance.workspace.onboarding.agent.prompt": "https://lobehub.com/acceptance/skill.md را بخوانید و دستورالعمل‌ها را برای نصب Acceptance دنبال کنید.",
+  "acceptance.workspace.onboarding.agent.prompt": "{{url}}/acceptance/skill.md را بخوانید و دستورالعمل‌ها را برای نصب Acceptance دنبال کنید.",
   "acceptance.workspace.onboarding.agent.title": "نصب با یک عامل",
   "acceptance.workspace.onboarding.description": "مهارت Acceptance را به پروژه خود اضافه کنید، سپس یک بازبینی را از عامل کدنویسی خود شروع کنید.",
   "acceptance.workspace.onboarding.enable.description": "این را از ریشه پروژه خود اجرا کنید.",

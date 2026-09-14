@@ -407,7 +407,7 @@
   "acceptance.workspace.merge.title": "承認の統合",
   "acceptance.workspace.merge.windowHint": "ここには最新の{{count}}件の承認のみが表示されます。",
   "acceptance.workspace.onboarding.agent.description": "このプロンプトをコーディングエージェントにコピーして、セットアップを完了させてください。",
-  "acceptance.workspace.onboarding.agent.prompt": "https://lobehub.com/acceptance/skill.md を読み、指示に従ってAcceptanceをインストールしてください。",
+  "acceptance.workspace.onboarding.agent.prompt": "{{url}}/acceptance/skill.md を読み、指示に従ってAcceptanceをインストールしてください。",
   "acceptance.workspace.onboarding.agent.title": "エージェントでインストール",
   "acceptance.workspace.onboarding.description": "プロジェクトにAcceptanceスキルを追加し、コーディングエージェントからレビューを開始してください。",
   "acceptance.workspace.onboarding.enable.description": "プロジェクトのルートディレクトリからこれを実行してください。",

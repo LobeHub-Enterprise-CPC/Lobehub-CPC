@@ -407,7 +407,7 @@
   "acceptance.workspace.merge.title": "Hợp nhất chấp nhận",
   "acceptance.workspace.merge.windowHint": "Chỉ hiển thị {{count}} chấp nhận gần đây nhất ở đây.",
   "acceptance.workspace.onboarding.agent.description": "Sao chép lời nhắc này vào tác nhân mã hóa của bạn và để nó hoàn thành thiết lập.",
-  "acceptance.workspace.onboarding.agent.prompt": "Đọc https://lobehub.com/acceptance/skill.md và làm theo hướng dẫn để cài đặt Acceptance.",
+  "acceptance.workspace.onboarding.agent.prompt": "Đọc {{url}}/acceptance/skill.md và làm theo hướng dẫn để cài đặt Acceptance.",
   "acceptance.workspace.onboarding.agent.title": "Cài đặt với Tác nhân",
   "acceptance.workspace.onboarding.description": "Thêm kỹ năng Acceptance vào dự án của bạn, sau đó bắt đầu đánh giá từ tác nhân mã hóa của bạn.",
   "acceptance.workspace.onboarding.enable.description": "Chạy lệnh này từ thư mục gốc của dự án.",

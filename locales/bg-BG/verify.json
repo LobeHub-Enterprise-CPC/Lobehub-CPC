@@ -407,7 +407,7 @@
   "acceptance.workspace.merge.title": "Сливане на приемка",
   "acceptance.workspace.merge.windowHint": "Само {{count}} от най-скорошните приемки са изброени тук.",
   "acceptance.workspace.onboarding.agent.description": "Копирайте този промпт във вашия кодиращ агент и го оставете да завърши настройката.",
-  "acceptance.workspace.onboarding.agent.prompt": "Прочетете https://lobehub.com/acceptance/skill.md и следвайте инструкциите за инсталиране на Acceptance.",
+  "acceptance.workspace.onboarding.agent.prompt": "Прочетете {{url}}/acceptance/skill.md и следвайте инструкциите за инсталиране на Acceptance.",
   "acceptance.workspace.onboarding.agent.title": "Инсталирайте с агент",
   "acceptance.workspace.onboarding.description": "Добавете умението Acceptance към вашия проект, след което започнете преглед от вашия кодиращ агент.",
   "acceptance.workspace.onboarding.enable.description": "Изпълнете това от кореновата директория на вашия проект.",

@@ -407,7 +407,7 @@
   "acceptance.workspace.merge.title": "Kabulü birleştir",
   "acceptance.workspace.merge.windowHint": "Burada yalnızca en son {{count}} kabul listelenir.",
   "acceptance.workspace.onboarding.agent.description": "Bu komutu kodlama ajanınıza kopyalayın ve kurulumu tamamlamasına izin verin.",
-  "acceptance.workspace.onboarding.agent.prompt": "https://lobehub.com/acceptance/skill.md adresini okuyun ve Acceptance'ı kurmak için talimatları izleyin.",
+  "acceptance.workspace.onboarding.agent.prompt": "{{url}}/acceptance/skill.md adresini okuyun ve Acceptance'ı kurmak için talimatları izleyin.",
   "acceptance.workspace.onboarding.agent.title": "Bir Ajan ile Kurulum Yapın",
   "acceptance.workspace.onboarding.description": "Acceptance becerisini projenize ekleyin ve ardından kodlama ajanınızdan bir inceleme başlatın.",
   "acceptance.workspace.onboarding.enable.description": "Bunu proje kök dizininden çalıştırın.",
