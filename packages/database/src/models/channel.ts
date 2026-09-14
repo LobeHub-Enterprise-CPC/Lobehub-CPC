@@ -299,17 +299,20 @@ export class ChannelModel {
             memberId ? eq(channelRuns.memberId, memberId) : undefined,
           ),
         );
-      for (const run of runs.filter(
-        (run) => !run.publicationRevoked && (!run.writerReleased || !run.publishedMessageId),
-      )) {
+      for (const run of runs) {
+        const revoke = !run.publicationRevoked && (!run.writerReleased || !run.publishedMessageId);
+        if (!revoke && run.physicalStopped) continue;
         await tx
           .update(channelRuns)
           .set({
-            publicationRevoked: true,
-            status: run.writerReleased ? 'stopped' : 'stop_requested',
+            cleanupRequested: !run.physicalStopped,
+            ...(revoke && {
+              publicationRevoked: true,
+              status: run.writerReleased ? 'stopped' : 'stop_requested',
+            }),
           })
           .where(eq(channelRuns.id, run.id));
-        if (!run.writerReleased) await this.outbox(tx, channelId, 'stop', run.id);
+        if (revoke && !run.writerReleased) await this.outbox(tx, channelId, 'stop', run.id);
       }
       await this.audit(
         tx,

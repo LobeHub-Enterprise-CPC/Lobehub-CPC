@@ -170,6 +170,61 @@ it('requires confirmation when the writer is released but physical execution is 
   expect((await storedRun(run.id)).cleanupRequested).toBe(false);
 });
 
+it.each(['archive', 'remove'] as const)(
+  '%s requests cleanup of published background work without changing completed receipts',
+  async (action) => {
+    const { channel, member } = await setup();
+    const [sibling] = await model.addMembers(channel.id, [
+      { name: 'Other Codex', config: { ...original, agentId: 'other-codex' } },
+    ]);
+    const other = await setup();
+    const completed = [];
+    for (const target of [
+      { channel, member },
+      { channel, member },
+      { channel, member: sibling },
+      other,
+    ]) {
+      const job = await send(target.channel.id, target.member.id);
+      const { run } = (await model.claim(target.channel.id, job.id, 0))!;
+      await model.accepted(target.channel.id, run.id, 1, run.sessionId, run.id);
+      await model.saveDraft(target.channel.id, run.id, 1, 'Published reply');
+      await model.publish(target.channel.id, run.id, 1);
+      await model.releaseWriter(target.channel.id, run.id, 1);
+      completed.push(await storedRun(run.id));
+    }
+    const [stopped, background, siblingRun, otherRun] = completed;
+    await model.recordEnvironmentCleanup(channel.id, stopped.id, 1, true);
+
+    await model.retire(channel.id, action === 'remove' ? member.id : undefined);
+    await model.retire(channel.id, action === 'remove' ? member.id : undefined);
+
+    expect(await storedRun(background.id)).toMatchObject({
+      cleanupRequested: true,
+      physicalStopped: false,
+      publicationRevoked: false,
+      publishedMessageId: background.publishedMessageId,
+      status: 'completed',
+      writerReleased: true,
+    });
+    expect(await storedRun(stopped.id)).toMatchObject({
+      cleanupRequested: false,
+      physicalStopped: true,
+      publishedMessageId: stopped.publishedMessageId,
+      status: 'completed',
+    });
+    expect((await storedRun(siblingRun.id)).cleanupRequested).toBe(action === 'archive');
+    expect(await storedRun(otherRun.id)).toEqual(otherRun);
+
+    await model.recordEnvironmentCleanup(channel.id, background.id, 1, true);
+    expect(await storedRun(background.id)).toMatchObject({
+      cleanupRequested: false,
+      physicalStopped: true,
+      status: 'completed',
+    });
+  },
+);
+
 it('isolates the same Agent across Channels, resets every session and cancels old queued instructions', async () => {
   const { channel, member } = await setup();
   const other = await setup();
