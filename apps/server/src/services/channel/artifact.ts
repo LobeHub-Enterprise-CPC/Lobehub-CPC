@@ -4,7 +4,7 @@ import type { CodexChannelSnapshot } from '@lobechat/heterogeneous-agents/channe
 import { and, eq } from 'drizzle-orm';
 
 import { ChannelModel } from '@/database/models/channel';
-import { channelAudit, channelRuns, channels } from '@/database/schemas/channel';
+import { channelAudit, channelRuns, channels } from '@/database/privateSchemas/channel';
 import type { LobeChatDatabase } from '@/database/type';
 import { FileService } from '@/server/services/file';
 

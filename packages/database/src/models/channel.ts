@@ -16,7 +16,7 @@ import {
   channels,
   channelSessions,
   channelThreads,
-} from '../schemas/channel';
+} from '../privateSchemas/channel';
 import type { LobeChatDatabase, Transaction } from '../type';
 import { advanceDiscussions, queueDiscussionTurn, stopDiscussions } from './channelDiscussion';
 import type { ChannelPageOptions } from './channelRead';

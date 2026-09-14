@@ -7,10 +7,11 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { expect, it, vi } from 'vitest';
 
 import { ChannelModel } from '@/database/models/channel';
-import * as schema from '@/database/schemas/channel';
 import type { LobeChatDatabase } from '@/database/type';
 import { isChannelEnabled } from '@/server/services/channel/gate';
 import { ChannelWorker } from '@/server/services/channel/worker';
+
+import * as schema from '../privateSchemas/channel';
 
 const { probe, start } = vi.hoisted(() => ({ probe: vi.fn(), start: vi.fn() }));
 vi.mock('@/server/services/channel/device', () => ({
@@ -45,7 +46,12 @@ it.each(['offline', 'disabled'] as const)(
       );
       await client.exec(
         readFileSync(
-          new URL('../../migrations/0163_channel_mvp.sql', import.meta.url),
+          // Migration ownership moved to the enterprise chain (see
+          // src/privateSchemas/channel.ts) after this test was written.
+          new URL(
+            '../../../../../packages/enterprise/src/database/migrations/0009_channel_mvp.sql',
+            import.meta.url,
+          ),
           'utf8',
         ).replaceAll('--> statement-breakpoint', ''),
       );

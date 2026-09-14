@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 
-import type { channelRuns } from '@/database/schemas/channel';
+import type { channelRuns } from '@/database/privateSchemas/channel';
 import type { LobeChatDatabase } from '@/database/type';
 
 import { channelArtifactCapability } from './artifact';

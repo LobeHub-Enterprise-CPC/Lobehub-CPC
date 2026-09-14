@@ -8,7 +8,7 @@ import {
   channelRuntimeMessages,
   channelRuntimeStates,
   channels,
-} from '../schemas/channel';
+} from '../privateSchemas/channel';
 import type { LobeChatDatabase, Transaction } from '../type';
 import { ChannelError } from './channel';
 
