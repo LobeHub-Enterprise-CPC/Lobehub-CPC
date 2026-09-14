@@ -36,7 +36,7 @@ import {
 const log = debug('lobe-server:tool-execution-service');
 
 interface ToolExecutionServiceDeps {
-  builtinToolsExecutor: BuiltinToolsExecutor;
+  builtinToolsExecutor: Pick<BuiltinToolsExecutor, 'execute'>;
   mcpService: MCPService;
 }
 
@@ -91,7 +91,7 @@ const normalizeExecutionError = (error: unknown, fallbackMessage: string) => {
 };
 
 export class ToolExecutionService {
-  private builtinToolsExecutor: BuiltinToolsExecutor;
+  private builtinToolsExecutor: Pick<BuiltinToolsExecutor, 'execute'>;
   private mcpService: MCPService;
 
   constructor({ mcpService, builtinToolsExecutor }: ToolExecutionServiceDeps) {

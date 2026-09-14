@@ -6,6 +6,7 @@ import path from 'node:path';
 import type { DeviceControlDeps } from '@lobechat/device-control';
 import type { AgentRunRequestMessage, GatewayMcpParams } from '@lobechat/device-gateway-client';
 import type { GatewayConnectionStatus } from '@lobechat/electron-client-ipc';
+import type { CodexChannelHost } from '@lobechat/heterogeneous-agents/channel';
 import type { HeterogeneousAgentCancellationSignal } from '@lobechat/heterogeneous-agents/protocol';
 import type { RemotePlatformCommandRuntime } from '@lobechat/heterogeneous-agents/scanHost';
 import {
@@ -13,6 +14,8 @@ import {
   resolveRemotePlatformRuntime,
 } from '@lobechat/heterogeneous-agents/scanHost';
 import { type ILocalSystemService, LocalSystemExecutionRuntime } from '@lobechat/tool-runtime';
+import type { HeterogeneousProviderConfig } from '@lobechat/types';
+import { app as electronApp } from 'electron';
 
 import AuvService, { type AuvRunCommandParams } from '@/services/auvSrv';
 import GatewayConnectionService from '@/services/gatewayConnectionSrv';
@@ -126,6 +129,31 @@ const safeJsonParse = (input: string): unknown => {
  * Thin IPC layer that delegates to GatewayConnectionService.
  */
 export default class GatewayConnectionCtr extends ControllerModule {
+  private channelHost?: Promise<CodexChannelHost>;
+
+  private getChannelHost() {
+    this.channelHost ??= Promise.all([
+      import('@lobechat/heterogeneous-agents/channel'),
+      import('@/modules/heterogeneousAgent/channelLaunch'),
+    ]).then(
+      ([{ CodexChannelHost }, { createChannelLaunch, createChannelProbe }]) =>
+        new CodexChannelHost(
+          path.join(electronApp.getPath('userData'), 'channel-runs'),
+          createChannelLaunch(
+            {
+              getAccessToken: async () =>
+                this.app.getController(RemoteServerConfigCtr).getAccessToken(),
+              getServerUrl: async () =>
+                this.app.getController(RemoteServerConfigCtr).getRemoteServerUrl(),
+            },
+            this.app.appStoragePath,
+            this.app,
+          ),
+          createChannelProbe(this.app),
+        ),
+    );
+    return this.channelHost;
+  }
   static override readonly groupName = 'gatewayConnection';
 
   /** In-memory registry for running hetero agent tasks (openclaw / hermes / local-cli dispatch). */
@@ -486,7 +514,53 @@ export default class GatewayConnectionCtr extends ControllerModule {
     );
     if (localSystemOutput) return localSystemOutput;
 
+    if (
+      ['channelProbe', 'channelStart', 'channelInspect', 'channelStop', 'channelApprove'].includes(
+        apiName,
+      )
+    )
+      logger.debug('Channel device operation', { apiName });
+
     switch (apiName) {
+      case 'channelProbe': {
+        const input = args as {
+          cwd: string;
+          runtime?: Parameters<CodexChannelHost['probe']>[1];
+          provider?: HeterogeneousProviderConfig;
+        };
+        const result = await (
+          await this.getChannelHost()
+        ).probe(input.cwd, input.runtime, input.provider);
+        return { content: JSON.stringify(result), success: true };
+      }
+      case 'channelStart': {
+        const host = await this.getChannelHost();
+        const result = await host.start(args as Parameters<typeof host.start>[0]);
+        return { content: JSON.stringify(result), success: true };
+      }
+      case 'channelInspect':
+      case 'channelStop': {
+        const input = args as { ownerId: string; runId: string; fence: number };
+        const host = await this.getChannelHost();
+        const result =
+          apiName === 'channelStop'
+            ? await host.stop(input.ownerId, input.runId, input.fence)
+            : await host.inspect(input.ownerId, input.runId);
+        return { content: JSON.stringify(result), success: true };
+      }
+      case 'channelApprove': {
+        const input = args as {
+          ownerId: string;
+          runId: string;
+          fence: number;
+          approvalId: string;
+          approved: boolean;
+        };
+        await (
+          await this.getChannelHost()
+        ).approve(input.ownerId, input.runId, input.fence, input.approvalId, input.approved);
+        return { content: '{}', success: true };
+      }
       // ─── Platform agent tools (openclaw / hermes) ───
       // These don't go through LocalSystemExecutionRuntime — they return raw
       // domain payloads that we envelope into BuiltinServerRuntimeOutput here.

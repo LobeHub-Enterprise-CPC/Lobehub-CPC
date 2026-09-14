@@ -559,11 +559,15 @@ export class AgentModel {
    * Build the where condition shared by queryAgents / countAgents:
    * non-virtual agents of the current user, with optional keyword filter.
    */
-  private buildQueryAgentsWhere = (keyword?: string) => {
+  private buildQueryAgentsWhere = (keyword?: string, includeInbox = false) => {
     // Include agents where virtual is false OR null (legacy data without virtual field)
     const baseConditions = and(
       this.ownership(),
-      or(eq(agents.virtual, false), isNull(agents.virtual)),
+      or(
+        eq(agents.virtual, false),
+        isNull(agents.virtual),
+        includeInbox ? eq(agents.slug, INBOX_SESSION_ID) : undefined,
+      ),
     );
 
     // Add keyword search condition if provided
@@ -582,11 +586,16 @@ export class AgentModel {
    * transfer is creator/primary-owner only), and a compact `heteroType` derived
    * from `agencyConfig` so callers can tell which results are heterogeneous
    * (external CLI/device) agents.
-   * Excludes virtual agents (like inbox, supervisors, etc).
+   * Excludes virtual agents, with an opt-in for the user-facing inbox Agent.
    */
-  queryAgents = async (params?: { keyword?: string; limit?: number; offset?: number }) => {
-    const { keyword, limit = 9999, offset = 0 } = params ?? {};
-    const searchCondition = this.buildQueryAgentsWhere(keyword);
+  queryAgents = async (params?: {
+    includeInbox?: boolean;
+    keyword?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const { includeInbox, keyword, limit = 9999, offset = 0 } = params ?? {};
+    const searchCondition = this.buildQueryAgentsWhere(keyword, includeInbox);
 
     const rows = await this.db
       .select({
@@ -607,10 +616,15 @@ export class AgentModel {
       .limit(limit)
       .offset(offset);
 
-    // Surface only the hetero runtime type, not the full agencyConfig payload.
+    // Surface runtime and device binding, not the full agencyConfig payload.
     return rows.map(({ slug, agencyConfig, ...row }) =>
       normalizeInboxAgentMeta(
-        { ...row, heteroType: agencyConfig?.heterogeneousProvider?.type },
+        {
+          ...row,
+          boundDeviceId:
+            agencyConfig?.executionTarget === 'device' ? agencyConfig.boundDeviceId : undefined,
+          heteroType: agencyConfig?.heterogeneousProvider?.type,
+        },
         { slug },
       ),
     );

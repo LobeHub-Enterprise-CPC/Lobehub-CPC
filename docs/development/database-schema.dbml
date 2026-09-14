@@ -1092,6 +1092,232 @@ table verifications {
   }
 }
 
+table channel_approvals {
+  id text [pk, not null]
+  run_id text [not null]
+  request jsonb [not null]
+  decision text
+  expires_at "timestamp with time zone" [not null]
+  created_at "timestamp with time zone" [not null, default: `now()`]
+
+  indexes {
+    run_id [name: 'channel_approvals_run_idx']
+  }
+}
+
+table channel_audit {
+  id text [pk, not null]
+  channel_id text [not null]
+  event text [not null]
+  target_id text [not null]
+  details jsonb [not null, default: `{}`]
+  created_at "timestamp with time zone" [not null, default: `now()`]
+
+  indexes {
+    (channel_id, event, created_at) [name: 'channel_audit_channel_event_idx']
+    (target_id, event, created_at) [name: 'channel_audit_target_event_idx']
+  }
+}
+
+table channel_discussions {
+  id text [pk, not null]
+  channel_id text [not null]
+  request_message_id text [not null]
+  thread_id text
+  participant_ids jsonb [not null]
+  max_rounds integer [not null]
+  round integer [not null, default: 1]
+  turns_published integer [not null, default: 0]
+  status text [not null, default: 'active']
+  end_reason text
+  summary_message_id text
+  created_at "timestamp with time zone" [not null, default: `now()`]
+
+  indexes {
+    (channel_id, status) [name: 'channel_discussions_channel_status_idx']
+    request_message_id [name: 'channel_discussions_request_idx']
+  }
+}
+
+table channel_jobs {
+  id text [pk, not null]
+  channel_id text [not null]
+  member_id text [not null]
+  message_id text [not null]
+  thread_id text
+  discussion_id text
+  task jsonb
+  delivery_key text [not null, default: 'initial']
+  status text [not null, default: 'queued']
+  blocked_reason text
+  created_at "timestamp with time zone" [not null, default: `now()`]
+
+  indexes {
+    (message_id, member_id, delivery_key) [name: 'channel_jobs_delivery_idx', unique]
+    (channel_id, id) [name: 'channel_jobs_scope_idx', unique]
+    (status, created_at) [name: 'channel_jobs_queue_idx']
+    (channel_id, status) [name: 'channel_jobs_channel_status_idx']
+    
+    
+    
+  }
+}
+
+table channel_members {
+  id text [pk, not null]
+  channel_id text [not null]
+  name text [not null]
+  description text [not null, default: '']
+  config jsonb [not null]
+  active boolean [not null, default: true]
+  execution_paused boolean [not null, default: false]
+  environment_revision integer [not null, default: 0]
+  environment_cutoff integer [not null, default: 0]
+  created_at "timestamp with time zone" [not null, default: `now()`]
+
+  indexes {
+    (channel_id, id) [name: 'channel_members_scope_idx', unique]
+  }
+}
+
+table channel_messages {
+  id text [pk, not null]
+  channel_id text [not null]
+  thread_id text
+  sequence integer [not null]
+  author_member_id text
+  content text [not null]
+  mentions jsonb [not null, default: `[]`]
+  request_key text [not null]
+  reply_to_id text
+  routing_status text [not null]
+  routing_reason text
+  created_at "timestamp with time zone" [not null, default: `now()`]
+
+  indexes {
+    (channel_id, id) [name: 'channel_messages_scope_idx', unique]
+    (channel_id, sequence) [name: 'channel_messages_seq_idx', unique]
+    (channel_id, thread_id, sequence) [name: 'channel_messages_thread_sequence_idx']
+    (channel_id, thread_id, sequence) [name: 'channel_messages_request_sequence_idx']
+    (channel_id, id) [name: 'channel_messages_routing_pending_idx']
+    (channel_id, request_key) [name: 'channel_messages_request_idx', unique]
+    
+    
+  }
+}
+
+table channel_outbox {
+  id text [pk, not null]
+  channel_id text [not null]
+  kind text [not null]
+  target_id text [not null]
+  processed boolean [not null, default: false]
+  created_at "timestamp with time zone" [not null, default: `now()`]
+
+  indexes {
+    (processed, created_at) [name: 'channel_outbox_pending_idx']
+  }
+}
+
+table channel_runs {
+  id text [pk, not null]
+  channel_id text [not null]
+  job_id text [not null]
+  member_id text [not null]
+  session_id text [not null]
+  status text [not null, default: 'starting']
+  activity text
+  fence integer [not null, default: 1]
+  execution_fence integer [not null, default: 1]
+  execution_config jsonb
+  environment_revision integer [not null, default: 0]
+  physical_stopped boolean [not null, default: false]
+  cleanup_requested boolean [not null, default: false]
+  environment_error text
+  manifest jsonb [not null]
+  acceptance text [not null, default: 'pending']
+  native_turn_id text
+  publication_revoked boolean [not null, default: false]
+  writer_released boolean [not null, default: false]
+  draft text
+  publication_status text [not null, default: 'pending']
+  published_message_id text
+  error text
+  created_at "timestamp with time zone" [not null, default: `now()`]
+
+  indexes {
+    job_id [name: 'channel_runs_job_idx', unique]
+    channel_id [name: 'channel_runs_channel_idx']
+    (channel_id, id) [name: 'channel_runs_unsettled_idx']
+    member_id [name: 'channel_runs_active_member_idx', unique]
+    
+    
+  }
+}
+
+table channel_runtime_messages {
+  id text [pk, not null]
+  session_id text [not null]
+  run_id text [not null]
+  stable_key text [not null]
+  data jsonb [not null]
+  created_at "timestamp with time zone" [not null, default: `now()`]
+
+  indexes {
+    (session_id, stable_key) [name: 'channel_runtime_messages_key_idx', unique]
+  }
+}
+
+table channel_runtime_states {
+  session_id text [pk, not null]
+  run_id text [not null]
+  state jsonb [not null]
+}
+
+table channel_sessions {
+  id text [pk, not null]
+  channel_id text [not null]
+  member_id text [not null]
+  scope text [not null]
+  generation integer [not null, default: 1]
+  native_session_id text
+  accepted_message_ids jsonb [not null, default: `[]`]
+  created_at "timestamp with time zone" [not null, default: `now()`]
+
+  indexes {
+    (member_id, scope) [name: 'channel_sessions_member_scope_idx', unique]
+    
+  }
+}
+
+table channel_threads {
+  id text [pk, not null]
+  channel_id text [not null]
+  root_message_id text [not null]
+  root_sequence integer [not null]
+  follower_member_ids jsonb [not null, default: `[]`]
+  created_at "timestamp with time zone" [not null, default: `now()`]
+
+  indexes {
+    (channel_id, root_message_id) [name: 'channel_threads_root_idx', unique]
+    (channel_id, id) [name: 'channel_threads_scope_idx', unique]
+    
+  }
+}
+
+table channels {
+  id text [pk, not null]
+  owner_id text [not null]
+  title text [not null]
+  sequence integer [not null, default: 0]
+  archived boolean [not null, default: false]
+  created_at "timestamp with time zone" [not null, default: `now()`]
+
+  indexes {
+    owner_id [name: 'channels_owner_idx']
+  }
+}
+
 table chat_groups {
   id text [pk, not null]
   title text
@@ -1139,49 +1365,6 @@ table chat_groups_agents {
     (chat_group_id, agent_id) [pk]
     user_id [name: 'chat_groups_agents_user_id_idx']
     workspace_id [name: 'chat_groups_agents_workspace_id_idx']
-  }
-}
-
-table command_execution_logs {
-  id uuid [pk, not null, default: `gen_random_uuid()`]
-  user_id text [not null]
-  execution_target text [not null]
-  device_id text
-  tool_identifier text [not null]
-  api_name text [not null]
-  command_text text
-  blocked boolean [not null]
-  matched_rule_id uuid
-  path text
-  policy_field text
-  success boolean
-  error_message text
-  duration_ms integer
-  created_at "timestamp with time zone" [not null, default: `now()`]
-
-  indexes {
-    user_id [name: 'command_execution_logs_user_id_idx']
-    created_at [name: 'command_execution_logs_created_at_idx']
-    execution_target [name: 'command_execution_logs_execution_target_idx']
-    blocked [name: 'command_execution_logs_blocked_idx']
-  }
-}
-
-table command_governance_rules {
-  id uuid [pk, not null, default: `gen_random_uuid()`]
-  user_id text [not null]
-  pattern text [not null]
-  pattern_type text [not null]
-  scope text [not null, default: 'all']
-  action text [not null, default: 'deny']
-  enabled boolean [not null, default: true]
-  created_by text
-  created_at "timestamp with time zone" [not null, default: `now()`]
-  updated_at "timestamp with time zone" [not null, default: `now()`]
-
-  indexes {
-    user_id [name: 'command_governance_rules_user_id_idx']
-    (user_id, enabled) [name: 'command_governance_rules_user_id_enabled_idx']
   }
 }
 
@@ -3705,23 +3888,6 @@ table users {
     created_at [name: 'users_created_at_idx']
     created_at [name: 'users_banned_true_created_at_idx']
   }
-}
-
-table user_execution_policies {
-  id uuid [pk, not null, default: `gen_random_uuid()`]
-  user_id text [not null, unique]
-  enabled boolean [not null, default: true]
-  writable_roots jsonb [not null, default: `[]`]
-  readable_roots jsonb
-  denied_write_roots jsonb
-  denied_read_roots jsonb
-  allow_network boolean [not null, default: false]
-  allowed_network_domains jsonb
-  env_allowlist jsonb
-  command_mode text [not null, default: 'sandbox']
-  created_by text
-  created_at "timestamp with time zone" [not null, default: `now()`]
-  updated_at "timestamp with time zone" [not null, default: `now()`]
 }
 
 table user_memories {

@@ -24,12 +24,12 @@ import {
 import { AiModelModel } from '@/database/models/aiModel';
 import { TopicModel } from '@/database/models/topic';
 
-import type { RuntimeExecutorContext } from '../context';
+import type { RuntimeContextBuilderContext } from '../context';
 import { log } from '../executorHelpers';
 import { resolveModelMediaCapabilities } from '../resolveModelMediaCapabilities';
 
 interface ResolveServerCallLlmContextHintsInput {
-  ctx: RuntimeExecutorContext;
+  ctx: RuntimeContextBuilderContext;
   llmPayload: CallLLMPayload;
   model: string;
   provider: string;

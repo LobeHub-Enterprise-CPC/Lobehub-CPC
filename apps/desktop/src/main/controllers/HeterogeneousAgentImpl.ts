@@ -132,6 +132,10 @@ import {
   type ServerDefaultOperationSettlement,
   settleServerDefaultOperation,
 } from '@/modules/heterogeneousAgent/providerBindingPort';
+import {
+  buildDesktopSpawnEnv,
+  buildInheritedSpawnEnv,
+} from '@/modules/heterogeneousAgent/spawnEnvironment';
 import type {
   HeterogeneousAgentBuildPlan,
   HeterogeneousAgentImageAttachment,
@@ -144,32 +148,7 @@ import RemoteServerConfigCtr from './RemoteServerConfigCtr';
 
 const logger = createLogger('controllers:HeterogeneousAgentCtr');
 
-// Anthropic auth env vars that must NOT be inherited from the desktop process
-// when spawning a local CLI agent. A developer with `ANTHROPIC_API_KEY` (or an
-// auth token / base url) exported in their shell would otherwise have it
-// forwarded to `claude`, which then switches from its own subscription login to
-// that key — an expired / wrong key surfaces as a baffling "Invalid API key"
-// and the run exits non-zero. Agents that genuinely want an API key still set
-// it through `session.env`, which is spread AFTER the inherited env below and
-// therefore wins.
-const STRIPPED_INHERITED_ENV_KEYS = [
-  'ANTHROPIC_API_KEY',
-  'ANTHROPIC_AUTH_TOKEN',
-  'ANTHROPIC_BASE_URL',
-] as const;
-
-/**
- * Inherited `process.env` with the Anthropic auth vars removed. Keep this pure
- * and exported so the "never leak host Anthropic creds into the CLI" invariant
- * can be unit-tested directly.
- */
-export const buildInheritedSpawnEnv = (
-  sourceEnv: NodeJS.ProcessEnv = process.env,
-): NodeJS.ProcessEnv => {
-  const env = { ...sourceEnv };
-  for (const key of STRIPPED_INHERITED_ENV_KEYS) delete env[key];
-  return env;
-};
+export { buildInheritedSpawnEnv } from '@/modules/heterogeneousAgent/spawnEnvironment';
 
 const appendLoopbackNoProxy = (env: NodeJS.ProcessEnv): void => {
   const entries = new Set(
@@ -914,23 +893,13 @@ export default class HeterogeneousAgentCtr {
   }
 
   private buildSessionSpawnEnv(session: AgentSession): NodeJS.ProcessEnv {
-    // Forward the user's proxy settings to the CLI/SDK subprocess. The
-    // main-process undici dispatcher doesn't reach child processes — they need
-    // env vars.
-    const proxyEnv = buildProxyEnv(this.app.storeManager.get('networkProxy'));
-    const inheritedEnv = buildInheritedSpawnEnv();
-    // When preflight resolved the CLI via the login-shell PATH, spawn with
-    // that PATH (a superset of the inherited one) so a `#!/usr/bin/env node`
-    // shim finds its interpreter. `session.env` still wins if it sets PATH.
-    if (session.resolvedCommandSearchPath) inheritedEnv.PATH = session.resolvedCommandSearchPath;
-    const env: NodeJS.ProcessEnv = {
-      ...inheritedEnv,
-      ...proxyEnv,
-      ...(session.agentType === 'codebuddy'
-        ? { CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS: '1' }
-        : {}),
-      ...session.env,
-    };
+    const env = buildDesktopSpawnEnv({
+      agentType: session.agentType,
+      env: session.env,
+      providerBound: !!session.hostedProviderBinding,
+      proxy: this.app.storeManager.get('networkProxy'),
+      searchPath: session.resolvedCommandSearchPath,
+    });
     const operationTokenEnvKey = session.hostedProviderBinding?.operationTokenEnvKey;
     if (session.serverOperationToken && operationTokenEnvKey) {
       env[operationTokenEnvKey] = session.serverOperationToken;
@@ -941,13 +910,6 @@ export default class HeterogeneousAgentCtr {
       env.KIMI_MODEL_BASE_URL?.startsWith('http://127.0.0.1:')
     ) {
       appendLoopbackNoProxy(env);
-    }
-    if (session.agentType === 'grok-build' && session.hostedProviderBinding) {
-      // Empty XAI_API_KEY values still count as configured in Grok and can
-      // trigger an empty-key probe. Remove both current and legacy inherited
-      // credentials so the managed model's env_key is the only BYOK source.
-      delete env.GROK_CODE_XAI_API_KEY;
-      delete env.XAI_API_KEY;
     }
     return env;
   }
