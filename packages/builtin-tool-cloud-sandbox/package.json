@@ -12,6 +12,7 @@
   "dependencies": {
     "@lobechat/builtin-tool-local-system": "workspace:*",
     "@lobechat/business-const": "workspace:*",
+    "@lobechat/prompts": "workspace:*",
     "@lobechat/shared-tool-ui": "workspace:*",
     "@lobechat/tool-runtime": "workspace:*"
   },

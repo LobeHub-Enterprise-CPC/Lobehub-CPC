@@ -38,7 +38,22 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
 
     const agentModel = new AgentModel(context.serverDB, userId, context.workspaceId);
     const pluginModel = new PluginModel(context.serverDB, userId, context.workspaceId);
-    const discoverService = new DiscoverService();
+    /**
+     * Market list endpoints require an authenticated caller, and `DiscoverService`
+     * only signs a trusted-client token when it is given an identity — built
+     * without one it sends no credentials at all and every market read fails as
+     * `unauthorized`, which `searchMarketTools` surfaces as a plain tool failure
+     * the model silently works around. `workspaceId` additionally attributes the
+     * read to the workspace rather than the personal account.
+     */
+    const discoverService = new DiscoverService({
+      userInfo: { userId, workspaceId: context.workspaceId },
+    });
+    // No factory-scoped `AiInfraRepos`/`aiInfraRepos` here on purpose: this
+    // deployment overrides the raw constructor with `createAiInfraRepos()`
+    // (imported above), built fresh per call below — see that call site's
+    // comment for why a factory-scoped instance misreports the branded
+    // provider as disabled.
 
     return {
       getAvailableModels: async (

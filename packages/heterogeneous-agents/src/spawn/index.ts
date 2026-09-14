@@ -84,6 +84,16 @@ export {
   normalizeCursorQuestion,
 } from './cursorAcpSession';
 export {
+  buildDevinAcpArgs,
+  buildDevinAcpPrompt,
+  type DevinAcpImagePromptBlock,
+  type DevinAcpPromptBlock,
+  DevinAcpSession,
+  type DevinAcpSessionOptions,
+  type DevinAcpTextPromptBlock,
+  isDevinAcpSessionNotFoundError,
+} from './devinAcpSession';
+export {
   buildDroidAcpArgs,
   buildDroidAcpPrompt,
   type DroidAcpImagePromptBlock,

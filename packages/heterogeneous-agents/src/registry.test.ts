@@ -7,6 +7,7 @@ import {
   CodexAdapter,
   CursorAcpAdapter,
   CursorAdapter,
+  DevinAcpAdapter,
   DroidAcpAdapter,
   GrokBuildAdapter,
   KimiCodeAdapter,
@@ -54,6 +55,10 @@ describe('registry', () => {
     it('creates a DroidAcpAdapter for Droid and its ACP runtime alias', () => {
       expect(createAdapter('droid')).toBeInstanceOf(DroidAcpAdapter);
       expect(createAdapter('droid-acp')).toBeInstanceOf(DroidAcpAdapter);
+    });
+
+    it('creates a DevinAcpAdapter for "devin"', () => {
+      expect(createAdapter('devin')).toBeInstanceOf(DevinAcpAdapter);
     });
 
     it('creates a GrokBuildAdapter for "grok-build"', () => {

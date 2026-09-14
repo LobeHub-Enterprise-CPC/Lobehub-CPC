@@ -296,7 +296,6 @@ const ScrollableAgentList = memo<{ children: ReactNode }>(({ children }) => (
     disableContentFit
     scrollFade
     className={styles.groupList}
-    contentProps={{ style: { display: 'block' } }}
     scrollbarProps={{ className: styles.agentListScrollbar }}
     thumbProps={{ className: styles.agentListThumb }}
     viewportProps={{ className: styles.agentListViewport }}

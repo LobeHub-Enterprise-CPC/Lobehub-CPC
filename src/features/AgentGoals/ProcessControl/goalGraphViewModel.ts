@@ -132,6 +132,32 @@ export const hasReviewableResult = (view: GoalNodeView): boolean => {
   return view.node.status === 'resolved' || view.isVerifying;
 };
 
+/**
+ * Whether clicking a Task node opens its result surface rather than the
+ * original Task detail. A delivery to read opens there, and so does a healthy
+ * run in flight: the result panel shows the live run as it happens, and the
+ * same panel turns into the report once the run settles — one place to watch
+ * and then read. Troubled Tasks still open the original Task detail.
+ */
+export const opensOnResultSurface = (view: GoalNodeView): boolean => {
+  if (view.node.kind !== 'task') return false;
+  if (isTroubledTaskNode(view)) return false;
+  return hasReviewableResult(view) || isRunningNode(view);
+};
+
+/**
+ * Whether a node reads as "running" on the map — the animated ring, the chip
+ * and the elapsed clock all hang off this.
+ *
+ * A question is excluded: an open question is not work in flight, its state is
+ * whether it has an answer yet, and the card already says that. A "Running"
+ * chip on a question that nobody is working promises activity that isn't there.
+ */
+export const isRunningNode = (view: GoalNodeView): boolean => {
+  if (view.node.kind === 'problem') return false;
+  return view.node.status === 'active' && !view.isStale;
+};
+
 export type FrontierItemKind = 'gate' | 'stale' | 'verifying' | 'running' | 'ready' | 'done';
 
 export interface FrontierItem {
