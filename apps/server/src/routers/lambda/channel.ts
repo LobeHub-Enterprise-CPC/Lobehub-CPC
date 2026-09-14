@@ -10,6 +10,7 @@ import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { getChannelArtifactUrl } from '@/server/services/channel/artifact';
 import { ChannelDevice } from '@/server/services/channel/device';
 import { isChannelEnabled } from '@/server/services/channel/gate';
+import { isChannelGatewayReady } from '@/server/services/channel/gateway';
 import { resolveChannelMembers } from '@/server/services/channel/members';
 import { loadChannelNativeCapabilities } from '@/server/services/channel/native/capabilities';
 import { watchChannel } from '@/server/services/channel/watch';
@@ -21,6 +22,11 @@ const channelProcedure = authedProcedure.use(serverDatabase).use(async ({ ctx, n
     throw new TRPCError({
       code: 'FORBIDDEN',
       message: 'Channel preview is not enabled for this account',
+    });
+  if (!(await isChannelGatewayReady()))
+    throw new TRPCError({
+      code: 'SERVICE_UNAVAILABLE',
+      message: 'Channel service is unavailable',
     });
   const result = await next({ ctx: { channelModel: new ChannelModel(ctx.serverDB, ctx.userId) } });
   if (!result.ok && result.error.cause instanceof ChannelError) {
@@ -75,7 +81,10 @@ async function prepareMembers(
 
 export const channelRouter = router({
   availability: authedProcedure.use(serverDatabase).query(async ({ ctx }) => ({
-    enabled: !ctx.workspaceId && (await isChannelEnabled(ctx.serverDB, ctx.userId)),
+    enabled:
+      !ctx.workspaceId &&
+      (await isChannelEnabled(ctx.serverDB, ctx.userId)) &&
+      (await isChannelGatewayReady()),
   })),
   validateEnvironment: channelProcedure
     .input(environment.extend({ agentId: channelId }).strict())
