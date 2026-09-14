@@ -38,8 +38,10 @@ export interface ChannelReceipts {
 }
 
 function jobState(job: Job, run: Run | undefined, paused: boolean): ReceiptState {
-  if (run?.publicationRevoked || run?.status === 'stop_requested')
-    return run.writerReleased && run.physicalStopped ? 'cancelled' : 'stop_requested';
+  const cancelled =
+    job.status === 'cancelled' || ['stop_requested', 'stopped'].includes(run?.status || '');
+  if (cancelled)
+    return !run || (run.writerReleased && run.physicalStopped) ? 'cancelled' : 'stop_requested';
   if (run?.status === 'execution_unknown') return 'execution_unknown';
   if (run?.status === 'awaiting_approval') return 'awaiting_approval';
   if (run?.status === 'failed' || job.status === 'failed') return 'failed';
@@ -49,7 +51,6 @@ function jobState(job: Job, run: Run | undefined, paused: boolean): ReceiptState
   if (run?.publishedMessageId) return 'replied';
   if (run?.publicationStatus === 'yielded') return 'yielded';
   if (run?.publicationStatus === 'held') return 'held';
-  if (job.status === 'cancelled' || run?.status === 'stopped') return 'cancelled';
   if (job.status === 'queued') {
     if (paused) return 'paused';
     if (job.blockedReason)

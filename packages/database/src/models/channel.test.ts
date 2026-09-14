@@ -183,6 +183,25 @@ describe('Channel durable boundaries', () => {
     });
   });
 
+  it('preserves cancellation when a stopped native runtime reports failure before release', async () => {
+    const { c, a } = await setup();
+    await model.send(c.id, { content: 'Stop', mentions: [a.id], requestKey: randomUUID() });
+    const detail = await model.detail(c.id);
+    const { run } = (await model.claim(c.id, detail.jobs[0].id))!;
+    await model.stop(c.id, { runId: run.id });
+    await model.fail(c.id, run.id, 1, 'Process exited after SIGTERM');
+    await model.releaseWriter(c.id, run.id, 1);
+
+    const stopped = await model.detail(c.id);
+    expect(stopped.jobs[0].status).toBe('cancelled');
+    expect(stopped.runs[0]).toMatchObject({
+      error: null,
+      physicalStopped: true,
+      status: 'stopped',
+      writerReleased: true,
+    });
+  });
+
   it('revokes an already released unpublished draft without leaving stop_requested', async () => {
     const { c, a } = await setup();
     await model.send(c.id, { content: 'Draft', mentions: [a.id], requestKey: randomUUID() });

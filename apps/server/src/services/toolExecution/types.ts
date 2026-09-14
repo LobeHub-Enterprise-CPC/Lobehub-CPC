@@ -361,6 +361,8 @@ export interface ToolExecutionResult {
   error?: any;
   /** Structured unavailable-device context preserved through the runtime error envelope. */
   errorData?: DeviceUnavailableErrorData;
+  /** Device dispatch may have happened, but no terminal execution result was observed. */
+  executionUnknown?: boolean;
   state?: Record<string, any>;
   success: boolean;
   /**

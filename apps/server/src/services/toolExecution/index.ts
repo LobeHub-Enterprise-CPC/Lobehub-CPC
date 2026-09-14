@@ -455,6 +455,7 @@ export class ToolExecutionService {
           message: result.error || result.content,
         },
         errorData: result.errorData,
+        ...(result.executionUnknown && { executionUnknown: true }),
         success: false,
       };
     }

@@ -31,12 +31,14 @@ export function channelActivity(data: Detail, threadId: string | null) {
         ) ||
         jobs.find((item) => item.status === 'running') ||
         jobs.find((item) => item.status === 'queued') ||
-        jobs.find((item) => item.messageId === latest?.id && item.status === 'failed');
+        jobs.find(
+          (item) => item.messageId === latest?.id && ['cancelled', 'failed'].includes(item.status),
+        );
       if (!job) return [];
       const run = data.runs.find((item) => item.jobId === job.id);
-      // Cancellation may surface as a failed runtime result. Once cleanup is confirmed,
-      // it is no longer an active stop request (nor a new error for this discussion).
-      if (run?.publicationRevoked && run.writerReleased && run.physicalStopped) return [];
+      const cancelled =
+        job.status === 'cancelled' || ['stop_requested', 'stopped'].includes(run?.status || '');
+      if (cancelled && (!run || (run.writerReleased && run.physicalStopped))) return [];
       let state: ActivityState = 'queued';
       if (member.executionPaused && (!run || run.writerReleased)) state = 'paused';
       else if (job.blockedReason)
@@ -44,7 +46,7 @@ export function channelActivity(data: Detail, threadId: string | null) {
           ? 'offline'
           : 'unavailable';
       else if (run) {
-        if (run.publicationRevoked || run.status === 'stop_requested') state = 'stop_requested';
+        if (cancelled) state = 'stop_requested';
         else if (
           ['starting', 'running', 'awaiting_approval', 'execution_unknown', 'failed'].includes(
             run.status,

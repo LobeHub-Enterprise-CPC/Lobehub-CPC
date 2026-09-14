@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import { createElement } from 'react';
+import { afterEach, describe, expect, it } from 'vitest';
 
+import { ReceiptStatus } from './MessageReceipts';
 import {
   buildChannelReceipts,
   type ChannelDetail,
@@ -56,6 +59,8 @@ const fixture = () =>
   }) as unknown as ChannelDetail;
 
 const receipt = (data: ChannelDetail) => buildChannelReceipts(data).byMessage.get('request')![0];
+
+afterEach(cleanup);
 
 describe('Channel request receipts', () => {
   it('keeps actual historical recipients after roster and thread follower changes', () => {
@@ -184,6 +189,40 @@ describe('Channel request receipts', () => {
     expect(receipt(data)).toMatchObject({ pending: true, state: 'stop_requested' });
     data.runs[0].physicalStopped = true;
     expect(receipt(data)).toMatchObject({ pending: false, state: 'cancelled' });
+  });
+
+  it.each(['failed', 'execution_unknown'] as const)(
+    'does not turn a revoked genuine %s execution into cancellation',
+    (status) => {
+      const data = fixture();
+      data.jobs[0].status = 'failed';
+      data.runs[0].status = status;
+      data.runs[0].publicationRevoked = true;
+      data.runs[0].writerReleased = true;
+      data.runs[0].physicalStopped = status === 'failed';
+      expect(receipt(data)).toMatchObject({
+        pending: status === 'execution_unknown',
+        state: status,
+      });
+      render(createElement(ReceiptStatus, { state: receipt(data).state }));
+      expect(screen.getByText(`receipt.state.${status}`)).toHaveAttribute('data-tone', 'error');
+      expect(screen.queryByText('receipt.state.cancelled')).not.toBeInTheDocument();
+    },
+  );
+
+  it('keeps cancellation after runtime failure and waits for heterogeneous physical stop', () => {
+    const data = fixture();
+    data.jobs[0].status = 'cancelled';
+    data.runs[0].status = 'failed';
+    data.runs[0].publicationRevoked = true;
+    data.runs[0].writerReleased = true;
+    data.runs[0].physicalStopped = false;
+    expect(receipt(data)).toMatchObject({ pending: true, state: 'stop_requested' });
+    data.runs[0].physicalStopped = true;
+    expect(receipt(data)).toMatchObject({ pending: false, state: 'cancelled' });
+    render(createElement(ReceiptStatus, { state: receipt(data).state }));
+    expect(screen.getByText('receipt.state.cancelled')).toHaveAttribute('data-tone', 'quiet');
+    expect(screen.queryByText('receipt.state.failed')).not.toBeInTheDocument();
   });
 
   it('retains unknown execution as active without treating it as a successful reply', () => {

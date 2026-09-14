@@ -1431,11 +1431,23 @@ export class ChannelModel {
   ) {
     await this.db.transaction(async (tx) => {
       const run = await this.fenced(tx, channelId, runId, fence, true);
+      const [job] = await tx
+        .select({ status: channelJobs.status })
+        .from(channelJobs)
+        .where(eq(channelJobs.id, run.jobId));
+      const cancelled =
+        job?.status === 'cancelled' || ['stop_requested', 'stopped'].includes(run.status);
       await tx
         .update(channelRuns)
         .set({
-          error: message,
-          status: executionUnknown ? 'execution_unknown' : 'failed',
+          error: cancelled ? null : message,
+          status: cancelled
+            ? run.writerReleased
+              ? 'stopped'
+              : 'stop_requested'
+            : executionUnknown
+              ? 'execution_unknown'
+              : 'failed',
           publicationRevoked: true,
           ...(notSubmitted && {
             writerReleased: true,
@@ -1445,7 +1457,8 @@ export class ChannelModel {
           }),
         })
         .where(eq(channelRuns.id, run.id));
-      await tx.update(channelJobs).set({ status: 'failed' }).where(eq(channelJobs.id, run.jobId));
+      if (!cancelled)
+        await tx.update(channelJobs).set({ status: 'failed' }).where(eq(channelJobs.id, run.jobId));
       await this.audit(tx, channelId, 'execution_failed', run.id, {
         message,
         executionUnknown,

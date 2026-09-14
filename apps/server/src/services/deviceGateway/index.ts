@@ -1554,7 +1554,12 @@ export class DeviceGateway {
       // `TimeoutError` / driver message here reads to the model as if the tool
       // itself blew up; name the failing hop and its recovery instead.
       const failure = describeGatewayRequestFailure(error, 'tool call');
-      return { content: failure.content, error: failure.error, success: false };
+      return {
+        content: failure.content,
+        error: failure.error,
+        executionUnknown: true,
+        success: false,
+      };
     }
   }
 
@@ -1599,7 +1604,12 @@ export class DeviceGateway {
       const message = error instanceof Error ? error.message : String(error);
       log('executeMcpCall: error — %s', message);
       const failure = describeGatewayRequestFailure(error, 'tool call');
-      return { content: failure.content, error: failure.error, success: false };
+      return {
+        content: failure.content,
+        error: failure.error,
+        executionUnknown: true,
+        success: false,
+      };
     }
   }
 
