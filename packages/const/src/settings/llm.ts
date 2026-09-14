@@ -10,20 +10,6 @@ export {
 export const DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small';
 
 /**
- * Last-resort model for sub-agents spawned via `lobe-agent.callSubAgent`, used
- * only when neither an explicit `agencyConfig.subagent` override nor the
- * parent's effective model is available at the spawn site.
- *
- * Paired with `DEFAULT_PROVIDER` rather than a dedicated sub-agent provider, so
- * a build that swaps `@lobechat/business-const` (the cloud one routes through
- * its own official provider) moves the sub-agent along with the main model
- * instead of leaving it pointed at a provider that build doesn't serve.
- *
- * Defined in the business slot (`DEFAULT_SUB_AGENT_MODEL`, re-exported above) so
- * the model moves with that provider too.
- */
-
-/**
  * Resolve the model a sub-agent runs on, in precedence order:
  *
  * 1. Explicit `agencyConfig.subagent` override configured on the spawning agent.

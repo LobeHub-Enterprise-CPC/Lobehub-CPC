@@ -6,9 +6,15 @@ export const DEFAULT_MINI_MODEL = 'gpt-5.6-luna';
 export const DEFAULT_MINI_PROVIDER = 'openai';
 
 /**
- * Last-resort model for sub-agents spawned via `lobe-agent.callSubAgent` (see
- * resolveSubAgentModel in @lobechat/const). Paired with DEFAULT_PROVIDER, so it
- * has to be a model that provider serves.
+ * Last-resort model for sub-agents spawned via `lobe-agent.callSubAgent`, used
+ * only when neither an explicit `agencyConfig.subagent` override nor the
+ * parent's effective model is available at the spawn site (see
+ * resolveSubAgentModel in @lobechat/const).
+ *
+ * Paired with DEFAULT_PROVIDER rather than a dedicated sub-agent provider, and
+ * defined here beside it, so a build that swaps this package moves the model and
+ * the provider together instead of leaving the sub-agent on a provider that build
+ * doesn't serve.
  */
 export const DEFAULT_SUB_AGENT_MODEL = 'deepseek-v4-flash';
 
