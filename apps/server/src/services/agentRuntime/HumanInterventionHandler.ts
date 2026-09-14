@@ -1,8 +1,8 @@
 import type { AgentRuntimeContext } from '@lobechat/agent-runtime';
 import debug from 'debug';
 
-import type { MessageModel } from '@/database/models/message';
 import type { LobeChatDatabase } from '@/database/type';
+import type { RuntimeMessageStore } from '@/server/modules/AgentRuntime/context';
 
 import { hookDispatcher } from './hooks';
 
@@ -40,7 +40,7 @@ export interface InterventionResult {
 export class HumanInterventionHandler {
   constructor(
     private readonly serverDB: LobeChatDatabase,
-    private readonly messageModel: MessageModel,
+    private readonly messageModel: RuntimeMessageStore,
   ) {}
 
   async process(state: any, intervention: InterventionInput): Promise<InterventionResult> {

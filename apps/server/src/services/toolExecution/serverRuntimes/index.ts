@@ -23,6 +23,7 @@ import { auvRuntime } from './auv';
 import { briefRuntime } from './brief';
 import { browserRuntime } from './browser';
 import { calculatorRuntime } from './calculator';
+import { channelArtifactRuntime } from './channelArtifact';
 import { cloudSandboxRuntime } from './cloudSandbox';
 import { credsRuntime } from './creds';
 import { goalRuntime } from './goal';
@@ -101,6 +102,7 @@ registerRuntimes([
   agentSignalReviewRuntime,
   agentSignalReflectionRuntime,
   agentSignalFeedbackIntentRuntime,
+  channelArtifactRuntime,
   {
     identifier: PageAgentIdentifier,
     // Ordinary tool discovery and headless workers do not need the editor runtime.

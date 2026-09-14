@@ -25,6 +25,7 @@ export type ReceiptState =
 export interface MemberReceipt {
   accepted: boolean;
   environment: Run['executionConfig'];
+  error?: string | null;
   hasReply: boolean;
   member: ChannelDetail['members'][number];
   pending: boolean;
@@ -101,6 +102,7 @@ export function buildChannelReceipts(data: ChannelDetail): ChannelReceipts {
       const receipt: MemberReceipt = {
         accepted: jobs.some((job) => runs.get(job.id)?.acceptance === 'accepted'),
         environment: run?.executionConfig ?? null,
+        error: run?.error ?? current.blockedReason,
         hasReply,
         member,
         pending:

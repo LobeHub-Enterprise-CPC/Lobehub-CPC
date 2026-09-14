@@ -44,6 +44,9 @@ export function ReceiptDetail({ receipt }: { receipt: MemberReceipt }) {
       </Flexbox>
       <ReceiptStatus state={receipt.state} />
       <span>{t(`receipt.hint.${receipt.state}`)}</span>
+      {receipt.error && (
+        <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{receipt.error}</span>
+      )}
       <span className={styles.muted}>
         {t(receipt.accepted ? 'receipt.accepted' : 'receipt.saved')}
       </span>

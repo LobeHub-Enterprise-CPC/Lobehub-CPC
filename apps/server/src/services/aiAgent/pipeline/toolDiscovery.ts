@@ -18,6 +18,7 @@ import type {
   ToolsEngine,
   ToolSource,
 } from '@lobechat/context-engine';
+import { generateToolsFromManifest } from '@lobechat/context-engine';
 import type { LobeChatDatabase } from '@lobechat/database';
 import type { DeviceUnavailableErrorData } from '@lobechat/device-gateway-client';
 import type { ChatTopicBotContext, RequestTrigger } from '@lobechat/types';
@@ -124,6 +125,8 @@ export interface ToolDiscoveryInput {
   requestedDeviceId?: string;
   requestTrigger?: RequestTrigger;
   selectedToolIds?: string[];
+  /** Host-scoped builtin manifests; see {@link InternalExecAgentParams.serverToolManifests}. */
+  serverToolManifests?: InternalExecAgentParams['serverToolManifests'];
   throwIfExecutionAborted: (stage: string) => Promise<void>;
   topicBoundDeviceId?: string | null;
 }
@@ -215,6 +218,7 @@ export const discoverTools = async (
     exclusivePluginIds,
     files,
     functionTools,
+    serverToolManifests,
     globalMemoryEnabled,
     hasMentionedAgents,
     isFixedDeviceTarget,
@@ -1172,6 +1176,21 @@ export const discoverTools = async (
       type: 'default',
     };
     toolsResult.enabledToolIds.push(CLIENT_FN_IDENTIFIER);
+  }
+
+  // Inject host-authored builtin manifests. Source `builtin` routes execution
+  // through `BuiltinToolsExecutor` → the server runtime registry, so a manifest
+  // here must have a matching entry in `toolExecution/serverRuntimes`. Added
+  // after the engine ran on purpose: the host already decided availability,
+  // so neither the agent's plugin selection nor the activator gets a say.
+  if (serverToolManifests?.length) {
+    tools = tools ?? [];
+    for (const manifest of serverToolManifests) {
+      toolManifestMap[manifest.identifier] = manifest;
+      toolSourceMap[manifest.identifier] = 'builtin';
+      toolsResult.enabledToolIds.push(manifest.identifier);
+      tools.push(...generateToolsFromManifest(manifest));
+    }
   }
 
   // Override RemoteDevice manifest's systemRole with the dynamic device

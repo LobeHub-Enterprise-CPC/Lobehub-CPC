@@ -56,6 +56,7 @@ import { type LobeChatDatabase } from '@/database/type';
 import { appEnv } from '@/envs/app';
 import { type AgentRuntimeCoordinatorOptions } from '@/server/modules/AgentRuntime';
 import { AgentRuntimeCoordinator, createStreamEventManager } from '@/server/modules/AgentRuntime';
+import type { RuntimeMessageStore } from '@/server/modules/AgentRuntime/context';
 import { formatErrorForState } from '@/server/modules/AgentRuntime/formatErrorForState';
 import { hasNonPersistedMessage } from '@/server/modules/AgentRuntime/messagePersistence';
 import {
@@ -80,9 +81,9 @@ import {
   CriticalAgentInterventionPersistenceError,
   extractTextFromMessage,
   findLastAssistantMessage,
-  isAgentShareRun,
   isSuccessLikeCompletionReason,
   normalizeCompletionMessages,
+  shouldSuppressAgentSignal,
 } from './CompletionLifecycle';
 import { logToolCallPc } from './formalObservation';
 import { type AgentHook, hookDispatcher } from './hooks';
@@ -390,6 +391,14 @@ export interface AgentRuntimeServiceOptions {
    */
   includeShareVisitor?: boolean;
   /**
+   * Message persistence the runtime writes through. Defaults to `MessageModel`
+   * (the `messages` table). Hosts that keep a private transcript (Channel
+   * native runs) inject an adapter so no row of the run lands in
+   * `messages` / `topics`; the same store is handed to `CompletionLifecycle`
+   * so terminal-state reads and writes hit the rows the run actually wrote.
+   */
+  messageStore?: RuntimeMessageStore;
+  /**
    * Custom QueueService
    * Set to null to disable queue scheduling (for synchronous execution tests)
    */
@@ -448,7 +457,7 @@ export class AgentRuntimeService {
   private serverDB: LobeChatDatabase;
   private userId: string;
   private workspaceId?: string;
-  private messageModel: MessageModel;
+  private messageModel: RuntimeMessageStore;
   // Lazily constructed because MessageService instantiates a FileService
   // which eagerly creates the S3 client and throws when S3 env vars are
   // missing — eager construction would break every test that builds an
@@ -492,11 +501,14 @@ export class AgentRuntimeService {
     const workspaceId = this.workspaceId;
     const includeShareVisitor = options?.includeShareVisitor ?? false;
     this.agentOperationModel = new AgentOperationModel(db, this.userId, workspaceId);
-    this.messageModel = new MessageModel(db, this.userId, workspaceId, undefined, {
-      includeShareVisitor,
-    });
+    this.messageModel =
+      options?.messageStore ??
+      new MessageModel(db, this.userId, workspaceId, undefined, {
+        includeShareVisitor,
+      });
     this.completionLifecycle = new CompletionLifecycle(db, userId, workspaceId, {
       includeShareVisitor,
+      messageStore: options?.messageStore,
     });
     this.humanIntervention = new HumanInterventionHandler(db, this.messageModel);
 
@@ -873,6 +885,7 @@ export class AgentRuntimeService {
       searchDecision,
       botContext,
       botPlatformContext,
+      channelContext,
       deviceAccessPolicy,
       connectorOwnershipNote,
       discordContext,
@@ -1060,6 +1073,7 @@ export class AgentRuntimeService {
         principal: {
           actor: {
             bot: botContext,
+            channel: channelContext,
             deviceScope: activeDeviceScope,
             shareVisitor: agentShareVisitor,
           },
@@ -1752,7 +1766,7 @@ export class AgentRuntimeService {
           // Signal state for a turn an anonymous link visitor triggered — same
           // reasoning (and same predicate) as the completion-signal guard in
           // `CompletionLifecycle.emitSignalEvents`.
-          const beforeStepSignalEmission = isAgentShareRun(agentState)
+          const beforeStepSignalEmission = shouldSuppressAgentSignal(agentState)
             ? undefined
             : await emitAgentSignalSourceEvent(
                 {
@@ -2130,7 +2144,7 @@ export class AgentRuntimeService {
           // See the `runtime.before_step` guard above — same share-visitor
           // suppression at the sibling per-step emission.
           afterStepSignalEvents = toAgentSignalSnapshotEvents(
-            isAgentShareRun(stepResult.newState)
+            shouldSuppressAgentSignal(stepResult.newState)
               ? undefined
               : await emitAgentSignalSourceEvent(
                   {
@@ -4123,8 +4137,13 @@ export class AgentRuntimeService {
       initialContext?: AgentRuntimeContext;
       /** Maximum step limit to prevent infinite loops, defaults to 9999 */
       maxSteps?: number;
-      /** Callback after each step execution (for debugging) */
-      onStepComplete?: (stepIndex: number, state: AgentState) => void;
+      /**
+       * Awaited after each step is persisted and before the next one starts.
+       * A host that enforces its own limits can inspect `state.usage` here and
+       * call {@link interruptOperation}; the loop then observes the interrupt
+       * on its next step instead of racing it.
+       */
+      onStepComplete?: (stepIndex: number, state: AgentState) => void | Promise<void>;
     },
   ): Promise<AgentState> {
     const { maxSteps = 999, onStepComplete, initialContext } = options ?? {};
@@ -4187,7 +4206,7 @@ export class AgentRuntimeService {
 
       // Callback
       if (onStepComplete) {
-        onStepComplete(stepIndex, state);
+        await onStepComplete(stepIndex, state);
       }
 
       // Check if should continue

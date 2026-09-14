@@ -10,6 +10,7 @@ import type {
 } from '@lobechat/context-engine';
 import type {
   AgentShareVisitorContext,
+  ChannelRunContext,
   ChatTopicBotContext,
   EvalToolForwardingConfig,
   ExpertiseContextSnapshot,
@@ -473,6 +474,12 @@ export interface OperationCreationParams {
   botContext?: ChatTopicBotContext;
   /** Bot platform context for injecting platform capabilities (e.g. markdown support) */
   botPlatformContext?: BotPlatformContext;
+  /**
+   * Channel native-run marker. Forwarded into `state.principal.actor.channel`
+   * so Agent Signal suppression and the `channel-artifact` runtime key off the
+   * run itself. `undefined` for every other caller.
+   */
+  channelContext?: ChannelRunContext;
   /**
    * Borrowed-connector attribution, resolved once during tool discovery. Run
    * context for the context engine to inject — see `expertise`.

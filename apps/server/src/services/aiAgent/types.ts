@@ -1,10 +1,12 @@
-import type { BotPlatformContext } from '@lobechat/context-engine';
+import type { BotPlatformContext, LobeToolManifest } from '@lobechat/context-engine';
 import type {
   BotSenderMetadata,
+  ChannelRunContext,
   ChatTopicBotContext,
   ExecAgentParams,
   LobeAgentChatConfig,
   RuntimeMentionedAgent,
+  UIChatMessage,
   UserInterventionConfig,
   WorkingDirConfig,
   WorkspaceInitResult,
@@ -32,8 +34,12 @@ import type { AgentShareGate } from './shareGate';
 export interface ExecRunContext {
   agentConfig: AgentConfigWithId;
   appContext?: InternalExecAgentParams['appContext'];
-  /** Persisted assistant placeholder row id (spinner anchor / error sink). */
-  assistantMessageId: string;
+  /**
+   * Persisted assistant placeholder row id (spinner anchor / error sink).
+   * Undefined for a transcript run (see {@link InternalExecAgentParams.transcript}):
+   * the runtime creates the assistant row itself in the host's message store.
+   */
+  assistantMessageId?: string;
   canUseDevice: boolean;
   deviceAccessReason: DeviceAccessReason;
   /** Effective model for this run (topic-pinned model already applied). */
@@ -52,11 +58,49 @@ export interface ExecRunContext {
    * ordinary (non-share) run.
    */
   shareGate?: AgentShareGate;
-  /** Topic id — guaranteed to exist by the time pipeline stages run. */
-  topicId: string;
+  /**
+   * Topic id — guaranteed to exist for every persisted run by the time
+   * pipeline stages run. Undefined ONLY for a transcript run, which owns no
+   * `topics` row; stages that touch topic state guard on it.
+   */
+  topicId?: string;
   trigger?: string;
-  /** User turn row id; undefined when the run starts from history (resume). */
+  /**
+   * User turn row id; undefined when the run starts from history (resume).
+   * For a transcript run this is the host's delivery row id.
+   */
   userMessageId?: string;
+}
+
+/**
+ * {@link ExecRunContext} for a run backed by real `messages` / `topics` rows.
+ * Stages that cannot run without them (heterogeneous dispatch) take this so
+ * the narrowing happens once, at the fork, instead of in every consumer.
+ */
+export type PersistedExecRunContext = ExecRunContext & {
+  assistantMessageId: string;
+  topicId: string;
+};
+
+/**
+ * Conversation history supplied by the host instead of loaded from a topic.
+ *
+ * A transcript run persists NOTHING in `messages` / `topics`: turn setup skips
+ * topic creation and the user/assistant rows, history comes from `load`, and
+ * every row the runtime writes goes through the
+ * `AgentRuntimeServiceOptions.messageStore` the caller built the service
+ * with. Channel native runs use this to keep each member's private working
+ * transcript in `channel_runtime_messages`.
+ */
+export interface ExecAgentTranscript {
+  /**
+   * Row in the host's store that carries this turn's request. Becomes the
+   * runtime's `parentMessageId`, so the assistant row it creates chains onto
+   * it and `call_llm`'s parent preflight resolves through the store.
+   */
+  deliveryMessageId?: string;
+  /** Full prior history (the delivery row included) in UI message shape. */
+  load: () => Promise<UIChatMessage[]>;
 }
 
 /**
@@ -87,6 +131,13 @@ export interface InternalExecAgentParams extends ExecAgentParams {
    * message as `metadata.botSender` so the UI shows them instead of the owner.
    */
   botSender?: BotSenderMetadata;
+  /**
+   * Channel native-run marker. Persisted to `state.principal.actor.channel`
+   * so per-step consumers (Agent Signal suppression, the `channel-artifact`
+   * server runtime) key off the run itself. Internal-only: set by the Channel
+   * worker, never client-passable.
+   */
+  channelContext?: ChannelRunContext;
   /**
    * chatConfig overrides (thinking / reasoning-effort extend params) merged over
    * the executing agent's own chatConfig, skipping nulled keys. Internal-only:
@@ -226,6 +277,14 @@ export interface InternalExecAgentParams extends ExecAgentParams {
    */
   selectedToolIds?: string[];
   /**
+   * Server-authored builtin manifests added to this run's tool set with
+   * source `builtin`, so `BuiltinToolsExecutor` resolves them through the
+   * server runtime registry. Bypasses the agent's plugin selection and the
+   * activator: use for host-scoped tools whose availability the host has
+   * already decided (Channel's `channel-artifact`). Internal-only.
+   */
+  serverToolManifests?: LobeToolManifest[];
+  /**
    * Shared-agent visitor gate. Set ONLY by the shareChat router after the
    * share access check — never client-passable. Restricts tools/memory/files at
    * operation-build time, denies device access, and scopes the visitor's rows.
@@ -269,6 +328,12 @@ export interface InternalExecAgentParams extends ExecAgentParams {
    * such as TaskResultBridgeService.
    */
   topicStartReservationId?: string;
+  /**
+   * Run off a host-supplied transcript instead of a topic. Implies
+   * `suppressUserMessage`; see {@link ExecAgentTranscript}. Mutually
+   * exclusive with `appContext.topicId`, `resume*` and heterogeneous agents.
+   */
+  transcript?: ExecAgentTranscript;
   /** Topic creation trigger source ('cron' | 'chat' | 'api' | 'task') */
   trigger?: string;
   /**

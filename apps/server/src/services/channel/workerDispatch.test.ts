@@ -55,14 +55,15 @@ vi.mock('./device', () => ({
   },
 }));
 vi.mock('./gate', () => ({ isChannelEnabled: vi.fn() }));
-vi.mock('./native/host', () => ({
-  runChannelNative: vi.fn(),
-  isChannelApprovalCheckpoint: () => false,
-}));
+vi.mock('./native/host', () => ({ runChannelNative: vi.fn() }));
 vi.mock('./native/capabilities', () => ({
-  loadChannelNativeCapabilities: async () => ({ tools: [], toolManifestMap: {} }),
+  checkChannelNativeAvailability: async () => ({
+    agentId: 'agent',
+    model: 'model',
+    provider: 'provider',
+  }),
 }));
-vi.mock('./artifact', () => ({ channelArtifactCapability: vi.fn() }));
+vi.mock('./artifact', () => ({ resolveChannelArtifactRunIds: async () => [] }));
 vi.mock('./serverDefault', () => ({ settleChannelServerDefaultOperation: settleOperation }));
 
 const channel = { id: 'channel', ownerId: 'owner', archived: false };

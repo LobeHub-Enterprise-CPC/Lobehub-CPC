@@ -12,7 +12,7 @@ import { ChannelDevice } from '@/server/services/channel/device';
 import { isChannelEnabled } from '@/server/services/channel/gate';
 import { isChannelGatewayReady } from '@/server/services/channel/gateway';
 import { resolveChannelMembers } from '@/server/services/channel/members';
-import { loadChannelNativeCapabilities } from '@/server/services/channel/native/capabilities';
+import { checkChannelNativeAvailability } from '@/server/services/channel/native/capabilities';
 import { watchChannel } from '@/server/services/channel/watch';
 
 const channelProcedure = authedProcedure.use(serverDatabase).use(async ({ ctx, next }) => {
@@ -75,7 +75,7 @@ async function prepareMembers(
         config.runtime,
         config.agentId,
       );
-    if (config.runtime === 'native') await loadChannelNativeCapabilities(db, ownerId, config);
+    if (config.runtime === 'native') await checkChannelNativeAvailability(db, ownerId, config);
   }
 }
 

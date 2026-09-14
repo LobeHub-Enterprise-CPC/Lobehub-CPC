@@ -5,24 +5,21 @@ import type { ChannelModel } from '@/database/models/channel';
 import type { channelRuns } from '@/database/privateSchemas/channel';
 import type { LobeChatDatabase } from '@/database/type';
 
-import type { ChannelNativeCapabilities } from './native/host';
 import { ChannelWorker } from './worker';
 
-const { native } = vi.hoisted(() => ({ native: vi.fn() }));
-vi.mock('./native/host', () => ({
-  runChannelNative: native,
-  isChannelApprovalCheckpoint: () => false,
+const { native, artifactRunIds } = vi.hoisted(() => ({
+  artifactRunIds: vi.fn(async () => [] as string[]),
+  native: vi.fn(),
 }));
-vi.mock('./native/capabilities', () => ({ loadChannelNativeCapabilities: vi.fn() }));
-vi.mock('./artifact', () => ({
-  channelArtifactCapability: async () => ({ tools: [], toolManifestMap: {} }),
-}));
+vi.mock('./native/host', () => ({ runChannelNative: native }));
+vi.mock('./native/capabilities', () => ({ checkChannelNativeAvailability: vi.fn() }));
+vi.mock('./artifact', () => ({ resolveChannelArtifactRunIds: artifactRunIds }));
 vi.mock('./serverDefault', () => ({ settleChannelServerDefaultOperation: vi.fn() }));
 
 const run = { id: 'run', channelId: 'channel', fence: 1 } as typeof channelRuns.$inferSelect;
 const config = { runtime: 'native' as const, model: 'model', provider: 'provider' };
-const capabilities = { tools: [], toolManifestMap: {} } as unknown as ChannelNativeCapabilities;
 const model = {
+  accepted: vi.fn(),
   fail: vi.fn(),
   releaseWriter: vi.fn(),
   executionUnknown: vi.fn(),
@@ -32,68 +29,67 @@ const model = {
 };
 // Exercise the detached lifecycle directly; tick's DB selection is independent of this fault.
 const start = (worker: ChannelWorker) =>
-  worker['startNative'](model as unknown as ChannelModel, 'owner', run, config, capabilities);
+  worker['startNative'](model as unknown as ChannelModel, 'owner', run, config, 'agent');
 beforeEach(() => {
   vi.clearAllMocks();
+  artifactRunIds.mockResolvedValue([]);
   for (const method of Object.values(model)) method.mockResolvedValue(undefined);
 });
 
 describe('Channel Native worker settlement', () => {
-  it('releases a completed run when a tool returns a confirmed provider error', async () => {
-    native.mockImplementation(async ({ capabilities: runtimeCapabilities }) => {
-      await runtimeCapabilities.toolTransport.run({}, {});
-      return { content: 'The search provider is unavailable', budget: {}, state: {} };
+  it('hands the run to execAgent with the authorized artifact allowlist and publishes the final', async () => {
+    artifactRunIds.mockResolvedValue(['run-a']);
+    native.mockImplementation(async ({ onAccepted }) => {
+      await onAccepted('session', 'op_1');
+      return {
+        budget: { activeMs: 10, modelCalls: 2, toolCalls: 1 },
+        content: 'Reply',
+        operationId: 'op_1',
+        state: { modelRuntimeConfig: { model: 'current-model', provider: 'current-provider' } },
+      };
     });
     const worker = new ChannelWorker({} as LobeChatDatabase);
-    await worker['startNative'](model as unknown as ChannelModel, 'owner', run, config, {
-      ...capabilities,
-      toolTransport: {
-        run: async () => ({
-          attempts: 1,
-          result: { success: false, content: 'Provider not configured' },
-        }),
-      },
-    });
+    await start(worker);
     await worker['active'].get(run.id)?.done;
     await worker.close();
+    expect(native).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: 'agent',
+        artifactRunIds: ['run-a'],
+        ownerId: 'owner',
+        run,
+      }),
+    );
+    expect(model.accepted).toHaveBeenCalledWith('channel', 'run', 1, 'session', 'op_1');
+    expect(model.recordExecution).toHaveBeenCalledWith('channel', 'run', 1, {
+      activeMs: 10,
+      model: 'current-model',
+      modelCalls: 2,
+      provider: 'current-provider',
+      runtime: 'native',
+      toolCalls: 1,
+    });
+    expect(model.saveDraft).toHaveBeenCalledWith('channel', 'run', 1, 'Reply');
     expect(model.publish).toHaveBeenCalled();
-    expect(model.releaseWriter).toHaveBeenCalled();
+    expect(model.releaseWriter).toHaveBeenCalledTimes(1);
+    expect(model.fail).not.toHaveBeenCalled();
     expect(model.executionUnknown).not.toHaveBeenCalled();
   });
 
-  it.each([false, true])(
-    'retains the writer after a resolved transport failure, runtime fails=%s',
-    async (fails) => {
-      native.mockImplementation(async ({ capabilities: runtimeCapabilities }) => {
-        await runtimeCapabilities.toolTransport.run({}, {});
-        if (fails) throw new Error('Device response lost');
-        return { content: 'Device response lost', budget: {}, state: {} };
-      });
-      const worker = new ChannelWorker({} as LobeChatDatabase);
-      await worker['startNative'](model as unknown as ChannelModel, 'owner', run, config, {
-        ...capabilities,
-        toolTransport: {
-          run: async () => ({
-            attempts: 1,
-            result: {
-              content: 'Device response lost',
-              executionUnknown: true,
-              success: false,
-            },
-          }),
-        },
-      });
-      await worker['active'].get(run.id)?.done;
-      await worker.close();
-      expect(model.releaseWriter).not.toHaveBeenCalled();
-      expect(model.executionUnknown).toHaveBeenCalledWith(
-        'channel',
-        'run',
-        1,
-        'Tool termination could not be confirmed',
-      );
-    },
-  );
+  it('records the runtime failure and releases the writer', async () => {
+    native.mockRejectedValue(new Error('Channel model call limit reached'));
+    const worker = new ChannelWorker({} as LobeChatDatabase);
+    await start(worker);
+    await worker.close();
+    expect(model.fail).toHaveBeenCalledWith(
+      'channel',
+      'run',
+      1,
+      'Channel model call limit reached',
+    );
+    expect(model.releaseWriter).toHaveBeenCalledTimes(1);
+    expect(model.publish).not.toHaveBeenCalled();
+  });
 
   it.each(['fail', 'releaseWriter'] as const)(
     'contains %s rejection and retries finalization without replay',
@@ -111,18 +107,21 @@ describe('Channel Native worker settlement', () => {
     },
   );
 
-  it('settles an aborted successful return as failure instead of an unpublished completed zombie', async () => {
+  it('aborts the runtime signal on close and settles a late return as failure', async () => {
     let finish!: (value: unknown) => void;
+    let signal!: AbortSignal;
     native.mockImplementation(
-      () =>
+      (input) =>
         new Promise((resolve) => {
+          signal = input.signal;
           finish = resolve;
         }),
     );
     const worker = new ChannelWorker({} as LobeChatDatabase);
     await start(worker);
     const closing = worker.close();
-    finish({ content: 'Late reply' });
+    expect(signal.aborted).toBe(true);
+    finish({ content: 'Late reply', budget: {}, state: {} });
     await closing;
     expect(model.fail).toHaveBeenCalledWith(
       'channel',
@@ -149,10 +148,7 @@ describe('Channel Native worker settlement', () => {
       'channel',
       'run',
       1,
-      expect.objectContaining({
-        model: 'current-model',
-        provider: 'current-provider',
-      }),
+      expect.objectContaining({ model: 'current-model', provider: 'current-provider' }),
     );
     expect(model.fail).not.toHaveBeenCalled();
     expect(model.releaseWriter).toHaveBeenCalled();
