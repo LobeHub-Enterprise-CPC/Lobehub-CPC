@@ -9,6 +9,7 @@ import {
 
 import { resolveHeterogeneousAgentCommand } from '../config';
 import { ProcessTreeTracker } from '../process/ProcessTreeTracker';
+import { resolveCliSpawnPlan } from '../spawn/cliSpawn';
 import { spawnAgent, type SpawnAgentHandle, type SpawnAgentOptions } from '../spawn/spawnAgent';
 import type { CodexChannelSnapshot, CodexChannelStart } from './host';
 import { CHANNEL_INSTRUCTIONS, channelInput } from './input';
@@ -71,10 +72,16 @@ export class ChannelAgentClient {
     inheritEnv = true,
   ) {
     const command = resolveHeterogeneousAgentCommand(runtime, provider?.command);
-    const { stdout } = await promisify(execFile)(command, ['--version'], {
+    const env = { ...(inheritEnv ? process.env : {}), ...provider?.env } as NodeJS.ProcessEnv;
+    // Resolve the CLI the way spawnAgent launches it. On Windows an npm-installed CLI
+    // is a `.cmd` shim, which execFile refuses to run without a shell since Node's
+    // CVE-2024-27980 fix (`spawn EINVAL`); the plan unwraps it to the real executable.
+    const plan = await resolveCliSpawnPlan(command, ['--version'], env);
+    const { stdout } = await promisify(execFile)(plan.command, plan.args, {
       cwd,
-      env: { ...(inheritEnv ? process.env : {}), ...provider?.env } as NodeJS.ProcessEnv,
+      env,
       timeout: 5000,
+      windowsHide: true,
     });
     return stdout.trim();
   }
