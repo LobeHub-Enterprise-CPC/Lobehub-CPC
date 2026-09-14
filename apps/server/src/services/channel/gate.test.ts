@@ -22,7 +22,7 @@ vi.mock('@/database/models/user', () => ({
 const db = {} as LobeChatDatabase;
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubEnv('ENABLE_CHANNEL', '1');
+  vi.stubEnv('CHANNEL_GATEWAY_URL', 'http://channel-worker:3211');
   vi.stubEnv('CHANNEL_ALLOWED_USER_IDS', 'other, owner ');
   getUserPreference.mockResolvedValue({ lab: { enableChannel: true } });
 });
@@ -45,11 +45,14 @@ describe('Channel Labs gate', () => {
   });
 
   it.each([
-    ['0', 'owner'],
-    ['1', ''],
-    ['1', 'owner-other'],
-  ])('preserves deployment restrictions (%s, %s)', async (enabled, allowed) => {
-    vi.stubEnv('ENABLE_CHANNEL', enabled);
+    ['', 'owner'],
+    ['not-a-url', 'owner'],
+    ['http://channel-worker:3211', ''],
+    ['http://channel-worker:3211', 'owner-other'],
+  ])('preserves deployment restrictions (%s, %s)', async (gateway, allowed) => {
+    vi.stubEnv('CHANNEL_GATEWAY_URL', gateway);
+    // A legacy boolean must not accidentally enable an unconfigured service.
+    vi.stubEnv('ENABLE_CHANNEL', '1');
     vi.stubEnv('CHANNEL_ALLOWED_USER_IDS', allowed);
     expect(await isChannelEnabled(db, 'owner')).toBe(false);
     expect(getUserPreference).not.toHaveBeenCalled();
