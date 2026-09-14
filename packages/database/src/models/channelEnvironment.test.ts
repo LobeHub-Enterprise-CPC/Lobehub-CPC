@@ -7,7 +7,7 @@ import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 
-import * as schema from '../schemas/channel';
+import * as schema from '../privateSchemas/channel';
 import type { LobeChatDatabase } from '../type';
 import { ChannelModel } from './channel';
 
@@ -27,12 +27,17 @@ beforeAll(async () => {
   await client.exec(
     "CREATE TABLE users (id text PRIMARY KEY); INSERT INTO users VALUES ('owner'), ('other');",
   );
-  for (const file of ['0163_channel_mvp'])
+  // Migration ownership moved to the enterprise chain (see
+  // src/privateSchemas/channel.ts) after this test was written.
+  for (const file of ['0009_channel_mvp'])
     await client.exec(
-      readFileSync(new URL(`../../migrations/${file}.sql`, import.meta.url), 'utf8').replaceAll(
-        '--> statement-breakpoint',
-        '',
-      ),
+      readFileSync(
+        new URL(
+          `../../../../../packages/enterprise/src/database/migrations/${file}.sql`,
+          import.meta.url,
+        ),
+        'utf8',
+      ).replaceAll('--> statement-breakpoint', ''),
     );
   db = drizzle(client, { schema }) as unknown as LobeChatDatabase;
   model = new ChannelModel(db, 'owner');

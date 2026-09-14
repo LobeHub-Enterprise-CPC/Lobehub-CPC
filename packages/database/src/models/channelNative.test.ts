@@ -7,11 +7,11 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { expect, it, vi } from 'vitest';
 
 import { ChannelModel } from '@/database/models/channel';
-import * as schema from '@/database/schemas/channel';
 import type { LobeChatDatabase } from '@/database/type';
 
 import { createChannelContextBuilder } from '../../../../apps/server/src/services/channel/native/context';
 import { runChannelNative } from '../../../../apps/server/src/services/channel/native/host';
+import * as schema from '../privateSchemas/channel';
 
 const probe = vi.hoisted(() => ({
   modelCalls: 0,
@@ -75,7 +75,12 @@ it.each([false, true])(
       );
       await client.exec(
         readFileSync(
-          new URL('../../migrations/0163_channel_mvp.sql', import.meta.url),
+          // Migration ownership moved to the enterprise chain (see
+          // src/privateSchemas/channel.ts) after this test was written.
+          new URL(
+            '../../../../../packages/enterprise/src/database/migrations/0009_channel_mvp.sql',
+            import.meta.url,
+          ),
           'utf8',
         ).replaceAll('--> statement-breakpoint', ''),
       );

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 import tsconfigPaths from 'vite-tsconfig-paths';
@@ -5,6 +6,23 @@ import { defineConfig } from 'vitest/config';
 
 if (process.env.NODE_ENV === 'production') {
   Reflect.set(process.env, 'NODE_ENV', 'test');
+}
+
+// When this submodule is checked out inside the CPC enterprise shell repo,
+// point getTestDB() (packages/database/src/core/getTestDB.ts) at the
+// enterprise chain's migrations too, so model tests against tables owned
+// there (e.g. Channel MVP — see packages/database/src/privateSchemas/
+// channel.ts for why they live outside this repo's own chain) get a real
+// schema instead of "relation does not exist". A no-op in the plain OSS
+// checkout, where that directory doesn't exist.
+if (!process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER) {
+  const enterpriseMigrationsFolder = resolve(
+    __dirname,
+    '../packages/enterprise/src/database/migrations',
+  );
+  if (existsSync(enterpriseMigrationsFolder)) {
+    process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER = enterpriseMigrationsFolder;
+  }
 }
 
 const alias = {
@@ -153,6 +171,9 @@ export default defineConfig({
   },
   test: {
     alias,
+    env: process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER
+      ? { TEST_DB_EXTRA_MIGRATIONS_FOLDER: process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER }
+      : undefined,
     coverage: {
       exclude: [
         // https://github.com/lobehub/lobe-chat/pull/7265

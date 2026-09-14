@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ChannelModel } from '@/database/models/channel';
-import type { channelRuns } from '@/database/schemas/channel';
+import type { channelRuns } from '@/database/privateSchemas/channel';
 import type { LobeChatDatabase } from '@/database/type';
 
 import type { ChannelNativeCapabilities } from './native/host';

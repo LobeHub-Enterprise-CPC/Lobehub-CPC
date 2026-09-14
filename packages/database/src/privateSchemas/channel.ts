@@ -18,11 +18,48 @@ import {
   jsonb,
   pgTable,
   text,
+  timestamp,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
-import { createdAt, timestamptz } from './_helpers';
-import { users } from './user';
+/**
+ * Database schema for the Channel MVP (LOBE-14026).
+ *
+ * ## Why this lives here and not in `packages/database/src/schemas`
+ *
+ * These tables are ours (CPC-only), not upstream's. They were first added
+ * straight into the submodule's own schema barrel, which put their migrations
+ * in the submodule's drizzle chain — the same namespace canary's own
+ * migrations use. That collides on every canary merge (the exact failure mode
+ * `command_governance`'s tables hit twice, `0158`/`0159` renumbered to
+ * `0161`/`0162`, each time costing a hand-rebuilt snapshot chain).
+ *
+ * Ownership sits with the shell repo's enterprise chain
+ * (`packages/enterprise/src/database/migrations`, bookkeeping in
+ * `__drizzle_enterprise_migrations`), which has its own journal and snapshot
+ * chain and therefore cannot collide with canary's. This file is the single
+ * definition of the tables: the shell's `packages/enterprise/drizzle.config.ts`
+ * lists it alongside its own schemas, so `drizzle-kit generate` picks it up
+ * from here. `packages/database/migrations` is once again byte-identical to
+ * canary.
+ *
+ * Two consequences worth knowing before editing:
+ *
+ * 1. **Self-contained on purpose.** No `./_helpers` import, and no path alias
+ *    of any kind: `drizzle-kit` reads this file from the shell root, where the
+ *    submodule's tsconfig aliases do not resolve. The timestamp column is
+ *    spelled out below instead of importing `createdAt`/`timestamptz`.
+ * 2. **No `.references(() => users.id)`.** `users` belongs to the submodule's
+ *    chain; importing it would pull it into the enterprise config's schema
+ *    graph and `drizzle-kit generate` would try to create `users` there too.
+ *    `channels.owner_id`'s foreign key to `users` still exists in the
+ *    database — it is written by hand in `0009_channel_mvp.sql`. Keep it in
+ *    sync if this column changes.
+ */
+
+const createdAtColumn = () =>
+  timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
+const timestamptzColumn = (name: string) => timestamp(name, { withTimezone: true });
 
 // Native private transcripts and checkpoints never enter channel_messages or legacy messages.
 export const channelRuntimeMessages = pgTable(
@@ -37,7 +74,7 @@ export const channelRuntimeMessages = pgTable(
       .references(() => channelRuns.id, { onDelete: 'cascade' }),
     stableKey: text('stable_key').notNull(),
     data: jsonb('data').$type<UIChatMessage>().notNull(),
-    createdAt: createdAt(),
+    createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [
     uniqueIndex('channel_runtime_messages_key_idx').on(t.sessionId, t.stableKey),
@@ -58,13 +95,11 @@ export const channels = pgTable(
   'channels',
   {
     id: text('id').primaryKey(),
-    ownerId: text('owner_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
+    ownerId: text('owner_id').notNull(),
     title: text('title').notNull(),
     sequence: integer('sequence').notNull().default(0),
     archived: boolean('archived').notNull().default(false),
-    createdAt: createdAt(),
+    createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [index('channels_owner_idx').on(t.ownerId)],
 );
@@ -84,7 +119,7 @@ export const channelMembers = pgTable(
     environmentRevision: integer('environment_revision').notNull().default(0),
     /** Messages before a switch must not be delivered late into the new environment. */
     environmentCutoff: integer('environment_cutoff').notNull().default(0),
-    createdAt: createdAt(),
+    createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [
     uniqueIndex('channel_members_scope_idx').on(t.channelId, t.id),
@@ -101,7 +136,7 @@ export const channelThreads = pgTable(
     rootMessageId: text('root_message_id').notNull(),
     rootSequence: integer('root_sequence').notNull(),
     followerMemberIds: jsonb('follower_member_ids').$type<string[]>().notNull().default([]),
-    createdAt: createdAt(),
+    createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [
     uniqueIndex('channel_threads_root_idx').on(t.channelId, t.rootMessageId),
@@ -133,7 +168,7 @@ export const channelMessages = pgTable(
       enum: ['directed', 'pending', 'assigned', 'unassigned', 'reply'],
     }).notNull(),
     routingReason: text('routing_reason'),
-    createdAt: createdAt(),
+    createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [
     uniqueIndex('channel_messages_scope_idx').on(t.channelId, t.id),
@@ -179,7 +214,7 @@ export const channelDiscussions = pgTable(
     status: text('status').$type<ChannelDiscussionStatus>().notNull().default('active'),
     endReason: text('end_reason'),
     summaryMessageId: text('summary_message_id'),
-    createdAt: createdAt(),
+    createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [
     index('channel_discussions_channel_status_idx').on(t.channelId, t.status),
@@ -204,7 +239,7 @@ export const channelJobs = pgTable(
     deliveryKey: text('delivery_key').notNull().default('initial'),
     status: text('status').$type<ChannelJobStatus>().notNull().default('queued'),
     blockedReason: text('blocked_reason'),
-    createdAt: createdAt(),
+    createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [
     uniqueIndex('channel_jobs_delivery_idx').on(t.messageId, t.memberId, t.deliveryKey),
@@ -242,7 +277,7 @@ export const channelSessions = pgTable(
     generation: integer('generation').notNull().default(1),
     nativeSessionId: text('native_session_id'),
     acceptedMessageIds: jsonb('accepted_message_ids').$type<string[]>().notNull().default([]),
-    createdAt: createdAt(),
+    createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [
     uniqueIndex('channel_sessions_member_scope_idx').on(t.memberId, t.scope),
@@ -291,7 +326,7 @@ export const channelRuns = pgTable(
       .default('pending'),
     publishedMessageId: text('published_message_id'),
     error: text('error'),
-    createdAt: createdAt(),
+    createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [
     uniqueIndex('channel_runs_job_idx').on(t.jobId),
@@ -325,7 +360,7 @@ export const channelOutbox = pgTable(
     kind: text('kind', { enum: ['route', 'execute', 'publish', 'stop'] }).notNull(),
     targetId: text('target_id').notNull(),
     processed: boolean('processed').notNull().default(false),
-    createdAt: createdAt(),
+    createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [
     index('channel_outbox_pending_idx').on(t.processed, t.createdAt),
@@ -342,7 +377,7 @@ export const channelAudit = pgTable(
     event: text('event').notNull(),
     targetId: text('target_id').notNull(),
     details: jsonb('details').$type<Record<string, unknown>>().notNull().default({}),
-    createdAt: createdAt(),
+    createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [
     index('channel_audit_channel_event_idx').on(t.channelId, t.event, t.createdAt),
@@ -359,8 +394,8 @@ export const channelApprovals = pgTable(
       .references(() => channelRuns.id, { onDelete: 'cascade' }),
     request: jsonb('request').$type<Record<string, unknown>>().notNull(),
     decision: text('decision', { enum: ['approved', 'rejected', 'expired'] }),
-    expiresAt: timestamptz('expires_at').notNull(),
-    createdAt: createdAt(),
+    expiresAt: timestamptzColumn('expires_at').notNull(),
+    createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [index('channel_approvals_run_idx').on(t.runId)],
 );

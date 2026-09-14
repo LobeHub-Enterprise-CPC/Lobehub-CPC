@@ -10,7 +10,7 @@ import {
   channelMessages,
   channelRuns,
   channelThreads,
-} from '../schemas/channel';
+} from '../privateSchemas/channel';
 import type { Transaction } from '../type';
 
 type Discussion = typeof channelDiscussions.$inferSelect;

@@ -4,8 +4,13 @@ import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 import { expect, it } from 'vitest';
 
+// Migration ownership moved to the enterprise chain (see
+// src/privateSchemas/channel.ts) after this test was written.
 const migration = readFileSync(
-  new URL('../../migrations/0163_channel_mvp.sql', import.meta.url),
+  new URL(
+    '../../../../../packages/enterprise/src/database/migrations/0009_channel_mvp.sql',
+    import.meta.url,
+  ),
   'utf8',
 ).replaceAll('--> statement-breakpoint', '');
 

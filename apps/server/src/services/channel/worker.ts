@@ -12,7 +12,7 @@ import {
   channelMessages,
   channelRuns,
   channels,
-} from '@/database/schemas/channel';
+} from '@/database/privateSchemas/channel';
 import type { LobeChatDatabase } from '@/database/type';
 
 import { waitForChannelApproval } from './approval';

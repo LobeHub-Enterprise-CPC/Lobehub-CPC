@@ -24,7 +24,7 @@ import {
   channelRuns,
   channels,
   channelThreads,
-} from '../schemas/channel';
+} from '../privateSchemas/channel';
 import type { LobeChatDatabase } from '../type';
 
 export interface ChannelPageOptions {

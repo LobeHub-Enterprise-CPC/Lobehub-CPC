@@ -7,7 +7,8 @@ import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { getTestDB } from '../../core/getTestDB';
-import { channelJobs, channelMessages, channelRuns, channels, users } from '../../schemas';
+import { channelJobs, channelMessages, channelRuns, channels } from '../../privateSchemas/channel';
+import { users } from '../../schemas';
 import type { LobeChatDatabase } from '../../type';
 import { ChannelModel } from '../channel';
 
@@ -216,8 +217,14 @@ describe('Channel bounded presentation reads', () => {
     const channel = await create();
     await messages(channel.id, 3);
     const before = await model.page(channel.id);
+    // Migration ownership moved to the enterprise chain (see
+    // src/privateSchemas/channel.ts) after this test was written; the file
+    // this test replays moved with it.
     const migration = readFileSync(
-      new URL('../../../migrations/0163_channel_mvp.sql', import.meta.url),
+      new URL(
+        '../../../../../../packages/enterprise/src/database/migrations/0009_channel_mvp.sql',
+        import.meta.url,
+      ),
       'utf8',
     );
     for (const statement of migration.split('--> statement-breakpoint'))
