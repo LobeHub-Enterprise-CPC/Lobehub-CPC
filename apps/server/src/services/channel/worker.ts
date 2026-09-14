@@ -1,6 +1,6 @@
 import type { ChannelMemberConfig } from '@lobechat/types';
 import debug from 'debug';
-import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import pMap from 'p-map';
 
 import { ChannelModel } from '@/database/models/channel';
@@ -33,6 +33,7 @@ export class ChannelWorker {
   private ticking = false;
   private readonly finalizing = new Map<string, () => Promise<void>>();
   private readonly publicationFences = new Map<string, number>();
+  private jobCursor?: { createdAt: string; id: string };
 
   constructor(
     private readonly db: LobeChatDatabase,
@@ -225,6 +226,8 @@ export class ChannelWorker {
           channel: channels,
           config: channelMembers.config,
           revision: channelMembers.environmentRevision,
+          // Date truncates PostgreSQL microseconds and would repeatedly select the boundary row.
+          cursorCreatedAt: sql<string>`${channelJobs.createdAt}::text`,
         })
         .from(channelJobs)
         .innerJoin(channels, eq(channels.id, channelJobs.channelId))
@@ -235,10 +238,19 @@ export class ChannelWorker {
             eq(channels.archived, false),
             eq(channelMembers.active, true),
             eq(channelMembers.executionPaused, false),
+            this.jobCursor
+              ? sql`(${channelJobs.createdAt}, ${channelJobs.id}) > (${this.jobCursor.createdAt}::timestamptz, ${this.jobCursor.id})`
+              : undefined,
           ),
         )
-        .orderBy(asc(channelJobs.createdAt))
+        .orderBy(asc(channelJobs.createdAt), asc(channelJobs.id))
         .limit(40);
+      // Rotate through blocked candidates without dropping them; claim still enforces member FIFO.
+      const last = jobs.at(-1);
+      this.jobCursor =
+        jobs.length === 40 && last
+          ? { createdAt: last.cursorCreatedAt, id: last.job.id }
+          : undefined;
       const jobResults = await Promise.allSettled(
         jobs.map(async ({ job, channel, config, revision }) => {
           if (!(await isChannelEnabled(this.db, channel.ownerId))) return;
@@ -408,9 +420,13 @@ export class ChannelWorker {
               void pending
                 .then(
                   (result) => {
-                    // A returned provider error is a completed call. Only interrupted/deferred
-                    // work lacks a terminal receipt and must keep the writer reserved.
-                    if (result.interrupted || result.result.deferred) toolsConfirmed = false;
+                    // A confirmed provider error is terminal; response loss is not termination.
+                    if (
+                      result.interrupted ||
+                      result.result.deferred ||
+                      result.result.executionUnknown
+                    )
+                      toolsConfirmed = false;
                   },
                   () => {
                     toolsConfirmed = false;

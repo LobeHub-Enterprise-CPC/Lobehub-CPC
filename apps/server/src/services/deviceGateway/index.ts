@@ -1400,7 +1400,12 @@ export class DeviceGateway {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log('executeToolCall: error — %s', message);
-      return { content: `Device tool call error: ${message}`, error: message, success: false };
+      return {
+        content: `Device tool call error: ${message}`,
+        error: message,
+        executionUnknown: true,
+        success: false,
+      };
     }
   }
 
@@ -1444,7 +1449,12 @@ export class DeviceGateway {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log('executeMcpCall: error — %s', message);
-      return { content: `Device MCP call error: ${message}`, error: message, success: false };
+      return {
+        content: `Device MCP call error: ${message}`,
+        error: message,
+        executionUnknown: true,
+        success: false,
+      };
     }
   }
 

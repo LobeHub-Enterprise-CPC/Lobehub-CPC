@@ -241,6 +241,44 @@ describe('GatewayHttpClient', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBe('Internal Server Error');
       expect(result.content).toContain('HTTP 500');
+      expect(result.executionUnknown).toBe(true);
+    });
+
+    it('does not mark an explicit successful-HTTP tool failure as unknown', async () => {
+      mockFetch({
+        json: vi.fn().mockResolvedValue({
+          content: 'permission denied',
+          executionUnknown: false,
+          success: false,
+        }),
+        ok: true,
+      });
+
+      const result = await client.executeToolCall(
+        { userId: 'user-1' },
+        { apiName: 'readFile', arguments: '{}', identifier: 'test' },
+      );
+
+      expect(result).toMatchObject({ content: 'permission denied', success: false });
+      expect(result.executionUnknown).toBe(false);
+    });
+
+    it('propagates an explicitly unknown successful-HTTP envelope', async () => {
+      mockFetch({
+        json: vi.fn().mockResolvedValue({
+          content: 'device response lost',
+          executionUnknown: true,
+          success: false,
+        }),
+        ok: true,
+      });
+
+      const result = await client.executeToolCall(
+        { userId: 'user-1' },
+        { apiName: 'readFile', arguments: '{}', identifier: 'test' },
+      );
+
+      expect(result.executionUnknown).toBe(true);
     });
 
     it('should handle non-ok response with text() failure', async () => {
@@ -494,6 +532,7 @@ describe('GatewayHttpClient', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('DEVICE_OFFLINE');
+      expect(result.executionUnknown).toBe(true);
     });
   });
 

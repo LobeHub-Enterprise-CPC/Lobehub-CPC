@@ -305,6 +305,7 @@ describe('DeviceGateway', () => {
         error: 'GATEWAY_NOT_CONFIGURED',
         success: false,
       });
+      expect(result.executionUnknown).toBeUndefined();
     });
 
     it('should execute tool call with default timeout', async () => {
@@ -348,6 +349,7 @@ describe('DeviceGateway', () => {
       expect(result).toEqual({
         content: 'Device tool call error: connection refused',
         error: 'connection refused',
+        executionUnknown: true,
         success: false,
       });
     });
@@ -363,6 +365,7 @@ describe('DeviceGateway', () => {
       expect(result).toEqual({
         content: 'Device tool call error: string error',
         error: 'string error',
+        executionUnknown: true,
         success: false,
       });
     });
@@ -393,6 +396,7 @@ describe('DeviceGateway', () => {
         error: 'GATEWAY_NOT_CONFIGURED',
         success: false,
       });
+      expect(result.executionUnknown).toBeUndefined();
     });
 
     it('should forward the mcp call with default timeout', async () => {
@@ -430,6 +434,7 @@ describe('DeviceGateway', () => {
       expect(result).toEqual({
         content: 'Device MCP call error: connection refused',
         error: 'connection refused',
+        executionUnknown: true,
         success: false,
       });
     });

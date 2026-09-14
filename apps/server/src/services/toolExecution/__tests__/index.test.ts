@@ -136,6 +136,49 @@ describe('ToolExecutionService', () => {
       );
     });
 
+    it('preserves unknown execution through MCP device error classification', async () => {
+      vi.mocked(deviceGateway.executeMcpCall).mockResolvedValue({
+        content: 'gateway timed out',
+        error: 'timeout',
+        executionUnknown: true,
+        success: false,
+      } as any);
+      const service = makeService();
+
+      const result = await service.executeTool(
+        mcpPayload,
+        contextWith(
+          { args: [], command: 'npx', name: 'my-mcp', type: 'stdio' },
+          { activeDeviceId: 'device-1' },
+        ),
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.executionUnknown).toBe(true);
+      expect((result.error as any).code).toBe('MCP_DEVICE_EXECUTION_ERROR');
+    });
+
+    it('does not turn a confirmed MCP device failure into unknown execution', async () => {
+      vi.mocked(deviceGateway.executeMcpCall).mockResolvedValue({
+        content: 'tool rejected',
+        error: 'permission denied',
+        success: false,
+      } as any);
+      const service = makeService();
+
+      const result = await service.executeTool(
+        mcpPayload,
+        contextWith(
+          { args: [], command: 'npx', name: 'my-mcp', type: 'stdio' },
+          { activeDeviceId: 'device-1' },
+        ),
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.executionUnknown).toBeUndefined();
+      expect((result.error as any).code).toBe('MCP_DEVICE_EXECUTION_ERROR');
+    });
+
     it('tunnels a local-network HTTP MCP call and narrows the auth payload', async () => {
       const service = makeService();
       await service.executeTool(

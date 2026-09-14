@@ -358,6 +358,8 @@ export interface ToolExecutionResult {
    */
   deferred?: boolean;
   error?: any;
+  /** Device dispatch may have happened, but no terminal execution result was observed. */
+  executionUnknown?: boolean;
   state?: Record<string, any>;
   success: boolean;
   /**

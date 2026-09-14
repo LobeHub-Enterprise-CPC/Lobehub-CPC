@@ -410,6 +410,7 @@ export class ToolExecutionService {
           code: 'MCP_DEVICE_EXECUTION_ERROR',
           message: result.error || result.content,
         },
+        ...(result.executionUnknown && { executionUnknown: true }),
         success: false,
       };
     }

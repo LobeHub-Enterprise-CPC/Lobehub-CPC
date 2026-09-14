@@ -61,6 +61,40 @@ describe('Channel Native worker settlement', () => {
     expect(model.executionUnknown).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])(
+    'retains the writer after a resolved transport failure, runtime fails=%s',
+    async (fails) => {
+      native.mockImplementation(async ({ capabilities: runtimeCapabilities }) => {
+        await runtimeCapabilities.toolTransport.run({}, {});
+        if (fails) throw new Error('Device response lost');
+        return { content: 'Device response lost', budget: {}, state: {} };
+      });
+      const worker = new ChannelWorker({} as LobeChatDatabase);
+      await worker['startNative'](model as unknown as ChannelModel, 'owner', run, config, {
+        ...capabilities,
+        toolTransport: {
+          run: async () => ({
+            attempts: 1,
+            result: {
+              content: 'Device response lost',
+              executionUnknown: true,
+              success: false,
+            },
+          }),
+        },
+      });
+      await worker['active'].get(run.id)?.done;
+      await worker.close();
+      expect(model.releaseWriter).not.toHaveBeenCalled();
+      expect(model.executionUnknown).toHaveBeenCalledWith(
+        'channel',
+        'run',
+        1,
+        'Tool termination could not be confirmed',
+      );
+    },
+  );
+
   it.each(['fail', 'releaseWriter'] as const)(
     'contains %s rejection and retries finalization without replay',
     async (method) => {

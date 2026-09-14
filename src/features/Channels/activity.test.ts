@@ -58,10 +58,10 @@ describe('Channel activity', () => {
     data.jobs[0].messageId = 'old';
     expect(channelActivity(data, null)).toEqual([]);
   });
-  it('clears cancellation errors only after the writer and physical process are stopped', () => {
+  it('derives cancellation from durable stop state, not publication revocation', () => {
     const data = fixture();
     data.messages[0].threadId = 'thread';
-    data.jobs[1].status = 'failed';
+    data.jobs[1].status = 'cancelled';
     data.runs[0].status = 'failed';
     data.runs[0].publicationRevoked = true;
     data.runs[0].writerReleased = true;
@@ -69,8 +69,29 @@ describe('Channel activity', () => {
     expect(channelActivity(data, 'thread')[0].state).toBe('stop_requested');
     data.runs[0].physicalStopped = true;
     expect(channelActivity(data, 'thread')).toEqual([]);
-    data.runs[0].publicationRevoked = false;
-    expect(channelActivity(data, 'thread')[0].state).toBe('failed');
+  });
+  it.each(['failed', 'execution_unknown'] as const)(
+    'shows genuine %s execution even when publication is revoked',
+    (status) => {
+      const data = fixture();
+      data.messages[0].threadId = 'thread';
+      data.jobs[1].status = 'failed';
+      data.runs[0].status = status;
+      data.runs[0].publicationRevoked = true;
+      data.runs[0].writerReleased = true;
+      data.runs[0].physicalStopped = status === 'failed';
+      expect(channelActivity(data, 'thread')[0].state).toBe(status);
+    },
+  );
+  it('keeps a heterogeneous cancellation active until physical stop is observed', () => {
+    const data = fixture();
+    data.messages[0].threadId = 'thread';
+    data.jobs[1].status = 'cancelled';
+    data.runs[0].status = 'stopped';
+    data.runs[0].publicationRevoked = true;
+    data.runs[0].writerReleased = true;
+    data.runs[0].physicalStopped = false;
+    expect(channelActivity(data, 'thread')[0].state).toBe('stop_requested');
   });
   it('shows a durable pause for queued work without hiding a still-stopping thread run', () => {
     const data = fixture();

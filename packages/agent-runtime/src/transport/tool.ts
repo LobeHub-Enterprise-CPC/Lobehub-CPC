@@ -22,6 +22,8 @@ export interface ToolRunResult {
   deviceExecutionTime?: number;
   error?: unknown;
   executionTime?: number;
+  /** Device dispatch may have happened, but no terminal execution result was observed. */
+  executionUnknown?: boolean;
   state?: Record<string, any>;
   /** Tool result requests the current runtime flow to stop. */
   stop?: boolean;

@@ -22,6 +22,8 @@ export interface DeviceStatusResult {
 export interface DeviceToolCallResult {
   content: string;
   error?: string;
+  /** The request may have reached the device, but no terminal response was observed. */
+  executionUnknown?: boolean;
   state?: unknown;
   success: boolean;
 }
@@ -161,6 +163,7 @@ export class GatewayHttpClient {
       return {
         content: `Device tool call failed (HTTP ${res.status})`,
         error: text || `HTTP ${res.status}`,
+        executionUnknown: true,
         success: false,
       };
     }
@@ -182,6 +185,9 @@ export class GatewayHttpClient {
               ? data.error
               : '',
       error: data.error,
+      ...(typeof data.executionUnknown === 'boolean' && {
+        executionUnknown: data.executionUnknown,
+      }),
       state: data.state,
       success: data.success ?? true,
     };
