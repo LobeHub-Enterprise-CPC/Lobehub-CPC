@@ -38,8 +38,8 @@ import {
   resolveExecutionTarget,
 } from '@/helpers/executionTarget';
 import { useIsGatewayModeEnabled } from '@/helpers/gatewayMode';
+import { useEffectiveAgencyConfig } from '@/hooks/useEffectiveAgencyConfig';
 import { useEffectiveWorkingDirectory } from '@/hooks/useEffectiveWorkingDirectory';
-import { useTopicAgencyConfig } from '@/hooks/useTopicAgencyConfig';
 import { localFileService } from '@/services/electron/localFileService';
 import { useAgentStore } from '@/store/agent';
 import { useElectronStore } from '@/store/electron';
@@ -389,7 +389,7 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
     canSelectExecutionTarget,
     isPreferenceLoading: isWorkspacePreferenceLoading,
     workspaceScoped,
-  } = useTopicAgencyConfig(agentId);
+  } = useEffectiveAgencyConfig(agentId);
   const canShowExecutionTarget = canUseResource && canDisplayExecutionTarget;
   const canShowExecutionTargetSelector = canShowExecutionTarget && canSelectExecutionTarget;
 
