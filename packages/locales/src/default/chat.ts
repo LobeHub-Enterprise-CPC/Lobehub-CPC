@@ -100,6 +100,7 @@ export default {
   'agentProfile.files_other': '{{count}} files',
   'agentProfile.knowledgeBases_one': '{{count}} library',
   'agentProfile.knowledgeBases_other': '{{count}} libraries',
+  'agentProfile.runtime': 'Runs on {{name}}',
   'agentProfile.skills_one': '{{count}} skill',
   'agentProfile.skills_other': '{{count}} skills',
   'agentSignal.receipts.agentSignalLabel': 'Agent Signal',
@@ -2216,7 +2217,7 @@ export default {
   'taskList.assigneeSearch.memberPlaceholder': 'Search Assignee...',
   'taskList.assigneeSearch.placeholder': 'Search Assignee or Agent...',
   'taskList.assigneeSelector.agentGroup': 'Agents',
-  'taskList.assigneeSelector.memberGroup': 'Assignee',
+  'taskList.assigneeSelector.workspaceMemberGroup': 'Workspace members',
   'taskList.contextMenu.copyConfirm': 'Copy',
   'taskList.contextMenu.copyDescription':
     'Clone this task (and all its subtasks) into another workspace. Status resets to backlog.',

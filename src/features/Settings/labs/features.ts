@@ -19,6 +19,7 @@ type LabFeatureI18nKey =
   | 'codexAppServer'
   | 'desktopSplitView'
   | 'evalCapture'
+  | 'gatewayMux'
   | 'heteroSessionImport'
   | 'imessage'
   | 'inputMarkdown'
@@ -81,6 +82,12 @@ export const LAB_FEATURES: LabFeatureItem[] = [
     flag: 'enableEvalCapture',
     i18nKey: 'evalCapture',
     searchKeywords: ['eval', 'test case', 'capture', 'regression', 'benchmark'],
+    stage: 'alpha',
+  },
+  {
+    flag: 'enableGatewayMux',
+    i18nKey: 'gatewayMux',
+    searchKeywords: ['gateway', 'websocket', 'multiplex'],
     stage: 'alpha',
   },
   {
