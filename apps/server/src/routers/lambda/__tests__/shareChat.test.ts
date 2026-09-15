@@ -1,5 +1,6 @@
 // @vitest-environment node
 import type * as BusinessConst from '@lobechat/business-const';
+import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as MessageModelModule from '@/database/models/message';
@@ -97,10 +98,12 @@ vi.mock('@/database/models/user', () => ({
 
 const mockExecAgent = vi.fn();
 const mockInterruptTask = vi.fn();
+const mockSetQueuedMessages = vi.fn();
 const AiAgentServiceMock = vi.fn(function () {
   return {
     execAgent: mockExecAgent,
     interruptTask: mockInterruptTask,
+    setQueuedMessages: mockSetQueuedMessages,
   };
 });
 vi.mock('@/server/services/aiAgent', () => ({
@@ -165,6 +168,7 @@ describe('shareChatRouter', () => {
     mockMessageQuery.mockResolvedValue([]);
     mockExecAgent.mockResolvedValue({ operationId: 'op-1', success: true });
     mockInterruptTask.mockResolvedValue({ operationId: 'op-1', success: true });
+    mockSetQueuedMessages.mockResolvedValue({ success: true });
     mockSignUserJWT.mockResolvedValue('visitor-jwt');
     mockSpendGate.mockResolvedValue({ allowed: true });
   });
@@ -253,6 +257,14 @@ describe('shareChatRouter', () => {
         caller.execAgent({ prompt: 'hi', shareId: 'share-1', topicId: 'tpc_visitor' }),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
       expect(mockExecAgent).not.toHaveBeenCalled();
+    });
+
+    it('keeps the steer mark of a follow-up the visitor queued behind a running turn', async () => {
+      const caller = await createCaller();
+
+      await caller.execAgent({ prompt: 'follow up', shareId: 'share-1', steer: true });
+
+      expect(mockExecAgent).toHaveBeenCalledWith(expect.objectContaining({ steer: true }));
     });
 
     it('dispatches a creator-scoped run carrying the share gate', async () => {
@@ -461,6 +473,55 @@ describe('shareChatRouter', () => {
     });
   });
 
+  describe('setQueuedMessages', () => {
+    it('flags the running operation through the creator-scoped service', async () => {
+      const caller = await createCaller();
+
+      await expect(
+        caller.setQueuedMessages({
+          operationId: 'op-1',
+          pending: true,
+          shareId: 'share-1',
+          topicId: 'tpc_visitor',
+        }),
+      ).resolves.toEqual({ success: true });
+
+      expect(AiAgentServiceMock).toHaveBeenCalledWith(expect.anything(), OWNER, {
+        includeShareVisitor: true,
+      });
+      expect(mockSetQueuedMessages).toHaveBeenCalledWith({ operationId: 'op-1', pending: true });
+    });
+
+    it('rejects an operationId that does not match the topic’s current running operation', async () => {
+      const caller = await createCaller();
+
+      await expect(
+        caller.setQueuedMessages({
+          operationId: 'op-someone-elses',
+          pending: true,
+          shareId: 'share-1',
+          topicId: 'tpc_visitor',
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      expect(mockSetQueuedMessages).not.toHaveBeenCalled();
+    });
+
+    it("fails closed when the topic is not the visitor's own share topic", async () => {
+      mockFindById.mockResolvedValue({ ...visitorTopic, senderId: 'someone-else' });
+      const caller = await createCaller();
+
+      await expect(
+        caller.setQueuedMessages({
+          operationId: 'op-1',
+          pending: false,
+          shareId: 'share-1',
+          topicId: 'tpc_visitor',
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      expect(mockSetQueuedMessages).not.toHaveBeenCalled();
+    });
+  });
+
   describe('getTopics', () => {
     it("returns only the visitor's own topics via agentId + senderId scoping", async () => {
       const caller = await createCaller();
@@ -531,6 +592,56 @@ describe('shareChatRouter', () => {
       await caller.getMessages({ shareId: 'share-1', topicId: 'tpc_visitor' });
 
       expect(mockMessageQuery).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('issueGatewayUserToken', () => {
+    it('signs the per-user hub token for the VISITOR, never the creator', async () => {
+      const caller = await createCaller();
+
+      await expect(caller.issueGatewayUserToken({ shareId: 'share-1' })).resolves.toEqual({
+        token: 'visitor-jwt',
+      });
+      expect(mockSignUserJWT).toHaveBeenCalledWith(VISITOR);
+      expect(mockAccessCheck).toHaveBeenCalledWith(expect.anything(), 'share-1', VISITOR);
+    });
+
+    // The v2 hub socket is per user, not per operation: the hub authorizes
+    // each `subscribe` against the op's registered owner, so minting must not
+    // depend on a topic marker or a live run (a visitor opens the socket
+    // before their first send).
+    it('does not require a topic or a running operation', async () => {
+      mockFindById.mockResolvedValue(undefined);
+      mockIsRunningOperationAlive.mockResolvedValue(false);
+      const caller = await createCaller();
+
+      await expect(caller.issueGatewayUserToken({ shareId: 'share-1' })).resolves.toEqual({
+        token: 'visitor-jwt',
+      });
+      expect(mockFindById).not.toHaveBeenCalled();
+      expect(mockIsRunningOperationAlive).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unknown share without signing anything', async () => {
+      mockAccessCheck.mockRejectedValue(
+        new TRPCError({ code: 'NOT_FOUND', message: 'Share not found' }),
+      );
+      const caller = await createCaller();
+
+      await expect(caller.issueGatewayUserToken({ shareId: 'missing' })).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+      expect(mockSignUserJWT).not.toHaveBeenCalled();
+    });
+
+    it('rejects a share that is not link-visible', async () => {
+      mockAccessCheck.mockResolvedValue({ ...share, visibility: 'private' });
+      const caller = await createCaller();
+
+      await expect(caller.issueGatewayUserToken({ shareId: 'share-1' })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      expect(mockSignUserJWT).not.toHaveBeenCalled();
     });
   });
 
@@ -613,6 +724,9 @@ describe('shareChatRouter', () => {
         await expect(
           caller.refreshGatewayToken({ shareId: 'share-1', topicId: 'tpc_visitor' }),
         ).resolves.toEqual({ token: 'visitor-jwt' });
+        await expect(caller.issueGatewayUserToken({ shareId: 'share-1' })).resolves.toEqual({
+          token: 'visitor-jwt',
+        });
         expect(mockGetFeatureFlagsState).not.toHaveBeenCalled();
       },
     );
