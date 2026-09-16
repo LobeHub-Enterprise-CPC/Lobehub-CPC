@@ -1,7 +1,11 @@
-import { DEFAULT_PROVIDER } from '@lobechat/business-const';
+import { DEFAULT_PROVIDER, DEFAULT_SUB_AGENT_MODEL } from '@lobechat/business-const';
 import type { LobeAgentAgencyConfig, LobeAgentChatConfig } from '@lobechat/types';
 
-export { DEFAULT_MINI_MODEL, DEFAULT_MODEL } from '@lobechat/business-const';
+export {
+  DEFAULT_MINI_MODEL,
+  DEFAULT_MODEL,
+  DEFAULT_SUB_AGENT_MODEL,
+} from '@lobechat/business-const';
 
 export const DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small';
 
@@ -14,8 +18,10 @@ export const DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small';
  * a build that swaps `@lobechat/business-const` (the cloud one routes through
  * its own official provider) moves the sub-agent along with the main model
  * instead of leaving it pointed at a provider that build doesn't serve.
+ *
+ * Defined in the business slot (`DEFAULT_SUB_AGENT_MODEL`, re-exported above) so
+ * the model moves with that provider too.
  */
-export const DEFAULT_SUB_AGENT_MODEL = 'deepseek-v4-flash';
 
 /**
  * Resolve the model a sub-agent runs on, in precedence order:

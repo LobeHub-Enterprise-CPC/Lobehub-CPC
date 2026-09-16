@@ -2,7 +2,7 @@ import type { AgentState, AgentWorldSnapshot, CallLLMPayload } from '@lobechat/a
 import type { ResolvedToolSet } from '@lobechat/context-engine';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { RuntimeExecutorContext } from '../context';
+import type { RuntimeContextBuilderContext } from '../context';
 import { buildServerCallLlmContext } from './serverCallLlmContextBuilder';
 import type { ServerCallLlmTooling } from './serverCallLlmTooling';
 
@@ -51,17 +51,16 @@ vi.mock('@/server/modules/Mecha/ContextEngineering', () => ({
   serverMessagesEngine: serverMessagesEngineMock,
 }));
 
-const createCtx = (overrides: Partial<RuntimeExecutorContext> = {}): RuntimeExecutorContext =>
+const createCtx = (
+  overrides: Partial<RuntimeContextBuilderContext> = {},
+): RuntimeContextBuilderContext =>
   ({
-    messageModel: {} as RuntimeExecutorContext['messageModel'],
     operationId: 'operation-1',
-    serverDB: {} as RuntimeExecutorContext['serverDB'],
+    serverDB: {} as RuntimeContextBuilderContext['serverDB'],
     stepIndex: 0,
-    streamManager: {} as RuntimeExecutorContext['streamManager'],
-    toolExecutionService: {} as RuntimeExecutorContext['toolExecutionService'],
     userId: 'creator-1',
     ...overrides,
-  }) satisfies RuntimeExecutorContext;
+  }) satisfies RuntimeContextBuilderContext;
 
 const llmPayload = { messages: [] } as unknown as CallLLMPayload;
 const agent = {
@@ -112,6 +111,31 @@ beforeEach(() => {
  * received anything. So each link gets an assertion of its own.
  */
 describe('buildServerCallLlmContext - system-message context reaches the engine', () => {
+  it.each([
+    { expected: false, stream: false },
+    { expected: true, stream: undefined },
+  ])(
+    'respects operation stream=$stream with a transport-free context',
+    async ({ expected, stream }) => {
+      resolveServerCallLlmContextHintsMock.mockResolvedValue({
+        messagesForContext: [],
+        shouldReplayAssistantReasoning: false,
+        stream: true,
+      });
+
+      const result = await buildServerCallLlmContext({
+        ctx: createCtx({ stream }),
+        llmPayload,
+        model: 'gpt-4',
+        provider: 'openai',
+        state,
+        tooling,
+      });
+
+      expect(result.stream).toBe(expected);
+    },
+  );
+
   it('forwards the project instructions off the world snapshot', async () => {
     const projectInstructions = [{ content: 'Use bun.', source: 'AGENTS.md' }];
 

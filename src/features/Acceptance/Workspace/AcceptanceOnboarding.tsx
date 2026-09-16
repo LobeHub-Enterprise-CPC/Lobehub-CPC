@@ -1,6 +1,6 @@
 'use client';
 
-import { CLI_INSTALL_COMMAND } from '@lobechat/business-const';
+import { CLI_INSTALL_COMMAND, OFFICIAL_URL } from '@lobechat/business-const';
 import { CopyButton, Flexbox, Icon } from '@lobehub/ui';
 import { Button, TabsIndicator, TabsList, TabsRoot, TabsTab } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cssVar } from 'antd-style';
@@ -218,10 +218,12 @@ const AcceptanceOnboarding = () => {
                 </span>
                 <Flexbox horizontal align={'flex-start'} className={styles.promptBox} gap={8}>
                   <span className={styles.prompt}>
-                    {t('acceptance.workspace.onboarding.agent.prompt')}
+                    {t('acceptance.workspace.onboarding.agent.prompt', { url: OFFICIAL_URL })}
                   </span>
                   <CopyButton
-                    content={t('acceptance.workspace.onboarding.agent.prompt')}
+                    content={t('acceptance.workspace.onboarding.agent.prompt', {
+                      url: OFFICIAL_URL,
+                    })}
                     size={'small'}
                   />
                 </Flexbox>

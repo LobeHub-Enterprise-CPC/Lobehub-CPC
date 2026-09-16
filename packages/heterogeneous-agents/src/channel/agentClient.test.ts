@@ -1,14 +1,21 @@
+import { execFile } from 'node:child_process';
 import { PassThrough } from 'node:stream';
 
 import type { AgentStreamEvent } from '@lobechat/agent-gateway-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { resolveCliSpawnPlan } from '../spawn/cliSpawn';
 import { spawnAgent } from '../spawn/spawnAgent';
 import { ChannelAgentClient, prepareChannelLaunch } from './agentClient';
 import type { CodexChannelSnapshot, CodexChannelStart } from './host';
 import { CHANNEL_INSTRUCTIONS } from './input';
 
 vi.mock('../spawn/spawnAgent', () => ({ spawnAgent: vi.fn() }));
+vi.mock('../spawn/cliSpawn', () => ({ resolveCliSpawnPlan: vi.fn() }));
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  execFile: vi.fn(),
+}));
 vi.mock('../process/ProcessTreeTracker', () => ({
   ProcessTreeTracker: class {
     async track() {}
@@ -334,5 +341,37 @@ describe('Channel uses the standalone Agent runtime', () => {
     await rejected;
     expect(h.kill).toHaveBeenCalledWith('SIGTERM');
     expect(snapshot.runtimeCompleted).not.toBe(true);
+  });
+});
+
+describe('ChannelAgentClient.probe', () => {
+  it('runs the version probe through the CLI spawn plan, not the raw .cmd shim', async () => {
+    // A Windows npm install exposes the CLI as `claude.cmd`; execFile on that path
+    // throws `spawn EINVAL`, so the probe must use the unwrapped executable.
+    const shim = String.raw`C:\Users\u\AppData\Roaming\npm\claude.cmd`;
+    const exe = String.raw`C:\Users\u\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe`;
+    vi.mocked(resolveCliSpawnPlan).mockResolvedValue({ args: ['--version'], command: exe });
+    vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+      const callback = args.at(-1) as (error: Error | null, result: unknown) => void;
+      callback(null, { stderr: '', stdout: '2.1.0 (Claude Code)\n' });
+      return {} as ReturnType<typeof execFile>;
+    }) as unknown as typeof execFile);
+
+    await expect(
+      ChannelAgentClient.probe(
+        String.raw`C:\work`,
+        'claude-code',
+        { command: shim, env: { FOO: '1' }, type: 'claude-code' },
+        false,
+      ),
+    ).resolves.toBe('2.1.0 (Claude Code)');
+
+    expect(resolveCliSpawnPlan).toHaveBeenCalledWith(shim, ['--version'], { FOO: '1' });
+    expect(execFile).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(execFile).mock.calls[0].slice(0, 3)).toEqual([
+      exe,
+      ['--version'],
+      expect.objectContaining({ cwd: String.raw`C:\work`, env: { FOO: '1' }, windowsHide: true }),
+    ]);
   });
 });

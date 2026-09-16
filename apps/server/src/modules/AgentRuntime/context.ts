@@ -73,6 +73,7 @@ export type RuntimeContextBuilderContext = Pick<
   | 'operationId'
   | 'serverDB'
   | 'stepIndex'
+  | 'stream'
   | 'topicId'
   | 'tracingContextEngine'
   | 'userId'

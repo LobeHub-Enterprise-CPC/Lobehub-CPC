@@ -37,6 +37,11 @@ vi.mock('../api/client', () => ({
   getTrpcClient: mockGetTrpcClient,
 }));
 
+const { mockRenewalStop } = vi.hoisted(() => ({ mockRenewalStop: vi.fn() }));
+vi.mock('../utils/OperationTokenRenewal', () => ({
+  createOperationTokenRenewal: () => ({ active: true, stop: mockRenewalStop }),
+}));
+
 /**
  * Build a Promise resolving to a fake `SpawnAgentHandle`. `spawnAgent` itself
  * is async, so test mocks return the handle wrapped — same iterable contract,
@@ -426,6 +431,39 @@ describe('hetero exec command', () => {
     const call = mockSpawnAgent.mock.calls[0][0];
     expect(call.operationId).toBe('op-server-allocated');
     expect(call.includePartialMessages).toBe(true);
+  });
+
+  it("echoes the run's operation and conversation into a server-ingest agent's env", async () => {
+    mockSpawnAgent.mockReturnValue(createFakeHandle());
+
+    await runCmd([
+      'hetero',
+      'exec',
+      '--type',
+      'claude-code',
+      '--prompt',
+      '/goal ship the report',
+      '--topic',
+      'tpc_conversation',
+      '--operation-id',
+      'op_conversation_run',
+    ]);
+
+    // `lh goal create --conversation` inside the agent's shell reads these.
+    expect(mockSpawnAgent.mock.calls[0][0].env).toMatchObject({
+      LOBEHUB_OPERATION_ID: 'op_conversation_run',
+      LOBEHUB_TOPIC_ID: 'tpc_conversation',
+    });
+  });
+
+  it('gives a standalone run no conversation identity', async () => {
+    mockSpawnAgent.mockReturnValue(createFakeHandle());
+
+    await runCmd(['hetero', 'exec', '--type', 'claude-code', '--prompt', 'hi']);
+
+    const env = mockSpawnAgent.mock.calls[0][0].env ?? {};
+    expect(env).not.toHaveProperty('LOBEHUB_OPERATION_ID');
+    expect(env).not.toHaveProperty('LOBEHUB_TOPIC_ID');
   });
 
   it('does not request Claude partial-message framing for other heterogeneous agents', async () => {
@@ -1751,6 +1789,56 @@ describe('hetero exec command', () => {
       'ingest:agent_runtime_end:terminal',
       'finish',
     ]);
+  });
+
+  /**
+   * Regression: renewal was stopped before the final drain, so a token expiring
+   * while the drain or the finish receipt sat in retries rejected both — the
+   * very loss renewal exists to prevent.
+   */
+  it('keeps the operation token renewing until the finish receipt is sent', async () => {
+    const callOrder: string[] = [];
+    mockRenewalStop.mockReset();
+    mockRenewalStop.mockImplementation(() => callOrder.push('renewal:stop'));
+    mockHeteroIngestMutate.mockImplementation(async () => {
+      callOrder.push('ingest');
+      return { ack: true };
+    });
+    mockHeteroFinishMutate.mockImplementation(async () => {
+      callOrder.push('finish');
+      return { ack: true };
+    });
+    mockSpawnAgent.mockReturnValue(
+      createFakeHandle({
+        events: [
+          {
+            data: { reason: 'success' },
+            operationId: 'op-renew',
+            stepIndex: 0,
+            timestamp: 1,
+            type: 'agent_runtime_end',
+          },
+        ],
+        exitCode: 0,
+      }),
+    );
+
+    await runCmd([
+      'hetero',
+      'exec',
+      '--type',
+      'claude-code',
+      '--prompt',
+      'hi',
+      '--topic',
+      'topic-1',
+      '--operation-id',
+      'op-renew',
+      '--render',
+      'none',
+    ]);
+
+    expect(callOrder).toEqual(['ingest', 'finish', 'renewal:stop']);
   });
 
   it('finishes with result "error" when a terminal error event is pushed despite a clean exit', async () => {

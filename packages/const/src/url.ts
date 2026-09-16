@@ -1,6 +1,7 @@
 import urlJoin from 'url-join';
 
-export const OFFICIAL_URL = 'https://app.lobehub.com';
+// Defined in the business slot so white-label builds can point it at their own deployment.
+export { OFFICIAL_URL } from '@lobechat/business-const';
 export const OFFICIAL_SITE = 'https://lobehub.com';
 export const OFFICIAL_DOMAIN = 'lobehub.com';
 
