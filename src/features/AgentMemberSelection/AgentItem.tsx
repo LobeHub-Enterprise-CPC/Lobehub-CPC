@@ -63,6 +63,8 @@ export interface AgentItemData {
   description: string | null;
   disabled?: boolean;
   id: string;
+  /** Short trailing label explaining the row's state, e.g. why it is disabled. */
+  status?: string;
   title: string | null;
 }
 
@@ -126,6 +128,11 @@ const AgentItem = memo<AgentItemProps>(
           <Text ellipsis className={styles.title}>
             {title}
           </Text>
+          {agent.status && (
+            <Text fontSize={12} style={{ flexShrink: 0 }} type="secondary">
+              {agent.status}
+            </Text>
+          )}
           {showRemove && (
             <button
               aria-label={title}
