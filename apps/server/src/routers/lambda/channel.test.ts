@@ -52,7 +52,6 @@ const caller = (workspaceId?: string) =>
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv('CHANNEL_GATEWAY_URL', 'http://channel-worker:3211');
-  vi.stubEnv('CHANNEL_ALLOWED_USER_IDS', 'owner');
   preference.mockResolvedValue({ lab: { enableChannel: true } });
   list.mockResolvedValue([{ id: 'owned-channel' }]);
   vi.stubGlobal(
@@ -66,6 +65,14 @@ afterEach(() => {
 });
 
 describe('Channel service opt-in at the API boundary', () => {
+  it('requires Labs opt-in for availability and direct API calls', async () => {
+    preference.mockResolvedValue({ lab: { enableChannel: false } });
+    expect(await caller().availability()).toEqual({ enabled: false });
+    await expect(caller().list()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(list).not.toHaveBeenCalled();
+  });
+
   it('accepts attachment-only sends and resolves metadata for both the page and thread root', async () => {
     await caller().send({
       channelId: 'channel',
