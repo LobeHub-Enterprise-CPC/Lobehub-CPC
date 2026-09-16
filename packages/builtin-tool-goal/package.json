@@ -10,7 +10,8 @@
   },
   "main": "./src/index.ts",
   "dependencies": {
-    "@lobechat/builtin-tool-task": "workspace:*"
+    "@lobechat/builtin-tool-task": "workspace:*",
+    "@lobechat/business-const": "workspace:*"
   },
   "devDependencies": {
     "@lobechat/types": "workspace:*"

@@ -77,6 +77,11 @@ export const getAppConfig = () => {
 
       AGENT_GATEWAY_SERVICE_TOKEN: z.string().optional(),
       ENABLE_AGENT_GATEWAY: z.boolean().optional(),
+      /**
+       * Server-to-server Agent Gateway endpoint, e.g. a Docker Compose service
+       * name the browser cannot resolve. Falls back to AGENT_GATEWAY_URL.
+       */
+      AGENT_GATEWAY_INTERNAL_URL: z.string().url().optional(),
       AGENT_GATEWAY_URL: z.string().url().optional(),
 
       /**
@@ -157,6 +162,7 @@ export const getAppConfig = () => {
       AGENT_GATEWAY_SERVICE_TOKEN: process.env.AGENT_GATEWAY_SERVICE_TOKEN,
       ENABLE_AGENT_GATEWAY: process.env.ENABLE_AGENT_GATEWAY === '1',
       AGENT_GATEWAY_URL: process.env.AGENT_GATEWAY_URL,
+      AGENT_GATEWAY_INTERNAL_URL: process.env.AGENT_GATEWAY_INTERNAL_URL || undefined,
       COMMAND_GOVERNANCE_ENABLED: process.env.COMMAND_GOVERNANCE_ENABLED === '1',
       COMMAND_GOVERNANCE_SERVICE_TOKEN: process.env.COMMAND_GOVERNANCE_SERVICE_TOKEN,
       DESKTOP_DOWNLOAD_URL_MACOS: process.env.DESKTOP_DOWNLOAD_URL_MACOS,
