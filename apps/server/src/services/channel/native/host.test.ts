@@ -127,6 +127,7 @@ describe('runChannelNative', () => {
       agentId: 'agent',
       autoStart: false,
       channelContext: { artifactRunIds: ['run-a'], channelId: 'channel', fence: 1, runId: 'run' },
+      chatConfigOverride: { enableContextCompression: false },
       stream: false,
       trigger: 'channel',
       userInterventionConfig: { approvalMode: 'headless' },

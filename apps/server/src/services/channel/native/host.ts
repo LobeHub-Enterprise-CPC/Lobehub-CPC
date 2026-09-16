@@ -111,6 +111,9 @@ export async function runChannelNative(input: {
       fence: run.fence,
       runId: run.id,
     },
+    // Compression requires a topic-backed transport. Until it supports the
+    // private store, avoid scheduling a skipped compression before every call.
+    chatConfigOverride: { enableContextCompression: false },
     instructions: `${CHANNEL_INSTRUCTIONS}\n\n${JSON.stringify(channelContext(run.manifest))}`,
     prompt: '',
     serverToolManifests: artifactManifest && [artifactManifest],

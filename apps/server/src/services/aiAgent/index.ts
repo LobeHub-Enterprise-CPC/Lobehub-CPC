@@ -745,7 +745,10 @@ export class AiAgentService {
       transcript,
     } = params;
 
-    if (transcript && (appContext?.topicId || resume || resumeApproval || resumeApprovals)) {
+    if (
+      transcript &&
+      (appContext?.topicId || resume || resumeApproval || resumeApprovals || resumeToolResult)
+    ) {
       throw new Error(
         'transcript mode is exclusive with appContext.topicId and every resume* option',
       );
