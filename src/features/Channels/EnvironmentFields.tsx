@@ -147,12 +147,15 @@ export function EnvironmentFields({
   agentId,
   devices,
   disabled,
+  hint,
   onChange,
   value,
 }: {
   agentId: string;
   devices: ChannelDevice[];
   disabled?: boolean;
+  /** Replaces the default "changes apply after saving" copy; `null` hides the line. */
+  hint?: string | null;
   onChange: (draft: EnvironmentDraft) => void;
   value: EnvironmentDraft;
 }) {
@@ -391,7 +394,11 @@ export function EnvironmentFields({
           </button>
         </Popover>
       </Flexbox>
-      <Text type={error ? 'danger' : 'secondary'}>{error || t('environment.fullPathHint')}</Text>
+      {(error || hint !== null) && (
+        <Text type={error ? 'danger' : 'secondary'}>
+          {error || hint || t('environment.fullPathHint')}
+        </Text>
+      )}
     </Flexbox>
   );
 }

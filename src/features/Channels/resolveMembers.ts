@@ -23,10 +23,40 @@ export interface ChannelMemberCandidate {
   agentId: string;
   deviceId?: string;
   heterogeneous: boolean;
+  heteroType?: string;
   /** Present when the Agent is not ready to join; `undefined` means ready. */
   issue?: ChannelMemberIssue;
   name: string;
   workingDirectory?: string;
+}
+
+/** A device and working directory the user picked for one member while creating the Channel. */
+export interface ChannelMemberEnvironment {
+  deviceId: string;
+  workingDirectory: string;
+}
+
+/** Re-diagnose a device Agent after the user overrides where it should run. */
+export function applyChannelEnvironment(
+  candidate: ChannelMemberCandidate,
+  environment: ChannelMemberEnvironment | undefined,
+  devices: Pick<DeviceListItem, 'deviceId' | 'online'>[],
+): ChannelMemberCandidate {
+  if (!candidate.heterogeneous || !environment?.deviceId) return candidate;
+  const deviceId = environment.deviceId;
+  const workingDirectory = environment.workingDirectory.trim() || undefined;
+  return {
+    ...candidate,
+    deviceId,
+    issue: diagnoseChannelCandidate({
+      deviceId,
+      deviceOnline: !!devices.find((device) => device.deviceId === deviceId)?.online,
+      hasModel: true,
+      heteroType: candidate.heteroType,
+      workingDirectory,
+    }),
+    workingDirectory,
+  };
 }
 
 /** Thrown when the user must fix a selected Agent before the Channel can be saved. */
@@ -77,7 +107,10 @@ async function resolveCurrentDeviceId() {
   }
 }
 
-export async function resolveChannelCandidates(agentIds: string[]) {
+export async function resolveChannelCandidates(
+  agentIds: string[],
+  environments: Record<string, ChannelMemberEnvironment> = {},
+) {
   const agents = await Promise.all(
     agentIds.map(async (id) => {
       const agent = await agentService.getAgentConfigById(id);
@@ -129,27 +162,39 @@ export async function resolveChannelCandidates(agentIds: string[]) {
           ? getAgentStoreState().localAgentWorkingDirectoryMap[agent.id]
           : undefined,
     });
-    return {
-      agentId: agent.id,
-      deviceId,
-      heterogeneous: true,
-      issue: diagnoseChannelCandidate({
+    const heteroType = agencyConfig.heterogeneousProvider.type;
+    return applyChannelEnvironment(
+      {
+        agentId: agent.id,
         deviceId,
-        deviceOnline: !!device?.online,
-        hasModel: true,
-        heteroType: agencyConfig.heterogeneousProvider.type,
+        heterogeneous: true,
+        heteroType,
+        issue: diagnoseChannelCandidate({
+          deviceId,
+          deviceOnline: !!device?.online,
+          hasModel: true,
+          heteroType,
+          workingDirectory,
+        }),
+        name,
         workingDirectory,
-      }),
-      name,
-      workingDirectory,
-    };
+      },
+      environments[agent.id],
+      devices,
+    );
   });
   return { candidates, devices };
 }
 
-/** Resolve each existing Agent just as a new standalone conversation would. */
-export async function resolveChannelSelections(agentIds: string[]) {
-  const { candidates, devices } = await resolveChannelCandidates(agentIds);
+/**
+ * Resolve each existing Agent just as a new standalone conversation would, unless
+ * the user picked a different device or directory for it in the create dialog.
+ */
+export async function resolveChannelSelections(
+  agentIds: string[],
+  environments: Record<string, ChannelMemberEnvironment> = {},
+) {
+  const { candidates, devices } = await resolveChannelCandidates(agentIds, environments);
   // Report every blocked Agent at once so the user does not fix them one submit at a time.
   const blocked = candidates.filter((candidate) => candidate.issue);
   if (blocked.length)

@@ -153,12 +153,49 @@ describe('Channel selections preserve existing Agent execution settings', () => 
         agentId: 'amp',
         deviceId: 'b',
         heterogeneous: true,
+        heteroType: 'amp',
         issue: 'offline',
         name: 'amp',
         workingDirectory: '/channel-draft',
       },
     ]);
     expect(deviceService.updateDevice).not.toHaveBeenCalled();
+  });
+
+  it('lets the user move a member to another device without touching the Agent binding', async () => {
+    const agents = [agent('amp', hetero('amp', 'b')), agent('native')];
+    const original = structuredClone(agents);
+    vi.mocked(agentService.getAgentConfigById).mockImplementation(async (id) =>
+      agents.find((a) => a.id === id)!,
+    );
+    vi.mocked(deviceService.listDevices).mockResolvedValue([
+      devices[0],
+      { ...devices[1], online: false },
+    ]);
+    // Picked device a but no directory yet: still blocked, but for a different reason.
+    const partial = await resolveChannelCandidates(['amp', 'native'], {
+      amp: { deviceId: 'a', workingDirectory: '' },
+      // Native Agents ignore environments entirely.
+      native: { deviceId: 'a', workingDirectory: '/ignored' },
+    });
+    expect(partial.candidates.map((c) => [c.agentId, c.deviceId, c.issue])).toEqual([
+      ['amp', 'a', 'noDirectory'],
+      ['native', undefined, undefined],
+    ]);
+
+    expect(
+      await resolveChannelSelections(['amp', 'native'], {
+        amp: { deviceId: 'a', workingDirectory: ' /amp-here ' },
+      }),
+    ).toEqual([
+      { agentId: 'amp', deviceId: 'a', workingDirectory: '/amp-here' },
+      { agentId: 'native' },
+    ]);
+    expect(agents).toEqual(original);
+    expect(deviceService.updateDevice).toHaveBeenCalledExactlyOnceWith({
+      deviceId: 'a',
+      workingDirs: [{ path: '/amp-here' }, { path: '/registered' }],
+    });
   });
 
   it('names every blocked Agent in one error instead of the first one found', async () => {
