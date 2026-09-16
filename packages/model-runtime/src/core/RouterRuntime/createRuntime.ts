@@ -934,7 +934,7 @@ export const createRouterRuntime = ({
     }
 
     async handlePollVideoStatus(inferenceId: string, model?: string) {
-      const resolvedRouters = await this.resolveRouters(model);
+      const resolvedRouters = await this.resolveRouters({ model });
       const matchedRouter = this._options.baseURL
         ? (resolvedRouters.find((router) => router.baseURLPattern?.test(this._options.baseURL!)) ??
           resolvedRouters.at(-1)!)

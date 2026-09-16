@@ -31,6 +31,7 @@ export interface StartOperationInput {
   autoStart: boolean;
   botContext?: InternalExecAgentParams['botContext'];
   botPlatformContext?: InternalExecAgentParams['botPlatformContext'];
+  channelContext?: InternalExecAgentParams['channelContext'];
   clientIp?: string;
   /** Tri-state disabled plugin identifiers, kept on the world slot for the context rules. */
   disabledPluginIds?: string[];
@@ -96,6 +97,7 @@ export const startOperation = async (
     autoStart,
     botContext,
     botPlatformContext,
+    channelContext,
     clientIp,
     disabledPluginIds,
     discordContext,
@@ -236,6 +238,7 @@ export const startOperation = async (
       autoStart,
       botContext,
       botPlatformContext,
+      channelContext,
       deviceAccessPolicy: { canUseDevice, reason: deviceAccessReason },
       discordContext,
       // Run context the context engine injects into the system message —
@@ -322,7 +325,14 @@ export const startOperation = async (
     // `appContext.subAgentProgress`.
     // `orchestrationRole` is public rendering metadata. Only the internally
     // propagated parent operation id proves child ownership of this topic.
-    if (!appContext?.isolationThread && !appContext?.threadId && !topicStartOwnerOperationId) {
+    // A transcript run has no topic row (and no assistant placeholder) to mark.
+    if (
+      topicId &&
+      assistantMessageId &&
+      !appContext?.isolationThread &&
+      !appContext?.threadId &&
+      !topicStartOwnerOperationId
+    ) {
       await deps.topicModel.updateMetadata(topicId, {
         runningOperation: {
           assistantMessageId,
@@ -354,7 +364,8 @@ export const startOperation = async (
 
     return {
       agentId: resolvedAgentId,
-      assistantMessageId,
+      // A transcript run owns neither row; `''` keeps the public result shape.
+      assistantMessageId: assistantMessageId ?? '',
       autoStarted: result.autoStarted,
       createdAt: new Date().toISOString(),
       heteroType: null,
@@ -365,11 +376,11 @@ export const startOperation = async (
       success: true,
       timestamp: new Date().toISOString(),
       token: gatewayToken,
-      topicId,
+      topicId: topicId ?? '',
       userMessageId: userMessageId ?? parentMessageId ?? '',
     };
   } catch (error) {
-    if (topicStartOwnerOperationId) {
+    if (topicStartOwnerOperationId && topicId) {
       await deps.topicModel.removeRunningOperationChild(topicId, operationId).catch(() => false);
     }
     if (isAbortError(error)) {
@@ -393,21 +404,23 @@ export const startOperation = async (
       errorMessage,
     );
 
-    await deps.messageModel.update(assistantMessageId, {
-      content: '',
-      error: {
-        body: {
-          detail: errorMessage,
+    if (assistantMessageId) {
+      await deps.messageModel.update(assistantMessageId, {
+        content: '',
+        error: {
+          body: {
+            detail: errorMessage,
+          },
+          message: errorMessage,
+          type: 'ServerAgentRuntimeError', // ServiceUnavailable - agent runtime service unavailable
         },
-        message: errorMessage,
-        type: 'ServerAgentRuntimeError', // ServiceUnavailable - agent runtime service unavailable
-      },
-    });
+      });
+    }
 
     // Return result with error status - messages are valid but agent didn't start
     return {
       agentId: resolvedAgentId,
-      assistantMessageId,
+      assistantMessageId: assistantMessageId ?? '',
       autoStarted: false,
       createdAt: new Date().toISOString(),
       error: errorMessage,
@@ -416,7 +429,7 @@ export const startOperation = async (
       status: 'error',
       success: false,
       timestamp: new Date().toISOString(),
-      topicId,
+      topicId: topicId ?? '',
       userMessageId: userMessageId ?? parentMessageId ?? '',
     };
   }

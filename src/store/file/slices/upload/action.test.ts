@@ -11,6 +11,31 @@ import { getImageDimensions } from '@/utils/client/imageDimensions';
 
 import { useFileStore as useStore } from '../../store';
 
+const ascii = (value: string) => Uint8Array.from(value, (char) => char.codePointAt(0)!);
+
+const isoBox = (type: string, ...payload: Uint8Array[]): Uint8Array => {
+  const body = payload.flatMap((part) => [...part]);
+  const size = 8 + body.length;
+
+  return Uint8Array.from([
+    (size >>> 24) & 0xff,
+    (size >>> 16) & 0xff,
+    (size >>> 8) & 0xff,
+    size & 0xff,
+    ...ascii(type),
+    ...body,
+  ]);
+};
+
+const isoTrack = (handler: string) =>
+  isoBox('trak', isoBox('mdia', isoBox('hdlr', new Uint8Array(8), ascii(handler))));
+
+const isoBmff = (brand: string, ...tracks: Uint8Array[]) =>
+  Uint8Array.from([
+    ...isoBox('ftyp', ascii(brand), new Uint8Array(4)),
+    ...isoBox('moov', ...tracks),
+  ]);
+
 // Mock necessary modules
 vi.mock('@lobehub/ui/base-ui', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -758,6 +783,104 @@ describe('FileUploadAction', () => {
 
         expect(fileService.createFile).toHaveBeenCalledWith(
           expect.objectContaining({ fileType: 'audio/x-m4a' }),
+          undefined,
+        );
+      });
+
+      it('should reclassify an audio-only MP4 from the normalized file bytes', async () => {
+        const { result } = renderHook(() => useStore());
+        const mockFile = new File([isoBmff('M4A ', isoTrack('soun'))], 'voice.mp4', {
+          type: 'video/mp4',
+        });
+        const arrayBufferSpy = vi.spyOn(mockFile, 'arrayBuffer');
+
+        vi.mocked(getImageDimensions).mockResolvedValue(undefined);
+        vi.spyOn(fileService, 'checkFileHash').mockResolvedValue({ isExist: false });
+        vi.spyOn(uploadService, 'uploadFileToS3').mockResolvedValue({
+          data: {
+            date: '12345',
+            dirname: '/uploads',
+            filename: 'voice.mp4',
+            path: '/uploads/voice.mp4',
+          },
+          success: true,
+        });
+        vi.spyOn(fileService, 'createFile').mockResolvedValue({
+          id: 'file-id-audio-mp4',
+          url: 'https://example.com/voice.mp4',
+        });
+
+        await act(async () => {
+          await result.current.uploadWithProgress({ file: mockFile });
+        });
+
+        expect(arrayBufferSpy).toHaveBeenCalledOnce();
+        expect(fileService.createFile).toHaveBeenCalledWith(
+          expect.objectContaining({ fileType: 'audio/mp4' }),
+          undefined,
+        );
+      });
+
+      it('should preserve video MP4 classification when the container has a video track', async () => {
+        const { result } = renderHook(() => useStore());
+        const mockFile = new File([isoBmff('isom', isoTrack('vide'))], 'clip.mp4', {
+          type: 'video/mp4',
+        });
+
+        vi.mocked(getImageDimensions).mockResolvedValue(undefined);
+        vi.spyOn(fileService, 'checkFileHash').mockResolvedValue({ isExist: false });
+        vi.spyOn(uploadService, 'uploadFileToS3').mockResolvedValue({
+          data: {
+            date: '12345',
+            dirname: '/uploads',
+            filename: 'clip.mp4',
+            path: '/uploads/clip.mp4',
+          },
+          success: true,
+        });
+        vi.spyOn(fileService, 'createFile').mockResolvedValue({
+          id: 'file-id-video-mp4',
+          url: 'https://example.com/clip.mp4',
+        });
+
+        await act(async () => {
+          await result.current.uploadWithProgress({ file: mockFile });
+        });
+
+        expect(fileService.createFile).toHaveBeenCalledWith(
+          expect.objectContaining({ fileType: 'video/mp4' }),
+          undefined,
+        );
+      });
+
+      it('should not read the whole file for non-video MIME types', async () => {
+        const { result } = renderHook(() => useStore());
+        const mockFile = new File(['plain text'], 'notes.txt', { type: 'text/plain' });
+        const arrayBufferSpy = vi.spyOn(mockFile, 'arrayBuffer');
+
+        vi.mocked(getImageDimensions).mockResolvedValue(undefined);
+        vi.spyOn(fileService, 'checkFileHash').mockResolvedValue({ isExist: false });
+        vi.spyOn(uploadService, 'uploadFileToS3').mockResolvedValue({
+          data: {
+            date: '12345',
+            dirname: '/uploads',
+            filename: 'notes.txt',
+            path: '/uploads/notes.txt',
+          },
+          success: true,
+        });
+        vi.spyOn(fileService, 'createFile').mockResolvedValue({
+          id: 'file-id-text-no-buffer',
+          url: 'https://example.com/notes.txt',
+        });
+
+        await act(async () => {
+          await result.current.uploadWithProgress({ file: mockFile });
+        });
+
+        expect(arrayBufferSpy).not.toHaveBeenCalled();
+        expect(fileService.createFile).toHaveBeenCalledWith(
+          expect.objectContaining({ fileType: 'text/plain' }),
           undefined,
         );
       });

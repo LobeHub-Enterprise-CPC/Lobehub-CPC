@@ -23,7 +23,12 @@ import { FileService } from '@/server/services/file';
 import { pruneRegeneratedBranch } from '../pruneRegeneratedBranch';
 import { resolveDeviceWorkingDirectoryConfig } from '../resolveDeviceWorkingDirectory';
 import { applyShareGateToToolSet } from '../shareGate';
-import type { ExecRunContext, InternalExecAgentParams, ResolvedWorkspaceInit } from '../types';
+import type {
+  ExecAgentTranscript,
+  ExecRunContext,
+  InternalExecAgentParams,
+  ResolvedWorkspaceInit,
+} from '../types';
 import { isWorkspaceCacheFresh, upsertWorkspaceScan } from '../workspaceInitCache';
 import { prepareOperationSkills } from './operationSkills';
 import { resolveOperationUserMemory } from './operationUserMemory';
@@ -46,6 +51,23 @@ export interface HistoryLoaderInput {
  * probe) and the operation-prep message assembly. Loading is deferred and
  * cached so the run pays the query at most once.
  */
+/**
+ * History loader for a transcript run: the host owns the rows, so history is
+ * whatever `transcript.load` returns (delivery row included). Memoized like
+ * {@link createHistoryMessagesLoader} — tool discovery and message assembly
+ * both read it.
+ */
+export const createTranscriptHistoryLoader = (
+  transcript: ExecAgentTranscript,
+): (() => Promise<any[]>) => {
+  let cache: any[] | undefined;
+  return async () => {
+    if (cache) return cache;
+    cache = await transcript.load();
+    return cache;
+  };
+};
+
 export const createHistoryMessagesLoader = (
   deps: {
     db: LobeChatDatabase;
@@ -215,7 +237,8 @@ const resolveWorkspaceInit = async (
   params: {
     activeDeviceId: string | undefined;
     agencyConfig?: LobeAgentAgencyConfig;
-    topicId: string;
+    /** Undefined for a transcript run — no topic-pinned cwd to consult. */
+    topicId?: string;
   },
 ): Promise<ResolvedWorkspaceInit> => {
   const empty: WorkspaceInitResult = { instructions: [], skills: [] };
@@ -247,7 +270,7 @@ const resolveWorkspaceInit = async (
     // only reports the daemon's process.cwd = `/`); also returned to the
     // caller so the system prompt's {{workingDirectory}} reflects the same
     // bound directory the workspace scan used.
-    const topic = await deps.topicModel.findById(topicId);
+    const topic = topicId ? await deps.topicModel.findById(topicId) : undefined;
     const topicWorkingDirectory = topic?.metadata?.workingDirectory;
     const boundCwdConfig = resolveDeviceWorkingDirectoryConfig({
       deviceDefaultCwd: device.defaultCwd,
@@ -656,11 +679,13 @@ export const prepareOperation = async (
   // tools, but never write it back — so its topics stayed unbound while the
   // run itself executed in the right place. Awaited (not fire-and-forget):
   // the tool layer reads the topic's cwd on the same run.
-  await deps.bindTopicWorkingDirectory({
-    config: workspaceInit.boundCwdConfig,
-    currentWorkingDirectory: workspaceInit.topicWorkingDirectory,
-    topicId,
-  });
+  if (topicId) {
+    await deps.bindTopicWorkingDirectory({
+      config: workspaceInit.boundCwdConfig,
+      currentWorkingDirectory: workspaceInit.topicWorkingDirectory,
+      topicId,
+    });
+  }
 
   // 18. Build OperationSkillSet via SkillEngine
   // Combines builtin skills + user DB skills + agent-document skill bundles,

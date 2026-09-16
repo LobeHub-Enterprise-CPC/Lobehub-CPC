@@ -20,7 +20,7 @@ import { UserPersonaModel } from '@/database/models/userMemory/persona';
 import { WorkspaceModel } from '@/database/models/workspace';
 import { appEnv } from '@/envs/app';
 import { loadConnectedComposioIds } from '@/server/modules/AgentRuntime/adapters/composioConnectedIds';
-import type { RuntimeExecutorContext } from '@/server/modules/AgentRuntime/context';
+import type { RuntimeContextBuilderContext } from '@/server/modules/AgentRuntime/context';
 import { buildPostProcessUrl, log } from '@/server/modules/AgentRuntime/executorHelpers';
 import { AgentDocumentsService } from '@/server/services/agentDocuments';
 import { MarketService } from '@/server/services/market';
@@ -28,7 +28,7 @@ import { OnboardingService } from '@/server/services/onboarding';
 import { toAgentContextDocuments } from '@/utils/agentDocumentContextMapping';
 
 export interface ServerContextFactSource {
-  ctx: RuntimeExecutorContext;
+  ctx: RuntimeContextBuilderContext;
   state: AgentState;
 }
 

@@ -106,7 +106,7 @@ const buildCommandGovernanceContext = (
   args: Record<string, any>,
   context: ToolExecutionContext,
   userId: string,
-): CommandGovernanceContext | undefined => {
+): (CommandGovernanceContext & { commandText: string }) | undefined => {
   if (!COMMAND_EXECUTION_IDENTIFIERS.has(identifier) || !COMMAND_EXECUTION_API_NAMES.has(apiName)) {
     return undefined;
   }

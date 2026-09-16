@@ -16,6 +16,7 @@ import { recomputeTopicUsage } from '@/database/models/topicUsage';
 import { VerifyRunModel } from '@/database/models/verifyRun';
 import { WorkModel } from '@/database/models/work';
 import { type LobeChatDatabase } from '@/database/type';
+import type { RuntimeMessageStore } from '@/server/modules/AgentRuntime/context';
 import {
   formatErrorForState,
   readErrorBudgetContext,
@@ -92,6 +93,27 @@ export const isAgentShareRun = (
   state:
     { principal?: { actor?: { shareVisitor?: { visitorUserId?: string } } } } | undefined | null,
 ): boolean => Boolean(state?.principal?.actor?.shareVisitor?.visitorUserId);
+
+/**
+ * Whether the run must NOT emit `userId`-scoped Agent Signal source events.
+ *
+ * True for Agent Share visitor runs (see {@link isAgentShareRun}) and for
+ * Channel member runs (`principal.actor.channel`): a Channel turn is a private
+ * transcript that never lands in the owner's topics, so recording Agent Signal
+ * windows / completion recalls for it would surface a run the owner has no
+ * conversation to open. Use this — not `isAgentShareRun` — at every Signal
+ * emission chokepoint.
+ */
+export const shouldSuppressAgentSignal = (
+  state:
+    | {
+        principal?: {
+          actor?: { channel?: unknown; shareVisitor?: { visitorUserId?: string } };
+        };
+      }
+    | undefined
+    | null,
+): boolean => isAgentShareRun(state) || Boolean(state?.principal?.actor?.channel);
 
 /**
  * Normalized terminal-completion input for {@link CompletionLifecycle.completeOperation}.
@@ -173,7 +195,7 @@ const toAgentSignalSnapshotEvents = (
  * queue execution can retry the control-flow handoff.
  */
 export class CompletionLifecycle {
-  private readonly messageModel: MessageModel;
+  private readonly messageModel: RuntimeMessageStore;
   private readonly agentOperationModel: AgentOperationModel;
   private readonly workspaceId?: string;
   /**
@@ -195,13 +217,22 @@ export class CompletionLifecycle {
        * creator's identity.
        */
       includeShareVisitor?: boolean;
+      /**
+       * Message store the runtime persisted this operation's rows through.
+       * Defaults to `MessageModel`; hosts with a private transcript inject
+       * their own so completion reads/writes (error stamping, Works anchor,
+       * content recovery) hit the same store the run wrote to.
+       */
+      messageStore?: RuntimeMessageStore;
     },
   ) {
     this.workspaceId = workspaceId;
     this.includeShareVisitor = options?.includeShareVisitor ?? false;
-    this.messageModel = new MessageModel(serverDB, userId, workspaceId, undefined, {
-      includeShareVisitor: this.includeShareVisitor,
-    });
+    this.messageModel =
+      options?.messageStore ??
+      new MessageModel(serverDB, userId, workspaceId, undefined, {
+        includeShareVisitor: this.includeShareVisitor,
+      });
     this.agentOperationModel = new AgentOperationModel(serverDB, userId, workspaceId);
   }
 
@@ -505,9 +536,9 @@ export class CompletionLifecycle {
       // telemetry for a run an anonymous link visitor triggered. Suppress the
       // whole emission rather than merely re-scoping it: a share visitor has no
       // Agent Signal identity of its own to attribute this to.
-      if (isAgentShareRun(state)) {
+      if (shouldSuppressAgentSignal(state)) {
         log(
-          '[completion-lifecycle] skip agent signal emission for share visitor run op=%s reason=%s',
+          '[completion-lifecycle] skip agent signal emission for share visitor / channel run op=%s reason=%s',
           operationId,
           reason,
         );
@@ -958,7 +989,7 @@ export class CompletionLifecycle {
         isSuccessLikeCompletionReason(reason) &&
         runOrigin.lineage?.isSubAgent !== true &&
         runOrigin.lineage?.orchestrationRole !== 'member' &&
-        !isAgentShareRun(state)
+        !shouldSuppressAgentSignal(state)
       ) {
         void this.recallUserOnCompletion(operationId, event, runOrigin).catch((error) =>
           log('[%s] Completion notification failed (non-fatal): %O', operationId, error),

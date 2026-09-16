@@ -1,4 +1,3 @@
-import { API_KEY_PREFIX } from '@lobechat/business-const';
 import { describe, expect, it } from 'vitest';
 
 import { API_KEY_PREFIX, generateApiKey, isApiKeyExpired, validateApiKeyFormat } from './apiKey';

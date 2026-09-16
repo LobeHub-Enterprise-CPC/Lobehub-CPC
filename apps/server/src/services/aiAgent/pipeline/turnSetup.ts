@@ -34,7 +34,7 @@ import { resolveDeviceAccessPolicy } from '../deviceAccessPolicy';
 import { ingestAttachment } from '../ingestAttachment';
 import type { AgentShareGate } from '../shareGate';
 import { reserveShareVisitorTopic, reserveShareVisitorTurn } from '../shareVisitorAbuseGuards';
-import type { InternalExecAgentParams } from '../types';
+import type { ExecAgentTranscript, InternalExecAgentParams } from '../types';
 
 const log = debug('lobe-server:ai-agent-service');
 
@@ -342,11 +342,20 @@ export interface TurnSetupInput {
   steer?: boolean;
   throwIfExecutionAborted: (stage: string) => Promise<void>;
   title?: string;
+  /**
+   * Private-transcript mode (Channel). The caller owns the conversation rows in
+   * its own store, so this stage creates NO topic and NO user/assistant message
+   * rows — it only resolves model, device policy and attachments, and hands
+   * `transcript.deliveryMessageId` through as `userMessageId` so the runtime
+   * has a parent anchor for the rows it writes.
+   */
+  transcript?: ExecAgentTranscript;
   trigger?: string;
 }
 
 export interface TurnSetupResult {
-  assistantMessageId: string;
+  /** `undefined` in private-transcript mode — no assistant placeholder row exists. */
+  assistantMessageId?: string;
   canUseDevice: boolean;
   deviceAccessReason: DeviceAccessReason;
   effectiveRequestedDeviceId?: string;
@@ -368,7 +377,8 @@ export interface TurnSetupResult {
   /** Rows THIS turn persisted — the history loader must exclude them. */
   selfMessageIds: Set<string>;
   topicBoundDeviceId?: string | null;
-  topicId: string;
+  /** `undefined` in private-transcript mode — the run has no `topics` row. */
+  topicId?: string;
   userMessageId?: string;
 }
 
@@ -415,6 +425,7 @@ export const setupTurn = async (
     steer,
     throwIfExecutionAborted,
     title,
+    transcript,
     trigger,
   } = input;
 
@@ -457,7 +468,16 @@ export const setupTurn = async (
     });
   }
 
-  if (!topicId) {
+  if (transcript) {
+    // Private-transcript mode owns its history elsewhere; a `topics` row would
+    // surface the run in the owner's conversation list, which is exactly what
+    // the caller opted out of. Any topicId hint is ignored on purpose.
+    if (resume) {
+      throw new Error('Resume mode is not supported for a private transcript run');
+    }
+    topicId = undefined;
+    log('execAgent: private transcript mode — skipping topic and message rows');
+  } else if (!topicId) {
     if (resume) {
       throw new Error('Resume mode requires the parent message to belong to a topic');
     }
@@ -642,6 +662,12 @@ export const setupTurn = async (
   const isHeteroAgent = !!heteroProviderType || isHeterogeneousAgentModelId(model);
   const heteroType = (heteroProviderType ?? model) as HeterogeneousAgentType;
 
+  // A heterogeneous CLI persists through `HeterogeneousPersistenceHandler`
+  // straight into `messages`/`topics`; it cannot honour a private transcript.
+  if (transcript && isHeteroAgent) {
+    throw new Error('Heterogeneous agents are not supported for a private transcript run');
+  }
+
   // ── Shared turn setup (runs for BOTH hetero and normal agents) ──────────
   const requestTriggerMetadata = {
     ...(trigger && Object.values(RequestTrigger).includes(trigger as RequestTrigger)
@@ -665,6 +691,30 @@ export const setupTurn = async (
     files,
     throwIfAborted: throwIfExecutionAborted,
   });
+
+  if (transcript) {
+    return {
+      assistantMessageId: undefined,
+      canUseDevice,
+      deviceAccessReason,
+      effectiveRequestedDeviceId,
+      heteroType,
+      heterogeneousProvider,
+      isFixedDeviceTarget,
+      isHeteroAgent,
+      model,
+      pinnedHeterogeneousTopicModel,
+      provider,
+      requestTriggerMetadata,
+      runAttachments,
+      selfMessageIds: new Set<string>(),
+      topicBoundDeviceId,
+      topicId: undefined,
+      userMessageId: transcript.deliveryMessageId,
+    };
+  }
+  // Narrowing only: every non-transcript branch above resolved or created a topic.
+  if (!topicId) throw new Error('execAgent: topic was not resolved before message creation');
 
   await throwIfExecutionAborted('message creation');
 

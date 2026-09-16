@@ -1744,8 +1744,8 @@ describe('createRouterRuntime', () => {
     });
 
     it('should forward the model param to both the router resolver and the matched runtime', async () => {
-      // Regression test: handlePollVideoStatus used to call resolveRouters()
-      // with no model at all, unlike chat/createImage/createVideo/webhook —
+      // Regression test: handlePollVideoStatus used to pass the raw model string to resolveRouters(),
+      // rather than the request context used by chat/createImage/createVideo/webhook —
       // any router config whose `routers` resolver requires a model (e.g. to
       // pick the matching channel) would throw on every single poll attempt.
       const mockHandlePollVideoStatus = vi.fn().mockResolvedValue({ status: 'pending' });
@@ -1770,10 +1770,9 @@ describe('createRouterRuntime', () => {
       const result = await runtime.handlePollVideoStatus('job-1', 'doubao-seedance-2-0-260128');
 
       expect(result).toEqual({ status: 'pending' });
-      expect(asyncRoutersFunction).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({ model: 'doubao-seedance-2-0-260128' }),
-      );
+      expect(asyncRoutersFunction).toHaveBeenCalledWith(expect.anything(), {
+        model: 'doubao-seedance-2-0-260128',
+      });
       expect(mockHandlePollVideoStatus).toHaveBeenCalledWith('job-1', 'doubao-seedance-2-0-260128');
     });
   });

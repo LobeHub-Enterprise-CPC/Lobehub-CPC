@@ -53,7 +53,7 @@ import {
   supportsCloudHeterogeneousSandbox,
 } from '../helpers/heteroErrors';
 import { resolveDeviceWorkingDirectoryConfig } from '../resolveDeviceWorkingDirectory';
-import type { ExecRunContext } from '../types';
+import type { PersistedExecRunContext } from '../types';
 import { heteroOperationCapabilities } from './heteroOperationCapabilities';
 
 const log = debug('lobe-server:ai-agent-service');
@@ -284,7 +284,7 @@ export interface HeteroDispatchInput {
  */
 export const dispatchHeteroAgent = async (
   deps: HeteroDispatchDeps,
-  ctx: ExecRunContext,
+  ctx: PersistedExecRunContext,
   input: HeteroDispatchInput,
 ): Promise<ExecAgentResult> => {
   const {

@@ -31,7 +31,7 @@ vi.mock('@/server/services/channel/artifact', () => ({ getChannelArtifactUrl: vi
 vi.mock('@/server/services/channel/device', () => ({ ChannelDevice: vi.fn() }));
 vi.mock('@/server/services/channel/members', () => ({ resolveChannelMembers: vi.fn() }));
 vi.mock('@/server/services/channel/native/capabilities', () => ({
-  loadChannelNativeCapabilities: vi.fn(),
+  checkChannelNativeAvailability: vi.fn(),
 }));
 vi.mock('@/server/services/channel/watch', () => ({ watchChannel: vi.fn() }));
 

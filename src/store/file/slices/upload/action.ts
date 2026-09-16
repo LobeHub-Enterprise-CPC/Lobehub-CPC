@@ -231,8 +231,9 @@ export class FileUploadActionImpl {
       // video routes a long recording into the inline `video_url` path, where
       // the provider rejects it on its video size limit, instead of into the
       // media-analysis path that has no such ceiling.
-      if (fileType.startsWith('video/') && isAudioOnlyIsoBmff(fileArrayBuffer)) {
-        fileType = 'audio/mp4';
+      if (fileType.startsWith('video/')) {
+        const normalizedFileBytes = await normalizedFile.arrayBuffer();
+        if (isAudioOnlyIsoBmff(normalizedFileBytes)) fileType = 'audio/mp4';
       }
 
       const durationMs = fileType.startsWith('audio/')

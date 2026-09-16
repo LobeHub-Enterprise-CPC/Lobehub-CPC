@@ -12,6 +12,7 @@ import {
   CompletionLifecycle,
   CriticalAgentInterventionPersistenceError,
   isSuccessLikeCompletionReason,
+  shouldSuppressAgentSignal,
 } from '../CompletionLifecycle';
 import { CriticalHookDeliveryError, hookDispatcher } from '../hooks';
 
@@ -57,7 +58,36 @@ vi.mock('@/server/services/workRegistration', () => ({
 
 const flushMicrotasks = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-const buildLifecycle = () => new CompletionLifecycle({} as any, 'user-1');
+const buildLifecycle = (messageStore?: any) =>
+  new CompletionLifecycle(
+    {} as any,
+    'user-1',
+    undefined,
+    messageStore ? { messageStore } : undefined,
+  );
+
+describe('shouldSuppressAgentSignal', () => {
+  it('suppresses Channel actor runs', () => {
+    expect(
+      shouldSuppressAgentSignal({
+        principal: { actor: { channel: { channelId: 'channel-1', runId: 'run-1' } } },
+      }),
+    ).toBe(true);
+  });
+
+  it('does not suppress ordinary runs or missing state', () => {
+    expect(shouldSuppressAgentSignal({ principal: { actor: {} } })).toBe(false);
+    expect(shouldSuppressAgentSignal(undefined)).toBe(false);
+  });
+
+  it('preserves Agent Share visitor suppression', () => {
+    expect(
+      shouldSuppressAgentSignal({
+        principal: { actor: { shareVisitor: { visitorUserId: 'visitor-1' } } },
+      }),
+    ).toBe(true);
+  });
+});
 
 describe('isSuccessLikeCompletionReason', () => {
   // Regression: file-Work registration was gated on `reason === 'done'` alone,
@@ -547,11 +577,10 @@ describe('CompletionLifecycle.dispatchHooks — error persistence', () => {
   });
 
   it('persists budget errors without downgrading them to AgentRuntimeError', async () => {
-    const lifecycle = buildLifecycle();
     const updateMessage = vi.fn().mockResolvedValue({ success: true });
+    const lifecycle = buildLifecycle({ update: updateMessage });
     const budget = { required: 12 };
 
-    (lifecycle as any).messageModel = { update: updateMessage };
     vi.spyOn(lifecycle as any, 'persistCompletion').mockResolvedValue(undefined);
     vi.spyOn(hookDispatcher, 'dispatch').mockResolvedValue(undefined as any);
     vi.spyOn(hookDispatcher, 'unregister').mockImplementation(function () {});
@@ -1197,10 +1226,9 @@ describe('CompletionLifecycle.dispatchHooks — lastAssistantContent DB recovery
   };
 
   it('recovers the reply text from the DB row when the state carries no assistant text', async () => {
-    const lifecycle = buildLifecycle();
-    const dispatchSpy = setupSpies(lifecycle);
     const findById = vi.fn().mockResolvedValue({ content: 'the real reply', id: 'msg-assistant' });
-    (lifecycle as any).messageModel = { findById };
+    const lifecycle = buildLifecycle({ findById });
+    const dispatchSpy = setupSpies(lifecycle);
 
     await lifecycle.dispatchHooks('op-1', buildDoneState(''), 'done');
 
@@ -1446,6 +1474,33 @@ describe('CompletionLifecycle.emitSignalEvents — assistant anchor', () => {
       anchorMessageId: 'msg-assistant',
       assistantMessageId: 'msg-assistant',
     });
+  });
+
+  it('suppresses Channel completion Signal while preserving terminal Work registration', async () => {
+    const emitSpy = vi
+      .spyOn(agentSignalService, 'emitAgentSignalSourceEvent')
+      .mockResolvedValue(undefined as any);
+    const lifecycle = buildLifecycle();
+    const registerSpy = vi.spyOn(lifecycle, 'registerFileWorks').mockResolvedValue(undefined);
+    vi.spyOn(lifecycle as any, 'persistCompletion').mockResolvedValue(undefined);
+    vi.spyOn(lifecycle as any, 'createVerifyMessage').mockResolvedValue(undefined);
+    vi.spyOn(verifyServices, 'runVerifyOnCompletion').mockResolvedValue(undefined);
+    vi.spyOn(hookDispatcher, 'dispatch').mockResolvedValue(undefined as any);
+    vi.spyOn(hookDispatcher, 'unregister').mockImplementation(function () {});
+    const state = {
+      host: { hooks: [] },
+      messages: [{ content: 'channel reply', id: 'msg-assistant', role: 'assistant' }],
+      metadata: {},
+      origin: { agentId: 'agent-1', userId: 'user-1' },
+      principal: { actor: { channel: { channelId: 'channel-1', runId: 'run-1' } } },
+      status: 'done',
+    };
+
+    await expect(lifecycle.emitSignalEvents('op-1', state, 'done')).resolves.toEqual([]);
+    await lifecycle.dispatchHooks('op-1', state, 'done');
+
+    expect(emitSpy).not.toHaveBeenCalled();
+    expect(registerSpy).toHaveBeenCalledWith('op-1', state);
   });
 
   it('hydrates a persisted self-reflection marker when terminal state metadata lost it', async () => {

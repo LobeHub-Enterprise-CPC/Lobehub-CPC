@@ -74,12 +74,12 @@ const aiProviderProcedure = wsCompatProcedure.use(serverDatabase).use(async (opt
  */
 const filterAvailableEnabledAiModels = async (
   enabledAiModels: EnabledAiModel[],
-  userEmail: string | undefined,
+  userEmail: string | null | undefined,
 ): Promise<EnabledAiModel[]> => {
   const availability = await Promise.all(
     enabledAiModels.map((model) =>
       model.providerId === BRANDING_PROVIDER
-        ? isLobeHubModelAvailable(model.id, model.type, { userEmail })
+        ? isLobeHubModelAvailable(model.id, model.type, { userEmail: userEmail ?? undefined })
         : true,
     ),
   );

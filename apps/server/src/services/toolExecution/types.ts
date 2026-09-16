@@ -2,6 +2,7 @@ import { type LobeToolManifest } from '@lobechat/context-engine';
 import { type LobeChatDatabase } from '@lobechat/database';
 import {
   type AgentShareVisitorContext,
+  type ChannelRunContext,
   type ChatToolPayload,
   type ClientSecretPayload,
   type DeviceExecutionTarget,
@@ -195,6 +196,13 @@ export interface ToolExecutionContext {
    * `messageId`.
    */
   assistantMessageId?: string;
+  /**
+   * Channel native-run marker, forwarded from `state.principal.actor.channel`
+   * by `ServerToolTransport`. Present ONLY for a Channel member run; the
+   * `channel-artifact` server runtime reads its `artifactRunIds` allowlist
+   * from here rather than trusting the model's arguments.
+   */
+  channelContext?: ChannelRunContext;
   /** Originating request IP propagated through the operation metadata. */
   clientIp?: string;
   /**

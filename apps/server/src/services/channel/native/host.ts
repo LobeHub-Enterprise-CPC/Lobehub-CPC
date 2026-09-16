@@ -1,325 +1,191 @@
 import { randomUUID } from 'node:crypto';
 
-import type {
-  AgentRuntimeContext,
-  AgentRuntimeHost,
-  AgentState,
-  ContextBuilder,
-  ToolTransport,
-} from '@lobechat/agent-runtime';
-import {
-  AgentRuntime,
-  createAgentRuntimeExecutors,
-  GeneralChatAgent,
-  normalizeAgentState,
-} from '@lobechat/agent-runtime';
+import type { AgentState } from '@lobechat/agent-runtime';
 import { CHANNEL_INSTRUCTIONS, channelContext } from '@lobechat/heterogeneous-agents/channel/input';
-import type { ChannelMemberConfig, ChatToolPayload, UIChatMessage } from '@lobechat/types';
+import type { UIChatMessage } from '@lobechat/types';
 
 import { ChannelRuntimeModel } from '@/database/models/channelRuntime';
+import type { channelRuns } from '@/database/privateSchemas/channel';
 import type { LobeChatDatabase } from '@/database/type';
+import { InMemoryStreamEventManager } from '@/server/modules/AgentRuntime/InMemoryStreamEventManager';
+import { AiAgentService } from '@/server/services/aiAgent';
 
+import { buildChannelArtifactManifest } from '../artifactTool';
 import { ChannelBudget, type ChannelBudgetSnapshot } from '../budget';
-import { createChannelCompressionTransport } from './compression';
-import { createChannelContextBuilder } from './context';
-import { createChannelLLMTransport } from './llm';
-import { createChannelMessageTransport } from './messages';
+import { ChannelRuntimeMessageStore } from './messageStore';
 
-export interface ChannelNativeCapabilities {
-  compressionEnabled?: boolean;
-  context?: ContextBuilder;
-  contextWindowTokens?: number;
-  enabledToolIds?: string[];
-  modelParameters?: Record<string, unknown>;
-  modelRuntimeConfig?: AgentState['modelRuntimeConfig'];
-  runtimeContext?: Pick<AgentState, 'binding' | 'plan' | 'principal' | 'world'>;
-  systemRole?: string;
-  toolExecutorMap?: AgentState['toolExecutorMap'];
-  /** Resolved, authorized native tool manifests and execution adapter. */
-  toolManifestMap: AgentState['toolManifestMap'];
-  tools: NonNullable<AgentState['tools']>;
-  toolSourceMap?: AgentState['toolSourceMap'];
-  toolTransport?: ToolTransport;
-  userInterventionConfig?: AgentState['userInterventionConfig'];
+export interface ChannelNativeResult {
+  budget: ChannelBudgetSnapshot;
+  content: string;
+  operationId: string;
+  state: AgentState;
 }
 
-/** Only this boundary is safe to resume: no approved tool has started yet. */
-export function isChannelApprovalCheckpoint(
-  checkpoint: Record<string, unknown> | undefined,
-  runId: string,
-) {
-  const state = checkpoint?.state as AgentState | undefined;
-  const budget = checkpoint?.budget as ChannelBudgetSnapshot | undefined;
-  return (
-    checkpoint?.runId === runId &&
-    checkpoint.phase === 'awaiting_approval' &&
-    state?.status === 'waiting_for_human' &&
-    !!state.pendingToolsCalling?.length &&
-    !!budget &&
-    [budget.activeMs, budget.modelCalls, budget.toolCalls].every(
-      (value) => Number.isFinite(value) && value >= 0,
-    )
-  );
-}
+/** Statuses `executeSync` parks on; nothing in a Channel run can resume them. */
+const PARKED = new Set<AgentState['status']>(['waiting_for_human', 'waiting_for_async_tool']);
 
-/** Executes the package's GeneralChatAgent and executors with Channel-only persistence. */
+/**
+ * Runs one Channel member turn through `execAgent`, the same pipeline as chat.
+ *
+ * What differs from a chat turn is only what Channel owns: the transcript
+ * lives in `channel_runtime_messages` (no `messages` / `topics` rows), tools
+ * run headless (no approval), Agent Signal is suppressed, and the run is
+ * driven to completion in this process by `executeSync` under the Channel
+ * budget instead of by the queue.
+ */
 export async function runChannelNative(input: {
-  capabilities: ChannelNativeCapabilities;
+  agentId: string;
+  /** Runs whose published snapshots this member may read through `channel-artifact`. */
+  artifactRunIds: string[];
   budget?: ChannelBudget;
-  config: ChannelMemberConfig;
   db: LobeChatDatabase;
-  fence: number;
-  onApproval?: (tool: ChatToolPayload) => Promise<void>;
-  onAccepted: (sessionId: string, turnId: string) => Promise<void>;
-  onActivity?: (state: 'running' | 'typing') => Promise<void>;
+  onAccepted: (sessionId: string, operationId: string) => Promise<void>;
   ownerId: string;
-  runId: string;
+  run: Pick<typeof channelRuns.$inferSelect, 'channelId' | 'fence' | 'id'>;
   signal: AbortSignal;
-}) {
-  if (input.capabilities.tools.length && !input.capabilities.toolTransport)
-    throw new Error('Native tools are configured but their Channel transport is unavailable');
-  const store = new ChannelRuntimeModel(input.db, input.ownerId, input.runId, input.fence);
+}): Promise<ChannelNativeResult> {
+  const store = new ChannelRuntimeModel(input.db, input.ownerId, input.run.id, input.run.fence);
   const { run, checkpoint } = await store.load();
-  const resuming = isChannelApprovalCheckpoint(checkpoint, run.id);
-  if (checkpoint?.runId === run.id && !resuming)
+  // A previous worker already created an operation for this Run. Its outcome
+  // is unknown to us; never submit the same input a second time.
+  if (checkpoint?.runId === run.id)
     throw new Error('Native execution checkpoint exists; inspect before resuming');
-  const budget =
-    input.budget ||
-    new ChannelBudget(resuming ? (checkpoint!.budget as ChannelBudgetSnapshot) : undefined);
-  budget.resume();
-  const timeoutAbort = new AbortController();
-  const signal = AbortSignal.any([input.signal, timeoutAbort.signal]);
-  const timeout = setInterval(() => {
-    try {
-      budget.assertTime();
-    } catch (error) {
-      timeoutAbort.abort(error);
-    }
-  }, 250);
-  try {
-    const transport = createChannelMessageTransport(store);
-    // Public input is copied into this private session once, with explicit author/source labels.
-    for (const message of run.manifest.messages) {
-      await store.createMessage(
-        {
-          id: `chn_input_${randomUUID()}`,
-          role: 'user',
-          content: JSON.stringify({
-            kind: 'channel_history',
-            author: message.author,
-            messageId: message.id,
-            sequence: message.sequence,
-            threadId: message.threadId,
-            content: message.content,
-          }),
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        },
-        `public:${message.id}`,
-      );
-    }
-    const activeRequest = run.manifest.messages.find(
-      (message) => message.id === run.manifest.requestMessageId,
-    );
+  const budget = input.budget ?? new ChannelBudget();
+  budget.assertTime();
+
+  // Public input is copied into this private session once, with explicit author/source labels.
+  const stamp = () => ({ createdAt: Date.now(), updatedAt: Date.now() });
+  for (const message of run.manifest.messages) {
     await store.createMessage(
       {
         id: `chn_input_${randomUUID()}`,
         role: 'user',
         content: JSON.stringify({
-          kind: activeRequest?.author.type === 'human' ? 'channel_request' : 'channel_update',
-          ...channelContext(run.manifest),
-          instruction:
-            'Use the attributed history above together with earlier session context. The active request may already have been delivered. Do not replay completed actions or claim another member’s work as yours.',
+          kind: 'channel_history',
+          author: message.author,
+          messageId: message.id,
+          sequence: message.sequence,
+          threadId: message.threadId,
+          content: message.content,
         }),
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        ...stamp(),
       },
-      `delivery:${run.id}`,
+      `public:${message.id}`,
     );
-    const history = await store.messages();
-    let state = AgentRuntime.createInitialState({
-      ...input.capabilities.runtimeContext,
-      operationId: run.id,
-      origin: {
-        agentId: input.config.agentId ?? run.memberId,
-        topicId: run.sessionId,
-        userId: input.ownerId,
-      },
-      messages: history,
-      systemRole: input.capabilities.systemRole ?? input.config.systemRole,
-      toolManifestMap: input.capabilities.toolManifestMap,
-      tools: input.capabilities.tools,
-      toolSourceMap: input.capabilities.toolSourceMap,
-      toolExecutorMap: input.capabilities.toolExecutorMap,
-      userInterventionConfig: input.capabilities.userInterventionConfig,
-      operationToolSet: {
-        enabledToolIds:
-          input.capabilities.enabledToolIds ?? Object.keys(input.capabilities.toolManifestMap),
-        manifestMap: input.capabilities.toolManifestMap,
-        sourceMap: input.capabilities.toolSourceMap ?? {},
-        executorMap: input.capabilities.toolExecutorMap ?? {},
-        tools: input.capabilities.tools,
-      },
-      modelRuntimeConfig: input.capabilities.modelRuntimeConfig ?? {
-        model: input.config.model,
-        provider: input.config.provider,
-      },
-    });
-    if (resuming) state = normalizeAgentState(checkpoint!.state as AgentState);
-    const contextBuilder =
-      input.capabilities.context ||
-      createChannelContextBuilder(
-        input.capabilities.contextWindowTokens,
-        input.capabilities.modelParameters,
-      );
-    const channelRole = `${CHANNEL_INSTRUCTIONS}\n\n${JSON.stringify(channelContext(run.manifest))}`;
-    const host: AgentRuntimeHost = {
-      operation: {
-        operationId: run.id,
-        agentId: run.memberId,
-        topicId: run.sessionId,
-        userId: input.ownerId,
-        stepIndex: 0,
-        abortSignal: signal,
-      },
-      transports: {
-        messages: transport,
-        context: {
-          // Inject at every build, after checkpoint recovery and before token accounting.
-          // Do not persist the introduction into state, where it would accumulate on resume.
-          build: (args) =>
-            contextBuilder.build({
-              ...args,
-              state: {
-                ...args.state,
-                systemRole: [args.state.systemRole, channelRole].filter(Boolean).join('\n\n'),
-              },
-            }),
-        },
-        compression: createChannelCompressionTransport(store),
-        llm: createChannelLLMTransport(input.db, input.ownerId, budget, signal, input.onActivity),
-        stream: { publishChunk: async () => {}, publishEvent: async () => {} },
-        operationStore: {
-          clearRunningMark: async () => {},
-          loadState: async () => (signal.aborted ? { ...state, status: 'interrupted' } : state),
-        },
-        tools: input.capabilities.toolTransport && {
-          ...input.capabilities.toolTransport,
-          run: async (...args) => {
-            budget.toolCall();
-            return input.capabilities.toolTransport!.run(...args);
-          },
-        },
-      },
-    };
-    const agent = new GeneralChatAgent({
-      operationId: run.id,
-      userId: input.ownerId,
-      modelRuntimeConfig: state.modelRuntimeConfig,
-      compressionConfig: {
-        enabled: input.capabilities.compressionEnabled ?? true,
-        maxWindowToken: input.capabilities.contextWindowTokens,
-      },
-      tools: state.tools,
-    });
-    const runtime = new AgentRuntime(agent, { executors: createAgentRuntimeExecutors(host) });
-    if (!resuming)
-      await store.save({ runId: run.id, state, budget: budget.checkpoint(), phase: 'accepted' });
-    await input.onAccepted(run.sessionId, run.id);
-    let context: AgentRuntimeContext | undefined;
-    while (!['done', 'error', 'interrupted', 'waiting_for_async_tool'].includes(state.status)) {
-      signal.throwIfAborted();
-      if (state.status === 'waiting_for_human') {
-        const tools = [...(state.pendingToolsCalling || [])];
-        if (!tools.length || !input.onApproval)
-          throw new Error('Channel approval handler unavailable');
-        budget.pauseForApproval();
-        await store.save({
-          runId: run.id,
-          state,
-          budget: budget.checkpoint(),
-          phase: 'awaiting_approval',
-        });
-        for (const tool of tools) await input.onApproval(tool);
-        budget.resume();
-        signal.throwIfAborted();
-        for (const tool of tools) {
-          const messageId = state.pendingToolMessageIds?.[tool.id];
-          if (!messageId) throw new Error('Durable approval tool message is missing');
-          await transport.updateToolIntervention(messageId, { status: 'approved' });
-        }
-        state = { ...state, pendingToolsCalling: [], status: 'running' };
-        const approvalContext: AgentRuntimeContext = {
-          operationId: run.id,
-          phase: 'human_approved_tool',
-          payload: {
-            approvedToolCalls: tools,
-            parentMessageId: state.pendingApprovalBatch?.assistantMessageId,
-            toolMessageIds: state.pendingToolMessageIds,
-          },
-          session: {
-            sessionId: run.id,
-            messageCount: state.messages.length,
-            status: state.status,
-            stepCount: state.stepCount,
-          },
-        };
-        await store.save({
-          runId: run.id,
-          state,
-          context: approvalContext,
-          budget: budget.checkpoint(),
-          phase: 'step_started',
-        });
-        const approved = await runtime.step(state, approvalContext);
-        state = approved.newState;
-        context = approved.nextContext;
-        await store.save({
-          runId: run.id,
-          state,
-          context: context || null,
-          budget: budget.checkpoint(),
-          phase: 'step_completed',
-        });
-        continue;
-      }
+  }
+  const activeRequest = run.manifest.messages.find(
+    (message) => message.id === run.manifest.requestMessageId,
+  );
+  const delivery = await store.createMessage(
+    {
+      id: `chn_input_${randomUUID()}`,
+      role: 'user',
+      content: JSON.stringify({
+        kind: activeRequest?.author.type === 'human' ? 'channel_request' : 'channel_update',
+        ...channelContext(run.manifest),
+        instruction:
+          'Use the attributed history above together with earlier session context. The active request may already have been delivered. Do not replay completed actions or claim another member’s work as yours.',
+      }),
+      ...stamp(),
+    },
+    `delivery:${run.id}`,
+  );
+
+  const messageStore = new ChannelRuntimeMessageStore(store, input.ownerId);
+  const service = new AiAgentService(input.db, input.ownerId, {
+    runtimeOptions: {
+      messageStore,
+      // executeSync drives every step in this process; nothing may be queued.
+      queueService: null,
+      streamEventManager: new InMemoryStreamEventManager(),
+    },
+    withholdGatewayToken: true,
+  });
+  const artifactManifest = buildChannelArtifactManifest(input.artifactRunIds);
+  const started = await service.execAgent({
+    agentId: input.agentId,
+    autoStart: false,
+    channelContext: {
+      artifactRunIds: input.artifactRunIds,
+      channelId: run.channelId,
+      fence: run.fence,
+      runId: run.id,
+    },
+    // Compression requires a topic-backed transport. Until it supports the
+    // private store, avoid scheduling a skipped compression before every call.
+    chatConfigOverride: { enableContextCompression: false },
+    instructions: `${CHANNEL_INSTRUCTIONS}\n\n${JSON.stringify(channelContext(run.manifest))}`,
+    prompt: '',
+    serverToolManifests: artifactManifest && [artifactManifest],
+    signal: input.signal,
+    stream: false,
+    title: `Channel ${run.channelId} · ${run.id}`,
+    transcript: { deliveryMessageId: delivery.id, load: () => store.messages() },
+    trigger: 'channel',
+    userInterventionConfig: { approvalMode: 'headless' },
+  });
+  if (!started.success) throw new Error(started.error || 'Native operation did not start');
+  const operationId = started.operationId;
+  await store.save({ runId: run.id, operationId, phase: 'accepted' });
+  await input.onAccepted(run.sessionId, operationId);
+
+  let stopReason: Error | undefined;
+  const stop = (reason: Error) => {
+    stopReason ??= reason;
+    return service.interruptOperation(operationId).catch(() => false);
+  };
+  const onAbort = () => void stop(new Error('Native execution was interrupted'));
+  input.signal.addEventListener('abort', onAbort, { once: true });
+  if (input.signal.aborted) onAbort();
+  const timeout = setInterval(() => {
+    try {
       budget.assertTime();
-      host.operation.stepIndex = state.stepCount;
-      await store.save({
-        runId: run.id,
-        state,
-        context: context || null,
-        budget: budget.checkpoint(),
-        phase: 'step_started',
-      });
-      const result = await runtime.step(state, context);
-      state = result.newState;
-      context = result.nextContext;
-      await store.save({
-        runId: run.id,
-        state,
-        context: context || null,
-        budget: budget.checkpoint(),
-        phase: 'step_completed',
-      });
+    } catch (error) {
+      void stop(error as Error);
     }
-    if (state.status === 'error')
-      throw state.error instanceof Error
-        ? state.error
-        : new Error(String(state.error?.message || 'Native runtime failed'));
-    if (state.status !== 'done')
-      throw new Error(
-        state.status === 'waiting_for_async_tool'
-          ? 'This Native tool requires an asynchronous host that is unavailable in Channel'
-          : 'Channel Native execution interrupted',
-      );
-    const final = state.messages.findLast(
-      (message: UIChatMessage & { tool_calls?: unknown[] }) =>
-        message.role === 'assistant' && !message.tool_calls?.length,
-    );
-    if (!final?.content) throw new Error('Native completed without a publishable final');
-    return { state, budget: budget.checkpoint(), content: final.content as string, waiting: false };
+  }, 250);
+  let state: AgentState;
+  try {
+    state = await service.executeSync(operationId, {
+      onStepComplete: async (_step, current) => {
+        if (['done', 'error', 'interrupted'].includes(current.status)) return;
+        try {
+          budget.observe(current.usage);
+        } catch (error) {
+          await stop(error as Error);
+        }
+      },
+    });
   } finally {
     clearInterval(timeout);
+    input.signal.removeEventListener('abort', onAbort);
   }
+  // Counters come from the runtime, whatever way the loop ended.
+  const usage = state.usage;
+  const snapshot = {
+    ...budget.checkpoint(),
+    modelCalls: usage.llm.apiCalls,
+    toolCalls: usage.tools.totalCalls,
+  };
+
+  if (stopReason) throw stopReason;
+  if (state.status === 'error')
+    throw state.error instanceof Error
+      ? state.error
+      : new Error(String(state.error?.message || 'Native runtime failed'));
+  if (PARKED.has(state.status))
+    throw new Error(
+      state.status === 'waiting_for_human'
+        ? 'Channel Native runs are headless; this tool requires human approval'
+        : 'This Native tool requires an asynchronous host that is unavailable in Channel',
+    );
+  if (state.status !== 'done') throw new Error('Channel Native execution interrupted');
+  const final = (await store.messages()).findLast(
+    (message: UIChatMessage) =>
+      message.role === 'assistant' &&
+      message.metadata?.operationId === operationId &&
+      !message.tools?.length,
+  );
+  if (!final?.content) throw new Error('Native completed without a publishable final');
+  return { budget: snapshot, content: final.content, operationId, state };
 }

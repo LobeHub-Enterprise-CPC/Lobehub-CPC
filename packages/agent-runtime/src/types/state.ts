@@ -15,6 +15,7 @@ import type {
 import type {
   AgentShareVisitorContext,
   AgentSignalOperationMarker,
+  ChannelRunContext,
   ChatToolPayload,
   ChatTopicBotContext,
   EvalToolForwardingConfig,
@@ -114,6 +115,8 @@ export interface AgentRunPrincipal {
   actor?: {
     /** Sender / owner identity for bot-originated runs. */
     bot?: ChatTopicBotContext;
+    /** Channel native-run marker. Present only for a Channel member run. */
+    channel?: ChannelRunContext;
     /**
      * Principal pool the routed device lives in: `personal` when a workspace
      * run was routed to the caller's own device via a per-user `local` override.

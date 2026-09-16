@@ -64,7 +64,11 @@ import {
   tryReuseInterventionContinuation,
 } from './pipeline/approvalResume';
 import { dispatchHeteroAgent } from './pipeline/heteroDispatch';
-import { createHistoryMessagesLoader, prepareOperation } from './pipeline/operationPrep';
+import {
+  createHistoryMessagesLoader,
+  createTranscriptHistoryLoader,
+  prepareOperation,
+} from './pipeline/operationPrep';
 import { resolveRunAgentConfig } from './pipeline/resolveRunAgentConfig';
 import { startOperation } from './pipeline/startOperation';
 import { discoverTools } from './pipeline/toolDiscovery';
@@ -301,6 +305,27 @@ export class AiAgentService {
    */
   executeStep(params: AgentExecutionParams): Promise<AgentExecutionResult> {
     return this.agentRuntimeService.executeStep(params);
+  }
+
+  /**
+   * Drive an operation created with `autoStart: false` to a terminal or parked
+   * state in the current process. Hosts that own their own worker loop
+   * (Channel native runs) use this instead of the queue; the runtime must have
+   * been built with `queueService: null` so no step is scheduled twice.
+   */
+  executeSync(
+    ...args: Parameters<AgentRuntimeService['executeSync']>
+  ): ReturnType<AgentRuntimeService['executeSync']> {
+    return this.agentRuntimeService.executeSync(...args);
+  }
+
+  /**
+   * Mark an operation interrupted at its next step boundary. The companion of
+   * {@link executeSync}: a sync host has no topic to route `interruptTask`
+   * through, so it stops the operation it is driving directly.
+   */
+  interruptOperation(operationId: string): Promise<boolean> {
+    return this.agentRuntimeService.interruptOperation(operationId);
   }
 
   /** Mint a lock owner that spans a whole inline step loop. */
@@ -716,7 +741,19 @@ export class AiAgentService {
       mentionedAgents,
       suppressUserMessage,
       ephemeralUserMessage,
+      channelContext,
+      serverToolManifests,
+      transcript,
     } = params;
+
+    if (
+      transcript &&
+      (appContext?.topicId || resume || resumeApproval || resumeApprovals || resumeToolResult)
+    ) {
+      throw new Error(
+        'transcript mode is exclusive with appContext.topicId and every resume* option',
+      );
+    }
 
     // Agent Share visitor runs execute under the CREATOR's credentials (see
     // `shareChat.ts` `execAgent` → `AiAgentService.execAgent({ shareGate })`)
@@ -868,7 +905,9 @@ export class AiAgentService {
     // instead of appending a new user message — share the message-construction
     // branches below. Resume-specific validation/approval stays gated on
     // `effectiveResume` only.
-    const runFromHistory = effectiveResume || !!suppressUserMessage;
+    // A transcript run likewise appends nothing: its request already lives in
+    // the host store (`transcript.deliveryMessageId`).
+    const runFromHistory = effectiveResume || !!suppressUserMessage || !!transcript;
 
     if (effectiveResume) {
       if (!parentMessageId) {
@@ -1008,6 +1047,7 @@ export class AiAgentService {
         steer,
         throwIfExecutionAborted,
         title,
+        transcript,
         trigger,
       },
     );
@@ -1047,6 +1087,11 @@ export class AiAgentService {
     };
 
     if (isHeteroAgent) {
+      // `setupTurn` rejects a hetero agent in transcript mode, so both anchors
+      // exist here; the narrowing gives hetero dispatch the persisted shape.
+      if (runContext.topicId === undefined || runContext.assistantMessageId === undefined) {
+        throw new Error('Heterogeneous dispatch requires a persisted topic and assistant row');
+      }
       return dispatchHeteroAgent(
         {
           bindTopicWorkingDirectory: (p) => this.bindTopicWorkingDirectory(p),
@@ -1059,7 +1104,11 @@ export class AiAgentService {
           withholdGatewayToken: this.withholdGatewayToken,
           workspaceId: this.workspaceId,
         },
-        runContext,
+        {
+          ...runContext,
+          assistantMessageId: runContext.assistantMessageId,
+          topicId: runContext.topicId,
+        },
         {
           canManageAgent,
           effectiveRequestedDeviceId: turn.effectiveRequestedDeviceId,
@@ -1136,24 +1185,27 @@ export class AiAgentService {
     );
 
     // History loader shared by tool discovery (media-availability probe) and
-    // the operation-prep message assembly (see `pipeline/operationPrep`).
-    const loadHistoryMessages = createHistoryMessagesLoader(
-      {
-        db: this.db,
-        isShareVisitorRun: !!shareGate,
-        messageModel: this.messageModel,
-        userId: this.userId,
-        workspaceId: this.workspaceId,
-      },
-      {
-        appContext,
-        effectiveResume,
-        existingMessageIds,
-        parentMessageId,
-        resumeParentMessage,
-        selfMessageIds,
-      },
-    );
+    // the operation-prep message assembly (see `pipeline/operationPrep`). A
+    // transcript run reads the host's store instead of `messages`.
+    const loadHistoryMessages = transcript
+      ? createTranscriptHistoryLoader(transcript)
+      : createHistoryMessagesLoader(
+          {
+            db: this.db,
+            isShareVisitorRun: !!shareGate,
+            messageModel: this.messageModel,
+            userId: this.userId,
+            workspaceId: this.workspaceId,
+          },
+          {
+            appContext,
+            effectiveResume,
+            existingMessageIds,
+            parentMessageId,
+            resumeParentMessage,
+            selfMessageIds,
+          },
+        );
 
     // When the user @-mentions agents (multi-mention, non-group), enable the
     // agent-management tool for this run so the supervisor can `callAgent` to
@@ -1199,6 +1251,7 @@ export class AiAgentService {
         requestTrigger: requestTriggerMetadata.trigger,
         requestedDeviceId,
         selectedToolIds,
+        serverToolManifests,
         throwIfExecutionAborted,
         topicBoundDeviceId: turn.topicBoundDeviceId,
       },
@@ -1207,7 +1260,8 @@ export class AiAgentService {
     // 15. Generate operation ID: agt_{timestamp}_{agentId}_{topicId}_{random}
     const timestamp = Date.now();
     const operationId =
-      continuationOperationId ?? `op_${timestamp}_${resolvedAgentId}_${topicId}_${nanoid(8)}`;
+      continuationOperationId ??
+      `op_${timestamp}_${resolvedAgentId}_${topicId ?? 'transcript'}_${nanoid(8)}`;
 
     // Stages 9.4–18 — device system info, agent-management context, persona
     // memory, history + message assembly, the base initial runtime context,
@@ -1241,20 +1295,25 @@ export class AiAgentService {
     );
 
     // 16b/16c — override the initial context with the human decision
-    // (see `pipeline/approvalResume`). Pure; no-op on a fresh send.
-    const initialContext = buildApprovalResumeContext({
-      approvalOwnerAssistantId,
-      approvedToolEntries,
-      assistantMessageId: turn.assistantMessageId,
-      initialContext: prep.initialContext,
-      messageCount: prep.allMessages.length,
-      operationId,
-      parentMessageId,
-      resumeApproval,
-      resumeApprovalPlugin,
-      resumeApprovals,
-      resumeToolResult,
-    });
+    // (see `pipeline/approvalResume`). Pure; no-op on a fresh send. A
+    // transcript run has no assistant row and rejects every resume option
+    // upstream, so the base context is used as-is.
+    const initialContext =
+      turn.assistantMessageId === undefined
+        ? prep.initialContext
+        : buildApprovalResumeContext({
+            approvalOwnerAssistantId,
+            approvedToolEntries,
+            assistantMessageId: turn.assistantMessageId,
+            initialContext: prep.initialContext,
+            messageCount: prep.allMessages.length,
+            operationId,
+            parentMessageId,
+            resumeApproval,
+            resumeApprovalPlugin,
+            resumeApprovals,
+            resumeToolResult,
+          });
 
     // 17. Log final operation parameters summary
     log(
@@ -1274,7 +1333,7 @@ export class AiAgentService {
     // marker that no longer lists it. Claiming here keeps the window minimal;
     // a failed claim only wastes the preparation reads (its lone write — the
     // topic cwd pin — is additive and idempotent).
-    if (params.topicStartOwnerOperationId) {
+    if (params.topicStartOwnerOperationId && topicId && turn.assistantMessageId) {
       const attached = await this.topicModel.appendRunningOperationChild(
         topicId,
         params.topicStartOwnerOperationId,
@@ -1326,6 +1385,7 @@ export class AiAgentService {
         autoStart,
         botContext,
         botPlatformContext,
+        channelContext,
         clientIp,
         disabledPluginIds,
         discordContext,
