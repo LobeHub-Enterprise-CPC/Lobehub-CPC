@@ -5,6 +5,7 @@ import { RequestTrigger } from '@lobechat/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiProviderModel } from '@/database/models/aiProvider';
+import { UserModel } from '@/database/models/user';
 import { AiInfraRepos } from '@/database/repositories/aiInfra';
 import { getServerGlobalConfig } from '@/server/globalConfig';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
@@ -75,6 +76,7 @@ describe('aiProviderRouter', () => {
     vi.clearAllMocks();
     mockGetHiddenBuiltinModelsForUser.mockResolvedValue([]);
     mockIsLobeHubModelAvailable.mockResolvedValue(true);
+    vi.mocked(UserModel.findById).mockResolvedValue(undefined);
 
     vi.mocked(getServerGlobalConfig).mockReturnValue({
       aiProvider: {},
@@ -86,6 +88,38 @@ describe('aiProviderRouter', () => {
   const createMockContext = () => ({
     userId: mockUserId,
   });
+
+  it.each([
+    { email: null, expectedEmail: undefined },
+    { email: undefined, expectedEmail: undefined },
+    { email: 'member@example.com', expectedEmail: 'member@example.com' },
+  ])(
+    'passes email $email through both runtime availability gates',
+    async ({ email, expectedEmail }) => {
+      vi.mocked(UserModel.findById).mockResolvedValue({ email } as any);
+      const model = { abilities: {}, id: 'beta-model', providerId: 'lobehub', type: 'chat' };
+      vi.mocked(AiInfraRepos).prototype.getAiProviderRuntimeState = vi.fn().mockResolvedValue({
+        ...mockRuntimeState,
+        enabledAiModels: [model],
+        enabledAiProviders: [{ id: 'lobehub', source: 'builtin' }],
+      });
+      mockIsLobeHubModelAvailable.mockResolvedValue(false);
+
+      const caller = aiProviderRouter.createCaller(createMockContext());
+      const runtime = await caller.getAiProviderRuntimeState({});
+      const binding = await caller.getProviderBindingRuntime({ id: 'lobehub' });
+
+      expect(runtime.enabledAiModels).toEqual([]);
+      expect(binding.enabledModels).toEqual([]);
+      expect(mockIsLobeHubModelAvailable).toHaveBeenCalledTimes(2);
+      expect(mockIsLobeHubModelAvailable).toHaveBeenNthCalledWith(1, 'beta-model', 'chat', {
+        userEmail: expectedEmail,
+      });
+      expect(mockIsLobeHubModelAvailable).toHaveBeenNthCalledWith(2, 'beta-model', 'chat', {
+        userEmail: expectedEmail,
+      });
+    },
+  );
 
   describe('checkProviderConnectivity', () => {
     it('should pass api trigger metadata to the runtime connectivity check', async () => {

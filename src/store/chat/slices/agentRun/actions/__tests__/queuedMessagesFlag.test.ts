@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 
 import { aiAgentService } from '@/services/aiAgent';
 import { shareChatService } from '@/services/shareChat';
@@ -37,8 +37,8 @@ const seedOperations = (operations: ReturnType<typeof operation>[]) => {
 };
 
 describe('queued messages flag', () => {
-  let setQueuedMessages: ReturnType<typeof vi.spyOn>;
-  let setShareQueuedMessages: ReturnType<typeof vi.spyOn>;
+  let setQueuedMessages: MockInstance<typeof aiAgentService.setQueuedMessages>;
+  let setShareQueuedMessages: MockInstance<typeof shareChatService.setQueuedMessages>;
 
   beforeEach(() => {
     useChatStore.setState(useChatStore.getInitialState());

@@ -79,14 +79,14 @@ export class SandboxMiddlewareService implements SandboxService {
       return this.provider.callTool(toolName, params);
     }
 
-    const ctx: CommandGovernanceContext = {
+    const ctx = {
       apiName: toolName,
       commandText:
         typeof params?.command === 'string' ? params.command : JSON.stringify(params ?? {}),
       executionTarget: 'sandbox',
       toolIdentifier: CloudSandboxIdentifier,
       userId,
-    };
+    } satisfies CommandGovernanceContext;
 
     const decision = await checkCommand(ctx, serverDB);
 
