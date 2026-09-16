@@ -1,3 +1,4 @@
+import type { MediaSourceMessage } from '@lobechat/builtin-tool-lobe-agent';
 import { type LobeToolManifest } from '@lobechat/context-engine';
 import { type LobeChatDatabase } from '@lobechat/database';
 import {
@@ -277,6 +278,8 @@ export interface ToolExecutionContext {
    * {@link localSandbox}.
    */
   localSandboxNetwork?: boolean;
+  /** Trusted host-scoped media sources for non-legacy conversations. Never populated from tool args. */
+  mediaSourceMessages?: MediaSourceMessage[];
   /**
    * Optional server-owned embedding runtime for memory search.
    *

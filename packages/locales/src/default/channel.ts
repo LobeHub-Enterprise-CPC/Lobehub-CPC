@@ -1,4 +1,7 @@
 export default {
+  'attachments.upload': 'Upload files',
+  'attachments.failed': 'Upload failed. Retry or remove this file before sending.',
+  'attachments.limit': 'You can attach up to {{count}} files per message.',
   'history.older': 'Earlier messages',
   'history.newer': 'Newer messages',
   'history.latest': 'Back to latest',

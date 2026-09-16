@@ -56,6 +56,8 @@ export interface RuntimeMessageStore {
     params?: Parameters<MessageModel['query']>[0],
     options?: Parameters<MessageModel['query']>[1],
   ) => Promise<UIChatMessage[]>;
+  /** Host-owned transcripts refresh attachment views per call, without persisting signed URLs. */
+  resolveAttachments?: (messages: UIChatMessage[]) => Promise<UIChatMessage[]>;
   update: (id: string, params: Partial<UpdateMessageParams>) => Promise<{ success: boolean }>;
   updateMessagePlugin: (id: string, value: Partial<MessagePluginItem>) => Promise<unknown>;
   updatePluginState: (id: string, state: Record<string, any>) => Promise<void>;
@@ -78,7 +80,7 @@ export type RuntimeContextBuilderContext = Pick<
   | 'tracingContextEngine'
   | 'userId'
   | 'workspaceId'
->;
+> & { messageModel?: RuntimeMessageStore };
 
 export interface RuntimeExecutorContext {
   /**

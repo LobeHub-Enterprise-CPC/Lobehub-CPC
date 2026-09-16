@@ -19,8 +19,13 @@ const mocks = vi.hoisted(() => ({
   messageQuery: vi.fn(),
   recordCompletion: vi.fn(async () => true),
   recordStart: vi.fn(async () => {}),
+  resolveFiles: vi.fn(),
   topicCreate: vi.fn(),
   topicUpdate: vi.fn(),
+}));
+
+vi.mock('@/server/services/file/resolveAttachments', () => ({
+  resolveAttachmentsByFileIds: mocks.resolveFiles,
 }));
 
 vi.mock('@/database/models/message', () => ({
@@ -148,6 +153,7 @@ describe('AiAgentService private transcript execution', () => {
         },
       } as unknown as ChannelRuntimeModel,
       'owner',
+      {} as never,
     );
     stateManager = new InMemoryAgentStateManager();
     service = new AiAgentService({} as never, 'owner', {
@@ -179,6 +185,44 @@ describe('AiAgentService private transcript execution', () => {
   });
 
   afterEach(() => vi.restoreAllMocks());
+
+  it('carries Channel attachment content through execAgent and ordinary context engineering', async () => {
+    rows[0] = { ...rows[0], role: 'user', files: ['proposal'], content: 'Attached proposal' };
+    mocks.resolveFiles.mockResolvedValue({
+      audioList: [],
+      fileList: [
+        {
+          id: 'proposal',
+          content: 'Maintenance budget is 47.',
+          fileType: 'text/plain',
+          name: 'proposal.txt',
+          size: 25,
+          url: '/signed-proposal',
+        },
+      ],
+      imageList: [],
+      videoList: [],
+      warnings: [],
+    });
+    const result = await service.execAgent({
+      ...params(),
+      transcript: {
+        deliveryMessageId: 'delivery',
+        load: async () => store.resolveAttachments(await store.query()),
+      },
+    });
+    expect(result.success).toBe(true);
+    const state = await service.executeSync(result.operationId, { maxSteps: 5 });
+    expect(state.status).toBe('done');
+    const request = vi.mocked(ServerLLMTransport.prototype.runAttempt).mock.calls[0][0];
+    expect(JSON.stringify(request)).toContain('Maintenance budget is 47.');
+    expect(rows[0]).not.toHaveProperty('fileList');
+    expect(rows[0].files).toEqual(['proposal']);
+    expect(rows[1]).not.toHaveProperty('files');
+    expect(mocks.messageQuery).not.toHaveBeenCalled();
+    expect(mocks.messageCreate).not.toHaveBeenCalled();
+    expect(mocks.topicCreate).not.toHaveBeenCalled();
+  });
 
   it('starts and completes through the injected store without creating chat rows', async () => {
     const create = vi.spyOn(store, 'create');

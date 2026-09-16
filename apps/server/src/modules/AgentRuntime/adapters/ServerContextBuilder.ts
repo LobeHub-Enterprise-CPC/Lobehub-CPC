@@ -17,9 +17,13 @@ export class ServerContextBuilder implements ContextBuilder {
       input.state,
       input.payload.allowedToolNames,
     );
+    const resolveAttachments = this.ctx.messageModel?.resolveAttachments;
+    const llmPayload = resolveAttachments
+      ? { ...input.payload, messages: await resolveAttachments(input.payload.messages) }
+      : input.payload;
     const result = await buildServerCallLlmContext({
       ctx: this.ctx,
-      llmPayload: input.payload,
+      llmPayload,
       model: input.model,
       provider: input.provider,
       state: input.state,

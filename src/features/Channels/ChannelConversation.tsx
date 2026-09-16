@@ -18,6 +18,7 @@ import { userProfileSelectors } from '@/store/user/selectors';
 import { channelActivity } from './activity';
 import { getApprovalContent } from './approvalContent';
 import { Composer } from './Composer';
+import { MessageAttachments } from './MessageAttachments';
 import { MessageReceipts } from './MessageReceipts';
 import type { ChannelReceipts } from './receipts';
 import { styles } from './styles';
@@ -140,7 +141,24 @@ export function ChannelConversation({
         )}
         message={
           <CollapsibleContent key={message.id}>
-            <Markdown>{message.content}</Markdown>
+            <Flexbox gap={8}>
+              {!!message.fileIds?.length && (
+                <MessageAttachments
+                  items={message.fileIds.map(
+                    (id) =>
+                      data.attachments.find((file) => file.id === id) ?? {
+                        id,
+                        inaccessible: true,
+                        name: '',
+                        fileType: '',
+                        size: 0,
+                        url: '',
+                      },
+                  )}
+                />
+              )}
+              {message.content && <Markdown>{message.content}</Markdown>}
+            </Flexbox>
           </CollapsibleContent>
         }
         titleAddon={
@@ -353,13 +371,14 @@ export function ChannelConversation({
             (job) =>
               job.threadId === (threadId || null) && ['queued', 'running'].includes(job.status),
           )}
-          onSend={async (content, mentions, requestKey, mode, maxDiscussionRounds) => {
+          onSend={async (content, mentions, requestKey, mode, maxDiscussionRounds, fileIds) => {
             followLatest.current = true;
             setSending(true);
             try {
               await channelService.send({
                 channelId,
                 content,
+                fileIds,
                 mode,
                 maxDiscussionRounds,
                 mentions,

@@ -81,4 +81,55 @@ describe('ServerToolTransport.run', () => {
       expect.objectContaining({ channelContext: undefined }),
     );
   });
+
+  it.each([true, false])(
+    'passes a refreshed private media scope only for Channel runs (channel=%s)',
+    async (channel) => {
+      const raw = [{ id: 'delivery', role: 'user', content: 'request' }];
+      const query = vi.fn().mockResolvedValue(raw);
+      const resolveAttachments = vi.fn();
+      const transport = new ServerToolTransport({
+        messageModel: { query, resolveAttachments },
+        operationId: 'op',
+        serverDB: {},
+        stepIndex: 0,
+        streamManager: {},
+        toolExecutionService: { executeTool },
+        userId: 'owner',
+      } as any);
+      for (const url of ['/first-signed', '/renewed-signed']) {
+        const sources = [...raw, { id: 'private-source', imageList: [{ id: 'image', url }] }];
+        resolveAttachments.mockResolvedValue(sources);
+        await transport.run(
+          { ...payload, identifier: 'lobe-agent', apiName: 'analyzeMedia' } as any,
+          {
+            effectiveManifestMap: {},
+            mode: 'batch',
+            parsedArgs: {},
+            state: {
+              origin: { sourceMessageId: 'delivery' },
+              principal: {
+                actor: channel ? { channel: { channelId: 'channel', runId: 'run', fence: 1 } } : {},
+              },
+            },
+            toolName: 'analyzeMedia',
+          } as any,
+        );
+        expect(executeTool).toHaveBeenLastCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            messageId: 'delivery',
+            mediaSourceMessages: channel ? sources : undefined,
+          }),
+        );
+      }
+      if (channel) {
+        expect(query).toHaveBeenCalledTimes(2);
+        expect(resolveAttachments).toHaveBeenLastCalledWith(raw);
+      } else {
+        expect(query).not.toHaveBeenCalled();
+        expect(resolveAttachments).not.toHaveBeenCalled();
+      }
+    },
+  );
 });

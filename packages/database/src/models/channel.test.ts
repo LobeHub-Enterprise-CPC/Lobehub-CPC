@@ -36,6 +36,20 @@ beforeAll(async () => {
       'utf8',
     ).replaceAll('--> statement-breakpoint', ''),
   );
+  await client.exec(
+    readFileSync(
+      new URL(
+        '../../../../../packages/enterprise/src/database/migrations/0010_channel_attachments.sql',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  );
+  await client.exec(`
+    CREATE TABLE files (id text PRIMARY KEY, user_id text, workspace_id text);
+    INSERT INTO files VALUES ('doc', 'owner', NULL), ('image', 'owner', NULL),
+      ('foreign', 'other', NULL), ('workspace-file', 'owner', 'workspace');
+  `);
   db = drizzle(client, { schema }) as unknown as LobeChatDatabase;
   model = new ChannelModel(db, 'owner');
 }, 30000);
@@ -56,6 +70,45 @@ async function setup(workspace = false) {
 }
 
 describe('Channel durable boundaries', () => {
+  it('persists attachment-only messages, preserves order in manifests and fences changed retries', async () => {
+    const { c } = await setup();
+    const input = {
+      content: '',
+      fileIds: ['image', 'doc', 'image'],
+      mentions: [],
+      requestKey: randomUUID(),
+    };
+    const message = await model.send(c.id, input);
+    expect(message.fileIds).toEqual(['image', 'doc']);
+    expect((await model.send(c.id, input)).id).toBe(message.id);
+    await expect(model.send(c.id, { ...input, fileIds: ['doc', 'image'] })).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
+    const detail = await model.page(c.id);
+    expect(detail.messages.find((m) => m.id === message.id)?.fileIds).toEqual(['image', 'doc']);
+    const { run } = (await model.claim(c.id, detail.jobs[0].id))!;
+    expect(run.manifest.messages.find((m) => m.id === message.id)?.fileIds).toEqual([
+      'image',
+      'doc',
+    ]);
+  });
+
+  it.each(['foreign', 'workspace-file', 'missing'])(
+    'rejects inaccessible attachment %s without publishing',
+    async (fileId) => {
+      const { c } = await setup();
+      await expect(
+        model.send(c.id, {
+          content: 'Read this',
+          fileIds: ['doc', fileId],
+          mentions: [],
+          requestKey: randomUUID(),
+        }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      expect((await model.detail(c.id)).messages).toEqual([]);
+    },
+  );
+
   it.each([0, 1, 7])('rejects creating a Channel with %i members', async (count) => {
     const before = await model.list();
     await expect(
@@ -499,11 +552,13 @@ describe('Channel durable boundaries', () => {
     const { c, a } = await setup();
     const root = await model.send(c.id, {
       content: 'Root context',
+      fileIds: ['doc'],
       mentions: [],
       requestKey: randomUUID(),
     });
     await model.send(c.id, {
       content: 'Future main secret',
+      fileIds: ['image'],
       mentions: [],
       requestKey: randomUUID(),
     });
@@ -523,6 +578,7 @@ describe('Channel durable boundaries', () => {
       'Root context',
       'Branch request',
     ]);
+    expect(claim?.run.manifest.messages.flatMap((m) => m.fileIds ?? [])).toEqual(['doc']);
     expect(claim?.run.manifest.requestMessageId).toBe(reply.id);
     await model.send(c.id, {
       content: 'Late branch fact',

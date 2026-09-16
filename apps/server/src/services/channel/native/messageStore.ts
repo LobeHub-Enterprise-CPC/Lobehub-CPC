@@ -5,11 +5,14 @@ import type { CreateMessageParams, MessagePluginItem, UIChatMessage } from '@lob
 import { ChannelError } from '@/database/models/channel';
 import type { ChannelRuntimeModel } from '@/database/models/channelRuntime';
 import type { MessageModel } from '@/database/models/message';
+import type { LobeChatDatabase } from '@/database/type';
 import type {
   RuntimeMessageStore,
   RuntimeStoredMessage,
 } from '@/server/modules/AgentRuntime/context';
 import { merge } from '@/utils/merge';
+
+import { hydrateChannelMessageAttachments } from './attachments';
 
 /** Row shape the `messages`-table lookups on the port are typed with. */
 type StoredRow = NonNullable<Awaited<ReturnType<MessageModel['findById']>>>;
@@ -31,6 +34,7 @@ export class ChannelRuntimeMessageStore implements RuntimeMessageStore {
   constructor(
     private readonly store: ChannelRuntimeModel,
     private readonly ownerId: string,
+    private readonly db: LobeChatDatabase,
   ) {}
 
   private async all(): Promise<PrivateRow[]> {
@@ -139,6 +143,22 @@ export class ChannelRuntimeMessageStore implements RuntimeMessageStore {
     )?.id;
 
   query = () => this.store.messages();
+
+  resolveAttachments = async (messages: UIChatMessage[]) => {
+    const originals = new Map((await this.store.messages(true)).map((row) => [row.id, row]));
+    // Start from canonical content so repeated builds cannot accumulate warnings or
+    // reuse signed URLs from the initial discovery snapshot. Never write this view back.
+    return hydrateChannelMessageAttachments(
+      this.db,
+      this.ownerId,
+      messages.map((message) => {
+        const original = originals.get(message.id);
+        return original?.files?.length
+          ? { ...message, content: original.content, files: original.files }
+          : message;
+      }),
+    );
+  };
 
   update: RuntimeMessageStore['update'] = async (id, { metadata, ...params }) => {
     const success = await this.patch(id, (message) => ({

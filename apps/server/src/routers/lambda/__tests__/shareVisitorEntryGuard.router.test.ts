@@ -79,11 +79,11 @@ vi.mock('@/server/services/message', () => ({
 }));
 
 const mockFindDeletableFilesByTopicId = vi.fn();
-const mockFileDeleteMany = vi.fn();
+const mockFileDeleteUnreferenced = vi.fn();
 vi.mock('@/database/models/file', () => ({
   FileModel: vi.fn(function () {
     return {
-      deleteMany: mockFileDeleteMany,
+      deleteUnreferenced: mockFileDeleteUnreferenced,
       findDeletableFilesByTopicId: mockFindDeletableFilesByTopicId,
     };
   }),
@@ -129,7 +129,7 @@ describe('agent-share visitor guards on creator-facing RPCs', () => {
     mockTopicDelete.mockResolvedValue({ rowCount: 1 });
     mockTopicUpdate.mockResolvedValue([{ id: 'topic-1' }]);
     mockFindDeletableFilesByTopicId.mockResolvedValue(['file-1']);
-    mockFileDeleteMany.mockResolvedValue([{ url: 's3://file-1' }]);
+    mockFileDeleteUnreferenced.mockResolvedValue({ url: 's3://file-1' });
     mockTopicFindOwnTopicById.mockResolvedValue({ id: 'topic-1', userId });
     mockTopicFindOwnersByIds.mockResolvedValue([]);
   });
@@ -143,7 +143,7 @@ describe('agent-share visitor guards on creator-facing RPCs', () => {
       await topicCaller().removeTopic({ id: visitorTopicId, removeFiles: true });
 
       expect(mockFindDeletableFilesByTopicId).not.toHaveBeenCalled();
-      expect(mockFileDeleteMany).not.toHaveBeenCalled();
+      expect(mockFileDeleteUnreferenced).not.toHaveBeenCalled();
       expect(mockDeleteFiles).not.toHaveBeenCalled();
     });
 
@@ -152,6 +152,20 @@ describe('agent-share visitor guards on creator-facing RPCs', () => {
 
       expect(mockFindDeletableFilesByTopicId).toHaveBeenCalledWith('topic-1');
       expect(mockDeleteFiles).toHaveBeenCalledWith(['s3://file-1']);
+    });
+
+    it('rechecks references after topic deletion and retains storage when Channel still uses the file', async () => {
+      mockFileDeleteUnreferenced.mockImplementation(async () => {
+        expect(mockTopicDelete).toHaveBeenCalledWith('topic-1');
+        return undefined;
+      });
+      await topicCaller().removeTopic({ id: 'topic-1', removeFiles: true });
+      expect(mockFileDeleteUnreferenced).toHaveBeenCalledWith(
+        'file-1',
+        expect.any(Boolean),
+        expect.any(Function),
+      );
+      expect(mockDeleteFiles).not.toHaveBeenCalled();
     });
   });
 

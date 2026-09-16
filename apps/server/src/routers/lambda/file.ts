@@ -14,6 +14,7 @@ import pMap from 'p-map';
 import { z } from 'zod';
 
 import {
+  businessFileExternalReferenceGuard,
   businessFileTransferStorageCheck,
   businessFileUploadCheck,
 } from '@/business/server/lambda-routers/file';
@@ -911,7 +912,11 @@ export const fileRouter = router({
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'File not found' });
       await assertFileNotInRestrictedKnowledgeBase(ctx, input.id);
 
-      const file = await ctx.fileModel.deleteUnreferenced(input.id, serverDBEnv.REMOVE_GLOBAL_FILE);
+      const file = await ctx.fileModel.deleteUnreferenced(
+        input.id,
+        serverDBEnv.REMOVE_GLOBAL_FILE,
+        businessFileExternalReferenceGuard,
+      );
       if (!file) return;
 
       await ctx.fileService.deleteFile(file.url!);

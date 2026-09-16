@@ -187,6 +187,16 @@ export class ServerToolTransport implements ToolTransport {
           manifest: context.effectiveManifestMap[chatToolPayload.identifier],
         });
         const agentVisibility = await this.resolveAgentVisibility(context);
+        // Channel has no ordinary messages/topic rows. Resolve only the injected,
+        // fenced transcript; even an empty scope must not fall back to chat history.
+        const mediaSourceMessages =
+          context.state.principal?.actor?.channel &&
+          chatToolPayload.identifier === 'lobe-agent' &&
+          chatToolPayload.apiName === 'analyzeMedia'
+            ? this.ctx.messageModel.resolveAttachments
+              ? await this.ctx.messageModel.resolveAttachments(await this.ctx.messageModel.query())
+              : []
+            : undefined;
 
         // Re-checked after the visibility await for the same reason as above:
         // every await between entry and launch reopens the cancellation window.
@@ -242,6 +252,7 @@ export class ServerToolTransport implements ToolTransport {
                 : undefined,
               localSandboxNetwork:
                 context.state.world?.agent?.agencyConfig?.localSandboxNetwork === true,
+              mediaSourceMessages,
               memoryToolPermission: context.state.world?.agent?.chatConfig?.memory?.toolPermission,
               messageId: context.state.origin?.sourceMessageId,
               operationId,
