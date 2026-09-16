@@ -148,6 +148,7 @@ vi.mock('@/database/core/db-adaptor', () => ({
 }));
 
 vi.mock('@/business/server/lambda-routers/file', () => ({
+  businessFileExternalReferenceGuard: vi.fn(),
   businessFileTransferStorageCheck: routerMocks.businessFileTransferStorageCheck,
   businessFileUploadCheck: routerMocks.businessFileUploadCheck,
 }));
@@ -1257,7 +1258,11 @@ describe('fileRouter', () => {
 
       await caller.removeUnreferencedFile({ id: 'voice-file' });
 
-      expect(mockFileModelDeleteUnreferenced).toHaveBeenCalledWith('voice-file', false);
+      expect(mockFileModelDeleteUnreferenced).toHaveBeenCalledWith(
+        'voice-file',
+        false,
+        expect.any(Function),
+      );
       expect(mockFileServiceDeleteFile).not.toHaveBeenCalled();
     });
 

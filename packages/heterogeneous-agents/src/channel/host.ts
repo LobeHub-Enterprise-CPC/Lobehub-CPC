@@ -2,7 +2,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, realpath, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { ChannelInputManifest, HeterogeneousProviderConfig } from '@lobechat/types';
+import type {
+  ChannelInputManifest,
+  ChatImageItem,
+  HeterogeneousProviderConfig,
+} from '@lobechat/types';
 
 import {
   ChannelAgentClient,
@@ -15,6 +19,8 @@ import {
 import type { ChannelWorkspaceSnapshot } from './snapshot';
 
 export interface CodexChannelStart {
+  /** Owner-resolved context, refreshed on dispatch; stable identity is in manifest.fileIds. */
+  attachmentContext?: { messageId: string; content: string; imageList: ChatImageItem[] }[];
   cwd: string;
   fence: number;
   manifest: ChannelInputManifest;
@@ -178,13 +184,17 @@ export class CodexChannelHost {
   ) {
     const canonicalPath = await realpath(cwd);
     const version = await this.probeAgent(canonicalPath, runtime, provider);
-    return { available: true, canonicalPath, protocol: 'channel-v1', version };
+    return { available: true, attachments: true, canonicalPath, protocol: 'channel-v1', version };
   }
 
   async start(input: CodexChannelStart): Promise<CodexChannelSnapshot> {
     const key = this.key(input.ownerId, input.runId);
     // Reissuing a scoped credential does not change the message being delivered.
-    const { serverDefaultBinding: _credential, ...identity } = input;
+    const {
+      serverDefaultBinding: _credential,
+      attachmentContext: _attachments,
+      ...identity
+    } = input;
     const inputHash = createHash('sha256').update(JSON.stringify(identity)).digest('hex');
     const pending = this.pendingStarts.get(key);
     if (pending) {

@@ -160,6 +160,7 @@ export const channelMessages = pgTable(
     sequence: integer('sequence').notNull(),
     authorMemberId: text('author_member_id'),
     content: text('content').notNull(),
+    fileIds: jsonb('file_ids').$type<string[]>().notNull().default([]),
     mentions: jsonb('mentions').$type<string[]>().notNull().default([]),
     /** Client retry identity for user messages; run identity for published drafts. */
     requestKey: text('request_key').notNull(),

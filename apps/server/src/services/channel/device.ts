@@ -2,12 +2,14 @@ import type {
   CodexChannelSnapshot,
   CodexChannelStart,
 } from '@lobechat/heterogeneous-agents/channel';
+import { filesPrompts } from '@lobechat/prompts';
 import type { ChannelRuntime } from '@lobechat/types';
 
 import { DeviceModel } from '@/database/models/device';
 import type { LobeChatDatabase } from '@/database/type';
 import { assertWorkspaceRootApproved } from '@/server/routers/lambda/deviceWorkspaceGuard';
 import { deviceGateway } from '@/server/services/deviceGateway';
+import { resolveAttachmentsByFileIds } from '@/server/services/file/resolveAttachments';
 
 import { resolveChannelMemberRuntime } from './members';
 import { beginChannelServerDefaultOperation } from './serverDefault';
@@ -94,6 +96,36 @@ export class ChannelDevice {
             input.runtime ?? 'codex',
           )
         : undefined;
+      if (input.manifest.messages.some((message) => message.fileIds?.length)) {
+        const support = await this.call<{ attachments?: boolean }>('channelProbe', {
+          cwd: input.cwd,
+          provider: launch?.provider,
+          runtime: input.runtime ?? 'codex',
+        });
+        if (!support.attachments)
+          throw new Error('Please update Desktop to support Channel attachments');
+      }
+      const attachmentContext = await Promise.all(
+        input.manifest.messages
+          .filter((message) => message.fileIds?.length)
+          .map(async (message) => {
+            const attachments = await resolveAttachmentsByFileIds({
+              db: this.db,
+              userId: this.ownerId,
+              fileIds: message.fileIds!,
+            });
+            return {
+              messageId: message.id,
+              content: [
+                filesPrompts({ ...attachments, messageId: message.id }),
+                ...attachments.warnings,
+              ]
+                .filter(Boolean)
+                .join('\n\n'),
+              imageList: attachments.imageList,
+            };
+          }),
+      );
       const serverDefaultBinding =
         launch?.provider && agentId
           ? await beginChannelServerDefaultOperation({
@@ -109,6 +141,7 @@ export class ChannelDevice {
         'channelStart',
         {
           ...input,
+          ...(attachmentContext.length && { attachmentContext }),
           ...(launch && { provider: launch.provider, systemRole: launch.systemRole }),
           ...(serverDefaultBinding && { serverDefaultBinding }),
         },

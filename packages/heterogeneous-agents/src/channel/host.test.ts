@@ -34,6 +34,7 @@ it.each(['physicalStopped', 'runtimeCompleted'] as const)(
         fence: 1,
         model: 'model',
         serverDefaultBinding: { model: 'lobehub-default', token: 'original' },
+        attachmentContext: [{ messageId: 'message', content: 'signed-original', imageList: [] }],
         manifest: {
           cutoffSequence: 1,
           messages: [],
@@ -58,6 +59,7 @@ it.each(['physicalStopped', 'runtimeCompleted'] as const)(
           await restarted.start({
             ...input,
             serverDefaultBinding: { model: 'lobehub-default', token: 'renewed' },
+            attachmentContext: [{ messageId: 'message', content: 'signed-renewed', imageList: [] }],
           })
         ).content,
       ).toBe('Preserved reply');

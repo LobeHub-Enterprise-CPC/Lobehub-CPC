@@ -1,11 +1,22 @@
 // @vitest-environment node
+import { AgentRuntime } from '@lobechat/agent-runtime';
 import type { UIChatMessage } from '@lobechat/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChannelError } from '@/database/models/channel';
 import type { ChannelRuntimeModel } from '@/database/models/channelRuntime';
+import type { LobeChatDatabase } from '@/database/type';
+import { ServerContextBuilder } from '@/server/modules/AgentRuntime/adapters/ServerContextBuilder';
 
 import { ChannelRuntimeMessageStore } from './messageStore';
+
+const { build, resolveFiles } = vi.hoisted(() => ({ build: vi.fn(), resolveFiles: vi.fn() }));
+vi.mock('@/server/services/file/resolveAttachments', () => ({
+  resolveAttachmentsByFileIds: resolveFiles,
+}));
+vi.mock('@/server/modules/AgentRuntime/adapters/serverCallLlmContextBuilder', () => ({
+  buildServerCallLlmContext: build,
+}));
 
 let rows: Array<UIChatMessage & { stableKey: string }>;
 const model = {
@@ -25,7 +36,8 @@ const model = {
     rows[index] = { ...patch(rows[index]), id, stableKey: rows[index].stableKey };
   }),
 };
-const store = new ChannelRuntimeMessageStore(model as unknown as ChannelRuntimeModel, 'owner');
+const db = {} as LobeChatDatabase;
+const store = new ChannelRuntimeMessageStore(model as unknown as ChannelRuntimeModel, 'owner', db);
 
 beforeEach(() => {
   rows = [];
@@ -33,6 +45,57 @@ beforeEach(() => {
 });
 
 describe('ChannelRuntimeMessageStore', () => {
+  it('refreshes attachments through the shared context builder without persisting URLs or repeating warnings', async () => {
+    const source = await store.create({
+      content: 'Read attached',
+      files: ['doc', 'image'],
+      role: 'user',
+    });
+    const raw = await store.query();
+    build.mockResolvedValue({ processedMessages: [], shouldReplayAssistantReasoning: false });
+    const state = AgentRuntime.createInitialState({ messages: raw, operationId: 'op' });
+    const builder = new ServerContextBuilder({
+      messageModel: store,
+      operationId: 'op',
+      serverDB: db,
+      stepIndex: 0,
+      userId: 'owner',
+    });
+    let snapshot = raw;
+    for (const url of ['/first-signed', '/renewed-signed']) {
+      resolveFiles.mockResolvedValue({
+        audioList: [],
+        fileList: [{ id: 'doc', content: 'Budget: 47', name: 'budget.txt', url }],
+        imageList: [{ id: 'image', alt: 'diagram', url }],
+        videoList: [],
+        warnings: ['One file is unavailable'],
+      });
+      await builder.build({
+        state,
+        model: 'model',
+        provider: 'provider',
+        payload: { messages: snapshot, model: 'model', provider: 'provider', tools: [] },
+      });
+      snapshot = build.mock.calls.at(-1)![0].llmPayload.messages;
+      expect(snapshot).toEqual([
+        expect.objectContaining({
+          id: source.id,
+          content: 'Read attached\n\nOne file is unavailable',
+          fileList: [expect.objectContaining({ content: 'Budget: 47', url })],
+          imageList: [{ id: 'image', alt: 'diagram', url }],
+        }),
+      ]);
+      expect(resolveFiles).toHaveBeenLastCalledWith({
+        db,
+        fileIds: ['doc', 'image'],
+        userId: 'owner',
+      });
+    }
+    expect(await store.query()).toEqual(raw);
+    expect(JSON.stringify(rows)).not.toContain('signed');
+    expect(state.messages).toEqual(raw);
+  });
+
   it('reuses the placeholder on a retried step through the runtime idempotency key', async () => {
     const first = await store.create({
       clientId: 'agent-runtime:op:step:0:instruction:0:assistant',

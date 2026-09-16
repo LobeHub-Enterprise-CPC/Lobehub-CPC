@@ -102,6 +102,15 @@ it('runs a Channel member through execAgent against the private transcript only'
         'utf8',
       ).replaceAll('--> statement-breakpoint', ''),
     );
+    await client.exec(
+      readFileSync(
+        new URL(
+          '../../../../../packages/enterprise/src/database/migrations/0010_channel_attachments.sql',
+          import.meta.url,
+        ),
+        'utf8',
+      ),
+    );
     const db = drizzle(client, { schema }) as unknown as LobeChatDatabase;
     const model = new ChannelModel(db, 'owner');
     const config = {

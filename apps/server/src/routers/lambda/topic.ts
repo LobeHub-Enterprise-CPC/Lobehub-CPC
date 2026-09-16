@@ -15,6 +15,7 @@ import { TRPCError } from '@trpc/server';
 import { inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { businessFileExternalReferenceGuard } from '@/business/server/lambda-routers/file';
 import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
 import { wsCompatProcedure } from '@/business/server/trpc-middlewares/workspaceAuth';
 import { serverDBEnv } from '@/config/db';
@@ -952,12 +953,19 @@ export const topicRouter = router({
       const result = await ctx.topicModel.delete(input.id);
 
       if (fileIds.length > 0) {
-        const needToRemove = await ctx.fileModel.deleteMany(
-          fileIds,
-          serverDBEnv.REMOVE_GLOBAL_FILE,
-        );
-        // deleteMany returns only files whose underlying object is no longer
-        // referenced by any other file, so the S3 cleanup is reference-safe.
+        // The topic cascade has removed its message links. Re-check every candidate while
+        // holding its file-row lock so Channel sends and cleanup cannot pass one another.
+        const needToRemove = [];
+        for (const fileId of [...fileIds].sort()) {
+          const file = await ctx.fileModel.deleteUnreferenced(
+            fileId,
+            serverDBEnv.REMOVE_GLOBAL_FILE,
+            businessFileExternalReferenceGuard,
+          );
+          if (file) needToRemove.push(file);
+        }
+        // deleteUnreferenced returns only files whose underlying object is no longer
+        // referenced, so the S3 cleanup is reference-safe.
         if (needToRemove && needToRemove.length > 0) {
           const wsId = ctx.workspaceId ?? undefined;
           const fileService = new FileService(ctx.serverDB, ctx.userId, wsId);

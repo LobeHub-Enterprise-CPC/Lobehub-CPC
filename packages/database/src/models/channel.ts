@@ -17,7 +17,9 @@ import {
   channelSessions,
   channelThreads,
 } from '../privateSchemas/channel';
+import { files } from '../schemas/file';
 import type { LobeChatDatabase, Transaction } from '../type';
+import { buildWorkspaceWhere } from '../utils/workspace';
 import { advanceDiscussions, queueDiscussionTurn, stopDiscussions } from './channelDiscussion';
 import type { ChannelPageOptions } from './channelRead';
 import { listChannelThreads, readChannelPage, readChannelRevision } from './channelRead';
@@ -376,6 +378,7 @@ export class ChannelModel {
     channelId: string,
     input: {
       content: string;
+      fileIds?: string[];
       mentions: string[];
       requestKey: string;
       threadId?: string | null;
@@ -395,7 +398,13 @@ export class ChannelModel {
         'BAD_REQUEST',
         `Discussion rounds must be an integer from 1 to ${CHANNEL_LIMITS.maxDiscussionRounds}`,
       );
-    if (!input.content.trim() || !input.requestKey || input.content.length > 100_000)
+    const fileIds = [...new Set(input.fileIds ?? [])];
+    if (
+      (!input.content.trim() && !fileIds.length) ||
+      !input.requestKey ||
+      input.content.length > 100_000 ||
+      fileIds.length > CHANNEL_LIMITS.attachments
+    )
       throw new ChannelError(
         'BAD_REQUEST',
         'A message requires bounded content and a retry identity',
@@ -421,6 +430,7 @@ export class ChannelModel {
         if (
           existing.content !== input.content ||
           existing.threadId !== (input.threadId || null) ||
+          JSON.stringify(existing.fileIds) !== JSON.stringify(fileIds) ||
           JSON.stringify(existing.mentions) !== JSON.stringify(mentions) ||
           Boolean(discussion) !== (discussing && existing.routingStatus !== 'unassigned') ||
           (discussion &&
@@ -432,6 +442,23 @@ export class ChannelModel {
             'Retry identity was already used for a different message',
           );
         return existing;
+      }
+      if (fileIds.length) {
+        // Use a stable lock order so concurrent sends/cleanup serialize without deadlocks.
+        const orderedFileIds = [...fileIds].sort();
+        const accessible = await tx
+          .select({ id: files.id })
+          .from(files)
+          .where(
+            and(
+              inArray(files.id, orderedFileIds),
+              buildWorkspaceWhere({ userId: this.ownerId }, files),
+            ),
+          )
+          .orderBy(asc(files.id))
+          .for('update');
+        if (accessible.length !== fileIds.length)
+          throw new ChannelError('BAD_REQUEST', 'One or more attachments are unavailable');
       }
       // A new human goal supersedes autonomous follow-ups, without killing native background work.
       await stopDiscussions(tx, channelId, input.threadId || null, 'superseded');
@@ -461,6 +488,7 @@ export class ChannelModel {
           threadId: input.threadId || null,
           sequence: channel.sequence + 1,
           content: input.content,
+          fileIds,
           mentions,
           requestKey: input.requestKey,
           routingStatus: mentions.length ? 'directed' : audience.length ? 'assigned' : 'unassigned',
@@ -873,6 +901,7 @@ export class ChannelModel {
             sequence: m.sequence,
             threadId: m.threadId,
             content: m.content,
+            ...(m.fileIds.length && { fileIds: m.fileIds }),
             author: m.authorMemberId
               ? {
                   id: m.authorMemberId,

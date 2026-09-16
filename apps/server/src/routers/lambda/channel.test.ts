@@ -4,6 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { channelRouter } from './channel';
 
 const { list, preference } = vi.hoisted(() => ({ list: vi.fn(), preference: vi.fn() }));
+const { page, send, metadata } = vi.hoisted(() => ({
+  page: vi.fn(),
+  send: vi.fn(),
+  metadata: vi.fn(),
+}));
+vi.mock('@/server/services/file/resolveAttachments', () => ({
+  resolveAttachmentMetadata: metadata,
+}));
 // Authentication is tested by the shared middleware. Exercise the real Channel
 // router and gates with an already-authenticated context, without a database.
 vi.mock('@/libs/trpc/lambda', async () => {
@@ -20,6 +28,8 @@ vi.mock('@/database/models/channel', () => ({
   ChannelError: class extends Error {},
   ChannelModel: class {
     listWithThreads = list;
+    page = page;
+    send = send;
   },
 }));
 vi.mock('@/database/models/user', () => ({
@@ -56,6 +66,32 @@ afterEach(() => {
 });
 
 describe('Channel service opt-in at the API boundary', () => {
+  it('accepts attachment-only sends and resolves metadata for both the page and thread root', async () => {
+    await caller().send({
+      channelId: 'channel',
+      content: '',
+      fileIds: ['doc'],
+      mentions: [],
+      requestKey: '550e8400-e29b-41d4-a716-446655440000',
+    });
+    expect(send).toHaveBeenCalledWith(
+      'channel',
+      expect.objectContaining({ content: '', fileIds: ['doc'] }),
+    );
+    page.mockResolvedValue({
+      messages: [{ fileIds: ['doc'] }],
+      contextMessages: [{ fileIds: ['root-image'] }],
+    });
+    metadata.mockResolvedValue([{ id: 'doc', name: 'Report' }]);
+    const result = await caller().page({ channelId: 'channel', threadId: 'thread' });
+    expect(metadata).toHaveBeenCalledWith({
+      db: {},
+      userId: 'owner',
+      fileIds: ['doc', 'root-image'],
+    });
+    expect(result.attachments).toEqual([{ id: 'doc', name: 'Report' }]);
+  });
+
   it('hides availability and rejects direct API calls when URL is absent', async () => {
     vi.stubEnv('CHANNEL_GATEWAY_URL', '');
     vi.stubEnv('ENABLE_CHANNEL', '1');

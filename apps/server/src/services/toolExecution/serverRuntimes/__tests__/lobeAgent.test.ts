@@ -146,6 +146,50 @@ describe('lobeAgentRuntime', () => {
     });
   });
 
+  it.each(['image', 'audio', 'video'] as const)(
+    'analyzes host-scoped Channel %s refs without reading legacy or other-thread messages',
+    async (type) => {
+      const mediaMessage = {
+        id: 'channel-source',
+        role: 'user',
+        [`${type}List`]: [{ id: 'file', url: 'https://files.test/media', alt: 'Attachment' }],
+      };
+      const runtime = lobeAgentRuntime.factory({
+        ...baseContext,
+        messageId: 'delivery',
+        mediaSourceMessages: [mediaMessage, { id: 'delivery', role: 'user' }],
+      }) as any;
+      const result = await runtime.analyzeMedia({
+        question: 'Explain',
+        refs: [createMediaFileRef({ index: 0, messageId: 'channel-source', type })],
+      });
+      expect(result.success).toBe(true);
+      expect(result.state.files).toEqual([expect.objectContaining({ id: 'file', type })]);
+      expect(mockChat).toHaveBeenCalledOnce();
+      expect(mockMessageModelQueryByIds).not.toHaveBeenCalled();
+      expect(mockMessageModelQuery).not.toHaveBeenCalled();
+
+      mockChat.mockClear();
+      const rejected = await runtime.analyzeMedia({
+        question: 'Other thread',
+        refs: [createMediaFileRef({ index: 0, messageId: 'other-thread-source', type })],
+      });
+      expect(rejected.error.code).toBe('UNKNOWN_MEDIA_FILE_REFS');
+      expect(mockChat).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not fall back to legacy messages when the host media scope is empty', async () => {
+    const runtime = lobeAgentRuntime.factory({ ...baseContext, mediaSourceMessages: [] }) as any;
+    const result = await runtime.analyzeMedia({
+      question: 'Explain',
+      refs: [createMediaFileRef({ index: 0, messageId: 'msg-1', type: 'image' })],
+    });
+    expect(result.error.code).toBe('SOURCE_MESSAGE_NOT_FOUND');
+    expect(mockMessageModelQueryByIds).not.toHaveBeenCalled();
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
   it('should transcode unsupported images before calling the multimodal model', async () => {
     const { default: sharp } = await import('sharp');
     const avifBuffer = await sharp({

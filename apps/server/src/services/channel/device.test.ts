@@ -5,6 +5,10 @@ import type { LobeChatDatabase } from '@/database/type';
 
 import { ChannelDevice } from './device';
 
+const { resolveFiles } = vi.hoisted(() => ({ resolveFiles: vi.fn() }));
+vi.mock('@/server/services/file/resolveAttachments', () => ({
+  resolveAttachmentsByFileIds: resolveFiles,
+}));
 const { findDevice, execute, update } = vi.hoisted(() => ({
   findDevice: vi.fn(),
   execute: vi.fn(),
@@ -38,6 +42,7 @@ beforeEach(() => {
     success: true,
     content: JSON.stringify({
       available: true,
+      attachments: true,
       protocol: 'channel-v1',
       canonicalPath: '/private/tmp/repo',
     }),
@@ -58,6 +63,72 @@ beforeEach(() => {
   beginBinding.mockResolvedValue(undefined);
 });
 describe('Channel approved directory aliases', () => {
+  it('resolves only attachments in the authorized manifest, retaining message attribution', async () => {
+    resolveFiles.mockResolvedValue({
+      fileList: [
+        {
+          id: 'doc',
+          name: 'budget.txt',
+          content: 'Budget: 47',
+          fileType: 'text/plain',
+          size: 10,
+          url: '/doc',
+        },
+      ],
+      imageList: [{ id: 'image', alt: 'diagram', url: '/image' }],
+      videoList: [],
+      audioList: [],
+      orderedFileIds: ['doc', 'image'],
+      warnings: [],
+    });
+    await adapter.start({
+      cwd: '/tmp/repo',
+      fence: 1,
+      model: '',
+      runId: 'files-run',
+      manifest: {
+        messages: [
+          { id: 'm', content: 'Read', fileIds: ['doc', 'image'] },
+          { id: 'plain', content: 'No attachments' },
+        ],
+      } as never,
+    });
+    expect(resolveFiles).toHaveBeenCalledExactlyOnceWith({
+      db: {},
+      userId: 'owner',
+      fileIds: ['doc', 'image'],
+    });
+    expect(JSON.parse(execute.mock.calls[1][1].arguments).attachmentContext).toEqual([
+      {
+        messageId: 'm',
+        content: expect.stringContaining('Budget: 47'),
+        imageList: [{ id: 'image', alt: 'diagram', url: '/image' }],
+      },
+    ]);
+  });
+
+  it('rejects attachment runs before submission on an older Desktop', async () => {
+    execute.mockResolvedValueOnce({
+      success: true,
+      content: JSON.stringify({ available: true, protocol: 'channel-v1' }),
+    });
+    await expect(
+      adapter.start({
+        cwd: '/tmp/repo',
+        fence: 1,
+        model: '',
+        runId: 'old-desktop',
+        manifest: { messages: [{ id: 'm', fileIds: ['doc'] }] } as never,
+      }),
+    ).rejects.toMatchObject({
+      submission: 'not-submitted',
+      message: expect.stringContaining('update Desktop'),
+    });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(execute.mock.calls[0][1].apiName).toBe('channelProbe');
+    expect(beginBinding).not.toHaveBeenCalled();
+  });
+
   it('accepts the canonical location of an explicitly selected root', async () => {
     await expect(adapter.probe('/tmp/repo')).resolves.toBe('/private/tmp/repo');
     expect(execute).toHaveBeenCalledOnce();
@@ -96,7 +167,7 @@ describe('Channel approved directory aliases', () => {
       {
         cwd: '/tmp/repo',
         fence: 1,
-        manifest: {} as never,
+        manifest: { messages: [] } as never,
         model: '',
         runId: 'run',
         runtime: 'codex',
@@ -123,7 +194,7 @@ describe('Channel approved directory aliases', () => {
       {
         cwd: '/tmp/repo',
         fence: 2,
-        manifest: {} as never,
+        manifest: { messages: [] } as never,
         model: '',
         runId: 'run-api',
         runtime: 'codex',
@@ -162,7 +233,13 @@ describe('Channel approved directory aliases', () => {
     findDevice.mockResolvedValueOnce(undefined);
     await expect(
       adapter.start(
-        { cwd: '/tmp/repo', fence: 1, manifest: {} as never, model: '', runId: 'run' },
+        {
+          cwd: '/tmp/repo',
+          fence: 1,
+          manifest: { messages: [] } as never,
+          model: '',
+          runId: 'run',
+        },
         'agent',
       ),
     ).rejects.toMatchObject({
@@ -174,7 +251,13 @@ describe('Channel approved directory aliases', () => {
   it('marks an error after invoking the gateway as having unknown acceptance', async () => {
     execute.mockRejectedValueOnce(new Error('ack lost'));
     await expect(
-      adapter.start({ cwd: '/tmp/repo', fence: 1, manifest: {} as never, model: '', runId: 'run' }),
+      adapter.start({
+        cwd: '/tmp/repo',
+        fence: 1,
+        manifest: { messages: [] } as never,
+        model: '',
+        runId: 'run',
+      }),
     ).rejects.toMatchObject({ submission: 'unknown' });
     expect(execute).toHaveBeenCalledOnce();
   });

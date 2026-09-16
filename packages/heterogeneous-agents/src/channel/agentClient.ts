@@ -9,6 +9,7 @@ import {
 
 import { resolveHeterogeneousAgentCommand } from '../config';
 import { ProcessTreeTracker } from '../process/ProcessTreeTracker';
+import { buildHeterogeneousPrompt } from '../protocol/promptEngine';
 import { resolveCliSpawnPlan } from '../spawn/cliSpawn';
 import { spawnAgent, type SpawnAgentHandle, type SpawnAgentOptions } from '../spawn/spawnAgent';
 import type { CodexChannelSnapshot, CodexChannelStart } from './host';
@@ -115,7 +116,18 @@ export class ChannelAgentClient {
       const prompt = [
         !input.sessionId && CHANNEL_INSTRUCTIONS,
         input.systemRole,
-        channelInput(input.manifest),
+        channelInput({
+          ...input.manifest,
+          messages: input.manifest.messages.map((message) => ({
+            ...message,
+            content: [
+              message.content,
+              input.attachmentContext?.find((item) => item.messageId === message.id)?.content,
+            ]
+              .filter(Boolean)
+              .join('\n\n'),
+          })),
+        }),
       ]
         .filter(Boolean)
         .join('\n\n');
@@ -135,7 +147,12 @@ export class ChannelAgentClient {
         inheritEnv: launch.inheritEnv,
         extraArgs: launch.extraArgs,
         operationId: input.runId,
-        prompt,
+        prompt: input.attachmentContext?.length
+          ? buildHeterogeneousPrompt({
+              prompt,
+              imageList: input.attachmentContext.flatMap((item) => item.imageList),
+            })
+          : prompt,
         resumeSessionId: input.sessionId || undefined,
       }).then((handle) => {
         this.handle = handle;

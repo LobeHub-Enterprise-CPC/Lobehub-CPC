@@ -52,6 +52,7 @@ interface LobeAgentRuntimeContext {
    */
   agentVisibility?: 'private' | 'public' | null;
   groupId?: string | null;
+  mediaSourceMessages?: MediaSourceMessage[];
   messageId: string;
   /** The current Agent Run (`agent_operations.id`). */
   operationId?: string;
@@ -137,6 +138,7 @@ class LobeAgentExecutionRuntime {
   private groupId?: string | null;
   private userId: string;
   private messageId: string;
+  private mediaSourceMessages?: MediaSourceMessage[];
   private operationId?: string;
   private threadId?: string | null;
   private topicId?: string;
@@ -152,6 +154,7 @@ class LobeAgentExecutionRuntime {
     this.db = context.serverDB;
     this.groupId = context.groupId;
     this.messageId = context.messageId;
+    this.mediaSourceMessages = context.mediaSourceMessages;
     this.operationId = context.operationId;
     this.threadId = context.threadId;
     this.topicId = context.topicId;
@@ -391,19 +394,26 @@ class LobeAgentExecutionRuntime {
     let selectedRefItems: MediaFileItem[] = [];
 
     if (requestedRefs.length > 0) {
-      const fileService = new FileService(this.db, this.userId, this.workspaceId);
-      const messageModel = new MessageModel(this.db, this.userId, this.workspaceId);
-      const postProcessUrl = (
-        path: string | null,
-        file: { fileType: string; id?: string | null },
-      ) => fileService.getFileAccessUrl({ id: file.id, url: path });
-      const [sourceMessage] = await messageModel.queryByIds([this.messageId], {
-        postProcessUrl,
-      });
-
-      const mediaMessages = sourceMessage
-        ? await this.queryScopeMessages(messageModel, sourceMessage, postProcessUrl)
-        : [];
+      let sourceMessage: MediaSourceMessage | undefined;
+      let mediaMessages: MediaSourceMessage[];
+      if (this.mediaSourceMessages !== undefined) {
+        // Non-legacy hosts supply a fenced, owner-authorized scope. An empty scope
+        // must never fall back to ordinary chat's tables or broaden the lookup.
+        mediaMessages = this.mediaSourceMessages;
+        sourceMessage = mediaMessages.find((message) => message.id === this.messageId);
+      } else {
+        const fileService = new FileService(this.db, this.userId, this.workspaceId);
+        const messageModel = new MessageModel(this.db, this.userId, this.workspaceId);
+        const postProcessUrl = (
+          path: string | null,
+          file: { fileType: string; id?: string | null },
+        ) => fileService.getFileAccessUrl({ id: file.id, url: path });
+        const [legacySource] = await messageModel.queryByIds([this.messageId], { postProcessUrl });
+        sourceMessage = legacySource;
+        mediaMessages = legacySource
+          ? await this.queryScopeMessages(messageModel, legacySource, postProcessUrl)
+          : [];
+      }
       const orderedMediaMessages = [
         ...(sourceMessage && hasAnalyzableMediaFiles(sourceMessage) ? [sourceMessage] : []),
         ...mediaMessages.filter(
@@ -555,6 +565,7 @@ export const lobeAgentRuntime: ServerRuntimeRegistration = {
       agentVisibility: context.agentVisibility,
       groupId: context.groupId,
       messageId: context.messageId,
+      mediaSourceMessages: context.mediaSourceMessages,
       operationId: context.operationId,
       serverDB: context.serverDB,
       threadId: context.threadId,

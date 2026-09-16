@@ -52,6 +52,8 @@ export interface SandboxInitFileItem {
   url: string;
 }
 
+export type FileExternalReferenceGuard = (trx: Transaction, fileId: string) => Promise<boolean>;
+
 export class FileModel {
   private readonly userId: string;
   private db: LobeChatDatabase;
@@ -230,7 +232,11 @@ export class FileModel {
    * Locking the file row serializes this cleanup with foreign-key inserts, so a late send either
    * wins ownership and preserves the file or observes the deletion and fails atomically.
    */
-  deleteUnreferenced = async (id: string, removeGlobalFile: boolean = true) => {
+  deleteUnreferenced = async (
+    id: string,
+    removeGlobalFile: boolean = true,
+    hasExternalReference: FileExternalReferenceGuard = async () => false,
+  ) => {
     return this.db.transaction(async (trx) => {
       const [file] = await trx
         .select({ id: files.id })
@@ -253,6 +259,10 @@ export class FileModel {
         .where(eq(filesToSessions.fileId, id))
         .limit(1);
       if (sessionReference) return;
+
+      // Private products may persist references outside the OSS schema (for example in a
+      // JSONB attachment list). Run their check under the same file-row lock and transaction.
+      if (await hasExternalReference(trx, id)) return;
 
       return this.delete(id, removeGlobalFile, trx);
     });

@@ -14,17 +14,27 @@ import {
   useEditor,
 } from '@lobehub/editor/react';
 import { Flexbox, InputNumber, Tooltip } from '@lobehub/ui';
+import { ActionIcon } from '@lobehub/ui/base-ui';
+import { Upload } from 'antd';
+import { Paperclip } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { getFileListFromDataTransferItems } from '@/components/DragUploadZone/useLocalDragUpload';
+import { usePasteFile } from '@/components/DragUploadZone/usePasteFile';
+import DraftFile from '@/features/ChatInput/Mobile/FilePreview/FileItem/File';
+import DraftImage from '@/features/ChatInput/Mobile/FilePreview/FileItem/Image';
 import WideScreenContainer from '@/features/WideScreenContainer';
+import { usePermission } from '@/hooks/usePermission';
 import { useSingleton } from '@/hooks/useSingleton';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
+import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 
 import { channelMentionIds } from './mentions';
 import { ModeSelector } from './ModeSelector';
 import { styles } from './styles';
+import { useAttachments } from './useAttachments';
 
 const plugins = [ReactCodePlugin, ReactListPlugin, ReactLinkHighlightPlugin, ReactMentionPlugin];
 
@@ -45,6 +55,7 @@ export function Composer({
     requestKey: string,
     mode: ChannelMode,
     maxDiscussionRounds?: number,
+    fileIds?: string[],
   ) => Promise<void>;
 }) {
   const { t } = useTranslation('channel');
@@ -58,9 +69,21 @@ export function Composer({
   const sending = useRef(false);
   const [error, setError] = useState('');
   const requestKey = useSingleton(() => ({ current: crypto.randomUUID() }));
+  const attachments = useAttachments(() => {
+    requestKey.current = crypto.randomUUID();
+  });
+  const { allowed, reason } = usePermission('create_content');
+  const enableUpload = useServerConfigStore((s) => featureFlagsSelectors(s).enableKnowledgeBase);
+  const canUpload = allowed && enableUpload;
+  const upload = (files: File[]) => {
+    if (!sending.current && canUpload) return attachments.upload(files);
+  };
+  usePasteFile(editor, upload);
+  const hasDraft = !!content.trim() || attachments.items.length > 0;
   const send = async () => {
     const value = String(editor.getDocument('markdown') || '').trim();
-    if (sending.current || !value) return;
+    const fileIds = attachments.readyFileIds();
+    if (sending.current || !fileIds || (!value && !fileIds.length)) return;
     sending.current = true;
     setBusy(true);
     setError('');
@@ -74,8 +97,10 @@ export function Composer({
         requestKey.current,
         mode,
         mode === 'discussion' ? (maxDiscussionRounds ?? undefined) : undefined,
+        fileIds,
       );
       editor.cleanDocument();
+      attachments.clear();
       setContent('');
       requestKey.current = crypto.randomUUID();
     } catch {
@@ -87,7 +112,39 @@ export function Composer({
   };
   return (
     <WideScreenContainer fullWidth paddingInline={24}>
-      <Flexbox className={styles.composer} gap={8}>
+      <Flexbox
+        className={styles.composer}
+        gap={8}
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes('Files')) event.preventDefault();
+        }}
+        onDrop={(event) => {
+          if (!event.dataTransfer.types.includes('Files')) return;
+          event.preventDefault();
+          void getFileListFromDataTransferItems(Array.from(event.dataTransfer.items)).then(upload);
+        }}
+      >
+        {attachments.items.length > 0 && (
+          <Flexbox horizontal gap={8} inert={busy} wrap="wrap">
+            {attachments.items.map((item) =>
+              item.file.type.startsWith('image/') && item.status === 'success' ? (
+                <DraftImage
+                  alt={item.file.name}
+                  key={item.id}
+                  src={item.fileUrl}
+                  onRemove={() => attachments.remove(item.id)}
+                />
+              ) : (
+                <DraftFile
+                  {...item}
+                  key={item.id}
+                  onRemove={() => attachments.remove(item.id)}
+                  onRetry={() => attachments.retry(item.id)}
+                />
+              ),
+            )}
+          </Flexbox>
+        )}
         <ChatInput
           resize
           defaultHeight={height || 32}
@@ -98,6 +155,24 @@ export function Composer({
               style={{ paddingRight: 8 }}
               left={
                 <Flexbox horizontal align="center" gap={8}>
+                  {enableUpload && (
+                    <Upload
+                      multiple
+                      disabled={busy || !canUpload}
+                      showUploadList={false}
+                      beforeUpload={(file, files) => {
+                        if (file === files[0]) void upload(files);
+                        return false;
+                      }}
+                    >
+                      <ActionIcon
+                        aria-label={t('attachments.upload')}
+                        disabled={busy || !canUpload}
+                        icon={Paperclip}
+                        title={reason || t('attachments.upload')}
+                      />
+                    </Upload>
+                  )}
                   <ModeSelector
                     value={mode}
                     onChange={(value) => {
@@ -140,9 +215,9 @@ export function Composer({
               }
               right={
                 <SendButton
-                  aria-label={t(replying && !content.trim() ? 'stopReply' : 'send')}
-                  disabled={busy || !content.trim()}
-                  generating={replying && !content.trim()}
+                  aria-label={t(replying && !hasDraft ? 'stopReply' : 'send')}
+                  disabled={busy || !hasDraft || attachments.blocked}
+                  generating={replying && !hasDraft}
                   loading={busy}
                   onSend={() => void send()}
                   onStop={onStop}

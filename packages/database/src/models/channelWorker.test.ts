@@ -54,6 +54,15 @@ it.each(['offline', 'disabled'] as const)(
           'utf8',
         ).replaceAll('--> statement-breakpoint', ''),
       );
+      await client.exec(
+        readFileSync(
+          new URL(
+            '../../../../../packages/enterprise/src/database/migrations/0010_channel_attachments.sql',
+            import.meta.url,
+          ),
+          'utf8',
+        ),
+      );
       const db = drizzle(client, { schema }) as unknown as LobeChatDatabase;
       let recovered = false;
       vi.mocked(isChannelEnabled).mockImplementation(

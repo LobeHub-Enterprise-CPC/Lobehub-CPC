@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   execAgent: vi.fn(),
   executeSync: vi.fn(),
   interruptOperation: vi.fn(),
+  resolveFiles: vi.fn(),
   save: vi.fn(),
   serviceOptions: vi.fn(),
 }));
@@ -24,6 +25,7 @@ const manifest = {
     {
       author: { id: 'human', type: 'human' },
       content: 'Please compare the two proposals',
+      fileIds: ['proposal'],
       id: 'request',
       sequence: 1,
       threadId: null,
@@ -67,6 +69,9 @@ vi.mock('@/server/services/aiAgent', () => ({
     interruptOperation = mocks.interruptOperation;
   },
 }));
+vi.mock('@/server/services/file/resolveAttachments', () => ({
+  resolveAttachmentsByFileIds: mocks.resolveFiles,
+}));
 
 const done = (overrides: Partial<AgentState> = {}) =>
   ({
@@ -101,6 +106,13 @@ beforeEach(() => {
   checkpoint = undefined;
   mocks.execAgent.mockResolvedValue({ operationId: 'op_1', success: true });
   mocks.interruptOperation.mockResolvedValue(true);
+  mocks.resolveFiles.mockResolvedValue({
+    audioList: [],
+    fileList: [{ id: 'proposal', content: 'Proposal contents', url: '/signed-proposal' }],
+    imageList: [],
+    videoList: [],
+    warnings: [],
+  });
 });
 
 describe('runChannelNative', () => {
@@ -139,6 +151,14 @@ describe('runChannelNative', () => {
 
     // Public history and the delivery row are the transcript execAgent reads.
     const transcript = await params.transcript.load();
+    expect(transcript[0]).toMatchObject({
+      files: ['proposal'],
+      fileList: [
+        expect.objectContaining({ content: 'Proposal contents', url: '/signed-proposal' }),
+      ],
+    });
+    expect(messages[0]).toHaveProperty('files', ['proposal']);
+    expect(messages[0]).not.toHaveProperty('fileList');
     expect(transcript.map((message: PrivateRow) => message.clientId)).toEqual([
       'public:request',
       'public:peer-1',

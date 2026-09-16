@@ -755,6 +755,53 @@ describe('FileUploadAction', () => {
         );
       });
 
+      it.each([
+        ['M4A ', 'audio/mp4'],
+        ['isom', 'video/mp4'],
+      ])('uploads an MP4 with brand %s as %s', async (brand, expectedType) => {
+        // A 16-byte ftyp box: an audio-only brand differs from an ambiguous MP4.
+        const bytes = Uint8Array.from([
+          0,
+          0,
+          0,
+          16,
+          102,
+          116,
+          121,
+          112,
+          ...Array.from(brand, (char) => char.charCodeAt(0)),
+          0,
+          0,
+          0,
+          0,
+        ]);
+        const file = new File([bytes], 'recording.mp4', { type: 'video/mp4' });
+        Object.defineProperty(file, 'arrayBuffer', { value: async () => bytes.buffer });
+        vi.mocked(getImageDimensions).mockResolvedValue(undefined);
+        vi.spyOn(fileService, 'checkFileHash').mockResolvedValue({ isExist: false });
+        vi.spyOn(uploadService, 'uploadFileToS3').mockResolvedValue({
+          data: {
+            date: '12345',
+            dirname: '/uploads',
+            filename: 'recording.mp4',
+            path: '/uploads/recording.mp4',
+          },
+          success: true,
+        });
+        vi.spyOn(fileService, 'createFile').mockResolvedValue({
+          id: 'mp4',
+          url: '/uploads/recording.mp4',
+        });
+
+        await expect(useStore.getState().uploadWithProgress({ file })).resolves.toMatchObject({
+          id: 'mp4',
+        });
+        expect(fileService.createFile).toHaveBeenCalledWith(
+          expect.objectContaining({ fileType: expectedType }),
+          undefined,
+        );
+      });
+
       it('should keep a correct audio mime reported by the browser', async () => {
         const { result } = renderHook(() => useStore());
 

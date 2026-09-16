@@ -1,9 +1,14 @@
 // @vitest-environment node
+import { PGlite } from '@electric-sql/pglite';
 import { FileSource, FilesTabs, SortType } from '@lobechat/types';
 import { eq, inArray } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { businessFileExternalReferenceGuard } from '@/business/server/lambda-routers/file';
+
 import { getTestDB } from '../../core/getTestDB';
+import { channelMessages, channels } from '../../privateSchemas/channel';
 import {
   asyncTasks,
   chunks,
@@ -292,6 +297,61 @@ describe('FileModel', () => {
   });
 
   describe('deleteUnreferenced', () => {
+    it('keeps the business reference guard a no-op on an OSS database without Channel tables', async () => {
+      const client = new PGlite();
+      try {
+        const db = drizzle(client) as unknown as LobeChatDatabase;
+        await expect(
+          db.transaction((trx) => businessFileExternalReferenceGuard(trx, 'file')),
+        ).resolves.toBe(false);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it.skipIf(!process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER)(
+      'preserves a Channel attachment when its ordinary topic is removed, then cleans it after its final reference is gone',
+      async () => {
+        const { id } = await fileModel.create({
+          name: 'shared.txt',
+          fileType: 'text/plain',
+          size: 47,
+          url: 'shared.txt',
+        });
+        await serverDB.insert(topics).values({ id: 'channel-shared-topic', userId });
+        await serverDB.insert(messages).values({
+          id: 'channel-shared-message',
+          role: 'user',
+          topicId: 'channel-shared-topic',
+          userId,
+        });
+        await serverDB
+          .insert(messagesFiles)
+          .values({ messageId: 'channel-shared-message', fileId: id, userId });
+        await serverDB
+          .insert(channels)
+          .values({ id: 'file-refs-channel', ownerId: userId, title: 'Attachments' });
+        await serverDB.insert(channelMessages).values({
+          id: 'file-refs-message',
+          channelId: 'file-refs-channel',
+          sequence: 1,
+          content: '',
+          fileIds: [id],
+          requestKey: 'request',
+          routingStatus: 'unassigned',
+        });
+        const candidates = await fileModel.findDeletableFilesByTopicId('channel-shared-topic');
+        expect(candidates).toEqual([id]);
+        await serverDB.delete(topics).where(eq(topics.id, 'channel-shared-topic'));
+        for (const candidate of candidates)
+          await fileModel.deleteUnreferenced(candidate, true, businessFileExternalReferenceGuard);
+        expect(await fileModel.findById(id)).toBeDefined();
+        await serverDB.delete(channels).where(eq(channels.id, 'file-refs-channel'));
+        await fileModel.deleteUnreferenced(id, true, businessFileExternalReferenceGuard);
+        expect(await fileModel.findById(id)).toBeUndefined();
+      },
+    );
+
     it('deletes an owned file that has no message or session references', async () => {
       await fileModel.createGlobalFile({
         creator: userId,
@@ -347,6 +407,23 @@ describe('FileModel', () => {
         .values({ fileId: id, sessionId: 'voice-session', userId });
 
       await expect(fileModel.deleteUnreferenced(id)).resolves.toBeUndefined();
+      await expect(
+        serverDB.query.files.findFirst({ where: eq(files.id, id) }),
+      ).resolves.toBeDefined();
+    });
+
+    it('preserves a file when an injected private-schema guard finds a reference', async () => {
+      const { id } = await fileModel.create({
+        fileType: 'text/plain',
+        name: 'channel.txt',
+        size: 100,
+        url: 'channel/file.txt',
+      });
+      const guard = vi.fn().mockResolvedValue(true);
+
+      await expect(fileModel.deleteUnreferenced(id, true, guard)).resolves.toBeUndefined();
+
+      expect(guard).toHaveBeenCalledWith(expect.anything(), id);
       await expect(
         serverDB.query.files.findFirst({ where: eq(files.id, id) }),
       ).resolves.toBeDefined();

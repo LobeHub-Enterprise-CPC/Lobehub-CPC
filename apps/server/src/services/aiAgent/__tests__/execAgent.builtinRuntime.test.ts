@@ -688,6 +688,45 @@ describe('AiAgentService.execAgent - builtin agent runtime config', () => {
     );
   });
 
+  it.each(['image', 'audio', 'video'])(
+    'discovers media fallback from Channel transcript %s history, not the attachment-free delivery',
+    async (kind) => {
+      mockGetAgentConfig.mockResolvedValue({
+        chatConfig: {},
+        id: 'agent-custom',
+        model: 'text-only',
+        plugins: [],
+        provider: 'openai',
+        systemRole: '',
+      });
+      const load = vi.fn().mockResolvedValue([
+        {
+          id: 'private-source',
+          role: 'user',
+          content: '',
+          [`${kind}List`]: [{ id: 'file', url: '/signed-media' }],
+        },
+        { id: 'delivery', role: 'user', content: 'Analyze attached history' },
+      ]);
+      await service.execAgent({
+        agentId: 'agent-custom',
+        channelContext: { artifactRunIds: [], channelId: 'channel', runId: 'run', fence: 1 },
+        prompt: '',
+        transcript: { deliveryMessageId: 'delivery', load },
+        trigger: 'channel',
+      });
+      expect(createServerAgentToolsEngine).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          agentConfig: expect.objectContaining({ plugins: expect.arrayContaining(['lobe-agent']) }),
+        }),
+      );
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(mockMessageQuery).not.toHaveBeenCalled();
+      expect(mockMessageCreate).not.toHaveBeenCalled();
+    },
+  );
+
   it('should inject lobe-agent when history has audio and model lacks native audio support', async () => {
     mockGetAgentConfig.mockResolvedValue({
       chatConfig: {},

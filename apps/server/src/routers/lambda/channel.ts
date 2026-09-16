@@ -14,6 +14,7 @@ import { isChannelGatewayReady } from '@/server/services/channel/gateway';
 import { resolveChannelMembers } from '@/server/services/channel/members';
 import { checkChannelNativeAvailability } from '@/server/services/channel/native/capabilities';
 import { watchChannel } from '@/server/services/channel/watch';
+import { resolveAttachmentMetadata } from '@/server/services/file/resolveAttachments';
 
 const channelProcedure = authedProcedure.use(serverDatabase).use(async ({ ctx, next }) => {
   if (ctx.workspaceId)
@@ -181,7 +182,15 @@ export const channelRouter = router({
         before: z.number().int().positive().optional(),
       }),
     )
-    .query(({ ctx, input }) => ctx.channelModel.page(input.channelId, input)),
+    .query(async ({ ctx, input }) => {
+      const page = await ctx.channelModel.page(input.channelId, input);
+      const attachments = await resolveAttachmentMetadata({
+        db: ctx.serverDB,
+        userId: ctx.userId,
+        fileIds: [...page.messages, ...page.contextMessages].flatMap((message) => message.fileIds),
+      });
+      return { ...page, attachments };
+    }),
   watch: channelProcedure.input(z.object({ channelId })).subscription(async function* ({
     ctx,
     input,
@@ -209,7 +218,8 @@ export const channelRouter = router({
     .input(
       z.object({
         channelId,
-        content: z.string().trim().min(1).max(100000),
+        content: z.string().trim().max(100000),
+        fileIds: z.array(z.string().min(1).max(100)).max(CHANNEL_LIMITS.attachments).optional(),
         mentions: z.array(z.string()).max(CHANNEL_LIMITS.members),
         mode: z.enum(['normal', 'discussion']).default('normal'),
         maxDiscussionRounds: z

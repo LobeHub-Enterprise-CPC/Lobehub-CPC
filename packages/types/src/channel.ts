@@ -36,6 +36,8 @@ export interface ChannelMemberConfig {
 export interface ChannelContextMessage {
   author: { id: string; name: string; type: 'human' | 'member' };
   content: string;
+  /** Stable references; URLs and document contents are resolved at execution time. */
+  fileIds?: string[];
   id: string;
   sequence: number;
   threadId: string | null;
@@ -69,6 +71,7 @@ export interface ChannelInputManifest {
 }
 
 export const CHANNEL_LIMITS = {
+  attachments: 20,
   /** Default number of discussion rounds when the sender sets no explicit limit. */
   discussionRounds: 3,
   maxDiscussionRounds: 10,

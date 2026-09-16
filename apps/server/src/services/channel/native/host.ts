@@ -60,6 +60,7 @@ export async function runChannelNative(input: {
       {
         id: `chn_input_${randomUUID()}`,
         role: 'user',
+        files: message.fileIds,
         content: JSON.stringify({
           kind: 'channel_history',
           author: message.author,
@@ -91,7 +92,7 @@ export async function runChannelNative(input: {
     `delivery:${run.id}`,
   );
 
-  const messageStore = new ChannelRuntimeMessageStore(store, input.ownerId);
+  const messageStore = new ChannelRuntimeMessageStore(store, input.ownerId, input.db);
   const service = new AiAgentService(input.db, input.ownerId, {
     runtimeOptions: {
       messageStore,
@@ -120,7 +121,10 @@ export async function runChannelNative(input: {
     signal: input.signal,
     stream: false,
     title: `Channel ${run.channelId} · ${run.id}`,
-    transcript: { deliveryMessageId: delivery.id, load: () => store.messages() },
+    transcript: {
+      deliveryMessageId: delivery.id,
+      load: async () => messageStore.resolveAttachments(await messageStore.query()),
+    },
     trigger: 'channel',
     userInterventionConfig: { approvalMode: 'headless' },
   });

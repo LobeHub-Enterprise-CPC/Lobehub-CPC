@@ -89,6 +89,33 @@ function handle(events: AgentStreamEvent[]) {
 beforeEach(() => vi.clearAllMocks());
 
 describe('Channel uses the standalone Agent runtime', () => {
+  it('passes attributed file context and image blocks through the shared prompt engine', async () => {
+    const h = handle([event('stream_chunk', { chunkType: 'text', content: 'Read attachments' })]);
+    vi.mocked(spawnAgent).mockResolvedValue({ ...h, events: h.events() });
+    const snapshot = receipt();
+    await new ChannelAgentClient().run(
+      {
+        ...input,
+        attachmentContext: [
+          {
+            messageId: 'm9',
+            content: 'Document budget: 47',
+            imageList: [{ id: 'image', alt: 'diagram', url: 'https://files.test/diagram' }],
+          },
+        ],
+      },
+      snapshot,
+      async () => {},
+    );
+    const prompt = vi.mocked(spawnAgent).mock.calls[0][0].prompt;
+    expect(prompt).toEqual([
+      { type: 'text', text: expect.stringContaining('Document budget: 47') },
+      { type: 'image', source: { id: 'image', type: 'url', url: 'https://files.test/diagram' } },
+    ]);
+    expect(snapshot.input?.prompt).toContain('"id":"m9"');
+    expect(input.manifest.messages[0].content).toBe('Run the tests');
+  });
+
   it.each(['codex', 'amp', 'grok-build', 'claude-code', 'pi'] as const)(
     'preserves %s tools, configuration and delta session',
     async (runtime) => {
