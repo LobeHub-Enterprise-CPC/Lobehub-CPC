@@ -4,18 +4,9 @@
 
 export const LOBE_CHAT_CLOUD = 'LobeHub Cloud';
 
-export const BRANDING_NAME = 'TiTu Work';
-/**
- * `/branding/logo-head.png` is served from the *submodule's* `public/`
- * directory, not this package — it only exists there at build/dev time,
- * copied in by `scripts/sync-branding.mjs` from the outer repo's
- * `branding/public/branding/` (gitignored inside the submodule, so the
- * customer's logo file itself never lands in this git history). Left empty
- * this always 404s; every consumer already falls back to a bundled default
- * when this is falsy, so an empty string was "safe" but wrong — it kept
- * showing lobehub's own default avatars instead of the customer's mascot.
- */
-export const BRANDING_LOGO_URL = '/branding/logo-head.png';
+export const BRANDING_NAME = 'LobeHub';
+// White-label distributions supply their logo through the business package override.
+export const BRANDING_LOGO_URL = '';
 
 /**
  * Display name of the built-in default assistant (the inbox agent).
@@ -26,14 +17,9 @@ export const BRANDING_LOGO_URL = '/branding/logo-head.png';
  * `DEFAULT_INBOX_TITLE` and the i18n brand post-processor, so overriding this
  * one constant renames the assistant everywhere.
  */
-export const BRANDING_INBOX_TITLE = 'TiTu Work AI';
+export const BRANDING_INBOX_TITLE = 'Lobe AI';
 
-/**
- * No graceful "unset" exists for this one — `COPYRIGHT`/`COPYRIGHT_FULL`
- * always render *some* org name — so this defaults to `BRANDING_NAME` rather
- * than staying `'LobeHub'`. Replace with the real legal entity name once
- * known; until then this is a placeholder, not a considered choice.
- */
+// Distributions can override the legal entity independently of the product name.
 export const ORG_NAME = BRANDING_NAME;
 
 // Left unset on purpose: no confirmed enterprise help/privacy/terms pages or
