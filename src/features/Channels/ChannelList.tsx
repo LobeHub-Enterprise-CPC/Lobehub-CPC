@@ -4,6 +4,7 @@ import {
   AccordionItem,
   AccordionPanel,
   AccordionRoot,
+  accordionStyles,
   AccordionTrigger,
   ActionIcon,
   Button,
@@ -12,6 +13,7 @@ import {
   Text,
   toast,
 } from '@lobehub/ui/base-ui';
+import { cx } from 'antd-style';
 import { Copy, Hash, MoreHorizontal, Plus, Trash } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import useSWR, { useSWRConfig } from 'swr';
@@ -133,7 +135,7 @@ export default function ChannelList() {
   };
 
   return (
-    <AccordionRoot defaultValue={['channels']}>
+    <AccordionRoot defaultValue={['channels']} indicatorPlacement="inline">
       <AccordionItem value="channels">
         <AccordionHeader>
           <AccordionTrigger style={{ paddingBlock: 4, paddingInline: '8px 4px' }}>
@@ -141,18 +143,30 @@ export default function ChannelList() {
               {t('title')}
             </Text>
           </AccordionTrigger>
-          <ActionIcon
-            aria-label={t('create')}
-            icon={Plus}
-            size="small"
-            title={t('create')}
-            onClick={(event) => {
-              event.stopPropagation();
-              openCreateChannelModal({
-                onCreated: (id) => navigate(`/channels/${id}`, { escape: true }),
-              });
-            }}
-          />
+          <Flexbox
+            horizontal
+            align="center"
+            gap={2}
+            className={cx(
+              'accordion-action',
+              accordionStyles.action,
+              accordionStyles.actionBorderless,
+            )}
+          >
+            <ActionIcon
+              aria-label={t('create')}
+              icon={Plus}
+              size="small"
+              style={{ flex: 'none' }}
+              title={t('create')}
+              onClick={(event) => {
+                event.stopPropagation();
+                openCreateChannelModal({
+                  onCreated: (id) => navigate(`/channels/${id}`, { escape: true }),
+                });
+              }}
+            />
+          </Flexbox>
         </AccordionHeader>
         <AccordionPanel>
           <Flexbox gap={1} paddingBlock={1}>
