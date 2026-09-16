@@ -1,6 +1,7 @@
 import { Flexbox } from '@lobehub/ui';
 import { Divider } from 'antd';
 import { createStaticStyles } from 'antd-style';
+import { type ReactNode } from 'react';
 
 import type { AgentItemData } from './AgentItem';
 import AvailableAgentList from './AvailableAgentList';
@@ -24,6 +25,7 @@ export function AgentMemberSelection({
   isLoading = false,
   maxCount = Infinity,
   onChange,
+  renderSelectedExtra,
   selectedAgentIds,
 }: {
   agents: AgentItemData[];
@@ -32,6 +34,8 @@ export function AgentMemberSelection({
   isLoading?: boolean;
   maxCount?: number;
   onChange: (ids: string[]) => void;
+  /** Extra controls under each selected row; omitted by Group Chat. */
+  renderSelectedExtra?: (agent: AgentItemData) => ReactNode;
   selectedAgentIds: string[];
 }) {
   const toggle = (id: string) => {
@@ -57,6 +61,7 @@ export function AgentMemberSelection({
       <SelectedAgentList
         agents={agents}
         disabled={disabled}
+        renderExtra={renderSelectedExtra}
         selectedAgentIds={selectedAgentIds}
         onToggle={toggle}
       />
