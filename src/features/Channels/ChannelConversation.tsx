@@ -74,6 +74,22 @@ export function ChannelConversation({
         defaultValue: t('discussion.endReason.other'),
       })
     : null;
+  const activityNotice = sending
+    ? t('activity.sending')
+    : activity.length
+      ? null
+      : thread &&
+          !data.members.some(
+            (member) => member.active && thread.followerMemberIds.includes(member.id),
+          )
+        ? t('threadNoFollowers')
+        : latestRequest?.routingStatus === 'unassigned'
+          ? t(
+              data.members.some((member) => member.active)
+                ? 'activity.undelivered'
+                : 'activity.noMembers',
+            )
+          : null;
   useEffect(() => {
     const feed = feedRef.current;
     if (feed && followLatest.current) feed.scrollTop = feed.scrollHeight;
@@ -323,45 +339,25 @@ export function ChannelConversation({
           </WideScreenContainer>
         </Flexbox>
       </Provider>
-      <WideScreenContainer fullWidth paddingInline={24}>
-        <Flexbox
-          aria-atomic="true"
-          aria-live="polite"
-          className={styles.activity}
-          data-channel-activity={threadId || 'main'}
-          role="status"
-        >
-          {discussionStatus && (
-            <span data-discussion-status={discussion?.status}>
-              {discussionStatus}
-              {discussionReason ? ` · ${discussionReason}` : ''}
-            </span>
-          )}
-          {sending ? (
-            <span>{t('activity.sending')}</span>
-          ) : thread &&
-            !data.members.some(
-              (member) => member.active && thread.followerMemberIds.includes(member.id),
-            ) &&
-            !activity.length ? (
-            <span>{t('threadNoFollowers')}</span>
-          ) : activity.length ? (
-            activity.map((item) => (
-              <span data-member-id={item.memberId} data-state={item.state} key={item.memberId}>
-                {item.name} · {t(`activity.${item.state}`)}
+      {(discussionStatus || activityNotice) && (
+        <WideScreenContainer fullWidth paddingInline={24}>
+          <Flexbox
+            aria-atomic="true"
+            aria-live="polite"
+            className={styles.activity}
+            data-channel-activity={threadId || 'main'}
+            role="status"
+          >
+            {discussionStatus && (
+              <span data-discussion-status={discussion?.status}>
+                {discussionStatus}
+                {discussionReason ? ` · ${discussionReason}` : ''}
               </span>
-            ))
-          ) : latestRequest?.routingStatus === 'unassigned' ? (
-            <span>
-              {t(
-                data.members.some((member) => member.active)
-                  ? 'activity.undelivered'
-                  : 'activity.noMembers',
-              )}
-            </span>
-          ) : null}
-        </Flexbox>
-      </WideScreenContainer>
+            )}
+            {activityNotice && <span>{activityNotice}</span>}
+          </Flexbox>
+        </WideScreenContainer>
+      )}
       {!data.channel.archived && (
         <Composer
           key={`${channelId}:${threadId || 'main'}`}
