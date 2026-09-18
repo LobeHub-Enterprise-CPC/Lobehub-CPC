@@ -146,6 +146,9 @@ export const channelRouter = router({
       );
     }),
   list: channelProcedure.query(({ ctx }) => ctx.channelModel.listWithThreads()),
+  rename: channelProcedure
+    .input(z.object({ channelId, title: z.string().trim().min(1).max(200) }))
+    .mutation(({ ctx, input }) => ctx.channelModel.rename(input.channelId, input.title)),
   archive: channelProcedure
     .input(z.object({ channelId }))
     .mutation(({ ctx, input }) => ctx.channelModel.retire(input.channelId)),

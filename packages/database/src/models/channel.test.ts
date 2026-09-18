@@ -300,6 +300,27 @@ describe('Channel durable boundaries', () => {
     expect((await model.detail(channel.id)).members.filter((m) => m.active)).toHaveLength(2);
   });
 
+  it('renames a Channel for its owner alone and refuses to leave it unnamed or archived', async () => {
+    const channel = await model.create('Reveiw', members);
+    const renamed = await model.rename(channel.id, '  Review  ');
+    expect(renamed.title).toBe('Review');
+    // The navigation revision carries the title, so an open Channel sees the new name.
+    const before = await model.revision(channel.id);
+    expect((await model.rename(channel.id, 'Design review')).title).toBe('Design review');
+    expect((await model.revision(channel.id)).navigationRevision).not.toBe(
+      before.navigationRevision,
+    );
+
+    await expect(model.rename(channel.id, '   ')).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(
+      new ChannelModel(db, 'other').rename(channel.id, 'Taken over'),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect((await model.detail(channel.id)).channel.title).toBe('Design review');
+
+    await model.retire(channel.id);
+    await expect(model.rename(channel.id, 'Too late')).rejects.toMatchObject({ code: 'CONFLICT' });
+  });
+
   it('atomically retains messages and jobs, deduplicates retries and denies another owner', async () => {
     const { c, a } = await setup();
     const input = { content: 'Implement it', mentions: [a.id], requestKey: randomUUID() };

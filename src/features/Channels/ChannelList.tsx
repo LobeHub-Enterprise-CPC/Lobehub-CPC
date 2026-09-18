@@ -1,4 +1,4 @@
-import { copyToClipboard, Flexbox, ScrollShadow } from '@lobehub/ui';
+import { ContextMenuTrigger, copyToClipboard, Flexbox, ScrollShadow } from '@lobehub/ui';
 import {
   AccordionHeader,
   AccordionItem,
@@ -14,11 +14,12 @@ import {
   toast,
 } from '@lobehub/ui/base-ui';
 import { cx } from 'antd-style';
-import { Copy, Hash, MoreHorizontal, Plus, Trash } from 'lucide-react';
+import { Copy, Hash, MoreHorizontal, PencilLine, Plus, Trash } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import useSWR, { useSWRConfig } from 'swr';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
+import { openRenameModal } from '@/components/RenameModal';
 import NavItem from '@/features/NavPanel/components/NavItem';
 import SkeletonList from '@/features/NavPanel/components/SkeletonList';
 import ThreadNavItem from '@/features/NavPanel/components/ThreadNavItem';
@@ -107,6 +108,34 @@ export default function ChannelList() {
     }
   };
 
+  const rename = (id: string, title: string) => {
+    openRenameModal({
+      defaultValue: title,
+      description: t('renameDescription'),
+      title: t('renameTitle'),
+      onSave: async (next) => {
+        try {
+          await channelService.rename(id, next);
+        } catch {
+          toast.error(t('actionFailed'));
+          return;
+        }
+        // The row is the only confirmation the rename needs, so show it before revalidating.
+        await mutate(
+          (items) => items?.map((item) => (item.id === id ? { ...item, title: next } : item)),
+          {
+            revalidate: false,
+          },
+        );
+        void refresh(
+          (key) =>
+            Array.isArray(key) && ['channel', 'channel-page'].includes(key[0]) && key[1] === id,
+        );
+        void mutate();
+      },
+    });
+  };
+
   const remove = (id: string, title: string) => {
     confirmModal({
       title: t('delete'),
@@ -133,6 +162,30 @@ export default function ChannelList() {
       },
     });
   };
+
+  /** One menu behind both the row's ⋯ button and its right-click. */
+  const menuItems = (channel: { id: string; title: string }) => [
+    {
+      key: 'rename',
+      label: commonT('rename'),
+      icon: PencilLine,
+      onClick: () => rename(channel.id, channel.title),
+    },
+    {
+      key: 'copyId',
+      label: t('copyId'),
+      icon: Copy,
+      onClick: () => copyId(channel.id),
+    },
+    { type: 'divider' as const },
+    {
+      key: 'delete',
+      label: t('delete'),
+      icon: Trash,
+      danger: true,
+      onClick: () => remove(channel.id, channel.title),
+    },
+  ];
 
   return (
     <AccordionRoot defaultValue={['channels']} indicatorPlacement="inline">
@@ -178,39 +231,24 @@ export default function ChannelList() {
             )}
             {channels?.map((channel) => (
               <Flexbox key={channel.id}>
-                <NavItem
-                  data-channel-id={channel.id}
-                  href={`/channels/${channel.id}`}
-                  icon={Hash}
-                  title={channel.title}
-                  actions={
-                    <DropdownMenu
-                      items={[
-                        {
-                          key: 'copyId',
-                          label: t('copyId'),
-                          icon: Copy,
-                          onClick: () => copyId(channel.id),
-                        },
-                        { type: 'divider' },
-                        {
-                          key: 'delete',
-                          label: t('delete'),
-                          icon: Trash,
-                          danger: true,
-                          onClick: () => remove(channel.id, channel.title),
-                        },
-                      ]}
-                    >
-                      <ActionIcon icon={MoreHorizontal} size="small" title={commonT('more')} />
-                    </DropdownMenu>
-                  }
-                  active={
-                    pathname === `/channels/${channel.id}` &&
-                    !new URLSearchParams(search).get('thread')
-                  }
-                  onClick={() => navigate(`/channels/${channel.id}`, { escape: true })}
-                />
+                <ContextMenuTrigger items={() => menuItems(channel)}>
+                  <NavItem
+                    data-channel-id={channel.id}
+                    href={`/channels/${channel.id}`}
+                    icon={Hash}
+                    title={channel.title}
+                    actions={
+                      <DropdownMenu items={() => menuItems(channel)}>
+                        <ActionIcon icon={MoreHorizontal} size="small" title={commonT('more')} />
+                      </DropdownMenu>
+                    }
+                    active={
+                      pathname === `/channels/${channel.id}` &&
+                      !new URLSearchParams(search).get('thread')
+                    }
+                    onClick={() => navigate(`/channels/${channel.id}`, { escape: true })}
+                  />
+                </ContextMenuTrigger>
                 <ChannelThreads channelId={channel.id} threads={channel.threads} />
               </Flexbox>
             ))}

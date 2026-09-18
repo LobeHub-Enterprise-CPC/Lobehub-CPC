@@ -151,6 +151,23 @@ export class ChannelModel {
     });
   }
 
+  /** The title is the only thing a Channel is named by, so it stays editable for its whole life. */
+  async rename(channelId: string, title: string) {
+    const next = title.trim();
+    if (!next) throw new ChannelError('BAD_REQUEST', 'A Channel requires a title');
+    return this.db.transaction(async (tx) => {
+      const channel = await this.owned(tx, channelId, true);
+      if (channel.title === next) return channel;
+      const [renamed] = await tx
+        .update(channels)
+        .set({ title: next })
+        .where(eq(channels.id, channelId))
+        .returning();
+      await this.audit(tx, channelId, 'renamed', channelId, { from: channel.title, to: next });
+      return renamed;
+    });
+  }
+
   async detail(channelId: string) {
     const channel = await this.owned(this.db, channelId);
     const discussions = await this.db
