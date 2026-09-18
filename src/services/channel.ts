@@ -166,6 +166,8 @@ export const channelService = {
   },
   create: (input: Parameters<typeof lambdaClient.channel.create.mutate>[0]) =>
     lambdaClient.channel.create.mutate(input),
+  rename: (channelId: string, title: string) =>
+    lambdaClient.channel.rename.mutate({ channelId, title }),
   send: (input: Parameters<typeof lambdaClient.channel.send.mutate>[0]) =>
     lambdaClient.channel.send.mutate(input),
   recall: (channelId: string, messageId: string, memberId: string) =>

@@ -85,8 +85,12 @@ export default {
   'unavailable': 'Channel preview is not enabled for this account.',
   'loading': 'Loading Channel…',
   'name': 'Channel name',
-  'namePlaceholder': 'e.g. product-review',
+  'namePlaceholder': 'e.g. Product review',
   'nameRequired': 'Enter a name for this Channel.',
+  'chooseMembers': 'Choose members',
+  'renameTitle': 'Rename Channel',
+  'renameDescription':
+    'Only the label changes. Members, messages and running work stay as they are.',
   'members': 'Members',
   'membersHint': 'Choose {{min}} to {{max}} Agents.',
   'membersRequired': 'Select at least {{min}} Agents.',

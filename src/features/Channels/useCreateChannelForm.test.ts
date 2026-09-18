@@ -17,7 +17,7 @@ import { useCreateChannelForm } from './useCreateChannelForm';
 
 vi.mock('@/services/agent', () => ({ agentService: { queryAgents: vi.fn() } }));
 vi.mock('@/services/channel', () => ({
-  channelService: { addMembers: vi.fn(), create: vi.fn() },
+  channelService: { addMembers: vi.fn(), create: vi.fn(), rename: vi.fn() },
 }));
 vi.mock('@/services/device', () => ({ deviceService: { listDevices: vi.fn() } }));
 vi.mock('./resolveMembers', async (importOriginal) => ({
@@ -58,10 +58,10 @@ const listed = (id: string, extra?: Partial<Listed>) =>
     ...extra,
   }) as Listed;
 
-function renderForm() {
+function renderForm(existing?: Parameters<typeof useCreateChannelForm>[0]['existing']) {
   const onCreated = vi.fn();
   const onDone = vi.fn();
-  const hook = renderHook(() => useCreateChannelForm({ onCreated, onDone }), {
+  const hook = renderHook(() => useCreateChannelForm({ existing, onCreated, onDone }), {
     wrapper: wrapper(),
   });
   return { ...hook, onCreated, onDone };
@@ -117,11 +117,15 @@ describe('useCreateChannelForm', () => {
     expect(result.current.memberHint).toBe('membersHint');
     expect(result.current.needMoreAgents).toBe(false);
 
-    // An empty name is reported rather than silently disabling the button.
-    expect(await act(() => result.current.submit())).toBe('title');
+    // Step one gates on the name, so the name rule is spent before any member is picked.
+    expect(result.current.step).toBe('name');
+    expect(await act(() => result.current.openMembers())).toBe('title');
     expect(result.current.invalid).toBe('title');
+    expect(result.current.step).toBe('name');
     act(() => result.current.changeTitle('  product review  '));
     expect(result.current.invalid).toBeUndefined();
+    expect(await act(() => result.current.openMembers())).toBeUndefined();
+    expect(result.current.step).toBe('members');
 
     act(() => result.current.changeSelection(['writer']));
     expect(await act(() => result.current.submit())).toBe('members');
@@ -252,5 +256,70 @@ describe('useCreateChannelForm', () => {
     });
     expect(result.current.busy).toBe(false);
     expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it('carries the draft between steps so going back to fix the name costs nothing', async () => {
+    vi.mocked(agentService.queryAgents).mockResolvedValue([listed('writer'), listed('reviewer')]);
+    const { result } = renderForm();
+    await waitFor(() => expect(result.current.rows).toHaveLength(2));
+
+    act(() => result.current.changeTitle('reveiw'));
+    act(() => void result.current.openMembers());
+    act(() => result.current.changeSelection(['writer', 'reviewer']));
+    await waitFor(() => expect(result.current.memberHint).toBe('membersHint'));
+
+    act(() => result.current.backToName());
+    expect(result.current.step).toBe('name');
+    expect(result.current.selected).toEqual(['writer', 'reviewer']);
+
+    act(() => result.current.changeTitle('review'));
+    act(() => void result.current.openMembers());
+    expect(result.current.step).toBe('members');
+    expect(result.current.selected).toEqual(['writer', 'reviewer']);
+
+    vi.mocked(resolveChannelSelections).mockResolvedValue([
+      { agentId: 'writer' },
+      { agentId: 'reviewer' },
+    ]);
+    expect(await act(() => result.current.submit())).toBeUndefined();
+    expect(channelService.create).toHaveBeenCalledWith({
+      members: [{ agentId: 'writer' }, { agentId: 'reviewer' }],
+      title: 'review',
+    });
+  });
+
+  it('opens an existing Channel on the member step and renames it in place', async () => {
+    vi.mocked(agentService.queryAgents).mockResolvedValue([listed('writer'), listed('reviewer')]);
+    const existing = { agentIds: ['writer'], capacity: 3, id: 'c1', title: 'review' };
+    const { result, onDone } = renderForm(existing);
+    await waitFor(() => expect(result.current.rows).toHaveLength(1));
+
+    // No name step to pass: the Channel already has a title, shown for editing.
+    expect(result.current.step).toBe('members');
+    expect(result.current.title).toBe('review');
+    expect(result.current.dirty).toBe(false);
+
+    // A rename is its own mutation — it neither adds members nor closes the dialog.
+    await act(() => result.current.rename('  product review  '));
+    expect(channelService.rename).toHaveBeenCalledWith('c1', 'product review');
+    expect(result.current.title).toBe('product review');
+    expect(result.current.busy).toBe(false);
+    expect(channelService.addMembers).not.toHaveBeenCalled();
+    expect(onDone).not.toHaveBeenCalled();
+
+    // Blanking the field is not a way to unname a Channel.
+    await act(() => result.current.rename('   '));
+    expect(result.current.title).toBe('product review');
+    expect(channelService.rename).toHaveBeenCalledTimes(1);
+
+    // A failed rename restores the committed name and says so.
+    vi.mocked(channelService.rename).mockRejectedValue(new Error('Channel is archived'));
+    await act(() => result.current.rename('renamed again'));
+    expect(result.current.title).toBe('product review');
+    expect(result.current.error).toEqual({
+      detail: 'Channel is archived',
+      message: 'actionFailed',
+    });
+    expect(result.current.busy).toBe(false);
   });
 });

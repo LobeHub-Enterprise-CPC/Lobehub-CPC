@@ -19,13 +19,20 @@ import {
 
 export interface CreateChannelTarget {
   /** Set when adding members to a Channel that already exists. */
-  existing?: { id: string; capacity: number; agentIds: string[] };
+  existing?: { id: string; capacity: number; agentIds: string[]; title: string };
   onCreated?: (id: string) => void;
   onDone: () => void;
 }
 
 /** A local rule the last submit attempt tripped; cleared as soon as the user edits. */
 export type CreateChannelRule = 'title' | 'members';
+
+/**
+ * Creating asks for the name first so the name rule is the only thing that can fail on
+ * that screen; picking members — and configuring where each one runs — comes after.
+ * Adding members to an existing Channel starts on the member step; it already has a name.
+ */
+export type CreateChannelStep = 'name' | 'members';
 
 type ListedAgent = Awaited<ReturnType<typeof agentService.queryAgents>>[number];
 
@@ -36,13 +43,18 @@ type ListedAgent = Awaited<ReturnType<typeof agentService.queryAgents>>[number];
 export function useCreateChannelForm({ existing, onCreated, onDone }: CreateChannelTarget) {
   const { t } = useTranslation('channel');
   const { mutate: refresh } = useSWRConfig();
-  const [title, setTitle] = useState('');
+  const [step, setStep] = useState<CreateChannelStep>(existing ? 'members' : 'name');
+  // An existing Channel's title is already committed; `saved` is what the server holds.
+  const [title, setTitle] = useState(existing?.title ?? '');
+  const [savedTitle, setSavedTitle] = useState(existing?.title ?? '');
   const [selected, setSelected] = useState<string[]>([]);
   // Device and directory the user picked per member, overriding the Agent's own routing.
   const [environments, setEnvironments] = useState<Record<string, ChannelMemberEnvironment>>({});
-  const [busy, setBusy] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const [invalid, setInvalid] = useState<CreateChannelRule>();
   const [error, setError] = useState<{ detail?: string; message: string }>();
+  const busy = submitting || renaming;
   const {
     data: agents,
     error: agentsError,
@@ -132,19 +144,66 @@ export function useCreateChannelForm({ existing, onCreated, onDone }: CreateChan
     );
   };
 
+  /**
+   * Leaves the name step. Resolves the name rule here, where it is the only rule in play,
+   * rather than letting it surface once the user has already configured every member.
+   */
+  const openMembers = (): CreateChannelRule | undefined => {
+    if (busy) return;
+    if (!title.trim()) {
+      setInvalid('title');
+      return 'title';
+    }
+    setStep('members');
+  };
+  const backToName = () => {
+    setInvalid(undefined);
+    setError(undefined);
+    setStep('name');
+  };
+
+  /**
+   * Commits a new name for a Channel that already exists. Independent of the member
+   * submission below: the user came here to add members and may only fix the name.
+   */
+  const rename = async (next: string) => {
+    const value = next.trim();
+    // An empty name is not a way to unname a Channel; show the committed one again.
+    if (!value || !existing) return setTitle(savedTitle);
+    setTitle(value);
+    if (busy || value === savedTitle) return;
+    setRenaming(true);
+    setError(undefined);
+    try {
+      await channelService.rename(existing.id, value);
+      setSavedTitle(value);
+      void refresh('channels');
+      void refresh(['channel', existing.id]);
+    } catch (error) {
+      setTitle(savedTitle);
+      setError({
+        detail: error instanceof Error ? error.message : undefined,
+        message: t('actionFailed'),
+      });
+    } finally {
+      setRenaming(false);
+    }
+  };
+
   /** Resolves to the local rule that blocked the attempt, or `undefined` once submission ran. */
   const submit = async (): Promise<CreateChannelRule | undefined> => {
     if (busy) return;
     // Say which rule failed instead of leaving the button silently disabled.
     if (!existing && !title.trim()) {
       setInvalid('title');
+      setStep('name');
       return 'title';
     }
     if (selected.length < minimum || selected.length > capacity || blockedCount) {
       setInvalid('members');
       return 'members';
     }
-    setBusy(true);
+    setSubmitting(true);
     setError(undefined);
     try {
       const members = await resolveChannelSelections(selected, environments);
@@ -169,19 +228,20 @@ export function useCreateChannelForm({ existing, onCreated, onDone }: CreateChan
             },
       );
     } finally {
-      setBusy(false);
+      setSubmitting(false);
     }
   };
 
   return {
     agentsError,
+    backToName,
     busy,
     capacity,
     changeEnvironment,
     changeSelection,
     changeTitle,
     devices: knownDevices,
-    dirty: !!title || selected.length > 0,
+    dirty: title !== savedTitle || selected.length > 0,
     eligibleCount,
     environmentOf,
     error,
@@ -192,10 +252,14 @@ export function useCreateChannelForm({ existing, onCreated, onDone }: CreateChan
     minimum,
     /** Once the list has loaded, fewer eligible Agents than the Channel needs. */
     needMoreAgents: !!agents && eligibleCount < minimum,
+    openMembers,
     reloadAgents,
+    rename,
     rows,
     selected,
+    step,
     submit,
+    submitting,
     title,
   };
 }

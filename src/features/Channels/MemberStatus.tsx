@@ -39,6 +39,7 @@ export function MemberStatus({
         agentIds: members.flatMap((member) =>
           member.config.agentId ? [member.config.agentId] : [],
         ),
+        title: data.channel.title,
       },
     });
   };
