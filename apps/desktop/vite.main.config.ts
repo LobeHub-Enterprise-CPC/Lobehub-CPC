@@ -127,6 +127,10 @@ export default defineConfig(async (env) => {
       // packaged manifest Electron resolves `app.getName()` from — so the app
       // has to set its own name, and needs the value baked in to do it.
       'process.env.DESKTOP_PRODUCT_NAME': JSON.stringify(process.env.DESKTOP_PRODUCT_NAME),
+      // Stable Electron identity, including OS credential storage, independent of display name.
+      'process.env.DESKTOP_APP_NAME': JSON.stringify(process.env.DESKTOP_APP_NAME),
+      // Optional stable profile directory when the display name changes.
+      'process.env.DESKTOP_USER_DATA_NAME': JSON.stringify(process.env.DESKTOP_USER_DATA_NAME),
       // `electron-builder.mjs` reads this too, for the OS-level protocol-client
       // registration — but `getProtocolScheme()` in the main process never saw
       // it and always fell back to a channel-derived `lobehub`-prefixed scheme,

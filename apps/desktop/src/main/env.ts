@@ -108,9 +108,9 @@ export const getDesktopEnv = memoize(() =>
        */
       DESKTOP_CLI_BIN_NAMES: z.string().optional(),
       /**
-       * The app's own name, used for the per-user data directory. Unset keeps
-       * Electron's default, which is `productName ?? name` from the packaged
-       * manifest — this repository's package name.
+       * Display name for menus and packaging. pre-app-init separately reads
+       * DESKTOP_APP_NAME and DESKTOP_USER_DATA_NAME to preserve stable identity
+       * and profile paths across display-name changes.
        */
       DESKTOP_PRODUCT_NAME: z.string().optional(),
 

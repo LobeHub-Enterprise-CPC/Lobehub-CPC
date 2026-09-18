@@ -5,6 +5,9 @@
 export const LOBE_CHAT_CLOUD = 'LobeHub Cloud';
 
 export const BRANDING_NAME = 'LobeHub';
+// Override to preserve an installed PWA identity independently of its display name.
+// An empty value retains the default derived from BRANDING_NAME.
+export const BRANDING_PWA_ID = '';
 // White-label distributions supply their logo through the business package override.
 export const BRANDING_LOGO_URL = '';
 

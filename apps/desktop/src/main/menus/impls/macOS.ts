@@ -9,6 +9,7 @@ import { isDev } from '@/const/env';
 import { HETERO_AGENT_DIR } from '@/const/heteroAgent';
 import NotificationCtr from '@/controllers/NotificationCtr';
 import SystemController from '@/controllers/SystemCtr';
+import { getAppDisplayName } from '@/utils/appIdentity';
 
 import { buildTrayMenuTemplate } from '../trayMenu';
 import type { ContextMenuData, IMenuPlatform, MenuOptions } from '../types';
@@ -65,7 +66,7 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
   // --- Private methods: define menu templates and logic ---
 
   private getAppMenuTemplate(options?: MenuOptions): MenuItemConstructorOptions[] {
-    const appName = app.getName();
+    const appName = getAppDisplayName();
     const showDev = isDev || options?.showDevItems;
     // Create namespaced translation function
     const t = this.app.i18n.ns('menu');
@@ -695,7 +696,7 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
 
   private getTrayMenuTemplate(): MenuItemConstructorOptions[] {
     const t = this.app.i18n.ns('menu');
-    const appName = app.getName();
+    const appName = getAppDisplayName();
 
     return [
       {
@@ -732,7 +733,7 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
 
   private getDockMenuTemplate(): MenuItemConstructorOptions[] {
     const t = this.app.i18n.ns('menu');
-    const appName = app.getName();
+    const appName = getAppDisplayName();
 
     return [
       {

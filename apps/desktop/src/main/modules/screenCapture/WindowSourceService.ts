@@ -5,6 +5,7 @@ import type { ScreenCaptureWindowInfo } from '@lobechat/electron-client-ipc';
 import { app } from 'electron';
 import { Window } from 'node-screenshots';
 
+import { getAppDisplayName } from '@/utils/appIdentity';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('screenCapture:WindowSourceService');
@@ -102,7 +103,7 @@ export async function enumerateWindows(
   displayBounds: DisplayBounds,
   displayScaleFactor?: number,
 ): Promise<ScreenCaptureWindowInfo[]> {
-  const selfName = app.getName();
+  const selfNames = new Set([app.getName(), getAppDisplayName()]);
 
   let visiblePids: Set<number> | undefined;
   try {
@@ -117,7 +118,7 @@ export async function enumerateWindows(
       if (visiblePids && !visiblePids.has(win.pid())) return null;
 
       const appName = win.appName();
-      if (SYSTEM_APP_BLACKLIST.has(appName) || appName === selfName) return null;
+      if (SYSTEM_APP_BLACKLIST.has(appName) || selfNames.has(appName)) return null;
       if (win.isMinimized()) return null;
 
       const width = win.width();
