@@ -21,7 +21,7 @@ const manifest = async (): Promise<MetadataRoute.Manifest> => {
     };
   }
 
-  const [{ BRANDING_LOGO_URL, BRANDING_NAME }, { kebabCase }, { manifestModule }] =
+  const [{ BRANDING_LOGO_URL, BRANDING_NAME, BRANDING_PWA_ID }, { kebabCase }, { manifestModule }] =
     await Promise.all([
       import('@lobechat/business-const'),
       import('es-toolkit/compat'),
@@ -53,7 +53,7 @@ const manifest = async (): Promise<MetadataRoute.Manifest> => {
         url: '/app-icons/icon-512x512.maskable.png',
       },
     ],
-    id: kebabCase(BRANDING_NAME),
+    id: BRANDING_PWA_ID || kebabCase(BRANDING_NAME),
     name: BRANDING_NAME,
     screenshots: BRANDING_LOGO_URL
       ? []

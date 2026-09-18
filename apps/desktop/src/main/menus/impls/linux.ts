@@ -7,6 +7,7 @@ import { app, clipboard, dialog, Menu, shell } from 'electron';
 
 import { isDev } from '@/const/env';
 import { HETERO_AGENT_DIR } from '@/const/heteroAgent';
+import { getAppDisplayName } from '@/utils/appIdentity';
 
 import { buildTrayMenuTemplate } from '../trayMenu';
 import type { ContextMenuData, IMenuPlatform, MenuOptions } from '../types';
@@ -239,7 +240,7 @@ export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
                 buttons: [commonT('actions.ok')],
                 detail: dialogT('about.detail'),
                 message: dialogT('about.message', {
-                  appName: app.getName(),
+                  appName: getAppDisplayName(),
                   appVersion: app.getVersion(),
                 }),
                 title: dialogT('about.title'),
@@ -468,7 +469,7 @@ export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
 
   private getTrayMenuTemplate(): MenuItemConstructorOptions[] {
     const t = this.app.i18n.ns('menu');
-    const appName = app.getName();
+    const appName = getAppDisplayName();
 
     return [
       {

@@ -4,9 +4,8 @@ import { app } from 'electron';
 
 import * as electronIs from '@/utils/platform';
 
-// Everything in this file must run BEFORE any module captures
-// `app.getPath('userData')` (e.g. `@/const/dir` reads it at top level). Once a
-// path is read, `setName` / `setPath` no-op for it.
+// Run before any module captures profile paths or initializes a Session.
+// setPath updates Electron's paths, not values already cached by other modules.
 
 /**
  * Name the app after the distribution, not after this repository.
@@ -20,14 +19,15 @@ import * as electronIs from '@/utils/platform';
  * survive the packaging transform either. Setting it here is the one place
  * that is not fighting a build tool.
  *
- * Same ordering constraint as the dev branch below, and the same permanence
- * warning as `appId`: this decides the userData path, so changing it after a
- * release leaves existing installs looking at an empty profile until they log
- * in again.
+ * Keep DESKTOP_APP_NAME stable: Electron uses it for the OS encryption identity.
+ * DESKTOP_USER_DATA_NAME independently pins the existing profile directory.
+ * Neither should change when the product's display name changes.
  */
 const distributionName = process.env.DESKTOP_PRODUCT_NAME?.trim();
 if (distributionName && !electronIs.dev()) {
-  app.setName(distributionName);
+  const internalName = process.env.DESKTOP_APP_NAME?.trim() || distributionName;
+  const userDataName = process.env.DESKTOP_USER_DATA_NAME?.trim() || internalName;
+  app.setName(internalName);
   // `setName` alone changes `app.getPath('userData')`'s *default*, which only
   // takes if nothing has read that path yet — and something in this bundle's
   // require graph reliably does before this line runs, observed shipping a
@@ -36,7 +36,7 @@ if (distributionName && !electronIs.dev()) {
   // build, the same login session and self-hosted server URL) as the
   // unbranded dev app. `setPath` overrides the internal path table directly,
   // so it isn't subject to that ordering race the way the implicit default is.
-  app.setPath('userData', path.join(app.getPath('appData'), distributionName));
+  app.setPath('userData', path.join(app.getPath('appData'), userDataName));
 }
 
 // Dev uses the same `app://renderer/` origin as prod, so localStorage / cookies /

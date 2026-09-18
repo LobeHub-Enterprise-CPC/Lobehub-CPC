@@ -1,8 +1,8 @@
 import type { TrayNavigationSnapshot } from '@lobechat/electron-client-ipc';
 import type { MenuItemConstructorOptions } from 'electron';
-import { app as electronApp } from 'electron';
 
 import type { App } from '@/core/App';
+import { getAppDisplayName } from '@/utils/appIdentity';
 
 const PINNED_LIMIT = 3;
 const RECENT_AGENT_LIMIT = 3;
@@ -25,7 +25,7 @@ export const buildTrayMenuTemplate = (
   snapshot: TrayNavigationSnapshot,
 ): MenuItemConstructorOptions[] => {
   const t = app.i18n.ns('menu');
-  const appName = electronApp.getName();
+  const appName = getAppDisplayName();
   const pinnedItems = snapshot.pinned.slice(0, PINNED_LIMIT).map(({ title, url }) => ({
     click: () => openRoute(app, url),
     label: title,
