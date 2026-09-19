@@ -211,7 +211,7 @@ describe('runChannelNative', () => {
     mocks.executeSync.mockImplementation(async () => {
       controller.abort();
       await new Promise((resolve) => setTimeout(resolve, 0));
-      return done({ status: 'interrupted' });
+      return done({ status: 'interrupted', usage: undefined });
     });
     await expect(runChannelNative({ ...base(), signal: controller.signal })).rejects.toThrow(
       'Native execution was interrupted',
@@ -220,7 +220,7 @@ describe('runChannelNative', () => {
   });
 
   it('reports a headless approval request as a failure instead of waiting', async () => {
-    mocks.executeSync.mockResolvedValue(done({ status: 'waiting_for_human' }));
+    mocks.executeSync.mockResolvedValue(done({ status: 'waiting_for_human', usage: undefined }));
     await expect(runChannelNative(base())).rejects.toThrow('headless');
   });
 
@@ -229,6 +229,40 @@ describe('runChannelNative', () => {
       done({ error: new Error('Provider quota exhausted'), status: 'error' }),
     );
     await expect(runChannelNative(base())).rejects.toThrow('Provider quota exhausted');
+  });
+
+  it.each([
+    new Error('Provider quota exhausted'),
+    {
+      message: '402 Provider API error: The free trial quota has been exhausted',
+      type: 'InsufficientQuota',
+    },
+  ])('preserves a model failure before usage is available: %j', async (error) => {
+    mocks.executeSync.mockImplementation(async (_id, { onStepComplete }) => {
+      const state = done({ error, status: 'error', usage: undefined });
+      await onStepComplete(1, state);
+      return state;
+    });
+
+    const input = base();
+    await expect(runChannelNative(input)).rejects.toThrow(error.message);
+    expect(input.onAccepted).toHaveBeenCalledWith('session', 'op_1');
+    expect(mocks.interruptOperation).not.toHaveBeenCalled();
+  });
+
+  it('keeps the last observed counters when subsequent steps omit usage', async () => {
+    mocks.executeSync.mockImplementation(async (_id, { onStepComplete }) => {
+      await onStepComplete(1, done({ status: 'running' }));
+      await onStepComplete(2, done({ status: 'running', usage: undefined }));
+      messages.push(assistant('Reply without usage metadata'));
+      return done({ usage: undefined });
+    });
+
+    await expect(runChannelNative(base())).resolves.toMatchObject({
+      budget: { modelCalls: 2, toolCalls: 1 },
+      content: 'Reply without usage metadata',
+    });
+    expect(mocks.interruptOperation).not.toHaveBeenCalled();
   });
 
   it('fails when execAgent could not start the operation', async () => {

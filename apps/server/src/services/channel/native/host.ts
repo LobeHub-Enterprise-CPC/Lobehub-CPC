@@ -164,14 +164,7 @@ export async function runChannelNative(input: {
     clearInterval(timeout);
     input.signal.removeEventListener('abort', onAbort);
   }
-  // Counters come from the runtime, whatever way the loop ended.
-  const usage = state.usage;
-  const snapshot = {
-    ...budget.checkpoint(),
-    modelCalls: usage.llm.apiCalls,
-    toolCalls: usage.tools.totalCalls,
-  };
-
+  // A first-call failure may have no usage. Preserve its cause before reading counters.
   if (stopReason) throw stopReason;
   if (state.status === 'error')
     throw state.error instanceof Error
@@ -184,6 +177,13 @@ export async function runChannelNative(input: {
         : 'This Native tool requires an asynchronous host that is unavailable in Channel',
     );
   if (state.status !== 'done') throw new Error('Channel Native execution interrupted');
+  const usage = state.usage;
+  const budgetCheckpoint = budget.checkpoint();
+  const snapshot = {
+    ...budgetCheckpoint,
+    modelCalls: usage?.llm?.apiCalls ?? budgetCheckpoint.modelCalls,
+    toolCalls: usage?.tools?.totalCalls ?? budgetCheckpoint.toolCalls,
+  };
   const final = (await store.messages()).findLast(
     (message: UIChatMessage) =>
       message.role === 'assistant' &&

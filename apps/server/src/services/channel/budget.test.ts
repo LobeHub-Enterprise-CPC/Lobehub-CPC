@@ -28,4 +28,16 @@ describe('Channel execution budgets', () => {
     expect(() => budget.assertTime()).toThrow('time limit');
     expect(() => budget.observe(usage(0, 0))).toThrow('time limit');
   });
+
+  it('retains observed counters and enforces time limits when usage is missing', () => {
+    let now = 0;
+    const budget = new ChannelBudget(() => now);
+    budget.observe(undefined);
+    expect(budget.checkpoint()).toEqual({ activeMs: 0, modelCalls: 0, toolCalls: 0 });
+    budget.observe(usage(3, 2));
+    budget.observe(undefined);
+    expect(budget.checkpoint()).toEqual({ activeMs: 0, modelCalls: 3, toolCalls: 2 });
+    now = 600_000;
+    expect(() => budget.observe(undefined)).toThrow('time limit');
+  });
 });
