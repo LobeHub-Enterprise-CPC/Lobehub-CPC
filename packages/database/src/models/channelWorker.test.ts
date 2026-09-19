@@ -9,6 +9,8 @@ import { expect, it, vi } from 'vitest';
 import { ChannelModel } from '@/database/models/channel';
 import type { LobeChatDatabase } from '@/database/type';
 import { isChannelEnabled } from '@/server/services/channel/gate';
+import { routeChannelMessage } from '@/server/services/channel/router';
+import { evaluateChannelAudience } from '@/server/services/channel/speaker';
 import { ChannelWorker } from '@/server/services/channel/worker';
 
 import * as schema from '../privateSchemas/channel';
@@ -23,6 +25,7 @@ vi.mock('@/server/services/channel/device', () => ({
   },
 }));
 vi.mock('@/server/services/channel/gate', () => ({ isChannelEnabled: vi.fn() }));
+vi.mock('@/server/services/channel/speaker', () => ({ evaluateChannelAudience: vi.fn() }));
 vi.mock('@/server/services/channel/native/host', () => ({ runChannelNative: vi.fn() }));
 vi.mock('@/server/services/channel/native/capabilities', () => ({
   checkChannelNativeAvailability: vi.fn(),
@@ -34,36 +37,163 @@ vi.mock('@/server/services/channel/serverDefault', () => ({
   settleChannelServerDefaultOperation: vi.fn(),
 }));
 
+async function createDatabase() {
+  const client = new PGlite();
+  await client.exec(`
+    CREATE TABLE users (id text PRIMARY KEY, preference jsonb DEFAULT '{"lab":{"enableChannel":true}}');
+    INSERT INTO users (id) VALUES ('blocked'), ('ready');
+  `);
+  for (const migration of ['0009_channel_mvp.sql', '0010_channel_attachments.sql'])
+    await client.exec(
+      readFileSync(
+        new URL(
+          `../../../../../packages/enterprise/src/database/migrations/${migration}`,
+          import.meta.url,
+        ),
+        'utf8',
+      ).replaceAll('--> statement-breakpoint', ''),
+    );
+  return { client, db: drizzle(client, { schema }) as unknown as LobeChatDatabase };
+}
+
+it('routes past twenty disabled-owner requests and resumes them only after re-enabling', async () => {
+  vi.clearAllMocks();
+  const { client, db } = await createDatabase();
+  try {
+    await client.exec(
+      `UPDATE users SET preference = '{"lab":{"enableChannel":false}}' WHERE id = 'blocked'`,
+    );
+    let enabled = false;
+    vi.mocked(isChannelEnabled).mockImplementation(
+      async (_, owner) => enabled || owner === 'ready',
+    );
+    vi.mocked(evaluateChannelAudience).mockResolvedValue({
+      memberIds: [],
+      noReply: true,
+      reason: 'No response needed',
+      diagnostics: { source: 'jev', elapsedMs: 1 },
+    });
+    const requests: string[] = [];
+    for (const owner of ['blocked', 'ready']) {
+      const model = new ChannelModel(db, owner);
+      const channel = await model.create(
+        owner,
+        ['A', 'B'].map((name) => ({
+          name,
+          config: { runtime: 'native', model: 'fixture', provider: 'fixture' },
+        })),
+      );
+      for (let i = 0; i < (owner === 'blocked' ? 20 : 2); i++) {
+        const message = await model.send(channel.id, {
+          content: `${owner}-${i}`,
+          mentions: [],
+          requestKey: `${owner}-${i}`,
+        });
+        requests.push(message.id);
+      }
+    }
+    const worker = new ChannelWorker(db);
+    await worker.tick();
+    let messages = await db.select().from(schema.channelMessages);
+    expect(messages.find((m) => m.id === requests[20])?.routingStatus).toBe('skipped');
+    expect(messages.find((m) => m.id === requests[21])?.routingStatus).toBe('pending');
+    expect(
+      messages
+        .filter((m) => requests.slice(0, 20).includes(m.id))
+        .every((m) => m.routingStatus === 'pending'),
+    ).toBe(true);
+    expect(evaluateChannelAudience).toHaveBeenCalledOnce();
+    expect(await db.select().from(schema.channelJobs)).toEqual([]);
+
+    enabled = true;
+    await client.exec(
+      `UPDATE users SET preference = '{"lab":{"enableChannel":true}}' WHERE id = 'blocked'`,
+    );
+    await worker.tick();
+    messages = await db.select().from(schema.channelMessages);
+    expect(messages.find((m) => m.id === requests[0])?.routingStatus).toBe('skipped');
+    expect(messages.find((m) => m.id === requests[1])?.routingStatus).toBe('pending');
+    expect(evaluateChannelAudience).toHaveBeenCalledTimes(2);
+    await worker.close();
+  } finally {
+    await client.close();
+  }
+}, 30_000);
+
+it.each(['failure', 'success'] as const)(
+  'ignores an old provider %s after stop and retry',
+  async (outcome) => {
+    vi.clearAllMocks();
+    const { client, db } = await createDatabase();
+    try {
+      const model = new ChannelModel(db, 'ready');
+      const channel = await model.create(
+        'Retry race',
+        ['A', 'B'].map((name) => ({
+          name,
+          config: { runtime: 'native', model: 'fixture', provider: 'fixture' },
+        })),
+      );
+      const [a, b] = (await model.detail(channel.id)).members;
+      const message = await model.send(channel.id, {
+        content: 'Help',
+        mentions: [],
+        requestKey: 'retry',
+      });
+      let finish!: (value: Awaited<ReturnType<typeof evaluateChannelAudience>>) => void;
+      vi.mocked(evaluateChannelAudience).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const routing = routeChannelMessage(model, channel.id, message.id);
+      await vi.waitFor(() => expect(evaluateChannelAudience).toHaveBeenCalledOnce());
+      await model.stop(channel.id, { threadId: null });
+      await model.retryRouting(channel.id, message.id);
+      finish({
+        memberIds: outcome === 'success' ? [a.id] : [],
+        noReply: false,
+        reason: 'Old result',
+        diagnostics: { source: outcome === 'success' ? 'jev' : 'fallback', elapsedMs: 100 },
+      });
+      await routing;
+      let detail = await model.detail(channel.id);
+      expect(detail.messages[0].routingStatus).toBe('pending');
+      expect(detail.jobs).toEqual([]);
+      expect(
+        (await db.select().from(schema.channelOutbox)).filter(
+          (row) => row.kind === 'route' && !row.processed,
+        ),
+      ).toHaveLength(1);
+
+      vi.mocked(evaluateChannelAudience).mockResolvedValueOnce({
+        memberIds: [b.id],
+        noReply: false,
+        reason: 'New result',
+        diagnostics: { source: 'jev', elapsedMs: 1 },
+      });
+      await routeChannelMessage(model, channel.id, message.id);
+      detail = await model.detail(channel.id);
+      expect(detail.messages[0]).toMatchObject({
+        routingStatus: 'assigned',
+        routingReason: 'New result',
+      });
+      expect(detail.jobs.map((job) => job.memberId)).toEqual([b.id]);
+      expect(evaluateChannelAudience).toHaveBeenCalledTimes(2);
+    } finally {
+      await client.close();
+    }
+  },
+  30_000,
+);
+
 it.each(['offline', 'disabled'] as const)(
   'scans past a full page of %s jobs, preserves FIFO and revisits them after recovery',
   async (blocked) => {
     vi.clearAllMocks();
-    const client = new PGlite();
+    const { client, db } = await createDatabase();
     try {
-      await client.exec(
-        "CREATE TABLE users (id text PRIMARY KEY); INSERT INTO users VALUES ('blocked'), ('ready');",
-      );
-      await client.exec(
-        readFileSync(
-          // Migration ownership moved to the enterprise chain (see
-          // src/privateSchemas/channel.ts) after this test was written.
-          new URL(
-            '../../../../../packages/enterprise/src/database/migrations/0009_channel_mvp.sql',
-            import.meta.url,
-          ),
-          'utf8',
-        ).replaceAll('--> statement-breakpoint', ''),
-      );
-      await client.exec(
-        readFileSync(
-          new URL(
-            '../../../../../packages/enterprise/src/database/migrations/0010_channel_attachments.sql',
-            import.meta.url,
-          ),
-          'utf8',
-        ),
-      );
-      const db = drizzle(client, { schema }) as unknown as LobeChatDatabase;
       let recovered = false;
       vi.mocked(isChannelEnabled).mockImplementation(
         async (_db, ownerId) => recovered || blocked !== 'disabled' || ownerId !== 'blocked',

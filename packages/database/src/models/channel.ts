@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { ChannelInputManifest, ChannelMemberConfig, ChannelMode } from '@lobechat/types';
 import { CHANNEL_LIMITS } from '@lobechat/types';
-import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, ne, or } from 'drizzle-orm';
 
 import {
   channelApprovals,
@@ -71,7 +71,22 @@ export class ChannelModel {
     kind: 'route' | 'execute' | 'publish' | 'stop',
     targetId: string,
   ) {
-    await db.insert(channelOutbox).values({ id: id('outbox'), channelId, kind, targetId });
+    // A retry replaces the routing attempt; its predecessor may still be waiting on Jev.
+    if (kind === 'route')
+      await db
+        .update(channelOutbox)
+        .set({ processed: true })
+        .where(
+          and(
+            eq(channelOutbox.channelId, channelId),
+            eq(channelOutbox.kind, 'route'),
+            eq(channelOutbox.targetId, targetId),
+            eq(channelOutbox.processed, false),
+          ),
+        );
+    const outboxId = id('outbox');
+    await db.insert(channelOutbox).values({ id: outboxId, channelId, kind, targetId });
+    return outboxId;
   }
 
   list = () =>
@@ -371,10 +386,11 @@ export class ChannelModel {
   }
 
   private async deliver(db: DB, message: typeof channelMessages.$inferSelect, memberIds: string[]) {
-    const members = await this.targets(db, message.channelId, memberIds);
+    // Late routing/retry cannot run an old instruction in a newly selected directory.
+    const members = (await this.targets(db, message.channelId, memberIds)).filter(
+      (member) => message.sequence > member.environmentCutoff,
+    );
     for (const member of members) {
-      // Late routing/retry cannot run an old instruction in a newly selected directory.
-      if (message.sequence <= member.environmentCutoff) continue;
       const memberId = member.id;
       const [job] = await db
         .insert(channelJobs)
@@ -389,6 +405,24 @@ export class ChannelModel {
         .returning();
       if (job) await this.outbox(db, message.channelId, 'execute', job.id);
     }
+    if (members.length) {
+      const [discussion] = await db
+        .update(channelDiscussions)
+        .set({ status: 'active', participantIds: members.map((member) => member.id) })
+        .where(
+          and(
+            eq(channelDiscussions.requestMessageId, message.id),
+            eq(channelDiscussions.status, 'pending'),
+          ),
+        )
+        .returning();
+      if (discussion)
+        await db
+          .update(channelJobs)
+          .set({ discussionId: discussion.id, task: { kind: 'discuss', round: 1 } })
+          .where(eq(channelJobs.messageId, message.id));
+    }
+    return members.map((member) => member.id);
   }
 
   async send(
@@ -404,6 +438,7 @@ export class ChannelModel {
     },
   ) {
     const discussing = input.mode === 'discussion';
+    const deferRouting = !input.mentions.length;
     if (
       discussing &&
       input.maxDiscussionRounds !== undefined &&
@@ -449,7 +484,7 @@ export class ChannelModel {
           existing.threadId !== (input.threadId || null) ||
           JSON.stringify(existing.fileIds) !== JSON.stringify(fileIds) ||
           JSON.stringify(existing.mentions) !== JSON.stringify(mentions) ||
-          Boolean(discussion) !== (discussing && existing.routingStatus !== 'unassigned') ||
+          Boolean(discussion) !== discussing ||
           (discussion &&
             input.maxDiscussionRounds !== undefined &&
             discussion.maxRounds !== input.maxDiscussionRounds)
@@ -485,18 +520,7 @@ export class ChannelModel {
           .update(channelThreads)
           .set({ followerMemberIds: [...new Set([...thread.followerMemberIds, ...mentions])] })
           .where(eq(channelThreads.id, thread.id));
-      // Resolve the audience while holding the Channel lock, in the same transaction as send.
-      // Availability affects execution, never whether a member receives a public request.
-      const audience = mentions.length
-        ? mentions
-        : (
-            await tx
-              .select({ id: channelMembers.id })
-              .from(channelMembers)
-              .where(and(eq(channelMembers.channelId, channelId), eq(channelMembers.active, true)))
-          )
-            .filter((member) => !thread || thread.followerMemberIds.includes(member.id))
-            .map((member) => member.id);
+      // Only explicit mentions can create jobs at send time. Jev chooses every other audience.
       const [message] = await tx
         .insert(channelMessages)
         .values({
@@ -508,36 +532,29 @@ export class ChannelModel {
           fileIds,
           mentions,
           requestKey: input.requestKey,
-          routingStatus: mentions.length ? 'directed' : audience.length ? 'assigned' : 'unassigned',
-          routingReason: mentions.length
-            ? 'Mentioned members'
-            : thread
-              ? 'Thread followers'
-              : 'All active members',
+          routingStatus: deferRouting ? 'pending' : 'directed',
+          routingReason: deferRouting ? null : 'Mentioned members',
         })
         .returning();
       await tx
         .update(channels)
         .set({ sequence: message.sequence })
         .where(eq(channels.id, channelId));
-      await this.deliver(tx, message, audience);
-      if (discussing && audience.length) {
-        // A round already gives every participant one turn, so the budget is audience-independent.
+      if (discussing) {
+        // Persist the requested mode/budget before routing, including across worker restarts.
         await tx.insert(channelDiscussions).values({
           id: message.id,
           channelId,
           requestMessageId: message.id,
           threadId: message.threadId,
-          participantIds: audience,
+          participantIds: [],
+          status: 'pending',
           maxRounds: input.maxDiscussionRounds ?? CHANNEL_LIMITS.discussionRounds,
         });
-        // The initial delivery jobs are round 1.
-        await tx
-          .update(channelJobs)
-          .set({ discussionId: message.id, task: { kind: 'discuss', round: 1 } })
-          .where(eq(channelJobs.messageId, message.id));
       }
-      await this.audit(tx, channelId, 'message_accepted', message.id, { mentions, audience });
+      if (deferRouting) await this.outbox(tx, channelId, 'route', message.id);
+      else await this.deliver(tx, message, mentions);
+      await this.audit(tx, channelId, 'message_accepted', message.id, { mentions });
       return message;
     });
   }
@@ -563,14 +580,34 @@ export class ChannelModel {
   }
 
   async routingInput(channelId: string, messageId: string) {
-    await this.owned(this.db, channelId);
-    const [message] = await this.db
-      .select()
-      .from(channelMessages)
-      .where(and(eq(channelMessages.channelId, channelId), eq(channelMessages.id, messageId)));
-    if (!message || message.routingStatus !== 'pending') return null;
+    const pending = await this.db.transaction(async (tx) => {
+      await this.owned(tx, channelId, true);
+      const [message] = await tx
+        .select()
+        .from(channelMessages)
+        .where(and(eq(channelMessages.channelId, channelId), eq(channelMessages.id, messageId)));
+      if (!message || message.routingStatus !== 'pending') return null;
+      const [attempt] = await tx
+        .select({ id: channelOutbox.id })
+        .from(channelOutbox)
+        .where(
+          and(
+            eq(channelOutbox.channelId, channelId),
+            eq(channelOutbox.kind, 'route'),
+            eq(channelOutbox.targetId, messageId),
+            eq(channelOutbox.processed, false),
+          ),
+        )
+        .orderBy(desc(channelOutbox.createdAt), desc(channelOutbox.id))
+        .limit(1);
+      // Recover legacy pending rows that predate durable route requests.
+      const attemptId = attempt?.id ?? (await this.outbox(tx, channelId, 'route', messageId));
+      return { message, attemptId };
+    });
+    if (!pending) return null;
+    const { message, attemptId } = pending;
     const thread = await this.scope(this.db, channelId, message.threadId);
-    const [members, recent] = await Promise.all([
+    const [members, recent, roots] = await Promise.all([
       this.db
         .select()
         .from(channelMembers)
@@ -581,8 +618,14 @@ export class ChannelModel {
         .where(
           and(
             eq(channelMessages.channelId, channelId),
-            message.threadId
-              ? eq(channelMessages.threadId, message.threadId)
+            thread
+              ? or(
+                  eq(channelMessages.threadId, thread.id),
+                  and(
+                    isNull(channelMessages.threadId),
+                    lte(channelMessages.sequence, thread.rootSequence),
+                  ),
+                )
               : isNull(channelMessages.threadId),
             lte(channelMessages.sequence, message.sequence),
             ne(channelMessages.id, messageId),
@@ -590,15 +633,36 @@ export class ChannelModel {
         )
         .orderBy(desc(channelMessages.sequence))
         .limit(CHANNEL_LIMITS.routerMessages),
+      thread
+        ? this.db
+            .select()
+            .from(channelMessages)
+            .where(
+              and(
+                eq(channelMessages.channelId, channelId),
+                eq(channelMessages.id, thread.rootMessageId),
+              ),
+            )
+        : Promise.resolve([]),
     ]);
+    const withAuthor = (item: typeof message) => ({
+      ...item,
+      authorName: item.authorMemberId
+        ? members.find((member) => member.id === item.authorMemberId)?.name || item.authorMemberId
+        : 'User',
+    });
     return {
+      attemptId,
       message,
-      members: members.filter((member) =>
-        message.mentions.length
-          ? message.mentions.includes(member.id)
-          : !thread || thread.followerMemberIds.includes(member.id),
+      members: members.filter(
+        (member) =>
+          message.sequence > member.environmentCutoff &&
+          (message.mentions.length
+            ? message.mentions.includes(member.id)
+            : !thread || thread.followerMemberIds.includes(member.id)),
       ),
-      recent: recent.reverse(),
+      recent: recent.reverse().map(withAuthor),
+      threadRoot: roots[0] ? withAuthor(roots[0]) : null,
     };
   }
 
@@ -609,8 +673,10 @@ export class ChannelModel {
       memberId?: string;
       memberIds?: string[];
       reason: string;
+      noReply?: boolean;
       diagnostics?: Record<string, unknown>;
     },
+    attemptId: string,
   ) {
     return this.db.transaction(async (tx) => {
       await this.owned(tx, channelId, true);
@@ -619,29 +685,57 @@ export class ChannelModel {
         .from(channelMessages)
         .where(and(eq(channelMessages.channelId, channelId), eq(channelMessages.id, messageId)));
       if (!message || message.routingStatus !== 'pending') return false;
+      const [attempt] = await tx
+        .select({ id: channelOutbox.id })
+        .from(channelOutbox)
+        .where(
+          and(
+            eq(channelOutbox.id, attemptId),
+            eq(channelOutbox.channelId, channelId),
+            eq(channelOutbox.kind, 'route'),
+            eq(channelOutbox.targetId, messageId),
+            eq(channelOutbox.processed, false),
+          ),
+        );
+      if (!attempt) return false;
       const thread = await this.scope(tx, channelId, message.threadId);
       const audience = (
         decision.memberIds || (decision.memberId ? [decision.memberId] : [])
       ).filter((memberId) => !thread || thread.followerMemberIds.includes(memberId));
-      if (audience.length) await this.deliver(tx, message, audience);
+      const delivered = await this.deliver(tx, message, audience);
       await tx
         .update(channelMessages)
         .set({
-          routingStatus: audience.length ? 'assigned' : 'unassigned',
-          routingReason: decision.reason,
+          routingStatus: delivered.length
+            ? 'assigned'
+            : decision.noReply
+              ? 'skipped'
+              : 'unassigned',
+          routingReason:
+            audience.length && !delivered.length
+              ? 'Selected members changed execution environment'
+              : decision.reason,
         })
         .where(eq(channelMessages.id, messageId));
+      if (!delivered.length)
+        await tx
+          .update(channelDiscussions)
+          .set({ status: 'stopped', endReason: decision.noReply ? 'no_reply' : 'routing_failed' })
+          .where(
+            and(
+              eq(channelDiscussions.requestMessageId, messageId),
+              eq(channelDiscussions.status, 'pending'),
+            ),
+          );
       await tx
         .update(channelOutbox)
         .set({ processed: true })
-        .where(
-          and(
-            eq(channelOutbox.channelId, channelId),
-            eq(channelOutbox.kind, 'route'),
-            eq(channelOutbox.targetId, messageId),
-          ),
-        );
-      await this.audit(tx, channelId, 'routing_decided', messageId, decision);
+        .where(eq(channelOutbox.id, attemptId));
+      await this.audit(tx, channelId, 'routing_decided', messageId, {
+        ...decision,
+        attemptId,
+        delivered,
+      });
       return true;
     });
   }
@@ -649,6 +743,38 @@ export class ChannelModel {
   async retryRouting(channelId: string, messageId: string) {
     await this.db.transaction(async (tx) => {
       await this.owned(tx, channelId, true);
+      const [discussion] = await tx
+        .select()
+        .from(channelDiscussions)
+        .where(
+          and(
+            eq(channelDiscussions.channelId, channelId),
+            eq(channelDiscussions.requestMessageId, messageId),
+          ),
+        );
+      if (discussion) {
+        // A retry must not revive a stopped/superseded discussion alongside a newer goal.
+        if (discussion.status !== 'stopped' || discussion.endReason !== 'routing_failed') return;
+        const [request] = await tx
+          .select()
+          .from(channelMessages)
+          .where(eq(channelMessages.id, messageId));
+        const [newer] = await tx
+          .select({ id: channelMessages.id })
+          .from(channelMessages)
+          .where(
+            and(
+              eq(channelMessages.channelId, channelId),
+              isNull(channelMessages.authorMemberId),
+              gt(channelMessages.sequence, request.sequence),
+              request.threadId
+                ? eq(channelMessages.threadId, request.threadId)
+                : isNull(channelMessages.threadId),
+            ),
+          )
+          .limit(1);
+        if (newer) throw new ChannelError('CONFLICT', 'Discussion superseded by a newer message');
+      }
       const [message] = await tx
         .update(channelMessages)
         .set({ routingStatus: 'pending', routingReason: null })
@@ -660,7 +786,14 @@ export class ChannelModel {
           ),
         )
         .returning();
-      if (message) await this.outbox(tx, channelId, 'route', messageId);
+      if (message) {
+        if (discussion)
+          await tx
+            .update(channelDiscussions)
+            .set({ status: 'pending', endReason: null })
+            .where(eq(channelDiscussions.id, discussion.id));
+        await this.outbox(tx, channelId, 'route', messageId);
+      }
     });
   }
 
@@ -836,6 +969,19 @@ export class ChannelModel {
         .select()
         .from(channelMessages)
         .where(eq(channelMessages.id, job.messageId));
+      // A later direct message must not overtake an earlier request still awaiting its audience.
+      const [routingAhead] = await tx
+        .select({ id: channelMessages.id })
+        .from(channelMessages)
+        .where(
+          and(
+            eq(channelMessages.channelId, channelId),
+            eq(channelMessages.routingStatus, 'pending'),
+            lt(channelMessages.sequence, request.sequence),
+          ),
+        )
+        .limit(1);
+      if (routingAhead) return null;
       if (workingDirectory && !deviceId)
         throw new ChannelError('BAD_REQUEST', 'Workspace access requires a device');
       // Different Agents may use the same directory, just as when run independently.

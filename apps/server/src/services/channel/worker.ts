@@ -12,6 +12,7 @@ import {
   channelRuns,
   channels,
 } from '@/database/privateSchemas/channel';
+import { users } from '@/database/schemas/user';
 import type { LobeChatDatabase } from '@/database/type';
 
 import { resolveChannelArtifactRunIds, saveChannelArtifact } from './artifact';
@@ -170,21 +171,31 @@ export class ChannelWorker {
         .select({ message: channelMessages, ownerId: channels.ownerId })
         .from(channelMessages)
         .innerJoin(channels, eq(channels.id, channelMessages.channelId))
-        .where(and(eq(channelMessages.routingStatus, 'pending'), eq(channels.archived, false)))
-        .orderBy(asc(channelMessages.createdAt))
+        .innerJoin(users, eq(users.id, channels.ownerId))
+        .where(
+          and(
+            eq(channelMessages.routingStatus, 'pending'),
+            eq(channels.archived, false),
+            // Filter before LIMIT so disabled owners cannot occupy the entire routing window.
+            sql`${users.preference}->'lab'->'enableChannel' = 'true'::jsonb`,
+          ),
+        )
+        .orderBy(asc(channelMessages.createdAt), asc(channelMessages.id))
         .limit(20);
-      const routingResults = await Promise.allSettled(
-        pending.map(async ({ message, ownerId }) => {
-          if (!(await isChannelEnabled(this.db, ownerId))) return;
-          return routeChannelMessage(
+      for (const { message, ownerId } of pending) {
+        try {
+          if (!(await isChannelEnabled(this.db, ownerId))) continue;
+          await routeChannelMessage(
             new ChannelModel(this.db, ownerId),
             message.channelId,
             message.id,
           );
-        }),
-      );
-      for (const result of routingResults)
-        if (result.status === 'rejected') log('Legacy routing deferred: %s', result.reason);
+        } catch (error) {
+          log('Routing deferred: %s', error);
+        }
+        // At most one enabled request per sweep: no parallel Jev calls or long routing batches.
+        break;
+      }
       const discussing = await this.db
         .selectDistinct({ channelId: channels.id, ownerId: channels.ownerId })
         .from(channelDiscussions)

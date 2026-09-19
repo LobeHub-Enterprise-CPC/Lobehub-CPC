@@ -1,6 +1,8 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { channelService } from '@/services/channel';
 
 import { ChannelConversation } from './ChannelConversation';
 import { buildChannelReceipts, type ChannelDetail } from './receipts';
@@ -10,13 +12,13 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => k
 vi.mock('@/hooks/useUserAvatar', () => ({ useUserAvatar: () => '' }));
 vi.mock('@/store/user', () => ({ useUserStore: () => 'You' }));
 vi.mock('@/store/user/selectors', () => ({ userProfileSelectors: {} }));
-vi.mock('@/services/channel', () => ({ channelService: {} }));
+vi.mock('@/services/channel', () => ({ channelService: { retryRouting: vi.fn() } }));
 vi.mock('@/features/Conversation/store', () => ({
   createStore: vi.fn(),
   Provider: ({ children }: { children: ReactNode }) => children,
 }));
 vi.mock('@/features/Conversation/ChatItem', () => ({
-  ChatItem: () => <div>Message</div>,
+  ChatItem: ({ belowMessage }: { belowMessage: ReactNode }) => <div>{belowMessage}</div>,
 }));
 vi.mock('@/features/Conversation/Markdown', () => ({ default: () => null }));
 vi.mock('@/components/CollapsibleContent', () => ({ default: () => null }));
@@ -24,7 +26,11 @@ vi.mock('@/features/Portal/Thread/Chat/ThreadDivider', () => ({ default: () => n
 vi.mock('@/features/WideScreenContainer', () => ({
   default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
-vi.mock('./Composer', () => ({ Composer: () => <textarea aria-label="Composer" /> }));
+vi.mock('./Composer', () => ({
+  Composer: ({ replying }: { replying: boolean }) => (
+    <textarea aria-label="Composer" data-replying={replying} />
+  ),
+}));
 vi.mock('./MessageAttachments', () => ({ MessageAttachments: () => null }));
 
 const fixture = (threadId: string | null = null) =>
@@ -55,7 +61,10 @@ const renderConversation = (data: ChannelDetail, threadId: string | null = null)
     />,
   );
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
 
 describe('Channel conversation status', () => {
   it.each([null, 'thread'])('does not duplicate member activity in %s', (threadId) => {
@@ -103,8 +112,51 @@ describe('Channel conversation status', () => {
     data.messages[0].routingStatus = 'unassigned';
     renderConversation(data);
 
-    expect(screen.getByRole('status').textContent).toBe(
+    expect(screen.getByRole('status').textContent).toContain(
       active ? 'activity.undelivered' : 'activity.noMembers',
     );
+  });
+
+  it.each([
+    ['pending', 'receipt.assigning'],
+    ['skipped', 'receipt.noReply'],
+    ['unassigned', 'receipt.unassigned'],
+  ] as const)('shows the distinct %s routing outcome', (routingStatus, label) => {
+    const data = fixture();
+    data.jobs = [];
+    data.runs = [];
+    data.messages[0].routingStatus = routingStatus;
+    renderConversation(data);
+    expect(screen.getByText(label)).toBeTruthy();
+    expect(Boolean(screen.queryByRole('button', { name: 'retryRouting' }))).toBe(
+      routingStatus === 'unassigned',
+    );
+    expect(screen.getByRole('textbox', { name: 'Composer' })).toHaveAttribute(
+      'data-replying',
+      String(routingStatus === 'pending'),
+    );
+    if (routingStatus === 'skipped') expect(screen.queryByText('activity.undelivered')).toBeNull();
+  });
+
+  it('retries the saved request without resending or allowing duplicate clicks', async () => {
+    const data = fixture();
+    data.jobs = [];
+    data.runs = [];
+    data.messages[0].routingStatus = 'unassigned';
+    let finish!: () => void;
+    vi.mocked(channelService.retryRouting).mockReturnValue(
+      new Promise((resolve) => {
+        finish = () => resolve(undefined);
+      }),
+    );
+    renderConversation(data);
+    const button = screen.getByRole('button', { name: 'retryRouting' });
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(channelService.retryRouting).toHaveBeenCalledOnce();
+    expect(channelService.retryRouting).toHaveBeenCalledWith('channel', 'request');
+    await act(async () => finish());
+    expect(button).not.toBeDisabled();
   });
 });

@@ -74,9 +74,15 @@ export function MessageReceipts({
   const [expanded, setExpanded] = useState(false);
   const quiet = receipts.length > 0 && receipts.every(isQuietReceipt);
   if (!receipts.length)
-    return routingStatus === 'unassigned' || routingStatus === 'pending' ? (
+    return ['unassigned', 'pending', 'skipped'].includes(routingStatus) ? (
       <span className={`${styles.receipts} ${styles.muted}`}>
-        {t(routingStatus === 'unassigned' ? 'receipt.unassigned' : 'receipt.assigning')}
+        {t(
+          routingStatus === 'skipped'
+            ? 'receipt.noReply'
+            : routingStatus === 'unassigned'
+              ? 'receipt.unassigned'
+              : 'receipt.assigning',
+        )}
       </span>
     ) : null;
   return (

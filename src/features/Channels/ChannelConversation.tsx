@@ -52,6 +52,7 @@ export function ChannelConversation({
   const followLatest = useRef(true);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
+  const [retryingRouting, setRetryingRouting] = useState(false);
   const activity = channelActivity(data, threadId);
   const messages = data.messages.filter((message) => message.threadId === threadId);
   const lastMessageId = messages.at(-1)?.id;
@@ -62,6 +63,13 @@ export function ChannelConversation({
     .filter((message) => message.threadId === threadId && !message.authorMemberId)
     .sort((a, b) => b.sequence - a.sequence)[0];
   const discussion = data.discussions.find((item) => item.requestMessageId === latestRequest?.id);
+  const canRetryRouting =
+    latestRequest?.routingStatus === 'unassigned' &&
+    !data.channel.archived &&
+    (!discussion || discussion.endReason === 'routing_failed') &&
+    data.members.some(
+      (member) => member.active && (!thread || thread.followerMemberIds.includes(member.id)),
+    );
   const discussionStatus = discussion
     ? t(`discussion.${discussion.status}`, {
         count: discussion.turnsPublished,
@@ -355,6 +363,21 @@ export function ChannelConversation({
               </span>
             )}
             {activityNotice && <span>{activityNotice}</span>}
+            {canRetryRouting && (
+              <Button
+                disabled={retryingRouting}
+                size="small"
+                type="text"
+                onClick={() => {
+                  setRetryingRouting(true);
+                  void action(() =>
+                    channelService.retryRouting(channelId, latestRequest!.id),
+                  ).finally(() => setRetryingRouting(false));
+                }}
+              >
+                {t('retryRouting')}
+              </Button>
+            )}
           </Flexbox>
         </WideScreenContainer>
       )}
@@ -363,10 +386,13 @@ export function ChannelConversation({
           key={`${channelId}:${threadId || 'main'}`}
           members={data.members.filter((member) => member.active)}
           placeholder={t(threadId ? 'threadComposer' : 'composer')}
-          replying={data.jobs.some(
-            (job) =>
-              job.threadId === (threadId || null) && ['queued', 'running'].includes(job.status),
-          )}
+          replying={
+            latestRequest?.routingStatus === 'pending' ||
+            data.jobs.some(
+              (job) =>
+                job.threadId === (threadId || null) && ['queued', 'running'].includes(job.status),
+            )
+          }
           onSend={async (content, mentions, requestKey, mode, maxDiscussionRounds, fileIds) => {
             followLatest.current = true;
             setSending(true);
