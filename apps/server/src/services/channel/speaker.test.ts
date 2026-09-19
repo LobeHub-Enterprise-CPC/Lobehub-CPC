@@ -43,6 +43,7 @@ function answer(scope = 'single', probability = 0.96, speaker = 'member_1') {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv('AI_GATEWAY_API_KEY', 'test-only');
+  vi.stubEnv('CHANNEL_ROUTER', 'jev');
   evaluate.mockResolvedValue(answer());
 });
 afterEach(() => {
@@ -192,12 +193,46 @@ describe('Channel speaker policy', () => {
     timeout.mockRestore();
   });
 
-  it('routes pending messages through Jev even if the obsolete broadcast flag remains set', async () => {
+  it.each([undefined, '', 'rules', 'false', 'JEV'])(
+    'uses the legacy audience without calling Jev when CHANNEL_ROUTER is %s, even with a key',
+    async (setting) => {
+      vi.stubEnv('CHANNEL_ROUTER', setting);
+      const model = {
+        routingInput: vi.fn().mockResolvedValue({ ...input, attemptId: 'attempt' }),
+        assign: vi.fn(),
+      };
+      await routeChannelMessage(model as unknown as ChannelModel, 'channel', 'message');
+      expect(model.assign).toHaveBeenCalledWith(
+        'channel',
+        'message',
+        expect.objectContaining({ memberIds: ['frontend', 'backend', 'security'] }),
+        'attempt',
+      );
+      expect(evaluate).not.toHaveBeenCalled();
+    },
+  );
+
+  it('leaves the request unassigned when Jev is enabled without a key', async () => {
+    vi.stubEnv('AI_GATEWAY_API_KEY', '');
     const model = {
       routingInput: vi.fn().mockResolvedValue({ ...input, attemptId: 'attempt' }),
       assign: vi.fn(),
     };
-    vi.stubEnv('CHANNEL_ROUTER', 'rules');
+    await routeChannelMessage(model as unknown as ChannelModel, 'channel', 'message');
+    expect(model.assign).toHaveBeenCalledWith(
+      'channel',
+      'message',
+      expect.objectContaining({ memberIds: [], noReply: false }),
+      'attempt',
+    );
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
+  it('routes pending messages through Jev only when explicitly enabled', async () => {
+    const model = {
+      routingInput: vi.fn().mockResolvedValue({ ...input, attemptId: 'attempt' }),
+      assign: vi.fn(),
+    };
     await routeChannelMessage(model as unknown as ChannelModel, 'channel', 'message');
     expect(model.assign).toHaveBeenLastCalledWith(
       'channel',

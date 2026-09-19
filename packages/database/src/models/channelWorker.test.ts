@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
-import { expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import { ChannelModel } from '@/database/models/channel';
 import type { LobeChatDatabase } from '@/database/type';
@@ -25,7 +25,10 @@ vi.mock('@/server/services/channel/device', () => ({
   },
 }));
 vi.mock('@/server/services/channel/gate', () => ({ isChannelEnabled: vi.fn() }));
-vi.mock('@/server/services/channel/speaker', () => ({ evaluateChannelAudience: vi.fn() }));
+vi.mock(import('@/server/services/channel/speaker'), async (importOriginal) => ({
+  ...(await importOriginal()),
+  evaluateChannelAudience: vi.fn(),
+}));
 vi.mock('@/server/services/channel/native/host', () => ({ runChannelNative: vi.fn() }));
 vi.mock('@/server/services/channel/native/capabilities', () => ({
   checkChannelNativeAvailability: vi.fn(),
@@ -36,6 +39,9 @@ vi.mock('@/server/services/channel/artifact', () => ({
 vi.mock('@/server/services/channel/serverDefault', () => ({
   settleChannelServerDefaultOperation: vi.fn(),
 }));
+
+beforeEach(() => vi.stubEnv('CHANNEL_ROUTER', 'jev'));
+afterEach(() => vi.unstubAllEnvs());
 
 async function createDatabase() {
   const client = new PGlite();
@@ -55,6 +61,115 @@ async function createDatabase() {
     );
   return { client, db: drizzle(client, { schema }) as unknown as LobeChatDatabase };
 }
+
+it.each(['normal', 'discussion'] as const)(
+  'switches %s audiences between legacy and Jev without widening mentions or thread scope',
+  async (mode) => {
+    vi.clearAllMocks();
+    vi.stubEnv('CHANNEL_ROUTER', undefined);
+    vi.stubEnv('AI_GATEWAY_API_KEY', '');
+    const { client, db } = await createDatabase();
+    try {
+      const model = new ChannelModel(db, 'ready');
+      const channel = await model.create(
+        'Optional router',
+        ['A', 'B', 'C'].map((name) => ({
+          name,
+          config: { runtime: 'native', model: 'fixture', provider: 'fixture' },
+        })),
+      );
+      const [a, b, c] = (await model.detail(channel.id)).members;
+      vi.mocked(evaluateChannelAudience).mockResolvedValue({
+        memberIds: [a.id],
+        noReply: false,
+        reason: 'Jev selected A',
+        diagnostics: { source: 'jev', elapsedMs: 1 },
+      });
+      const root = await model.send(channel.id, {
+        content: 'Only B',
+        mentions: [b.id],
+        requestKey: 'root',
+        mode,
+      });
+      await routeChannelMessage(model, channel.id, root.id);
+      expect((await model.detail(channel.id)).jobs.map((job) => job.memberId)).toEqual([b.id]);
+      const thread = await model.branch(channel.id, root.id);
+
+      for (const threadId of [null, thread.id]) {
+        const message = await model.send(channel.id, {
+          content: 'Continue',
+          mentions: [],
+          requestKey: `legacy-${threadId}`,
+          threadId,
+          mode,
+        });
+        await routeChannelMessage(model, channel.id, message.id);
+        const expected = threadId ? [b.id] : [a.id, b.id, c.id];
+        const detail = await model.detail(channel.id);
+        expect(detail.messages.find((item) => item.id === message.id)?.routingStatus).toBe(
+          'assigned',
+        );
+        expect(
+          detail.jobs
+            .filter((job) => job.messageId === message.id)
+            .map((job) => job.memberId)
+            .sort(),
+        ).toEqual([...expected].sort());
+        if (mode === 'discussion') {
+          const discussion = detail.discussions.find((item) => item.id === message.id)!;
+          expect(discussion.status).toBe('active');
+          expect([...discussion.participantIds].sort()).toEqual([...expected].sort());
+        }
+      }
+      expect(evaluateChannelAudience).not.toHaveBeenCalled();
+
+      vi.stubEnv('CHANNEL_ROUTER', 'jev');
+      const selected = await model.send(channel.id, {
+        content: 'Only A',
+        mentions: [],
+        requestKey: 'jev',
+        mode,
+      });
+      await routeChannelMessage(model, channel.id, selected.id);
+      expect(
+        (await model.detail(channel.id)).jobs
+          .filter((job) => job.messageId === selected.id)
+          .map((job) => job.memberId),
+      ).toEqual([a.id]);
+      const directed = await model.send(channel.id, {
+        content: 'Only C',
+        mentions: [c.id],
+        requestKey: 'directed',
+        mode,
+      });
+      await routeChannelMessage(model, channel.id, directed.id);
+      expect(
+        (await model.detail(channel.id)).jobs
+          .filter((job) => job.messageId === directed.id)
+          .map((job) => job.memberId),
+      ).toEqual([c.id]);
+
+      const queued = await model.send(channel.id, {
+        content: 'Queued before disabling Jev',
+        mentions: [],
+        requestKey: 'switch-off',
+        mode,
+      });
+      vi.stubEnv('CHANNEL_ROUTER', 'rules');
+      await routeChannelMessage(model, channel.id, queued.id);
+      expect(
+        (await model.detail(channel.id)).jobs
+          .filter((job) => job.messageId === queued.id)
+          .map((job) => job.memberId)
+          .sort(),
+      ).toEqual([a.id, b.id, c.id].sort());
+      expect(evaluateChannelAudience).toHaveBeenCalledOnce();
+    } finally {
+      await client.close();
+    }
+  },
+  30_000,
+);
 
 it('routes past twenty disabled-owner requests and resumes them only after re-enabling', async () => {
   vi.clearAllMocks();

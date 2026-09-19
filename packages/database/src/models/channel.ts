@@ -520,7 +520,7 @@ export class ChannelModel {
           .update(channelThreads)
           .set({ followerMemberIds: [...new Set([...thread.followerMemberIds, ...mentions])] })
           .where(eq(channelThreads.id, thread.id));
-      // Only explicit mentions can create jobs at send time. Jev chooses every other audience.
+      // Only explicit mentions create jobs at send time; the worker selects every other audience.
       const [message] = await tx
         .insert(channelMessages)
         .values({

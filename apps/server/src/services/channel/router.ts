@@ -1,8 +1,8 @@
 import type { ChannelModel } from '@/database/models/channel';
 
-import { evaluateChannelAudience } from './speaker';
+import { channelRuleAudience, evaluateChannelAudience } from './speaker';
 
-/** All unmentioned user requests are selected by Jev before any execution jobs are created. */
+/** Jev is worker-side opt-in; otherwise retain the legacy audience without a provider call. */
 export async function routeChannelMessage(
   model: ChannelModel,
   channelId: string,
@@ -10,6 +10,13 @@ export async function routeChannelMessage(
 ) {
   const input = await model.routingInput(channelId, messageId);
   if (!input) return;
-  const decision = await evaluateChannelAudience(input);
+  const decision =
+    process.env.CHANNEL_ROUTER === 'jev'
+      ? await evaluateChannelAudience(input)
+      : {
+          memberIds: channelRuleAudience(input),
+          reason: 'Legacy audience (Jev disabled)',
+          diagnostics: { source: 'rules' },
+        };
   await model.assign(channelId, messageId, decision, input.attemptId);
 }

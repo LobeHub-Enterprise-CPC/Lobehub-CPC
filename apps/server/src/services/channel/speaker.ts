@@ -19,7 +19,7 @@ const CERTAIN = 0.8;
 const UNLIKELY = 0.2;
 const DEADLINE_MS = 3000;
 
-/** Previous broadcast policy, retained only as an offline evaluation baseline. */
+/** Legacy audience policy, also used as the offline evaluation baseline. */
 export function channelRuleAudience(input: ChannelSpeakerInput) {
   return input.members
     .filter(
