@@ -1762,6 +1762,7 @@ table expertise_hits {
   severity text
   evidence_id uuid
   operation_id text
+  source_check_result_id uuid
   user_decision text
   user_decision_at "timestamp with time zone"
   created_at "timestamp with time zone" [not null, default: `now()`]
@@ -1811,6 +1812,7 @@ table expertise_lesson_revisions {
   changed_by text [not null]
   kind text [not null, default: 'user-feedback']
   prev_title text
+  evidence jsonb
   changed_by_user_id text
   source_run_id uuid
   operation_id text
@@ -1832,6 +1834,8 @@ table expertise_lessons {
   sections jsonb [not null]
   layer varchar(255)
   tags text[]
+  reason_kind text
+  reason_source text
   canon_anchor text
   origin_run_id uuid
   origin_hit_id uuid
@@ -1840,6 +1844,7 @@ table expertise_lessons {
   salvaged_from_id uuid
   retired_at "timestamp with time zone"
   compilability text [not null, default: 'compilable']
+  backtest jsonb
   compiled_criterion_id uuid
   hit_count integer [not null, default: 0]
   hit_run_count integer [not null, default: 0]

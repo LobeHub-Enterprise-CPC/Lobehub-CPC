@@ -79,7 +79,7 @@ export const useSettingsSearch = (
 } => {
   const { t } = useTranslation(['setting', 'labs', 'electron', 'subscription', 'spend', 'auth']);
   const categoryGroups = useCategory();
-  const { enableSTT, hideDocs, showAiImage } = useServerConfigStore(featureFlagsSelectors);
+  const { hideDocs, showAiImage } = useServerConfigStore(featureFlagsSelectors);
   const enableBusinessFeatures = useServerConfigStore(serverConfigSelectors.enableBusinessFeatures);
   const showGatewayModeToggle = useServerConfigStore(serverConfigSelectors.showGatewayModeToggle);
   const enableComposio = useServerConfigStore(serverConfigSelectors.enableComposio);
@@ -98,7 +98,6 @@ export const useSettingsSearch = (
       disableEmailPassword: !!disableEmailPassword,
       enableBusinessFeatures: !!enableBusinessFeatures,
       enableComposio: !!enableComposio,
-      enableSTT: !!enableSTT,
       hasEmail,
       hideDocs: !!hideDocs,
       isDesktop,
@@ -241,7 +240,6 @@ export const useSettingsSearch = (
     disableEmailPassword,
     enableBusinessFeatures,
     enableComposio,
-    enableSTT,
     hasEmail,
     hideDocs,
     isLogin,

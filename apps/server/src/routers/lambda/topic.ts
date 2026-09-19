@@ -959,7 +959,7 @@ export const topicRouter = router({
         for (const fileId of [...fileIds].sort()) {
           const file = await ctx.fileModel.deleteUnreferenced(
             fileId,
-            serverDBEnv.REMOVE_GLOBAL_FILE,
+            { removeGlobalFile: serverDBEnv.REMOVE_GLOBAL_FILE },
             businessFileExternalReferenceGuard,
           );
           if (file) needToRemove.push(file);

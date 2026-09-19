@@ -159,7 +159,6 @@ export {
   CODEX_REQUIRED_ARGS,
   KIMI_CODE_BASE_ARGS,
   OPENCODE_BASE_ARGS,
-  PI_BASE_ARGS,
   QODER_BASE_ARGS,
   type QoderSpawnArgsOptions,
   spawnAgent,

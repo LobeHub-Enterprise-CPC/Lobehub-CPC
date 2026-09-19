@@ -85,13 +85,15 @@ export const CLI_HOME_ENV_NAMES: readonly string[] = ['LOBEHUB_CLI_HOME'];
  */
 export const CLI_COMMAND_MODE_ENV_NAMES: readonly string[] = ['LOBEHUB_CLI_COMMAND_MODE'];
 
-const firstEnvValue = (names: readonly string[]): string | undefined => {
+const firstEnvEntry = (names: readonly string[]): { name: string; value: string } | undefined => {
   for (const name of names) {
     const value = process.env[name]?.trim();
-    if (value) return value;
+    if (value) return { name, value };
   }
   return undefined;
 };
+
+const firstEnvValue = (names: readonly string[]): string | undefined => firstEnvEntry(names)?.value;
 
 /** API key from the environment, honouring every accepted variable name. */
 export const readCliApiKeyEnv = (): string | undefined => firstEnvValue(CLI_API_KEY_ENV_NAMES);
@@ -99,6 +101,14 @@ export const readCliApiKeyEnv = (): string | undefined => firstEnvValue(CLI_API_
 /** Raw `command-mode` override from the environment, unvalidated. */
 export const readCliCommandModeEnv = (): string | undefined =>
   firstEnvValue(CLI_COMMAND_MODE_ENV_NAMES);
+
+/**
+ * Same lookup as {@link readCliApiKeyEnv}, but keeps the variable name that
+ * actually matched. `lh doctor` reports which env var a credential came from,
+ * and "LOBEHUB_CLI_API_KEY" is the wrong answer when an older alias won.
+ */
+export const readCliApiKeyEnvSource = (): { name: string; value: string } | undefined =>
+  firstEnvEntry(CLI_API_KEY_ENV_NAMES);
 
 /** Config directory name, overridable per-install by the home env var. */
 export const resolveCliDirName = (): string =>

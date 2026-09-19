@@ -30,17 +30,26 @@ describe('customBrandingLoadingScreen', () => {
     expect(handler(SAMPLE_HTML)).toBe(SAMPLE_HTML);
   });
 
-  it('replaces the wordmark with the custom brand name', async () => {
+  it('replaces the wordmark with the shell branding image', async () => {
     vi.doMock('@lobechat/business-const/branding', () => ({ BRANDING_NAME: 'AI Workstation' }));
     const handler = await loadHandler();
 
     const result = handler(SAMPLE_HTML);
     expect(result).not.toContain('<svg');
     expect(result).not.toContain('LobeHub');
-    expect(result).toContain('AI Workstation');
+    expect(result).toContain('alt="AI Workstation"');
+    expect(result).toContain('height="40" src="/branding/logo-head.png"');
     expect(result).toContain('id="loading-brand"');
     // the rest of the document is preserved
     expect(result).toContain('<div id="root" style="height: 100%"></div>');
+  });
+
+  it('keeps the static image when processing an already branded boot screen', async () => {
+    vi.doMock('@lobechat/business-const/branding', () => ({ BRANDING_NAME: 'AI Workstation' }));
+    const handler = await loadHandler();
+    const once = handler(SAMPLE_HTML);
+
+    expect(handler(once)).toBe(once);
   });
 
   it('escapes HTML-sensitive characters in the brand name', async () => {
