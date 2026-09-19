@@ -20,11 +20,12 @@ import { Paperclip } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { getFileListFromDataTransferItems } from '@/components/DragUploadZone/useLocalDragUpload';
+import { useLocalDragUpload } from '@/components/DragUploadZone/useLocalDragUpload';
 import { usePasteFile } from '@/components/DragUploadZone/usePasteFile';
 import DraftFile from '@/features/ChatInput/Mobile/FilePreview/FileItem/File';
 import DraftImage from '@/features/ChatInput/Mobile/FilePreview/FileItem/Image';
 import WideScreenContainer from '@/features/WideScreenContainer';
+import { useEnterToSend } from '@/hooks/useEnterToSend';
 import { usePermission } from '@/hooks/usePermission';
 import { useSingleton } from '@/hooks/useSingleton';
 import { useGlobalStore } from '@/store/global';
@@ -60,6 +61,7 @@ export function Composer({
 }) {
   const { t } = useTranslation('channel');
   const editor = useEditor();
+  const shouldSendOnEnter = useEnterToSend();
   const height = useGlobalStore(systemStatusSelectors.chatInputHeight);
   const [content, setContent] = useState('');
   const [busy, setBusy] = useState(false);
@@ -78,6 +80,8 @@ export function Composer({
   const upload = (files: File[]) => {
     if (!sending.current && canUpload) return attachments.upload(files);
   };
+  // Keep consuming file drops even when uploading is blocked; the callback gates uploads.
+  const { getContainerProps } = useLocalDragUpload({ onUploadFiles: upload });
   usePasteFile(editor, upload);
   const hasDraft = !!content.trim() || attachments.items.length > 0;
   const send = async () => {
@@ -112,18 +116,7 @@ export function Composer({
   };
   return (
     <WideScreenContainer fullWidth paddingInline={24}>
-      <Flexbox
-        className={styles.composer}
-        gap={8}
-        onDragOver={(event) => {
-          if (event.dataTransfer.types.includes('Files')) event.preventDefault();
-        }}
-        onDrop={(event) => {
-          if (!event.dataTransfer.types.includes('Files')) return;
-          event.preventDefault();
-          void getFileListFromDataTransferItems(Array.from(event.dataTransfer.items)).then(upload);
-        }}
-      >
+      <Flexbox className={styles.composer} gap={8} {...getContainerProps()}>
         {attachments.items.length > 0 && (
           <Flexbox horizontal gap={8} inert={busy} wrap="wrap">
             {attachments.items.map((item) =>
@@ -255,10 +248,9 @@ export function Composer({
                 }),
             }}
             onPressEnter={({ event }) => {
-              if (!event.shiftKey && !event.isComposing) {
-                void send();
-                return true;
-              }
+              if (event.isComposing || !shouldSendOnEnter(event)) return;
+              void send();
+              return true;
             }}
             onTextChange={() => {
               setContent(String(editor.getDocument('markdown') || ''));
