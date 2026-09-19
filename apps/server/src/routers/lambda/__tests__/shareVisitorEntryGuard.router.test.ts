@@ -162,7 +162,7 @@ describe('agent-share visitor guards on creator-facing RPCs', () => {
       await topicCaller().removeTopic({ id: 'topic-1', removeFiles: true });
       expect(mockFileDeleteUnreferenced).toHaveBeenCalledWith(
         'file-1',
-        expect.any(Boolean),
+        { removeGlobalFile: expect.any(Boolean) },
         expect.any(Function),
       );
       expect(mockDeleteFiles).not.toHaveBeenCalled();

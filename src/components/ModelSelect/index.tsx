@@ -1,7 +1,6 @@
 import { BRANDING_PROVIDER } from '@lobechat/business-const';
 import { type ChatModelCard } from '@lobechat/types';
 import { type IconAvatarProps } from '@lobehub/icons';
-import { LobeHub } from '@lobehub/icons';
 import { type FlexboxProps } from '@lobehub/ui';
 import { Flexbox, Icon, Tooltip } from '@lobehub/ui';
 import { Avatar, Tag, Text } from '@lobehub/ui/base-ui';
@@ -369,10 +368,8 @@ export const ProviderItemRender = memo<ProviderItemRenderProps>(
             style={isMono ? { filter: 'grayscale(1)' } : {}}
             title={name}
           />
-        ) : isCustomBranding && provider === BRANDING_PROVIDER ? (
+        ) : (isCustomBranding && provider === BRANDING_PROVIDER) || provider === 'lobehub' ? (
           <ProductLogo size={size} type={isMono ? 'mono' : 'flat'} />
-        ) : provider === 'lobehub' ? (
-          <LobeHub.Morden size={size} />
         ) : (
           <ProviderIcon provider={provider} size={size} type={type} />
         )}

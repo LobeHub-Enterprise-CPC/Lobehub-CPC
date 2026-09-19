@@ -16,7 +16,7 @@ const escapeHtml = (value: string) =>
 
 /**
  * Replace the hardcoded LobeHub wordmark in the static loading screen with the
- * custom brand name, so white-label deployments (BRANDING_NAME !== 'LobeHub')
+ * shell's branding image, so white-label deployments (BRANDING_NAME !== 'LobeHub')
  * never flash the LobeHub logo before the SPA boots. No-op for the default
  * branding.
  */
@@ -31,9 +31,9 @@ export const customBrandingLoadingScreen = (): Plugin => ({
 
       return html.replace(
         LOADING_BRAND_BLOCK,
-        `<div id="loading-brand" aria-label="Loading" role="status" style="font-size: 26px; font-weight: 700; letter-spacing: 0.02em;">${escapeHtml(
+        `<div id="loading-brand" aria-label="Loading" role="status"><img alt="${escapeHtml(
           BRANDING_NAME,
-        )}</div>`,
+        )}" height="40" src="/branding/logo-head.png" /></div>`,
       );
     },
     order: 'pre',

@@ -3,10 +3,10 @@
 import { ORG_NAME, UTM_SOURCE } from '@lobechat/business-const';
 import { type FlexboxProps } from '@lobehub/ui';
 import { Flexbox } from '@lobehub/ui';
-import { LobeHub } from '@lobehub/ui/brand';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { memo } from 'react';
 
+import { ProductLogo } from '@/components/Branding/ProductLogo';
 import { OFFICIAL_SITE } from '@/const/url';
 import { isCustomORG } from '@/const/version';
 
@@ -42,7 +42,7 @@ const BrandWatermark = memo<Omit<FlexboxProps, 'children'>>(({ style, ...rest })
           rel="noreferrer"
           target="_blank"
         >
-          <LobeHub size={20} type={'text'} />
+          <ProductLogo size={20} type={'text'} />
         </a>
       )}
     </Flexbox>
