@@ -42,9 +42,10 @@ export class ChannelBudget {
    * reached the limit has already run, so the caller skips this for a run
    * that just finished.
    */
-  observe(usage: Pick<Usage, 'llm' | 'tools'>) {
-    this.modelCalls = usage.llm.apiCalls;
-    this.toolCalls = usage.tools.totalCalls;
+  observe(usage?: Pick<Usage, 'llm' | 'tools'>) {
+    // Before a model reports usage, retain the last observed counters.
+    this.modelCalls = usage?.llm?.apiCalls ?? this.modelCalls;
+    this.toolCalls = usage?.tools?.totalCalls ?? this.toolCalls;
     this.assertTime();
     if (this.modelCalls >= CHANNEL_LIMITS.modelCalls)
       throw (this.exhausted = new Error('Channel model call limit reached'));
