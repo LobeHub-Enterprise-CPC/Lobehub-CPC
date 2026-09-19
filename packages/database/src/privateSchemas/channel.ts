@@ -166,7 +166,7 @@ export const channelMessages = pgTable(
     requestKey: text('request_key').notNull(),
     replyToId: text('reply_to_id'),
     routingStatus: text('routing_status', {
-      enum: ['directed', 'pending', 'assigned', 'unassigned', 'reply'],
+      enum: ['directed', 'pending', 'assigned', 'unassigned', 'skipped', 'reply'],
     }).notNull(),
     routingReason: text('routing_reason'),
     createdAt: createdAtColumn(),

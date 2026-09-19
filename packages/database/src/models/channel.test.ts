@@ -69,9 +69,69 @@ async function setup(workspace = false) {
   return { c, a: detail.members[0], b: detail.members[1] };
 }
 
+async function assignCurrent(
+  channelId: string,
+  messageId: string,
+  decision: Parameters<ChannelModel['assign']>[2],
+) {
+  const input = await model.routingInput(channelId, messageId);
+  return model.assign(channelId, messageId, decision, input?.attemptId ?? 'obsolete-attempt');
+}
+
 describe('Channel durable boundaries', () => {
+  it.each([false, true])(
+    'keeps routing attempts durable and message-scoped, including legacy requests: %s',
+    async (legacy) => {
+      const { c, a } = await setup();
+      const first = await model.send(c.id, {
+        content: 'First request',
+        mentions: [],
+        requestKey: randomUUID(),
+      });
+      const second = await model.send(c.id, {
+        content: 'Second request',
+        mentions: [],
+        requestKey: randomUUID(),
+      });
+      if (legacy)
+        await db.delete(schema.channelOutbox).where(eq(schema.channelOutbox.targetId, first.id));
+      const input = (await model.routingInput(c.id, first.id))!;
+      const otherInput = (await model.routingInput(c.id, second.id))!;
+      const restarted = new ChannelModel(db, 'owner');
+      expect((await restarted.routingInput(c.id, first.id))?.attemptId).toBe(input.attemptId);
+      const attempts = await db
+        .select()
+        .from(schema.channelOutbox)
+        .where(eq(schema.channelOutbox.targetId, first.id));
+      expect(attempts).toHaveLength(1);
+      expect(attempts[0]).toMatchObject({ id: input.attemptId, kind: 'route', processed: false });
+
+      const decision = { memberIds: [a.id], reason: 'Current decision' };
+      await expect(restarted.assign(c.id, first.id, decision, otherInput.attemptId)).resolves.toBe(
+        false,
+      );
+      await expect(
+        new ChannelModel(db, 'other').assign(c.id, first.id, decision, input.attemptId),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      expect((await restarted.detail(c.id)).jobs).toEqual([]);
+
+      await expect(restarted.assign(c.id, first.id, decision, input.attemptId)).resolves.toBe(true);
+      const detail = await restarted.detail(c.id);
+      expect(detail.messages.find((message) => message.id === first.id)?.routingStatus).toBe(
+        'assigned',
+      );
+      expect(detail.messages.find((message) => message.id === second.id)?.routingStatus).toBe(
+        'pending',
+      );
+      expect(detail.jobs).toMatchObject([{ memberId: a.id, messageId: first.id }]);
+      await expect(restarted.assign(c.id, first.id, decision, input.attemptId)).resolves.toBe(
+        false,
+      );
+    },
+  );
+
   it('persists attachment-only messages, preserves order in manifests and fences changed retries', async () => {
-    const { c } = await setup();
+    const { c, a } = await setup();
     const input = {
       content: '',
       fileIds: ['image', 'doc', 'image'],
@@ -84,6 +144,7 @@ describe('Channel durable boundaries', () => {
     await expect(model.send(c.id, { ...input, fileIds: ['doc', 'image'] })).rejects.toMatchObject({
       code: 'CONFLICT',
     });
+    await assignCurrent(c.id, message.id, { memberIds: [a.id], reason: 'Attachment reviewer' });
     const detail = await model.page(c.id);
     expect(detail.messages.find((m) => m.id === message.id)?.fileIds).toEqual(['image', 'doc']);
     const { run } = (await model.claim(c.id, detail.jobs[0].id))!;
@@ -120,18 +181,31 @@ describe('Channel durable boundaries', () => {
     expect(await model.list()).toHaveLength(before.length);
   });
 
-  it.each([2, 6])('creates and broadcasts to all %i members', async (count) => {
-    const channel = await model.create(
-      'Member boundaries',
-      Array.from({ length: count }, (_, i) => ({ name: `Agent ${i}`, config })),
-    );
-    await model.send(channel.id, { content: 'Everyone', mentions: [], requestKey: randomUUID() });
-    const detail = await model.detail(channel.id);
-    expect(detail.members).toHaveLength(count);
-    expect(detail.jobs.map((job) => job.memberId).sort()).toEqual(
-      detail.members.map((member) => member.id).sort(),
-    );
-  });
+  it.each([2, 6])(
+    'delivers to all %i members only after a decision selects them',
+    async (count) => {
+      const channel = await model.create(
+        'Member boundaries',
+        Array.from({ length: count }, (_, i) => ({ name: `Agent ${i}`, config })),
+      );
+      const message = await model.send(channel.id, {
+        content: 'Everyone',
+        mentions: [],
+        requestKey: randomUUID(),
+      });
+      const pending = await model.detail(channel.id);
+      expect(pending.jobs).toEqual([]);
+      await assignCurrent(channel.id, message.id, {
+        memberIds: pending.members.map((member) => member.id),
+        reason: 'Jev: all eligible members',
+      });
+      const detail = await model.detail(channel.id);
+      expect(detail.members).toHaveLength(count);
+      expect(detail.jobs.map((job) => job.memberId).sort()).toEqual(
+        detail.members.map((member) => member.id).sort(),
+      );
+    },
+  );
 
   it('allows adding one member up to six active members and reuses a removed slot', async () => {
     const channel = await model.create(
@@ -343,25 +417,273 @@ describe('Channel durable boundaries', () => {
     ).toEqual(['execute']);
   });
 
-  it('broadcasts atomically to every active member exactly once without a router', async () => {
+  it('delivers multiple explicit mentions exactly once without consulting the router', async () => {
     const { c, a, b } = await setup();
-    const input = { content: '有人吗', mentions: [], requestKey: randomUUID() };
+    const input = { content: '有人吗', mentions: [b.id, a.id], requestKey: randomUUID() };
     const message = await model.send(c.id, input);
     await model.send(c.id, input);
     await model.recall(c.id, message.id, a.id);
     expect(await model.routingInput(c.id, message.id)).toBeNull();
-    expect(await model.assign(c.id, message.id, { memberId: b.id, reason: 'Late router' })).toBe(
+    expect(await assignCurrent(c.id, message.id, { memberId: b.id, reason: 'Late router' })).toBe(
       false,
     );
     const detail = await model.detail(c.id);
     expect(detail.messages).toHaveLength(1);
     expect(detail.jobs.map((job) => job.memberId).sort()).toEqual([a.id, b.id].sort());
-    expect(detail.messages[0]).toMatchObject({ routingStatus: 'assigned', mentions: [] });
+    expect(detail.messages[0]).toMatchObject({ routingStatus: 'directed', mentions: [b.id, a.id] });
     expect(
       (
         await db.select().from(schema.channelOutbox).where(eq(schema.channelOutbox.channelId, c.id))
       ).map((row) => row.kind),
     ).toEqual(['execute', 'execute']);
+  });
+
+  it('persists every unmentioned message without broadcasting, then assigns exactly once', async () => {
+    const { c, a, b } = await setup();
+    const input = {
+      content: 'Reviewer only',
+      mentions: [],
+      requestKey: randomUUID(),
+    };
+    const message = await model.send(c.id, input);
+    expect(message.routingStatus).toBe('pending');
+    await model.send(c.id, input);
+    expect((await model.detail(c.id)).jobs).toEqual([]);
+    const outbox = await db
+      .select()
+      .from(schema.channelOutbox)
+      .where(eq(schema.channelOutbox.channelId, c.id));
+    expect(outbox.map((row) => row.kind)).toEqual(['route']);
+    expect((await model.routingInput(c.id, message.id))?.members.map((m) => m.id).sort()).toEqual(
+      [a.id, b.id].sort(),
+    );
+    expect(
+      await assignCurrent(c.id, message.id, { memberIds: [a.id], reason: 'Jev: one speaker' }),
+    ).toBe(true);
+    expect(await assignCurrent(c.id, message.id, { memberIds: [b.id], reason: 'Duplicate' })).toBe(
+      false,
+    );
+    expect((await model.detail(c.id)).jobs.map((job) => job.memberId)).toEqual([a.id]);
+    expect(await model.routingInput(c.id, message.id)).toBeNull();
+  });
+
+  it.each(['normal', 'discussion'] as const)(
+    'distinguishes no-reply from retryable failure in %s mode',
+    async (mode) => {
+      const { c, a } = await setup();
+      const skipped = await model.send(c.id, {
+        content: '不用回复',
+        mentions: [],
+        requestKey: randomUUID(),
+        mode,
+      });
+      await assignCurrent(c.id, skipped.id, {
+        memberIds: [],
+        noReply: true,
+        reason: 'Jev: no response needed',
+      });
+      await model.retryRouting(c.id, skipped.id);
+      let detail = await model.detail(c.id);
+      expect(detail.messages.find((message) => message.id === skipped.id)?.routingStatus).toBe(
+        'skipped',
+      );
+      expect(detail.jobs).toEqual([]);
+      if (mode === 'discussion')
+        expect(detail.discussions[0]).toMatchObject({ status: 'stopped', endReason: 'no_reply' });
+
+      const input = {
+        content: '继续讨论',
+        mentions: [],
+        requestKey: randomUUID(),
+        mode,
+        maxDiscussionRounds: 2,
+      };
+      const failed = await model.send(c.id, input);
+      await assignCurrent(c.id, failed.id, {
+        memberIds: [],
+        reason: 'Jev fallback: evaluation failed or timed out',
+      });
+      expect((await model.send(c.id, input)).id).toBe(failed.id);
+      detail = await model.detail(c.id);
+      expect(detail.messages.find((message) => message.id === failed.id)?.routingStatus).toBe(
+        'unassigned',
+      );
+      expect(detail.jobs).toEqual([]);
+      if (mode === 'discussion')
+        expect(detail.discussions.find((d) => d.id === failed.id)).toMatchObject({
+          status: 'stopped',
+          endReason: 'routing_failed',
+        });
+
+      await model.retryRouting(c.id, failed.id);
+      expect(await model.routingInput(c.id, failed.id)).not.toBeNull();
+      await assignCurrent(c.id, failed.id, { memberIds: [a.id], reason: 'Selected after retry' });
+      detail = await model.detail(c.id);
+      expect(detail.jobs.map((job) => job.memberId)).toEqual([a.id]);
+      if (mode === 'discussion')
+        expect(detail.discussions.find((d) => d.id === failed.id)).toMatchObject({
+          status: 'active',
+          participantIds: [a.id],
+          maxRounds: 2,
+        });
+    },
+  );
+
+  it.each(['stop', 'supersede'] as const)(
+    'does not let late Jev results revive a discussion after %s',
+    async (action) => {
+      const { c, a } = await setup();
+      const request = await model.send(c.id, {
+        content: 'Discuss',
+        mentions: [],
+        mode: 'discussion',
+        requestKey: randomUUID(),
+      });
+      if (action === 'stop') await model.stop(c.id, { threadId: null });
+      else
+        await model.send(c.id, { content: 'New goal', mentions: [a.id], requestKey: randomUUID() });
+      expect(
+        await assignCurrent(c.id, request.id, { memberIds: [a.id], reason: 'Late selection' }),
+      ).toBe(false);
+      await model.retryRouting(c.id, request.id);
+      await model.advanceDiscussions(c.id);
+      const detail = await model.detail(c.id);
+      expect(detail.jobs.filter((job) => job.messageId === request.id)).toEqual([]);
+      expect(detail.discussions[0].status).toBe('stopped');
+      expect(detail.messages.find((message) => message.id === request.id)?.routingStatus).toBe(
+        'unassigned',
+      );
+    },
+  );
+
+  it('refuses to retry a failed discussion after a newer human goal', async () => {
+    const { c, a } = await setup();
+    const request = await model.send(c.id, {
+      content: 'Discuss',
+      mentions: [],
+      mode: 'discussion',
+      requestKey: randomUUID(),
+    });
+    await assignCurrent(c.id, request.id, { memberIds: [], reason: 'Jev unavailable' });
+    await model.send(c.id, { content: 'New goal', mentions: [a.id], requestKey: randomUUID() });
+    await expect(model.retryRouting(c.id, request.id)).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(await model.routingInput(c.id, request.id)).toBeNull();
+  });
+
+  it('keeps mentions direct but waits for Jev before starting a discussion with selected participants', async () => {
+    const { c, a, b } = await setup();
+    const directed = await model.send(c.id, {
+      content: 'Only B',
+      mentions: [b.id],
+      requestKey: randomUUID(),
+    });
+    expect(directed.routingStatus).toBe('directed');
+    const discussion = await model.send(c.id, {
+      content: 'Discuss',
+      mentions: [],
+      mode: 'discussion',
+      requestKey: randomUUID(),
+    });
+    expect(discussion.routingStatus).toBe('pending');
+    await model.advanceDiscussions(c.id);
+    const pending = await model.detail(c.id);
+    expect(pending.discussions).toMatchObject([
+      { status: 'pending', participantIds: [], round: 1 },
+    ]);
+    expect(pending.jobs.filter((job) => job.messageId === discussion.id)).toEqual([]);
+    await assignCurrent(c.id, discussion.id, { memberIds: [a.id], reason: 'Selected A' });
+    const detail = await model.detail(c.id);
+    expect(detail.discussions).toMatchObject([{ status: 'active', participantIds: [a.id] }]);
+    expect(
+      detail.jobs.filter((job) => job.messageId === directed.id).map((job) => job.memberId),
+    ).toEqual([b.id]);
+    expect(
+      detail.jobs
+        .filter((job) => job.messageId === discussion.id)
+        .map((job) => job.memberId)
+        .sort(),
+    ).toEqual([a.id]);
+    expect(
+      detail.jobs
+        .filter((job) => job.messageId === discussion.id)
+        .every((job) => job.task?.round === 1),
+    ).toBe(true);
+  });
+
+  it('lets manual recall win over an in-flight evaluation', async () => {
+    const { c, a, b } = await setup();
+    const message = await model.send(c.id, {
+      content: 'Continue',
+      mentions: [],
+      requestKey: randomUUID(),
+    });
+    await model.recall(c.id, message.id, b.id);
+    expect(
+      await assignCurrent(c.id, message.id, { memberIds: [a.id], reason: 'Late Jev result' }),
+    ).toBe(false);
+    expect((await model.detail(c.id)).jobs.map((job) => job.memberId)).toEqual([b.id]);
+  });
+
+  it('does not execute a later direct request while an earlier audience is pending', async () => {
+    const { c, a } = await setup();
+    const first = await model.send(c.id, {
+      content: 'First',
+      mentions: [],
+      requestKey: randomUUID(),
+    });
+    await model.send(c.id, { content: 'Second', mentions: [a.id], requestKey: randomUUID() });
+    const [laterJob] = (await model.detail(c.id)).jobs;
+    expect(await model.claim(c.id, laterJob.id)).toBeNull();
+    await assignCurrent(c.id, first.id, { memberIds: [], reason: 'No response needed' });
+    expect(await model.claim(c.id, laterJob.id)).not.toBeNull();
+  });
+
+  it('gives the router a thread prefix and root, but never later main-channel or sibling content', async () => {
+    const { c, a, b } = await setup();
+    const root = await model.send(c.id, {
+      content: 'Original goal',
+      mentions: [a.id],
+      requestKey: randomUUID(),
+    });
+    const thread = await model.branch(c.id, root.id);
+    const later = await model.send(c.id, {
+      content: 'Later main-channel secret',
+      mentions: [b.id],
+      requestKey: randomUUID(),
+    });
+    const sibling = await model.branch(c.id, later.id);
+    await model.send(c.id, {
+      content: 'Sibling secret',
+      threadId: sibling.id,
+      mentions: [b.id],
+      requestKey: randomUUID(),
+    });
+    for (let index = 0; index < 9; index++)
+      await model.send(c.id, {
+        content: `Thread ${index}`,
+        threadId: thread.id,
+        mentions: [a.id],
+        requestKey: randomUUID(),
+      });
+    const current = await model.send(c.id, {
+      content: 'Continue',
+      threadId: thread.id,
+      mentions: [],
+      requestKey: randomUUID(),
+    });
+    await model.send(c.id, {
+      content: 'Future thread message',
+      threadId: thread.id,
+      mentions: [a.id],
+      requestKey: randomUUID(),
+    });
+    const routed = (await model.routingInput(c.id, current.id))!;
+    expect(routed.members.map((member) => member.id)).toEqual([a.id]);
+    expect(routed.threadRoot?.content).toBe('Original goal');
+    expect(routed.recent.map((message) => message.content)).toEqual(
+      Array.from({ length: 8 }, (_, i) => `Thread ${i + 1}`),
+    );
+    expect(routed.recent.every((message) => message.authorName === 'User')).toBe(true);
   });
 
   it('includes peers published before claim while retaining the original request identity', async () => {
@@ -372,6 +694,7 @@ describe('Channel durable boundaries', () => {
       mentions: [],
       requestKey: randomUUID(),
     });
+    await assignCurrent(c.id, request.id, { memberIds: [a.id, b.id], reason: 'Both peers' });
     const jobs = (await model.detail(c.id)).jobs;
     const first = (await model.claim(c.id, jobs.find((job) => job.memberId === a.id)!.id))!;
     await model.accepted(c.id, first.run.id, 1, 'first-session', 'first-turn');
@@ -390,7 +713,7 @@ describe('Channel durable boundaries', () => {
 
   it('keeps unavailable members visible without blocking other recipients', async () => {
     const { c, a, b } = await setup();
-    await model.send(c.id, { content: '有人吗', mentions: [], requestKey: randomUUID() });
+    await model.send(c.id, { content: '有人吗', mentions: [a.id, b.id], requestKey: randomUUID() });
     const jobs = (await model.detail(c.id)).jobs;
     await model.unavailable(c.id, jobs.find((job) => job.memberId === a.id)!.id, 'DEVICE_OFFLINE');
     const second = await model.claim(c.id, jobs.find((job) => job.memberId === b.id)!.id);
@@ -413,6 +736,10 @@ describe('Channel durable boundaries', () => {
       mentions: [],
       requestKey: randomUUID(),
     });
+    expect(
+      (await model.routingInput(c.id, request.id))?.members.map((member) => member.id),
+    ).toEqual([a.id]);
+    await assignCurrent(c.id, request.id, { memberIds: [a.id], reason: 'Only remaining member' });
     const jobs = (await model.detail(c.id)).jobs;
     expect(jobs.filter((job) => job.messageId === request.id).map((job) => job.memberId)).toEqual([
       a.id,
@@ -445,6 +772,7 @@ describe('Channel durable boundaries', () => {
         requestKey: randomUUID(),
       });
     const first = await send();
+    await assignCurrent(c.id, first.id, { memberIds: [a.id], reason: 'Root author' });
     const invitation = {
       content: 'Invite B',
       mentions: [b.id, b.id],
@@ -454,6 +782,7 @@ describe('Channel durable boundaries', () => {
     const directed = await model.send(c.id, invitation);
     await model.send(c.id, invitation);
     const next = await send();
+    await assignCurrent(c.id, next.id, { memberIds: [a.id, b.id], reason: 'Both followers' });
     let detail = await new ChannelModel(db, 'owner').detail(c.id);
     const recipients = (messageId: string) =>
       detail.jobs
@@ -472,6 +801,7 @@ describe('Channel durable boundaries', () => {
     await model.removeThreadFollower(c.id, thread.id, b.id);
     await model.send(c.id, invitation); // A network retry must not re-invite a removed follower.
     const afterRemoval = await send();
+    await assignCurrent(c.id, afterRemoval.id, { memberIds: [a.id], reason: 'Remaining follower' });
     detail = await model.detail(c.id);
     expect(recipients(afterRemoval.id)).toEqual([a.id]);
     expect((await model.branch(c.id, rootId)).followerMemberIds).toEqual([a.id]);
@@ -481,6 +811,7 @@ describe('Channel durable boundaries', () => {
     );
     await model.retire(c.id, b.id);
     const afterRetirement = await send();
+    await assignCurrent(c.id, afterRetirement.id, { memberIds: [a.id], reason: 'Active follower' });
     detail = await model.detail(c.id);
     expect(recipients(afterRetirement.id)).toEqual([a.id]);
   });
@@ -506,12 +837,13 @@ describe('Channel durable boundaries', () => {
       threadId: thread.id,
       requestKey: randomUUID(),
     });
+    await assignCurrent(c.id, reply.id, { memberIds: [a.id], reason: 'Thread follower' });
     const job = (await model.detail(c.id)).jobs.find((job) => job.messageId === reply.id)!;
     const claim = (await model.claim(c.id, job.id))!;
     await model.saveDraft(c.id, claim.run.id, 1, 'Must not publish');
     const main = await model.send(c.id, {
       content: 'Main stays active',
-      mentions: [],
+      mentions: [a.id, b.id],
       requestKey: randomUUID(),
     });
     await expect(
@@ -537,10 +869,11 @@ describe('Channel durable boundaries', () => {
       threadId: thread.id,
       requestKey: randomUUID(),
     });
-    expect(empty.routingStatus).toBe('unassigned');
+    expect(empty.routingStatus).toBe('pending');
+    await assignCurrent(c.id, empty.id, { memberIds: [], reason: 'No eligible members' });
     await model.retryRouting(c.id, empty.id);
     expect((await model.routingInput(c.id, empty.id))?.members).toEqual([]);
-    await model.assign(c.id, empty.id, { memberIds: [a.id, b.id], reason: 'Stale routing' });
+    await assignCurrent(c.id, empty.id, { memberIds: [a.id, b.id], reason: 'Stale routing' });
     const detail = await model.detail(c.id);
     expect(detail.jobs.filter((job) => job.messageId === empty.id)).toEqual([]);
     expect(detail.jobs.find((item) => item.id === job.id)?.status).toBe('cancelled');
@@ -617,7 +950,11 @@ describe('Channel durable boundaries', () => {
       { name: 'Late reviewer', config },
     ]);
     const [self, other, late] = (await model.detail(c.id)).members;
-    await model.send(c.id, { content: 'Where are you?', mentions: [], requestKey: randomUUID() });
+    await model.send(c.id, {
+      content: 'Where are you?',
+      mentions: [self.id, other.id, late.id],
+      requestKey: randomUUID(),
+    });
     const jobs = (await model.detail(c.id)).jobs;
     const mainSessions = new Map<string, string>();
     for (const [member, answer] of [

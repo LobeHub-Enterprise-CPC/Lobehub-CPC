@@ -85,11 +85,27 @@ export async function stopDiscussions(
       and(
         eq(channelDiscussions.channelId, channelId),
         threadId ? eq(channelDiscussions.threadId, threadId) : isNull(channelDiscussions.threadId),
-        inArray(channelDiscussions.status, ['active', 'summarizing']),
+        inArray(channelDiscussions.status, ['pending', 'active', 'summarizing']),
       ),
     )
-    .returning({ id: channelDiscussions.id });
-  if (stopped.length)
+    .returning({
+      id: channelDiscussions.id,
+      requestMessageId: channelDiscussions.requestMessageId,
+    });
+  if (stopped.length) {
+    // Cancel the decision as well, so an in-flight Jev result cannot start a superseded round.
+    await tx
+      .update(channelMessages)
+      .set({ routingStatus: 'unassigned', routingReason: `Discussion ${reason}` })
+      .where(
+        and(
+          inArray(
+            channelMessages.id,
+            stopped.map((discussion) => discussion.requestMessageId),
+          ),
+          eq(channelMessages.routingStatus, 'pending'),
+        ),
+      );
     await tx
       .update(channelJobs)
       .set({ status: 'cancelled' })
@@ -102,6 +118,7 @@ export async function stopDiscussions(
           eq(channelJobs.status, 'queued'),
         ),
       );
+  }
 }
 
 /**

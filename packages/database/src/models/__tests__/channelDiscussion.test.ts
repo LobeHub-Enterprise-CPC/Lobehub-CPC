@@ -23,7 +23,7 @@ beforeAll(async () => {
   );
   // Migration ownership moved to the enterprise chain (see
   // src/privateSchemas/channel.ts) after this test was written.
-  for (const migration of ['0009_channel_mvp.sql']) {
+  for (const migration of ['0009_channel_mvp.sql', '0010_channel_attachments.sql']) {
     await client.exec(
       readFileSync(
         new URL(
@@ -49,6 +49,23 @@ async function setup(ownerModel = model) {
   return { channel, a, b };
 }
 
+async function sendAssigned(
+  channelId: string,
+  input: Parameters<ChannelModel['send']>[1],
+  memberIds: string[],
+) {
+  const message = await model.send(channelId, input);
+  const pending = await model.routingInput(channelId, message.id);
+  if (pending)
+    await model.assign(
+      channelId,
+      message.id,
+      { memberIds, reason: 'Discussion fixture' },
+      pending.attemptId,
+    );
+  return message;
+}
+
 async function acceptDraftRelease(
   channelId: string,
   runId: string,
@@ -66,14 +83,18 @@ describe('Channel free collaboration regressions', () => {
   it.each([undefined, 'normal'] as const)(
     'keeps %s messages on the original one-reply delivery path',
     async (mode) => {
-      const { channel, a } = await setup();
-      const request = await model.send(channel.id, {
-        content: 'Hello',
-        mentions: [],
-        requestKey: randomUUID(),
-        mode,
-        maxDiscussionRounds: 5,
-      });
+      const { channel, a, b } = await setup();
+      const request = await sendAssigned(
+        channel.id,
+        {
+          content: 'Hello',
+          mentions: [],
+          requestKey: randomUUID(),
+          mode,
+          maxDiscussionRounds: 5,
+        },
+        [a.id, b.id],
+      );
       const jobs = (await model.detail(channel.id)).jobs;
       expect(jobs).toHaveLength(2);
       const runs = await Promise.all(
@@ -131,9 +152,14 @@ describe('Channel free collaboration regressions', () => {
     const discussionInput = { ...input, mode: 'discussion' as const, requestKey: randomUUID() };
     const discussion = await model.send(channel.id, discussionInput);
     expect((await model.send(channel.id, discussionInput)).id).toBe(discussion.id);
+    const pending = await model.detail(channel.id);
+    expect(pending.messages.find((message) => message.id === discussion.id)?.routingStatus).toBe(
+      'pending',
+    );
+    expect(pending.jobs.filter((job) => job.messageId === discussion.id)).toEqual([]);
     // No explicit budget: the default is a fixed number of rounds, each giving everyone one turn.
-    expect((await model.detail(channel.id)).discussions).toMatchObject([
-      { id: discussion.id, maxRounds: 3, round: 1 },
+    expect(pending.discussions).toMatchObject([
+      { id: discussion.id, maxRounds: 3, participantIds: [], round: 1, status: 'pending' },
     ]);
     await expect(
       model.send(channel.id, { ...discussionInput, mode: 'normal' }),
@@ -153,13 +179,17 @@ describe('Channel free collaboration regressions', () => {
   });
 
   it('atomically gates simultaneous distinct publications and rejects cross-owner mutation', async () => {
-    const { channel } = await setup();
-    await model.send(channel.id, {
-      content: 'Concurrent proposals',
-      mode: 'discussion',
-      mentions: [],
-      requestKey: randomUUID(),
-    });
+    const { channel, a, b } = await setup();
+    await sendAssigned(
+      channel.id,
+      {
+        content: 'Concurrent proposals',
+        mode: 'discussion',
+        mentions: [],
+        requestKey: randomUUID(),
+      },
+      [a.id, b.id],
+    );
     const runs = await Promise.all(
       (await model.detail(channel.id)).jobs.map(async (job) => {
         const claim = (await model.claim(channel.id, job.id))!;
@@ -183,13 +213,17 @@ describe('Channel free collaboration regressions', () => {
 
   it('publishes only one concurrent cutoff draft and holds the other for one same-session revision', async () => {
     const { channel, a, b } = await setup();
-    const request = await model.send(channel.id, {
-      content: 'Review together',
-      mode: 'discussion',
-      mentions: [],
-      requestKey: randomUUID(),
-      maxDiscussionRounds: 6,
-    });
+    const request = await sendAssigned(
+      channel.id,
+      {
+        content: 'Review together',
+        mode: 'discussion',
+        mentions: [],
+        requestKey: randomUUID(),
+        maxDiscussionRounds: 6,
+      },
+      [a.id, b.id],
+    );
     const jobs = (await model.detail(channel.id)).jobs;
     expect(jobs.map((j) => j.task)).toEqual([
       { kind: 'discuss', round: 1 },
@@ -241,13 +275,17 @@ describe('Channel free collaboration regressions', () => {
 
   it('allows a fresh identical agreement rather than globally deduplicating text', async () => {
     const { channel, a, b } = await setup();
-    await model.send(channel.id, {
-      content: 'Can we agree?',
-      mode: 'discussion',
-      mentions: [],
-      requestKey: randomUUID(),
-      maxDiscussionRounds: 4,
-    });
+    await sendAssigned(
+      channel.id,
+      {
+        content: 'Can we agree?',
+        mode: 'discussion',
+        mentions: [],
+        requestKey: randomUUID(),
+        maxDiscussionRounds: 4,
+      },
+      [a.id, b.id],
+    );
     let queued = (await model.detail(channel.id)).jobs.filter((j) => j.status === 'queued');
     const first = (await model.claim(channel.id, queued.find((j) => j.memberId === a.id)!.id))!;
     await acceptDraftRelease(channel.id, first.run.id, '同意');
@@ -261,13 +299,17 @@ describe('Channel free collaboration regressions', () => {
 
   it('gives every participant one turn in a single round, then summarizes at the round limit', async () => {
     const { channel, a, b } = await setup();
-    await model.send(channel.id, {
-      content: 'One round only',
-      mode: 'discussion',
-      mentions: [],
-      requestKey: randomUUID(),
-      maxDiscussionRounds: 1,
-    });
+    await sendAssigned(
+      channel.id,
+      {
+        content: 'One round only',
+        mode: 'discussion',
+        mentions: [],
+        requestKey: randomUUID(),
+        maxDiscussionRounds: 1,
+      },
+      [a.id, b.id],
+    );
     const jobs = (await model.detail(channel.id)).jobs;
     // Turns within a round are concurrent: both members may draft at once.
     const first = (await model.claim(channel.id, jobs.find((j) => j.memberId === a.id)!.id))!.run;
@@ -332,13 +374,17 @@ describe('Channel free collaboration regressions', () => {
   });
 
   it('uses the default number of rounds regardless of audience size', async () => {
-    const { channel, a } = await setup();
-    const broadcast = await model.send(channel.id, {
-      content: 'Everyone weighs in',
-      mode: 'discussion',
-      mentions: [],
-      requestKey: randomUUID(),
-    });
+    const { channel, a, b } = await setup();
+    const broadcast = await sendAssigned(
+      channel.id,
+      {
+        content: 'Everyone weighs in',
+        mode: 'discussion',
+        mentions: [],
+        requestKey: randomUUID(),
+      },
+      [a.id, b.id],
+    );
     const directed = await model.send(channel.id, {
       content: 'Just you',
       mode: 'discussion',
@@ -471,13 +517,17 @@ describe('Channel free collaboration regressions', () => {
   it('opens the next round only after every participant has settled, re-inviting those who yielded', async () => {
     const { channel, a, b } = await setup();
     const [slow] = await model.addMembers(channel.id, [{ name: 'Slow', config }]);
-    await model.send(channel.id, {
-      content: 'Hear all perspectives',
-      mode: 'discussion',
-      mentions: [],
-      requestKey: randomUUID(),
-      maxDiscussionRounds: 3,
-    });
+    await sendAssigned(
+      channel.id,
+      {
+        content: 'Hear all perspectives',
+        mode: 'discussion',
+        mentions: [],
+        requestKey: randomUUID(),
+        maxDiscussionRounds: 3,
+      },
+      [a.id, b.id, slow.id],
+    );
     const jobs = (await model.detail(channel.id)).jobs;
     expect(jobs).toHaveLength(3);
     const alpha = (await model.claim(channel.id, jobs.find((j) => j.memberId === a.id)!.id))!.run;
@@ -524,10 +574,14 @@ describe('Channel free collaboration regressions', () => {
     const runs = await Promise.all(
       secondRound.map(async (job) => (await model.claim(channel.id, job.id))!.run),
     );
-    expect(runs[0].manifest.discussion).toMatchObject({ kind: 'discuss', round: 2, maxRounds: 3 });
-    expect(runs[0].manifest.messages.map((m) => m.content)).toEqual(
-      expect.arrayContaining(['First', 'Second']),
-    );
+    for (const run of runs)
+      expect(run.manifest.discussion).toMatchObject({ kind: 'discuss', round: 2, maxRounds: 3 });
+    // Deltas depend on what each participant already accepted, not the random job ID order.
+    const contents = (memberId: string) =>
+      runs.find((run) => run.memberId === memberId)!.manifest.messages.map((m) => m.content);
+    expect(contents(a.id)).toEqual(['First', 'Second']);
+    expect(contents(b.id)).toEqual(['Second']);
+    expect(contents(slow.id)).toEqual([]);
     for (const run of runs) await acceptDraftRelease(channel.id, run.id, '[[CHANNEL_YIELD]]');
     await model.advanceDiscussions(channel.id);
     detail = await model.detail(channel.id);
@@ -543,12 +597,16 @@ describe('Channel free collaboration regressions', () => {
 
   it('session reset cancels a held continuation instead of replaying its private draft', async () => {
     const { channel, a, b } = await setup();
-    await model.send(channel.id, {
-      content: 'Race',
-      mode: 'discussion',
-      mentions: [],
-      requestKey: randomUUID(),
-    });
+    await sendAssigned(
+      channel.id,
+      {
+        content: 'Race',
+        mode: 'discussion',
+        mentions: [],
+        requestKey: randomUUID(),
+      },
+      [a.id, b.id],
+    );
     const jobs = (await model.detail(channel.id)).jobs;
     const first = (await model.claim(channel.id, jobs.find((j) => j.memberId === a.id)!.id))!.run;
     const held = (await model.claim(channel.id, jobs.find((j) => j.memberId === b.id)!.id))!.run;

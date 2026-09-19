@@ -2,7 +2,8 @@
 export type ChannelRuntime = (typeof CHANNEL_RUNTIMES)[number];
 export type ChannelMode = 'normal' | 'discussion';
 export type ChannelJobStatus = 'queued' | 'running' | 'completed' | 'cancelled' | 'failed';
-export type ChannelDiscussionStatus = 'active' | 'summarizing' | 'completed' | 'stopped';
+export type ChannelDiscussionStatus =
+  'pending' | 'active' | 'summarizing' | 'completed' | 'stopped';
 export interface ChannelDiscussionTask {
   kind: 'discuss' | 'revise' | 'summarize';
   previousRunId?: string;
