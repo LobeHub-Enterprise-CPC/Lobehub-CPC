@@ -507,8 +507,18 @@ export const sharedOptimizeDeps = {
   ],
 };
 
-// Workspace packages can resolve @lobehub/editor through different peer-dependency
-// snapshots. They must still share one LexicalComposerContext at runtime.
-export const sharedRendererDedupe = ['@lobehub/editor', 'react', 'react-dom'];
+// Workspace packages can resolve @lobehub/editor and @lobehub/ui through
+// different peer-dependency snapshots. They must still share one module
+// instance at runtime, because both ship module-level React contexts.
+//
+// @lobehub/ui is the wider trap: 51 workspace packages depend on it, so pnpm
+// links a copy under each one and a member imported from, say,
+// packages/builtin-tool-skills/src/client resolves to that package's path
+// rather than the root's. Every distinct path is a distinct module, and a
+// second MotionProvider module is a second `createContext` — AppTheme's
+// ConfigProvider then feeds a context the builtin-tool renders never read, and
+// `base-ui` Button throws "Please wrap your app with <ConfigProvider>" instead
+// of rendering.
+export const sharedRendererDedupe = ['@lobehub/editor', '@lobehub/ui', 'react', 'react-dom'];
 
 export const __testing = { isUiCoreModule, sharedChunkFileNames, sharedManualChunks };

@@ -53,10 +53,10 @@ export default defineConfig({
     ...sharedRendererPlugins({ platform: 'web' }),
   ].filter(Boolean) as PluginOption[],
   resolve: {
-    // The builtin-tool packages declare `@lobehub/ui: ^5` and resolve to an
-    // older copy than the app's; without deduping, their render surfaces fail
-    // to import components that only exist in the app's version.
-    dedupe: [...sharedRendererDedupe, '@lobehub/ui'],
+    // @lobehub/ui used to be appended here because the builtin-tool packages
+    // resolve it through their own node_modules; it now lives in the shared
+    // list, since every renderer has the same problem.
+    dedupe: sharedRendererDedupe,
   },
   root: __dirname,
   server: {
