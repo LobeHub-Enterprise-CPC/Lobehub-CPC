@@ -1,3 +1,4 @@
+import { assertBusinessUserAccess, isBusinessAuthorizationError } from '@lobechat/business-auth';
 import type { LobeChatDatabase } from '@lobechat/database';
 import {
   oidcAccessTokens,
@@ -65,13 +66,22 @@ export const revokeOIDCArtifactsByUserId = async (db: LobeChatDatabase, userId: 
  * Rejects stateless OIDC access tokens once their subject is no longer active.
  */
 export const assertOIDCUserActive = async (db: LobeChatDatabase, userId: string) => {
-  const [user] = await db
-    .select({ banExpires: users.banExpires, banned: users.banned, id: users.id })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
+  try {
+    const [user] = await db
+      .select({ banExpires: users.banExpires, banned: users.banned, id: users.id })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
 
-  if (!user || isOIDCUserBanned(user)) {
-    throw new OIDCUserInactiveError();
+    if (!user || isOIDCUserBanned(user)) {
+      throw new OIDCUserInactiveError();
+    }
+    await assertBusinessUserAccess(db, userId);
+  } catch (error) {
+    if (isOIDCUserInactiveError(error) || isBusinessAuthorizationError(error)) throw error;
+    throw Object.assign(new Error('AUTHORIZATION_UNAVAILABLE', { cause: error }), {
+      code: 'AUTHORIZATION_UNAVAILABLE',
+      status: 503,
+    });
   }
 };

@@ -314,3 +314,19 @@ describe('useSignUp', () => {
     });
   });
 });
+
+it('server token=null requires verification even when static verification config is false', async () => {
+  mockEnableEmailVerification = false;
+  mockSignUpEmail.mockResolvedValue({ error: null, data: { token: null } });
+  const { result } = renderHook(() => useSignUp());
+  await act(async () => {
+    await result.current.onSubmit({
+      email: 'new@example.com',
+      password: 'Password123!',
+      confirmPassword: 'Password123!',
+    });
+  });
+  expect(mockNavigate).toHaveBeenCalledWith(
+    expect.stringContaining('/verify-email?email=new%40example.com'),
+  );
+});

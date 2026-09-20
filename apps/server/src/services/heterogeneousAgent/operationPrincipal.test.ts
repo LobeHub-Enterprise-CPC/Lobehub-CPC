@@ -8,6 +8,11 @@ import {
   resolveActiveHeteroOperationPrincipal,
 } from './operationPrincipal';
 
+vi.mock('@lobechat/business-auth', () => ({
+  isBusinessAuthorizationError: (error: any) =>
+    ['PLATFORM_ACCESS_DENIED', 'AUTHORIZATION_UNAVAILABLE'].includes(error?.code),
+}));
+
 const { activeUser, hasMembership, hasPermission } = vi.hoisted(() => ({
   activeUser: vi.fn(),
   hasMembership: vi.fn(),
@@ -216,3 +221,24 @@ describe('resolveActiveHeteroOperationPrincipal', () => {
     ).rejects.toMatchObject({ status: 403 });
   });
 });
+
+it.each([403, 503])(
+  'preserves platform %s instead of rewriting it as an inactive-user 401',
+  async (status) => {
+    const error = Object.assign(new Error('platform'), {
+      status,
+      code: status === 503 ? 'AUTHORIZATION_UNAVAILABLE' : 'PLATFORM_ACCESS_DENIED',
+    });
+    activeUser.mockRejectedValueOnce(error);
+    const db = dbWithOperation(activeOperation());
+    await expect(
+      resolveActiveHeteroOperationPrincipal({
+        capability: 'model:invoke',
+        claims,
+        db,
+        operationId: 'op-1',
+      }),
+    ).rejects.toBe(error);
+    expect(db.select).not.toHaveBeenCalled();
+  },
+);

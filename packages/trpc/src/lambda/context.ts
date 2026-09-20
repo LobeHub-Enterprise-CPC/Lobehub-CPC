@@ -1,7 +1,9 @@
+import { assertBusinessUserAccess, isBusinessAuthorizationError } from '@lobechat/business-auth';
 import { type Context as OtContext } from '@lobechat/observability-otel/api';
 import { type ClientSecretPayload, type SpendOrigin } from '@lobechat/types';
 import type { ClientMetadata } from '@lobechat/utils/server';
 import { parseClientMetadata } from '@lobechat/utils/server';
+import { TRPCError } from '@trpc/server';
 import { parse } from 'cookie';
 import debug from 'debug';
 import { type NextRequest } from 'next/server';
@@ -54,6 +56,7 @@ const validateApiKey = async (apiKey: string): Promise<ValidatedApiKey | null> =
     if (!apiKeyRecord.enabled) return null;
     if (isApiKeyExpired(apiKeyRecord.expiresAt)) return null;
 
+    await assertBusinessUserAccess(db, apiKeyRecord.userId);
     const userApiKeyModel = new ApiKeyModel(
       db,
       apiKeyRecord.userId,
@@ -70,6 +73,12 @@ const validateApiKey = async (apiKey: string): Promise<ValidatedApiKey | null> =
       workspaceId: apiKeyRecord.workspaceId ?? null,
     };
   } catch (error) {
+    if (isBusinessAuthorizationError(error))
+      throw new TRPCError({
+        code: error.status === 503 ? 'SERVICE_UNAVAILABLE' : 'FORBIDDEN',
+        message: error.code,
+        cause: error,
+      });
     log('API key authentication failed: %O', error);
     console.error('API key authentication failed, trying other methods:', error);
     return null;
@@ -187,6 +196,7 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
   const isMockUser = process.env.ENABLE_MOCK_DEV_USER === '1';
 
   if (process.env.NODE_ENV === 'development' && (isDebugApi || isMockUser)) {
+    await assertBusinessUserAccess(await getServerDB(), process.env.MOCK_DEV_USER_ID || 'DEV_USER');
     return createContextInner({
       clientMetadata,
       userId: process.env.MOCK_DEV_USER_ID,
@@ -338,9 +348,10 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
           ...operationClaims,
           sub: tokenInfo.userId, // Use tokenData as payload
         };
-        userId = tokenInfo.userId;
+        const candidateUserId = tokenInfo.userId;
         const db = await getServerDB();
-        await assertOIDCUserActive(db, userId);
+        await assertOIDCUserActive(db, candidateUserId);
+        userId = candidateUserId;
         log('OIDC authentication successful, userId: %s', userId);
 
         const oidcClientId =
@@ -357,6 +368,13 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
         });
       }
     } catch (error) {
+      userId = undefined;
+      if (isBusinessAuthorizationError(error))
+        throw new TRPCError({
+          code: error.status === 503 ? 'SERVICE_UNAVAILABLE' : 'FORBIDDEN',
+          message: error.code,
+          cause: error,
+        });
       if (isOIDCUserInactiveError(error)) {
         log('OIDC user is inactive, rejecting request without fallback auth');
         console.error('OIDC authentication failed for inactive user:', error);
@@ -380,8 +398,9 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
   // If OIDC is not enabled or validation fails, try Better Auth authentication
   log('Attempting Better Auth authentication');
   try {
-    const session = await auth.api.getSession({
+    const { response: session, headers: authHeaders } = await auth.api.getSession({
       headers: request.headers,
+      returnHeaders: true,
     });
 
     if (session && session?.user?.id) {
@@ -391,21 +410,20 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
       log('Better Auth authentication failed, no valid session');
     }
 
-    return createContextInner({
+    const context = await createContextInner({
       ...commonContext,
       authFailure,
       traceContext,
       userId,
     });
+    for (const cookie of authHeaders.getSetCookie())
+      context.resHeaders?.append('set-cookie', cookie);
+    return context;
   } catch (e) {
-    log('Better Auth authentication error: %O', e);
-    console.error('better auth err', e);
+    throw new TRPCError({
+      code: 'SERVICE_UNAVAILABLE',
+      message: 'AUTHORIZATION_UNAVAILABLE',
+      cause: e,
+    });
   }
-
-  // Final return, userId may be undefined
-  log(
-    'All authentication methods attempted, returning final context, userId: %s',
-    userId || 'not authenticated',
-  );
-  return createContextInner({ ...commonContext, authFailure, traceContext, userId });
 };

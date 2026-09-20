@@ -16,6 +16,13 @@ import {
   revokeOIDCArtifactsByUserId,
 } from './access-control';
 
+const mockBusinessAccess = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock('@lobechat/business-auth', () => ({
+  assertBusinessUserAccess: mockBusinessAccess,
+  isBusinessAuthorizationError: (error: any) =>
+    ['PLATFORM_ACCESS_DENIED', 'AUTHORIZATION_UNAVAILABLE'].includes(error?.code),
+}));
+
 describe('OIDC access control', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -77,6 +84,15 @@ describe('OIDC access control', () => {
       await expect(
         assertOIDCUserActive(db as unknown as Parameters<typeof assertOIDCUserActive>[0], 'user-1'),
       ).resolves.toBeUndefined();
+    });
+
+    it('reports unavailable when the current identity cannot be read', async () => {
+      const { db, limit } = createDb([]);
+      limit.mockRejectedValueOnce(new Error('database unavailable'));
+      await expect(assertOIDCUserActive(db as never, 'user-1')).rejects.toMatchObject({
+        code: 'AUTHORIZATION_UNAVAILABLE',
+        status: 503,
+      });
     });
 
     it('rejects a permanently banned user', async () => {

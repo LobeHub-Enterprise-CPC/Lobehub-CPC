@@ -5,6 +5,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { requireAuth, userAuthMiddleware } from './auth';
 
+const mockBusinessAccess = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock('@lobechat/business-auth', () => ({
+  assertBusinessUserAccess: mockBusinessAccess,
+  isBusinessAuthorizationError: (error: any) =>
+    ['PLATFORM_ACCESS_DENIED', 'AUTHORIZATION_UNAVAILABLE'].includes(error?.code),
+}));
+
 interface TestHonoEnv {
   Variables: {
     apiKeyWorkspaceId: string | null | undefined;
@@ -96,6 +103,7 @@ const createApp = () => {
 describe('OpenAPI auth middleware', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockBusinessAccess.mockResolvedValue(undefined);
     mockAuthEnv.ENABLE_OIDC = true;
     mockExtractBearerToken.mockReturnValue('oidc-token');
     mockGetServerDB.mockResolvedValue(mockServerDB);
@@ -248,3 +256,43 @@ describe('OpenAPI auth middleware', () => {
     expect(mockApiKeyFindByKey).toHaveBeenCalledTimes(2);
   });
 });
+
+for (const status of [403, 503]) {
+  it(`API key platform failure ${status} never invokes a public downstream handler`, async () => {
+    mockValidateApiKeyFormat.mockReturnValue(true);
+    mockExtractBearerToken.mockReturnValue('key');
+    mockApiKeyFindByKey.mockResolvedValue({ id: 'k', userId: 'alice', enabled: true });
+    const error = Object.assign(new Error('platform'), {
+      status,
+      code: status === 503 ? 'AUTHORIZATION_UNAVAILABLE' : 'PLATFORM_ACCESS_DENIED',
+    });
+    mockBusinessAccess.mockRejectedValueOnce(error);
+    const app = new Hono<TestHonoEnv>();
+    const reached = vi.fn();
+    app.use('*', userAuthMiddleware);
+    app.get('/', (c) => {
+      reached();
+      return c.json({ userId: c.get('userId') });
+    });
+    const response = await app.request('/', { headers: { Authorization: 'Bearer key' } });
+    expect(response.status).toBe(status);
+    expect(reached).not.toHaveBeenCalled();
+  });
+  it(`OIDC platform failure ${status} is terminal`, async () => {
+    mockValidateApiKeyFormat.mockReturnValue(false);
+    mockAuthEnv.ENABLE_OIDC = true;
+    mockExtractBearerToken.mockReturnValue('oidc');
+    mockGetServerDB.mockResolvedValue({});
+    mockValidateOIDCJWT.mockResolvedValue({ userId: 'alice', tokenData: {} });
+    mockAssertOIDCUserActive.mockRejectedValueOnce(
+      Object.assign(new Error('platform'), {
+        status,
+        code: status === 503 ? 'AUTHORIZATION_UNAVAILABLE' : 'PLATFORM_ACCESS_DENIED',
+      }),
+    );
+    expect(
+      (await createApp().request('/protected', { headers: { Authorization: 'Bearer oidc' } }))
+        .status,
+    ).toBe(status);
+  });
+}

@@ -6,7 +6,17 @@ import { UserModel } from '@/database/models/user';
 import { WebhookUserService } from './index';
 
 vi.mock('@/database/models/user', () => ({
-  UserModel: vi.fn(),
+  UserModel: Object.assign(vi.fn(), {
+    findById: vi.fn(async () => ({ id: 'user-123', email: 'test@example.com' })),
+  }),
+}));
+
+vi.mock('@lobechat/business-auth', () => ({
+  withBusinessIdentityUpdate: async (
+    db: unknown,
+    _userId: string,
+    update: (db: unknown) => Promise<unknown>,
+  ) => update(db),
 }));
 
 describe('WebhookUserService', () => {
@@ -77,6 +87,8 @@ describe('WebhookUserService', () => {
       expect(mockUserModel.updateUser).toHaveBeenCalledWith({
         avatar: updateData.avatar,
         email: updateData.email,
+        emailVerified: false,
+        emailVerifiedAt: null,
         fullName: updateData.fullName,
       });
       expect(result.status).toBe(200);
@@ -109,6 +121,8 @@ describe('WebhookUserService', () => {
       expect(mockUserModel.updateUser).toHaveBeenCalledWith({
         avatar: undefined,
         email: 'updated@example.com',
+        emailVerified: false,
+        emailVerifiedAt: null,
         fullName: undefined,
       });
       expect(result.status).toBe(200);
@@ -159,6 +173,8 @@ describe('WebhookUserService', () => {
       expect(mockUserModel.updateUser).toHaveBeenCalledWith({
         avatar: undefined,
         email: 'only-email@example.com',
+        emailVerified: false,
+        emailVerifiedAt: null,
         fullName: undefined,
       });
       expect(result.status).toBe(200);

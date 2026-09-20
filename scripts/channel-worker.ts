@@ -23,6 +23,9 @@ async function main() {
     return 0;
   }
 
+  const { assertBusinessAuthReady } = await import('@lobechat/business-auth/startup');
+  await assertBusinessAuthReady();
+
   // A coordinator process never diagnoses another live coordinator's Native tools as orphaned.
   const ownership = new Client({
     connectionString: process.env.DATABASE_URL,

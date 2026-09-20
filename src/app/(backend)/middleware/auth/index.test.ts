@@ -8,6 +8,13 @@ import { createErrorResponse } from '@/utils/errorResponse';
 
 import { checkAuth, type RequestHandler } from './index';
 
+const mockBusinessAccess = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock('@lobechat/business-auth', () => ({
+  assertBusinessUserAccess: mockBusinessAccess,
+  isBusinessAuthorizationError: (error: any) =>
+    ['PLATFORM_ACCESS_DENIED', 'AUTHORIZATION_UNAVAILABLE'].includes(error?.code),
+}));
+
 vi.mock('@lobechat/model-runtime', () => ({
   AgentRuntimeError: {
     createError: vi.fn((type: string) => ({ errorType: type })),
@@ -21,7 +28,7 @@ vi.mock('@lobechat/types', () => ({
   },
 }));
 
-const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+const _consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 const consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
 
 vi.mock('@/utils/errorResponse', () => ({
@@ -31,7 +38,7 @@ vi.mock('@/utils/errorResponse', () => ({
 vi.mock('@/auth', () => ({
   auth: {
     api: {
-      getSession: vi.fn().mockResolvedValue(null),
+      getSession: vi.fn().mockResolvedValue({ response: null, headers: new Headers() }),
     },
   },
 }));
@@ -273,4 +280,21 @@ describe('checkAuth', () => {
       expect(mockHandler).not.toHaveBeenCalled();
     });
   });
+});
+
+it.each([403, 503])('chat platform %s terminates before the handler', async (status) => {
+  const handler = vi.fn();
+  vi.mocked(validateOIDCJWT).mockResolvedValueOnce({ userId: 'alice', tokenData: {} } as never);
+  vi.mocked(assertOIDCUserActive).mockRejectedValueOnce(
+    Object.assign(new Error('platform'), {
+      status,
+      code: status === 503 ? 'AUTHORIZATION_UNAVAILABLE' : 'PLATFORM_ACCESS_DENIED',
+    }),
+  );
+  const response = await checkAuth(handler)(
+    new Request('http://localhost/webapi/chat/test', { headers: { 'Oidc-Auth': 'valid' } }),
+    { params: Promise.resolve({ provider: 'test' }) },
+  );
+  expect(response.status).toBe(status);
+  expect(handler).not.toHaveBeenCalled();
 });

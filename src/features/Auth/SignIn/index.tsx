@@ -23,11 +23,14 @@ const SignIn = () => {
     lastAuthProvider,
     loading,
     oAuthSSOProviders,
+    providerDetails,
+    reloadSSO,
     sending,
     sessionExpired,
     sentInfo,
     serverConfigInit,
     socialLoading,
+    ssoError,
     step,
   } = useSignIn();
 
@@ -64,9 +67,12 @@ const SignIn = () => {
         lastAuthProvider={lastAuthProvider}
         loading={loading}
         oAuthSSOProviders={oAuthSSOProviders}
+        providerDetails={providerDetails}
+        reloadSSO={reloadSSO}
         serverConfigInit={serverConfigInit}
         sessionExpired={sessionExpired}
         socialLoading={socialLoading}
+        ssoError={ssoError}
         onCheckUser={handleCheckUser}
         onGoToSignup={handleGoToSignup}
         onResetEmail={handleBackToEmail}

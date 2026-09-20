@@ -1,3 +1,4 @@
+import { isBusinessAuthorizationError } from '@lobechat/business-auth';
 import type { ServerDefaultHeterogeneousAgentType } from '@lobechat/heterogeneous-agents';
 import { isServerDefaultHeterogeneousAgentType } from '@lobechat/heterogeneous-agents';
 import { eq } from 'drizzle-orm';
@@ -55,7 +56,8 @@ export const resolveActiveHeteroOperationPrincipal = async (params: {
     throw new HeteroOperationPrincipalError('Operation token does not grant this request', 403);
   }
 
-  await assertOIDCUserActive(db, claims.sub).catch(() => {
+  await assertOIDCUserActive(db, claims.sub).catch((error) => {
+    if (isBusinessAuthorizationError(error)) throw error;
     throw new HeteroOperationPrincipalError('Operation user is no longer active', 401);
   });
 

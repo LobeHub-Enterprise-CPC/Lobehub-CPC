@@ -1,6 +1,9 @@
 // @vitest-environment node
+import { APIError } from 'better-auth/api';
 import type { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { getAuthForRequest } from '@/auth';
 
 import { GET, POST } from './route';
 
@@ -19,7 +22,7 @@ vi.mock('better-auth/next-js', () => ({
 }));
 
 vi.mock('@/auth', () => ({
-  auth: {},
+  getAuthForRequest: vi.fn(async () => ({})),
 }));
 
 const createPostRequest = (body: string, contentType = 'application/json') =>
@@ -75,6 +78,72 @@ describe('/api/auth/[...all] route', () => {
 
     expect(response.status).toBe(200);
     expect(mocks.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed without exposing decryption or database errors', async () => {
+    vi.mocked(getAuthForRequest).mockRejectedValueOnce(new Error('private-secret database error'));
+    const response = await GET(new Request('https://localhost/api/auth/get-session'));
+    expect(response.status).toBe(503);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ code: 'SSO_UNAVAILABLE', message: 'SSO_UNAVAILABLE' });
+    expect(mocks.get).not.toHaveBeenCalled();
+  });
+
+  it.each(['oauth2/callback', 'sso/callback', 'callback'])(
+    'redirects a denied %s callback to the access error page and preserves cleared cookies',
+    async (path) => {
+      mocks.get.mockResolvedValueOnce(
+        Response.json(
+          { code: 'EMAIL_NOT_ALLOWED', message: 'EMAIL_NOT_ALLOWED' },
+          { status: 403, headers: { 'Set-Cookie': 'session=; Max-Age=0; Path=/' } },
+        ),
+      );
+      const response = await GET(
+        new Request(`https://localhost/api/auth/${path}/provider?code=private&state=private`),
+      );
+      expect(response.status).toBe(303);
+      expect(response.headers.get('location')).toBe('/auth-error?error=EMAIL_NOT_ALLOWED');
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
+    },
+  );
+
+  it('redirects callback setup failures without leaking internal details', async () => {
+    vi.mocked(getAuthForRequest).mockRejectedValueOnce(new Error('private database error'));
+    const response = await GET(new Request('https://localhost/api/auth/sso/callback/provider'));
+    expect(response.status).toBe(303);
+    expect(response.headers.get('location')).toBe('/auth-error?error=SSO_UNAVAILABLE');
+  });
+
+  it('uses a GET redirect when a SAML POST callback is denied', async () => {
+    vi.mocked(getAuthForRequest).mockRejectedValueOnce(
+      new APIError('FORBIDDEN', { code: 'SSO_ACCESS_DENIED' }),
+    );
+    const response = await POST(
+      new Request('https://localhost/api/auth/sso/saml2/sp/acs/provider', {
+        method: 'POST',
+        body: 'SAMLResponse=private',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      }) as NextRequest,
+    );
+    expect(response.status).toBe(303);
+    expect(response.headers.get('location')).toBe('/auth-error?error=SSO_ACCESS_DENIED');
+  });
+
+  it('keeps API sign-in failures as JSON', async () => {
+    mocks.post.mockResolvedValueOnce(Response.json({ code: 'EMAIL_NOT_ALLOWED' }, { status: 403 }));
+    const response = await POST(createPostRequest('{}'));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: 'EMAIL_NOT_ALLOWED' });
+    expect(response.headers.get('location')).toBeNull();
+  });
+
+  it('preserves successful callback redirects', async () => {
+    const redirect = new Response(null, { status: 302, headers: { Location: '/' } });
+    mocks.get.mockResolvedValueOnce(redirect);
+    expect(await GET(new Request('https://localhost/api/auth/oauth2/callback/provider'))).toBe(
+      redirect,
+    );
   });
 
   it('delegates GET requests to Better Auth', async () => {

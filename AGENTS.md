@@ -56,8 +56,8 @@ Open this URL to develop locally against the production backend (app.lobehub.com
 
 ### Git Workflow
 
-- **Branch strategy**: `canary` is the development branch (cloud production); `main` is the release branch (periodically cherry-picks from canary)
-- New branches should be created from `canary`; PRs should target `canary`
+- **CPC branch strategy**: This fork is `LobeHub-Enterprise-CPC/Lobehub-CPC`. New CPC branches and PRs target `chore/merge-canary-into-cpc-branding`; the enterprise parent tracks this branch while pinning a specific submodule commit.
+- Upstream `canary` remains the source for upstream synchronization; it is not the target for CPC feature PRs.
 - Use rebase for `git pull`
 - Commit messages: prefix with gitmoji
 - Branch format: `<type>/<feature-name>`

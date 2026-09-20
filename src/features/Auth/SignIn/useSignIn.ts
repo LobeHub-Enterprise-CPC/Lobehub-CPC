@@ -67,7 +67,15 @@ export const useSignIn = () => {
   const [lastAuthProvider, setLastAuthProvider] = useState<string | null>(null);
   const serverConfigInit = useAuthServerConfigStore((s) => s.serverConfigInit);
   const oAuthSSOProviders = useAuthServerConfigStore((s) => s.serverConfig.oAuthSSOProviders) || [];
-  const { getAdditionalData, preSocialSigninCheck, ssoProviders } = useBusinessSignin();
+  const {
+    getAdditionalData,
+    managedSSO,
+    preSocialSigninCheck,
+    reloadSSO,
+    ssoError,
+    ssoLoaded,
+    ssoProviders,
+  } = useBusinessSignin();
 
   useEffect(() => {
     try {
@@ -289,20 +297,36 @@ export const useSignIn = () => {
         authOrigin,
       );
       const additionalData = await getAdditionalData();
+      const managedProvider = managedSSO
+        ? ssoProviders.find((item) => item.id === provider)
+        : undefined;
+      if (managedSSO && !managedProvider) throw new Error('SSO provider unavailable');
       const signInWithAdditionalData = async () =>
-        isBuiltinProvider(normalizedProvider)
-          ? await signIn.social({
-              additionalData,
+        managedProvider?.protocol === 'oidc'
+          ? await signIn.sso({
               callbackURL,
               newUserCallbackURL,
-              provider: normalizedProvider,
+              providerId: managedProvider.id,
             })
-          : await signIn.oauth2({
-              additionalData,
-              callbackURL,
-              newUserCallbackURL,
-              providerId: normalizedProvider,
-            });
+          : managedProvider
+            ? await signIn.oauth2({
+                callbackURL,
+                newUserCallbackURL,
+                providerId: managedProvider.id,
+              })
+            : isBuiltinProvider(normalizedProvider)
+              ? await signIn.social({
+                  additionalData,
+                  callbackURL,
+                  newUserCallbackURL,
+                  provider: normalizedProvider,
+                })
+              : await signIn.oauth2({
+                  additionalData,
+                  callbackURL,
+                  newUserCallbackURL,
+                  providerId: normalizedProvider,
+                });
 
       const result = await signInWithAdditionalData();
 
@@ -389,7 +413,11 @@ export const useSignIn = () => {
     handleBackToEmail();
   };
 
-  const resolvedProviders = enableBusinessFeatures ? ssoProviders : oAuthSSOProviders;
+  const resolvedProviders = !ssoLoaded
+    ? []
+    : managedSSO
+      ? ssoProviders.map((item) => item.id)
+      : oAuthSSOProviders;
   const sortedProviders = lastAuthProvider
     ? [...resolvedProviders].sort((a, b) => {
         if (a === lastAuthProvider) return -1;
@@ -414,10 +442,13 @@ export const useSignIn = () => {
     lastAuthProvider,
     loading,
     oAuthSSOProviders: sortedProviders,
+    providerDetails: Object.fromEntries(ssoProviders.map((item) => [item.id, item])),
+    reloadSSO,
     sending,
     sessionExpired,
     sentInfo,
-    serverConfigInit: enableBusinessFeatures ? true : serverConfigInit,
+    serverConfigInit: ssoLoaded && serverConfigInit,
+    ssoError,
     socialLoading,
     step,
   };

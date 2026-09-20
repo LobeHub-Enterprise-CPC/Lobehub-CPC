@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => {
   const authHandler = vi.fn(async () => new Response(null));
 
   return {
+    managedBusinessSSO: false,
     appEnv: { APP_URL: 'https://example.com' },
     authHandler,
     betterAuth: vi.fn((options) => ({ ...options, handler: authHandler })),
@@ -16,6 +17,13 @@ const mocks = vi.hoisted(() => {
     setGlobalDispatcher: vi.fn(),
   };
 });
+
+vi.mock('@lobechat/business-auth', () => ({
+  configureBusinessAuth: (options: unknown) => options,
+  get managedBusinessSSO() {
+    return mocks.managedBusinessSSO;
+  },
+}));
 
 vi.mock('@better-auth/expo', () => ({
   expo: vi.fn(() => ({ id: 'expo' })),
@@ -132,6 +140,7 @@ describe('defineConfig', () => {
     vi.clearAllMocks();
     vi.resetModules();
     mocks.appEnv.APP_URL = 'https://example.com';
+    mocks.managedBusinessSSO = false;
     process.env = { ...originalEnv, NODE_ENV: 'test' };
     delete process.env.HTTP_PROXY;
     delete process.env.http_proxy;
@@ -157,6 +166,39 @@ describe('defineConfig', () => {
         rpID: 'example.com',
         rpName: 'LobeHub',
       }),
+    );
+  });
+
+  it('disables env social login in managed distributions while preserving base session configuration', async () => {
+    mocks.managedBusinessSSO = true;
+    const { defineConfig } = await import('./define-config');
+    const { initBetterAuthSSOProviders } = await import('@/libs/better-auth/sso');
+    defineConfig({
+      cookiePrefix: 'frontend',
+      plugins: [{ id: 'business-admission' }],
+      overrides: {
+        plugins: [{ id: 'enterprise-sso-request' }],
+        verification: { storeInDatabase: true },
+        account: { accountLinking: { enabled: false }, storeStateStrategy: 'database' },
+        advanced: { cookies: { state: { name: 'provider-state' } } },
+        trustedOrigins: ['https://idp.example.com'],
+      },
+    });
+    const [options] = mocks.betterAuth.mock.lastCall!;
+    expect(initBetterAuthSSOProviders).not.toHaveBeenCalled();
+    expect(options.socialProviders).toEqual({});
+    expect(options.account.accountLinking.enabled).toBe(false);
+    expect(options.disabledPaths).toContain('/sign-in/social');
+    expect(options.disabledPaths).toContain('/get-access-token');
+    expect(options.verification.storeInDatabase).toBe(true);
+    expect(options.advanced.cookiePrefix).toBe('frontend');
+    expect(options.session.storeSessionInDatabase).toBe(true);
+    expect(options.user.additionalFields.username.type).toBe('string');
+    expect(options.plugins.map((plugin: { id: string }) => plugin.id)).toContain(
+      'enterprise-sso-request',
+    );
+    expect(options.plugins.map((plugin: { id: string }) => plugin.id)).not.toContain(
+      'email-whitelist',
     );
   });
 

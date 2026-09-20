@@ -20,34 +20,49 @@ const AuthErrorPage = memo(() => {
   const error = searchParams.get('error');
 
   const code = normalizeErrorCode(error);
+  const accessDenied = code === 'EMAIL_NOT_ALLOWED' || code === 'SSO_ACCESS_DENIED';
   const description = t(`codes.${code}`, { defaultValue: t('codes.UNKNOWN') });
 
   return (
     <AuthCard
       subtitle={description}
-      title={t('title')}
+      title={t(accessDenied ? 'accessDenied.title' : 'title')}
       footer={
         <Flexbox gap={12} justify="center" wrap="wrap">
           <Link to="/signin">
             <Button block size={'large'} type="primary">
-              {t('actions.retry')}
+              {t(accessDenied ? 'actions.signIn' : 'actions.retry')}
             </Button>
           </Link>
-          <a href={'/'}>
-            <Button block size={'large'}>
-              {t('actions.home')}
-            </Button>
-          </a>
-          <a href={SOCIAL_URL.discord} rel="noopener noreferrer" target="_blank">
-            <Button block icon={<Icon fill={cssVar.colorText} icon={SiDiscord} />} type="text">
-              {t('actions.discord')}
-            </Button>
-          </a>
+          {!accessDenied && (
+            <>
+              <a href={'/'}>
+                <Button block size={'large'}>
+                  {t('actions.home')}
+                </Button>
+              </a>
+              <a href={SOCIAL_URL.discord} rel="noopener noreferrer" target="_blank">
+                <Button block icon={<Icon fill={cssVar.colorText} icon={SiDiscord} />} type="text">
+                  {t('actions.discord')}
+                </Button>
+              </a>
+            </>
+          )}
         </Flexbox>
       }
     >
-      <Text style={{ fontFamily: cssVar.fontFamilyCode }} type={'secondary'}>
-        ErrorCode: {error || 'UNKNOWN'}
+      {accessDenied && (
+        <Flexbox paddingBlock={8}>
+          <Text type="secondary">{t('accessDenied.help')}</Text>
+        </Flexbox>
+      )}
+      <Text
+        type={'secondary'}
+        style={{
+          fontFamily: cssVar.fontFamilyCode,
+        }}
+      >
+        {t('errorCode')}: {code}
       </Text>
     </AuthCard>
   );
