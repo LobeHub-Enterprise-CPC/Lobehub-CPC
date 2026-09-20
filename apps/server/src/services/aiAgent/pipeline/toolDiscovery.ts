@@ -1,3 +1,4 @@
+import { CredsIdentifier } from '@lobechat/builtin-tool-creds';
 import { GoalIdentifier, isGoalPrompt } from '@lobechat/builtin-tool-goal';
 import { LobeAgentManifest } from '@lobechat/builtin-tool-lobe-agent';
 import { MessageToolIdentifier } from '@lobechat/builtin-tool-message';
@@ -19,11 +20,17 @@ import { generateToolsFromManifest } from '@lobechat/context-engine';
 import type { LobeChatDatabase } from '@lobechat/database';
 import type { DeviceUnavailableErrorData } from '@lobechat/device-gateway-client';
 import {
+  readFrozenModelFacts,
   resolveClientExecutors,
   resolveDiscoveryPool,
   resolveInvocationToolIds,
 } from '@lobechat/mecha';
-import type { ChatTopicBotContext, RequestTrigger } from '@lobechat/types';
+import type {
+  ChatTopicBotContext,
+  FrozenCredentialFacts,
+  FrozenModelFacts,
+  RequestTrigger,
+} from '@lobechat/types';
 import {
   agentShareFileAccessScope,
   getActivePluginIds,
@@ -56,6 +63,7 @@ import { resolveModelMediaCapabilities } from '@/server/modules/AgentRuntime/res
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import type { ServerAgentToolsContext } from '@/server/modules/Mecha';
 import { createServerAgentToolsEngine } from '@/server/modules/Mecha';
+import { createServerModelParamsProviders } from '@/server/modules/Mecha/ModelParams/providers';
 import type { AgentDocumentsService } from '@/server/services/agentDocuments';
 import {
   isAgentSignalEnabledForUser,
@@ -85,7 +93,11 @@ import {
   isMultimodalUnderstandingConfigured,
 } from '../helpers/mediaAvailability';
 import { resolveServerSearchDecision } from '../searchDecision';
-import { filterPluginsByShareGate, shareGateGrantsCloudSandbox } from '../shareGate';
+import {
+  filterPluginsByShareGate,
+  getShareGrantActivatedPluginIds,
+  shareGateGrantsCloudSandbox,
+} from '../shareGate';
 import type { ExecRunContext, InternalExecAgentParams } from '../types';
 import { markDegradedStage, traceDiscoveryStage } from './discoveryTracing';
 
@@ -145,10 +157,24 @@ export interface ToolDiscoveryResult {
    * context: it travels on the operation and the context engine injects it.
    */
   connectorOwnershipNote?: string;
+  /**
+   * Credentials listed once for the whole operation; see
+   * {@link FrozenCredentialFacts}. Absent when the run cannot inject
+   * credentials.
+   *
+   * Deliberately still a promise: awaiting it here would put a Market round
+   * trip between tool discovery and operation preparation, on the path to the
+   * first token. The caller awaits it once the preparation it overlaps with is
+   * done. Never rejects — a failed read resolves to `undefined` and the run
+   * reads the list live, as it did before the snapshot existed.
+   */
+  credentialFactsPromise?: Promise<FrozenCredentialFacts | undefined>;
   executionPlan?: ExecutionPlan;
   hasAgentDocuments: boolean;
   hasEnabledKnowledgeBases: boolean;
   lobehubSkillManifests: LobeToolManifest[];
+  /** Model facts read once for the whole operation; see {@link FrozenModelFacts}. */
+  modelFacts: FrozenModelFacts;
   modelMediaCapabilities: Pick<ModelAbilities, 'audio' | 'video' | 'vision'>;
   onlineDevices: DeviceAttachment[];
   operationAgentGroup?: AgentGroupConfig;
@@ -177,6 +203,41 @@ export interface ToolDiscoveryResult {
  * Returns the connector credential ownership note as run context when the run
  * borrows connectors other members authorized; the context engine injects it.
  */
+/**
+ * The credentials the run may reference, read once. Inside a workspace an agent
+ * only sees the workspace's shared organization credentials, never the
+ * operator's personal ones — the scope is recorded on the snapshot so a step in
+ * another scope falls back to a live read.
+ *
+ * Never fails the turn: without an answer the steps read the list live, exactly
+ * as they did before the snapshot existed.
+ */
+const readCredentialFacts = async (
+  deps: ToolDiscoveryDeps,
+): Promise<FrozenCredentialFacts | undefined> => {
+  try {
+    const marketService = await deps.getMarketService();
+    const result = deps.workspaceId
+      ? await marketService.market.organizations.creds({ workspaceId: deps.workspaceId }).list()
+      : await marketService.market.creds.list();
+    const creds = (result as any)?.data ?? [];
+    return {
+      credentials: creds.map((cred: any) => ({
+        description: cred.description,
+        key: cred.key,
+        name: cred.name,
+        ownerDisplayName: cred.ownerDisplayName,
+        ownerType: cred.ownerType,
+        type: cred.type,
+      })),
+      workspaceId: deps.workspaceId,
+    };
+  } catch (error) {
+    log('execAgent: failed to freeze credential facts: %O', error);
+    return undefined;
+  }
+};
+
 export const discoverTools = async (
   deps: ToolDiscoveryDeps,
   ctx: Pick<
@@ -234,6 +295,8 @@ export const discoverTools = async (
   } = input;
 
   let tools: any[] | undefined;
+  /** Started once the tool set is known; awaited at the return. */
+  let credentialFactsPromise: Promise<FrozenCredentialFacts | undefined> | undefined;
   let toolsResult: { enabledToolIds: string[]; tools?: any[] | undefined } = {
     enabledToolIds: [],
     tools: undefined,
@@ -276,6 +339,7 @@ export const discoverTools = async (
             ...(additionalPluginIds || []),
             ...(selectedToolIds || []),
             ...(hasMentionedAgents ? ['lobe-agent-management'] : []),
+            ...(shareGate ? getShareGrantActivatedPluginIds(shareGate) : []),
           ]),
         ];
 
@@ -333,6 +397,35 @@ export const discoverTools = async (
       provider,
       userAbilities: activeModelAbilities,
     }) ?? {};
+  // The rest of the run's model facts, read here because this stage already
+  // holds the loaded bank and the user's model row. Everything downstream — one
+  // per step, retries included — reads them back off the operation instead.
+  const modelFacts = await readFrozenModelFacts(
+    {
+      agent: { id: agentConfig.id },
+      mediaCapabilities: modelMediaCapabilities,
+      model,
+      provider,
+      topicId,
+    },
+    {
+      ...createServerModelParamsProviders({
+        builtinModels,
+        serverDB: deps.db,
+        userId: deps.userId,
+        workspaceId: deps.workspaceId,
+      }),
+      // Reuse the row read above rather than querying it a second time.
+      getUserModelRow: async () =>
+        activeModelMetadata
+          ? {
+              abilities: activeModelMetadata.abilities,
+              displayName: activeModelMetadata.displayName,
+              extendParams: activeModelMetadata.settings?.extendParams ?? undefined,
+            }
+          : null,
+    },
+  );
   const searchDecision = resolveServerSearchDecision({
     builtinModels,
     chatConfig: agentConfig.chatConfig ?? undefined,
@@ -829,11 +922,7 @@ export const discoverTools = async (
     const supportedDeviceTools = systemInfoDeviceId
       ? (
           await traceDiscoveryStage('device_system_info', () =>
-            deviceGateway.queryDeviceSystemInfo(
-              deps.userId,
-              systemInfoDeviceId,
-              activeDeviceScope === 'workspace' ? deps.workspaceId : undefined,
-            ),
+            ctx.runFacts.deviceSystemInfo(systemInfoDeviceId, activeDeviceScope),
           )
         )?.supportedTools
       : undefined;
@@ -975,6 +1064,14 @@ export const discoverTools = async (
 
     tools = toolsResult.tools;
     log('execAgent: enabled tool ids: %O', toolsResult.enabledToolIds);
+
+    // Only a run that can inject credentials renders {{CREDS_LIST}}. Kick the
+    // read off here and await it at the end: it is one Market round trip, and
+    // every step of the run reads the answer back off the operation instead of
+    // asking again.
+    if (toolsResult.enabledToolIds?.includes(CredsIdentifier)) {
+      credentialFactsPromise = readCredentialFacts(deps);
+    }
 
     // Start with the scoped manifest map (pluginIds + defaultToolIds)
     const manifestMap = toolsEngine.getEnabledPluginManifests(pluginIds);
@@ -1130,8 +1227,10 @@ export const discoverTools = async (
     connectorOwnershipNote,
     executionPlan,
     hasAgentDocuments,
+    credentialFactsPromise,
     hasEnabledKnowledgeBases,
     lobehubSkillManifests,
+    modelFacts,
     modelMediaCapabilities,
     onlineDevices,
     operationAgentGroup,

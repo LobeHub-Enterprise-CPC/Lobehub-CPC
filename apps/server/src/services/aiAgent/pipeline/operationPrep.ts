@@ -1,7 +1,7 @@
 import type { AgentRuntimeContext } from '@lobechat/agent-runtime';
 import { extractActivatedToolIdsFromMessages } from '@lobechat/agent-runtime';
 import { getShellSyntaxGuidance } from '@lobechat/builtin-tool-local-system';
-import type { ProjectInstructionFile, SkillEngine } from '@lobechat/context-engine';
+import type { OperationSkillSet, ProjectInstructionFile } from '@lobechat/context-engine';
 import { buildExpertiseContextSnapshot } from '@lobechat/context-engine';
 import type { LobeChatDatabase } from '@lobechat/database';
 import { buildTaskManagerDefaultsPrompt } from '@lobechat/prompts';
@@ -211,7 +211,7 @@ export interface OperationPrepResult {
   deviceSystemInfo: Record<string, string>;
   expertise?: Awaited<ReturnType<typeof buildExpertiseContextSnapshot>>;
   initialContext: AgentRuntimeContext;
-  operationSkillSet?: ReturnType<SkillEngine['generate']>;
+  operationSkillSet?: OperationSkillSet;
   /**
    * A project's root instruction files. Run context, not agent config — it
    * travels on the operation like `expertise` does, and the context engine
@@ -407,14 +407,10 @@ export const prepareOperation = async (
   ): Promise<Record<string, string>> => {
     if (!deviceId) return {};
     try {
-      // Scope the gateway lookup to the principal that owns the connection:
-      // workspace devices need workspaceId; personal devices (including a
-      // workspace run routed to the caller's own machine) must not.
-      const systemInfo = await deviceGateway.queryDeviceSystemInfo(
-        deps.userId,
-        deviceId,
-        activeDeviceScope === 'workspace' ? deps.workspaceId : undefined,
-      );
+      // Tool discovery already asked this device for the same answer earlier
+      // in the send window, so the run's fact reader serves it from there
+      // (it also owns the personal / workspace scoping of the lookup).
+      const systemInfo = await ctx.runFacts.deviceSystemInfo(deviceId, activeDeviceScope);
       if (!systemInfo) return {};
       const device = onlineDevices.find((d) => d.deviceId === deviceId);
       log('execAgent: fetched device system info for %s', deviceId);

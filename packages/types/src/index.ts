@@ -47,6 +47,7 @@ export * from './rag';
 export * from './recent';
 export * from './redis';
 export * from './resourceTransfer';
+export * from './scm';
 export * from './search';
 export * from './serverConfig';
 export * from './service';

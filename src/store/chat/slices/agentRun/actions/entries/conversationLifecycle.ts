@@ -27,6 +27,7 @@ import { toast } from '@lobehub/ui/base-ui';
 import { t } from 'i18next';
 
 import { type ChatInputEditor } from '@/features/ChatInput';
+import { saveDraft } from '@/features/ChatInput/draftStorage';
 import {
   ensureAgentManagementAccess,
   getRuntimeCanManageAgent,
@@ -335,6 +336,7 @@ export class ConversationLifecycleActionImpl {
 
     let detachCallerAbort = () => {};
     let hasNotifiedMessageAccepted = false;
+    let sendOperationId: string | undefined = undefined;
     const detachUnacceptedCallerAbort = () => {
       if (!hasNotifiedMessageAccepted) detachCallerAbort();
     };
@@ -342,6 +344,11 @@ export class ConversationLifecycleActionImpl {
       if (hasNotifiedMessageAccepted) return;
 
       hasNotifiedMessageAccepted = true;
+      // Queued messages are accepted before a send operation exists. For actual
+      // sends, acceptance ends the optimistic phase for every runtime.
+      if (sendOperationId) {
+        this.#get().updateOperationMetadata(sendOperationId, { inputEditorTempState: null });
+      }
       detachCallerAbort();
       try {
         onMessageAccepted?.();
@@ -860,6 +867,7 @@ export class ConversationLifecycleActionImpl {
         inThread: !!operationContext.threadId,
       },
     });
+    sendOperationId = operationId;
     // Voice recording starts before a first-send topic exists, so its upload
     // transaction and local row initially live in the legacy `_new` bucket.
     // Adopt the client-minted topic context before looking up that row; otherwise
@@ -1301,6 +1309,19 @@ export class ConversationLifecycleActionImpl {
         messageMapKey({ ...operationContext, topicId: null }),
       );
       if (this.#get().activeTopicId === optimisticTopic.id) {
+        // Cancelling restores the editor before the optimistic topic rolls back.
+        // Read the live editor: the user may have edited or cleared the restored draft
+        // while the cancelled request was unwinding. Preserve it across the topic switch.
+        if (
+          !hasNotifiedMessageAccepted &&
+          this.#get().operations[operationId]?.status === 'cancelled' &&
+          jsonState
+        ) {
+          saveDraft(
+            messageMapKey({ ...operationContext, topicId: null }),
+            targetInputEditor?.getJSONState() ?? jsonState,
+          );
+        }
         void this.#get().switchTopic(null, { skipRefreshMessage: true });
       }
       this.#get().internal_dispatchTopic(
@@ -1481,10 +1502,14 @@ export class ConversationLifecycleActionImpl {
           resolveOptimisticTopic(heteroData.topicId, newTopicTitle);
           void Promise.resolve(this.#get().refreshTopic()).catch(console.error);
         }
-        await this.#get().switchTopic(heteroData.topicId, {
-          clearNewKey: true,
-          skipRefreshMessage: true,
-        });
+        if (context.isolatedTopic) {
+          await onTopicCreated?.(heteroData.topicId);
+        } else {
+          await this.#get().switchTopic(heteroData.topicId, {
+            clearNewKey: true,
+            skipRefreshMessage: true,
+          });
+        }
       }
 
       let directMentionThreadId: string | undefined;
@@ -1527,16 +1552,10 @@ export class ConversationLifecycleActionImpl {
       this.#get().completeOperation(operationId);
       notifyMessagePersisted();
 
-      // Clear editor temp state — the user's message is already persisted, so
-      // a later Stop click must NOT restore it into the input (would feel like
-      // the app re-sent the message). Client/Gateway paths clear this at
-      // line 684-686 after `sendMessageInServer` resolves, but the hetero
-      // branch returns early (line 498) and never reaches that clear.
-      this.#get().updateOperationMetadata(operationId, { inputEditorTempState: null });
-
       if (abortController.signal.aborted) {
         return {
           assistantMessageId: heteroData.assistantMessageId,
+          createdTopicId: heteroData.isCreateNewTopic ? heteroData.topicId : undefined,
           userMessageId: heteroData.userMessageId,
         };
       }
@@ -1678,6 +1697,7 @@ export class ConversationLifecycleActionImpl {
 
       return {
         assistantMessageId: heteroData.assistantMessageId,
+        createdTopicId: heteroData.isCreateNewTopic ? heteroData.topicId : undefined,
         userMessageId: heteroData.userMessageId,
       };
     }
@@ -1716,6 +1736,7 @@ export class ConversationLifecycleActionImpl {
             ? { ...requestMetadata, steer: true }
             : requestMetadata,
           onMessageAccepted: notifyMessageAccepted,
+          onTopicCreated: context.isolatedTopic ? onTopicCreated : undefined,
           parentOperationId: operationId,
           replacesOperationId: replaceableGatewayOperationId,
           optimisticTopic,
@@ -1789,6 +1810,7 @@ export class ConversationLifecycleActionImpl {
         return {
           assistantMessageId: result.assistantMessageId,
           createdThreadId: result.createdThreadId,
+          createdTopicId: willCreateNewTopic ? result.topicId : undefined,
           userMessageId: result.userMessageId,
         };
       } catch (e) {
@@ -2044,11 +2066,6 @@ export class ConversationLifecycleActionImpl {
         cleanupTempMessages({
           preserveOptimisticUser: Boolean(optimisticUserMessageId && !hasNotifiedMessageAccepted),
         });
-    }
-
-    // Clear editor temp state after message created
-    if (data) {
-      this.#get().updateOperationMetadata(operationId, { inputEditorTempState: null });
     }
 
     if (!data) {
