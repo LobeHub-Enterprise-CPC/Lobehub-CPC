@@ -60,6 +60,15 @@ describe('sharedRendererDedupe', () => {
   it('keeps editor entrypoints on one shared context instance', () => {
     expect(sharedRendererDedupe).toContain('@lobehub/editor');
   });
+
+  // Dozens of workspace packages depend on @lobehub/ui, so each gets its own
+  // node_modules link and an import from one of them resolves to a different
+  // path than the root's. Distinct paths are distinct modules, and a duplicated
+  // MotionProvider means a duplicated React context: the provider the app
+  // renders and the Button that reads it end up on different instances.
+  it('keeps @lobehub/ui on one module instance across workspace packages', () => {
+    expect(sharedRendererDedupe).toContain('@lobehub/ui');
+  });
 });
 
 describe('sharedModulePreload', () => {
