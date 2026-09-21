@@ -8,6 +8,7 @@ import { Mail } from 'lucide-react';
 import { type CSSProperties, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import type { BusinessSSOProvider } from '@/business/client/hooks/useBusinessSignin';
 import AuthIcons from '@/components/AuthIcons';
 import AuthCard from '@/features/AuthCard';
 import AuthAgreement, { useAuthAgreement } from '@/features/AuthShell/AuthAgreement';
@@ -48,9 +49,12 @@ export interface SignInEmailStepProps {
   onResetEmail: () => void;
   onSetPassword: () => void;
   onSocialSignIn: (provider: string) => void;
+  providerDetails?: Record<string, BusinessSSOProvider>;
+  reloadSSO?: () => void;
   serverConfigInit: boolean;
   sessionExpired?: boolean;
   socialLoading: string | null;
+  ssoError?: boolean;
 }
 
 export const SignInEmailStep = ({
@@ -60,9 +64,12 @@ export const SignInEmailStep = ({
   lastAuthProvider,
   loading,
   oAuthSSOProviders,
+  providerDetails = {},
+  reloadSSO,
   serverConfigInit,
   sessionExpired,
   socialLoading,
+  ssoError,
   onCheckUser,
   onGoToSignup,
   onResetEmail,
@@ -86,6 +93,10 @@ export const SignInEmailStep = ({
   );
 
   const getProviderLabel = (provider: string) => {
+    if (providerDetails[provider])
+      return t('betterAuth.signin.continueWithProvider', {
+        provider: providerDetails[provider].displayName,
+      });
     const normalized = getProviderName(provider);
     const normalizedKey = normalized.replaceAll(/[^\da-z]/gi, '');
     const key = `betterAuth.signin.continueWith${normalizedKey}`;
@@ -98,6 +109,16 @@ export const SignInEmailStep = ({
 
   return (
     <AuthCard title={t('signin.subtitle', { appName: BRANDING_NAME })}>
+      {ssoError ? (
+        <Alert
+          showIcon
+          action={<Button onClick={reloadSSO}>{t('betterAuth.signin.ssoRetry')}</Button>}
+          description={t('betterAuth.signin.ssoLoadError')}
+          type="error"
+        />
+      ) : !serverConfigInit ? (
+        <Text role="status">{t('betterAuth.signin.ssoLoading')}</Text>
+      ) : null}
       {sessionExpired && (
         <Alert
           showIcon
@@ -113,12 +134,24 @@ export const SignInEmailStep = ({
             const button = (
               <Button
                 block
-                icon={<Icon icon={AuthIcons(provider, 18)} />}
                 key={provider}
                 loading={socialLoading === provider}
                 size="large"
                 styles={{ icon: PROVIDER_ICON_STYLE }}
                 type="fill"
+                icon={
+                  providerDetails[provider]?.logoUrl ? (
+                    <img
+                      alt=""
+                      height={18}
+                      referrerPolicy="no-referrer"
+                      src={providerDetails[provider].logoUrl!}
+                      width={18}
+                    />
+                  ) : (
+                    <Icon icon={AuthIcons(provider, 18)} />
+                  )
+                }
                 onClick={() =>
                   continueWithAgreement(() => {
                     onSocialSignIn(provider);

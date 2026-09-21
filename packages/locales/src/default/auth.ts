@@ -181,6 +181,10 @@ export default {
   'betterAuth.signin.socialError': 'Social sign in failed, please try again',
   'betterAuth.signin.socialOnlyHint':
     'This email was registered via a third-party social account. Sign in with that provider, or',
+  'betterAuth.signin.continueWithProvider': 'Continue with {{provider}}',
+  'betterAuth.signin.ssoLoadError': 'Unable to load sign-in providers. Please retry.',
+  'betterAuth.signin.ssoRetry': 'Retry',
+  'betterAuth.signin.ssoLoading': 'Loading sign-in providers…',
   'betterAuth.signin.ssoOnlyNoProviders':
     'Email registration is disabled and no SSO providers are configured. Please contact your administrator.',
   'betterAuth.signin.submit': 'Sign In',

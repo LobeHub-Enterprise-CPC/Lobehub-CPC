@@ -1,4 +1,6 @@
-import { type BetterAuthPlugin } from 'better-auth/types';
+import { type BetterAuthOptions, type BetterAuthPlugin } from 'better-auth/types';
+
+export const configureBusinessAuth = <T extends BetterAuthOptions>(options: T): T => options;
 
 /**
  * Better Auth plugins contributed by the distribution, merged ahead of the
@@ -17,3 +19,31 @@ import { type BetterAuthPlugin } from 'better-auth/types';
  * distribution adds to it.
  */
 export const businessAuthPlugins: BetterAuthPlugin[] = [];
+
+export const managedBusinessSSO = false;
+export const getBusinessAuthOptions = async (
+  _request: Request,
+): Promise<BetterAuthOptions | null> => null;
+export const listBusinessSSOProviders = async (): Promise<
+  Array<{
+    id: string;
+    displayName: string;
+    logoUrl: string | null;
+    protocol: string;
+  }>
+> => [];
+
+/** Distribution seam: current account authorization for non-session credentials. */
+export const assertBusinessUserAccess = async (_db: unknown, _userId: string): Promise<void> => {};
+export const isBusinessAuthorizationError = (
+  error: unknown,
+): error is Error & { code: string; status: 403 | 503 } =>
+  !!error &&
+  typeof error === 'object' &&
+  'code' in error &&
+  ['PLATFORM_ACCESS_DENIED', 'AUTHORIZATION_UNAVAILABLE'].includes(String(error.code));
+export const withBusinessIdentityUpdate = async <T, D>(
+  db: D,
+  _userId: string,
+  update: (tx: D) => Promise<T>,
+): Promise<T> => update(db);

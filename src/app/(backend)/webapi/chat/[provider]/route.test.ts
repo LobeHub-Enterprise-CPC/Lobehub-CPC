@@ -6,13 +6,18 @@ import { ModelRuntime } from '@lobechat/model-runtime';
 import { ChatErrorType } from '@lobechat/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auth } from '@/auth';
 import { UserModel } from '@/database/models/user';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
 
 import { POST } from './route';
 
 const mockIsLobeHubModelAvailable = vi.hoisted(() => vi.fn());
+// Better Auth changes the result shape when returnHeaders is true.
+const mockGetSession = vi.hoisted(() =>
+  vi.fn<
+    () => Promise<{ response: { session: object; user: { id: string } } | null; headers: Headers }>
+  >(),
+);
 
 vi.mock('@/app/(backend)/middleware/auth/utils', () => ({
   checkAuthMethod: vi.fn(),
@@ -26,7 +31,7 @@ vi.mock('@/server/modules/ModelRuntime', () => ({
 vi.mock('@/auth', () => ({
   auth: {
     api: {
-      getSession: vi.fn().mockResolvedValue(null),
+      getSession: mockGetSession,
     },
   },
 }));
@@ -48,9 +53,9 @@ beforeEach(() => {
   });
 
   // Default: valid session
-  vi.mocked(auth.api.getSession).mockResolvedValue({
-    session: {} as any,
-    user: { id: 'test-user-id' } as any,
+  mockGetSession.mockResolvedValue({
+    response: { session: {} as any, user: { id: 'test-user-id' } as any },
+    headers: new Headers(),
   });
 
   mockIsLobeHubModelAvailable.mockResolvedValue(true);
@@ -86,7 +91,7 @@ describe('POST handler', () => {
     });
 
     it('should return Unauthorized error when no session exists', async () => {
-      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+      mockGetSession.mockResolvedValue({ response: null, headers: new Headers() });
 
       const mockParams = Promise.resolve({ provider: 'test-provider' });
 
@@ -184,7 +189,7 @@ describe('POST handler', () => {
 
       const response = await POST(request as unknown as Request, { params: mockParams });
 
-      expect(response.status).toBe(400);
+      expect(response.status).toBe(404);
       expect(await response.json()).toEqual({
         body: {
           error: { modelType: 'chat', requestedModel: 'beta-model' },

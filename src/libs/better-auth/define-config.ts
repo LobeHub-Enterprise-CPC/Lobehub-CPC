@@ -1,5 +1,6 @@
 import { expo } from '@better-auth/expo';
 import { passkey } from '@better-auth/passkey';
+import { configureBusinessAuth, managedBusinessSSO } from '@lobechat/business-auth';
 import { BRANDING_NAME } from '@lobechat/business-const';
 import { createNanoId, idGenerator, serverDB } from '@lobechat/database';
 import * as schema from '@lobechat/database/schemas';
@@ -113,7 +114,9 @@ const OTP_EXPIRES_IN = 300;
 const enableMagicLink = authEnv.AUTH_ENABLE_MAGIC_LINK;
 const enabledSSOProviders = parseSSOProviders(authEnv.AUTH_SSO_PROVIDERS);
 
-const { socialProviders, genericOAuthProviders } = initBetterAuthSSOProviders();
+const { socialProviders, genericOAuthProviders } = managedBusinessSSO
+  ? { socialProviders: {}, genericOAuthProviders: [] }
+  : initBetterAuthSSOProviders();
 
 interface CustomBetterAuthOptions {
   /**
@@ -123,6 +126,7 @@ interface CustomBetterAuthOptions {
   cookieDomain?: string;
   /** Namespace every Better Auth cookie so colocated deployments cannot overwrite each other. */
   cookiePrefix?: string;
+  overrides?: BetterAuthOptions;
   plugins: BetterAuthPlugin[];
 }
 
@@ -133,8 +137,8 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
     account: {
       accountLinking: {
         allowDifferentEmails: true,
-        enabled: true,
-        trustedProviders: enabledSSOProviders,
+        enabled: !managedBusinessSSO,
+        trustedProviders: managedBusinessSSO ? [] : enabledSSOProviders,
       },
     },
 
@@ -317,7 +321,7 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
     },
     plugins: [
       ...customOptions.plugins,
-      emailWhitelist(),
+      ...(!managedBusinessSSO ? [emailWhitelist()] : []),
       expo(),
       admin(),
       // Email OTP plugin for mobile verification
@@ -384,7 +388,39 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
     ],
   } satisfies BetterAuthOptions;
 
-  const instance = betterAuth(options);
+  const overrides = customOptions.overrides;
+  const instance = betterAuth(
+    configureBusinessAuth({
+      ...options,
+      verification: overrides?.verification,
+      emailAndPassword: {
+        ...options.emailAndPassword,
+        ...overrides?.emailAndPassword,
+        enabled: options.emailAndPassword.enabled,
+      },
+      account: { ...options.account, ...overrides?.account },
+      advanced: { ...options.advanced, ...overrides?.advanced },
+      plugins: [...options.plugins, ...(overrides?.plugins ?? [])],
+      trustedOrigins: [
+        ...(getTrustedOrigins(managedBusinessSSO ? [] : enabledSSOProviders) ?? []),
+        ...((overrides?.trustedOrigins as string[] | undefined) ?? []),
+      ],
+      disabledPaths: [
+        ...(managedBusinessSSO
+          ? [
+              '/sign-in/social',
+              '/link-social',
+              '/oauth2/link',
+              '/unlink-account',
+              '/get-access-token',
+              '/refresh-token',
+              '/account-info',
+            ]
+          : []),
+        ...(overrides?.disabledPaths ?? []),
+      ],
+    }),
+  );
   if (!cookieDomain) return instance;
 
   const handleRequest = instance.handler;

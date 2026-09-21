@@ -8,8 +8,20 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { defineConfig } from './define-config';
 
+// Better Auth changes the result shape when returnHeaders is true.
+const mockGetSession = vi.hoisted(() =>
+  vi.fn<() => Promise<{ response: { user: { id: string } } | null; headers: Headers }>>(),
+);
+
 vi.mock('@/auth', () => ({
-  auth: { api: { getSession: vi.fn().mockResolvedValue({ user: { id: 'user-1' } }) } },
+  auth: {
+    api: {
+      getSession: mockGetSession.mockResolvedValue({
+        response: { user: { id: 'user-1' } },
+        headers: new Headers(),
+      }),
+    },
+  },
 }));
 
 const { middleware } = defineConfig();
@@ -23,6 +35,17 @@ const run = async (url: string, userAgent?: string) => {
 
 const MOBILE_USER_AGENT =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1';
+
+it('clears revoked authorization cookies on the protected-page redirect', async () => {
+  const headers = new Headers();
+  headers.append('set-cookie', 'custom.session_token=; Max-Age=0; Path=/; HttpOnly');
+  headers.append('set-cookie', 'custom.session_data.0=; Max-Age=0; Path=/; HttpOnly');
+  mockGetSession.mockResolvedValueOnce({ response: null, headers });
+  const response = await middleware(new NextRequest('http://localhost:3010/settings/profile'));
+  expect(response?.status).toBe(302);
+  expect(new URL(response!.headers.get('location')!).pathname).toBe('/signin');
+  expect(response?.headers.getSetCookie()).toEqual(headers.getSetCookie());
+});
 
 describe('defineConfig locale path-traversal hardening', () => {
   it('rewrites a normal locale into /spa-auth/<locale>', async () => {
@@ -116,14 +139,13 @@ describe('defineConfig Share SPA rewrite', () => {
 
 describe('Acceptance installation guide', () => {
   it('serves the public Markdown asset without authentication or SPA rewrites', async () => {
-    const { auth } = await import('@/auth');
-    vi.mocked(auth.api.getSession).mockClear();
+    mockGetSession.mockClear();
     const response = await middleware(new NextRequest('http://localhost:3010/acceptance/skill.md'));
 
     expect(response?.headers.get('x-middleware-next')).toBe('1');
     expect(response?.headers.get('x-middleware-rewrite')).toBeNull();
     expect(response?.headers.get('location')).toBeNull();
-    expect(auth.api.getSession).not.toHaveBeenCalled();
+    expect(mockGetSession).not.toHaveBeenCalled();
 
     const guide = await readFile('public/acceptance/skill.md', 'utf8');
     expect(guide).toContain('npm install -g @lobehub/cli');

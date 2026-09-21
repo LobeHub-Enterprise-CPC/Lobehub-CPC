@@ -94,6 +94,8 @@ const closePreviousServer = (previousServer: Server | undefined) =>
   });
 
 const startServer = async () => {
+  const { assertBusinessAuthReady } = await import('@lobechat/business-auth/startup');
+  await assertBusinessAuthReady();
   const standaloneGlobal = globalThis as HonoStandaloneGlobal;
 
   await closePreviousServer(standaloneGlobal.__lobeHonoStandaloneServer);

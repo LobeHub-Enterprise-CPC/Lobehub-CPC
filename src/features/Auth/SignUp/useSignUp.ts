@@ -68,13 +68,13 @@ export const useSignUp = () => {
           password: values.password,
         });
 
-      let { error } = await submit(fetchOptions);
+      let { data, error } = await submit(fetchOptions);
 
       if (error) {
         const captchaToken = await getCaptchaTokenOnError(error);
         if (captchaToken === null) return;
         if (captchaToken) {
-          ({ error } = await submit(withCaptchaToken(fetchOptions, captchaToken)));
+          ({ data, error } = await submit(withCaptchaToken(fetchOptions, captchaToken)));
         }
       }
 
@@ -101,7 +101,7 @@ export const useSignUp = () => {
         return;
       }
 
-      if (enableEmailVerification) {
+      if (enableEmailVerification || data?.token === null) {
         navigate(
           `/verify-email?email=${encodeURIComponent(values.email)}&callbackUrl=${encodeURIComponent(redirectUrl)}`,
         );

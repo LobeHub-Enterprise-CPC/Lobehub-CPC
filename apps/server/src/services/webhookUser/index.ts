@@ -1,3 +1,4 @@
+import { withBusinessIdentityUpdate } from '@lobechat/business-auth';
 import { type LobeChatDatabase } from '@lobechat/database';
 import { and, eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
@@ -64,11 +65,17 @@ export class WebhookUserService {
     const user = await this.getUserByAccount({ accountId, providerId });
 
     if (user?.id) {
-      const userModel = new UserModel(this.db, user.id);
-      await userModel.updateUser({
-        avatar: data?.avatar,
-        email: data?.email,
-        fullName: data?.fullName,
+      await withBusinessIdentityUpdate(this.db, user.id, async (tx) => {
+        const currentUser = await UserModel.findById(tx, user.id);
+        const userModel = new UserModel(tx, user.id);
+        await userModel.updateUser({
+          avatar: data?.avatar,
+          email: data?.email,
+          ...(data.email !== undefined && data.email !== currentUser?.email
+            ? { emailVerified: false, emailVerifiedAt: null }
+            : {}),
+          fullName: data?.fullName,
+        });
       });
     } else {
       console.warn(

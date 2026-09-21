@@ -274,9 +274,11 @@ export function defineConfig() {
     if (!isProtected) return response;
 
     // Get full session with user data (Next.js 15.2.0+ feature)
-    const session = await auth.api.getSession({
+    const { response: session, headers: authHeaders } = await auth.api.getSession({
       headers: req.headers,
+      returnHeaders: true,
     });
+    for (const cookie of authHeaders.getSetCookie()) response.headers.append('set-cookie', cookie);
 
     const isLoggedIn = !!session?.user;
 
@@ -305,7 +307,10 @@ export function defineConfig() {
           signInUrl.searchParams.set('utm_source', utmSource);
           logBetterAuth('Preserving utm_source to sign-in: %s', utmSource);
         }
-        return Response.redirect(signInUrl);
+        const redirectHeaders = new Headers({ location: signInUrl.href });
+        for (const cookie of authHeaders.getSetCookie())
+          redirectHeaders.append('set-cookie', cookie);
+        return new Response(null, { status: 302, headers: redirectHeaders });
       }
       logBetterAuth('Request a free route but not login, allow visit without auth header');
     }

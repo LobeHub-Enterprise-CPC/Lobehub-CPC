@@ -24,7 +24,7 @@ describe('apiKey', () => {
       expect(keys.size).toBe(100);
     });
 
-    it('should start with lb- prefix', () => {
+    it('should start with the configured API key prefix', () => {
       const apiKey = generateApiKey();
       expect(apiKey.startsWith(API_KEY_PREFIX)).toBe(true);
     });

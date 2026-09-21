@@ -1,3 +1,4 @@
+import { assertBusinessUserAccess, isBusinessAuthorizationError } from '@lobechat/business-auth';
 import type { LobeChatDatabase } from '@lobechat/database';
 import debug from 'debug';
 import type { Configuration, KoaContextWithOIDC } from 'oidc-provider';
@@ -209,6 +210,7 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
           return undefined;
         }
 
+        await assertBusinessUserAccess(db, user.id);
         return {
           accountId: user.id,
           async claims(use, scope): Promise<{ [key: string]: any; sub: string }> {
@@ -235,9 +237,16 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
           },
         };
       } catch (error) {
+        if (isBusinessAuthorizationError(error))
+          throw Object.assign(error, { statusCode: error.status, expose: true });
         logProvider('Error finding account or generating claims: %O', error);
         console.error('Error finding account:', error);
-        return undefined;
+        throw Object.assign(new Error('AUTHORIZATION_UNAVAILABLE', { cause: error }), {
+          code: 'AUTHORIZATION_UNAVAILABLE',
+          status: 503,
+          statusCode: 503,
+          expose: true,
+        });
       }
     },
 
