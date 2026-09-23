@@ -16,6 +16,7 @@ import {
 import { Flexbox, InputNumber, Tooltip } from '@lobehub/ui';
 import { ActionIcon } from '@lobehub/ui/base-ui';
 import { Upload } from 'antd';
+import { $getSelection, $isRangeSelection } from 'lexical';
 import { Paperclip } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -32,7 +33,7 @@ import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 
-import { channelMentionIds } from './mentions';
+import { $insertChannelMentionBoundary, channelMentionIds } from './mentions';
 import { ModeSelector } from './ModeSelector';
 import { styles } from './styles';
 import { useAttachments } from './useAttachments';
@@ -241,12 +242,19 @@ export function Composer({
               })),
               searchKeys: ['label'],
               markdownWriter: (node) => `@${node.label}`,
-              onSelect: (instance, option) =>
+              onSelect: (instance, option) => {
                 instance.dispatchCommand(INSERT_MENTION_COMMAND, {
                   label: String(option.label),
                   metadata: option.metadata,
-                }),
+                });
+                // Leave the decorator's cursor node before the next @ is typed.
+                instance.getLexicalEditor()?.update(() => {
+                  const selection = $getSelection();
+                  if ($isRangeSelection(selection)) selection.insertText(' ');
+                });
+              },
             }}
+            onKeyDown={({ event }) => members.length > 0 && $insertChannelMentionBoundary(event)}
             onPressEnter={({ event }) => {
               if (event.isComposing || !shouldSendOnEnter(event)) return;
               void send();
