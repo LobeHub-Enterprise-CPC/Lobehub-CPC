@@ -1,3 +1,4 @@
+import { INSERT_CODEINLINE_COMMAND } from '@lobehub/editor';
 import { act, createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { LexicalEditor } from 'lexical';
 import {
@@ -79,6 +80,47 @@ async function setup() {
 }
 
 describe('Channel continuous mentions with the real editor', () => {
+  it.each(['说明', '说明；'])(
+    'preserves @ after %s inside a real inline-code container',
+    async (prefix) => {
+      const { editor, key, onSend, type } = await setup();
+      await type(`${prefix}后续`);
+      await act(async () => {
+        editor.update(() => {
+          const text = $getRoot().getAllTextNodes()[0];
+          text.select(0, text.getTextContentSize());
+        });
+      });
+      await act(async () => {
+        editor.dispatchCommand(INSERT_CODEINLINE_COMMAND, undefined);
+      });
+      await act(async () => {
+        editor.update(() => {
+          const text = $getRoot()
+            .getAllTextNodes()
+            .find(
+              (node) => node.getParent()?.getType() === 'codeInline' && node.getType() === 'text',
+            );
+          expect(text?.getTextContent()).toBe(`${prefix}后续`);
+          text!.select(prefix.length, prefix.length);
+        });
+      });
+
+      await key('@');
+
+      editor.getEditorState().read(() => {
+        const text = $getRoot()
+          .getAllTextNodes()
+          .find(
+            (node) => node.getParent()?.getType() === 'codeInline' && node.getType() === 'text',
+          );
+        expect(text?.getTextContent()).toBe(`${prefix}@后续`);
+      });
+      expect(screen.queryByRole('menuitem')).toBeNull();
+      expect(onSend).not.toHaveBeenCalled();
+    },
+  );
+
   it('keeps typing after keyboard/mouse selection and sends every selected member once', async () => {
     const { editor, key, onSend, select } = await setup();
     await key('@');

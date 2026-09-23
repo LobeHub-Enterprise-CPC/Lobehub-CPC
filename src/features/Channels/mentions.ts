@@ -8,6 +8,8 @@ export function $insertChannelMentionBoundary(event: KeyboardEvent): boolean {
     return false;
   const node = selection.anchor.getNode();
   if (!$isTextNode(node) || !node.isSimpleText() || node.hasFormat('code')) return false;
+  // ReactCodePlugin wraps ordinary text in a codeInline element, without a code format flag.
+  if (node.getParents().some((parent) => parent.getType() === 'codeInline')) return false;
   const before = node.getTextContent().slice(0, selection.anchor.offset);
   if (!/[\p{Script=Han}，。！？、；：“”‘’（）【】《》「」『』]$/u.test(before)) return false;
   selection.insertText(' @');
