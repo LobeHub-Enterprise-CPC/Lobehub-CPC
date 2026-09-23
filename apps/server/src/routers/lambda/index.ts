@@ -85,6 +85,7 @@ import { ragEvalRouter } from './ragEval';
 import { recentRouter } from './recent';
 import { resourcePermissionRouter } from './resourcePermission';
 import { resourceTransferRequestRouter } from './resourceTransferRequest';
+import { scmRouter } from './scm';
 import { searchRouter } from './search';
 import { sessionRouter } from './session';
 import { sessionGroupRouter } from './sessionGroup';
@@ -174,6 +175,7 @@ export const lambdaRouter = router({
   resourcePermission: resourcePermissionRouter,
   resourceTransferRequest: resourceTransferRequestRouter,
   search: searchRouter,
+  scm: scmRouter,
   session: sessionRouter,
   sessionGroup: sessionGroupRouter,
   share: shareRouter,

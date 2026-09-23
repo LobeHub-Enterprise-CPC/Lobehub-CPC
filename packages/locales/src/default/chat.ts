@@ -83,6 +83,8 @@ export default {
     'This agent does not exist or is no longer accessible — it may have been deleted or set to private by its owner.',
   'permission.configAccess.agentChatOnly':
     'You can only use this Agent, not configure it. You were returned to chat.',
+  'permission.configAccess.agentManageRestricted':
+    'Only the Agent creator or a workspace admin can manage external sharing. You were returned to chat.',
   'permission.configAccess.agentRoleRestricted':
     'Your workspace role cannot configure Agents. You were returned to chat.',
   'permission.configAccess.groupChatOnly':
@@ -412,6 +414,7 @@ export default {
   'heteroAgent.claudeQuota.calendar.legendMore': 'Heavy',
   'heteroAgent.claudeQuota.calendar.legendReset': 'Window reset',
   'heteroAgent.claudeQuota.calendar.monthSpend': 'Daily spend',
+  'heteroAgent.claudeQuota.calendar.monthlyHistory': 'Monthly windows',
   'heteroAgent.claudeQuota.calendar.noLedgerSpend': 'No token usage recorded in this window',
   'heteroAgent.claudeQuota.calendar.noLedgerSpendHint':
     'Token history is only recorded for runs started in LobeHub after usage tracking was enabled. Earlier usage and runs started directly from the terminal cannot be backfilled.',
@@ -480,6 +483,7 @@ export default {
   'heteroAgent.claudeSdkRuntime.state.stale': 'SDK stale',
   'heteroAgent.claudeSdkRuntime.state.starting': 'SDK starting',
   'heteroAgent.claudeSdkRuntime.tooltip': '{{state}}. Active background tasks: {{count}}.',
+  'heteroAgent.codexQuota.calendar.title': 'Codex usage calendar',
   'heteroAgent.codexQuota.doesNotExpire': 'Does not expire',
   'heteroAgent.codexQuota.errorConnection':
     "Couldn't reach the Codex quota endpoint. Check your network or LobeHub proxy settings.",
@@ -509,6 +513,19 @@ export default {
   'heteroAgent.codexQuota.totalEarned_one': '{{count}} earned in total',
   'heteroAgent.codexQuota.totalEarned_other': '{{count}} earned in total',
   'heteroAgent.codexQuota.tooltip': 'View Codex quota',
+  'heteroAgent.kimiCodeQuota.calendar.title': 'Kimi Code usage calendar',
+  'heteroAgent.kimiCodeQuota.errorGeneric': "Couldn't load Kimi Code quota. Try again later.",
+  'heteroAgent.kimiCodeQuota.extraUsage': 'Extra Usage',
+  'heteroAgent.kimiCodeQuota.fiveHour': '5-hour',
+  'heteroAgent.kimiCodeQuota.monthly': 'Monthly',
+  'heteroAgent.kimiCodeQuota.monthlyCap': '{{used}} of {{limit}} used this month',
+  'heteroAgent.kimiCodeQuota.monthlyCode': 'Monthly code',
+  'heteroAgent.kimiCodeQuota.title': 'Kimi Code quota',
+  'heteroAgent.kimiCodeQuota.tooltip': 'View Kimi Code quota',
+  'heteroAgent.kimiCodeQuota.unavailableExpired':
+    'Kimi Code login has expired. Sign in with the kimi CLI again, then refresh.',
+  'heteroAgent.kimiCodeQuota.unavailableNotFound':
+    'No Kimi Code login found. Run kimi in a terminal to sign in first.',
   'heteroAgent.quota.compactLeft': '{{percent}}%',
   'heteroAgent.quota.exhausted': 'Exhausted',
   'heteroAgent.quota.duration.day_one': '{{count}}d',
@@ -577,6 +594,10 @@ export default {
     'The previous Cursor session could not be restored through ACP, so a new conversation has started with fresh context.',
   'heteroAgent.resumeReset.resumeFailed':
     'The saved Codex thread could not be resumed safely, so a new conversation has started for this topic.',
+  'heteroAgent.restartRecovery.resumed_one':
+    'Picked up {{count}} local agent run that the app restart interrupted.',
+  'heteroAgent.restartRecovery.resumed_other':
+    'Picked up {{count}} local agent runs that the app restart interrupted.',
   'heteroAgent.switchCwd.cancel': 'Cancel',
   'heteroAgent.switchCwd.content':
     'Agent sessions are pinned to a working directory. Switching will start a new session for this topic — chat messages stay, but the previous session context cannot be resumed.',
@@ -2365,6 +2386,7 @@ export default {
   'tool.intervention.toolAbort': 'You canceled this Skill call',
   'tool.intervention.toolRejected': 'This Skill call was rejected',
   'tool.intervention.questionSkipped': 'You skipped this question',
+  'tool.intervention.questionTimedOut': 'This question timed out before it was answered',
   'tool.intervention.toolSkipped': 'You skipped this step',
   'toolAuth.authorize': 'Authorize',
   'toolAuth.authorizing': 'Authorizing...',
@@ -2720,6 +2742,8 @@ export default {
   'workingPanel.resources.tree.rename': 'Rename',
   'workingPanel.resources.tree.untitledDocument': 'Untitled document',
   'workingPanel.resources.tree.untitledFolder': 'Untitled folder',
+  'workingPanel.resources.tree.uploadError': 'Failed to upload',
+  'workingPanel.resources.tree.uploadFile': 'Upload file',
   'workingPanel.resources.updatedAt': 'Updated {{time}}',
   'workingPanel.resources.viewMode.list': 'List view',
   'workingPanel.resources.viewMode.tree': 'Tree view',
@@ -2747,9 +2771,19 @@ export default {
   'workingPanel.localFile.closeLeft': 'Close to the Left',
   'workingPanel.localFile.closeOther': 'Close Others',
   'workingPanel.localFile.closeRight': 'Close to the Right',
+  'workingPanel.localFile.document.actualSize': 'Actual size',
   'workingPanel.localFile.document.download': 'Download',
+  'workingPanel.localFile.document.fitWidth': 'Fit width',
   'workingPanel.localFile.document.openWithDefaultApp': 'Open with default app',
+  'workingPanel.localFile.document.search': 'Search slides',
+  'workingPanel.localFile.document.searchEmpty': 'No matches',
+  'workingPanel.localFile.document.searchHits': '{{current}} of {{total}}',
+  'workingPanel.localFile.document.searchNext': 'Next match',
+  'workingPanel.localFile.document.searchPlaceholder': 'Search in this deck',
+  'workingPanel.localFile.document.slideNumber': 'Slide {{number}}',
   'workingPanel.localFile.document.truncatedRows': 'Showing the first {{count}} rows',
+  'workingPanel.localFile.document.zoomIn': 'Zoom in',
+  'workingPanel.localFile.document.zoomOut': 'Zoom out',
   'workingPanel.localFile.document.xlsxOriginal': 'Original layout',
   'workingPanel.localFile.document.xlsxReflow': 'Reflow',
   'workingPanel.localFile.document.unsupported': "This document type can't be previewed in-app yet",

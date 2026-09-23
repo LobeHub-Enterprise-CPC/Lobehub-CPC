@@ -62,6 +62,7 @@ interface AgentDocumentQueryOptions {
 interface AgentDocumentCreateParams {
   createdAt?: Date;
   editorData?: Record<string, any>;
+  fileId?: string;
   fileType?: string;
   loadPosition?: DocumentLoadPosition;
   loadRules?: DocumentLoadRules;
@@ -91,6 +92,7 @@ interface ConvertAgentDocumentToSkillIndexParams {
 interface AgentDocumentListQueryRow {
   description: string | null;
   documentId: string;
+  fileId: string | null;
   filename: string | null;
   fileType: string;
   id: string;
@@ -236,6 +238,7 @@ export class AgentDocumentModel {
     const item = {
       description: row.description ?? null,
       documentId: row.documentId,
+      fileId: row.fileId,
       fileType: row.fileType,
       filename,
       id: row.id,
@@ -418,6 +421,7 @@ export class AgentDocumentModel {
     const {
       createdAt,
       editorData,
+      fileId,
       fileType = AGENT_DOCUMENT_FILE_TYPE,
       loadPosition,
       loadRules,
@@ -453,6 +457,7 @@ export class AgentDocumentModel {
       filename,
       parentId,
       metadata: scopedMetadata,
+      ...(fileId ? { fileId } : {}),
       source: source ?? `agent-document://${agentId}/${encodeURIComponent(filename)}`,
       sourceType,
       title,
@@ -574,7 +579,6 @@ export class AgentDocumentModel {
         title: params.title,
         totalCharCount: stats.totalCharCount,
         totalLineCount: stats.totalLineCount,
-        updatedAt,
       })
       .where(and(eq(documents.id, existing.documentId), this.documentOwnership()));
 
@@ -1041,6 +1045,7 @@ export class AgentDocumentModel {
       .select({
         description: documents.description,
         documentId: agentDocuments.documentId,
+        fileId: documents.fileId,
         fileType: documents.fileType,
         filename: documents.filename,
         id: agentDocuments.id,
@@ -1223,6 +1228,7 @@ export class AgentDocumentModel {
       .select({
         description: documents.description,
         documentId: agentDocuments.documentId,
+        fileId: documents.fileId,
         fileType: documents.fileType,
         filename: documents.filename,
         id: agentDocuments.id,

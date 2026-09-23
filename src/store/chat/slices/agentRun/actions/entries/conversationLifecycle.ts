@@ -337,6 +337,18 @@ export class ConversationLifecycleActionImpl {
     let detachCallerAbort = () => {};
     let hasNotifiedMessageAccepted = false;
     let sendOperationId: string | undefined = undefined;
+    // Where the user was when they hit send. This send's continuations adopt the
+    // topic it creates only while the conversation is still here — the awaited
+    // preflight (access check, snapshots, topic resolution) is long enough for
+    // the user to open another topic, and following them with a switchTopic
+    // would yank both the message list and the URL back (see the
+    // `onlyIfActiveTopicIn` guards below). The agent and group are pinned too:
+    // two blank views share `activeTopicId === null`, so the topic guard alone
+    // cannot tell "still on the origin blank view" from "moved to another
+    // agent's/group's blank view".
+    const sendOriginActiveTopicId = this.#get().activeTopicId || null;
+    const sendOriginActiveAgentId = this.#get().activeAgentId ?? null;
+    const sendOriginActiveGroupId = this.#get().activeGroupId ?? null;
     const detachUnacceptedCallerAbort = () => {
       if (!hasNotifiedMessageAccepted) detachCallerAbort();
     };
@@ -1094,7 +1106,18 @@ export class ConversationLifecycleActionImpl {
         messageMapKey({ ...operationContext, topicId: null }),
         currentContextKey,
       );
-      await this.#get().switchTopic(mintedTopicId, { skipRefreshMessage: true });
+      // Adopt the minted bucket only while the user is still on the view this
+      // send started from. If they navigated away while the awaits above
+      // (access check, snapshots) were in flight, don't yank them onto the new
+      // topic's bucket. The agent/group pins cover the blank-view case: a
+      // null topic origin and another conversation's null topic view are
+      // indistinguishable without them.
+      await this.#get().switchTopic(mintedTopicId, {
+        onlyIfActiveAgentId: sendOriginActiveAgentId,
+        onlyIfActiveGroupId: sendOriginActiveGroupId,
+        onlyIfActiveTopicIn: [sendOriginActiveTopicId],
+        skipRefreshMessage: true,
+      });
     }
 
     // The topic list store is paginated — a deep-linked older topic can be the
@@ -1507,6 +1530,17 @@ export class ConversationLifecycleActionImpl {
         } else {
           await this.#get().switchTopic(heteroData.topicId, {
             clearNewKey: true,
+            // The cleanup targets the blank bucket this send came from — the
+            // user may be viewing a different conversation by now.
+            clearNewKeyContext: {
+              agentId: operationContext.agentId,
+              groupId: operationContext.groupId,
+            },
+            // Guard against yanking the user back if they navigated to another
+            // topic while the persistence round-trip was in flight. Accept both
+            // the minted id and the persisted one: `resolveOptimisticTopic`
+            // above re-keys `activeTopicId` from the former to the latter.
+            onlyIfActiveTopicIn: [operationContext.topicId ?? null, heteroData.topicId],
             skipRefreshMessage: true,
           });
         }
@@ -2040,6 +2074,19 @@ export class ConversationLifecycleActionImpl {
           // clearNewKey: true ensures the _new key data is cleared after topic creation
           await this.#get().switchTopic(data.topicId, {
             clearNewKey: true,
+            // The cleanup targets the blank bucket this send came from — the
+            // user may be viewing a different conversation by now.
+            clearNewKeyContext: {
+              agentId: operationContext.agentId,
+              groupId: operationContext.groupId,
+            },
+            // The send pivoted to the minted topic bucket at send time. If the
+            // user navigated to another topic while the persistence round-trip
+            // was in flight, leave them where they are — the new topic's unread
+            // badge surfaces the completed reply instead of yanking the view back.
+            // Both ids are accepted: `resolveOptimisticTopic` above re-keys
+            // `activeTopicId` from the minted id to the persisted one.
+            onlyIfActiveTopicIn: [operationContext.topicId ?? null, data.topicId],
             skipRefreshMessage: true,
           });
         }
