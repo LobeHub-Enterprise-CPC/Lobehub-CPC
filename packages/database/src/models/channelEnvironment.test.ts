@@ -341,25 +341,59 @@ it('keeps cleanup durable after cancelling a switch, without replaying an interr
   expect((await model.claim(channel.id, queued.id, 0))?.run.executionConfig).toEqual(original);
 });
 
-it('does not deliver a delayed routing result into the new environment', async () => {
-  const { channel, member } = await setup();
-  const job = await send(channel.id, member.id);
-  await db.delete(schema.channelJobs).where(eq(schema.channelJobs.id, job.id));
-  await db
-    .update(schema.channelMessages)
-    .set({ routingStatus: 'pending' })
-    .where(eq(schema.channelMessages.id, job.messageId));
-  await model.pauseMember(channel.id, member.id, 0);
-  await model.updateEnvironment(channel.id, member.id, 0, {
-    deviceId: 'mac',
-    workingDirectory: '/another-channel',
-  });
-  await model.assign(channel.id, job.messageId, {
-    memberIds: [member.id],
-    reason: 'Delayed old router result',
-  });
-  expect((await model.detail(channel.id)).jobs).toHaveLength(0);
-});
+it.each([
+  ['normal', false],
+  ['normal', true],
+  ['discussion', false],
+  ['discussion', true],
+] as const)(
+  'records only effective recipients after an environment switch: %s, peer=%s',
+  async (mode, includePeer) => {
+    const { channel, member } = await setup();
+    const peer = (await model.detail(channel.id)).members.find((m) => m.id !== member.id)!;
+    const request = await model.send(channel.id, {
+      content: 'Edit files',
+      mentions: [],
+      requestKey: randomUUID(),
+      mode,
+    });
+    const input = (await model.routingInput(channel.id, request.id))!;
+    await model.pauseMember(channel.id, member.id, 0);
+    await model.updateEnvironment(channel.id, member.id, 0, {
+      deviceId: 'mac',
+      workingDirectory: '/another-channel',
+    });
+    await model.assign(
+      channel.id,
+      request.id,
+      {
+        memberIds: includePeer ? [member.id, peer.id] : [member.id],
+        reason: 'Delayed old router result',
+      },
+      input.attemptId,
+    );
+    const detail = await model.detail(channel.id);
+    expect(detail.jobs.map((job) => job.memberId)).toEqual(includePeer ? [peer.id] : []);
+    expect(detail.messages.find((m) => m.id === request.id)?.routingStatus).toBe(
+      includePeer ? 'assigned' : 'unassigned',
+    );
+    if (mode === 'discussion')
+      expect(detail.discussions[0]).toMatchObject(
+        includePeer
+          ? { status: 'active', participantIds: [peer.id] }
+          : { status: 'stopped', participantIds: [], endReason: 'routing_failed' },
+      );
+    if (!includePeer) {
+      expect(detail.messages.find((m) => m.id === request.id)?.routingReason).toContain(
+        'environment',
+      );
+      await model.retryRouting(channel.id, request.id);
+      expect((await model.routingInput(channel.id, request.id))!.members.map((m) => m.id)).toEqual([
+        peer.id,
+      ]);
+    }
+  },
+);
 
 it('rejects environment edits for native members and rejects saving without a durable pause', async () => {
   const { channel, member } = await setup();

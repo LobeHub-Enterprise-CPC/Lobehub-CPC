@@ -56,6 +56,8 @@ export default {
   'receipt.memberLabel': '{{name}} · {{state}}',
   'receipt.unassigned': 'No Agent assigned · use @ to invite one',
   'receipt.assigning': 'Assigning to Agents…',
+  'receipt.noReply': 'Jev determined that no reply is needed',
+  'retryRouting': 'Retry selection',
   'receipt.members': 'Members’ work in this Channel',
   'receipt.inThread': 'Request in a thread',
   'receipt.inMain': 'Request in the main conversation',
@@ -64,7 +66,8 @@ export default {
     '{{name}} is not ready yet. Resolve the issues marked in the member list, then try again.',
   'createFailed':
     'Unable to save the Channel. Check that the selected Agents, models and device workspace are available, then try again.',
-  'activity.undelivered': 'This message was not delivered. Please send it again.',
+  'activity.undelivered':
+    'Message saved. No Agent was selected. Retry selection or use @ to choose one.',
   'activity.typing': 'Typing…',
   'activity.sending': 'Sending…',
   'activity.queued': 'Waiting…',
@@ -168,6 +171,7 @@ export default {
   'discussionRoundsShort': 'Rounds',
   'discussionRoundsHint':
     'In each round, every participating Agent gets one turn to publish a reply or pass. The next round starts once everyone has finished; the discussion ends after a round in which nobody replied, or after the last round. The final summary is separate. Leave empty for {{defaultRounds}} rounds.',
+  'discussion.pending': 'Jev is selecting discussion participants…',
   'discussion.active': 'Discussing · round {{round}} / {{max}}',
   'discussion.summarizing': 'Preparing final summary · {{round}} / {{max}} rounds',
   'discussion.completed': 'Discussion complete · {{round}} rounds, {{count}} replies',
@@ -175,6 +179,8 @@ export default {
   'discussion.endReason.limit':
     'Round limit reached; see the summary for agreements and disagreements',
   'discussion.endReason.quiet': 'No further contributions; see the summary',
+  'discussion.endReason.no_reply': 'Jev determined that no reply is needed',
+  'discussion.endReason.routing_failed': 'No participants selected; retry selection or use @',
   'discussion.endReason.superseded': 'Continued under your newer message',
   'discussion.endReason.summary_failed': 'Summary did not complete',
   'discussion.endReason.unavailable': 'No member available to summarize',

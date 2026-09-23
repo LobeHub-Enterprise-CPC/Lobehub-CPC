@@ -1,6 +1,8 @@
 import type { ChannelModel } from '@/database/models/channel';
 
-/** Recover requests saved by older clients before transactional audience delivery. */
+import { channelRuleAudience, evaluateChannelAudience } from './speaker';
+
+/** Jev is worker-side opt-in; otherwise retain the legacy audience without a provider call. */
 export async function routeChannelMessage(
   model: ChannelModel,
   channelId: string,
@@ -8,8 +10,13 @@ export async function routeChannelMessage(
 ) {
   const input = await model.routingInput(channelId, messageId);
   if (!input) return;
-  await model.assign(channelId, messageId, {
-    memberIds: input.members.map((member) => member.id),
-    reason: input.members.length ? 'All active members' : 'No active members',
-  });
+  const decision =
+    process.env.CHANNEL_ROUTER === 'jev'
+      ? await evaluateChannelAudience(input)
+      : {
+          memberIds: channelRuleAudience(input),
+          reason: 'Legacy audience (Jev disabled)',
+          diagnostics: { source: 'rules' },
+        };
+  await model.assign(channelId, messageId, decision, input.attemptId);
 }

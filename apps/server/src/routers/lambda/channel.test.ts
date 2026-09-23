@@ -73,6 +73,21 @@ describe('Channel service opt-in at the API boundary', () => {
     expect(list).not.toHaveBeenCalled();
   });
 
+  it.each(['normal', 'discussion'] as const)(
+    'does not expose a routing bypass for %s messages',
+    async (mode) => {
+      await caller().send({
+        channelId: 'channel',
+        content: '继续',
+        mentions: [],
+        mode,
+        requestKey: '550e8400-e29b-41d4-a716-446655440000',
+      });
+      expect(send).toHaveBeenCalledWith('channel', expect.objectContaining({ mentions: [], mode }));
+      expect(send.mock.calls[0][1]).not.toHaveProperty('deferRouting');
+    },
+  );
+
   it('accepts attachment-only sends and resolves metadata for both the page and thread root', async () => {
     await caller().send({
       channelId: 'channel',

@@ -5,6 +5,7 @@ import type { LobeChatDatabase } from '@/database/type';
 
 import { ChannelDeviceStartError } from './device';
 import { isChannelEnabled } from './gate';
+import { routeChannelMessage } from './router';
 import { ChannelWorker } from './worker';
 
 const { methods, inspect, probe, start, stopDevice, settleOperation, deviceConstructor } =
@@ -55,6 +56,7 @@ vi.mock('./device', () => ({
   },
 }));
 vi.mock('./gate', () => ({ isChannelEnabled: vi.fn() }));
+vi.mock('./router', () => ({ routeChannelMessage: vi.fn() }));
 vi.mock('./native/host', () => ({ runChannelNative: vi.fn() }));
 vi.mock('./native/capabilities', () => ({
   checkChannelNativeAvailability: async () => ({
@@ -93,6 +95,42 @@ beforeEach(() => {
 });
 
 describe('Channel dispatch isolation', () => {
+  it('skips disabled owners and routes at most one request per tick without overlapping ticks', async () => {
+    vi.mocked(isChannelEnabled).mockImplementation(async (_, ownerId) => ownerId !== 'disabled');
+    let finish!: () => void;
+    vi.mocked(routeChannelMessage).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const worker = new ChannelWorker(
+      database([
+        [],
+        [
+          { ownerId: 'disabled', message: { channelId: 'disabled-channel', id: 'blocked' } },
+          { ownerId: 'owner', message: { channelId: 'channel', id: 'first' } },
+          { ownerId: 'owner', message: { channelId: 'channel', id: 'second' } },
+        ],
+        [],
+        [],
+        [{ ownerId: 'owner', message: { channelId: 'channel', id: 'second' } }],
+        [],
+      ]),
+    );
+    const ticking = worker.tick();
+    await vi.waitFor(() => expect(routeChannelMessage).toHaveBeenCalledOnce());
+    await worker.tick();
+    expect(routeChannelMessage).toHaveBeenCalledOnce();
+    expect(routeChannelMessage).toHaveBeenLastCalledWith(methods, 'channel', 'first');
+    finish();
+    await ticking;
+    expect(routeChannelMessage).toHaveBeenCalledOnce();
+    await worker.tick();
+    expect(routeChannelMessage).toHaveBeenCalledTimes(2);
+    expect(routeChannelMessage).toHaveBeenLastCalledWith(methods, 'channel', 'second');
+  });
+
   it('does not claim queued work when the asynchronous Labs gate is off', async () => {
     vi.mocked(isChannelEnabled).mockResolvedValue(false);
     const worker = new ChannelWorker(

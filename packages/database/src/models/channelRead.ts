@@ -37,7 +37,7 @@ const unsettledRun = or(
   eq(channelRuns.physicalStopped, false),
 );
 const pendingJob = inArray(channelJobs.status, ['queued', 'running']);
-const activeDiscussion = inArray(channelDiscussions.status, ['active', 'summarizing']);
+const activeDiscussion = inArray(channelDiscussions.status, ['pending', 'active', 'summarizing']);
 
 const runSummary = {
   id: channelRuns.id,
