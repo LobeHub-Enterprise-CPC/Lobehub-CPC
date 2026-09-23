@@ -1,9 +1,4 @@
 export async function register() {
-  if (process.env.NEXT_RUNTIME === 'nodejs') {
-    const { assertBusinessAuthReady } = await import('@lobechat/business-auth/startup');
-    await assertBusinessAuthReady();
-  }
-
   // In local development, write debug logs to logs/server.log
   if (process.env.NODE_ENV !== 'production' && process.env.NEXT_RUNTIME === 'nodejs') {
     await import('./libs/debug-file-logger');
