@@ -76,11 +76,13 @@ const mockStopSession = vi.fn();
 const mockCancelSession = vi.fn();
 const mockGetSessionInfo = vi.fn();
 const mockGetClaudeCodeIdentity = vi.fn(async (..._args: any[]) => null);
+const mockGetCodexQuota = vi.fn(async (..._args: any[]): Promise<unknown> => null);
 
 vi.mock('@/services/electron/heterogeneousAgent', () => ({
   heterogeneousAgentService: {
     cancelSession: (...args: unknown[]) => mockCancelSession(...args),
     getClaudeCodeIdentity: (...args: any[]) => mockGetClaudeCodeIdentity(...args),
+    getCodexQuota: (...args: any[]) => mockGetCodexQuota(...args),
     getSessionInfo: (...args: any[]) => mockGetSessionInfo(...args),
     sendPrompt: (...args: any[]) => mockSendPrompt(...args),
     startSession: (...args: any[]) => mockStartSession(...args),
@@ -519,6 +521,7 @@ const codexTurnCompleted = (usage?: {
   cached_input_tokens?: number;
   input_tokens?: number;
   output_tokens?: number;
+  reasoning_output_tokens?: number;
 }) => ({
   ...(usage ? { usage } : {}),
   type: 'turn.completed',
@@ -2103,6 +2106,42 @@ describe('heterogeneousAgentExecutor DB persistence', () => {
       expect(store.completeOperation).toHaveBeenCalledWith('op-1');
     });
 
+    it('forwards replayTranscript to sendPrompt and returns the replay outcome', async () => {
+      const store = createMockStore();
+      const get = vi.fn(() => store);
+      const ipc = setupIpcCapture();
+      mockSendPrompt.mockImplementationOnce(async (params: any) => {
+        // Desktop main streams the transcript and completes the session itself.
+        ipc.emitRawLine(params.sessionId, ccInit('cc-session-1'));
+        ipc.emitRawLine(params.sessionId, ccText('msg-1', 'replayed answer'));
+        ipc.emitRawLine(params.sessionId, ccResult());
+        ipc.emitComplete(params.sessionId);
+        return { replay: { complete: false, recordCount: 1 } };
+      });
+
+      const outcome = await executeHeterogeneousAgent(get, {
+        ...defaultParams,
+        replayTranscript: true,
+        resumeSessionId: 'cc-session-1',
+      });
+
+      expect(mockSendPrompt).toHaveBeenCalledWith(
+        expect.objectContaining({ replayTranscript: true, sessionId: 'ipc-sess-1' }),
+      );
+      expect(outcome).toEqual({ replay: { complete: false, recordCount: 1 } });
+    });
+
+    it('returns no outcome for a live run', async () => {
+      const store = createMockStore();
+      const get = vi.fn(() => store);
+      setupIpcCapture();
+
+      const outcome = await executeHeterogeneousAgent(get, defaultParams);
+
+      expect(mockSendPrompt.mock.calls[0][0].replayTranscript).toBeUndefined();
+      expect(outcome).toBeUndefined();
+    });
+
     it('should forward imageList to heterogeneousAgentService.sendPrompt for Codex runs', async () => {
       const store = createMockStore();
       const get = vi.fn(() => store);
@@ -2120,6 +2159,9 @@ describe('heterogeneousAgentExecutor DB persistence', () => {
 
       expect(mockSendPrompt).toHaveBeenCalledWith({
         agentId: 'agent-1',
+        // Recorded in the in-flight ledger so restart recovery can scope to
+        // this run's own branch and workspace.
+        assistantMessageId: 'ast-initial',
         imageList,
         operationId: 'op-1',
         prompt: 'test prompt',
@@ -2127,6 +2169,7 @@ describe('heterogeneousAgentExecutor DB persistence', () => {
         systemContext: undefined,
         // Keys the run's in-app browser session (`topic:<topicId>`) in the main process.
         topicId: 'topic-1',
+        workspaceId: undefined,
       });
     });
 
@@ -2939,7 +2982,12 @@ describe('heterogeneousAgentExecutor DB persistence', () => {
         const store = createMockStore();
         const get = vi.fn(() => store);
 
-        await expect(executeHeterogeneousAgent(get, defaultParams)).resolves.toBeUndefined();
+        // The run swallows its failure and persists a terminal error instead
+        // of throwing; the outcome is how a caller (restart recovery) tells
+        // that apart from a run that actually finished.
+        await expect(executeHeterogeneousAgent(get, defaultParams)).resolves.toEqual({
+          terminalError: true,
+        });
 
         expect(mockUpdateMessageError).toHaveBeenCalledWith(
           'ast-initial',
@@ -4819,6 +4867,158 @@ describe('heterogeneousAgentExecutor DB persistence', () => {
         provider: 'claude-code',
         usage: { input: 100, output: 20 },
       });
+    });
+
+    // Codex turns burn the same subscription-shaped quota as Claude's, so they
+    // ledger too — with reasoning output split into its own tier (it bills at
+    // the output rate but is priced separately) and no cache-write tier.
+    it('ledgers codex turn usage via agentQuotaService.recordUsage with the reasoning split', async () => {
+      await runWithEvents(
+        [
+          codexSessionConfigured('gpt-5.3-codex'),
+          codexThreadStarted(),
+          codexTurnStarted(),
+          codexAgentMessage('item_0', 'Done.'),
+          codexTurnCompleted({
+            cached_input_tokens: 400,
+            input_tokens: 1000,
+            output_tokens: 300,
+            reasoning_output_tokens: 100,
+          }),
+        ],
+        {
+          params: {
+            heterogeneousProvider: { command: 'codex', type: 'codex' as const },
+          },
+        },
+      );
+
+      const codexLedgerCall = mockRecordQuotaUsage.mock.calls.find(
+        ([p]: any) => p.provider === 'codex',
+      );
+      expect(codexLedgerCall).toBeDefined();
+      expect(codexLedgerCall![0]).toMatchObject({
+        model: 'gpt-5.3-codex',
+        provider: 'codex',
+        usage: { cacheRead: 400, input: 600, output: 200, reasoning: 100 },
+      });
+      expect(codexLedgerCall![0].usage.cacheWrite5m).toBeUndefined();
+    });
+
+    // Codex has no per-account spawn mapping, so attribution reads the live
+    // sampler identity of the login the run actually uses.
+    it('attributes codex ledger rows to the live codex login identity', async () => {
+      mockGetCodexQuota.mockResolvedValueOnce({
+        identity: { externalAccountId: 'chatgpt-acc-1' },
+      });
+
+      await runWithEvents(
+        [
+          codexSessionConfigured('gpt-5.3-codex'),
+          codexThreadStarted(),
+          codexTurnStarted(),
+          codexAgentMessage('item_0', 'Done.'),
+          codexTurnCompleted({ input_tokens: 100, output_tokens: 50 }),
+        ],
+        {
+          params: {
+            heterogeneousProvider: { command: 'codex', type: 'codex' as const },
+          },
+        },
+      );
+
+      const codexLedgerCall = mockRecordQuotaUsage.mock.calls.find(
+        ([p]: any) => p.provider === 'codex',
+      );
+      expect(codexLedgerCall).toBeDefined();
+      expect(codexLedgerCall![0].externalAccountId).toBe('chatgpt-acc-1');
+    });
+
+    // A fast first turn must not beat a slow sampler: the ledger row is
+    // permanent, so it waits for the identity read instead of landing
+    // unattributed (Codex review on PR #19770).
+    it('holds the codex ledger write until the sampler identity settles', async () => {
+      let resolveIdentity!: (value: unknown) => void;
+      mockGetCodexQuota.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveIdentity = resolve;
+        }),
+      );
+
+      await runWithEvents(
+        [
+          codexSessionConfigured('gpt-5.3-codex'),
+          codexThreadStarted(),
+          codexTurnStarted(),
+          codexAgentMessage('item_0', 'Done.'),
+          codexTurnCompleted({ input_tokens: 100, output_tokens: 50 }),
+        ],
+        {
+          params: {
+            heterogeneousProvider: { command: 'codex', type: 'codex' as const },
+          },
+        },
+      );
+
+      // The turn already completed, but the identity read is still pending.
+      expect(mockRecordQuotaUsage).not.toHaveBeenCalled();
+
+      resolveIdentity({ identity: { externalAccountId: 'chatgpt-acc-slow' } });
+      await vi.waitFor(() => expect(mockRecordQuotaUsage).toHaveBeenCalled());
+      const codexLedgerCall = mockRecordQuotaUsage.mock.calls.find(
+        ([p]: any) => p.provider === 'codex',
+      );
+      expect(codexLedgerCall![0].externalAccountId).toBe('chatgpt-acc-slow');
+    });
+
+    // kimi-code must stay out of the ledger: its adapter emits no usage, and
+    // even if a usage-bearing turn_metadata event arrived, the gate only
+    // ledgers subscription-billed providers (claude-code, codex).
+    it('does NOT ledger kimi-code turn usage', async () => {
+      await runWithEvents(
+        [
+          () =>
+            ipc.emitStreamEvent('ipc-sess-1', {
+              data: {
+                model: 'kimi-k2.6',
+                phase: 'turn_metadata',
+                provider: 'kimi-code',
+                usage: {
+                  inputCacheMissTokens: 10,
+                  totalInputTokens: 10,
+                  totalOutputTokens: 5,
+                  totalTokens: 15,
+                },
+              },
+              type: 'step_complete',
+            }),
+        ],
+        {
+          params: {
+            heterogeneousProvider: { command: 'kimi', type: 'kimi-code' as const },
+          },
+        },
+      );
+
+      expect(mockRecordQuotaUsage).not.toHaveBeenCalled();
+    });
+
+    it('does NOT ledger usage during a transcript replay', async () => {
+      // A replay re-reads a turn the provider already billed, and its rows get
+      // fresh message ids — the server dedupes by message id, so ledgering
+      // again would double-count the same spend.
+      await runWithEvents(
+        [
+          ccInit(),
+          ccMessageStart('msg_01', 'claude-opus-4-6'),
+          ccAssistant('msg_01', [{ text: 'Hello', type: 'text' }], { model: 'claude-opus-4-6' }),
+          ccMessageDelta({ input_tokens: 100, output_tokens: 20 }),
+          ccResult(),
+        ],
+        { params: { replayTranscript: true, resumeSessionId: 'cc-session-1' } },
+      );
+
+      expect(mockRecordQuotaUsage).not.toHaveBeenCalled();
     });
 
     it('does NOT create a Thread when topicId is missing (non-topic-scoped run)', async () => {

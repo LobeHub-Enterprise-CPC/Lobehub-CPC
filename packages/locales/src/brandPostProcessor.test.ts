@@ -59,15 +59,19 @@ describe('applyBrandStrings', () => {
     expect(applyBrandStrings('Start a new topic')).toBe('Start a new topic');
   });
 
-  it('is enabled exactly when the deployment overrode at least one brand name', () => {
+  it('is enabled exactly when at least one rewrite pair is non-identity', () => {
     // Cast away the literal types: under a given branding config tsc knows the
     // outcome of these comparisons, but the assertion must hold for both.
-    const renamed =
-      (BRANDING_NAME as string) !== 'LobeHub' ||
+    // 'LobeChat' → BRANDING_NAME is a real rewrite even under default branding
+    // ('LobeChat' !== 'LobeHub'), so enabled is not the same as "the deployment
+    // renamed something" — it only means some pair in BRAND_LITERALS differs.
+    const anyNonIdentityPair =
       (LOBE_CHAT_CLOUD as string) !== 'LobeHub Cloud' ||
+      (BRANDING_NAME as string) !== 'LobeHub' ||
+      (BRANDING_NAME as string) !== 'LobeChat' ||
       (DEFAULT_INBOX_TITLE as string) !== 'Lobe AI';
 
-    expect(isBrandPostProcessorEnabled).toBe(renamed);
+    expect(isBrandPostProcessorEnabled).toBe(anyNonIdentityPair);
   });
 });
 
