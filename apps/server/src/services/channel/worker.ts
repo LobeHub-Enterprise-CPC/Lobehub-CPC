@@ -81,7 +81,7 @@ export class ChannelWorker {
             if (!config)
               throw new Error('Run execution environment is missing; migration is required');
             const model = new ChannelModel(this.db, channel.ownerId);
-            const enabled = await isChannelEnabled(this.db, channel.ownerId);
+            const enabled = isChannelEnabled();
             if (!run.publicationRevoked && (!enabled || channel.archived || !memberActive))
               await model.stop(channel.id, { runId: run.id });
             const stopped = run.publicationRevoked || !enabled || channel.archived || !memberActive;
@@ -175,7 +175,7 @@ export class ChannelWorker {
         .limit(20);
       const routingResults = await Promise.allSettled(
         pending.map(async ({ message, ownerId }) => {
-          if (!(await isChannelEnabled(this.db, ownerId))) return;
+          if (!isChannelEnabled()) return;
           return routeChannelMessage(
             new ChannelModel(this.db, ownerId),
             message.channelId,
@@ -196,7 +196,7 @@ export class ChannelWorker {
           ),
         );
       for (const item of discussing) {
-        if (!(await isChannelEnabled(this.db, item.ownerId))) continue;
+        if (!isChannelEnabled()) continue;
         await new ChannelModel(this.db, item.ownerId).advanceDiscussions(item.channelId);
       }
       const jobs = await this.db
@@ -232,7 +232,7 @@ export class ChannelWorker {
           : undefined;
       const jobResults = await Promise.allSettled(
         jobs.map(async ({ job, channel, config, revision }) => {
-          if (!(await isChannelEnabled(this.db, channel.ownerId))) return;
+          if (!isChannelEnabled()) return;
           const model = new ChannelModel(this.db, channel.ownerId);
           let agentId: string | undefined;
           try {

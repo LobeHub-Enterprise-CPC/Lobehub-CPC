@@ -82,17 +82,6 @@ describe('preferenceSelectors', () => {
   });
 
   describe('labPreferSelectors', () => {
-    it('requires an explicit Channel opt-in and honors switching it off', () => {
-      store.preference.lab = undefined;
-      expect(labPreferSelectors.enableChannel(store)).toBe(false);
-      store.preference.lab = { enableProjects: true };
-      expect(labPreferSelectors.enableChannel(store)).toBe(false);
-      store.preference.lab = { enableChannel: true };
-      expect(labPreferSelectors.enableChannel(store)).toBe(true);
-      store.preference.lab.enableChannel = false;
-      expect(labPreferSelectors.enableChannel(store)).toBe(false);
-    });
-
     it('keeps desktop split view disabled by default', () => {
       store.preference.lab = undefined;
 

@@ -197,6 +197,6 @@
   "threadUnavailable": "这段回复对话暂时无法打开。",
   "title": "频道",
   "typing": "正在输入…",
-  "unavailable": "当前账号尚未启用频道预览。",
+  "unavailable": "频道服务暂时不可用，请联系管理员。",
   "unsupportedAgent": "暂不支持"
 }

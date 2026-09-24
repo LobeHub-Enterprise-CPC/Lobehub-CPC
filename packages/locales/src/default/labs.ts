@@ -13,9 +13,6 @@ export default {
   'features.assistantMessageGroup.desc':
     'Group agent messages and their tool call results together for display',
   'features.assistantMessageGroup.title': 'Agent Message Grouping',
-  'features.channel.desc':
-    'Try multi-agent collaboration in personal Channels. Requires preview access for your account. Turning this off stops Channel tasks without deleting conversations.',
-  'features.channel.title': 'Channel',
   'features.claudeCodeSdk.desc':
     'Run Claude Code sessions through the Claude Agent SDK instead of spawning the CLI. Enables richer streaming and session control.',
   'features.claudeCodeSdk.title': 'Claude Code SDK Runtime',
