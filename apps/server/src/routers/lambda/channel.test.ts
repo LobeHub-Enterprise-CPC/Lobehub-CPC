@@ -64,14 +64,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('Channel service opt-in at the API boundary', () => {
-  it('requires Labs opt-in for availability and direct API calls', async () => {
-    preference.mockResolvedValue({ lab: { enableChannel: false } });
-    expect(await caller().availability()).toEqual({ enabled: false });
-    await expect(caller().list()).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    expect(fetch).not.toHaveBeenCalled();
-    expect(list).not.toHaveBeenCalled();
-  });
+describe('Channel availability at the API boundary', () => {
+  it.each([undefined, {}, { lab: { enableChannel: false } }, { lab: { enableChannel: true } }])(
+    'enables Channels regardless of legacy Labs preference: %j',
+    async (legacyPreference) => {
+      preference.mockResolvedValue(legacyPreference);
+      expect(await caller().availability()).toEqual({ enabled: true });
+      expect(await caller().list()).toEqual([{ id: 'owned-channel' }]);
+      expect(preference).not.toHaveBeenCalled();
+    },
+  );
 
   it('accepts attachment-only sends and resolves metadata for both the page and thread root', async () => {
     await caller().send({

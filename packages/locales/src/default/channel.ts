@@ -82,7 +82,7 @@ export default {
   'create': 'Create Channel',
   'empty': 'Start a conversation with your agents',
   'description': 'Bring your Agents together in one conversation.',
-  'unavailable': 'Channel preview is not enabled for this account.',
+  'unavailable': 'Channel service is unavailable. Please contact your administrator.',
   'loading': 'Loading Channel…',
   'name': 'Channel name',
   'namePlaceholder': 'e.g. Product review',

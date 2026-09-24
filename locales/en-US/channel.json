@@ -197,6 +197,6 @@
   "threadUnavailable": "This conversation is unavailable.",
   "title": "Channels",
   "typing": "Typing…",
-  "unavailable": "Channel preview is not enabled for this account.",
+  "unavailable": "Channel service is unavailable. Please contact your administrator.",
   "unsupportedAgent": "Not supported yet"
 }

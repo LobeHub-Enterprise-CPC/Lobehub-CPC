@@ -7,8 +7,6 @@ import { Navigate, useParams, useSearchParams } from 'react-router';
 import useSWR from 'swr';
 
 import { channelService } from '@/services/channel';
-import { useUserStore } from '@/store/user';
-import { labPreferSelectors } from '@/store/user/selectors';
 
 import { ChannelConversation } from './ChannelConversation';
 import { ChannelHeader } from './ChannelHeader';
@@ -19,7 +17,6 @@ import { useChannelPage } from './useChannelPage';
 
 export default function Channels() {
   const { t } = useTranslation('channel');
-  const enableChannel = useUserStore(labPreferSelectors.enableChannel);
   const { channelId } = useParams<{ channelId: string }>();
   const [params, setParams] = useSearchParams();
   const threadId = params.get('thread');
@@ -29,18 +26,17 @@ export default function Channels() {
     data: availability,
     error: availabilityError,
     mutate: refreshAvailability,
-  } = useSWR(enableChannel ? 'channel-availability' : null, channelService.availability);
+  } = useSWR('channel-availability', channelService.availability);
   const {
     data,
     error: detailError,
     mutate,
     pagination,
-  } = useChannelPage(channelId, null, enableChannel && !!availability?.enabled);
+  } = useChannelPage(channelId, null, !!availability?.enabled);
   const loadError = availabilityError || detailError;
   const retryLoad = () => Promise.allSettled([refreshAvailability(), mutate()]);
   // Old collection links return to the home sidebar; Channels no longer have a separate list page.
   if (!channelId) return <Navigate replace to="/" />;
-  if (!enableChannel) return <Flexbox padding={24}>{t('unavailable')}</Flexbox>;
   if (loadError && !data)
     return (
       <Flexbox padding={24} role="alert">

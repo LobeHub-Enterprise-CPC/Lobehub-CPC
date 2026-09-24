@@ -27,8 +27,6 @@ import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwar
 import { useActiveLocation } from '@/hooks/useActiveLocation';
 import { useScrollActiveThreadIntoView } from '@/hooks/useScrollActiveThreadIntoView';
 import { channelService } from '@/services/channel';
-import { useUserStore } from '@/store/user';
-import { labPreferSelectors } from '@/store/user/selectors';
 
 import { openCreateChannelModal } from './CreateChannel';
 
@@ -81,23 +79,19 @@ export default function ChannelList() {
   const { t } = useTranslation('channel');
   const { t: commonT } = useTranslation('common');
   const workspaceId = useActiveWorkspaceId();
-  const enableChannel = useUserStore(labPreferSelectors.enableChannel);
   const { pathname, search } = useActiveLocation();
   const navigate = useWorkspaceAwareNavigate();
   const { mutate: refresh } = useSWRConfig();
   const { data: availability } = useSWR(
-    !workspaceId && enableChannel ? 'channel-availability' : null,
+    !workspaceId ? 'channel-availability' : null,
     channelService.availability,
   );
   const {
     data: channels,
     error,
     mutate,
-  } = useSWR(
-    !workspaceId && enableChannel && availability?.enabled ? 'channels' : null,
-    channelService.list,
-  );
-  if (workspaceId || !enableChannel || !availability?.enabled) return null;
+  } = useSWR(!workspaceId && availability?.enabled ? 'channels' : null, channelService.list);
+  if (workspaceId || !availability?.enabled) return null;
 
   const copyId = async (id: string) => {
     try {
