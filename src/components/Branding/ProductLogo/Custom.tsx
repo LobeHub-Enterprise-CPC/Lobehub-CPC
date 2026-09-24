@@ -71,21 +71,31 @@ const Divider: IconType = (({ ref, size = '1em', style, ...rest }) => (
 
 const CustomLogo = memo<LobeChatProps>(({ extra, size = 32, className, style, type, ...rest }) => {
   let logoComponent: ReactNode;
+  const logoClassName = extra ? undefined : className;
 
   switch (type) {
     case '3d':
     case 'flat': {
-      logoComponent = <CustomImageLogo size={size} style={style} {...rest} />;
+      logoComponent = (
+        <CustomImageLogo className={logoClassName} size={size} style={style} {...rest} />
+      );
       break;
     }
     case 'mono': {
       logoComponent = (
-        <CustomImageLogo size={size} style={{ filter: 'grayscale(100%)', ...style }} {...rest} />
+        <CustomImageLogo
+          className={logoClassName}
+          size={size}
+          style={{ filter: 'grayscale(100%)', ...style }}
+          {...rest}
+        />
       );
       break;
     }
     case 'text': {
-      logoComponent = <CustomTextLogo size={size} style={style} {...rest} />;
+      logoComponent = (
+        <CustomTextLogo className={logoClassName} size={size} style={style} {...rest} />
+      );
       break;
     }
     case 'combine': {
@@ -98,7 +108,14 @@ const CustomLogo = memo<LobeChatProps>(({ extra, size = 32, className, style, ty
 
       if (!extra)
         logoComponent = (
-          <Flexbox horizontal align={'center'} flex={'none'} {...rest}>
+          <Flexbox
+            horizontal
+            align={'center'}
+            className={className}
+            flex={'none'}
+            style={style}
+            {...rest}
+          >
             {logoComponent}
           </Flexbox>
         );
@@ -106,7 +123,9 @@ const CustomLogo = memo<LobeChatProps>(({ extra, size = 32, className, style, ty
       break;
     }
     default: {
-      logoComponent = <CustomImageLogo size={size} style={style} {...rest} />;
+      logoComponent = (
+        <CustomImageLogo className={logoClassName} size={size} style={style} {...rest} />
+      );
       break;
     }
   }
