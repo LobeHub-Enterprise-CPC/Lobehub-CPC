@@ -3,7 +3,7 @@ import {
   FOOTER_HIDDEN_MENU_KEYS,
   SOCIAL_URL,
 } from '@lobechat/business-const';
-import { DiscordIcon, GithubIcon } from '@lobehub/ui/icons';
+import { GithubIcon } from '@lobehub/ui/icons';
 import { Command } from 'cmdk';
 import {
   Bot,
@@ -190,16 +190,6 @@ const MainMenu = memo(() => {
             onSelect={() => handleExternalLink(SOCIAL_URL.github)}
           >
             {t('cmdk.starOnGitHub')}
-          </CommandItem>
-        )}
-        {!FOOTER_HIDDEN_MENU_KEYS.includes('discord') && (
-          <CommandItem
-            icon={<DiscordIcon />}
-            keywords={t('cmdk.keywords.discord').split(' ')}
-            value="discord"
-            onSelect={() => handleExternalLink(SOCIAL_URL.discord)}
-          >
-            {t('cmdk.communitySupport')}
           </CommandItem>
         )}
       </Command.Group>

@@ -1,12 +1,14 @@
 'use client';
 
 import { ExclamationCircleOutlined, FolderOpenOutlined } from '@ant-design/icons';
+import { BRANDING_EMAIL } from '@lobechat/business-const';
 import { FluentEmoji } from '@lobehub/ui';
 import { Button, Text } from '@lobehub/ui/base-ui';
 import { Result } from 'antd';
 import { memo } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 
+import SupportLink from '@/components/SupportLink';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 
 interface StatusPageProps {
@@ -46,8 +48,9 @@ const StatusPage = memo<StatusPageProps>(({ status }) => {
               <Trans
                 i18nKey="assistants.status.unpublished.subtitle"
                 ns="discover"
+                values={{ email: BRANDING_EMAIL.support }}
                 components={{
-                  email: <a href="mailto:support@lobehub.com">support@lobehub.com</a>,
+                  email: <SupportLink />,
                 }}
               />
             </Text>
@@ -101,8 +104,9 @@ const StatusPage = memo<StatusPageProps>(({ status }) => {
               <Trans
                 i18nKey="assistants.status.support"
                 ns="discover"
+                values={{ email: BRANDING_EMAIL.support }}
                 components={{
-                  email: <a href="mailto:support@lobehub.com">support@lobehub.com</a>,
+                  email: <SupportLink />,
                 }}
               />
             </p>

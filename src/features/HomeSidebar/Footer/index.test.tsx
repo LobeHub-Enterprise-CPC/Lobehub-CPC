@@ -1,5 +1,5 @@
 import type * as BusinessConst from '@lobechat/business-const';
-import { DESKTOP_APP_ENABLED } from '@lobechat/business-const';
+import { BRANDING_EMAIL, DESKTOP_APP_ENABLED } from '@lobechat/business-const';
 import type * as LobechatConst from '@lobechat/const';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -15,6 +15,7 @@ vi.mock('react-i18next', () => ({
       ({
         'changelog': 'Changelog',
         'getApp': 'Get App',
+        'mail.support': 'Email Support',
         'userPanel.discord': 'Discord',
         'userPanel.docs': 'Docs',
         'userPanel.feedback': 'Feedback',
@@ -250,12 +251,12 @@ describe('Footer help menu tracking', () => {
     const user = userEvent.setup();
     await renderFooter({
       enableBusinessFeatures: true,
-      hiddenMenuKeys: ['inviteFriend', 'docs', 'feedback', 'discord', 'github'],
+      hiddenMenuKeys: ['inviteFriend', 'docs', 'feedback', 'discord', 'supportEmail', 'github'],
     });
 
     await user.click(screen.getByRole('button', { name: 'Help' }));
 
-    for (const name of ['Invite a friend', 'Docs', 'Feedback', 'Discord']) {
+    for (const name of ['Invite a friend', 'Docs', 'Feedback', 'Discord', 'Email Support']) {
       expect(screen.queryByText(name)).not.toBeInTheDocument();
     }
 
@@ -276,7 +277,7 @@ describe('Footer help menu tracking', () => {
     const user = userEvent.setup();
     await renderFooter({
       enableBusinessFeatures: true,
-      hiddenMenuKeys: ['inviteFriend', 'docs', 'feedback', 'discord', 'github'],
+      hiddenMenuKeys: ['inviteFriend', 'docs', 'feedback', 'discord', 'supportEmail', 'github'],
     });
 
     await user.click(screen.getByRole('button', { name: 'Help' }));
@@ -301,6 +302,7 @@ describe('Footer help menu tracking', () => {
     'docs',
     'feedback',
     'discord',
+    'supportEmail',
     'github',
     'changelog',
     'get-app',
@@ -359,6 +361,14 @@ describe('Footer help menu tracking', () => {
     await renderFooter({ enableBusinessFeatures: true, hiddenMenuKeys: [] });
 
     await user.click(screen.getByRole('button', { name: 'Help' }));
+
+    if (BRANDING_EMAIL.support) {
+      expect(screen.getByRole('link', { name: 'Email Support' })).toHaveAttribute(
+        'href',
+        `mailto:${BRANDING_EMAIL.support}`,
+      );
+    }
+    expect(screen.queryByRole('link', { name: 'Discord' })).not.toBeInTheDocument();
 
     const openedCall = analyticsTrack.mock.calls.find(
       ([event]) => event?.name === 'home_footer_menu_opened',
