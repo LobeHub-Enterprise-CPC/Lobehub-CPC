@@ -1,3 +1,4 @@
+import { BRANDING_EMAIL } from '@lobechat/business-const';
 import { Center, Flexbox, FluentEmoji } from '@lobehub/ui';
 import { Button } from '@lobehub/ui/base-ui';
 import { createStaticStyles } from 'antd-style';
@@ -49,10 +50,14 @@ const NotSupport: ComponentType<NotSupportProps> = ({ fileName, url, style, tooL
                   <span key="0" />,
                   <a
                     aria-label={'todo'}
-                    href={vendorLink(MORE_FILE_PREVIEW_REQUEST_URL)}
                     key="1"
                     rel="noreferrer"
                     target="_blank"
+                    href={
+                      BRANDING_EMAIL.support
+                        ? `mailto:${BRANDING_EMAIL.support}`
+                        : vendorLink(MORE_FILE_PREVIEW_REQUEST_URL)
+                    }
                   />,
                 ]}
               />

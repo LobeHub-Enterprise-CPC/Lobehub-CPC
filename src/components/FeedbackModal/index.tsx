@@ -1,5 +1,6 @@
 'use client';
 
+import { BRANDING_EMAIL } from '@lobechat/business-const';
 import { createModal } from '@lobehub/ui/base-ui';
 import { t } from 'i18next';
 
@@ -17,6 +18,17 @@ interface OpenFeedbackModalOptions {
 export const openFeedbackModal = ({ initialValues }: OpenFeedbackModalOptions = {}) => {
   // Close command menu when opening feedback modal
   useGlobalStore.getState().updateSystemStatus({ showCommandMenu: false });
+
+  if (BRANDING_EMAIL.support) {
+    const query = [
+      initialValues?.title && `subject=${encodeURIComponent(initialValues.title)}`,
+      initialValues?.message && `body=${encodeURIComponent(initialValues.message)}`,
+    ]
+      .filter(Boolean)
+      .join('&');
+    window.location.href = `mailto:${BRANDING_EMAIL.support}${query ? `?${query}` : ''}`;
+    return;
+  }
 
   return createModal({
     content: <FeedbackContent initialValues={initialValues} />,
