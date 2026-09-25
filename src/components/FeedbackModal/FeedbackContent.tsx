@@ -105,9 +105,6 @@ const FeedbackContent = memo<FeedbackContentProps>(({ initialValues }) => {
 
   return (
     <Flexbox gap={16}>
-      {/* No enterprise business mailbox configured under custom branding
-          (see branding.ts) — drop the line rather than interpolate
-          `undefined` into the sentence or link to `mailto:undefined`. */}
       {BRANDING_EMAIL.business && (
         <p style={{ color: 'var(--colorTextSecondary)', fontSize: 14, margin: 0 }}>
           <Trans
