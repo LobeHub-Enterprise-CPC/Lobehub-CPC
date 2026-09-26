@@ -4,7 +4,7 @@ import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import pMap from 'p-map';
 
 import { ChannelModel } from '@/database/models/channel';
-import { ChannelRuntimeModel } from '@/database/models/channelRuntime';
+import { ChannelNativeModel } from '@/database/models/channelNative';
 import {
   channelDiscussions,
   channelJobs,
@@ -15,13 +15,11 @@ import {
 } from '@/database/privateSchemas/channel';
 import type { LobeChatDatabase } from '@/database/type';
 
-import { waitForChannelApproval } from './approval';
-import { channelArtifactCapability, saveChannelArtifact } from './artifact';
+import { saveChannelArtifact } from './artifact';
 import { ChannelDevice, ChannelDeviceStartError } from './device';
 import { isChannelEnabled } from './gate';
 import { loadChannelNativeCapabilities } from './native/capabilities';
-import type { ChannelNativeCapabilities } from './native/host';
-import { isChannelApprovalCheckpoint, runChannelNative } from './native/host';
+import { reconcileChannelNative, startChannelNative } from './native/host';
 import { routeChannelMessage } from './router';
 import { settleChannelServerDefaultOperation } from './serverDefault';
 
@@ -151,35 +149,8 @@ export class ChannelWorker {
                     String(error),
                   );
               }
-            } else if (run.draft && !stopped) {
-              await model.publish(channel.id, run.id, run.fence);
             } else if (!this.active.has(run.id) && !run.writerReleased) {
-              const { checkpoint } = await new ChannelRuntimeModel(
-                this.db,
-                channel.ownerId,
-                run.id,
-                run.fence,
-              ).load();
-              if (isChannelApprovalCheckpoint(checkpoint, run.id)) {
-                if (stopped) await model.releaseWriter(channel.id, run.id, run.fence);
-                else {
-                  try {
-                    const capabilities = await this.capabilities(this.db, channel.ownerId, config);
-                    await this.startNative(model, channel.ownerId, run, config, capabilities);
-                  } catch (error) {
-                    await model.fail(channel.id, run.id, run.fence, String(error));
-                    await model.releaseWriter(channel.id, run.id, run.fence);
-                  }
-                }
-              } else {
-                // An in-flight tool cannot be replayed or declared terminated by a new worker.
-                await model.executionUnknown(
-                  channel.id,
-                  run.id,
-                  run.fence,
-                  'Native worker disconnected; execution requires inspection',
-                );
-              }
+              await reconcileChannelNative({ db: this.db, ownerId: channel.ownerId, run }, stopped);
             }
           } catch (error) {
             log('Run reconciliation deferred: run=%s error=%s', entry.run.id, error);
@@ -255,7 +226,7 @@ export class ChannelWorker {
         jobs.map(async ({ job, channel, config, revision }) => {
           if (!(await isChannelEnabled(this.db, channel.ownerId))) return;
           const model = new ChannelModel(this.db, channel.ownerId);
-          let capabilities: ChannelNativeCapabilities | undefined;
+
           try {
             if (config.deviceId && config.workingDirectory) {
               const canonical = await new ChannelDevice(
@@ -269,7 +240,7 @@ export class ChannelWorker {
                 );
             }
             if (config.runtime === 'native')
-              capabilities = await this.capabilities(this.db, channel.ownerId, config);
+              await this.capabilities(this.db, channel.ownerId, config);
           } catch (error) {
             await model.unavailable(
               channel.id,
@@ -285,10 +256,23 @@ export class ChannelWorker {
           config = claim.run.executionConfig!;
           if (config.runtime === 'native') {
             try {
-              await this.startNative(model, channel.ownerId, claim.run, config, capabilities!);
+              await this.startNative(channel.ownerId, claim.run);
             } catch (error) {
-              await model.fail(channel.id, claim.run.id, claim.run.fence, String(error));
-              await model.releaseWriter(channel.id, claim.run.id, claim.run.fence);
+              const snapshot = await new ChannelNativeModel(this.db, channel.ownerId, {
+                runId: claim.run.id,
+                fence: claim.run.executionFence,
+              }).load();
+              if (snapshot.operations.some((op) => op.ready)) {
+                await model.executionUnknown(
+                  channel.id,
+                  claim.run.id,
+                  claim.run.fence,
+                  String(error),
+                );
+              } else {
+                await model.fail(channel.id, claim.run.id, claim.run.fence, String(error));
+                await model.releaseWriter(channel.id, claim.run.id, claim.run.fence);
+              }
             }
           } else if (config.deviceId && config.workingDirectory) {
             try {
@@ -342,133 +326,14 @@ export class ChannelWorker {
     }
   }
 
-  private async startNative(
-    model: ChannelModel,
-    ownerId: string,
-    run: typeof channelRuns.$inferSelect,
-    config: ChannelMemberConfig,
-    original: ChannelNativeCapabilities,
-  ) {
-    const artifact = await channelArtifactCapability(this.db, ownerId, run);
-    const capabilities = {
-      ...original,
-      enabledToolIds: [
-        ...(original.enabledToolIds ?? Object.keys(original.toolManifestMap)),
-        ...Object.keys(artifact.toolManifestMap),
-      ],
-      tools: [...original.tools, ...artifact.tools],
-      toolManifestMap: { ...original.toolManifestMap, ...artifact.toolManifestMap },
-      toolTransport: {
-        maxRetries: 0,
-        run: ((call, context) =>
-          call.identifier === 'channel-artifact'
-            ? artifact.toolTransport!.run(call, context)
-            : original.toolTransport!.run(call, context)) as NonNullable<
-          ChannelNativeCapabilities['toolTransport']
-        >['run'],
-      },
-    };
+  private async startNative(ownerId: string, run: typeof channelRuns.$inferSelect) {
     const abort = new AbortController();
-    const done = this.native(model, ownerId, run, config, capabilities, abort)
-      .catch((error) => log('Native execution settlement deferred: run=%s error=%s', run.id, error))
-      .finally(() => {
-        this.active.delete(run.id);
-      });
+    const done = startChannelNative({ db: this.db, ownerId, run });
     this.active.set(run.id, { abort, done });
-  }
-
-  private async native(
-    model: ChannelModel,
-    ownerId: string,
-    run: typeof channelRuns.$inferSelect,
-    config: ChannelMemberConfig,
-    capabilities: ChannelNativeCapabilities,
-    abort: AbortController,
-  ) {
-    const pendingTools = new Set<Promise<unknown>>();
-    let toolsConfirmed = true;
-    let draftSaved = false;
-    let failure: string | undefined;
-    const toolTransport = capabilities.toolTransport;
     try {
-      const result = await runChannelNative({
-        db: this.db,
-        ownerId,
-        runId: run.id,
-        fence: run.fence,
-        config,
-        signal: abort.signal,
-        onAccepted: (sessionId, turnId) =>
-          model.accepted(run.channelId, run.id, run.fence, sessionId, turnId),
-        onActivity: (state) => model.setActivity(run.channelId, run.id, run.fence, state),
-        onApproval: (tool) =>
-          waitForChannelApproval({
-            channelId: run.channelId,
-            runId: run.id,
-            fence: run.fence,
-            model,
-            signal: abort.signal,
-            tool,
-          }),
-        capabilities: {
-          ...capabilities,
-          toolTransport: toolTransport && {
-            ...toolTransport,
-            run: (...args) => {
-              const pending = toolTransport.run(...args);
-              pendingTools.add(pending);
-              void pending
-                .then(
-                  (result) => {
-                    // A confirmed provider error is terminal; response loss is not termination.
-                    if (
-                      result.interrupted ||
-                      result.result.deferred ||
-                      result.result.executionUnknown
-                    )
-                      toolsConfirmed = false;
-                  },
-                  () => {
-                    toolsConfirmed = false;
-                  },
-                )
-                .finally(() => pendingTools.delete(pending));
-              return pending;
-            },
-          },
-        },
-      });
-      if (abort.signal.aborted) throw new Error('Native execution was interrupted');
-      if (!result.content) throw new Error('Native execution completed without a reply');
-      if (result.content) {
-        await model.recordExecution(run.channelId, run.id, run.fence, {
-          runtime: 'native',
-          model: result.state.modelRuntimeConfig?.model ?? config.model,
-          provider: result.state.modelRuntimeConfig?.provider ?? config.provider,
-          ...result.budget,
-        });
-        await model.saveDraft(run.channelId, run.id, run.fence, result.content);
-        draftSaved = true;
-        await model.publish(run.channelId, run.id, run.fence);
-      }
-    } catch (error) {
-      log('Native execution failed: run=%s error=%s', run.id, error);
-      if (!draftSaved) failure = error instanceof Error ? error.message : String(error);
+      await done;
     } finally {
-      // Runtime abort can settle before the tools do. Keep the writer until they finish.
-      await Promise.allSettled(pendingTools);
-      this.finalizing.set(run.id, async () => {
-        if (failure) await model.fail(run.channelId, run.id, run.fence, failure);
-        if (toolsConfirmed) await model.releaseWriter(run.channelId, run.id, run.fence);
-        else
-          await model.executionUnknown(
-            run.channelId,
-            run.id,
-            run.fence,
-            'Tool termination could not be confirmed',
-          );
-      });
-      await this.finalize(run.id);
+      this.active.delete(run.id);
     }
   }
 

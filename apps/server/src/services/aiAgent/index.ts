@@ -25,6 +25,7 @@ import {
 import { AgentModel } from '@/database/models/agent';
 import { AgentOperationModel } from '@/database/models/agentOperation';
 import { AgentShareModel } from '@/database/models/agentShare';
+import { ChannelNativeModel } from '@/database/models/channelNative';
 import { ConnectorModel } from '@/database/models/connector';
 import { ConnectorToolModel } from '@/database/models/connectorTool';
 import { DeviceModel } from '@/database/models/device';
@@ -50,6 +51,7 @@ import type {
   ExecGroupMemberResult,
   GroupActionMemberBridgeParams,
 } from '@/server/services/agentRuntime/types';
+import { channelArtifactCapability } from '@/server/services/channel/artifact';
 import { ComposioService } from '@/server/services/composio';
 import { MarketService } from '@/server/services/market';
 import { markdownToTxt } from '@/utils/markdownToTxt';
@@ -986,6 +988,7 @@ export class AiAgentService {
         assistantAgentId,
         attachedFileIds,
         batchApprovalAnchorId,
+        topicConfigPolicy: params.topicConfigPolicy,
         botContext,
         botSender,
         clientIds,
@@ -1202,10 +1205,20 @@ export class AiAgentService {
       },
     );
 
+    if (params.channelRun) {
+      const { run } = await new ChannelNativeModel(this.db, this.userId, params.channelRun).load();
+      const artifact = await channelArtifactCapability(this.db, this.userId, run);
+      discovery.tools = [...(discovery.tools ?? []), ...artifact.tools];
+      Object.assign(discovery.toolManifestMap, artifact.toolManifestMap);
+      discovery.toolsResult.enabledToolIds.push(...Object.keys(artifact.toolManifestMap));
+    }
+
     // 15. Generate operation ID: agt_{timestamp}_{agentId}_{topicId}_{random}
     const timestamp = Date.now();
     const operationId =
-      continuationOperationId ?? `op_${timestamp}_${resolvedAgentId}_${topicId}_${nanoid(8)}`;
+      continuationOperationId ??
+      params.operationId ??
+      `op_${timestamp}_${resolvedAgentId}_${topicId}_${nanoid(8)}`;
 
     // Stages 9.4–18 — device system info, agent-management context, persona
     // memory, history + message assembly, the base initial runtime context,
@@ -1321,6 +1334,7 @@ export class AiAgentService {
         approvalClaim,
         approvalSourceOperationId,
         approvalSourceToolMessageIds,
+        channelRun: params.channelRun,
         autoStart,
         botContext,
         botPlatformContext,

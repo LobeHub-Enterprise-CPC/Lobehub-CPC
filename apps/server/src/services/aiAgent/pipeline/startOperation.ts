@@ -31,6 +31,7 @@ export interface StartOperationInput {
   autoStart: boolean;
   botContext?: InternalExecAgentParams['botContext'];
   botPlatformContext?: InternalExecAgentParams['botPlatformContext'];
+  channelRun?: InternalExecAgentParams['channelRun'];
   clientIp?: string;
   discordContext?: any;
   discovery: ToolDiscoveryResult;
@@ -134,6 +135,7 @@ export const startOperation = async (
   // If createOperation fails, we still have valid messages that need error info
   try {
     const result = await deps.agentRuntimeService.createOperation({
+      channelRun: input.channelRun,
       activeDeviceId: discovery.activeDeviceId,
       activeDeviceScope: discovery.activeDeviceScope,
       agentConfig,

@@ -284,6 +284,7 @@ describe('dispatchClientTool', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.type).toBe('timeout');
+    expect(result.executionUnknown).toBe(true);
     expect(mockDisconnect).toHaveBeenCalled();
   });
 

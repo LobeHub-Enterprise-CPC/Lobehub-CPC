@@ -113,6 +113,7 @@ vi.mock('@/database/models/topic', () => ({
       create: mockTopicCreate,
       armScheduledRun: vi.fn().mockResolvedValue(undefined),
       findById: mockTopicFindById,
+      update: vi.fn().mockResolvedValue(undefined),
       updateMetadata: vi.fn(async (_id: string, metadata: ChatTopicMetadata) => [{ metadata }]),
     };
   }),
@@ -271,6 +272,13 @@ describe('AiAgentService.execAgent - model/provider override', () => {
       runSpy.mockRestore();
     },
   );
+
+  it('refreshes a Channel topic from the latest Agent config instead of its previous pin', async () => {
+    mockGetAgentConfig.mockResolvedValue({ ...defaultAgentConfig, model: 'claude-sonnet-4-6', provider: 'anthropic', systemRole: 'latest prompt', params: { temperature: 0.27 } });
+    mockTopicFindById.mockResolvedValue({ id: 'topic-1', model: 'gpt-4', provider: 'openai', metadata: { reasoningConfig: { reasoningEffort: 'low' } } });
+    await service.execAgent({ agentId: 'agent-1', prompt: 'Next Channel round', appContext: {topicId:'topic-1'}, topicConfigPolicy: 'agent' });
+    expect(mockCreateOperation.mock.calls[0][0].agentConfig).toMatchObject({ model:'claude-sonnet-4-6', provider:'anthropic', systemRole:'latest prompt', params:{temperature:0.27} });
+  });
 
   it('should override model when model param is provided', async () => {
     mockGetAgentConfig.mockResolvedValue({ ...defaultAgentConfig });

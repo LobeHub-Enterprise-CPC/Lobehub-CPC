@@ -1,5 +1,7 @@
 import type { AgentRuntimeHost } from '@lobechat/agent-runtime';
 
+import { withChannelDelivery } from '@/server/services/channel/native/runtime';
+
 import { ServerBlobStore } from './adapters/ServerBlobStore';
 import { ServerCompressionTransport } from './adapters/ServerCompressionTransport';
 import { ServerContextBuilder } from './adapters/ServerContextBuilder';
@@ -28,7 +30,7 @@ export const buildHost = (ctx: RuntimeExecutorContext): AgentRuntimeHost => {
     ? new ServerBlobStore(ctx.serverDB, ctx.userId, ctx.workspaceId)
     : undefined;
 
-  return {
+  return withChannelDelivery(ctx, {
     // Only present when the operation registered hooks — mirrors the prior
     // `if (ctx.hookDispatcher)` guard in the human-approve executor.
     lifecycle: ctx.hookDispatcher
@@ -65,5 +67,5 @@ export const buildHost = (ctx: RuntimeExecutorContext): AgentRuntimeHost => {
       subAgent: ctx.execSubAgent ? new ServerSubAgentTransport(ctx) : undefined,
       tools: new ServerToolTransport(ctx),
     },
-  };
+  });
 };

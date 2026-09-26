@@ -22,6 +22,7 @@ import {
   isDeviceToolIdentifier,
   logDeviceToolAudit,
 } from '@/server/services/aiAgent/deviceToolAudit';
+import { runChannelToolAttempt } from '@/server/services/channel/native/effects';
 
 import type { RuntimeExecutorContext } from '../context';
 import { dispatchClientTool } from '../dispatchClientTool';
@@ -160,21 +161,28 @@ export class ServerToolTransport implements ToolTransport {
         // would start side-effecting work for a cancelled operation.
         if (context.abortSignal?.aborted) return this.abortedBeforeLaunch();
 
-        const dispatchResult = await dispatchClientTool(chatToolPayload, {
-          agentId: context.state.origin?.agentId,
-          assistantMessageId: context.parentMessageId,
-          documentId: context.state.origin?.documentId,
-          groupId: context.state.origin?.groupId,
-          operationId,
-          rootOperationId: operationId,
-          scope: context.state.origin?.scope,
-          sourceMessageId: context.state.origin?.sourceMessageId,
-          streamManager,
-          taskId: context.state.origin?.taskId,
-          threadId: context.state.origin?.threadId,
-          timeoutMs,
-          topicId: context.state.origin?.topicId ?? this.ctx.topicId,
-        });
+        const dispatchResult = await runChannelToolAttempt(
+          this.ctx,
+          context.state,
+          chatToolPayload.id,
+          1,
+          () =>
+            dispatchClientTool(chatToolPayload, {
+              agentId: context.state.origin?.agentId,
+              assistantMessageId: context.parentMessageId,
+              documentId: context.state.origin?.documentId,
+              groupId: context.state.origin?.groupId,
+              operationId,
+              rootOperationId: operationId,
+              scope: context.state.origin?.scope,
+              sourceMessageId: context.state.origin?.sourceMessageId,
+              streamManager,
+              taskId: context.state.origin?.taskId,
+              threadId: context.state.origin?.threadId,
+              timeoutMs,
+              topicId: context.state.origin?.topicId ?? this.ctx.topicId,
+            }),
+        );
         execution = { attempts: 1, result: dispatchResult };
       } else {
         if (context.toolSource && !chatToolPayload.source) {
@@ -193,79 +201,83 @@ export class ServerToolTransport implements ToolTransport {
         if (context.abortSignal?.aborted) return this.abortedBeforeLaunch();
 
         log(`[${operationLogId}] Executing tool ${context.toolName} ...`);
+        let attempt = 0;
         execution = await executeToolWithRetry(
           () =>
-            toolExecutionService.executeTool(chatToolPayload, {
-              activatedSkills: context.activatedSkills as any,
-              activeDeviceId: resolveRunActiveDeviceId(context.state),
-              activeDeviceScope: context.state.principal?.actor?.deviceScope,
-              agentId: context.state.origin?.agentId,
-              agentMember: buildServerAgentMemberRunner(
-                this.ctx,
-                context.state,
-                chatToolPayload,
-                context.parentMessageId,
-              ),
-              // Share-visitor marker: lets `BuiltinToolsExecutor.execute`
-              // re-apply the share data-tool gate at the actual dispatch site.
-              agentShareVisitor: this.ctx.agentShareVisitor,
-              ...(agentVisibility !== undefined && { agentVisibility }),
-              // Assistant message owning this tool call (≠ source user message).
-              assistantMessageId: context.parentMessageId,
-              clientIp: context.state.principal?.audit?.clientIp,
-              currentTodos: context.currentTodos,
-              deviceCapable: context.state.plan?.execution
-                ? isDeviceCapablePlan(context.state.plan?.execution)
-                : undefined,
-              // The resolved plan's target (`local`/`device`/`auto`) — the only
-              // signal that survives to tell a `local` run apart from a `device`
-              // run once both reach `localSystemRuntime` (see the field's doc
-              // comment on `ToolExecutionContext`).
-              deviceExecutionTarget: context.state.metadata?.executionPlan?.target,
-              documentId: context.state.origin?.documentId,
-              editingAgentId: context.state.metadata?.editingAgentId,
-              editingGroupId: context.state.metadata?.editingGroupId,
-              execSubAgent: this.ctx.execSubAgent,
-              executionTimeoutMs: timeoutMs,
-              groupId: context.state.origin?.groupId,
-              isSubAgent: context.state.origin?.lineage?.isSubAgent === true,
-              // Sandboxing qualifies a `local` run, so it is gated on the plan's
-              // resolved target rather than the stored flag: a config that says
-              // `localSandbox` but landed on `sandbox`/`device` was never fenced,
-              // and telling the device otherwise would fence the wrong run.
-              localSandbox: context.state.plan?.execution
-                ? isLocalSandboxEnabled(
-                    context.state.world?.agent?.agencyConfig,
-                    context.state.plan?.execution.target,
-                  )
-                : undefined,
-              localSandboxNetwork:
-                context.state.world?.agent?.agencyConfig?.localSandboxNetwork === true,
-              memoryToolPermission: context.state.world?.agent?.chatConfig?.memory?.toolPermission,
-              messageId: context.state.origin?.sourceMessageId,
-              operationId,
-              projectSkills: resolveRunProjectSkills(context.state.plan),
-              rootOperationId: operationId,
-              scope: context.state.origin?.scope,
-              serverDB,
-              skipResultTruncation: true,
-              subAgent: buildServerVirtualSubAgentRunner(
-                this.ctx,
-                context.state,
-                chatToolPayload,
-                context.parentMessageId,
-              ),
-              taskId: context.state.origin?.taskId,
-              threadId: context.state.origin?.threadId,
-              toolCallId: chatToolPayload.id,
-              toolManifestMap: context.effectiveManifestMap,
-              toolMessageId: context.toolMessageId,
-              toolResultMaxLength: context.toolResultMaxLength,
-              topicId: this.ctx.topicId,
-              userId,
-              workingDirectory: context.state.binding?.device?.systemInfo?.workingDirectory,
-              workspaceId: context.state.origin?.workspaceId ?? this.ctx.workspaceId,
-            }),
+            runChannelToolAttempt(this.ctx, context.state, chatToolPayload.id, ++attempt, () =>
+              toolExecutionService.executeTool(chatToolPayload, {
+                activatedSkills: context.activatedSkills as any,
+                activeDeviceId: resolveRunActiveDeviceId(context.state),
+                activeDeviceScope: context.state.principal?.actor?.deviceScope,
+                agentId: context.state.origin?.agentId,
+                agentMember: buildServerAgentMemberRunner(
+                  this.ctx,
+                  context.state,
+                  chatToolPayload,
+                  context.parentMessageId,
+                ),
+                // Share-visitor marker: lets `BuiltinToolsExecutor.execute`
+                // re-apply the share data-tool gate at the actual dispatch site.
+                agentShareVisitor: this.ctx.agentShareVisitor,
+                ...(agentVisibility !== undefined && { agentVisibility }),
+                // Assistant message owning this tool call (≠ source user message).
+                assistantMessageId: context.parentMessageId,
+                clientIp: context.state.principal?.audit?.clientIp,
+                currentTodos: context.currentTodos,
+                deviceCapable: context.state.plan?.execution
+                  ? isDeviceCapablePlan(context.state.plan?.execution)
+                  : undefined,
+                // The resolved plan's target (`local`/`device`/`auto`) — the only
+                // signal that survives to tell a `local` run apart from a `device`
+                // run once both reach `localSystemRuntime` (see the field's doc
+                // comment on `ToolExecutionContext`).
+                deviceExecutionTarget: context.state.metadata?.executionPlan?.target,
+                documentId: context.state.origin?.documentId,
+                editingAgentId: context.state.metadata?.editingAgentId,
+                editingGroupId: context.state.metadata?.editingGroupId,
+                execSubAgent: this.ctx.execSubAgent,
+                executionTimeoutMs: timeoutMs,
+                groupId: context.state.origin?.groupId,
+                isSubAgent: context.state.origin?.lineage?.isSubAgent === true,
+                // Sandboxing qualifies a `local` run, so it is gated on the plan's
+                // resolved target rather than the stored flag: a config that says
+                // `localSandbox` but landed on `sandbox`/`device` was never fenced,
+                // and telling the device otherwise would fence the wrong run.
+                localSandbox: context.state.plan?.execution
+                  ? isLocalSandboxEnabled(
+                      context.state.world?.agent?.agencyConfig,
+                      context.state.plan?.execution.target,
+                    )
+                  : undefined,
+                localSandboxNetwork:
+                  context.state.world?.agent?.agencyConfig?.localSandboxNetwork === true,
+                memoryToolPermission:
+                  context.state.world?.agent?.chatConfig?.memory?.toolPermission,
+                messageId: context.state.origin?.sourceMessageId,
+                operationId,
+                projectSkills: resolveRunProjectSkills(context.state.plan),
+                rootOperationId: operationId,
+                scope: context.state.origin?.scope,
+                serverDB,
+                skipResultTruncation: true,
+                subAgent: buildServerVirtualSubAgentRunner(
+                  this.ctx,
+                  context.state,
+                  chatToolPayload,
+                  context.parentMessageId,
+                ),
+                taskId: context.state.origin?.taskId,
+                threadId: context.state.origin?.threadId,
+                toolCallId: chatToolPayload.id,
+                toolManifestMap: context.effectiveManifestMap,
+                toolMessageId: context.toolMessageId,
+                toolResultMaxLength: context.toolResultMaxLength,
+                topicId: this.ctx.topicId,
+                userId,
+                workingDirectory: context.state.binding?.device?.systemInfo?.workingDirectory,
+                workspaceId: context.state.origin?.workspaceId ?? this.ctx.workspaceId,
+              }),
+            ),
           {
             isInterrupted: () => isOperationInterrupted(this.ctx),
             maxRetries: TOOL_MAX_RETRIES,

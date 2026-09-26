@@ -41,6 +41,7 @@ const clampTimeout = (value: number): number =>
 const buildTimeoutResult = (executionTime: number): ToolExecutionResultResponse => ({
   content: '',
   error: { message: 'Tool execution timed out', type: 'timeout' },
+  executionUnknown: true,
   executionTime,
   success: false,
 });
@@ -56,6 +57,7 @@ const buildErrorResult = (
     type,
   },
   executionTime,
+  ...(type === 'dispatch_failed' && { executionUnknown: true }),
   success: false,
 });
 

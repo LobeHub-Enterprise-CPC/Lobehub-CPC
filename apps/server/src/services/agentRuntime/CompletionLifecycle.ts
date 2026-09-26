@@ -11,6 +11,7 @@ import {
   type ChildUsageRollup,
   type RecordOperationStartParams,
 } from '@/database/models/agentOperation';
+import { ChannelNativeModel } from '@/database/models/channelNative';
 import { MessageModel } from '@/database/models/message';
 import { recomputeTopicUsage } from '@/database/models/topicUsage';
 import { VerifyRunModel } from '@/database/models/verifyRun';
@@ -885,6 +886,12 @@ export class CompletionLifecycle {
     // schedules a fresh continuation operation and then retires this parked
     // segment; the continuation receives the serialized hooks through
     // `host.hooks`.
+    if (state?.host?.channel) {
+      await new ChannelNativeModel(this.serverDB, this.userId, state.host.channel).observe(
+        operationId,
+        state,
+      );
+    }
     const isAsyncToolPark = reason === 'waiting_for_async_tool';
     let shouldRetainHooksForRetry = false;
 

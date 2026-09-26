@@ -197,12 +197,14 @@ describe('Channel request receipts', () => {
       const data = fixture();
       data.jobs[0].status = 'failed';
       data.runs[0].status = status;
+      data.runs[0].error = 'Provider 401: invalid fixture credential';
       data.runs[0].publicationRevoked = true;
       data.runs[0].writerReleased = true;
       data.runs[0].physicalStopped = status === 'failed';
       expect(receipt(data)).toMatchObject({
         pending: status === 'execution_unknown',
         state: status,
+        error: 'Provider 401: invalid fixture credential',
       });
       render(createElement(ReceiptStatus, { state: receipt(data).state }));
       expect(screen.getByText(`receipt.state.${status}`)).toHaveAttribute('data-tone', 'error');

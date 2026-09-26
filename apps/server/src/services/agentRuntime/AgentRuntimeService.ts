@@ -51,6 +51,7 @@ import {
   matchesAgentInterventionContinuationProvenance,
 } from '@/business/server/agent-run/agentInterventionIdentity';
 import { AgentOperationModel } from '@/database/models/agentOperation';
+import { ChannelNativeModel } from '@/database/models/channelNative';
 import { MessageModel } from '@/database/models/message';
 import { type LobeChatDatabase } from '@/database/type';
 import { appEnv } from '@/envs/app';
@@ -893,6 +894,12 @@ export class AgentRuntimeService {
       workspaceId,
     } = params;
 
+    const channelRun =
+      params.channelRun ??
+      (parentOperationId
+        ? (await this.coordinator.loadAgentState(parentOperationId))?.host?.channel
+        : undefined);
+
     // Persist initial agent_operations row. CompletionLifecycle owns both
     // ends of the persistence lifecycle (start row here, terminal update
     // in dispatchHooks) and swallows DB errors so runtime startup is never
@@ -932,7 +939,7 @@ export class AgentRuntimeService {
       topicId: appContext?.topicId ?? null,
       trigger: appContext?.trigger,
     });
-    if (interventionResolution && !operationStartPersisted) {
+    if ((interventionResolution || channelRun) && !operationStartPersisted) {
       throw new Error(
         `Failed to durably persist intervention continuation ${operationId} before dispatch`,
       );
@@ -1007,7 +1014,10 @@ export class AgentRuntimeService {
         }),
         // What the host needs to deliver and retry the run. Hooks are stamped
         // right after creation once the dispatcher has serialized them.
-        host: { queue: { retries: queueRetries, retryDelay: queueRetryDelay } },
+        host: {
+          channel: channelRun,
+          queue: { retries: queueRetries, retryDelay: queueRetryDelay },
+        },
         // Run ledger — everything fixed at creation lives in the typed slots.
         metadata: {},
         // Where the run came from — frozen from here on. Mirrors the
@@ -1169,6 +1179,18 @@ export class AgentRuntimeService {
         onInterventionPrepared?.();
       }
 
+      if (channelRun) {
+        await new ChannelNativeModel(this.serverDB, this.userId, channelRun).ready({
+          operationId,
+          topicId: appContext!.topicId!,
+          parentOperationId,
+          assistantMessageId: (initialContext?.payload as { assistantMessageId?: string })
+            ?.assistantMessageId,
+          initialContext,
+          stepIndex: initialStepCount,
+        });
+      }
+
       throwIfAborted(signal, 'Agent execution aborted before first step scheduling');
 
       let messageId: string | undefined;
@@ -1177,7 +1199,9 @@ export class AgentRuntimeService {
       if (autoStart && this.queueService) {
         const deduplicationId = interventionResolution
           ? deriveAgentInterventionQueueDeduplicationId(operationId, initialStepCount)
-          : undefined;
+          : channelRun
+            ? `channel-start:${operationId}`
+            : undefined;
         // Both local and queue modes use scheduleMessage
         // LocalQueueServiceImpl uses setTimeout + callback mechanism
         // QStashQueueServiceImpl schedules HTTP requests
@@ -1200,6 +1224,10 @@ export class AgentRuntimeService {
             resolutionRequestId: interventionResolution.resolutionRequestId,
           });
         }
+        if (channelRun)
+          await new ChannelNativeModel(this.serverDB, this.userId, channelRun).submitted(
+            operationId,
+          );
         autoStarted = true;
         log('[%s] Scheduled first step (messageId: %s)', operationId, messageId);
       }
@@ -2072,6 +2100,13 @@ export class AgentRuntimeService {
           executionTime: Date.now() - startAt,
           stepIndex, // placeholder
         });
+        if (stepResult.newState.host?.channel) {
+          await new ChannelNativeModel(
+            this.serverDB,
+            this.userId,
+            stepResult.newState.host.channel,
+          ).observe(operationId, stepResult.newState);
+        }
         logToolCallPc(operationId, stepIndex, 'post.step_result_saved', () => ({
           stateStatus: stepResult.newState.status,
           stateStepCount: stepResult.newState.stepCount,

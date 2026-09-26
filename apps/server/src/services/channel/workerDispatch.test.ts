@@ -56,8 +56,8 @@ vi.mock('./device', () => ({
 }));
 vi.mock('./gate', () => ({ isChannelEnabled: vi.fn() }));
 vi.mock('./native/host', () => ({
-  runChannelNative: vi.fn(),
-  isChannelApprovalCheckpoint: () => false,
+  startChannelNative: vi.fn(),
+  reconcileChannelNative: vi.fn(),
 }));
 vi.mock('./native/capabilities', () => ({
   loadChannelNativeCapabilities: async () => ({ tools: [], toolManifestMap: {} }),

@@ -14,6 +14,7 @@ export interface LLMRetryPolicyOptions {
 
 export interface RetryableToolResult {
   error?: unknown;
+  executionUnknown?: boolean;
   success: boolean;
 }
 
@@ -63,7 +64,7 @@ export const executeToolWithRetry = async <TResult extends RetryableToolResult>(
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const result = await execute();
 
-    if (result.success) return { attempts: attempt, result };
+    if (result.success || result.executionUnknown) return { attempts: attempt, result };
 
     const kind = getToolFailureKind(result);
 

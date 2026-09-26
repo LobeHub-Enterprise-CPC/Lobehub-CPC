@@ -1,3 +1,4 @@
+import type { AgentRuntimeContext } from '@lobechat/agent-runtime';
 import type {
   ChannelDiscussionStatus,
   ChannelDiscussionTask,
@@ -398,4 +399,40 @@ export const channelApprovals = pgTable(
     createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [index('channel_approvals_run_idx').on(t.runId)],
+);
+
+/** Bridge records are durable before the standard runtime may enqueue a step. */
+export const channelNativeOperations = pgTable(
+  'channel_native_operations',
+  {
+    operationId: text('operation_id').primaryKey(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => channelRuns.id, { onDelete: 'cascade' }),
+    topicId: text('topic_id').notNull(),
+    assistantMessageId: text('assistant_message_id'),
+    parentOperationId: text('parent_operation_id'),
+    initialContext: jsonb('initial_context').$type<AgentRuntimeContext>(),
+    stepIndex: integer('step_index').notNull().default(0),
+    ready: boolean('ready').notNull().default(false),
+    submitted: boolean('submitted').notNull().default(false),
+    createdAt: createdAtColumn(),
+  },
+  (t) => [index('channel_native_operations_run_idx').on(t.runId)],
+);
+
+/** A started external call is never replayed after response loss or worker death. */
+export const channelNativeEffects = pgTable(
+  'channel_native_effects',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => channelRuns.id, { onDelete: 'cascade' }),
+    operationId: text('operation_id').notNull(),
+    kind: text('kind').$type<'model' | 'tool'>().notNull(),
+    settled: boolean('settled').notNull().default(false),
+    createdAt: createdAtColumn(),
+  },
+  (t) => [index('channel_native_effects_run_idx').on(t.runId)],
 );

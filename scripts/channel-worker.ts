@@ -40,8 +40,8 @@ async function main() {
     console.error('[channel-worker] Coordinator database connection lost');
     exitCode = 1;
     stopping = true;
-    // Abort active native runs immediately, even if the current tick is waiting
-    // on IO. The final close below also drains anything the tick was starting.
+    // Stop new delivery starts and drain preparation. Standard native operations
+    // remain owned by the shared runtime and the next coordinator reconciles them.
     void worker.close().catch((error) => console.error('[channel-worker] Drain failed', error));
   };
   ownership.on('error', ownershipLost);
@@ -72,6 +72,11 @@ async function main() {
     console.info('[channel-worker] Coordinator started');
     while (!stopping) {
       try {
+        // Missing the bridge migration must keep readiness closed, even before
+        // the first native job reaches the runtime.
+        await ownership.query(
+          'select operation_id from channel_native_operations limit 0; select id from channel_native_effects limit 0',
+        );
         await worker.tick();
         lastSuccess = Date.now();
       } catch (error) {

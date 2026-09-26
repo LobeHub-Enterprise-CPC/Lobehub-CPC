@@ -157,6 +157,8 @@ export interface AgentRunPlan {
  * carried by the runtime without interpretation.
  */
 export interface AgentRunHostEnvelope {
+  /** Durable Channel delivery authority; opaque to the package runtime. */
+  channel?: { runId: string; fence: number };
   /** Serialized lifecycle hook configs (webhook mode), so a queue worker can rebuild the dispatcher. */
   hooks?: SerializedAgentHook[];
   /** Queue retry policy for step scheduling. */

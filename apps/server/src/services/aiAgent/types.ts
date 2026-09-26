@@ -87,6 +87,8 @@ export interface InternalExecAgentParams extends ExecAgentParams {
    * message as `metadata.botSender` so the UI shows them instead of the owner.
    */
   botSender?: BotSenderMetadata;
+  /** Server-only Channel authority. Never accepted from the public exec schema. */
+  channelRun?: { runId: string; fence: number };
   /**
    * chatConfig overrides (thinking / reasoning-effort extend params) merged over
    * the executing agent's own chatConfig, skipping nulled keys. Internal-only:
@@ -162,6 +164,8 @@ export interface InternalExecAgentParams extends ExecAgentParams {
    * instead of answering itself. Mirrors the client runtime's mention wiring.
    */
   mentionedAgents?: RuntimeMentionedAgent[];
+  /** Server-owned id reserved durably by a delivery bridge before preparation. */
+  operationId?: string;
   /** Parent message ID to continue from. Only takes effect when resume is true */
   parentMessageId?: string;
   queueRetries?: number;
@@ -262,6 +266,8 @@ export interface InternalExecAgentParams extends ExecAgentParams {
    * chatConfig AND workspace member-mode overrides.
    */
   toolModeOverride?: 'agent' | 'chat';
+  /** Channel conversations follow the current Agent, including execution and reasoning config. */
+  topicConfigPolicy?: 'agent';
   /** Running operation that owns the topic for an internally spawned child run. */
   topicStartOwnerOperationId?: string;
   /**

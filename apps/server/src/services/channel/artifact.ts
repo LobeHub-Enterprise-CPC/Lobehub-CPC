@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+import type { AgentState, ToolTransport } from '@lobechat/agent-runtime';
 import type { CodexChannelSnapshot } from '@lobechat/heterogeneous-agents/channel';
 import { and, eq } from 'drizzle-orm';
 
@@ -8,7 +9,11 @@ import { channelAudit, channelRuns, channels } from '@/database/privateSchemas/c
 import type { LobeChatDatabase } from '@/database/type';
 import { FileService } from '@/server/services/file';
 
-import type { ChannelNativeCapabilities } from './native/host';
+export interface ChannelArtifactCapability {
+  toolManifestMap: AgentState['toolManifestMap'];
+  tools: NonNullable<AgentState['tools']>;
+  toolTransport?: ToolTransport;
+}
 
 /** Content-addressed object plus an immutable owner/Run-scoped record. */
 export async function saveChannelArtifact(
@@ -97,7 +102,7 @@ export async function channelArtifactCapability(
   db: LobeChatDatabase,
   ownerId: string,
   run: typeof channelRuns.$inferSelect,
-): Promise<ChannelNativeCapabilities> {
+): Promise<ChannelArtifactCapability> {
   const detail = await new ChannelModel(db, ownerId).detail(run.channelId);
   const thread = detail.threads.find((item) => item.id === run.manifest.threadId);
   const visible = new Set(

@@ -342,6 +342,7 @@ export interface TurnSetupInput {
   shareGate?: AgentShareGate;
   throwIfExecutionAborted: (stage: string) => Promise<void>;
   title?: string;
+  topicConfigPolicy?: 'agent';
   trigger?: string;
 }
 
@@ -572,7 +573,16 @@ export const setupTurn = async (
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Topic not found' });
     }
 
-    if (existingTopic && !shareGate) {
+    if (existingTopic && input.topicConfigPolicy === 'agent') {
+      const snapshot = await resolveNewTopicSnapshot(deps, agentConfig);
+      await deps.topicModel.update(topicId, { model: snapshot.model, provider: snapshot.provider });
+      await deps.topicModel.updateMetadata(topicId, {
+        reasoningConfig: snapshot.metadata?.reasoningConfig ?? {},
+        executionConfig: snapshotTopicExecutionConfig(agentConfig.agencyConfig),
+      });
+    }
+
+    if (existingTopic && !shareGate && input.topicConfigPolicy !== 'agent') {
       let executionConfig = existingTopic.metadata?.executionConfig;
       if (!executionConfig) {
         const fallback = snapshotTopicExecutionConfig({
@@ -600,7 +610,9 @@ export const setupTurn = async (
     }
 
     /** A group topic pins its owning agent; member runs keep their own model and effort. */
-    const canUseTopicPin = !existingTopic?.groupId || existingTopic.agentId === resolvedAgentId;
+    const canUseTopicPin =
+      input.topicConfigPolicy !== 'agent' &&
+      (!existingTopic?.groupId || existingTopic.agentId === resolvedAgentId);
     const pinnedModel = canUseTopicPin ? existingTopic?.model : undefined;
     if (pinnedModel) {
       model = modelOverride || pinnedModel;

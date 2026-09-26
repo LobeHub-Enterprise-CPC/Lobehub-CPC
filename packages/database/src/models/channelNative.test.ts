@@ -2,241 +2,197 @@
 import { readFileSync } from 'node:fs';
 
 import { PGlite } from '@electric-sql/pglite';
-import type { LLMAttemptInput } from '@lobechat/agent-runtime';
+import { CHANNEL_LIMITS } from '@lobechat/types';
+import { getTableConfig } from 'drizzle-orm/pg-core';
 import { drizzle } from 'drizzle-orm/pglite';
-import { expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it } from 'vitest';
 
-import { ChannelModel } from '@/database/models/channel';
-import type { LobeChatDatabase } from '@/database/type';
-
-import { createChannelContextBuilder } from '../../../../apps/server/src/services/channel/native/context';
-import { runChannelNative } from '../../../../apps/server/src/services/channel/native/host';
 import * as schema from '../privateSchemas/channel';
+import { messages } from '../schemas/message';
+import { topics } from '../schemas/topic';
+import type { LobeChatDatabase } from '../type';
+import { ChannelModel } from './channel';
+import { ChannelNativeModel } from './channelNative';
 
-const probe = vi.hoisted(() => ({
-  modelCalls: 0,
-  contexts: [] as LLMAttemptInput['context'][],
-}));
-vi.mock('../../../../apps/server/src/services/channel/native/llm', () => ({
-  createChannelLLMTransport: () => ({
-    retryPolicy: {
-      classifyError: () => ({ kind: 'stop' }),
-      maxAttempts: () => 1,
-      resolveRetryBudget: () => 0,
-    },
-    runAttempt: async (input: LLMAttemptInput) => {
-      probe.contexts.push(input.context);
-      const first = ++probe.modelCalls === 1;
-      return {
-        ok: true,
-        output: {
-          answerSalvagedFromReasoning: false,
-          content: first ? '' : 'Verified fixture',
-          contentParts: [],
-          grounding: null,
-          hasContentImages: false,
-          hasReasoningImages: false,
-          imageList: [],
-          reasoningParts: [],
-          thinkingContent: '',
-          toolCalls: first
-            ? [
-                {
-                  id: 'approved-call',
-                  type: 'function',
-                  function: { name: 'fixture____read____builtin', arguments: '{}' },
-                },
-              ]
-            : [],
-          toolsCalling: first
-            ? [
-                {
-                  id: 'approved-call',
-                  type: 'builtin',
-                  identifier: 'fixture',
-                  apiName: 'read',
-                  arguments: '{}',
-                },
-              ]
-            : [],
-        },
-      };
-    },
-  }),
-}));
+let client: PGlite;
+let db: LobeChatDatabase;
+let model: ChannelModel;
+let run: any;
+let store: ChannelNativeModel;
+beforeEach(async () => {
+  client = new PGlite();
+  await client.exec(
+    "create table users (id text primary key); insert into users values ('owner'), ('other');",
+  );
+  for (const name of ['0009_channel_mvp', '0010_channel_native_agent_runtime'])
+    await client.exec(
+      readFileSync(
+        new URL(
+          `../../../../../packages/enterprise/src/database/migrations/${name}.sql`,
+          import.meta.url,
+        ),
+        'utf8',
+      ),
+    );
+  // Standard topic columns, kept in sync with the real schema; unrelated foreign
+  // keys are omitted because these bridge tests deliberately have no agent runtime.
+  for (const table of [topics, messages])
+    await client.exec(
+      `CREATE TABLE ${getTableConfig(table).name} (${getTableConfig(table)
+        .columns.map((c) => `"${c.name}" ${c.getSQLType()} ${c.name === 'id' ? 'PRIMARY KEY' : ''}`)
+        .join(',')})`,
+    );
+  db = drizzle(client, { schema: { ...schema, topics } }) as unknown as LobeChatDatabase;
+  model = new ChannelModel(db, 'owner');
+  const config = { agentId: 'agent', runtime: 'native' as const, model: 'm', provider: 'p' };
+  const channel = await model.create('Bridge', [
+    { name: 'Native', config },
+    { name: 'Reviewer', config: { ...config, agentId: 'reviewer' } },
+  ]);
+  const member = (await model.detail(channel.id)).members[0];
+  await model.send(channel.id, { content: 'First', mentions: [member.id], requestKey: 'one' });
+  const job = (await model.detail(channel.id)).jobs[0];
+  run = (await model.claim(channel.id, job.id, member.environmentRevision))!.run;
+  store = new ChannelNativeModel(db, 'owner', { runId: run.id, fence: run.executionFence });
+});
+afterEach(async () => {
+  await client.close();
+});
+it('creates a real owned topic and one durable operation across retry/restart', async () => {
+  const first = await store.prepare();
+  const retry = await new ChannelNativeModel(db, 'owner', { runId: run.id, fence: 1 }).prepare();
+  expect(first.fresh).toBe(true);
+  expect(retry.fresh).toBe(false);
+  expect(retry.operation.operationId).toBe(first.operation.operationId);
+  const rows = await db.select().from(topics);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({
+    id: first.operation.topicId,
+    userId: 'owner',
+    agentId: 'agent',
+    workspaceId: null,
+  });
+  expect(first.operation.topicId).not.toBe(run.sessionId);
+});
+it('rejects foreign owners and stale execution fences', async () => {
+  await expect(
+    new ChannelNativeModel(db, 'other', { runId: run.id, fence: 1 }).prepare(),
+  ).rejects.toThrow('authority');
+  await expect(
+    new ChannelNativeModel(db, 'owner', { runId: run.id, fence: 2 }).prepare(),
+  ).rejects.toThrow('authority');
+});
+it('keeps the topic across incremental deliveries without importing input twice', async () => {
+  const first = await store.prepare();
+  await model.accepted(
+    run.channelId,
+    run.id,
+    1,
+    first.operation.topicId,
+    first.operation.operationId,
+  );
+  await model.saveDraft(run.channelId, run.id, 1, 'First answer');
+  await model.publish(run.channelId, run.id, 1);
+  await model.releaseWriter(run.channelId, run.id, 1);
+  await model.send(run.channelId, { content: 'Next', mentions: [run.memberId], requestKey: 'two' });
+  const detail = await model.detail(run.channelId);
+  const nextJob = detail.jobs.find((j) => j.status === 'queued')!;
+  const next = (await model.claim(run.channelId, nextJob.id, 0))!.run;
+  const second = await new ChannelNativeModel(db, 'owner', {
+    runId: next.id,
+    fence: next.executionFence,
+  }).prepare();
+  expect(second.operation.topicId).toBe(first.operation.topicId);
+  expect(second.reconstruct).toBe(false);
+  expect(next.manifest.messages.map((m) => m.id)).not.toContain(run.manifest.requestMessageId);
+});
+it('keeps an external call fenced after a crash and refuses to replay it', async () => {
+  await store.prepare();
+  await store.beginEffect('op', 'tool-one', 'tool');
+  expect((await store.load()).effects[0].settled).toBe(false);
+  await expect(store.beginEffect('op', 'tool-one', 'tool')).rejects.toThrow('refusing replay');
+  await store.settleEffect('tool-one');
+  expect((await store.load()).effects[0].settled).toBe(true);
+});
+it('enforces the persisted model-call budget across retries', async () => {
+  await store.prepare();
+  for (let i = 0; i < CHANNEL_LIMITS.modelCalls; i++)
+    await store.beginEffect('op', `model-${i}`, 'model');
+  await expect(store.beginEffect('op', 'extra', 'model')).rejects.toThrow('model call limit');
+});
+it('revocation blocks new calls but allows a real completion receipt', async () => {
+  await store.prepare();
+  await store.beginEffect('op', 'started', 'tool');
+  await model.stop(run.channelId, { runId: run.id });
+  await expect(store.beginEffect('op', 'late', 'tool')).rejects.toThrow('revoked');
+  await store.settleEffect('started');
+  expect((await store.load()).effects[0].settled).toBe(true);
+});
+it('ignores late receipts from an older approval segment and never selects an earlier answer', async () => {
+  const prepared = await store.prepare();
+  await store.ready({
+    operationId: prepared.operation.operationId,
+    topicId: prepared.operation.topicId,
+    assistantMessageId: 'assistant',
+    stepIndex: 0,
+  });
+  await store.ready({
+    operationId: 'continuation',
+    topicId: prepared.operation.topicId,
+    assistantMessageId: 'new-assistant',
+    stepIndex: 0,
+  });
+  await store.observe(prepared.operation.operationId, {
+    status: 'done',
+    messages: [{ id: 'assistant', role: 'assistant', content: 'stale' }],
+  } as any);
+  expect((await store.load()).checkpoint?.receipt).toBeUndefined();
+  await store.observe('continuation', {
+    status: 'done',
+    messages: [{ id: 'assistant', role: 'assistant', content: 'stale' }],
+  } as any);
+  expect((await store.load()).checkpoint?.receipt).not.toHaveProperty('content');
+});
 
-it.each([false, true])(
-  'resumes an approved batch once, including worker restart=%s',
-  async (restart) => {
-    const client = new PGlite();
-    try {
-      await client.exec(
-        "create table users (id text primary key); insert into users values ('owner');",
-      );
-      await client.exec(
-        readFileSync(
-          // Migration ownership moved to the enterprise chain (see
-          // src/privateSchemas/channel.ts) after this test was written.
-          new URL(
-            '../../../../../packages/enterprise/src/database/migrations/0009_channel_mvp.sql',
-            import.meta.url,
-          ),
-          'utf8',
-        ).replaceAll('--> statement-breakpoint', ''),
-      );
-      const db = drizzle(client, { schema }) as unknown as LobeChatDatabase;
-      const model = new ChannelModel(db, 'owner');
-      const config = { runtime: 'native' as const, provider: 'fixture', model: 'fixture' };
-      const channel = await model.create('Approval regression', [
-        { name: 'Native', config },
-        { name: 'Reviewer', config },
-      ]);
-      const member = (await model.detail(channel.id)).members[0];
-      const root = await model.send(channel.id, {
-        content: 'Background only',
-        mentions: [],
-        requestKey: 'background',
-      });
-      await model.stop(channel.id, { threadId: null });
-      const thread = await model.branch(channel.id, root.id);
-      await model.send(channel.id, {
-        content: 'Read fixture',
-        mode: 'discussion',
-        mentions: [member.id],
-        requestKey: 'fixture',
-        threadId: thread.id,
-        // A single round: the publication below ends the discussion instead of opening round 2.
-        maxDiscussionRounds: 1,
-      });
-      const { run } = (await model.claim(
-        channel.id,
-        (await model.detail(channel.id)).jobs.find((job) => job.status === 'queued')!.id,
-      ))!;
-      let approvals = 0;
-      let toolCalls = 0;
-      probe.modelCalls = 0;
-      probe.contexts = [];
-      const customBuild = vi.fn(createChannelContextBuilder().build);
-      const input: Parameters<typeof runChannelNative>[0] = {
-        db,
-        ownerId: 'owner',
-        runId: run.id,
-        fence: 1,
-        config,
-        signal: AbortSignal.timeout(10000),
-        onAccepted: (session, turn) => model.accepted(channel.id, run.id, 1, session, turn),
-        onApproval: async () => {
-          expect(toolCalls).toBe(0);
-          approvals++;
-        },
-        capabilities: {
-          systemRole: 'Original native role',
-          ...(restart && { context: { build: customBuild } }),
-          tools: [
-            {
-              type: 'function',
-              function: {
-                name: 'fixture____read____builtin',
-                description: 'Read fixture',
-                parameters: { type: 'object', properties: {} },
-              },
-            },
-          ],
-          toolManifestMap: {
-            fixture: {
-              identifier: 'fixture',
-              api: [
-                {
-                  name: 'read',
-                  description: 'Read fixture',
-                  humanIntervention: 'required',
-                  parameters: { type: 'object', properties: {} },
-                },
-              ],
-            },
-          },
-          toolTransport: {
-            run: async () => {
-              toolCalls++;
-              return { attempts: 1, result: { success: true, content: 'Fixture contents' } };
-            },
-          },
-        },
-      };
-      if (restart) {
-        await expect(
-          runChannelNative({
-            ...input,
-            onApproval: async () => {
-              throw new Error('Simulated process disconnect before approval');
-            },
-          }),
-        ).rejects.toThrow('Simulated process disconnect');
-        expect(toolCalls).toBe(0);
-        expect(probe.modelCalls).toBe(1);
-      }
-      const result = await runChannelNative(input);
-      expect(result.content).toBe('Verified fixture');
-      expect(result.state.status).toBe('done');
-      expect(approvals).toBe(1);
-      expect(toolCalls).toBe(1);
-      expect(probe.modelCalls).toBe(2);
-      if (restart) expect(customBuild).toHaveBeenCalledTimes(2);
-      for (const context of probe.contexts) {
-        const messages = context.messages as { content: unknown; role: string }[];
-        const system = String(messages.find((m) => m.role === 'system')?.content);
-        expect(system).toContain('Original native role');
-        expect(system).toContain('author.id equals self.memberId');
-        expect(system.split('This request was delivered through a Channel.')).toHaveLength(2);
-        expect(JSON.parse(system.slice(system.indexOf('{')))).toEqual({
-          discussion: {
-            id: run.manifest.requestMessageId,
-            kind: 'discuss',
-            maxRounds: 1,
-            round: 1,
-            participants: [{ memberId: member.id, name: member.name }],
-          },
-          deliveryInstruction: expect.stringContaining('Participate freely'),
-          self: { memberId: member.id, name: member.name },
-          threadId: thread.id,
-          threadRootSequence: 1,
-          cutoffSequence: 2,
-          contextMode: 'snapshot',
-          activeRequestMessageId: run.manifest.requestMessageId,
-        });
-        const background = messages.find(
-          (m) => m.role === 'user' && String(m.content).includes('"kind":"channel_history"'),
-        )!;
-        expect(background.role).toBe('user');
-        expect(JSON.parse(String(background.content))).toMatchObject({
-          author: { id: 'owner', type: 'human' },
-          content: 'Background only',
-          threadId: null,
-        });
-      }
-      expect(result.state.systemRole).toBe('Original native role');
-      await model.saveDraft(channel.id, run.id, 1, result.content);
-      await model.publish(channel.id, run.id, 1);
-      await model.releaseWriter(channel.id, run.id, 1);
-      await model.advanceDiscussions(channel.id);
-      const summaryJob = (await model.detail(channel.id)).jobs.find(
-        (job) => job.task?.kind === 'summarize',
-      )!;
-      const summary = (await model.claim(channel.id, summaryJob.id))!;
-      expect(summary.run.manifest.messages.map((message) => message.content)).toEqual([
-        'Verified fixture',
-      ]);
-      const synthesis = await runChannelNative({
-        ...input,
-        runId: summary.run.id,
-        onAccepted: (session, turn) => model.accepted(channel.id, summary.run.id, 1, session, turn),
-      });
-      expect(synthesis.content).toBe('Verified fixture');
-      expect(toolCalls).toBe(1);
-      expect(probe.modelCalls).toBe(3);
-    } finally {
-      await client.close();
-    }
-  },
-  30000,
-);
+it('reads the final operation-owned answer after compression removed the initial anchor', async () => {
+  const { operation } = await store.prepare();
+  await store.ready({ operationId: operation.operationId, topicId: operation.topicId, assistantMessageId: 'initial-assistant', stepIndex: 0 });
+  await db
+    .insert(messages)
+    .values({
+      id: 'final-assistant',
+      userId: 'owner',
+      topicId: operation.topicId,
+      role: 'assistant',
+      content: 'Final after compression',
+      metadata: { operationId: operation.operationId },
+    });
+  await store.observe(operation.operationId, {
+    status: 'done',
+    metadata: { workAssistantMessageId: 'final-assistant' },
+    messages: [{ role: 'system', content: 'compressed history' }],
+  } as any);
+  expect((await store.load()).checkpoint?.receipt).toMatchObject({
+    content: 'Final after compression',
+  });
+  await db.update(messages).set({ metadata: { operationId: 'previous-operation' } });
+  await store.observe(operation.operationId, {
+    status: 'done',
+    metadata: { workAssistantMessageId: 'final-assistant' },
+  } as any);
+  expect((await store.load()).checkpoint?.receipt).not.toHaveProperty('content');
+});
+it('persists approval intent through interruption and clears it when the continuation is ready', async () => {
+  const { operation } = await store.prepare();
+  await store.ready({ operationId: operation.operationId, topicId: operation.topicId, stepIndex: 0 });
+  await store.prepareApproval(operation.operationId, {
+    pendingToolsCalling: [{ id: 'tool' } as any],
+    pendingToolMessageIds: { tool: 'message' },
+  });
+  await store.observe(operation.operationId, { status: 'interrupted' } as any);
+  expect((await store.load()).checkpoint?.approvalIntent).toMatchObject({
+    operationId: operation.operationId,
+  });
+  await store.ready({ operationId: 'continuation', topicId: operation.topicId, stepIndex: 0 });
+  expect((await store.load()).checkpoint?.approvalIntent).toBeNull();
+});
