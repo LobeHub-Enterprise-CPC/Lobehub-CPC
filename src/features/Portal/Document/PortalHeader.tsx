@@ -6,13 +6,16 @@ import { Maximize2Icon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { buildAgentDocumentPath } from '@/features/AgentDocumentPage/navigation';
+import {
+  buildAgentDocumentPath,
+  buildAgentDocumentsPath,
+} from '@/features/AgentDocumentPage/navigation';
 import PortalChromeHeader from '@/features/Portal/components/Header';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { useAgentStore } from '@/store/agent';
 import { useChatStore } from '@/store/chat';
 
-import { useResolvedDocumentId } from './documentViewContext';
+import { useResolvedAgentDocumentId, useResolvedDocumentId } from './documentViewContext';
 import DocumentTitle from './Header';
 
 /**
@@ -41,8 +44,25 @@ const OpenAsPageAction = memo(() => {
   );
 });
 
-const PortalHeader = () => (
-  <PortalChromeHeader rightExtra={<OpenAsPageAction />} title={<DocumentTitle />} />
-);
+const PortalHeader = () => {
+  const agentId = useAgentStore((s) => s.activeAgentId);
+  // Discriminate on the resolved agent-documents binding, not `agentId` alone:
+  // a plain notebook document can be open while an agent happens to be active,
+  // and that agent's index is not this document's home.
+  const agentDocumentId = useResolvedAgentDocumentId();
+  const navigate = useWorkspaceAwareNavigate();
+
+  // Agent documents have a documents index to land on; plain notebook
+  // documents keep a non-navigating crumb label.
+  const openDocumentsIndex =
+    agentId && agentDocumentId ? () => navigate(buildAgentDocumentsPath(agentId)) : undefined;
+
+  return (
+    <PortalChromeHeader
+      rightExtra={<OpenAsPageAction />}
+      title={<DocumentTitle onOpenDocumentsIndex={openDocumentsIndex} />}
+    />
+  );
+};
 
 export default PortalHeader;

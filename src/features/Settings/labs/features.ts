@@ -17,8 +17,8 @@ type LabFeatureI18nKey =
   | 'claudeCodeSdk'
   | 'codexAppServer'
   | 'desktopSplitView'
+  | 'deviceTunnel'
   | 'evalCapture'
-  | 'gatewayMux'
   | 'heteroSessionImport'
   | 'imessage'
   | 'inputMarkdown'
@@ -79,15 +79,15 @@ export const LAB_FEATURES: LabFeatureItem[] = [
     stage: 'alpha',
   },
   {
-    flag: 'enableGatewayMux',
-    i18nKey: 'gatewayMux',
-    searchKeywords: ['gateway', 'websocket', 'multiplex'],
-    stage: 'alpha',
-  },
-  {
     flag: 'enableTopicAcceptance',
     i18nKey: 'topicAcceptance',
     searchKeywords: ['acceptance', 'checklist'],
+    stage: 'alpha',
+  },
+  {
+    flag: 'enableDeviceTunnel',
+    i18nKey: 'deviceTunnel',
+    searchKeywords: ['tunnel', 'port forwarding', 'dev server', 'localhost'],
     stage: 'alpha',
   },
   {

@@ -1,4 +1,8 @@
 export default {
+  'devices.keepAwake.desc':
+    'Prevent automatic sleep while this computer is connected as a device, so it stays reachable. The display can still turn off; closing a laptop lid without an external display still puts it to sleep.',
+  'devices.keepAwake.title': 'Keep Awake While Connected',
+  'devices.thisComputer': 'This Computer',
   'marketSubmission.entry': 'Publish',
   'marketSubmission.title': 'Publish to Market',
   'marketSubmission.submit': 'Publish',
@@ -606,7 +610,27 @@ export default {
   'devices.actions.edit': 'Edit',
   'devices.actions.refresh': 'Refresh',
   'devices.actions.remove': 'Remove',
+  'devices.appUpdate.checkFailed': "Couldn't check for updates: {{message}}",
+  'devices.appUpdate.confirmDesc':
+    'LobeHub on this device will quit and restart. Anything it is running, including agent tasks, will be interrupted.',
+  'devices.appUpdate.confirmTitle': 'Restart and update to v{{version}}?',
+  'devices.appUpdate.downloading': 'Downloading v{{version}}',
+  'devices.appUpdate.installFailed':
+    "The device came back on v{{version}}, so the update didn't apply. Check for updates to try again.",
+  'devices.appUpdate.ready': 'v{{version}} is downloaded and ready to install',
+  'devices.appUpdate.restarting': 'Restarting…',
+  'devices.appUpdate.restartingHint': 'Waiting for the device to come back on v{{version}}',
+  'devices.appUpdate.timedOut':
+    "The device hasn't come back online. Check the app on that machine.",
+  'devices.appUpdate.unavailable': "Couldn't read the desktop app's update status. Try again.",
+  'devices.appUpdate.unsupported.cli':
+    'lh connect answered instead of the desktop app. Stop lh connect on this device, then try again.',
+  'devices.appUpdate.unsupported.devBuild': "Development builds can't update themselves.",
+  'devices.appUpdate.unsupported.outdated':
+    "This app version can't be updated remotely. Update it once on the device to enable remote updates.",
+  'devices.appUpdate.updated': 'Updated to v{{version}}',
   'devices.channel.connected': 'Connected {{time}}',
+  'devices.channel.unknown': 'Unknown client',
   'devices.currentBadge': 'This device',
   'devices.detail.addDir': 'Add directory',
   'devices.detail.connections': 'Connections',
@@ -3516,6 +3540,11 @@ When I am ___, I need ___
   'tools.builtins.lobe-image-generation.readme':
     'Opt-in image generation for models without native image output. Pin this tool to enable it in chat or agent mode; leave unpinned to avoid the tool schema cost.',
   'tools.builtins.lobe-image-generation.title': 'Image Generation',
+  'tools.builtins.lobe-video-generation.description':
+    'Generate videos through LobeHub providers from text or reference images.',
+  'tools.builtins.lobe-video-generation.readme':
+    'Opt-in video generation. Pin this tool to enable it in chat or agent mode; leave unpinned to avoid the tool schema cost.',
+  'tools.builtins.lobe-video-generation.title': 'Video Generation',
   'tools.builtins.lobe-web-onboarding.description':
     'Drive the web onboarding flow with a controlled agent runtime',
   'tools.builtins.lobe-web-onboarding.title': 'Web Onboarding',

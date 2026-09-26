@@ -37,6 +37,7 @@ export const getStoreDefaults = (): ElectronMainStore => ({
   dataSyncConfig: { storageMode: 'cloud' },
   encryptedTokens: {},
   gatewayDeviceId: '',
+  gatewayKeepAwake: true,
   // Build-time default, still overridable at runtime through the store — a
   // distribution that runs no gateway of its own must not have every install
   // opening a socket to the official one. See DEVICE_GATEWAY_ENABLED in env.ts.

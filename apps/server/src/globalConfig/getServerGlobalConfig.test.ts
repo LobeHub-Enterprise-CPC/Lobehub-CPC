@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 interface MockGlobalConfigOptions {
+  agentGatewayProtocol?: number;
   agentGatewayUrl?: string;
   enableAgentGateway?: boolean;
   marketTrustedClient?: boolean;
@@ -40,6 +41,9 @@ const mockGlobalConfigDependencies = (
 
   vi.doMock('@/envs/app', () => ({
     appEnv: {
+      ...(options.agentGatewayProtocol === undefined
+        ? {}
+        : { AGENT_GATEWAY_PROTOCOL: options.agentGatewayProtocol }),
       ...(options.agentGatewayUrl ? { AGENT_GATEWAY_URL: options.agentGatewayUrl } : {}),
       ...(options.enableAgentGateway === undefined
         ? {}
@@ -202,19 +206,30 @@ describe('getServerGlobalConfig', () => {
     });
   });
 
-  it('should hide the LobeHub Skill connectors in business feature mode even if market trusted-client env vars are set', async () => {
-    await expect(loadServerConfig(true, { marketTrustedClient: true })).resolves.toMatchObject({
-      enableLobehubSkill: false,
-    });
+  it('should declare gateway protocol 2 only where the v2 socket exists', async () => {
+    // The business gateway serves `/v2/ws`; `lobehub/lobehub-gateway`, which is
+    // what a self-hosted deployment runs, serves only `/ws`.
+    await expect(loadServerConfig(true)).resolves.toMatchObject({ agentGatewayProtocol: 2 });
+    await expect(
+      loadServerConfig(false, {
+        agentGatewayUrl: 'https://gateway.test.com',
+        enableAgentGateway: true,
+      }),
+    ).resolves.toMatchObject({ agentGatewayProtocol: 1 });
   });
 
-  it('should keep the LobeHub Skill connectors gated by the market trusted-client env vars outside business feature mode', async () => {
-    await expect(loadServerConfig(false, { marketTrustedClient: true })).resolves.toMatchObject({
-      enableLobehubSkill: true,
-    });
+  it('should let AGENT_GATEWAY_PROTOCOL correct either guess', async () => {
+    await expect(
+      loadServerConfig(false, {
+        agentGatewayProtocol: 2,
+        agentGatewayUrl: 'https://gateway.test.com',
+        enableAgentGateway: true,
+      }),
+    ).resolves.toMatchObject({ agentGatewayProtocol: 2 });
 
-    await expect(loadServerConfig(false)).resolves.toMatchObject({
-      enableLobehubSkill: false,
+    // An on-prem business deployment sitting in front of a v1 gateway.
+    await expect(loadServerConfig(true, { agentGatewayProtocol: 1 })).resolves.toMatchObject({
+      agentGatewayProtocol: 1,
     });
   });
 
@@ -254,5 +269,21 @@ describe('getServerGlobalConfig', () => {
         toolNameMaxLength: expected,
       });
     }
+  });
+
+  it('should hide the LobeHub Skill connectors in business feature mode even if market trusted-client env vars are set', async () => {
+    await expect(loadServerConfig(true, { marketTrustedClient: true })).resolves.toMatchObject({
+      enableLobehubSkill: false,
+    });
+  });
+
+  it('should keep the LobeHub Skill connectors gated by the market trusted-client env vars outside business feature mode', async () => {
+    await expect(loadServerConfig(false, { marketTrustedClient: true })).resolves.toMatchObject({
+      enableLobehubSkill: true,
+    });
+
+    await expect(loadServerConfig(false)).resolves.toMatchObject({
+      enableLobehubSkill: false,
+    });
   });
 });

@@ -20,10 +20,13 @@ import { agents, agentShares, users } from '../schemas';
 import type { LobeChatDatabase } from '../type';
 import { normalizeInboxAgentAvatar, normalizeInboxAgentTitle } from '../utils/inboxAgent';
 import { isUuid } from '../utils/uuid';
+import { AgentShareProfileModel } from './agentShareProfile';
 
 const DEFAULT_AGENT_SHARE_CONFIG = {
   allowCreatorViewSessions: false,
   allowReadMemory: false,
+  demoCases: [],
+  featuredWorkIds: [],
   maxFileStorage: AGENT_SHARE_DEFAULT_MAX_FILE_STORAGE,
   maxTopicsPerVisitor: AGENT_SHARE_DEFAULT_MAX_TOPICS_PER_VISITOR,
   maxTurnsPerTopic: AGENT_SHARE_DEFAULT_MAX_TURNS_PER_TOPIC,
@@ -40,6 +43,8 @@ const normalizeAgentShareConfig = (
   allowCreatorViewSessions:
     config?.allowCreatorViewSessions ?? DEFAULT_AGENT_SHARE_CONFIG.allowCreatorViewSessions,
   allowReadMemory: config?.allowReadMemory ?? DEFAULT_AGENT_SHARE_CONFIG.allowReadMemory,
+  demoCases: config?.demoCases ?? [],
+  featuredWorkIds: config?.featuredWorkIds ?? [],
   maxFileStorage: config?.maxFileStorage ?? DEFAULT_AGENT_SHARE_CONFIG.maxFileStorage,
   maxTopicsPerVisitor:
     config?.maxTopicsPerVisitor ?? DEFAULT_AGENT_SHARE_CONFIG.maxTopicsPerVisitor,
@@ -47,6 +52,11 @@ const normalizeAgentShareConfig = (
   monthlySpendLimit: config?.monthlySpendLimit ?? DEFAULT_AGENT_SHARE_CONFIG.monthlySpendLimit,
   showErrorDetails: config?.showErrorDetails ?? DEFAULT_AGENT_SHARE_CONFIG.showErrorDetails,
   showModelInfo: config?.showModelInfo ?? DEFAULT_AGENT_SHARE_CONFIG.showModelInfo,
+  /**
+   * Left absent rather than defaulted to `[]`: both read as "no skill
+   * granted", so a default would only write a value the creator never picked.
+   */
+  skillGrants: config?.skillGrants,
   slug: config?.slug,
   toolGrants: config?.toolGrants ?? DEFAULT_AGENT_SHARE_CONFIG.toolGrants,
 });
@@ -375,6 +385,12 @@ export class AgentShareModel {
   ): Promise<NormalizedAgentShareItem | null> =>
     this.withScopedAgentLock(agentId, async (tx) => {
       const { slug: _slug, ...patch } = config as AgentShareConfigPatch & { slug?: unknown };
+      if (patch.featuredWorkIds !== undefined) {
+        await new AgentShareProfileModel(tx, this.userId).validateFeaturedWorks(
+          agentId,
+          patch.featuredWorkIds,
+        );
+      }
       const setEntries = Object.entries(patch).filter(([, v]) => v !== undefined);
 
       let configExpr = sql`COALESCE(${agentShares.shareConfig}, '{}'::jsonb)`;

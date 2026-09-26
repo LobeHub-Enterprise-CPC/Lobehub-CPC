@@ -38,10 +38,10 @@
 
 import { getHeterogeneousAgentConfigOrThrow } from '../config';
 import {
-  CLI_CREDIT_LIMIT_PATTERNS,
+  classifyCliQuotaMessage,
   CLI_SERVER_THROTTLE_PATTERNS,
   CLI_USER_RATE_LIMIT_PATTERNS,
-} from '../errors/claudeCodeQuota';
+} from '../errors/cliQuota';
 import type { HeteroErrorKind } from '../errors/specs';
 import { imagePlaceholder } from '../imageEcho';
 import type {
@@ -700,6 +700,17 @@ const isAbortedResult = (raw: any): boolean =>
   !getCliResultMessage(raw?.result) &&
   !getCliResultErrors(raw);
 
+/**
+ * A `result` that closes CC's own task-notification pass without running a
+ * single turn. A notification pass that DID run a turn (`num_turns > 0`) carries
+ * real output and stays a normal result.
+ */
+const isEmptyTaskNotificationResult = (raw: any): boolean =>
+  raw?.origin?.kind === 'task-notification' &&
+  raw.num_turns === 0 &&
+  !raw.is_error &&
+  !getCliResultMessage(raw.result);
+
 const buildAbortedRuntimeEndData = (raw: any): Record<string, unknown> => ({
   kind: 'aborted' satisfies HeteroErrorKind,
   reason: 'interrupted',
@@ -874,11 +885,9 @@ const getRateLimitTerminalError = (
 
   // A credit/balance limit shares the `rate_limit` guide but not its remedy:
   // waiting for a reset never clears it, so it is a distinct taxonomy kind.
-  const kind: HeteroErrorKind = CLI_CREDIT_LIMIT_PATTERNS.some((pattern) =>
-    pattern.test(rawMessage),
-  )
-    ? 'credit_limit'
-    : 'usage_limit';
+  // A `rate_limit_info`-only rejection (no quota wording in the text) is a
+  // plan window by definition — that structured event only ever reports one.
+  const kind: HeteroErrorKind = classifyCliQuotaMessage(rawMessage)?.kind ?? 'usage_limit';
 
   return {
     agentType,
@@ -2052,6 +2061,13 @@ export class ClaudeCompatibleStreamAdapter implements AgentEventAdapter {
   }
 
   private handleResult(raw: any): HeterogeneousAgentEvent[] {
+    // Resuming a session whose previous run left background tasks behind makes
+    // CC first report them as orphaned (`task_notification` ×N), then close that
+    // bookkeeping pass with an empty zero-turn `result` BEFORE the user's turn
+    // even starts. Treating it as terminal ends the operation with no content
+    // and drops the real turn that follows — the reply stays a `...` shell.
+    if (isEmptyTaskNotificationResult(raw)) return [];
+
     // Emit authoritative grand-total usage from CC's result event. The
     // executor currently ignores this phase (it persists per-turn via
     // turn_metadata), but we still emit it so other consumers — cost

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { AGENT_DOCUMENT_FILE_TYPE } from '@lobechat/const';
 import { DOCUMENT_FOLDER_TYPE } from '@lobechat/database/schemas';
+import { FileSource } from '@lobechat/types';
 import { createHeadlessEditor } from '@lobehub/editor/headless';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -129,6 +130,7 @@ describe('AgentDocumentsService', () => {
   };
   const mockFileService = {
     getFileContent: vi.fn(),
+    removeUnreferencedFile: vi.fn().mockResolvedValue(undefined),
   };
   const mockAgentModel = {
     getAgentConfigById: vi.fn(),
@@ -177,6 +179,24 @@ describe('AgentDocumentsService', () => {
   });
 
   describe('createDocument', () => {
+    /** @example Native document creation works without object-storage configuration. */
+    it('does not initialize file storage when creating a native document', async () => {
+      // ROOT CAUSE:
+      // Eager cleanup-service construction made ordinary agent operations require S3.
+      // Storage must only initialize when an operation actually needs file cleanup.
+      vi.mocked(FileService).mockImplementationOnce(function () {
+        throw new Error('Storage is not configured');
+      });
+      mockModel.findByParentAndFilename.mockResolvedValue(undefined);
+      mockModel.create.mockResolvedValue({ id: 'native-document' });
+      const service = new AgentDocumentsService(db, userId);
+      /** @example Creating text content never contacts storage. */
+      await expect(service.createDocument('agent-1', 'Note', 'hello')).resolves.toBeDefined();
+      /** @example The storage dependency stays uninitialized. */
+      expect(FileService).not.toHaveBeenCalled();
+      vi.mocked(FileService).mockReset();
+    });
+
     it('should append a numeric suffix when the base filename already exists', async () => {
       mockModel.findByParentAndFilename
         .mockResolvedValueOnce({ id: 'existing-doc' })
@@ -1145,6 +1165,36 @@ lossless tool result
   });
 
   describe('importFile', () => {
+    /** @example A rejected import reclaims only the caller's dedicated upload. */
+    it('reclaims a dedicated upload when the parent disappeared', async () => {
+      mockFileModel.findById.mockResolvedValue({
+        id: 'failed-upload',
+        userId,
+        source: FileSource.AgentDocument,
+      });
+      mockModel.findByDocumentId.mockResolvedValue(undefined);
+      const service = new AgentDocumentsService(db, userId);
+      /** @example The original validation failure still reaches the caller. */
+      await expect(service.importFile('agent-1', 'failed-upload', 'missing')).rejects.toThrow(
+        'Parent folder not found',
+      );
+      /** @example Server-side cleanup still runs if the client has disconnected. */
+      expect(mockFileService.removeUnreferencedFile.mock.calls).toEqual([
+        ['failed-upload', FileSource.AgentDocument],
+      ]);
+    });
+
+    /** @example A failed attachment never deletes a pre-existing Resources upload. */
+    it('preserves ordinary resources after a rejected import', async () => {
+      mockFileModel.findById.mockResolvedValue({ id: 'resource', userId });
+      mockModel.findByDocumentId.mockResolvedValue(undefined);
+      const service = new AgentDocumentsService(db, userId);
+      /** @example Import rejects the invalid parent. */
+      await expect(service.importFile('agent-1', 'resource', 'missing')).rejects.toThrow();
+      /** @example Resources keeps its independent lifecycle. */
+      expect(mockFileService.removeUnreferencedFile).not.toHaveBeenCalled();
+    });
+
     it('creates a file-backed agent document from an uploaded file', async () => {
       mockFileModel.findById.mockResolvedValue({
         fileType: 'application/pdf',

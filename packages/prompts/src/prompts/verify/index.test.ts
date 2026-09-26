@@ -1,6 +1,7 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { describe, expect, it } from 'vitest';
 
-import { buildVerifierPrompt } from './index';
+import { buildAcceptanceRepairPrompt, buildVerifierPrompt } from './index';
 
 const checkItem = {
   id: 'check-1',
@@ -41,5 +42,21 @@ describe('buildVerifierPrompt', () => {
     });
 
     expect(prompt).not.toContain('## Task documents');
+  });
+});
+
+describe('buildAcceptanceRepairPrompt', () => {
+  it('carries the round-level reject reason, which feedback --actionable does not print', () => {
+    const prompt = buildAcceptanceRepairPrompt('acc-1', '能否录一个视频看下？');
+
+    expect(prompt.startsWith('The reviewer sent this delivery back with this reason:')).toBe(true);
+    expect(prompt).toContain('能否录一个视频看下？');
+    expect(prompt).toContain('lh acceptance feedback acc-1 --actionable');
+  });
+
+  it('stays the plain CLI handoff without a reason', () => {
+    expect(buildAcceptanceRepairPrompt('acc-1')).toMatch(
+      new RegExp(`^Use the ${BRANDING_NAME} CLI`),
+    );
   });
 });

@@ -11,7 +11,6 @@ import type {
   ScheduleAgentRunParams,
   ScheduleAgentRunResult,
   UserInterventionConfig,
-  WorkingDirConfig,
 } from '@lobechat/types';
 import { getWorkingDirEffectivePath, RequestTrigger } from '@lobechat/types';
 import { nanoid } from '@lobechat/utils';
@@ -73,7 +72,11 @@ import { applyShareGateToAgentConfig } from './shareGate';
 import type { SubAgentRunDeps } from './subAgentRuns';
 import { execAgentMember, execAgentThreadRun } from './subAgentRuns';
 import { acquireTopicStartReservation } from './topicStartReservation';
-import type { ExecRunContext, InternalExecAgentParams } from './types';
+import type {
+  BindTopicWorkingDirectoryParams,
+  ExecRunContext,
+  InternalExecAgentParams,
+} from './types';
 
 const log = debug('lobe-server:ai-agent-service');
 
@@ -268,19 +271,23 @@ export class AiAgentService {
    * CLI agent does. Purely additive: a topic that already carries a cwd (the
    * client resolved one and sent it as `initialTopicMetadata`, or an earlier
    * turn bound it) is never rewritten, so the historical pin always wins.
+   *
+   * The pin is a bare path that only holds on the machine it came from, so the
+   * device is stamped alongside it (`boundDeviceId`, unless the topic already
+   * names one) — that is what lets another device skip it. A topic already
+   * bound to a different device is left unpinned rather than given this
+   * device's path.
    */
-  private async bindTopicWorkingDirectory(params: {
-    config?: WorkingDirConfig;
-    currentWorkingDirectory?: string;
-    topicId: string;
-  }): Promise<void> {
-    const { config, currentWorkingDirectory, topicId } = params;
+  private async bindTopicWorkingDirectory(params: BindTopicWorkingDirectoryParams): Promise<void> {
+    const { config, currentDeviceId, currentWorkingDirectory, deviceId, topicId } = params;
     if (currentWorkingDirectory || !config) return;
+    if (currentDeviceId && deviceId && currentDeviceId !== deviceId) return;
     const path = getWorkingDirEffectivePath(config);
     if (!path) return;
 
     try {
       await this.topicModel.updateMetadata(topicId, {
+        ...(deviceId && !currentDeviceId && { boundDeviceId: deviceId }),
         workingDirectory: path,
         workingDirectoryConfig: config,
       });
@@ -1076,7 +1083,10 @@ export class AiAgentService {
 
     const runContext: ExecRunContext = {
       agentConfig,
-      appContext,
+      appContext:
+        turn.editingAgentId && turn.editingAgentId !== appContext?.editingAgentId
+          ? { ...appContext, editingAgentId: turn.editingAgentId }
+          : appContext,
       assistantMessageId: turn.assistantMessageId,
       canUseDevice,
       deviceAccessReason,
@@ -1226,7 +1236,7 @@ export class AiAgentService {
     // Stages 5–18 — the run's init: the tool surface, the message/context
     // assembly, and the human decision a resumed approval turns into the first
     // context. One call so the same work can later run in the step-0 worker
-    // instead of on the send path (LOBE-13745).
+    // instead of on the send path.
     const initRequest = buildOperationInitRequest({
       additionalPluginIds,
       agentSlug,
@@ -1285,7 +1295,6 @@ export class AiAgentService {
       runContext,
       initRequest,
     );
-
     // 17. Log final operation parameters summary
     log(
       'execAgent: creating operation %s with params: model=%s, provider=%s, tools=%d, messages=%d, manifests=%d',
@@ -1510,7 +1519,9 @@ export class AiAgentService {
   execVirtualSubAgent = async (params: ExecVirtualSubAgentParams): Promise<ExecSubAgentResult> =>
     execAgentThreadRun(this.subAgentRunDeps, params, {
       chatConfig: params.chatConfig,
+      deviceId: params.deviceId,
       isSubAgent: true,
+      localDeviceId: params.localDeviceId,
       logScope: 'execVirtualSubAgent',
       // Sub-agent model is resolved at the spawn site (callSubAgent runner) from
       // the parent agent's `agencyConfig.subagent` and threaded through here as an

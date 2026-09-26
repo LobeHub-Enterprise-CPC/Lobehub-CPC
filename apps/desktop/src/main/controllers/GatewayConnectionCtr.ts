@@ -17,6 +17,8 @@ import { type ILocalSystemService, LocalSystemExecutionRuntime } from '@lobechat
 import type { HeterogeneousProviderConfig } from '@lobechat/types';
 import { app as electronApp } from 'electron';
 
+import { updaterConfig } from '@/modules/updater/configs';
+import { createRemoteAppUpdateDeps } from '@/modules/updater/remoteUpdate';
 import AuvService, { type AuvRunCommandParams } from '@/services/auvSrv';
 import { backfillDeviceArchitecture } from '@/services/deviceArchitectureBackfill';
 import GatewayConnectionService from '@/services/gatewayConnectionSrv';
@@ -276,7 +278,18 @@ export default class GatewayConnectionCtr extends ControllerModule {
 
   @IpcMethod()
   async getConnectionStatus(): Promise<{ status: GatewayConnectionStatus }> {
-    return { status: this.service.getStatus() };
+    return { status: this.service.getDisplayedStatus() };
+  }
+
+  @IpcMethod()
+  async getKeepAwake(): Promise<{ enabled: boolean }> {
+    return { enabled: this.service.getKeepAwake() };
+  }
+
+  @IpcMethod()
+  async setKeepAwake({ enabled }: { enabled: boolean }): Promise<{ enabled: boolean }> {
+    this.service.setKeepAwake(enabled);
+    return { enabled: this.service.getKeepAwake() };
   }
 
   @IpcMethod()
@@ -479,6 +492,13 @@ export default class GatewayConnectionCtr extends ControllerModule {
       // Skill-archive cache (`prepareSkillDirectory` RPC): reuse LocalFileCtr's
       // deps so gateway-prepared skills share one cache with the renderer-IPC path.
       ...this.localFileCtr.getSkillDirectoryDeps(),
+      // Remote app update from the web device page, over the same updater the
+      // local "Check for updates" menu drives.
+      ...createRemoteAppUpdateDeps({
+        currentVersion: electronApp.getVersion(),
+        enabled: updaterConfig.enableAppUpdate,
+        getUpdater: () => this.app.getUpdaterManager(),
+      }),
     };
   }
 

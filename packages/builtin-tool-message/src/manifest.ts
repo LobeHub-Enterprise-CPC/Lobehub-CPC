@@ -257,7 +257,7 @@ export const MessageManifest: BuiltinToolManifest = {
     // ==================== Direct Messaging ====================
     {
       description:
-        'Send a direct/private message to ANOTHER user by their platform user ID. Creates a DM channel automatically. To reach the CURRENT user themselves ("DM me", "send me a message"), use `sendMessengerPush` instead — it needs no user id. Supports optional outbound media `attachments` (images / files / video / audio) and rich `embeds` cards (Discord). To pick the target: call `listBots` for the platform first — if there\'s an entry, use its `botId`; otherwise call `listMessengers` and use that entry\'s `id` as `messengerInstallationId`.',
+        'Send a direct/private message to ANOTHER user by their platform user ID. Creates a DM channel automatically. To reach the CURRENT user themselves ("DM me", "send me a message"), use `sendMessengerPush` instead — it needs no user id. Supports optional outbound media `attachments` (images / files / video / audio) and rich `embeds` cards (Discord). To pick the connection: when sending into the IM conversation you are currently in, pass neither `botId` nor `messengerInstallationId`; otherwise call `listBots` for the platform first — if there\'s a non-`failed` entry, use its `botId`; else call `listMessengers` and use that entry\'s `id` as `messengerInstallationId`.',
       name: MessageApiName.sendDirectMessage,
       ordered: true,
       parameters: {
@@ -267,7 +267,7 @@ export const MessageManifest: BuiltinToolManifest = {
           embeds: embedsSchema,
           botId: {
             description:
-              'Per-agent bot id from `listBots`. Provide exactly one of `botId` or `messengerInstallationId`.',
+              'Per-agent bot id from `listBots` (skip bots whose status is `failed`). Pass at most one of `botId` / `messengerInstallationId`; omit both when sending into the IM conversation you are currently in — the runtime then uses the connection that conversation arrived on.',
             type: 'string',
           },
           content: {
@@ -276,7 +276,7 @@ export const MessageManifest: BuiltinToolManifest = {
           },
           messengerInstallationId: {
             description:
-              'System Bot installation id from `listMessengers`. Provide exactly one of `botId` or `messengerInstallationId`.',
+              'System Bot installation id from `listMessengers`. Pass at most one of `botId` / `messengerInstallationId`; omit both when sending into the IM conversation you are currently in.',
             type: 'string',
           },
           platform: {
@@ -297,7 +297,7 @@ export const MessageManifest: BuiltinToolManifest = {
     // ==================== Core Message Operations ====================
     {
       description:
-        "Send a message to a specific channel or conversation on the target platform. Supports optional outbound media `attachments` (images / files / video / audio) — use this when you need to deliver a generated image, document, or other binary alongside your reply — and rich `embeds` cards (rendered natively on Discord; ignored elsewhere) for reports, dashboards, and structured summaries. To pick the target: call `listBots` first — if there's an entry for the platform, use its `botId`; otherwise call `listMessengers` and use that entry's `id` as `messengerInstallationId`.",
+        "Send a message to a specific channel or conversation on the target platform. Supports optional outbound media `attachments` (images / files / video / audio) — use this when you need to deliver a generated image, document, or other binary alongside your reply — and rich `embeds` cards (rendered natively on Discord; ignored elsewhere) for reports, dashboards, and structured summaries. To pick the connection: when sending into the IM conversation you are currently in, pass neither `botId` nor `messengerInstallationId`; otherwise call `listBots` first — if there's a non-`failed` entry for the platform, use its `botId`; else call `listMessengers` and use that entry's `id` as `messengerInstallationId`.",
       name: MessageApiName.sendMessage,
       ordered: true,
       parameters: {
@@ -306,7 +306,7 @@ export const MessageManifest: BuiltinToolManifest = {
           attachments: attachmentsSchema,
           botId: {
             description:
-              'Per-agent bot id from `listBots`. Provide exactly one of `botId` or `messengerInstallationId`.',
+              'Per-agent bot id from `listBots` (skip bots whose status is `failed`). Pass at most one of `botId` / `messengerInstallationId`; omit both when sending into the IM conversation you are currently in — the runtime then uses the connection that conversation arrived on.',
             type: 'string',
           },
           channelId: {
@@ -321,7 +321,7 @@ export const MessageManifest: BuiltinToolManifest = {
           embeds: embedsSchema,
           messengerInstallationId: {
             description:
-              'System Bot installation id from `listMessengers`. Provide exactly one of `botId` or `messengerInstallationId`.',
+              'System Bot installation id from `listMessengers`. Pass at most one of `botId` / `messengerInstallationId`; omit both when sending into the IM conversation you are currently in.',
             type: 'string',
           },
           platform: {
@@ -751,7 +751,7 @@ export const MessageManifest: BuiltinToolManifest = {
     },
     {
       description:
-        "Send a reply to a thread. Supports optional outbound media `attachments` (images / files / video / audio) and rich `embeds` cards (Discord). To pick the target: call `listBots` first — if there's an entry for the platform, use its `botId`; otherwise call `listMessengers` and use that entry's `id` as `messengerInstallationId`.",
+        "Send a reply to a thread. Supports optional outbound media `attachments` (images / files / video / audio) and rich `embeds` cards (Discord). To pick the connection: when sending into the IM conversation you are currently in, pass neither `botId` nor `messengerInstallationId`; otherwise call `listBots` first — if there's a non-`failed` entry for the platform, use its `botId`; else call `listMessengers` and use that entry's `id` as `messengerInstallationId`.",
       name: MessageApiName.replyToThread,
       ordered: true,
       parameters: {
@@ -761,7 +761,7 @@ export const MessageManifest: BuiltinToolManifest = {
           embeds: embedsSchema,
           botId: {
             description:
-              'Per-agent bot id from `listBots`. Provide exactly one of `botId` or `messengerInstallationId`.',
+              'Per-agent bot id from `listBots` (skip bots whose status is `failed`). Pass at most one of `botId` / `messengerInstallationId`; omit both when sending into the IM conversation you are currently in — the runtime then uses the connection that conversation arrived on.',
             type: 'string',
           },
           content: {
@@ -770,7 +770,7 @@ export const MessageManifest: BuiltinToolManifest = {
           },
           messengerInstallationId: {
             description:
-              'System Bot installation id from `listMessengers`. Provide exactly one of `botId` or `messengerInstallationId`.',
+              'System Bot installation id from `listMessengers`. Pass at most one of `botId` / `messengerInstallationId`; omit both when sending into the IM conversation you are currently in.',
             type: 'string',
           },
           platform: {

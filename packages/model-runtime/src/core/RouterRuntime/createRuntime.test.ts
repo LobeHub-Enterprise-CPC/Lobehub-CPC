@@ -647,6 +647,7 @@ describe('createRouterRuntime', () => {
           createVideo = vi.fn().mockResolvedValue({ inferenceId: 'video-id' });
           embeddings = vi.fn().mockResolvedValue([]);
           generateObject = vi.fn().mockResolvedValue({});
+          getVideoGenerationCapabilities = () => ({ completionModes: ['polling'] as const });
           textToSpeech = vi.fn().mockResolvedValue('speech-response');
         }
 
@@ -1630,7 +1631,28 @@ describe('createRouterRuntime', () => {
       expect(attemptedKeys).toEqual(['key-1', 'key-2']);
     });
 
-    it('should fallback after a structured remote media download timeout', async () => {
+    it.each([
+      {
+        case: 'a structured remote media download timeout',
+        error: {
+          code: 'invalid_value',
+          message: 'Unable to download content from the provided URL before the timeout.',
+          param: 'url',
+          type: 'invalid_request_error',
+        },
+        errorType: AgentRuntimeErrorType.RemoteMediaDownloadTimeout,
+      },
+      {
+        case: 'a per-channel image count limit',
+        error: {
+          code: null,
+          message: 'Exceeded maximum number of images (50) allowed in the request.',
+          param: 'input',
+          type: 'invalid_request_error',
+        },
+        errorType: AgentRuntimeErrorType.ExceededImageLimit,
+      },
+    ])('should fallback after $case', async ({ error, errorType }) => {
       const attemptedKeys: string[] = [];
 
       class RemoteMediaRuntime implements LobeRuntimeAI {
@@ -1644,17 +1666,7 @@ describe('createRouterRuntime', () => {
           attemptedKeys.push(this.apiKey);
 
           if (this.apiKey === 'key-1') {
-            throw {
-              error: {
-                code: 'invalid_value',
-                message: 'Unable to download content from the provided URL before the timeout.',
-                param: 'url',
-                type: 'invalid_request_error',
-              },
-              errorType: AgentRuntimeErrorType.RemoteMediaDownloadTimeout,
-              provider: 'azure',
-              status: 400,
-            };
+            throw { error, errorType, provider: 'azure', status: 400 };
           }
 
           return 'success';
@@ -2378,6 +2390,7 @@ describe('createRouterRuntime', () => {
 
       class MockRuntime implements LobeRuntimeAI {
         createVideo = mockCreateVideo;
+        getVideoGenerationCapabilities = () => ({ completionModes: ['polling'] as const });
       }
 
       const Runtime = createRouterRuntime({
@@ -2396,7 +2409,7 @@ describe('createRouterRuntime', () => {
       const payload = { model: 'sora-1', params: { prompt: 'a cat' } } as any;
 
       const result = await runtime.createVideo(payload);
-      expect(result).toEqual({ inferenceId: 'job-1' });
+      expect(result).toEqual({ completionMode: 'polling', inferenceId: 'job-1' });
       expect(mockCreateVideo).toHaveBeenCalledWith(payload, undefined);
     });
 
@@ -2406,6 +2419,7 @@ describe('createRouterRuntime', () => {
 
       class MockRuntime implements LobeRuntimeAI {
         createVideo = mockCreateVideo;
+        getVideoGenerationCapabilities = () => ({ completionModes: ['polling'] as const });
       }
 
       const Runtime = createRouterRuntime({
@@ -2435,6 +2449,7 @@ describe('createRouterRuntime', () => {
 
       class MockRuntime implements LobeRuntimeAI {
         createVideo = mockCreateVideo;
+        getVideoGenerationCapabilities = () => ({ completionModes: ['polling'] as const });
       }
 
       const Runtime = createRouterRuntime({
@@ -2455,6 +2470,7 @@ describe('createRouterRuntime', () => {
       const metadata = { trigger: 'video' };
       const options = {
         metadata,
+        preferredCompletionMode: 'webhook',
         pricingContext: { plan: 'premium', scope: 'personal' },
       } as const;
 
@@ -2493,7 +2509,7 @@ describe('createRouterRuntime', () => {
         status: 'success',
         videoUrl: 'https://example.com/video.mp4',
       });
-      expect(mockHandlePollVideoStatus).toHaveBeenCalledWith('job-1', undefined);
+      expect(mockHandlePollVideoStatus).toHaveBeenCalledWith('job-1', undefined, undefined);
     });
 
     it('should forward the model param to both the router resolver and the matched runtime', async () => {
@@ -2526,7 +2542,191 @@ describe('createRouterRuntime', () => {
       expect(asyncRoutersFunction).toHaveBeenCalledWith(expect.anything(), {
         model: 'doubao-seedance-2-0-260128',
       });
-      expect(mockHandlePollVideoStatus).toHaveBeenCalledWith('job-1', 'doubao-seedance-2-0-260128');
+      expect(mockHandlePollVideoStatus).toHaveBeenCalledWith(
+        'job-1',
+        'doubao-seedance-2-0-260128',
+        undefined,
+      );
+    });
+
+    it('should resolve the video router from the polling model', async () => {
+      class MockRuntime implements LobeRuntimeAI {
+        handlePollVideoStatus = vi.fn().mockResolvedValue({
+          status: 'success',
+          videoUrl: 'https://example.com/video.mp4',
+        });
+      }
+
+      const Runtime = createRouterRuntime({
+        id: 'test-runtime',
+        routers: async (_, { model }) => {
+          if (model !== 'gemini-omni-1.1-flash') {
+            throw new Error('unexpected model');
+          }
+
+          return [
+            {
+              apiType: 'google',
+              models: [model],
+              options: {},
+              runtime: MockRuntime as any,
+            },
+          ];
+        },
+      });
+
+      const runtime = new Runtime();
+
+      await expect(
+        runtime.handlePollVideoStatus('interaction-1', 'gemini-omni-1.1-flash'),
+      ).resolves.toMatchObject({ status: 'success' });
+    });
+
+    it('should poll with the same channel that created the video', async () => {
+      class MockRuntime implements LobeRuntimeAI {
+        private apiKey: string;
+
+        constructor(options: { apiKey: string }) {
+          this.apiKey = options.apiKey;
+        }
+
+        createVideo = vi.fn().mockImplementation(async () => {
+          if (this.apiKey === 'key-1') throw new Error('channel unavailable');
+          return { inferenceId: 'interaction-1' };
+        });
+
+        getVideoGenerationCapabilities = () => ({ completionModes: ['polling'] as const });
+
+        handlePollVideoStatus = vi.fn().mockImplementation(async () => ({
+          status: 'success',
+          videoUrl: `https://example.com/${this.apiKey}.mp4`,
+        }));
+      }
+
+      const Runtime = createRouterRuntime({
+        id: 'lobehub',
+        routers: [
+          {
+            apiType: 'google',
+            id: 'google-router',
+            models: ['gemini-omni-1.1-flash'],
+            options: [
+              { apiKey: 'key-1', id: 'google-channel-1' },
+              { apiKey: 'key-2', id: 'google-channel-2' },
+            ],
+            runtime: MockRuntime as any,
+          },
+        ],
+      });
+
+      const runtime = new Runtime({ userId: 'user-1' });
+      const metadata: Record<string, unknown> = { trigger: RequestTrigger.Video };
+
+      await runtime.createVideo(
+        { model: 'gemini-omni-1.1-flash', params: { prompt: 'a cat' } } as any,
+        { metadata },
+      );
+
+      await expect(
+        runtime.handlePollVideoStatus(
+          'interaction-1',
+          'gemini-omni-1.1-flash',
+          metadata.routeAttempt as any,
+        ),
+      ).resolves.toEqual({
+        status: 'success',
+        videoUrl: 'https://example.com/key-2.mp4',
+      });
+    });
+
+    it('should create a continuation only through the pinned video channel', async () => {
+      const usedKeys: string[] = [];
+
+      class MockRuntime implements LobeRuntimeAI {
+        private apiKey: string;
+
+        constructor(options: { apiKey: string }) {
+          this.apiKey = options.apiKey;
+        }
+
+        createVideo = vi.fn().mockImplementation(async () => {
+          usedKeys.push(this.apiKey);
+          if (this.apiKey === 'key-2') throw new Error('interaction not found');
+          return { inferenceId: 'interaction-2' };
+        });
+
+        getVideoGenerationCapabilities = () => ({ completionModes: ['polling'] as const });
+      }
+
+      const Runtime = createRouterRuntime({
+        id: 'lobehub',
+        routers: [
+          {
+            apiType: 'google',
+            id: 'google-router',
+            models: ['gemini-omni-1.1-flash'],
+            options: [
+              { apiKey: 'key-1', id: 'google-channel-1' },
+              { apiKey: 'key-2', id: 'google-channel-2' },
+            ],
+            runtime: MockRuntime as any,
+          },
+        ],
+      });
+
+      const runtime = new Runtime({ userId: 'user-1' });
+      const payload = {
+        model: 'gemini-omni-1.1-flash',
+        params: { prompt: 'slower' },
+        previousInteractionId: 'interaction-1',
+      } as any;
+      const route = { apiType: 'google', channelId: 'google-channel-2', routerId: 'google-router' };
+
+      await expect(runtime.createVideo(payload, { route })).rejects.toThrow(
+        'interaction not found',
+      );
+      expect(usedKeys).toEqual(['key-2']);
+
+      await expect(
+        runtime.createVideo(payload, { route: { ...route, channelId: 'google-channel-9' } }),
+      ).rejects.toThrow('The video generation channel is no longer available');
+      expect(usedKeys).toEqual(['key-2']);
+    });
+
+    it('should resolve the video webhook router from the payload model', async () => {
+      class MockRuntime implements LobeRuntimeAI {
+        handleCreateVideoWebhook = vi.fn().mockResolvedValue({
+          inferenceId: 'interaction-1',
+          status: 'completed',
+        });
+      }
+
+      const Runtime = createRouterRuntime({
+        id: 'test-runtime',
+        routers: async (_, { model }) => {
+          if (model !== 'gemini-omni-1.1-flash') {
+            throw new Error('unexpected model');
+          }
+
+          return [
+            {
+              apiType: 'google',
+              models: [model],
+              options: {},
+              runtime: MockRuntime as any,
+            },
+          ];
+        },
+      });
+
+      const runtime = new Runtime();
+
+      await expect(
+        runtime.handleCreateVideoWebhook({
+          body: { type: 'interaction.completed' },
+          model: 'gemini-omni-1.1-flash',
+        }),
+      ).resolves.toMatchObject({ status: 'completed' });
     });
   });
 

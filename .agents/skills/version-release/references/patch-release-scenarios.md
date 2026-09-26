@@ -111,7 +111,7 @@ git cherry-pick <migration-commit-hash>
 git push -u origin release/db-migration-{name}
 ```
 
-2. **Write a migration-specific changelog** — See `db-migration-changelog-example.md` for the format. This should explain:
+2. **Write a migration-specific changelog** — See `changelog-example/db-migration.md` for the format. This should explain:
    - What tables/columns are added, modified, or removed
    - Whether the migration is backwards-compatible
    - Any action required by self-hosted users

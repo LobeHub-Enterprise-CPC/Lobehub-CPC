@@ -505,11 +505,13 @@ export class AgentRuntimeService {
         new UserModel(db, userId)
           .getUserPreference()
           .then((preference) => preference?.lab?.enableGatewayMux === true));
-    // Use factory function to auto-select Redis or InMemory implementation
+    // Use factory function to auto-select Redis or InMemory implementation.
+    // Gateway pushes are deferred off the step path: every point where this
+    // invocation can stop or hand the run over calls `drainPushes` first.
     this.streamManager =
       options?.streamEventManager ??
       options?.coordinatorOptions?.streamEventManager ??
-      createStreamEventManager();
+      createStreamEventManager({ deferPushes: true });
     this.coordinator = new AgentRuntimeCoordinator({
       ...options?.coordinatorOptions,
       messagePatchModeResolver: (state) => this.usesGatewayMessagePatch(state),
@@ -990,6 +992,7 @@ export class AgentRuntimeService {
       appContext: {
         defaultTaskAssigneeAgentId: appContext?.defaultTaskAssigneeAgentId,
         documentId: appContext?.documentId,
+        editingAgentId: appContext?.editingAgentId,
         groupId: appContext?.groupId,
         scope: appContext?.scope,
         sessionId: appContext?.sessionId,
@@ -1107,6 +1110,8 @@ export class AgentRuntimeService {
           continuation: interventionResolution,
           defaultTaskAssigneeAgentId: appContext?.defaultTaskAssigneeAgentId,
           documentId: appContext?.documentId ?? undefined,
+          editingAgentId: appContext?.editingAgentId,
+          editingGroupId: appContext?.editingGroupId,
           groupId: appContext?.groupId ?? undefined,
           lineage: {
             isSubAgent: appContext?.isSubAgent,
@@ -2487,8 +2492,11 @@ export class AgentRuntimeService {
             log('[%s][%d] Next step %d deferred to caller', operationId, stepIndex, nextStepIndex);
           } else {
             // The next step runs in another invocation, which rebuilds the
-            // partial from the store — it has to see this step.
+            // partial from the store — it has to see this step. The gateway
+            // pushes this invocation issued have to land for the same reason:
+            // nothing carries them once it stops running.
             await this.traceRecorder.flushPartial();
+            await this.streamManager.drainPushes?.(operationId);
             await this.queueService.scheduleMessage({ ...next, endpoint: `${this.baseURL}/run` });
             nextStepScheduled = true;
             logToolCallPc(operationId, stepIndex, 'post.next_step_scheduled', () => ({
@@ -2730,7 +2738,12 @@ export class AgentRuntimeService {
       // Parked runs (human input, async tools) and finished ones are read back
       // by a different invocation, so the partial cannot stay in memory only.
       // An inline hand-off keeps it: the next step runs on this recorder.
-      if (!handedOffInline) await this.traceRecorder.flushPartial();
+      if (!handedOffInline) {
+        await this.traceRecorder.flushPartial();
+        // Same boundary for the stream: an issued push is only guaranteed to
+        // reach the gateway while this invocation is still running.
+        await this.streamManager.drainPushes?.(operationId);
+      }
       // The inline step loop keeps the lock across step boundaries — releasing
       // here would open a window for a stale redelivery to claim it mid-run.
       // Its caller releases once, in a `finally`, for the whole invocation.
@@ -2753,8 +2766,10 @@ export class AgentRuntimeService {
     }
 
     // The steps this invocation inlined are still only in memory — the
-    // invocation that picks the run up reads the partial from the store.
+    // invocation that picks the run up reads the partial from the store, and
+    // the gateway pushes it issued have nothing else to carry them.
     await this.traceRecorder.flushPartial();
+    await this.streamManager.drainPushes?.(continuation.operationId);
 
     await this.queueService.scheduleMessage({
       ...continuation,

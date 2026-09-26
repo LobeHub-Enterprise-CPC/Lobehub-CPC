@@ -1,4 +1,4 @@
-import type { AgentShareToolGrant } from '@lobechat/types';
+import type { AgentShareDemoCase, AgentShareToolGrant } from '@lobechat/types';
 import { index, integer, jsonb, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import { timestamps } from './_helpers';
@@ -16,6 +16,10 @@ export interface AgentShareConfig {
    * a shared conversation. Defaults to `false`.
    */
   allowReadMemory?: boolean;
+  /** Visitor trial scenarios, maintained independently of agents.openingQuestions. */
+  demoCases?: AgentShareDemoCase[];
+  /** Ordered, explicitly selected creator Works for this share's public profile. */
+  featuredWorkIds?: string[];
   /**
    * Total bytes this share's visitor uploads may occupy in the Agent's owning
    * scope (settled files plus in-flight reservations). Mandatory like
@@ -50,6 +54,20 @@ export interface AgentShareConfig {
    * Defaults to `false` — the creator's model choice is hidden by default.
    */
   showModelInfo?: boolean;
+  /**
+   * Skills visitors may load, by skill identifier. Deliberately separate from
+   * {@link toolGrants}: a skill grant governs BOTH the tool path
+   * (`lobe-skills.activateSkill` / `readReference`) and the no-tool path (a
+   * pinned skill's body is injected straight into context, see
+   * `operationPrep`'s pinned-content branch), so it cannot hang off a tool
+   * entry that may legitimately be absent.
+   *
+   * Default-closed: absent or empty grants nothing, non-empty grants exactly
+   * these skills. `toolGrants` is never read as a skill list — tool and skill
+   * ids share one namespace, so a plain tool grant must not be mistaken for a
+   * skill grant (see `filterSkillsByShareGate`).
+   */
+  skillGrants?: string[];
   /**
    * Custom URL slug for this share's public link (e.g. `/agent/my-cool-bot`).
    * Uniqueness is enforced at the APPLICATION level

@@ -143,7 +143,7 @@ export interface ToolDiscoveryInput {
   /**
    * Mime types of the raw bot/IM uploads. The stage only ever looked at the
    * mime type, and keeping the request JSON-safe is what lets a deferred init
-   * carry it on the operation state (LOBE-13745).
+   * carry it on the operation state.
    */
   externalFileTypes?: string[];
   functionTools?: InternalExecAgentParams['functionTools'];
@@ -266,7 +266,6 @@ export const discoverTools = async (
     | 'prompt'
     | 'provider'
     | 'resolvedAgentId'
-    | 'runFacts'
     | 'shareGate'
   > &
     Partial<Pick<ExecRunContext, 'topicId' | 'assistantMessageId'>>,

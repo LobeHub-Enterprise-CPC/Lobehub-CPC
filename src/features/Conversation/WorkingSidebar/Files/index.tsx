@@ -39,6 +39,7 @@ import { useGlobalStore } from '@/store/global';
 
 import { filterProjectFileEntries, mergeMissingDeletedEntries } from './fileFilter';
 import { isExcludedProjectFileEntry } from './fileVisibility';
+import { useCollapsedDirectoryChildren } from './useCollapsedDirectoryChildren';
 import { buildGitStatusEntries, useGitWorkingTreeFiles } from './useGitWorkingTreeFiles';
 import { useProjectFiles } from './useProjectFiles';
 
@@ -82,6 +83,16 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
   search: css`
     flex: 1;
     min-width: 0;
+  `,
+  truncated: css`
+    flex-shrink: 0;
+
+    padding-block: 4px;
+    padding-inline: 12px;
+    border-block-start: 1px solid ${cssVar.colorBorderSecondary};
+
+    font-size: 11px;
+    color: ${cssVar.colorTextTertiary};
   `,
 }));
 
@@ -238,6 +249,7 @@ const Files = memo<FilesProps>(({ deviceId, workingDirectory }) => {
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [searchEntries, setSearchEntries] = useState<ProjectFileIndexEntry[] | undefined>();
   const [isSearching, setIsSearching] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<string[]>([]);
   const projectRootName = getProjectRootName(projectRoot);
   const normalizedDebouncedQuery = debouncedQuery.trim();
   const isFiltering = normalizedDebouncedQuery.length > 0;
@@ -248,8 +260,16 @@ const Files = memo<FilesProps>(({ deviceId, workingDirectory }) => {
     () => new Set(workingTreeGitStatus.map((entry) => entry.path)),
     [workingTreeGitStatus],
   );
+  // The index delivers fully git-ignored folders as childless collapsed rows;
+  // their children stream in here as the user expands them.
+  const { children: collapsedChildren, truncatedCount } = useCollapsedDirectoryChildren({
+    deviceId,
+    entries,
+    expandedIds,
+    projectRoot,
+  });
   const displayEntries = useMemo(() => {
-    const indexedEntries = isFiltering ? (searchEntries ?? []) : entries;
+    const indexedEntries = isFiltering ? (searchEntries ?? []) : [...entries, ...collapsedChildren];
     const entriesWithDeleted = mergeMissingDeletedEntries(
       indexedEntries,
       isFiltering ? [] : (gitFiles?.deleted ?? []),
@@ -263,6 +283,7 @@ const Files = memo<FilesProps>(({ deviceId, workingDirectory }) => {
     });
   }, [
     changedOnly,
+    collapsedChildren,
     dirtyFilePaths,
     entries,
     gitFiles?.deleted,
@@ -299,8 +320,6 @@ const Files = memo<FilesProps>(({ deviceId, workingDirectory }) => {
     () => getExplorerTreeStyleVars({ reserveChevronSlot: nodes.some((node) => node.isFolder) }),
     [nodes],
   );
-
-  const [expandedIds, setExpandedIds] = useState<string[]>([]);
 
   useEffect(() => {
     setViewMode('project');
@@ -639,6 +658,9 @@ const Files = memo<FilesProps>(({ deviceId, workingDirectory }) => {
             onNodeDragStart={handleNodeDragStart}
           />
         </div>
+      )}
+      {truncatedCount > 0 && (
+        <div className={styles.truncated}>{t('workingPanel.files.truncatedNotice')}</div>
       )}
     </Flexbox>
   );

@@ -47,6 +47,7 @@ import { sendVoiceMessage } from './sendVoiceMessage';
 import {
   getContextWindowMessages,
   getConversationChatInputUiState,
+  getConversationSendButtonProps,
   toChatInputMessages,
 } from './utils';
 import GoalArmedChip from './VerifyTray/GoalArmedChip';
@@ -307,11 +308,13 @@ const ChatInput = memo<ChatInputProps>(
 
     // Computed state
     const isInputEmpty = !inputMessage.trim() && fileList.length === 0 && contextList.length === 0;
-    const { placeholderVariant, showSendMenu, showStopButton } = getConversationChatInputUiState({
-      disableFollowUpVariant,
-      isInputEmpty,
-      isInputLoading,
-    });
+    const { placeholderVariant, showSendMenu, showSendWhileGenerating, showStopButton } =
+      getConversationChatInputUiState({
+        disableFollowUpVariant,
+        disableQueue,
+        isInputEmpty,
+        isInputLoading,
+      });
     // Input stays enabled during agent execution — messages are queued.
     // When disableQueue is set (e.g. onboarding), block sending while loading.
     // disableSend hard-blocks regardless of content (host surface is read-only).
@@ -326,10 +329,10 @@ const ChatInput = memo<ChatInputProps>(
     const customDisabled = customSendButtonProps?.disabled;
     const resolveSendBlocked = useCallback(() => {
       if (disableSend) return true;
-      if (customDisabled !== undefined) return customDisabled;
 
       const fileStore = useFileStore.getState();
       if (fileChatSelectors.isUploadingFiles(fileStore)) return true;
+      if (customDisabled !== undefined) return customDisabled;
 
       const { context: liveContext, editor } = storeApi.getState();
       if (
@@ -417,10 +420,11 @@ const ChatInput = memo<ChatInputProps>(
     );
 
     const sendButtonProps: SendButtonProps = {
-      disabled,
-      generating: showStopButton,
-      onStop: stopGenerating,
-      ...customSendButtonProps,
+      ...getConversationSendButtonProps(
+        { disabled, generating: showStopButton, onStop: stopGenerating, showSendWhileGenerating },
+        customSendButtonProps,
+        isUploadingFiles,
+      ),
       ...(shouldUsePlainSendButton
         ? { shape: customSendButtonProps?.shape ?? 'round' }
         : undefined),

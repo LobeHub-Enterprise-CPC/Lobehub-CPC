@@ -247,7 +247,9 @@ agent-browser --session "$RUN_SESSION" \
 ```
 
 Then assert `get url` and `app-probe.sh auth` on that exact session before
-capturing evidence.
+capturing evidence, and close it at teardown
+(`agent-browser --session "$RUN_SESSION" close`, PROCESS.md Step 6) — a
+run-specific session is never reused, so an unclosed one is a leaked browser.
 
 A cross-wired session can also look perfectly healthy while running STALE code:
 if the other instance's Vite has since died, the browser keeps serving its last
@@ -1477,8 +1479,12 @@ would have landed in the production account.
 **Works:** prefix local invocations with
 `env -u LOBEHUB_JWT -u LOBEHUB_SERVER -u LOBEHUB_OPERATION_ID -u LOBEHUB_TOPIC_ID -u LOBEHUB_ASSISTANT_MESSAGE_ID`,
 run `electron-dev.sh` as `env -u ELECTRON_RUN_AS_NODE .agents/acceptance/scripts/electron-dev.sh start`,
-then set the isolated home/server explicitly. Publish steps (ingest) strip
-`LOBEHUB_JWT` as well so the stored `~/.lobehub` login is used.
+then set the isolated home/server explicitly. Keep those changes scoped to local
+test subprocesses. For publication, follow
+[Publish auth preflight](PROCESS.md#publish-auth-preflight): retain a known
+production credential and check its precedence; strip `LOBEHUB_JWT` only when
+deliberately selecting a different, known production credential. Do not assume
+a stored `~/.lobehub` login exists.
 
 `holds-while: pickAuthSource precedence LOBEHUB_JWT > flags > LOBEHUB_CLI_API_KEY > stored (apps/cli/src/auth/source.ts); Electron honors ELECTRON_RUN_AS_NODE.`
 
