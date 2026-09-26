@@ -43,6 +43,9 @@ describe('GatewayStreamNotifier', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // `clearAllMocks` keeps implementations, so a test that installs a fetch
+    // that never resolves would otherwise hang whichever test runs next.
+    mockFetch.mockReset().mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
     inner = createMockInner();
     notifier = new GatewayStreamNotifier(inner, gatewayUrl, serviceToken);
   });
@@ -170,6 +173,7 @@ describe('GatewayStreamNotifier', () => {
       };
 
       await notifier.publishStreamEvent('op-1', { data, stepIndex: 1, type: 'stream_end' });
+      await notifier.drainPushes('op-1');
 
       const pushed = JSON.parse(mockFetch.mock.calls[0][1].body).event.data;
       expect(pushed).toEqual({ finalContent: 'the answer', stepLabel: 'Step 2' });
@@ -181,6 +185,7 @@ describe('GatewayStreamNotifier', () => {
       const data = { reasoning: 'dropped', toolsCalling: [] };
 
       await notifier.publishStreamEvent('op-1', { data, stepIndex: 1, type: 'stream_end' });
+      await notifier.drainPushes('op-1');
 
       expect(JSON.parse(mockFetch.mock.calls[0][1].body).event.data).toEqual({});
     });
@@ -214,7 +219,9 @@ describe('GatewayStreamNotifier', () => {
       });
     });
 
-    it('awaits stream_end gateway push before resolving', async () => {
+    it('waits for the stream_end gateway push unless the caller defers pushes', async () => {
+      // Request-scoped callers (hetero ingest, routers) never drain, so the
+      // push must land before publishStreamEvent resolves.
       let resolveFetch!: () => void;
       mockFetch.mockImplementationOnce(
         () =>
@@ -223,28 +230,103 @@ describe('GatewayStreamNotifier', () => {
           }),
       );
 
-      const result = notifier.publishStreamEvent('op-1', {
-        data: { finalContent: 'final answer' },
-        stepIndex: 0,
-        type: 'stream_end' as const,
-      });
-      let resolved = false;
-      void result.then(() => {
-        resolved = true;
-      });
-
-      await Promise.resolve();
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        `${gatewayUrl}/api/operations/push-event`,
-        expect.objectContaining({ method: 'POST' }),
-      );
-      expect(resolved).toBe(false);
+      let published = false;
+      const publish = notifier
+        .publishStreamEvent('op-1', {
+          data: { finalContent: 'final answer' },
+          stepIndex: 0,
+          type: 'stream_end' as const,
+        })
+        .then(() => {
+          published = true;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(published).toBe(false);
 
       resolveFetch();
+      await publish;
+      expect(published).toBe(true);
+    });
 
-      await expect(result).resolves.toBe('publishStreamEvent-result');
-      expect(resolved).toBe(true);
+    it('does not wait for the stream_end gateway push when deferred, but drainPushes does', async () => {
+      const notifier = new GatewayStreamNotifier(
+        inner,
+        gatewayUrl,
+        serviceToken,
+        undefined,
+        undefined,
+        { deferPushes: true },
+      );
+      let resolveFetch!: () => void;
+      mockFetch.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFetch = () => resolve({ ok: true, text: () => Promise.resolve('') });
+          }),
+      );
+
+      // The step publishes and moves on: the push is ordered, not awaited.
+      await expect(
+        notifier.publishStreamEvent('op-1', {
+          data: { finalContent: 'final answer' },
+          stepIndex: 0,
+          type: 'stream_end' as const,
+        }),
+      ).resolves.toBe('publishStreamEvent-result');
+
+      let drained = false;
+      const drain = notifier.drainPushes('op-1').then(() => {
+        drained = true;
+      });
+      await Promise.resolve();
+      expect(drained).toBe(false);
+
+      resolveFetch();
+      await drain;
+      expect(drained).toBe(true);
+    });
+
+    it('keeps a barrier behind the pushes issued before it, and ahead of later ones', async () => {
+      const notifier = new GatewayStreamNotifier(
+        inner,
+        gatewayUrl,
+        serviceToken,
+        undefined,
+        undefined,
+        { deferPushes: true },
+      );
+      const order: string[] = [];
+      let releaseChunk!: () => void;
+      mockFetch.mockImplementation((_url: string, init: { body: string }) => {
+        const { type } = JSON.parse(init.body).event;
+        if (type === 'stream_chunk') {
+          return new Promise((resolve) => {
+            releaseChunk = () => {
+              order.push('stream_chunk');
+              resolve({ ok: true, text: () => Promise.resolve('') });
+            };
+          });
+        }
+        order.push(type);
+        return Promise.resolve({ ok: true, text: () => Promise.resolve('') });
+      });
+
+      await notifier.publishStreamChunk('op-1', 0, { chunkType: 'text' } as StreamChunkData);
+      await notifier.publishStreamEvent('op-1', {
+        data: { finalContent: 'done' },
+        stepIndex: 0,
+        type: 'stream_end',
+      });
+      await notifier.publishStreamEvent('op-1', { data: {}, stepIndex: 1, type: 'step_start' });
+
+      // Nothing may pass the barrier while the chunk it waits for is in flight.
+      await Promise.resolve();
+      expect(order).toEqual([]);
+
+      releaseChunk();
+      await notifier.drainPushes('op-1');
+
+      expect(order).toEqual(['stream_chunk', 'stream_end', 'step_start']);
     });
 
     it('still returns inner result even if gateway fails', async () => {
@@ -385,6 +467,25 @@ describe('GatewayStreamNotifier', () => {
         { operationId: 'op-legacy', userId: 'user-1' },
       ]);
       expect(bodies[1]).not.toHaveProperty('meta');
+    });
+
+    it('tells the gateway a run is heterogeneous so its watchdog allows long silence', async () => {
+      await notifier.publishAgentRuntimeInit('op-cc', {
+        agentId: 'agt_1',
+        assistantMessageId: 'msg_1',
+        heteroType: 'claude-code',
+        topicId: 'tpc_1',
+        userId: 'user-1',
+      });
+
+      const initCall = mockFetch.mock.calls.find(
+        (call: any[]) => call[0] === `${gatewayUrl}/api/operations/init`,
+      )!;
+      expect(JSON.parse(initCall[1].body)).toEqual({
+        meta: { agentId: 'agt_1', heteroType: 'claude-code', topicId: 'tpc_1' },
+        operationId: 'op-cc',
+        userId: 'user-1',
+      });
     });
 
     it('registers the visitor as gateway owner while still sending meta', async () => {

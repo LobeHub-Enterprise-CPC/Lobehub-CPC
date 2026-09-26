@@ -9,7 +9,7 @@ import { buildAgentSkillIdentifier } from '@lobechat/const';
 import type { LobeChatDatabase } from '@lobechat/database';
 import { DOCUMENT_FOLDER_TYPE } from '@lobechat/database/schemas';
 import type { DocumentAccessScope } from '@lobechat/types';
-import { ordinaryDocumentAccessScope } from '@lobechat/types';
+import { FileSource, ordinaryDocumentAccessScope } from '@lobechat/types';
 
 import type {
   AgentDocument,
@@ -33,6 +33,7 @@ import { isUuid } from '@/database/utils/uuid';
 import { AgentDocumentVfsError } from '../agentDocumentVfs/errors';
 import { isManagedSkillDocument } from '../agentDocumentVfs/mounts/skills/providers/providerSkillsAgentDocumentUtils';
 import { DocumentService } from '../document';
+import { FileService } from '../file';
 import { TOOL_RESULTS_DIR_NAME } from '../toolExecution/constants';
 import { isRawTextAgentDocument } from './contentFormat';
 import {
@@ -156,12 +157,13 @@ export class AgentDocumentsService {
   private agentDocumentModel: AgentDocumentModel;
   private documentService: DocumentService;
   private fileModel: FileModel;
+  private fileServiceInstance?: FileService;
   private topicDocumentModel: TopicDocumentModel;
 
   constructor(
-    db: LobeChatDatabase,
-    userId: string,
-    workspaceId?: string,
+    private readonly db: LobeChatDatabase,
+    private readonly userId: string,
+    private readonly workspaceId?: string,
     callerAgentVisibility?: 'private' | 'public' | null,
     documentAccessScope: DocumentAccessScope = ordinaryDocumentAccessScope,
   ) {
@@ -178,6 +180,11 @@ export class AgentDocumentsService {
     );
     this.fileModel = new FileModel(db, userId, workspaceId);
     this.topicDocumentModel = new TopicDocumentModel(db, userId, workspaceId, documentAccessScope);
+  }
+
+  /** Defers storage configuration until upload cleanup; native documents need only the database. */
+  private get fileService(): FileService {
+    return (this.fileServiceInstance ??= new FileService(this.db, this.userId, this.workspaceId));
   }
 
   private async projectDocumentContent<T extends ProjectableAgentDocument>(doc: T): Promise<T>;
@@ -553,43 +560,56 @@ export class AgentDocumentsService {
     const file = await this.fileModel.findById(fileId);
     if (!file) throw new Error(`File not found: ${fileId}`);
 
-    if (parentId) {
-      const parent = await this.agentDocumentModel.findByDocumentId(agentId, parentId);
-      if (!parent) throw new Error(`Parent folder not found: ${parentId}`);
-      if (parent.fileType !== DOCUMENT_FOLDER_TYPE) {
-        throw new Error(`Parent document is not a folder: ${parentId}`);
-      }
-    }
-
-    const resolvedParentId = parentId ?? null;
-    const baseFilename = buildDocumentFilename(file.name);
-    let filename = baseFilename;
-    let suffix = 2;
-
-    while (
-      await this.agentDocumentModel.findByParentAndFilename(agentId, resolvedParentId, filename)
-    ) {
-      if (suffix > MAX_UNIQUE_FILENAME_ATTEMPTS) {
-        throw new Error(
-          `Unable to generate a unique filename for "${file.name}" after ${MAX_UNIQUE_FILENAME_ATTEMPTS} attempts.`,
-        );
+    try {
+      if (parentId) {
+        const parent = await this.agentDocumentModel.findByDocumentId(agentId, parentId);
+        if (!parent) throw new Error(`Parent folder not found: ${parentId}`);
+        if (parent.fileType !== DOCUMENT_FOLDER_TYPE) {
+          throw new Error(`Parent document is not a folder: ${parentId}`);
+        }
       }
 
-      filename = appendSpacedFilenameSuffix(baseFilename, suffix);
-      suffix += 1;
+      const resolvedParentId = parentId ?? null;
+      const baseFilename = buildDocumentFilename(file.name);
+      let filename = baseFilename;
+      let suffix = 2;
+
+      while (
+        await this.agentDocumentModel.findByParentAndFilename(agentId, resolvedParentId, filename)
+      ) {
+        if (suffix > MAX_UNIQUE_FILENAME_ATTEMPTS) {
+          throw new Error(
+            `Unable to generate a unique filename for "${file.name}" after ${MAX_UNIQUE_FILENAME_ATTEMPTS} attempts.`,
+          );
+        }
+
+        filename = appendSpacedFilenameSuffix(baseFilename, suffix);
+        suffix += 1;
+      }
+
+      const createParams = {
+        fileId: file.id,
+        fileType: file.fileType || 'application/octet-stream',
+        ...(resolvedParentId ? { parentId: resolvedParentId } : {}),
+        source: file.url,
+        sourceType: 'file' as const,
+        title: file.name,
+      };
+
+      // Imported bytes stay in files; preview reads the original rather than an editable copy.
+      return await this.agentDocumentModel.create(agentId, filename, '', createParams);
+    } catch (error) {
+      // Only reclaim dedicated uploads created by this caller. Existing Resources imports
+      // retain their lifecycle, and committed/concurrent imports are protected by references.
+      if (file.source === FileSource.AgentDocument && file.userId === this.userId) {
+        await this.fileService
+          .removeUnreferencedFile(file.id, FileSource.AgentDocument)
+          .catch((cleanupError) => {
+            console.error('Failed to reclaim an unbound agent upload', cleanupError);
+          });
+      }
+      throw error;
     }
-
-    const createParams = {
-      fileId: file.id,
-      fileType: file.fileType || 'application/octet-stream',
-      ...(resolvedParentId ? { parentId: resolvedParentId } : {}),
-      source: file.url,
-      sourceType: 'file' as const,
-      title: file.name,
-    };
-
-    // Imported bytes stay in files; preview reads the original rather than an editable copy.
-    return this.agentDocumentModel.create(agentId, filename, '', createParams);
   }
 
   async createDocument(

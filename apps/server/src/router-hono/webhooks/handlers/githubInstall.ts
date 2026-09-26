@@ -58,9 +58,7 @@ export const githubInstall = async (c: Context): Promise<Response> => {
     log('cannot issue install state: %O', error);
     return new Response(
       `Connecting GitHub needs Redis (REDIS_URL) on this ${BRANDING_NAME} deployment.`,
-      {
-        status: 503,
-      },
+      { status: 503 },
     );
   }
   const installUrl = buildGitHubInstallUrl(state);

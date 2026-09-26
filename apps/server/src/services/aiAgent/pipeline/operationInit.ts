@@ -28,7 +28,7 @@ import type { RunAttachments } from './turnSetup';
 /**
  * Everything the init stage reads that is NOT a live object: ids, flags and
  * already-resolved values. Plain JSON on purpose — an operation that defers its
- * init (LOBE-13745) has to carry this on its state through Redis and rebuild the
+ * init has to carry this on its state through Redis and rebuild the
  * live half (models, services, the history loader) in the step-0 worker.
  *
  * Keep it that way: a `Date`, a `Buffer` or a model instance in here silently
@@ -135,7 +135,7 @@ export const buildOperationInitRequest = (
  *
  * Runs on the send path today. It takes `(deps, ctx, request)` rather than
  * reading a service instance so the same call can be made from a step-0 worker
- * that rebuilt `deps` and `ctx` from the request — see LOBE-13745.
+ * that rebuilt `deps` and `ctx` from the request.
  */
 export const runOperationInit = async (
   deps: OperationInitDeps,
@@ -216,9 +216,7 @@ export const runOperationInit = async (
   );
 
   // 16b/16c — override the initial context with the human decision
-  // (see `pipeline/approvalResume`). Pure; no-op on a fresh send. A
-  // transcript run has no assistant row and rejects every resume option
-  // upstream, so the base context is used as-is.
+  // (see `pipeline/approvalResume`). Pure; no-op on a fresh send.
   const initialContext =
     ctx.assistantMessageId === undefined
       ? prep.initialContext

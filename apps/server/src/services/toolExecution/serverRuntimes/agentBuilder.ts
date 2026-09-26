@@ -15,6 +15,7 @@ import { getPluginMode, upsertPluginMode } from '@lobechat/types';
 import { getHiddenBuiltinModelsForUser } from '@/business/server/aiProvider';
 import { AgentModel } from '@/database/models/agent';
 import { PluginModel } from '@/database/models/plugin';
+import { AgentService } from '@/server/services/agent';
 import { createAiInfraRepos } from '@/server/services/aiInfra/servableModels';
 import { DiscoverService } from '@/server/services/discover';
 import { filterHiddenProviderModels } from '@/utils/aiProvider';
@@ -29,6 +30,19 @@ const handleError = (error: unknown, message: string): ToolExecutionResult => {
   return { content: `${message}: ${err.message}`, success: false };
 };
 
+/**
+ * The builder run is owned by the builtin builder agent, so `ctx.agentId` is the
+ * builder itself — never the agent the user is editing. Without an explicit
+ * editing target the write must fail loudly: falling back to `ctx.agentId`
+ * silently rewrote the builder's own row while reporting success.
+ */
+const noEditingTargetResult: ToolExecutionResult = {
+  content:
+    'No agent is being edited in this conversation, so nothing was changed. Ask the user to open the target agent and use the Agent Builder panel there.',
+  error: { message: 'Missing editing target agent', type: 'NoEditingTarget' },
+  success: false,
+};
+
 export const agentBuilderRuntime: ServerRuntimeRegistration = {
   factory: (context: ToolExecutionContext) => {
     if (!context.userId || !context.serverDB) {
@@ -37,6 +51,7 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
     const userId = context.userId;
 
     const agentModel = new AgentModel(context.serverDB, userId, context.workspaceId);
+    const agentService = new AgentService(context.serverDB, userId, context.workspaceId);
     const pluginModel = new PluginModel(context.serverDB, userId, context.workspaceId);
     /**
      * Market list endpoints require an authenticated caller, and `DiscoverService`
@@ -49,23 +64,14 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
     const discoverService = new DiscoverService({
       userInfo: { userId, workspaceId: context.workspaceId },
     });
-    // No factory-scoped `AiInfraRepos`/`aiInfraRepos` here on purpose: this
-    // deployment overrides the raw constructor with `createAiInfraRepos()`
-    // (imported above), built fresh per call below — see that call site's
-    // comment for why a factory-scoped instance misreports the branded
-    // provider as disabled.
 
     return {
       getAvailableModels: async (
         params: GetAvailableModelsParams,
       ): Promise<ToolExecutionResult> => {
         try {
-          // Built per call, not per factory: the provider config is async, and
-          // an `AiInfraRepos` constructed with `{}` reports config-enabled
-          // providers (the branded one) as disabled — which reads as "the user
-          // has no models" rather than as an error.
           const aiInfraRepos = await createAiInfraRepos(
-            context.serverDB!,
+            context.serverDB,
             userId,
             context.workspaceId,
           );
@@ -193,15 +199,8 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
         params: UpdateAgentConfigParams,
         ctx: ToolExecutionContext,
       ): Promise<ToolExecutionResult> => {
-        const agentId = ctx.editingAgentId ?? ctx.agentId;
-
-        if (!agentId) {
-          return {
-            content: 'No active agent found',
-            error: { message: 'No active agent found', type: 'NoAgentContext' },
-            success: false,
-          };
-        }
+        const agentId = ctx.editingAgentId;
+        if (!agentId) return noEditingTargetResult;
 
         try {
           const agent = await agentModel.getAgentConfigById(agentId);
@@ -237,12 +236,7 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
           }
 
           if (Object.keys(finalConfig).length > 0) {
-            // Domain tool plugins support structured entries, while the DB
-            // model's JSONB column still carries its legacy string[] annotation.
-            await agentModel.updateConfig(
-              agentId,
-              finalConfig as unknown as Parameters<typeof agentModel.updateConfig>[1],
-            );
+            await agentService.updateAgentConfig(agentId, finalConfig);
             const nonPluginFields = Object.keys(finalConfig).filter((f) => f !== 'plugins');
             if (nonPluginFields.length > 0) {
               updatedParts.push(`config fields: ${nonPluginFields.join(', ')}`);
@@ -276,15 +270,8 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
         params: UpdatePromptParams,
         ctx: ToolExecutionContext,
       ): Promise<ToolExecutionResult> => {
-        const agentId = ctx.editingAgentId ?? ctx.agentId;
-
-        if (!agentId) {
-          return {
-            content: 'No active agent found',
-            error: { message: 'No active agent found', type: 'NoAgentContext' },
-            success: false,
-          };
-        }
+        const agentId = ctx.editingAgentId;
+        if (!agentId) return noEditingTargetResult;
 
         try {
           await agentModel.update(agentId, {
@@ -308,15 +295,8 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
         params: InstallPluginParams,
         ctx: ToolExecutionContext,
       ): Promise<ToolExecutionResult> => {
-        const agentId = ctx.editingAgentId ?? ctx.agentId;
-
-        if (!agentId) {
-          return {
-            content: 'No active agent found',
-            error: { message: 'No active agent found', type: 'NoAgentContext' },
-            success: false,
-          };
-        }
+        const agentId = ctx.editingAgentId;
+        if (!agentId) return noEditingTargetResult;
 
         const { identifier, source } = params;
 

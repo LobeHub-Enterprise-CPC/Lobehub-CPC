@@ -297,6 +297,57 @@ describe('FileModel', () => {
   });
 
   describe('deleteUnreferenced', () => {
+    /** @example Dedicated cleanup cannot remove an ordinary library file. */
+    it('limits source-specific cleanup to agent uploads', async () => {
+      const { id } = await fileModel.create({
+        fileType: 'application/pdf',
+        name: 'library.pdf',
+        size: 100,
+        url: 'files/library.pdf',
+      });
+      await fileModel.deleteUnreferenced(id, { source: FileSource.AgentDocument });
+      /** @example Ordinary resources keep their independent lifecycle. */
+      expect(await fileModel.findById(id)).toBeDefined();
+    });
+
+    /** @example A backing upload survives while another document or KB still uses it. */
+    it('preserves document and knowledge-base references during agent upload cleanup', async () => {
+      // ROOT CAUSE:
+      // Cleanup only checked messages and sessions and could delete files still used by
+      // documents or knowledge bases. Check these references under the same file-row lock.
+      const { id } = await fileModel.create({
+        fileType: 'application/pdf',
+        name: 'shared.pdf',
+        size: 100,
+        source: FileSource.AgentDocument,
+        url: 'files/shared.pdf',
+      });
+      const [document] = await serverDB
+        .insert(documents)
+        .values({
+          fileId: id,
+          fileType: 'application/pdf',
+          filename: 'shared.pdf',
+          source: 'files/shared.pdf',
+          sourceType: 'file',
+          userId,
+          totalCharCount: 0,
+          totalLineCount: 0,
+        })
+        .returning();
+      await fileModel.deleteUnreferenced(id);
+      /** @example Document-backed files must survive cleanup. */
+      expect(await fileModel.findById(id)).toBeDefined();
+
+      await serverDB.delete(documents).where(eq(documents.id, document.id));
+      await serverDB
+        .insert(knowledgeBaseFiles)
+        .values({ fileId: id, knowledgeBaseId: 'kb1', userId });
+      await fileModel.deleteUnreferenced(id);
+      /** @example A KB relation independently keeps the file alive. */
+      expect(await fileModel.findById(id)).toBeDefined();
+    });
+
     it('keeps the business reference guard a no-op on an OSS database without Channel tables', async () => {
       const client = new PGlite();
       try {
@@ -407,23 +458,6 @@ describe('FileModel', () => {
         .values({ fileId: id, sessionId: 'voice-session', userId });
 
       await expect(fileModel.deleteUnreferenced(id)).resolves.toBeUndefined();
-      await expect(
-        serverDB.query.files.findFirst({ where: eq(files.id, id) }),
-      ).resolves.toBeDefined();
-    });
-
-    it('preserves a file when an injected private-schema guard finds a reference', async () => {
-      const { id } = await fileModel.create({
-        fileType: 'text/plain',
-        name: 'channel.txt',
-        size: 100,
-        url: 'channel/file.txt',
-      });
-      const guard = vi.fn().mockResolvedValue(true);
-
-      await expect(fileModel.deleteUnreferenced(id, {}, guard)).resolves.toBeUndefined();
-
-      expect(guard).toHaveBeenCalledWith(expect.anything(), id);
       await expect(
         serverDB.query.files.findFirst({ where: eq(files.id, id) }),
       ).resolves.toBeDefined();
@@ -541,6 +575,23 @@ describe('FileModel', () => {
       ).resolves.toBeDefined();
       await expect(
         serverDB.query.globalFiles.findFirst({ where: eq(globalFiles.hashId, 'shared-hash') }),
+      ).resolves.toBeDefined();
+    });
+
+    it('preserves a file when an injected private-schema guard finds a reference', async () => {
+      const { id } = await fileModel.create({
+        fileType: 'text/plain',
+        name: 'channel.txt',
+        size: 100,
+        url: 'channel/file.txt',
+      });
+      const guard = vi.fn().mockResolvedValue(true);
+
+      await expect(fileModel.deleteUnreferenced(id, {}, guard)).resolves.toBeUndefined();
+
+      expect(guard).toHaveBeenCalledWith(expect.anything(), id);
+      await expect(
+        serverDB.query.files.findFirst({ where: eq(files.id, id) }),
       ).resolves.toBeDefined();
     });
 

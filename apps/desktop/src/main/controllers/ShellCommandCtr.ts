@@ -382,16 +382,16 @@ export default class ShellCommandCtr extends ControllerModule {
         // would not harden anything the model can reach through it; it would
         // just break agent self-management. The sandbox's promise is about
         // model-authored shell commands, and this is not one.
-        const args = params.command.slice(prefixMatch[0].length).trim();
-        logger.debug('Routing lh command to CliCtr.runCliCommand:', args);
-        const result = await cliCtr.runCliCommand(args);
-        return {
-          exit_code: result.exitCode,
-          output: result.stdout + result.stderr,
-          stderr: result.stderr,
-          stdout: result.stdout,
-          success: result.exitCode === 0,
-        };
+        //
+        // Otherwise it is an ordinary command: same shell (PowerShell on
+        // Windows), the caller's `cwd` / `env` / `timeout`, and the same result
+        // shape — a non-zero exit carries its output, and a command still
+        // running at the deadline is reported as running, not killed. Only the
+        // environment differs: the bundled CLI first on `PATH`, plus the
+        // credentials it authenticates with.
+        logger.debug('Running lh command with the embedded CLI environment');
+        const env = await cliCtr.buildCliEnv(params.env);
+        return runCommand({ ...params, env }, { logger, processManager });
       }
     }
 

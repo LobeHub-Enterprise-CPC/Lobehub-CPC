@@ -43,7 +43,18 @@ describe('createVolcengineVideo', () => {
       expect(result).toEqual({ inferenceId: 'task-abc-123', useWebhook: false });
     });
 
-    it('should return useWebhook: false even when callbackUrl is configured, since the real API has no callback support and the caller must always fall back to polling', async () => {
+    it('should return useWebhook: false when no callbackUrl is configured, so the caller falls back to polling', async () => {
+      mockFetch.mockResolvedValue({
+        json: () => Promise.resolve({ id: 'task-poll' }),
+        ok: true,
+      });
+
+      const result = await createVolcengineVideo(payload, options);
+
+      expect((result as any).useWebhook).toBe(false);
+    });
+
+    it('should return useWebhook: true when callbackUrl is configured', async () => {
       mockFetch.mockResolvedValue({
         json: () => Promise.resolve({ id: 'task-webhook' }),
         ok: true,
@@ -52,7 +63,7 @@ describe('createVolcengineVideo', () => {
       payload.callbackUrl = 'https://example.com/webhook';
       const result = await createVolcengineVideo(payload, options);
 
-      expect((result as any).useWebhook).toBe(false);
+      expect((result as any).useWebhook).toBe(true);
     });
 
     it('should send minimal body with only prompt', async () => {
@@ -214,11 +225,11 @@ describe('createVolcengineVideo', () => {
       expect(body.camera_fixed).toBe(true);
     });
 
-    it('should never send callback_url in the request body, since the real API has no callback parameter', async () => {
+    it('should map callbackUrl to body.callback_url', async () => {
       payload.callbackUrl = 'https://example.com/webhook';
       await createVolcengineVideo(payload, options);
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(body.callback_url).toBeUndefined();
+      expect(body.callback_url).toBe('https://example.com/webhook');
     });
 
     it('should allow overriding watermark when watermark is provided', async () => {

@@ -3,7 +3,7 @@ import createDebug from 'debug';
 import type { CreateVideoOptions } from '../../../core/openaiCompatibleFactory';
 import type {
   CreateVideoPayload,
-  CreateVideoResponse,
+  CreateVideoResult,
   PollVideoStatusResult,
 } from '../../../types/video';
 
@@ -24,14 +24,9 @@ interface VolcengineVideoTaskResponse {
 /**
  * Poll the status of a Volcengine video generation task.
  *
- * Volcengine's contents-generations-tasks API has no callback/webhook
- * parameter (confirmed against the official docs and SDK examples: create ->
- * poll -> get result) — `createVolcengineVideo` always returns
- * `useWebhook: false`, so this is the only way a task's completion is ever
- * observed. `handleVolcengineVideoWebhook`/`handleCreateVideoWebhook.ts`
- * parses the same response shape for parity with other providers' generic
- * webhook receiver route, but is not reachable through this provider in
- * practice since Volcengine never calls back into it.
+ * Volcengine's task response shape is identical whether it arrives via webhook
+ * push (see `handleCreateVideoWebhook.ts`) or this GET poll, so the
+ * queued/running/succeeded/failed/expired parsing mirrors that handler.
  */
 export async function pollVolcengineVideoStatus(
   taskId: string,
@@ -82,7 +77,7 @@ export async function pollVolcengineVideoStatus(
 export async function createVolcengineVideo(
   payload: CreateVideoPayload,
   options: CreateVideoOptions,
-): Promise<CreateVideoResponse> {
+): Promise<CreateVideoResult> {
   const { model, params } = payload;
   const {
     prompt,
@@ -138,6 +133,7 @@ export async function createVolcengineVideo(
   if (seed !== undefined && seed !== null) body.seed = seed;
   if (resolution !== undefined) body.resolution = resolution;
   if (cameraFixed !== undefined) body.camera_fixed = cameraFixed;
+  if (payload.callbackUrl) body.callback_url = payload.callbackUrl;
 
   log('Volcengine video API request body: %s', JSON.stringify(body, null, 2));
 
@@ -164,9 +160,9 @@ export async function createVolcengineVideo(
     throw new Error('Invalid response: missing task id');
   }
 
-  // Volcengine's content-generation-tasks API has no callback/webhook
-  // parameter (per official docs and SDK examples: create → poll → get
-  // result) — `callbackUrl` on the payload is ignored, and the caller must
-  // always fall back to `handlePollVideoStatus` polling.
-  return { inferenceId: data.id, useWebhook: false };
+  // Only the webhook path is push-based; without a callback URL configured on
+  // this request, the caller must fall back to `handlePollVideoStatus` polling
+  // (some private/self-hosted deployments have no public endpoint for a
+  // provider to call back into, so they never configure callbackUrl).
+  return { inferenceId: data.id, useWebhook: !!payload.callbackUrl };
 }

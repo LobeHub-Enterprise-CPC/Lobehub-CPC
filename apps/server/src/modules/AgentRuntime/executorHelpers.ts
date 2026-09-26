@@ -7,6 +7,7 @@ import { type ToolType } from '@lobechat/observability-otel/modules/agent-runtim
 import {
   type ChatToolPayload,
   type LobeAgentConfig,
+  type WorkAccessScope,
   type WorkRegistrationIntent,
 } from '@lobechat/types';
 import debug from 'debug';
@@ -23,6 +24,7 @@ import { archiveToolResultIfNeeded } from '@/server/services/toolExecution/archi
 import { buildWorkVersionCumulativeUsage } from '@/utils/workCumulativeUsage';
 
 import { type RuntimeExecutorContext } from './context';
+import { resolveRunActiveDeviceId } from './executors/resolveRunActiveDeviceId';
 
 export const log = debug('lobe-server:agent-runtime:streaming-executors');
 export const timing = debug('lobe-server:agent-runtime:timing');
@@ -107,6 +109,7 @@ export const archiveRuntimeToolResult = async (
  * sidebar refresh gap is tracked as a follow-up.
  */
 export const registerWorkFromIntent = async ({
+  accessScope,
   agentId,
   intent,
   rootOperationId,
@@ -121,6 +124,11 @@ export const registerWorkFromIntent = async ({
   userId,
   workspaceId,
 }: {
+  /**
+   * Agent Share boundary the Work is registered under (see
+   * `resolveRunWorkAccessScope`); omitted = ordinary creator scope.
+   */
+  accessScope?: WorkAccessScope;
   agentId?: string | null;
   intent: WorkRegistrationIntent;
   rootOperationId?: string;
@@ -142,7 +150,7 @@ export const registerWorkFromIntent = async ({
   const cumulative = buildWorkVersionCumulativeUsage({ cost: state.cost, usage: state.usage });
 
   try {
-    const workModel = new WorkModel(serverDB, userId, workspaceId);
+    const workModel = new WorkModel(serverDB, userId, workspaceId, accessScope);
 
     await dispatchWorkRegistrationIntent(
       intent,
@@ -230,6 +238,14 @@ export const buildServerVirtualSubAgentRunner = (
   // keeps the topic-pinned model only in `modelRuntimeConfig` while the
   // world config retains the agent default.
   const parentEffectiveModel = state.modelRuntimeConfig ?? parentAgentConfig;
+  // The device the parent run executes on. The child re-resolves its own
+  // execution plan, and without this it falls back to the agent-level
+  // `boundDeviceId` — whichever machine last picked "this device" — so with two
+  // desktops online the parent and the child land on different machines. An
+  // anonymous `callSubAgent` clone requests this device outright; a named
+  // `callAgent` target only takes it as its `local` device, keeping its own
+  // execution target.
+  const parentDeviceId = resolveRunActiveDeviceId(state);
 
   return {
     run: async ({ agentId: targetAgentId, description, instruction, timeout }) => {
@@ -274,8 +290,10 @@ export const buildServerVirtualSubAgentRunner = (
       const result = (await execVirtualSubAgent({
         agentId: targetAgentId ?? agentId,
         chatConfig: subAgentChatConfig,
+        deviceId: targetAgentId ? undefined : parentDeviceId,
         groupId: state.origin?.groupId ?? undefined,
         instruction,
+        localDeviceId: parentDeviceId,
         model: subAgentModel?.model,
         parentMessageId: placeholder.id,
         parentOperationId: ctx.operationId,
