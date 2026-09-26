@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { Icon } from '@lobehub/ui';
 import { Tag } from '@lobehub/ui/base-ui';
 import { BadgeCheck, CircleUser, Package } from 'lucide-react';
@@ -43,7 +44,8 @@ const PluginTag = memo<PluginTagProps>(
         icon={showIcon && <Icon icon={isOfficial ? BadgeCheck : CircleUser} />}
         size={'small'}
       >
-        {showText && (author || t('store.communityPlugin'))}
+        {showText &&
+          (isOfficial && type === 'builtin' ? BRANDING_NAME : author || t('store.communityPlugin'))}
       </Tag>
     );
   },

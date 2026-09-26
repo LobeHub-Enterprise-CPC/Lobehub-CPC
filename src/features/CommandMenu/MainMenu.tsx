@@ -182,12 +182,12 @@ const MainMenu = memo(() => {
             {t('cmdk.submitIssue')}
           </CommandItem>
         )}
-        {!FOOTER_HIDDEN_MENU_KEYS.includes('github') && (
+        {SOCIAL_URL.github && !FOOTER_HIDDEN_MENU_KEYS.includes('github') && (
           <CommandItem
             icon={<Star />}
             keywords={t('cmdk.keywords.starGitHub').split(' ')}
             value="star-github"
-            onSelect={() => handleExternalLink(SOCIAL_URL.github)}
+            onSelect={() => SOCIAL_URL.github && handleExternalLink(SOCIAL_URL.github)}
           >
             {t('cmdk.starOnGitHub')}
           </CommandItem>

@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { codeInspectorPlugin } from 'code-inspector-plugin';
 import { type NextConfig } from 'next';
 import { type Header, type Redirect } from 'next/dist/lib/load-custom-routes';
@@ -279,27 +280,31 @@ export function defineConfig(config: CustomNextConfig) {
     }),
     reactStrictMode: true,
     redirects: async () => [
-      // Sitemap generation lives on the landing site; keep legacy app sitemap URLs crawlable.
-      {
-        destination: LANDING_SITEMAP_URL,
-        permanent: true,
-        source: '/sitemap.xml',
-      },
-      {
-        destination: LANDING_SITEMAP_URL,
-        permanent: true,
-        source: '/sitemap-0.xml',
-      },
-      {
-        destination: LANDING_SITEMAP_URL,
-        permanent: true,
-        source: '/sitemap-index.xml',
-      },
-      {
-        destination: LANDING_SITEMAP_URL,
-        permanent: true,
-        source: '/sitemap/:path*',
-      },
+      ...((BRANDING_NAME as string) === 'LobeHub'
+        ? [
+            // Sitemap generation lives on the landing site; keep legacy app sitemap URLs crawlable.
+            {
+              destination: LANDING_SITEMAP_URL,
+              permanent: true as const,
+              source: '/sitemap.xml',
+            },
+            {
+              destination: LANDING_SITEMAP_URL,
+              permanent: true as const,
+              source: '/sitemap-0.xml',
+            },
+            {
+              destination: LANDING_SITEMAP_URL,
+              permanent: true as const,
+              source: '/sitemap-index.xml',
+            },
+            {
+              destination: LANDING_SITEMAP_URL,
+              permanent: true as const,
+              source: '/sitemap/:path*',
+            },
+          ]
+        : []),
       {
         destination: '/manifest.webmanifest',
         permanent: true,

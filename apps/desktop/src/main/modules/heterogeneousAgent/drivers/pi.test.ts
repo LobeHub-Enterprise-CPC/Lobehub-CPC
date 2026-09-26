@@ -145,7 +145,7 @@ describe('piDriver', () => {
           reasoning: true,
         },
       ],
-      name: 'LobeHub Provider',
+      name: 'Application Provider',
     });
     expect(content).not.toContain('bound-key');
     expect(content).not.toContain('argv-secret');

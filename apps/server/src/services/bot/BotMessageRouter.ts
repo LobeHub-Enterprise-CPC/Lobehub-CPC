@@ -1,4 +1,5 @@
 import { createIoRedisState } from '@chat-adapter/state-ioredis';
+import { BRANDING_NAME } from '@lobechat/business-const';
 import type { Message, MessageContext, WebhookOptions } from 'chat';
 import { Chat, ConsoleLogger } from 'chat';
 import debug from 'debug';
@@ -25,7 +26,7 @@ import {
   peekPairingRequest,
   releasePairingClaim,
 } from './dmPairingStore';
-import { submitBotFeedback } from './feedbackSubmit';
+import { getPrivateFeedbackMessage, submitBotFeedback } from './feedbackSubmit';
 import { buildReplayMessages, getSameSenderMessages, mergeBotMessages } from './mergeMessages';
 import { patchSenderBatches } from './patchSenderBatches';
 import {
@@ -83,10 +84,8 @@ const WEBHOOK_RECONCILE_COOLDOWN_MS = 5 * 60 * 1000;
 const WEBHOOK_RECONCILE_KEY_PREFIX = 'bot:webhook-reconcile';
 
 const log = debug('lobe-server:bot:message-router');
-const WECHAT_PRO_FEATURE_NOTICE =
-  '提示：由于 WeChat 渠道通信成本过高，LobeHub 微信渠道能力将于近期调整为付费功能。预告期内已有连接可继续使用，但新建或重新连接微信渠道需要升级到个人付费 Plan。';
-const WECHAT_PRO_FEATURE_NOTICE_WORKSPACE =
-  '提示：由于 WeChat 渠道通信成本过高，LobeHub 微信渠道能力将于近期调整为付费功能。预告期内已有连接可继续使用，但新建或重新连接微信渠道需要将所属工作区升级到付费 Plan。';
+const WECHAT_PRO_FEATURE_NOTICE = `提示：由于 WeChat 渠道通信成本过高，${BRANDING_NAME} 微信渠道能力将于近期调整为付费功能。预告期内已有连接可继续使用，但新建或重新连接微信渠道需要升级到个人付费 Plan。`;
+const WECHAT_PRO_FEATURE_NOTICE_WORKSPACE = `提示：由于 WeChat 渠道通信成本过高，${BRANDING_NAME} 微信渠道能力将于近期调整为付费功能。预告期内已有连接可继续使用，但新建或重新连接微信渠道需要将所属工作区升级到付费 Plan。`;
 
 /**
  * Compact summary of a Chat SDK Message's attachments for debug logging.
@@ -2133,7 +2132,10 @@ export class BotMessageRouter {
         name: 'approve',
       },
       {
-        description: 'Send feedback directly to the LobeHub team (no AI reply)',
+        description:
+          (BRANDING_NAME as string) === 'LobeHub'
+            ? `Send feedback directly to the ${BRANDING_NAME} team (no AI reply)`
+            : 'Contact support by email',
         // Declaring the argument so Discord/Slack surface a `/feedback <message>`
         // prompt instead of registering the command as zero-arg (see the
         // `options` comment on the BotCommand interface).
@@ -2141,10 +2143,15 @@ export class BotMessageRouter {
           {
             description: 'Your feedback message',
             name: 'message',
-            required: true,
+            required: (BRANDING_NAME as string) === 'LobeHub',
           },
         ],
         handler: async (ctx) => {
+          const supportMessage = getPrivateFeedbackMessage(ctx.replyLocale);
+          if (supportMessage) {
+            await (ctx.postEphemeral ?? ctx.post)(supportMessage);
+            return;
+          }
           log('command /feedback: agent=%s, platform=%s', agentId, platform);
           // Prefer the ephemeral channel when available (Slack / Discord
           // native slash) so the user's feedback content and the bot's

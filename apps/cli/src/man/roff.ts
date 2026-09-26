@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 
 import {
   CLI_BIN_ALIASES as ROOT_ALIASES,
+  CLI_CONFIG_DIR_NAME,
   CLI_DISPLAY_NAME,
   CLI_HOME_ENV_NAMES,
   CLI_PRIMARY_BIN,
@@ -19,45 +20,45 @@ interface RoffDefinition {
 const FILE_ENTRIES = [
   {
     description: 'Encrypted access and refresh tokens.',
-    path: '~/.lobehub/credentials.json',
+    path: `~/${CLI_CONFIG_DIR_NAME}/credentials.json`,
   },
   {
     description: 'CLI settings such as server and gateway URLs.',
-    path: '~/.lobehub/settings.json',
+    path: `~/${CLI_CONFIG_DIR_NAME}/settings.json`,
   },
   {
     description: 'Background daemon PID file.',
-    path: '~/.lobehub/daemon.pid',
+    path: `~/${CLI_CONFIG_DIR_NAME}/daemon.pid`,
   },
   {
     description: 'Background daemon status metadata.',
-    path: '~/.lobehub/daemon.status',
+    path: `~/${CLI_CONFIG_DIR_NAME}/daemon.status`,
   },
   {
     description: 'Background daemon log output.',
-    path: '~/.lobehub/daemon.log',
+    path: `~/${CLI_CONFIG_DIR_NAME}/daemon.log`,
   },
 ] as const;
 
 const EXAMPLES = [
   {
-    command: 'lh login',
+    command: `${CLI_PRIMARY_BIN} login`,
     description: 'Start interactive login in the browser.',
   },
   {
-    command: 'lh connect --daemon',
+    command: `${CLI_PRIMARY_BIN} connect --daemon`,
     description: 'Start the device gateway connection in the background.',
   },
   {
-    command: 'lh search -q "gpt-5"',
+    command: `${CLI_PRIMARY_BIN} search -q "gpt-5"`,
     description: 'Search local resources for a query.',
   },
   {
-    command: 'lh generate text "Write release notes"',
+    command: `${CLI_PRIMARY_BIN} generate text "Write release notes"`,
     description: 'Generate text from a prompt.',
   },
   {
-    command: 'lh man generate',
+    command: `${CLI_PRIMARY_BIN} man generate`,
     description: 'Show the built-in manual for the generate command group.',
   },
 ] as const;
@@ -89,7 +90,7 @@ export function generateRootManPage(program: Command, version: string) {
     'For command-specific manuals, use the built-in manual command:',
     '.PP',
     '.RS',
-    '.B lh man',
+    `.B ${escapeRoff(CLI_PRIMARY_BIN)} man`,
     '[\\fICOMMAND\\fR]...',
     '.RE',
     '.SH COMMANDS',
@@ -112,9 +113,9 @@ export function generateRootManPage(program: Command, version: string) {
       `.B ${escapeRoff(example.command)}`,
       escapeRoff(example.description),
     ]),
-    '.SH SEE ALSO',
-    '.BR lobe (1),',
-    '.BR lobehub (1)',
+    ...(ROOT_ALIASES.length
+      ? ['.SH SEE ALSO', ...ROOT_ALIASES.map((alias) => `.BR ${escapeRoff(alias)} (1)`)]
+      : []),
   ];
 
   return `${lines.join('\n')}\n`;

@@ -1,4 +1,4 @@
-import { BRANDING_EMAIL } from '@lobechat/business-const';
+import { BRANDING_EMAIL, BRANDING_LOGO_URL } from '@lobechat/business-const';
 import urlJoin from 'url-join';
 
 // Defined in the business slot so white-label builds can point it at their own deployment.
@@ -21,7 +21,7 @@ export const isOfficialCloudServer = (url?: string): boolean => {
 export const OFFICIAL_DEVICE_GATEWAY_URL = 'https://device-gateway.lobehub.com';
 export const OFFICIAL_AGENT_GATEWAY_URL = 'https://agent-gateway.lobehub.com';
 
-export const OG_URL = '/og/og.webp?v=1';
+export const OG_URL = BRANDING_LOGO_URL || '/og/og.webp?v=1';
 
 export const LobeHubPath = {
   webapi: {

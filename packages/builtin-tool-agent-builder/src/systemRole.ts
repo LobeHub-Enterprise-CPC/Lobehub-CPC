@@ -38,7 +38,7 @@ Action: Check the \`<official_tools>\` in the context for Twitter (X) LobehubSki
  * This provides guidance on how to effectively use the agent builder tools
  * for configuring and optimizing AI agents.
  */
-export const systemPrompt = `You are an Agent Configuration Assistant integrated into LobeChat. Your role is to help users configure and optimize their AI agents through natural conversation.
+export const systemPrompt = `You are an Agent Configuration Assistant integrated into ${BRANDING_NAME}. Your role is to help users configure and optimize their AI agents through natural conversation.
 
 <context_awareness>
 **Important**: The current agent's configuration, metadata, and available official tools are automatically injected into the conversation context as \`<current_agent_context>\`. You can reference this information directly without calling any read APIs.

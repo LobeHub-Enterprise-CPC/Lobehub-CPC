@@ -17,7 +17,7 @@ export const getProviderBindingRuntime = async (
   const serverUrl = await auth.getServerUrl();
   const accessToken = await auth.getAccessToken();
   if (!serverUrl || !accessToken) {
-    throw new Error('LobeHub Provider binding requires an authenticated Desktop session.');
+    throw new Error('Application Provider binding requires an authenticated Desktop session.');
   }
 
   return callLambdaMutation<HeterogeneousProviderBindingRuntime>(

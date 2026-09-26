@@ -301,7 +301,7 @@ export class CodexAppServerClient {
         },
         clientInfo: {
           name: 'lobehub-desktop',
-          title: 'LobeHub Desktop',
+          title: 'Agent Workspace Desktop',
           version: this.options.clientVersion,
         },
       };

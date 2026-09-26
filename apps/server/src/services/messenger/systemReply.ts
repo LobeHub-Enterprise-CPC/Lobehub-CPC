@@ -1,3 +1,5 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
+
 import { getBotReplyLocale } from '@/server/services/bot/platforms/const';
 
 interface MessengerSystemStrings {
@@ -55,8 +57,7 @@ interface MessengerSystemStrings {
 }
 
 const EN_US: MessengerSystemStrings = {
-  accountAlreadyLinked:
-    'Your account is already linked to LobeHub. Send /agents to switch the active agent, or /new to start a fresh conversation.',
+  accountAlreadyLinked: `Your account is already linked to ${BRANDING_NAME}. Send /agents to switch the active agent, or /new to start a fresh conversation.`,
   activeAgentAlready: (title) => `${title} is already the active agent.`,
   activeAgentAlreadyToast: (title) => `${title} is already active.`,
   activeAgentChanged: (title) =>
@@ -64,35 +65,36 @@ const EN_US: MessengerSystemStrings = {
   activeAgentChangedToast: (title) => `Switched to ${title}.`,
   activeMarker: 'active',
   agentNotFound: 'Agent not found.',
-  agentsDirectMessageOnly:
-    'Open your direct message with the LobeHub bot and send `/agents` there.',
-  agentsEmpty: 'You have no agents yet. Create one in LobeHub, then come back to /agents.',
+  agentsDirectMessageOnly: `Open your direct message with the ${BRANDING_NAME} bot and send \`/agents\` there.`,
+  agentsEmpty: `You have no agents yet. Create one in ${BRANDING_NAME}, then come back to /agents.`,
   agentsHeading: 'Your agents:',
   agentsHint: 'Reply with /agents <n> to switch the active agent.',
   agentsPicker: 'Tap an agent to make it the active one:',
   agentsPrivateHeading: 'Private agents:',
   agentsUsage: (count) => `Usage: /agents <n>, where n is between 1 and ${count}.`,
   agentsWorkspaceHeading: 'Workspace agents:',
-  checkDirectMessage: 'Check your DM with LobeHub for the link button.',
+  checkDirectMessage: `Check your DM with ${BRANDING_NAME} for the link button.`,
   currentMarker: 'current',
   genericError: 'Something went wrong.',
   help: [
     'Commands:',
-    '• /start — bind (or rebind) your LobeHub account',
+    `• /start — bind (or rebind) your ${BRANDING_NAME} account`,
     '• /switch — switch the active scope (personal or a workspace)',
     '• /agents — list your agents and switch the active one',
     '• /new — start a new conversation',
     '• /mode — show or switch the conversation mode (agent | chat)',
     '• /stop — stop the current execution',
-    '• /feedback <message> — send feedback to the LobeHub team (no AI reply)',
+    (BRANDING_NAME as string) === 'LobeHub'
+      ? `• /feedback <message> — send feedback to the ${BRANDING_NAME} team (no AI reply)`
+      : '• /feedback — contact support by email',
   ].join('\n'),
   modeAgentLabel: 'Agent Mode',
   modeChangedToast: (label) => `Switched to ${label}.`,
   modeChatLabel: 'Chat Mode',
-  modeDirectMessageOnly: 'Open your direct message with the LobeHub bot and send `/mode` there.',
+  modeDirectMessageOnly: `Open your direct message with the ${BRANDING_NAME} bot and send \`/mode\` there.`,
   modePicker: 'Pick the conversation mode:',
   needLink: 'You need to /start to bind your account first.',
-  newDirectMessageOnly: 'Open your direct message with the LobeHub bot and send `/new` there.',
+  newDirectMessageOnly: `Open your direct message with the ${BRANDING_NAME} bot and send \`/new\` there.`,
   newStarted: 'Started a new conversation. Your next message begins a fresh topic.',
   noActiveAgent: 'No active agent selected. Send /agents to pick one.',
   notLinked: 'Not linked. Send /start first.',
@@ -105,62 +107,61 @@ const EN_US: MessengerSystemStrings = {
   scopeSwitched: (name, agentTitle) =>
     agentTitle
       ? `Switched to ${name}. Now chatting with ${agentTitle}. Send /agents to change.`
-      : `Switched to ${name}. No agents here yet — create one in LobeHub, then /agents.`,
+      : `Switched to ${name}. No agents here yet — create one in ${BRANDING_NAME}, then /agents.`,
   scopesHeading: 'Scopes:',
   scopesHint: 'Reply with /switch <n> to switch scope.',
   scopesUsage: (count) => `Usage: /switch <n>, where n is between 1 and ${count}.`,
-  startDirectMessageOnly:
-    'Open your direct message with the LobeHub bot and send `/start` there to link your account.',
+  startDirectMessageOnly: `Open your direct message with the ${BRANDING_NAME} bot and send \`/start\` there to link your account.`,
   staleAgent:
     'Your active agent is no longer available — it may have been deleted or moved to another workspace. Send /agents to pick another one.',
   staleScope: 'Your active workspace is no longer available. Send /switch to choose another scope.',
-  stopDirectMessageOnly: 'Open your direct message with the LobeHub bot and send `/stop` there.',
+  stopDirectMessageOnly: `Open your direct message with the ${BRANDING_NAME} bot and send \`/stop\` there.`,
   stopNotActive: 'No active execution to stop.',
   stopRequested: 'Stop requested.',
   stopUnable: 'Unable to stop the current execution.',
-  switchDirectMessageOnly:
-    'Open your direct message with the LobeHub bot and send `/switch` there.',
+  switchDirectMessageOnly: `Open your direct message with the ${BRANDING_NAME} bot and send \`/switch\` there.`,
   unknownAction: 'Unknown action.',
   unknownCommand: (name) => `Unknown command: /${name}`,
 };
 
 const ZH_CN: MessengerSystemStrings = {
-  accountAlreadyLinked:
-    '你的账号已绑定到 LobeHub。发送 /agents 可切换当前 Agent，发送 /new 可开启新对话。',
+  accountAlreadyLinked: `你的账号已绑定到 ${BRANDING_NAME}。发送 /agents 可切换当前 Agent，发送 /new 可开启新对话。`,
   activeAgentAlready: (title) => `${title} 已经是当前 Agent。`,
   activeAgentAlreadyToast: (title) => `${title} 已是当前 Agent。`,
   activeAgentChanged: (title) => `已将当前 Agent 切换为：${title}。下一条消息会发送给它。`,
   activeAgentChangedToast: (title) => `已切换到 ${title}。`,
   activeMarker: '当前',
   agentNotFound: '未找到该 Agent。',
-  agentsDirectMessageOnly: '请在与 LobeHub 机器人的私聊中发送 `/agents`。',
-  agentsEmpty: '你还没有 Agent。请先在 LobeHub 创建，然后再发送 /agents。',
+  agentsDirectMessageOnly: `请在与 ${BRANDING_NAME} 机器人的私聊中发送 \`/agents\`。`,
+  agentsEmpty: `你还没有 Agent。请先在 ${BRANDING_NAME} 创建，然后再发送 /agents。`,
   agentsHeading: '你的 Agent：',
   agentsHint: '回复 /agents <序号> 可切换当前 Agent。',
   agentsPicker: '请选择要设为当前 Agent 的项目：',
   agentsPrivateHeading: '私人 Agent：',
   agentsUsage: (count) => `用法：/agents <序号>，序号范围为 1–${count}。`,
   agentsWorkspaceHeading: '工作区 Agent：',
-  checkDirectMessage: '请查看与 LobeHub 机器人的私聊消息，并点击其中的绑定按钮。',
+  checkDirectMessage: `请查看与 ${BRANDING_NAME} 机器人的私聊消息，并点击其中的绑定按钮。`,
   currentMarker: '当前',
   genericError: '发生错误，请稍后再试。',
   help: [
     '可用命令：',
-    '• /start — 绑定（或重新绑定）LobeHub 账号',
+    `• /start — 绑定（或重新绑定）${BRANDING_NAME} 账号`,
     '• /switch — 切换当前空间（个人账号或工作区）',
     '• /agents — 查看 Agent 并切换当前 Agent',
     '• /new — 开启新对话',
     '• /mode — 查看或切换会话模式（agent | chat）',
     '• /stop — 停止当前执行',
-    '• /feedback <内容> — 向 LobeHub 团队发送反馈（不会触发 AI 回复）',
+    (BRANDING_NAME as string) === 'LobeHub'
+      ? `• /feedback <内容> — 向 ${BRANDING_NAME} 团队发送反馈（不会触发 AI 回复）`
+      : '• /feedback — 获取邮件支持联系方式',
   ].join('\n'),
   modeAgentLabel: 'Agent 模式',
   modeChangedToast: (label) => `已切换到${label}。`,
   modeChatLabel: 'Chat 模式',
-  modeDirectMessageOnly: '请在与 LobeHub 机器人的私聊中发送 `/mode`。',
+  modeDirectMessageOnly: `请在与 ${BRANDING_NAME} 机器人的私聊中发送 \`/mode\`。`,
   modePicker: '请选择会话模式：',
-  needLink: '请先发送 /start 绑定你的 LobeHub 账号。',
-  newDirectMessageOnly: '请在与 LobeHub 机器人的私聊中发送 `/new`。',
+  needLink: `请先发送 /start 绑定你的 ${BRANDING_NAME} 账号。`,
+  newDirectMessageOnly: `请在与 ${BRANDING_NAME} 机器人的私聊中发送 \`/new\`。`,
   newStarted: '已开启新对话，下一条消息会创建一个新话题。',
   noActiveAgent: '当前未选择 Agent。请发送 /agents 进行选择。',
   notLinked: '尚未绑定，请先发送 /start。',
@@ -173,18 +174,18 @@ const ZH_CN: MessengerSystemStrings = {
   scopeSwitched: (name, agentTitle) =>
     agentTitle
       ? `已切换到 ${name}，当前 Agent 为 ${agentTitle}。发送 /agents 可更换 Agent。`
-      : `已切换到 ${name}，但该空间还没有 Agent。请先在 LobeHub 创建，然后发送 /agents。`,
+      : `已切换到 ${name}，但该空间还没有 Agent。请先在 ${BRANDING_NAME} 创建，然后发送 /agents。`,
   scopesHeading: '可切换空间：',
   scopesHint: '回复 /switch <序号> 可切换空间。',
   scopesUsage: (count) => `用法：/switch <序号>，序号范围为 1–${count}。`,
-  startDirectMessageOnly: '请打开与 LobeHub 机器人的私聊，并在那里发送 `/start` 绑定账号。',
+  startDirectMessageOnly: `请打开与 ${BRANDING_NAME} 机器人的私聊，并在那里发送 \`/start\` 绑定账号。`,
   staleAgent: '当前 Agent 已不可用，可能已被删除或移动到其他工作区。请发送 /agents 重新选择。',
   staleScope: '当前工作区已不可用。请发送 /switch 选择其他空间。',
-  stopDirectMessageOnly: '请在与 LobeHub 机器人的私聊中发送 `/stop`。',
+  stopDirectMessageOnly: `请在与 ${BRANDING_NAME} 机器人的私聊中发送 \`/stop\`。`,
   stopNotActive: '当前没有正在执行的任务可以停止。',
   stopRequested: '已发出停止请求。',
   stopUnable: '无法停止当前执行。',
-  switchDirectMessageOnly: '请在与 LobeHub 机器人的私聊中发送 `/switch`。',
+  switchDirectMessageOnly: `请在与 ${BRANDING_NAME} 机器人的私聊中发送 \`/switch\`。`,
   unknownAction: '未知操作。',
   unknownCommand: (name) => `未知命令：/${name}`,
 };
@@ -198,10 +199,12 @@ const WECHAT_ZH_CN: MessengerSystemStrings = {
     '• /new — 开启新对话',
     '• /mode — 查看或切换会话模式（agent | chat）',
     '• /stop — 停止当前执行',
-    '• /feedback <内容> — 向 LobeHub 团队发送反馈（不会触发 AI 回复）',
+    (BRANDING_NAME as string) === 'LobeHub'
+      ? `• /feedback <内容> — 向 ${BRANDING_NAME} 团队发送反馈（不会触发 AI 回复）`
+      : '• /feedback — 获取邮件支持联系方式',
   ].join('\n'),
-  needLink: '当前微信账号尚未连接，请前往 LobeHub 的 Messenger 设置重新扫码。',
-  notLinked: '当前微信账号尚未连接，请前往 LobeHub 的 Messenger 设置重新扫码。',
+  needLink: `当前微信账号尚未连接，请前往 ${BRANDING_NAME} 的 Messenger 设置重新扫码。`,
+  notLinked: `当前微信账号尚未连接，请前往 ${BRANDING_NAME} 的 Messenger 设置重新扫码。`,
 };
 
 export const getMessengerSystemStrings = (platform: string): MessengerSystemStrings => {

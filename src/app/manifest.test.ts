@@ -6,6 +6,7 @@ const loadManifest = async (branding: { name: string; pwaId: string }) => {
   vi.doMock('@lobechat/business-const', () => ({
     BRANDING_LOGO_URL: '/branding/logo.png',
     BRANDING_NAME: branding.name,
+    OFFICIAL_URL: 'https://private.example',
     BRANDING_PWA_ID: branding.pwaId,
   }));
 
@@ -37,4 +38,17 @@ describe('production PWA manifest identity', () => {
 
     expect(result.id).toBe('example-brand');
   });
+});
+
+it('brands the development installation without changing its persistent id', async () => {
+  await loadManifest({ name: 'Private Workspace', pwaId: 'stable-id' });
+  vi.stubEnv('NODE_ENV', 'development');
+  const { default: manifest } = await import('./manifest');
+  expect(await manifest()).toMatchObject({
+    name: 'Private Workspace',
+    short_name: 'Private Workspace',
+    id: 'stable-id',
+  });
+  vi.unstubAllEnvs();
+  vi.doUnmock('@lobechat/business-const');
 });

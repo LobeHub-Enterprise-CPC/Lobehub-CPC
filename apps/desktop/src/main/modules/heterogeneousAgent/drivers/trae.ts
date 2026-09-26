@@ -64,7 +64,7 @@ const buildTraeProviderArgs = (params: { baseURL: string; model: string }): stri
   [
     ['model', tomlString(params.model)],
     ['model_provider', tomlString(HOST_PROVIDER_ID)],
-    [`model_providers.${HOST_PROVIDER_ID}.name`, tomlString('LobeHub Provider')],
+    [`model_providers.${HOST_PROVIDER_ID}.name`, tomlString('Application Provider')],
     [`model_providers.${HOST_PROVIDER_ID}.base_url`, tomlString(params.baseURL)],
     [`model_providers.${HOST_PROVIDER_ID}.env_key`, tomlString(HOST_API_KEY_ENV)],
     [`model_providers.${HOST_PROVIDER_ID}.wire_api`, tomlString('responses')],

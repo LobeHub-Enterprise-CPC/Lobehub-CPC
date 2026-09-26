@@ -1,3 +1,5 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
+
 export interface ConversationHistoryEntry {
   content: string;
   role: 'assistant' | 'user';
@@ -42,7 +44,7 @@ export function buildCloudHeteroContext(params: {
   // --- Cloud workspace context ---
   const workspaceLines: string[] = [
     '## Cloud Workspace',
-    'You are running inside a LobeHub cloud sandbox. Your working directory is `/workspace`.',
+    `You are running inside a ${BRANDING_NAME} cloud sandbox. Your working directory is \`/workspace\`.`,
     '',
     '## Sandbox Persistence — CRITICAL',
     'This sandbox has a **pause / resume** lifecycle: after ~15 minutes of inactivity it is paused,',

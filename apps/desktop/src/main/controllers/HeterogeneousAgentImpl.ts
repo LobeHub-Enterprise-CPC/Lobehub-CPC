@@ -268,7 +268,7 @@ interface StartSessionParams {
   env?: Record<string, string>;
   /** Protocol-native model selected after session setup (TRAE ACP only). */
   initialModel?: string;
-  /** Credential-free LobeHub Provider reference. Desktop main resolves its secrets. */
+  /** Credential-free Application Provider reference. Desktop main resolves its secrets. */
   providerBinding?: HeterogeneousProviderBindingReference;
   /** Session ID to resume (for multi-turn) */
   resumeSessionId?: string;
@@ -1093,7 +1093,7 @@ export default class HeterogeneousAgentCtr {
           agentType: session.agentType,
           code: 'cli_version_unsupported',
           command,
-          message: `Kimi Code 0.6.0 or newer is required to use a LobeHub provider. Installed version: ${status.version}.`,
+          message: `Kimi Code 0.6.0 or newer is required to use an application provider. Installed version: ${status.version}.`,
           workingDirectory,
         };
       }
@@ -1107,7 +1107,7 @@ export default class HeterogeneousAgentCtr {
           agentType: session.agentType,
           code: 'cli_version_unsupported',
           command,
-          message: `TRAE CLI 0.201.2 or newer is required to use a LobeHub provider. Installed version: ${status.version}.`,
+          message: `TRAE CLI 0.201.2 or newer is required to use an application provider. Installed version: ${status.version}.`,
           workingDirectory,
         };
       }

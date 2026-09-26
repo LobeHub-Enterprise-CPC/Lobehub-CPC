@@ -112,7 +112,7 @@ export class ChatForwardActionImpl {
     if (targets.length === 0) return { failed: [], succeeded: [] };
 
     const cliInstruction = [
-      `Use the LobeHub CLI to read the full conversation history for topic ${topicId}:`,
+      `Use the application CLI to read the full conversation history for topic ${topicId}:`,
       '',
       `lh topic view ${topicId} -L 500`,
       '',

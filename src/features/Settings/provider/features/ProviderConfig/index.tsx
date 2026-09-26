@@ -28,6 +28,7 @@ import {
   type UpdateAiProviderConfigParams,
 } from '@/types/aiProvider';
 import { AiProviderSourceEnum } from '@/types/aiProvider';
+import { vendorLink } from '@/utils/vendorLink';
 
 import { KeyVaultsConfigKey, LLMProviderApiTokenKey, LLMProviderBaseUrlKey } from '../../const';
 import { isResponsesApiSupportedSdkType } from '../providerSettings';
@@ -495,18 +496,20 @@ const ProviderConfig = memo<ProviderConfigProps>(
               ) : (
                 <ProviderCombine provider={id} size={24} />
               ))}
-            <Tooltip title={t('providerModels.config.helpDoc')}>
-              <a
-                href={urlJoin(BASE_PROVIDER_DOC_URL, id)}
-                rel="noreferrer"
-                target="_blank"
-                onClick={stopPropagation}
-              >
-                <Center className={styles.help} height={20} width={20}>
-                  ?
-                </Center>
-              </a>
-            </Tooltip>
+            {vendorLink(urlJoin(BASE_PROVIDER_DOC_URL, id)) && (
+              <Tooltip title={t('providerModels.config.helpDoc')}>
+                <a
+                  href={vendorLink(urlJoin(BASE_PROVIDER_DOC_URL, id))}
+                  rel="noreferrer"
+                  target="_blank"
+                  onClick={stopPropagation}
+                >
+                  <Center className={styles.help} height={20} width={20}>
+                    ?
+                  </Center>
+                </a>
+              </Tooltip>
+            )}
           </>
         )}
       </Flexbox>

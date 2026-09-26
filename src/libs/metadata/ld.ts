@@ -1,10 +1,16 @@
-import { BRANDING_EMAIL, BRANDING_NAME, SOCIAL_URL } from '@lobechat/business-const';
+import {
+  BRANDING_EMAIL,
+  BRANDING_LOGO_URL,
+  BRANDING_NAME,
+  SOCIAL_URL,
+} from '@lobechat/business-const';
 import { isString } from 'es-toolkit/compat';
 import qs from 'query-string';
 import urlJoin from 'url-join';
 
 import { DEFAULT_LANG } from '@/const/locale';
-import { OFFICIAL_SITE, OFFICIAL_URL } from '@/const/url';
+import { OFFICIAL_SITE, OFFICIAL_URL, OG_URL } from '@/const/url';
+import { isCustomBranding } from '@/const/version';
 import { type Locales } from '@/locales/resources';
 import { getCanonicalUrl } from '@/server/utils/url';
 
@@ -34,7 +40,7 @@ export const AUTHOR_LIST = {
 
 export class Ld {
   generate({
-    image = '/og/og.webp',
+    image = OG_URL,
     article,
     url,
     title,
@@ -85,9 +91,9 @@ export class Ld {
 
   genOrganization() {
     return {
-      '@id': this.getId(OFFICIAL_URL, '#organization'),
+      '@id': this.getId(isCustomBranding ? getCanonicalUrl('/') : OFFICIAL_URL, '#organization'),
       '@type': 'Organization',
-      'alternateName': 'LobeHub',
+      'alternateName': BRANDING_NAME,
       'contactPoint': {
         '@type': 'ContactPoint',
         'contactType': 'customer support',
@@ -95,25 +101,33 @@ export class Ld {
       },
       'description':
         'Agent teammates that grow with you\n' +
-        'LobeHub is a work-and-lifestyle space to find, build, and collaborate with agent teams that grow with you.',
+        `${BRANDING_NAME} is a work-and-lifestyle space to find, build, and collaborate with agent teams that grow with you.`,
       'email': BRANDING_EMAIL.business,
-      'founders': [this.getAuthors(['arvinxx']), this.getAuthors(['canisminor'])],
-      'image': urlJoin(OFFICIAL_SITE, '/icon-512x512.png'),
+      'founders': isCustomBranding
+        ? undefined
+        : [this.getAuthors(['arvinxx']), this.getAuthors(['canisminor'])],
+      'image': isCustomBranding
+        ? getCanonicalUrl(BRANDING_LOGO_URL || '/app-icons/icon-512x512.png')
+        : urlJoin(OFFICIAL_SITE, '/icon-512x512.png'),
       'logo': {
         '@type': 'ImageObject',
         'height': 512,
-        'url': urlJoin(OFFICIAL_SITE, '/icon-512x512.png'),
+        'url': isCustomBranding
+          ? getCanonicalUrl(BRANDING_LOGO_URL || '/app-icons/icon-512x512.png')
+          : urlJoin(OFFICIAL_SITE, '/icon-512x512.png'),
         'width': 512,
       },
-      'name': 'LobeHub',
-      'sameAs': [SOCIAL_URL.x, SOCIAL_URL.github, SOCIAL_URL.medium, SOCIAL_URL.youtube],
-      'url': OFFICIAL_SITE,
+      'name': BRANDING_NAME,
+      'sameAs': [SOCIAL_URL.x, SOCIAL_URL.github, SOCIAL_URL.medium, SOCIAL_URL.youtube].filter(
+        Boolean,
+      ),
+      'url': isCustomBranding ? getCanonicalUrl('/') : OFFICIAL_SITE,
     };
   }
 
   getAuthors(ids: string[] = []) {
     const defaultAuthor = {
-      '@id': this.getId(OFFICIAL_URL, '#organization'),
+      '@id': this.getId(isCustomBranding ? getCanonicalUrl('/') : OFFICIAL_URL, '#organization'),
       '@type': 'Organization',
     };
     if (!ids || ids.length === 0) return defaultAuthor;
@@ -155,7 +169,7 @@ export class Ld {
       '@id': fixedUrl,
       '@type': 'WebPage',
       'about': {
-        '@id': this.getId(OFFICIAL_URL, '#organization'),
+        '@id': this.getId(isCustomBranding ? getCanonicalUrl('/') : OFFICIAL_URL, '#organization'),
       },
       'breadcrumbs': {
         '@id': this.getId(fixedUrl, '#breadcrumb'),
@@ -168,7 +182,7 @@ export class Ld {
       },
       'inLanguage': locale,
       'isPartOf': {
-        '@id': this.getId(OFFICIAL_URL, '#website'),
+        '@id': this.getId(isCustomBranding ? getCanonicalUrl('/') : OFFICIAL_URL, '#website'),
       },
       'name': this.fixTitle(title),
       'primaryImageOfPage': {
@@ -204,13 +218,13 @@ export class Ld {
 
   genWebSite() {
     const baseInfo: any = {
-      '@id': this.getId(OFFICIAL_URL, '#website'),
+      '@id': this.getId(isCustomBranding ? getCanonicalUrl('/') : OFFICIAL_URL, '#website'),
       '@type': 'WebSite',
       'description': pkg.description,
       'inLanguage': DEFAULT_LANG,
       'name': BRANDING_NAME,
       'publisher': {
-        '@id': this.getId(OFFICIAL_URL, '#organization'),
+        '@id': this.getId(isCustomBranding ? getCanonicalUrl('/') : OFFICIAL_URL, '#organization'),
       },
       'url': OFFICIAL_URL,
     };
@@ -256,11 +270,11 @@ export class Ld {
         '@id': this.getId(fixedUrl, '#primaryimage'),
       },
       'inLanguage': locale,
-      'keywords': tags?.join(' ') || 'LobeHub',
+      'keywords': tags?.join(' ') || BRANDING_NAME,
       'mainEntityOfPage': fixedUrl,
       'name': title,
       'publisher': {
-        '@id': this.getId(OFFICIAL_URL, '#organization'),
+        '@id': this.getId(isCustomBranding ? getCanonicalUrl('/') : OFFICIAL_URL, '#organization'),
       },
       'url': fixedUrl,
     };

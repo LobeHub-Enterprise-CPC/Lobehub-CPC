@@ -1,5 +1,6 @@
 'use client';
 
+import { BRANDING_NAME } from '@lobechat/business-const';
 import isEqual from 'fast-deep-equal';
 import { type ReactNode, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,6 +9,7 @@ import useSWR from 'swr';
 import { OFFICIAL_SITE } from '@/const/url';
 import { useToolStore } from '@/store/tool';
 import { loadBuiltinSkill } from '@/store/tool/slices/builtin/loadBuiltinSkills';
+import { vendorLink } from '@/utils/vendorLink';
 
 import { DetailContext, type DetailContextValue } from './DetailContext';
 
@@ -48,8 +50,8 @@ export const BuiltinAgentSkillDetailProvider = ({
   });
 
   const value: DetailContextValue = {
-    author: 'LobeHub',
-    authorUrl: OFFICIAL_SITE,
+    author: BRANDING_NAME,
+    authorUrl: vendorLink(OFFICIAL_SITE),
     config: null as any,
     description: skill.description,
     icon: skill.avatar || '',

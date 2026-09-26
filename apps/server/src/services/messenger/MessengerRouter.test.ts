@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { Chat } from 'chat';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -587,6 +588,12 @@ const fakeWechatDmThread = (): any => ({
 });
 
 describe('MessengerRouter collected commands', () => {
+  it('requires feedback text only when it will actually be submitted', () => {
+    const commands = (MessengerRouter.prototype as any).buildCommands();
+    const feedback = commands.find((command: any) => command.name === 'feedback');
+    expect(feedback.options[0].required).toBe((BRANDING_NAME as string) === 'LobeHub');
+  });
+
   it.each([
     ['/new', 'question'],
     ['question', '/new'],
@@ -914,7 +921,7 @@ describe('MessengerRouter member_joined_channel welcome', () => {
     expect(mockSetIfNotExists).toHaveBeenCalledWith('channel_welcomed:C_GENERAL', '1');
     expect(mockSlackBinder.sendDmText).toHaveBeenCalledTimes(1);
     expect(mockSlackBinder.sendDmText.mock.calls[0][0]).toBe('C_GENERAL');
-    expect(mockSlackBinder.sendDmText.mock.calls[0][1]).toMatch(/LobeHub/);
+    expect(mockSlackBinder.sendDmText.mock.calls[0][1]).toContain(BRANDING_NAME);
   });
 
   it('does nothing when a regular user (not the bot) joins the channel', async () => {
@@ -2149,7 +2156,7 @@ describe('MessengerRouter Telegram Guest command privacy', () => {
     expect(mockTelegramBinder.replyToMessage.mock.calls).toEqual([
       [
         message,
-        `Open your direct message with the LobeHub bot and send \`${text.split(' ')[0]}\` there.`,
+        `Open your direct message with the ${BRANDING_NAME} bot and send \`${text.split(' ')[0]}\` there.`,
       ],
     ]);
     /** @example No picker or extra DM is sent while answering the Guest query. */

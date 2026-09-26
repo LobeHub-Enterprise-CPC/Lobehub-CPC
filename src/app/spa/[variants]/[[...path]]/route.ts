@@ -1,4 +1,4 @@
-import { APPLE_APP_STORE_ID, BRANDING_NAME, ORG_NAME } from '@lobechat/business-const';
+import { APPLE_APP_STORE_ID, BRANDING_NAME } from '@lobechat/business-const';
 import { OG_URL } from '@lobechat/const';
 
 import { getServerFeatureFlagsValue } from '@/config/featureFlags';
@@ -62,14 +62,14 @@ async function buildSeoMeta(locale: string, isMobile: boolean): Promise<string> 
     `<meta property="og:description" content="${description}" />`,
     `<meta property="og:type" content="website" />`,
     `<meta property="og:url" content="${OFFICIAL_URL}" />`,
-    `<meta property="og:image" content="${OG_URL}" />`,
+    `<meta property="og:image" content="${new URL(OG_URL, OFFICIAL_URL).href}" />`,
     `<meta property="og:site_name" content="${BRANDING_NAME}" />`,
     `<meta property="og:locale" content="${locale}" />`,
     `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:title" content="${title}" />`,
     `<meta name="twitter:description" content="${description}" />`,
-    `<meta name="twitter:image" content="${OG_URL}" />`,
-    `<meta name="twitter:site" content="${isCustomORG ? `@${ORG_NAME}` : '@lobehub'}" />`,
+    `<meta name="twitter:image" content="${new URL(OG_URL, OFFICIAL_URL).href}" />`,
+    ...(!isCustomORG ? ['<meta name="twitter:site" content="@lobehub" />'] : []),
   ];
 
   if (isMobile && APPLE_APP_STORE_ID) {

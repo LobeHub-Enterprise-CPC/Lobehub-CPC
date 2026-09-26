@@ -47,11 +47,11 @@ describe('applyBrandStrings', () => {
     );
   });
 
-  it('leaves social handles alone', () => {
+  it('does not advertise upstream handles or invent replacement handles', () => {
     // '@LobeHub' is a Slack account that only exists under the upstream brand;
     // rewriting it would hand the user an address that does not resolve.
     expect(applyBrandStrings('DM @LobeHub on Slack to link your account')).toBe(
-      'DM @LobeHub on Slack to link your account',
+      `DM ${(BRANDING_NAME as string) === 'LobeHub' ? '@LobeHub' : BRANDING_NAME} on Slack to link your account`,
     );
   });
 

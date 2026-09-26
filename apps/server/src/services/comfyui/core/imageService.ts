@@ -8,6 +8,7 @@ import { type CreateImagePayload, type CreateImageResponse } from '@lobechat/mod
 import { type PromptBuilder } from '@saintno/comfyui-sdk';
 import debug from 'debug';
 
+import { IMAGE_OUTPUT_PREFIX } from '@/server/services/comfyui/config/constants';
 import { type ComfyUIClientService } from '@/server/services/comfyui/core/comfyUIClientService';
 import { ErrorHandlerService } from '@/server/services/comfyui/core/errorHandlerService';
 import { type ModelResolverService } from '@/server/services/comfyui/core/modelResolverService';
@@ -216,7 +217,7 @@ export class ImageService {
       }
 
       // Upload to ComfyUI - use timestamp + 4-char random ID to prevent conflicts
-      const fileName = `LobeChat_img2img_${Date.now()}_${nanoid(4)}.png`;
+      const fileName = `${IMAGE_OUTPUT_PREFIX}_img2img_${Date.now()}_${nanoid(4)}.png`;
       const uploadedFileName = await this.clientService.uploadImage(buffer, fileName);
 
       log('Uploaded to ComfyUI as:', uploadedFileName);

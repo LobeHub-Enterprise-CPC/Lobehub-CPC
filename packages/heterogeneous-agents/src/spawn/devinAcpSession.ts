@@ -155,7 +155,7 @@ export class DevinAcpSession extends AcpAgentSession<
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
       clientInfo: {
         name: 'lobehub',
-        title: 'LobeHub',
+        title: 'Agent Workspace',
         version: this.options.clientVersion,
       },
       protocolVersion: ACP_PROTOCOL_VERSION,
