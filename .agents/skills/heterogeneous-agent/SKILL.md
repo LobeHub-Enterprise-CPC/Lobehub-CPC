@@ -85,3 +85,13 @@ Use this skill when the bug or feature lives in the external CLI agent pipeline,
 ## References
 
 - For commands, trace capture, invariants, and focused test commands, read [references/debug-workflow.md](./references/debug-workflow.md).
+
+## Channel members
+
+Channel executions use `packages/heterogeneous-agents/src/channel/host.ts` through the Desktop Gateway `channel*` operations, independently of the legacy chat event pipeline. Check the Channel model and Worker in `packages/database/src/models/channel.ts` and `apps/server/src/services/channel/worker.ts` before changing dispatch or publication.
+
+- Codex app-server is verified at 0.153.4; Grok Build text-only tool exclusion is verified at 1.0.30. Reject an unverified version rather than assuming its flags retain the same meaning.
+- `channel/input.ts` owns Channel instructions and snapshot/delta context. Native session identities, receipts and public-message cutoffs must survive retries without replay.
+- `process/ProcessTreeTracker.ts` owns descendant tracking and termination confirmation for both Codex and discussion CLIs. PID plus start identity guards PID reuse. Never clear uncertainty merely because a later process sample succeeds.
+- Native approvals are serialized, each with an independent decision. Never reuse one approval for another waiting request.
+- Persist receipts before starting and after physical termination. Only evict the in-memory completed entry once the durable receipt is written; keep uncertain receipts and workspace exclusion across restarts. No TTL-based unlock.

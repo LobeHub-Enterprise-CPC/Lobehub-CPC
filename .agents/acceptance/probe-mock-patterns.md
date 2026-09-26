@@ -274,7 +274,7 @@ structured generation (`llm_generation_tracing.success=t` is the confirmation pr
 **Situation:** A/B-forcing the goal page's 失联 (lost-heartbeat) banner by backdating
 `goal_nodes.updated_at` / `agent_operations.updated_at` with SQL.
 
-**Doesn't work:** backdating by ~10 minutes because the server reclaim default
+**Doesn't work:** backdating by \~10 minutes because the server reclaim default
 (`resolveOperationLeaseTimeout`) is 5 minutes. The frontier still shows 运行中: the
 client view model has its own `DEFAULT_LEASE_TIMEOUT_MS = 15 min` and only honors
 `goal.config.recovery.operationLeaseTimeoutMs` when the goal sets one.
@@ -282,8 +282,8 @@ client view model has its own `DEFAULT_LEASE_TIMEOUT_MS = 15 min` and only honor
 **Works:** backdate past the client's window (25 min is comfortable), or create the
 goal with an explicit `--operation-lease-timeout-ms`. Liveness = the newer of the
 node row and `runHeartbeats` (the running operation's `updated_at` served by
-`goal.graph`), so the A/B is: node stale + op fresh → 运行中; both stale → 失联.
-Restore the forced rows (node/task/task_topics/operation status + timestamps) after
+`goal.graph`), so the A/B is: node stale + op fresh → 运行中；both stale → 失联.
+Restore the forced rows (node/task/task\_topics/operation status + timestamps) after
 capturing.
 
 #### A CLI-created topic has no trigger/status and is filtered out of the Agent paged view
@@ -1713,6 +1713,19 @@ curl -c cookie.jar -H 'Content-Type: application/json' -X POST \
 Gate on `app-probe.sh server-auth` returning `{"authenticated":true,"status":200}` —
 renderer `isSignedIn` alone never proves the server accepted anything.
 
+For Channel execution through the device gateway, a browser cookie alone is not
+the complete Desktop login: main-process gateway and provider-binding calls need
+OIDC tokens. In an enterprise shell checkout, check the parent's private local
+environment for the development account before asking the user to sign in.
+Mint tokens using the local issuer's normal HTTP email-login, PKCE authorization,
+interaction/consent, and token exchange without opening the user's browser. Set
+the issuer's `APP_URL`, port, and trusted origin consistently first. Encrypt the
+tokens with Electron `safeStorage` using the same application identity, write
+them only to a stopped isolated pool profile, and preserve that profile when
+restarting. Recheck both auth probes and the actual gateway connection. Keep
+credentials and token files private and remove temporary plaintext tokens after
+the run; never attach them as evidence.
+
 #### A pool instance seeded from the login snapshot can boot signed out — `safeStorage` cannot decrypt the copied token
 
 **Situation:** `electron-dev.sh start <id>` in a worktree; the helper reports the
@@ -2042,7 +2055,7 @@ rate-limit (429) or ship JSON-disabled (HTML back).
 `SEARCH_PROVIDERS=searxng SEARXNG_URL=http://localhost:8888`. It aggregates real
 engines, so the whole product path (server search impl → result cards → tool
 message persistence) is genuine. English queries return results more reliably
-than Chinese ones. One trap when the model is a tool_call-emitting stub AND a
+than Chinese ones. One trap when the model is a tool\_call-emitting stub AND a
 synthetic context injector is active (e.g. `getGoalContext`): "last message is a
 tool result → answer" fires on the injected pair and skips the search — key the
 stub's answer-mode off the NAME of the last `function_call` instead.
