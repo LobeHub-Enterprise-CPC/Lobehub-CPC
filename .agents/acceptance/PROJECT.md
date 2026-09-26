@@ -39,6 +39,30 @@ stale standalone install: a recently added workspace package fails to resolve â€
 
 ## 2. Environment
 
+### Enterprise shell checkout
+
+When this repository is the `lobehub/` submodule of `LobeHub-CPC-Enterprise`,
+the parent workspace owns installs, business-package overrides, and environment
+loading. Run `pnpm install` and `pnpm dev` from that parent, whose
+`scripts/run-in-lobehub.mjs` loads its `.env*` before delegating. Do not bootstrap
+an OSS `.env` just because there is none inside the submodule. Resolve ports
+from the parent's environment and the actual listener; preserve resident servers.
+
+The parent `docker-compose.dev.yml` supplies Postgres, Redis, and RustFS.
+Use `docker compose -f docker-compose.dev.yml up -d --wait` there when required;
+never remove volumes for acceptance setup. Confirm the installed `@business/*`
+links resolve to the parent's business packages before running the product.
+
+Provider settings are at `/settings/provider/all`. Personal providers are
+separate from the enterprise branded provider, whose router configuration lives
+in PostgreSQL `enterprise.runtime_configs`. Old documentation describing that
+configuration as a Redis key is stale; do not write Redis to configure it.
+
+Channel capability probes using an isolated Codex app-server and temporary
+workspace do not pass through the existing queue runtime and do not require
+QStash. This exception does not establish that a later Native Channel execution
+path is independent of the queue; verify its actual transports before running it.
+
 - **Start dev server:**
 
   - With repo-root `.env` present: use the existing local config â€” `bun run dev`
