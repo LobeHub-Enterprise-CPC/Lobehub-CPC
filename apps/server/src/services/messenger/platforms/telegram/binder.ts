@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import type { Message } from 'chat';
 import debug from 'debug';
 
@@ -154,7 +155,9 @@ export class MessengerTelegramBinder implements MessengerPlatformBinder {
       });
     } catch (error) {
       log('handleUnlinkedMessage: failed to issue link token: %O', error);
-      await postUnlinked('LobeHub is temporarily unavailable. Please try again in a moment.');
+      await postUnlinked(
+        `${BRANDING_NAME} is temporarily unavailable. Please try again in a moment.`,
+      );
       return;
     }
 
@@ -166,13 +169,18 @@ export class MessengerTelegramBinder implements MessengerPlatformBinder {
 
     if (isLocalhostUrl(verifyUrl)) {
       log('handleUnlinkedMessage: APP_URL is localhost, falling back to plain text link');
-      const text = `Welcome to LobeHub! 🤖\n\nTo continue, link your Telegram account to LobeHub. The link expires in 30 minutes:\n\n${verifyUrl}\n\nAfter linking, send /agents anytime to list your agents and tap one to switch the active agent.`;
+      const text = `Welcome to ${BRANDING_NAME}! 🤖\n\nTo continue, link your Telegram account to ${BRANDING_NAME}. The link expires in 30 minutes:\n\n${verifyUrl}\n\nAfter linking, send /agents anytime to list your agents and tap one to switch the active agent.`;
       await postUnlinked(text);
       return;
     }
 
-    const text =
-      'Welcome to LobeHub! 🤖\n\nTo continue, link your Telegram account to LobeHub.\n\nTap the button below — the link expires in 30 minutes.\n\nAfter linking, send /agents anytime to list your agents and tap one to switch the active agent.';
+    const text = `Welcome to ${BRANDING_NAME}! 🤖
+
+To continue, link your Telegram account to ${BRANDING_NAME}.
+
+Tap the button below — the link expires in 30 minutes.
+
+After linking, send /agents anytime to list your agents and tap one to switch the active agent.`;
 
     await postUnlinked(text, {
       text: '🔗 Link Account',
@@ -202,7 +210,7 @@ export class MessengerTelegramBinder implements MessengerPlatformBinder {
     if (!config) return;
 
     const api = new TelegramApi(config.botToken);
-    const headline = '✅ Linked successfully! Your LobeHub account is now connected.';
+    const headline = `✅ Linked successfully! Your ${BRANDING_NAME} account is now connected.`;
     const tail = params.activeAgentName
       ? `\n\nActive agent: <b>${escapeHtml(params.activeAgentName)}</b>\n\nGo ahead and send your first message — send /agents any time to switch the active agent.`
       : '\n\nSend /agents to list your agents and tap one to set it as active.';

@@ -238,7 +238,7 @@ export function registerWorkspaceCommand(program: Command) {
   workspace
     .command('create <name>')
     .description('Create a workspace')
-    .requiredOption('-s, --slug <slug>', 'URL slug, unique across LobeHub')
+    .requiredOption('-s, --slug <slug>', 'URL slug, unique across the application')
     .option('-d, --description <description>', 'Description')
     .option('--avatar <avatar>', 'Avatar URL or emoji')
     .option('--use', 'Switch the CLI scope to the new workspace')

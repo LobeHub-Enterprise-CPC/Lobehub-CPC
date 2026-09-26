@@ -1,12 +1,12 @@
-import { SOCIAL_URL } from '@lobechat/business-const';
+import { BRANDING_EMAIL } from '@lobechat/business-const';
 import { copyToClipboard, Icon } from '@lobehub/ui';
 import { Button, toast } from '@lobehub/ui/base-ui';
-import { DiscordIcon } from '@lobehub/ui/icons';
 import { cssVar } from 'antd-style';
-import { AlertTriangle, Copy, RotateCw } from 'lucide-react';
+import { AlertTriangle, Copy, Mail, RotateCw } from 'lucide-react';
 import { memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import SupportLink from '@/components/SupportLink';
 import BaseErrorForm from '@/features/Conversation/Error/BaseErrorForm';
 
 import { useRetryParentMessage } from './useRetryParentMessage';
@@ -62,22 +62,23 @@ const TraceIdError = memo<TraceIdErrorProps>(({ id, onRetry, showRetry = true, t
       }
       desc={
         <span>
-          {t(showRetry ? 'unknownError.desc' : 'unknownError.sharedDesc')}{' '}
-          <a
-            href={SOCIAL_URL.discord}
-            rel="noopener noreferrer"
-            target="_blank"
-            style={{
-              alignItems: 'center',
-              color: '#5865F2',
-              display: 'inline-flex',
-              gap: 2,
-              verticalAlign: 'middle',
-            }}
-          >
-            <Icon icon={DiscordIcon} size={14} />
-            Discord
-          </a>
+          {BRANDING_EMAIL.support && (
+            <>
+              {t(showRetry ? 'unknownError.emailDesc' : 'unknownError.sharedEmailDesc')}{' '}
+              <SupportLink
+                style={{
+                  alignItems: 'center',
+                  color: cssVar.colorLink,
+                  display: 'inline-flex',
+                  gap: 4,
+                  verticalAlign: 'middle',
+                }}
+              >
+                <Icon icon={Mail} size={14} />
+                {BRANDING_EMAIL.support}
+              </SupportLink>
+            </>
+          )}
           {traceId && (
             <>
               {' · '}

@@ -24,9 +24,9 @@ describe('workspaceContextPrompt', () => {
       'knowledge base: https://app.lobehub.com/lobehub/resource/library/<knowledgeBaseId>',
     );
     expect(result).toContain('reuse it verbatim');
-    expect(result).toContain('apply only to links into this LobeHub app');
-    expect(result).toContain('never place in-app resources under the marketing site lobehub.com');
-    expect(result).toContain('including the LobeHub homepage itself, are not affected');
+    expect(result).toContain('apply only to links into this app');
+    expect(result).toContain('never place in-app resources under an external marketing site');
+    expect(result).toContain('Links to other websites are not affected');
   });
 
   it('trims trailing slashes from the app origin', () => {
@@ -85,4 +85,13 @@ describe('workspaceContextPrompt', () => {
 
     expect(result).toContain('<workspace_slug>r&amp;d</workspace_slug>');
   });
+});
+
+it('does not teach private-workspace agents an upstream identity or host', () => {
+  const text = workspaceContextPrompt({
+    appUrl: 'https://private.example',
+    workspace: { slug: 'team' },
+  });
+  expect(text).toContain('https://private.example/team/');
+  expect(text).not.toMatch(/LobeHub|LobeChat|lobehub\.com/);
 });

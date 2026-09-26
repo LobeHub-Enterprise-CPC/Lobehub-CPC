@@ -1,9 +1,4 @@
-import {
-  APPLE_APP_STORE_ID,
-  BRANDING_LOGO_URL,
-  BRANDING_NAME,
-  ORG_NAME,
-} from '@lobechat/business-const';
+import { APPLE_APP_STORE_ID, BRANDING_LOGO_URL, BRANDING_NAME } from '@lobechat/business-const';
 import { OG_URL } from '@lobechat/const';
 
 import { DEFAULT_LANG } from '@/const/locale';
@@ -43,9 +38,9 @@ export const generateMetadata = async (props: DynamicLayoutProps) => {
       images: [
         {
           alt: t('chat.title', { appName: BRANDING_NAME }),
-          height: 640,
+          height: BRANDING_LOGO_URL ? undefined : 640,
           url: OG_URL,
-          width: 1200,
+          width: BRANDING_LOGO_URL ? undefined : 1200,
         },
       ],
       locale: DEFAULT_LANG,
@@ -62,7 +57,7 @@ export const generateMetadata = async (props: DynamicLayoutProps) => {
       card: 'summary_large_image',
       description: t('chat.description', { appName: BRANDING_NAME }),
       images: [OG_URL],
-      site: isCustomORG ? `@${ORG_NAME}` : '@lobehub',
+      site: isCustomORG ? undefined : '@lobehub',
       title: t('chat.title', { appName: BRANDING_NAME }),
     },
   };

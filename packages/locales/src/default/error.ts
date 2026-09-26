@@ -106,6 +106,8 @@ export default {
     'The conversation has exceeded the context window limit. You can compact the context to compress history and continue chatting.',
   'exceededContext.title': 'Context Window Exceeded',
 
+  'unknownError.emailDesc': 'An unexpected error occurred. You can retry or email',
+  'unknownError.sharedEmailDesc': 'Please report this issue by email to',
   'unknownError.copyTraceId': 'Trace ID Copied',
   'unknownError.copyTraceIdTooltip': 'Click to copy',
   'unknownError.desc': 'An unexpected error occurred. You can retry or report on',

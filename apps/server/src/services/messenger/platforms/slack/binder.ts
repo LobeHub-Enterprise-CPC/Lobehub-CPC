@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import debug from 'debug';
 
 import { appEnv } from '@/envs/app';
@@ -136,7 +137,7 @@ export class MessengerSlackBinder implements MessengerPlatformBinder {
     } catch (error) {
       log('handleUnlinkedMessage: failed to issue link token: %O', error);
       const api = new SlackApi(this.creds.botToken);
-      const errorText = 'LobeHub is temporarily unavailable. Please try again in a moment.';
+      const errorText = `${BRANDING_NAME} is temporarily unavailable. Please try again in a moment.`;
       if (ctx.channelMentionThreadId) {
         const [, channelId, threadTs] = ctx.channelMentionThreadId.split(':');
         await api.postEphemeral(channelId, ctx.authorUserId, errorText, { threadTs });
@@ -177,8 +178,8 @@ export class MessengerSlackBinder implements MessengerPlatformBinder {
     if (ctx.channelMentionThreadId) {
       const [, channelId, threadTs] = ctx.channelMentionThreadId.split(':');
       const text =
-        "Hi, I'm LobeHub — your AI agent on Slack.\n" +
-        `Link your LobeHub account to start chatting: <${verifyUrl}|click here>`;
+        `Hi, I'm ${BRANDING_NAME} — your AI agent on Slack.
+` + `Link your ${BRANDING_NAME} account to start chatting: <${verifyUrl}|click here>`;
       await this.replyEphemeral({
         channelId,
         text,
@@ -189,7 +190,8 @@ export class MessengerSlackBinder implements MessengerPlatformBinder {
     }
 
     const intro =
-      "Hi, I'm LobeHub — your AI agent on Slack.\n" + 'To start, link your LobeHub account.';
+      `Hi, I'm ${BRANDING_NAME} — your AI agent on Slack.
+` + `To start, link your ${BRANDING_NAME} account.`;
     const linkLabel = `Or copy this link: <${verifyUrl}|${verifyUrl}>`;
 
     const api = new SlackApi(this.creds.botToken);
@@ -234,8 +236,7 @@ export class MessengerSlackBinder implements MessengerPlatformBinder {
       creds = resolved;
     }
 
-    const headline =
-      ':white_check_mark: Linked successfully! Your LobeHub account is now connected.';
+    const headline = `:white_check_mark: Linked successfully! Your ${BRANDING_NAME} account is now connected.`;
     const tail = params.activeAgentName
       ? `\n\nActive agent: *${params.activeAgentName}*\n\nGo ahead and send your first message — send \`/agents\` any time to switch the active agent.`
       : '\n\nSend `/agents` to list your agents and pick the active one.';

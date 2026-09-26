@@ -97,7 +97,7 @@ export const piDriver: HeterogeneousAgentDriver = {
               reasoning: metadata?.abilities?.reasoning === true,
             },
           ],
-          name: 'LobeHub Provider',
+          name: 'Application Provider',
         },
       },
     };
@@ -134,7 +134,7 @@ export const piDriver: HeterogeneousAgentDriver = {
               reasoning: false,
             },
           ],
-          name: 'LobeHub Server Default',
+          name: 'Application Server Default',
         },
       },
     };

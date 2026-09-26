@@ -1,10 +1,14 @@
 'use client';
 
-import { DESKTOP_APP_ENABLED, FOOTER_HIDDEN_MENU_KEYS, SOCIAL_URL } from '@lobechat/business-const';
+import {
+  BRANDING_EMAIL,
+  DESKTOP_APP_ENABLED,
+  FOOTER_HIDDEN_MENU_KEYS,
+} from '@lobechat/business-const';
 import { type MenuProps } from '@lobehub/ui';
 import { DropdownMenu, Flexbox, Icon } from '@lobehub/ui';
 import { ActionIcon } from '@lobehub/ui/base-ui';
-import { DiscordIcon, GithubIcon } from '@lobehub/ui/icons';
+import { GithubIcon } from '@lobehub/ui/icons';
 import {
   Book,
   CircleHelp,
@@ -12,6 +16,7 @@ import {
   Feather,
   FileClockIcon,
   FlaskConical,
+  Mail,
   Send,
   Settings2,
   SettingsIcon,
@@ -183,15 +188,15 @@ const Footer = memo(() => {
         label: t('userPanel.feedback'),
         onClick: handleOpenFeedbackModal,
       },
-      {
-        icon: <Icon icon={DiscordIcon} />,
-        key: 'discord',
-        label: (
-          <a href={SOCIAL_URL.discord} rel="noopener noreferrer" target="_blank">
-            {t('userPanel.discord')}
-          </a>
-        ),
-      },
+      ...(BRANDING_EMAIL.support
+        ? [
+            {
+              icon: <Icon icon={Mail} />,
+              key: 'supportEmail',
+              label: <a href={`mailto:${BRANDING_EMAIL.support}`}>{t('mail.support')}</a>,
+            },
+          ]
+        : []),
       {
         type: 'divider',
       },

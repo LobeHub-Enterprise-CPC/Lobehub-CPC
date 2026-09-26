@@ -12,6 +12,7 @@ import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspa
 import AsyncError from '@/components/AsyncError';
 import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { scmService } from '@/services/scm';
+import { vendorLink } from '@/utils/vendorLink';
 
 import { useGithubIntegration } from '../useGithubIntegration';
 import Automation from './Automation';
@@ -170,17 +171,19 @@ const GithubIntegration = memo<GithubIntegrationProps>(({ onBack }) => {
           </Text>
           <Text type="secondary">{t('github.tagline')}</Text>
         </Flexbox>
-        <a
-          className={styles.docs}
-          href={GITHUB_INTEGRATION.docsUrl}
-          rel="noreferrer"
-          target="_blank"
-        >
-          <Icon icon={BookOpenIcon} size="small" />
-          <Text style={{ fontSize: 13 }} type="secondary">
-            {t('github.info.docsLink')}
-          </Text>
-        </a>
+        {vendorLink(GITHUB_INTEGRATION.docsUrl) && (
+          <a
+            className={styles.docs}
+            href={vendorLink(GITHUB_INTEGRATION.docsUrl)}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <Icon icon={BookOpenIcon} size="small" />
+            <Text style={{ fontSize: 13 }} type="secondary">
+              {t('github.info.docsLink')}
+            </Text>
+          </a>
+        )}
       </Flexbox>
 
       {scope === 'workspace' && !data.isInitialLoading ? (

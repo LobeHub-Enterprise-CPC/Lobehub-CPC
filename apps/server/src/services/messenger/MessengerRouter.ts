@@ -1,4 +1,5 @@
 import { createIoRedisState } from '@chat-adapter/state-ioredis';
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { agentDisplayName } from '@lobechat/types';
 import type { Message, MessageContext, SlashCommandEvent, WebhookOptions } from 'chat';
 import { Chat, ConsoleLogger } from 'chat';
@@ -20,7 +21,7 @@ import { AiAgentService } from '@/server/services/aiAgent';
 import { AgentBridgeService } from '@/server/services/bot/AgentBridgeService';
 import { buildBotContext } from '@/server/services/bot/buildBotContext';
 import { replayDeferredBotMessages } from '@/server/services/bot/deferredMessages';
-import { submitBotFeedback } from '@/server/services/bot/feedbackSubmit';
+import { getPrivateFeedbackMessage, submitBotFeedback } from '@/server/services/bot/feedbackSubmit';
 import {
   buildReplayMessages,
   getSameSenderMessages,
@@ -660,7 +661,7 @@ export class MessengerRouter {
         if (!featureAccess.allowed) {
           await replyToSender(
             featureAccess.blockedMessage ??
-              'This messenger connection requires a paid plan. Upgrade in LobeHub Settings to continue.',
+              `This messenger connection requires a paid plan. Upgrade in ${BRANDING_NAME} Settings to continue.`,
           );
           return;
         }
@@ -898,7 +899,7 @@ export class MessengerRouter {
   private buildCommands(): MessengerCommand[] {
     return [
       {
-        description: 'Bind your account to LobeHub',
+        description: `Bind your account to ${BRANDING_NAME}`,
         handler: async (ctx) => {
           const strings = getMessengerSystemStrings(ctx.platform);
           // Already-linked short-circuit: re-running `/start` while bound
@@ -1136,7 +1137,10 @@ export class MessengerRouter {
         name: 'stop',
       },
       {
-        description: 'Send feedback directly to the LobeHub team (no AI reply)',
+        description:
+          (BRANDING_NAME as string) === 'LobeHub'
+            ? `Send feedback directly to the ${BRANDING_NAME} team (no AI reply)`
+            : 'Contact support by email',
         // Declaring the argument so Discord/Slack surface a `/feedback <message>`
         // prompt; without it the slash picker registers the command as zero-arg
         // and the user can't enter feedback text from the picker UI.
@@ -1144,12 +1148,17 @@ export class MessengerRouter {
           {
             description: 'Your feedback message',
             name: 'message',
-            required: true,
+            required: (BRANDING_NAME as string) === 'LobeHub',
           },
         ],
         handler: async (ctx) => {
           const replyLocale = getBotReplyLocale(ctx.platform);
           const strings = getMessengerSystemStrings(ctx.platform);
+          const supportMessage = getPrivateFeedbackMessage(replyLocale);
+          if (supportMessage) {
+            await ctx.reply(supportMessage);
+            return;
+          }
           // Feedback is tied to a LobeHub account so the team can follow up;
           // an unbound user has no email/identity to attach. Mirror the
           // `/new` / `/stop` "you need to /start" guard for consistency.
@@ -1652,8 +1661,8 @@ export class MessengerRouter {
       }
 
       const text = activeAgentName
-        ? `Welcome to LobeHub! Your active agent is *${activeAgentName}*. Send a message to chat, or use \`/agents\` to switch.`
-        : 'Welcome to LobeHub! Send `/agents` to pick an active agent and start chatting.';
+        ? `Welcome to ${BRANDING_NAME}! Your active agent is *${activeAgentName}*. Send a message to chat, or use \`/agents\` to switch.`
+        : `Welcome to ${BRANDING_NAME}! Send \`/agents\` to pick an active agent and start chatting.`;
       await bot.binder.sendDmText(event.channelId, text);
     } catch (error) {
       log('handleAppHomeOpened: dispatch failed: %O', error);
@@ -1688,10 +1697,10 @@ export class MessengerRouter {
     }
 
     const text = [
-      ":wave: Hi, I'm *LobeHub* — your AI agent on Slack.",
+      `:wave: Hi, I'm *${BRANDING_NAME}* — your AI agent on Slack.`,
       '',
-      '• Mention me with `@LobeHub <your question>` to chat in this channel.',
-      '• First time? Send me a *direct message* to link your LobeHub account.',
+      '• Mention this bot followed by your question to chat in this channel.',
+      `• First time? Send me a *direct message* to link your ${BRANDING_NAME} account.`,
       '• Use `/agents` in DM to switch the active agent.',
     ].join('\n');
 

@@ -1,3 +1,4 @@
+import { BRANDING_NAME as APP_NAME, BRANDING_PWA_ID as APP_ID } from '@lobechat/business-const';
 import { type MetadataRoute } from 'next';
 
 const manifest = async (): Promise<MetadataRoute.Manifest> => {
@@ -5,7 +6,8 @@ const manifest = async (): Promise<MetadataRoute.Manifest> => {
   if (process.env.NODE_ENV === 'development') {
     return {
       background_color: '#000000',
-      description: 'LobeHub Development',
+      id: APP_ID || undefined,
+      description: `${APP_NAME} Development`,
       display: 'standalone',
       icons: [
         {
@@ -14,8 +16,8 @@ const manifest = async (): Promise<MetadataRoute.Manifest> => {
           type: 'image/png',
         },
       ],
-      name: 'LobeHub',
-      short_name: 'LobeHub',
+      name: APP_NAME,
+      short_name: APP_NAME,
       start_url: '/',
       theme_color: '#000000',
     };

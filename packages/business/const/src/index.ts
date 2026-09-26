@@ -134,7 +134,7 @@ export const SETTINGS_HIDDEN_TABS: readonly string[] = [];
 /**
  * Entries this distribution drops from the sidebar help menu, by item key:
  * `setting`, `inviteFriend`, `docs`, `feedback`, `discord`, `changelog`,
- * `get-app`, `github`, `eval`.
+ * `get-app`, `github`, `eval`, `supportEmail`.
  *
  * Same shape and reasoning as SETTINGS_HIDDEN_TABS. Most of this menu points
  * outward — the hosted docs site, the LobeHub Discord, the feedback form, the

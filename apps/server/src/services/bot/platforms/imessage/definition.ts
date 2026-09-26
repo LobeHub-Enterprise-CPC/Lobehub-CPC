@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { channelDocUrl } from '@lobechat/const';
 
 import { PLATFORM_UNSUPPORTED_MESSAGE_APIS } from '../messageCapabilities';
@@ -9,7 +10,7 @@ export const imessage: PlatformDefinition = {
   id: 'imessage',
   name: 'iMessage',
   connectionMode: 'webhook',
-  description: 'Connect iMessage through the local LobeHub Desktop BlueBubbles bridge.',
+  description: `Connect iMessage through the local ${BRANDING_NAME} Desktop BlueBubbles bridge.`,
   documentation: {
     portalUrl: 'https://bluebubbles.app/',
     setupGuideUrl: channelDocUrl('imessage'),

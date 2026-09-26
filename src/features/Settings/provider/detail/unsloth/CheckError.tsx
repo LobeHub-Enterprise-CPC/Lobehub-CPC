@@ -3,6 +3,8 @@ import { Flexbox } from '@lobehub/ui';
 import { Text } from '@lobehub/ui/base-ui';
 import { useTranslation } from 'react-i18next';
 
+import { vendorLink } from '@/utils/vendorLink';
+
 import type { CheckErrorRender } from '../../features/ProviderConfig/Checker';
 
 export const CheckError: CheckErrorRender = ({ defaultError, error }) => {
@@ -14,9 +16,15 @@ export const CheckError: CheckErrorRender = ({ defaultError, error }) => {
     <Flexbox gap={8}>
       {defaultError}
       <Text type={'secondary'}>{t('unsloth.checker.guidance')}</Text>
-      <a href={`${BASE_PROVIDER_DOC_URL}/unsloth`} rel={'noreferrer'} target={'_blank'}>
-        {t('unsloth.checker.setupGuide')}
-      </a>
+      {vendorLink(`${BASE_PROVIDER_DOC_URL}/unsloth`) && (
+        <a
+          href={vendorLink(`${BASE_PROVIDER_DOC_URL}/unsloth`)}
+          rel={'noreferrer'}
+          target={'_blank'}
+        >
+          {t('unsloth.checker.setupGuide')}
+        </a>
+      )}
     </Flexbox>
   );
 };
