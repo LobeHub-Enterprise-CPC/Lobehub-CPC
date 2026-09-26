@@ -607,10 +607,15 @@ export class AgentModel {
       .limit(limit)
       .offset(offset);
 
-    // Surface only the hetero runtime type, not the full agencyConfig payload.
+    // Surface runtime and device binding, not the full agencyConfig payload.
     return rows.map(({ slug, agencyConfig, ...row }) =>
       normalizeInboxAgentMeta(
-        { ...row, heteroType: agencyConfig?.heterogeneousProvider?.type },
+        {
+          ...row,
+          boundDeviceId:
+            agencyConfig?.executionTarget === 'device' ? agencyConfig.boundDeviceId : undefined,
+          heteroType: agencyConfig?.heterogeneousProvider?.type,
+        },
         { slug },
       ),
     );

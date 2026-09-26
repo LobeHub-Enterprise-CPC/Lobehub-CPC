@@ -2438,6 +2438,39 @@ describe('AgentModel', () => {
       expect(hetero).not.toHaveProperty('agencyConfig');
     });
 
+    it('returns only active device bindings without exposing the full runtime config', async () => {
+      await serverDB.insert(agents).values([
+        {
+          id: 'device-codex',
+          userId,
+          virtual: false,
+          agencyConfig: {
+            executionTarget: 'device',
+            boundDeviceId: 'desktop-alpha',
+            heterogeneousProvider: { type: 'codex', env: { PRIVATE_VALUE: 'hidden' } },
+          },
+        },
+        {
+          id: 'server-codex',
+          userId,
+          virtual: false,
+          agencyConfig: {
+            executionTarget: 'local',
+            boundDeviceId: 'stale-desktop',
+            heterogeneousProvider: { type: 'codex' },
+          },
+        },
+      ]);
+      const result = await agentModel.queryAgents();
+      expect(result.find((agent) => agent.id === 'device-codex')).toMatchObject({
+        heteroType: 'codex',
+        boundDeviceId: 'desktop-alpha',
+      });
+      expect(result.find((agent) => agent.id === 'server-codex')?.boundDeviceId).toBeUndefined();
+      expect(result.every((agent) => !('agencyConfig' in agent))).toBe(true);
+      expect(JSON.stringify(result)).not.toContain('hidden');
+    });
+
     it('should exclude virtual agents', async () => {
       // Create a virtual agent
       await agentModel.create({

@@ -1,6 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
 import { isRecord, pickString } from '@lobechat/utils/object';
 
@@ -66,6 +67,7 @@ export interface CodexAppServerClientOptions {
   reconnectBaseDelayMs?: number;
   reconnectMaxAttempts?: number;
   reconnectMaxDelayMs?: number;
+  trackProcessTree?: boolean;
 }
 
 export class CodexAppServerRpcError extends Error {
@@ -104,6 +106,9 @@ export const isCodexAppServerCompatibilityError = (error: unknown): boolean =>
  * server-initiated requests back to that thread.
  */
 export class CodexAppServerClient {
+  private readonly trackedProcesses = new Map<number, string>();
+  private processTracking?: ReturnType<typeof setInterval>;
+  private trackingFailed = false;
   private activeGeneration = 0;
   private closedByHost = false;
   private connectionState?: ConnectionState;
@@ -257,6 +262,7 @@ export class CodexAppServerClient {
   close(): void {
     if (this.closedByHost) return;
     this.closedByHost = true;
+    clearInterval(this.processTracking);
     this.reconnectEpoch += 1;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -273,6 +279,77 @@ export class CodexAppServerClient {
     this.rejectPendingRequests(generation, error);
     this.emitDisconnect(error);
     this.terminateChild(processGeneration?.child);
+  }
+
+  private async processTable() {
+    const { stdout } = await promisify(execFile)('ps', ['-axo', 'pid=,ppid=,lstart='], {
+      timeout: 2000,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    return stdout.split('\n').flatMap((line) => {
+      const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\S.*)$/);
+      return match ? [{ pid: Number(match[1]), parent: Number(match[2]), identity: match[3] }] : [];
+    });
+  }
+
+  private async trackDescendants() {
+    try {
+      const table = await this.processTable();
+      const child = this.processGeneration?.child;
+      const roots = new Set(
+        table
+          .filter(
+            (row) =>
+              this.trackedProcesses.get(row.pid) === row.identity ||
+              (child?.pid === row.pid && child.exitCode === null && child.signalCode === null),
+          )
+          .map((row) => row.pid),
+      );
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const row of table) {
+          if (!roots.has(row.pid) && !roots.has(row.parent)) continue;
+          if (!roots.has(row.pid)) {
+            roots.add(row.pid);
+            changed = true;
+          }
+          if (!this.trackedProcesses.has(row.pid)) this.trackedProcesses.set(row.pid, row.identity);
+        }
+      }
+    } catch {
+      this.trackingFailed = true;
+    }
+  }
+
+  /** Codex tools can use separate process groups. Check tracked descendants as well. */
+  async closeAndConfirmTermination(timeoutMs = 5000): Promise<boolean> {
+    if (!this.options.trackProcessTree || process.platform === 'win32') {
+      this.close();
+      return false;
+    }
+    await this.trackDescendants();
+    this.close();
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      let table: Awaited<ReturnType<typeof this.processTable>>;
+      try {
+        table = await this.processTable();
+      } catch {
+        return false;
+      }
+      const alive = table.filter((row) => this.trackedProcesses.get(row.pid) === row.identity);
+      if (!alive.length) return !this.trackingFailed;
+      for (const row of alive) {
+        try {
+          process.kill(row.pid, Date.now() - started > 1000 ? 'SIGKILL' : 'SIGTERM');
+        } catch {
+          /* Only the following process-table observation confirms exit. */
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return false;
   }
 
   private startConnection(): Promise<InitializeResponse> {
@@ -364,6 +441,12 @@ export class CodexAppServerClient {
       env: this.options.env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    if (this.options.trackProcessTree && !this.processTracking) {
+      this.processTracking = setInterval(() => {
+        void this.trackDescendants();
+      }, 100);
+      this.processTracking.unref?.();
+    }
     const processGeneration = { child, generation, stdoutBuffer: '' };
     if (!this.isCurrentGeneration(generation)) {
       this.terminateChild(child);

@@ -1,9 +1,11 @@
-import { HomeIcon, SearchIcon } from 'lucide-react';
+import { HomeIcon, MessagesSquareIcon, SearchIcon } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import useSWR from 'swr';
 
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import { getRouteById } from '@/config/routes';
+import { channelService } from '@/services/channel';
 import { useGlobalStore } from '@/store/global';
 import { SidebarTabKey } from '@/store/global/initialState';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
@@ -38,6 +40,11 @@ export const useNavLayout = (): NavLayout => {
   const toggleCommandMenu = useGlobalStore((s) => s.toggleCommandMenu);
   const { showMarket, hideGitHub } = useServerConfigStore(featureFlagsSelectors);
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
+  const { t: channelT } = useTranslation('channel');
+  const { data: channelAvailability } = useSWR(
+    activeWorkspaceSlug ? null : 'channel-availability',
+    () => channelService.availability(),
+  );
 
   const topNavItems = useMemo(
     () =>
@@ -55,6 +62,13 @@ export const useNavLayout = (): NavLayout => {
           url: '/',
         },
         {
+          icon: MessagesSquareIcon,
+          key: 'channels',
+          title: channelT('title'),
+          url: '/channels',
+          hidden: !!activeWorkspaceSlug || !channelAvailability?.enabled,
+        },
+        {
           icon: getRouteById('tasks')!.icon,
           key: SidebarTabKey.Tasks,
           title: t('tab.tasks'),
@@ -67,7 +81,7 @@ export const useNavLayout = (): NavLayout => {
           url: '/resource',
         },
       ] as NavItem[],
-    [t, toggleCommandMenu],
+    [t, toggleCommandMenu, channelT, activeWorkspaceSlug, channelAvailability?.enabled],
   );
 
   const bottomMenuItems = useMemo(

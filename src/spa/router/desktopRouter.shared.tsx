@@ -980,6 +980,13 @@ export const sharedMainAreaChildren: RouteObject[] = [
 
   // Task workspace routes (cross-agent)
   {
+    path: 'channels/:channelId?',
+    element: dynamicElement(() => import('@/routes/(main)/channels'), 'Desktop > Channels'),
+    errorElement: <ErrorBoundary resetPath="/channels" />,
+  },
+
+  // Task workspace routes (cross-agent)
+  {
     children: [
       {
         element: redirectElement('tasks'),

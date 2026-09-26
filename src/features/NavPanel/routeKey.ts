@@ -13,6 +13,10 @@ export const resolveNavPanelKey = (
   }
 
   switch (rootSegment) {
+    case 'channels': {
+      return 'channels';
+    }
+
     case 'agent': {
       return grandchildSegment === 'docs' ? 'agent-docs' : 'agent';
     }

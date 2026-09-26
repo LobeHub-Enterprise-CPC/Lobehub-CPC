@@ -19,6 +19,7 @@ const vercelConfig = {
   },
 };
 const nextConfig = defineConfig({
+  turbopack: { root: "/Users/a/LobeHub/LobeHub-CPC-Enterprise" },
   ...(isVercel ? vercelConfig : {}),
 });
 
