@@ -50,6 +50,7 @@ import { LobehubSkillStatus } from '@/store/tool/slices/lobehubSkillStore/types'
 import { useAgentId } from '../../hooks/useAgentId';
 import { useUpdateAgentConfig } from '../../hooks/useUpdateAgentConfig';
 import { closeToolDetailPopovers } from '../components/useDetailPopoverState';
+import { getBuiltinSkillDisplayIdentifier } from './builtinSkillDisplay';
 import ComposioServerItem from './ComposioServerItem';
 import ComposioSkillIcon from './ComposioSkillIcon';
 import { SKILL_ICON_GAP, SKILL_ICON_SIZE, SKILL_TRAILING_CONTROL_SIZE } from './constants';
@@ -1235,6 +1236,7 @@ export const useControls = ({ closeDropdown }: { closeDropdown?: () => void } = 
   const builtinAgentSkillItems = useMemo(
     () =>
       installedBuiltinSkills.map((skill) => {
+        const displayIdentifier = getBuiltinSkillDisplayIdentifier(skill.identifier);
         const title = t(`tools.builtins.${skill.identifier}.title` as any, {
           defaultValue: skill.name,
         });
@@ -1245,7 +1247,7 @@ export const useControls = ({ closeDropdown }: { closeDropdown?: () => void } = 
         );
         const popoverContent = (
           <ToolItemDetailPopover
-            identifier={skill.identifier}
+            identifier={displayIdentifier}
             sourceLabel={t('skillStore.tabs.lobehub')}
             title={title}
             description={t(`tools.builtins.${skill.identifier}.description` as any, {
@@ -1272,7 +1274,7 @@ export const useControls = ({ closeDropdown }: { closeDropdown?: () => void } = 
           icon,
           id: skill.identifier,
           popoverContent,
-          searchText: `${title} ${skill.identifier}`,
+          searchText: `${title} ${skill.identifier} ${displayIdentifier}`,
           title,
         });
       }),
@@ -1823,7 +1825,7 @@ export const useControls = ({ closeDropdown }: { closeDropdown?: () => void } = 
         ),
         popoverContent: (
           <ToolItemDetailPopover
-            identifier={skill.identifier}
+            identifier={getBuiltinSkillDisplayIdentifier(skill.identifier)}
             sourceLabel={t('skillStore.tabs.lobehub')}
             description={t(`tools.builtins.${skill.identifier}.description` as any, {
               defaultValue: skill.description,

@@ -1,6 +1,7 @@
 /**
  * @vitest-environment happy-dom
  */
+import { Menu } from '@lobehub/ui';
 import { act, render, renderHook, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -143,7 +144,7 @@ describe('useCreateMenuItems', () => {
     ).toBe(false);
   });
 
-  it('adds Agent-list and Market entries while omitting Page creation', async () => {
+  it('keeps local actions and the Agent list without a Market entry', async () => {
     const { result } = renderHook(() => useCreateMenuItems());
 
     const items = result.current.createTopLevelMenuItems();
@@ -162,8 +163,11 @@ describe('useCreateMenuItems', () => {
       'newPlatformAgent',
       'divider',
       'addAgentFromList',
-      'addAgentFromMarket',
     ]);
+
+    render(<Menu items={items} />);
+    expect(screen.queryByText('addAgentFromMarket')).toBeNull();
+    expect(screen.getByText('addAgentFromList')).toBeTruthy();
 
     const listItem = items.find((item) => isActionItem(item) && item.key === 'addAgentFromList');
 
@@ -180,10 +184,11 @@ describe('useCreateMenuItems', () => {
 
     expect(listStopPropagation).toHaveBeenCalled();
     expect(navigateMock).toHaveBeenCalledWith('/agents');
+  });
 
-    const marketItem = items.find(
-      (item) => isActionItem(item) && item.key === 'addAgentFromMarket',
-    );
+  it('preserves the Market action for other menu consumers', async () => {
+    const { result } = renderHook(() => useCreateMenuItems());
+    const marketItem = result.current.createMarketAgentMenuItem();
 
     if (!isActionItem(marketItem)) {
       throw new Error('Expected market agent menu item');
