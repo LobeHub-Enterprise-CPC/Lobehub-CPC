@@ -28,6 +28,10 @@ export const BRANDING_TEXT_LOGO_DARK_URL = '';
  */
 export const BRANDING_INBOX_TITLE = 'Lobe AI';
 
+// Self-contained square icon for built-in skills (for example, an SVG data URI).
+// Separate from the general logo URL so desktop skills need no public assets.
+export const BRANDING_ICON_URL = '';
+
 // Distributions can override the legal entity independently of the product name.
 export const ORG_NAME = BRANDING_NAME;
 
