@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { BRANDING_NAME } from '@lobechat/business-const';
 import type { DeviceControlDeps } from '@lobechat/device-control';
 import type { AgentRunRequestMessage, GatewayMcpParams } from '@lobechat/device-gateway-client';
 import type { GatewayConnectionStatus } from '@lobechat/electron-client-ipc';
@@ -15,6 +16,7 @@ import {
 } from '@lobechat/heterogeneous-agents/scanHost';
 import { type ILocalSystemService, LocalSystemExecutionRuntime } from '@lobechat/tool-runtime';
 import type { HeterogeneousProviderConfig } from '@lobechat/types';
+import { managedProcessEnvironment, spawnManaged } from '@lobechat/utils/managedProcess';
 import { app as electronApp } from 'electron';
 
 import { updaterConfig } from '@/modules/updater/configs';
@@ -69,8 +71,8 @@ function parseHermesSessionId(stderr: string): string | undefined {
  */
 function buildNotifyProtocol(lhPath: string, topicId: string): string {
   return (
-    `## Context: This task was dispatched by the application\n\n` +
-    `This conversation / task was sent to you by the **application platform** on behalf of a user. You are running as a background agent; the user is waiting for your response inside the application chat interface.\n\n` +
+    `## Context: This task was dispatched by ${BRANDING_NAME}\n\n` +
+    `This conversation / task was sent to you by the **${BRANDING_NAME} platform** on behalf of a user. You are running as a background agent; the user is waiting for your response inside the ${BRANDING_NAME} chat interface.\n\n` +
     `**When to call notify**: any time you have something meaningful to tell the user — a key finding, a decision you made, a result, a question, or your final answer.\n\n` +
     `**What to hide**: internal work details such as tool call sequences, file reads, intermediate command output, retries, or low-level reasoning steps.\n\n` +
     `## Sending messages back to the user\n\n` +
@@ -383,6 +385,7 @@ export default class GatewayConnectionCtr extends ControllerModule {
       // the process has actually spawned (or emitted an early error) before
       // acknowledging the server request.
       return await this.heterogeneousAgentCtr.spawnLhHeteroExec({
+        agentId: request.agentId,
         agentType: request.agentType,
         assistantMessageId: request.assistantMessageId,
         args: request.args,
@@ -488,6 +491,8 @@ export default class GatewayConnectionCtr extends ControllerModule {
       getProjectFileIndex: (params) => this.localFileCtr.getProjectFileIndex(params),
       listHeterogeneousAgentModels: (params) => this.heterogeneousAgentCtr.listModels(params),
       searchProjectFiles: (params) => this.localFileCtr.searchProjectFiles(params),
+      // Remote "delete" uses the desktop trash so it remains recoverable.
+      trashLocalFiles: (params) => this.localFileCtr.trashLocalFiles(params),
       unenrollWorkspace: (params) => this.service.unenrollWorkspace(params),
       // Skill-archive cache (`prepareSkillDirectory` RPC): reuse LocalFileCtr's
       // deps so gateway-prepared skills share one cache with the renderer-IPC path.
@@ -986,10 +991,10 @@ export default class GatewayConnectionCtr extends ControllerModule {
         '--local',
       ];
       const spawnPlan = await runtime.prepareSpawn(openclawArgs);
-      const child = spawn(spawnPlan.command, spawnPlan.args, {
+      const child = spawnManaged(spawnPlan.command, spawnPlan.args, {
         cwd: workDir,
         detached: true,
-        env: spawnPlan.env,
+        env: { ...spawnPlan.env, ...managedProcessEnvironment({ topicId, agentId }) },
         stdio: 'ignore',
       });
 
@@ -1082,10 +1087,10 @@ export default class GatewayConnectionCtr extends ControllerModule {
       // Hermes keeps stdout response-only in --quiet mode and prints the final
       // session_id to stderr so callers can resume the session on the next turn.
       const spawnPlan = await runtime.prepareSpawn(hermesArgs);
-      const child = spawn(spawnPlan.command, spawnPlan.args, {
+      const child = spawnManaged(spawnPlan.command, spawnPlan.args, {
         cwd: workDir,
         detached: true,
-        env: spawnPlan.env,
+        env: { ...spawnPlan.env, ...managedProcessEnvironment({ topicId, agentId }) },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 

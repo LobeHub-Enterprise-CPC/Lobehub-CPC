@@ -560,7 +560,12 @@ describe('ModelRuntime', () => {
 
   describe('hooks', () => {
     const createMockRuntime = (hooks?: ModelRuntimeHooks) => {
-      const mockRuntimeAI = { chat: vi.fn(), embeddings: vi.fn(), generateObject: vi.fn() } as any;
+      const mockRuntimeAI = {
+        chat: vi.fn(),
+        embeddings: vi.fn(),
+        generateObject: vi.fn(),
+        transcribe: vi.fn(),
+      } as any;
       return { runtime: new ModelRuntime(mockRuntimeAI, hooks), mockRuntimeAI };
     };
 
@@ -704,77 +709,6 @@ describe('ModelRuntime', () => {
         ).resolves.toBeUndefined();
         expect(consoleError).toHaveBeenCalled();
         consoleError.mockRestore();
-      });
-    });
-
-    describe('interceptChat hook', () => {
-      it('returning a Response short-circuits: no runtime.chat, no beforeChat', async () => {
-        const blocked = new Response('blocked', { status: 200 });
-        const interceptChat = vi.fn().mockResolvedValue(blocked);
-        const beforeChat = vi.fn();
-        const { runtime, mockRuntimeAI } = createMockRuntime({ beforeChat, interceptChat });
-
-        await expect(runtime.chat(chatPayload)).resolves.toBe(blocked);
-        expect(interceptChat).toHaveBeenCalledWith(chatPayload, undefined);
-        expect(beforeChat).not.toHaveBeenCalled();
-        expect(mockRuntimeAI.chat).not.toHaveBeenCalled();
-      });
-
-      it('returning undefined continues the normal flow', async () => {
-        const interceptChat = vi.fn().mockResolvedValue(undefined);
-        const beforeChat = vi.fn();
-        const { runtime, mockRuntimeAI } = createMockRuntime({ beforeChat, interceptChat });
-        const normal = new Response('');
-        mockRuntimeAI.chat.mockResolvedValue(normal);
-
-        await expect(runtime.chat(chatPayload)).resolves.toBe(normal);
-        expect(beforeChat).toHaveBeenCalled();
-        expect(mockRuntimeAI.chat).toHaveBeenCalled();
-      });
-
-      it('throwing aborts the call and triggers onChatError', async () => {
-        const gateError = new Error('moderation backend exploded');
-        const interceptChat = vi.fn().mockRejectedValue(gateError);
-        const onChatError = vi.fn();
-        const { runtime, mockRuntimeAI } = createMockRuntime({ interceptChat, onChatError });
-
-        await expect(runtime.chat(chatPayload)).rejects.toBe(gateError);
-        expect(mockRuntimeAI.chat).not.toHaveBeenCalled();
-        expect(onChatError).toHaveBeenCalled();
-      });
-    });
-
-    describe('transformChatResponse hook', () => {
-      it('replaces the response when a new Response is returned', async () => {
-        const original = new Response('original');
-        const replaced = new Response('moderated');
-        const transformChatResponse = vi.fn().mockResolvedValue(replaced);
-        const { runtime, mockRuntimeAI } = createMockRuntime({ transformChatResponse });
-        mockRuntimeAI.chat.mockResolvedValue(original);
-
-        await expect(runtime.chat(chatPayload)).resolves.toBe(replaced);
-        expect(transformChatResponse).toHaveBeenCalledWith(original, {
-          options: undefined,
-          payload: chatPayload,
-        });
-      });
-
-      it('keeps the original response when the hook returns undefined', async () => {
-        const original = new Response('original');
-        const transformChatResponse = vi.fn().mockResolvedValue(undefined);
-        const { runtime, mockRuntimeAI } = createMockRuntime({ transformChatResponse });
-        mockRuntimeAI.chat.mockResolvedValue(original);
-
-        await expect(runtime.chat(chatPayload)).resolves.toBe(original);
-      });
-
-      it('fails open: hook throwing returns the original response', async () => {
-        const original = new Response('original');
-        const transformChatResponse = vi.fn().mockRejectedValue(new Error('transform broke'));
-        const { runtime, mockRuntimeAI } = createMockRuntime({ transformChatResponse });
-        mockRuntimeAI.chat.mockResolvedValue(original);
-
-        await expect(runtime.chat(chatPayload)).resolves.toBe(original);
       });
     });
 
@@ -1005,6 +939,68 @@ describe('ModelRuntime', () => {
         expect(onEmbeddingsError).toHaveBeenCalledWith(budgetError, {
           options: undefined,
           payload: embeddingsPayload,
+        });
+      });
+    });
+
+    describe('transcribe hooks', () => {
+      const transcribePayload = {
+        file: new Blob([new Uint8Array([1, 2, 3])]),
+        model: 'gpt-4o-transcribe',
+      };
+
+      it('passes provider usage to onTranscribeFinal after beforeTranscribe', async () => {
+        const usage = { cost: 0.0004, inputAudioTokens: 59, outputTextTokens: 21 };
+        const beforeTranscribe = vi.fn();
+        const onTranscribeFinal = vi.fn();
+        const { runtime, mockRuntimeAI } = createMockRuntime({
+          beforeTranscribe,
+          onTranscribeFinal,
+        });
+        mockRuntimeAI.transcribe.mockImplementation(async (_payload: any, options: any) => {
+          await options.onUsage(usage);
+          return { text: 'hello' };
+        });
+
+        const options = { user: 'u1' };
+        const result = await runtime.transcribe(transcribePayload, options);
+
+        expect(result).toEqual({ text: 'hello' });
+        expect(beforeTranscribe).toHaveBeenCalledWith(transcribePayload, options);
+        expect(onTranscribeFinal).toHaveBeenCalledWith(
+          { latencyMs: expect.any(Number), usage },
+          { options, payload: transcribePayload },
+        );
+      });
+
+      it('still fires onTranscribeFinal without usage so reservations can be released', async () => {
+        const onTranscribeFinal = vi.fn();
+        const { runtime, mockRuntimeAI } = createMockRuntime({ onTranscribeFinal });
+        mockRuntimeAI.transcribe.mockResolvedValue({ text: 'hello' });
+
+        await runtime.transcribe(transcribePayload);
+
+        expect(onTranscribeFinal).toHaveBeenCalledWith(
+          { latencyMs: expect.any(Number), usage: undefined },
+          { options: undefined, payload: transcribePayload },
+        );
+      });
+
+      it('calls onTranscribeError and re-throws when the provider fails', async () => {
+        const providerError = { errorType: 'ProviderBizError', error: { message: 'boom' } };
+        const onTranscribeError = vi.fn();
+        const onTranscribeFinal = vi.fn();
+        const { runtime, mockRuntimeAI } = createMockRuntime({
+          onTranscribeError,
+          onTranscribeFinal,
+        });
+        mockRuntimeAI.transcribe.mockRejectedValue(providerError);
+
+        await expect(runtime.transcribe(transcribePayload)).rejects.toBe(providerError);
+        expect(onTranscribeFinal).not.toHaveBeenCalled();
+        expect(onTranscribeError).toHaveBeenCalledWith(providerError, {
+          options: undefined,
+          payload: transcribePayload,
         });
       });
     });

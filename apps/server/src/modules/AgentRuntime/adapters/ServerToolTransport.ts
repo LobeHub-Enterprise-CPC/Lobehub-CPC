@@ -5,7 +5,8 @@ import type {
   ToolTransport,
   ToolWorkRegistration,
 } from '@lobechat/agent-runtime';
-import { executeToolWithRetry } from '@lobechat/agent-runtime';
+import { executeToolWithRetry, selectOperationToolSet } from '@lobechat/agent-runtime';
+import { AgentDocumentsIdentifier } from '@lobechat/builtin-tool-agent-documents';
 import { SpanStatusCode } from '@lobechat/observability-otel/api';
 import {
   buildExecuteToolAttributes,
@@ -119,6 +120,10 @@ export class ServerToolTransport implements ToolTransport {
     const { operationId, serverDB, stepIndex, streamManager, toolExecutionService, userId } =
       this.ctx;
     const operationLogId = `${operationId}:${stepIndex}`;
+    const enabledToolIds = [
+      ...selectOperationToolSet(context.state).enabledToolIds,
+      ...(context.state.activatedStepTools ?? []).map((activation) => activation.id),
+    ];
     const executeToolSpan = agentRuntimeTracer.startSpan(executeToolSpanName(context.toolName), {
       attributes: buildExecuteToolAttributes({
         operationId,
@@ -281,10 +286,12 @@ export class ServerToolTransport implements ToolTransport {
                 context.state,
                 chatToolPayload,
                 context.parentMessageId,
+                context.toolMessageId,
               ),
               taskId: context.state.origin?.taskId,
               threadId: context.state.origin?.threadId,
               toolCallId: chatToolPayload.id,
+              enabledToolIds,
               toolManifestMap: context.effectiveManifestMap,
               toolMessageId: context.toolMessageId,
               toolResultMaxLength: context.toolResultMaxLength,
@@ -322,6 +329,7 @@ export class ServerToolTransport implements ToolTransport {
       };
       const executionResult = await archiveRuntimeToolResult(resultWithExecutionTime, {
         agentId: context.state.origin?.agentId,
+        canReadArchive: enabledToolIds.includes(AgentDocumentsIdentifier),
         identifier: chatToolPayload.identifier,
         limit: context.toolResultMaxLength,
         serverDB,

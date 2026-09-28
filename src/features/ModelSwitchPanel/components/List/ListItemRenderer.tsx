@@ -20,9 +20,6 @@ import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspa
 import { ProviderItemRender } from '@/components/ModelSelect';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
-import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
-import { useUserStore } from '@/store/user';
-import { userGeneralSettingsSelectors } from '@/store/user/selectors';
 
 import { styles } from '../../styles';
 import { type ListItem } from '../../types';
@@ -63,8 +60,6 @@ export const ListItemRenderer = memo<ListItemRendererProps>(
     const { t } = useTranslation('components');
     const navigate = useWorkspaceAwareNavigate();
     const activeSlug = useActiveWorkspaceSlug();
-    const showProvider = useServerConfigStore(featureFlagsSelectors).showProvider;
-    const isDevMode = useUserStore((s) => userGeneralSettingsSelectors.config(s).isDevMode);
     const [detailOpen, setDetailOpen] = useState(false);
 
     const selectModel = async (modelId: string, providerId: string) => {
@@ -116,25 +111,23 @@ export const ListItemRenderer = memo<ListItemRendererProps>(
               provider={item.provider.id}
               source={item.provider.source}
             />
-            {showProvider && (
-              <ActionIcon
-                className="settings-icon"
-                icon={LucideBolt}
-                size="small"
-                title={t('ModelSwitchPanel.goToSettings')}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const url = urlJoin('/settings/provider', item.provider.id || 'all');
-                  if (e.ctrlKey || e.metaKey) {
-                    window.open(buildWorkspaceAwarePath(url, activeSlug), '_blank');
-                  } else {
-                    navigate(url);
-                  }
-                  onClose();
-                }}
-              />
-            )}
+            <ActionIcon
+              className="settings-icon"
+              icon={LucideBolt}
+              size="small"
+              title={t('ModelSwitchPanel.goToSettings')}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const url = urlJoin('/settings/provider', item.provider.id || 'all');
+                if (e.ctrlKey || e.metaKey) {
+                  window.open(buildWorkspaceAwarePath(url, activeSlug), '_blank');
+                } else {
+                  navigate(url);
+                }
+                onClose();
+              }}
+            />
           </Flexbox>
         );
       }

@@ -19,6 +19,7 @@ import { agentSignalFeedbackIntentRuntime } from './agentSignalFeedbackIntent';
 import { agentSignalReflectionRuntime } from './agentSignalReflection';
 import { agentSignalReviewRuntime } from './agentSignalReview';
 import { agentSignalSkillManagementRuntime } from './agentSignalSkillManagement';
+import { attachmentsRuntime } from './attachments';
 import { auvRuntime } from './auv';
 import { briefRuntime } from './brief';
 import { browserRuntime } from './browser';
@@ -97,6 +98,7 @@ registerRuntimes([
   imageGenerationRuntime,
   videoGenerationRuntime,
   knowledgeBaseRuntime,
+  attachmentsRuntime,
   webOnboardingRuntime,
   lobeAgentRuntime,
   selfFeedbackIntentRuntime,

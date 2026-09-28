@@ -133,6 +133,12 @@ export interface ServerMessagesEngineParams {
   /** Whether to enable history message count limit */
   enableHistoryCount?: boolean;
 
+  /**
+   * Whether stale tool results are replaced with short placeholders in the
+   * model context. Undefined / true → trimming enabled (default).
+   */
+  enableStaleToolResultTrim?: boolean;
+
   /** Force finish flag: when true, injects summary prompt for max-steps completion */
   forceFinish?: boolean;
 

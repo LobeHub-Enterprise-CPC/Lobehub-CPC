@@ -7,7 +7,9 @@ import {
   defaultGetProjectFileIndex,
   defaultSearchProjectFiles,
   type DeviceControlDeps,
+  DeviceMetricsSampler,
   executeDeviceRpc,
+  pushMetrics,
 } from '@lobechat/device-control';
 import type {
   AgentRunRequestMessage,
@@ -67,6 +69,7 @@ import {
   normalizeUrl,
   removeWorkspaceEnrollment,
   resolveCommandMode,
+  resolveDeviceMetricsBacklogPath,
   saveSettings,
 } from '../settings';
 import { executeToolCall } from '../tools';
@@ -74,6 +77,8 @@ import { cleanupAllProcesses, probeSandbox } from '../tools/shell';
 import { log, setVerbose } from '../utils/logger';
 import { sweepLocalTraces } from '../utils/traceMaintenance';
 
+/** Longest a clean stop waits to push pending device health samples. */
+const SHUTDOWN_METRICS_FLUSH_MS = 3000;
 const CONNECT_SERVICE_NAME = CLI_CONNECT_SERVICE_NAME;
 
 interface ConnectOptions {
@@ -319,15 +324,9 @@ function buildDaemonArgs(options: ConnectOptions): string[] {
 }
 
 async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
-  // Before anything else: if this device is configured to fence every command
-  // but cannot, say so here rather than accepting the connection and failing
-  // each command afterwards. A daemon that is online and refuses everything is
-  // the worst of both — it looks healthy to the server, and the reason is
-  // buried in per-command errors nobody reads.
-  //
-  // This is not connect taking over the execution decision. The decision stays
-  // in the stored config; connect only reads it and checks it can be honoured,
-  // the same way it validates a gateway URL before dialling one.
+  // Fail before connecting when the configured command fence cannot be
+  // honored; an online daemon that refuses every command looks healthy while
+  // hiding the actual configuration problem in per-command errors.
   const commandMode = resolveCommandMode();
   if (commandMode === 'sandbox') {
     const capability = await probeSandbox();
@@ -490,8 +489,29 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
   // shared with the workspace-share connections opened via `enrollWorkspace`.
   bindGatewayClientHandlers(client, handlerContext, workspaceId);
 
+  // Machine health (CPU / memory / load) for the device page. Samples go to
+  // the device gateway over this socket (the gateway is their only store);
+  // they keep accruing while disconnected and upload once the connection is
+  // back, so the stretch around a drop is visible afterwards. Each batch is
+  // mirrored to this machine's workspace-share connections so a shared
+  // device's workspace row has the same history.
+  const metricsSampler = identity
+    ? new DeviceMetricsSampler({
+        isConnected: () => client.connectionStatus === 'connected',
+        logger: { warn: (msg) => info(msg) },
+        storagePath: resolveDeviceMetricsBacklogPath(identity.deviceId),
+        upload: (samples) =>
+          pushMetrics(
+            client,
+            [...workspaceConnections.values()].map((entry) => entry.client),
+            samples,
+          ),
+      })
+    : undefined;
+
   client.on('connected', () => {
     updateStatus('connected');
+    void metricsSampler?.flush();
   });
 
   client.on('disconnected', () => {
@@ -782,6 +802,7 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
     // Close share connections but keep the persisted enrollments — the next
     // startup restores them (or clears them if revoked meanwhile).
     for (const wsId of workspaceConnections.keys()) closeWorkspaceConnection(wsId);
+    void metricsSampler?.stop();
     client.disconnect();
     removeStatus();
     if (isDaemonChild) {
@@ -789,15 +810,17 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
     }
   };
 
-  process.on('SIGINT', () => {
+  // A clean stop pushes the health samples taken since the last upload
+  // (bounded) before the socket closes, so the device page doesn't show the
+  // final minutes as "not running".
+  const shutdown = async () => {
+    await metricsSampler?.stop({ flushTimeoutMs: SHUTDOWN_METRICS_FLUSH_MS });
     cleanup();
     process.exit(0);
-  });
+  };
 
-  process.on('SIGTERM', () => {
-    cleanup();
-    process.exit(0);
-  });
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 
   // Register this device in the server registry before opening the WS, so the
   // row exists by the time the gateway reports it online. `lh login` already
@@ -834,6 +857,8 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
   }
 
   await reportDaemonStartupReady();
+
+  await metricsSampler?.start();
 
   // Connect
   await client.connect();

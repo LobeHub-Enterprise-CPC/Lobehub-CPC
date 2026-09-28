@@ -117,7 +117,7 @@ endpoint result is used. No repair, network doctor probe, or remote write is req
 The example requires Node.js and the existing CLI commands, not a new CLI release:
 
 ```bash
-node - "$OPERATION_ID" << 'NODE'
+node - "$OPERATION_ID" <<'NODE'
 const { execFileSync, spawnSync } = require('node:child_process');
 const operationId = process.argv[2];
 if (!operationId) throw new Error('Handoff blocked: the invocation must supply an operation ID.');

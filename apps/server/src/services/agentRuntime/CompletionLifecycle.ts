@@ -27,7 +27,11 @@ import { emitAgentSignalSourceEvent } from '@/server/services/agentSignal';
 import { toAgentSignalTraceEvents } from '@/server/services/agentSignal/observability/traceEvents';
 import { parseAgentSignalMarker } from '@/server/services/agentSignal/operationMarker';
 import { extractSelfIterationCompletionPayload } from '@/server/services/agentSignal/services/selfIteration/completion';
-import { instantiateVerifyPlanOnStart, runVerifyOnCompletion } from '@/server/services/verify';
+import {
+  instantiateVerifyPlanOnStart,
+  runVerifyOnCompletion,
+  settleFailedRepair,
+} from '@/server/services/verify';
 import {
   registerWorksForOperation,
   resolveRunWorkAccessScope,
@@ -102,16 +106,7 @@ export const isAgentShareRun = (
     { principal?: { actor?: { shareVisitor?: { visitorUserId?: string } } } } | undefined | null,
 ): boolean => Boolean(state?.principal?.actor?.shareVisitor?.visitorUserId);
 
-/**
- * Whether the run must NOT emit `userId`-scoped Agent Signal source events.
- *
- * True for Agent Share visitor runs (see {@link isAgentShareRun}) and for
- * Channel member runs (`principal.actor.channel`): a Channel turn is a private
- * transcript that never lands in the owner's topics, so recording Agent Signal
- * windows / completion recalls for it would surface a run the owner has no
- * conversation to open. Use this — not `isAgentShareRun` — at every Signal
- * emission chokepoint.
- */
+/** Suppress owner-scoped signals for private Share and Channel transcripts. */
 export const shouldSuppressAgentSignal = (
   state:
     | {
@@ -175,6 +170,14 @@ export interface OperationCompletionInput {
 /** Options shared by {@link CompletionLifecycle.completeOperation} / `dispatchHooks`. */
 export interface CompleteOperationOptions {
   /**
+   * The durable row was already retired to `abandoned` / `lease_expired` by the
+   * caller's own compare-and-set (`settleStaleRunning`). Persist the terminal
+   * stats onto that status instead of `error`: `recordCompletion` refuses to
+   * move a row out of one terminal status into another, so writing `error`
+   * would be rejected and the hooks below would never fire.
+   */
+  settledAsAbandoned?: boolean;
+  /**
    * Skip writing the terminal error onto the assistant message row. Set by callers
    * that already wrote a bespoke error bubble before delegating (e.g. the hetero
    * dispatch-failure path, which surfaces a device-specific `detail`).
@@ -227,12 +230,7 @@ export class CompletionLifecycle {
        * creator's identity.
        */
       includeShareVisitor?: boolean;
-      /**
-       * Message store the runtime persisted this operation's rows through.
-       * Defaults to `MessageModel`; hosts with a private transcript inject
-       * their own so completion reads/writes (error stamping, Works anchor,
-       * content recovery) hit the same store the run wrote to.
-       */
+      /** Store used by private-transcript hosts for this operation's messages. */
       messageStore?: RuntimeMessageStore;
     },
   ) {
@@ -379,13 +377,15 @@ export class CompletionLifecycle {
     operationId: string,
     state: any,
     reason: string,
+    settledAsAbandoned?: boolean,
   ): Promise<boolean> {
-    const completionReason: any =
-      reason === 'max_steps' ||
-      reason === 'cost_limit' ||
-      reason === 'tool_call_repeat_limit' ||
-      reason === 'waiting_for_human' ||
-      reason === 'waiting_for_async_tool'
+    const completionReason: any = settledAsAbandoned
+      ? 'lease_expired'
+      : reason === 'max_steps' ||
+          reason === 'cost_limit' ||
+          reason === 'tool_call_repeat_limit' ||
+          reason === 'waiting_for_human' ||
+          reason === 'waiting_for_async_tool'
         ? reason
         : this.statusForReason(reason);
 
@@ -399,11 +399,12 @@ export class CompletionLifecycle {
       ? Date.now() - new Date(state.createdAt).getTime()
       : null;
 
-    const status = this.statusForReason(reason);
+    const runtimeStatus = this.statusForReason(reason);
+    const status = settledAsAbandoned ? ('abandoned' as const) : runtimeStatus;
     // Parked statuses are pauses, not true terminal states — leave completedAt
     // null so analytics doesn't read a paused op as completed. The next
     // dispatchHooks call (when the op resumes and truly ends) overwrites both.
-    const completedAt = isParkedStatus(status) ? undefined : new Date();
+    const completedAt = isParkedStatus(runtimeStatus) ? undefined : new Date();
 
     // Fold every child operation's spend (callSubAgent children, isolated group
     // members) into the parent's totals, so an op's row accounts for the whole
@@ -549,7 +550,7 @@ export class CompletionLifecycle {
       // Agent Signal identity of its own to attribute this to.
       if (shouldSuppressAgentSignal(state)) {
         log(
-          '[completion-lifecycle] skip agent signal emission for share visitor / channel run op=%s reason=%s',
+          '[completion-lifecycle] skip agent signal emission for share visitor run op=%s reason=%s',
           operationId,
           reason,
         );
@@ -955,7 +956,12 @@ export class CompletionLifecycle {
 
       // Finalize the agent_operations row before user hooks fire so
       // downstream consumers see the row in its terminal shape.
-      const completionAccepted = await this.persistCompletion(operationId, state, reason);
+      const completionAccepted = await this.persistCompletion(
+        operationId,
+        state,
+        reason,
+        options?.settledAsAbandoned,
+      );
       if (completionAccepted === false) {
         log('[%s] Skipping hooks for an operation with a conflicting terminal owner', operationId);
         return;
@@ -1072,6 +1078,17 @@ export class CompletionLifecycle {
             this.workspaceId,
           ),
         );
+      }
+
+      if (reason === 'error' || reason === 'interrupted') {
+        after(async () => {
+          await settleFailedRepair(
+            this.serverDB,
+            runOrigin.userId || this.userId,
+            operationId,
+            this.workspaceId,
+          );
+        });
       }
 
       // Register entity files edited this round as `file` Works. On the
