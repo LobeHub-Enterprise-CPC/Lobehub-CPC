@@ -37,4 +37,30 @@ describe('production PWA manifest identity', () => {
 
     expect(result.id).toBe('example-brand');
   });
+
+  it('keeps distinct installed icons and maskable safe areas under custom branding', async () => {
+    const result = await loadManifest({ name: 'TITU Work', pwaId: 'ti-tu-work' });
+    expect(result.icons).toEqual([
+      expect.objectContaining({
+        src: '/app-icons/icon-192x192.png?v=1',
+        sizes: '192x192',
+        purpose: 'any',
+      }),
+      expect.objectContaining({
+        src: '/app-icons/icon-192x192.maskable.png?v=1',
+        sizes: '192x192',
+        purpose: 'maskable',
+      }),
+      expect.objectContaining({
+        src: '/app-icons/icon-512x512.png?v=1',
+        sizes: '512x512',
+        purpose: 'any',
+      }),
+      expect.objectContaining({
+        src: '/app-icons/icon-512x512.maskable.png?v=1',
+        sizes: '512x512',
+        purpose: 'maskable',
+      }),
+    ]);
+  });
 });

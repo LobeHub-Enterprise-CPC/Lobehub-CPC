@@ -1,4 +1,12 @@
-import { BRANDING_LOGO_URL, BRANDING_NAME } from '@lobechat/business-const';
+import {
+  BRANDING_LOGO_DARK_URL,
+  BRANDING_LOGO_URL,
+  BRANDING_NAME,
+  BRANDING_TEXT_LOGO_DARK_URL,
+  BRANDING_TEXT_LOGO_URL,
+  BRANDING_WORDMARK_DARK_URL,
+  BRANDING_WORDMARK_URL,
+} from '@lobechat/business-const';
 import { type IconType } from '@lobehub/icons';
 import { type FlexboxProps } from '@lobehub/ui';
 import { Flexbox } from '@lobehub/ui';
@@ -7,6 +15,7 @@ import { createStaticStyles, cssVar } from 'antd-style';
 import { type ReactNode } from 'react';
 import { memo } from 'react';
 
+import { useIsDark } from '@/hooks/useIsDark';
 import { type ImageProps } from '@/libs/next/Image';
 import Image from '@/libs/next/Image';
 
@@ -36,20 +45,33 @@ const CustomTextLogo = memo<FlexboxProps & { size: number }>(({ size, style, ...
   );
 });
 
-const CustomImageLogo = memo<Omit<ImageProps, 'alt' | 'src'> & { size: number }>(
-  ({ size, ...rest }) => {
-    return (
-      <Image
-        alt={BRANDING_NAME}
-        height={size}
-        src={BRANDING_LOGO_URL}
-        unoptimized={true}
-        width={size}
-        {...rest}
-      />
-    );
-  },
-);
+const CustomImageLogo = memo<
+  Omit<ImageProps, 'alt' | 'src'> & { size: number; wordmark?: 'text' | 'combine' }
+>(({ size, wordmark, ...rest }) => {
+  const isDarkMode = useIsDark();
+  const light =
+    wordmark === 'text'
+      ? BRANDING_TEXT_LOGO_URL
+      : wordmark
+        ? BRANDING_WORDMARK_URL
+        : BRANDING_LOGO_URL;
+  const dark =
+    wordmark === 'text'
+      ? BRANDING_TEXT_LOGO_DARK_URL
+      : wordmark
+        ? BRANDING_WORDMARK_DARK_URL
+        : BRANDING_LOGO_DARK_URL;
+  return (
+    <Image
+      alt={BRANDING_NAME}
+      height={size}
+      src={(isDarkMode && dark) || light}
+      unoptimized={true}
+      width={wordmark ? undefined : size}
+      {...rest}
+    />
+  );
+});
 
 const Divider: IconType = (({ ref, size = '1em', style, ...rest }) => (
   <svg
@@ -93,12 +115,36 @@ const CustomLogo = memo<LobeChatProps>(({ extra, size = 32, className, style, ty
       break;
     }
     case 'text': {
+      if (BRANDING_TEXT_LOGO_URL) {
+        logoComponent = (
+          <CustomImageLogo
+            className={logoClassName}
+            size={size}
+            style={style}
+            wordmark="text"
+            {...rest}
+          />
+        );
+        break;
+      }
       logoComponent = (
         <CustomTextLogo className={logoClassName} size={size} style={style} {...rest} />
       );
       break;
     }
     case 'combine': {
+      if (BRANDING_WORDMARK_URL) {
+        logoComponent = (
+          <CustomImageLogo
+            className={logoClassName}
+            size={size}
+            style={style}
+            wordmark="combine"
+            {...rest}
+          />
+        );
+        break;
+      }
       logoComponent = (
         <>
           <CustomImageLogo size={size} />

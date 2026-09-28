@@ -10,6 +10,12 @@ export const BRANDING_NAME = 'LobeHub';
 export const BRANDING_PWA_ID = '';
 // White-label distributions supply their logo through the business package override.
 export const BRANDING_LOGO_URL = '';
+// Optional themed symbol and complete wordmarks; empty values retain the fallback.
+export const BRANDING_LOGO_DARK_URL = '';
+export const BRANDING_WORDMARK_URL = '';
+export const BRANDING_WORDMARK_DARK_URL = '';
+export const BRANDING_TEXT_LOGO_URL = '';
+export const BRANDING_TEXT_LOGO_DARK_URL = '';
 
 /**
  * Display name of the built-in default assistant (the inbox agent).

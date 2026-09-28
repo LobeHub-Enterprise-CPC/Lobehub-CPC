@@ -31,15 +31,14 @@ describe('customBrandingLoadingScreen', () => {
   });
 
   it('replaces the wordmark with the custom brand name', async () => {
-    vi.doMock('@lobechat/business-const/branding', () => ({ BRANDING_NAME: 'AI Workstation' }));
+    vi.doMock('@lobechat/business-const/branding', () => ({
+      BRANDING_NAME: 'AI Workstation',
+      BRANDING_WORDMARK_URL: '',
+    }));
     const handler = await loadHandler();
 
     const result = handler(SAMPLE_HTML);
-    // Text-only, deliberately: this HTML paints before any JS bundle runs, so a
-    // brand image has no build-time guarantee of existing at that path yet
-    // (and no runtime fallback if it 404s) — see the file's own doc comment.
-    // A regression back to an <img> tag must fail loudly here, not just look
-    // fine because no <svg> remains.
+    // Distributions without a wordmark keep the text-only fallback.
     expect(result).not.toContain('<svg');
     expect(result).not.toContain('<img');
     expect(result).not.toContain('LobeHub');
@@ -50,7 +49,10 @@ describe('customBrandingLoadingScreen', () => {
   });
 
   it('is idempotent when processing an already branded boot screen', async () => {
-    vi.doMock('@lobechat/business-const/branding', () => ({ BRANDING_NAME: 'AI Workstation' }));
+    vi.doMock('@lobechat/business-const/branding', () => ({
+      BRANDING_NAME: 'AI Workstation',
+      BRANDING_WORDMARK_URL: '',
+    }));
     const handler = await loadHandler();
     const once = handler(SAMPLE_HTML);
 
@@ -58,11 +60,29 @@ describe('customBrandingLoadingScreen', () => {
   });
 
   it('escapes HTML-sensitive characters in the brand name', async () => {
-    vi.doMock('@lobechat/business-const/branding', () => ({ BRANDING_NAME: 'A<B>&"C' }));
+    vi.doMock('@lobechat/business-const/branding', () => ({
+      BRANDING_NAME: 'A<B>&"C',
+      BRANDING_WORDMARK_URL: '',
+    }));
     const handler = await loadHandler();
 
     const result = handler(SAMPLE_HTML);
     expect(result).toContain('A&lt;B&gt;&amp;&quot;C');
     expect(result).not.toContain('A<B>');
+  });
+
+  it('renders both themed wordmarks without changing the remaining shell', async () => {
+    vi.doMock('@lobechat/business-const/branding', () => ({
+      BRANDING_NAME: 'TITU Work',
+      BRANDING_WORDMARK_URL: '/branding/light.svg?a=1&b=2',
+      BRANDING_WORDMARK_DARK_URL: '/branding/dark.svg',
+    }));
+    const handler = await loadHandler();
+    const result = handler(SAMPLE_HTML);
+    expect(result).toContain('src="/branding/light.svg?a=1&amp;b=2"');
+    expect(result).toContain('src="/branding/dark.svg"');
+    expect(result).toContain("html[data-theme='dark'] #loading-brand .brand-dark");
+    expect(result).toContain('<div id="root" style="height: 100%"></div>');
+    expect(handler(result)).toBe(result);
   });
 });
