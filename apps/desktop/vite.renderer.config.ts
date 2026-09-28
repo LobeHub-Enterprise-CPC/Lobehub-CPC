@@ -7,6 +7,7 @@ import type { PluginOption, UserConfig, ViteDevServer } from 'vite';
 import { defineConfig } from 'vite';
 import tsconfigPaths from 'vite-tsconfig-paths';
 
+import { customBrandingLoadingScreen } from '../../plugins/vite/customBrandingLoadingScreen';
 import { devLoadingProgress } from '../../plugins/vite/devLoadingProgress';
 import {
   createSharedRolldownOutput,
@@ -261,6 +262,7 @@ export default defineConfig(async (env) => {
     envPrefix: ['RENDERER_VITE_', 'VITE_'],
     optimizeDeps: sharedOptimizeDeps,
     plugins: [
+      customBrandingLoadingScreen(),
       isCloudDesktop && cloudTsconfigPathsPlugin(),
       isCloudDesktop && cloudDesktopBusinessConstPlugin(),
       electronDesktopHtmlPlugin(),

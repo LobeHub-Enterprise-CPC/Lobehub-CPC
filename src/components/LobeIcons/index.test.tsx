@@ -8,6 +8,7 @@ vi.mock('@lobechat/business-const', async (importOriginal) => ({
   BRANDING_LOGO_URL: '/branding/private-logo.png',
   BRANDING_NAME: 'Private Workspace',
   BRANDING_PROVIDER: 'lobehub',
+  BRANDING_WORDMARK_URL: '',
 }));
 
 // Warm the real catalog before the DOM query timeout; a cold transform is not
