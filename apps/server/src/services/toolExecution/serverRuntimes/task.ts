@@ -1,7 +1,9 @@
 import type { ListWorkspaceMembersParams } from '@lobechat/builtin-tool-task';
 import {
+  MISSING_TASK_NAME_ERROR,
   normalizeListTasksParams,
   normalizeListWorkspaceMembersParams,
+  normalizeSetTaskVerifyParams,
   selectAssignableMembers,
   TaskIdentifier,
 } from '@lobechat/builtin-tool-task';
@@ -20,6 +22,7 @@ import {
   priorityLabel,
 } from '@lobechat/prompts';
 import type { TaskAutomationMode, TaskStatus } from '@lobechat/types';
+import { formatInvalidScheduleMessage, validateScheduleUpdate } from '@lobechat/utils/cronEval';
 import { eq } from 'drizzle-orm';
 
 import { notifyTaskAssigned } from '@/business/server/task/notifyTaskAssigned';
@@ -200,6 +203,9 @@ export const createTaskRuntime = (deps: TaskRuntimeDeps) => {
       assigneeUserId: rawArgs.assigneeUserId?.trim() || undefined,
       parentIdentifier: rawArgs.parentIdentifier?.trim() || undefined,
     };
+    // `name` is required by the manifest but nothing enforced it: nameless
+    // tasks listed as "(unnamed)" and the receipt printed `"null"`.
+    if (!args.name?.trim()) return { content: MISSING_TASK_NAME_ERROR, success: false };
     let parentLabel: string | undefined;
 
     // Pre-resolve parent identifier so we can surface a tool-friendly error
@@ -366,7 +372,12 @@ export const createTaskRuntime = (deps: TaskRuntimeDeps) => {
       const task = await taskModel().resolve(args.identifier);
       if (!task) return { content: `Task not found: ${args.identifier}`, success: false };
 
-      await taskModel().delete(task.id);
+      try {
+        await taskService().deleteTask(task.id, { keepOperationId: operationId });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to delete task';
+        return { content: `Failed to delete task ${task.identifier}: ${message}`, success: false };
+      }
 
       return {
         content: formatTaskDeleted(task.identifier, task.name),
@@ -633,6 +644,20 @@ export const createTaskRuntime = (deps: TaskRuntimeDeps) => {
       const task = await taskModel().resolve(args.identifier);
       if (!task) return { content: `Task not found: ${args.identifier}`, success: false };
 
+      // Validate the schedule the task will end up with before writing anything,
+      // so an unsupported pattern is refused instead of stored and misfired.
+      const schedule = validateScheduleUpdate(
+        { pattern: task.schedulePattern, timezone: task.scheduleTimezone },
+        args,
+      );
+      if (schedule && !schedule.valid) {
+        return {
+          content: formatInvalidScheduleMessage(task.identifier, schedule.error),
+          success: false,
+        };
+      }
+      const schedulePreview = schedule?.valid ? schedule.preview : undefined;
+
       const changes: string[] = [];
       const ops: Promise<unknown>[] = [];
 
@@ -699,6 +724,8 @@ export const createTaskRuntime = (deps: TaskRuntimeDeps) => {
 
       await Promise.all(ops);
 
+      if (schedulePreview) changes.push(schedulePreview);
+
       return { content: formatTaskEdited(task.identifier, changes), success: true };
     },
 
@@ -711,6 +738,7 @@ export const createTaskRuntime = (deps: TaskRuntimeDeps) => {
       verifyCriteriaIds?: string[] | null;
       verifyRubricId?: string | null;
     }) => {
+      args = normalizeSetTaskVerifyParams(args);
       const task = await taskModel().resolve(args.identifier);
       if (!task) return { content: `Task not found: ${args.identifier}`, success: false };
 

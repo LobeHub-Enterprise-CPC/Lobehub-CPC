@@ -1,4 +1,4 @@
-import { SETTINGS_HIDDEN_TABS } from '@lobechat/business-const';
+import { ENABLE_TOOL_CHANNEL_SETTINGS, SETTINGS_HIDDEN_TABS } from '@lobechat/business-const';
 import { isDesktop } from '@lobechat/const';
 import { Avatar } from '@lobehub/ui/base-ui';
 import { SkillsIcon } from '@lobehub/ui/icons';
@@ -28,6 +28,7 @@ import {
   Sparkles,
   TagIcon,
   TerminalSquare,
+  Wrench,
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -71,9 +72,8 @@ export interface CategoryGroup {
 const hiddenTabs = new Set(SETTINGS_HIDDEN_TABS);
 
 /**
- * Append a group with its hidden tabs removed, dropping the group entirely once
- * nothing is left in it — a heading with no rows under it reads as a section
- * that failed to load rather than one that does not apply here.
+ * Append a group with its deployment-hidden tabs removed, dropping the group
+ * entirely when no settings remain visible.
  */
 const pushGroup = (groups: CategoryGroup[], group: CategoryGroup) => {
   const items = group.items.filter((item) => !hiddenTabs.has(item.key));
@@ -143,7 +143,7 @@ export const useCategory = () => {
       },
     ].filter(Boolean) as CategoryItem[];
 
-    groups.push({
+    pushGroup(groups, {
       items: accountItems,
       key: SettingsGroupKey.Account,
       title: t('group.profile'),
@@ -226,6 +226,11 @@ export const useCategory = () => {
         icon: BrainCircuit,
         key: SettingsTabs.Memory,
         label: t('tab.memory'),
+      },
+      ENABLE_TOOL_CHANNEL_SETTINGS && {
+        icon: Wrench,
+        key: SettingsTabs.Tools,
+        label: t('tab.tools'),
       },
       {
         icon: KeyRound,

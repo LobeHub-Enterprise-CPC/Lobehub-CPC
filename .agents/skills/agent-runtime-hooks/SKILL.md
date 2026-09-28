@@ -76,7 +76,7 @@ await aiAgentService.execAgent({ agentId, prompt, hooks });
 
 **`beforeStep`** — Before each step. `event: AgentHookEvent`
 **`afterStep`** — After each step. `event: AgentHookEvent` (content, toolsCalling, totalCost, etc.)
-**`onComplete`** — Terminal state. `event: AgentHookEvent` (reason: done/error/interrupted/max\_steps/cost\_limit)
+**`onComplete`** — Terminal state. `event: AgentHookEvent` (reason: done/error/interrupted/max_steps/cost_limit)
 **`onError`** — Error occurred. `event: AgentHookEvent` (errorMessage, errorDetail)
 
 ### Tool Call Level
@@ -203,7 +203,3 @@ Note: CallAgent hooks require `parentOperationId` in `ExecSubAgentTaskParams`.
 - **Local only**: `beforeToolCall` mock only works in local mode (in-memory hooks). Webhook mode does not support mocking.
 - **Scoped per operation**: Auto-cleaned via `hookDispatcher.unregister()` on completion.
 - **Sandbox/MCP**: No separate hooks — they go through `executeTool`, so `beforeToolCall`/`afterToolCall` cover them. Use `event.identifier` to filter.
-
-## Real-World Example: agent-evals
-
-See `devtools/agent-evals/helpers/runner.ts` — `createEvalHooks()` uses `afterStep`, `onComplete`, `afterToolCall`, and `beforeToolCall` (for mock).

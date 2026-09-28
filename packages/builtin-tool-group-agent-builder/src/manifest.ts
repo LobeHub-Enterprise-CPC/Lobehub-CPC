@@ -1,13 +1,17 @@
-import { EXTERNAL_INTEGRATIONS_ENABLED } from '@lobechat/business-const';
 import type { BuiltinToolManifest } from '@lobechat/types';
 
 import { systemPrompt } from './systemRole';
 import { GroupAgentBuilderApiName, GroupAgentBuilderIdentifier } from './types';
 
-// Tool descriptions reach the model too — see builtin-tool-agent-builder.
-const pluginSourceDesc = EXTERNAL_INTEGRATIONS_ENABLED
-  ? 'Plugin source type: "market" for MCP marketplace plugins, "official" for builtin/Composio tools'
-  : 'Plugin source type: "market" for MCP marketplace plugins, "official" for builtin tools';
+/**
+ * Member tools act on the group being edited by default. A group created mid-run
+ * with `createGroup` is not that group, so every member tool can name it.
+ */
+const targetGroupIdProperty = {
+  description:
+    'The group to act on. Omit to use the group being edited; after createGroup, pass the groupId it returned.',
+  type: 'string',
+};
 
 export const GroupAgentBuilderManifest: BuiltinToolManifest = {
   api: [
@@ -22,6 +26,7 @@ export const GroupAgentBuilderManifest: BuiltinToolManifest = {
             description: 'The ID of the agent to get information about.',
             type: 'string',
           },
+          groupId: targetGroupIdProperty,
         },
         required: ['agentId'],
         type: 'object',
@@ -67,6 +72,7 @@ export const GroupAgentBuilderManifest: BuiltinToolManifest = {
             description: 'A brief description of what this agent does and its expertise.',
             type: 'string',
           },
+          groupId: targetGroupIdProperty,
           systemRole: {
             description:
               "The system prompt that defines the agent's behavior, personality, and capabilities.",
@@ -214,6 +220,7 @@ export const GroupAgentBuilderManifest: BuiltinToolManifest = {
             },
             type: 'array',
           },
+          groupId: targetGroupIdProperty,
         },
         required: ['agents'],
         type: 'object',
@@ -229,6 +236,7 @@ export const GroupAgentBuilderManifest: BuiltinToolManifest = {
             description: 'The agent identifier to invite to the group',
             type: 'string',
           },
+          groupId: targetGroupIdProperty,
         },
         required: ['agentId'],
         type: 'object',
@@ -243,6 +251,7 @@ export const GroupAgentBuilderManifest: BuiltinToolManifest = {
             description: 'The agent identifier to remove from the group',
             type: 'string',
           },
+          groupId: targetGroupIdProperty,
         },
         required: ['agentId'],
         type: 'object',
@@ -305,7 +314,8 @@ export const GroupAgentBuilderManifest: BuiltinToolManifest = {
             type: 'string',
           },
           source: {
-            description: pluginSourceDesc,
+            description:
+              'Plugin source type: "market" for MCP marketplace plugins, "official" for builtin/Composio tools',
             enum: ['market', 'official'],
             type: 'string',
           },
@@ -383,6 +393,7 @@ export const GroupAgentBuilderManifest: BuiltinToolManifest = {
             description: 'The agent ID to update.',
             type: 'string',
           },
+          groupId: targetGroupIdProperty,
           prompt: {
             description: 'The new system prompt content. Supports markdown formatting.',
             type: 'string',

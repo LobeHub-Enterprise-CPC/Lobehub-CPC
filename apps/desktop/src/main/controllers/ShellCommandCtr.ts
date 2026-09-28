@@ -24,6 +24,7 @@ import {
   setWindowsShellPreference,
   ShellProcessManager,
 } from '@lobechat/local-file-shell/shell';
+import { managedProcessEnvironment, spawnManagedFor } from '@lobechat/utils/managedProcess';
 
 import { binNames } from '@/modules/cliEmbedding/generateCliWrapper';
 import { callLambdaMutation } from '@/modules/heterogeneousAgent/fileStorePort';
@@ -371,6 +372,19 @@ export default class ShellCommandCtr extends ControllerModule {
 
   @IpcMethod()
   async handleRunCommand(params: RunCommandParams): Promise<RunCommandResult> {
+    const processOwner = {
+      topicId: params.topicId,
+      agentId: params.agentId,
+      label: params.description || 'Shell',
+    };
+    const spawnProcess = spawnManagedFor(processOwner);
+    params = {
+      ...params,
+      env: {
+        ...params.env,
+        ...managedProcessEnvironment(processOwner, params.env?.AGENT_BROWSER_SESSION),
+      },
+    };
     const prefixMatch = matchOwnCliPrefix(params.command);
     if (prefixMatch) {
       const cliCtr = this.app.getController(CliCtr);
@@ -391,7 +405,7 @@ export default class ShellCommandCtr extends ControllerModule {
         // credentials it authenticates with.
         logger.debug('Running lh command with the embedded CLI environment');
         const env = await cliCtr.buildCliEnv(params.env);
-        return runCommand({ ...params, env }, { logger, processManager });
+        return runCommand({ ...params, env }, { logger, processManager, spawnProcess });
       }
     }
 
@@ -404,7 +418,7 @@ export default class ShellCommandCtr extends ControllerModule {
       return { error: describeCommandModeMismatch('host'), success: false };
     }
 
-    if (!params.sandbox) return runCommand(params, { logger, processManager });
+    if (!params.sandbox) return runCommand(params, { logger, processManager, spawnProcess });
 
     // Sandboxed run. The policy is scoped to the run's working directory, so
     // without one there is nothing to scope to — refuse rather than fall back
@@ -450,6 +464,7 @@ export default class ShellCommandCtr extends ControllerModule {
       logger,
       onSandboxUnavailable: (error) => this.downgradeSandboxCapability(error),
       processManager,
+      spawnProcess,
       sandboxPolicy: createLocalSandboxPolicy(params.cwd, {
         allowNetwork: params.sandboxNetwork === true,
         overlay: executionPolicy.overlay,

@@ -203,6 +203,39 @@ describe('createRouterRuntime', () => {
       expect(mockChat).not.toHaveBeenCalled();
     });
 
+    it('should forward transcribe metadata so lobehub route attempts carry the trigger', async () => {
+      vi.stubEnv('NODE_ENV', 'development');
+      const mockTranscribe = vi.fn().mockResolvedValue({ text: 'hello' });
+
+      class MockRuntime implements LobeRuntimeAI {
+        transcribe = mockTranscribe;
+      }
+
+      const Runtime = createRouterRuntime({
+        id: 'lobehub',
+        routers: [
+          {
+            apiType: 'openai',
+            models: ['gpt-4o-transcribe'],
+            options: { id: 'channel-1' },
+            runtime: MockRuntime as any,
+          },
+        ],
+      });
+
+      const runtime = new Runtime({ userId: 'user-1' });
+      const metadata: Record<string, unknown> = { trigger: RequestTrigger.Asr };
+
+      await expect(
+        runtime.transcribe(
+          { file: new Blob(['audio']), model: 'gpt-4o-transcribe' },
+          { metadata, user: 'user-1' },
+        ),
+      ).resolves.toEqual({ text: 'hello' });
+      expect(mockTranscribe).toHaveBeenCalled();
+      expect(metadata.routeAttempt).toEqual(expect.objectContaining({ success: true }));
+    });
+
     it('should throw in development when lobehub route attempt is missing user', async () => {
       vi.stubEnv('NODE_ENV', 'development');
       const mockChat = vi.fn().mockResolvedValue('chat-response');
@@ -2547,6 +2580,186 @@ describe('createRouterRuntime', () => {
         'doubao-seedance-2-0-260128',
         undefined,
       );
+    });
+
+    it('should resolve the video router from the polling model', async () => {
+      class MockRuntime implements LobeRuntimeAI {
+        handlePollVideoStatus = vi.fn().mockResolvedValue({
+          status: 'success',
+          videoUrl: 'https://example.com/video.mp4',
+        });
+      }
+
+      const Runtime = createRouterRuntime({
+        id: 'test-runtime',
+        routers: async (_, { model }) => {
+          if (model !== 'gemini-omni-1.1-flash') {
+            throw new Error('unexpected model');
+          }
+
+          return [
+            {
+              apiType: 'google',
+              models: [model],
+              options: {},
+              runtime: MockRuntime as any,
+            },
+          ];
+        },
+      });
+
+      const runtime = new Runtime();
+
+      await expect(
+        runtime.handlePollVideoStatus('interaction-1', 'gemini-omni-1.1-flash'),
+      ).resolves.toMatchObject({ status: 'success' });
+    });
+
+    it('should poll with the same channel that created the video', async () => {
+      class MockRuntime implements LobeRuntimeAI {
+        private apiKey: string;
+
+        constructor(options: { apiKey: string }) {
+          this.apiKey = options.apiKey;
+        }
+
+        createVideo = vi.fn().mockImplementation(async () => {
+          if (this.apiKey === 'key-1') throw new Error('channel unavailable');
+          return { inferenceId: 'interaction-1' };
+        });
+
+        getVideoGenerationCapabilities = () => ({ completionModes: ['polling'] as const });
+
+        handlePollVideoStatus = vi.fn().mockImplementation(async () => ({
+          status: 'success',
+          videoUrl: `https://example.com/${this.apiKey}.mp4`,
+        }));
+      }
+
+      const Runtime = createRouterRuntime({
+        id: 'lobehub',
+        routers: [
+          {
+            apiType: 'google',
+            id: 'google-router',
+            models: ['gemini-omni-1.1-flash'],
+            options: [
+              { apiKey: 'key-1', id: 'google-channel-1' },
+              { apiKey: 'key-2', id: 'google-channel-2' },
+            ],
+            runtime: MockRuntime as any,
+          },
+        ],
+      });
+
+      const runtime = new Runtime({ userId: 'user-1' });
+      const metadata: Record<string, unknown> = { trigger: RequestTrigger.Video };
+
+      await runtime.createVideo(
+        { model: 'gemini-omni-1.1-flash', params: { prompt: 'a cat' } } as any,
+        { metadata },
+      );
+
+      await expect(
+        runtime.handlePollVideoStatus(
+          'interaction-1',
+          'gemini-omni-1.1-flash',
+          metadata.routeAttempt as any,
+        ),
+      ).resolves.toEqual({
+        status: 'success',
+        videoUrl: 'https://example.com/key-2.mp4',
+      });
+    });
+
+    it('should create a continuation only through the pinned video channel', async () => {
+      const usedKeys: string[] = [];
+
+      class MockRuntime implements LobeRuntimeAI {
+        private apiKey: string;
+
+        constructor(options: { apiKey: string }) {
+          this.apiKey = options.apiKey;
+        }
+
+        createVideo = vi.fn().mockImplementation(async () => {
+          usedKeys.push(this.apiKey);
+          if (this.apiKey === 'key-2') throw new Error('interaction not found');
+          return { inferenceId: 'interaction-2' };
+        });
+
+        getVideoGenerationCapabilities = () => ({ completionModes: ['polling'] as const });
+      }
+
+      const Runtime = createRouterRuntime({
+        id: 'lobehub',
+        routers: [
+          {
+            apiType: 'google',
+            id: 'google-router',
+            models: ['gemini-omni-1.1-flash'],
+            options: [
+              { apiKey: 'key-1', id: 'google-channel-1' },
+              { apiKey: 'key-2', id: 'google-channel-2' },
+            ],
+            runtime: MockRuntime as any,
+          },
+        ],
+      });
+
+      const runtime = new Runtime({ userId: 'user-1' });
+      const payload = {
+        model: 'gemini-omni-1.1-flash',
+        params: { prompt: 'slower' },
+        previousInteractionId: 'interaction-1',
+      } as any;
+      const route = { apiType: 'google', channelId: 'google-channel-2', routerId: 'google-router' };
+
+      await expect(runtime.createVideo(payload, { route })).rejects.toThrow(
+        'interaction not found',
+      );
+      expect(usedKeys).toEqual(['key-2']);
+
+      await expect(
+        runtime.createVideo(payload, { route: { ...route, channelId: 'google-channel-9' } }),
+      ).rejects.toThrow('The video generation channel is no longer available');
+      expect(usedKeys).toEqual(['key-2']);
+    });
+
+    it('should resolve the video webhook router from the payload model', async () => {
+      class MockRuntime implements LobeRuntimeAI {
+        handleCreateVideoWebhook = vi.fn().mockResolvedValue({
+          inferenceId: 'interaction-1',
+          status: 'completed',
+        });
+      }
+
+      const Runtime = createRouterRuntime({
+        id: 'test-runtime',
+        routers: async (_, { model }) => {
+          if (model !== 'gemini-omni-1.1-flash') {
+            throw new Error('unexpected model');
+          }
+
+          return [
+            {
+              apiType: 'google',
+              models: [model],
+              options: {},
+              runtime: MockRuntime as any,
+            },
+          ];
+        },
+      });
+
+      const runtime = new Runtime();
+
+      await expect(
+        runtime.handleCreateVideoWebhook({
+          body: { type: 'interaction.completed' },
+          model: 'gemini-omni-1.1-flash',
+        }),
+      ).resolves.toMatchObject({ status: 'completed' });
     });
 
     it('should resolve the video router from the polling model', async () => {

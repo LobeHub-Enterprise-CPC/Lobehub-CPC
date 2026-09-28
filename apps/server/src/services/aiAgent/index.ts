@@ -277,23 +277,44 @@ export class AiAgentService {
    * names one) — that is what lets another device skip it. A topic already
    * bound to a different device is left unpinned rather than given this
    * device's path.
+   *
+   * An unbound topic that already carries a cwd (the client's initial
+   * metadata, or a pre-binding row) still gets the device stamped: the run
+   * just used that cwd here, and the binding is what keeps later turns and the
+   * device picker on this machine.
    */
   private async bindTopicWorkingDirectory(params: BindTopicWorkingDirectoryParams): Promise<void> {
     const { config, currentDeviceId, currentWorkingDirectory, deviceId, topicId } = params;
-    if (currentWorkingDirectory || !config) return;
+    if (!config) {
+      // No directory resolved on this machine (no agent pick, no device
+      // default), so the caller never read the topic either. The run still
+      // happened here — pin an unbound topic to it all the same.
+      if (deviceId) await this.stampTopicDevice(topicId, deviceId);
+      return;
+    }
     if (currentDeviceId && deviceId && currentDeviceId !== deviceId) return;
-    const path = getWorkingDirEffectivePath(config);
-    if (!path) return;
+    const stampDevice = !!deviceId && !currentDeviceId;
+    const path = currentWorkingDirectory ? undefined : getWorkingDirEffectivePath(config);
+    if (!path && !stampDevice) return;
 
     try {
       await this.topicModel.updateMetadata(topicId, {
-        ...(deviceId && !currentDeviceId && { boundDeviceId: deviceId }),
-        workingDirectory: path,
-        workingDirectoryConfig: config,
+        ...(stampDevice && { boundDeviceId: deviceId }),
+        ...(path && { workingDirectory: path, workingDirectoryConfig: config }),
       });
     } catch (err) {
       // Metadata bookkeeping must never fail a run that is otherwise fine.
       log('execAgent: bindTopicWorkingDirectory failed (non-fatal): %O', err);
+    }
+  }
+
+  private async stampTopicDevice(topicId: string, deviceId: string): Promise<void> {
+    try {
+      const topic = await this.topicModel.findById(topicId);
+      if (!topic || topic.metadata?.boundDeviceId) return;
+      await this.topicModel.updateMetadata(topicId, { boundDeviceId: deviceId });
+    } catch (err) {
+      log('execAgent: stampTopicDevice failed (non-fatal): %O', err);
     }
   }
 
@@ -1098,6 +1119,7 @@ export class AiAgentService {
       resolvedAgentId,
       runFacts,
       shareGate,
+      topicEditingGroupId: turn.topicEditingGroupId,
       topicId,
       trigger,
       userMessageId: turn.userMessageId,
@@ -1137,10 +1159,11 @@ export class AiAgentService {
           maxSteps,
           memberDeviceOverride,
           operationTaskId,
+          onOperationCreated: params.onOperationCreated,
           parentOperationId,
           pinnedHeterogeneousTopicModel: turn.pinnedHeterogeneousTopicModel,
           requestTrigger: requestTriggerMetadata.trigger,
-          requestedDeviceId,
+          requestedDeviceId: turn.requestedDeviceId,
           runAttachments,
           selfMessageIds,
           topicStartOwnerOperationId: params.topicStartOwnerOperationId,
@@ -1262,7 +1285,7 @@ export class AiAgentService {
       operationId,
       parentMessageId,
       requestTrigger: requestTriggerMetadata.trigger,
-      requestedDeviceId,
+      requestedDeviceId: turn.requestedDeviceId,
       resumeApproval,
       resumeApprovalPlugin,
       resumeApprovals,
@@ -1363,6 +1386,7 @@ export class AiAgentService {
         approvalSourceOperationId,
         approvalSourceToolMessageIds,
         autoStart,
+        onOperationCreated: params.onOperationCreated,
         botContext,
         botPlatformContext,
         channelContext,

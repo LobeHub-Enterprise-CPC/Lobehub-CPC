@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { resolveCliDirName } from '../constants/identity';
+import { OFFICIAL_SERVER_URL } from '../constants/urls';
 import { log } from '../utils/logger';
 import {
   loadActiveWorkspace,
@@ -72,7 +73,7 @@ describe('settings', () => {
   });
 
   it('should clear official server settings instead of persisting them', () => {
-    saveSettings({ serverUrl: 'https://app.lobehub.com/' });
+    saveSettings({ serverUrl: `${OFFICIAL_SERVER_URL}/` });
 
     expect(fs.existsSync(settingsFile)).toBe(false);
     expect(loadSettings()).toBeNull();
@@ -107,7 +108,7 @@ describe('settings', () => {
 
     fs.unlinkSync(settingsFile);
 
-    expect(resolveServerUrl()).toBe('https://app.lobehub.com');
+    expect(resolveServerUrl()).toBe(OFFICIAL_SERVER_URL);
   });
 
   it('should persist the active workspace and clear it back to personal', () => {
@@ -160,7 +161,7 @@ describe('settings', () => {
   it('should keep the connectionId even when settings.json is cleared', () => {
     const id = loadOrCreateConnectionId();
     // Clearing official-server settings unlinks settings.json — connectionId must survive.
-    saveSettings({ serverUrl: 'https://app.lobehub.com/' });
+    saveSettings({ serverUrl: `${OFFICIAL_SERVER_URL}/` });
 
     expect(fs.existsSync(settingsFile)).toBe(false);
     expect(loadOrCreateConnectionId()).toBe(id);

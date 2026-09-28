@@ -14,6 +14,7 @@ import { getPluginMode, upsertPluginMode } from '@lobechat/types';
 
 import { getHiddenBuiltinModelsForUser } from '@/business/server/aiProvider';
 import { AgentModel } from '@/database/models/agent';
+import { ConnectorModel } from '@/database/models/connector';
 import { PluginModel } from '@/database/models/plugin';
 import { AgentService } from '@/server/services/agent';
 import { createAiInfraRepos } from '@/server/services/aiInfra/servableModels';
@@ -21,6 +22,12 @@ import { DiscoverService } from '@/server/services/discover';
 import { filterHiddenProviderModels } from '@/utils/aiProvider';
 
 import { type ToolExecutionContext, type ToolExecutionResult } from '../types';
+import {
+  NEXT_RUN_NOTE,
+  resolveOrInstallMarketPlugin,
+  resolvePluginIdentifier,
+  unresolvablePluginResult,
+} from './pluginResolution';
 import { type ServerRuntimeRegistration } from './types';
 
 const MAX_MODELS = 20;
@@ -49,10 +56,12 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
       throw new Error('userId and serverDB are required for Agent Builder execution');
     }
     const userId = context.userId;
+    const serverDB = context.serverDB;
 
-    const agentModel = new AgentModel(context.serverDB, userId, context.workspaceId);
-    const agentService = new AgentService(context.serverDB, userId, context.workspaceId);
-    const pluginModel = new PluginModel(context.serverDB, userId, context.workspaceId);
+    const agentModel = new AgentModel(serverDB, userId, context.workspaceId);
+    const agentService = new AgentService(serverDB, userId, context.workspaceId);
+    const pluginModel = new PluginModel(serverDB, userId, context.workspaceId);
+    const connectorModel = new ConnectorModel(serverDB, userId, context.workspaceId);
     /**
      * Market list endpoints require an authenticated caller, and `DiscoverService`
      * only signs a trusted-client token when it is given an identity — built
@@ -70,11 +79,7 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
         params: GetAvailableModelsParams,
       ): Promise<ToolExecutionResult> => {
         try {
-          const aiInfraRepos = await createAiInfraRepos(
-            context.serverDB,
-            userId,
-            context.workspaceId,
-          );
+          const aiInfraRepos = await createAiInfraRepos(serverDB, userId, context.workspaceId);
           const [allProviders, hiddenBuiltinModels] = await Promise.all([
             aiInfraRepos.getAiProviderList(),
             getHiddenBuiltinModelsForUser(userId),
@@ -218,6 +223,20 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
             const isEnabled = getPluginMode(agent.plugins ?? undefined, pluginId) === 'pinned';
             const shouldEnable = enabled !== undefined ? enabled : !isEnabled;
 
+            // Enabling pins the id into the agent's config; an id that resolves
+            // to no loadable tool would be reported as enabled yet never load.
+            // Checked before any write so a rejected call changes nothing.
+            // Disabling stays unvalidated so stale entries can always be removed.
+            if (shouldEnable) {
+              const resolution = await resolvePluginIdentifier(
+                pluginId,
+                { connectorModel, pluginModel },
+                { agentId },
+              );
+              if (resolution.status !== 'loadable')
+                return unresolvablePluginResult(pluginId, resolution);
+            }
+
             // upsertPluginMode preserves an already-matching entry as-is and
             // flips a disabled entry back to pinned in place, instead of
             // blindly pushing a duplicate bare-string identifier.
@@ -341,23 +360,13 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
             return { content: `Agent "${agentId}" not found.`, success: false };
           }
 
-          const existing = await pluginModel.findById(identifier);
-          if (!existing) {
-            let manifest: any;
-            try {
-              manifest = await discoverService.getMcpManifest({ identifier });
-            } catch {
-              // proceed without manifest if fetch fails; tool will be unusable until manifest loads
-            }
-            await pluginModel.create({ identifier, manifest: manifest as any, type: 'plugin' });
-          } else if (!existing.manifest) {
-            try {
-              const manifest = await discoverService.getMcpManifest({ identifier });
-              await pluginModel.update(identifier, { manifest: manifest as any });
-            } catch {
-              // best-effort backfill
-            }
-          }
+          const { installedNow, resolution } = await resolveOrInstallMarketPlugin(
+            identifier,
+            { connectorModel, discoverService, pluginModel },
+            { agentId, source: 'market' },
+          );
+          if (resolution.status !== 'loadable')
+            return unresolvablePluginResult(identifier, resolution);
 
           if (getPluginMode(agent.plugins ?? undefined, identifier) !== 'pinned') {
             await agentModel.updateConfig(agentId, {
@@ -370,7 +379,7 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
           }
 
           return {
-            content: `Successfully enabled plugin "${identifier}" for agent "${agentId}"`,
+            content: `Successfully enabled plugin "${identifier}" for agent "${agentId}".${installedNow ? NEXT_RUN_NOTE : ''}`,
             state: { agentId, installed: true, pluginId: identifier, success: true },
             success: true,
           };

@@ -1,9 +1,11 @@
+import type * as DeviceControlModule from '@lobechat/device-control';
 import { GatewayClient } from '@lobechat/device-gateway-client';
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as RefreshModule from '../auth/refresh';
 import { resolveToken } from '../auth/resolveToken';
+import { CLI_DISPLAY_NAME } from '../constants/identity';
 import { removeStatus, spawnDaemon, stopDaemon, writeStatus } from '../daemon/manager';
 import type * as DeviceRegister from '../device/register';
 import { loadSettings, resolveCommandMode, saveSettings } from '../settings';
@@ -45,6 +47,7 @@ vi.mock('../settings', () => ({
   // Default: this device has no opinion on fencing, so connect's readiness
   // check is a no-op and every scenario below is unaffected by it.
   resolveCommandMode: vi.fn().mockReturnValue('auto'),
+  resolveDeviceMetricsBacklogPath: vi.fn((id: string) => `/tmp/device-metrics/${id}.json`),
   saveSettings: vi.fn(),
 }));
 
@@ -90,6 +93,22 @@ let clientOptions: any = {};
 let connectCalled = false;
 let lastSentToolResponse: any = null;
 let lastSentSystemInfoResponse: any = null;
+const clientReportMetrics = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const metricsSampler = vi.hoisted(() => ({
+  flush: vi.fn().mockResolvedValue(undefined),
+  options: undefined as any,
+  start: vi.fn().mockResolvedValue(undefined),
+  stop: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@lobechat/device-control', async (importOriginal) => ({
+  ...(await importOriginal<typeof DeviceControlModule>()),
+  DeviceMetricsSampler: vi.fn().mockImplementation(function (opts: any) {
+    metricsSampler.options = opts;
+    return metricsSampler;
+  }),
+}));
+
 vi.mock('@lobechat/device-gateway-client', () => ({
   GatewayClient: vi.fn().mockImplementation(function (opts: any) {
     clientOptions = opts;
@@ -107,6 +126,7 @@ vi.mock('@lobechat/device-gateway-client', () => ({
         clientEventHandlers[event] = handler;
       }),
       reconnect: vi.fn().mockResolvedValue(undefined),
+      reportMetrics: clientReportMetrics,
       sendSystemInfoResponse: vi.fn().mockImplementation((data: any) => {
         lastSentSystemInfoResponse = data;
       }),
@@ -182,12 +202,28 @@ describe('connect command', () => {
     );
   });
 
+  it('samples machine health and pushes the backlog to the gateway on connect', async () => {
+    const program = createProgram();
+    await program.parseAsync(['node', 'test', 'connect']);
+
+    expect(metricsSampler.start).toHaveBeenCalled();
+    const deviceId = clientOptions.deviceId;
+    expect(metricsSampler.options.storagePath).toBe(`/tmp/device-metrics/${deviceId}.json`);
+
+    clientEventHandlers.connected?.();
+    expect(metricsSampler.flush).toHaveBeenCalled();
+
+    const samples = [{ observedAt: 1 }] as any;
+    await metricsSampler.options.upload(samples);
+    expect(clientReportMetrics).toHaveBeenCalledWith(samples);
+  });
+
   it('should connect to gateway', async () => {
     const program = createProgram();
     await program.parseAsync(['node', 'test', 'connect']);
 
     expect(connectCalled).toBe(true);
-    expect(log.info).toHaveBeenCalledWith(expect.stringContaining('LobeHub CLI'));
+    expect(log.info).toHaveBeenCalledWith(expect.stringContaining(CLI_DISPLAY_NAME));
   });
 
   it('should require explicit gateway for custom login server', async () => {
@@ -388,7 +424,7 @@ describe('connect command', () => {
   });
 
   it('should handle SIGINT', async () => {
-    const sigintHandlers: Array<() => void> = [];
+    const sigintHandlers: Array<() => Promise<void> | void> = [];
     const origOn = process.on;
     vi.spyOn(process, 'on').mockImplementation((event: any, handler: any) => {
       if (event === 'SIGINT') sigintHandlers.push(handler);
@@ -400,9 +436,13 @@ describe('connect command', () => {
 
     // Trigger SIGINT handler
     for (const handler of sigintHandlers) {
-      handler();
+      await handler();
     }
 
+    expect(metricsSampler.stop).toHaveBeenCalledWith({ flushTimeoutMs: 3000 });
+    expect(metricsSampler.stop.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(cleanupAllProcesses).mock.invocationCallOrder[0],
+    );
     expect(cleanupAllProcesses).toHaveBeenCalled();
     expect(removeStatus).toHaveBeenCalled();
   });
@@ -421,7 +461,7 @@ describe('connect command', () => {
   });
 
   it('should handle SIGTERM', async () => {
-    const sigtermHandlers: Array<() => void> = [];
+    const sigtermHandlers: Array<() => Promise<void> | void> = [];
     const origOn = process.on;
     vi.spyOn(process, 'on').mockImplementation((event: any, handler: any) => {
       if (event === 'SIGTERM') sigtermHandlers.push(handler);
@@ -432,7 +472,7 @@ describe('connect command', () => {
     await program.parseAsync(['node', 'test', 'connect']);
 
     for (const handler of sigtermHandlers) {
-      handler();
+      await handler();
     }
 
     expect(cleanupAllProcesses).toHaveBeenCalled();

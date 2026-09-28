@@ -2,6 +2,7 @@ import { CloudSandboxApiName, CloudSandboxIdentifier } from '@lobechat/builtin-t
 import { LocalSystemApiName, LocalSystemIdentifier } from '@lobechat/builtin-tool-local-system';
 import { RemoteDeviceIdentifier } from '@lobechat/builtin-tool-remote-device';
 import { builtinTools } from '@lobechat/builtin-tools';
+import { COMPOSIO_APP_TYPES } from '@lobechat/const';
 import { type LobeChatDatabase } from '@lobechat/database';
 import {
   type ChatToolPayload,
@@ -31,6 +32,9 @@ import { type IToolExecutor, type ToolExecutionContext, type ToolExecutionResult
 import { resolveBuiltinToolWorkIntent } from './workRegistration';
 
 const log = debug('lobe-server:builtin-tools-executor');
+
+const COMPOSIO_IDENTIFIERS = new Set(COMPOSIO_APP_TYPES.map((type) => type.identifier));
+const isComposioIdentifier = (identifier: string) => COMPOSIO_IDENTIFIERS.has(identifier);
 
 /**
  * Market rejects a trusted-client token 5 minutes after it was minted, while one
@@ -407,6 +411,24 @@ export class BuiltinToolsExecutor implements IToolExecutor {
         identifier,
         toolSlug: apiName,
       });
+    }
+
+    // A Composio app reaching here was not routed as `composio`, which only
+    // happens when its connection is not ACTIVE (e.g. a stale activation or a
+    // resumed run whose toolset predates a status change). Say so instead of
+    // claiming the tool is unimplemented.
+    if (isComposioIdentifier(identifier) && !hasServerRuntime(identifier)) {
+      const appLabel =
+        COMPOSIO_APP_TYPES.find((type) => type.identifier === identifier)?.label ?? identifier;
+      const message =
+        `${appLabel} is not connected (the Composio connection is pending, expired, or was removed), ` +
+        `so "${apiName}" cannot run. Ask the user to reconnect ${appLabel} in Settings → Connectors, ` +
+        `then retry in a new message.`;
+      return {
+        content: message,
+        error: { code: 'COMPOSIO_NOT_CONNECTED', message },
+        success: false,
+      };
     }
 
     // Use server runtime registry (handles both pre-instantiated and per-request runtimes)

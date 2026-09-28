@@ -95,14 +95,51 @@ import {
 import type { LobeChatDatabase, Transaction } from '../type';
 import { sanitizeBm25Query } from '../utils/bm25';
 import { notCopiedTranscript } from '../utils/copiedTranscript';
+import { notFileBackedPlaceholder } from '../utils/fileBackedPlaceholder';
 import { genEndDateWhere, genRangeWhere, genStartDateWhere, genWhere } from '../utils/genWhere';
 import { idGenerator } from '../utils/idGenerator';
 import { inJsonStringArray } from '../utils/inJsonStringArray';
+import { documentOriginalCharCount } from '../utils/originalCharCount';
 import { searchableMessage } from '../utils/searchableMessage';
 import { notShareVisitorMessage, notShareVisitorTopicRef } from '../utils/shareVisitor';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
 import { recomputeTopicUsage } from './topicUsage';
 import { WorkModel } from './work';
+
+/**
+ * Parsed-document columns attached to chat file items. `originalCharCount` is only set when the
+ * stored text was cut at parse time; prompts use it to tell the model the text is incomplete.
+ * Selected as a scalar so the rest of `metadata` never leaves the database.
+ */
+const fileDocumentColumns = {
+  content: documents.content,
+  fileId: documents.fileId,
+  originalCharCount: documentOriginalCharCount().mapWith(Number),
+};
+
+/**
+ * A file can own more than one document (`parseDocument` writes a page-editor copy next to the parse
+ * cache). Every reader picks the oldest, matching `DocumentModel.findByFileId`, so a preview and the
+ * `readAttachment` pages that continue it come from the same text.
+ */
+const fileDocumentsOrder = [asc(documents.createdAt), asc(documents.id)];
+
+type FileDocumentsMap = Record<string, { content: string; originalCharCount?: number }>;
+
+const toFileDocumentsMap = (
+  rows: { content: string | null; fileId: string | null; originalCharCount: number | null }[],
+): FileDocumentsMap =>
+  rows.reduce<FileDocumentsMap>((acc, doc) => {
+    // Rows arrive oldest first (see `fileDocumentsOrder`); keep the first so the prompt shows the
+    // same document `DocumentModel.findByFileId` — and therefore `readAttachment` — pages through.
+    if (doc.fileId && !(doc.fileId in acc)) {
+      acc[doc.fileId] = {
+        content: doc.content as string,
+        originalCharCount: doc.originalCharCount ?? undefined,
+      };
+    }
+    return acc;
+  }, {});
 
 const createChatImageItem = ({
   id,
@@ -230,10 +267,13 @@ export interface QueryMessagesOptions {
 }
 
 export interface TopicTranscriptMessage {
+  agentId: string | null;
   content: string | null;
   createdAt: Date;
+  error: ChatMessageError | null;
   id: string;
   messageGroupId: string | null;
+  metadata: MessageMetadata | null;
   parentId: string | null;
   role: string;
   threadId: string | null;
@@ -316,7 +356,7 @@ interface ActiveBranchSnapshot {
 }
 
 interface MessageFileRelations {
-  documentsMap: Record<string, string>;
+  documentsMap: FileDocumentsMap;
   relatedFileList: MessageRelatedFile[];
 }
 
@@ -366,6 +406,7 @@ interface CreateMessageRelationParams {
   fileChunks?: CreateMessageParams['fileChunks'];
   files?: CreateMessageParams['files'];
   plugin?: CreateMessageParams['plugin'];
+  pluginError?: CreateMessageParams['pluginError'];
   pluginIntervention?: CreateMessageParams['pluginIntervention'];
   pluginState?: CreateMessageParams['pluginState'];
   ragQueryId?: CreateMessageParams['ragQueryId'];
@@ -1345,6 +1386,9 @@ export class MessageModel {
     const [items, totalResult] = await Promise.all([
       this.db
         .select({
+          agentId: messages.agentId,
+          error: messages.error,
+          metadata: messages.metadata,
           content: messages.content,
           createdAt: messages.createdAt,
           id: messages.id,
@@ -1368,6 +1412,8 @@ export class MessageModel {
     return {
       items: items.map(({ tools, ...message }) => ({
         ...message,
+        error: message.error as ChatMessageError | null,
+        metadata: message.metadata as MessageMetadata | null,
         tools: Array.isArray(tools) ? (tools as ChatToolPayload[]) : null,
       })),
       total: totalResult[0]?.count ?? 0,
@@ -1671,7 +1717,8 @@ export class MessageModel {
                   name === null
                     ? { fileType: '', id, inaccessible: true, name: '', size: 0, url: '' }
                     : {
-                        content: documentsMap[id],
+                        content: documentsMap[id]?.content,
+                        originalCharCount: documentsMap[id]?.originalCharCount,
                         fileType: fileType!,
                         id,
                         name,
@@ -1894,22 +1941,14 @@ export class MessageModel {
       'db.message.queryWithWhere.documents.select',
       () =>
         this.db
-          .select({
-            content: documents.content,
-            fileId: documents.fileId,
-          })
+          .select(fileDocumentColumns)
           .from(documents)
-          .where(inArray(documents.fileId, fileIds)),
+          .where(and(inArray(documents.fileId, fileIds), notFileBackedPlaceholder()))
+          .orderBy(...fileDocumentsOrder),
       { fileCount: fileIds.length },
     );
 
-    const documentsMap = documentsList.reduce(
-      (acc, doc) => {
-        if (doc.fileId) acc[doc.fileId] = doc.content as string;
-        return acc;
-      },
-      {} as Record<string, string>,
-    );
+    const documentsMap = toFileDocumentsMap(documentsList);
 
     return { documentsMap, relatedFileList };
   };
@@ -2283,24 +2322,16 @@ export class MessageModel {
       .map((file) => file.id)
       .filter(Boolean);
 
-    let documentsMap: Record<string, string> = {};
+    let documentsMap: FileDocumentsMap = {};
 
     if (fileIds.length > 0) {
       const documentsList = await this.db
-        .select({
-          content: documents.content,
-          fileId: documents.fileId,
-        })
+        .select(fileDocumentColumns)
         .from(documents)
-        .where(inArray(documents.fileId, fileIds));
+        .where(and(inArray(documents.fileId, fileIds), notFileBackedPlaceholder()))
+        .orderBy(...fileDocumentsOrder);
 
-      documentsMap = documentsList.reduce(
-        (acc, doc) => {
-          if (doc.fileId) acc[doc.fileId] = doc.content as string;
-          return acc;
-        },
-        {} as Record<string, string>,
-      );
+      documentsMap = toFileDocumentsMap(documentsList);
     }
 
     const imageList = relatedFileList.filter((i) => (i.fileType || '').startsWith('image'));
@@ -2381,7 +2412,8 @@ export class MessageModel {
               name === null
                 ? { fileType: '', id, inaccessible: true, name: '', size: 0, url: '' }
                 : {
-                    content: documentsMap[id],
+                    content: documentsMap[id]?.content,
+                    originalCharCount: documentsMap[id]?.originalCharCount,
                     fileType: fileType!,
                     id,
                     name,
@@ -3273,6 +3305,7 @@ export class MessageModel {
     files,
     model: fromModel,
     plugin,
+    pluginError,
     pluginIntervention,
     pluginState,
     provider: fromProvider,
@@ -3292,6 +3325,7 @@ export class MessageModel {
       fileChunks,
       files,
       plugin,
+      pluginError,
       pluginIntervention,
       pluginState,
       ragQueryId,
@@ -3333,6 +3367,7 @@ export class MessageModel {
       fileChunks,
       files,
       plugin,
+      pluginError,
       pluginIntervention,
       pluginState,
       ragQueryId,
@@ -3348,6 +3383,9 @@ export class MessageModel {
         trx.insert(messagePlugins).values({
           apiName: clampToolIdentifier(plugin?.apiName),
           arguments: sanitizeNullBytes(plugin?.arguments),
+          // A tool that fails on its first write only has pluginError to explain
+          // itself; without it the model reads an empty tool result.
+          error: sanitizeNullBytes(pluginError),
           id,
           identifier: clampToolIdentifier(plugin?.identifier),
           intervention: pluginIntervention,
@@ -3914,6 +3952,47 @@ export class MessageModel {
       type: row.type ?? 'default',
       userId: row.userId,
     }));
+  };
+
+  /**
+   * The `state` of the most recent call to one tool API in a topic that
+   * produced any — a failed or aborted call leaves no state. Lets a tool read
+   * back what an earlier call in the same conversation produced, e.g. the group
+   * a builder conversation last created with `createGroup`.
+   *
+   * Scoped like a message query for the same branch: without `threadId` only
+   * the main conversation counts; with it, the thread plus the parent messages
+   * its type inherits — never a sibling thread.
+   */
+  findLatestPluginStateInTopic = async (params: {
+    apiName: string;
+    identifier: string;
+    threadId?: string | null;
+    topicId: string;
+  }): Promise<Record<string, any> | undefined> => {
+    const threadCondition = params.threadId
+      ? await this.buildThreadQueryCondition(params.threadId)
+      : isNull(messages.threadId);
+
+    const [row] = await this.db
+      .select({ state: messagePlugins.state })
+      .from(messagePlugins)
+      .innerJoin(messages, eq(messagePlugins.id, messages.id))
+      .where(
+        and(
+          eq(messages.topicId, params.topicId),
+          threadCondition,
+          eq(messagePlugins.identifier, params.identifier),
+          eq(messagePlugins.apiName, params.apiName),
+          isNotNull(messagePlugins.state),
+          this.ownership(),
+          this.pluginsOwnership(),
+        ),
+      )
+      .orderBy(desc(messages.createdAt), desc(messages.id))
+      .limit(1);
+
+    return row?.state ?? undefined;
   };
 
   /**

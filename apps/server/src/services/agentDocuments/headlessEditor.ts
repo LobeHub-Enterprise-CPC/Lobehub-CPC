@@ -1,4 +1,13 @@
-import type { createHeadlessEditor, HeadlessLiteXMLOperation } from '@lobehub/editor/headless';
+import {
+  describeLiteXMLEditStep,
+  findLiteXMLEditStepProblem,
+  indexLiteXMLDocument,
+  normalizeLiteXMLFragment,
+  planLiteXMLEditSteps,
+  touchesList,
+} from '@lobechat/editor-runtime';
+import type { HeadlessLiteXMLOperation } from '@lobehub/editor/headless';
+import { createHeadlessEditor } from '@lobehub/editor/headless';
 import type { SerializedEditorState, SerializedLexicalNode } from 'lexical';
 
 import { EMPTY_EDITOR_STATE } from '@/libs/editor/constants';
@@ -26,30 +35,9 @@ export type AgentDocumentLiteXMLOperation =
       id: string;
     };
 
-const orderLiteXMLOperations = (
-  operations: AgentDocumentLiteXMLOperation[],
-): AgentDocumentLiteXMLOperation[] => {
-  const orderedOperations: AgentDocumentLiteXMLOperation[] = [];
-
-  for (const operation of operations) {
-    if (operation.action === 'insert') {
-      orderedOperations.unshift(operation);
-    } else {
-      orderedOperations.push(operation);
-    }
-  }
-
-  return orderedOperations;
-};
-
-const normalizeLiteXMLFragment = (litexml: string) => {
-  const trimmed = litexml.trim();
-
-  return trimmed.startsWith('<root>') ? trimmed : `<root>${trimmed}</root>`;
-};
-
 const toHeadlessLiteXMLOperation = (
   operation: AgentDocumentLiteXMLOperation,
+  delay: boolean,
 ): HeadlessLiteXMLOperation => {
   switch (operation.action) {
     case 'insert': {
@@ -57,13 +45,13 @@ const toHeadlessLiteXMLOperation = (
         ? {
             action: 'insert',
             beforeId: operation.beforeId,
-            delay: true,
+            delay,
             litexml: normalizeLiteXMLFragment(operation.litexml),
           }
         : {
             action: 'insert',
             afterId: operation.afterId,
-            delay: true,
+            delay,
             litexml: normalizeLiteXMLFragment(operation.litexml),
           };
     }
@@ -71,7 +59,7 @@ const toHeadlessLiteXMLOperation = (
     case 'modify': {
       return {
         action: 'replace',
-        delay: true,
+        delay,
         litexml: operation.litexml,
       };
     }
@@ -79,12 +67,15 @@ const toHeadlessLiteXMLOperation = (
     case 'remove': {
       return {
         action: 'remove',
-        delay: true,
+        delay,
         id: operation.id,
       };
     }
   }
 };
+
+const NOTHING_SAVED_HINT =
+  'No operations were saved. Call readDocument to get the current node ids, then retry the whole batch.';
 
 export interface AgentDocumentEditorSnapshot {
   content: string;
@@ -183,14 +174,19 @@ const createEditorWithState = (
   }
 
   hydrateMarkdownOrEmptyState(editor, fallbackContent, { keepId: true });
-  return { editor, recoveredFromMarkdown: isValidEditorData(editorData) };
+  // Node ids minted from Markdown differ on every parse, so any snapshot that
+  // exposes them must be persisted — including editorData in a non-Lexical shape
+  // (older `lh doc` builds wrote `{ type: 'doc', content }`) or none at all.
+  return {
+    editor,
+    recoveredFromMarkdown: isValidEditorData(editorData) || fallbackContent.trim().length > 0,
+  };
 };
 
 export const createMarkdownEditorSnapshot = async (
   content: string,
 ): Promise<AgentDocumentEditorSnapshot> =>
-  withHeadlessEditorLock(async () => {
-    const { createHeadlessEditor } = await import('@lobehub/editor/headless');
+  withHeadlessEditorLock(() => {
     const editor = createHeadlessEditor();
 
     try {
@@ -201,11 +197,37 @@ export const createMarkdownEditorSnapshot = async (
     }
   });
 
+const LITEXML_DOCUMENT_PATTERN = /^\s*(?:<\?xml[\s?]|<root[\s>])/;
+
+/**
+ * Markdown snapshot for content written by an agent. Rejects input that would
+ * silently become an empty document — most often LiteXML sent to a Markdown
+ * write API — instead of saving the empty result and reporting success.
+ */
+export const createAgentMarkdownSnapshot = async (
+  content: string,
+): Promise<AgentDocumentEditorSnapshot> => {
+  if (LITEXML_DOCUMENT_PATTERN.test(content)) {
+    throw new Error(
+      'Document content looks like LiteXML, but this API expects Markdown. Send Markdown, or use modifyNodes to edit nodes by id.',
+    );
+  }
+
+  const snapshot = await createMarkdownEditorSnapshot(content);
+
+  if (content.trim().length > 0 && snapshot.content.trim().length === 0) {
+    throw new Error(
+      'Document content produced an empty document after Markdown parsing; nothing was saved. Send the document body as Markdown.',
+    );
+  }
+
+  return snapshot;
+};
+
 export const exportEditorDataSnapshot = async (
   params: LoadEditorStateParams & { litexml?: boolean },
 ): Promise<AgentDocumentEditorSnapshot> =>
-  withHeadlessEditorLock(async () => {
-    const { createHeadlessEditor } = await import('@lobehub/editor/headless');
+  withHeadlessEditorLock(() => {
     const { editor, recoveredFromMarkdown } = createEditorWithState(createHeadlessEditor, params);
 
     try {
@@ -225,24 +247,47 @@ export const applyLiteXMLOperations = async ({
   operations: AgentDocumentLiteXMLOperation[];
 }): Promise<AgentDocumentEditSnapshot> =>
   withHeadlessEditorLock(async () => {
-    const { createHeadlessEditor } = await import('@lobehub/editor/headless');
     const { editor } = createEditorWithState(createHeadlessEditor, { editorData, fallbackContent });
 
     try {
       const beforeSnapshot = exportSnapshot(editor, true);
-      await editor.applyLiteXML(orderLiteXMLOperations(operations).map(toHeadlessLiteXMLOperation));
-      const snapshot = exportSnapshot(editor, true);
+      let current = beforeSnapshot;
+
+      // Apply in array order, one operation at a time, so every operation is
+      // checked on its own: an unknown id or an operation the editor silently
+      // drops fails the whole batch instead of being counted as applied.
+      for (const step of planLiteXMLEditSteps(
+        operations,
+        indexLiteXMLDocument(beforeSnapshot.litexml ?? ''),
+      )) {
+        const { operation } = step;
+        const label = describeLiteXMLEditStep(step, operations.length);
+        const document = indexLiteXMLDocument(current.litexml ?? '');
+
+        const problem = findLiteXMLEditStepProblem(operation, document);
+        if (problem) throw new Error(`${label} failed: ${problem}. ${NOTHING_SAVED_HINT}`);
+
+        await editor.applyLiteXML(
+          toHeadlessLiteXMLOperation(operation, !touchesList(operation, document)),
+        );
+        const next = exportSnapshot(editor, true);
+
+        if (
+          next.litexml === current.litexml &&
+          JSON.stringify(next.editorData) === JSON.stringify(current.editorData)
+        ) {
+          throw new Error(
+            `${label} did not change the document; the editor rejected it. ${NOTHING_SAVED_HINT}`,
+          );
+        }
+
+        current = next;
+      }
+
+      const snapshot = current;
 
       if (fallbackContent?.trim().length && snapshot.content.trim().length === 0) {
         throw new Error('Agent document node edit unexpectedly produced empty content');
-      }
-
-      if (
-        operations.length > 0 &&
-        JSON.stringify(snapshot.editorData) === JSON.stringify(beforeSnapshot.editorData) &&
-        snapshot.litexml === beforeSnapshot.litexml
-      ) {
-        throw new Error('Agent document node edit did not change the document');
       }
 
       return { ...snapshot, previousEditorData: beforeSnapshot.editorData };

@@ -112,15 +112,9 @@ export interface ModelRuntimeHooks {
     payload: GenerateObjectPayload,
     options?: GenerateObjectOptions,
   ) => Promise<void>;
+  beforeTranscribe?: (payload: ASRPayload, options?: ASROptions) => Promise<void>;
   /**
-   * Runs before any other chat hook (including `beforeChat`, so intercepted
-   * requests never reserve budget). Return a `Response` to short-circuit the
-   * whole chat — the LLM request is never sent and the caller receives the
-   * returned response as-is (e.g. input-side content moderation answering with
-   * an in-band SSE reply). Return `undefined` to continue normally.
-   *
-   * Throwing aborts the call like `beforeChat`; implementations that must not
-   * block chat on their own failure (fail-open) should catch internally.
+   * Runs before any other chat hook. A returned response short-circuits the model call.
    */
   interceptChat?: (
     payload: ChatStreamPayload,
@@ -199,15 +193,22 @@ export interface ModelRuntimeHooks {
     context: { options?: GenerateObjectOptions; payload: GenerateObjectPayload },
   ) => void | Promise<void>;
 
+  onTranscribeError?: (
+    error: ChatCompletionErrorPayload,
+    context: { options?: ASROptions; payload: ASRPayload },
+  ) => void | Promise<void>;
+
   /**
-   * Transforms the chat response before it is returned to the caller (e.g.
-   * output-side content moderation over the SSE stream). Return a new
-   * `Response` to replace the original, or `undefined` to keep it.
-   *
-   * Fail-open by contract: if the hook throws, the original response is
-   * returned — so implementations must not partially consume `response.body`
-   * before failing (build the transform pipeline first, then let it stream).
+   * Fires once after a successful transcription. `usage` is undefined when the
+   * provider reports none (e.g. duration-billed models), so consumers can still
+   * settle or release anything taken in `beforeTranscribe`.
    */
+  onTranscribeFinal?: (
+    data: { latencyMs: number; usage?: ModelUsage },
+    context: { options?: ASROptions; payload: ASRPayload },
+  ) => void | Promise<void>;
+
+  /** Transform a successful chat response; failures are fail-open. */
   transformChatResponse?: (
     response: Response,
     context: { options?: ChatMethodOptions; payload: ChatStreamPayload },
@@ -318,7 +319,6 @@ export class ModelRuntime {
           });
           if (transformed) return transformed;
         } catch (error) {
-          // Fail-open: a broken response transform must never break the chat itself.
           console.error('[ModelRuntime] transformChatResponse failed, using original response', {
             error,
             model: payload.model,
@@ -597,7 +597,45 @@ export class ModelRuntime {
   }
 
   async transcribe(payload: ASRPayload, options?: ASROptions) {
-    return this._runtime.transcribe?.(payload, options);
+    try {
+      const hookOptions = this._hooks?.beforeTranscribe && !options ? {} : options;
+      await this._hooks?.beforeTranscribe?.(payload, hookOptions);
+
+      const startTime = Date.now();
+      let usage: ModelUsage | undefined;
+      const finalOptions = this._hooks?.onTranscribeFinal
+        ? {
+            ...hookOptions,
+            onUsage: async (reported: ModelUsage) => {
+              usage = reported;
+              await hookOptions?.onUsage?.(reported);
+            },
+          }
+        : hookOptions;
+
+      const result = await this._runtime.transcribe?.(payload, finalOptions);
+
+      if (this._hooks?.onTranscribeFinal) {
+        try {
+          await this._hooks.onTranscribeFinal(
+            { latencyMs: Date.now() - startTime, usage },
+            { options, payload },
+          );
+        } catch (e) {
+          console.error('[ModelRuntime] onTranscribeFinal hook error:', e);
+        }
+      }
+
+      return result;
+    } catch (error) {
+      if (this._hooks?.onTranscribeError) {
+        await this._hooks.onTranscribeError(error as ChatCompletionErrorPayload, {
+          options,
+          payload,
+        });
+      }
+      throw error;
+    }
   }
 
   async pullModel(params: PullModelParams, options?: ModelRequestOptions) {
