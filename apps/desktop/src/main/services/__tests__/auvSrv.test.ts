@@ -246,7 +246,7 @@ describe('AuvService', () => {
     [{ argv: ['serve', '--help'] }, 'Only "auv invoke" commands are allowed'],
     [
       { argv: ['invoke', 'display.capture', '--store-root', '/tmp/other'] },
-      'AUV --store-root is managed by LobeHub',
+      'AUV --store-root is managed by the application',
     ],
   ])('rejects unsafe CLI argv before starting AUV', async (params, message) => {
     const { runCli, sdk, service } = createHarness();
