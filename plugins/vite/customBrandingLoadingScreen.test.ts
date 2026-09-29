@@ -1,4 +1,12 @@
+// @vitest-environment node
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+import { build } from 'vite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { copySpaBuild } from '../../scripts/copySpaBuildCore';
 
 const SAMPLE_HTML = `<body>
     <div id="loading-screen">
@@ -85,4 +93,50 @@ describe('customBrandingLoadingScreen', () => {
     expect(result).toContain('<div id="root" style="height: 100%"></div>');
     expect(handler(result)).toBe(result);
   });
+
+  it.each(['/_spa/', '/_spa-workbench/', 'https://assets.example.com/build/', '/'])(
+    'keeps wordmarks reachable after a production build with base %s',
+    async (base) => {
+      vi.doMock('@lobechat/business-const/branding', () => ({
+        BRANDING_NAME: 'TITU Work',
+        BRANDING_WORDMARK_DARK_URL: '/branding/dark.svg',
+        BRANDING_WORDMARK_URL: '/branding/light.svg',
+      }));
+      const { customBrandingLoadingScreen } = await import('./customBrandingLoadingScreen');
+      const root = mkdtempSync(path.join(tmpdir(), 'branding-build-'));
+      const wordmarks = ['/branding/light.svg', '/branding/dark.svg'];
+
+      try {
+        mkdirSync(path.join(root, 'public/branding'), { recursive: true });
+        for (const wordmark of wordmarks) {
+          writeFileSync(
+            path.join(root, 'public', wordmark),
+            '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"/>',
+          );
+        }
+        writeFileSync(path.join(root, 'index.html'), SAMPLE_HTML);
+
+        await build({
+          base,
+          build: { outDir: 'dist/desktop' },
+          configFile: false,
+          logLevel: 'silent',
+          plugins: [customBrandingLoadingScreen()],
+          root,
+        });
+        copySpaBuild(root);
+
+        const html = readFileSync(path.join(root, 'dist/desktop/index.html'), 'utf8');
+        const imageSources = [...html.matchAll(/<img\s[^>]*src="([^"]+)"/g)].map(
+          (match) => match[1],
+        );
+        expect(imageSources).toEqual(wordmarks);
+        for (const src of imageSources) {
+          expect(existsSync(path.join(root, 'public', src))).toBe(true);
+        }
+      } finally {
+        rmSync(root, { force: true, recursive: true });
+      }
+    },
+  );
 });

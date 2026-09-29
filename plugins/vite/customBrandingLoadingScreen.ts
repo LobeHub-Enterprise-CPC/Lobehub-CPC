@@ -59,6 +59,9 @@ export const customBrandingLoadingScreen = (): Plugin => ({
         )}</div>`,
       );
     },
-    order: 'pre',
+    // Branding URLs belong to the application origin, not the SPA asset base.
+    // Insert after Vite rewrites HTML URLs: copySpaBuild does not publish
+    // public/branding under /_spa (or on the configured asset CDN).
+    order: 'post',
   },
 });
