@@ -57,6 +57,7 @@ export const shellAbiInputs = ({ root = REPO_ROOT, publicKey = '' } = {}) => {
   );
   const files = gitLsFiles(root, [...TRACKED_INPUTS, ...nativePackageDirs])
     .filter((file) => !EXCLUDED.test(file))
+    .filter((file) => fs.existsSync(path.join(root, file)))
     .sort();
 
   return [

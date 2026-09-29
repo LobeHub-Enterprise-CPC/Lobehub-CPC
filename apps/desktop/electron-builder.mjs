@@ -1,9 +1,11 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { Arch } from 'builder-util';
 import dotenv from 'dotenv';
 
 import { copyExternalRuntimeModulesToSource } from './external-runtime-deps.config.mjs';
@@ -214,16 +216,25 @@ const config = {
     await copyNativeModulesToSource();
     await copyExternalRuntimeModulesToSource();
 
-    // Keep the AUV daemon version locked to @auv-js/sdk. The CLI package
-    // resolves the platform-specific executable without running postinstall,
-    // then we stage that real file outside app.asar for child_process.spawn().
-    const { binaryPath: resolveAuvBinaryPath } = await import('@auv-js/cli/binary');
-    const auvSource = resolveAuvBinaryPath();
-    const auvExecutable = process.platform === 'win32' ? 'auv.exe' : 'auv';
+    // Resolve the target, not the build host: binaryPath() selects the host
+    // binary and would silently ship a macOS daemon in a Windows installer.
+    const targetPlatform =
+      context.electronPlatformName === 'mas' ? 'darwin' : context.electronPlatformName;
+    const targetArch = Arch[context.arch];
+    const suffix = targetPlatform === 'win32' ? '-msvc' : targetPlatform === 'linux' ? '-gnu' : '';
+    const auvExecutable = targetPlatform === 'win32' ? 'auv.exe' : 'auv';
+    const require = createRequire(import.meta.url);
+    const auvSource = require.resolve(
+      `@auv-js/cli-${targetPlatform}-${targetArch}${suffix}/bin/${auvExecutable}`,
+    );
     const auvDestination = path.resolve(__dirname, 'resources/bin', auvExecutable);
     await fs.mkdir(path.dirname(auvDestination), { recursive: true });
+    await fs.rm(
+      path.resolve(__dirname, 'resources/bin', auvExecutable === 'auv' ? 'auv.exe' : 'auv'),
+      { force: true },
+    );
     await fs.copyFile(auvSource, auvDestination);
-    if (process.platform !== 'win32') await fs.chmod(auvDestination, 0o755);
+    if (targetPlatform !== 'win32') await fs.chmod(auvDestination, 0o755);
 
     // agent-browser is no longer bundled in the installer — BinaryManager
     // lazily downloads it on first use into the per-user cache dir. See
