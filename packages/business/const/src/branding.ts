@@ -28,6 +28,9 @@ export const BRANDING_TEXT_LOGO_DARK_URL = '';
  */
 export const BRANDING_INBOX_TITLE = 'Lobe AI';
 
+// Display name of the built-in agent capability bundle.
+export const BRANDING_AGENT_TITLE = 'Lobe Agent';
+
 // Self-contained square icon for built-in skills (for example, an SVG data URI).
 // Separate from the general logo URL so desktop skills need no public assets.
 export const BRANDING_ICON_URL = '';
