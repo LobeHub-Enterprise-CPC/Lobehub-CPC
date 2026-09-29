@@ -5,6 +5,7 @@ import {
 } from '@lobechat/types';
 
 import { AgentOperationModel } from '@/database/models/agentOperation';
+import { UserModel } from '@/database/models/user';
 import type { LobeChatDatabase } from '@/database/type';
 import { signHeteroOperationJWT } from '@/libs/trpc/utils/internalJwt';
 import {
@@ -19,10 +20,10 @@ export interface ChannelServerDefaultBinding {
   token: string;
 }
 
-const assertCapability = async (runtime: ChannelRuntime) => {
+const assertCapability = async (runtime: ChannelRuntime, userEmail?: string | null) => {
   if (process.env.ENABLE_SERVER_DEFAULT_HETEROGENEOUS_AGENT === '0')
     throw new Error('Server-default agents are disabled');
-  const models = await getServerDefaultHeterogeneousModels().catch(() => undefined);
+  const models = await getServerDefaultHeterogeneousModels({ userEmail }).catch(() => undefined);
   if (
     !models ||
     !SERVER_DEFAULT_HETEROGENEOUS_AGENT_TYPES.includes(runtime as never) ||
@@ -43,10 +44,12 @@ export async function beginChannelServerDefaultOperation(params: {
   const { provider } = params;
   if (provider.authMode !== 'api' || provider.apiConfig?.source !== 'server-default') return;
 
-  await assertCapability(params.runtime);
+  const userEmail = (await UserModel.findById(params.db, params.ownerId))?.email;
+  await assertCapability(params.runtime, userEmail);
   const selection = await resolveServerDefaultHeterogeneousModel(
     params.runtime as never,
     provider.apiConfig.model,
+    { userEmail },
   ).catch(() => {
     throw new Error('The selected server model is not available for this heterogeneous agent');
   });

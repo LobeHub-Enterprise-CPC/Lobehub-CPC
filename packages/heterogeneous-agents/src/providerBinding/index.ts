@@ -1,3 +1,5 @@
+export type { KimiModelCompatibility } from './modelCompatibility';
+export { getKimiModelCompatibility, isKimiModelCandidate } from './modelCompatibility';
 export {
   formatHeterogeneousProviderBindingError,
   getHeterogeneousProviderBindingCapability,

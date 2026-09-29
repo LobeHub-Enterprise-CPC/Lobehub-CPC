@@ -109,13 +109,16 @@ export type {
   ServerDefaultHeterogeneousModelPolicy,
   ServerDefaultHeterogeneousTokenHeader,
 } from './providerBinding';
+export type { KimiModelCompatibility } from './providerBinding';
 export {
   formatHeterogeneousProviderBindingError,
   getHeterogeneousProviderBindingCapability,
+  getKimiModelCompatibility,
   getProviderInferenceProtocols,
   getServerDefaultHeterogeneousAgentConfig,
   HETEROGENEOUS_PROVIDER_BINDING_AGENT_TYPES,
   isHeterogeneousProviderBindingSupported,
+  isKimiModelCandidate,
   isServerDefaultHeterogeneousAgentType,
   resolveHeterogeneousProviderBinding,
   resolveProviderBindingProtocol,

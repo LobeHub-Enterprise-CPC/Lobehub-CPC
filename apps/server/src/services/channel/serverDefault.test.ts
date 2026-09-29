@@ -17,6 +17,9 @@ const mocks = vi.hoisted(() => ({
   settle: vi.fn(),
   sign: vi.fn(),
 }));
+vi.mock('@/database/models/user', () => ({
+  UserModel: { findById: vi.fn(async () => ({ email: 'beta-owner@example.test' })) },
+}));
 vi.mock('@/database/models/agentOperation', () => ({
   AgentOperationModel: class {
     findById = mocks.find;
@@ -70,7 +73,10 @@ describe('Channel server-default operation', () => {
         runtime: 'codex',
       }),
     ).resolves.toEqual({ model: 'lobehub-default', token: 'scoped-token' });
-    expect(mocks.resolve).toHaveBeenCalledWith('codex', 'requested');
+    expect(mocks.models).toHaveBeenCalledWith({ userEmail: 'beta-owner@example.test' });
+    expect(mocks.resolve).toHaveBeenCalledWith('codex', 'requested', {
+      userEmail: 'beta-owner@example.test',
+    });
     expect(mocks.record).toHaveBeenCalledWith(
       expect.objectContaining({
         agentId: 'agent',
