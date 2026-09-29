@@ -137,6 +137,9 @@ describe('UpdaterManager', () => {
           broadcast: mockBroadcast,
         }),
       },
+      coreUpdateManager: {
+        checkForUpdates: vi.fn().mockResolvedValue(undefined),
+      },
       isQuiting: false,
       menuManager: {
         rebuildAppMenu: vi.fn(),
@@ -180,6 +183,7 @@ describe('UpdaterManager', () => {
       await updaterManager.checkForUpdates({ manual: true });
 
       expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+      expect(mockApp.coreUpdateManager.checkForUpdates).not.toHaveBeenCalled();
     });
 
     it('does not point a packaged build at the upstream repo when no feed is set', async () => {
@@ -260,6 +264,18 @@ describe('UpdaterManager', () => {
       await updaterManager.checkForUpdates();
 
       expect(autoUpdater.checkForUpdates).toHaveBeenCalled();
+    });
+
+    it('should also check core OTA on a manual check', async () => {
+      await updaterManager.checkForUpdates({ manual: true });
+
+      expect(mockApp.coreUpdateManager.checkForUpdates).toHaveBeenCalledWith({ manual: true });
+    });
+
+    it('should leave core OTA to its own schedule on an auto check', async () => {
+      await updaterManager.checkForUpdates();
+
+      expect(mockApp.coreUpdateManager.checkForUpdates).not.toHaveBeenCalled();
     });
 
     it('should broadcast updaterStateChanged with checking stage when checking', async () => {
@@ -532,16 +548,36 @@ describe('UpdaterManager', () => {
       );
     });
 
-    it('skips auto-download on update-available for the install-later version', () => {
-      fireDownloaded('2.2.6');
-      updaterManager.installLater();
+    it.each([
+      { incomingVersion: '2.2.6', manual: false },
+      { incomingVersion: '2.2.6', manual: true },
+      { incomingVersion: '2.2.5', manual: false },
+      { incomingVersion: '2.2.5', manual: true },
+    ])(
+      'restores the downloaded state after checking $incomingVersion (manual=$manual)',
+      async ({ incomingVersion, manual }) => {
+        fireDownloaded('2.2.6');
+        updaterManager.installLater();
+        mockBroadcast.mockClear();
+        vi.mocked(autoUpdater.downloadUpdate).mockClear();
+        vi.mocked(autoUpdater.checkForUpdates).mockImplementation(async () => {
+          fireAvailable(incomingVersion);
+          return null;
+        });
 
-      vi.mocked(autoUpdater.downloadUpdate).mockClear();
+        await updaterManager.checkForUpdates({ manual });
 
-      fireAvailable('2.2.6');
-
-      expect(autoUpdater.downloadUpdate).not.toHaveBeenCalled();
-    });
+        const expectedState = {
+          stage: 'downloaded',
+          updateInfo: { kind: 'app', version: '2.2.6' },
+        };
+        expect(updaterManager.getUpdaterState()).toEqual(expectedState);
+        expect(mockBroadcast).toHaveBeenLastCalledWith('updaterStateChanged', expectedState);
+        expect(autoUpdater.downloadUpdate).not.toHaveBeenCalled();
+        expect(mockBroadcast).not.toHaveBeenCalledWith('updateReady', expect.anything());
+        expect(autoUpdater.autoInstallOnAppQuit).toBe(true);
+      },
+    );
 
     it('clears the guard and re-broadcasts when a newer version arrives', () => {
       fireDownloaded('2.2.6');

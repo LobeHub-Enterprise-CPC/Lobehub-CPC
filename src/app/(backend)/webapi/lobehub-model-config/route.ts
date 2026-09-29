@@ -3,7 +3,7 @@ import {
   loadLobeHubPlanCardModels,
   loadModels,
 } from '@lobechat/business-model-bank/model-config';
-import { ModelProvider } from 'model-bank';
+import { ModelProvider } from 'model-bank/modelProvider';
 import { NextResponse } from 'next/server';
 
 import { auth } from '@/auth';

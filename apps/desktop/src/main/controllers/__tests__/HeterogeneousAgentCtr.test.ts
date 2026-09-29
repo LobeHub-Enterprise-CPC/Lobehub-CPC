@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { existsSync, statSync } from 'node:fs';
 import { access, mkdir, mkdtemp, readdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
@@ -857,6 +858,7 @@ describe('HeterogeneousAgentCtr', () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     if (originalClaudeSdkLabEnv === undefined) delete process.env.LOBE_CLAUDE_CODE_SDK;
     else process.env.LOBE_CLAUDE_CODE_SDK = originalClaudeSdkLabEnv;
     if (originalCodexAppServerLabEnv === undefined) delete process.env.LOBE_CODEX_APP_SERVER;
@@ -865,6 +867,29 @@ describe('HeterogeneousAgentCtr', () => {
   });
 
   describe('cancelSession', () => {
+    it('terminates the Windows process tree with taskkill', () => {
+      const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+      const start = spawnCalls.length;
+      nextFakeProc = null;
+      try {
+        Object.defineProperty(process, 'platform', { value: 'win32' });
+        HeterogeneousAgentCtr.prototype['killProcessTree'](
+          { killed: false, pid: 4321 } as ChildProcess,
+          'SIGTERM',
+        );
+        expect(spawnCalls.slice(start)).toEqual([
+          {
+            args: ['/pid', '4321', '/T', '/F'],
+            command: 'taskkill',
+            options: { stdio: 'ignore' },
+          },
+        ]);
+      } finally {
+        Object.defineProperty(process, 'platform', platform);
+        spawnCalls.splice(start);
+      }
+    });
+
     /**
      * @example A replacement local Codex turn starts only after the interrupted CLI exits.
      */
@@ -1346,6 +1371,11 @@ describe('HeterogeneousAgentCtr', () => {
         systemContext: string;
       }> = {},
     ) => {
+      // These argv/stream fixtures need no wall-clock session-completion grace.
+      if (!vi.isFakeTimers()) {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        vi.setTimerTickMode('nextTimerAsync');
+      }
       const { proc, writes } = createFakeProc({ stdoutLines });
       nextFakeProc = proc;
 
@@ -2633,6 +2663,11 @@ describe('HeterogeneousAgentCtr', () => {
       }> = {},
       storeGet?: (key: string, defaultValue?: any) => any,
     ) => {
+      // These argv/stream fixtures need no wall-clock session-completion grace.
+      if (!vi.isFakeTimers()) {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        vi.setTimerTickMode('nextTimerAsync');
+      }
       const { proc, writes } = createFakeProc({ stdoutLines });
       nextFakeProc = proc;
 

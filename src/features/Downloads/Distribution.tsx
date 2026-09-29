@@ -2,8 +2,8 @@
 
 import { BRANDING_NAME } from '@lobechat/business-const';
 import type { DesktopDownloadUrls } from '@lobechat/types';
-import { Block, Flexbox, Icon, Text } from '@lobehub/ui';
-import { Button } from '@lobehub/ui/base-ui';
+import { Block, Flexbox, Icon } from '@lobehub/ui';
+import { Button, Text } from '@lobehub/ui/base-ui';
 import { createStaticStyles } from 'antd-style';
 import { AppleIcon, DownloadIcon, MonitorIcon } from 'lucide-react';
 import { memo, useMemo } from 'react';
@@ -16,10 +16,12 @@ const styles = createStaticStyles(({ css }) => ({
   page: css`
     max-inline-size: 640px;
     margin-inline: auto;
-    padding: 48px 24px;
+    padding-block: 48px;
+    padding-inline: 24px;
   `,
   row: css`
-    padding: 16px 20px;
+    padding-block: 16px;
+    padding-inline: 20px;
   `,
 }));
 

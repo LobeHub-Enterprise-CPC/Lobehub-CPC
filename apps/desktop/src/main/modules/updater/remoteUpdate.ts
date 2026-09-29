@@ -33,7 +33,7 @@ export const toAppUpdateState = (state: UpdaterState, currentVersion: string): A
 
   return {
     currentVersion,
-    stage: state.stage,
+    stage: state.stage === 'disabled' ? 'unsupported' : state.stage,
     // The updater keeps the last `updateInfo` after it settles; only a download
     // in flight or ready to install has a real target.
     ...(inFlight && state.updateInfo?.version ? { targetVersion: state.updateInfo.version } : {}),

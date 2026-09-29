@@ -28,6 +28,7 @@ import { channelArtifactRuntime } from './channelArtifact';
 import { cloudSandboxRuntime } from './cloudSandbox';
 import { credsRuntime } from './creds';
 import { goalRuntime } from './goal';
+import { goalReportRuntime } from './goalReport';
 import { goalSupervisorRuntime } from './goalSupervisor';
 import { groupAgentBuilderRuntime } from './groupAgentBuilder';
 import { groupManagementRuntime } from './groupManagement';
@@ -94,6 +95,7 @@ registerRuntimes([
   groupAgentBuilderRuntime,
   groupManagementRuntime,
   goalRuntime,
+  goalReportRuntime,
   goalSupervisorRuntime,
   imageGenerationRuntime,
   videoGenerationRuntime,

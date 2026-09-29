@@ -98,7 +98,7 @@ export const brandPostProcessor: PostProcessorModule = {
     // where older translations localized or reordered the words in its title.
     if (
       (BRANDING_AGENT_TITLE as string) !== 'Lobe Agent' &&
-      keys.some((key) => key.endsWith('builtins.lobe-agent.title'))
+      (Array.isArray(keys) ? keys : [keys]).some((key) => key.endsWith('builtins.lobe-agent.title'))
     )
       return BRANDING_AGENT_TITLE;
     return applyBrandStrings(value);

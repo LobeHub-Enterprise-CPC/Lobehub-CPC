@@ -13,6 +13,7 @@ import { TaskModel } from '@/database/models/task';
 import { TaskTopicModel } from '@/database/models/taskTopic';
 import type { LobeChatDatabase } from '@/database/type';
 import { AiAgentService } from '@/server/services/aiAgent';
+import { resolveFailedRunStatus } from '@/server/services/goal/recoveryPolicy';
 import { TaskLifecycleService } from '@/server/services/taskLifecycle';
 
 import { buildTaskPrompt } from './buildTaskPrompt';
@@ -20,6 +21,8 @@ import { buildTaskPrompt } from './buildTaskPrompt';
 const log = debug('task-runner');
 
 export interface RunTaskParams {
+  /** Extra builtin tools this run mounts beside the Task skill, e.g. the Goal report tool. */
+  additionalPluginIds?: string[];
   continueTopicId?: string;
   extraPrompt?: string;
   /** Optional per-operation cap. Omitted means the agent runtime remains uncapped. */
@@ -70,6 +73,7 @@ export class TaskRunnerService {
 
   async runTask(params: RunTaskParams): Promise<RunTaskResult> {
     const {
+      additionalPluginIds,
       taskId: idOrIdentifier,
       continueTopicId,
       extraPrompt,
@@ -208,6 +212,7 @@ export class TaskRunnerService {
       // turn, which mounts this tool exclusively and therefore can only ever
       // restate text it already wrote.
       if (acceptanceEnabled) pluginIds.push(AcceptanceEvidenceIdentifier);
+      if (additionalPluginIds) pluginIds.push(...additionalPluginIds);
 
       const taskConfig = (task.config ?? {}) as Record<string, unknown>;
 
@@ -286,7 +291,11 @@ export class TaskRunnerService {
           });
         }
         if (result.topicId) {
-          await this.taskTopicModel.updateStatus(task.id, result.topicId, 'failed');
+          await this.taskTopicModel.updateStatus(
+            task.id,
+            result.topicId,
+            resolveFailedRunStatus(result.error),
+          );
         }
         throw new Error(result.error || result.message || 'Agent run failed to start');
       }

@@ -90,6 +90,7 @@ describe('Channel Desktop provider binding parity', () => {
           enabled: true,
           enabledModels: [{ id: 'gpt-test', providerId: 'provider', type: 'chat' }],
           runtimeConfig: {
+            config: {},
             keyVaults: { apiKey: 'private-key', baseURL: 'https://example.com/v1' },
             settings: { sdkType: 'anthropic' },
           },
