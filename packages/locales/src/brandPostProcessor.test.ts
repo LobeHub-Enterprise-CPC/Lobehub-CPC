@@ -107,6 +107,19 @@ describe('applyBrandStrings', () => {
 });
 
 describe('brandPostProcessor', () => {
+  it.each([
+    { keys: 'builtins.lobe-agent.title' },
+    { keys: ['unrelated', 'builtins.lobe-agent.title'] },
+  ])('resolves the capability title for key $keys', ({ keys }) => {
+    expect(brandPostProcessor.process('能力名称', keys, {}, {} as never)).toBe('Acme Agent');
+  });
+
+  it('rewrites ordinary copy when i18next supplies a single key', () => {
+    expect(brandPostProcessor.process('Ask Lobe AI', 'greeting', {}, {} as never)).toBe(
+      'Ask Acme Assistant',
+    );
+  });
+
   it('brands shipped locale text and resolves the exact skill name through i18next', async () => {
     const root = new URL('../../../locales/', import.meta.url);
     const instance = i18next.createInstance().use(brandPostProcessor);
@@ -128,7 +141,7 @@ describe('brandPostProcessor', () => {
         instance.addResourceBundle(locale.name, ns, resources);
         for (const [key, value] of Object.entries(resources)) {
           if (typeof value !== 'string' || !value.includes('Lobe')) continue;
-          const translated = instance.t(key, { lng: locale.name, ns });
+          const translated = instance.t(`${ns}:${key}`, value, { lng: locale.name });
           expect(translated, `${locale.name}/${ns}:${key}`).not.toContain('Lobe');
           if (key.endsWith('builtins.lobe-agent.title')) expect(translated).toBe('Acme Agent');
         }

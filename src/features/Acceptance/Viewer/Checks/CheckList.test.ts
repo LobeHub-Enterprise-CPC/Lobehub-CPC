@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { hasAnnotatableEvidence, hasVisualEvidence } from '../Evidence/evidence';
@@ -22,6 +25,20 @@ import { type AcceptanceCheck } from './types';
 
 const check = (id: string, category: string | null, surface: AcceptanceCheck['surface']) =>
   ({ category, id, surface }) as AcceptanceCheck;
+
+it('ships translations for the check row rejection actions', () => {
+  const source = readFileSync(path.resolve(__dirname, './CheckRow.tsx'), 'utf8');
+  const keys = [...source.matchAll(/t\('(acceptance\.review\.reject[^']*)'\)/g)].map(
+    ([, key]) => key,
+  );
+  expect(keys.length).toBeGreaterThan(0);
+  for (const locale of ['en-US', 'zh-CN']) {
+    const translations = JSON.parse(
+      readFileSync(path.resolve(__dirname, `../../../../../locales/${locale}/verify.json`), 'utf8'),
+    );
+    for (const key of keys) expect(translations[key], `${locale}: ${key}`).toBeTruthy();
+  }
+});
 
 describe('groupChecks', () => {
   it('groups checks by business category', () => {

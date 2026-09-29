@@ -150,7 +150,7 @@ describe('model-facing lh CLI docs', () => {
   );
 
   it('flags a stale command and a stale option', () => {
-    expect(checkSnippet('lh config whoami')).toEqual(['unknown command "lh config"']);
+    expect(checkSnippet('lh config whoami')).toEqual(['unknown command "lh config whoami"']);
     expect(checkSnippet('lh eval run get --run-id <id>')).toEqual([
       'unknown option --run-id on "lh eval run get"',
       'missing required option --id on "lh eval run get"',

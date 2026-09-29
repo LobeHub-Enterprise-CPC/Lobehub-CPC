@@ -173,6 +173,22 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+it('uploads each selected file once through the attachment picker', async () => {
+  const { container } = setup();
+  const files = [file('first.txt'), file('second.txt')];
+  const picker = container.querySelector('input[type="file"]')!;
+  expect(picker).toHaveAttribute('multiple');
+  fireEvent.change(picker, { target: { files } });
+  await waitFor(() => expect(state.uploadWithProgress).toHaveBeenCalledTimes(2));
+  expect(state.uploadWithProgress.mock.calls.map(([args]) => args.file.name)).toEqual([
+    'first.txt',
+    'second.txt',
+  ]);
+  await waitFor(() =>
+    expect(screen.getByRole('group', { name: 'second.txt' })).toHaveTextContent('success'),
+  );
+});
+
 describe.each([
   ['Windows', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', { ctrlKey: true }],
   ['macOS', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', { metaKey: true }],

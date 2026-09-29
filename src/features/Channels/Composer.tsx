@@ -14,8 +14,7 @@ import {
   useEditor,
 } from '@lobehub/editor/react';
 import { Flexbox, InputNumber, Tooltip } from '@lobehub/ui';
-import { ActionIcon } from '@lobehub/ui/base-ui';
-import { Upload } from 'antd';
+import { ActionIcon, Upload } from '@lobehub/ui/base-ui';
 import { $getSelection, $isRangeSelection } from 'lexical';
 import { Paperclip } from 'lucide-react';
 import { useRef, useState } from 'react';
@@ -153,11 +152,7 @@ export function Composer({
                     <Upload
                       multiple
                       disabled={busy || !canUpload}
-                      showUploadList={false}
-                      beforeUpload={(file, files) => {
-                        if (file === files[0]) void upload(files);
-                        return false;
-                      }}
+                      onFiles={(files) => void upload(files)}
                     >
                       <ActionIcon
                         aria-label={t('attachments.upload')}
