@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/const';
 import { RadarChart } from '@lobehub/charts';
 import { createStaticStyles, cssVar } from 'antd-style';
 import type { ModelRating, ModelRatingSource } from 'model-bank';
@@ -21,7 +22,7 @@ export const RATING_SOURCE_NAMES: Record<ModelRatingSource, string> = {
   'artificial-analysis': 'Artificial Analysis',
   'design-arena': 'Design Arena',
   'lmarena': 'LMArena',
-  'lobehub': 'LobeHub',
+  'lobehub': BRANDING_NAME,
 };
 
 /** below this coverage the radar reads as broken — callers fall back to a list */
