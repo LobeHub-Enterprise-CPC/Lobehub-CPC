@@ -593,6 +593,9 @@ importers:
 
   ../../packages/prompts:
     dependencies:
+      '@lobechat/business-const':
+        specifier: workspace:*
+        version: link:../../apps/desktop/stubs/business-const
       '@lobechat/const':
         specifier: workspace:*
         version: link:../const
@@ -775,6 +778,9 @@ importers:
       '@lobechat/device-identity':
         specifier: workspace:*
         version: link:../../packages/device-identity
+      '@lobechat/device-sandbox':
+        specifier: workspace:*
+        version: link:../../packages/device-sandbox
       '@lobechat/eval-rubric':
         specifier: workspace:*
         version: link:../../packages/eval-rubric
