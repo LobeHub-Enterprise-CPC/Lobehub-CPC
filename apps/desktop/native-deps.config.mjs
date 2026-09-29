@@ -137,9 +137,11 @@ export function getAsarUnpackPatterns() {
   return [
     ...firstPartyNativeAddons.map((addon) => `node_modules/${addon.name}/build/Release/*.node`),
     'node_modules/@lydell/node-pty-*/prebuilds/**/*.node',
+    'node_modules/@lydell/node-pty-*/prebuilds/**/*.{exe,dll}',
     'node_modules/@lydell/node-pty-*/prebuilds/*/spawn-helper',
     'node_modules/font-list/libs/darwin/fontlist',
     'node_modules/get-windows/main',
+    'node_modules/get-windows/lib/binding/**/*.node',
     'node_modules/node-mac-permissions/build/Release/permissions.node',
     'node_modules/node-screenshots-*/*.node',
   ];

@@ -121,4 +121,14 @@ describe('computeShellAbi', () => {
   it('normalizes CRLF and whitespace in the public key', () => {
     expect(abi('KEY\r\n')).toBe(abi('KEY'));
   });
+
+  it('hashes the effective build when a distribution omits a tracked asset', () => {
+    const base = abi();
+    fs.unlinkSync(path.join(root, 'apps/desktop/build/Icon.Assets.car'));
+    const withoutAsset = abi();
+    expect(withoutAsset).not.toBe(base);
+    expect(abi()).toBe(withoutAsset);
+    write('apps/desktop/build/Icon.Assets.car', 'car');
+    expect(abi()).toBe(base);
+  });
 });
