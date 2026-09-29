@@ -38,18 +38,6 @@ class GitHubService {
       title: `[Config Import Error] ${message}`,
     });
   };
-
-  submitPgliteInitError = (error?: { message: string }) => {
-    const body = ['```json', JSON.stringify(error, null, 2), '```'].join('\n');
-
-    const message = error?.message || '';
-
-    openIssue({
-      body,
-      labels: '❌ Database Init Error',
-      title: `[Database Init Error] ${message}`,
-    });
-  };
 }
 
 export const githubService = new GitHubService();

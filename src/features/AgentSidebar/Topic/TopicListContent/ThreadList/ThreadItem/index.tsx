@@ -7,7 +7,6 @@ import { useChatStore } from '@/store/chat';
 
 import { useThreadNavigation } from '../../../hooks/useThreadNavigation';
 import Actions from './Actions';
-import Editing from './Editing';
 import { useThreadItemDropdownMenu } from './useDropdownMenu';
 
 export interface ThreadItemProps {
@@ -19,24 +18,13 @@ export interface ThreadItemProps {
 }
 
 const ThreadItem = memo<ThreadItemProps>(({ title, id, isSubagent, sourceMessageId }) => {
-  const [editing, activeThreadId] = useChatStore((s) => [
-    s.threadRenamingId === id,
-    s.activeThreadId,
-  ]);
+  const activeThreadId = useChatStore((s) => s.activeThreadId);
 
   const { navigateToThread, isInAgentSubRoute } = useThreadNavigation();
 
-  const toggleEditing = useCallback(
-    (visible?: boolean) => {
-      useChatStore.setState({ threadRenamingId: visible ? id : '' });
-    },
-    [id],
-  );
-
   const handleClick = useCallback(() => {
-    if (editing) return;
     navigateToThread(id);
-  }, [editing, id, navigateToThread]);
+  }, [id, navigateToThread]);
 
   const handleDragStart = useCallback(
     (event: DragEvent) => {
@@ -48,7 +36,7 @@ const ThreadItem = memo<ThreadItemProps>(({ title, id, isSubagent, sourceMessage
   const dropdownMenu = useThreadItemDropdownMenu({
     id,
     sourceMessageId,
-    toggleEditing,
+    title,
   });
 
   const active = id === activeThreadId;
@@ -61,13 +49,11 @@ const ThreadItem = memo<ThreadItemProps>(({ title, id, isSubagent, sourceMessage
         active={active && !isInAgentSubRoute}
         contextMenuItems={dropdownMenu}
         data-thread-id={id}
-        disabled={editing}
         nested={isSubagent}
         title={title}
         onClick={handleClick}
         onDragStart={handleDragStart}
       />
-      <Editing id={id} title={title} toggleEditing={toggleEditing} />
     </>
   );
 });

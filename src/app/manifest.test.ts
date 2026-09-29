@@ -40,7 +40,7 @@ describe('production PWA manifest identity', () => {
   });
 
   it('keeps distinct installed icons and maskable safe areas under custom branding', async () => {
-    const result = await loadManifest({ name: 'TITU Work', pwaId: 'ti-tu-work' });
+    const result = await loadManifest({ name: 'Acme Workspace', pwaId: 'acme-workspace' });
     expect(result.icons).toEqual([
       expect.objectContaining({
         src: '/app-icons/icon-192x192.png?v=1',

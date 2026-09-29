@@ -81,7 +81,7 @@ describe('customBrandingLoadingScreen', () => {
 
   it('renders both themed wordmarks without changing the remaining shell', async () => {
     vi.doMock('@lobechat/business-const/branding', () => ({
-      BRANDING_NAME: 'TITU Work',
+      BRANDING_NAME: 'Acme Workspace',
       BRANDING_WORDMARK_URL: '/branding/light.svg?a=1&b=2',
       BRANDING_WORDMARK_DARK_URL: '/branding/dark.svg',
     }));
@@ -98,7 +98,7 @@ describe('customBrandingLoadingScreen', () => {
     'keeps wordmarks reachable after a production build with base %s',
     async (base) => {
       vi.doMock('@lobechat/business-const/branding', () => ({
-        BRANDING_NAME: 'TITU Work',
+        BRANDING_NAME: 'Acme Workspace',
         BRANDING_WORDMARK_DARK_URL: '/branding/dark.svg',
         BRANDING_WORDMARK_URL: '/branding/light.svg',
       }));

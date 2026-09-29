@@ -188,6 +188,7 @@ export class UpdaterManager {
       return;
     }
 
+    if (manual) void this.app.coreUpdateManager.checkForUpdates({ manual: true });
     if (this.checking || this.downloading) return;
 
     this.checking = true;
@@ -280,7 +281,7 @@ export class UpdaterManager {
     }
   };
 
-  private captureRestoreRoute = () => {
+  captureRestoreRoute = () => {
     try {
       const url = this.mainWindow.webContents?.getURL();
       if (!url) return;
@@ -506,6 +507,8 @@ export class UpdaterManager {
         logger.info(
           `Skipping auto-download — install-later acknowledged for v${this.installLaterVersion}, incoming v${info.version}`,
         );
+        // Finish the check with the cached update still installable, without reopening its prompt.
+        this.setStage('downloaded');
         return;
       }
 

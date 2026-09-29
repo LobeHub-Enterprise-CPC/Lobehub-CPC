@@ -11,23 +11,23 @@ import {
 } from './brandPostProcessor';
 
 vi.mock('@lobechat/const', () => ({
-  BRANDING_AGENT_TITLE: 'TITU Agent',
-  BRANDING_NAME: 'TITU Work',
-  DEFAULT_INBOX_TITLE: 'TITU AI',
-  LOBE_CHAT_CLOUD: 'TITU Work Cloud',
+  BRANDING_AGENT_TITLE: 'Acme Agent',
+  BRANDING_NAME: 'Acme Workspace',
+  DEFAULT_INBOX_TITLE: 'Acme Assistant',
+  LOBE_CHAT_CLOUD: 'Acme Workspace Cloud',
 }));
 
 // Exercise the deployment's distinct product, assistant and capability names.
 describe('applyBrandStrings', () => {
   it('brands the skill title and description, including Traditional Chinese copy', () => {
-    expect(applyBrandStrings('Lobe Agent')).toBe('TITU Agent');
+    expect(applyBrandStrings('Lobe Agent')).toBe('Acme Agent');
     expect(applyBrandStrings('內建 Lobe Agent 功能：計劃和待辦事項管理')).toBe(
-      '內建 TITU Agent 功能：計劃和待辦事項管理',
+      '內建 Acme Agent 功能：計劃和待辦事項管理',
     );
   });
 
   it('brands the compact assistant spelling used by skill and workspace screens', () => {
-    expect(applyBrandStrings('Use in LobeAI')).toBe('Use in TITU AI');
+    expect(applyBrandStrings('Use in LobeAI')).toBe('Use in Acme Assistant');
   });
 
   it('preserves technical identifiers, package names and URLs', () => {
@@ -86,7 +86,7 @@ describe('applyBrandStrings', () => {
 
   it('brands bare and translated compound names without changing surrounding copy', () => {
     expect(applyBrandStrings('Lobe言語モデル / Lobe Style / Lobe-Agent')).toBe(
-      'TITU Work言語モデル / TITU Work Style / TITU Agent',
+      'Acme Workspace言語モデル / Acme Workspace Style / Acme Agent',
     );
   });
 
@@ -130,7 +130,7 @@ describe('brandPostProcessor', () => {
           if (typeof value !== 'string' || !value.includes('Lobe')) continue;
           const translated = instance.t(key, { lng: locale.name, ns });
           expect(translated, `${locale.name}/${ns}:${key}`).not.toContain('Lobe');
-          if (key.endsWith('builtins.lobe-agent.title')) expect(translated).toBe('TITU Agent');
+          if (key.endsWith('builtins.lobe-agent.title')) expect(translated).toBe('Acme Agent');
         }
       }
     }

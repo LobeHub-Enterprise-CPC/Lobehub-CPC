@@ -35,6 +35,13 @@ const setup = (initial: UpdaterState, enabled = true) => {
 };
 
 describe('toAppUpdateState', () => {
+  it('maps a feed-disabled build to the remote unsupported stage', () => {
+    expect(toAppUpdateState({ stage: 'disabled' }, '2.1.0')).toEqual({
+      currentVersion: '2.1.0',
+      stage: 'unsupported',
+    });
+  });
+
   it('reports progress and target while downloading', () => {
     expect(
       toAppUpdateState(
