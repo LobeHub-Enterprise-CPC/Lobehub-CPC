@@ -3,8 +3,7 @@
 import { ExclamationCircleOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import { BRANDING_EMAIL } from '@lobechat/business-const';
 import { FluentEmoji } from '@lobehub/ui';
-import { Button, Text } from '@lobehub/ui/base-ui';
-import { Result } from 'antd';
+import { Button, Result, Text } from '@lobehub/ui/base-ui';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 

@@ -2,7 +2,7 @@
 name: acceptance
 license: Apache-2.0
 metadata:
-  version: '0.5.2'
+  version: "0.5.2"
 description: >
   End-to-end verification and self-evidence for a delivery in any repository,
   with or without a preconfigured verify plan. Discover an existing plan when
@@ -217,7 +217,6 @@ execution semantics.
    `subFlowId` (another flow in this acceptance). Edges have `id`, `sourceNodeId`,
    `targetNodeId`, `trigger`, `required`, and optional `condition`. Every node must
    be reachable from the entry. Publish child flows before referencing them.
-
 2. `lh acceptance flow publish <acceptanceId> --file flow.json` saves the
    definition and returns `flowId`. To edit it, include that `flowId` and the
    current `expectedHash` in the file. `lh acceptance flow view <acceptanceId>`
@@ -472,17 +471,17 @@ simctl io` over host-window capture. Rounds land under `.acceptances/`, which
 For both acceptance-checker handoffs and review output, read
 [acceptance-checker.md](references/acceptance-checker.md).
 
-| Need                                               | Reference                                                                                                                                                                               |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The project layer, bootstrapping an adapter        | [project-adapter.md](references/project-adapter.md)                                                                                                                                     |
-| Mistakes checklist (read every round)              | [common-mistakes.md](references/common-mistakes.md)                                                                                                                                     |
-| Forcing state, error injection, runtime probes     | [probe-mock-patterns.md](references/probe-mock-patterns.md)                                                                                                                             |
-| Authored rounds, `result.json`, ingest             | [report.md](references/report.md)                                                                                                                                                       |
-| Plan-driven rounds: schema, submit, coverage       | [plan-format.md](references/plan-format.md)                                                                                                                                             |
-| Evidence media, provenance, submission, safety     | [evidence.md](references/evidence.md)                                                                                                                                                   |
-| Interaction cost overlay                           | [interaction-cost.md](references/interaction-cost.md)                                                                                                                                   |
-| Web/Electron Chromium CLI commands                 | [agent-browser.md](references/agent-browser.md)                                                                                                                                         |
-| Bundled CDP screenshot and macOS capture preflight | [screenshot-helpers.md](references/screenshot-helpers.md)                                                                                                                               |
-| Authenticated Web session                          | [auth-web.md](references/auth-web.md)                                                                                                                                                   |
-| Native macOS / OS-owned step                       | [computer-use.md](references/computer-use.md)                                                                                                                                           |
-| Temporal evidence: Web/Electron, iOS, native       | [recording-cdp.md](references/recording-cdp.md), [recording-ios-simulator.md](references/recording-ios-simulator.md), [recording-native-macos.md](references/recording-native-macos.md) |
+| Need                                           | Reference                                                                                                                                                                               |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The project layer, bootstrapping an adapter    | [project-adapter.md](references/project-adapter.md)                                                                                                                                     |
+| Mistakes checklist (read every round)          | [common-mistakes.md](references/common-mistakes.md)                                                                                                                                     |
+| Forcing state, error injection, runtime probes | [probe-mock-patterns.md](references/probe-mock-patterns.md)                                                                                                                             |
+| Authored rounds, `result.json`, ingest         | [report.md](references/report.md)                                                                                                                                                       |
+| Plan-driven rounds: schema, submit, coverage   | [plan-format.md](references/plan-format.md)                                                                                                                                             |
+| Evidence media, provenance, submission, safety | [evidence.md](references/evidence.md)                                                                                                                                                   |
+| Interaction cost overlay                       | [interaction-cost.md](references/interaction-cost.md)                                                                                                                                   |
+| Web/Electron Chromium CLI commands             | [agent-browser.md](references/agent-browser.md)                                                                                                                                         |
+| Bundled CDP screenshot and macOS capture preflight | [screenshot-helpers.md](references/screenshot-helpers.md) |
+| Authenticated Web session                      | [auth-web.md](references/auth-web.md)                                                                                                                                                   |
+| Native macOS / OS-owned step                   | [computer-use.md](references/computer-use.md)                                                                                                                                           |
+| Temporal evidence: Web/Electron, iOS, native   | [recording-cdp.md](references/recording-cdp.md), [recording-ios-simulator.md](references/recording-ios-simulator.md), [recording-native-macos.md](references/recording-native-macos.md) |

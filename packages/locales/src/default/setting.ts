@@ -636,10 +636,20 @@ export default {
   'devices.channel.connected': 'Connected {{time}}',
   'devices.channel.unknown': 'Unknown client',
   'devices.currentBadge': 'This device',
+  'devices.agents.empty': 'No agents found on this device',
+  'devices.agents.error': 'Could not check this device: {{error}}',
+  'devices.agents.installed': 'Installed',
+  'devices.agents.offline':
+    'This device is offline. Installed agents are detected once it reconnects.',
+  'devices.agents.rescan': 'Check again',
+  'devices.agents.scanning': 'Checking installed agents…',
   'devices.detail.addDir': 'Add directory',
   'devices.detail.connections': 'Connections',
   'devices.detail.noRecent': 'No recent directories',
   'devices.detail.recentDirs': 'Recent directories',
+  'devices.detail.tabs.agents': 'Agent runtimes',
+  'devices.detail.tabs.files': 'Directories',
+  'devices.detail.tabs.overview': 'Overview',
   'devices.edit.browse': 'Browse…',
   'devices.edit.cancel': 'Cancel',
   'devices.edit.defaultCwd': 'Default working directory',
@@ -691,6 +701,29 @@ export default {
   'devices.fallbackBadge': 'Unstable identity',
   'devices.fallbackTooltip':
     "This device couldn't be identified by its machine ID, so reinstalling the app may create a duplicate entry.",
+  'devices.health.cpu': 'CPU',
+  'devices.health.error': "Couldn't load health data",
+  'devices.health.loading': 'Loading health data…',
+  'devices.health.retry': 'Retry',
+  'devices.health.cpuCores_one': 'CPU · {{count}} core',
+  'devices.health.cpuCores_other': 'CPU · {{count}} cores',
+  'devices.health.level.critical': 'Critical',
+  'devices.health.level.high': 'High',
+  'devices.health.level.missing': 'No data',
+  'devices.health.level.normal': 'Normal',
+  'devices.health.level.offline': 'Disconnected',
+  'devices.health.loadShort': 'Load',
+  'devices.health.load_one': 'Load · {{count}} core',
+  'devices.health.load_other': 'Load · {{count}} cores',
+  'devices.health.empty':
+    'No health data yet. It starts recording once this device runs the latest LobeHub desktop app or CLI.',
+  'devices.health.memory': 'Memory',
+  'devices.health.now': 'Now',
+  'devices.health.status.missing': 'No data — asleep, off, or LobeHub not running',
+  'devices.health.status.offline': 'Running but disconnected',
+  'devices.health.status.online': 'Online',
+  'devices.health.status.pending': 'Not uploaded yet',
+  'devices.health.title': 'Health · last 12 hours',
   'devices.lastSeen': 'Last connected {{time}}',
   'devices.remove.confirm': 'Remove this device?',
   'devices.remove.confirmDesc':
@@ -1162,6 +1195,9 @@ export default {
   'settingChat.enableHistoryCount.setlimited': 'Set limited history messages',
   'settingChat.enableHistoryCount.title': 'Limit History Message Count',
   'settingChat.enableHistoryCount.unlimited': 'Unlimited history message count',
+  'settingChat.enableStaleToolResultTrim.desc':
+    'Replace outdated tool outputs (overwritten file reads, old browser snapshots, stale command output) with short placeholders in the model context to save tokens. Disable if the assistant needs full historical tool output.',
+  'settingChat.enableStaleToolResultTrim.title': 'Trim Stale Tool Results',
   'settingChat.enableStreaming.desc':
     'Enable streaming output to display responses in real-time. When disabled, only the complete response is shown.',
   'settingChat.enableStreaming.title': 'Enable Streaming Output',
@@ -1467,22 +1503,11 @@ export default {
   'settingSystemTools.tools.qwen.desc': 'Qwen Code - Alibaba Qwen agentic coding CLI',
   'settingSystemTools.tools.rg.desc': 'ripgrep - extremely fast text search tool',
   'settingSystemTools.tools.uv.desc': 'uv - extremely fast Python package manager',
-  'settingTTS.openai.sttModel': 'OpenAI Speech-to-Text Model',
   'settingTTS.openai.title': 'OpenAI',
   'settingTTS.openai.ttsModel': 'OpenAI Text-to-Speech Model',
   'settingTTS.showAllLocaleVoice.desc':
     'If closed, only voices in the current language will be displayed',
   'settingTTS.showAllLocaleVoice.title': 'Show All Locale Voices',
-  'settingTTS.stt': 'Speech Recognition Settings',
-  'settingTTS.sttAutoStop.desc':
-    'When closed, speech recognition will not end automatically and requires manual click to stop',
-  'settingTTS.sttAutoStop.title': 'Auto Stop Speech Recognition',
-  'settingTTS.sttLocale.desc':
-    'The language of the speech input, this option can improve the accuracy of speech recognition',
-  'settingTTS.sttLocale.title': 'Speech Recognition Language',
-  'settingTTS.sttService.desc':
-    "Where 'browser' is the native speech recognition service of the browser",
-  'settingTTS.sttService.title': 'Speech Recognition Service',
   'settingTTS.submit': 'Update Voice Service',
   'settingTTS.title': 'Speech Service',
   'settingTTS.tts': 'Text-to-Speech Settings',
@@ -1493,6 +1518,16 @@ export default {
     'Select a voice for the current agent, different TTS services support different voices',
   'settingTTS.voice.preview': 'Voice Preview',
   'settingTTS.voice.title': 'Text-to-Speech Voice',
+  'settingTool.crawler.desc':
+    'Order the services used to read full web pages. Higher items are tried first; disabled ones are skipped. Some sites, such as PDFs and YouTube, always use a dedicated service.',
+  'settingTool.crawler.title': 'Web Reader',
+  'settingTool.empty': 'No services available',
+  'settingTool.item.disabled': 'Disabled',
+  'settingTool.item.enabled': 'Enabled',
+  'settingTool.item.locked': 'Keep at least one service enabled',
+  'settingTool.search.desc':
+    'Order the services used to search the web. Higher items are tried first; disabled ones are skipped.',
+  'settingTool.search.title': 'Search Engines',
   'skillGroup.agentConnectors': 'Agent Connectors',
   'skillGroup.builtinSkills': 'Built-in Skills',
   'skillGroup.builtinTools': 'Built-in Tools',
@@ -1646,6 +1681,10 @@ When I am ___, I need ___
   'systemAgent.agentMeta.modelDesc':
     'Model used to generate names, descriptions, avatars, and tags',
   'systemAgent.agentMeta.title': 'Profile Generation',
+  'systemAgent.asr.modelDesc':
+    'Transcribes voice messages to Claude Code and other external agents, which only accept text. Voice input for those agents stays hidden while no model is set or its provider is not enabled.',
+  'systemAgent.asr.placeholder': 'Select a speech-to-text model',
+  'systemAgent.asr.title': 'Voice Message Transcription',
   'systemAgent.expertise.modelDesc':
     'Model used to draft expertise domains and extract reusable experience from conversations.',
   'systemAgent.expertise.title': 'Agent Self-Evolution',
@@ -1764,10 +1803,14 @@ When I am ___, I need ___
   'tab.storage': 'Storage',
   'tab.sync': 'Cloud Sync',
   'tab.systemTools': 'System Tools',
+  'tab.tools': 'Tools',
   'tab.tts': 'Text-to-Speech',
   'tab.uploadZip': 'Upload Zip',
   'tab.uploadZip.desc': 'Upload a local .zip or .skill file',
   'tab.usage': 'Usage',
+  'tools.builtins.lobe-attachments.description':
+    'Page through attached files that were too long to include in full',
+  'tools.builtins.lobe-attachments.title': 'Attachments',
   'workspace.create.descPlaceholder': 'Describe what this workspace is for (optional)',
   'workspace.create.namePlaceholder': 'e.g. Acme Team',
   'workspace.create.submit': 'Create workspace',
@@ -1864,6 +1907,10 @@ When I am ___, I need ___
     'Free workspaces are limited to {{maxSeats}} seats and do not include monthly workspace credits. You can keep using the workspace and upgrade again in the future.',
   'workspace.billingPage.billing.cancelPlanModal.overLimitDesc':
     'This workspace currently has {{currentSeats}} billable members. Free supports up to {{maxSeats}} seats. Remove members or change them to {{viewerRole}} before canceling the plan.',
+  'workspace.billingPage.billing.cancelPlanModal.pendingInvitationsNotice_one':
+    'This workspace has {{pending}} pending invites and Free supports up to {{maxSeats}} seats, so {{count}} of them will no longer fit. The seat goes to whoever accepts first, and the other is turned away when they try to join. To choose who keeps it, revoke the other invite before continuing.',
+  'workspace.billingPage.billing.cancelPlanModal.pendingInvitationsNotice_other':
+    'This workspace has {{pending}} pending invites and Free supports up to {{maxSeats}} seats, so {{count}} of them will no longer fit. Seats go to whoever accepts first, and the rest are turned away when they try to join. To choose who keeps a seat, revoke the other invites before continuing.',
   'workspace.billingPage.billing.cancelPlanModal.seatLimit': '{{maxSeats}} seats',
   'workspace.billingPage.billing.cancelPlanModal.title': 'Cancel plan?',
   'workspace.billingPage.billing.downgradePlanModal.body':

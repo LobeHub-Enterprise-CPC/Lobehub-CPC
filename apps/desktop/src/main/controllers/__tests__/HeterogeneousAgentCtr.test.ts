@@ -5,13 +5,16 @@ import * as os from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 
+import { BRANDING_NAME } from '@lobechat/business-const';
 import type { CodexQuotaSnapshot, KimiCodeQuotaSnapshot } from '@lobechat/electron-client-ipc';
 import { HeterogeneousAgentSessionErrorCode } from '@lobechat/electron-client-ipc';
 import {
   HETERO_EXEC_INHERIT_PROCESS_GROUP_ENV,
   lobeHubCliGuide,
 } from '@lobechat/heterogeneous-agents/protocol';
+import type { CodexAppServerClient as NativeCodexAppServerClient } from '@lobechat/heterogeneous-agents/spawn';
 import { AcpRpcResponseError } from '@lobechat/heterogeneous-agents/spawn';
+import * as managedProcess from '@lobechat/utils/managedProcess';
 // `electron` is mocked below; this binding is the mock object so tests can
 // flip `isPackaged` to exercise the packaged-build tracing gate.
 import { app as electronAppMock } from 'electron';
@@ -305,13 +308,14 @@ vi.mock('@lobechat/heterogeneous-agents/spawn', async (importOriginal) => {
     }
   }
 
-  class MockCodexAppServerClient {
+  class MockCodexAppServerClient extends (actual.CodexAppServerClient as typeof NativeCodexAppServerClient) {
     constructor(options: any) {
+      super(options);
       codexAppServerClientConstructMock(options);
     }
 
-    canReuseFor() {
-      return codexAppServerCanReuse.value;
+    canReuseFor(options: Parameters<NativeCodexAppServerClient['canReuseFor']>[0]) {
+      return codexAppServerCanReuse.value && super.canReuseFor(options);
     }
 
     get hasConsumers() {
@@ -2494,7 +2498,7 @@ describe('HeterogeneousAgentCtr', () => {
           sessionId: providerSession.sessionId,
         }),
       ).rejects.toThrow(
-        'Kimi Code 0.6.0 or newer is required to use a LobeHub provider. Installed version: 0.5.0.',
+        `Kimi Code 0.6.0 or newer is required to use a ${BRANDING_NAME} provider. Installed version: 0.5.0.`,
       );
       expect(spawnCalls).toHaveLength(0);
 
@@ -3389,27 +3393,50 @@ describe('HeterogeneousAgentCtr', () => {
       expect(send).toHaveBeenCalledWith('heteroAgentSessionComplete', { sessionId });
     });
 
-    it('reuses one native app-server client for multiple new Codex sessions', async () => {
-      const ctr = new HeterogeneousAgentCtr({
-        appStoragePath,
-        storeManager: { get: vi.fn() },
-      } as any);
-      const first = await ctr.startSession({
-        agentType: 'codex',
-        command: 'codex',
-        useCodexAppServer: true,
-      });
-      const second = await ctr.startSession({
-        agentType: 'codex',
-        command: 'codex',
-        useCodexAppServer: true,
-      });
+    it('reuses one native app-server client for sessions owned by different topics and agents', async () => {
+      const registry = new managedProcess.ManagedProcessRegistry();
+      const environment = vi
+        .spyOn(managedProcess, 'managedProcessEnvironment')
+        .mockImplementation(registry.environment.bind(registry));
+      try {
+        const ctr = new HeterogeneousAgentCtr({
+          appStoragePath,
+          storeManager: { get: vi.fn() },
+        } as any);
+        const first = await ctr.startSession({
+          agentType: 'codex',
+          command: 'codex',
+          useCodexAppServer: true,
+        });
+        const second = await ctr.startSession({
+          agentType: 'codex',
+          command: 'codex',
+          useCodexAppServer: true,
+        });
 
-      await ctr.sendPrompt({ operationId: 'op-1', prompt: 'first', sessionId: first.sessionId });
-      await ctr.sendPrompt({ operationId: 'op-2', prompt: 'second', sessionId: second.sessionId });
+        await ctr.sendPrompt({
+          agentId: 'agent-1',
+          topicId: 'topic-1',
+          operationId: 'op-1',
+          prompt: 'first',
+          sessionId: first.sessionId,
+        });
+        await ctr.sendPrompt({
+          agentId: 'agent-2',
+          topicId: 'topic-2',
+          operationId: 'op-2',
+          prompt: 'second',
+          sessionId: second.sessionId,
+        });
 
-      expect(codexAppServerClientConstructMock).toHaveBeenCalledTimes(1);
-      expect(codexAppServerConstructMock).toHaveBeenCalledTimes(2);
+        expect(codexAppServerClientConstructMock).toHaveBeenCalledTimes(1);
+        expect(codexAppServerConstructMock).toHaveBeenCalledTimes(2);
+        const { env } = codexAppServerClientConstructMock.mock.calls[0][0];
+        expect(env.LOBEHUB_PROCESS_TOPIC).toBeUndefined();
+        expect(env.AGENT_BROWSER_NAMESPACE).toBeUndefined();
+      } finally {
+        environment.mockRestore();
+      }
     });
 
     it('reuses one native thread session across multiple turns', async () => {
@@ -4239,7 +4266,7 @@ describe('HeterogeneousAgentCtr', () => {
         '-c',
         'model_provider="lobehub"',
         '-c',
-        'model_providers.lobehub.name="LobeHub Provider"',
+        'model_providers.lobehub.name="Application Provider"',
         '-c',
         'model_providers.lobehub.base_url="https://api.openai.com/v1"',
         '-c',
@@ -4306,7 +4333,7 @@ describe('HeterogeneousAgentCtr', () => {
         '-c',
         'model_provider="lobehub"',
         '-c',
-        'model_providers.lobehub.name="LobeHub Provider"',
+        'model_providers.lobehub.name="Application Provider"',
         '-c',
         'model_providers.lobehub.base_url="https://app.example.com/api/v1/openai/v1"',
         '-c',
@@ -4359,7 +4386,7 @@ describe('HeterogeneousAgentCtr', () => {
           sessionId: providerSession.sessionId,
         }),
       ).rejects.toThrow(
-        'TRAE CLI 0.201.2 or newer is required to use a LobeHub provider. Installed version: 0.201.1.',
+        `TRAE CLI 0.201.2 or newer is required to use a ${BRANDING_NAME} provider. Installed version: 0.201.1.`,
       );
       expect(traeAcpSessionConstructMock).not.toHaveBeenCalled();
 

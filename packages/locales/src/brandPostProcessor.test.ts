@@ -1,5 +1,8 @@
+import { readdirSync, readFileSync } from 'node:fs';
+
 import { BRANDING_NAME, DEFAULT_INBOX_TITLE, LOBE_CHAT_CLOUD } from '@lobechat/const';
-import { describe, expect, it } from 'vitest';
+import i18next from 'i18next';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   applyBrandStrings,
@@ -7,10 +10,31 @@ import {
   isBrandPostProcessorEnabled,
 } from './brandPostProcessor';
 
-// These assertions hold under both default and custom branding: with default
-// branding every constant still equals the upstream literal, so each rewrite is
-// the identity.
+vi.mock('@lobechat/const', () => ({
+  BRANDING_AGENT_TITLE: 'TITU Agent',
+  BRANDING_NAME: 'TITU Work',
+  DEFAULT_INBOX_TITLE: 'TITU AI',
+  LOBE_CHAT_CLOUD: 'TITU Work Cloud',
+}));
+
+// Exercise the deployment's distinct product, assistant and capability names.
 describe('applyBrandStrings', () => {
+  it('brands the skill title and description, including Traditional Chinese copy', () => {
+    expect(applyBrandStrings('Lobe Agent')).toBe('TITU Agent');
+    expect(applyBrandStrings('內建 Lobe Agent 功能：計劃和待辦事項管理')).toBe(
+      '內建 TITU Agent 功能：計劃和待辦事項管理',
+    );
+  });
+
+  it('brands the compact assistant spelling used by skill and workspace screens', () => {
+    expect(applyBrandStrings('Use in LobeAI')).toBe('Use in TITU AI');
+  });
+
+  it('preserves technical identifiers, package names and URLs', () => {
+    const value = 'lobe-agent @lobehub/ui https://lobehub.com';
+    expect(applyBrandStrings(value)).toBe(value);
+  });
+
   it('rewrites the upstream assistant name to the deployment default', () => {
     expect(applyBrandStrings('Ask Lobe AI')).toBe(`Ask ${DEFAULT_INBOX_TITLE}`);
   });
@@ -57,6 +81,13 @@ describe('applyBrandStrings', () => {
 
   it('leaves unrelated copy untouched', () => {
     expect(applyBrandStrings('Start a new topic')).toBe('Start a new topic');
+    expect(applyBrandStrings('Lobelia LobeAgentIdentifier')).toBe('Lobelia LobeAgentIdentifier');
+  });
+
+  it('brands bare and translated compound names without changing surrounding copy', () => {
+    expect(applyBrandStrings('Lobe言語モデル / Lobe Style / Lobe-Agent')).toBe(
+      'TITU Work言語モデル / TITU Work Style / TITU Agent',
+    );
   });
 
   it('is enabled exactly when at least one rewrite pair is non-identity', () => {
@@ -76,8 +107,37 @@ describe('applyBrandStrings', () => {
 });
 
 describe('brandPostProcessor', () => {
+  it('brands shipped locale text and resolves the exact skill name through i18next', async () => {
+    const root = new URL('../../../locales/', import.meta.url);
+    const instance = i18next.createInstance().use(brandPostProcessor);
+    await instance.init({
+      fallbackLng: false,
+      keySeparator: false,
+      lng: 'en-US',
+      postProcess: ['brandStrings'],
+    });
+
+    for (const locale of readdirSync(root, { withFileTypes: true }).filter((dir) =>
+      dir.isDirectory(),
+    )) {
+      for (const file of readdirSync(new URL(`${locale.name}/`, root)).filter((file) =>
+        file.endsWith('.json'),
+      )) {
+        const resources = JSON.parse(readFileSync(new URL(`${locale.name}/${file}`, root), 'utf8'));
+        const ns = file.slice(0, -5);
+        instance.addResourceBundle(locale.name, ns, resources);
+        for (const [key, value] of Object.entries(resources)) {
+          if (typeof value !== 'string' || !value.includes('Lobe')) continue;
+          const translated = instance.t(key, { lng: locale.name, ns });
+          expect(translated, `${locale.name}/${ns}:${key}`).not.toContain('Lobe');
+          if (key.endsWith('builtins.lobe-agent.title')) expect(translated).toBe('TITU Agent');
+        }
+      }
+    }
+  });
+
   it('passes non-string values through untouched', () => {
     const value = { count: 1 };
-    expect(brandPostProcessor.process(value as never, 'key', {}, {} as never)).toBe(value);
+    expect(brandPostProcessor.process(value as never, ['key'], {}, {} as never)).toBe(value);
   });
 });

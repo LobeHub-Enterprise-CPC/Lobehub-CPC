@@ -1,4 +1,6 @@
 export default {
+  'builtins.lobe-attachments.apiName.readAttachment': 'Read attachment',
+  'builtins.lobe-attachments.title': 'Attachments',
   'builtins.lobe-goal-supervisor.apiName.inspectGoal': 'Inspect goal',
   'builtins.lobe-goal-supervisor.apiName.inspectTask': 'Inspect interrupted task',
   'builtins.lobe-goal-supervisor.apiName.readArtifact': 'Read goal artifact',
@@ -89,6 +91,7 @@ export default {
   'builtins.lobe-agent.apiName.callSubAgent': 'Call sub-agent',
   'builtins.lobe-agent.subAgent.stats.tokens': '{{count}} tokens',
   'builtins.lobe-agent.subAgent.stats.tools': '{{count}} tools',
+  'builtins.lobe-agent.subAgent.stopped': 'Stopped before finishing',
   'builtins.lobe-agent.title': 'Lobe Agent',
   'builtins.lobe-claude-code.agent.instruction': 'Instruction',
   'builtins.lobe-claude-code.agent.result': 'Result',

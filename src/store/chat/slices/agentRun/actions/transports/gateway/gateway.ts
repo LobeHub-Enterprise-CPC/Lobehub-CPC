@@ -13,6 +13,7 @@ import {
 } from '@lobechat/agent-gateway-client';
 import { isRemoteHeterogeneousType } from '@lobechat/heterogeneous-agents';
 import type {
+  ChatTopic,
   ChatTopicMetadata,
   ChatTopicStatus,
   ConversationContext,
@@ -27,7 +28,12 @@ import {
   ensureAgentManagementAccess,
   getRuntimeCanManageAgent,
 } from '@/helpers/agentManagementAccess';
-import { resolveExecutionTarget, resolveWorkspaceScoped } from '@/helpers/executionTarget';
+import {
+  applyTopicDeviceBinding,
+  getTopicBoundDeviceId,
+  resolveExecutionTarget,
+  resolveWorkspaceScoped,
+} from '@/helpers/executionTarget';
 import { trackProductUsageEvent } from '@/libs/analytics/productUsageEvent';
 import {
   aiAgentService,
@@ -45,6 +51,7 @@ import { topicSelectors } from '@/store/chat/selectors';
 import type { ChatStore } from '@/store/chat/store';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { topicMapKey } from '@/store/chat/utils/topicMapKey';
+import { getElectronStoreState } from '@/store/electron';
 import { getFileStoreState } from '@/store/file/store';
 import { getServerConfigStoreState } from '@/store/serverConfig';
 import type { StoreSetter } from '@/store/types';
@@ -136,6 +143,7 @@ const interruptGatewayTaskOrThrow = async (
  */
 const resolveDesktopDeviceHints = async (
   agentId?: string,
+  topic?: ChatTopic,
 ): Promise<{ deviceId?: string; localDeviceId?: string }> => {
   if (!isDesktop || !agentId) return {};
 
@@ -175,20 +183,29 @@ const resolveDesktopDeviceHints = async (
   const deviceOverride = agent?.workspaceId
     ? userState.workspaceUserPreference.agentDeviceOverrides?.[agentId]
     : undefined;
-  const agencyConfig = resolveAgentAgencyConfig(
-    agentByIdSelectors.getAgencyConfigById(agentId)(agentState),
-    deviceOverride,
+  // A conversation pinned to another machine must not be preset to this one —
+  // the server then routes it by the topic's own binding.
+  const { agencyConfig, workspaceScoped } = applyTopicDeviceBinding(
     {
-      canManage,
-      visibility: agent?.visibility,
-      workspaceId: agent?.workspaceId,
+      agencyConfig: resolveAgentAgencyConfig(
+        agentByIdSelectors.getAgencyConfigById(agentId)(agentState),
+        deviceOverride,
+        {
+          canManage,
+          visibility: agent?.visibility,
+          workspaceId: agent?.workspaceId,
+        },
+      ),
+      workspaceScoped: resolveWorkspaceScoped(usesWorkspaceMemberSelection, deviceOverride),
     },
+    getTopicBoundDeviceId(topic, agentId),
+    getElectronStoreState().gatewayDeviceInfo?.deviceId,
   );
   const isPlatformTask = isRemoteHeterogeneousType(agencyConfig?.heterogeneousProvider?.type ?? '');
   const executionTarget = resolveExecutionTarget(agencyConfig, {
     clientExecutionAvailable: true,
     isHetero: !!agencyConfig?.heterogeneousProvider,
-    workspaceScoped: resolveWorkspaceScoped(usesWorkspaceMemberSelection, deviceOverride),
+    workspaceScoped,
   });
   // Platform hints are capability claims, not routing overrides. Always send
   // this desktop best-effort and let the server's authoritative execution plan
@@ -925,7 +942,12 @@ export class GatewayActionImpl {
       ? this.#get().getOperationAbortSignal(parentOperationId)
       : undefined;
 
-    const desktopDeviceHints = await resolveDesktopDeviceHints(executionContext.agentId);
+    const desktopDeviceHints = await resolveDesktopDeviceHints(
+      executionContext.agentId,
+      executionContext.topicId
+        ? topicSelectors.getTopicById(executionContext.topicId)(this.#get())
+        : undefined,
+    );
     const userInterventionConfig = {
       approvalMode: toolInterventionSelectors.approvalMode(useUserStore.getState()),
       allowList: toolInterventionSelectors.allowList(useUserStore.getState()),
@@ -1391,17 +1413,22 @@ export class GatewayActionImpl {
         // terminal-missing fallback so the op never sticks `running`.
         if (!terminalReceived) this.#get().completeOperation(gatewayOpId);
 
-        // A terminal resume status is ambiguous only for an external hetero
-        // producer: an older or degraded Gateway may have no initialized DO
-        // session while the CLI is still alive and streaming via heteroIngest.
-        // Preserve unknown (`undefined`) during rolling deploys; new normal
-        // runtimes explicitly return `heteroType: null`. A raw session_complete,
-        // real terminal event, or auth failure remains authoritative.
-        const preserveExternalProducer =
-          !terminalReceived &&
-          !authFailed &&
-          completion?.source === 'resume_status' &&
-          result.heteroType !== null;
+        // An external hetero producer does not run on this socket: the CLI
+        // streams through `heteroIngest` and ends the run through
+        // `heteroFinish`, so nothing the transport observes proves it stopped.
+        // A terminal resume status can mean the Gateway simply has no
+        // initialized DO session; a raw `session_complete` or a terminal
+        // `status_change` can arrive for a run that is still producing; and on
+        // the multiplexed socket ONE auth failure is fanned out to every
+        // operation on the tab. Settling on any of those clears
+        // `topic.metadata.runningOperation`, after which the server discards
+        // every later batch as stale — the CLI keeps burning tokens and its
+        // whole output is thrown away. Only an in-band terminal for THIS op
+        // (`terminalReceived`) is authoritative; otherwise leave the settle to
+        // the server, which owns `heteroFinish` and the liveness lease behind
+        // it. Preserve unknown (`undefined`) during rolling deploys too; new
+        // normal runtimes explicitly return `heteroType: null`.
+        const preserveExternalProducer = !terminalReceived && result.heteroType !== null;
         if (preserveExternalProducer) return;
 
         const effectiveSucceeded = isSuccessfulGatewayCompletion({
@@ -1676,17 +1703,15 @@ export class GatewayActionImpl {
         // the preserved external producer case below) must close it here.
         if (!terminalReceived) this.#get().completeOperation(gatewayOpId);
 
-        // A reconnect is passive. Preserve only an external/rolling-unknown
-        // producer whose terminal resume status may mean "Gateway session was
-        // never initialized" rather than "producer ended". New normal runtime
-        // markers carry `heteroType: null`; old markers omit the field, so the
-        // rolling-deploy fallback is deliberately fail-safe. Raw session_complete,
-        // terminal events and auth failures are authoritative and settle below.
-        const preserveExternalProducer =
-          !terminalReceived &&
-          !authFailed &&
-          completion?.source === 'resume_status' &&
-          heteroType !== null;
+        // A reconnect is passive, and an external producer's output never
+        // travelled over this socket in the first place — see the same guard in
+        // `executeGatewayAgent`. No transport signal (terminal resume status,
+        // raw `session_complete`, terminal `status_change`, or an auth failure
+        // fanned out across the multiplexed socket) proves such a run ended, and
+        // settling on one discards everything it produces afterwards. New normal
+        // runtime markers carry `heteroType: null`; old markers omit the field,
+        // so the rolling-deploy fallback is deliberately fail-safe.
+        const preserveExternalProducer = !terminalReceived && heteroType !== null;
         if (preserveExternalProducer) {
           return;
         }
