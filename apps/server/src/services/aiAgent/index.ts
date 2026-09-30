@@ -552,6 +552,20 @@ export class AiAgentService {
    *   → AgentRuntimeService.createOperation(...)
    */
   async execAgent(inputParams: InternalExecAgentParams): Promise<ExecAgentResult> {
+    // Reject private transcript conflicts before approval lookups or thread creation.
+    if (
+      inputParams.transcript &&
+      (inputParams.appContext?.topicId ||
+        inputParams.resume ||
+        inputParams.resumeApproval ||
+        inputParams.resumeApprovals ||
+        inputParams.resumeToolResult)
+    ) {
+      throw new Error(
+        'transcript mode is exclusive with appContext.topicId and every resume* option',
+      );
+    }
+
     // An approval on a group member's tool continues that member, not the
     // conversation's supervisor (see `resolveGroupMemberApprovalContinuation`).
     const memberContinuation = await resolveGroupMemberApprovalContinuation(
@@ -956,15 +970,6 @@ export class AiAgentService {
       serverToolManifests,
       transcript,
     } = params;
-
-    if (
-      transcript &&
-      (appContext?.topicId || resume || resumeApproval || resumeApprovals || resumeToolResult)
-    ) {
-      throw new Error(
-        'transcript mode is exclusive with appContext.topicId and every resume* option',
-      );
-    }
 
     // Agent Share visitor runs execute under the CREATOR's credentials (see
     // `shareChat.ts` `execAgent` → `AiAgentService.execAgent({ shareGate })`)

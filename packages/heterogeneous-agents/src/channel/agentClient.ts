@@ -10,6 +10,11 @@ import {
 import { resolveHeterogeneousAgentCommand } from '../config';
 import { ProcessTreeTracker } from '../process/ProcessTreeTracker';
 import { buildHeterogeneousPrompt } from '../protocol/promptEngine';
+import {
+  createPiRpcAgentHandle,
+  type PiRpcStartupControl,
+  toPiRpcPrompt,
+} from '../rpc/piRpcAgentHandle';
 import { resolveCliSpawnPlan } from '../spawn/cliSpawn';
 import { spawnAgent, type SpawnAgentHandle, type SpawnAgentOptions } from '../spawn/spawnAgent';
 import type { CodexChannelSnapshot, CodexChannelStart } from './host';
@@ -56,6 +61,7 @@ export class ChannelAgentClient {
   private exited = false;
   private closed = false;
   private starting?: Promise<SpawnAgentHandle>;
+  private startupControl?: PiRpcStartupControl;
   private timer?: ReturnType<typeof setInterval>;
   private termination?: Promise<boolean>;
   private readonly processTree = new ProcessTreeTracker(() =>
@@ -91,6 +97,7 @@ export class ChannelAgentClient {
     this.closed = true;
     this.termination ??= (async () => {
       // A stop racing asynchronous CLI setup must also stop the process it creates.
+      await this.startupControl?.cancel('SIGTERM');
       if (this.starting) await this.starting.catch(() => {});
       return this.processTree.terminate(() => {
         clearInterval(this.timer);
@@ -139,7 +146,7 @@ export class ChannelAgentClient {
       };
       await persist();
       if (this.closed) throw new Error('Run stopped before submission');
-      this.starting = spawnAgent({
+      const spawnOptions: SpawnAgentOptions = {
         agentType: input.runtime ?? 'codex',
         command: launch.command,
         cwd: input.cwd,
@@ -154,8 +161,27 @@ export class ChannelAgentClient {
             })
           : prompt,
         resumeSessionId: input.sessionId || undefined,
-      }).then((handle) => {
+      };
+      this.starting = (async () => {
+        if (spawnOptions.agentType !== 'pi') return spawnAgent(spawnOptions);
+
+        const rpcPrompt = await toPiRpcPrompt(spawnOptions.prompt);
+        if (this.closed) throw new Error('Run stopped before submission');
+        return createPiRpcAgentHandle({
+          args: launch.extraArgs ?? [],
+          commandPath: resolveHeterogeneousAgentCommand('pi', launch.command),
+          cwd: input.cwd,
+          env: { ...(launch.inheritEnv === false ? {} : process.env), ...launch.env },
+          onStartupControl: (control) => {
+            this.startupControl = control;
+          },
+          operationId: input.runId,
+          prompt: rpcPrompt,
+          resumeSessionId: input.sessionId || undefined,
+        });
+      })().then((handle) => {
         this.handle = handle;
+        this.startupControl = undefined;
         void handle.exit.then(
           () => {
             this.exited = true;

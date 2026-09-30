@@ -16,6 +16,7 @@ import type { InternalExecAgentParams } from '../types';
 
 const mocks = vi.hoisted(() => ({
   messageCreate: vi.fn(),
+  messageFindPlugin: vi.fn(),
   messageQuery: vi.fn(),
   recordCompletion: vi.fn(async () => true),
   recordStart: vi.fn(async () => {}),
@@ -31,6 +32,7 @@ vi.mock('@/server/services/file/resolveAttachments', () => ({
 vi.mock('@/database/models/message', () => ({
   MessageModel: class {
     create = mocks.messageCreate;
+    findMessagePlugin = mocks.messageFindPlugin;
     query = mocks.messageQuery;
   },
 }));
@@ -306,5 +308,7 @@ describe('AiAgentService private transcript execution', () => {
     expect(mocks.recordStart).not.toHaveBeenCalled();
     expect(mocks.topicCreate).not.toHaveBeenCalled();
     expect(mocks.messageCreate).not.toHaveBeenCalled();
+    expect(mocks.messageFindPlugin).not.toHaveBeenCalled();
+    expect(mocks.messageQuery).not.toHaveBeenCalled();
   });
 });
