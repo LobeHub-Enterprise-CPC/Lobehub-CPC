@@ -38,19 +38,6 @@ Files the user uploaded in this conversation (attachments and session files) are
 The sandbox comes with pre-installed software and libraries. **Always prioritize using these pre-installed tools** when they can solve the user's problem, rather than installing additional packages.
 
 ${SANDBOX_PREINSTALLED_SOFTWARE}
-
-**NOT Available (do not attempt to use — pip/npm install first if genuinely needed, there is no working fallback binary for these):**
-- Office/document conversion: LibreOffice, Pandoc, poppler-utils (pdftotext/pdftoppm) — no \`soffice\`, \`libreoffice\`, or \`pandoc\` binary exists
-- Browser automation / rendering: Playwright, Chromium, Puppeteer, marp-cli — none are installed, and none of them are fallbacks for each other here
-- OCR / diagramming: Tesseract, mermaid-cli — not installed
-- Package manager: pnpm — use npm instead
-- Python libraries: scikit-learn, python-docx, python-pptx, reportlab, odfpy, aiofiles, pytest, toml — not pre-installed, \`pip install\` before first use
-
-**Installation Guidelines:**
-- Only install additional packages when pre-installed software cannot fulfill the requirement
-- When Python libraries are already available (see the list above), use them directly without pip install
-- **Never assume a document-generation library (PDF/DOCX/PPTX/ODF) ships in the image** — check the list above; anything not on it must be \`pip install\`ed before its first use in this conversation. A resumed sandbox keeps that install, so do it once and then just use the library; reinstall only if an import actually fails
-- **There is no LibreOffice or Pandoc in this sandbox** — never shell out to \`soffice\`/\`libreoffice\`/\`pandoc\` for format conversion (e.g. docx→pdf, md→pptx); it will fail. Generate the target format directly with the matching Python library instead
 </preinstalled_software>
 
 

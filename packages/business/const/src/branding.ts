@@ -38,40 +38,30 @@ export const BRANDING_ICON_URL = '';
 // Distributions can override the legal entity independently of the product name.
 export const ORG_NAME = BRANDING_NAME;
 
-// Left unset on purpose: no confirmed enterprise help/privacy/terms pages or
-// hosted-subscription plan yet. `withLinks`-style filtering (see About.tsx)
-// already drops any UI item built from an unset field here.
 export const BRANDING_URL = {
   help: undefined,
   privacy: undefined,
-  subscription: undefined,
+  subscription: 'https://app.lobehub.com/settings/plans',
   support: undefined,
   terms: undefined,
 };
 
-// Left unset on purpose: no enterprise-owned Discord/GitHub/social presence
-// yet. Every call site either drops the link when falsy (About.tsx's
-// `withLinks`) or renders a no-op `href={undefined}` anchor.
 export const SOCIAL_URL = {
-  discord: undefined,
-  github: undefined,
-  medium: undefined,
-  x: undefined,
-  youtube: undefined,
+  discord: 'https://discord.gg/AYFPHvv2jT',
+  github: 'https://github.com/lobehub',
+  medium: 'https://medium.com/@lobehub',
+  x: 'https://x.com/lobehub',
+  youtube: 'https://www.youtube.com/@lobehub',
 };
 
 export const FILE_URL = {
   importFromNotionGuide: 'https://hub-apac-1.lobeobjects.space/assets/notion.mp4',
 };
 
-// Left unset on purpose: no confirmed enterprise support/business mailbox
-// yet. `About.tsx` already drops the affected contact items when falsy;
-// `FeedbackModal/FeedbackContent.tsx` was patched alongside this change to
-// do the same for its email-contact line.
 export const BRANDING_EMAIL = {
-  business: undefined,
+  business: 'hello@lobehub.com',
   replyTo: undefined,
-  support: undefined,
+  support: 'support@lobehub.com',
 };
 
 export const BRANDING_PROVIDER = 'lobehub';
