@@ -171,7 +171,10 @@ export class ChannelAgentClient {
           args: launch.extraArgs ?? [],
           commandPath: resolveHeterogeneousAgentCommand('pi', launch.command),
           cwd: input.cwd,
-          env: { ...(launch.inheritEnv === false ? {} : process.env), ...launch.env },
+          env: {
+            ...(launch.inheritEnv === false ? {} : process.env),
+            ...launch.env,
+          } as NodeJS.ProcessEnv,
           onStartupControl: (control) => {
             this.startupControl = control;
           },

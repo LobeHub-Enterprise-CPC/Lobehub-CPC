@@ -312,17 +312,20 @@ describe('CoreUpdateManager initialize', () => {
     writeFileSync(path.join(userDataDir, 'app-data.json'), 'keep app data');
 
     await loadManager();
-    await flushGc();
-
-    expect(existsSync(path.join(storeDir(), 'f'.repeat(64)))).toBe(false);
-    expect(readdirSync(path.join(otaRoot(), 'cores'))).toEqual([]);
-    for (const dir of ['core-ota/staging', 'renderer-ota', 'renderer-ota-v2'])
-      expect(existsSync(path.join(userDataDir, dir))).toBe(false);
-    expect(readPointer(otaRoot(), ABI)).toMatchObject({
-      current: null,
-      previous: null,
-      staged: null,
-    });
+    await vi.waitFor(
+      () => {
+        expect(existsSync(path.join(storeDir(), 'f'.repeat(64)))).toBe(false);
+        expect(readdirSync(path.join(otaRoot(), 'cores'))).toEqual([]);
+        for (const dir of ['core-ota/staging', 'renderer-ota', 'renderer-ota-v2'])
+          expect(existsSync(path.join(userDataDir, dir))).toBe(false);
+        expect(readPointer(otaRoot(), ABI)).toMatchObject({
+          current: null,
+          previous: null,
+          staged: null,
+        });
+      },
+      { timeout: 5000 },
+    );
     expect(readFileSync(path.join(userDataDir, 'app-data.json'), 'utf8')).toBe('keep app data');
   });
 
