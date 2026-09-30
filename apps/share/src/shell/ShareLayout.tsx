@@ -8,7 +8,7 @@ import { type CSSProperties, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ShareHeaderMenu, ShareLogoLink } from '@/business/client/features/ShareChrome';
-import { ProductLogo } from '@/components/Branding';
+import { ProductLogo } from '@/components/Branding/ProductLogo';
 import Loading from '@/components/Loading/BrandTextLoading';
 import { DESKTOP_HEADER_ICON_SMALL_SIZE } from '@/const/layoutTokens';
 import ShareErrorView from '@/features/Share/ErrorView';
