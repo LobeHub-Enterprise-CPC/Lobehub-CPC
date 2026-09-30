@@ -280,49 +280,62 @@ export const API_KEY_PREFIX = 'sk-lh-';
  * to users, so a distribution wiring the sandbox elsewhere would otherwise have
  * an assistant naming the wrong vendor with nothing in the prompt to correct it.
  */
-export const SANDBOX_INFRASTRUCTURE = 'Volcengine veFaaS';
+export const SANDBOX_INFRASTRUCTURE = 'AWS Bedrock AgentCore';
 
 /**
- * What the sandbox image actually ships, as told to the model.
- *
- * A slot because it describes one specific image. The default below reflects
- * the Volcengine veFaaS all-in-one sandbox image verified in this deployment
- * (Ubuntu 22.04.5 LTS, Python 3.10.12, user `gem`) — a deployment running a
- * different image has an assistant reaching for tools that are not installed,
- * and finding out only when the command fails. Keep it to what has been
- * verified present; anything not listed here must be pip/npm installed
- * on demand rather than assumed.
+ * Software, unavailable tools and installation guidance for the default sandbox
+ * image. Keep the upstream image description here; distributions override this
+ * entire block to describe their own image without inheriting its restrictions.
  */
-export const SANDBOX_PREINSTALLED_SOFTWARE = `**Base Image:** Ubuntu 22.04.5 LTS (kernel 6.6.95)
-**User / Home:** \`gem\`, home directory \`/home/gem\`
+export const SANDBOX_PREINSTALLED_SOFTWARE = `**Base Image:** lobehubbot/python-node:latest (Debian-based)
 
 **Programming Languages & Runtimes:**
-- Python 3.10.12 (with pip)
+- Python (with pip)
 - Node.js (with npm)
 - Bun
 - Bash/Shell
 
 **Package Managers:**
 - pip (Python)
-- npm (Node.js) — pnpm is NOT installed
+- npm / pnpm (Node.js)
 
 **System Tools (apt):**
 - curl, wget, unzip, jq - Common utilities
 - build-essential - gcc/g++/make compilation toolchain
 - FFmpeg - Audio/video processing
+- LibreOffice - Office document processing
+- Pandoc - Document format conversion
+- poppler-utils - PDF tools (pdftotext, pdftoppm, etc.)
 - GitHub CLI (gh)
 
+**JS/TS Tools:**
+- marp-cli - Markdown to PPT/PDF presentation
+- Chromium (installed via Playwright, also used by marp-cli)
+- Playwright - Browser automation
+
 **Python Libraries (Pre-installed):**
-- Data Science/ML: numpy, pandas, scipy
-- Visualization: matplotlib 3.10.7, plotly, seaborn 0.13.2
-- Data Processing: pyyaml, python-dotenv, Pillow, opencv-python-headless
-- File Processing: openpyxl, xlrd, PyPDF2
-- Async: anyio
+- Data Science/ML: numpy, pandas, scipy, scikit-learn
+- Visualization: matplotlib, plotly
+- Data Processing: pyyaml, toml, python-dotenv, Pillow, opencv-python-headless
+- File Processing: openpyxl, xlrd, python-docx, PyPDF2, reportlab
+- Async: aiofiles, anyio
+- Testing: pytest
 - Server: fastapi, uvicorn, pydantic
 
-**Fonts (system, for rendering CJK text):**
-- Noto Sans CJK, Noto Serif CJK
-- AR PL UMing, AR PL UKai`;
+**Fonts:**
+- Noto Sans CJK - Chinese/Japanese/Korean sans-serif font
+- Noto Serif CJK - Chinese/Japanese/Korean serif font
+
+**NOT Available (do not attempt to use):**
+- Tesseract (OCR) - Not installed
+- Puppeteer - Not installed, use Playwright instead
+- mermaid-cli - Not installed
+- seaborn - Not installed
+
+**Installation Guidelines:**
+- Only install additional packages when pre-installed software cannot fulfill the requirement
+- When Python libraries are already available, use them directly without pip install
+- For document generation, prioritize LibreOffice and Pandoc before Python libraries`;
 
 export const OFFICIAL_PROVIDER_DISABLE_ERROR = 'The official provider cannot be disabled.';
 
