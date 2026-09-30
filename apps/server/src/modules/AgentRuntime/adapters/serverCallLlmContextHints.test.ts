@@ -440,11 +440,15 @@ describe('resolveServerCallLlmContextHints - model-instance reasoning config', (
         { content: 'Hello', id: 'user-1', role: 'user' },
         { content: 'Hi', id: 'assistant-1', reasoning, role: 'assistant' },
         { content: 'Continue', id: 'user-2', role: 'user' },
+        { content: '...', id: 'assistant-pending', role: 'assistant' },
       ];
       const hints = await resolveServerCallLlmContextHints({
         ctx: createCtx(),
         world: { agent: { chatConfig: { preserveThinking } } },
-        llmPayload: { messages } as unknown as CallLLMPayload,
+        llmPayload: {
+          assistantMessageId: 'assistant-pending',
+          messages,
+        } as unknown as CallLLMPayload,
         model,
         provider,
       });
@@ -461,6 +465,12 @@ describe('resolveServerCallLlmContextHints - model-instance reasoning config', (
         messages[2],
       ]);
       expect(messages[1].reasoning).toEqual(reasoning);
+      expect(messages.map((message) => message.id)).toEqual([
+        'user-1',
+        'assistant-1',
+        'user-2',
+        'assistant-pending',
+      ]);
     },
   );
 
@@ -719,10 +729,10 @@ describe('resolveServerCallLlmContextHints - in-flight assistant placeholder', (
 
   it('leaves the messages untouched when no assistant message is in flight', async () => {
     const { messagesForContext } = await resolve({
-      messages: [message('msg_user', 'user', 'hi')],
+      messages: [message('msg_user', 'user', 'hi'), message('msg_assistant', 'assistant', '...')],
     } as Partial<CallLLMPayload>);
 
-    expect(messagesForContext.map((m) => m.id)).toEqual(['msg_user']);
+    expect(messagesForContext.map((m) => m.id)).toEqual(['msg_user', 'msg_assistant']);
   });
 });
 
