@@ -15,13 +15,19 @@ const readline = require('node:readline');
 const send = (data) => process.stdout.write(JSON.stringify(data) + '\n');
 const runtime = process.env.FIXTURE_RUNTIME;
 const args = process.argv.slice(2);
-if (args.includes('--version')) { console.log('fixture 99.0.0'); process.exit(0); }
+if (args.includes('--version')) { console.log(runtime === 'pi' ? '0.80.5' : 'fixture 99.0.0'); process.exit(0); }
 fs.writeFileSync('argv.json', JSON.stringify(args));
 const session = 'native-fixture-session';
 const work = (prompt) => {
   fs.appendFileSync('deliveries.jsonl', JSON.stringify({ prompt, args }) + '\n');
   fs.writeFileSync('tool-result.txt', 'native tool ran: ' + process.env.FIXTURE_VALUE);
   fs.writeFileSync('child-env.json', JSON.stringify({ hostSecret: process.env.CHANNEL_HOST_ONLY }));
+};
+const background = async () => {
+  if (!process.env.FIXTURE_BACKGROUND) return;
+  const child = require('node:child_process').spawn(process.execPath, ['-e', "const fs=require('node:fs'); const t=setInterval(()=>fs.appendFileSync('background.txt','x'),30); setTimeout(()=>clearInterval(t),20000)"], { stdio: 'ignore' });
+  child.unref();
+  await new Promise(resolve => setTimeout(resolve, 250));
 };
 if (runtime === 'grok-build') {
   readline.createInterface({ input: process.stdin }).on('line', (line) => {
@@ -39,18 +45,16 @@ if (runtime === 'grok-build') {
       reply({ stopReason: 'end_turn' });
     }
   });
-} else {
-  let input = '';
-  process.stdin.on('data', (data) => input += data);
-  process.stdin.on('end', async () => {
-    work(['amp', 'claude-code'].includes(runtime) ? JSON.parse(input).message.content[0].text : input);
-    if (process.env.FIXTURE_BACKGROUND) {
-      const child = require('node:child_process').spawn(process.execPath, ['-e', "const fs=require('node:fs'); const t=setInterval(()=>fs.appendFileSync('background.txt','x'),30); setTimeout(()=>clearInterval(t),20000)"], { stdio: 'ignore' });
-      child.unref();
-      await new Promise(resolve => setTimeout(resolve, 250));
-    }
-    if (runtime === 'pi') {
-      send({ type: 'session', version: 3, id: session, cwd: process.cwd() });
+} else if (runtime === 'pi') {
+  if (args[args.indexOf('--mode') + 1] !== 'rpc') throw new Error('pi requires RPC mode');
+  readline.createInterface({ input: process.stdin }).on('line', async (line) => {
+    const m = JSON.parse(line);
+    const reply = (data) => send({ type: 'response', command: m.type, id: m.id, success: true, data });
+    if (m.type === 'get_state') reply({ sessionId: session });
+    else if (m.type === 'prompt') {
+      reply();
+      work(m.message);
+      await background();
       send({ type: 'turn_start' });
       send({ type: 'tool_execution_start', toolCallId: 'write-1', toolName: 'write', args: { path: 'tool-result.txt' } });
       send({ type: 'tool_execution_end', toolCallId: 'write-1', isError: false, result: { content: [{ type: 'text', text: 'written' }] } });
@@ -59,7 +63,17 @@ if (runtime === 'grok-build') {
       send({ type: 'turn_end' });
       send({ type: 'agent_end' });
       send({ type: 'agent_settled' });
-    } else if (runtime === 'amp' || runtime === 'claude-code') {
+    } else {
+      send({ type: 'response', command: m.type, id: m.id, success: false, error: 'Unsupported fixture command' });
+    }
+  });
+} else {
+  let input = '';
+  process.stdin.on('data', (data) => input += data);
+  process.stdin.on('end', async () => {
+    work(['amp', 'claude-code'].includes(runtime) ? JSON.parse(input).message.content[0].text : input);
+    await background();
+    if (runtime === 'amp' || runtime === 'claude-code') {
       send({ type: 'system', subtype: 'init', session_id: session, tools: ['Write', 'Bash', 'mcp__example'] });
       send({ type: 'assistant', message: { id: 'assistant-tool', content: [{ type: 'tool_use', id: 'write-1', name: 'Write', input: { path: 'tool-result.txt' } }] } });
       send({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'write-1', content: 'written' }] } });

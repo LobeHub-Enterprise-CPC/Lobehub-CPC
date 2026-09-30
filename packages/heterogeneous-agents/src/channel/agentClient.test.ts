@@ -4,6 +4,8 @@ import { PassThrough } from 'node:stream';
 import type { AgentStreamEvent } from '@lobechat/agent-gateway-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as PiRpcAgentHandleModule from '../rpc/piRpcAgentHandle';
+import { createPiRpcAgentHandle } from '../rpc/piRpcAgentHandle';
 import { resolveCliSpawnPlan } from '../spawn/cliSpawn';
 import { spawnAgent } from '../spawn/spawnAgent';
 import { ChannelAgentClient, prepareChannelLaunch } from './agentClient';
@@ -11,6 +13,10 @@ import type { CodexChannelSnapshot, CodexChannelStart } from './host';
 import { CHANNEL_INSTRUCTIONS } from './input';
 
 vi.mock('../spawn/spawnAgent', () => ({ spawnAgent: vi.fn() }));
+vi.mock('../rpc/piRpcAgentHandle', async (importOriginal) => ({
+  ...(await importOriginal<typeof PiRpcAgentHandleModule>()),
+  createPiRpcAgentHandle: vi.fn(),
+}));
 vi.mock('../spawn/cliSpawn', () => ({ resolveCliSpawnPlan: vi.fn() }));
 vi.mock('node:child_process', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -132,6 +138,7 @@ describe('Channel uses the standalone Agent runtime', () => {
         event('agent_runtime_end', {}),
       ]);
       vi.mocked(spawnAgent).mockResolvedValue({ ...h, events: h.events() });
+      vi.mocked(createPiRpcAgentHandle).mockResolvedValue({ ...h, events: h.events() });
       const snapshot = receipt();
       const request = {
         ...input,
@@ -145,17 +152,21 @@ describe('Channel uses the standalone Agent runtime', () => {
       };
       const client = new ChannelAgentClient();
       await client.run(request, snapshot, vi.fn().mockResolvedValue(undefined));
-      expect(spawnAgent).toHaveBeenCalledWith(
+      expect(runtime === 'pi' ? createPiRpcAgentHandle : spawnAgent).toHaveBeenCalledWith(
         expect.objectContaining({
-          agentType: runtime,
-          command: '/custom/agent',
-          extraArgs: ['--custom-setting'],
-          env: { PRIVATE_VALUE: 'secret' },
+          ...(runtime === 'pi'
+            ? { commandPath: '/custom/agent', args: ['--custom-setting'] }
+            : { agentType: runtime, command: '/custom/agent', extraArgs: ['--custom-setting'] }),
+          env: expect.objectContaining({ PRIVATE_VALUE: 'secret' }),
           resumeSessionId: 'native-session',
           cwd: input.cwd,
         }),
       );
-      const prompt = vi.mocked(spawnAgent).mock.calls[0][0].prompt as string;
+      if (runtime === 'pi') expect(spawnAgent).not.toHaveBeenCalled();
+      const prompt =
+        runtime === 'pi'
+          ? vi.mocked(createPiRpcAgentHandle).mock.lastCall![0].prompt.text
+          : (vi.mocked(spawnAgent).mock.lastCall![0].prompt as string);
       expect(prompt).toContain('"contextMode":"delta"');
       expect(prompt).toContain('Keep the original role');
       expect(prompt).not.toContain(CHANNEL_INSTRUCTIONS);
@@ -192,6 +203,7 @@ describe('Channel uses the standalone Agent runtime', () => {
           event('agent_runtime_end', {}),
         ]);
         vi.mocked(spawnAgent).mockResolvedValue({ ...h, events: h.events() });
+        vi.mocked(createPiRpcAgentHandle).mockResolvedValue({ ...h, events: h.events() });
         const request: CodexChannelStart = {
           ...input,
           runtime,
@@ -201,8 +213,15 @@ describe('Channel uses the standalone Agent runtime', () => {
         };
         const snapshot = receipt();
         await new ChannelAgentClient().run(request, snapshot, async () => {});
-        const options = vi.mocked(spawnAgent).mock.lastCall![0];
-        const prompt = options.prompt as string;
+        const options =
+          runtime === 'pi'
+            ? vi.mocked(createPiRpcAgentHandle).mock.lastCall![0]
+            : vi.mocked(spawnAgent).mock.lastCall![0];
+        const prompt = (
+          typeof options.prompt === 'object' && 'text' in options.prompt
+            ? options.prompt.text
+            : options.prompt
+        ) as string;
         expect(options.resumeSessionId).toBeUndefined();
         expect(prompt.startsWith(`${CHANNEL_INSTRUCTIONS}\n\n`)).toBe(true);
         expect(prompt.split(CHANNEL_INSTRUCTIONS)).toHaveLength(2);
@@ -230,6 +249,7 @@ describe('Channel uses the standalone Agent runtime', () => {
           event('stream_chunk', { chunkType: 'text', content: 'A contribution' }),
         ]);
         vi.mocked(spawnAgent).mockResolvedValue({ ...h, events: h.events() });
+        vi.mocked(createPiRpcAgentHandle).mockResolvedValue({ ...h, events: h.events() });
         const discussion = {
           id: 'discussion',
           kind,
@@ -249,10 +269,18 @@ describe('Channel uses the standalone Agent runtime', () => {
         };
         const snapshot = receipt();
         await new ChannelAgentClient().run(request, snapshot, async () => {});
-        const options = vi.mocked(spawnAgent).mock.lastCall![0];
+        const options =
+          runtime === 'pi'
+            ? vi.mocked(createPiRpcAgentHandle).mock.lastCall![0]
+            : vi.mocked(spawnAgent).mock.lastCall![0];
+        const prompt = (
+          typeof options.prompt === 'object' && 'text' in options.prompt
+            ? options.prompt.text
+            : options.prompt
+        ) as string;
         expect(options.resumeSessionId).toBe('native-session');
-        expect(options.prompt).not.toContain(CHANNEL_INSTRUCTIONS);
-        const wire = JSON.parse(options.prompt as string);
+        expect(prompt).not.toContain(CHANNEL_INSTRUCTIONS);
+        const wire = JSON.parse(prompt);
         expect(wire).toMatchObject({
           discussion,
           contextMode: 'delta',
@@ -266,7 +294,7 @@ describe('Channel uses the standalone Agent runtime', () => {
               ? 'final synthesis'
               : 'Participate freely',
         );
-        expect(snapshot.input?.prompt).toBe(options.prompt);
+        expect(snapshot.input?.prompt).toBe(prompt);
       }
     },
   );
@@ -340,6 +368,30 @@ describe('Channel uses the standalone Agent runtime', () => {
     release();
     await rejected;
     expect(spawnAgent).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
+
+  it('cancels pi during the RPC handshake without waiting for a handle', async () => {
+    let rejectStartup!: (error: Error) => void;
+    const cancel = vi.fn(async () => rejectStartup(new Error('RPC startup cancelled')));
+    vi.mocked(createPiRpcAgentHandle).mockImplementationOnce((options) => {
+      options.onStartupControl?.({ cancel });
+      return new Promise((_, reject) => {
+        rejectStartup = reject;
+      });
+    });
+    const cleanup = vi.fn();
+    const client = new ChannelAgentClient(async () => ({ cleanup }));
+    const snapshot = receipt();
+    const run = client.run({ ...input, runtime: 'pi' }, snapshot, async () => {});
+    const rejected = expect(run).rejects.toThrow('RPC startup cancelled');
+    await vi.waitFor(() => expect(createPiRpcAgentHandle).toHaveBeenCalledOnce());
+
+    await expect(client.closeAndConfirmTermination()).resolves.toBe(true);
+    await rejected;
+    expect(cancel).toHaveBeenCalledWith('SIGTERM');
+    expect(spawnAgent).not.toHaveBeenCalled();
+    expect(snapshot.runtimeCompleted).not.toBe(true);
     expect(cleanup).toHaveBeenCalledOnce();
   });
 

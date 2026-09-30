@@ -40,6 +40,10 @@ vi.mock('@/services/electron/autoUpdate', () => ({
   },
 }));
 
+vi.mock('@/services/electron/rendererOta', () => ({
+  rendererOtaService: { getStatus: vi.fn(async () => ({ current: null, running: null })) },
+}));
+
 vi.mock('@/components/Branding', () => ({ ProductLogo: () => <div /> }));
 vi.mock('@/features/User/UserPanel/useNewVersion', () => ({ useNewVersion: () => false }));
 
