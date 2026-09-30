@@ -7,6 +7,6 @@
   },
   "main": "./src/index.ts",
   "dependencies": {
-    "better-auth": "1.6.15"
+    "better-auth": "1.6.28"
   }
 }
