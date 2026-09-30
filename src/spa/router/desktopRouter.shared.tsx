@@ -1157,7 +1157,13 @@ const createMainAreaChildrenDefinition = (options: MainAreaRouteOptions = {}): R
   {
     element: dynamicElement(() => import('@/routes/(main)/downloads'), 'Desktop > Downloads'),
     errorElement: <ErrorBoundary />,
-    handle: { meta: routeMeta({ icon: Download, titleKey: 'navigation.downloads' }) },
+    handle: {
+      meta: routeMeta({
+        Skeleton: createSurfaceSkeleton('list'),
+        icon: Download,
+        titleKey: 'navigation.downloads',
+      }),
+    },
     path: 'downloads',
   },
   // Apps page (personal-only — never mirrored under /:workspaceSlug)

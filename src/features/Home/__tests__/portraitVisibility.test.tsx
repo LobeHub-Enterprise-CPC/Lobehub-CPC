@@ -32,14 +32,10 @@ const inputAreaStub = {
     </div>
   ),
 };
-const homeHeaderStub = {
-  default: ({ promo }: { promo?: ReactNode }) => (
-    <div data-testid={'home-header'}>
-      {promo && <div data-testid={'home-header-promo'}>{promo}</div>}
-    </div>
-  ),
+const homeHeaderStub = stub('home-header');
+const portraitBubbleStub = {
+  default: ({ promo }: { promo?: ReactNode }) => <div data-testid={'portrait-bubble'}>{promo}</div>,
 };
-const portraitBubbleStub = stub('portrait-bubble');
 
 function translate() {
   return { i18n: { language: 'en-US' }, t: (key: string) => key };
@@ -157,22 +153,22 @@ describe('Home portrait visibility', () => {
     expect(screen.queryByTestId('portrait-bubble')).not.toBeInTheDocument();
   }, 20000);
 
-  it('shows a live promotion in the header without competing with the portrait bubble', async () => {
+  it('shows a live promotion in the portrait bubble, not the header', async () => {
     await renderHome({ promo: <span>Campaign</span> });
 
-    expect(screen.getByTestId('home-header-promo')).toHaveTextContent('Campaign');
+    expect(screen.getByTestId('portrait-bubble')).toHaveTextContent('Campaign');
+    expect(screen.getByTestId('home-header')).not.toHaveTextContent('Campaign');
     expect(screen.getByTestId('home-portrait')).toBeInTheDocument();
-    expect(screen.queryByTestId('portrait-bubble')).not.toBeInTheDocument();
     expect(screen.getByTestId('new-model-shortcuts')).toBeInTheDocument();
   }, 20000);
 
-  it('keeps the promotion in the header even when the portrait is hidden', async () => {
+  it('hides the promotion with the portrait', async () => {
     await renderHome({
       promo: <span>Campaign</span>,
       showHomePortrait: false,
     });
 
-    expect(screen.getByTestId('home-header-promo')).toHaveTextContent('Campaign');
+    expect(screen.queryByText('Campaign')).not.toBeInTheDocument();
     expect(screen.queryByTestId('home-portrait')).not.toBeInTheDocument();
     expect(screen.queryByTestId('portrait-bubble')).not.toBeInTheDocument();
     expect(screen.getByTestId('new-model-shortcuts')).toBeInTheDocument();

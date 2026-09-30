@@ -137,7 +137,12 @@ export const resolveServerCallLlmContextHints = async ({
         }),
   );
 
-  const messages = llmPayload.messages as UIChatMessage[];
+  // Match ClientContextBuilder: the current response's placeholder is UI state,
+  // not conversation history (sending it can trigger unsupported assistant prefill).
+  const assistantMessageId = (llmPayload as { assistantMessageId?: string }).assistantMessageId;
+  const messages = (llmPayload.messages as UIChatMessage[]).filter(
+    (message) => !assistantMessageId || message.id !== assistantMessageId,
+  );
   return {
     capabilities: resolved.capabilities,
     enableAgentMode: resolved.enableAgentMode,
