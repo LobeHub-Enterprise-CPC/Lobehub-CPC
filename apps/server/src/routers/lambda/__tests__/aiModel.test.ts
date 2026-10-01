@@ -174,12 +174,11 @@ describe('aiModelRouter', () => {
       { id: 'model-2-beta', type: 'chat' },
     ];
     const mockGetList = vi.fn().mockResolvedValue(mockModelList);
-    vi.mocked(AiInfraRepos).mockImplementation(
-      () =>
-        ({
-          getAiProviderModelList: mockGetList,
-        }) as any,
-    );
+    vi.mocked(AiInfraRepos).mockImplementation(function () {
+      return {
+        getAiProviderModelList: mockGetList,
+      } as any;
+    });
     vi.mocked(UserModel.findById).mockResolvedValue({ email: 'user@example.com' } as any);
     mockIsLobeHubModelAvailable.mockImplementation(async (id: string) => id !== 'model-2-beta');
 

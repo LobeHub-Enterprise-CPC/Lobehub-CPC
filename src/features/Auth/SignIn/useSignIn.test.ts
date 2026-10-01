@@ -63,11 +63,6 @@ vi.mock('@/libs/better-auth/utils/client', () => ({
   normalizeProviderId: (p: string) => p,
 }));
 
-vi.mock('@lobechat/business-const', () => ({
-  BRANDING_NAME: 'LobeHub',
-  ORG_NAME: 'LobeHub',
-}));
-
 vi.mock('@/business/client/hooks/useBusinessSignin', () => ({
   useBusinessSignin: () => ({
     ...mockBusinessSignin,
