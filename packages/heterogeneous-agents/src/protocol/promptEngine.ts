@@ -1,3 +1,5 @@
+import { HETEROGENEOUS_AGENT_CLI_GUIDE_ENABLED } from '@lobechat/business-const/heterogeneousAgent';
+
 import { lobeHubCliGuide } from './lobeHubCliGuide';
 import type { AgentContentBlock, AgentImageBlock } from './types';
 
@@ -54,7 +56,8 @@ const topicReferenceGuidanceProvider: HeterogeneousPromptContextProvider = {
  * Session-scoped: see `isNewSession`.
  */
 const lobeHubCliProvider: HeterogeneousPromptContextProvider = {
-  getContext: ({ isNewSession }) => (isNewSession ? lobeHubCliGuide : undefined),
+  getContext: ({ isNewSession }) =>
+    HETEROGENEOUS_AGENT_CLI_GUIDE_ENABLED && isNewSession ? lobeHubCliGuide : undefined,
   name: 'LobeHubCliProvider',
 };
 

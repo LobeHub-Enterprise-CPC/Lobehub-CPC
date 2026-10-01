@@ -1,9 +1,65 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { buildHeteroExecStdinPayload } from './execStdinPayload';
 import { lobeHubCliGuide } from './lobeHubCliGuide';
 import { buildHeterogeneousPrompt, HeterogeneousPromptEngine } from './promptEngine';
 
+const businessConst = vi.hoisted(() => ({ HETEROGENEOUS_AGENT_CLI_GUIDE_ENABLED: true }));
+
+vi.mock('@lobechat/business-const/heterogeneousAgent', () => businessConst);
+
 describe('HeterogeneousPromptEngine', () => {
+  beforeEach(() => {
+    businessConst.HETEROGENEOUS_AGENT_CLI_GUIDE_ENABLED = true;
+  });
+
+  it.each([true, false])(
+    'omits the CLI guide when the distribution disables it (isNewSession=%s)',
+    (isNewSession) => {
+      businessConst.HETEROGENEOUS_AGENT_CLI_GUIDE_ENABLED = false;
+
+      expect(
+        buildHeterogeneousPrompt({
+          imageList: [{ id: 'image-1', url: 'https://example.com/image.png' }],
+          isNewSession,
+          prompt: 'Draft a doc',
+          systemContext: 'Workspace context',
+        }),
+      ).toEqual([
+        { text: 'Workspace context', type: 'text' },
+        { text: 'Draft a doc', type: 'text' },
+        {
+          source: { id: 'image-1', type: 'url', url: 'https://example.com/image.png' },
+          type: 'image',
+        },
+      ]);
+    },
+  );
+
+  it('keeps the CLI guide disabled when native resume falls back to a new session', () => {
+    businessConst.HETEROGENEOUS_AGENT_CLI_GUIDE_ENABLED = false;
+
+    const payload = JSON.parse(
+      buildHeteroExecStdinPayload({
+        isNewSession: false,
+        prompt: 'Continue',
+        resumeFallbackSystemContext: 'Replayed history',
+        systemContext: 'Workspace context',
+      }),
+    );
+
+    expect(payload).toEqual({
+      content: [
+        { text: 'Workspace context', type: 'text' },
+        { text: 'Continue', type: 'text' },
+      ],
+      resumeFallback: [
+        { text: 'Replayed history', type: 'text' },
+        { text: 'Continue', type: 'text' },
+      ],
+    });
+  });
+
   it('orders system context, provider context, user prompt, and images', () => {
     expect(
       buildHeterogeneousPrompt({

@@ -4,7 +4,8 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
-    "./branding": "./src/branding.ts"
+    "./branding": "./src/branding.ts",
+    "./heterogeneousAgent": "./src/heterogeneousAgent.ts"
   },
   "main": "./src/index.ts"
 }
