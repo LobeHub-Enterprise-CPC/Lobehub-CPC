@@ -1,6 +1,7 @@
 import { BRANDING_PROVIDER } from './branding';
 
 export * from './branding';
+export * from './heterogeneousAgent';
 export * from './llm';
 export * from './url';
 
