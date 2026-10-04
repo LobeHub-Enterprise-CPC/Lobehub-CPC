@@ -26,6 +26,7 @@ import { type MCPService } from '../mcp';
 import { type BuiltinToolsExecutor } from './builtin';
 import { classifyToolError, getToolAccessDeniedError } from './errorClassification';
 import { resolveRunWorkspaceId } from './serverRuntimes/resolveWorkspaceScope';
+import { withoutDeviceReplay } from './serverRuntimes/withoutDeviceReplay';
 import {
   type ToolExecutionContext,
   type ToolExecutionResult,
@@ -492,7 +493,9 @@ export class ToolExecutionService {
     );
 
     if (!result.success) {
-      return {
+      // The device may already be running the call, so never let the retry
+      // classifier replay it (see withoutDeviceReplay).
+      return withoutDeviceReplay({
         content: result.content,
         error: result.errorData ?? {
           code: 'MCP_DEVICE_EXECUTION_ERROR',
@@ -501,7 +504,7 @@ export class ToolExecutionService {
         errorData: result.errorData,
         ...(result.executionUnknown && { executionUnknown: true }),
         success: false,
-      };
+      });
     }
 
     return {

@@ -1,6 +1,5 @@
-import { EditableText, Flexbox, Icon, Input } from '@lobehub/ui';
-import { Button, createModal, Text, useModalContext } from '@lobehub/ui/base-ui';
-import { type InputRef } from 'antd';
+import { EditableText, Flexbox, Icon } from '@lobehub/ui';
+import { Button, createModal, Input, Text, useModalContext } from '@lobehub/ui/base-ui';
 import { t } from 'i18next';
 import { Hash } from 'lucide-react';
 import { type RefObject, useEffect, useRef } from 'react';
@@ -40,7 +39,7 @@ function NameStep({
   onNext,
 }: {
   form: ChannelForm;
-  inputRef: RefObject<InputRef | null>;
+  inputRef: RefObject<HTMLInputElement | null>;
   onCancel: () => void;
   onNext: () => void;
 }) {
@@ -64,7 +63,6 @@ function NameStep({
             placeholder={t('namePlaceholder')}
             prefix={<Icon icon={Hash} size={14} />}
             ref={inputRef}
-            status={invalid ? 'error' : undefined}
             value={form.title}
             onChange={(e) => form.changeTitle(e.target.value)}
             onPressEnter={onNext}
@@ -205,7 +203,7 @@ function MembersStep({
 
 function CreateChannel({ onCreated, existing }: CreateChannelProps) {
   const { close, setCanDismissByClickOutside } = useModalContext();
-  const titleInput = useRef<InputRef>(null);
+  const titleInput = useRef<HTMLInputElement>(null);
   const form = useCreateChannelForm({ existing, onCreated, onDone: close });
 
   // A mask click must not drop what the user typed or picked; ✕ and Esc still close.

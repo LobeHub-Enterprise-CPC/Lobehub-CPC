@@ -1,7 +1,7 @@
 'use client';
 
 import type { ExpertiseEnforcement, ExpertiseReasonKind } from '@lobechat/types';
-import { Block, Flexbox, Icon, TextArea } from '@lobehub/ui';
+import { Block, Flexbox, Icon } from '@lobehub/ui';
 import {
   ActionIcon,
   Button,
@@ -10,6 +10,7 @@ import {
   SkeletonText,
   Tag,
   Text,
+  TextArea,
 } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cssVar, cx } from 'antd-style';
 import dayjs from 'dayjs';
@@ -189,8 +190,8 @@ interface PropertyProps {
 
 /**
  * One property line, in the shape the task detail uses: a label, an icon, the current value, and
- * a menu behind the click when it can be changed. Read-only lines drop the fill so the eye finds
- * the switches first.
+ * a menu behind the click when it can be changed. Every line sits on the same plain ground; the
+ * ones that open a menu only light up on hover, so the block does not read as a highlight.
  */
 const Property = ({ children, icon, label, menu }: PropertyProps) => {
   const row = (
@@ -200,7 +201,7 @@ const Property = ({ children, icon, label, menu }: PropertyProps) => {
       className={cx(styles.property, !menu && styles.propertyStatic)}
       clickable={Boolean(menu)}
       gap={8}
-      variant={menu ? 'filled' : 'borderless'}
+      variant={'borderless'}
     >
       <span className={styles.propertyLabel}>{label}</span>
       <Icon color={cssVar.colorTextSecondary} icon={icon} size={14} />
@@ -265,6 +266,8 @@ const RuleDocument = ({
   const titleOf = (id: string) => all.find((r) => r.id === id)?.title ?? id;
   const mergedInto = mergedIntoId(rule);
   const origin = ruleOrigin(rule);
+  // What the reviewer wrote into an agent's lessons was taught to that agent, not a rule of theirs.
+  const taught = authored && group?.owner.kind === 'agent';
 
   const save = async (patch: UpdateRuleInput) => {
     if (busy) return false;
@@ -432,7 +435,9 @@ const RuleDocument = ({
           </Property>
           <Property icon={HistoryIcon} label={t('rules.meta.origin')}>
             <span>
-              {t(`rules.origin.${origin.key}`, 'params' in origin ? origin.params : undefined)}
+              {taught
+                ? t('rules.origin.taught')
+                : t(`rules.origin.${origin.key}`, 'params' in origin ? origin.params : undefined)}
               {!authored && rule.lastHitAt
                 ? t('rules.origin.lastHit', { time: dayjs(rule.lastHitAt).fromNow() })
                 : ''}
@@ -569,7 +574,13 @@ const RuleDocument = ({
           ))
         ) : (
           <p className={styles.muted}>
-            {t(authored ? 'rules.sources.authoredEmpty' : 'rules.sources.empty')}
+            {t(
+              taught
+                ? 'rules.sources.taughtEmpty'
+                : authored
+                  ? 'rules.sources.authoredEmpty'
+                  : 'rules.sources.empty',
+            )}
           </p>
         )}
 

@@ -295,7 +295,7 @@ export function registerGoalCommand(program: Command) {
     )
     .option(
       '--conversation',
-      'Create the goal from the current conversation run (/goal): this agent supervises it from this conversation, and the output carries a turnToken for the first plan',
+      "Link the goal to the current conversation. Use it whenever you create a goal for the user from a chat, not only for /goal: without it the goal is standalone and never shows on this conversation's goal tray. This agent supervises the goal from this conversation; the output carries a turnToken, so submit the first plan with `lh goal plan <id> --token <turnToken> --file <plan.json>`",
     )
     .option('--criterion <text...>', 'Acceptance criterion (repeatable)')
     .option('--json [fields]', 'Output JSON')
@@ -725,6 +725,19 @@ export function registerGoalCommand(program: Command) {
         optionId: options.option,
         resolution: options.reason,
       });
+      log.info(result.message);
+    });
+
+  goal
+    .command('retire <id> <node-ids...>')
+    .description(
+      'Retire task nodes that should not run; unfinished tasks depending on them must be retired together',
+    )
+    .option('--reason <text>', 'Why the nodes are retired')
+    .action(async (id: string, nodeIds: string[], options) => {
+      const result = await (
+        await getTrpcClient()
+      ).goal.retireNodes.mutate({ id, nodeIds, reason: options.reason });
       log.info(result.message);
     });
 
