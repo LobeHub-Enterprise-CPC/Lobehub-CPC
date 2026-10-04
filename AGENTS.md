@@ -56,6 +56,8 @@ Debug Proxy: https://app.lobehub.com/_dangerous_local_dev_proxy?debug-host=http%
 
 Open this URL to develop locally against the production backend (app.lobehub.com). The proxy page loads your local Vite dev server's SPA into the online environment, enabling HMR with real server config.
 
+This proxy is a **development convenience, not a verification surface**: it runs your local frontend against production's backend, origin, and data. Acceptance must exercise the delivered branch in an environment that runs it — for which surface to use, see `.agents/acceptance/PROJECT.md` §4.
+
 ### Git Workflow
 
 - **CPC branch strategy**: This fork is `LobeHub-Enterprise-CPC/Lobehub-CPC`. New CPC branches and PRs target `chore/merge-canary-into-cpc-branding`; the enterprise parent tracks this branch while pinning a specific submodule commit.

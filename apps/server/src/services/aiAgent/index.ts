@@ -1602,6 +1602,7 @@ export class AiAgentService {
         queueRetryDelay,
         signal,
         stream,
+        clientProtocol: params.clientProtocol,
         includeFinalState: params.includeFinalState,
         topicStartOwnerOperationId: params.topicStartOwnerOperationId,
         updateAbortedAssistantMessage,
