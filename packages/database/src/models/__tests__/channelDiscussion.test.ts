@@ -23,7 +23,7 @@ beforeAll(async () => {
   );
   // Migration ownership moved to the enterprise chain (see
   // src/privateSchemas/channel.ts) after this test was written.
-  for (const migration of ['0009_channel_mvp.sql']) {
+  for (const migration of ['0009_channel_mvp.sql', '0010_channel_attachments.sql']) {
     await client.exec(
       readFileSync(
         new URL(

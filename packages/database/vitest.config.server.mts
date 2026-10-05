@@ -1,5 +1,8 @@
 import { resolve } from 'node:path';
-import { defineConfig } from 'vitest/config';
+
+import { configDefaults, defineConfig } from 'vitest/config';
+
+import { enterpriseTestFiles } from './tests/enterprise-test-files.mjs';
 
 export default defineConfig({
   plugins: [
@@ -44,9 +47,11 @@ export default defineConfig({
       reporter: ['text', 'json', 'lcov', 'text-summary'],
     },
     env: {
+      TEST_DB_EXTRA_MIGRATIONS_FOLDER: '',
       TEST_SERVER_DB: '1',
     },
     environment: 'node',
+    exclude: [...configDefaults.exclude, ...enterpriseTestFiles],
     isolate: false,
     maxWorkers: 1,
     setupFiles: './tests/setup-db.ts',
