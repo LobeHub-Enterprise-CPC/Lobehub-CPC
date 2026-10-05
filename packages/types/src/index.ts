@@ -16,6 +16,7 @@ export * from './channel';
 export * from './chunk';
 export * from './conversation';
 export * from './creds';
+export * from './dashboard';
 export * from './dbMigration';
 export * from './device';
 export * from './deviceMetric';
@@ -67,6 +68,7 @@ export * from './understanding';
 export * from './user';
 export * from './userMemory';
 export * from './verify';
+export * from './widget';
 export * from './work';
 // FIXME: I think we need a refactor for the "openai" types
 // it more likes the UI message payload

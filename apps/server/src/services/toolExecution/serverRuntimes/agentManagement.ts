@@ -96,7 +96,7 @@ export const agentManagementRuntime: ServerRuntimeRegistration = {
         params: CallAgentParams,
         ctx: ToolExecutionContext,
       ): Promise<ToolExecutionResult> => {
-        const { agentId, instruction, taskTitle, timeout } = params;
+        const { agentId, instruction } = params;
 
         if (ctx.isSubAgent) {
           return {
@@ -125,12 +125,11 @@ export const agentManagementRuntime: ServerRuntimeRegistration = {
           };
         }
 
-        const description = taskTitle || `Call agent ${agentId}`;
         const { started, error, subOperationId, threadId } = await ctx.subAgent.run({
           agentId,
-          description,
+          description: `Call agent ${agentId}`,
           instruction,
-          timeout: timeout || 1_800_000,
+          timeout: 1_800_000,
         });
 
         if (!started) {
