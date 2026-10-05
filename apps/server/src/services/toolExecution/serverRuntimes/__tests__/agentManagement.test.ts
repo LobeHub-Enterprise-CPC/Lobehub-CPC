@@ -167,7 +167,6 @@ describe('agentManagementRuntime', () => {
         {
           agentId: 'agent-target',
           instruction: 'Do delegated work',
-          runAsTask: true,
         },
         { toolManifestMap: {} },
       );
@@ -188,9 +187,6 @@ describe('agentManagementRuntime', () => {
         {
           agentId: 'agent-target',
           instruction: 'Do delegated work',
-          runAsTask: true,
-          taskTitle: 'Delegated task',
-          timeout: 1234,
         },
         {
           subAgent: { run },
@@ -200,9 +196,9 @@ describe('agentManagementRuntime', () => {
 
       expect(run).toHaveBeenCalledWith({
         agentId: 'agent-target',
-        description: 'Delegated task',
+        description: 'Call agent agent-target',
         instruction: 'Do delegated work',
-        timeout: 1234,
+        timeout: 1_800_000,
       });
       expect(result).toMatchObject({
         content: '',
@@ -228,7 +224,6 @@ describe('agentManagementRuntime', () => {
         {
           agentId: 'agent-target',
           instruction: 'Do delegated work',
-          runAsTask: true,
         },
         {
           subAgent: { run },
