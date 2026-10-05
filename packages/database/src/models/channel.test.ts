@@ -46,8 +46,8 @@ beforeAll(async () => {
     ),
   );
   await client.exec(`
-    CREATE TABLE files (id text PRIMARY KEY, user_id text, workspace_id text);
-    INSERT INTO files VALUES ('doc', 'owner', NULL), ('image', 'owner', NULL),
+    CREATE TABLE files (id text PRIMARY KEY, user_id text, workspace_id text, is_deleted boolean);
+    INSERT INTO files (id, user_id, workspace_id) VALUES ('doc', 'owner', NULL), ('image', 'owner', NULL),
       ('foreign', 'other', NULL), ('workspace-file', 'owner', 'workspace');
   `);
   db = drizzle(client, { schema }) as unknown as LobeChatDatabase;

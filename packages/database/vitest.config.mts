@@ -1,21 +1,8 @@
-import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { defineConfig } from 'vitest/config';
 
-// When this submodule is checked out inside the CPC enterprise shell repo,
-// point getTestDB() (src/core/getTestDB.ts) at the enterprise chain's
-// migrations too, so model tests against tables owned there (e.g. Channel
-// MVP — see src/privateSchemas/channel.ts for why they live outside this
-// repo's own chain) get a real schema instead of "relation does not exist".
-// A no-op in the plain OSS checkout, where that directory doesn't exist.
-const enterpriseMigrationsFolder = resolve(
-  __dirname,
-  '../../../packages/enterprise/src/database/migrations',
-);
-const extraMigrationsEnv = existsSync(enterpriseMigrationsFolder)
-  ? { TEST_DB_EXTRA_MIGRATIONS_FOLDER: enterpriseMigrationsFolder }
-  : undefined;
+import { enterpriseTestFiles } from './tests/enterprise-test-files.mjs';
 
 export default defineConfig({
   plugins: [
@@ -47,7 +34,9 @@ export default defineConfig({
       '@/server/modules': resolve(__dirname, '../../apps/server/src/modules'),
       '@': resolve(__dirname, '../../src'),
     },
-    env: extraMigrationsEnv,
+    // Standalone means the same thing inside and outside a parent checkout.
+    // The parent's explicit database config supplies the enterprise chain.
+    env: { TEST_DB_EXTRA_MIGRATIONS_FOLDER: '' },
     coverage: {
       exclude: [
         'src/server/**',
@@ -75,6 +64,7 @@ export default defineConfig({
       'node_modules/**/**',
       'src/server/**/**',
       'src/repositories/dataImporter/deprecated/**/**',
+      ...enterpriseTestFiles,
     ],
     server: {
       deps: {
