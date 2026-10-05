@@ -97,8 +97,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          curl -Os https://cli.codecov.io/latest/linux/codecov
-          chmod +x codecov
+          # Install the official CLI from PyPI instead of the failing binary CDN.
+          python3 -m venv "$RUNNER_TEMP/codecov-venv"
+          "$RUNNER_TEMP/codecov-venv/bin/pip" install --disable-pip-version-check codecov-cli==11.3.1
 
           # Build common args
           COMMON_ARGS="--git-service github"
@@ -125,7 +126,7 @@ jobs:
             local flag="$2"
 
             echo "Uploading coverage for $dir as $flag..."
-            ./codecov upload-coverage \
+            "$RUNNER_TEMP/codecov-venv/bin/codecovcli" upload-coverage \
               $COMMON_ARGS \
               --file "./packages/$dir/coverage/lcov.info" \
               --flag "$flag" \

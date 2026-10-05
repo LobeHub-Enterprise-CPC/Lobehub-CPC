@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import clientConfig from '../vitest.config.mts';
-import serverConfig from '../vitest.config.server.mts';
+import clientConfig from '../vitest.config.mjs';
+import serverConfig from '../vitest.config.server.mjs';
 
 describe.each([
   ['client', clientConfig],
