@@ -4,6 +4,7 @@ import { act, fireEvent, render, renderHook, screen } from '@testing-library/rea
 import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { isCustomBranding } from '@/const/version';
 import { SignInEmailStep } from '@/features/Auth/SignIn/SignInEmailStep';
 
 import AuthAgreement, { useAuthAgreement } from './AuthAgreement';
@@ -30,8 +31,16 @@ afterEach(() => {
   localStorage.clear();
 });
 
+// `vendorLink` drops the vendor's pages on a rebranded build, so the labels
+// stay as plain text and there is nothing to open; the upstream build keeps
+// the two links and they must open in a new tab.
 const expectLinksToOpenInNewTabs = () => {
-  const links = screen.getAllByRole('link');
+  const links = screen.queryAllByRole('link');
+
+  if (isCustomBranding) {
+    expect(links).toHaveLength(0);
+    return;
+  }
 
   expect(links).toHaveLength(2);
   for (const link of links) {
