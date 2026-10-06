@@ -775,6 +775,8 @@ export default {
   'input.viewOnlyGroup': 'You can only view this group',
   'input.heteroPlus.tooltip': 'Formatting and scheduling',
   'input.more': 'More',
+  'input.notice.summary_one': '{{count}} input notice',
+  'input.notice.summary_other': '{{count}} input notices',
   'input.schedule.cancel': 'Cancel',
   'input.schedule.clear': 'Cancel scheduled send',
   'input.schedule.failed': 'Could not schedule this message. Try again.',
@@ -2012,6 +2014,14 @@ export default {
     'The complete task tree and latest runs for this goal.',
   'goalDetail.instruction': 'Goal instruction',
   'goalDetail.latestRuns': 'Recent executions',
+  'goalDetail.closeConfirm.achieved.content':
+    'Runs still in progress will be stopped and no new tasks will start. You can reopen the goal from this menu.',
+  'goalDetail.closeConfirm.achieved.ok': 'Mark achieved',
+  'goalDetail.closeConfirm.achieved.title': 'Mark this goal as achieved?',
+  'goalDetail.closeConfirm.canceled.content':
+    'Runs still in progress will be stopped and no new tasks will start. You can reopen the goal from this menu.',
+  'goalDetail.closeConfirm.canceled.ok': 'Cancel goal',
+  'goalDetail.closeConfirm.canceled.title': 'Cancel this goal?',
   'goalDetail.deleteConfirm.content':
     'This goal and its task plan will be permanently deleted. Conversation history is retained.',
   'goalDetail.deleteConfirm.ok': 'Delete goal',
@@ -2115,6 +2125,8 @@ export default {
   'goalProcess.planning.title': 'Planning the exploration',
   'goalProcess.planning.description':
     'The coordinator is breaking the goal into executable tasks — they will appear here shortly.',
+  'goalProcess.result.followUp.placeholder': 'Ask about this result, or what to do next…',
+  'goalProcess.result.followUp.send': 'Send to the goal conversation',
   'goalProcess.tag.needsDecision': 'Needs your decision',
   'goalProcess.acceptance.repairing': 'Repairing',
   'goalProcess.acceptance.verifying': 'Verifying',
@@ -2305,6 +2317,7 @@ export default {
   'goalProcess.kind.finding': 'Finding',
   'goalProcess.kind.decision': 'Decision',
   'goalProcess.node.running': 'Running',
+  'goalProcess.node.stopped': 'Stopped',
   'goalProcess.node.done': 'Done',
   'goalProcess.node.waiting': 'Waiting',
   'goalProcess.node.terminalAcceptance': 'Complete full goal acceptance',
@@ -2529,6 +2542,7 @@ export default {
   'taskList.kanban.hideColumn': 'Hide column',
   'taskList.kanban.needsInput': 'Pending review',
   'taskList.kanban.running': 'In progress',
+  'taskList.kanban.runFailed': "Couldn't start the task",
   'taskList.kanban.showColumn': 'Show column',
   'taskList.view.board': 'Board',
   'taskList.view.list': 'List',
@@ -3139,6 +3153,7 @@ export default {
   'workingPanel.localFile.publish.unresolvedLocals':
     'This page still points at local files that were not packed, so those assets would break after publish.',
   'workingPanel.localFile.publish.version': 'Publish this version',
+  'workingPanel.localFile.tooLarge': 'File too large to preview',
   'workingPanel.localFile.truncated': 'File preview truncated to {{limit}} characters',
   'workingPanel.skills.actions.comingSoon': 'Coming soon',
   'workingPanel.skills.actions.delete': 'Delete',
@@ -3428,8 +3443,8 @@ export default {
   'verifyConfig.fromTemplate': 'Pick from template',
   'verifyConfig.generate': 'Generate acceptance plan',
   'verifyConfig.generateFailed': 'Failed to generate acceptance plan',
-  'verifyConfig.generateInvalidProviderAPIKey':
-    'The API key for {{provider}} is invalid or missing. Check the provider settings for {{model}} and try again.',
+  'verifyConfig.generateInvalidPlanModelKey':
+    'The model that drafts acceptance criteria has an invalid or missing API key. Check its provider settings and try again.',
   'verifyConfig.generating': 'Breaking down acceptance criteria…',
   'verifyConfig.manualAdd': 'Add manually',
   'verifyConfig.moreActions': 'More actions',
