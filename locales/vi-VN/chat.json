@@ -1605,7 +1605,7 @@
   "sharePage.pill.edit": "Chỉnh sửa",
   "sharePage.pill.openInApp": "Mở trong {{appName}}",
   "sharePage.pill.sharedVia": "Chia sẻ qua {{appName}}",
-  "sharePageDisclaimer": "Nội dung này được chia sẻ bởi người dùng và không đại diện cho quan điểm của LobeHub. LobeHub không chịu trách nhiệm cho bất kỳ hậu quả nào phát sinh từ nội dung được chia sẻ này.",
+  "sharePageDisclaimer": "Nội dung này được chia sẻ bởi người dùng và không đại diện cho quan điểm của {{appName}}. {{appName}} không chịu trách nhiệm cho bất kỳ hậu quả nào phát sinh từ nội dung được chia sẻ này.",
   "signalCallbacks.collapse": "Ẩn chi tiết",
   "signalCallbacks.empty": "Không có tin nhắn phản hồi",
   "signalCallbacks.expand": "Hiển thị chi tiết",

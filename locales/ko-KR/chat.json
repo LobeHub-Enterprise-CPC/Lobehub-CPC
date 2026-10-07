@@ -1605,7 +1605,7 @@
   "sharePage.pill.edit": "편집",
   "sharePage.pill.openInApp": "{{appName}}에서 열기",
   "sharePage.pill.sharedVia": "{{appName}}을(를) 통해 공유됨",
-  "sharePageDisclaimer": "이 콘텐츠는 사용자가 공유한 것으로, LobeHub의 입장을 대변하지 않습니다. LobeHub는 이 공유 콘텐츠로 인해 발생하는 결과에 대해 책임지지 않습니다.",
+  "sharePageDisclaimer": "이 콘텐츠는 사용자가 공유한 것으로, {{appName}}의 입장을 대변하지 않습니다. {{appName}}는 이 공유 콘텐츠로 인해 발생하는 결과에 대해 책임지지 않습니다.",
   "signalCallbacks.collapse": "세부 정보 숨기기",
   "signalCallbacks.empty": "콜백 메시지가 없습니다",
   "signalCallbacks.expand": "세부 정보 보기",
