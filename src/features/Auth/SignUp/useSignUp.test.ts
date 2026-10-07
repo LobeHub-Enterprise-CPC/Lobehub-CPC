@@ -24,7 +24,8 @@ vi.mock('@/libs/better-auth/auth-client', () => ({
   signUp: { email: mockSignUpEmail },
 }));
 
-vi.mock('@lobechat/business-const', () => ({
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   BRANDING_NAME: 'LobeHub',
   ORG_NAME: 'LobeHub',
 }));

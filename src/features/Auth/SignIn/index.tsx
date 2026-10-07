@@ -8,16 +8,16 @@ import { useSignIn } from './useSignIn';
 
 const SignIn = () => {
   const {
+    agreementChecked,
+    continueWithAgreement,
     disableEmailPassword,
     email,
     form,
     handleBackFromSent,
     handleBackToEmail,
-    handleCheckUser,
     handleForgotPassword,
     handleGoToSignup,
     handleResendEmail,
-    handleSignIn,
     handleSocialSignIn,
     isSocialOnly,
     lastAuthProvider,
@@ -29,6 +29,7 @@ const SignIn = () => {
     sessionExpired,
     sentInfo,
     serverConfigInit,
+    setAgreementChecked,
     socialLoading,
     ssoError,
     step,
@@ -54,13 +55,14 @@ const SignIn = () => {
         loading={loading}
         onBackToEmail={handleBackToEmail}
         onForgotPassword={handleForgotPassword}
-        onSubmit={handleSignIn}
       />
     );
 
   return (
     <>
       <SignInEmailStep
+        agreementChecked={agreementChecked}
+        continueWithAgreement={continueWithAgreement}
         disableEmailPassword={disableEmailPassword}
         form={form as any}
         isSocialOnly={isSocialOnly}
@@ -71,9 +73,9 @@ const SignIn = () => {
         reloadSSO={reloadSSO}
         serverConfigInit={serverConfigInit}
         sessionExpired={sessionExpired}
+        setAgreementChecked={setAgreementChecked}
         socialLoading={socialLoading}
         ssoError={ssoError}
-        onCheckUser={handleCheckUser}
         onGoToSignup={handleGoToSignup}
         onResetEmail={handleBackToEmail}
         onSetPassword={handleForgotPassword}

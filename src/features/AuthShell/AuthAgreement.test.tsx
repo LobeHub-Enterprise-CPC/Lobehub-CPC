@@ -1,9 +1,10 @@
 import * as BaseUI from '@lobehub/ui/base-ui';
+import { useForm } from '@lobehub/ui/base-ui/form';
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
-import { Form } from 'antd';
 import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { isCustomBranding } from '@/const/version';
 import { SignInEmailStep } from '@/features/Auth/SignIn/SignInEmailStep';
 
 import AuthAgreement, { useAuthAgreement } from './AuthAgreement';
@@ -30,8 +31,16 @@ afterEach(() => {
   localStorage.clear();
 });
 
+// `vendorLink` drops the vendor's pages on a rebranded build, so the labels
+// stay as plain text and there is nothing to open; the upstream build keeps
+// the two links and they must open in a new tab.
 const expectLinksToOpenInNewTabs = () => {
-  const links = screen.getAllByRole('link');
+  const links = screen.queryAllByRole('link');
+
+  if (isCustomBranding) {
+    expect(links).toHaveLength(0);
+    return;
+  }
 
   expect(links).toHaveLength(2);
   for (const link of links) {
@@ -68,18 +77,21 @@ describe('SignInEmailStep', () => {
     const onSocialSignIn = vi.fn();
 
     const TestSignInEmailStep = () => {
-      const [form] = Form.useForm<{ email: string }>();
+      const form = useForm<{ email: string }>();
+      const { agreementChecked, continueWithAgreement, setAgreementChecked } = useAuthAgreement();
 
       return (
         <SignInEmailStep
           disableEmailPassword
           serverConfigInit
+          agreementChecked={agreementChecked}
+          continueWithAgreement={continueWithAgreement}
           form={form}
           isSocialOnly={false}
           loading={false}
           oAuthSSOProviders={['google']}
+          setAgreementChecked={setAgreementChecked}
           socialLoading={null}
-          onCheckUser={vi.fn(async () => {})}
           onGoToSignup={vi.fn()}
           onResetEmail={vi.fn()}
           onSetPassword={vi.fn()}
