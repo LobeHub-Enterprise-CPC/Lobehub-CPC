@@ -10,6 +10,24 @@ import { chromium, expect } from '@playwright/test';
 // Exercise the emitted chunks, not Vite's development module graph. In particular,
 // each route must render its logo BEFORE a topic body can initialize shared chunks.
 const root = fileURLToPath(new URL('../../', import.meta.url));
+
+// The submodule's own default is upstream; the enterprise parent overrides
+// BRANDING_NAME in packages/business/const. Resolve whichever owns this build so
+// the disclaimer check stays correct if the deployment rebrands again.
+const readDeploymentBrand = async () => {
+  for (const candidate of [
+    path.join(root, '..', 'packages/business/const/src/branding.ts'),
+    path.join(root, 'packages/business/const/src/branding.ts'),
+  ]) {
+    try {
+      const match = (await readFile(candidate, 'utf8')).match(/BRANDING_NAME = '([^']+)'/);
+      if (match) return match[1];
+    } catch {
+      // keep looking
+    }
+  }
+  return 'LobeHub';
+};
 const dist = path.join(root, 'dist/share');
 const mime = {
   '.css': 'text/css',
@@ -167,3 +185,70 @@ for (const fixture of routes) {
     }
   });
 }
+
+// The share i18n entry never registers the brand post-processor, so a shipped
+// translation that drops the {{appName}} placeholder leaks the upstream brand
+// verbatim (the zh-TW disclaimer did). Drive the topic share as a zh-TW viewer
+// and check the rendered footer, not just the resource file.
+test(
+  'cold production SPA: share footer disclaimer follows deployment branding',
+  { timeout: 30_000 },
+  async () => {
+    const fixture = routes[0];
+    const context = await browser.newContext({ locale: 'zh-TW' });
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error' && !message.text().startsWith('Failed to load resource:')) {
+        errors.push(message.text());
+      }
+    });
+    // The zh-TW context drives the viewer locale (ShareAppShell reads
+    // <html lang>/navigator); the html lang attribute does not exist early
+    // enough to set here, and the context already resolves zh-TW.
+    await page.route('**/trpc/lambda/**', async (route) => {
+      const procedure = new URL(route.request().url()).pathname.split('/').at(-1);
+      let data;
+      if (procedure === fixture.procedure) {
+        data = fixture.data;
+      } else if (procedure === 'message.getMessagesByCursor') {
+        data = {
+          messages: [
+            {
+              id: 'msg_startup_fixture',
+              role: 'user',
+              content: 'Shared conversation content',
+              createdAt: 0,
+              updatedAt: 0,
+            },
+          ],
+          nextCursor: null,
+        };
+      } else {
+        errors.push(`Unexpected RPC: ${procedure}`);
+        await route.abort();
+        return;
+      }
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ result: { data: { json: data } } }),
+      });
+    });
+
+    try {
+      const brand = await readDeploymentBrand();
+      await page.goto(`${origin}${fixture.path}`);
+      const disclaimer = page.getByText('此內容由使用者分享');
+      await expect(disclaimer).toBeVisible();
+      await expect(disclaimer).toContainText(brand);
+      if (brand !== 'LobeHub') await expect(disclaimer).not.toContainText('LobeHub');
+      assert.deepEqual(errors, [], 'zh-TW share must render without React or module errors');
+    } catch (error) {
+      console.error({ errors });
+      throw error;
+    } finally {
+      await context.close();
+    }
+  },
+);
