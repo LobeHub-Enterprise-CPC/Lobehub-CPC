@@ -1605,7 +1605,7 @@
   "sharePage.pill.edit": "Düzenle",
   "sharePage.pill.openInApp": "{{appName}} içinde aç",
   "sharePage.pill.sharedVia": "{{appName}} üzerinden paylaşıldı",
-  "sharePageDisclaimer": "Bu içerik bir kullanıcı tarafından paylaşılmıştır ve LobeHub'un görüşlerini yansıtmaz. LobeHub, bu paylaşılan içerikten doğabilecek sonuçlardan sorumlu değildir.",
+  "sharePageDisclaimer": "Bu içerik bir kullanıcı tarafından paylaşılmıştır ve {{appName}}'un görüşlerini yansıtmaz. {{appName}}, bu paylaşılan içerikten doğabilecek sonuçlardan sorumlu değildir.",
   "signalCallbacks.collapse": "Ayrıntıları gizle",
   "signalCallbacks.empty": "Çağrı mesajı yok",
   "signalCallbacks.expand": "Ayrıntıları göster",

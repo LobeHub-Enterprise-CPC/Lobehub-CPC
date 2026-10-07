@@ -1605,7 +1605,7 @@
   "sharePage.pill.edit": "Bewerken",
   "sharePage.pill.openInApp": "Openen in {{appName}}",
   "sharePage.pill.sharedVia": "Gedeeld via {{appName}}",
-  "sharePageDisclaimer": "Deze inhoud is gedeeld door een gebruiker en vertegenwoordigt niet de standpunten van LobeHub. LobeHub is niet verantwoordelijk voor eventuele gevolgen van deze gedeelde inhoud.",
+  "sharePageDisclaimer": "Deze inhoud is gedeeld door een gebruiker en vertegenwoordigt niet de standpunten van {{appName}}. {{appName}} is niet verantwoordelijk voor eventuele gevolgen van deze gedeelde inhoud.",
   "signalCallbacks.collapse": "Details verbergen",
   "signalCallbacks.empty": "Geen callbackberichten",
   "signalCallbacks.expand": "Details weergeven",

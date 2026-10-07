@@ -1605,7 +1605,7 @@
   "sharePage.pill.edit": "تعديل",
   "sharePage.pill.openInApp": "افتح في {{appName}}",
   "sharePage.pill.sharedVia": "تمت المشاركة عبر {{appName}}",
-  "sharePageDisclaimer": "تمت مشاركة هذا المحتوى من قبل مستخدم ولا يعبر عن آراء LobeHub. لا تتحمل LobeHub أي مسؤولية عن أي نتائج ناتجة عن هذا المحتوى المشترك.",
+  "sharePageDisclaimer": "تمت مشاركة هذا المحتوى من قبل مستخدم ولا يعبر عن آراء {{appName}}. لا تتحمل {{appName}} أي مسؤولية عن أي نتائج ناتجة عن هذا المحتوى المشترك.",
   "signalCallbacks.collapse": "إخفاء التفاصيل",
   "signalCallbacks.empty": "لا توجد رسائل استرجاع",
   "signalCallbacks.expand": "عرض التفاصيل",

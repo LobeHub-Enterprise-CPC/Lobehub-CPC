@@ -1605,7 +1605,7 @@
   "sharePage.pill.edit": "編輯",
   "sharePage.pill.openInApp": "在{{appName}}中開啟",
   "sharePage.pill.sharedVia": "通過{{appName}}分享",
-  "sharePageDisclaimer": "此內容由使用者分享，並不代表 LobeHub 的立場。LobeHub 對此分享內容所引發的任何後果不負責任。",
+  "sharePageDisclaimer": "此內容由使用者分享，並不代表 {{appName}} 的立場。{{appName}} 對此分享內容所引發的任何後果不負責任。",
   "signalCallbacks.collapse": "隱藏詳情",
   "signalCallbacks.empty": "沒有回調消息",
   "signalCallbacks.expand": "顯示詳情",
