@@ -181,10 +181,10 @@ describe('agent document modifyNodes regressions', () => {
     expect(twice.content).toBe('# T\n\n- one\n- two v3\n- three\n');
   });
 
-  // Upstream @lobehub/editor re-parses a modified node without keeping its key,
-  // so the id changes after every modify. A stale id in a later batch is now
-  // rejected loudly (R5); keeping the id needs the editor dependency to change.
-  it.fails('R7b modifying a <li> keeps its id', async () => {
+  // @lobehub/editor re-parsed a modified node without keeping its key, so the
+  // id changed after every modify. Fixed in editor 4.29.2 — now a hard
+  // regression guard (was it.fails until the fix shipped).
+  it('R7b modifying a <li> keeps its id', async () => {
     const base = await load('# T\n\n- one\n- two\n- three\n');
     const id = liId(base.litexml!, 'two');
     const once = await editThenRead(base, [
@@ -227,10 +227,10 @@ describe('agent document markdown writes regressions', () => {
     ).rejects.toThrow(/LiteXML/);
   });
 
-  // Upstream @lobehub/editor markdown writer bug (table cell text ending in a
-  // backslash escapes the column separator). Kept as an expected failure so it
-  // flips to a hard failure once the editor dependency fixes it.
-  it.fails('R11 table cell text ending in a backslash keeps the column count', async () => {
+  // Former @lobehub/editor markdown writer bug (table cell text ending in a
+  // backslash escaped the column separator). Fixed in editor 4.29.2 — flipped
+  // from it.fails to a hard regression guard.
+  it('R11 table cell text ending in a backslash keeps the column count', async () => {
     const base = await load('| a | b | c |\n| --- | --- | --- |\n| x | y | z |\n');
     const span = base.litexml!.match(/<span id="(\w+)">y<\/span>/)![1];
     const back = await editThenRead(base, [
