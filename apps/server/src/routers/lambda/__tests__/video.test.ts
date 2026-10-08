@@ -16,6 +16,7 @@ const {
   mockIsLobeHubModelAvailable,
   mockProcessBackgroundVideoPolling,
   mockResolveBusinessModelMapping,
+  mockSupportsVideoPolling,
   mockAfter,
   mockAppEnv,
   mockServerDB,
@@ -657,7 +658,7 @@ describe('videoRouter', () => {
       expect(mockProcessBackgroundVideoPolling).toHaveBeenCalled();
     });
 
-    it('should not start polling for a webhook task', async () => {
+    it('should start the fallback poller for a webhook task', async () => {
       setupMocks();
       mockCreateVideo.mockResolvedValue({
         completionMode: 'webhook',
@@ -667,8 +668,17 @@ describe('videoRouter', () => {
       const caller = videoRouter.createCaller(mockCtx);
       await caller.createVideo(defaultInput);
 
-      expect(mockAfter).not.toHaveBeenCalled();
-      expect(mockProcessBackgroundVideoPolling).not.toHaveBeenCalled();
+      // Webhook mode used to rely on the callback alone, which stranded every task
+      // whose callback never arrived (INC-016). The poller now runs alongside it and
+      // is marked as a fallback so it cannot finalize the task on its own failure.
+      expect(mockAfter).toHaveBeenCalled();
+      expect(mockProcessBackgroundVideoPolling).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          inferenceId: 'inf-4',
+          pollingIsFallback: true,
+        }),
+      );
     });
   });
 

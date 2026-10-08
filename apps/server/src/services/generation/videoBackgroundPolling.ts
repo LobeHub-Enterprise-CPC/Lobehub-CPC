@@ -3,7 +3,7 @@ import {
   buildMappedBusinessModelFields,
   resolveBusinessModelMapping,
 } from '@lobechat/business-model-runtime';
-import type { VideoGenerationUsage } from '@lobechat/model-runtime';
+import type { PollVideoStatusResult, VideoGenerationUsage } from '@lobechat/model-runtime';
 import { RequestTrigger, type SpendOrigin, type VideoGenerationRoute } from '@lobechat/types';
 import debug from 'debug';
 import type { RuntimeVideoGenParams } from 'model-bank';
@@ -46,13 +46,15 @@ const STATUS_QUERY_TIMEOUT = 30_000;
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
 
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+
   try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), ms);
-      }),
-    ]);
+    // `Promise.race<T>([...])` is explicit on purpose. Left to inference, the array
+    // widens to `Promise<T> | Promise<never>` and `race` resolves to `unknown`, which
+    // erases the discriminated union the caller switches on (`status === 'success'`).
+    return await Promise.race<T>([promise, timeout]);
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -355,7 +357,7 @@ async function pollUntilCompletion(
         budgetSec,
       );
 
-      const result = await withTimeout(
+      const result = await withTimeout<PollVideoStatusResult>(
         modelRuntime.handlePollVideoStatus(inferenceId, model, route),
         STATUS_QUERY_TIMEOUT,
         `Video status query did not answer within ${STATUS_QUERY_TIMEOUT / 1000}s`,
