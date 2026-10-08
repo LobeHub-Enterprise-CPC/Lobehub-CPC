@@ -1,4 +1,4 @@
-import type { GoalStatus } from '@lobechat/const/goal';
+import { GOAL_ACCEPTANCE_TASK_TITLE, type GoalStatus } from '@lobechat/const/goal';
 import type { GoalMetricCriterion, GoalTickResult } from '@lobechat/types';
 
 import { mutate, useClientDataSWR, useClientDataSWRWithSync } from '@/libs/swr';
@@ -53,6 +53,48 @@ const SERVER_ADVANCING_STATUSES = new Set<GoalStatus>(['planning', 'running', 'v
 /** Kept coarse on purpose — this is liveness, not a progress bar. */
 const GOAL_GRAPH_POLL_INTERVAL = 5000;
 const PENDING_CLARIFICATIONS_POLL_INTERVAL = 30_000;
+
+/**
+ * Acceptance states in which the Goal's own delivery has nothing left in
+ * flight. `pending`, `planned`, `repairing` and `verifying` are writes still on
+ * their way from the coordinator or from the verify run it dispatched.
+ *
+ * `rejected` is terminal for this poll as well. Rejecting a Goal's delivery
+ * either reopens the Goal — `reopenForChanges` makes it `running`, which the
+ * advancing-status branch above already covers — or only records the decision
+ * (`acceptance.reject` with `dispatch: false`), after which nothing else is
+ * coming for that acceptance. Leaving it out polls that sticky state every five
+ * seconds for as long as the page stays open.
+ */
+const SETTLED_ACCEPTANCE_STATUSES = new Set([
+  'accepted',
+  'closed',
+  'delivered',
+  'errored',
+  'rejected',
+]);
+
+/**
+ * Whether the Goal's own acceptance has a write still coming.
+ *
+ * A terminal Goal whose own acceptance has not settled is **mid-transition**:
+ * the verdict is not written yet. Stopping the poll on that half-written
+ * snapshot is what froze an open result page after a rework — the Goal already
+ * read 已达成 while the sign-off strip still showed the rejected round and the
+ * criteria count stayed at the rework's starting point, until the page was
+ * reloaded. Keep reading until the acceptance settles; the settled snapshot is
+ * the one the page can rest on.
+ */
+const goalAcceptanceUnsettled = (graph: {
+  acceptances?: Record<string, { status: string }>;
+  nodes?: { id: string; kind: string; title: string }[];
+}): boolean => {
+  const terminal = graph.nodes?.find(
+    (node) => node.kind === 'task' && node.title === GOAL_ACCEPTANCE_TASK_TITLE,
+  );
+  const acceptance = terminal ? graph.acceptances?.[terminal.id] : undefined;
+  return !!acceptance && !SETTLED_ACCEPTANCE_STATUSES.has(acceptance.status);
+};
 
 /** A conversation rarely plans more than one goal; this only bounds a runaway topic. */
 const TOPIC_GOAL_FETCH_LIMIT = 20;
@@ -118,7 +160,15 @@ export class GoalActionImpl {
     params: { decisionId: string; optionId: string; resolution?: string },
   ): Promise<void> => {
     await goalService.decide({ id: goalId, ...params });
-    await this.refreshGoalGraph(goalId);
+    // The same gate is asked by the island, the inbox brief and the home goal
+    // rail; answered in one place, every other one stops asking.
+    await Promise.all([
+      this.refreshGoalGraph(goalId),
+      mutate(goalKeys.pendingForIsland()),
+      mutate(
+        (key) => Array.isArray(key) && (key[0] === 'brief:list' || key[0] === 'task:homeGoals'),
+      ),
+    ]);
   };
 
   /** Answer a goal's clarification round in one call, then refresh every view of it. */
@@ -196,6 +246,17 @@ export class GoalActionImpl {
       { refreshInterval: PENDING_CLARIFICATIONS_POLL_INTERVAL, revalidateOnFocus: true },
     );
 
+  /**
+   * Gates and sign-offs waiting on the user across their goals — what the
+   * island asks outside the goal page. Same cadence as the clarifications.
+   */
+  useFetchPendingForIsland = (enabled: boolean) =>
+    useClientDataSWR(
+      enabled ? goalKeys.pendingForIsland() : null,
+      () => goalService.pendingForIsland(),
+      { refreshInterval: PENDING_CLARIFICATIONS_POLL_INTERVAL, revalidateOnFocus: true },
+    );
+
   /** The Goal Graph snapshot behind the process-control surface. */
   useFetchGoalGraph = (goalId?: string | null) =>
     useClientDataSWR(goalId ? goalKeys.graph(goalId) : null, () => goalService.getGraph(goalId!), {
@@ -208,9 +269,13 @@ export class GoalActionImpl {
       },
       // The wrap-up report is written after the Goal settles, so a finished
       // Goal keeps polling until its report run ends and the storyline lands.
+      // A Goal that already reads terminal while its own acceptance has not
+      // settled is mid-transition too — the verdict is still coming.
       refreshInterval: (graph) =>
         graph &&
-        (SERVER_ADVANCING_STATUSES.has(graph.goal.status) || graph.report?.status === 'running')
+        (SERVER_ADVANCING_STATUSES.has(graph.goal.status) ||
+          graph.report?.status === 'running' ||
+          (graph.goal.status === 'achieved' && goalAcceptanceUnsettled(graph)))
           ? GOAL_GRAPH_POLL_INTERVAL
           : 0,
       revalidateOnFocus: true,

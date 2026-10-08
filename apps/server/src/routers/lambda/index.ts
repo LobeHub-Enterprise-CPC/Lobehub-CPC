@@ -50,6 +50,7 @@ import { comfyuiRouter } from './comfyui';
 import { composioRouter } from './composio';
 import { configRouter } from './config';
 import { connectorRouter } from './connector';
+import { dashboardRouter } from './dashboard';
 import { deviceRouter } from './device';
 import { deviceMetricRouter } from './deviceMetric';
 import { documentRouter } from './document';
@@ -86,6 +87,7 @@ import { ragEvalRouter } from './ragEval';
 import { recentRouter } from './recent';
 import { resourcePermissionRouter } from './resourcePermission';
 import { resourceTransferRequestRouter } from './resourceTransferRequest';
+import { sandboxStorageRouter } from './sandboxStorage';
 import { scmRouter } from './scm';
 import { searchRouter } from './search';
 import { sessionRouter } from './session';
@@ -105,6 +107,7 @@ import { userMemoryRouter } from './userMemory';
 import { verifyRouter } from './verify';
 import { videoRouter } from './video';
 import { webBrowsingRouter } from './webBrowsing';
+import { widgetRouter } from './widget';
 import { workRouter } from './work';
 import { workspaceUserSettingsRouter } from './workspaceUserSettings';
 
@@ -120,6 +123,7 @@ export const lambdaRouter = router({
   agentEvalExternal: agentEvalExternalRouter,
   agentLabel: agentLabelRouter,
   agentSkills: agentSkillsRouter,
+  sandboxStorage: sandboxStorageRouter,
   agentTrace: agentTraceRouter,
   expertise: expertiseRouter,
   agentSignal: agentSignalRouter,
@@ -138,6 +142,7 @@ export const lambdaRouter = router({
   comfyui: comfyuiRouter,
   config: configRouter,
   connector: connectorRouter,
+  dashboard: dashboardRouter,
   device: deviceRouter,
   deviceMetric: deviceMetricRouter,
   document: documentRouter,
@@ -196,6 +201,7 @@ export const lambdaRouter = router({
   verify: verifyRouter,
   video: videoRouter,
   webBrowsing: webBrowsingRouter,
+  widget: widgetRouter,
   work: workRouter,
   workspace: workspaceRouter,
   workspaceAuditLog: workspaceAuditLogRouter,

@@ -1,7 +1,5 @@
 import { SANDBOX_INFRASTRUCTURE, SANDBOX_PREINSTALLED_SOFTWARE } from '@lobechat/business-const';
 
-import { SANDBOX_UPLOADED_FILES_DIR } from './uploadedFiles';
-
 /**
  * The infrastructure name comes from `SANDBOX_INFRASTRUCTURE` rather than a
  * literal: it used to hardcode "AWS Bedrock AgentCore", and the assistant
@@ -13,9 +11,7 @@ export const systemPrompt = `You have access to a Cloud Sandbox that provides a 
 
 <sandbox_environment>
 **Important:** This is a CLOUD SANDBOX environment, NOT the user's local file system.
-- Each conversation topic has its own isolated session, with its own file system
-- The session is **paused, not destroyed**, when you stop using it, and resumes with everything intact when this topic is used again — installed packages, cloned repos and generated files survive between turns and across days. Assume they did; see session_behavior
-- The sandbox has its own isolated file system starting at the root directory
+{{sandbox_workspace}}
 - Commands will time out after 120 seconds by default
 - **Default shell is /bin/sh** (typically dash or ash), NOT bash. Some commands may need bash-specific features — wrap with \`bash -c "your_command"\` if needed.
 
@@ -26,11 +22,7 @@ export const systemPrompt = `You have access to a Cloud Sandbox that provides a 
 </sandbox_environment>
 
 
-<uploaded_files>
-Files the user uploaded in this conversation (attachments and session files) are automatically synced into \`${SANDBOX_UPLOADED_FILES_DIR}\` when your sandbox session starts. If the user refers to a file they shared, look there first — do NOT ask them to re-upload. Run \`listFiles\` on \`${SANDBOX_UPLOADED_FILES_DIR}\` to see everything that is available.
-\`${SANDBOX_UPLOADED_FILES_DIR}\` only exists once the user has uploaded at least one file this session — its absence just means nothing has been uploaded yet, not a sandbox error.
 {{sandbox_uploaded_files}}
-</uploaded_files>
 
 
 <preinstalled_software>
@@ -222,7 +214,8 @@ Your sandbox session is managed automatically per conversation topic, and it has
 
 - After ~15 minutes of inactivity the sandbox is **paused**, not destroyed.
 - The next time this topic uses it, it is **resumed**, and everything is still there — installed packages, virtualenvs, \`node_modules\`, cloned repos, build caches, files you wrote.
-- Only after ~7 days of inactivity is it destroyed; after that, everything has to be rebuilt from scratch.
+- Only after ~7 days of inactivity is it destroyed; after that, everything has to be rebuilt from scratch. The \`sessionExpiredAndRecreated\` flag in responses indicates if this occurred.
+{{sandbox_session_files}}
 
 **Default to "not destroyed".** You are not expected to know or track which state the sandbox is in, and you should not try to work it out — not from the clock, not from how long ago the user last wrote, and not by taking inventory. Just use the sandbox as if everything from the earlier turns of this conversation is still there, because it almost always is. No routine \`ls\` to see what survived, no "let me check whether pandas is still installed", no reinstalling "just to be safe".
 

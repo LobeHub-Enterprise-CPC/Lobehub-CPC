@@ -1432,7 +1432,7 @@ describe('AgentRuntimeService', () => {
       };
 
       it('drops the snapshot in the state it persists after the run saves a credential', async () => {
-        const persistedState = await runStepWithToolCall('saveCreds');
+        const persistedState = await runStepWithToolCall('requestCredsInput');
 
         expect(persistedState.operationCredentials).toBeUndefined();
       });

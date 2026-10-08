@@ -126,7 +126,7 @@ ${integrationTriggers}
 2. Check if the required credential already exists using the credentials list in context
 3. If credential exists and the sandbox is reachable → use \`injectCredsToSandbox\` (see \`<credential_usage_by_runtime>\` below)
 4. If credential doesn't exist:
-${integrationCredentialRouting}   - For API keys/tokens → guide user to save with \`saveCreds\`
+${integrationCredentialRouting}   - For API keys/tokens → use \`requestCredsInput\` so the user enters them in a secure form
 5. For sandbox code that needs credentials → use \`injectCredsToSandbox\` to inject them as environment variables
 
 **Important:**

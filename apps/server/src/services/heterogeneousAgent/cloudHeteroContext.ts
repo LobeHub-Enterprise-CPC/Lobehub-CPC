@@ -1,3 +1,4 @@
+import type { SandboxMode } from '@lobechat/builtin-tool-cloud-sandbox';
 import { BRANDING_NAME } from '@lobechat/business-const';
 
 export interface ConversationHistoryEntry {
@@ -19,6 +20,18 @@ export interface ConversationHistoryEntry {
  * via sandboxRunner → spawnHeteroSandbox. If nothing meaningful to inject,
  * returns undefined so no extra block is added.
  */
+/**
+ * Where the run keeps its files. Absent or `ephemeral` renders the original
+ * wording byte for byte; `persistent` describes the instance directory the
+ * execution plane starts the run in — by its place in the workspace, never by
+ * an absolute path, which is the plane's to choose.
+ */
+export interface CloudHeteroSandboxPlacement {
+  /** Chosen subdirectory of the workspace, relative to its root. */
+  cwd?: string;
+  mode?: SandboxMode;
+}
+
 export function buildCloudHeteroContext(params: {
   repos: string[];
   /** Static systemContext from HeterogeneousProviderConfig.systemContext (agent-level). */
@@ -31,8 +44,10 @@ export function buildCloudHeteroContext(params: {
   conversationHistory?: ConversationHistoryEntry[];
   /** GitHub OAuth token injected as GITHUB_TOKEN env var in the sandbox. */
   githubToken?: string;
+  sandbox?: CloudHeteroSandboxPlacement;
 }): string {
-  const { repos, agentSystemContext, conversationHistory, githubToken } = params;
+  const { repos, agentSystemContext, conversationHistory, githubToken, sandbox } = params;
+  const persistent = sandbox?.mode === 'persistent';
 
   const parts: string[] = [];
 
@@ -42,34 +57,59 @@ export function buildCloudHeteroContext(params: {
   }
 
   // --- Cloud workspace context ---
+  // A persistent run is told what survives and what its neighbours are; the
+  // push discipline stays, because a workspace on network storage is still not
+  // where the source of truth for code lives.
+  const placementLines: string[] = persistent
+    ? [
+        '## Cloud Workspace',
+        sandbox?.cwd
+          ? `You are running inside a ${BRANDING_NAME} cloud sandbox. Your working directory is \`${sandbox.cwd}\`, a subdirectory of a **persistent workspace**: files written there survive session expiry and are still there in your next session.`
+          : `You are running inside a ${BRANDING_NAME} cloud sandbox. Your working directory is a **persistent workspace**: files written there survive session expiry and are shared with the other conversation topics that use this workspace.`,
+        "The workspace root is above you. Its other subdirectories belong to this user's other topics — reachable with relative paths, but do not write into them unless the user asks.",
+        'The workspace is network storage: fine for source files, results and notes, but slow for the thousands of small files a package install or a build writes. Install packages and build where the toolchain puts things by default.',
+        '',
+        '## Sandbox Persistence',
+        'Files in your working directory persist across sessions; anything written outside it may not.',
+        'The remote GitHub repository is still the source of truth for code:',
+        '',
+        '1. **Always commit and push** — after making changes, run `git add`, `git commit`, and `git push`.',
+        '   Never leave code changes uncommitted at the end of a task.',
+        '2. **Confirm push success** — verify with `git log --oneline origin/<branch>`',
+        '   before reporting a task as complete.',
+        '',
+      ]
+    : [
+        '## Cloud Workspace',
+        `You are running inside a ${BRANDING_NAME} cloud sandbox. Your working directory is \`/workspace\`.`,
+        '',
+        '## Sandbox Persistence — CRITICAL',
+        'This sandbox has a **pause / resume** lifecycle: after ~15 minutes of inactivity it is paused,',
+        'not destroyed, and the next run in this conversation resumes it with `/workspace` exactly as',
+        'you left it — clones, `node_modules`, virtualenvs, build caches, uncommitted work. Only after',
+        '~7 days of inactivity is it destroyed, and then everything has to be rebuilt from scratch.',
+        '',
+        '**Default to "not destroyed".** Do not try to work out which state the sandbox is in, and do',
+        'not open a task by inventorying `/workspace`. Just run the command you actually wanted to run,',
+        'and never re-clone or re-install "just to be safe". If the sandbox really was destroyed it says',
+        'so loudly on first contact (`No such file or directory`, `command not found`, an empty',
+        '`/workspace`) — that is when you take stock, redo the setup this task needs, and continue.',
+        '',
+        'A pause is still not a backup, and `/workspace` is still not storage:',
+        '**any file change that is not pushed to a remote can be lost.**',
+        '',
+        'Rules you MUST follow for every code change:',
+        '',
+        '1. **Always commit and push** — after making changes, run `git add`, `git commit`, and `git push`.',
+        '   Never leave code changes uncommitted at the end of a task.',
+        '2. **Confirm push success** — verify with `git log --oneline origin/<branch>`',
+        '   before reporting a task as complete.',
+        '3. **Never rely on local-only state** — treat every file in `/workspace` as temporary.',
+        '   The source of truth is the remote GitHub repository.',
+        '',
+      ];
   const workspaceLines: string[] = [
-    '## Cloud Workspace',
-    `You are running inside a ${BRANDING_NAME} cloud sandbox. Your working directory is \`/workspace\`.`,
-    '',
-    '## Sandbox Persistence — CRITICAL',
-    'This sandbox has a **pause / resume** lifecycle: after ~15 minutes of inactivity it is paused,',
-    'not destroyed, and the next run in this conversation resumes it with `/workspace` exactly as',
-    'you left it — clones, `node_modules`, virtualenvs, build caches, uncommitted work. Only after',
-    '~7 days of inactivity is it destroyed, and then everything has to be rebuilt from scratch.',
-    '',
-    '**Default to "not destroyed".** Do not try to work out which state the sandbox is in, and do',
-    'not open a task by inventorying `/workspace`. Just run the command you actually wanted to run,',
-    'and never re-clone or re-install "just to be safe". If the sandbox really was destroyed it says',
-    'so loudly on first contact (`No such file or directory`, `command not found`, an empty',
-    '`/workspace`) — that is when you take stock, redo the setup this task needs, and continue.',
-    '',
-    'A pause is still not a backup, and `/workspace` is still not storage:',
-    '**any file change that is not pushed to a remote can be lost.**',
-    '',
-    'Rules you MUST follow for every code change:',
-    '',
-    '1. **Always commit and push** — after making changes, run `git add`, `git commit`, and `git push`.',
-    '   Never leave code changes uncommitted at the end of a task.',
-    '2. **Confirm push success** — verify with `git log --oneline origin/<branch>`',
-    '   before reporting a task as complete.',
-    '3. **Never rely on local-only state** — treat every file in `/workspace` as temporary.',
-    '   The source of truth is the remote GitHub repository.',
-    '',
+    ...placementLines,
     '## Pushing to GitHub — Public vs Private Repos',
     '',
     'Before pushing, check whether the repo is public or private:',
@@ -128,21 +168,25 @@ export function buildCloudHeteroContext(params: {
     );
   }
 
+  // Repos are cloned into the working directory, wherever that is: an absolute
+  // path is only known for the ephemeral box.
+  const repoRoot = persistent ? '.' : '/workspace';
+  const repoRootLabel = persistent ? 'your working directory' : '`/workspace`';
   if (repos.length > 0) {
     workspaceLines.push(
       '',
       '## GitHub Repositories',
-      'The following repositories were pre-cloned into `/workspace` before this conversation started:',
+      `The following repositories were pre-cloned into ${repoRootLabel} before this conversation started:`,
       ...repos.map((repo) => {
         const dir = repoToLocalDir(repo);
         const url = toGithubUrl(repo);
-        return `- \`/workspace/${dir}\`  (${url})`;
+        return `- \`${repoRoot}/${dir}\`  (${url})`;
       }),
       '',
       'You can start working in any of these directories immediately.',
       githubToken
         ? 'If a directory is missing (clone may have failed), you can recover it yourself using the available GITHUB_TOKEN.'
-        : 'If a directory is missing (clone may have failed), you can run `git clone <url> /workspace/<dir>` yourself to recover it.',
+        : `If a directory is missing (clone may have failed), you can run \`git clone <url> ${repoRoot}/<dir>\` yourself to recover it.`,
     );
   } else {
     workspaceLines.push(
@@ -150,7 +194,7 @@ export function buildCloudHeteroContext(params: {
       'No GitHub repositories have been pre-cloned for this conversation.',
       githubToken
         ? 'If you need a repository, you can clone it yourself using the available GITHUB_TOKEN.'
-        : 'If you need a repository, ask the user to add it in the repo selector, or clone it yourself with `git clone <url> /workspace/<dir>`.',
+        : `If you need a repository, ask the user to add it in the repo selector, or clone it yourself with \`git clone <url> ${repoRoot}/<dir>\`.`,
     );
   }
 
