@@ -102,17 +102,13 @@ const InputArea = ({
   return (
     <Flexbox>
       <Flexbox ref={chatInputRef}>
-        {mode === 'chat' ? (
-          <InputDragUpload
-            radius={20}
-            style={{ position: 'relative', zIndex: 1 }}
-            onUploadFiles={handleUploadFiles}
-          >
-            {editorSlot}
-          </InputDragUpload>
-        ) : (
-          editorSlot
-        )}
+        <InputDragUpload
+          radius={20}
+          style={{ position: 'relative', zIndex: 1 }}
+          onUploadFiles={handleUploadFiles}
+        >
+          {editorSlot}
+        </InputDragUpload>
         {showInputBanners && (
           <InputBannerQueue>
             {showNewModelShortcuts && (
