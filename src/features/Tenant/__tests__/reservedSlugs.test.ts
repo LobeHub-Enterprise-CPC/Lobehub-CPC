@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { buildTenantPath, parseTenantPath, stripTenantPath } from '@lobechat/const/tenantPath';
 import { describe, expect, it } from 'vitest';
 
@@ -139,5 +142,20 @@ describe('reserved slugs', () => {
 
   it('has no empty entries', () => {
     for (const slug of RESERVED_SLUGS) expect(slug.length).toBeGreaterThan(0);
+  });
+});
+
+describe('reserved slugs stay in sync with the proxy matcher', () => {
+  // `src/proxy.ts` lists every top-level client route as a literal (a Next
+  // requirement), so a new route lands there first. A slug equal to one of them
+  // would shadow it silently — this keeps the reserved list from lagging.
+  it('reserves every top-level segment the proxy matcher routes to the SPA', () => {
+    const source = readFileSync(resolve(__dirname, '../../../proxy.ts'), 'utf8');
+    const segments = new Set(
+      [...source.matchAll(/^\s*'\/([\w-]+)/gm)].map(([, segment]) => segment),
+    );
+
+    expect(segments.size).toBeGreaterThan(10);
+    for (const segment of segments) expect(isReservedSlug(segment), segment).toBe(true);
   });
 });
