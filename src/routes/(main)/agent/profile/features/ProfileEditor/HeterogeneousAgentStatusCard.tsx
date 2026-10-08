@@ -2,7 +2,10 @@
 
 import { isDesktop } from '@lobechat/const';
 import { type BinaryStatus, type ClaudeAuthStatus } from '@lobechat/electron-client-ipc';
-import { isHeterogeneousProviderBindingSupported } from '@lobechat/heterogeneous-agents';
+import {
+  isHeterogeneousProviderBindingSupported,
+  isKimiModelCandidate,
+} from '@lobechat/heterogeneous-agents';
 import {
   getHeterogeneousAgentClientConfig,
   isRemoteHeterogeneousType,
@@ -12,10 +15,10 @@ import type {
   HeterogeneousAuthMode,
   HeterogeneousProviderConfig,
 } from '@lobechat/types';
-import { CopyButton, Flexbox, Icon, Input, Tooltip, TooltipGroup } from '@lobehub/ui';
-import { ActionIcon, Button, Segmented, Select, Tag, Text } from '@lobehub/ui/base-ui';
+import { CopyButton, Flexbox, Icon, Tooltip, TooltipGroup } from '@lobehub/ui';
+import { ActionIcon, Button, Input, Segmented, Select, Spin, Tag, Text } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { Loader2Icon, PencilLine, RefreshCw, XCircle } from 'lucide-react';
+import { PencilLine, RefreshCw, XCircle } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -26,6 +29,7 @@ import {
   buildServerDefaultModelOptions,
   MODEL_PICKER_STYLE,
   modelPickerStyles,
+  type ServerDefaultModel,
 } from '@/features/HeterogeneousAgent/modelPicker';
 import ModelSelect from '@/features/ModelSelect';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
@@ -103,13 +107,9 @@ const styles = createStaticStyles(({ css }) => ({
   `,
   detailLabel: css`
     flex-shrink: 0;
-
     width: 96px;
-
     font-size: 12px;
     color: ${cssVar.colorTextTertiary};
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
   `,
   detailContent: css`
     display: flex;
@@ -129,51 +129,11 @@ const styles = createStaticStyles(({ css }) => ({
   `,
   commandInput: css`
     width: 100%;
+    height: ${COMMAND_LINE_HEIGHT}px;
+    border-radius: 999px;
+
     font-family: ${cssVar.fontFamilyCode};
-
-    &,
-    &.ant-input,
-    &.ant-input-affix-wrapper,
-    &.ant-input-outlined,
-    & input,
-    & .ant-input,
-    & .ant-input-affix-wrapper,
-    & .ant-input-outlined {
-      box-sizing: border-box;
-      height: ${COMMAND_LINE_HEIGHT}px;
-      min-height: ${COMMAND_LINE_HEIGHT}px;
-      max-height: ${COMMAND_LINE_HEIGHT}px;
-      border-radius: 999px !important;
-
-      font-family: ${cssVar.fontFamilyCode};
-      font-size: 14px;
-      line-height: ${COMMAND_LINE_HEIGHT - 2}px;
-    }
-
-    &,
-    &.ant-input,
-    &.ant-input-outlined,
-    & input,
-    & .ant-input,
-    & .ant-input-outlined {
-      padding-block: 0;
-      padding-inline: 12px;
-    }
-
-    &.ant-input-affix-wrapper,
-    & .ant-input-affix-wrapper {
-      overflow: hidden;
-      padding-block: 0;
-      padding-inline: 12px;
-    }
-
-    &.ant-input-affix-wrapper input,
-    & .ant-input-affix-wrapper input {
-      height: ${COMMAND_LINE_HEIGHT - 2}px;
-      padding: 0;
-      border-radius: 999px !important;
-      line-height: ${COMMAND_LINE_HEIGHT - 2}px;
-    }
+    font-size: 14px;
   `,
   commandInputWrap: css`
     display: flex;
@@ -224,10 +184,6 @@ const styles = createStaticStyles(({ css }) => ({
     color: ${cssVar.colorTextSecondary};
   `,
 }));
-
-interface ServerDefaultModel {
-  model: string;
-}
 
 interface HeterogeneousAgentStatusCardProps {
   apiModeAvailable?: boolean;
@@ -346,6 +302,7 @@ const HeterogeneousAgentStatusCard = memo<HeterogeneousAgentStatusCardProps>(
         provider.type === 'codex' ||
         provider.type === 'cursor' ||
         provider.type === 'droid' ||
+        provider.type === 'devin' ||
         provider.type === 'kimi-code' ||
         provider.type === 'opencode' ||
         provider.type === 'pi' ||
@@ -566,7 +523,7 @@ const HeterogeneousAgentStatusCard = memo<HeterogeneousAgentStatusCardProps>(
       if (detecting) {
         return (
           <Flexbox horizontal align="center" gap={8}>
-            <Icon spin icon={Loader2Icon} size={16} style={{ opacity: 0.6 }} />
+            <Spin size="small" style={{ opacity: 0.6 }} />
             <Text className={styles.metaText}>
               {t('heterogeneousStatus.detecting', { name: displayName })}
             </Text>
@@ -617,7 +574,7 @@ const HeterogeneousAgentStatusCard = memo<HeterogeneousAgentStatusCardProps>(
                   className={styles.commandInput}
                   disabled={!canEdit || savingCommand}
                   placeholder={t('heterogeneousStatus.command.placeholder')}
-                  ref={commandInputRef as never}
+                  ref={commandInputRef}
                   value={commandInput}
                   onBlur={() => {
                     void commitCommand();
@@ -825,6 +782,7 @@ const HeterogeneousAgentStatusCard = memo<HeterogeneousAgentStatusCardProps>(
               <ModelSelect
                 initialWidth
                 disabled={!canEdit || !apiModeAvailable}
+                modelFilter={provider.type === 'kimi-code' ? isKimiModelCandidate : undefined}
                 placeholder={t('heterogeneousStatus.apiMode.modelPlaceholder')}
                 popupWidth={360}
                 providerIds={[providerApiConfig.providerId]}

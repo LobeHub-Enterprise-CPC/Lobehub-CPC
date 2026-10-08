@@ -1,6 +1,6 @@
+import { BRANDING_EMAIL } from '@lobechat/business-const';
 import { Flexbox, Highlighter, Icon } from '@lobehub/ui';
-import { Alert, Button } from '@lobehub/ui/base-ui';
-import { Result } from 'antd';
+import { Alert, Button, Result } from '@lobehub/ui/base-ui';
 import { ShieldAlert } from 'lucide-react';
 import React, { memo } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
@@ -48,10 +48,14 @@ const Error = memo<ErrorProps>(({ error, onClick }) => {
               <span key="0" />,
               <a
                 aria-label={'issue'}
-                href={vendorLink(GITHUB_ISSUES)}
                 key="1"
                 rel="noreferrer"
                 target="_blank"
+                href={
+                  BRANDING_EMAIL.support
+                    ? `mailto:${BRANDING_EMAIL.support}`
+                    : vendorLink(GITHUB_ISSUES)
+                }
                 onClick={(e) => {
                   e.preventDefault();
                   githubService.submitImportError(error!);

@@ -1,4 +1,4 @@
-import { SETTINGS_HIDDEN_TABS } from '@lobechat/business-const';
+import { ENABLE_TOOL_CHANNEL_SETTINGS, SETTINGS_HIDDEN_TABS } from '@lobechat/business-const';
 import { isDesktop } from '@lobechat/const';
 import { Avatar } from '@lobehub/ui/base-ui';
 import { SkillsIcon } from '@lobehub/ui/icons';
@@ -6,10 +6,12 @@ import {
   AppWindowIcon,
   BellIcon,
   Blocks,
+  BlocksIcon,
   Brain,
   BrainCircuit,
   ChartColumnBigIcon,
   Coins,
+  ContainerIcon,
   CreditCard,
   Database,
   EllipsisIcon,
@@ -27,6 +29,8 @@ import {
   Sparkles,
   TagIcon,
   TerminalSquare,
+  Trash2,
+  Wrench,
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -70,9 +74,8 @@ export interface CategoryGroup {
 const hiddenTabs = new Set(SETTINGS_HIDDEN_TABS);
 
 /**
- * Append a group with its hidden tabs removed, dropping the group entirely once
- * nothing is left in it — a heading with no rows under it reads as a section
- * that failed to load rather than one that does not apply here.
+ * Append a group with its deployment-hidden tabs removed, dropping the group
+ * entirely when no settings remain visible.
  */
 const pushGroup = (groups: CategoryGroup[], group: CategoryGroup) => {
   const items = group.items.filter((item) => !hiddenTabs.has(item.key));
@@ -93,6 +96,10 @@ export const useCategory = () => {
   const remoteServerUrl = useElectronStore(electronSyncSelectors.remoteServerUrl);
   const isDevMode = useUserStore((s) => userGeneralSettingsSelectors.config(s).isDevMode);
   const enableOAuthApps = useUserStore(labPreferSelectors.enableOAuthApps);
+  const enableIntegrations = useUserStore(labPreferSelectors.enableIntegrations);
+  // Behind the same experiment that gates the persistent sandbox itself: a tab
+  // for environments nothing can run in would be a dead end.
+  const enablePersistentSandbox = useUserStore(labPreferSelectors.enablePersistentSandbox);
 
   const avatarUrl = useMemo(() => {
     if (!avatar) return undefined;
@@ -125,15 +132,25 @@ export const useCategory = () => {
         label: t('tab.hotkey'),
       },
       // Messenger bindings are a per-user identity (owned by userId), so they
-      // live with the account rather than the agent configuration.
-      {
+      // live with the account rather than the agent configuration. The bots
+      // are LobeHub-operated: their credentials are only ever written by the
+      // cloud admin, so a self-hosted deployment has nothing to bind to.
+      enableBusinessFeatures && {
         icon: MessageCircleIcon,
         key: SettingsTabs.Messenger,
         label: t('tab.messenger'),
       },
+      // Third-party integrations (the GitHub App today) are bound to the user
+      // or workspace that connected them, so they sit with the account. Labs
+      // alpha: hidden until the closed loop is ready for everyone.
+      enableIntegrations && {
+        icon: BlocksIcon,
+        key: SettingsTabs.Integrations,
+        label: t('tab.integrations'),
+      },
     ].filter(Boolean) as CategoryItem[];
 
-    groups.push({
+    pushGroup(groups, {
       items: accountItems,
       key: SettingsGroupKey.Account,
       title: t('group.profile'),
@@ -150,6 +167,11 @@ export const useCategory = () => {
         icon: MonitorSmartphoneIcon,
         key: SettingsTabs.Devices,
         label: t('tab.devices'),
+      },
+      enablePersistentSandbox && {
+        icon: ContainerIcon,
+        key: SettingsTabs.Environments,
+        label: t('tab.environments'),
       },
       (enableBusinessFeatures || isDesktop) && {
         icon: BellIcon,
@@ -217,6 +239,11 @@ export const useCategory = () => {
         key: SettingsTabs.Memory,
         label: t('tab.memory'),
       },
+      ENABLE_TOOL_CHANNEL_SETTINGS && {
+        icon: Wrench,
+        key: SettingsTabs.Tools,
+        label: t('tab.tools'),
+      },
       {
         icon: KeyRound,
         key: SettingsTabs.Creds,
@@ -251,6 +278,11 @@ export const useCategory = () => {
         icon: Database,
         key: SettingsTabs.Storage,
         label: t('tab.storage'),
+      },
+      {
+        icon: Trash2,
+        key: SettingsTabs.Trash,
+        label: t('tab.trash'),
       },
       !hideDocs && {
         icon: Info,
@@ -309,6 +341,8 @@ export const useCategory = () => {
     showProvider,
     isDevMode,
     enableOAuthApps,
+    enableIntegrations,
+    enablePersistentSandbox,
     avatarUrl,
     username,
   ]);

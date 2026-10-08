@@ -7,9 +7,9 @@ import { buildServerAgentMemberRunner, buildServerVirtualSubAgentRunner } from '
 
 /**
  * The parent model a spawned `callSubAgent` follows must be the model the
- * parent run ACTUALLY uses. `metadata.agentConfig` alone is not enough: when a
+ * parent run ACTUALLY uses. `world.agent` alone is not enough: when a
  * run continues a topic whose model was switched, execAgent keeps the
- * topic-pinned model only in `modelRuntimeConfig` while the metadata config
+ * topic-pinned model only in `modelRuntimeConfig` while the world config
  * retains the agent default.
  */
 describe('buildServerVirtualSubAgentRunner sub-agent model resolution', () => {
@@ -25,7 +25,7 @@ describe('buildServerVirtualSubAgentRunner sub-agent model resolution', () => {
     const runner = buildServerVirtualSubAgentRunner(
       ctx,
       {
-        metadata: { agentId: 'agent-1', topicId: 'topic-1' },
+        origin: { agentId: 'agent-1', topicId: 'topic-1' },
         operationId: 'parent-op',
         ...state,
       } as AgentState,
@@ -36,12 +36,11 @@ describe('buildServerVirtualSubAgentRunner sub-agent model resolution', () => {
     return { execVirtualSubAgent, runner };
   };
 
-  it('follows the topic-pinned runtime model over the metadata agent default', async () => {
+  it('follows the topic-pinned runtime model over the world agent default', async () => {
     const { execVirtualSubAgent, runner } = buildRunner({
-      metadata: {
-        agentConfig: { model: 'agent-default-model', provider: 'agent-default-provider' },
-        agentId: 'agent-1',
-        topicId: 'topic-1',
+      origin: { agentId: 'agent-1', topicId: 'topic-1' },
+      world: {
+        agent: { model: 'agent-default-model', provider: 'agent-default-provider' } as any,
       },
       modelRuntimeConfig: { model: 'topic-pinned-model', provider: 'topic-pinned-provider' },
     });
@@ -53,12 +52,11 @@ describe('buildServerVirtualSubAgentRunner sub-agent model resolution', () => {
     );
   });
 
-  it('falls back to the metadata agent config when no runtime model exists', async () => {
+  it('falls back to the world agent config when no runtime model exists', async () => {
     const { execVirtualSubAgent, runner } = buildRunner({
-      metadata: {
-        agentConfig: { model: 'agent-default-model', provider: 'agent-default-provider' },
-        agentId: 'agent-1',
-        topicId: 'topic-1',
+      origin: { agentId: 'agent-1', topicId: 'topic-1' },
+      world: {
+        agent: { model: 'agent-default-model', provider: 'agent-default-provider' } as any,
       },
     });
 
@@ -85,6 +83,52 @@ describe('buildServerVirtualSubAgentRunner sub-agent model resolution', () => {
 // Fail-close regression for share-visitor runs: the child run spawned by
 // either runner does not inherit the parent's shareGate, so for a run with
 // `ctx.agentShareVisitor` set, no runner may be built at all.
+describe('buildServerVirtualSubAgentRunner continuing an earlier sub-agent', () => {
+  it('reuses the sub-agent thread and links the new placeholder to it', async () => {
+    const execVirtualSubAgent = vi
+      .fn()
+      .mockResolvedValue({ operationId: 'child-op-2', success: true, threadId: 'thread-1' });
+    const create = vi.fn().mockResolvedValue({ id: 'placeholder-2' });
+    const runner = buildServerVirtualSubAgentRunner(
+      {
+        execVirtualSubAgent,
+        messageModel: { create },
+        operationId: 'parent-op',
+        topicId: 'topic-1',
+      } as unknown as RuntimeExecutorContext,
+      {
+        operationId: 'parent-op',
+        origin: { agentId: 'agent-1', topicId: 'topic-1' },
+      } as AgentState,
+      { id: 'tool-call-2' } as ChatToolPayload,
+      'parent-message-2',
+    );
+
+    const result = await runner!.run({
+      description: 'Hand over',
+      instruction: 'Summarize your findings',
+      subAgentId: 'thread-1',
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ pluginState: { status: 'pending', threadId: 'thread-1' } }),
+    );
+    expect(execVirtualSubAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: 'agent-1',
+        parentMessageId: 'placeholder-2',
+        parentOperationId: 'parent-op',
+        threadId: 'thread-1',
+      }),
+    );
+    expect(result).toMatchObject({
+      started: true,
+      threadId: 'thread-1',
+      toolMessageId: 'placeholder-2',
+    });
+  });
+});
+
 describe('runner builders fail closed for share-visitor runs', () => {
   const shareCtx = {
     agentShareVisitor: {
@@ -100,7 +144,7 @@ describe('runner builders fail closed for share-visitor runs', () => {
   } as unknown as RuntimeExecutorContext;
 
   const state = {
-    metadata: { agentId: 'agent-1', groupId: 'group-1', topicId: 'topic-1' },
+    origin: { agentId: 'agent-1', groupId: 'group-1', topicId: 'topic-1' },
     operationId: 'parent-op',
   } as unknown as AgentState;
 

@@ -104,6 +104,7 @@
   "workingDirectory.uncommittedChanges_one": "Niet-gecommit wijzigingen: {{count}} bestand",
   "workingDirectory.uncommittedChanges_other": "Niet-gecommit wijzigingen: {{count}} bestanden",
   "workingDirectory.undo": "Ongedaan maken",
+  "workingDirectory.unselected": "Niet geselecteerd",
   "workingDirectory.useFolder": "Gebruik deze map",
   "workingDirectory.worktreeSearchPlaceholder": "Zoek werkbomen",
   "workingDirectory.worktreeUnavailable": "niet beschikbaar",

@@ -104,6 +104,7 @@
   "workingDirectory.uncommittedChanges_one": "Kaydedilmemiş değişiklikler: {{count}} dosya",
   "workingDirectory.uncommittedChanges_other": "Kaydedilmemiş değişiklikler: {{count}} dosya",
   "workingDirectory.undo": "Geri al",
+  "workingDirectory.unselected": "Seçilmedi",
   "workingDirectory.useFolder": "Bu klasörü kullan",
   "workingDirectory.worktreeSearchPlaceholder": "Çalışma ağaçlarını ara",
   "workingDirectory.worktreeUnavailable": "kullanılamıyor",

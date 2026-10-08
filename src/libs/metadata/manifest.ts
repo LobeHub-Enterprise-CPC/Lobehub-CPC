@@ -1,4 +1,3 @@
-import { BRANDING_LOGO_URL } from '@lobechat/business-const';
 import qs from 'query-string';
 
 import { getCanonicalUrl } from '@/server/utils/url';
@@ -77,7 +76,9 @@ export class Manifest {
     cache_busting_mode: 'query',
     immutable: 'true',
     max_age: MAX_AGE,
-    src: qs.stringifyUrl({ query: { v: version }, url: BRANDING_LOGO_URL || url }),
+    // Branding overlays these assets at build time. Preserve each size and
+    // maskable safe area instead of redirecting every entry to one avatar PNG.
+    src: qs.stringifyUrl({ query: { v: version }, url }),
   });
 
   private _getIcon = ({ url, version, sizes, purpose }: IconItem) => ({

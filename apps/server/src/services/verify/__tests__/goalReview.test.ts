@@ -17,24 +17,35 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('../goalReviewModelConfig', () => ({ resolveGoalReviewModelConfig: mocks.reviewModel }));
 vi.mock('@/database/models/verifyEvidence', () => ({
-  VerifyEvidenceModel: vi.fn(() => ({ listByCheckResult: vi.fn().mockResolvedValue([]) })),
+  VerifyEvidenceModel: vi.fn(function () {
+    return { listByCheckResult: vi.fn().mockResolvedValue([]) };
+  }),
 }));
 vi.mock('@/database/models/goal', () => ({
-  GoalModel: vi.fn(() => ({ findByGraphTask: mocks.goal })),
+  GoalModel: vi.fn(function () {
+    return { findByGraphTask: mocks.goal };
+  }),
 }));
 vi.mock('@/database/models/verifyRun', () => ({
-  VerifyRunModel: vi.fn(() => ({ findByOperation: mocks.run, setMetadata: mocks.metadata })),
+  VerifyRunModel: vi.fn(function () {
+    return { findByOperation: mocks.run, setMetadata: mocks.metadata };
+  }),
 }));
 vi.mock('../acceptanceService', async (original) => ({
   ...(await original<typeof AcceptanceServiceModule>()),
-  AcceptanceService: vi.fn(() => ({
-    acceptanceModel: { findById: mocks.acceptance },
-    loadRounds: mocks.rounds,
-  })),
+  AcceptanceService: vi.fn(function () {
+    return {
+      acceptanceModel: { findById: mocks.acceptance },
+      loadRounds: mocks.rounds,
+    };
+  }),
 }));
 vi.mock('../reviewPredictor', () => ({
+  GATE_REVIEW_MAX_VISUALS: 12,
   REVIEW_PREDICT_CONCURRENCY: 4,
-  VerifyReviewPredictorService: vi.fn(() => ({ predict: mocks.predict })),
+  VerifyReviewPredictorService: vi.fn(function () {
+    return { predict: mocks.predict };
+  }),
 }));
 const db = {} as LobeChatDatabase;
 const check = {
@@ -92,8 +103,48 @@ describe('Goal automatic Acceptance review', () => {
       goalReview: { status: 'passed', predictionIds: ['p1'], feedback: '' },
     });
     expect(mocks.predict).toHaveBeenCalledWith(
-      expect.objectContaining({ includeTextEvidence: true, checkResultId: 'result1' }),
+      expect.objectContaining({
+        checkResultId: 'result1',
+        includeTextEvidence: true,
+        // The gate must not judge on the shadow lane's three-frame sample.
+        maxVisuals: 12,
+      }),
     );
+  });
+
+  /**
+   * Regression: an "I cannot decide this from evidence" verdict was folded into
+   * `rejected`, which told the builder to fix nothing and sent the Task round
+   * again against the same unprovable criterion until the attempt budget ran out.
+   */
+  it('keeps an undecidable criterion out of the rejected bucket', async () => {
+    mocks.predict.mockResolvedValue({
+      id: 'p1',
+      status: 'judged',
+      action: 'unjudgeable',
+      comment: 'The check asks the reviewer to rerun the scripts; a reader cannot do that.',
+    });
+    expect(await reviewGoalDelivery(db, 'u1', 't1', 'op1')).toMatchObject({
+      status: 'unjudgeable',
+      feedback:
+        'Document contents: The check asks the reviewer to rerun the scripts; a reader cannot do that.',
+    });
+  });
+
+  it('still reports a rejection when one check is short and another is undecidable', async () => {
+    const second = { ...check, id: 'c2', index: 1, title: 'Chart rendered' };
+    mocks.rounds.mockResolvedValue({
+      runs: [{ id: 'r1', roundIndex: 1, plan: [check, second] }],
+      results: [result, { ...result, id: 'result2', checkItemId: 'c2' }],
+    });
+    mocks.predict.mockImplementation(async ({ checkResultId }: { checkResultId: string }) =>
+      checkResultId === 'result1'
+        ? { id: 'p1', status: 'judged', action: 'unjudgeable', comment: 'Needs execution.' }
+        : { id: 'p2', status: 'judged', action: 'reject', comment: 'The chart is blank.' },
+    );
+    // A genuinely short check makes another attempt worth paying for, so the
+    // blocking outcome wins regardless of which check settled first.
+    expect(await reviewGoalDelivery(db, 'u1', 't1', 'op1')).toMatchObject({ status: 'rejected' });
   });
 
   it('turns a rejection proposal into actionable feedback even when Verify passed', async () => {
@@ -134,6 +185,69 @@ describe('Goal automatic Acceptance review', () => {
     });
   });
 
+  it('ignores a result filed under an id that no round ever planned', async () => {
+    mocks.rounds.mockResolvedValue({
+      runs: [
+        { id: 'r1', roundIndex: 1, plan: [check] },
+        { id: 'r2', roundIndex: 2, plan: [check] },
+      ],
+      results: [
+        { ...result, id: 'orphan', checkItemId: 'pglite-classification', verifyRunId: 'r1' },
+        { ...result, id: 'result2', verifyRunId: 'r2' },
+      ],
+    });
+    mocks.predict.mockImplementation(async ({ checkResultId }: { checkResultId: string }) =>
+      checkResultId === 'orphan'
+        ? { id: 'p-orphan', status: 'judged', action: 'reject', comment: 'Stale evidence.' }
+        : { id: 'p1', status: 'judged', action: 'accept' },
+    );
+
+    expect(await reviewGoalDelivery(db, 'u1', 't1', 'op1')).toMatchObject({
+      status: 'passed',
+      predictionIds: ['p1'],
+    });
+    expect(mocks.predict).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores an off-plan result whose id collides with a planned sourceCriterionId', async () => {
+    mocks.rounds.mockResolvedValue({
+      runs: [{ id: 'r1', roundIndex: 1, plan: [{ ...check, sourceCriterionId: 'criterion-1' }] }],
+      results: [result, { ...result, id: 'orphan', checkItemId: 'criterion-1' }],
+    });
+    mocks.predict.mockImplementation(async ({ checkResultId }: { checkResultId: string }) =>
+      checkResultId === 'orphan'
+        ? { id: 'p-orphan', status: 'judged', action: 'reject', comment: 'Stale evidence.' }
+        : { id: 'p1', status: 'judged', action: 'accept' },
+    );
+
+    expect(await reviewGoalDelivery(db, 'u1', 't1', 'op1')).toMatchObject({
+      status: 'passed',
+      predictionIds: ['p1'],
+    });
+    expect(mocks.predict).toHaveBeenCalledWith(
+      expect.objectContaining({ checkResultId: 'result1' }),
+    );
+    expect(mocks.predict).not.toHaveBeenCalledWith(
+      expect.objectContaining({ checkResultId: 'orphan' }),
+    );
+  });
+
+  it('does not fall back to a required orphan when every planned check is optional', async () => {
+    mocks.rounds.mockResolvedValue({
+      runs: [{ id: 'r1', roundIndex: 1, plan: [{ ...check, required: false }] }],
+      results: [
+        { ...result, required: false },
+        { ...result, id: 'orphan', checkItemId: 'pglite-classification' },
+      ],
+    });
+
+    expect(await reviewGoalDelivery(db, 'u1', 't1', 'op1')).toMatchObject({
+      status: 'errored',
+      feedback: expect.stringContaining('Goal Acceptance has no required checks'),
+    });
+    expect(mocks.predict).not.toHaveBeenCalled();
+  });
+
   it('sends missing evidence back and does not mistake skipped review for approval', async () => {
     mocks.predict.mockResolvedValue({ id: 'p1', status: 'skipped', statusReason: 'no evidence' });
     expect(await reviewGoalDelivery(db, 'u1', 't1', 'op1')).toMatchObject({ status: 'rejected' });
@@ -172,6 +286,95 @@ describe('Goal automatic Acceptance review', () => {
       statusReason: 'provider unavailable',
     });
     expect(await reviewGoalDelivery(db, 'u1', 't1', 'op1')).toMatchObject({ status: 'errored' });
+    // Retried once before giving up.
+    expect(mocks.predict).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * Regression: every exception in here produced one canned sentence telling the
+   * reader to configure a review model. A round that was never linked to its
+   * Acceptance therefore escalated to a person as a model-configuration problem,
+   * hiding the only fact that could have unblocked it.
+   */
+  it('carries the real reason when the review cannot even start', async () => {
+    mocks.run.mockResolvedValue({ id: 'r1', acceptanceId: null, metadata: {} });
+
+    const review = await reviewGoalDelivery(db, 'u1', 't1', 'op1');
+
+    expect(review?.status).toBe('errored');
+    expect(review?.feedback).toContain('Goal delivery has no Acceptance');
+    expect(review?.feedback).not.toContain('Configure an available model');
+  });
+
+  /**
+   * Regression: an unconfirmed draft left in the round chain — abandoned, or one a
+   * CLI-driven verification was appended past — contributed result-less required
+   * checks to the union, each rejected as missing evidence, so a delivery that
+   * passed every confirmed check was sent back anyway.
+   */
+  it('judges only confirmed rounds, not a draft left in the chain', async () => {
+    mocks.rounds.mockResolvedValue({
+      runs: [
+        {
+          id: 'draft',
+          plan: [{ ...check, id: 'draft-only', title: 'Never confirmed' }],
+          planConfirmedAt: null,
+          roundIndex: 1,
+          status: 'planned',
+          userDecision: null,
+        },
+        { id: 'r1', plan: [check], planConfirmedAt: new Date(), roundIndex: 2, status: 'passed' },
+      ],
+      results: [result],
+    });
+
+    expect(await reviewGoalDelivery(db, 'u1', 't1', 'op1')).toMatchObject({ status: 'passed' });
+    expect(mocks.predict).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The feedback is persisted on the run and quoted into the escalation, so an
+   * unexpected backend failure must not carry SQL, identifiers or provider
+   * diagnostics out of the server log.
+   */
+  it('keeps an unexpected backend failure out of the feedback', async () => {
+    mocks.rounds.mockRejectedValue(
+      new Error('select "verify_runs"."id" from ... — connection terminated'),
+    );
+
+    const review = await reviewGoalDelivery(db, 'u1', 't1', 'op1');
+
+    expect(review?.status).toBe('errored');
+    expect(review?.feedback).toContain('internal error');
+    expect(review?.feedback).not.toContain('verify_runs');
+  });
+
+  /**
+   * Regression: a review that could not run on one check was retried by
+   * rerunning the whole review. Every other check was re-asked and its opinion
+   * upserted over the first one, so a nondeterministic second pass could turn a
+   * rejection into an acceptance and let the delivery complete.
+   */
+  it('retries only the check whose review could not run, keeping the other verdicts', async () => {
+    const second = { ...check, id: 'c2', index: 1, title: 'Chart rendered' };
+    mocks.rounds.mockResolvedValue({
+      runs: [{ id: 'r1', roundIndex: 1, plan: [check, second] }],
+      results: [result, { ...result, id: 'result2', checkItemId: 'c2' }],
+    });
+    let firstCheckAttempts = 0;
+    mocks.predict.mockImplementation(async ({ checkResultId }: { checkResultId: string }) => {
+      if (checkResultId === 'result2')
+        return { id: 'p2', status: 'judged', action: 'reject', comment: 'The chart is blank.' };
+      firstCheckAttempts += 1;
+      return firstCheckAttempts === 1
+        ? { id: 'p1', status: 'errored', statusReason: 'ECONNRESET' }
+        : { id: 'p1', status: 'judged', action: 'accept' };
+    });
+
+    expect(await reviewGoalDelivery(db, 'u1', 't1', 'op1')).toMatchObject({ status: 'rejected' });
+    const calls = mocks.predict.mock.calls.map(([params]) => params.checkResultId);
+    expect(calls.filter((id) => id === 'result1')).toHaveLength(2);
+    expect(calls.filter((id) => id === 'result2')).toHaveLength(1);
   });
 });
 

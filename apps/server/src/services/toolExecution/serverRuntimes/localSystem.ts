@@ -4,12 +4,13 @@ import {
   LocalSystemManifest,
 } from '@lobechat/builtin-tool-local-system';
 
-import { deviceGateway } from '@/server/services/deviceGateway';
+import { executeAuthorizedDeviceToolCall } from '@/server/services/deviceGateway/authorizedToolCall';
 import { buildDeviceLhEnv } from '@/server/services/toolExecution/preprocessLhCommand';
 
 import { buildNoActiveDeviceResult, REMOTE_DEVICE_TOOL_IDENTIFIER } from './noActiveDevice';
 import { resolveContentWorkspaceId, resolveRunWorkspaceId } from './resolveWorkspaceScope';
 import { type ServerRuntimeRegistration } from './types';
+import { withoutDeviceReplay } from './withoutDeviceReplay';
 
 /**
  * Which arg carries the working directory for the APIs that consume one. The
@@ -130,6 +131,7 @@ export const localSystemRuntime: ServerRuntimeRegistration = {
         // script, a Makefile) inherits the scope too. The model's own `env`
         // wins: it may be deliberately overriding the scope.
         if (api.name === LocalSystemApiName.runCommand && typeof finalArgs?.command === 'string') {
+          finalArgs = { ...finalArgs, topicId: context.topicId, agentId: context.agentId };
           const lhEnv = buildDeviceLhEnv(await getContentWorkspaceId());
           if (lhEnv) finalArgs = { ...finalArgs, env: { ...lhEnv, ...finalArgs.env } };
 
@@ -151,7 +153,8 @@ export const localSystemRuntime: ServerRuntimeRegistration = {
           }
         }
 
-        return deviceGateway.executeToolCall(
+        const result = await executeAuthorizedDeviceToolCall(
+          context.serverDB,
           {
             deviceId: context.activeDeviceId!,
             operationId: context.operationId,
@@ -168,6 +171,8 @@ export const localSystemRuntime: ServerRuntimeRegistration = {
           },
           context.executionTimeoutMs,
         );
+
+        return withoutDeviceReplay(result);
       };
     }
 

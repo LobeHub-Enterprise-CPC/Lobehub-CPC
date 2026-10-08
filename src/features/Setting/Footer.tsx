@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { createGuideModal } from '@/components/GuideModal';
 import GuideVideo from '@/components/GuideVideo';
 import { GITHUB, GITHUB_ISSUES } from '@/const/url';
+import { isCustomBranding } from '@/const/version';
 import { useServerConfigStore } from '@/store/serverConfig';
 import { isOnServerSide } from '@/utils/env';
 
@@ -68,7 +69,7 @@ const Footer = memo<PropsWithChildren>(() => {
       title: t('footer.feedback.title'),
     });
 
-  return hideGitHubEngagementFooter ? null : (
+  return isCustomBranding || hideGitHubEngagementFooter ? null : (
     <Flexbox className={LayoutSettingsFooterClassName} justify={'flex-end'}>
       <Center horizontal as={'footer'} className={styles} flex={'none'} padding={16} width={'100%'}>
         <div style={{ textAlign: 'center' }}>

@@ -1,7 +1,8 @@
 import { type GoogleGenAIOptions } from '@google/genai';
+import { ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
+import { isLobeHubModelAvailable } from '@lobechat/business-model-bank/model-config';
 import type { ServerDefaultHeterogeneousAgentType } from '@lobechat/heterogeneous-agents';
 import {
-  isServerDefaultHeterogeneousProfileModel,
   SERVER_DEFAULT_HETEROGENEOUS_AGENT_CONFIG,
   SERVER_DEFAULT_HETEROGENEOUS_AGENT_TYPES,
 } from '@lobechat/heterogeneous-agents';
@@ -37,6 +38,8 @@ import { DEFAULT_MODEL_PROVIDER_LIST } from 'model-bank/modelProviders';
 import { loadModels } from '@/business/client/model-bank/loadModels';
 import { getBusinessModelRuntimeHooks } from '@/business/server/model-runtime';
 import { AiProviderModel } from '@/database/models/aiProvider';
+import { UserModel } from '@/database/models/user';
+import { getServerDB } from '@/database/server';
 import { type LobeChatDatabase } from '@/database/type';
 import { getLLMConfig } from '@/envs/llm';
 import { getServerGlobalConfig } from '@/server/globalConfig';
@@ -74,7 +77,7 @@ type ProviderKeyVaults = OpenAICompatibleKeyVault &
  * @param sdkType - The sdkType from provider settings
  * @returns The resolved runtime provider
  */
-const resolveRuntimeProvider = (provider: string, sdkType?: string): string => {
+export const resolveRuntimeProvider = (provider: string, sdkType?: string): string => {
   const isBuiltin = Object.values(ModelProvider).includes(provider as ModelProvider);
   if (isBuiltin) return provider;
 
@@ -540,6 +543,22 @@ export type ServerDefaultHeterogeneousModels = Record<
   ServerDefaultHeterogeneousModelReference[]
 >;
 
+interface ServerDefaultModelAccess {
+  userEmail?: string | null;
+  userId?: string;
+}
+
+const isServerDefaultModelAvailable = (model: string, access: ServerDefaultModelAccess) => {
+  // OSS deployments use the enabled server catalog without a business access policy.
+  if (!ENABLE_BUSINESS_FEATURES) return true;
+  return isLobeHubModelAvailable(model, 'chat', {
+    userEmail: access.userEmail,
+    getUserEmail: access.userId
+      ? async () => (await UserModel.findById(await getServerDB(), access.userId!))?.email
+      : undefined,
+  });
+};
+
 /**
  * Every supported CLI uses the single LobeHub relay provider. `lobehub` is a
  * deployment-owned router slot, not a hosted-only upstream: official and
@@ -552,16 +571,15 @@ export type ServerDefaultHeterogeneousModels = Record<
  * `lobehub/${catalogId}`. The operation token remains the source of truth and
  * the request must match that selection.
  *
- * Legacy agent policies accept any tool-capable chat model; the
+ * Tool-capable agent policies accept any tool-capable chat model; the
  * `parseClaudeModelId` arm keeps Claude ids eligible in deployments whose
- * catalog omits `abilities`. Profile-attested agents instead require a tested
- * client payload/continuation contract. Codex retains its narrower policy: it
+ * catalog omits `abilities`. Codex retains its narrower policy: it
  * accepts native Responses models plus an explicit set of tool-capable relay
  * models configured through its custom model-catalog path.
  */
 const supportsServerDefaultHeterogeneousAgent = (
   agentType: ServerDefaultHeterogeneousAgentType,
-  model: Pick<AiFullModelCard, 'abilities' | 'agentCompatibility' | 'id' | 'visible'>,
+  model: Pick<AiFullModelCard, 'abilities' | 'id' | 'visible'>,
 ) => {
   if (!isAiModelVisible(model)) return false;
 
@@ -569,13 +587,6 @@ const supportsServerDefaultHeterogeneousAgent = (
   const { modelPolicy } = config;
   if (modelPolicy === 'tool-capable') {
     return parseClaudeModelId(model.id) !== undefined || model.abilities?.functionCall === true;
-  }
-  if (modelPolicy === 'profile-attested') {
-    if (model.abilities?.functionCall === false) return false;
-    const deploymentProfiles = model.agentCompatibility?.serverDefaultHeterogeneousProfiles;
-    return deploymentProfiles
-      ? deploymentProfiles.includes(config.compatibilityProfile)
-      : isServerDefaultHeterogeneousProfileModel(config.compatibilityProfile, model.id);
   }
 
   return (
@@ -618,13 +629,16 @@ const toServerModelSelection = (provider: string, modelConfig: AiFullModelCard) 
 });
 
 /** Return compatible models from the single deployment-owned relay provider. */
-export const getServerDefaultHeterogeneousModels = async () => {
+export const getServerDefaultHeterogeneousModels = async (
+  access: ServerDefaultModelAccess = {},
+) => {
   const models = {} as ServerDefaultHeterogeneousModels;
   for (const agentType of SERVER_DEFAULT_HETEROGENEOUS_AGENT_TYPES) {
     models[agentType] = [];
   }
 
   for (const model of await getEnabledServerChatModels(ModelProvider.LobeHub)) {
+    if (!(await isServerDefaultModelAvailable(model.id, access))) continue;
     for (const agentType of SERVER_DEFAULT_HETEROGENEOUS_AGENT_TYPES) {
       if (supportsServerDefaultHeterogeneousAgent(agentType, model)) {
         models[agentType].push({ model: model.id });
@@ -643,14 +657,22 @@ export const resolveServerModel = async (provider: string, model: string) =>
 export const resolveServerDefaultHeterogeneousModel = async (
   agentType: ServerDefaultHeterogeneousAgentType,
   model: string,
+  access: ServerDefaultModelAccess = {},
 ) => {
   const modelConfig = await findEnabledServerChatModel(ModelProvider.LobeHub, model);
-  if (!supportsServerDefaultHeterogeneousAgent(agentType, modelConfig)) {
+  if (
+    !supportsServerDefaultHeterogeneousAgent(agentType, modelConfig) ||
+    !(await isServerDefaultModelAvailable(model, access))
+  ) {
     throw new Error('The selected server model is not compatible with this heterogeneous agent');
   }
 
   return {
     ...toServerModelSelection(ModelProvider.LobeHub, modelConfig),
+    ...(modelConfig.maxOutput !== undefined && { maxOutput: modelConfig.maxOutput }),
+    ...(modelConfig.contextWindowTokens !== undefined && {
+      contextWindowTokens: modelConfig.contextWindowTokens,
+    }),
     supportsAdaptiveThinking:
       modelConfig.settings?.extendParams?.includes('enableAdaptiveThinking') === true,
   };

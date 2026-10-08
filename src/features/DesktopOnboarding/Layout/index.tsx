@@ -1,9 +1,9 @@
 'use client';
 
+import { COPYRIGHT_FULL } from '@lobechat/business-const';
 import { TITLE_BAR_HEIGHT } from '@lobechat/desktop-bridge';
 import { Center, Flexbox } from '@lobehub/ui';
-import { Text } from '@lobehub/ui/base-ui';
-import { Divider } from 'antd';
+import { Divider, Text } from '@lobehub/ui/base-ui';
 import { css, cx } from 'antd-style';
 import { type FC, type PropsWithChildren } from 'react';
 
@@ -44,7 +44,7 @@ const OnboardingContainer: FC<PropsWithChildren> = ({ children }) => {
             <div />
             <Flexbox horizontal align={'center'}>
               <LangButton compact placement={'bottomRight'} />
-              <Divider className={styles.divider} orientation={'vertical'} />
+              <Divider orientation={'vertical'} style={{ height: 24, marginInline: 8 }} />
               <ThemeButton placement={'bottomRight'} size={18} />
             </Flexbox>
           </Flexbox>
@@ -53,7 +53,7 @@ const OnboardingContainer: FC<PropsWithChildren> = ({ children }) => {
           </Flexbox>
           <Center padding={24}>
             <Text align={'center'} type={'secondary'}>
-              © 2026 LobeHub. All rights reserved.
+              {COPYRIGHT_FULL}
             </Text>
           </Center>
         </Flexbox>

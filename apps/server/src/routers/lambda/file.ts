@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   CUSTOM_FOLDER_FILE_TYPE,
   DERIVED_DOCUMENT_SOURCE_TYPE,
@@ -6,12 +8,14 @@ import {
   RESOURCE_CONTENT_PREVIEW_SOURCE_LENGTH,
   UPLOAD_FILE_SIZE_LIMIT_ERROR_MESSAGE,
 } from '@lobechat/const';
+import { type LobeChatDatabase } from '@lobechat/database';
 import { TRPCError } from '@trpc/server';
 import isEqual from 'fast-deep-equal';
 import pMap from 'p-map';
 import { z } from 'zod';
 
 import {
+  businessFileExternalReferenceGuard,
   businessFileTransferStorageCheck,
   businessFileUploadCheck,
 } from '@/business/server/lambda-routers/file';
@@ -29,13 +33,20 @@ import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { DocumentService } from '@/server/services/document';
 import { FileService } from '@/server/services/file';
+import { downloadRemoteImage } from '@/server/services/file/downloadRemoteImage';
 import { FileUploadService } from '@/server/services/fileUpload';
 import { assertCanPerformResourceAction } from '@/server/services/resourcePermission';
 import { hasWorkspaceScopedPermission } from '@/server/services/workspacePermission';
 import { createResourceContentPreview } from '@/server/utils/resourceContentPreview';
 import { AsyncTaskStatus, AsyncTaskType, type IAsyncTaskError } from '@/types/asyncTask';
 import type { FileListItem, KnowledgeItemStatus } from '@/types/files';
-import { QueryFileListSchema, toFileSource, UploadFileSchema } from '@/types/files';
+import {
+  FileSource,
+  QueryFileListSchema,
+  stripAgentShareFileProvenance,
+  toFileSource,
+  UploadFileSchema,
+} from '@/types/files';
 import { TransferErrorCode } from '@/types/transferError';
 
 import {
@@ -228,6 +239,7 @@ export const fileRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const metadata = stripAgentShareFileProvenance(input.metadata);
       const existingFile = await ctx.fileModel.checkHash(input.hash!);
       const { isExist } = existingFile;
       const latestUpload = await ctx.fileUploadService.findLatest(input.url);
@@ -259,10 +271,15 @@ export const fileRouter = router({
       //   2. Otherwise an explicit caller value wins.
       //   3. Otherwise inherit the parent document's visibility so a file
       //      uploaded inside a private folder stays private.
-      //   4. Otherwise default top-level uploads to 'private' so new content
+      //   4. Agent-document uploads default to 'public' to match their document's
+      //      access contract; their source keeps them out of resource listings.
+      //   5. Otherwise default top-level uploads to 'private' so new content
       //      starts in the creator's private space (mirrors the Pages spec).
       const resolvedVisibility: 'private' | 'public' | undefined = ctx.workspaceId
-        ? (knowledgeBaseVisibility ?? input.visibility ?? parentVisibility ?? 'private')
+        ? (knowledgeBaseVisibility ??
+          input.visibility ??
+          parentVisibility ??
+          (input.source === FileSource.AgentDocument ? 'public' : 'private'))
         : undefined;
 
       if (latestUpload?.status === 'settled') {
@@ -282,7 +299,7 @@ export const fileRouter = router({
           (settledFile.source ?? undefined) === toFileSource(input.source) &&
           settledFile.url === input.url &&
           (!ctx.workspaceId || settledFile.visibility === resolvedVisibility) &&
-          isEqual(settledFile.metadata, input.metadata ?? null);
+          isEqual(settledFile.metadata, metadata ?? null);
 
         if (isRetry) {
           return {
@@ -364,7 +381,7 @@ export const fileRouter = router({
           await ctx.fileModel.updateGlobalFile(
             input.hash!,
             {
-              metadata: input.metadata,
+              metadata,
               url: input.url,
             },
             trx,
@@ -377,7 +394,7 @@ export const fileRouter = router({
               fileHash: input.hash,
               fileType: input.fileType,
               knowledgeBaseId: input.knowledgeBaseId,
-              metadata: input.metadata,
+              metadata,
               name: input.name,
               parentId: resolvedParentId,
               size: actualSize,
@@ -449,6 +466,7 @@ export const fileRouter = router({
         fileHash: item.fileHash,
         fileType: item.fileType,
         id: item.id,
+        knowledgeBaseIds: await ctx.fileModel.findKnowledgeBaseIds(item.id),
         metadata: item.metadata,
         name: item.name,
         parentId: item.parentId,
@@ -457,7 +475,29 @@ export const fileRouter = router({
         updatedAt: item.updatedAt,
         url: await ctx.fileService.getFileAccessUrl(item),
         userId: item.userId,
+        visibility: item.visibility,
       };
+    }),
+
+  /**
+   * Direct storage URL for reading a file's bytes in the browser (canvas
+   * export). The `/f/:id` proxy answers with a cross-origin redirect, which
+   * drops the request's Origin so bucket CORS can never allow it; fetching the
+   * storage URL directly keeps the Origin the bucket already allows for uploads.
+   */
+  getReadableUrl: fileProcedure
+    .input(
+      z.object({
+        id: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const item = await ctx.fileModel.findById(input.id);
+      if (!item) throw new TRPCError({ code: 'NOT_FOUND', message: 'File not found' });
+
+      await assertFileNotInRestrictedKnowledgeBase(ctx, input.id);
+
+      return { url: await ctx.fileService.getFullFileUrl(item.url) };
     }),
 
   getFileItemById: fileProcedure
@@ -858,6 +898,32 @@ export const fileRouter = router({
       return ctx.knowledgeRepo.queryRecent(limit, 'page', input?.visibility);
     }),
 
+  rehostImage: fileProcedure
+    .use(withScopedPermission('file:upload'))
+    .use(checkFileStorageUsage)
+    .input(z.object({ url: z.url() }))
+    .mutation(async ({ ctx, input }) => {
+      const { buffer, extension, mimeType } = await downloadRemoteImage(input.url);
+      const pathname = `images/${ctx.userId}/${randomUUID()}.${extension}`;
+      const result = await ctx.fileService.uploadFromBuffer(
+        buffer,
+        mimeType,
+        pathname,
+        (transaction) =>
+          businessFileUploadCheck({
+            actualSize: buffer.length,
+            clientIp: ctx.clientIp ?? undefined,
+            inputSize: buffer.length,
+            transaction,
+            url: pathname,
+            userId: ctx.userId,
+            workspaceId: ctx.workspaceId,
+          }),
+        { source: FileSource.PageEditor, visibility: 'private' },
+      );
+      return { fileId: result.fileId, url: result.url };
+    }),
+
   removeFile: fileProcedure
     .use(withScopedPermission('file:delete'))
     .input(z.object({ id: z.string() }))
@@ -866,7 +932,9 @@ export const fileRouter = router({
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'File not found' });
       await assertFileNotInRestrictedKnowledgeBase(ctx, input.id);
 
-      const file = await ctx.fileModel.delete(input.id, serverDBEnv.REMOVE_GLOBAL_FILE);
+      const file = await ctx.fileModel.delete(input.id, {
+        removeGlobalFile: serverDBEnv.REMOVE_GLOBAL_FILE,
+      });
 
       if (!file) return;
 
@@ -879,10 +947,15 @@ export const fileRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
       const existing = await ctx.fileModel.findById(input.id);
-      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'File not found' });
+      // Import failure cleanup can run on both server and client; retries are harmless.
+      if (!existing) return;
       await assertFileNotInRestrictedKnowledgeBase(ctx, input.id);
 
-      const file = await ctx.fileModel.deleteUnreferenced(input.id, serverDBEnv.REMOVE_GLOBAL_FILE);
+      const file = await ctx.fileModel.deleteUnreferenced(
+        input.id,
+        { removeGlobalFile: serverDBEnv.REMOVE_GLOBAL_FILE },
+        businessFileExternalReferenceGuard,
+      );
       if (!file) return;
 
       await ctx.fileService.deleteFile(file.url!);
@@ -957,7 +1030,7 @@ export const fileRouter = router({
       const updates: Parameters<typeof ctx.fileModel.update>[1] = {};
 
       if (metadata !== undefined) {
-        updates.metadata = metadata;
+        updates.metadata = stripAgentShareFileProvenance(metadata);
       }
 
       if (name !== undefined) {
@@ -969,7 +1042,21 @@ export const fileRouter = router({
       }
 
       if (Object.keys(updates).length > 0) {
-        await ctx.fileModel.update(id, updates);
+        const wsId = ctx.workspaceId ?? undefined;
+        await ctx.serverDB.transaction(async (tx) => {
+          const trx = tx as unknown as LobeChatDatabase;
+          // The knowledge-base tree reads `documents.parent_id`, so the file's
+          // backing document row(s) must move (and rename) together with it.
+          // Documents are written before the file, matching updateDocument's
+          // lock order so concurrent moves cannot deadlock.
+          if (updates.parentId !== undefined || updates.name !== undefined) {
+            await new DocumentModel(trx, ctx.userId, wsId).syncFromFile(id, {
+              name: updates.name,
+              parentId: updates.parentId,
+            });
+          }
+          await new FileModel(trx, ctx.userId, wsId).update(id, updates);
+        });
       }
 
       return { success: true };

@@ -1,9 +1,13 @@
-import type { BotPlatformContext } from '@lobechat/context-engine';
+import type { BotPlatformContext, LobeToolManifest } from '@lobechat/context-engine';
 import type {
+  BotSenderMetadata,
+  ChannelRunContext,
   ChatTopicBotContext,
   ExecAgentParams,
+  ExternalOriginMetadata,
   LobeAgentChatConfig,
   RuntimeMentionedAgent,
+  UIChatMessage,
   UserInterventionConfig,
   WorkingDirConfig,
   WorkspaceInitResult,
@@ -11,10 +15,12 @@ import type {
 
 import type { EvalContext } from '@/server/modules/Mecha/ContextEngineering/types';
 import type { AgentConfigWithId } from '@/server/services/agent';
+import type { ClientRunSnapshot } from '@/server/services/agentRuntime/foregroundOperation';
 import type { AgentHook } from '@/server/services/agentRuntime/hooks/types';
 import type { EvalRuntimeContext } from '@/server/services/agentRuntime/types';
 
 import type { DeviceAccessReason } from './deviceAccessPolicy';
+import type { RunFacts } from './runFacts';
 import type { AgentShareGate } from './shareGate';
 
 /**
@@ -31,8 +37,12 @@ import type { AgentShareGate } from './shareGate';
 export interface ExecRunContext {
   agentConfig: AgentConfigWithId;
   appContext?: InternalExecAgentParams['appContext'];
-  /** Persisted assistant placeholder row id (spinner anchor / error sink). */
-  assistantMessageId: string;
+  /**
+   * Persisted assistant placeholder row id (spinner anchor / error sink).
+   * Undefined for a transcript run (see {@link InternalExecAgentParams.transcript}):
+   * the runtime creates the assistant row itself in the host's message store.
+   */
+  assistantMessageId?: string;
   canUseDevice: boolean;
   deviceAccessReason: DeviceAccessReason;
   /** Effective model for this run (topic-pinned model already applied). */
@@ -45,17 +55,62 @@ export interface ExecRunContext {
   /** The actual executing agent row id resolved from id/slug. */
   resolvedAgentId: string;
   /**
+   * Turn-invariant facts (device system info, the user's row), read once and
+   * shared by every stage of the send window.
+   */
+  runFacts: RunFacts;
+  /**
    * Shared-agent visitor gate for this run, mirrored from
    * {@link InternalExecAgentParams.shareGate} so every extracted pipeline stage
    * can enforce it without threading a separate argument. Undefined for every
    * ordinary (non-share) run.
    */
   shareGate?: AgentShareGate;
-  /** Topic id — guaranteed to exist by the time pipeline stages run. */
-  topicId: string;
+  /** The group a reused Group Agent Builder topic was opened on — see `TurnSetupResult`. */
+  topicEditingGroupId?: string;
+  /**
+   * Topic id — guaranteed to exist for every persisted run by the time
+   * pipeline stages run. Undefined ONLY for a transcript run, which owns no
+   * `topics` row; stages that touch topic state guard on it.
+   */
+  topicId?: string;
   trigger?: string;
-  /** User turn row id; undefined when the run starts from history (resume). */
+  /**
+   * User turn row id; undefined when the run starts from history (resume).
+   * For a transcript run this is the host's delivery row id.
+   */
   userMessageId?: string;
+}
+
+/**
+ * {@link ExecRunContext} for a run backed by real `messages` / `topics` rows.
+ * Stages that cannot run without them (heterogeneous dispatch) take this so
+ * the narrowing happens once, at the fork, instead of in every consumer.
+ */
+export type PersistedExecRunContext = ExecRunContext & {
+  assistantMessageId: string;
+  topicId: string;
+};
+
+/**
+ * Conversation history supplied by the host instead of loaded from a topic.
+ *
+ * A transcript run persists NOTHING in `messages` / `topics`: turn setup skips
+ * topic creation and the user/assistant rows, history comes from `load`, and
+ * every row the runtime writes goes through the
+ * `AgentRuntimeServiceOptions.messageStore` the caller built the service
+ * with. Channel native runs use this to keep each member's private working
+ * transcript in `channel_runtime_messages`.
+ */
+export interface ExecAgentTranscript {
+  /**
+   * Row in the host's store that carries this turn's request. Becomes the
+   * runtime's `parentMessageId`, so the assistant row it creates chains onto
+   * it and `call_llm`'s parent preflight resolves through the store.
+   */
+  deliveryMessageId?: string;
+  /** Full prior history (the delivery row included) in UI message shape. */
+  load: () => Promise<UIChatMessage[]>;
 }
 
 /**
@@ -63,6 +118,12 @@ export interface ExecRunContext {
  * This extends the public ExecAgentParams with server-side only options
  */
 export interface InternalExecAgentParams extends ExecAgentParams {
+  /**
+   * The calling client handles `member_runtime_end`, derived from the
+   * `streamFeatures` it declared on `aiAgent.execAgent`. See
+   * `OperationCreationParams.acceptsMemberRuntimeEnd`.
+   */
+  acceptsMemberRuntimeEnd?: boolean;
   /** Additional plugin IDs to inject (e.g., task tool during task execution) */
   additionalPluginIds?: string[];
   /**
@@ -82,11 +143,28 @@ export interface InternalExecAgentParams extends ExecAgentParams {
   /** Bot platform context for injecting platform capabilities (e.g. markdown support) */
   botPlatformContext?: BotPlatformContext;
   /**
+   * Real platform author of a bot-channel turn, persisted on the inbound user
+   * message as `metadata.botSender` so the UI shows them instead of the owner.
+   */
+  botSender?: BotSenderMetadata;
+  /**
+   * Channel native-run marker. Persisted to `state.principal.actor.channel`
+   * so per-step consumers (Agent Signal suppression, the `channel-artifact`
+   * server runtime) key off the run itself. Internal-only: set by the Channel
+   * worker, never client-passable.
+   */
+  channelContext?: ChannelRunContext;
+  /**
    * chatConfig overrides (thinking / reasoning-effort extend params) merged over
    * the executing agent's own chatConfig, skipping nulled keys. Internal-only:
    * set by the callSubAgent thread-run path, never client-passable.
    */
   chatConfigOverride?: Partial<LobeAgentChatConfig> | null;
+  /**
+   * The composer's view of this conversation's runs at send time. Diagnostic
+   * only: persisted when this start supersedes a live run, never used to decide.
+   */
+  clientRunSnapshot?: ClientRunSnapshot;
   /**
    * Thread `execAgent` materialised from `appContext.newThread` for THIS turn.
    * Internal-only: set by the wrapper after it creates the row, never
@@ -122,6 +200,12 @@ export interface InternalExecAgentParams extends ExecAgentParams {
    * as well as activator-discoverable manifests.
    */
   exclusivePluginIds?: string[];
+  /**
+   * Provider event that produced this server-injected turn (a GitHub CI
+   * failure waking the agent, …), persisted on the user message as
+   * `metadata.externalOrigin` so the bubble carries its source.
+   */
+  externalOrigin?: ExternalOriginMetadata;
   /** External files to upload to S3 and attach to the user message */
   files?: Array<{
     /** Pre-downloaded buffer (from adapter/platform layer) */
@@ -156,6 +240,8 @@ export interface InternalExecAgentParams extends ExecAgentParams {
    * instead of answering itself. Mirrors the client runtime's mention wiring.
    */
   mentionedAgents?: RuntimeMentionedAgent[];
+  /** Prepare dependent records after the operation is persisted, before any execution dispatch. */
+  onOperationCreated?: (operationId: string) => Promise<void>;
   /** Parent message ID to continue from. Only takes effect when resume is true */
   parentMessageId?: string;
   queueRetries?: number;
@@ -220,6 +306,14 @@ export interface InternalExecAgentParams extends ExecAgentParams {
    */
   selectedToolIds?: string[];
   /**
+   * Server-authored builtin manifests added to this run's tool set with
+   * source `builtin`, so `BuiltinToolsExecutor` resolves them through the
+   * server runtime registry. Bypasses the agent's plugin selection and the
+   * activator: use for host-scoped tools whose availability the host has
+   * already decided (Channel's `channel-artifact`). Internal-only.
+   */
+  serverToolManifests?: LobeToolManifest[];
+  /**
    * Shared-agent visitor gate. Set ONLY by the shareChat router after the
    * share access check — never client-passable. Restricts tools/memory/files at
    * operation-build time, denies device access, and scopes the visitor's rows.
@@ -227,6 +321,12 @@ export interface InternalExecAgentParams extends ExecAgentParams {
   shareGate?: AgentShareGate;
   /** Abort startup before the agent runtime operation is created */
   signal?: AbortSignal;
+  /**
+   * The prompt was queued while the previous turn was still running. The user
+   * message is persisted with `metadata.steer` so it renders as a continuation
+   * of that turn.
+   */
+  steer?: boolean;
   /**
    * Whether the LLM call should use streaming.
    * Defaults to true. Set to false for non-streaming scenarios (e.g., bot integrations).
@@ -263,6 +363,12 @@ export interface InternalExecAgentParams extends ExecAgentParams {
    * such as TaskResultBridgeService.
    */
   topicStartReservationId?: string;
+  /**
+   * Run off a host-supplied transcript instead of a topic. Implies
+   * `suppressUserMessage`; see {@link ExecAgentTranscript}. Mutually
+   * exclusive with `appContext.topicId`, `resume*` and heterogeneous agents.
+   */
+  transcript?: ExecAgentTranscript;
   /** Topic creation trigger source ('cron' | 'chat' | 'api' | 'task') */
   trigger?: string;
   /**
@@ -283,6 +389,16 @@ export interface InternalExecAgentParams extends ExecAgentParams {
  * project path placeholder (and the tool cwd/scope downstream) without re-loading
  * the device + topic the scan already read.
  */
+export interface BindTopicWorkingDirectoryParams {
+  config?: WorkingDirConfig;
+  /** The topic's existing `metadata.boundDeviceId`, if any. */
+  currentDeviceId?: string;
+  currentWorkingDirectory?: string;
+  /** The device {@link config} was resolved for. */
+  deviceId?: string;
+  topicId: string;
+}
+
 export interface ResolvedWorkspaceInit {
   boundCwd?: string;
   /**
@@ -292,6 +408,8 @@ export interface ResolvedWorkspaceInit {
    * a linked worktree must still file under its repo.
    */
   boundCwdConfig?: WorkingDirConfig;
+  /** The device the topic's cwd is pinned on (`topic.metadata.boundDeviceId`). */
+  topicDeviceId?: string;
   /**
    * The cwd the topic was ALREADY pinned to, so a caller can tell a first-time
    * binding from a no-op rewrite without re-reading the topic row.

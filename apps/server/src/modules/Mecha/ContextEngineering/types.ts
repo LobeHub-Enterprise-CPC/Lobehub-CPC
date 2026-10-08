@@ -13,6 +13,7 @@ import type {
   LobeToolManifest,
   OnboardingContext,
   PlanTodoConfig,
+  ProjectInstructionFile,
   SkillMeta,
   ToolDiscoveryConfig,
   TopicReferenceItem,
@@ -112,7 +113,11 @@ export interface ServerMessagesEngineParams {
   discordContext?: DiscordContext;
   // ========== Eval context ==========
   /** Eval context for injecting environment prompts into system message */
+  /** Borrowed-connector attribution, injected into the system message. */
+  connectorOwnershipNote?: string;
   evalContext?: EvalContext;
+  /** A project's root instruction files, injected into the system message. */
+  projectInstructions?: ProjectInstructionFile[];
   // ========== Onboarding context ==========
   /** Onboarding context for injecting phase guidance and documents */
   onboardingContext?: OnboardingContext;
@@ -127,6 +132,12 @@ export interface ServerMessagesEngineParams {
 
   /** Whether to enable history message count limit */
   enableHistoryCount?: boolean;
+
+  /**
+   * Whether stale tool results are replaced with short placeholders in the
+   * model context. Undefined / true → trimming enabled (default).
+   */
+  enableStaleToolResultTrim?: boolean;
 
   /** Force finish flag: when true, injects summary prompt for max-steps completion */
   forceFinish?: boolean;

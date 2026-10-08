@@ -7,6 +7,8 @@ import type { PluginOption, UserConfig, ViteDevServer } from 'vite';
 import { defineConfig } from 'vite';
 import tsconfigPaths from 'vite-tsconfig-paths';
 
+import { customBrandingLoadingScreen } from '../../plugins/vite/customBrandingLoadingScreen';
+import { devLoadingProgress } from '../../plugins/vite/devLoadingProgress';
 import {
   createSharedRolldownOutput,
   sharedModulePreload,
@@ -29,6 +31,11 @@ import {
 } from './vite.shared';
 
 const RENDERER_OUT_DIR = path.resolve(__dirname, 'dist/renderer');
+const RENDERER_INPUTS = {
+  main: path.resolve(__dirname, 'index.html'),
+  overlay: path.resolve(__dirname, 'overlay.html'),
+  popup: path.resolve(__dirname, 'popup.html'),
+};
 
 /**
  * The repository public directory can contain ignored web build outputs after
@@ -229,12 +236,12 @@ export default defineConfig(async (env) => {
       outDir: RENDERER_OUT_DIR,
       reportCompressedSize: false,
       rolldownOptions: {
-        input: {
-          main: path.resolve(__dirname, 'index.html'),
-          overlay: path.resolve(__dirname, 'overlay.html'),
-          popup: path.resolve(__dirname, 'popup.html'),
-        },
-        output: createSharedRolldownOutput({ splitInitial: false, strictExecutionOrder: true }),
+        input: RENDERER_INPUTS,
+        output: createSharedRolldownOutput({
+          initialEntries: RENDERER_INPUTS,
+          strictExecutionOrder: true,
+        }),
+        preserveEntrySignatures: 'allow-extension',
       },
       sourcemap: false,
       target: RENDERER_CHROME_TARGET,
@@ -260,9 +267,11 @@ export default defineConfig(async (env) => {
     envPrefix: ['RENDERER_VITE_', 'VITE_'],
     optimizeDeps: sharedOptimizeDeps,
     plugins: [
+      customBrandingLoadingScreen(),
       isCloudDesktop && cloudTsconfigPathsPlugin(),
       isCloudDesktop && cloudDesktopBusinessConstPlugin(),
       electronDesktopHtmlPlugin(),
+      devLoadingProgress(),
       reactDevtoolsPlugin(),
       excludeWebSpaBuildArtifactsPlugin(),
       vanillaExtractPlugin(),

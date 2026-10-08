@@ -4,12 +4,12 @@ import type {
   ContextBuildOutput,
 } from '@lobechat/agent-runtime';
 
-import type { RuntimeExecutorContext } from '../context';
+import type { RuntimeContextBuilderContext } from '../context';
 import { buildServerCallLlmContext } from './serverCallLlmContextBuilder';
 import { resolveServerCallLlmTooling } from './serverCallLlmTooling';
 
 export class ServerContextBuilder implements ContextBuilder {
-  constructor(private readonly ctx: RuntimeExecutorContext) {}
+  constructor(private readonly ctx: RuntimeContextBuilderContext) {}
 
   async build(input: ContextBuildInput): Promise<ContextBuildOutput> {
     const tooling = resolveServerCallLlmTooling(
@@ -17,9 +17,13 @@ export class ServerContextBuilder implements ContextBuilder {
       input.state,
       input.payload.allowedToolNames,
     );
+    const resolveAttachments = this.ctx.messageModel?.resolveAttachments;
+    const llmPayload = resolveAttachments
+      ? { ...input.payload, messages: await resolveAttachments(input.payload.messages) }
+      : input.payload;
     const result = await buildServerCallLlmContext({
       ctx: this.ctx,
-      llmPayload: input.payload,
+      llmPayload,
       model: input.model,
       provider: input.provider,
       state: input.state,
@@ -28,7 +32,10 @@ export class ServerContextBuilder implements ContextBuilder {
 
     return {
       messages: result.processedMessages,
-      modelParameters: result.resolvedExtendParams,
+      modelParameters: {
+        ...result.resolvedExtendParams,
+        ...(typeof result.stream === 'boolean' && { stream: result.stream }),
+      },
       preserveThinking: result.preserveThinkingForPayload,
       replayAssistantReasoning: result.shouldReplayAssistantReasoning,
       resolvedTools: tooling.resolved,

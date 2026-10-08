@@ -1,5 +1,6 @@
 import { expo } from '@better-auth/expo';
 import { passkey } from '@better-auth/passkey';
+import { configureBusinessAuth, managedBusinessSSO } from '@lobechat/business-auth';
 import { BRANDING_NAME } from '@lobechat/business-const';
 import { createNanoId, idGenerator, serverDB } from '@lobechat/database';
 import * as schema from '@lobechat/database/schemas';
@@ -23,7 +24,11 @@ import {
 } from '@/libs/better-auth/email-templates';
 import { emailWhitelist } from '@/libs/better-auth/plugins/email-whitelist';
 import { initBetterAuthSSOProviders } from '@/libs/better-auth/sso';
-import { createSecondaryStorage, getTrustedOrigins } from '@/libs/better-auth/utils/config';
+import {
+  createSecondaryStorage,
+  getPasskeyOrigins,
+  getTrustedOrigins,
+} from '@/libs/better-auth/utils/config';
 import { expireLegacyHostOnlyCookies } from '@/libs/better-auth/utils/host-only-cookies';
 import { parseSSOProviders } from '@/libs/better-auth/utils/server';
 import { clearMismatchedOIDCSession } from '@/libs/oidc-provider/session-cleanup';
@@ -85,18 +90,6 @@ const getPasskeyRpID = (): string | undefined => {
 };
 
 /**
- * Get passkey origins array.
- * Returns undefined if APP_URL is not set (e.g., in e2e tests).
- */
-const getPasskeyOrigins = (): string[] | undefined => {
-  if (!appEnv.APP_URL) return undefined;
-  try {
-    return [new URL(appEnv.APP_URL).origin];
-  } catch {
-    return undefined;
-  }
-};
-/**
  * Browsers silently drop a cookie whose `Domain` the current host is not a member of.
  * Applying a production domain on a preview deployment (`*.vercel.app`) or localhost would
  * therefore erase every auth cookie instead of widening it, so fall back to host-only there.
@@ -121,7 +114,9 @@ const OTP_EXPIRES_IN = 300;
 const enableMagicLink = authEnv.AUTH_ENABLE_MAGIC_LINK;
 const enabledSSOProviders = parseSSOProviders(authEnv.AUTH_SSO_PROVIDERS);
 
-const { socialProviders, genericOAuthProviders } = initBetterAuthSSOProviders();
+const { socialProviders, genericOAuthProviders } = managedBusinessSSO
+  ? { socialProviders: {}, genericOAuthProviders: [] }
+  : initBetterAuthSSOProviders();
 
 interface CustomBetterAuthOptions {
   /**
@@ -131,6 +126,7 @@ interface CustomBetterAuthOptions {
   cookieDomain?: string;
   /** Namespace every Better Auth cookie so colocated deployments cannot overwrite each other. */
   cookiePrefix?: string;
+  overrides?: BetterAuthOptions;
   plugins: BetterAuthPlugin[];
 }
 
@@ -141,8 +137,8 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
     account: {
       accountLinking: {
         allowDifferentEmails: true,
-        enabled: true,
-        trustedProviders: enabledSSOProviders,
+        enabled: !managedBusinessSSO,
+        trustedProviders: managedBusinessSSO ? [] : enabledSSOProviders,
       },
     },
 
@@ -325,7 +321,7 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
     },
     plugins: [
       ...customOptions.plugins,
-      emailWhitelist(),
+      ...(!managedBusinessSSO ? [emailWhitelist()] : []),
       expo(),
       admin(),
       // Email OTP plugin for mobile verification
@@ -360,9 +356,7 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
         // Extract rpID from auth URL (e.g., 'lobehub.com' from 'https://lobehub.com')
         // Returns undefined if AUTH_URL is not set (e.g., in e2e tests)
         rpID: getPasskeyRpID(),
-        // Support multiple origins: web + Android APK key hashes
-        // Android origin format: android:apk-key-hash:<base64url-sha256-fingerprint>
-        // Returns undefined if AUTH_URL is not set (e.g., in e2e tests)
+        // Keep Android APK origins aligned with the public Digital Asset Links declaration.
         origin: getPasskeyOrigins(),
       }),
       ...(genericOAuthProviders.length > 0
@@ -394,7 +388,39 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
     ],
   } satisfies BetterAuthOptions;
 
-  const instance = betterAuth(options);
+  const overrides = customOptions.overrides;
+  const instance = betterAuth(
+    configureBusinessAuth({
+      ...options,
+      verification: overrides?.verification,
+      emailAndPassword: {
+        ...options.emailAndPassword,
+        ...overrides?.emailAndPassword,
+        enabled: options.emailAndPassword.enabled,
+      },
+      account: { ...options.account, ...overrides?.account },
+      advanced: { ...options.advanced, ...overrides?.advanced },
+      plugins: [...options.plugins, ...(overrides?.plugins ?? [])],
+      trustedOrigins: [
+        ...(getTrustedOrigins(managedBusinessSSO ? [] : enabledSSOProviders) ?? []),
+        ...((overrides?.trustedOrigins as string[] | undefined) ?? []),
+      ],
+      disabledPaths: [
+        ...(managedBusinessSSO
+          ? [
+              '/sign-in/social',
+              '/link-social',
+              '/oauth2/link',
+              '/unlink-account',
+              '/get-access-token',
+              '/refresh-token',
+              '/account-info',
+            ]
+          : []),
+        ...(overrides?.disabledPaths ?? []),
+      ],
+    }),
+  );
   if (!cookieDomain) return instance;
 
   const handleRequest = instance.handler;

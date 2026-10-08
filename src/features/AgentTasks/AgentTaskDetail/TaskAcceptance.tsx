@@ -1,7 +1,7 @@
 'use client';
 
 import { Flexbox, Icon } from '@lobehub/ui';
-import { ActionIcon, Button, confirmModal, Text } from '@lobehub/ui/base-ui';
+import { ActionIcon, Button, Collapsible, Spin, Text } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cssVar } from 'antd-style';
 import {
   ChevronRight,
@@ -14,7 +14,6 @@ import {
 import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import NeuralNetworkLoading from '@/components/NeuralNetworkLoading';
 import {
   type AcceptanceCheck,
   checkDisplayTitle,
@@ -32,6 +31,7 @@ import {
 } from '@/features/Acceptance/Viewer/AcceptanceScope';
 import AcceptanceCheckInventory from '@/features/Acceptance/Viewer/Checks/AcceptanceCheckInventory';
 import AcceptanceDecision from '@/features/Acceptance/Viewer/Review/AcceptanceDecision';
+import { openAcceptanceDeleteConfirm } from '@/features/Acceptance/Workspace/AcceptanceDeleteConfirm';
 import { usePermission } from '@/hooks/usePermission';
 import { verifyService } from '@/services/verify';
 import { useChatStore } from '@/store/chat';
@@ -128,6 +128,7 @@ const TaskAcceptance = memo<TaskAcceptanceProps>(({ variant = 'default' }) => {
   const { allowed: canEditTask } = usePermission('create_content');
   const taskId = useTaskStore(taskDetailSelectors.activeTaskId);
   const taskDatabaseId = useTaskStore(taskDetailSelectors.activeTaskDatabaseId);
+  const taskName = useTaskStore(taskDetailSelectors.activeTaskName);
   const automationMode = useTaskStore(taskDetailSelectors.activeTaskAutomationMode);
   const verify = useTaskStore(taskDetailSelectors.activeTaskVerifyConfig);
   const [sectionExpanded, setSectionExpanded] = useState(true);
@@ -181,7 +182,7 @@ const TaskAcceptance = memo<TaskAcceptanceProps>(({ variant = 'default' }) => {
   // acceptance section here would advertise a contract that never runs.
   if (automationMode) return null;
 
-  if (subjectLoading) return <NeuralNetworkLoading size={28} />;
+  if (subjectLoading) return <Spin size="middle" />;
   // Before the first Acceptance round exists, the configured criteria ARE the
   // delivery acceptance. Keep them in this single slot; once a round exists,
   // replace the definitions with their live/result projection below.
@@ -197,20 +198,19 @@ const TaskAcceptance = memo<TaskAcceptanceProps>(({ variant = 'default' }) => {
   // to recreate it on the next run.
   const handleRemoveAcceptance = () => {
     if (!acceptanceSubject || !taskId) return;
-    confirmModal({
-      content: t('taskDetail.acceptance.removeConfirm.content'),
-      okButtonProps: { danger: true },
-      okText: t('taskDetail.acceptance.removeConfirm.ok'),
-      onOk: async () => {
+    openAcceptanceDeleteConfirm({
+      description: t('taskDetail.acceptance.removeConfirm.content'),
+      ids: [acceptanceSubject.id],
+      title: taskName || requirement || t('taskDetail.acceptance.untitled'),
+      onDelete: async (purge) => {
         await useTaskStore.getState().updateVerifyConfig(taskId, {
           enabled: false,
           requirement: null,
           verifyCriteriaIds: null,
         });
-        await verifyService.deleteAcceptance(acceptanceSubject.id);
+        await verifyService.deleteAcceptance(acceptanceSubject.id, purge);
         await mutateSubject();
       },
-      title: t('taskDetail.acceptance.removeConfirm.title'),
     });
   };
 
@@ -281,9 +281,9 @@ const TaskAcceptance = memo<TaskAcceptanceProps>(({ variant = 'default' }) => {
   return (
     <Flexbox gap={8}>
       {header}
-      {sectionExpanded && (
+      <Collapsible open={sectionExpanded}>
         <Flexbox className={styles.body} gap={14}>
-          {bundleLoading && <NeuralNetworkLoading size={28} />}
+          {bundleLoading && <Spin size="middle" />}
           {bundleError && <AcceptanceError onRetry={() => void mutateBundle()} />}
           {bundle && (
             <>
@@ -387,7 +387,7 @@ const TaskAcceptance = memo<TaskAcceptanceProps>(({ variant = 'default' }) => {
             </>
           )}
         </Flexbox>
-      )}
+      </Collapsible>
     </Flexbox>
   );
 });

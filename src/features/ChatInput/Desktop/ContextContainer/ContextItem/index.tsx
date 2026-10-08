@@ -1,6 +1,5 @@
 import { Flexbox, Icon, Tooltip } from '@lobehub/ui';
-import { ActionIcon, Tag } from '@lobehub/ui/base-ui';
-import { Progress } from 'antd';
+import { ActionIcon, Progress, Tag } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { CircleAlertIcon, CircleCheckIcon, Loader2Icon, RotateCwIcon } from 'lucide-react';
 import { memo } from 'react';
@@ -89,13 +88,16 @@ const ContextItem = memo<FileItemProps>((props) => {
   const detail = (
     <Flexbox gap={4}>
       <span>{file.name}</span>
-      <UploadDetail
-        error={error}
-        size={file.size}
-        status={status}
-        tasks={tasks}
-        uploadState={uploadState}
-      />
+      {status === 'error' && error ? (
+        <Flexbox horizontal align={'flex-start'} gap={4} style={{ color: cssVar.colorError }}>
+          <Flexbox align={'center'} justify={'center'} style={{ height: '1lh' }}>
+            <Icon icon={CircleAlertIcon} size={12} />
+          </Flexbox>
+          <span>{error}</span>
+        </Flexbox>
+      ) : (
+        <UploadDetail size={file.size} status={status} tasks={tasks} uploadState={uploadState} />
+      )}
     </Flexbox>
   );
 
@@ -146,11 +148,10 @@ const ContextItem = memo<FileItemProps>((props) => {
                   role={'progressbar'}
                 >
                   <Progress
-                    percent={progress}
+                    percent={progress ?? 0}
                     showInfo={false}
                     size={12}
                     status={'normal'}
-                    strokeWidth={12}
                     type={'circle'}
                   />
                 </span>

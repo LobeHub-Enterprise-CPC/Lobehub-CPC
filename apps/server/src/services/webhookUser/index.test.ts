@@ -6,7 +6,17 @@ import { UserModel } from '@/database/models/user';
 import { WebhookUserService } from './index';
 
 vi.mock('@/database/models/user', () => ({
-  UserModel: vi.fn(),
+  UserModel: Object.assign(vi.fn(), {
+    findById: vi.fn(async () => ({ id: 'user-123', email: 'test@example.com' })),
+  }),
+}));
+
+vi.mock('@lobechat/business-auth', () => ({
+  withBusinessIdentityUpdate: async (
+    db: unknown,
+    _userId: string,
+    update: (db: unknown) => Promise<unknown>,
+  ) => update(db),
 }));
 
 describe('WebhookUserService', () => {
@@ -27,7 +37,9 @@ describe('WebhookUserService', () => {
     mockUserModel = {
       updateUser: vi.fn(),
     };
-    (UserModel as any).mockImplementation(() => mockUserModel);
+    (UserModel as any).mockImplementation(function () {
+      return mockUserModel;
+    });
 
     const deleteChainMock = {
       where: vi.fn().mockResolvedValue(undefined),
@@ -75,6 +87,8 @@ describe('WebhookUserService', () => {
       expect(mockUserModel.updateUser).toHaveBeenCalledWith({
         avatar: updateData.avatar,
         email: updateData.email,
+        emailVerified: false,
+        emailVerifiedAt: null,
         fullName: updateData.fullName,
       });
       expect(result.status).toBe(200);
@@ -89,7 +103,9 @@ describe('WebhookUserService', () => {
         from: vi.fn().mockReturnThis(),
         innerJoin: vi.fn().mockReturnThis(),
         select: vi.fn().mockReturnThis(),
-        then: vi.fn().mockImplementation((cb) => cb([{ users: mockUser }])),
+        then: vi.fn().mockImplementation(function (cb) {
+          return cb([{ users: mockUser }]);
+        }),
         where: vi.fn().mockReturnThis(),
       };
       mockDb.select.mockReturnValue(chainMock);
@@ -105,13 +121,15 @@ describe('WebhookUserService', () => {
       expect(mockUserModel.updateUser).toHaveBeenCalledWith({
         avatar: undefined,
         email: 'updated@example.com',
+        emailVerified: false,
+        emailVerifiedAt: null,
         fullName: undefined,
       });
       expect(result.status).toBe(200);
     });
 
     it('should warn and not update when user not found', async () => {
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(function () {});
 
       // Better Auth account not found
       mockDb.query.account.findFirst.mockResolvedValue(null);
@@ -121,7 +139,9 @@ describe('WebhookUserService', () => {
         from: vi.fn().mockReturnThis(),
         innerJoin: vi.fn().mockReturnThis(),
         select: vi.fn().mockReturnThis(),
-        then: vi.fn().mockImplementation((cb) => cb([])),
+        then: vi.fn().mockImplementation(function (cb) {
+          return cb([]);
+        }),
         where: vi.fn().mockReturnThis(),
       };
       mockDb.select.mockReturnValue(chainMock);
@@ -153,6 +173,8 @@ describe('WebhookUserService', () => {
       expect(mockUserModel.updateUser).toHaveBeenCalledWith({
         avatar: undefined,
         email: 'only-email@example.com',
+        emailVerified: false,
+        emailVerifiedAt: null,
         fullName: undefined,
       });
       expect(result.status).toBe(200);
@@ -184,7 +206,9 @@ describe('WebhookUserService', () => {
         from: vi.fn().mockReturnThis(),
         innerJoin: vi.fn().mockReturnThis(),
         select: vi.fn().mockReturnThis(),
-        then: vi.fn().mockImplementation((cb) => cb([{ users: mockUser }])),
+        then: vi.fn().mockImplementation(function (cb) {
+          return cb([{ users: mockUser }]);
+        }),
         where: vi.fn().mockReturnThis(),
       };
       mockDb.select.mockReturnValue(chainMock);
@@ -199,7 +223,7 @@ describe('WebhookUserService', () => {
     });
 
     it('should warn and not delete sessions when user not found', async () => {
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(function () {});
 
       // Better Auth account not found
       mockDb.query.account.findFirst.mockResolvedValue(null);
@@ -209,7 +233,9 @@ describe('WebhookUserService', () => {
         from: vi.fn().mockReturnThis(),
         innerJoin: vi.fn().mockReturnThis(),
         select: vi.fn().mockReturnThis(),
-        then: vi.fn().mockImplementation((cb) => cb([])),
+        then: vi.fn().mockImplementation(function (cb) {
+          return cb([]);
+        }),
         where: vi.fn().mockReturnThis(),
       };
       mockDb.select.mockReturnValue(chainMock);
@@ -257,7 +283,9 @@ describe('WebhookUserService', () => {
         from: vi.fn().mockReturnThis(),
         innerJoin: vi.fn().mockReturnThis(),
         select: vi.fn().mockReturnThis(),
-        then: vi.fn().mockImplementation((cb) => cb([{ users: nextAuthUser }])),
+        then: vi.fn().mockImplementation(function (cb) {
+          return cb([{ users: nextAuthUser }]);
+        }),
         where: vi.fn().mockReturnThis(),
       };
       mockDb.select.mockReturnValue(chainMock);
@@ -269,7 +297,7 @@ describe('WebhookUserService', () => {
     });
 
     it('should return null when user not found in both tables', async () => {
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(function () {});
 
       // Better Auth account not found
       mockDb.query.account.findFirst.mockResolvedValue(null);
@@ -279,7 +307,9 @@ describe('WebhookUserService', () => {
         from: vi.fn().mockReturnThis(),
         innerJoin: vi.fn().mockReturnThis(),
         select: vi.fn().mockReturnThis(),
-        then: vi.fn().mockImplementation((cb) => cb([])),
+        then: vi.fn().mockImplementation(function (cb) {
+          return cb([]);
+        }),
         where: vi.fn().mockReturnThis(),
       };
       mockDb.select.mockReturnValue(chainMock);

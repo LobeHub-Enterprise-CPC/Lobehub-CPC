@@ -11,6 +11,7 @@ export const CHANNEL_MESSAGE_APIS = [
   MessageApiName.sendMessage,
   MessageApiName.sendDirectMessage,
   MessageApiName.readMessages,
+  MessageApiName.readDocument,
   MessageApiName.searchMessages,
   MessageApiName.editMessage,
   MessageApiName.deleteMessage,
@@ -54,7 +55,8 @@ export const TELEGRAM_GUEST_UNSUPPORTED_MESSAGE_APIS: string[] = [...CHANNEL_MES
  */
 export const PLATFORM_UNSUPPORTED_MESSAGE_APIS: Record<string, string[]> = {
   // Discord implements the full surface — no entry needed, but keep it explicit.
-  discord: [],
+  // Discord has no document API — `readDocument` is Feishu/Lark only.
+  discord: [MessageApiName.readDocument],
   feishu: [
     MessageApiName.createPoll,
     MessageApiName.createThread,
@@ -79,9 +81,13 @@ export const PLATFORM_UNSUPPORTED_MESSAGE_APIS: Record<string, string[]> = {
     MessageApiName.listThreads,
     MessageApiName.pinMessage,
     MessageApiName.reactToMessage,
+    MessageApiName.readDocument,
     MessageApiName.sendDirectMessage,
     MessageApiName.unpinMessage,
   ],
+  // The shared Linq pool (messenger iMessage / SMS) has no channel API behind
+  // the message tool — replies flow through the messenger, nothing else.
+  linq: [...CHANNEL_MESSAGE_APIS],
   // Lark shares Feishu's service, so it has the same limitations.
   lark: [
     MessageApiName.createPoll,
@@ -109,19 +115,26 @@ export const PLATFORM_UNSUPPORTED_MESSAGE_APIS: Record<string, string[]> = {
     MessageApiName.listThreads,
     MessageApiName.pinMessage,
     MessageApiName.reactToMessage,
+    MessageApiName.readDocument,
     MessageApiName.readMessages,
     MessageApiName.replyToThread,
     MessageApiName.searchMessages,
     MessageApiName.sendDirectMessage,
     MessageApiName.unpinMessage,
   ],
-  slack: [MessageApiName.createPoll, MessageApiName.createThread, MessageApiName.sendDirectMessage],
+  slack: [
+    MessageApiName.createPoll,
+    MessageApiName.createThread,
+    MessageApiName.readDocument,
+    MessageApiName.sendDirectMessage,
+  ],
   // Telegram has no history-read API → prompt uses pre-injected recent channel history.
   telegram: [
     MessageApiName.getReactions,
     MessageApiName.listChannels,
     MessageApiName.listPins,
     MessageApiName.listThreads,
+    MessageApiName.readDocument,
     MessageApiName.readMessages,
     MessageApiName.searchMessages,
     MessageApiName.sendDirectMessage,
@@ -140,6 +153,7 @@ export const PLATFORM_UNSUPPORTED_MESSAGE_APIS: Record<string, string[]> = {
     MessageApiName.listThreads,
     MessageApiName.pinMessage,
     MessageApiName.reactToMessage,
+    MessageApiName.readDocument,
     MessageApiName.readMessages,
     MessageApiName.replyToThread,
     MessageApiName.searchMessages,

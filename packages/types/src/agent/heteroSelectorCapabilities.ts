@@ -392,7 +392,7 @@ export const HETERO_SELECTOR_CAPABILITIES = {
     model: {
       encodings: [MODEL_FLAGS_ENCODING, { key: 'model', kind: 'config' }],
       resolve: resolveCodexModel,
-      source: 'static',
+      source: 'catalog',
     },
     speed: {
       encodings: [{ key: CODEX_SERVICE_TIER_CONFIG_KEY, kind: 'config' }],
@@ -410,6 +410,13 @@ export const HETERO_SELECTOR_CAPABILITIES = {
   'droid': {
     model: { encodings: [], resolve: resolvePersistedModel, source: 'catalog' },
   },
+  'devin': {
+    model: {
+      encodings: [{ flags: ['--model'], kind: 'flag' }],
+      resolve: resolvePersistedModel,
+      source: 'catalog',
+    },
+  },
   'grok-build': {
     effort: {
       encodings: [{ flags: GROK_BUILD_REASONING_EFFORT_FLAGS, kind: 'flag' }],
@@ -422,7 +429,9 @@ export const HETERO_SELECTOR_CAPABILITIES = {
       source: 'catalog',
     },
   },
-  'kimi-code': {},
+  'kimi-code': {
+    model: { encodings: [MODEL_FLAGS_ENCODING], resolve: resolvePersistedModel, source: 'catalog' },
+  },
   'opencode': {
     model: { encodings: [MODEL_FLAGS_ENCODING], resolve: resolvePersistedModel, source: 'catalog' },
   },

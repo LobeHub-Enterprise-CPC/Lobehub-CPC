@@ -1,12 +1,13 @@
 'use client';
 
-import { SOCIAL_URL } from '@lobechat/business-const';
 import { Flexbox, Icon } from '@lobehub/ui';
 import { Tabs } from '@lobehub/ui/base-ui';
 import { createStaticStyles } from 'antd-style';
 import { BookOpenIcon, HistoryIcon, SquareUserIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
+
+import SupportLink from '@/components/SupportLink';
 
 const styles = createStaticStyles(({ css, cssVar }) => {
   return {
@@ -74,9 +75,9 @@ const Nav = memo<NavProps>(({ mobile, setActiveTab, activeTab = GroupAgentNavKey
         gap={12}
         style={{ marginInlineStart: 12, whiteSpace: 'nowrap' }}
       >
-        <a className={styles.link} href={SOCIAL_URL.discord} rel="noreferrer" target="_blank">
+        <SupportLink className={styles.link}>
           {t('groupAgents.details.nav.needHelp', { defaultValue: 'Need help?' })}
-        </a>
+        </SupportLink>
       </Flexbox>
     </Flexbox>
   );

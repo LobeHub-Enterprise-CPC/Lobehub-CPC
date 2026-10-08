@@ -1,3 +1,4 @@
+import { assertBusinessUserAccess, isBusinessAuthorizationError } from '@lobechat/business-auth';
 import { type LobeChatDatabase } from '@lobechat/database';
 import { TRPCError } from '@trpc/server';
 import debug from 'debug';
@@ -42,6 +43,7 @@ export const asyncAuth = asyncTrpc.middleware(async (opts) => {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'user is invalid' });
     }
 
+    await assertBusinessUserAccess(ctx.serverDB as LobeChatDatabase, ctx.userId);
     log('User authentication successful: %s', ctx.userId);
 
     return opts.next({
@@ -50,6 +52,12 @@ export const asyncAuth = asyncTrpc.middleware(async (opts) => {
       },
     });
   } catch (error) {
+    if (isBusinessAuthorizationError(error))
+      throw new TRPCError({
+        code: error.status === 503 ? 'SERVICE_UNAVAILABLE' : 'FORBIDDEN',
+        message: error.code,
+        cause: error,
+      });
     log('Database error during user lookup: %O', error);
     throw error;
   }

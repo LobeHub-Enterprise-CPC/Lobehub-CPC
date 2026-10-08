@@ -27,6 +27,8 @@ const { mockApp, mockI18nextInstance, mockLoadResources, mockCreateInstance } = 
   };
 });
 
+vi.mock('@/utils/appIdentity', () => ({ getAppDisplayName: () => 'Private Workspace' }));
+
 // Mock electron app
 vi.mock('electron', () => ({
   app: mockApp,
@@ -49,6 +51,14 @@ describe('I18nManager', () => {
   let mockAppCore: AppCore;
   let mockStoreManagerGet: ReturnType<typeof vi.fn>;
   let mockRefreshMenus: ReturnType<typeof vi.fn>;
+
+  it('brands native permission dialogs and menus', async () => {
+    await manager.init();
+    mockI18nextInstance.t.mockReturnValue('LobeHub needs Full Disk Access. LobeChat');
+    expect(manager.t('permission')).toBe(
+      'Private Workspace needs Full Disk Access. Private Workspace',
+    );
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();

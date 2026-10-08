@@ -104,6 +104,7 @@
   "workingDirectory.uncommittedChanges_one": "Alterações não comitadas: {{count}} arquivo",
   "workingDirectory.uncommittedChanges_other": "Alterações não comitadas: {{count}} arquivos",
   "workingDirectory.undo": "Desfazer",
+  "workingDirectory.unselected": "Não selecionado",
   "workingDirectory.useFolder": "Usar esta pasta",
   "workingDirectory.worktreeSearchPlaceholder": "Pesquisar worktrees",
   "workingDirectory.worktreeUnavailable": "indisponível",

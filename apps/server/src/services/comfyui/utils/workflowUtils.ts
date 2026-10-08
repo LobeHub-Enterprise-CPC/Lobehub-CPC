@@ -2,7 +2,11 @@
  * Workflow utility functions
  * Extracted from workflowRegistry to avoid circular dependencies
  */
-import { FLUX_MODEL_CONFIG, SD_MODEL_CONFIG } from '@/server/services/comfyui/config/constants';
+import {
+  FLUX_MODEL_CONFIG,
+  IMAGE_OUTPUT_PREFIX,
+  SD_MODEL_CONFIG,
+} from '@/server/services/comfyui/config/constants';
 
 /**
  * Workflow function to default filename type mapping
@@ -51,7 +55,7 @@ export function getWorkflowFilenamePrefix(workflowName: string, variant?: string
       : WORKFLOW_DEFAULT_TYPE[workflowName];
 
   if (!type) {
-    return 'LobeChat/%year%-%month%-%day%/Unknown';
+    return `${IMAGE_OUTPUT_PREFIX}/%year%-%month%-%day%/Unknown`;
   }
 
   // 2. Get filename prefix based on type
@@ -67,5 +71,5 @@ export function getWorkflowFilenamePrefix(workflowName: string, variant?: string
     ];
   }
 
-  return 'LobeChat/%year%-%month%-%day%/Unknown';
+  return `${IMAGE_OUTPUT_PREFIX}/%year%-%month%-%day%/Unknown`;
 }

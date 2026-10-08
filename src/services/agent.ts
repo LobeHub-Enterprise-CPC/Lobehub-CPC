@@ -9,8 +9,12 @@ export const AVAILABLE_AGENTS_CONTEXT_QUERY_LIMIT = AVAILABLE_AGENTS_CONTEXT_LIM
 export interface AvailableAgentItem {
   avatar: string | null;
   backgroundColor: string | null;
+  boundDeviceId?: string;
   description: string | null;
+  heteroType?: string;
   id: string;
+  /** Product-owned inbox (Lobe AI). A builtin can never join a chat group. */
+  isInbox?: boolean;
   /** Personal name; resolve the label with `agentDisplayName(item, fallback)`. */
   name: string | null;
   title: string | null;
@@ -289,6 +293,7 @@ class AgentService {
    * Returns agents with minimal info (id, title, description, avatar, backgroundColor).
    */
   queryAgents = async (params?: {
+    includeInbox?: boolean;
     keyword?: string;
     limit?: number;
     offset?: number;
@@ -302,6 +307,7 @@ class AgentService {
    */
   countAgents = async (params?: {
     endDate?: string;
+    includeInbox?: boolean;
     keyword?: string;
     range?: [string, string];
     startDate?: string;

@@ -104,6 +104,7 @@
   "workingDirectory.uncommittedChanges_one": "Thay đổi chưa được cam kết: {{count}} tệp",
   "workingDirectory.uncommittedChanges_other": "Thay đổi chưa được cam kết: {{count}} tệp",
   "workingDirectory.undo": "Hoàn tác",
+  "workingDirectory.unselected": "Chưa được chọn",
   "workingDirectory.useFolder": "Sử dụng thư mục này",
   "workingDirectory.worktreeSearchPlaceholder": "Tìm kiếm các worktree",
   "workingDirectory.worktreeUnavailable": "không khả dụng",

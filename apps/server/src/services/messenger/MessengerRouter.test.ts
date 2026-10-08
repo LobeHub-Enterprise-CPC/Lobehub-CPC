@@ -1,4 +1,6 @@
 // @vitest-environment node
+import { BRANDING_NAME } from '@lobechat/business-const';
+import { Chat } from 'chat';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MessengerRouter } from './MessengerRouter';
@@ -69,6 +71,7 @@ const mockSetIfNotExists = vi.fn();
 const mockGetList = vi.fn();
 const mockAppendToList = vi.fn();
 const mockChatBot = {
+  dispatchToHandlers: vi.fn(),
   getState: vi.fn(() => ({
     appendToList: (...args: any[]) => mockAppendToList(...args),
     getList: (...args: any[]) => mockGetList(...args),
@@ -89,7 +92,9 @@ const mockChatBot = {
   },
 };
 vi.mock('chat', () => ({
-  Chat: vi.fn().mockImplementation(() => mockChatBot),
+  Chat: vi.fn(function () {
+    return mockChatBot;
+  }),
   ConsoleLogger: vi.fn(),
 }));
 vi.mock('@chat-adapter/state-ioredis', () => ({
@@ -215,7 +220,9 @@ const mockSlackBinder = {
   sendDmText: vi.fn(),
 };
 vi.mock('./platforms/slack/binder', () => ({
-  MessengerSlackBinder: vi.fn().mockImplementation(() => mockSlackBinder),
+  MessengerSlackBinder: vi.fn(function () {
+    return mockSlackBinder;
+  }),
 }));
 
 const mockTelegramBinder = {
@@ -234,7 +241,9 @@ const mockTelegramBinder = {
   sendDmText: vi.fn(),
 };
 vi.mock('./platforms/telegram/binder', () => ({
-  MessengerTelegramBinder: vi.fn().mockImplementation(() => mockTelegramBinder),
+  MessengerTelegramBinder: vi.fn(function () {
+    return mockTelegramBinder;
+  }),
 }));
 
 const mockWechatBinder = {
@@ -247,8 +256,22 @@ const mockWechatBinder = {
   sendDmText: vi.fn(),
 };
 vi.mock('./platforms/wechat/binder', () => ({
-  MessengerWechatBinder: vi.fn().mockImplementation(() => mockWechatBinder),
+  MessengerWechatBinder: vi.fn(function () {
+    return mockWechatBinder;
+  }),
 }));
+
+vi.mock('./platforms/linq/binder', () => ({
+  MessengerLinqBinder: vi.fn(function () {
+    return { createClient: vi.fn(), handleUnlinkedMessage: vi.fn(), sendDmText: vi.fn() };
+  }),
+}));
+
+const mockLinqGate = vi.hoisted(() => ({
+  preprocess: vi.fn(async (): Promise<Response | null> => null),
+  settle: vi.fn(async () => {}),
+}));
+vi.mock('./platforms/linq/webhook', () => ({ linqWebhookGate: mockLinqGate }));
 
 const buildSlackRequest = (body: string, headers: Record<string, string> = {}): Request =>
   new Request('https://app.example.com/api/agent/messenger/webhooks/slack', {
@@ -293,6 +316,7 @@ const wechatCreds = {
 };
 
 beforeEach(() => {
+  mockChatBot.dispatchToHandlers = vi.fn();
   mockVerifySignature.mockReturnValue(true);
   mockChatBot.webhooks = {
     slack: mockWebhookHandler,
@@ -345,6 +369,26 @@ afterEach(() => {
 });
 
 describe('MessengerRouter.getWebhookHandler', () => {
+  it('lets the gate settle a delivery whose handling failed', async () => {
+    mockResolveByPayload.mockResolvedValueOnce(null);
+    const router = new MessengerRouter();
+    const req = new Request('https://e.com/x', { body: '{}', method: 'POST' });
+
+    const res = await router.getWebhookHandler('linq')(req);
+
+    expect(res.status).toBe(404);
+    expect(mockLinqGate.settle).toHaveBeenCalledWith(req, res);
+  });
+
+  it('lets the gate settle a delivery whose handling threw', async () => {
+    mockResolveByPayload.mockRejectedValueOnce(new Error('db down'));
+    const router = new MessengerRouter();
+    const req = new Request('https://e.com/x', { body: '{}', method: 'POST' });
+
+    await expect(router.getWebhookHandler('linq')(req)).rejects.toThrow('db down');
+    expect(mockLinqGate.settle).toHaveBeenCalledWith(req, undefined);
+  });
+
   it('rejects unknown platforms with 404', async () => {
     const router = new MessengerRouter();
     const handler = router.getWebhookHandler('discord');
@@ -573,6 +617,49 @@ const fakeWechatDmThread = (): any => ({
   isDM: true,
   post: vi.fn(),
   subscribe: vi.fn(),
+});
+
+describe('MessengerRouter collected commands', () => {
+  it('requires feedback text only when it will actually be submitted', () => {
+    const commands = (MessengerRouter.prototype as any).buildCommands();
+    const feedback = commands.find((command: any) => command.name === 'feedback');
+    expect(feedback.options[0].required).toBe((BRANDING_NAME as string) === 'LobeHub');
+  });
+
+  it.each([
+    ['/new', 'question'],
+    ['question', '/new'],
+  ])('preserves command and content order for %s then %s', async (first, second) => {
+    const events: string[] = [];
+    const thread = {
+      ...fakeWechatDmThread(),
+      state: Promise.resolve({ topicId: 'old-topic' }),
+      setState: vi.fn(async () => {
+        events.push('reset');
+      }),
+    };
+    mockFindLink.mockResolvedValue({
+      activeAgentId: 'agt_main',
+      id: 'link',
+      platformUserId: 'U_ALICE',
+      userId: 'user_alice',
+    });
+    mockHandleSubscribed.mockImplementation(async (_thread, message) => {
+      events.push(message.text);
+    });
+    mockChatBot.dispatchToHandlers = vi.fn(async (_adapter, _threadId, message, context) => {
+      const handler = mockChatBot.onSubscribedMessage.mock.calls.at(-1)![0];
+      await handler(thread, message, context);
+    });
+    await loadWechatBot();
+    await mockChatBot.dispatchToHandlers({}, thread.id, fakeMessage({ text: second }), {
+      skipped: [fakeMessage({ text: first })],
+      totalSinceLastHandler: 2,
+    });
+    expect(events).toEqual([first, second].map((text) => (text === '/new' ? 'reset' : text)));
+    expect(thread.setState).toHaveBeenCalledTimes(1);
+    expect(mockHandleSubscribed).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('MessengerRouter channel @mention', () => {
@@ -866,7 +953,7 @@ describe('MessengerRouter member_joined_channel welcome', () => {
     expect(mockSetIfNotExists).toHaveBeenCalledWith('channel_welcomed:C_GENERAL', '1');
     expect(mockSlackBinder.sendDmText).toHaveBeenCalledTimes(1);
     expect(mockSlackBinder.sendDmText.mock.calls[0][0]).toBe('C_GENERAL');
-    expect(mockSlackBinder.sendDmText.mock.calls[0][1]).toMatch(/LobeHub/);
+    expect(mockSlackBinder.sendDmText.mock.calls[0][1]).toContain(BRANDING_NAME);
   });
 
   it('does nothing when a regular user (not the bot) joins the channel', async () => {
@@ -975,6 +1062,24 @@ describe('MessengerRouter DM dispatch (regression)', () => {
     await handler(fakeDmThread(), fakeMessage({ isMention: false, text: 'follow up' }));
 
     expect(mockHandleSubscribed).toHaveBeenCalledTimes(1);
+    expect(mockHandleMention).not.toHaveBeenCalled();
+  });
+
+  it('replies with an error instead of dropping the message when the link lookup fails', async () => {
+    // Handlers run after the webhook was acknowledged, so the platform never
+    // redelivers; a failure here has to reach the sender as a reply.
+    await loadSlackBot();
+    mockFindLink.mockRejectedValueOnce(new Error('db down'));
+
+    const handler = mockChatBot.onNewMention.mock.calls[0][0] as (
+      thread: any,
+      msg: any,
+    ) => Promise<void>;
+    const thread = fakeDmThread();
+    await expect(handler(thread, fakeMessage({ isMention: true }))).resolves.toBeUndefined();
+
+    expect(thread.post).toHaveBeenCalledTimes(1);
+    expect(mockSlackBinder.handleUnlinkedMessage).not.toHaveBeenCalled();
     expect(mockHandleMention).not.toHaveBeenCalled();
   });
 
@@ -1645,6 +1750,41 @@ describe('MessengerRouter onSubscribedMessage gating', () => {
     expect(thread.post).toHaveBeenCalledWith(expect.stringContaining('@mention me'));
   });
 
+  it('does not announce mention-only mode in a Feishu group main chat', async () => {
+    // Same skip path as Slack multi-human, but Feishu group mains already
+    // require @mention — do not post the English notice.
+    await loadSlackBot();
+    mockGetList.mockResolvedValue(['U_ALICE']);
+    const thread = {
+      id: 'feishu:group:oc_citic_sentry',
+      isDM: false,
+      post: vi.fn(),
+      subscribe: vi.fn(),
+    };
+
+    const handler = mockChatBot.onSubscribedMessage.mock.calls[0][0] as (
+      thread: any,
+      msg: any,
+    ) => Promise<void>;
+    await handler(
+      thread,
+      fakeMessage({
+        author: { isBot: false, userId: 'U_BOB', userName: 'bob' },
+        isMention: false,
+        text: 'taking over',
+      }),
+    );
+
+    expect(mockHandleSubscribed).not.toHaveBeenCalled();
+    expect(mockHandleMention).not.toHaveBeenCalled();
+    expect(thread.post).not.toHaveBeenCalled();
+    expect(mockSetIfNotExists).not.toHaveBeenCalledWith(
+      expect.stringContaining('mention-required-announced'),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
   it('only announces mention-only mode once per channel thread ()', async () => {
     // Second non-mention in a multi-human thread → `setIfNotExists` returns
     // false, the announcement is suppressed.
@@ -2101,7 +2241,7 @@ describe('MessengerRouter Telegram Guest command privacy', () => {
     expect(mockTelegramBinder.replyToMessage.mock.calls).toEqual([
       [
         message,
-        `Open your direct message with the LobeHub bot and send \`${text.split(' ')[0]}\` there.`,
+        `Open your direct message with the ${BRANDING_NAME} bot and send \`${text.split(' ')[0]}\` there.`,
       ],
     ]);
     /** @example No picker or extra DM is sent while answering the Guest query. */
@@ -2143,5 +2283,146 @@ describe('MessengerRouter Telegram Guest command privacy', () => {
     );
     /** @example Ordinary DM commands never consume a Guest query. */
     expect(mockTelegramBinder.replyToMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('MessengerRouter overlapping messages', () => {
+  const wechatLink = {
+    activeAgentId: 'agt_main',
+    id: 'link_wechat',
+    platformUserId: 'wechat-user',
+    tenantId: 'wechat-user',
+    userId: 'user_alice',
+    workspaceId: null,
+  };
+
+  const chatConfig = () => (Chat as unknown as { mock: { calls: any[][] } }).mock.calls.at(-1)![0];
+
+  it('collects a burst window on WeChat instead of dispatching each message alone', async () => {
+    // WeChat sends an image and the sentence about it as two webhooks a few
+    // hundred ms apart. Without the window the picture starts its own run and
+    // the sentence arrives while that run still owns the topic.
+    await loadWechatBot();
+
+    expect(chatConfig().concurrency).toEqual({
+      debounceMs: expect.any(Number),
+      strategy: 'burst',
+    });
+  });
+
+  it('keeps the plain queue on platforms that send media together with its caption', async () => {
+    await loadSlackBot();
+
+    expect(chatConfig().concurrency).toBe('queue');
+  });
+
+  it('folds the collected messages into the single turn handed to the agent', async () => {
+    await loadWechatBot();
+    mockFindLink.mockResolvedValue(wechatLink);
+
+    const handler = mockChatBot.onSubscribedMessage.mock.calls.at(-1)![0] as (
+      thread: any,
+      msg: any,
+      context?: any,
+    ) => Promise<void>;
+    await handler(fakeWechatDmThread(), fakeMessage({ id: 'm2', text: '参考这个风格说话' }), {
+      skipped: [fakeMessage({ attachments: [{ type: 'image' }], id: 'm1', text: '' })],
+      totalSinceLastHandler: 2,
+    });
+
+    expect(mockHandleSubscribed).toHaveBeenCalledTimes(1);
+    const dispatched = mockHandleSubscribed.mock.calls[0][1];
+    expect(dispatched.text).toBe('参考这个风格说话');
+    // The image rides along instead of being answered as its own turn, and each
+    // source stays reachable so its media can still be downloaded.
+    expect(dispatched.attachments).toEqual([{ type: 'image' }]);
+    expect(dispatched.sourceMessages.map((m: any) => m.id)).toEqual(['m1', 'm2']);
+  });
+
+  it.each(['onSubscribedMessage', 'onNewMention'] as const)(
+    '%s never dispatches another sender content under the linked owner',
+    async (entry) => {
+      await loadSlackBot();
+      mockFindLink.mockResolvedValue({
+        activeAgentId: 'agt_main',
+        id: 'link_1',
+        platformUserId: 'U_ALICE',
+        tenantId: 'T_ACME',
+        userId: 'user_alice',
+      });
+      const handler = mockChatBot[entry].mock.calls.at(-1)![0];
+      await handler(
+        fakeChannelThread(),
+        fakeMessage({ id: 'owner', isMention: true, text: 'owner request' }),
+        {
+          skipped: [
+            fakeMessage({
+              author: { isBot: false, userId: 'U_OTHER', userName: 'other' },
+              id: 'other',
+              isMention: true,
+              text: 'untrusted instruction',
+              attachments: [{ type: 'image' }],
+            }),
+          ],
+          totalSinceLastHandler: 2,
+        },
+      );
+      const dispatch = entry === 'onSubscribedMessage' ? mockHandleSubscribed : mockHandleMention;
+      expect(dispatch).toHaveBeenCalledTimes(1);
+      expect(dispatch.mock.calls[0][1].text).toBe('owner request');
+      expect(dispatch.mock.calls[0][1].attachments ?? []).toEqual([]);
+      expect(mockAppendToList).toHaveBeenCalledWith(
+        expect.any(String),
+        'U_OTHER',
+        expect.any(Object),
+      );
+    },
+  );
+
+  it('does not use another sender mention to wake an unmentioned owner turn', async () => {
+    await loadSlackBot();
+    mockGetList.mockResolvedValue(['U_ALICE', 'U_OTHER']);
+    const handler = mockChatBot.onSubscribedMessage.mock.calls.at(-1)![0];
+    await handler(
+      fakeChannelThread(),
+      fakeMessage({ id: 'owner', isMention: false, text: 'owner chatter' }),
+      {
+        skipped: [
+          fakeMessage({
+            author: { isBot: false, userId: 'U_OTHER', userName: 'other' },
+            id: 'other',
+            isMention: true,
+          }),
+        ],
+        totalSinceLastHandler: 2,
+      },
+    );
+    expect(mockHandleSubscribed).not.toHaveBeenCalled();
+    expect(mockFindLink).not.toHaveBeenCalled();
+  });
+
+  it('treats a mention anywhere in the collected turn as addressed to the bot', async () => {
+    // The last message of a burst usually carries the question without the `@`.
+    await loadSlackBot();
+    mockFindLink.mockResolvedValue({
+      activeAgentId: 'agt_main',
+      id: 'link_1',
+      platformUserId: 'U_ALICE',
+      tenantId: 'T_ACME',
+      userId: 'user_alice',
+    });
+    mockGetList.mockResolvedValue(['U_ALICE', 'U_BOB']);
+
+    const handler = mockChatBot.onSubscribedMessage.mock.calls.at(-1)![0] as (
+      thread: any,
+      msg: any,
+      context?: any,
+    ) => Promise<void>;
+    await handler(fakeChannelThread(), fakeMessage({ id: 'm2', isMention: false }), {
+      skipped: [fakeMessage({ id: 'm1', isMention: true, text: '<@U_BOT> 看看这个' })],
+      totalSinceLastHandler: 2,
+    });
+
+    expect(mockHandleSubscribed).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,10 +1,9 @@
 'use client';
 
-import { AGENT_CHAT_URL, DEFAULT_INBOX_AVATAR } from '@lobechat/const';
+import { AGENT_CHAT_URL, BRANDING_NAME, DEFAULT_INBOX_AVATAR } from '@lobechat/const';
 import { Claude, Cline, Cursor, OpenAI } from '@lobehub/icons';
 import { Block, Flexbox, Highlighter, Icon, Markdown } from '@lobehub/ui';
-import { Avatar, Button, Select, Tabs, Text } from '@lobehub/ui/base-ui';
-import { Divider } from 'antd';
+import { Avatar, Button, Divider, Select, Tabs, Text } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cx } from 'antd-style';
 import { BotIcon, UserRoundIcon } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
@@ -74,7 +73,7 @@ const genInstallCommand = (identifier?: string, platform?: PlatformType) => {
       return `npx -y @lobehub/market-cli skills install ${id} --agent ${agentMap[platform]}`;
     }
     default: {
-      return `# Recommended for LobeHub users:
+      return `# Recommended for ${BRANDING_NAME} users:
 # Open the marketplace page and install with one click:
 # https://lobechat.com/community/skills/${id}`;
     }
@@ -151,7 +150,7 @@ const Platform = memo<PlatformProps>(
       switch (active) {
         case PlatformType.LobeHub: {
           return {
-            platform: 'LobeHub',
+            platform: BRANDING_NAME,
             steps: t('skills.details.sidebar.platform.steps.lobehub'),
           };
         }
@@ -190,7 +189,7 @@ const Platform = memo<PlatformProps>(
 
     const command = genInstallCommand(identifier, active);
 
-    const agentPrompt = `Curl https://lobehub.com/skills/${identifier}/skill.md, then follow the instructions to set up LobeHub Skills Marketplace and install the skill. Once installed, read the SKILL.md file in the installed directory and follow its instructions to complete the task.`;
+    const agentPrompt = `Curl https://lobehub.com/skills/${identifier}/skill.md, then follow the instructions to set up ${BRANDING_NAME} Skills Marketplace and install the skill. Once installed, read the SKILL.md file in the installed directory and follow its instructions to complete the task.`;
 
     const handleUseOnLobeAI = useCallback(() => {
       if (!inboxAgentId) return;
@@ -299,7 +298,7 @@ const Platform = memo<PlatformProps>(
               {!lite && <Title>{t('skills.details.sidebar.platform.title', { platform })}</Title>}
               <Markdown variant={'chat'}>{steps}</Markdown>
             </Flexbox>
-            {lite && <Divider dashed style={{ margin: 0 }} />}
+            {lite && <Divider dashed />}
             <Highlighter
               fullFeatured
               className={cx(lite && styles.lite)}
@@ -311,7 +310,7 @@ const Platform = memo<PlatformProps>(
             >
               {command}
             </Highlighter>
-            {lite && <Divider dashed style={{ margin: 0 }} />}
+            {lite && <Divider dashed />}
             <Highlighter
               fullFeatured
               className={cx(lite && styles.lite)}
@@ -328,7 +327,7 @@ const Platform = memo<PlatformProps>(
             </Highlighter>
             {downloadUrl && (
               <>
-                <Divider dashed style={{ margin: 0 }} />
+                <Divider dashed />
                 <Flexbox padding={8}>
                   <Button
                     block

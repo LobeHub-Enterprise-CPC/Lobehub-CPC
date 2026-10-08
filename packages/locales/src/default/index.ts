@@ -3,6 +3,7 @@ import agentGroup from './agentGroup';
 import auth from './auth';
 import authError from './authError';
 import changelog from './changelog';
+import channel from './channel';
 import chat from './chat';
 import color from './color';
 import common from './common';
@@ -18,6 +19,7 @@ import file from './file';
 import home from './home';
 import hotkey from './hotkey';
 import image from './image';
+import integration from './integration';
 import knowledgeBase from './knowledgeBase';
 import labs from './labs';
 import marketAuth from './marketAuth';
@@ -58,6 +60,7 @@ const resources = {
   auth,
   authError,
   changelog,
+  channel,
   chat,
   color,
   common,
@@ -73,6 +76,7 @@ const resources = {
   home,
   hotkey,
   image,
+  integration,
   knowledgeBase,
   labs,
   marketAuth,

@@ -9,13 +9,22 @@ const mockMessageError = vi.hoisted(() => vi.fn());
 const mockMessageSuccess = vi.hoisted(() => vi.fn());
 const mockSignInSocial = vi.hoisted(() => vi.fn());
 const mockSignInOauth2 = vi.hoisted(() => vi.fn());
+const mockSignInSSO = vi.hoisted(() => vi.fn());
 const mockSignInEmail = vi.hoisted(() => vi.fn());
 const mockSignInMagicLink = vi.hoisted(() => vi.fn());
 const mockRequestPasswordReset = vi.hoisted(() => vi.fn());
 const mockBusinessSignin = vi.hoisted(() => ({
   getAdditionalData: vi.fn(async () => ({})),
   preSocialSigninCheck: vi.fn(async () => true),
-  ssoProviders: [] as string[],
+  managedSSO: false,
+  ssoLoaded: true,
+  ssoError: false,
+  ssoProviders: [] as Array<{
+    id: string;
+    displayName: string;
+    logoUrl: null;
+    protocol: 'oidc' | 'oauth2';
+  }>,
 }));
 const mockLocalStorage = vi.hoisted(() => {
   const store = new Map<string, string>();
@@ -45,6 +54,7 @@ vi.mock('@/libs/better-auth/auth-client', () => ({
     magicLink: mockSignInMagicLink,
     oauth2: mockSignInOauth2,
     social: mockSignInSocial,
+    sso: mockSignInSSO,
   },
 }));
 
@@ -53,13 +63,9 @@ vi.mock('@/libs/better-auth/utils/client', () => ({
   normalizeProviderId: (p: string) => p,
 }));
 
-vi.mock('@lobechat/business-const', () => ({
-  BRANDING_NAME: 'LobeHub',
-  ORG_NAME: 'LobeHub',
-}));
-
 vi.mock('@/business/client/hooks/useBusinessSignin', () => ({
   useBusinessSignin: () => ({
+    ...mockBusinessSignin,
     getAdditionalData: mockBusinessSignin.getAdditionalData,
     preSocialSigninCheck: mockBusinessSignin.preSocialSigninCheck,
     ssoProviders: mockBusinessSignin.ssoProviders,
@@ -81,31 +87,17 @@ vi.mock('@/features/AuthShell/AuthServerConfigProvider', () => ({
     }),
 }));
 
-const mockSetFieldValue = vi.fn();
-const mockGetFieldValue = vi.fn();
-const mockValidateFields = vi.fn();
-const mockSetFields = vi.fn();
-const mockResetFields = vi.fn();
-const mockSubmit = vi.fn();
-vi.mock('antd', async () => {
-  const actual: any = await vi.importActual('antd');
-  return {
-    ...actual,
-    Form: {
-      ...actual.Form,
-      useForm: () => [
-        {
-          getFieldValue: mockGetFieldValue,
-          resetFields: mockResetFields,
-          setFields: mockSetFields,
-          setFieldValue: mockSetFieldValue,
-          submit: mockSubmit,
-          validateFields: mockValidateFields,
-        },
-      ],
-    },
-  };
-});
+const mockForm = vi.hoisted(() => ({
+  getValue: vi.fn(),
+  getValues: vi.fn(() => ({ email: 'user@example.com', password: 'stale' })),
+  reset: vi.fn(),
+  setErrors: vi.fn(),
+  setValue: vi.fn(),
+  validate: vi.fn(),
+}));
+vi.mock('@lobehub/ui/base-ui/form', () => ({
+  useForm: () => mockForm,
+}));
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -121,6 +113,9 @@ describe('useSignIn', () => {
     mockEnableBusinessFeatures = false;
     mockEnableMagicLink = false;
     mockBusinessSignin.ssoProviders = [];
+    mockBusinessSignin.managedSSO = false;
+    mockBusinessSignin.ssoLoaded = true;
+    mockBusinessSignin.ssoError = false;
     mockBusinessSignin.getAdditionalData.mockResolvedValue({});
     mockBusinessSignin.preSocialSigninCheck.mockResolvedValue(true);
     Object.defineProperty(window, 'location', {
@@ -322,9 +317,7 @@ describe('useSignIn', () => {
       });
 
       // Error is pinned inline on the password field, not shown as a toast
-      expect(mockSetFields).toHaveBeenCalledWith([
-        { errors: ['Invalid credentials'], name: 'password' },
-      ]);
+      expect(mockForm.setErrors).toHaveBeenCalledWith({ password: 'Invalid credentials' });
       expect(mockMessageError).not.toHaveBeenCalled();
     });
 
@@ -532,7 +525,7 @@ describe('useSignIn', () => {
       expect(result.current.isSocialOnly).toBe(false);
       // The shared form's password (+ any inline error) must be cleared so the
       // next email doesn't remount pre-filled with the previous account's value.
-      expect(mockResetFields).toHaveBeenCalledWith(['password']);
+      expect(mockForm.reset).toHaveBeenCalledWith({ email: 'user@example.com', password: '' });
     });
   });
 
@@ -718,7 +711,7 @@ describe('useSignIn', () => {
       expect(result.current.step).toBe('email');
       expect(result.current.email).toBe('');
       expect(result.current.sentInfo).toBeNull();
-      expect(mockResetFields).toHaveBeenCalledWith(['password']);
+      expect(mockForm.reset).toHaveBeenCalledWith({ email: 'user@example.com', password: '' });
     });
   });
 
@@ -733,13 +726,46 @@ describe('useSignIn', () => {
       localStorage.removeItem('lobehub:auth:last-provider:v1');
     });
 
-    it('should use business SSO providers when business features are enabled by server config', () => {
-      mockEnableBusinessFeatures = true;
-      mockBusinessSignin.ssoProviders = ['saml'];
+    it('uses managed provider IDs instead of environment providers', () => {
+      mockBusinessSignin.managedSSO = true;
+      mockBusinessSignin.ssoProviders = [
+        { id: 'managed-id', displayName: 'Company', logoUrl: null, protocol: 'oidc' },
+      ];
 
       const { result } = renderHook(() => useSignIn());
 
-      expect(result.current.oAuthSSOProviders).toEqual(['saml']);
+      expect(result.current.oAuthSSOProviders).toEqual(['managed-id']);
     });
+
+    it('does not expose environment providers when configuration fails to load', () => {
+      mockBusinessSignin.ssoLoaded = false;
+      mockBusinessSignin.ssoError = true;
+      const { result } = renderHook(() => useSignIn());
+      expect(result.current.oAuthSSOProviders).toEqual([]);
+      expect(result.current.ssoError).toBe(true);
+    });
+
+    it.each(['oidc', 'oauth2'] as const)(
+      'dispatches managed %s by UUID while preserving onboarding redirects',
+      async (protocol) => {
+        mockBusinessSignin.managedSSO = true;
+        mockBusinessSignin.ssoProviders = [
+          { id: 'managed-id', displayName: 'Company', logoUrl: null, protocol },
+        ];
+        const { result } = renderHook(() => useSignIn());
+        await act(async () => {
+          await result.current.handleSocialSignIn('managed-id');
+        });
+        const handler = protocol === 'oidc' ? mockSignInSSO : mockSignInOauth2;
+        expect(handler).toHaveBeenCalledWith(
+          expect.objectContaining({
+            callbackURL: expect.any(String),
+            newUserCallbackURL: expect.stringContaining('onboarding'),
+            providerId: 'managed-id',
+          }),
+        );
+        expect(mockSignInSocial).not.toHaveBeenCalled();
+      },
+    );
   });
 });

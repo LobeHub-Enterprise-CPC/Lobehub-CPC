@@ -3,49 +3,26 @@ import createDebug from 'debug';
 import type { CreateVideoOptions } from '../../../core/openaiCompatibleFactory';
 import type {
   CreateVideoPayload,
-  CreateVideoResponse,
+  CreateVideoResult,
   PollVideoStatusResult,
 } from '../../../types/video';
 
 const log = createDebug('lobe-video:volcengine');
 
 interface VolcengineVideoTaskResponse {
-  content?: {
-    video_url?: string;
-  };
-  error?: {
-    code?: string;
-    message?: string;
-  };
+  content?: { video_url?: string };
+  error?: { code?: string; message?: string };
   id?: string;
   status?: string;
 }
 
-/**
- * Poll the status of a Volcengine video generation task.
- *
- * Volcengine's contents-generations-tasks API has no callback/webhook
- * parameter (confirmed against the official docs and SDK examples: create ->
- * poll -> get result) — `createVolcengineVideo` always returns
- * `useWebhook: false`, so this is the only way a task's completion is ever
- * observed. `handleVolcengineVideoWebhook`/`handleCreateVideoWebhook.ts`
- * parses the same response shape for parity with other providers' generic
- * webhook receiver route, but is not reachable through this provider in
- * practice since Volcengine never calls back into it.
- */
 export async function pollVolcengineVideoStatus(
   taskId: string,
   apiKey: string,
   baseURL: string,
 ): Promise<PollVideoStatusResult> {
-  const url = `${baseURL}/contents/generations/tasks/${taskId}`;
-
-  log('Polling task status for: %s', taskId);
-
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
+  const response = await fetch(`${baseURL}/contents/generations/tasks/${taskId}`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
     method: 'GET',
   });
 
@@ -55,23 +32,20 @@ export async function pollVolcengineVideoStatus(
   }
 
   const data: VolcengineVideoTaskResponse = await response.json();
-
   if (data.status === 'succeeded') {
     const videoUrl = data.content?.video_url;
-    if (!videoUrl) {
-      return { error: 'Task succeeded but no video URL found', status: 'failed' };
-    }
-    return { status: 'success', videoUrl };
+    return videoUrl
+      ? { status: 'success', videoUrl }
+      : { error: 'Task succeeded but no video URL found', status: 'failed' };
   }
-
   if (data.status === 'failed' || data.status === 'expired') {
-    const errorMessage =
-      data.error?.message ||
-      (data.status === 'expired' ? 'Video generation task expired' : 'Video generation failed');
-    return { error: errorMessage, status: 'failed' };
+    return {
+      error:
+        data.error?.message ||
+        (data.status === 'expired' ? 'Video generation task expired' : 'Video generation failed'),
+      status: 'failed',
+    };
   }
-
-  // queued, running, or any other in-flight status
   return { status: 'pending' };
 }
 
@@ -82,7 +56,7 @@ export async function pollVolcengineVideoStatus(
 export async function createVolcengineVideo(
   payload: CreateVideoPayload,
   options: CreateVideoOptions,
-): Promise<CreateVideoResponse> {
+): Promise<CreateVideoResult> {
   const { model, params } = payload;
   const {
     prompt,
@@ -138,6 +112,7 @@ export async function createVolcengineVideo(
   if (seed !== undefined && seed !== null) body.seed = seed;
   if (resolution !== undefined) body.resolution = resolution;
   if (cameraFixed !== undefined) body.camera_fixed = cameraFixed;
+  if (payload.callbackUrl) body.callback_url = payload.callbackUrl;
 
   log('Volcengine video API request body: %s', JSON.stringify(body, null, 2));
 
@@ -164,9 +139,5 @@ export async function createVolcengineVideo(
     throw new Error('Invalid response: missing task id');
   }
 
-  // Volcengine's content-generation-tasks API has no callback/webhook
-  // parameter (per official docs and SDK examples: create → poll → get
-  // result) — `callbackUrl` on the payload is ignored, and the caller must
-  // always fall back to `handlePollVideoStatus` polling.
-  return { inferenceId: data.id, useWebhook: false };
+  return { inferenceId: data.id };
 }

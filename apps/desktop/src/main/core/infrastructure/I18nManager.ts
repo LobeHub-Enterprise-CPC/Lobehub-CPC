@@ -2,6 +2,7 @@ import type { i18n as I18NextInstance } from 'i18next';
 
 import type { App } from '@/core/App';
 import { loadResources } from '@/locales/resources';
+import { getAppDisplayName } from '@/utils/appIdentity';
 import { createLogger } from '@/utils/logger';
 import { resolveUILocale } from '@/utils/system-language';
 
@@ -96,7 +97,8 @@ export class I18nManager {
       logger.warn(`${i18n.language} key: ${key} is not found`);
     }
 
-    return result;
+    const name = getAppDisplayName();
+    return typeof result === 'string' ? result.replaceAll(/LobeHub|LobeChat/g, () => name) : result;
   };
 
   /**

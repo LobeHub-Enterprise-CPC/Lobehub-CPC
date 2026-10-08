@@ -1,6 +1,6 @@
 'use client';
 
-import { BRANDING_PROVIDER, SOCIAL_URL } from '@lobechat/business-const';
+import { BRANDING_PROVIDER } from '@lobechat/business-const';
 import { Flexbox, Icon } from '@lobehub/ui';
 import { Tabs } from '@lobehub/ui/base-ui';
 import { createStaticStyles } from 'antd-style';
@@ -9,6 +9,7 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import urlJoin from 'url-join';
 
+import SupportLink from '@/components/SupportLink';
 import { GITHUB, GITHUB_ISSUES } from '@/const/url';
 import { ProviderNavKey } from '@/types/discover';
 
@@ -87,10 +88,10 @@ const Nav = memo<NavProps>(({ mobile, setActiveTab, activeTab = ProviderNavKey.O
         gap={12}
         style={{ marginInlineStart: 12, whiteSpace: 'nowrap' }}
       >
-        <a className={styles.link} href={SOCIAL_URL.discord} rel="noreferrer" target="_blank">
+        <SupportLink className={styles.link}>
           {t('mcp.details.nav.needHelp')}
           <Icon icon={SquareArrowOutUpRight} size={12} />
-        </a>
+        </SupportLink>
         {identifier && (
           <a
             className={styles.link}

@@ -46,7 +46,7 @@ const openDatabase = (onVersionChange: () => void): Promise<IDBDatabase> =>
 
     request.onblocked = () => {
       settled = true;
-      reject(new Error('IndexedDB upgrade was blocked by another LobeHub tab'));
+      reject(new Error('IndexedDB upgrade was blocked by another application tab'));
     };
     request.onerror = () => {
       settled = true;

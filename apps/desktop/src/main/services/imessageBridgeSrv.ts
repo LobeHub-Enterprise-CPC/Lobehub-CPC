@@ -377,7 +377,7 @@ export default class ImessageBridgeService extends ServiceModule {
       } catch (error) {
         logger.warn('Failed to read LobeHub webhook error response:', error);
       }
-      throw new Error(detail || `LobeHub webhook failed with HTTP ${response.status}`);
+      throw new Error(detail || `Application webhook failed with HTTP ${response.status}`);
     }
   }
 }

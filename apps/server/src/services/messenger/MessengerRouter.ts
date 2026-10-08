@@ -1,4 +1,5 @@
 import { createIoRedisState } from '@chat-adapter/state-ioredis';
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { agentDisplayName } from '@lobechat/types';
 import type { Message, MessageContext, SlashCommandEvent, WebhookOptions } from 'chat';
 import { Chat, ConsoleLogger } from 'chat';
@@ -19,9 +20,20 @@ import { getAgentRuntimeRedisClient } from '@/server/modules/AgentRuntime/redis'
 import { AiAgentService } from '@/server/services/aiAgent';
 import { AgentBridgeService } from '@/server/services/bot/AgentBridgeService';
 import { buildBotContext } from '@/server/services/bot/buildBotContext';
-import { submitBotFeedback } from '@/server/services/bot/feedbackSubmit';
+import { replayDeferredBotMessages } from '@/server/services/bot/deferredMessages';
+import { getPrivateFeedbackMessage, submitBotFeedback } from '@/server/services/bot/feedbackSubmit';
+import { isWholeGroupChatThreadId } from '@/server/services/bot/isWholeGroupChatThreadId';
+import {
+  buildReplayMessages,
+  getSameSenderMessages,
+  mergeBotMessages,
+} from '@/server/services/bot/mergeMessages';
+import { patchSenderBatches } from '@/server/services/bot/patchSenderBatches';
 import type { PlatformClient } from '@/server/services/bot/platforms';
 import { getBotReplyLocale } from '@/server/services/bot/platforms/const';
+// Leaf module, not the `./platforms` barrel: the barrel instantiates every
+// platform definition (and its ClientFactory) at import time.
+import { resolveBotConcurrency } from '@/server/services/bot/platforms/utils';
 import {
   renderCommandReply,
   renderFeedbackSubmitted,
@@ -32,7 +44,7 @@ import { isResourceAuthorOrAdmin } from '@/server/services/resourcePermission';
 
 import { getInstallationStore } from './installations';
 import type { InstallationCredentials } from './installations/types';
-import { messengerPlatformRegistry } from './platforms';
+import { type MessengerPlatformDefinition, messengerPlatformRegistry } from './platforms';
 import { getMessengerSystemStrings } from './systemReply';
 import type {
   AgentPickerEntry,
@@ -53,6 +65,8 @@ const PERSONAL_SCOPE_ID = 'personal';
 const WECHAT_UNSUPPORTED_COMMANDS = new Set(['start']);
 
 interface RegisteredMessengerBot {
+  /** Chat SDK adapters keyed by platform id, as passed to the `Chat` config. */
+  adapters: Record<string, any>;
   binder: MessengerPlatformBinder;
   chatBot: Chat<any>;
   client: PlatformClient;
@@ -293,60 +307,84 @@ export class MessengerRouter {
         if (early) return early;
       }
 
-      // ----- Resolve install + lazy-load bot -------------------------------
-      const store = getInstallationStore(definition.id);
-      if (!store) {
-        return new Response(`Messenger ${platform} has no installation store`, { status: 500 });
-      }
-
-      const creds = await store.resolveByPayload(reconstructRequest(req, rawBody), rawBody);
-      if (!creds) {
-        log('webhook: no install resolved for platform=%s', platform);
-        return new Response('install not found', { status: 404 });
-      }
-
-      const bot = await this.getOrCreateBot(creds);
-      if (!bot) {
-        return new Response(`Messenger ${platform} bot unavailable`, { status: 503 });
-      }
-
-      // ----- App Home `Messages` tab opener (Slack marketplace welcome) ---
-      // Slack requires a welcome message the first time a user opens the
-      // Messages tab. chat-sdk's slack adapter drops these events, so peek
-      // the raw body here and dispatch via the binder. Dedupe is handled
-      // inside `handleAppHomeOpened` so a per-user welcome fires once.
-      if (bot.binder.extractAppHomeOpened) {
-        try {
-          const opener = await bot.binder.extractAppHomeOpened(reconstructRequest(req, rawBody));
-          if (opener) {
-            await this.handleAppHomeOpened(bot, creds, opener);
-            return new Response('OK', { status: 200 });
-          }
-        } catch (error) {
-          log('extractAppHomeOpened failed for %s: %O', platform, error);
+      // The gate may have claimed this delivery (Linq replay dedupe); let it
+      // settle that claim once the outcome is known so a failed delivery
+      // stays retryable instead of being answered as a duplicate forever.
+      let response: Response | undefined;
+      try {
+        response = await this.dispatchVerifiedWebhook(definition, req, rawBody, options);
+        return response;
+      } finally {
+        if (definition.webhookGate?.settle) {
+          await definition.webhookGate.settle(req, response).catch((error: unknown) => {
+            log('webhook: gate settle failed for %s: %O', platform, error);
+          });
         }
       }
-
-      // ----- Tap-action callbacks (binder peeks raw body) -----------------
-      if (bot.binder.extractCallbackAction) {
-        try {
-          const action = await bot.binder.extractCallbackAction(reconstructRequest(req, rawBody));
-          if (action) {
-            await this.handleCallbackAction(bot.binder, creds, action, bot.chatBot);
-            return new Response('OK', { status: 200 });
-          }
-        } catch (error) {
-          log('extractCallbackAction failed for %s: %O', platform, error);
-        }
-      }
-
-      // ----- Normal message → chat-sdk handler ----------------------------
-      const handler = (bot.chatBot.webhooks as any)?.[platform];
-      if (!handler) {
-        return new Response(`Messenger ${platform} webhook unavailable`, { status: 500 });
-      }
-      return handler(reconstructRequest(req, rawBody), options);
     };
+  }
+
+  private async dispatchVerifiedWebhook(
+    definition: MessengerPlatformDefinition,
+    req: Request,
+    rawBody: string,
+    options?: WebhookOptions,
+  ): Promise<Response> {
+    const platform = definition.id;
+
+    // ----- Resolve install + lazy-load bot -------------------------------
+    const store = getInstallationStore(definition.id);
+    if (!store) {
+      return new Response(`Messenger ${platform} has no installation store`, { status: 500 });
+    }
+
+    const creds = await store.resolveByPayload(reconstructRequest(req, rawBody), rawBody);
+    if (!creds) {
+      log('webhook: no install resolved for platform=%s', platform);
+      return new Response('install not found', { status: 404 });
+    }
+
+    const bot = await this.getOrCreateBot(creds);
+    if (!bot) {
+      return new Response(`Messenger ${platform} bot unavailable`, { status: 503 });
+    }
+
+    // ----- App Home `Messages` tab opener (Slack marketplace welcome) ---
+    // Slack requires a welcome message the first time a user opens the
+    // Messages tab. chat-sdk's slack adapter drops these events, so peek
+    // the raw body here and dispatch via the binder. Dedupe is handled
+    // inside `handleAppHomeOpened` so a per-user welcome fires once.
+    if (bot.binder.extractAppHomeOpened) {
+      try {
+        const opener = await bot.binder.extractAppHomeOpened(reconstructRequest(req, rawBody));
+        if (opener) {
+          await this.handleAppHomeOpened(bot, creds, opener);
+          return new Response('OK', { status: 200 });
+        }
+      } catch (error) {
+        log('extractAppHomeOpened failed for %s: %O', platform, error);
+      }
+    }
+
+    // ----- Tap-action callbacks (binder peeks raw body) -----------------
+    if (bot.binder.extractCallbackAction) {
+      try {
+        const action = await bot.binder.extractCallbackAction(reconstructRequest(req, rawBody));
+        if (action) {
+          await this.handleCallbackAction(bot.binder, creds, action, bot.chatBot);
+          return new Response('OK', { status: 200 });
+        }
+      } catch (error) {
+        log('extractCallbackAction failed for %s: %O', platform, error);
+      }
+    }
+
+    // ----- Normal message → chat-sdk handler ----------------------------
+    const handler = (bot.chatBot.webhooks as any)?.[platform];
+    if (!handler) {
+      return new Response(`Messenger ${platform} webhook unavailable`, { status: 500 });
+    }
+    return handler(reconstructRequest(req, rawBody), options);
   }
 
   // -------------------------------------------------------------------------
@@ -418,17 +456,53 @@ export class MessengerRouter {
         );
     }
 
-    const registered: RegisteredMessengerBot = { binder, chatBot, client, creds };
+    const registered: RegisteredMessengerBot = { adapters, binder, chatBot, client, creds };
     this.bots.set(creds.installationKey, registered);
 
     log('loadBot: registered messenger %s bot', creds.installationKey);
     return registered;
   }
 
+  /**
+   * Re-dispatch the messages `AgentBridgeService` parked while the thread's
+   * topic was still running (see `BotMessageRouter.replayDeferredMessages`).
+   * `applicationId` is the synthetic per-install id the bridge used when
+   * deferring (`messenger-<platform>[-<tenant>]`).
+   */
+  async replayDeferredMessages(
+    installationKey: string,
+    applicationId: string,
+    platformThreadId: string,
+  ): Promise<void> {
+    await replayDeferredBotMessages(applicationId, platformThreadId, async (entries) => {
+      const platform = installationKey.split(':')[0] as MessengerPlatform;
+      const store = getInstallationStore(platform);
+      const creds = await store?.resolveByKey(installationKey);
+      const bot = creds ? await this.getOrCreateBot(creds) : null;
+      const adapter = bot?.adapters[platform];
+      if (!bot || !adapter) throw new Error(`Messenger adapter unavailable for ${platform}`);
+      const results = await Promise.allSettled(
+        buildReplayMessages(entries).map((message) =>
+          bot.chatBot.processMessage(adapter, platformThreadId, message),
+        ),
+      );
+      const failure = results.find((result) => result.status === 'rejected');
+      if (failure?.status === 'rejected') throw failure.reason;
+    });
+  }
+
   private createChatBot(adapters: Record<string, any>, creds: InstallationCredentials): Chat<any> {
     const config: any = {
       adapters,
-      concurrency: 'queue',
+      // Messenger installs carry no per-channel settings, so this is purely the
+      // platform's own answer: WeChat collects a burst window because it splits
+      // one turn across several messages, everything else keeps the plain queue.
+      // Shared with `BotMessageRouter` so both paths agree on which platforms
+      // need collecting.
+      concurrency: (() => {
+        const { debounceMs, strategy } = resolveBotConcurrency(creds.platform, undefined);
+        return strategy === 'queue' ? 'queue' : { debounceMs, strategy };
+      })(),
       // Per-install Chat SDK identity so the queue / state / debounce keys
       // never overlap across workspaces.
       userName: `messenger-bot-${creds.installationKey}`,
@@ -444,7 +518,13 @@ export class MessengerRouter {
       });
     }
 
-    return new Chat(config);
+    const bot = new Chat(config);
+    const commands = this.getCommandsForPlatform(creds.platform);
+    patchSenderBatches(bot, (message) => {
+      const parsed = parseCommand(message.text);
+      return !!parsed && commands.some((command) => command.name === parsed.name);
+    });
+    return bot;
   }
 
   private registerHandlers(
@@ -499,14 +579,19 @@ export class MessengerRouter {
         }
         return binder.sendDmText(chatId, text);
       };
-      const link = await MessengerAccountLinkModel.findByPlatformUser(
-        serverDB,
-        platform,
-        senderId,
-        tenantId,
-      );
 
+      // Everything below runs after the webhook was already acknowledged
+      // (chat-sdk hands it to `waitUntil`), so the platform will not redeliver
+      // it. Any failure — including the link lookup — must therefore end in a
+      // reply the sender can act on (resend), never a silently dropped message.
       try {
+        const link = await MessengerAccountLinkModel.findByPlatformUser(
+          serverDB,
+          platform,
+          senderId,
+          tenantId,
+        );
+
         const parsed = parseCommand(message.text);
         if (parsed) {
           const command = commands.find((c) => c.name === parsed.name);
@@ -606,7 +691,7 @@ export class MessengerRouter {
         if (!featureAccess.allowed) {
           await replyToSender(
             featureAccess.blockedMessage ??
-              'This messenger connection requires a paid plan. Upgrade in LobeHub Settings to continue.',
+              `This messenger connection requires a paid plan. Upgrade in ${BRANDING_NAME} Settings to continue.`,
           );
           return;
         }
@@ -697,17 +782,30 @@ export class MessengerRouter {
       return { count: participants.length + 1, isNewParticipant: true };
     };
 
-    bot.onSubscribedMessage(async (thread, message, _context?: MessageContext) => {
+    bot.onSubscribedMessage(async (thread, message, context?: MessageContext) => {
       log('onSubscribedMessage: install=%s, msgId=%s', creds.installationKey, (message as any).id);
+
+      // Fold in whatever the SDK collected while the previous handler ran (or
+      // during a `burst` window) so the agent sees the whole user turn — text
+      // and media alike — instead of only its last message.
+      const merged = mergeBotMessages(message, context?.skipped);
 
       // DM short-circuit — always 1:1 with the bot, no participant gating.
       if (thread.isDM) {
-        await handle(thread, message, 'handleSubscribedMessage');
+        await handle(thread, merged, 'handleSubscribedMessage');
         return;
       }
 
-      const isMention = message.isMention === true;
-      const { count } = await trackThreadParticipant(thread, message);
+      // A mention anywhere in the collected turn addresses the bot; the last
+      // message of a burst often carries the question without the `@`.
+      const isMention =
+        message.isMention === true ||
+        getSameSenderMessages(message, context?.skipped).some((m) => m.isMention === true) === true;
+      let count = 0;
+      for (const source of [...(context?.skipped ?? []), message]) {
+        const participant = await trackThreadParticipant(thread, source);
+        count = Math.max(count, participant.count);
+      }
 
       // Single-human thread → respond without `@`. Multi-human thread →
       // only @mention triggers a reply, so the bot doesn't insert itself
@@ -719,18 +817,21 @@ export class MessengerRouter {
       if (!shouldHandle) {
         // First skip in this thread → tell the room why the bot just went
         // quiet so participants know to @mention if they need it. Dedupe
-        // by thread id so we never spam more than once.
-        try {
-          const fresh = await bot
-            .getState()
-            .setIfNotExists(mentionRequiredAnnouncedKey(thread.id), '1', PARTICIPANTS_TTL_MS);
-          if (fresh) {
-            await thread.post(
-              "Multiple people are talking in this thread now. From here on I'll only respond when you @mention me.",
-            );
+        // by thread id so we never spam more than once. Feishu/Lark group
+        // mains are already mention-only — skip the notice there.
+        if (!isWholeGroupChatThreadId(thread.id)) {
+          try {
+            const fresh = await bot
+              .getState()
+              .setIfNotExists(mentionRequiredAnnouncedKey(thread.id), '1', PARTICIPANTS_TTL_MS);
+            if (fresh) {
+              await thread.post(
+                "Multiple people are talking in this thread now. From here on I'll only respond when you @mention me.",
+              );
+            }
+          } catch (error) {
+            log('onSubscribedMessage: mention-mode announcement failed: %O', error);
           }
-        } catch (error) {
-          log('onSubscribedMessage: mention-mode announcement failed: %O', error);
         }
         return;
       }
@@ -739,7 +840,7 @@ export class MessengerRouter {
       // subscribed channel thread). `handleSubscribedMessage` reads the
       // cached topicId from chat-sdk thread state and continues that topic;
       // it falls back to `handleMention` internally if no topicId is cached.
-      await handle(thread, message, 'handleSubscribedMessage');
+      await handle(thread, merged, 'handleSubscribedMessage');
     });
 
     // First-touch entry point for any non-subscribed conversation:
@@ -750,19 +851,22 @@ export class MessengerRouter {
     // thread state, and (for subscribable platforms / threads — see
     // `client.shouldSubscribe`) subscribes the thread so subsequent
     // messages route through `onSubscribedMessage` and continue the topic.
-    bot.onNewMention(async (thread, message, _context?: MessageContext) => {
+    bot.onNewMention(async (thread, message, context?: MessageContext) => {
       log(
         'onNewMention: install=%s, msgId=%s, threadId=%s',
         creds.installationKey,
         (message as any).id,
         thread.id,
       );
+      const merged = mergeBotMessages(message, context?.skipped);
       // Record the original @mentioner so the participant count starts at 1
       // (not 0) when their first follow-up lands in `onSubscribedMessage`.
       // Without this the follow-up looks like a "new participant" instead
       // of the same person continuing.
-      await trackThreadParticipant(thread, message);
-      await handle(thread, message, 'handleMention');
+      for (const source of [...(context?.skipped ?? []), message]) {
+        await trackThreadParticipant(thread, source);
+      }
+      await handle(thread, merged, 'handleMention');
     });
 
     // Native slash commands. chat-adapter routes a leading `/command` to the
@@ -828,7 +932,7 @@ export class MessengerRouter {
   private buildCommands(): MessengerCommand[] {
     return [
       {
-        description: 'Bind your account to LobeHub',
+        description: `Bind your account to ${BRANDING_NAME}`,
         handler: async (ctx) => {
           const strings = getMessengerSystemStrings(ctx.platform);
           // Already-linked short-circuit: re-running `/start` while bound
@@ -1066,7 +1170,10 @@ export class MessengerRouter {
         name: 'stop',
       },
       {
-        description: 'Send feedback directly to the LobeHub team (no AI reply)',
+        description:
+          (BRANDING_NAME as string) === 'LobeHub'
+            ? `Send feedback directly to the ${BRANDING_NAME} team (no AI reply)`
+            : 'Contact support by email',
         // Declaring the argument so Discord/Slack surface a `/feedback <message>`
         // prompt; without it the slash picker registers the command as zero-arg
         // and the user can't enter feedback text from the picker UI.
@@ -1074,12 +1181,17 @@ export class MessengerRouter {
           {
             description: 'Your feedback message',
             name: 'message',
-            required: true,
+            required: (BRANDING_NAME as string) === 'LobeHub',
           },
         ],
         handler: async (ctx) => {
           const replyLocale = getBotReplyLocale(ctx.platform);
           const strings = getMessengerSystemStrings(ctx.platform);
+          const supportMessage = getPrivateFeedbackMessage(replyLocale);
+          if (supportMessage) {
+            await ctx.reply(supportMessage);
+            return;
+          }
           // Feedback is tied to a LobeHub account so the team can follow up;
           // an unbound user has no email/identity to attach. Mirror the
           // `/new` / `/stop` "you need to /start" guard for consistency.
@@ -1582,8 +1694,8 @@ export class MessengerRouter {
       }
 
       const text = activeAgentName
-        ? `Welcome to LobeHub! Your active agent is *${activeAgentName}*. Send a message to chat, or use \`/agents\` to switch.`
-        : 'Welcome to LobeHub! Send `/agents` to pick an active agent and start chatting.';
+        ? `Welcome to ${BRANDING_NAME}! Your active agent is *${activeAgentName}*. Send a message to chat, or use \`/agents\` to switch.`
+        : `Welcome to ${BRANDING_NAME}! Send \`/agents\` to pick an active agent and start chatting.`;
       await bot.binder.sendDmText(event.channelId, text);
     } catch (error) {
       log('handleAppHomeOpened: dispatch failed: %O', error);
@@ -1618,10 +1730,10 @@ export class MessengerRouter {
     }
 
     const text = [
-      ":wave: Hi, I'm *LobeHub* — your AI agent on Slack.",
+      `:wave: Hi, I'm *${BRANDING_NAME}* — your AI agent on Slack.`,
       '',
-      '• Mention me with `@LobeHub <your question>` to chat in this channel.',
-      '• First time? Send me a *direct message* to link your LobeHub account.',
+      '• Mention this bot followed by your question to chat in this channel.',
+      `• First time? Send me a *direct message* to link your ${BRANDING_NAME} account.`,
       '• Use `/agents` in DM to switch the active agent.',
     ].join('\n');
 

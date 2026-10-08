@@ -12,6 +12,7 @@ import {
   LayoutPanelTopIcon,
   LibraryBigIcon,
   Mic2,
+  Scale,
   Settings,
   ShapesIcon,
   SquarePlay,
@@ -32,7 +33,6 @@ import {
   BusinessResourceRoutes,
 } from '@/business/client/BusinessDesktopRoutes';
 import BrandTextLoading from '@/components/Loading/BrandTextLoading';
-import AgentShareVisitorSkeleton from '@/components/Skeleton/AgentShareVisitor';
 import AppsSkeleton from '@/components/Skeleton/Apps';
 import CommunityHomeSkeleton from '@/components/Skeleton/CommunityHome';
 import CommunityListSkeleton from '@/components/Skeleton/CommunityList';
@@ -47,8 +47,6 @@ import { createSurfaceSkeleton } from '@/components/Skeleton/Surface';
 import { acceptanceRouteMeta } from '@/features/Acceptance/routeMeta';
 import { agentDocumentRouteMeta } from '@/features/AgentDocumentPage/routeMeta';
 import { goalDetailRouteMeta, goalsRouteMeta } from '@/features/AgentGoals/routeMeta';
-import { agentShareVisitorRouteMeta } from '@/features/AgentShareVisitor/routeMeta';
-import { AGENT_SHARE_VISITOR_PATH } from '@/features/AgentShareVisitor/visitorPath';
 import { taskRouteMeta, tasksRouteMeta } from '@/features/AgentTasks/routeMeta';
 import { agentsRouteMeta } from '@/features/AgentViewAll/routeMeta';
 import { pageRouteMeta } from '@/features/Pages/routeMeta';
@@ -73,6 +71,7 @@ import {
 } from '@/routes/(main)/group/features/routeMeta';
 import AppShellSkeleton, { APP_SHELL_FALLBACK_ID } from '@/spa/BootShell/AppShellSkeleton';
 import { loadRouteWithBuiltinToolSurfaces } from '@/spa/initialize/toolSurfaces';
+import { agentChatTopicListLoader } from '@/spa/router/agentChatTopicListLoader';
 import { NoRouteSkeleton, routeMeta, type RouteSkeletonProps } from '@/spa/router/routeMeta';
 import { SettingsTabs } from '@/store/global/initialState';
 import { dynamicElement, dynamicLayout, ErrorBoundary, redirectElement } from '@/utils/router';
@@ -148,10 +147,12 @@ export const sharedMainAreaChildren: RouteObject[] = [
                 element: agentChatElement,
                 handle: { meta: agentRouteMeta },
                 index: true,
+                loader: agentChatTopicListLoader,
               },
               {
                 element: agentChatElement,
                 handle: { meta: agentRouteMeta },
+                loader: agentChatTopicListLoader,
                 path: ':topicId',
               },
             ],
@@ -347,7 +348,10 @@ export const sharedMainAreaChildren: RouteObject[] = [
               'Desktop > Chat > Task Detail',
             ),
             handle: { meta: taskRouteMeta },
-            path: 'task/:taskId',
+            // `:slug?` is the readable title tail (Linear-style). It is never
+            // resolved against — `:taskId` alone identifies the task — so the
+            // optional segment keeps every pre-slug link working.
+            path: 'task/:taskId/:slug?',
           },
         ],
         element: dynamicLayout(
@@ -782,13 +786,14 @@ export const sharedMainAreaChildren: RouteObject[] = [
       },
       {
         element: dynamicElement(
-          () => import('@/routes/(main)/memory/experiences'),
-          'Desktop > Memory > Experiences',
+          () => import('@/routes/(main)/memory/rules'),
+          'Desktop > Memory > Rules',
         ),
         handle: {
-          meta: routeMeta({ icon: BrainCircuit, titleKey: 'navigation.memoryExperiences' }),
+          // Same icon the memory sidebar uses, so a desktop tab and the nav item agree.
+          meta: routeMeta({ icon: Scale, titleKey: 'navigation.memoryRules' }),
         },
-        path: 'experiences',
+        path: 'rules',
       },
       {
         element: dynamicElement(
@@ -1064,7 +1069,8 @@ export const sharedMainAreaChildren: RouteObject[] = [
               'Desktop > Task Detail',
             ),
             handle: { meta: taskRouteMeta },
-            path: ':taskId',
+            // Optional readable title tail — see the agent-scoped route above.
+            path: ':taskId/:slug?',
           },
         ],
         errorElement: <ErrorBoundary resetPath="../tasks" />,
@@ -1138,6 +1144,14 @@ export const sharedMainAreaChildren: RouteObject[] = [
 const createMainAreaChildrenDefinition = (options: MainAreaRouteOptions = {}): RouteObject[] => [
   ...sharedMainAreaChildren,
 
+  // Channels are personal-only; never mirror them beneath a workspace slug.
+  {
+    path: 'channels/:channelId?',
+    element: dynamicElement(() => import('@/routes/(main)/channels'), 'Desktop > Channels'),
+    errorElement: <ErrorBoundary resetPath="/channels" />,
+    handle: { meta: routeMeta({ Skeleton: ConversationLayoutSkeleton }) },
+  },
+
   // Installer downloads (personal-only — never mirrored under /:workspaceSlug).
   //
   // Upstream removed its own downloads hub; this distribution keeps a route
@@ -1146,7 +1160,13 @@ const createMainAreaChildrenDefinition = (options: MainAreaRouteOptions = {}): R
   {
     element: dynamicElement(() => import('@/routes/(main)/downloads'), 'Desktop > Downloads'),
     errorElement: <ErrorBoundary />,
-    handle: { meta: routeMeta({ icon: Download, titleKey: 'navigation.downloads' }) },
+    handle: {
+      meta: routeMeta({
+        Skeleton: createSurfaceSkeleton('list'),
+        icon: Download,
+        titleKey: 'navigation.downloads',
+      }),
+    },
     path: 'downloads',
   },
   // Apps page (personal-only — never mirrored under /:workspaceSlug)
@@ -1461,6 +1481,14 @@ const createMainAreaChildrenDefinition = (options: MainAreaRouteOptions = {}): R
                 handle: { meta: routeMeta({ Skeleton: createSurfaceSkeleton('list') }) },
                 path: 'devices',
               },
+              {
+                element: dynamicElement(
+                  () => import('@/routes/(main)/[workspaceSlug]/settings/environments'),
+                  'Desktop > Workspace > Settings > Environments',
+                ),
+                handle: { meta: routeMeta({ Skeleton: createSurfaceSkeleton('list') }) },
+                path: 'environments',
+              },
               // Account-level tabs mirrored inside the workspace so members can
               // adjust user settings without leaving the workspace. Same pages
               // as personal `/settings/*`; only the chrome is workspace-owned.
@@ -1504,6 +1532,23 @@ const createMainAreaChildrenDefinition = (options: MainAreaRouteOptions = {}): R
                 ),
                 handle: { meta: routeMeta({ Skeleton: createSurfaceSkeleton('list') }) },
                 path: 'messenger/:sub',
+              },
+              {
+                element: dynamicElement(
+                  () => import('@/routes/(main)/[workspaceSlug]/settings/integrations'),
+                  'Desktop > Workspace > Settings > Integrations',
+                ),
+                handle: { meta: routeMeta({ Skeleton: createSurfaceSkeleton('list') }) },
+                path: 'integrations',
+              },
+              // Integration detail level — the page reads the integration from `sub`.
+              {
+                element: dynamicElement(
+                  () => import('@/routes/(main)/[workspaceSlug]/settings/integrations'),
+                  'Desktop > Workspace > Settings > Integrations > Detail',
+                ),
+                handle: { meta: routeMeta({ Skeleton: createSurfaceSkeleton('list') }) },
+                path: 'integrations/:sub',
               },
               // Developer tools mirrored inside the workspace (user preferences).
               {
@@ -1664,21 +1709,6 @@ export const createSharedDesktopRoutes = ({
     }),
     errorElement: <ErrorBoundary />,
     path: '/',
-  },
-  {
-    // The agent-share visitor page. A sibling of the main layout, not a child:
-    // a visitor has no business with the creator's nav rail, workspace scope,
-    // or command palette, and the page draws its own product bar. Outside
-    // `withSegmentFallback`, so the skeleton is passed explicitly — the same
-    // one the page shows while the share itself loads.
-    element: dynamicElement(
-      () => import('@/features/AgentShareVisitor/Page'),
-      'Desktop > Share > Agent',
-      { fallback: delayed(<AgentShareVisitorSkeleton />) },
-    ),
-    errorElement: <ErrorBoundary />,
-    handle: { meta: agentShareVisitorRouteMeta },
-    path: `${AGENT_SHARE_VISITOR_PATH}/:slugOrId/:topicId?`,
   },
   ...BusinessDesktopRoutesWithoutMainLayout,
   ...platformRoutes,

@@ -1,9 +1,9 @@
 'use client';
 
-import { ExclamationCircleOutlined, FolderOpenOutlined } from '@ant-design/icons';
+import { BRANDING_EMAIL } from '@lobechat/business-const';
 import { FluentEmoji } from '@lobehub/ui';
-import { Button, Text } from '@lobehub/ui/base-ui';
-import { Result } from 'antd';
+import { Button, Result, Text } from '@lobehub/ui/base-ui';
+import { CircleAlertIcon, FolderOpenIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -44,8 +44,9 @@ const StatusPage = memo<StatusPageProps>(({ status }) => {
           subTitle={
             <Text fontSize={16} type={'secondary'}>
               {t('groupAgents.status.unpublished.subtitle', {
+                email: BRANDING_EMAIL.support,
                 defaultValue:
-                  'This group agent is under review. Please contact support@lobehub.com if you have questions.',
+                  'This group agent is under review. Please contact {{email}} if you have questions.',
               })}
             </Text>
           }
@@ -63,9 +64,9 @@ const StatusPage = memo<StatusPageProps>(({ status }) => {
   const isArchived = status === 'archived';
   const statusKey = isArchived ? 'archived' : 'deprecated';
   const statusIcon = isArchived ? (
-    <FolderOpenOutlined style={{ color: '#8c8c8c' }} />
+    <FolderOpenIcon color={'#8c8c8c'} />
   ) : (
-    <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />
+    <CircleAlertIcon color={'#ff4d4f'} />
   );
 
   return (

@@ -2,6 +2,10 @@ export default {
   'asyncState.desc': 'Something went wrong while loading. Please try again.',
   'asyncState.metricLabel': 'Failed to load',
   'asyncState.title': 'Failed to load',
+  'chatRequestBlocked.contactSupport': 'Contact support',
+  'chatRequestBlocked.description':
+    'This request was blocked by our security checks. If you think this is a mistake, contact support to restore access.',
+  'chatRequestBlocked.title': 'Request blocked',
   'saveState.retry': 'Retry',
   'saveState.saveFailed': 'Failed to save your changes. Please try again.',
   'error.backHome': 'Back to Home',
@@ -102,10 +106,14 @@ export default {
     'The conversation has exceeded the context window limit. You can compact the context to compress history and continue chatting.',
   'exceededContext.title': 'Context Window Exceeded',
 
+  'unknownError.emailDesc': 'An unexpected error occurred. You can retry or email',
+  'unknownError.sharedEmailDesc': 'Please report this issue by email to',
   'unknownError.copyTraceId': 'Trace ID Copied',
   'unknownError.copyTraceIdTooltip': 'Click to copy',
   'unknownError.desc': 'An unexpected error occurred. You can retry or report on',
   'unknownError.retry': 'Retry',
+  'unknownError.sharedDesc': 'Please report this issue on',
+  'unknownError.sharedTitle': 'Unable to generate this answer',
   'unknownError.traceIdLabel': 'Trace ID:',
   'unknownError.title': 'Oops, the request took a nap',
 
@@ -137,6 +145,10 @@ export default {
     'The content was blocked ({{blockReason}}). Please adjust it and try again.',
   'response.InvalidAccessCode':
     'Invalid access code or empty. Please enter the correct access code or add a custom API Key.',
+  'response.ModelContentModerationCooldown':
+    'This request could not use the selected model or related models because of a temporary content safety restriction. Try again later or choose a different model.',
+  'response.ModelContentModerationCooldownUntil':
+    'The selected model and related models are temporarily unavailable due to content safety restrictions. Access is expected to resume at {{time}}. You can use a different model meanwhile.',
   'response.NoOpenAIAPIKey': 'OpenAI API Key is empty, please add a custom OpenAI API Key',
   'response.PluginApiNotFound':
     "Sorry, the API does not exist in the skill's manifest. Please check if your request method matches the skill manifest API",
@@ -240,7 +252,6 @@ export default {
   'supervisor.decisionFailed':
     'The group host is unable to function. Please check your host configuration to ensure the correct model, API Key, and API endpoint are set.',
   'testConnectionFailed': 'Test connection failed: {{error}}',
-  'tts.responseError': 'Service request failed, please check the configuration or try again',
   'transfer.agentOwnedByGroup':
     'This agent belongs to a chat group and cannot be moved on its own. Move the group instead, or remove the agent from it first.',
   'transfer.groupHasInaccessibleMember':
@@ -253,7 +264,8 @@ export default {
     'A previous copy of this agent is still duplicating its history. Try again once it finishes.',
   'transfer.transferInProgress':
     'A previous move of this resource is still migrating its history. Try again once it finishes.',
-  'transfer.sharedTransferBlocked': 'This agent has a share link, so its owner cannot be changed.',
+  'transfer.sharedTransferBlocked':
+    'This agent has a share link and cannot be transferred, even while sharing is paused.',
   'transfer.sameWorkspace':
     'This resource is already in the selected workspace. Choose another target.',
   'transfer.targetIsCurrentOwner': 'This agent already belongs to that member. Pick someone else.',

@@ -12,6 +12,11 @@ const dockerPath = '/app/scripts/_shared/checkDeprecatedAuth.js';
 const sharedModulePath = existsSync(localPath) ? localPath : dockerPath;
 
 const { checkDeprecatedAuth } = require(sharedModulePath);
+const gatewayCheckLocalPath = path.join(__dirname, '..', '_shared', 'checkGatewayConfig.js');
+const gatewayCheckDockerPath = '/app/scripts/_shared/checkGatewayConfig.js';
+const { checkGatewayConfig } = require(
+  existsSync(gatewayCheckLocalPath) ? gatewayCheckLocalPath : gatewayCheckDockerPath,
+);
 
 // Set file paths
 const DB_MIGRATION_SCRIPT_PATH = '/app/docker.cjs';
@@ -181,6 +186,11 @@ const QSTASH_SCHEDULES = [
     id: 'lobe-goal-sweep',
     path: '/api/workflows/goal/sweep',
   },
+  {
+    cron: '* * * * *',
+    id: 'lobe-widget-tick',
+    path: '/api/workflows/widget/tick',
+  },
 ];
 
 // Function to create the recurring QStash schedules the server relies on
@@ -241,6 +251,8 @@ const runServer = async () => {
 (async () => {
   // Check for deprecated auth env vars first - fail fast if found
   checkDeprecatedAuth({ action: 'restart' });
+  // Warn loudly when an upgraded Compose stack enables Gateway Mode without its .env settings
+  checkGatewayConfig();
 
   console.log('🌐 DNS Server:', dns.getServers());
   console.log('-------------------------------------');

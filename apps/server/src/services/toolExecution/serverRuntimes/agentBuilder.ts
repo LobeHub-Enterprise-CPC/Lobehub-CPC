@@ -14,12 +14,20 @@ import { getPluginMode, upsertPluginMode } from '@lobechat/types';
 
 import { getHiddenBuiltinModelsForUser } from '@/business/server/aiProvider';
 import { AgentModel } from '@/database/models/agent';
+import { ConnectorModel } from '@/database/models/connector';
 import { PluginModel } from '@/database/models/plugin';
+import { AgentService } from '@/server/services/agent';
 import { createAiInfraRepos } from '@/server/services/aiInfra/servableModels';
 import { DiscoverService } from '@/server/services/discover';
 import { filterHiddenProviderModels } from '@/utils/aiProvider';
 
 import { type ToolExecutionContext, type ToolExecutionResult } from '../types';
+import {
+  NEXT_RUN_NOTE,
+  resolveOrInstallMarketPlugin,
+  resolvePluginIdentifier,
+  unresolvablePluginResult,
+} from './pluginResolution';
 import { type ServerRuntimeRegistration } from './types';
 
 const MAX_MODELS = 20;
@@ -29,31 +37,49 @@ const handleError = (error: unknown, message: string): ToolExecutionResult => {
   return { content: `${message}: ${err.message}`, success: false };
 };
 
+/**
+ * The builder run is owned by the builtin builder agent, so `ctx.agentId` is the
+ * builder itself — never the agent the user is editing. Without an explicit
+ * editing target the write must fail loudly: falling back to `ctx.agentId`
+ * silently rewrote the builder's own row while reporting success.
+ */
+const noEditingTargetResult: ToolExecutionResult = {
+  content:
+    'No agent is being edited in this conversation, so nothing was changed. Ask the user to open the target agent and use the Agent Builder panel there.',
+  error: { message: 'Missing editing target agent', type: 'NoEditingTarget' },
+  success: false,
+};
+
 export const agentBuilderRuntime: ServerRuntimeRegistration = {
   factory: (context: ToolExecutionContext) => {
     if (!context.userId || !context.serverDB) {
       throw new Error('userId and serverDB are required for Agent Builder execution');
     }
     const userId = context.userId;
+    const serverDB = context.serverDB;
 
-    const agentModel = new AgentModel(context.serverDB, userId, context.workspaceId);
-    const pluginModel = new PluginModel(context.serverDB, userId, context.workspaceId);
-    const discoverService = new DiscoverService();
+    const agentModel = new AgentModel(serverDB, userId, context.workspaceId);
+    const agentService = new AgentService(serverDB, userId, context.workspaceId);
+    const pluginModel = new PluginModel(serverDB, userId, context.workspaceId);
+    const connectorModel = new ConnectorModel(serverDB, userId, context.workspaceId);
+    /**
+     * Market list endpoints require an authenticated caller, and `DiscoverService`
+     * only signs a trusted-client token when it is given an identity — built
+     * without one it sends no credentials at all and every market read fails as
+     * `unauthorized`, which `searchMarketTools` surfaces as a plain tool failure
+     * the model silently works around. `workspaceId` additionally attributes the
+     * read to the workspace rather than the personal account.
+     */
+    const discoverService = new DiscoverService({
+      userInfo: { userId, workspaceId: context.workspaceId },
+    });
 
     return {
       getAvailableModels: async (
         params: GetAvailableModelsParams,
       ): Promise<ToolExecutionResult> => {
         try {
-          // Built per call, not per factory: the provider config is async, and
-          // an `AiInfraRepos` constructed with `{}` reports config-enabled
-          // providers (the branded one) as disabled — which reads as "the user
-          // has no models" rather than as an error.
-          const aiInfraRepos = await createAiInfraRepos(
-            context.serverDB!,
-            userId,
-            context.workspaceId,
-          );
+          const aiInfraRepos = await createAiInfraRepos(serverDB, userId, context.workspaceId);
           const [allProviders, hiddenBuiltinModels] = await Promise.all([
             aiInfraRepos.getAiProviderList(),
             getHiddenBuiltinModelsForUser(userId),
@@ -178,15 +204,8 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
         params: UpdateAgentConfigParams,
         ctx: ToolExecutionContext,
       ): Promise<ToolExecutionResult> => {
-        const agentId = ctx.editingAgentId ?? ctx.agentId;
-
-        if (!agentId) {
-          return {
-            content: 'No active agent found',
-            error: { message: 'No active agent found', type: 'NoAgentContext' },
-            success: false,
-          };
-        }
+        const agentId = ctx.editingAgentId;
+        if (!agentId) return noEditingTargetResult;
 
         try {
           const agent = await agentModel.getAgentConfigById(agentId);
@@ -203,6 +222,20 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
             const { pluginId, enabled } = params.togglePlugin;
             const isEnabled = getPluginMode(agent.plugins ?? undefined, pluginId) === 'pinned';
             const shouldEnable = enabled !== undefined ? enabled : !isEnabled;
+
+            // Enabling pins the id into the agent's config; an id that resolves
+            // to no loadable tool would be reported as enabled yet never load.
+            // Checked before any write so a rejected call changes nothing.
+            // Disabling stays unvalidated so stale entries can always be removed.
+            if (shouldEnable) {
+              const resolution = await resolvePluginIdentifier(
+                pluginId,
+                { connectorModel, pluginModel },
+                { agentId },
+              );
+              if (resolution.status !== 'loadable')
+                return unresolvablePluginResult(pluginId, resolution);
+            }
 
             // upsertPluginMode preserves an already-matching entry as-is and
             // flips a disabled entry back to pinned in place, instead of
@@ -222,12 +255,7 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
           }
 
           if (Object.keys(finalConfig).length > 0) {
-            // Domain tool plugins support structured entries, while the DB
-            // model's JSONB column still carries its legacy string[] annotation.
-            await agentModel.updateConfig(
-              agentId,
-              finalConfig as unknown as Parameters<typeof agentModel.updateConfig>[1],
-            );
+            await agentService.updateAgentConfig(agentId, finalConfig);
             const nonPluginFields = Object.keys(finalConfig).filter((f) => f !== 'plugins');
             if (nonPluginFields.length > 0) {
               updatedParts.push(`config fields: ${nonPluginFields.join(', ')}`);
@@ -261,15 +289,8 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
         params: UpdatePromptParams,
         ctx: ToolExecutionContext,
       ): Promise<ToolExecutionResult> => {
-        const agentId = ctx.editingAgentId ?? ctx.agentId;
-
-        if (!agentId) {
-          return {
-            content: 'No active agent found',
-            error: { message: 'No active agent found', type: 'NoAgentContext' },
-            success: false,
-          };
-        }
+        const agentId = ctx.editingAgentId;
+        if (!agentId) return noEditingTargetResult;
 
         try {
           await agentModel.update(agentId, {
@@ -293,15 +314,8 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
         params: InstallPluginParams,
         ctx: ToolExecutionContext,
       ): Promise<ToolExecutionResult> => {
-        const agentId = ctx.editingAgentId ?? ctx.agentId;
-
-        if (!agentId) {
-          return {
-            content: 'No active agent found',
-            error: { message: 'No active agent found', type: 'NoAgentContext' },
-            success: false,
-          };
-        }
+        const agentId = ctx.editingAgentId;
+        if (!agentId) return noEditingTargetResult;
 
         const { identifier, source } = params;
 
@@ -346,23 +360,13 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
             return { content: `Agent "${agentId}" not found.`, success: false };
           }
 
-          const existing = await pluginModel.findById(identifier);
-          if (!existing) {
-            let manifest: any;
-            try {
-              manifest = await discoverService.getMcpManifest({ identifier });
-            } catch {
-              // proceed without manifest if fetch fails; tool will be unusable until manifest loads
-            }
-            await pluginModel.create({ identifier, manifest: manifest as any, type: 'plugin' });
-          } else if (!existing.manifest) {
-            try {
-              const manifest = await discoverService.getMcpManifest({ identifier });
-              await pluginModel.update(identifier, { manifest: manifest as any });
-            } catch {
-              // best-effort backfill
-            }
-          }
+          const { installedNow, resolution } = await resolveOrInstallMarketPlugin(
+            identifier,
+            { connectorModel, discoverService, pluginModel },
+            { agentId, source: 'market' },
+          );
+          if (resolution.status !== 'loadable')
+            return unresolvablePluginResult(identifier, resolution);
 
           if (getPluginMode(agent.plugins ?? undefined, identifier) !== 'pinned') {
             await agentModel.updateConfig(agentId, {
@@ -375,7 +379,7 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
           }
 
           return {
-            content: `Successfully enabled plugin "${identifier}" for agent "${agentId}"`,
+            content: `Successfully enabled plugin "${identifier}" for agent "${agentId}".${installedNow ? NEXT_RUN_NOTE : ''}`,
             state: { agentId, installed: true, pluginId: identifier, success: true },
             success: true,
           };

@@ -1,5 +1,6 @@
 'use client';
 
+import { isDraftVerifyRun } from '@lobechat/const/verify';
 import { Flexbox } from '@lobehub/ui';
 import { ActionIcon, Select, Text, toast } from '@lobehub/ui/base-ui';
 import { createStaticStyles, useResponsive } from 'antd-style';
@@ -7,7 +8,7 @@ import { ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 
 import { useSingleton } from '@/hooks/useSingleton';
 import { mutate as globalMutate } from '@/libs/swr';
@@ -17,6 +18,7 @@ import { verifyService } from '@/services/verify';
 import { useAcceptanceScope } from '../AcceptanceScope';
 import { hasVisualEvidence } from '../Evidence/evidence';
 import AcceptanceInteractionCost from '../History/AcceptanceInteractionCost';
+import { acceptanceCheckPath } from '../routes';
 import { checksForTurn } from '../turnChecks';
 import { useAcceptanceBundle } from '../useAcceptanceBundle';
 import { useAcceptanceTurn } from '../useAcceptanceTurn';
@@ -32,6 +34,7 @@ import {
   userReviewState,
 } from './checkState';
 import { EMPTY_ID_SET, setAggregateEntry } from './expandState';
+import { collectGroupFeedback } from './readPresentation';
 
 const styles = createStaticStyles(({ css }) => ({
   filters: css`
@@ -70,6 +73,7 @@ const AcceptanceCheckInventory = ({
   const { md = true } = useResponsive();
   const { acceptanceId, embedded } = useAcceptanceScope();
   const { data, mutate } = useAcceptanceBundle(acceptanceId);
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [localFilter, setLocalFilter] = useState<CheckFilter>('all');
   const urlFilterRaw = searchParams.get('filter');
@@ -197,18 +201,29 @@ const AcceptanceCheckInventory = ({
     pending: checks.filter((check) => checkFilterState(check) === 'pending').length,
     total: checks.length,
   };
+  // On a phone a check opens its own page: the inline disclosure carries a
+  // whole evidence review, and unfolding it inside the list buries the rows
+  // around it. Pushed (not replaced) so the system back button returns to the
+  // list, and flagged so the page's own back arrow can honour that entry.
+  // An embedded drawer has no route of its own, so it keeps disclosing.
+  const openCheckPage =
+    !md && !embedded
+      ? (id: string) =>
+          navigate(
+            acceptanceCheckPath(acceptanceId, id) + (searchParams.size ? `?${searchParams}` : ''),
+            {
+              state: { fromCheckList: true },
+            },
+          )
+      : undefined;
+
   const grouped = shouldGroupChecks(checks.length);
   const groupKeys = grouped
     ? groupChecks(checks, t('acceptance.group.uncategorized')).map((group) => group.key)
     : [];
   const allGroupsCollapsed =
     groupKeys.length > 0 && groupKeys.every((key) => collapsedGroups.has(key));
-  const groupFeedback = data.rounds.flatMap((round) =>
-    (round.run.decisionDetail?.groupFeedback ?? []).map((entry) => ({
-      ...entry,
-      roundIndex: round.run.roundIndex ?? 0,
-    })),
-  );
+  const groupFeedback = collectGroupFeedback(data.rounds);
   const currentRound = data.rounds.at(-1)?.run.roundIndex ?? 0;
 
   return (
@@ -255,7 +270,9 @@ const AcceptanceCheckInventory = ({
               options={[
                 { label: t('acceptance.filter.roundAll'), value: 'all' },
                 ...[...data.rounds].reverse().map((round) => ({
-                  label: t('acceptance.round', { round: round.run.roundIndex }),
+                  label: isDraftVerifyRun(round.run)
+                    ? t('flow.pendingPlan')
+                    : t('acceptance.round', { round: round.run.roundIndex }),
                   value: String(round.run.roundIndex),
                 })),
               ]}
@@ -288,6 +305,7 @@ const AcceptanceCheckInventory = ({
         filter={filter}
         groupFeedback={groupFeedback}
         reviewPending={false}
+        onOpenCheck={openCheckPage}
         onOpenTrace={onOpenTrace}
         onRound={setRoundFilter}
         onDismissProposal={

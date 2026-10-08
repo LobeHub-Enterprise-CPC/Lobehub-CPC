@@ -1,3 +1,4 @@
+import { assertBusinessUserAccess, isBusinessAuthorizationError } from '@lobechat/business-auth';
 import type { ChatCompletionErrorPayload } from '@lobechat/model-runtime';
 import { AgentRuntimeError } from '@lobechat/model-runtime';
 import { context as otContext } from '@lobechat/observability-otel/api';
@@ -46,8 +47,7 @@ const getOIDCClientDebugInfo = (token?: string | null): OIDCClientDebugInfo => {
   try {
     const normalizedPayload = payload.replaceAll('-', '+').replaceAll('_', '/');
     const decodedPayload = JSON.parse(Buffer.from(normalizedPayload, 'base64').toString('utf8')) as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
 
     const clientId =
       typeof decodedPayload?.client_id === 'string' ? decodedPayload.client_id : undefined;
@@ -73,6 +73,7 @@ export const checkAuth =
     const isMockUser = process.env.ENABLE_MOCK_DEV_USER === '1';
     if (process.env.NODE_ENV === 'development' && (isDebugApi || isMockUser)) {
       const mockUserId = process.env.MOCK_DEV_USER_ID || 'DEV_USER';
+      await assertBusinessUserAccess(serverDB, mockUserId);
       return handler(clonedReq, {
         ...options,
         jwtPayload: { userId: mockUserId },
@@ -82,6 +83,7 @@ export const checkAuth =
     }
 
     let userId: string;
+    let authHeaders = new Headers();
 
     try {
       // OIDC authentication (CLI)
@@ -92,9 +94,12 @@ export const checkAuth =
         await assertOIDCUserActive(serverDB, userId);
       } else {
         // Better Auth session authentication (web)
-        const session = await auth.api.getSession({
+        const result = await auth.api.getSession({
           headers: req.headers,
+          returnHeaders: true,
         });
+        const session = result.response;
+        authHeaders = result.headers;
 
         if (!session?.user?.id) {
           throw AgentRuntimeError.createError(ChatErrorType.Unauthorized);
@@ -103,6 +108,10 @@ export const checkAuth =
         userId = session.user.id;
       }
     } catch (e) {
+      if (isBusinessAuthorizationError(e))
+        return Response.json({ error: e.code }, { status: e.status });
+      if (e && typeof e === 'object' && 'statusCode' in e && e.statusCode === 503)
+        return Response.json({ error: 'AUTHORIZATION_UNAVAILABLE' }, { status: 503 });
       const params = await options.params;
       const oidcAuthorization = req.headers.get(LOBE_CHAT_OIDC_AUTH_HEADER);
 
@@ -146,7 +155,14 @@ export const checkAuth =
 
       const error = errorContent || e;
 
-      return createErrorResponse(errorType, { error, ...res, provider: params?.provider });
+      const response = createErrorResponse(errorType, {
+        error,
+        ...res,
+        provider: params?.provider,
+      });
+      for (const cookie of authHeaders.getSetCookie())
+        response.headers.append('set-cookie', cookie);
+      return response;
     }
 
     const jwtPayload: ClientSecretPayload = { userId };
@@ -168,8 +184,9 @@ export const checkAuth =
 
     try {
       const headers = new Headers(res.headers);
+      for (const cookie of authHeaders.getSetCookie()) headers.append('set-cookie', cookie);
       const traceparent = injectActiveTraceHeaders(headers);
-      if (!traceparent) {
+      if (!traceparent && !authHeaders.getSetCookie().length) {
         return res;
       }
 

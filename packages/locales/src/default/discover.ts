@@ -76,9 +76,9 @@ export default {
   'assistants.status.deprecated.subtitle': 'This Agent is currently unavailable. Possible reasons:',
   'assistants.status.deprecated.title': 'Agent unavailable',
   'assistants.status.support':
-    'For any questions, please copy the link and send it to <email>support@lobehub.com</email> for assistance.',
+    'For any questions, please copy the link and send it to <email>{{email}}</email> for assistance.',
   'assistants.status.unpublished.subtitle':
-    'This Agent is under review. To confirm its status, copy the link and email <email>support@lobehub.com</email>.',
+    'This Agent is under review. To confirm its status, copy the link and email <email>{{email}}</email>.',
   'assistants.status.unpublished.title': 'Agent Under Review',
   'assistants.suggestions': 'Similar Agents',
   'assistants.systemRole': 'Agent Profile',
@@ -391,6 +391,8 @@ export default {
 
   'mcp.details.schema.mode.docs': 'Documentation',
 
+  'mcp.details.schema.prompts.argsCount': '{{count}} argument',
+  'mcp.details.schema.prompts.argsCount_other': '{{count}} arguments',
   'mcp.details.schema.prompts.arguments': 'Parameter Configuration',
 
   'mcp.details.schema.prompts.desc': 'Interactive templates triggered by user selection',
@@ -430,6 +432,8 @@ export default {
 
   'mcp.details.schema.tools.inputSchema': 'Input Description',
 
+  'mcp.details.schema.tools.paramsCount': '{{count}} param',
+  'mcp.details.schema.tools.paramsCount_other': '{{count}} params',
   'mcp.details.schema.tools.instructions': 'Instruction Description',
 
   'mcp.details.schema.tools.table.description': 'Description',

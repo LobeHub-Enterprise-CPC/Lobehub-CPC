@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { getLobehubSkillProviderById } from '@lobechat/const';
 import { produce } from 'immer';
 import { type SWRResponse } from 'swr';
@@ -82,7 +83,7 @@ export class LobehubSkillStoreActionImpl {
 
         return {
           data: response.data,
-          error: responseError?.message || dataMessage || 'LobeHub Skill call failed',
+          error: responseError?.message || dataMessage || `${BRANDING_NAME} Skill call failed`,
           errorCode: responseError?.code,
           success: false,
         };

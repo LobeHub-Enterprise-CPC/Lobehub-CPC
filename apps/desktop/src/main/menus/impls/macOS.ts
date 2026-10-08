@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { GITHUB, GITHUB_ISSUES, OFFICIAL_SITE } from '@lobechat/const/url';
+import { DOWNLOAD_URL, GITHUB, GITHUB_ISSUES, OFFICIAL_SITE } from '@lobechat/const/url';
 import type { TrayNavigationSnapshot } from '@lobechat/electron-client-ipc';
 import type { MenuItemConstructorOptions } from 'electron';
 import { app, clipboard, Menu, shell } from 'electron';
@@ -9,6 +9,7 @@ import { isDev } from '@/const/env';
 import { HETERO_AGENT_DIR } from '@/const/heteroAgent';
 import NotificationCtr from '@/controllers/NotificationCtr';
 import SystemController from '@/controllers/SystemCtr';
+import { getAppDisplayName } from '@/utils/appIdentity';
 
 import { buildTrayMenuTemplate } from '../trayMenu';
 import type { ContextMenuData, IMenuPlatform, MenuOptions } from '../types';
@@ -65,7 +66,7 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
   // --- Private methods: define menu templates and logic ---
 
   private getAppMenuTemplate(options?: MenuOptions): MenuItemConstructorOptions[] {
-    const appName = app.getName();
+    const appName = getAppDisplayName();
     const showDev = isDev || options?.showDevItems;
     // Create namespaced translation function
     const t = this.app.i18n.ns('menu');
@@ -277,6 +278,12 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
           { type: 'separator' },
           {
             click: () => {
+              this.app.browserManager.retrieveByIdentifier('processExplorer').show();
+            },
+            label: t('help.processExplorer'),
+          },
+          {
+            click: () => {
               const logsPath = app.getPath('logs');
               console.info(`[Menu] Opening logs directory: ${logsPath}`);
               shell.openPath(logsPath).catch((err) => {
@@ -455,6 +462,13 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
       }
       case 'latest': {
         return { enabled: false, label: t('common.isLatestVersion') };
+      }
+      // snap / tar.gz / a runtime-less AppImage cannot replace themselves.
+      case 'unsupported': {
+        return {
+          click: () => shell.openExternal(DOWNLOAD_URL.default),
+          label: t('common.updateUnsupported'),
+        };
       }
       default: {
         return {
@@ -695,7 +709,7 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
 
   private getTrayMenuTemplate(): MenuItemConstructorOptions[] {
     const t = this.app.i18n.ns('menu');
-    const appName = app.getName();
+    const appName = getAppDisplayName();
 
     return [
       {
@@ -732,7 +746,7 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
 
   private getDockMenuTemplate(): MenuItemConstructorOptions[] {
     const t = this.app.i18n.ns('menu');
-    const appName = app.getName();
+    const appName = getAppDisplayName();
 
     return [
       {

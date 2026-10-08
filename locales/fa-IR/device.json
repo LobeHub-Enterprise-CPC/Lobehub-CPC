@@ -104,6 +104,7 @@
   "workingDirectory.uncommittedChanges_one": "تغییرات ثبت نشده: {{count}} فایل",
   "workingDirectory.uncommittedChanges_other": "تغییرات ثبت نشده: {{count}} فایل‌ها",
   "workingDirectory.undo": "بازگرداندن",
+  "workingDirectory.unselected": "انتخاب نشده",
   "workingDirectory.useFolder": "استفاده از این پوشه",
   "workingDirectory.worktreeSearchPlaceholder": "جستجوی شاخه‌های کاری",
   "workingDirectory.worktreeUnavailable": "در دسترس نیست",

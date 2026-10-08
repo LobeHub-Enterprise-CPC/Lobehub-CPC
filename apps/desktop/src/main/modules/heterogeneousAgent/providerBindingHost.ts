@@ -100,7 +100,7 @@ export const prepareHostedProviderBinding = async (params: {
   sessionId: string;
 }): Promise<HostedProviderBinding> => {
   if (!params.driver.prepareProviderBinding) {
-    throw new Error(`${params.agentType} does not implement LobeHub Provider binding.`);
+    throw new Error(`${params.agentType} does not implement Application Provider binding.`);
   }
 
   // Pi, Grok, and TRAE persist a custom model definition in the reusable profile.

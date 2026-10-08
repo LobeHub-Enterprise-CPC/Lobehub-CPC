@@ -2,6 +2,7 @@ import { CloudSandboxApiName, CloudSandboxIdentifier } from '@lobechat/builtin-t
 import { LocalSystemApiName, LocalSystemIdentifier } from '@lobechat/builtin-tool-local-system';
 import { RemoteDeviceIdentifier } from '@lobechat/builtin-tool-remote-device';
 import { builtinTools } from '@lobechat/builtin-tools';
+import { COMPOSIO_APP_TYPES } from '@lobechat/const';
 import { type LobeChatDatabase } from '@lobechat/database';
 import {
   type ChatToolPayload,
@@ -32,6 +33,20 @@ import { resolveBuiltinToolWorkIntent } from './workRegistration';
 
 const log = debug('lobe-server:builtin-tools-executor');
 
+const COMPOSIO_IDENTIFIERS = new Set(COMPOSIO_APP_TYPES.map((type) => type.identifier));
+const isComposioIdentifier = (identifier: string) => COMPOSIO_IDENTIFIERS.has(identifier);
+
+/**
+ * Market rejects a trusted-client token 5 minutes after it was minted, while one
+ * executor can outlive that (the inline step loop keeps it for a whole
+ * `/api/agent/run` invocation). Rebuild the MarketService — and so re-mint the
+ * token — well before the deadline.
+ */
+const MARKET_SERVICE_MAX_AGE_MS = 4 * 60 * 1000;
+
+/** Market's 401 code for a trusted-client token it refuses (expired, skewed, …). */
+const INVALID_TRUST_TOKEN = 'invalid_trust_token';
+
 /**
  * Builtin tool identifiers that can execute a shell command, and therefore
  * are the ones command governance gates. `RemoteDeviceIdentifier` never runs
@@ -52,18 +67,6 @@ const COMMAND_EXECUTION_API_NAMES = new Set<string>([
   CloudSandboxApiName.runCommand,
 ]);
 
-/**
- * File-operation APIs gated by `checkPath` (user_execution_policies'
- * `deniedWriteRoots`/`deniedReadRoots`) — see
- * `docs/文件操作治理-实施指南-20260902.md`. Deliberately `LocalSystemIdentifier`
- * only: this covers the `device` execution target (a `lh connect`-linked
- * device, proxied through `serverRuntimes/localSystem.ts` and this
- * chokepoint). The `local` target (the user's own desktop) bypasses this
- * server entirely for file operations — see `apps/desktop`'s `LocalFileCtr.ts`
- * for that half of the fix. Cloud sandbox is intentionally excluded, same as
- * command governance's sandbox scope: it's a one-shot isolated environment,
- * only a command-text blacklist applies to it.
- */
 const FILE_GOVERNANCE_API_NAMES = new Set<string>([
   LocalSystemApiName.writeFile,
   LocalSystemApiName.editFile,
@@ -75,17 +78,6 @@ const FILE_GOVERNANCE_API_NAMES = new Set<string>([
   LocalSystemApiName.globFiles,
 ]);
 
-/**
- * `LocalSystemIdentifier` is the single runtime that proxies BOTH the user's
- * own local desktop AND another device connected via `lh connect` — both
- * route through the device gateway keyed by `context.activeDeviceId` (see
- * `serverRuntimes/localSystem.ts`), so `activeDeviceId` alone can't tell them
- * apart. `context.deviceExecutionTarget` (the run's resolved
- * `ExecutionPlan.target`, forwarded from `ServerToolTransport`) is the signal
- * that can: `'local'` maps to the governance `local` scope, everything else
- * (`'device'`, `'auto'`, or missing on a legacy/resumed run without a plan)
- * falls back to `device` — the same behavior as before this field existed.
- */
 const resolveCommandExecutionTarget = (
   identifier: string,
   context: ToolExecutionContext,
@@ -106,7 +98,7 @@ const buildCommandGovernanceContext = (
   args: Record<string, any>,
   context: ToolExecutionContext,
   userId: string,
-): CommandGovernanceContext | undefined => {
+): (CommandGovernanceContext & { commandText: string }) | undefined => {
   if (!COMMAND_EXECUTION_IDENTIFIERS.has(identifier) || !COMMAND_EXECUTION_API_NAMES.has(apiName)) {
     return undefined;
   }
@@ -125,28 +117,6 @@ const buildCommandGovernanceContext = (
   };
 };
 
-/**
- * Which arg(s) carry the path(s) to check, per file-governance API name —
- * these are NOT uniform, and are the exact field names the MODEL sends (the
- * manifest's declared parameters — see `packages/builtin-tool-local-system/src/manifest.ts`
- * — not necessarily the same names the internal Electron IPC param types
- * use, e.g. `editFile`'s manifest param is `file_path`, but
- * `EditLocalFileParams.file_path` and `LocalSearchFilesParams.scope` differ
- * from what other APIs call the same concept):
- * - `writeFile`/`readFile`/`listFiles`: single `path`.
- * - `editFile`: single `file_path`.
- * - `moveFiles`: `items[]` of `{ oldPath, newPath }` — every item's BOTH
- *   paths are governed, not just the first; a batch move must not let one
- *   item's destination evade the check because another item in the same
- *   call happened to pass.
- * - `searchFiles`/`globFiles`: single `scope`.
- * - `grepContent`: `scope`, with `path` as a legacy alias for the same thing
- *   (checked too, in case an older caller still sends it) — see
- *   `packages/electron-client-ipc/src/types/localSystem.ts`.
- *
- * Mirrors (does not reuse) `serverRuntimes/localSystem.ts`'s `WORKING_DIR_ARG`
- * map, which distinguishes the same `cwd`- vs `scope`-injected API families.
- */
 const resolveFileGovernancePaths = (apiName: string, args: Record<string, any>): string[] => {
   switch (apiName) {
     case LocalSystemApiName.editFile: {
@@ -170,20 +140,11 @@ const resolveFileGovernancePaths = (apiName: string, args: Record<string, any>):
       );
     }
     default: {
-      // writeFile / readFile / listFiles
       return typeof args?.path === 'string' ? [args.path] : [];
     }
   }
 };
 
-/**
- * A relative path is resolved against `context.workingDirectory` before
- * matching — `~/.ssh` never appears as a literal substring of a bare relative
- * arg like `.ssh/config`, so skipping this would let a relative path evade a
- * root that would otherwise match. This mirrors (but does not reuse — that
- * resolution happens client/device-side) how `serverRuntimes/localSystem.ts`
- * injects `context.workingDirectory` as `cwd` for these same APIs.
- */
 const resolveAgainstWorkingDirectory = (
   rawPath: string,
   workingDirectory: string | undefined,
@@ -194,12 +155,6 @@ const resolveAgainstWorkingDirectory = (
   return isAbsolute || !trimmedCwd ? rawPath : `${trimmedCwd}/${rawPath}`;
 };
 
-/**
- * Resolve every {@link PathGovernanceContext} a tool call needs checked
- * (usually one, `moveFiles` can be several), or an empty array when it isn't
- * a governable file operation. Mirrors `buildCommandGovernanceContext` for
- * `checkPath` instead of `checkCommand`.
- */
 const buildFileGovernanceContexts = (
   identifier: string,
   apiName: string,
@@ -207,9 +162,7 @@ const buildFileGovernanceContexts = (
   context: ToolExecutionContext,
   userId: string,
 ): PathGovernanceContext[] => {
-  if (identifier !== LocalSystemIdentifier || !FILE_GOVERNANCE_API_NAMES.has(apiName)) {
-    return [];
-  }
+  if (identifier !== LocalSystemIdentifier || !FILE_GOVERNANCE_API_NAMES.has(apiName)) return [];
 
   const rawPaths = resolveFileGovernancePaths(apiName, args);
   if (rawPaths.length === 0) return [];
@@ -238,6 +191,22 @@ const getManifestApiNames = (identifier: string): string[] =>
   );
 
 /**
+ * Required parameter names declared by a builtin API. Prefers the manifest the
+ * run was assembled with, falling back to the static builtin manifest.
+ */
+const getRequiredParams = (
+  identifier: string,
+  apiName: string,
+  context: ToolExecutionContext,
+): string[] => {
+  const manifest =
+    context.toolManifestMap?.[identifier] ??
+    builtinTools.find((tool) => tool.identifier === identifier)?.manifest;
+  const required = manifest?.api?.find((api) => api.name === apiName)?.parameters?.required;
+  return Array.isArray(required) ? required : [];
+};
+
+/**
  * Fallback when a manifest isn't available (e.g. a runtime registered without a
  * matching manifest entry): collect callable names across the whole prototype
  * chain — both own arrow-field methods and class prototype methods — which
@@ -260,15 +229,20 @@ const collectRuntimeApiNames = (runtime: Record<string, any>): string[] => {
 export class BuiltinToolsExecutor implements IToolExecutor {
   private db: LobeChatDatabase;
   private userId: string;
-  private _marketService?: MarketService;
+  private _marketService?: { createdAt: number; service: MarketService };
 
   constructor(db: LobeChatDatabase, userId: string) {
     this.db = db;
     this.userId = userId;
   }
 
-  private async getMarketService(): Promise<MarketService> {
-    if (this._marketService) return this._marketService;
+  private async getMarketService({ fresh }: { fresh?: boolean } = {}): Promise<MarketService> {
+    if (
+      !fresh &&
+      this._marketService &&
+      Date.now() - this._marketService.createdAt < MARKET_SERVICE_MAX_AGE_MS
+    )
+      return this._marketService.service;
 
     let accessToken: string | undefined;
     try {
@@ -279,11 +253,12 @@ export class BuiltinToolsExecutor implements IToolExecutor {
       // non-fatal — MarketService will fall back to trustedClientToken
     }
 
-    this._marketService = new MarketService({
+    const service = new MarketService({
       accessToken,
       userInfo: { userId: this.userId },
     });
-    return this._marketService;
+    this._marketService = { createdAt: Date.now(), service };
+    return service;
   }
 
   async execute(
@@ -291,6 +266,29 @@ export class BuiltinToolsExecutor implements IToolExecutor {
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
     const { identifier, apiName, arguments: argsStr, source } = payload;
+
+    // An empty arguments string means the call reached us without any argument
+    // deltas (not generated, or dropped by the provider / an OpenAI-compatible
+    // proxy in transit). Falling back to `{}` for an API with required params
+    // surfaced as a misleading tool error (e.g. "command is required") that the
+    // model blamed on the platform. APIs without required params keep `{}`.
+    if (!argsStr?.trim()) {
+      const required = getRequiredParams(identifier, apiName, context);
+      if (required.length > 0) {
+        const message =
+          `The tool call arrived with an empty arguments string, so the tool was not invoked. ` +
+          `The arguments were either not generated or lost in transit before reaching the tool. ` +
+          `Resend the call with the complete JSON arguments, including the required parameters: ` +
+          `${required.join(', ')}.`;
+        log('Rejected empty arguments for %s:%s', identifier, apiName);
+        return {
+          content: message,
+          error: { code: 'EMPTY_ARGUMENTS', message },
+          success: false,
+        };
+      }
+    }
+
     const parsed = safeParseJSON(argsStr);
 
     // When JSON.parse fails, return a dedicated error rather than silently
@@ -300,7 +298,7 @@ export class BuiltinToolsExecutor implements IToolExecutor {
     // max_tokens is exhausted mid-tool-call) from plain malformed JSON, and
     // echo the raw arguments string so the model can verify it is exactly
     // what it produced.
-    if (parsed === undefined && argsStr) {
+    if (parsed === undefined && argsStr?.trim()) {
       const truncationReason = detectTruncatedJSON(argsStr);
       const explanation = truncationReason
         ? `The tool call arguments JSON appears to be truncated (${truncationReason}), ` +
@@ -329,8 +327,9 @@ export class BuiltinToolsExecutor implements IToolExecutor {
     // this executor runs whatever call reaches it, so a resume path, recovery
     // hint, or future tool-discovery route that bypasses assembly must still
     // clear the FULL gate here: master default-deny allowlist, the owner's
-    // `toolGrants` picker, humanIntervention policy (re-read from the
-    // unstripped manifest), and the per-API data-tool rules. Non-builtin
+    // `toolGrants` picker, and the per-API data-tool rules. `humanIntervention`
+    // is not a block reason: the visitor approves granted tools like any
+    // other run, so the approval itself already happened upstream. Non-builtin
     // identifiers pass through (governed by the share's `toolGrants` at
     // assembly). Fail closed: block, never throw open.
     if (
@@ -355,16 +354,25 @@ export class BuiltinToolsExecutor implements IToolExecutor {
 
     // Route LobeHub Skills to MarketService
     if (source === 'lobehubSkill') {
-      const marketService = await this.getMarketService();
-      const result = await marketService.executeLobehubSkill({
-        args,
-        context: {
-          topicId: context.topicId,
-        },
-        provider: identifier,
-        timeoutMs: context.executionTimeoutMs,
-        toolName: apiName,
-      });
+      const callSkill = (marketService: MarketService) =>
+        marketService.executeLobehubSkill({
+          args,
+          context: {
+            topicId: context.topicId,
+          },
+          provider: identifier,
+          timeoutMs: context.executionTimeoutMs,
+          toolName: apiName,
+        });
+
+      let result = await callSkill(await this.getMarketService());
+
+      // Market refuses the token at its auth middleware, before the skill runs,
+      // so re-minting and retrying once cannot repeat a side effect.
+      if (result.error?.code === INVALID_TRUST_TOKEN) {
+        log('Trust token rejected for %s:%s, retrying with a fresh token', identifier, apiName);
+        result = await callSkill(await this.getMarketService({ fresh: true }));
+      }
 
       if (result.success && isWorkSkillProvider(identifier)) {
         // Defer Work registration to the agent runtime so the version is written
@@ -404,6 +412,24 @@ export class BuiltinToolsExecutor implements IToolExecutor {
         identifier,
         toolSlug: apiName,
       });
+    }
+
+    // A Composio app reaching here was not routed as `composio`, which only
+    // happens when its connection is not ACTIVE (e.g. a stale activation or a
+    // resumed run whose toolset predates a status change). Say so instead of
+    // claiming the tool is unimplemented.
+    if (isComposioIdentifier(identifier) && !hasServerRuntime(identifier)) {
+      const appLabel =
+        COMPOSIO_APP_TYPES.find((type) => type.identifier === identifier)?.label ?? identifier;
+      const message =
+        `${appLabel} is not connected (the Composio connection is pending, expired, or was removed), ` +
+        `so "${apiName}" cannot run. Ask the user to reconnect ${appLabel} in Settings → Connectors, ` +
+        `then retry in a new message.`;
+      return {
+        content: message,
+        error: { code: 'COMPOSIO_NOT_CONNECTED', message },
+        success: false,
+      };
     }
 
     // Use server runtime registry (handles both pre-instantiated and per-request runtimes)
@@ -487,16 +513,6 @@ export class BuiltinToolsExecutor implements IToolExecutor {
       }
     }
 
-    // File-path governance: gate file-operation calls only (see
-    // `buildFileGovernanceContexts`). Parallel to, and independent of,
-    // command governance above — an API name is never in both
-    // `COMMAND_EXECUTION_API_NAMES` and `FILE_GOVERNANCE_API_NAMES`, so a call
-    // can trigger at most one of the two checks.
-    //
-    // A call can carry more than one path to check (`moveFiles`'s `items[]`) —
-    // every one of them is checked before any is allowed through, so a batch
-    // call can never let one item's path evade the check because a sibling
-    // item in the same call already passed.
     const fileGovernanceContexts = buildFileGovernanceContexts(
       identifier,
       apiName,
@@ -534,11 +550,7 @@ export class BuiltinToolsExecutor implements IToolExecutor {
         };
       }
     }
-    // Every candidate path passed — the first one stands in for the whole
-    // call in the success/failure audit row below (mirrors the "one row per
-    // governed tool call" shape `command_execution_logs` already has; a
-    // multi-path call's other paths were still individually checked above,
-    // just not each individually logged).
+
     const fileGovernance = fileGovernanceContexts[0];
 
     const commandGovernanceStartedAt = commandGovernance ? Date.now() : undefined;

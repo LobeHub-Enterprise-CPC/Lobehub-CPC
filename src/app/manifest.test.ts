@@ -1,0 +1,80 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const loadManifest = async (branding: { name: string; pwaId: string }) => {
+  vi.resetModules();
+  vi.stubEnv('NODE_ENV', 'production');
+  vi.doMock('@lobechat/business-const', () => ({
+    BRANDING_LOGO_URL: '/branding/logo.png',
+    BRANDING_NAME: branding.name,
+    OFFICIAL_URL: 'https://private.example',
+    BRANDING_PWA_ID: branding.pwaId,
+  }));
+
+  const { default: manifest } = await import('./manifest');
+
+  return manifest();
+};
+
+describe('production PWA manifest identity', () => {
+  afterEach(() => {
+    vi.doUnmock('@lobechat/business-const');
+    vi.unstubAllEnvs();
+  });
+
+  it('keeps the stable PWA id independent of a renamed display name', async () => {
+    const result = await loadManifest({ name: 'Renamed Product', pwaId: 'original-product' });
+
+    expect(result).toMatchObject({
+      id: 'original-product',
+      name: 'Renamed Product',
+      scope: '/',
+      short_name: 'Renamed Product',
+      start_url: '/',
+    });
+  });
+
+  it('derives the default id from the display name when no override is set', async () => {
+    const result = await loadManifest({ name: 'Example Brand', pwaId: '' });
+
+    expect(result.id).toBe('example-brand');
+  });
+
+  it('keeps distinct installed icons and maskable safe areas under custom branding', async () => {
+    const result = await loadManifest({ name: 'Acme Workspace', pwaId: 'acme-workspace' });
+    expect(result.icons).toEqual([
+      expect.objectContaining({
+        src: '/app-icons/icon-192x192.png?v=1',
+        sizes: '192x192',
+        purpose: 'any',
+      }),
+      expect.objectContaining({
+        src: '/app-icons/icon-192x192.maskable.png?v=1',
+        sizes: '192x192',
+        purpose: 'maskable',
+      }),
+      expect.objectContaining({
+        src: '/app-icons/icon-512x512.png?v=1',
+        sizes: '512x512',
+        purpose: 'any',
+      }),
+      expect.objectContaining({
+        src: '/app-icons/icon-512x512.maskable.png?v=1',
+        sizes: '512x512',
+        purpose: 'maskable',
+      }),
+    ]);
+  });
+});
+
+it('brands the development installation without changing its persistent id', async () => {
+  await loadManifest({ name: 'Private Workspace', pwaId: 'stable-id' });
+  vi.stubEnv('NODE_ENV', 'development');
+  const { default: manifest } = await import('./manifest');
+  expect(await manifest()).toMatchObject({
+    name: 'Private Workspace',
+    short_name: 'Private Workspace',
+    id: 'stable-id',
+  });
+  vi.unstubAllEnvs();
+  vi.doUnmock('@lobechat/business-const');
+});

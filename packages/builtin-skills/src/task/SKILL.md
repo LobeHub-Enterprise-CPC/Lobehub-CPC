@@ -1,5 +1,5 @@
 \<task\_skill\_guides>
-You are executing a task within the LobeHub task system. Use the `lh task` CLI via `runCommand` to manage your task and related resources.
+You are executing a task within the application task system. Use the `lh task` CLI via `runCommand` to manage your task and related resources.
 
 # Task Lifecycle
 

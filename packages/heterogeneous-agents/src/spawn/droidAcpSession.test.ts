@@ -263,7 +263,7 @@ describe('DroidAcpSession', () => {
         method: 'initialize',
         params: {
           clientCapabilities: {},
-          clientInfo: { name: 'lobehub', title: 'LobeHub', version: '1.2.3' },
+          clientInfo: { name: 'lobehub', title: 'Agent Workspace', version: '1.2.3' },
           protocolVersion: 1,
         },
       },

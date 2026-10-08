@@ -1,11 +1,15 @@
+import type { MediaSourceMessage } from '@lobechat/builtin-tool-lobe-agent';
 import { type LobeToolManifest } from '@lobechat/context-engine';
 import { type LobeChatDatabase } from '@lobechat/database';
 import {
   type AgentShareVisitorContext,
+  type ChannelRunContext,
   type ChatToolPayload,
   type ClientSecretPayload,
   type DeviceExecutionTarget,
+  type DeviceUnavailableErrorData,
   type ExecSubAgentParams,
+  type ExecutionPlan,
   type StepActivatedSkill,
   type StepContextTodoItem,
   type WorkRegistrationIntent,
@@ -27,6 +31,11 @@ export interface ServerSubAgentRunParams {
   description: string;
   /** Detailed instruction/prompt for the sub-agent run. */
   instruction: string;
+  /**
+   * Continue this earlier `callSubAgent` sub-agent (its isolation thread id)
+   * instead of starting a new one. Only set by `callSubAgent`.
+   */
+  subAgentId?: string;
   /** Optional per-run timeout in milliseconds. */
   timeout?: number;
 }
@@ -194,6 +203,13 @@ export interface ToolExecutionContext {
    * `messageId`.
    */
   assistantMessageId?: string;
+  /**
+   * Channel native-run marker, forwarded from `state.principal.actor.channel`
+   * by `ServerToolTransport`. Present ONLY for a Channel member run; the
+   * `channel-artifact` server runtime reads its `artifactRunIds` allowlist
+   * from here rather than trusting the model's arguments.
+   */
+  channelContext?: ChannelRunContext;
   /** Originating request IP propagated through the operation metadata. */
   clientIp?: string;
   /**
@@ -207,7 +223,7 @@ export interface ToolExecutionContext {
   currentTodos?: StepContextTodoItem[];
   /**
    * Whether the run's execution plan is device-capable (`device` or
-   * `device-unrouted`) — derived from `state.metadata.executionPlan` by the
+   * `device-unrouted`) — derived from `state.plan.execution` by the
    * runtime executors. Device-only skills gate listing/activation/loading on
    * this consistently, so a `device-unrouted` run can activate them before the
    * model routes a device; actual command execution stays gated at the device
@@ -241,11 +257,22 @@ export interface ToolExecutionContext {
    */
   editingGroupId?: string;
   /**
+   * Tool ids offered to the model in this run (operation tool set plus step activations). Lets a
+   * runtime name a follow-up tool in its result only when the model can actually call it.
+   */
+  enabledToolIds?: string[];
+  /**
    * Legacy agent invocation callback forwarded from RuntimeExecutorContext.
    * Kept for tool runtimes that still dispatch through exec_sub_agent style
    * flows; `lobe-agent.callSubAgent` uses the per-call `subAgent` runner below.
    */
   execSubAgent?: (params: ExecSubAgentParams) => Promise<unknown>;
+  /**
+   * The run's resolved execution plan. Lets a runtime explain a gate the plan
+   * imposes (e.g. a device-locked run has no device picker) instead of the
+   * gated tool just looking missing.
+   */
+  executionPlan?: ExecutionPlan;
   /** Per-call execution timeout resolved by the agent runtime. */
   executionTimeoutMs?: number;
   /** Current group ID for group chat context */
@@ -268,6 +295,8 @@ export interface ToolExecutionContext {
    * {@link localSandbox}.
    */
   localSandboxNetwork?: boolean;
+  /** Trusted host-scoped media sources for non-legacy conversations. Never populated from tool args. */
+  mediaSourceMessages?: MediaSourceMessage[];
   /**
    * Optional server-owned embedding runtime for memory search.
    *
@@ -343,7 +372,7 @@ export interface ToolExecutionContext {
    * Workspace ID that scopes ownership for any model/service the runtime
    * instantiates. When unset the runtime falls back to personal mode
    * (`workspace_id IS NULL`). Threaded from the chat/task router through
-   * `state.metadata.workspaceId` so tool side-effects (createBrief, pinTask,
+   * `state.origin.workspaceId` so tool side-effects (createBrief, pinTask,
    * etc.) land in the same workspace the request originated from.
    */
   workspaceId?: string;
@@ -358,6 +387,10 @@ export interface ToolExecutionResult {
    */
   deferred?: boolean;
   error?: any;
+  /** Structured unavailable-device context preserved through the runtime error envelope. */
+  errorData?: DeviceUnavailableErrorData;
+  /** Device dispatch may have happened, but no terminal execution result was observed. */
+  executionUnknown?: boolean;
   state?: Record<string, any>;
   success: boolean;
   /**

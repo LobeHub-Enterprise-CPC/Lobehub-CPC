@@ -1,21 +1,24 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { Arch } from 'builder-util';
 import dotenv from 'dotenv';
 
-import {
-  copyExternalRuntimeModulesToSource,
-  getExternalRuntimeModulesFilesConfig,
-} from './external-runtime-deps.config.mjs';
+import { copyExternalRuntimeModulesToSource } from './external-runtime-deps.config.mjs';
+import { getModuleFilesConfig } from './module-deps.config.mjs';
 import {
   buildFirstPartyNativeAddons,
   copyNativeModulesToSource,
   getAsarUnpackPatterns,
   getNativeModulesFilesConfig,
 } from './native-deps.config.mjs';
+import { packBuiltinCore } from './scripts/packBuiltinCore.mjs';
+import { toSparkleBuildVersion } from './scripts/sparkleBuildVersion.mjs';
+import { resolveSparklePackaging } from './scripts/sparklePackaging.mjs';
 import { verifyFontListSignature } from './scripts/verifyFontListSigning.mjs';
 
 dotenv.config();
@@ -193,6 +196,22 @@ const getProtocolScheme = () => {
 
 const protocolScheme = getProtocolScheme();
 
+const sparklePublicKey = process.env.SPARKLE_ED_PUBLIC_KEY;
+const { useSparkle } = resolveSparklePackaging({
+  channel,
+  hasAppleCertificate,
+  platform: process.platform,
+  sparklePublicKey,
+  updateServerUrl,
+});
+const sparklePackageDir = useSparkle
+  ? await fs.realpath(path.join(__dirname, 'node_modules/electron-sparkle-updater'))
+  : null;
+const sparkleFeedUrl =
+  useSparkle && updateServerUrl
+    ? `${stripChannelSuffix(updateServerUrl).replace(/\/$/, '')}/${isCanary || channel === 'beta' ? 'canary' : 'stable'}/appcast-${arch}.xml`
+    : undefined;
+
 // Determine icon file based on version type
 const getIconFileName = () => {
   if (isStable || isCanary) return 'Icon';
@@ -209,28 +228,44 @@ const config = {
    * BeforePack hook to resolve pnpm symlinks for native modules.
    * This ensures native modules are properly included in the asar archive.
    */
-  beforePack: async () => {
+  beforePack: async (context) => {
     buildFirstPartyNativeAddons();
+
+    if (sparklePackageDir) {
+      console.info('🔧 Building Sparkle bridge addon...');
+      execSync(
+        `node "${path.join(sparklePackageDir, 'bin/electron-sparkle-updater.js')}" rebuild --arch ${arch}`,
+        { cwd: __dirname, stdio: 'inherit' },
+      );
+    }
 
     await copyNativeModulesToSource();
     await copyExternalRuntimeModulesToSource();
 
-    // Keep the AUV daemon version locked to @auv-js/sdk. The CLI package
-    // resolves the platform-specific executable without running postinstall,
-    // then we stage that real file outside app.asar for child_process.spawn().
-    const { binaryPath: resolveAuvBinaryPath } = await import('@auv-js/cli/binary');
-    const auvSource = resolveAuvBinaryPath();
-    const auvExecutable = process.platform === 'win32' ? 'auv.exe' : 'auv';
+    // Resolve the target, not the build host: binaryPath() selects the host
+    // binary and would silently ship a macOS daemon in a Windows installer.
+    const targetPlatform =
+      context.electronPlatformName === 'mas' ? 'darwin' : context.electronPlatformName;
+    const targetArch = Arch[context.arch];
+    const suffix = targetPlatform === 'win32' ? '-msvc' : targetPlatform === 'linux' ? '-gnu' : '';
+    const auvExecutable = targetPlatform === 'win32' ? 'auv.exe' : 'auv';
+    const require = createRequire(import.meta.url);
+    const auvSource = require.resolve(
+      `@auv-js/cli-${targetPlatform}-${targetArch}${suffix}/bin/${auvExecutable}`,
+    );
     const auvDestination = path.resolve(__dirname, 'resources/bin', auvExecutable);
     await fs.mkdir(path.dirname(auvDestination), { recursive: true });
+    await fs.rm(
+      path.resolve(__dirname, 'resources/bin', auvExecutable === 'auv' ? 'auv.exe' : 'auv'),
+      { force: true },
+    );
     await fs.copyFile(auvSource, auvDestination);
-    if (process.platform !== 'win32') await fs.chmod(auvDestination, 0o755);
+    if (targetPlatform !== 'win32') await fs.chmod(auvDestination, 0o755);
 
     // agent-browser is no longer bundled in the installer — BinaryManager
     // lazily downloads it on first use into the per-user cache dir. See
     // apps/desktop/src/main/modules/binaries/agentBrowserBinaries.ts.
 
-    // Build and copy CLI bundle for embedding
     // A distribution that builds the CLI with its own config (different bin
     // name, server, config directory) has to be able to embed THAT bundle —
     // otherwise the installer ships a CLI branded for a different product than
@@ -239,37 +274,34 @@ const config = {
     //
     // Point DESKTOP_EMBEDDED_CLI_BUNDLE at a prebuilt bundle to skip the
     // default build. Unset, this behaves exactly as before.
-    const prebuiltCli = process.env.DESKTOP_EMBEDDED_CLI_BUNDLE;
+    const prebuiltCli = process.env.DESKTOP_EMBEDDED_CLI_BUNDLE
+      ? path.resolve(process.env.DESKTOP_EMBEDDED_CLI_BUNDLE)
+      : undefined;
     if (prebuiltCli) {
       console.info(`📦 Using prebuilt CLI bundle: ${prebuiltCli}`);
     } else {
       console.info('📦 Building CLI for embedding...');
       execSync('npm run build:cli', { stdio: 'inherit', cwd: __dirname });
     }
-    const cliSrc = prebuiltCli ?? path.resolve(__dirname, '../cli/dist/index.js');
-    const cliDest = path.resolve(__dirname, 'resources/bin/lobe-cli.js');
-    await fs.mkdir(path.dirname(cliDest), { recursive: true });
-    await fs.copyFile(cliSrc, cliDest);
-
-    // Write a minimal package.json next to the CLI bundle so that
-    // createRequire('../package.json') resolves correctly in the packaged app.
-    // The CLI script lives at Resources/bin/lobe-cli.js, so '../package.json'
-    // resolves to Resources/package.json.
-    // Read the manifest that belongs to the bundle actually being embedded.
-    // With a prebuilt bundle that is the one beside it (<pkg>/dist/index.js ->
-    // <pkg>/package.json); otherwise the workspace CLI's own. Taking it from
-    // `../cli/package.json` unconditionally made the embedded CLI report the
-    // workspace package's name no matter whose bundle it was — and that name is
-    // user-visible, e.g. in "run `npx -y <name> login`".
-    const cliPkgPath = prebuiltCli
-      ? path.resolve(path.dirname(prebuiltCli), '../package.json')
-      : path.resolve(__dirname, '../cli/package.json');
-    const cliPkg = JSON.parse(await fs.readFile(cliPkgPath, 'utf8'));
-    await fs.writeFile(
-      path.resolve(__dirname, 'resources/cli-package.json'),
-      JSON.stringify({ name: cliPkg.name, type: 'module', version: cliPkg.version }),
+    execSync('node scripts/shellAbi.mjs --write', { stdio: 'inherit', cwd: __dirname });
+    const { shellAbi } = JSON.parse(
+      await fs.readFile(path.join(__dirname, 'shell/abi.json'), 'utf8'),
     );
-    console.info('✅ CLI bundle copied to resources/bin/lobe-cli.js');
+    const corePlatform =
+      context.electronPlatformName === 'mas' ? 'darwin' : context.electronPlatformName;
+    execSync('node scripts/assembleCore.mjs', {
+      cwd: __dirname,
+      env: {
+        ...process.env,
+        ...(prebuiltCli ? { DESKTOP_EMBEDDED_CLI_BUNDLE: prebuiltCli } : {}),
+      },
+      stdio: 'inherit',
+    });
+    execSync(
+      `node scripts/buildCoreManifest.mjs --core=core-dist --platform=${corePlatform} --channel=${channel || 'stable'} --version=${packageJSON.version} --seq=${process.env.CORE_SEQ || 0} --shell-abi=${shellAbi}`,
+      { stdio: 'inherit', cwd: __dirname },
+    );
+    await packBuiltinCore(__dirname);
   },
   /**
    * AfterPack hook for copying Liquid Glass Assets.car on macOS 26+.
@@ -325,6 +357,8 @@ const config = {
   // Native modules must be unpacked from asar to work correctly
   asarUnpack: getAsarUnpackPatterns(),
 
+  ...(useSparkle ? { buildVersion: toSparkleBuildVersion(packageJSON.version) } : {}),
+
   detectUpdateChannel: true,
 
   directories: {
@@ -354,24 +388,16 @@ const config = {
   electronLanguages: ['en', 'en_GB', 'en_US', 'en-GB', 'en-US'],
 
   files: [
-    'dist',
-    'resources',
-    'dist/renderer/**/*',
-    '!resources/locales',
-    '!resources/dmg.png',
-    // NOTICE:
-    // AUV must execute from the external bin directory, so its ASAR copy is unnecessary.
-    // The resources glob otherwise duplicates the binary copied by extraResources below.
-    // Source: PR #19051 ASAR Size Gate; resources/bin is staged in beforePack above.
-    // Remove these exclusions only if AUV no longer ships through extraResources.
-    '!resources/bin/auv',
-    '!resources/bin/auv.exe',
+    'shell/**',
+    '!shell/__tests__',
+    ...(useSparkle ? ['!shell/rescue/electron-updater.cjs'] : []),
+    'package.json',
     // Exclude all node_modules first
     '!node_modules',
     // Then explicitly include native modules using object form (handles pnpm symlinks)
     ...getNativeModulesFilesConfig(),
-    // Include non-native runtime modules that are intentionally externalized from Vite.
-    ...getExternalRuntimeModulesFilesConfig(),
+    // electron-log ships in the core (assembleCore), a shell copy would shadow it via the resolver shim
+    ...getModuleFilesConfig(['font-list']),
   ],
   generateUpdatesFilesForAllChannels: true,
   linux: {
@@ -394,6 +420,15 @@ const config = {
         }
       : {}),
     extendInfo: {
+      ...(useSparkle
+        ? {
+            SUDeltaChainHistory: 6,
+            SUEnableAutomaticChecks: false,
+            SUEnableInstallerLauncherService: false,
+            SUFeedURL: sparkleFeedUrl,
+            SUPublicEDKey: sparklePublicKey,
+          }
+        : {}),
       CFBundleIconName: 'AppIcon',
       CFBundleURLTypes: [
         {
@@ -452,9 +487,30 @@ const config = {
     releaseNotes: process.env.RELEASE_NOTES || undefined,
   },
 
+  ...(sparklePackageDir
+    ? {
+        extraFiles: [
+          {
+            from: path.join(sparklePackageDir, 'native/vendor/Sparkle.framework'),
+            to: 'Frameworks/Sparkle.framework',
+          },
+        ],
+      }
+    : {}),
   extraResources: [
     { from: 'resources/bin', to: 'bin' },
-    { from: 'resources/cli-package.json', to: 'package.json' },
+    { from: 'core.asar', to: 'core.asar' },
+    { from: 'core.asar.unpacked', to: 'core.asar.unpacked' },
+    // The Sparkle bridge addon is loaded by an explicit path outside app.asar; pnpm's
+    // symlinked package dir cannot be matched by asarUnpack, so it ships as a resource.
+    ...(sparklePackageDir
+      ? [
+          {
+            from: path.join(sparklePackageDir, 'native/build/Release/sparkle_bridge.node'),
+            to: 'sparkle/sparkle_bridge.node',
+          },
+        ]
+      : []),
     // Local Sandbox helper binaries. The sandbox spawns these by path, so they
     // must be real files — not entries inside app.asar, and not something the
     // user is expected to install separately.

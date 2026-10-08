@@ -4,10 +4,16 @@ import { AgentRuntimeErrorType, ModelRuntime } from '@lobechat/model-runtime';
 import { ChatErrorType } from '@lobechat/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auth } from '@/auth';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
 
 import { GET } from './route';
+
+// Better Auth changes the result shape when returnHeaders is true.
+const mockGetSession = vi.hoisted(() =>
+  vi.fn<
+    () => Promise<{ response: { session: object; user: { id: string } } | null; headers: Headers }>
+  >(),
+);
 
 vi.mock('@/app/(backend)/middleware/auth/utils', () => ({
   checkAuthMethod: vi.fn(),
@@ -16,7 +22,7 @@ vi.mock('@/app/(backend)/middleware/auth/utils', () => ({
 vi.mock('@/auth', () => ({
   auth: {
     api: {
-      getSession: vi.fn().mockResolvedValue(null),
+      getSession: mockGetSession,
     },
   },
 }));
@@ -35,9 +41,9 @@ beforeEach(() => {
   });
 
   // Default: valid session
-  vi.mocked(auth.api.getSession).mockResolvedValue({
-    session: {} as any,
-    user: { id: 'test-user-id' } as any,
+  mockGetSession.mockResolvedValue({
+    response: { session: {}, user: { id: 'test-user-id' } },
+    headers: new Headers(),
   });
 });
 
@@ -48,6 +54,19 @@ afterEach(() => {
 
 describe('GET handler', () => {
   describe('error handling', () => {
+    it('rejects an expired session and forwards its cookie cleanup', async () => {
+      mockGetSession.mockResolvedValueOnce({
+        response: null,
+        headers: new Headers({ 'set-cookie': 'session=; Max-Age=0; Path=/; HttpOnly' }),
+      });
+
+      const response = await GET(request, { params: Promise.resolve({ provider: 'openai' }) });
+
+      expect(response.status).toBe(401);
+      expect(response.headers.getSetCookie()).toEqual(['session=; Max-Age=0; Path=/; HttpOnly']);
+      expect(initModelRuntimeFromDB).not.toHaveBeenCalled();
+    });
+
     it('should return the thrown error message without exposing stack trace', async () => {
       const mockParams = Promise.resolve({ provider: 'google' });
 
@@ -237,6 +256,10 @@ describe('GET handler', () => {
   describe('success cases', () => {
     it('should return model list on success', async () => {
       const mockParams = Promise.resolve({ provider: 'openai' });
+      mockGetSession.mockResolvedValueOnce({
+        response: { session: {}, user: { id: 'test-user-id' } },
+        headers: new Headers({ 'set-cookie': 'session=refreshed; Path=/; HttpOnly' }),
+      });
 
       const mockModelList = [
         { id: 'gpt-4', name: 'GPT-4' },
@@ -255,6 +278,7 @@ describe('GET handler', () => {
 
       expect(response.status).toBe(200);
       expect(responseBody).toEqual(mockModelList);
+      expect(response.headers.getSetCookie()).toEqual(['session=refreshed; Path=/; HttpOnly']);
     });
   });
 });

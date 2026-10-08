@@ -11,9 +11,14 @@
   },
   "main": "./src/index.ts",
   "dependencies": {
-    "@lobechat/business-const": "workspace:*"
+    "@lobechat/business-const": "workspace:*",
+    "@lobechat/shared-tool-ui": "workspace:*"
   },
   "devDependencies": {
     "@lobechat/types": "workspace:*"
+  },
+  "peerDependencies": {
+    "@lobehub/ui": "^5",
+    "react": "^19"
   }
 }

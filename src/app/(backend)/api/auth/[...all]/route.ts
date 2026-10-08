@@ -1,11 +1,25 @@
+import { APIError } from 'better-auth/api';
 import { toNextJsHandler } from 'better-auth/next-js';
 import type { NextRequest } from 'next/server';
 
-import { auth } from '@/auth';
+import { getAuthForRequest } from '@/auth';
+import { redirectCallbackError } from '@/libs/better-auth/callback-error-response';
 
 const jsonContentTypeRegex = /^application\/(?:[a-z0-9.+-]*\+)?json/i;
 
-const handler = toNextJsHandler(auth);
+const dispatch = async (request: Request, method: 'GET' | 'POST') => {
+  try {
+    const handler = toNextJsHandler(await getAuthForRequest(request));
+    return await redirectCallbackError(request, await handler[method](request));
+  } catch (error) {
+    const status = error instanceof APIError ? error.statusCode : 503;
+    const code = error instanceof APIError ? error.body?.code : 'SSO_UNAVAILABLE';
+    return redirectCallbackError(
+      request,
+      Response.json({ code, message: code }, { status, headers: { 'Cache-Control': 'no-store' } }),
+    );
+  }
+};
 
 const malformedJsonResponse = () =>
   Response.json({ code: 'INVALID_JSON', message: 'Malformed JSON request body' }, { status: 400 });
@@ -26,11 +40,11 @@ const validateJsonBody = async (request: Request) => {
   }
 };
 
-export const GET = handler.GET;
+export const GET = (request: Request) => dispatch(request, 'GET');
 
 export const POST = async (request: NextRequest) => {
   const invalidJsonResponse = await validateJsonBody(request);
   if (invalidJsonResponse) return invalidJsonResponse;
 
-  return handler.POST(request);
+  return dispatch(request, 'POST');
 };

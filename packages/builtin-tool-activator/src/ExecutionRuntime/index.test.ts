@@ -73,6 +73,29 @@ describe('ActivatorExecutionRuntime.activateTools — white-label wire namespace
     expect(result.content).not.toContain('lobe-');
   });
 
+  it('explains locked tools using canonical lookups but wire-namespaced output', async () => {
+    process.env[NAMESPACE_ENV] = 'example';
+    const explainNotFound = vi.fn((id: string) =>
+      id === 'lobe-remote-device' ? 'This run is locked to a device.' : undefined,
+    );
+    const runtime = new ActivatorExecutionRuntime({
+      service: createService({ explainNotFound }),
+    });
+
+    const result = await runtime.activateTools({
+      identifiers: ['example-remote-device', 'example-unknown'],
+      reason: 'switch devices',
+    });
+
+    expect(explainNotFound).toHaveBeenNthCalledWith(1, 'lobe-remote-device');
+    expect(explainNotFound).toHaveBeenNthCalledWith(2, 'lobe-unknown');
+    expect(result.content).toContain(
+      'Not available: example-remote-device. This run is locked to a device.',
+    );
+    expect(result.content).toContain('Not found: example-unknown');
+    expect(result.content).not.toContain('lobe-');
+  });
+
   it('is a no-op with no namespace configured (upstream/OSS behavior unchanged)', async () => {
     const getToolManifests = vi.fn(async () => [
       {

@@ -16,8 +16,11 @@ export enum PortalViewType {
   Artifact = 'artifact',
   Document = 'document',
   FilePreview = 'filePreview',
+  Goal = 'goal',
   GoalMetric = 'goalMetric',
   GoalNode = 'goalNode',
+  GoalReport = 'goalReport',
+  GoalReportChapter = 'goalReportChapter',
   GroupThread = 'groupThread',
   Home = 'home',
   LocalFile = 'localFile',
@@ -68,8 +71,11 @@ export type GoalMetricKind =
 
 export type PortalViewData =
   | { type: PortalViewType.Home }
+  | { goalId: string; type: PortalViewType.Goal }
   | { goalId: string; metric: GoalMetricKind; type: PortalViewType.GoalMetric }
   | { goalId: string; nodeId: string; type: PortalViewType.GoalNode }
+  | { goalId: string; type: PortalViewType.GoalReport }
+  | { chapterIndex: number; goalId: string; type: PortalViewType.GoalReportChapter }
   | { acceptanceId: string; type: PortalViewType.Acceptance }
   | { acceptanceId: string; checkId: string; type: PortalViewType.AcceptanceCheck }
   | { agentId: string; type: PortalViewType.AgentDetail }

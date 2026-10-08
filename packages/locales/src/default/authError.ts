@@ -1,7 +1,15 @@
 export default {
+  'codes.PLATFORM_ACCESS_DENIED':
+    'Your account does not meet the platform access requirements. Please contact your administrator.',
+  'codes.AUTHORIZATION_UNAVAILABLE':
+    'Access verification is temporarily unavailable. Please try again later or contact your administrator.',
+  'accessDenied.help':
+    'Contact your administrator to request access. After access is granted, return to sign in.',
+  'accessDenied.title': 'Access denied',
   'actions.discord': 'Go to Discord for feedback',
   'actions.home': 'Return to Home',
   'actions.retry': 'Sign in Again',
+  'actions.signIn': 'Return to sign in',
   'codes.ACCOUNT_ALREADY_LINKED_TO_DIFFERENT_USER':
     'This account is already linked to another user',
   'codes.ACCOUNT_NOT_FOUND': 'Account not found',
@@ -9,10 +17,14 @@ export default {
   'codes.DELETED_ACCOUNT_EMAIL':
     'This email has been associated with a deleted account and cannot be used for registration',
   'codes.EMAIL_CAN_NOT_BE_UPDATED': 'Email cannot be updated for this account',
-  'codes.EMAIL_NOT_ALLOWED': 'Email not allowed for registration',
+  'codes.EMAIL_NOT_ALLOWED': 'Your account is not on the access allowlist.',
   'codes.EMAIL_NOT_FOUND':
     'No email associated with this account. Please check if your account has an email bound.',
   'codes.EMAIL_NOT_VERIFIED': 'Please verify your email first',
+  'codes.EMAIL_REGISTRATION_CLOSED':
+    'Email registration is currently closed. Use an existing account or another available sign-in method.',
+  'codes.EMAIL_REGISTRATION_UNAVAILABLE':
+    'Email registration is temporarily unavailable. Please try again later or contact your administrator.',
   'codes.FAILED_TO_CREATE_SESSION': 'Failed to create session',
   'codes.FAILED_TO_CREATE_USER': 'Failed to create user',
   'codes.FAILED_TO_GET_SESSION': 'Failed to retrieve session',
@@ -30,6 +42,11 @@ export default {
   'codes.RATE_LIMIT_EXCEEDED': 'Too many requests, please try again later',
   'codes.SESSION_EXPIRED': 'Session has expired, please sign in again',
   'codes.SOCIAL_ACCOUNT_ALREADY_LINKED': 'This social account is already linked to another user',
+  'codes.SSO_ACCESS_DENIED': 'Your account no longer meets the current access requirements.',
+  'codes.SSO_PROVIDER_UNAVAILABLE':
+    'This sign-in method is unavailable. Contact your administrator or use another sign-in method.',
+  'codes.SSO_UNAVAILABLE':
+    'The sign-in service is temporarily unavailable. Please try again later.',
   'codes.TEMPORARY_EMAIL_NOT_ALLOWED':
     'Temporary email addresses are not supported. Please use a regular email address. Repeated attempts may block this network.',
   'codes.UNEXPECTED_ERROR': 'An unexpected error occurred, please try again',
@@ -40,5 +57,6 @@ export default {
   'codes.USER_BANNED': 'This user has been banned',
   'codes.USER_EMAIL_NOT_FOUND': 'Email not found',
   'codes.USER_NOT_FOUND': 'User not found',
+  'errorCode': 'Error code',
   'title': 'Authentication Error',
 };

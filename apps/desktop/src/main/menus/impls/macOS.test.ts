@@ -1,5 +1,5 @@
 import { app, Menu, shell } from 'electron';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { App } from '@/core/App';
 import menuTranslations from '@/locales/default/menu';
@@ -103,6 +103,18 @@ describe('MacOSMenu', () => {
   });
 
   describe('buildAndSetAppMenu', () => {
+    afterEach(() => vi.unstubAllEnvs());
+
+    it('uses the display name in native menus instead of the stable Electron name', () => {
+      vi.stubEnv('DESKTOP_PRODUCT_NAME', 'Renamed Product');
+      macOSMenu.buildAndSetAppMenu();
+
+      expect(Menu.buildFromTemplate).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ label: 'Renamed Product' })]),
+      );
+      expect(app.getName()).toBe('LobeChat');
+    });
+
     it('should build and set application menu', () => {
       const menu = macOSMenu.buildAndSetAppMenu();
 

@@ -15,6 +15,8 @@ export interface GoalListParams {
   offset?: number;
   projectId?: string;
   statuses?: GoalStatus[];
+  /** Goals created from this conversation. */
+  topicId?: string;
 }
 
 /** Every graph method takes the `goals` row id. */
@@ -90,6 +92,28 @@ class GoalService {
   pause = async (id: string) => lambdaClient.goal.pause.mutate({ id });
 
   resume = async (id: string) => lambdaClient.goal.resume.mutate({ id });
+
+  /** Answer a goal's whole clarification round; the goal re-plans once with every answer. */
+  answerClarifications = async (params: {
+    answers: Array<{ decisionId: string; optionId: string; resolution?: string }>;
+    id: string;
+  }) => lambdaClient.goal.answerClarifications.mutate(params);
+
+  /** Clarifications still waiting on the user, grouped by goal. */
+  pendingClarifications = async () => {
+    const { data } = await lambdaClient.goal.pendingClarifications.query();
+    return data ?? [];
+  };
+
+  /** Gates and sign-offs waiting on the user across their goals, for the approval island. */
+  pendingForIsland = async () => {
+    const { data } = await lambdaClient.goal.pendingForIsland.query();
+    return data ?? { decisions: [], signOffs: [] };
+  };
+
+  /** End the goal by hand and interrupt its live runs. Reopen with `resume`. */
+  close = async (id: string, status: 'achieved' | 'canceled') =>
+    lambdaClient.goal.close.mutate({ id, status });
 
   /** Resolve a pending decision gate. Does not resume a paused goal by itself. */
   decide = async (params: {

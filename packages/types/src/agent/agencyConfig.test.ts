@@ -308,6 +308,34 @@ describe('buildHeteroSpawnArgs', () => {
     ).toEqual(['--model', 'gpt-5']);
   });
 
+  it('forwards Devin native arguments and model through direct ACP and device execution', () => {
+    const provider: HeterogeneousProviderConfig = {
+      args: ['--agent-type', 'coding'],
+      model: 'claude-sonnet-4-6-thinking',
+      type: 'devin',
+    };
+
+    expect(buildHeteroSpawnArgs(provider)).toEqual([
+      '--agent-type',
+      'coding',
+      '--model',
+      'claude-sonnet-4-6-thinking',
+    ]);
+    expect(buildHeteroExecArgs(provider)).toEqual([
+      '--agent-arg=--agent-type',
+      '--agent-arg=coding',
+      '--model',
+      'claude-sonnet-4-6-thinking',
+    ]);
+    expect(
+      buildHeteroSpawnArgs({
+        args: ['--model', 'native-model'],
+        model: 'selector-model',
+        type: 'devin',
+      }),
+    ).toEqual(['--model', 'native-model']);
+  });
+
   it('forwards Grok Build model and effort through direct ACP and device execution', () => {
     const provider: HeterogeneousProviderConfig = {
       args: ['--no-subagents'],
@@ -418,6 +446,23 @@ describe('buildHeteroSpawnArgs', () => {
       '--model',
       'kimi-for-coding',
     ]);
+  });
+
+  it('does not duplicate the Kimi Code model when native args already spell it', () => {
+    expect(
+      buildHeteroSpawnArgs({
+        args: ['-m', 'kimi-code/k3'],
+        model: 'kimi-code/k3-256k',
+        type: 'kimi-code',
+      }),
+    ).toEqual(['-m', 'kimi-code/k3']);
+    expect(
+      buildHeteroExecArgs({
+        args: ['--model=kimi-code/k3'],
+        model: 'kimi-code/k3-256k',
+        type: 'kimi-code',
+      }),
+    ).toEqual(['--agent-arg=--model=kimi-code/k3']);
   });
 
   it('preserves Qoder model and reasoning effort from native args without injecting duplicates', () => {

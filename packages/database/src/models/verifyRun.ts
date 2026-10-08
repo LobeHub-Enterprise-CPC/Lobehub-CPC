@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import type { VerifyVisibility } from '@lobechat/const/verify';
+import { isDraftVerifyRun, type VerifyVisibility } from '@lobechat/const/verify';
 import type {
   VerifyCheckItem,
   VerifyRunDecisionDetail,
@@ -14,6 +14,7 @@ import { agentOperations } from '../schemas/agentOperations';
 import type { NewVerifyRun, VerifyRunItem } from '../schemas/verify';
 import { verifyCheckResults, verifyRuns } from '../schemas/verify';
 import type { LobeChatDatabase } from '../type';
+import { escapeLike } from '../utils/like';
 import { isUuid } from '../utils/uuid';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
 import { VerifyCriterionModel } from './verifyCriterion';
@@ -49,9 +50,6 @@ const decodeCursor = (cursor?: string): { createdAt: Date; id: string } | null =
   if (Number.isNaN(createdAt.getTime()) || !id) return null;
   return { createdAt, id };
 };
-
-/** Escape LIKE/ILIKE metacharacters (`\ % _`) so user input matches literally. */
-const escapeLike = (value: string): string => value.replaceAll(/[\\%_]/g, (c) => `\\${c}`);
 
 const toState = (run: VerifyRunItem | null | undefined): VerifyRunState | null =>
   run
@@ -290,6 +288,25 @@ export class VerifyRunModel {
     );
   };
 
+  /**
+   * Every round of several acceptances at once, in round order — the batched
+   * form of `listByAcceptance`.
+   *
+   * Feeds a surface that summarises many acceptances on a poll: one statement
+   * regardless of how many it covers. A caller wanting each acceptance's
+   * standing counts it from the check union (`AcceptanceService`), so the
+   * summary and the list it expands to read the same rows.
+   */
+  listByAcceptances = async (acceptanceIds: string[]): Promise<VerifyRunItem[]> => {
+    const ids = [...new Set(acceptanceIds.filter(Boolean))];
+    if (ids.length === 0) return [];
+
+    return this.db.query.verifyRuns.findMany({
+      orderBy: [asc(verifyRuns.roundIndex)],
+      where: and(inArray(verifyRuns.acceptanceId, ids), this.ownership()),
+    });
+  };
+
   /** Every round chained onto an acceptance aggregate, in round order. */
   listByAcceptance = async (acceptanceId: string): Promise<VerifyRunItem[]> => {
     return this.db.query.verifyRuns.findMany({
@@ -326,6 +343,66 @@ export class VerifyRunModel {
 
     if (!run) throw new Error(`Verify run "${runId}" not found in the current workspace`);
     return run;
+  };
+
+  /**
+   * A harness run arriving while the acceptance still holds a draft round must
+   * not open another round: its plan folds into the draft, the draft becomes the
+   * ingest target (frozen now, since results are about to land) and the
+   * detached run row goes away. Returns the draft row the caller ingests into.
+   */
+  foldIntoRound = async (sourceRunId: string, targetRunId: string): Promise<VerifyRunItem> => {
+    return this.db.transaction(async (tx) => {
+      const rows = await tx
+        .select()
+        .from(verifyRuns)
+        .where(and(inArray(verifyRuns.id, [sourceRunId, targetRunId]), this.ownership()))
+        .for('update');
+      const source = rows.find((row) => row.id === sourceRunId);
+      const target = rows.find((row) => row.id === targetRunId);
+      if (!source || !target) throw new Error('Verify run not found in the current workspace');
+      if (source.acceptanceId) throw new Error('Only a detached run can fold into a draft round');
+      if (!isDraftVerifyRun(target)) throw new Error('Only a draft round can absorb another run');
+      const executed = await tx
+        .select({ id: verifyCheckResults.id })
+        .from(verifyCheckResults)
+        .where(inArray(verifyCheckResults.verifyRunId, [sourceRunId, targetRunId]))
+        .limit(1);
+      if (executed.length) throw new Error('A run with results cannot fold into a draft round');
+
+      const known = new Set((target.plan ?? []).map((item) => item.id));
+      const plan = [
+        ...(target.plan ?? []),
+        ...(source.plan ?? []).filter((item) => !known.has(item.id)),
+      ].map((item, index) => ({ ...item, index }));
+      // The source row goes first so its unique operation_id can move over.
+      await tx.delete(verifyRuns).where(eq(verifyRuns.id, sourceRunId));
+      const [folded] = await tx
+        .update(verifyRuns)
+        .set({
+          context: target.context ?? source.context,
+          goal: target.goal ?? source.goal,
+          metadata: { ...target.metadata, ...source.metadata },
+          // The incoming run is the live work, and its operation is what the
+          // lifecycle keys on (`findByOperation`). Keeping a stale draft's
+          // operation instead would orphan the attempt that is actually running.
+          operationId: source.operationId ?? target.operationId,
+          plan,
+          planConfirmedAt: new Date(),
+          scenario: target.scenario ?? source.scenario,
+          source: source.source ?? target.source,
+          // The survivor takes over the source's identity, so it takes over its
+          // pipeline status too. An ingested round carries none and the report
+          // settles it, which is what nulls the draft's own `planned` here. A LIVE
+          // round folded mid-flight keeps its status instead: `claimEvidenceCollection`
+          // and `claimVerifying` only move a run that still has one, so clearing it
+          // would strand the run — and its Task — with nothing able to judge it.
+          status: source.status,
+        })
+        .where(eq(verifyRuns.id, targetRunId))
+        .returning();
+      return folded;
+    });
   };
 
   /** Flip who can read this round's report page beyond its creator. */
@@ -571,7 +648,8 @@ export class VerifyRunModel {
   };
 
   /**
-   * One page of runs stranded in `verifying` since before `olderThan`, across
+   * One page of runs stranded in `verifying`, or confirmed `planned` rounds
+   * whose child operation aborted, since before `olderThan`, across
    * all owners — the sweep's input (see `sweepStuckVerifyRuns`).
    *
    * No per-user scope, like `TaskModel.findStuckTasks`: this backs a global
@@ -606,7 +684,17 @@ export class VerifyRunModel {
     const updatedAtMs = sql`date_trunc('milliseconds', ${verifyRuns.updatedAt})`;
 
     const conditions = [
-      eq(verifyRuns.status, 'verifying'),
+      or(
+        eq(verifyRuns.status, 'verifying'),
+        and(
+          eq(verifyRuns.status, 'planned'),
+          isNotNull(verifyRuns.planConfirmedAt),
+          sql`exists (select 1 from ${agentOperations}
+            where ${agentOperations.id} = ${verifyRuns.operationId}
+              and ${agentOperations.parentOperationId} is not null
+              and ${agentOperations.completionReason} in ('error', 'interrupted'))`,
+        ),
+      )!,
       lt(verifyRuns.updatedAt, olderThan),
       isNotNull(verifyRuns.operationId),
     ];

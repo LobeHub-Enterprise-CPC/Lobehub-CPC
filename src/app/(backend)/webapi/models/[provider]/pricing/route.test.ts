@@ -2,10 +2,16 @@
 import { ChatErrorType } from '@lobechat/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auth } from '@/auth';
 import { AiProviderModel } from '@/database/models/aiProvider';
 
 import { GET } from './route';
+
+// Better Auth changes the result shape when returnHeaders is true.
+const mockGetSession = vi.hoisted(() =>
+  vi.fn<
+    () => Promise<{ response: { session: object; user: { id: string } } | null; headers: Headers }>
+  >(),
+);
 
 vi.mock('@/app/(backend)/middleware/auth/utils', () => ({
   checkAuthMethod: vi.fn(),
@@ -14,7 +20,7 @@ vi.mock('@/app/(backend)/middleware/auth/utils', () => ({
 vi.mock('@/auth', () => ({
   auth: {
     api: {
-      getSession: vi.fn().mockResolvedValue(null),
+      getSession: mockGetSession,
     },
   },
 }));
@@ -22,9 +28,9 @@ vi.mock('@/auth', () => ({
 vi.mock('@/database/models/aiProvider', () => {
   const mockGetAiProviderById = vi.fn();
   return {
-    AiProviderModel: vi.fn().mockImplementation(() => ({
-      getAiProviderById: mockGetAiProviderById,
-    })),
+    AiProviderModel: vi.fn(function () {
+      return { getAiProviderById: mockGetAiProviderById };
+    }),
   };
 });
 
@@ -47,9 +53,9 @@ beforeEach(() => {
   });
 
   // Default: valid session
-  vi.mocked(auth.api.getSession).mockResolvedValue({
-    session: {} as any,
-    user: { id: 'test-user-id' } as any,
+  mockGetSession.mockResolvedValue({
+    response: { session: {}, user: { id: 'test-user-id' } },
+    headers: new Headers(),
   });
 });
 
@@ -58,6 +64,20 @@ afterEach(() => {
 });
 
 describe('GET /webapi/models/[provider]/pricing', () => {
+  it('rejects an expired session and forwards its cookie cleanup', async () => {
+    mockGetSession.mockResolvedValueOnce({
+      response: null,
+      headers: new Headers({ 'set-cookie': 'session=; Max-Age=0; Path=/; HttpOnly' }),
+    });
+
+    const response = await GET(request, { params: Promise.resolve({ provider: 'newapi' }) });
+
+    expect(response.status).toBe(401);
+    expect(response.headers.getSetCookie()).toEqual(['session=; Max-Age=0; Path=/; HttpOnly']);
+    expect(AiProviderModel).not.toHaveBeenCalled();
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+
   it('should return ContentNotFound if provider config is missing', async () => {
     const mockParams = Promise.resolve({ provider: 'newapi' });
     const mockModelInstance = new AiProviderModel({} as any, 'test-user-id');
@@ -88,6 +108,10 @@ describe('GET /webapi/models/[provider]/pricing', () => {
 
   it('should fetch pricing successfully', async () => {
     const mockParams = Promise.resolve({ provider: 'newapi' });
+    mockGetSession.mockResolvedValueOnce({
+      response: { session: {}, user: { id: 'test-user-id' } },
+      headers: new Headers({ 'set-cookie': 'session=refreshed; Path=/; HttpOnly' }),
+    });
     const mockModelInstance = new AiProviderModel({} as any, 'test-user-id');
     vi.mocked(mockModelInstance.getAiProviderById).mockResolvedValue({
       keyVaults: {
@@ -106,6 +130,7 @@ describe('GET /webapi/models/[provider]/pricing', () => {
 
     expect(response.status).toBe(200);
     expect(responseBody).toEqual({ success: true, data: [{ model_name: 'test' }] });
+    expect(response.headers.getSetCookie()).toEqual(['session=refreshed; Path=/; HttpOnly']);
     expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
       'https://newapi.test.com/api/pricing',
       expect.any(Object),

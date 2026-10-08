@@ -16,6 +16,18 @@ import type { LobeChatDatabase } from '../type';
 
 const migrationsFolder = join(__dirname, '../../migrations');
 
+/**
+ * Optional second migrations folder, applied after the one above. Lets a
+ * downstream distribution that owns extra tables in its own migration chain
+ * (outside this repo, so it can't collide with this repo's own migration
+ * indices — see `packages/database/migrations`' own guard for why that
+ * separation exists) get those tables into the same test database that model
+ * tests here run against. A plain env var rather than a hardcoded path: this
+ * file ships to every distribution, most of which never set it and see no
+ * behavior change.
+ */
+const extraMigrationsFolder = process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER;
+
 const isServerDBMode = process.env.TEST_SERVER_DB === '1';
 
 let testClientDB: ReturnType<typeof pgliteDrizzle<typeof schema>> | null = null;
@@ -36,6 +48,12 @@ export const getTestDB = async (): Promise<LobeChatDatabase> => {
     testServerDB = nodeDrizzle(client, { schema });
 
     await nodeMigrate(testServerDB, { migrationsFolder });
+    if (extraMigrationsFolder) {
+      await nodeMigrate(testServerDB, {
+        migrationsFolder: extraMigrationsFolder,
+        migrationsTable: '__drizzle_enterprise_migrations',
+      });
+    }
 
     return testServerDB as unknown as LobeChatDatabase;
   }
@@ -47,8 +65,6 @@ export const getTestDB = async (): Promise<LobeChatDatabase> => {
   testClientDB = pgliteDrizzle({ client: pglite, schema });
 
   // Custom migration that skips pg_search-related SQL for PGlite compatibility
-  const migrations = readMigrationFiles({ migrationsFolder });
-
   await testClientDB.execute(sql`CREATE SCHEMA IF NOT EXISTS "drizzle"`);
   await testClientDB.execute(sql`
     CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (
@@ -58,21 +74,26 @@ export const getTestDB = async (): Promise<LobeChatDatabase> => {
     )
   `);
 
-  for (const migration of migrations) {
-    const skipSql = migration.sql.some(
-      (s) => s.toLowerCase().includes('pg_search') || s.toLowerCase().includes('bm25'),
-    );
+  const applyMigrations = async (folder: string) => {
+    for (const migration of readMigrationFiles({ migrationsFolder: folder })) {
+      const skipSql = migration.sql.some(
+        (s) => s.toLowerCase().includes('pg_search') || s.toLowerCase().includes('bm25'),
+      );
 
-    if (!skipSql) {
-      for (const stmt of migration.sql) {
-        await testClientDB.execute(sql.raw(stmt));
+      if (!skipSql) {
+        for (const stmt of migration.sql) {
+          await testClientDB!.execute(sql.raw(stmt));
+        }
       }
-    }
 
-    await testClientDB.execute(
-      sql`INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES (${migration.hash}, ${migration.folderMillis})`,
-    );
-  }
+      await testClientDB!.execute(
+        sql`INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES (${migration.hash}, ${migration.folderMillis})`,
+      );
+    }
+  };
+
+  await applyMigrations(migrationsFolder);
+  if (extraMigrationsFolder) await applyMigrations(extraMigrationsFolder);
 
   return testClientDB as unknown as LobeChatDatabase;
 };

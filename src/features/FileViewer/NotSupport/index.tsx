@@ -1,3 +1,4 @@
+import { BRANDING_EMAIL } from '@lobechat/business-const';
 import { Center, Flexbox, FluentEmoji } from '@lobehub/ui';
 import { Button } from '@lobehub/ui/base-ui';
 import { createStaticStyles } from 'antd-style';
@@ -24,10 +25,12 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
 interface NotSupportProps {
   fileName?: string;
   style?: CSSProperties;
+  /** Explain a bounded-preview limit instead of claiming the format is unsupported. */
+  tooLarge?: boolean;
   url?: string | null;
 }
 
-const NotSupport: ComponentType<NotSupportProps> = ({ fileName, url, style }) => {
+const NotSupport: ComponentType<NotSupportProps> = ({ fileName, url, style, tooLarge }) => {
   const { t } = useTranslation('file');
   const [loading, setLoading] = useState(false);
 
@@ -37,20 +40,28 @@ const NotSupport: ComponentType<NotSupportProps> = ({ fileName, url, style }) =>
         <Flexbox align={'center'} gap={12}>
           <FluentEmoji emoji={'👀'} size={64} />
           <Flexbox style={{ textAlign: 'center' }}>
-            <Trans
-              i18nKey="preview.unsupportedFileAndContact"
-              ns={'file'}
-              components={[
-                <span key="0" />,
-                <a
-                  aria-label={'todo'}
-                  href={vendorLink(MORE_FILE_PREVIEW_REQUEST_URL)}
-                  key="1"
-                  rel="noreferrer"
-                  target="_blank"
-                />,
-              ]}
-            />
+            {tooLarge ? (
+              t('preview.tooLarge')
+            ) : (
+              <Trans
+                i18nKey="preview.unsupportedFileAndContact"
+                ns={'file'}
+                components={[
+                  <span key="0" />,
+                  <a
+                    aria-label={'todo'}
+                    key="1"
+                    rel="noreferrer"
+                    target="_blank"
+                    href={
+                      BRANDING_EMAIL.support
+                        ? `mailto:${BRANDING_EMAIL.support}`
+                        : vendorLink(MORE_FILE_PREVIEW_REQUEST_URL)
+                    }
+                  />,
+                ]}
+              />
+            )}
           </Flexbox>
           {url && (
             <Button

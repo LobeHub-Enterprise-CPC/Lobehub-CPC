@@ -7,6 +7,8 @@
  * - Per-request runtimes (e.g., CloudSandbox - needs topicId, userId)
  */
 
+import { PageAgentIdentifier } from '@lobechat/builtin-tool-page-agent';
+
 import type { ToolExecutionContext } from '../types';
 import { acceptanceEvidenceRuntime } from './acceptanceEvidence';
 import { activatorRuntime } from './activator';
@@ -17,13 +19,16 @@ import { agentSignalFeedbackIntentRuntime } from './agentSignalFeedbackIntent';
 import { agentSignalReflectionRuntime } from './agentSignalReflection';
 import { agentSignalReviewRuntime } from './agentSignalReview';
 import { agentSignalSkillManagementRuntime } from './agentSignalSkillManagement';
+import { attachmentsRuntime } from './attachments';
 import { auvRuntime } from './auv';
 import { briefRuntime } from './brief';
 import { browserRuntime } from './browser';
 import { calculatorRuntime } from './calculator';
+import { channelArtifactRuntime } from './channelArtifact';
 import { cloudSandboxRuntime } from './cloudSandbox';
 import { credsRuntime } from './creds';
 import { goalRuntime } from './goal';
+import { goalReportRuntime } from './goalReport';
 import { goalSupervisorRuntime } from './goalSupervisor';
 import { groupAgentBuilderRuntime } from './groupAgentBuilder';
 import { groupManagementRuntime } from './groupManagement';
@@ -34,7 +39,6 @@ import { localSystemRuntime } from './localSystem';
 import { memoryRuntime } from './memory';
 import { messageRuntime } from './message';
 import { notebookRuntime } from './notebook';
-import { pageAgentRuntime } from './pageAgent';
 import { remoteDeviceRuntime } from './remoteDevice';
 import { selfFeedbackIntentRuntime } from './selfFeedbackIntent';
 import { skillManagementRuntime } from './skillManagement';
@@ -45,6 +49,7 @@ import { topicReferenceRuntime } from './topicReference';
 import type { ServerRuntimeFactory, ServerRuntimeRegistration } from './types';
 import { userInteractionRuntime } from './userInteraction';
 import { verifyResultRuntime } from './verifyResult';
+import { videoGenerationRuntime } from './videoGeneration';
 import { webBrowsingRuntime } from './webBrowsing';
 import { webOnboardingRuntime } from './webOnboarding';
 
@@ -90,9 +95,12 @@ registerRuntimes([
   groupAgentBuilderRuntime,
   groupManagementRuntime,
   goalRuntime,
+  goalReportRuntime,
   goalSupervisorRuntime,
   imageGenerationRuntime,
+  videoGenerationRuntime,
   knowledgeBaseRuntime,
+  attachmentsRuntime,
   webOnboardingRuntime,
   lobeAgentRuntime,
   selfFeedbackIntentRuntime,
@@ -100,7 +108,12 @@ registerRuntimes([
   agentSignalReviewRuntime,
   agentSignalReflectionRuntime,
   agentSignalFeedbackIntentRuntime,
-  pageAgentRuntime,
+  channelArtifactRuntime,
+  {
+    identifier: PageAgentIdentifier,
+    // Ordinary tool discovery and headless workers do not need the editor runtime.
+    factory: async (context) => (await import('./pageAgent')).pageAgentRuntime.factory(context),
+  },
   verifyResultRuntime,
 ]);
 

@@ -14,7 +14,7 @@ import { useNavLayout } from '@/hooks/useNavLayout';
 import { isModifierClick } from '@/utils/navigation';
 
 /** Keys that are rendered in the header; all others are managed by Body via sidebarSectionOrder */
-const HEADER_KEYS = new Set(['home', 'search']);
+const HEADER_KEYS = new Set(['home', 'search', 'channels']);
 
 const Nav = memo(() => {
   const tab = useActiveTabKey();

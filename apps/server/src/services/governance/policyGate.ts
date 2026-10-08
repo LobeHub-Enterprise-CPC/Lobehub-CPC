@@ -77,7 +77,7 @@ const matchesRule = (
  * requirement, this should fail CLOSED instead).
  */
 export const checkCommand = async (
-  ctx: CommandGovernanceContext,
+  ctx: CommandGovernanceContext & { commandText: string },
   db: LobeChatDatabase,
 ): Promise<CommandGovernanceDecision> => {
   if (!isGovernanceEnabled()) return { allowed: true };

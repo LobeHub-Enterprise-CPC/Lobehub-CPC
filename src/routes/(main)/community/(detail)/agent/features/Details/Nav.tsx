@@ -1,6 +1,5 @@
 'use client';
 
-import { SOCIAL_URL } from '@lobechat/business-const';
 import { Flexbox, Icon } from '@lobehub/ui';
 import { Tabs, Tag } from '@lobehub/ui/base-ui';
 import { createStaticStyles } from 'antd-style';
@@ -15,6 +14,7 @@ import {
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import SupportLink from '@/components/SupportLink';
 import { AssistantNavKey } from '@/types/discover';
 
 import { useDetailContext } from '../DetailProvider';
@@ -119,10 +119,10 @@ const Nav = memo<NavProps>(({ mobile, setActiveTab, activeTab = AssistantNavKey.
     <Flexbox horizontal align={'center'} className={styles.nav} justify={'space-between'}>
       <div className={styles.tabsWrapper}>{nav}</div>
       <Flexbox horizontal flex="none" gap={12} style={{ marginInlineStart: 12 }}>
-        <a className={styles.link} href={SOCIAL_URL.discord} rel="noreferrer" target="_blank">
+        <SupportLink className={styles.link}>
           {t('mcp.details.nav.needHelp')}
           <Icon icon={SquareArrowOutUpRight} size={12} />
-        </a>
+        </SupportLink>
       </Flexbox>
     </Flexbox>
   );

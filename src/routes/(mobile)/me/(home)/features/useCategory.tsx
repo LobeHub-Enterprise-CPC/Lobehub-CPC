@@ -1,4 +1,9 @@
-import { LOBE_CHAT_CLOUD, UTM_SOURCE } from '@lobechat/business-const';
+import {
+  BRANDING_EMAIL,
+  CHANGELOG_ENABLED,
+  LOBE_CHAT_CLOUD,
+  UTM_SOURCE,
+} from '@lobechat/business-const';
 import { DOWNLOAD_URL, OFFICIAL_URL } from '@lobechat/const';
 import {
   Book,
@@ -17,6 +22,8 @@ import useBusinessMeCells from '@/business/client/features/User/useBusinessMeCel
 import { type CellProps } from '@/components/Cell';
 import { openChangelogModal } from '@/components/ChangelogModal';
 import { DOCUMENTS, FEEDBACK } from '@/const/index';
+import { isCustomBranding } from '@/const/version';
+import { useDesktopDownload } from '@/features/Downloads/useDesktopDownload';
 import { usePlatform } from '@/hooks/usePlatform';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useUserStore } from '@/store/user';
@@ -29,6 +36,7 @@ export const useCategory = () => {
   const [isLoginWithAuth] = useUserStore((s) => [authSelectors.isLoginWithAuth(s)]);
   const { isIOS, isAndroid } = usePlatform();
   const businessMeCells = useBusinessMeCells();
+  const desktopDownload = useDesktopDownload();
 
   const downloadUrl = useMemo(() => {
     if (isIOS) return DOWNLOAD_URL.ios;
@@ -57,43 +65,49 @@ export const useCategory = () => {
     },
   ];
 
-  const getDesktopApp: CellProps[] = [
-    {
-      icon: Download,
-      key: 'get-desktop-app',
-      label: t('getDesktopApp'),
-      onClick: () => window.open(downloadUrl, '__blank'),
-    },
-    {
-      type: 'divider',
-    },
-  ];
+  const getDesktopApp: CellProps[] =
+    isCustomBranding && !desktopDownload.available
+      ? []
+      : [
+          {
+            icon: Download,
+            key: 'get-desktop-app',
+            label: t('getDesktopApp'),
+            onClick: () =>
+              window.open(isCustomBranding ? desktopDownload.href : downloadUrl, '__blank'),
+          },
+          {
+            type: 'divider',
+          },
+        ];
 
   const helps: CellProps[] = [
-    showCloudPromotion && {
-      icon: Cloudy,
-      key: 'cloud',
-      label: t('userPanel.cloud', { name: LOBE_CHAT_CLOUD }),
-      onClick: () => window.open(`${OFFICIAL_URL}?utm_source=${UTM_SOURCE}`, '__blank'),
-    },
-    {
+    !isCustomBranding &&
+      showCloudPromotion && {
+        icon: Cloudy,
+        key: 'cloud',
+        label: t('userPanel.cloud', { name: LOBE_CHAT_CLOUD }),
+        onClick: () => window.open(`${OFFICIAL_URL}?utm_source=${UTM_SOURCE}`, '__blank'),
+      },
+    !isCustomBranding && {
       icon: Book,
       key: 'docs',
       label: t('document'),
       onClick: () => window.open(DOCUMENTS, '__blank'),
     },
-    {
+    (!isCustomBranding || BRANDING_EMAIL.support) && {
       icon: Feather,
       key: 'feedback',
       label: t('feedback'),
       onClick: () => window.open(FEEDBACK, '__blank'),
     },
-    {
-      icon: FileClockIcon,
-      key: 'changelog',
-      label: t('changelog'),
-      onClick: () => openChangelogModal(),
-    },
+    !isCustomBranding &&
+      CHANGELOG_ENABLED && {
+        icon: FileClockIcon,
+        key: 'changelog',
+        label: t('changelog'),
+        onClick: () => openChangelogModal(),
+      },
   ].filter(Boolean) as CellProps[];
 
   const mainItems = [
@@ -104,7 +118,7 @@ export const useCategory = () => {
     ...(isLoginWithAuth ? settings : []),
     ...(isLoginWithAuth ? businessMeCells : []),
     ...getDesktopApp,
-    ...(!hideDocs ? helps : []),
+    ...(isCustomBranding || !hideDocs ? helps : []),
   ].filter(Boolean) as CellProps[];
 
   return mainItems;

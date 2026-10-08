@@ -9,6 +9,7 @@ import { tasks } from '../schemas/task';
 import { users } from '../schemas/user';
 import { workspaceInvitations, workspaceMembers } from '../schemas/workspace';
 import type { LobeChatDatabase } from '../type';
+import { ilikeContains as containsIgnoreCase } from '../utils/like';
 import { ResourcePermissionModel } from './resourcePermission';
 
 type MemberRole = 'admin' | 'member' | 'viewer';
@@ -19,10 +20,6 @@ type MemberRole = 'admin' | 'member' | 'viewer';
 const ASSIGNABLE_MEMBER_ROLES = (['owner', 'admin', 'member', 'viewer'] as const).filter((role) =>
   canWorkspaceRoleBeTaskAssignee(role),
 );
-
-const escapeLike = (value: string): string => value.replaceAll(/[\\%_]/g, (c) => `\\${c}`);
-const containsIgnoreCase = (column: unknown, needle: string) =>
-  sql<boolean>`${column} ILIKE ${`%${escapeLike(needle)}%`} ESCAPE '\\'`;
 
 export class WorkspaceMemberModel {
   private readonly db: LobeChatDatabase;
@@ -63,6 +60,29 @@ export class WorkspaceMemberModel {
         isNull(workspaceMembers.deletedAt),
       ),
     });
+  };
+
+  /**
+   * The caller's active roles across many workspaces in ONE read — for list
+   * surfaces whose rows span workspaces, where a `getMember` per workspace
+   * would turn a page into a chain of sequential queries.
+   */
+  getRolesInWorkspaces = async (
+    workspaceIds: string[],
+    userId: string,
+  ): Promise<Map<string, string>> => {
+    if (workspaceIds.length === 0) return new Map();
+    const rows = await this.db
+      .select({ role: workspaceMembers.role, workspaceId: workspaceMembers.workspaceId })
+      .from(workspaceMembers)
+      .where(
+        and(
+          inArray(workspaceMembers.workspaceId, workspaceIds),
+          eq(workspaceMembers.userId, userId),
+          isNull(workspaceMembers.deletedAt),
+        ),
+      );
+    return new Map(rows.map((row) => [row.workspaceId, row.role]));
   };
 
   /** Lock an active membership row. Call only from an enclosing transaction. */

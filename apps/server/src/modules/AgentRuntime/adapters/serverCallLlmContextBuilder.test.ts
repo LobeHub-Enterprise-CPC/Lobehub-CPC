@@ -1,8 +1,8 @@
-import type { AgentState, CallLLMPayload } from '@lobechat/agent-runtime';
+import type { AgentState, AgentWorldSnapshot, CallLLMPayload } from '@lobechat/agent-runtime';
 import type { ResolvedToolSet } from '@lobechat/context-engine';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { RuntimeExecutorContext } from '../context';
+import type { RuntimeContextBuilderContext } from '../context';
 import { buildServerCallLlmContext } from './serverCallLlmContextBuilder';
 import type { ServerCallLlmTooling } from './serverCallLlmTooling';
 
@@ -51,21 +51,26 @@ vi.mock('@/server/modules/Mecha/ContextEngineering', () => ({
   serverMessagesEngine: serverMessagesEngineMock,
 }));
 
-const createCtx = (overrides: Partial<RuntimeExecutorContext> = {}): RuntimeExecutorContext =>
+const createCtx = (
+  overrides: Partial<RuntimeContextBuilderContext> = {},
+): RuntimeContextBuilderContext =>
   ({
-    agentConfig: { chatConfig: {}, files: [], knowledgeBases: [] } as any,
-    messageModel: {} as RuntimeExecutorContext['messageModel'],
     operationId: 'operation-1',
-    serverDB: {} as RuntimeExecutorContext['serverDB'],
+    serverDB: {} as RuntimeContextBuilderContext['serverDB'],
     stepIndex: 0,
-    streamManager: {} as RuntimeExecutorContext['streamManager'],
-    toolExecutionService: {} as RuntimeExecutorContext['toolExecutionService'],
     userId: 'creator-1',
     ...overrides,
-  }) satisfies RuntimeExecutorContext;
+  }) satisfies RuntimeContextBuilderContext;
 
 const llmPayload = { messages: [] } as unknown as CallLLMPayload;
-const state = { metadata: {} } as unknown as AgentState;
+const agent = {
+  chatConfig: {},
+  files: [],
+  knowledgeBases: [],
+} as unknown as AgentWorldSnapshot['agent'];
+const createState = (overrides: Partial<AgentState> = {}): AgentState =>
+  ({ metadata: {}, world: { agent }, ...overrides }) as unknown as AgentState;
+const state = createState();
 const tooling = {
   resolved: {
     enabledToolIds: [],
@@ -86,7 +91,7 @@ beforeEach(() => {
   getUserSettingsMock.mockResolvedValue({});
   marketCredsListMock.mockResolvedValue({ data: [] });
   workspaceFindByIdMock.mockResolvedValue(undefined);
-  serverMessagesEngineMock.mockResolvedValue([]);
+  serverMessagesEngineMock.mockResolvedValue({ messages: [], metadata: {} });
   resolveServerCallLlmContextHintsMock.mockResolvedValue({
     capabilities: {
       isCanUseAudio: () => false,
@@ -96,6 +101,73 @@ beforeEach(() => {
     },
     messagesForContext: [],
     shouldReplayAssistantReasoning: false,
+  });
+});
+
+/**
+ * Covers the executor-context to engine-input link. Every failure this feature
+ * has had was a name dropped from an explicit field list rather than broken
+ * logic, and each one was silent: the injectors kept working, they just never
+ * received anything. So each link gets an assertion of its own.
+ */
+describe('buildServerCallLlmContext - system-message context reaches the engine', () => {
+  it.each([
+    { expected: false, stream: false },
+    { expected: true, stream: undefined },
+  ])(
+    'respects operation stream=$stream with a transport-free context',
+    async ({ expected, stream }) => {
+      resolveServerCallLlmContextHintsMock.mockResolvedValue({
+        messagesForContext: [],
+        shouldReplayAssistantReasoning: false,
+        stream: true,
+      });
+
+      const result = await buildServerCallLlmContext({
+        ctx: createCtx({ stream }),
+        llmPayload,
+        model: 'gpt-4',
+        provider: 'openai',
+        state,
+        tooling,
+      });
+
+      expect(result.stream).toBe(expected);
+    },
+  );
+
+  it('forwards the project instructions off the world snapshot', async () => {
+    const projectInstructions = [{ content: 'Use bun.', source: 'AGENTS.md' }];
+
+    await buildServerCallLlmContext({
+      ctx: createCtx(),
+      llmPayload,
+      model: 'gpt-4',
+      provider: 'openai',
+      state: createState({ world: { agent, projectInstructions } }),
+      tooling,
+    });
+
+    expect(serverMessagesEngineMock).toHaveBeenCalledWith(
+      expect.objectContaining({ projectInstructions }),
+    );
+  });
+
+  it('forwards the connector ownership note off the world snapshot', async () => {
+    await buildServerCallLlmContext({
+      ctx: createCtx(),
+      llmPayload,
+      model: 'gpt-4',
+      provider: 'openai',
+      state: createState({
+        world: { agent, connectorOwnershipNote: 'Gmail runs on Alice’s account.' },
+      }),
+      tooling,
+    });
+
+    expect(serverMessagesEngineMock).toHaveBeenCalledWith(
+      expect.objectContaining({ connectorOwnershipNote: 'Gmail runs on Alice’s account.' }),
+    );
   });
 });
 
@@ -170,7 +242,7 @@ describe('buildServerCallLlmContext - workspace context', () => {
       llmPayload,
       model: 'gpt-4',
       provider: 'openai',
-      state: { metadata: { workspaceId: 'workspace-2' } } as unknown as AgentState,
+      state: createState({ origin: { workspaceId: 'workspace-2' } }),
       tooling,
     });
 

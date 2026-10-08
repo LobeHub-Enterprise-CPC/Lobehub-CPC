@@ -10,6 +10,7 @@ import { isAbortError } from '@/server/services/agentRuntime/abort';
 import type { ExecRunContext, InternalExecAgentParams } from '../types';
 import type { ApprovalClaimState } from './approvalResume';
 import type { OperationPrepResult } from './operationPrep';
+import { traceStartStage } from './sendTracing';
 import type { ToolDiscoveryResult } from './toolDiscovery';
 
 const log = debug('lobe-server:ai-agent-service');
@@ -25,23 +26,34 @@ export interface StartOperationDeps {
 }
 
 export interface StartOperationInput {
+  /** See {@link InternalExecAgentParams.acceptsMemberRuntimeEnd}. */
+  acceptsMemberRuntimeEnd?: boolean;
   approvalClaim: ApprovalClaimState;
   approvalSourceOperationId?: string;
   approvalSourceToolMessageIds: string[];
   autoStart: boolean;
   botContext?: InternalExecAgentParams['botContext'];
   botPlatformContext?: InternalExecAgentParams['botPlatformContext'];
+  channelContext?: InternalExecAgentParams['channelContext'];
   clientIp?: string;
+  /** Wire protocol the calling client declared; `2` opts the run into message_patch delivery. */
+  clientProtocol?: 1 | 2;
+  /** Tri-state disabled plugin identifiers, kept on the world slot for the context rules. */
+  disabledPluginIds?: string[];
   discordContext?: any;
   discovery: ToolDiscoveryResult;
   enableExpertise: boolean;
   evalContext?: InternalExecAgentParams['evalContext'];
   evalRuntime?: InternalExecAgentParams['evalRuntime'];
   hooks?: InternalExecAgentParams['hooks'];
+  includeFinalState?: boolean;
   /** Final runtime context — base prep context with 16b/16c overrides applied. */
   initialContext: OperationPrepResult['initialContext'];
   initialStepCount?: number;
+  /** Relay executor the calling client declared; lands on `state.host.llmExecutor`. */
+  llmExecutor?: InternalExecAgentParams['llmExecutor'];
   maxSteps?: number;
+  onOperationCreated?: InternalExecAgentParams['onOperationCreated'];
   operationId: string;
   operationTaskId?: string;
   parentOperationId?: string;
@@ -83,18 +95,22 @@ export const startOperation = async (
     provider,
     resolvedAgentId,
     shareGate,
+    topicEditingGroupId,
     topicId,
     trigger,
     userMessageId,
   } = ctx;
   const {
+    acceptsMemberRuntimeEnd,
     approvalClaim,
     approvalSourceOperationId,
     approvalSourceToolMessageIds,
     autoStart,
     botContext,
     botPlatformContext,
+    channelContext,
     clientIp,
+    disabledPluginIds,
     discordContext,
     discovery,
     enableExpertise,
@@ -120,6 +136,12 @@ export const startOperation = async (
     userTimezone,
   } = input;
   const { audio, video, vision } = discovery.modelMediaCapabilities;
+  // A builder topic continued from another surface (scope `main`, an approval
+  // resume) arrives without the group it edits; the group the topic was opened
+  // on stands in, so the run still knows its target.
+  const editingGroupId =
+    (appContext?.scope === 'group_agent_builder' ? appContext.editingGroupId : undefined) ||
+    topicEditingGroupId;
 
   log(
     'execAgent: creating operation %s — agentDocuments=%d, knowledgeBases=%s, tools=%d, skills=%d',
@@ -133,7 +155,27 @@ export const startOperation = async (
   // Wrap in try-catch to handle operation startup failures (e.g., QStash unavailable)
   // If createOperation fails, we still have valid messages that need error info
   try {
+    // A server-internal approval continuation (no client of its own declared
+    // anything — client-facing routes always pass a boolean) streams to the
+    // parked operation's client: carry its `member_runtime_end` declaration over
+    // (read here, before the parked operation is retired below).
+    const memberRuntimeEndAccepted =
+      acceptsMemberRuntimeEnd ??
+      (approvalSourceOperationId
+        ? await deps.agentRuntimeService.acceptsMemberRuntimeEnd(approvalSourceOperationId)
+        : undefined);
+    // Same client, same device: the continuation also keeps the parked
+    // operation's relay executor, or its next device-only call has none.
+    const llmExecutor =
+      input.llmExecutor ??
+      (approvalSourceOperationId
+        ? await deps.agentRuntimeService.getLlmExecutor(approvalSourceOperationId)
+        : undefined);
     const result = await deps.agentRuntimeService.createOperation({
+      acceptsMemberRuntimeEnd: memberRuntimeEndAccepted,
+      clientProtocol: input.clientProtocol,
+      includeFinalState: input.includeFinalState,
+      llmExecutor,
       activeDeviceId: discovery.activeDeviceId,
       activeDeviceScope: discovery.activeDeviceScope,
       agentConfig,
@@ -167,6 +209,12 @@ export const startOperation = async (
             // creation time. See `AgentShareGate.shareId`'s JSDoc for why the
             // id itself is the revocation token.
             shareId: shareGate.shareId,
+            // Mirrors `shareConfig.skillGrants` so the skill runtime can
+            // re-check every load against the SAME allowlist the skill pool was
+            // assembled from. Assembly alone is not enough: `activateSkill`
+            // resolves a model-supplied skill NAME, so a name the pool never
+            // offered still reaches the runtime.
+            skillGrants: shareGate.shareConfig.skillGrants,
             showErrorDetails: shareGate.shareConfig.showErrorDetails,
             showModelInfo: shareGate.shareConfig.showModelInfo,
             visitorUserId: shareGate.visitorUserId,
@@ -174,6 +222,7 @@ export const startOperation = async (
         : undefined,
       deviceSystemInfo:
         Object.keys(prep.deviceSystemInfo).length > 0 ? prep.deviceSystemInfo : undefined,
+      disabledPluginIds,
       executionPlan: discovery.executionPlan,
       searchDecision: discovery.searchDecision,
       userTimezone,
@@ -182,7 +231,7 @@ export const startOperation = async (
         // inherit the builtin agent's tools / systemRole / model), but their
         // resource tools and receipts must attribute to the *reviewed* user
         // agent, which rides on the marker. Prefer it so the tool-execution
-        // context (state.metadata.agentId) targets the reviewed agent; ordinary
+        // context (state.origin.agentId) targets the reviewed agent; ordinary
         // runs (no marker) fall back to the resolved executing agent.
         agentId: appContext?.agentSignal?.agentId ?? resolvedAgentId,
         // Propagate the originating request's client IP / user agent into
@@ -202,11 +251,9 @@ export const startOperation = async (
         // owned by the builtin builder agent, so the edited group only rides
         // here. Read by the group-agent-builder server runtime and by the
         // `<current_group_context>` injector.
-        ...(appContext?.scope === 'group_agent_builder' && appContext?.editingGroupId
-          ? { editingGroupId: appContext.editingGroupId }
-          : {}),
+        ...(editingGroupId ? { editingGroupId } : {}),
         // Run-scoped Agent Signal marker for background self-iteration / memory
-        // runs — lands in state.metadata.agentSignal so the completion path can
+        // runs — lands in state.origin.signal so the completion path can
         // project receipts/briefs. Undefined for ordinary chat runs.
         ...(appContext?.agentSignal ? { agentSignal: appContext.agentSignal } : {}),
         defaultTaskAssigneeAgentId: appContext?.defaultTaskAssigneeAgentId,
@@ -230,14 +277,20 @@ export const startOperation = async (
         trigger,
       },
       autoStart,
+      onOperationCreated: input.onOperationCreated,
       botContext,
       botPlatformContext,
+      channelContext,
       deviceAccessPolicy: { canUseDevice, reason: deviceAccessReason },
       discordContext,
+      // Run context the context engine injects into the system message —
+      // carried on the operation like `expertise`, not on the agent config.
+      connectorOwnershipNote: discovery.connectorOwnershipNote,
       evalContext,
       evalRuntime,
       enableExpertise,
       expertise: prep.expertise,
+      projectInstructions: prep.projectInstructions,
       initialContext,
       initialMessages: prep.allMessages,
       initialStepCount,
@@ -264,10 +317,18 @@ export const startOperation = async (
           ...(typeof video === 'boolean' && { video }),
           ...(typeof vision === 'boolean' && { vision }),
         },
+        // Read once during discovery: every LLM attempt of this run resolves its
+        // parameters from here, so no step re-reads the bank, the user's model
+        // row or the reasoning config — and none of them can change mid-run.
+        modelFacts: discovery.modelFacts,
         model,
         provider,
       },
       hooks,
+      // Listed once during discovery: every step renders {{CREDS_LIST}} from
+      // here instead of asking the Market API again. Awaited only now, so the
+      // read overlapped with the operation preparation that ran in between.
+      operationCredentials: await discovery.credentialFactsPromise,
       operationId,
       parentOperationId,
       signal,
@@ -314,7 +375,14 @@ export const startOperation = async (
     // `appContext.subAgentProgress`.
     // `orchestrationRole` is public rendering metadata. Only the internally
     // propagated parent operation id proves child ownership of this topic.
-    if (!appContext?.isolationThread && !appContext?.threadId && !topicStartOwnerOperationId) {
+    // A transcript run has no topic row (and no assistant placeholder) to mark.
+    if (
+      topicId &&
+      assistantMessageId &&
+      !appContext?.isolationThread &&
+      !appContext?.threadId &&
+      !topicStartOwnerOperationId
+    ) {
       await deps.topicModel.updateMetadata(topicId, {
         runningOperation: {
           assistantMessageId,
@@ -338,7 +406,9 @@ export const startOperation = async (
     let gatewayToken: string | undefined;
     if (!deps.withholdGatewayToken) {
       try {
-        gatewayToken = await signUserJWT(shareGate?.visitorUserId ?? deps.userId);
+        gatewayToken = await traceStartStage('sign_gateway_token', () =>
+          signUserJWT(shareGate?.visitorUserId ?? deps.userId),
+        );
       } catch {
         log('execAgent: failed to sign gateway JWT, gateway auth will be unavailable');
       }
@@ -346,7 +416,8 @@ export const startOperation = async (
 
     return {
       agentId: resolvedAgentId,
-      assistantMessageId,
+      // A transcript run owns neither row; `''` keeps the public result shape.
+      assistantMessageId: assistantMessageId ?? '',
       autoStarted: result.autoStarted,
       createdAt: new Date().toISOString(),
       heteroType: null,
@@ -357,11 +428,11 @@ export const startOperation = async (
       success: true,
       timestamp: new Date().toISOString(),
       token: gatewayToken,
-      topicId,
+      topicId: topicId ?? '',
       userMessageId: userMessageId ?? parentMessageId ?? '',
     };
   } catch (error) {
-    if (topicStartOwnerOperationId) {
+    if (topicStartOwnerOperationId && topicId) {
       await deps.topicModel.removeRunningOperationChild(topicId, operationId).catch(() => false);
     }
     if (isAbortError(error)) {
@@ -385,21 +456,23 @@ export const startOperation = async (
       errorMessage,
     );
 
-    await deps.messageModel.update(assistantMessageId, {
-      content: '',
-      error: {
-        body: {
-          detail: errorMessage,
+    if (assistantMessageId) {
+      await deps.messageModel.update(assistantMessageId, {
+        content: '',
+        error: {
+          body: {
+            detail: errorMessage,
+          },
+          message: errorMessage,
+          type: 'ServerAgentRuntimeError', // ServiceUnavailable - agent runtime service unavailable
         },
-        message: errorMessage,
-        type: 'ServerAgentRuntimeError', // ServiceUnavailable - agent runtime service unavailable
-      },
-    });
+      });
+    }
 
     // Return result with error status - messages are valid but agent didn't start
     return {
       agentId: resolvedAgentId,
-      assistantMessageId,
+      assistantMessageId: assistantMessageId ?? '',
       autoStarted: false,
       createdAt: new Date().toISOString(),
       error: errorMessage,
@@ -408,7 +481,7 @@ export const startOperation = async (
       status: 'error',
       success: false,
       timestamp: new Date().toISOString(),
-      topicId,
+      topicId: topicId ?? '',
       userMessageId: userMessageId ?? parentMessageId ?? '',
     };
   }

@@ -1,17 +1,12 @@
 import type * as BusinessConst from '@lobechat/business-const';
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  buildAgentProfileTabOptions,
-  buildAgentProfileTabPath,
-  supportsMessageChannels,
-} from './tabOptions';
+import { buildAgentProfileTabOptions, buildAgentProfileTabPath } from './tabOptions';
 
-// Pin the flag rather than inherit it: `supportsMessageChannels` reads
+// Pin the flag rather than inherit it: `buildAgentProfileTabOptions` reads
 // EXTERNAL_INTEGRATIONS_ENABLED, so a distribution that ships no messengers
-// would otherwise flip the cases below out from under them. The suite is about
-// which *agents* can host channels, so it states the deployment side as true
-// and covers the off case separately.
+// would otherwise flip the cases below out from under them. The deployment
+// gate is covered separately below.
 vi.mock('@lobechat/business-const', async (importOriginal) => ({
   ...(await importOriginal<typeof BusinessConst>()),
   EXTERNAL_INTEGRATIONS_ENABLED: true,
@@ -24,37 +19,6 @@ const labels = {
   statistics: 'usageStats.title',
 };
 
-describe('supportsMessageChannels', () => {
-  it('allows cloud agents and the CLI providers that host channels', () => {
-    expect(supportsMessageChannels()).toBe(true);
-    expect(supportsMessageChannels('claude-code')).toBe(true);
-    expect(supportsMessageChannels('codex')).toBe(true);
-  });
-
-  it('rejects device-only heterogeneous agents', () => {
-    expect(supportsMessageChannels('opencode')).toBe(false);
-  });
-
-  // Channels are the external-messenger surface, so where a distribution ships
-  // none of them the segment must not be offered for any agent — including the
-  // cloud agents the case above accepts.
-  it('rejects every agent where the distribution ships no external integrations', async () => {
-    vi.resetModules();
-    vi.doMock('@lobechat/business-const', async (importOriginal) => ({
-      ...(await importOriginal<typeof BusinessConst>()),
-      EXTERNAL_INTEGRATIONS_ENABLED: false,
-    }));
-
-    const { supportsMessageChannels: withoutIntegrations } = await import('./tabOptions');
-
-    expect(withoutIntegrations()).toBe(false);
-    expect(withoutIntegrations('claude-code')).toBe(false);
-
-    vi.doUnmock('@lobechat/business-const');
-    vi.resetModules();
-  });
-});
-
 describe('buildAgentProfileTabPath', () => {
   it('builds the sub-route of the agent', () => {
     expect(buildAgentProfileTabPath('agt_1', 'statistics')).toBe('/agent/agt_1/statistics');
@@ -66,7 +30,6 @@ describe('buildAgentProfileTabOptions', () => {
     const options = buildAgentProfileTabOptions({
       active: 'profile',
       canConfigure: true,
-      channelsSupported: true,
       labels,
       shareSupported: true,
     });
@@ -79,23 +42,21 @@ describe('buildAgentProfileTabOptions', () => {
     ]);
   });
 
-  it('drops channels when the agent cannot host them', () => {
+  it('allows configuring channels even when the agent needs a device to execute', () => {
     const options = buildAgentProfileTabOptions({
       active: 'profile',
       canConfigure: true,
-      channelsSupported: false,
       labels,
       shareSupported: false,
     });
 
-    expect(options.map((option) => option.value)).toEqual(['profile', 'statistics']);
+    expect(options.map((option) => option.value)).toEqual(['profile', 'channel', 'statistics']);
   });
 
   it('drops the config tabs for a member without edit access', () => {
     const options = buildAgentProfileTabOptions({
       active: 'statistics',
       canConfigure: false,
-      channelsSupported: true,
       labels,
       shareSupported: true,
     });
@@ -107,7 +68,6 @@ describe('buildAgentProfileTabOptions', () => {
     const options = buildAgentProfileTabOptions({
       active: 'channel',
       canConfigure: false,
-      channelsSupported: false,
       labels,
       shareSupported: false,
     });
@@ -119,7 +79,6 @@ describe('buildAgentProfileTabOptions', () => {
     const options = buildAgentProfileTabOptions({
       active: 'profile',
       canConfigure: true,
-      channelsSupported: true,
       labels,
       shareSupported: false,
     });
@@ -131,11 +90,35 @@ describe('buildAgentProfileTabOptions', () => {
     const options = buildAgentProfileTabOptions({
       active: 'share',
       canConfigure: false,
-      channelsSupported: false,
       labels,
       shareSupported: false,
     });
 
     expect(options.map((option) => option.value)).toEqual(['statistics', 'share']);
+  });
+
+  // Channels are the external-messenger surface, so where a distribution ships
+  // none of them the segment must not be offered for any agent — the route
+  // itself bounces back out in that case.
+  it('drops the channel segment where the distribution ships no external integrations', async () => {
+    vi.resetModules();
+    vi.doMock('@lobechat/business-const', async (importOriginal) => ({
+      ...(await importOriginal<typeof BusinessConst>()),
+      EXTERNAL_INTEGRATIONS_ENABLED: false,
+    }));
+
+    const { buildAgentProfileTabOptions: withoutIntegrations } = await import('./tabOptions');
+
+    const options = withoutIntegrations({
+      active: 'profile',
+      canConfigure: true,
+      labels,
+      shareSupported: true,
+    });
+
+    expect(options.map((option) => option.value)).toEqual(['profile', 'statistics', 'share']);
+
+    vi.doUnmock('@lobechat/business-const');
+    vi.resetModules();
   });
 });

@@ -27,6 +27,7 @@ import type { GroupAgentBuilderContext } from '../../providers/GroupAgentBuilder
 import type { GroupMemberInfo } from '../../providers/GroupContextInjector';
 import type { OnboardingContext } from '../../providers/OnboardingContextInjector';
 import type { Plan } from '../../providers/PlanInjector';
+import type { ProjectInstructionFile } from '../../providers/ProjectInstructionsInjector';
 import type { SkillMeta } from '../../providers/SkillContextProvider';
 import type { TodoList } from '../../providers/TodoInjector';
 import type { ToolDiscoveryMeta } from '../../providers/ToolDiscoveryProvider';
@@ -246,6 +247,11 @@ export interface MessagesEngineParams {
   enableAgentMode?: boolean;
   /** Whether to enable history message count limit */
   enableHistoryCount?: boolean;
+  /**
+   * Whether stale tool results are replaced with short placeholders in the
+   * model context. Undefined / true → trimming enabled (default).
+   */
+  enableStaleToolResultTrim?: boolean;
   /** Whether to inject the operation expertise snapshot */
   enableExpertise?: boolean;
   /** Force finish flag: when true, injects summary prompt for max-steps completion */
@@ -316,7 +322,11 @@ export interface MessagesEngineParams {
   /** Discord context for injecting channel/guild info into system injection message */
   discordContext?: DiscordContext;
   /** Eval context for injecting environment prompts into system message */
+  /** Borrowed-connector attribution note, already rendered by the caller. */
+  connectorOwnershipNote?: string;
   evalContext?: EvalContext;
+  /** A project's root instruction files (`AGENTS.md` / `CLAUDE.md`). */
+  projectInstructions?: ProjectInstructionFile[];
   /** Onboarding context for injecting phase guidance and documents */
   onboardingContext?: OnboardingContext;
   /** Agent Management context */

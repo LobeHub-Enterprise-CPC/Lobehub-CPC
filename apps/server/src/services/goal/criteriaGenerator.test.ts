@@ -8,7 +8,9 @@ const { generateObject, resolveGoalModelConfig } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/server/services/aiGeneration', () => ({
-  AiGenerationService: vi.fn(() => ({ generateObject })),
+  AiGenerationService: vi.fn(function () {
+    return { generateObject };
+  }),
 }));
 
 vi.mock('./modelConfig', () => ({ resolveGoalModelConfig }));
@@ -56,14 +58,17 @@ describe('GoalCriteriaGeneratorService', () => {
       ],
     };
     generateObject.mockResolvedValueOnce(draft);
-    await expect(service.decompose({ requirement: 'Upgrade office editing' })).resolves.toEqual(
-      draft,
-    );
+    // An answer without the understanding fields still plans, as a clear goal.
+    await expect(service.decompose({ requirement: 'Upgrade office editing' })).resolves.toEqual({
+      ...draft,
+      assumptions: [],
+      questions: [],
+    });
     expect(generateObject).toHaveBeenLastCalledWith(
       expect.objectContaining({ schema: expect.objectContaining({ name: 'goal_decomposition' }) }),
       expect.objectContaining({
         tracing: {
-          promptVersion: 'v4',
+          promptVersion: 'v6',
           scenario: 'goal_decompose',
           schemaName: 'goal_decomposition',
         },

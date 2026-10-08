@@ -38,8 +38,26 @@ export type AcceptanceListItem = Awaited<
 
 export type AcceptanceListPage = Awaited<ReturnType<typeof lambdaClient.acceptance.listPage.query>>;
 
+export type AcceptancePurgePreview = Awaited<
+  ReturnType<typeof lambdaClient.acceptance.purgePreview.query>
+>;
+
 /** The list's status split, shared by the flat and paged reads. */
 export type AcceptanceListFilter = 'active' | 'all' | 'completed';
+
+/** Whose acceptances: the active scope, only mine, or any I commented on. */
+export type AcceptanceListScope = 'all' | 'created' | 'participated';
+
+/** Where the acceptance came from; `standalone` also covers documents. */
+export type AcceptanceListSource = 'all' | 'goal' | 'standalone' | 'task' | 'topic';
+
+/** Every list narrowing beyond search. `projectId: null` = filed under no project. */
+export interface AcceptanceListQuery {
+  filter?: AcceptanceListFilter;
+  projectId?: string | null;
+  scope?: AcceptanceListScope;
+  source?: AcceptanceListSource;
+}
 
 /** The lifecycle states a reviewer may set by hand from the acceptance list. */
 export type AcceptanceStatusOverride = 'accepted' | 'closed' | 'delivered' | 'rejected';
@@ -155,7 +173,6 @@ export interface GenerateDraftPlanInput {
   enableAiGeneration?: boolean;
   goal: string;
   maxAiCriteria?: number;
-  modelConfig?: { model: string; provider: string };
   operationId: string;
   verifyCriteriaIds?: string[];
   verifyRubricId?: string | null;
@@ -172,6 +189,9 @@ export class VerifyService {
   // ---- subject-level acceptance ----
   getAcceptanceBundle = (id: string): Promise<AcceptanceBundle> =>
     lambdaClient.acceptance.getBundle.query({ id });
+
+  setAcceptanceVisibility = (id: string, visibility: 'private' | 'public') =>
+    lambdaClient.acceptance.setVisibility.mutate({ id, visibility });
 
   /** The acceptance aggregate for a subject (topic/task/document), or null. */
   getAcceptanceBySubject = (subjectType: AcceptanceSubjectType, subjectId: string) =>
@@ -191,14 +211,14 @@ export class VerifyService {
     requirement: string,
   ) => lambdaClient.acceptance.saveGoal.mutate({ requirement, subjectId, subjectType });
 
-  listAcceptances = (options?: {
-    filter?: 'active' | 'all' | 'completed';
-    /** Widen the recency window (server-capped) — the merge picker asks for more. */
-    limit?: number;
-    projectId?: string;
-    q?: string;
-    quiet?: boolean;
-  }): Promise<AcceptanceListItem[]> =>
+  listAcceptances = (
+    options?: AcceptanceListQuery & {
+      /** Widen the recency window (server-capped) — the merge picker asks for more. */
+      limit?: number;
+      q?: string;
+      quiet?: boolean;
+    },
+  ): Promise<AcceptanceListItem[]> =>
     lambdaClient.acceptance.list.query(
       options
         ? {
@@ -206,18 +226,20 @@ export class VerifyService {
             limit: options.limit,
             projectId: options.projectId,
             q: options.q,
+            scope: options.scope,
+            source: options.source,
           }
         : undefined,
       options?.quiet ? { context: { showNotification: false } } : undefined,
     );
 
   /** One keyset page of the acceptance feed — what the list panel scrolls. */
-  listAcceptancePage = (params: {
-    cursor?: string;
-    filter?: AcceptanceListFilter;
-    limit?: number;
-    projectId?: string;
-  }): Promise<AcceptanceListPage> => lambdaClient.acceptance.listPage.query(params);
+  listAcceptancePage = (
+    params: AcceptanceListQuery & {
+      cursor?: string;
+      limit?: number;
+    },
+  ): Promise<AcceptanceListPage> => lambdaClient.acceptance.listPage.query(params);
 
   /**
    * Acceptance status for a known set of subjects. `listAcceptances` is capped
@@ -233,8 +255,8 @@ export class VerifyService {
   acceptDelivery = (id: string, comment?: string) =>
     lambdaClient.acceptance.accept.mutate({ comment, id });
 
-  rejectDelivery = (id: string, comment: string) =>
-    lambdaClient.acceptance.reject.mutate({ comment, id });
+  rejectDelivery = (id: string, comment?: string, options?: { dispatch?: boolean }) =>
+    lambdaClient.acceptance.reject.mutate({ comment, dispatch: options?.dispatch, id });
 
   /**
    * The user's verdict on individual union checks — accept settles a check for
@@ -343,11 +365,16 @@ export class VerifyService {
   mergeAcceptance = (sourceId: string, targetId: string) =>
     lambdaClient.acceptance.merge.mutate({ sourceId, targetId });
 
-  /** Delete the acceptance aggregate (its round reports detach, not delete). */
-  deleteAcceptance = (id: string) => lambdaClient.acceptance.remove.mutate({ id });
+  getAcceptancePurgePreview = (ids: string[]) =>
+    lambdaClient.acceptance.purgePreview.query({ ids });
+
+  /** Delete the acceptance aggregate; its round reports detach unless `purge` removes them too. */
+  deleteAcceptance = (id: string, purge?: boolean) =>
+    lambdaClient.acceptance.remove.mutate({ id, purge });
 
   /** Batch twin of `deleteAcceptance` for the list's multi-selection. */
-  deleteAcceptanceBatch = (ids: string[]) => lambdaClient.acceptance.removeBatch.mutate({ ids });
+  deleteAcceptanceBatch = (ids: string[], purge?: boolean) =>
+    lambdaClient.acceptance.removeBatch.mutate({ ids, purge });
 
   // ---- per-run plan ----
   getVerifyState = (operationId: string): Promise<VerifyStateResponse | null> =>
@@ -430,7 +457,6 @@ export class VerifyService {
     context?: string;
     goal: string;
     maxCriteria?: number;
-    modelConfig: { model: string; provider: string };
   }): Promise<VerifyCriterionDraft[]> =>
     lambdaClient.verify.generateCriteria.mutate(input) as Promise<VerifyCriterionDraft[]>;
 

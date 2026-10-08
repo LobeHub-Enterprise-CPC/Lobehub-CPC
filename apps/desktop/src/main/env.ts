@@ -1,4 +1,4 @@
-import { OFFICIAL_URL } from '@lobechat/const/url';
+import { OFFICIAL_CLOUD_URL } from '@lobechat/const/url';
 import { createEnv } from '@t3-oss/env-core';
 import { memoize } from 'es-toolkit';
 import { z } from 'zod';
@@ -108,9 +108,9 @@ export const getDesktopEnv = memoize(() =>
        */
       DESKTOP_CLI_BIN_NAMES: z.string().optional(),
       /**
-       * The app's own name, used for the per-user data directory. Unset keeps
-       * Electron's default, which is `productName ?? name` from the packaged
-       * manifest — this repository's package name.
+       * Display name for menus and packaging. pre-app-init separately reads
+       * DESKTOP_APP_NAME and DESKTOP_USER_DATA_NAME to preserve stable identity
+       * and profile paths across display-name changes.
        */
       DESKTOP_PRODUCT_NAME: z.string().optional(),
 
@@ -162,7 +162,7 @@ export const getDesktopEnv = memoize(() =>
       NODE_ENV: z.enum(['development', 'production', 'test']).optional(),
 
       // cloud server url (can be overridden for selfhost/dev)
-      OFFICIAL_CLOUD_SERVER: z.string().optional().default(OFFICIAL_URL),
+      OFFICIAL_CLOUD_SERVER: z.string().optional().default(OFFICIAL_CLOUD_URL),
 
       // updater
       // process.env.xxx will replace in build stage

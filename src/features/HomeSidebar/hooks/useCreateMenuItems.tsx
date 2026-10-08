@@ -1,8 +1,8 @@
 import type { SFSymbol } from '@lobechat/electron-client-ipc';
+import type { ItemType } from '@lobehub/ui';
 import { Flexbox, Icon } from '@lobehub/ui';
 import { Text, toast } from '@lobehub/ui/base-ui';
 import { GroupBotSquareIcon } from '@lobehub/ui/icons';
-import type { ItemType } from 'antd/es/menu/interface';
 import {
   BotIcon,
   FileTextIcon,
@@ -449,9 +449,6 @@ export const useCreateMenuItems = () => {
 
   /**
    * Top-level create menu shown by the Agent section and header add buttons.
-   *
-   * Regression example: the Agent section + menu used to expose only local creation actions,
-   * so users had no visible entry to `/community/agent`.
    */
   const createTopLevelMenuItems = useCallback((): ItemType[] => {
     const connectItem = createConnectAgentMenuItem();
@@ -462,14 +459,12 @@ export const useCreateMenuItems = () => {
       ...(connectItem ? [{ type: 'divider' as const }, connectItem] : []),
       { type: 'divider' as const },
       createAgentListMenuItem(),
-      createMarketAgentMenuItem(),
     ];
   }, [
     createAgentListMenuItem,
     createAgentMenuItem,
     createConnectAgentMenuItem,
     createGroupChatMenuItem,
-    createMarketAgentMenuItem,
   ]);
 
   return {

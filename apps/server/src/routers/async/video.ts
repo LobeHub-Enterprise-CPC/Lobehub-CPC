@@ -22,6 +22,7 @@ import { asyncAuthedProcedure, asyncRouter as router } from '@/libs/trpc/async';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
 import { VideoGenerationService } from '@/server/services/generation/video';
 import { buildVideoGenerationFilePayload } from '@/server/services/generation/videoFile';
+import { measureVideoOutputUsage } from '@/server/services/generation/videoOutputUsage';
 import { FileSource } from '@/types/files';
 
 const log = debug('lobe-video:async');
@@ -68,8 +69,8 @@ async function pollUntilCompletion(
   model: string,
   signal: AbortSignal,
 ): Promise<{ headers?: Record<string, string>; videoUrl: string } | null> {
-  const maxRetries = 120;
   const pollingInterval = 5000;
+  const maxRetries = Math.ceil(ASYNC_TASK_TIMEOUT / pollingInterval);
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     checkAbortSignal(signal);
@@ -231,6 +232,7 @@ export const videoRouter = router({
           try {
             await chargeAfterGenerate({
               computePriceParams: {
+                duration: (batch?.config as any)?.duration,
                 generateAudio: (batch?.config as any)?.generateAudio,
                 resolution: (batch?.config as any)?.resolution,
               },
@@ -249,7 +251,7 @@ export const videoRouter = router({
               model: resolvedModelId,
               prechargeResult,
               provider,
-              usage: undefined,
+              usage: measureVideoOutputUsage(resolvedModelId, processResult),
               userId: ctx.userId,
               workspaceId,
             });

@@ -1,6 +1,5 @@
 'use client';
 
-import { SOCIAL_URL } from '@lobechat/business-const';
 import { Flexbox, Icon } from '@lobehub/ui';
 import { Tabs, type TabsItem, Tag } from '@lobehub/ui/base-ui';
 import { createStaticStyles } from 'antd-style';
@@ -16,8 +15,8 @@ import {
 } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import urlJoin from 'url-join';
 
+import SupportLink from '@/components/SupportLink';
 import { useToolStore } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
 import { McpNavKey } from '@/types/discover';
@@ -188,22 +187,15 @@ const Nav = memo<NavProps>(
             gap={12}
             style={{ marginInlineStart: 12, whiteSpace: 'nowrap' }}
           >
-            <a className={styles.link} href={SOCIAL_URL.discord} rel="noreferrer" target="_blank">
-              {t('mcp.details.nav.needHelp')}
-            </a>
+            <SupportLink className={styles.link}>{t('mcp.details.nav.needHelp')}</SupportLink>
             {github?.url && (
               <>
                 <a className={styles.link} href={github.url} rel="noreferrer" target="_blank">
                   {t('mcp.details.nav.viewSourceCode')}
                 </a>
-                <a
-                  className={styles.link}
-                  href={urlJoin(github.url, 'issues')}
-                  rel="noreferrer"
-                  target="_blank"
-                >
+                <SupportLink className={styles.link}>
                   {t('mcp.details.nav.reportIssue')}
-                </a>
+                </SupportLink>
               </>
             )}
           </Flexbox>

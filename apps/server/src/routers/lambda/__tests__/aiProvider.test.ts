@@ -1,10 +1,13 @@
 // @vitest-environment node
 import type * as BusinessConst from '@lobechat/business-const';
 import { OFFICIAL_PROVIDER_DISABLE_ERROR } from '@lobechat/business-const';
+import { resolveHeterogeneousProviderBinding } from '@lobechat/heterogeneous-agents';
 import { RequestTrigger } from '@lobechat/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { AiModelModel } from '@/database/models/aiModel';
 import { AiProviderModel } from '@/database/models/aiProvider';
+import { UserModel } from '@/database/models/user';
 import { AiInfraRepos } from '@/database/repositories/aiInfra';
 import { getServerGlobalConfig } from '@/server/globalConfig';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
@@ -26,6 +29,7 @@ vi.mock('@lobechat/business-model-bank/model-config', () => ({
 vi.mock('@/server/globalConfig');
 vi.mock('@/server/modules/KeyVaultsEncrypt');
 vi.mock('@/database/repositories/aiInfra');
+vi.mock('@/database/models/aiModel');
 vi.mock('@/database/models/aiProvider');
 vi.mock('@/database/models/user');
 vi.mock('@/server/modules/ModelRuntime', () => ({
@@ -74,7 +78,10 @@ describe('aiProviderRouter', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetHiddenBuiltinModelsForUser.mockResolvedValue([]);
+    // Keep the automock default (no configs) so a per-test override doesn't leak
+    vi.mocked(AiModelModel).prototype.getAllModelReasoningConfigs = vi.fn();
     mockIsLobeHubModelAvailable.mockResolvedValue(true);
+    vi.mocked(UserModel.findById).mockResolvedValue(undefined);
 
     vi.mocked(getServerGlobalConfig).mockReturnValue({
       aiProvider: {},
@@ -86,6 +93,38 @@ describe('aiProviderRouter', () => {
   const createMockContext = () => ({
     userId: mockUserId,
   });
+
+  it.each([
+    { email: null, expectedEmail: undefined },
+    { email: undefined, expectedEmail: undefined },
+    { email: 'member@example.com', expectedEmail: 'member@example.com' },
+  ])(
+    'passes email $email through both runtime availability gates',
+    async ({ email, expectedEmail }) => {
+      vi.mocked(UserModel.findById).mockResolvedValue({ email } as any);
+      const model = { abilities: {}, id: 'beta-model', providerId: 'lobehub', type: 'chat' };
+      vi.mocked(AiInfraRepos).prototype.getAiProviderRuntimeState = vi.fn().mockResolvedValue({
+        ...mockRuntimeState,
+        enabledAiModels: [model],
+        enabledAiProviders: [{ id: 'lobehub', source: 'builtin' }],
+      });
+      mockIsLobeHubModelAvailable.mockResolvedValue(false);
+
+      const caller = aiProviderRouter.createCaller(createMockContext());
+      const runtime = await caller.getAiProviderRuntimeState({});
+      const binding = await caller.getProviderBindingRuntime({ id: 'lobehub' });
+
+      expect(runtime.enabledAiModels).toEqual([]);
+      expect(binding.enabledModels).toEqual([]);
+      expect(mockIsLobeHubModelAvailable).toHaveBeenCalledTimes(2);
+      expect(mockIsLobeHubModelAvailable).toHaveBeenNthCalledWith(1, 'beta-model', 'chat', {
+        userEmail: expectedEmail,
+      });
+      expect(mockIsLobeHubModelAvailable).toHaveBeenNthCalledWith(2, 'beta-model', 'chat', {
+        userEmail: expectedEmail,
+      });
+    },
+  );
 
   describe('checkProviderConnectivity', () => {
     it('should pass api trigger metadata to the runtime connectivity check', async () => {
@@ -183,6 +222,21 @@ describe('aiProviderRouter', () => {
         providerBindingAgentTypes: {},
       });
       expect(mockGetState).toHaveBeenCalledWith(KeyVaultsGateKeeper.getUserKeyVaults);
+    });
+
+    it('returns the personal reasoning configs alongside the runtime state', async () => {
+      vi.mocked(AiInfraRepos).prototype.getAiProviderRuntimeState = vi
+        .fn()
+        .mockResolvedValue(mockRuntimeState);
+      const modelReasoningConfigs = { 'openai/gpt-5.6-sol': { gpt5_6ReasoningEffort: 'high' } };
+      vi.mocked(AiModelModel).prototype.getAllModelReasoningConfigs = vi
+        .fn()
+        .mockResolvedValue(modelReasoningConfigs);
+
+      const caller = aiProviderRouter.createCaller(createMockContext());
+      const result = await caller.getAiProviderRuntimeState({});
+
+      expect(result.modelReasoningConfigs).toEqual(modelReasoningConfigs);
     });
 
     it('should append user-scoped hidden builtin models without changing runtime state loading', async () => {
@@ -364,7 +418,7 @@ describe('aiProviderRouter', () => {
         ...mockRuntimeState,
         enabledAiModels: [
           {
-            abilities: { reasoning: true, vision: true },
+            abilities: { functionCall: false, reasoning: true, vision: true },
             contextWindowTokens: 200_000,
             displayName: 'Claude Test',
             id: 'claude-test',
@@ -379,7 +433,7 @@ describe('aiProviderRouter', () => {
         runtimeConfig: {
           [mockProviderId]: {
             config: {},
-            keyVaults: { apiKey: 'selected-secret' },
+            keyVaults: { apiKey: 'selected-secret', baseURL: 'https://provider.example.test/v1' },
             settings: { sdkType: 'anthropic' as const },
           },
         },
@@ -390,7 +444,7 @@ describe('aiProviderRouter', () => {
 
       expect(result.enabledModels).toEqual([
         {
-          abilities: { reasoning: true, vision: true },
+          abilities: { functionCall: false, reasoning: true, vision: true },
           contextWindowTokens: 200_000,
           displayName: 'Claude Test',
           id: 'claude-test',
@@ -408,6 +462,14 @@ describe('aiProviderRouter', () => {
           type: 'embedding',
         },
       ]);
+      const binding = resolveHeterogeneousProviderBinding({
+        agentType: 'kimi-code',
+        apiConfig: { model: 'claude-test', providerId: mockProviderId },
+        enabledModels: result.enabledModels,
+        providerEnabled: result.enabled,
+        runtimeConfig: result.runtimeConfig,
+      });
+      expect(binding.error).toMatchObject({ code: 'modelUnavailable', model: 'claude-test' });
     });
   });
 

@@ -68,7 +68,9 @@ import {
   DocumentViewer,
   filenameFromUrl,
   markdownTextEvidenceTypes,
+  rendersAsMarkdown,
 } from './MarkdownEvidence';
+import { originTopicHref } from './originLink';
 import { readVisualizationManifest } from './visualization';
 import { VisualizationRenderer } from './VisualizationRenderer';
 
@@ -830,11 +832,7 @@ const EvidenceItem = memo<{
         />
       ) : e.fileUrl ? (
         <div className={styles.evidenceDoc}>
-          <DocumentViewer
-            fileName={e.fileName}
-            markdown={markdownTextEvidenceTypes.has(e.type)}
-            url={e.fileUrl}
-          />
+          <DocumentViewer fileName={e.fileName} markdown={rendersAsMarkdown(e)} url={e.fileUrl} />
         </div>
       ) : e.content && markdownTextEvidenceTypes.has(e.type) ? (
         // Same dialect as the acceptance viewer: an authored alt/description
@@ -842,6 +840,8 @@ const EvidenceItem = memo<{
         // raw description, not the caption filter — with no fileName the label
         // IS the description, and the filter would null it out.
         <CollapsibleMarkdownEvidence
+          fileName={e.fileName}
+          markdown={rendersAsMarkdown(e)}
           title={e.description?.trim() || e.fileName?.trim() || undefined}
         >
           {e.content}
@@ -1183,7 +1183,7 @@ const CodingScopeCard = memo<{
   );
   const date = formatScopeDate(testedAt);
   const surfaces = renderableSurfaces(context.surfaces);
-  const originTopicId = origin?.topicId;
+  const originHref = originTopicHref(origin);
   const hasScope =
     Boolean(branch) ||
     Boolean(commit) ||
@@ -1191,7 +1191,7 @@ const CodingScopeCard = memo<{
     hasPullRequest ||
     surfaces.length > 0 ||
     Boolean(date) ||
-    Boolean(originTopicId);
+    Boolean(originHref);
 
   if (!hasScope) return null;
 
@@ -1267,10 +1267,10 @@ const CodingScopeCard = memo<{
         )}
         {/* Only ever rendered for the report's author — the server redacts `origin`
             from a bundle fetched by anyone else holding the shared link. */}
-        {originTopicId && (
+        {originHref && (
           <a
             className={cx(styles.scopeMetaItem, styles.originLink)}
-            href={`/chat?topic=${originTopicId}`}
+            href={originHref}
             rel="noreferrer"
             target="_blank"
             title={t('report.scope.origin')}

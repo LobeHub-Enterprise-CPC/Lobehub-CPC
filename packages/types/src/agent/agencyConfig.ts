@@ -37,7 +37,12 @@ import {
 } from './heteroSelectorCapabilities';
 
 export type HeterogeneousAgentModelCatalogErrorCode =
-  'cli_not_found' | 'command_failed' | 'device_unavailable' | 'timeout' | 'unsupported_client';
+  | 'cli_not_found'
+  | 'command_failed'
+  | 'device_unavailable'
+  | 'timeout'
+  | 'unsupported_client'
+  | 'unsupported_configuration';
 
 /** One model reported by a heterogeneous CLI's device-local model catalog. */
 export interface HeterogeneousAgentModel {
@@ -56,7 +61,18 @@ export interface ListHeterogeneousAgentModelsParams {
   command?: string;
   cwd?: string;
   env?: Record<string, string>;
-  type: 'codebuddy' | 'cursor' | 'droid' | 'grok-build' | 'opencode' | 'pi' | 'qoder' | 'trae';
+  type:
+    | 'codebuddy'
+    | 'codex'
+    | 'cursor'
+    | 'devin'
+    | 'droid'
+    | 'grok-build'
+    | 'kimi-code'
+    | 'opencode'
+    | 'pi'
+    | 'qoder'
+    | 'trae';
 }
 
 export interface HeterogeneousAgentModelCatalogSuccess {
@@ -441,7 +457,7 @@ interface QoderSelectionSource {
 const HETERO_EXEC_AGENT_ARG_FLAG = '--agent-arg';
 
 const modelFlagsOf = (
-  type: 'codex' | 'grok-build' | 'opencode' | 'pi' | 'qoder',
+  type: 'codex' | 'grok-build' | 'kimi-code' | 'opencode' | 'pi' | 'qoder',
 ): readonly string[] =>
   HETERO_SELECTOR_CAPABILITIES[type].model.encodings.flatMap((encoding: HeteroCliEncoding) =>
     encoding.kind === 'flag' ? encoding.flags : [],
@@ -450,6 +466,7 @@ const modelFlagsOf = (
 const CODEX_MODEL_FLAGS = modelFlagsOf('codex');
 const CURSOR_MODEL_FLAGS = ['--model'] as const;
 const GROK_BUILD_MODEL_FLAGS = modelFlagsOf('grok-build');
+const KIMI_CODE_MODEL_FLAGS = modelFlagsOf('kimi-code');
 const OPENCODE_MODEL_FLAGS = modelFlagsOf('opencode');
 const PI_MODEL_FLAGS = modelFlagsOf('pi');
 const QODER_MODEL_FLAGS = modelFlagsOf('qoder');
@@ -538,6 +555,7 @@ export const buildHeteroSpawnArgs = (
     provider.type !== 'codex' &&
     provider.type !== 'cursor' &&
     provider.type !== 'droid' &&
+    provider.type !== 'devin' &&
     provider.type !== 'grok-build' &&
     provider.type !== 'kimi-code' &&
     provider.type !== 'opencode' &&
@@ -610,12 +628,23 @@ export const buildHeteroSpawnArgs = (
     }
   }
 
-  if (provider.type === 'cursor' || provider.type === 'kimi-code') {
+  if (provider.type === 'cursor' || provider.type === 'devin') {
     const model = provider.model?.trim();
     if (
       model &&
       model !== HETEROGENEOUS_AGENT_DEFAULT_SELECTION &&
       !hasAnyCliFlag(baseArgs, CURSOR_MODEL_FLAGS)
+    ) {
+      extraArgs.push('--model', model);
+    }
+  }
+
+  if (provider.type === 'kimi-code') {
+    const model = provider.model?.trim();
+    if (
+      model &&
+      model !== HETEROGENEOUS_AGENT_DEFAULT_SELECTION &&
+      !hasAnyCliFlag(baseArgs, KIMI_CODE_MODEL_FLAGS)
     ) {
       extraArgs.push('--model', model);
     }
@@ -674,6 +703,7 @@ export const buildHeteroExecArgs = (
     provider.type !== 'codex' &&
     provider.type !== 'cursor' &&
     provider.type !== 'droid' &&
+    provider.type !== 'devin' &&
     provider.type !== 'grok-build' &&
     provider.type !== 'kimi-code' &&
     provider.type !== 'opencode' &&
@@ -766,12 +796,23 @@ export const buildHeteroExecArgs = (
     }
   }
 
-  if (provider.type === 'cursor' || provider.type === 'kimi-code') {
+  if (provider.type === 'cursor' || provider.type === 'devin') {
     const model = provider.model?.trim();
     if (
       model &&
       model !== HETEROGENEOUS_AGENT_DEFAULT_SELECTION &&
       !hasAnyCliFlag(baseArgs, CURSOR_MODEL_FLAGS)
+    ) {
+      selectorArgs.push('--model', model);
+    }
+  }
+
+  if (provider.type === 'kimi-code') {
+    const model = provider.model?.trim();
+    if (
+      model &&
+      model !== HETEROGENEOUS_AGENT_DEFAULT_SELECTION &&
+      !hasAnyCliFlag(baseArgs, KIMI_CODE_MODEL_FLAGS)
     ) {
       selectorArgs.push('--model', model);
     }
@@ -828,6 +869,45 @@ export const buildHeteroExecArgs = (
  * Platform task agents (`openclaw` | `hermes`) support `local` and `device` targets.
  */
 export type DeviceExecutionTarget = 'auto' | 'device' | 'local' | 'none' | 'sandbox';
+
+export type ExecutionPlanUnroutedReason =
+  /** `auto` mode with more than one device online — the model must pick one */
+  | 'ambiguous-online-devices'
+  /** an explicitly bound device exists but is offline — never silently fall back */
+  | 'bound-device-offline'
+  /**
+   * device-capable target (`auto` / `local` / `device`) but no device selected —
+   * nothing bound/requested, and not the `auto` single-online-device case
+   */
+  | 'no-bound-device'
+  /** `auto` mode but no device online at all */
+  | 'no-online-device';
+
+/**
+ * Where (and whether) a run executes, resolved ONCE at the entry point.
+ * Downstream layers consume the plan instead of re-deriving the answer from
+ * `executionTarget` / `boundDeviceId` / online state themselves.
+ *
+ * `target` is the EFFECTIVE execution target (platform defaults and coercions
+ * applied; degraded to `none` when device access is denied) — consumers must
+ * read it instead of re-resolving `agencyConfig.executionTarget`.
+ */
+export type ExecutionPlan = { target: DeviceExecutionTarget } &
+  /** route execution / device tools to this device (the local machine is a registered device) */
+  (
+    | { deviceId: string; kind: 'device' }
+    /**
+     * Device-targeted but no routable device right now. The run proceeds without
+     * an active device; the remote-device proxy may let the model activate one
+     * mid-run (native agents), or the caller may treat this as a hard error
+     * (hetero dispatch).
+     */
+    | { kind: 'device-unrouted'; reason: ExecutionPlanUnroutedReason }
+    /** plain chat — no execution environment, no run tools, no device ever */
+    | { kind: 'none' }
+    /** ephemeral cloud sandbox */
+    | { kind: 'sandbox' }
+  );
 
 /**
  * Whether a workspace member may override the agent's shared execution target.

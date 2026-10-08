@@ -1,5 +1,5 @@
 export type UpdateChannel = 'stable' | 'canary';
-export type UpdateKind = 'app' | 'renderer';
+export type UpdateKind = 'app' | 'renderer' | 'core-reload' | 'core-relaunch';
 
 export interface ReleaseNoteInfo {
   /**
@@ -26,6 +26,18 @@ export interface UpdateInfo {
   version: string;
 }
 
+export interface CoreUpdateStatus {
+  applyMode: 'reload' | 'relaunch' | null;
+  current: string | null;
+  disabledReasons: string[];
+  enabled: boolean;
+  lastCheckAt: number | null;
+  lastError: string | null;
+  needsFullRelease: boolean;
+  running: string | null;
+  staged: string | null;
+}
+
 export type UpdaterStage =
   | 'idle'
   | 'checking'
@@ -33,13 +45,14 @@ export type UpdaterStage =
   | 'downloaded'
   | 'latest'
   | 'error'
+  /** This build ships no update feed, so there is nothing to check against. */
+  | 'disabled'
   /**
-   * This build ships no update feed, so there is nothing to check against.
-   * Distinct from 'idle' (ready to check) and from 'error' (a check that
-   * failed): the UI should offer no update affordance at all rather than a
-   * button that can only ever fail.
+   * The running installation cannot update itself — a snap (snapd owns the
+   * refresh), the plain `tar.gz` archive, or an AppImage started without its
+   * runtime. The only way forward is downloading a new build manually.
    */
-  | 'disabled';
+  | 'unsupported';
 
 export interface UpdaterState {
   errorMessage?: string;

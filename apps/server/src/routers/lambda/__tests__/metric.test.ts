@@ -2,11 +2,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/database/core/db-adaptor', () => ({
-  getServerDB: vi.fn(() => ({})),
+  getServerDB: vi.fn(function () {
+    return {};
+  }),
 }));
 
 vi.mock('@/business/server/trpc-middlewares/rbacPermission', () => ({
-  withScopedPermission: vi.fn(() => (opts: any) => opts.next({ ctx: opts.ctx })),
+  withScopedPermission: vi.fn(function () {
+    return (opts: any) => opts.next({ ctx: opts.ctx });
+  }),
 }));
 
 vi.mock('@/business/server/trpc-middlewares/workspaceAuth', async () => {
@@ -29,21 +33,37 @@ const mockModel = {
 };
 
 vi.mock('@/database/models/metric', () => ({
-  MetricModel: vi.fn(() => mockModel),
+  MetricModel: vi.fn(function () {
+    return mockModel;
+  }),
 }));
 
 const mockGoalFindById = vi.fn();
 vi.mock('@/database/models/goal', () => ({
-  GoalModel: vi.fn(() => ({ findById: mockGoalFindById })),
+  GoalModel: vi.fn(function () {
+    return { findById: mockGoalFindById };
+  }),
 }));
 vi.mock('@/database/models/agent', () => ({
-  AgentModel: vi.fn(() => ({ existsById: vi.fn().mockResolvedValue(false) })),
+  AgentModel: vi.fn(function () {
+    return { existsById: vi.fn().mockResolvedValue(false) };
+  }),
+}));
+const mockWidgetFindById = vi.fn();
+vi.mock('@/database/models/widget', () => ({
+  WidgetModel: vi.fn(function () {
+    return { findById: mockWidgetFindById };
+  }),
 }));
 vi.mock('@/database/models/project', () => ({
-  ProjectModel: vi.fn(() => ({ findById: vi.fn().mockResolvedValue(null) })),
+  ProjectModel: vi.fn(function () {
+    return { findById: vi.fn().mockResolvedValue(null) };
+  }),
 }));
 vi.mock('@/database/models/task', () => ({
-  TaskModel: vi.fn(() => ({ findById: vi.fn().mockResolvedValue(null) })),
+  TaskModel: vi.fn(function () {
+    return { findById: vi.fn().mockResolvedValue(null) };
+  }),
 }));
 
 const { metricRouter } = await import('../metric');
@@ -159,6 +179,54 @@ describe('metricRouter', () => {
       expect(mockModel.findByKeys).not.toHaveBeenCalled();
       expect(mockModel.listPoints).not.toHaveBeenCalled();
       expect(mockModel.addPoint).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('widget subject', () => {
+    it('lists series of a widget the caller can see', async () => {
+      mockWidgetFindById.mockResolvedValue({ id: 'widget-1' });
+      mockModel.findBySubject.mockResolvedValue([{ id: 'mtr_w' }]);
+
+      await caller.listSeries({ subjectId: 'widget-1', subjectType: 'widget' });
+
+      expect(mockWidgetFindById).toHaveBeenCalledWith('widget-1');
+      expect(mockModel.findBySubject).toHaveBeenCalledWith('widget', 'widget-1');
+    });
+
+    it('refuses series of a widget the caller cannot see', async () => {
+      mockWidgetFindById.mockResolvedValue(undefined);
+
+      await expect(
+        caller.listSeries({ subjectId: 'widget-2', subjectType: 'widget' }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      expect(mockModel.findBySubject).not.toHaveBeenCalled();
+    });
+
+    it('refuses every write to a widget series, even for a caller who can see it', async () => {
+      mockWidgetFindById.mockResolvedValue({ id: 'widget-1' });
+      mockModel.findById.mockResolvedValue({
+        id: 'mtr_w',
+        subjectId: 'widget-1',
+        subjectType: 'widget',
+        userId: 'user-1',
+      });
+
+      await expect(
+        caller.upsertSeries({ key: 'value', subjectId: 'widget-1', subjectType: 'widget' }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(caller.addPoint({ id: 'mtr_w', value: 1 })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      await expect(caller.updateSeries({ id: 'mtr_w', title: 'x' })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      await expect(caller.deleteSeries({ id: 'mtr_w' })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      expect(mockModel.ensure).not.toHaveBeenCalled();
+      expect(mockModel.addPoint).not.toHaveBeenCalled();
+      expect(mockModel.update).not.toHaveBeenCalled();
+      expect(mockModel.delete).not.toHaveBeenCalled();
     });
   });
 

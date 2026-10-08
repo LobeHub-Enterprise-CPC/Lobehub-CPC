@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/const';
 import { describe, expect, it } from 'vitest';
 
 import { type ToolStoreState } from '../../initialState';
@@ -32,12 +33,12 @@ describe('builtinToolSelectors', () => {
       const result = builtinToolSelectors.metaList(state);
       expect(result).toEqual([
         {
-          author: 'LobeHub',
+          author: BRANDING_NAME,
           identifier: 'test-skill',
           meta: { avatar: '🧪', description: 'A test skill', title: 'Test Skill' },
           type: 'builtin',
         },
-        { author: 'LobeHub', identifier: 'tool-1', meta: { title: 'Tool 1' }, type: 'builtin' },
+        { author: BRANDING_NAME, identifier: 'tool-1', meta: { title: 'Tool 1' }, type: 'builtin' },
       ]);
     });
 
@@ -58,7 +59,7 @@ describe('builtinToolSelectors', () => {
       // Should only contain skill, hidden tool is filtered out
       expect(result).toEqual([
         {
-          author: 'LobeHub',
+          author: BRANDING_NAME,
           identifier: 'test-skill',
           meta: { avatar: '🧪', description: 'A test skill', title: 'Test Skill' },
           type: 'builtin',

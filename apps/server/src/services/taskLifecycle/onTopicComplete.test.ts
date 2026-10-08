@@ -14,7 +14,9 @@ const { cascadeOnCompletion } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/server/services/taskRunner', () => ({
-  TaskRunnerService: vi.fn(() => ({ cascadeOnCompletion })),
+  TaskRunnerService: vi.fn(function () {
+    return { cascadeOnCompletion };
+  }),
 }));
 
 vi.mock('@/server/services/taskScheduler', () => ({
@@ -25,14 +27,18 @@ vi.mock('@/server/services/taskScheduler', () => ({
 // async Verify-driven completion. Mock it; default = no verify run.
 const verifyFindByOperation = vi.fn().mockResolvedValue(undefined);
 vi.mock('@/database/models/verifyRun', () => ({
-  VerifyRunModel: vi.fn(() => ({ findByOperation: verifyFindByOperation })),
+  VerifyRunModel: vi.fn(function () {
+    return { findByOperation: verifyFindByOperation };
+  }),
 }));
 
 // Goal-loop rounds suppress the per-topic brief; onTopicComplete asks the
 // goals table whether this task carries a goal. Default = plain task.
 const goalFindByGraphTask = vi.fn().mockResolvedValue(undefined);
 vi.mock('@/database/models/goal', () => ({
-  GoalModel: vi.fn(() => ({ findByGraphTask: goalFindByGraphTask })),
+  GoalModel: vi.fn(function () {
+    return { findByGraphTask: goalFindByGraphTask };
+  }),
 }));
 
 // Error-brief copy is localized at the source via the server translator; mock it
@@ -658,6 +664,47 @@ describe('TaskLifecycleService.onTopicComplete', () => {
 
     it('every error branch still emits an urgent error brief', async () => {
       const task = baseTask({ automationMode: 'schedule' });
+      findById.mockResolvedValue(task);
+
+      await service.onTopicComplete({
+        errorMessage: 'boom',
+        operationId: 'op-1',
+        reason: 'error',
+        runTrigger: 'manual',
+        taskId: 'task-1',
+        taskIdentifier: 'TASK-1',
+        topicId: 'topic-1',
+      });
+
+      expect(createBrief).toHaveBeenCalledWith(
+        expect.objectContaining({ priority: 'urgent', type: 'error' }),
+      );
+    });
+
+    // A Goal Task's failed run is the coordinator's to recover, and the gate it
+    // opens is the brief the person gets. An urgent error card per failed run
+    // asked them to act on something the goal was already handling.
+    it('leaves a Goal Task failure to the coordinator instead of an error brief', async () => {
+      const task = baseTask({ automationMode: null });
+      findById.mockResolvedValue(task);
+
+      await service.onTopicComplete({
+        errorMessage: 'boom',
+        operationId: 'op-1',
+        reason: 'error',
+        runTrigger: 'goal',
+        taskId: 'task-1',
+        taskIdentifier: 'TASK-1',
+        topicId: 'topic-1',
+      });
+
+      expect(createBrief).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+    });
+
+    // Only the coordinator's own runs are recovered by it: a manual rerun of a
+    // Task kept under a paused or finished goal has nobody watching it.
+    it('still sends the error brief for a manual rerun of a Goal Task', async () => {
+      const task = baseTask({ automationMode: null });
       findById.mockResolvedValue(task);
 
       await service.onTopicComplete({

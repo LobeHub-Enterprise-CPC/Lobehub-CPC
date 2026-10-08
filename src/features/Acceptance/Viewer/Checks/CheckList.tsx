@@ -4,7 +4,6 @@ import type { AcceptanceGroupFeedback } from '@lobechat/types';
 import { Empty, Flexbox, Icon } from '@lobehub/ui';
 import { ActionIcon, Button, Text } from '@lobehub/ui/base-ui';
 import { cssVar } from 'antd-style';
-import dayjs from 'dayjs';
 import {
   BadgeCheck,
   ChevronRight,
@@ -17,9 +16,6 @@ import {
 import { Fragment, memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { useIsHydrated } from '@/hooks/useIsHydrated';
-
-import { AttachmentThumbs } from '../Evidence/attachments';
 import { hasVisualEvidence } from '../Evidence/evidence';
 import { openGroupFeedbackModal } from '../Review/modals';
 import { AcceptanceCheckRow } from './CheckRow';
@@ -33,6 +29,7 @@ import {
   shouldGroupChecks,
   userReviewState,
 } from './checkState';
+import { GroupFeedbackTrail } from './GroupFeedbackTrail';
 import { styles } from './styles';
 import type { AcceptanceCheck, CheckReviewInput, ProposalDismissInput } from './types';
 
@@ -51,6 +48,11 @@ interface CheckListProps {
   onDismissProposal?: (input: ProposalDismissInput) => Promise<void>;
   /** Record group-scoped feedback; resolves true when the write landed. */
   onGroupFeedback: (category: string, comment: string, fileIds: string[]) => Promise<boolean>;
+  /**
+   * Open a check on its own page instead of unfolding it in the list. Set on a
+   * phone, where the inline disclosure buries its neighbours.
+   */
+  onOpenCheck?: (id: string) => void;
   /** Open an agent judge's verification run (its trace IS the argument). */
   onOpenTrace?: (verifierOperationId: string) => void | Promise<void>;
   /** Record the user's verdict; resolves true when the write landed. */
@@ -74,6 +76,7 @@ const CheckList = memo<CheckListProps>(
     groupFeedback,
     onDismissProposal,
     onGroupFeedback,
+    onOpenCheck,
     onReview,
     onOpenTrace,
     onRound,
@@ -83,7 +86,6 @@ const CheckList = memo<CheckListProps>(
     reviewPending,
   }) => {
     const { t } = useTranslation('verify');
-    const hydrated = useIsHydrated();
     const [acceptingGroup, setAcceptingGroup] = useState<string | null>(null);
 
     const visible = (check: AcceptanceCheck) =>
@@ -161,6 +163,7 @@ const CheckList = memo<CheckListProps>(
               key={check.id}
               reviewPending={reviewPending}
               onDismissProposal={onDismissProposal}
+              onOpenDetail={onOpenCheck ? () => onOpenCheck(check.id) : undefined}
               onOpenTrace={onOpenTrace}
               onReview={onReview}
               onRound={onRound}
@@ -315,8 +318,10 @@ const CheckList = memo<CheckListProps>(
                     />
                   </span>
                 )}
-                {collapsed ? (
-                  // Fixed-size placeholder keeps the header height stable across toggles.
+                {collapsed || onOpenCheck ? (
+                  // Fixed-size placeholder keeps the header height stable across
+                  // toggles — and stands in for the bulk expander on rows that
+                  // navigate away instead of unfolding.
                   <div style={{ height: 24, width: 24 }} />
                 ) : (
                   <ActionIcon
@@ -356,40 +361,8 @@ const CheckList = memo<CheckListProps>(
               </Flexbox>
               {/* Group feedback trail — newest first; entries consumed by a
                   later round stay readable but visually recede. */}
-              {!collapsed && feedbackEntries.length > 0 && (
-                <Flexbox gap={10} paddingBlock={10} paddingInline={16}>
-                  {[...feedbackEntries].reverse().map((entry) => {
-                    const stale = entry.roundIndex < currentRound;
-                    return (
-                      <Flexbox
-                        gap={4}
-                        key={`${entry.createdAt}-${entry.roundIndex}`}
-                        style={stale ? { opacity: 0.55 } : undefined}
-                      >
-                        <Flexbox horizontal align={'center'} gap={6}>
-                          <Icon
-                            color={stale ? cssVar.colorTextQuaternary : cssVar.colorError}
-                            icon={MessageSquareText}
-                            size={13}
-                          />
-                          <Text
-                            style={{
-                              color: stale ? cssVar.colorTextTertiary : cssVar.colorError,
-                              fontSize: 12,
-                            }}
-                          >
-                            {t('acceptance.group.feedbackLabel')}
-                          </Text>
-                          <Text fontSize={12} type={'secondary'}>
-                            {hydrated ? dayjs(entry.createdAt).format('MM-DD HH:mm') : null}
-                          </Text>
-                        </Flexbox>
-                        <Text style={{ fontSize: 12 }}>{entry.comment}</Text>
-                        <AttachmentThumbs attachments={entry.attachments} />
-                      </Flexbox>
-                    );
-                  })}
-                </Flexbox>
+              {!collapsed && (
+                <GroupFeedbackTrail currentRound={currentRound} entries={feedbackEntries} />
               )}
               {!collapsed &&
                 rows.map((check) => (
@@ -400,6 +373,7 @@ const CheckList = memo<CheckListProps>(
                     key={check.id}
                     reviewPending={reviewPending}
                     onDismissProposal={onDismissProposal}
+                    onOpenDetail={onOpenCheck ? () => onOpenCheck(check.id) : undefined}
                     onOpenTrace={onOpenTrace}
                     onReview={onReview}
                     onRound={onRound}

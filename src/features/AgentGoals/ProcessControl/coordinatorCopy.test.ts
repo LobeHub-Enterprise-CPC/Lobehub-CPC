@@ -1,17 +1,22 @@
+import { GOAL_MACHINE_GATE_TITLE } from '@lobechat/const/goal';
 import { describe, expect, it } from 'vitest';
 
 import {
   coordinatorGateKind,
   coordinatorGateReason,
   coordinatorReasonCopy,
+  gateOptionLabelKey,
 } from './coordinatorCopy';
 
 const decision = (ids: string[]) => ({ options: ids.map((id) => ({ id, label: id })) }) as any;
 
 describe('coordinatorGateKind', () => {
-  it('recognizes the two coordinator gate shapes and nothing else', () => {
+  it('recognizes the coordinator gate shapes and nothing else', () => {
     expect(coordinatorGateKind(decision(['retry', 'retire']))).toBe('recoverTask');
     expect(coordinatorGateKind(decision(['retry', 'fail']))).toBe('goalAcceptance');
+    // The terminal acceptance gate also offers abandoning it.
+    expect(coordinatorGateKind(decision(['retry', 'retire', 'fail']))).toBe('goalAcceptance');
+    expect(coordinatorGateKind(decision(['option-1', 'assume', 'answer']))).toBe('clarifyGoal');
     expect(coordinatorGateKind(decision(['approve', 'reject']))).toBeUndefined();
     expect(coordinatorGateKind(undefined)).toBeUndefined();
   });
@@ -34,6 +39,21 @@ describe('coordinatorNodeTitleKey', () => {
   });
 });
 
+describe('isGoalAcceptanceTask', () => {
+  it('recognizes only the terminal Goal acceptance task', async () => {
+    const { isGoalAcceptanceTask } = await import('./coordinatorCopy');
+    const view = (node: any) => ({ humanTouches: [], node }) as any;
+
+    expect(
+      isGoalAcceptanceTask(view({ kind: 'task', title: 'Complete full Goal acceptance' })),
+    ).toBe(true);
+    expect(isGoalAcceptanceTask(view({ kind: 'task', title: 'R2 · 对比' }))).toBe(false);
+    expect(
+      isGoalAcceptanceTask(view({ kind: 'decision', title: 'Complete full Goal acceptance' })),
+    ).toBe(false);
+  });
+});
+
 describe('coordinatorGateReason', () => {
   it('strips the question template down to the reason', () => {
     expect(
@@ -44,6 +64,11 @@ describe('coordinatorGateReason', () => {
     expect(
       coordinatorGateReason(
         'Goal-level acceptance did not pass. Retry Goal acceptance or fail this Goal?',
+      ),
+    ).toBe('Goal-level acceptance did not pass');
+    expect(
+      coordinatorGateReason(
+        'Goal-level acceptance did not pass. Retry Goal acceptance, abandon it, or fail this Goal?',
       ),
     ).toBe('Goal-level acceptance did not pass');
   });
@@ -77,8 +102,44 @@ describe('coordinatorReasonCopy', () => {
     });
   });
 
+  it('wraps a bare runtime error type in a localized sentence', () => {
+    expect(coordinatorReasonCopy('InvalidProviderAPIKey')).toEqual({
+      key: 'goalProcess.gate.reason.runError',
+      params: { code: 'InvalidProviderAPIKey' },
+    });
+    expect(coordinatorReasonCopy('Timeout')).toBeUndefined();
+  });
+
   it('passes unknown reasons through as undefined so the raw text renders', () => {
     expect(coordinatorReasonCopy('some future reason')).toBeUndefined();
     expect(coordinatorReasonCopy(undefined)).toBeUndefined();
+  });
+});
+
+describe('machine gate copy', () => {
+  it('reads the machine gate off its title and gives its Retry the "fixed it" label', () => {
+    expect(coordinatorGateKind(decision(['retry', 'retire']), GOAL_MACHINE_GATE_TITLE)).toBe(
+      'fixSetup',
+    );
+    expect(gateOptionLabelKey({ id: 'retry' }, 'fixSetup')).toBe(
+      'goalProcess.gate.option.fixedRetry',
+    );
+    expect(gateOptionLabelKey({ id: 'retry' }, 'recoverTask')).toBe(
+      'goalProcess.gate.option.retry',
+    );
+    expect(gateOptionLabelKey({ id: 'option-1' })).toBeUndefined();
+  });
+
+  it('strips the machine gate question down to what broke', () => {
+    expect(
+      coordinatorGateReason(
+        'Setup problem: Working directory does not exist: /tmp/x. Create /tmp/x on the device the agent runs on, or point the agent at a working directory that exists there. Fix it, then retry or retire this task node?',
+      ),
+    ).toBe(
+      'Setup problem: Working directory does not exist: /tmp/x. Create /tmp/x on the device the agent runs on, or point the agent at a working directory that exists there',
+    );
+    expect(coordinatorReasonCopy('Task device stayed offline')).toEqual({
+      key: 'goalProcess.gate.reason.deviceStayedOffline',
+    });
   });
 });

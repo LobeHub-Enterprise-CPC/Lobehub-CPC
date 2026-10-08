@@ -94,7 +94,9 @@ interface ModelSelectProps extends Pick<
 > {
   defaultValue?: { model: string; provider?: string };
   initialWidth?: boolean;
-  modelType?: 'chat' | 'embedding';
+  /** Apply an agent's capability filter to available choices. */
+  modelFilter?: (model: EnabledProviderWithModels['children'][number]) => boolean;
+  modelType?: 'asr' | 'chat' | 'embedding';
   onChange?: (props: { model: string; provider: string }) => void;
   /** Fired when the selection is cleared via `allowClear`. */
   onClear?: () => void;
@@ -125,6 +127,7 @@ const ModelSelect = memo<ModelSelectProps>(
     initialWidth = false,
     popupWidth,
     modelType = 'chat',
+    modelFilter,
     providerIds,
   }) => {
     const { t } = useTranslation('components');
@@ -132,7 +135,9 @@ const ModelSelect = memo<ModelSelectProps>(
     const fullEnabledList = useAiInfraStore((s) =>
       modelType === 'embedding'
         ? aiProviderSelectors.enabledEmbeddingModelList(s)
-        : s.enabledChatModelList || [],
+        : modelType === 'asr'
+          ? aiProviderSelectors.enabledAsrModelList(s)
+          : s.enabledChatModelList || [],
     );
     const enabledList = useMemo(() => {
       if (!providerIds) return fullEnabledList;
@@ -148,12 +153,15 @@ const ModelSelect = memo<ModelSelectProps>(
 
     const options = useMemo<SelectProps['options']>(() => {
       const getChatModels = (provider: EnabledProviderWithModels) => {
+        const candidates = modelFilter
+          ? provider.children.filter((model) => modelFilter(model))
+          : provider.children;
         const models =
           requiredAbilities && requiredAbilities.length > 0
-            ? provider.children.filter((model) =>
+            ? candidates.filter((model) =>
                 requiredAbilities.every((ability) => Boolean(model.abilities?.[ability])),
               )
-            : provider.children;
+            : candidates;
 
         return models.map((model) => ({
           ...model,
@@ -188,7 +196,7 @@ const ModelSelect = memo<ModelSelectProps>(
           };
         })
         .filter(Boolean) as SelectProps['options'];
-    }, [enabledList, requiredAbilities]);
+    }, [enabledList, modelFilter, requiredAbilities]);
 
     const staleState = useMemo(() => {
       // Before the runtime state hydrates, the store lists are empty and any valid
@@ -199,6 +207,7 @@ const ModelSelect = memo<ModelSelectProps>(
       return resolveStaleModelState(value, {
         builtinAiModelList,
         enabledList,
+        modelFilter,
         modelRedirects,
         modelType,
       });
@@ -206,6 +215,7 @@ const ModelSelect = memo<ModelSelectProps>(
       builtinAiModelList,
       enabledList,
       isInitAiProviderRuntimeState,
+      modelFilter,
       modelRedirects,
       modelType,
       value,

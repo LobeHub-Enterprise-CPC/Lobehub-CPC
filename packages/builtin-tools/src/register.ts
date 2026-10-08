@@ -43,6 +43,7 @@ import {
   CloudSandboxRenders,
   CloudSandboxStreamings,
 } from '@lobechat/builtin-tool-cloud-sandbox/client';
+import { CredsIdentifier, CredsInterventions } from '@lobechat/builtin-tool-creds/client';
 import {
   GoalInspectors,
   GoalInterventions,
@@ -68,6 +69,7 @@ import {
   ImageGenerationInspectors,
   ImageGenerationManifest,
   ImageGenerationRenders,
+  ImageGenerationStreamings,
 } from '@lobechat/builtin-tool-image-generation/client';
 import {
   KnowledgeBaseInspectors,
@@ -144,6 +146,12 @@ import {
   UserInteractionRenders,
 } from '@lobechat/builtin-tool-user-interaction/client';
 import {
+  VideoGenerationInspectors,
+  VideoGenerationManifest,
+  VideoGenerationPlaceholders,
+  VideoGenerationRenders,
+} from '@lobechat/builtin-tool-video-generation/client';
+import {
   WebBrowsingInspectors,
   WebBrowsingManifest,
   WebBrowsingPlaceholders,
@@ -187,6 +195,7 @@ import { registerBuiltinStreamings } from './streamings';
 import { TwitterIdentifier, TwitterInspectors } from './twitter';
 
 const DROID_IDENTIFIER = 'droid';
+const DEVIN_IDENTIFIER = 'devin';
 const QODER_IDENTIFIER = 'qoder';
 const OPENCODE_IDENTIFIER = 'opencode';
 const PI_IDENTIFIER = 'pi';
@@ -228,6 +237,9 @@ export const registerBuiltinToolSurfaces = (): void => {
     [DROID_IDENTIFIER]: {
       [ClaudeCodeApiName.AskUserQuestion]: ClaudeCodeRenders[ClaudeCodeApiName.AskUserQuestion],
     },
+    [DEVIN_IDENTIFIER]: {
+      [ClaudeCodeApiName.AskUserQuestion]: ClaudeCodeRenders[ClaudeCodeApiName.AskUserQuestion],
+    },
     [QODER_IDENTIFIER]: ClaudeCodeRenders as Record<string, BuiltinRender>,
     [CloudSandboxManifest.identifier]: CloudSandboxRenders as Record<string, BuiltinRender>,
     [GroupAgentBuilderManifest.identifier]: GroupAgentBuilderRenders as Record<
@@ -237,6 +249,7 @@ export const registerBuiltinToolSurfaces = (): void => {
     [GroupManagementManifest.identifier]: GroupManagementRenders as Record<string, BuiltinRender>,
     [GoalManifest.identifier]: GoalRenders as Record<string, BuiltinRender>,
     [ImageGenerationManifest.identifier]: ImageGenerationRenders as Record<string, BuiltinRender>,
+    [VideoGenerationManifest.identifier]: VideoGenerationRenders as Record<string, BuiltinRender>,
     [KnowledgeBaseManifest.identifier]: KnowledgeBaseRenders as Record<string, BuiltinRender>,
     [LobeAgentManifest.identifier]: LobeAgentRenders as Record<string, BuiltinRender>,
     [BrowserManifest.identifier]: BrowserRenders as Record<string, BuiltinRender>,
@@ -282,6 +295,9 @@ export const registerBuiltinToolSurfaces = (): void => {
     [DROID_IDENTIFIER]: {
       [ClaudeCodeApiName.AskUserQuestion]: ClaudeCodeInspectors[ClaudeCodeApiName.AskUserQuestion],
     },
+    [DEVIN_IDENTIFIER]: {
+      [ClaudeCodeApiName.AskUserQuestion]: ClaudeCodeInspectors[ClaudeCodeApiName.AskUserQuestion],
+    },
     [QODER_IDENTIFIER]: ClaudeCodeInspectors as Record<string, BuiltinInspector>,
     [CloudSandboxManifest.identifier]: CloudSandboxInspectors as Record<string, BuiltinInspector>,
     [GroupAgentBuilderManifest.identifier]: GroupAgentBuilderInspectors as Record<
@@ -295,6 +311,10 @@ export const registerBuiltinToolSurfaces = (): void => {
     [GoalManifest.identifier]: GoalInspectors as Record<string, BuiltinInspector>,
     [GoalSupervisorManifest.identifier]: GoalSupervisorInspectors,
     [ImageGenerationManifest.identifier]: ImageGenerationInspectors as Record<
+      string,
+      BuiltinInspector
+    >,
+    [VideoGenerationManifest.identifier]: VideoGenerationInspectors as Record<
       string,
       BuiltinInspector
     >,
@@ -339,6 +359,7 @@ export const registerBuiltinToolSurfaces = (): void => {
     [ClaudeCodeIdentifier]: ClaudeCodeStreamings as Record<string, BuiltinStreaming>,
     [QODER_IDENTIFIER]: ClaudeCodeStreamings as Record<string, BuiltinStreaming>,
     [CloudSandboxManifest.identifier]: CloudSandboxStreamings as Record<string, BuiltinStreaming>,
+    [ImageGenerationManifest.identifier]: ImageGenerationStreamings,
     [GroupAgentBuilderManifest.identifier]: GroupAgentBuilderStreamings as Record<
       string,
       BuiltinStreaming
@@ -366,7 +387,12 @@ export const registerBuiltinToolSurfaces = (): void => {
       [ClaudeCodeApiName.AskUserQuestion]:
         ClaudeCodeInterventions[ClaudeCodeApiName.AskUserQuestion],
     },
+    [DEVIN_IDENTIFIER]: {
+      [ClaudeCodeApiName.AskUserQuestion]:
+        ClaudeCodeInterventions[ClaudeCodeApiName.AskUserQuestion],
+    },
     [QODER_IDENTIFIER]: ClaudeCodeInterventions as Record<string, BuiltinIntervention>,
+    [CredsIdentifier]: CredsInterventions as Record<string, BuiltinIntervention>,
     [CloudSandboxManifest.identifier]: CloudSandboxInterventions as Record<
       string,
       BuiltinIntervention
@@ -399,6 +425,10 @@ export const registerBuiltinToolSurfaces = (): void => {
       listLocalFiles: LocalSystemListFilesPlaceholder as BuiltinPlaceholder,
       searchLocalFiles: LocalSystemSearchFilesPlaceholder as BuiltinPlaceholder,
     },
+    [VideoGenerationManifest.identifier]: VideoGenerationPlaceholders as Record<
+      string,
+      BuiltinPlaceholder
+    >,
     [WebBrowsingManifest.identifier]: WebBrowsingPlaceholders as Record<string, BuiltinPlaceholder>,
   });
 

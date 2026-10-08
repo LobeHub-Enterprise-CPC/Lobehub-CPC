@@ -1,12 +1,13 @@
 import path from 'node:path';
 
-import { GITHUB, OFFICIAL_SITE } from '@lobechat/const/url';
+import { DOWNLOAD_URL, GITHUB, OFFICIAL_SITE } from '@lobechat/const/url';
 import type { TrayNavigationSnapshot } from '@lobechat/electron-client-ipc';
 import type { MenuItemConstructorOptions } from 'electron';
-import { app, clipboard, Menu, shell } from 'electron';
+import { clipboard, Menu, shell } from 'electron';
 
 import { isDev } from '@/const/env';
 import { HETERO_AGENT_DIR } from '@/const/heteroAgent';
+import { getAppDisplayName } from '@/utils/appIdentity';
 
 import { buildTrayMenuTemplate } from '../trayMenu';
 import type { ContextMenuData, IMenuPlatform, MenuOptions } from '../types';
@@ -211,6 +212,12 @@ export class WindowsMenu extends BaseMenuPlatform implements IMenuPlatform {
           { type: 'separator' },
           {
             click: () => {
+              this.app.browserManager.retrieveByIdentifier('processExplorer').show();
+            },
+            label: t('help.processExplorer'),
+          },
+          {
+            click: () => {
               const heteroAgentPath = path.join(this.app.appStoragePath, HETERO_AGENT_DIR);
               console.info(`[Menu] Opening HeteroAgent directory: ${heteroAgentPath}`);
               shell.openPath(heteroAgentPath).catch((err) => {
@@ -270,6 +277,13 @@ export class WindowsMenu extends BaseMenuPlatform implements IMenuPlatform {
       }
       case 'latest': {
         return { enabled: false, label: t('common.isLatestVersion') };
+      }
+      // snap / tar.gz / a runtime-less AppImage cannot replace themselves.
+      case 'unsupported': {
+        return {
+          click: () => shell.openExternal(DOWNLOAD_URL.default),
+          label: t('common.updateUnsupported'),
+        };
       }
       default: {
         return {
@@ -475,7 +489,7 @@ export class WindowsMenu extends BaseMenuPlatform implements IMenuPlatform {
 
   private getTrayMenuTemplate(): MenuItemConstructorOptions[] {
     const t = this.app.i18n.ns('menu');
-    const appName = app.getName();
+    const appName = getAppDisplayName();
 
     return [
       {

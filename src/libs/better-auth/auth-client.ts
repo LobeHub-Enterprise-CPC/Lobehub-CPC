@@ -1,3 +1,4 @@
+import { ssoClient } from '@better-auth/sso/client';
 import { CLIENT_VERSION_HEADER, CURRENT_VERSION } from '@lobechat/const';
 import {
   adminClient,
@@ -33,6 +34,7 @@ export const {
     adminClient(),
     inferAdditionalFields<typeof auth>(),
     genericOAuthClient(),
+    ssoClient(),
     // Always include magicLinkClient - server will reject if not enabled
     magicLinkClient(),
   ],

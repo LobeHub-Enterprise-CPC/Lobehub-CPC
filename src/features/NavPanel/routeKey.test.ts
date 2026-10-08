@@ -14,6 +14,8 @@ describe('resolveNavPanelKey', () => {
     ['/agent/agent-1/docs/docs-1', null, 'agent-docs'],
     ['/lobe-team/agent/agent-1/docs/docs-1', 'lobe-team', 'agent-docs'],
     ['/group/group-1', null, 'group'],
+    ['/channels', null, 'home'],
+    ['/channels/channel-1', null, 'home'],
     ['/settings/profile', null, 'settings'],
     ['/lobe-team/settings/general', 'lobe-team', 'workspace-settings'],
     ['/lobe-team/community', 'lobe-team', 'discover'],

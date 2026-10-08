@@ -104,6 +104,7 @@
   "workingDirectory.uncommittedChanges_one": "Несохраненные изменения: {{count}} файл",
   "workingDirectory.uncommittedChanges_other": "Несохраненные изменения: {{count}} файлов",
   "workingDirectory.undo": "Отменить",
+  "workingDirectory.unselected": "Не выбрано",
   "workingDirectory.useFolder": "Использовать эту папку",
   "workingDirectory.worktreeSearchPlaceholder": "Поиск рабочих деревьев",
   "workingDirectory.worktreeUnavailable": "недоступно",

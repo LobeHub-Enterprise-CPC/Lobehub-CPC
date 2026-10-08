@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockWindows = vi.fn();
 const mockOpenWindowsSync = vi.fn();
@@ -32,6 +32,8 @@ vi.mock('get-windows', () => ({
 }));
 
 describe('WindowSourceService', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockElectronApp.isPackaged = false;
@@ -40,6 +42,29 @@ describe('WindowSourceService', () => {
       configurable: true,
       value: originalResourcesPath,
     });
+  });
+
+  it('excludes both internal and displayed self names while keeping other apps', async () => {
+    vi.stubEnv('DESKTOP_PRODUCT_NAME', 'Renamed Product');
+    mockOpenWindowsSync.mockReturnValue([{ owner: { processId: 42 } }]);
+    mockWindows.mockReturnValue(
+      ['LobeHub', 'Renamed Product', 'Other App'].map((name, i) => ({
+        appName: () => name,
+        height: () => 600,
+        id: () => i + 1,
+        isMinimized: () => false,
+        pid: () => 42,
+        title: () => name,
+        width: () => 800,
+        x: () => 0,
+        y: () => 0,
+        z: () => i,
+      })),
+    );
+
+    const { enumerateWindows } = await import('./WindowSourceService');
+    const windows = await enumerateWindows({ height: 1080, width: 1920, x: 0, y: 0 });
+    expect(windows.map(({ appName }) => appName)).toEqual(['Other App']);
   });
 
   it('executes the unpacked get-windows helper in packaged macOS builds', async () => {

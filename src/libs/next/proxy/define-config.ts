@@ -240,6 +240,14 @@ export function defineConfig() {
     '/oidc/handoff',
     '/oidc/device/auth',
     '/oidc/token',
+    // OIDC protocol endpoints a client reads before (or without) any browser
+    // session: discovery and JWKS are public by spec, and userinfo authenticates
+    // with the bearer access token the provider itself checks. Session-gating them
+    // redirects non-browser callers to the sign-in HTML, which is what a
+    // third-party app registered through Settings → OAuth Apps hits first.
+    '/oidc/.well-known/openid-configuration',
+    '/oidc/jwks',
+    '/oidc/me',
     // Interaction details for the consent/login page — must be reachable
     // before the user has a session, so it cannot be session-gated.
     '/oidc/interaction/(.*)',
@@ -274,9 +282,11 @@ export function defineConfig() {
     if (!isProtected) return response;
 
     // Get full session with user data (Next.js 15.2.0+ feature)
-    const session = await auth.api.getSession({
+    const { response: session, headers: authHeaders } = await auth.api.getSession({
       headers: req.headers,
+      returnHeaders: true,
     });
+    for (const cookie of authHeaders.getSetCookie()) response.headers.append('set-cookie', cookie);
 
     const isLoggedIn = !!session?.user;
 
@@ -305,7 +315,10 @@ export function defineConfig() {
           signInUrl.searchParams.set('utm_source', utmSource);
           logBetterAuth('Preserving utm_source to sign-in: %s', utmSource);
         }
-        return Response.redirect(signInUrl);
+        const redirectHeaders = new Headers({ location: signInUrl.href });
+        for (const cookie of authHeaders.getSetCookie())
+          redirectHeaders.append('set-cookie', cookie);
+        return new Response(null, { status: 302, headers: redirectHeaders });
       }
       logBetterAuth('Request a free route but not login, allow visit without auth header');
     }

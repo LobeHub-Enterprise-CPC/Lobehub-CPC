@@ -12,8 +12,8 @@ export const OSS_GLM_PROVIDER = 'zhipu';
 export const OSS_KIMI_PROVIDER = 'moonshot';
 
 export const CPC_CHAT_PROVIDER = 'lobehub';
-export const CPC_DEEPSEEK_MODEL = 'deepseek-v4-flash';
-export const CPC_DEEPSEEK_MODEL_NAME = 'V4 Flash';
+export const CPC_GLM_MODEL = 'glm-5.3-flash';
+export const CPC_GLM_MODEL_NAME = 'GLM-5.3-Flash';
 export const CPC_DOUBAO_MODEL = 'doubao-seed-2.1-pro';
 export const CPC_DOUBAO_MODEL_NAME = '豆包 2.1';
 
@@ -33,9 +33,9 @@ export const NEW_VIDEO_MODEL_NAME = 'Seedance 2.0';
 // doesn't silently drag them back in here.
 export const BUSINESS_HOME_NEW_MODELS = [
   {
-    model: CPC_DEEPSEEK_MODEL,
+    model: CPC_GLM_MODEL,
     provider: CPC_CHAT_PROVIDER,
-    title: CPC_DEEPSEEK_MODEL_NAME,
+    title: CPC_GLM_MODEL_NAME,
     type: 'chat',
   },
   {

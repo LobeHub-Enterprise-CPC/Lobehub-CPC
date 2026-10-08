@@ -1,8 +1,8 @@
 'use client';
 
+import type { ItemType } from '@lobehub/ui';
 import { DropdownMenu, stopPropagation } from '@lobehub/ui';
 import { ActionIcon } from '@lobehub/ui/base-ui';
-import type { ItemType } from 'antd/es/menu/interface';
 import { MoreHorizontalIcon } from 'lucide-react';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -17,8 +17,8 @@ interface HierarchyNodeMenuButtonProps {
 
 /**
  * Hover-revealed "..." on a tree row that opens the row's action menu. The
- * menu used to be reachable only through `onContextMenu`, which nobody finds
- * (LOBE-13884). Shares the `.hierarchy-node-actions` reveal rules with the
+ * menu used to be reachable only through `onContextMenu`, which nobody finds.
+ * Shares the `.hierarchy-node-actions` reveal rules with the
  * folder "+" (see styles.ts): hidden until hover, and kept visible while open.
  */
 const HierarchyNodeMenuButton = memo<HierarchyNodeMenuButtonProps>(({ menuItems }) => {

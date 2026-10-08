@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import type { HeterogeneousAgentType } from '@lobechat/heterogeneous-agents';
 import { getHeterogeneousAgentConfig } from '@lobechat/heterogeneous-agents';
 import { ChatErrorType, type ErrorType } from '@lobechat/types';
@@ -9,9 +10,13 @@ import { ChatErrorType, type ErrorType } from '@lobechat/types';
  * caller keeps for non-web surfaces (IM bots) while retaining the raw code in
  * `detail` for diagnostics. Web clients localize via the mapped error type below.
  */
-const HETERO_DISPATCH_ERROR_HEADLINES: Record<string, string> = {
-  DEVICE_CHANNEL_UNAVAILABLE:
-    "The device this agent runs on isn't reachable right now — it went offline, went to sleep, or is reconnecting. Check that the LobeHub desktop app (or the `lh` CLI) is running and connected, then try again.",
+/**
+ * Exported so a consumer that reads a persisted `task.error` can recognise the same
+ * failure it would have recognised from the raw code: dispatch failures reach storage
+ * as a code on one path and as this headline on another.
+ */
+export const HETERO_DISPATCH_ERROR_HEADLINES: Record<string, string> = {
+  DEVICE_CHANNEL_UNAVAILABLE: `The device this agent runs on isn't reachable right now — it went offline, went to sleep, or is reconnecting. Check that the ${BRANDING_NAME} desktop app (or the \`lh\` CLI) is running and connected, then try again.`,
   DEVICE_GATEWAY_ERROR:
     'The device connection service hit an error while starting this run. Nothing started on the device. This is usually temporary — try again in a moment.',
   DEVICE_GATEWAY_RATE_LIMITED:
@@ -22,8 +27,7 @@ const HETERO_DISPATCH_ERROR_HEADLINES: Record<string, string> = {
     "Couldn't reach the device connection service, so this run never started. Check the network, then try again.",
   DEVICE_NOT_FOUND:
     'The device this agent is bound to is no longer registered with the connection service. Reconnect the device, or bind this agent to another online device.',
-  DEVICE_OFFLINE:
-    "The device this agent runs on is offline, so the run couldn't start. Check that the LobeHub desktop app (or the `lh` CLI) is running and connected, then try again.",
+  DEVICE_OFFLINE: `The device this agent runs on is offline, so the run couldn't start. Check that the ${BRANDING_NAME} desktop app (or the \`lh\` CLI) is running and connected, then try again.`,
   DEVICE_RESPONSE_TIMEOUT:
     "The device didn't answer in time, so we can't tell whether this run started. Check the device before starting it again.",
   GATEWAY_NOT_CONFIGURED:
@@ -34,11 +38,51 @@ const HETERO_DISPATCH_ERROR_HEADLINES: Record<string, string> = {
  * The gateway may answer with a bare code (`DEVICE_OFFLINE`) or with a code the
  * device-gateway client annotated with the status it came from
  * (`DEVICE_CHANNEL_UNAVAILABLE (HTTP 503)`). Look the headline up by the code
- * itself so the annotation doesn't cost the user a readable message; `detail`
- * keeps the full raw string for diagnostics either way.
+ * itself so the annotation doesn't cost the user a readable message. Non-2xx
+ * responses can also carry a JSON envelope whose `error` field holds the code.
+ * `detail` keeps the full raw string for diagnostics in either format.
  */
-const toDispatchErrorCode = (raw?: string): string | undefined =>
-  raw?.trim().match(/^([A-Z][\dA-Z_]*)/)?.[1];
+const toDispatchErrorCode = (raw?: string): string | undefined => {
+  let text = raw?.trim();
+
+  if (text?.startsWith('{')) {
+    try {
+      const body: unknown = JSON.parse(text);
+      if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string') {
+        text = body.error.trim();
+      }
+    } catch {
+      // Preserve malformed gateway responses as diagnostic text.
+    }
+  }
+
+  return text?.match(/^([A-Z][\dA-Z_]*)/)?.[1];
+};
+
+/**
+ * The device a failed dispatch was aimed at, recorded on the operation's error so
+ * a later reader can ask whether *that* device is back — the routing that picked
+ * it (topic override, member binding, personal vs workspace pool) is not
+ * something a consumer should re-derive.
+ */
+export interface DeviceDispatchRoute {
+  deviceId: string;
+  /** The principal whose device pool the gateway was asked to route through. */
+  userId: string;
+  /** Set when the device belongs to a workspace pool rather than the personal one. */
+  workspaceId?: string;
+}
+
+export const readDeviceDispatchRoute = (error: unknown): DeviceDispatchRoute | undefined => {
+  const route = (error as { deviceRoute?: Partial<DeviceDispatchRoute> } | null | undefined)
+    ?.deviceRoute;
+  if (typeof route?.deviceId !== 'string' || typeof route.userId !== 'string') return undefined;
+  return {
+    deviceId: route.deviceId,
+    userId: route.userId,
+    ...(typeof route.workspaceId === 'string' ? { workspaceId: route.workspaceId } : {}),
+  };
+};
 
 export const humanizeHeteroDispatchError = (raw?: string): string => {
   const code = toDispatchErrorCode(raw);

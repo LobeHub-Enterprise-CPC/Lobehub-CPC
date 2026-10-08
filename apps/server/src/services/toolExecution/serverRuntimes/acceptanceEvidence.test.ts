@@ -14,25 +14,37 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/database/models/agentOperation', () => ({
-  AgentOperationModel: vi.fn(() => ({ findById: mocks.operationFindById })),
+  AgentOperationModel: vi.fn(function () {
+    return { findById: mocks.operationFindById };
+  }),
 }));
 vi.mock('@/database/models/document', () => ({
-  DocumentModel: vi.fn(() => ({ findByIds: mocks.documentFindByIds })),
+  DocumentModel: vi.fn(function () {
+    return { findByIds: mocks.documentFindByIds };
+  }),
 }));
 vi.mock('@/database/models/file', () => ({
-  FileModel: vi.fn(() => ({ findById: mocks.fileFindById })),
+  FileModel: vi.fn(function () {
+    return { findById: mocks.fileFindById };
+  }),
 }));
 vi.mock('@/database/models/verifyCheckResult', () => ({
-  VerifyCheckResultModel: vi.fn(() => ({ upsertByCheckItem: mocks.resultUpsert })),
+  VerifyCheckResultModel: vi.fn(function () {
+    return { upsertByCheckItem: mocks.resultUpsert };
+  }),
 }));
 vi.mock('@/database/models/verifyEvidence', () => ({
-  VerifyEvidenceModel: vi.fn(() => ({
-    createMany: mocks.evidenceCreateMany,
-    listByRun: mocks.evidenceListByRun,
-  })),
+  VerifyEvidenceModel: vi.fn(function () {
+    return {
+      createMany: mocks.evidenceCreateMany,
+      listByRun: mocks.evidenceListByRun,
+    };
+  }),
 }));
 vi.mock('@/database/models/verifyRun', () => ({
-  VerifyRunModel: vi.fn(() => ({ findByOperation: mocks.runFindByOperation })),
+  VerifyRunModel: vi.fn(function () {
+    return { findByOperation: mocks.runFindByOperation };
+  }),
 }));
 
 describe('acceptanceEvidenceRuntime', () => {
@@ -42,12 +54,22 @@ describe('acceptanceEvidenceRuntime', () => {
       id: 'evidence-op',
       parentOperationId: 'parent-op',
     });
-    mocks.runFindByOperation.mockResolvedValue({
-      id: 'run-1',
-      plan: [
-        { id: 'criterion-1', index: 0, required: true, title: 'Document', verifierType: 'llm' },
-      ],
-    });
+    mocks.runFindByOperation.mockImplementation(async (operationId) =>
+      operationId === 'evidence-op'
+        ? null
+        : {
+            id: 'run-1',
+            plan: [
+              {
+                id: 'criterion-1',
+                index: 0,
+                required: true,
+                title: 'Document',
+                verifierType: 'llm',
+              },
+            ],
+          },
+    );
     mocks.resultUpsert.mockResolvedValue({ id: 'result-1' });
     mocks.evidenceCreateMany.mockResolvedValue([]);
     mocks.evidenceListByRun.mockResolvedValue([]);
@@ -117,6 +139,34 @@ describe('acceptanceEvidenceRuntime', () => {
     );
   });
 
+  it('submits repair evidence into the repair round instead of its failed parent', async () => {
+    mocks.operationFindById.mockResolvedValue({ id: 'repair-op', parentOperationId: 'parent-op' });
+    mocks.runFindByOperation.mockImplementation(async (id) => ({
+      id: id === 'repair-op' ? 'repair-run' : 'parent-run',
+      plan: [
+        { id: 'criterion-1', index: 0, required: true, title: 'Document', verifierType: 'llm' },
+      ],
+    }));
+    const runtime = acceptanceEvidenceRuntime.factory({
+      operationId: 'repair-op',
+      serverDB: {} as never,
+      toolManifestMap: {},
+      userId: 'user-1',
+    });
+    expect(
+      (
+        await runtime.submitEvidence({
+          checkItemId: 'criterion-1',
+          evidence: [{ content: 'corrected output', type: 'text' }],
+        })
+      ).success,
+    ).toBe(true);
+    expect(mocks.resultUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ operationId: 'repair-op', verifyRunId: 'repair-run' }),
+    );
+    expect(mocks.runFindByOperation).not.toHaveBeenCalledWith('parent-op');
+  });
+
   it('keeps writing into the parent run from the post-run evidence turn', async () => {
     const runtime = acceptanceEvidenceRuntime.factory({
       operationId: 'evidence-op',
@@ -166,24 +216,24 @@ describe('acceptanceEvidenceRuntime', () => {
 
     expect(result).toEqual(
       expect.objectContaining({
-      criteria: [
-        {
-          id: 'criterion-1',
-          index: 0,
-          required: true,
-          requiredEvidence: [{ hint: 'full page', type: 'screenshot' }],
-          submittedEvidence: 2,
-          title: 'Document',
-        },
-        {
-          id: 'criterion-2',
-          index: 1,
-          required: false,
-          submittedEvidence: 0,
-          title: 'Clean',
-        },
-      ],
-      success: true,
+        criteria: [
+          {
+            id: 'criterion-1',
+            index: 0,
+            required: true,
+            requiredEvidence: [{ hint: 'full page', type: 'screenshot' }],
+            submittedEvidence: 2,
+            title: 'Document',
+          },
+          {
+            id: 'criterion-2',
+            index: 1,
+            required: false,
+            submittedEvidence: 0,
+            title: 'Clean',
+          },
+        ],
+        success: true,
       }),
     );
   });
@@ -247,7 +297,9 @@ describe('acceptanceEvidenceRuntime', () => {
 
     const result = await runtime.submitEvidence({
       checkItemId: 'criterion-1',
-      evidence: [{ content: 'The sign-in page rendered', fileId: 'files_shot', type: 'screenshot' }],
+      evidence: [
+        { content: 'The sign-in page rendered', fileId: 'files_shot', type: 'screenshot' },
+      ],
     });
 
     expect(result.success).toBe(true);
@@ -270,9 +322,7 @@ describe('acceptanceEvidenceRuntime', () => {
       evidence: [{ documentId: 'docs_1', fileId: 'files_1', type: 'markdown' }],
     });
 
-    expect(result).toEqual(
-      expect.objectContaining({ error: 'INVALID_EVIDENCE', success: false }),
-    );
+    expect(result).toEqual(expect.objectContaining({ error: 'INVALID_EVIDENCE', success: false }));
   });
 
   it('waits for a plan that the fire-and-forget run-start instantiation has not landed yet', async () => {

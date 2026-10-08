@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/const';
 import urlJoin from 'url-join';
 
 import { OFFICIAL_SITE } from '@/const/url';
@@ -99,12 +100,12 @@ export const lobehubSkillStoreSelectors = {
           identifier: server.identifier,
           manifest: {
             api: apis,
-            author: 'LobeHub Market',
+            author: `${BRANDING_NAME} Market`,
             homepage: urlJoin(OFFICIAL_SITE, 'market'),
             identifier: server.identifier,
             meta: {
               avatar: server.icon || '🔗',
-              description: `LobeHub Skill: ${server.name}`,
+              description: `${BRANDING_NAME} Skill: ${server.name}`,
               tags: ['lobehub-skill', server.identifier],
               title: server.name,
             },
@@ -132,7 +133,7 @@ export const lobehubSkillStoreSelectors = {
         identifier: server.identifier,
         meta: {
           avatar: server.icon || '🔗',
-          description: `LobeHub Skill: ${server.name}`,
+          description: `${BRANDING_NAME} Skill: ${server.name}`,
           title: server.name,
         },
       }));

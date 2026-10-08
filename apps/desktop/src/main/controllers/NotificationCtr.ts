@@ -4,6 +4,7 @@ import type {
 } from '@lobechat/electron-client-ipc';
 import { app, Notification } from 'electron';
 
+import { getAppDisplayName } from '@/utils/appIdentity';
 import { createLogger } from '@/utils/logger';
 import * as electronIs from '@/utils/platform';
 
@@ -38,7 +39,7 @@ export default class NotificationCtr extends ControllerModule {
     }
 
     const notification = new Notification({
-      body: 'LobeHub can now send you notifications.',
+      body: `${getAppDisplayName()} can now send you notifications.`,
       title: 'Notification Permission',
     });
 

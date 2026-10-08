@@ -1,14 +1,15 @@
 'use client';
 
 import type { MenuProps } from '@lobehub/ui';
-import { Accordion, DropdownMenu, Flexbox, Icon } from '@lobehub/ui';
-import { ActionIcon } from '@lobehub/ui/base-ui';
+import { DropdownMenu, Flexbox, Icon } from '@lobehub/ui';
+import { AccordionRoot, ActionIcon } from '@lobehub/ui/base-ui';
 import { EyeOffIcon, MoreHorizontalIcon, SlidersHorizontalIcon } from 'lucide-react';
 import type { Key, ReactElement } from 'react';
 import { memo, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
+import ChannelList from '@/features/Channels/ChannelList';
 import Recents from '@/features/Home/Recents';
 import NavItem from '@/features/NavPanel/components/NavItem';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
@@ -212,14 +213,15 @@ const Body = memo(() => {
         const accordionKeys = accGroup.map((item) => item.key);
 
         elements.push(
-          <Accordion
-            expandedKeys={sidebarExpandedKeys}
-            gap={8}
+          <AccordionRoot
+            indicatorPlacement="inline"
             key={`acc-${elements.length}`}
-            onExpandedChange={(keys) => handleAccordionExpandedChange(accordionKeys, keys)}
+            style={{ gap: 8 }}
+            value={sidebarExpandedKeys}
+            onValueChange={(keys) => handleAccordionExpandedChange(accordionKeys, keys as string[])}
           >
             {accGroup.map((item) => item.element)}
-          </Accordion>,
+          </AccordionRoot>,
         );
         accGroup = [];
       }
@@ -239,6 +241,10 @@ const Body = memo(() => {
       } else if (ACCORDION_KEYS.has(key)) {
         const comp = accordionComponents[key]?.(key);
         if (comp) accGroup.push({ element: comp, key });
+        if (key === GroupKey.Agent) {
+          flushAccordion();
+          elements.push(<ChannelList key="channels" />);
+        }
       } else {
         flushAccordion();
         const link = renderNavLink(key);

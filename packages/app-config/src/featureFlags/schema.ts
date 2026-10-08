@@ -19,14 +19,10 @@ export const FeatureFlagsSchema = z.object({
   edit_agent: FeatureFlagValue.optional(),
 
   /**
-   * Cloud-only grayscale gate for Agent Share, covering BOTH capabilities the
-   * feature has: PUBLISHING a share (creator side) and OPENING/chatting on a
-   * shared agent (visitor side). A user matched by this flag can do both;
-   * everyone else can do neither. Array values are user IDs. The share OWNER previewing their own share is
-   * never subject to the visitor check — only other visitors are. Self-hosted
-   * builds are additionally hard-blocked server-side by
-   * `ENABLE_BUSINESS_FEATURES` (see `_helpers/agentShareFeatureGate.ts`), so
-   * this flag alone can never enable the feature outside Cloud.
+   * Rollout gate for publishing or re-enabling Agent Share. Array values are
+   * creator user IDs. Visiting, chatting on, and managing existing shares do
+   * not require this flag. Deployment support is independently enforced by
+   * `ENABLE_BUSINESS_FEATURES` (see `_helpers/agentShareFeatureGate.ts`).
    */
   agent_share: FeatureFlagValue.optional(),
 
@@ -42,6 +38,26 @@ export const FeatureFlagsSchema = z.object({
   knowledge_base: FeatureFlagValue.optional(),
 
   rag_eval: FeatureFlagValue.optional(),
+
+  /**
+   * Rollout gate for the multiplexed Agent Gateway socket (protocol v2: one
+   * `/v2/ws` connection per user instead of one per run). Array values are user
+   * ids, so the rollout can go allowlist → everyone without a deploy.
+   *
+   * Deployment support is independent and enforced separately: the client also
+   * requires `serverConfig.agentGatewayProtocol === 2`, because a gateway
+   * without `/v2/ws` cannot serve this no matter what the flag says.
+   */
+  agent_gateway_mux: FeatureFlagValue.optional(),
+
+  /**
+   * Rollout gate for relaying LLM calls to the user's device: a model provider
+   * only that device can reach (a local Ollama / LM Studio, a private-network
+   * endpoint) runs one attempt at a time on the client that started the run,
+   * while the agent loop stays on the server. Off: such providers keep being
+   * dialed by the server. Array values are user ids.
+   */
+  agent_llm_relay: FeatureFlagValue.optional(),
 
   // internal flag
   agent_self_iteration: FeatureFlagValue.optional(),
@@ -106,6 +122,13 @@ export const DEFAULT_FEATURE_FLAGS: IFeatureFlags = {
   knowledge_base: true,
   rag_eval: false,
 
+  // Off until an admin publishes a user allowlist or flips it to true; the
+  // v1 socket stays the default everywhere until then.
+  agent_gateway_mux: false,
+
+  // Off until the client executor ships everywhere; allowlist first.
+  agent_llm_relay: false,
+
   agent_self_iteration: isDev,
   agent_onboarding: isDev,
   dev_dock: isDev,
@@ -138,6 +161,8 @@ export const mapFeatureFlagsEnvToState = (
     isAgentEditable: evaluateFeatureFlag(config.edit_agent, userId),
 
     enableAgentShare: evaluateFeatureFlag(config.agent_share, userId),
+    enableGatewayMux: evaluateFeatureFlag(config.agent_gateway_mux, userId),
+    enableLlmRelay: evaluateFeatureFlag(config.agent_llm_relay, userId),
     showProvider: evaluateFeatureFlag(config.provider_settings, userId),
 
     showOpenAIApiKey: evaluateFeatureFlag(config.openai_api_key, userId),

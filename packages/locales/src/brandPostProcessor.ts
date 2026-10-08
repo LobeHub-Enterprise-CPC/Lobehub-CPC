@@ -1,6 +1,11 @@
 // Imported via @lobechat/const (already a dependency) rather than
 // @lobechat/business-const, which this package does not depend on.
-import { BRANDING_NAME, DEFAULT_INBOX_TITLE, LOBE_CHAT_CLOUD } from '@lobechat/const';
+import {
+  BRANDING_AGENT_TITLE,
+  BRANDING_NAME,
+  DEFAULT_INBOX_TITLE,
+  LOBE_CHAT_CLOUD,
+} from '@lobechat/const';
 import type { PostProcessorModule } from 'i18next';
 
 /**
@@ -25,10 +30,17 @@ import type { PostProcessorModule } from 'i18next';
  * deployment that rewrote only `LobeHub` would keep leaking it.
  */
 const BRAND_LITERALS: [from: string, to: string][] = [
+  // Use the bot display name, without advertising or inventing an account handle.
+  ['@LobeHub', (BRANDING_NAME as string) === 'LobeHub' ? '@LobeHub' : BRANDING_NAME],
   ['LobeHub Cloud', LOBE_CHAT_CLOUD],
   ['LobeHub', BRANDING_NAME],
   ['LobeChat', BRANDING_NAME],
+  ['Lobe Agent', BRANDING_AGENT_TITLE],
+  ['Lobe-Agent', BRANDING_AGENT_TITLE],
   ['Lobe AI', DEFAULT_INBOX_TITLE],
+  ['LobeAI', DEFAULT_INBOX_TITLE],
+  // Translated compound names and runtime errors also use the bare brand.
+  ['Lobe', (BRANDING_NAME as string) === 'LobeHub' ? 'Lobe' : BRANDING_NAME],
 ];
 
 /** Only the literals this deployment actually renamed; identity pairs are noise. */
@@ -37,7 +49,7 @@ const replacements = BRAND_LITERALS.filter(([from, to]) => from !== to);
 const lookup = new Map(replacements);
 
 /**
- * Every literal above starts with this, which is what makes the pre-filter in
+ * Every literal above contains this, which is what makes the pre-filter in
  * applyBrandStrings sound. Kept beside BRAND_LITERALS so the two cannot drift.
  */
 const COMMON_PREFIX = 'Lobe';
@@ -47,17 +59,17 @@ const COMMON_PREFIX = 'Lobe';
  * per entry: this runs on every single t() call, so the work has to stay
  * proportional to the string rather than to the size of the table.
  *
- * The `from` values are the literals defined above — letters and spaces only —
+ * The `from` values are the literals defined above — letters, spaces and @ only —
  * so they need no regex escaping.
  *
- * `(?<!@)` leaves social handles such as `@LobeHub` alone (see the Slack copy in
- * messenger.json). A handle names an account that exists under the upstream
- * brand and has no counterpart in a white-label deployment, so rewriting it
- * would hand the user an address that does not resolve. Keeping the handle is
- * the honest failure mode; making it configurable is a separate upstream change.
+ * The upstream Slack handle has its own longest-first rule. Private builds
+ * refer to the bot by display name without inventing an account handle.
  */
 const pattern = replacements.length
-  ? new RegExp(`(?<!@)(${replacements.map(([from]) => from).join('|')})`, 'g')
+  ? new RegExp(
+      `(?<!@)(${replacements.map(([from]) => (from === 'Lobe' ? 'Lobe(?![A-Za-z0-9_])' : from)).join('|')})`,
+      'g',
+    )
   : undefined;
 
 export const isBrandPostProcessorEnabled = replacements.length > 0;
@@ -80,6 +92,16 @@ export const applyBrandStrings = (value: string): string => {
  */
 export const brandPostProcessor: PostProcessorModule = {
   name: BRAND_POST_PROCESSOR,
-  process: (value) => (typeof value === 'string' ? applyBrandStrings(value) : value),
+  process: (value, keys) => {
+    if (typeof value !== 'string') return value;
+    // Keep the capability bundle's proper name identical across locales, even
+    // where older translations localized or reordered the words in its title.
+    if (
+      (BRANDING_AGENT_TITLE as string) !== 'Lobe Agent' &&
+      (Array.isArray(keys) ? keys : [keys]).some((key) => key.endsWith('builtins.lobe-agent.title'))
+    )
+      return BRANDING_AGENT_TITLE;
+    return applyBrandStrings(value);
+  },
   type: 'postProcessor',
 };

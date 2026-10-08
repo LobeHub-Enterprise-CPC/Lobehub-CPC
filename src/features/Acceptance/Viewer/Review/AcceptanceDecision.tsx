@@ -1,5 +1,6 @@
 'use client';
 
+import { buildAcceptanceRepairPrompt } from '@lobechat/prompts';
 import { copyToClipboard, Flexbox } from '@lobehub/ui';
 import { Button, Text, toast } from '@lobehub/ui/base-ui';
 import dayjs from 'dayjs';
@@ -14,7 +15,7 @@ import { verifyService } from '@/services/verify';
 
 import { useAcceptanceScope } from '../AcceptanceScope';
 import { checkFilterState, isException } from '../Checks/checkState';
-import { buildRepairPrompt } from '../Checks/checkWork';
+import { useAcceptanceComments } from '../Comments/hooks';
 import { flowPlanPhase } from '../Plan/planReview';
 import { acceptanceCheckPath } from '../routes';
 import { useAcceptanceBundle } from '../useAcceptanceBundle';
@@ -23,7 +24,9 @@ import { formatAcceptanceCountsText, LIVE_ACCEPTANCE_STATUSES } from '../verdict
 import { canReviewAcceptance } from '../visibility';
 import DecisionBar from './DecisionBar';
 import FeedbackDrawer, { type FeedbackListEntry } from './FeedbackDrawer';
+import { draftRepairPromptInMobile } from './mobileBridge';
 import { openAcceptModal, openGroupFeedbackModal, openRejectModal } from './modals';
+import { rejectCopyOnly } from './rejectCopyOnly';
 
 interface AcceptanceDecisionProps {
   onDraftToComposer?: (text: string) => boolean;
@@ -38,6 +41,7 @@ const AcceptanceDecision = ({ onDraftToComposer }: AcceptanceDecisionProps) => {
   const { turn, setTurn } = useAcceptanceTurn(embedded);
   const [pending, setPending] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const { approvals } = useAcceptanceComments(acceptanceId);
   if (!data || !canReviewAcceptance(data) || data.acceptance.status === 'closed') return null;
 
   if (flowPlanPhase(data.rounds.at(-1))) return null;
@@ -116,6 +120,19 @@ const AcceptanceDecision = ({ onDraftToComposer }: AcceptanceDecisionProps) => {
             },
   }[barState];
 
+  // Teammates' approvals ride along the state line: they are opinions the
+  // decider reads, never the decision itself. Only this round's count — an
+  // approval given to round 1 says nothing about round 2, and the reviewer's
+  // own card already asks them to look again, so counting it here would tell
+  // the decider the opposite of what the reviewer is being shown.
+  const approvalText = (() => {
+    const roundIndex = currentRound?.run.roundIndex;
+    if (roundIndex === undefined) return undefined;
+    const count = approvals.filter((approval) => approval.contextRoundIndex === roundIndex).length;
+    return count > 0 ? t('acceptance.comments.approvalCount', { count }) : undefined;
+  })();
+  const subTextWithApprovals = [barTexts.subText, approvalText].filter(Boolean).join(' · ');
+
   const currentRoundIndex = currentRound?.run.roundIndex ?? 0;
   const groupFeedbackEntries = rounds.flatMap((round) =>
     (round.run.decisionDetail?.groupFeedback ?? []).map((entry) => ({
@@ -167,7 +184,7 @@ const AcceptanceDecision = ({ onDraftToComposer }: AcceptanceDecisionProps) => {
     }
   };
 
-  const repairPrompt = buildRepairPrompt(acceptance.id);
+  const repairPrompt = buildAcceptanceRepairPrompt(acceptance.id);
 
   return (
     <>
@@ -183,7 +200,7 @@ const AcceptanceDecision = ({ onDraftToComposer }: AcceptanceDecisionProps) => {
         rerunPending={false}
         state={barState}
         statusText={barTexts.statusText}
-        subText={barTexts.subText}
+        subText={subTextWithApprovals || undefined}
         totalCount={reviewTotal}
         onOpenFeedback={() => setFeedbackOpen(true)}
         onAccept={() =>
@@ -210,6 +227,7 @@ const AcceptanceDecision = ({ onDraftToComposer }: AcceptanceDecisionProps) => {
           })
         }
         onCopyReview={async () => {
+          if (draftRepairPromptInMobile(acceptance.id, repairPrompt)) return;
           await copyToClipboard(repairPrompt);
           toast.success({
             placement: 'top',
@@ -218,8 +236,40 @@ const AcceptanceDecision = ({ onDraftToComposer }: AcceptanceDecisionProps) => {
         }}
         onRejectComment={() =>
           openRejectModal({
-            onConfirm: (comment) =>
-              runAction(() => verifyService.rejectDelivery(acceptance.id, comment)),
+            // `origin` is only visible to the record owner, so this is the
+            // viewer's promise, not the server's gate — the copy path below
+            // opts out of dispatch explicitly.
+            dispatchAvailable: Boolean(data.origin?.topic),
+            acceptanceId: acceptance.id,
+            onConfirm: async (comment) => {
+              if (!data.origin?.topic) {
+                const rejected = await runAction(() =>
+                  rejectCopyOnly({
+                    acceptanceId: acceptance.id,
+                    comment,
+                    copy: copyToClipboard,
+                    reject: (options) =>
+                      verifyService.rejectDelivery(acceptance.id, options.comment, options),
+                  }),
+                );
+                if (rejected)
+                  toast.success({ placement: 'top', title: t('acceptance.bar.copied') });
+                return rejected;
+              }
+              return runAction(async () => {
+                // The server sends the delivery back to its authoring agent when
+                // the rounds name one — say so, since the reject itself is quiet.
+                const { repairDispatch } = await verifyService.rejectDelivery(
+                  acceptance.id,
+                  comment,
+                );
+                if (repairDispatch.dispatched) {
+                  toast.success({ placement: 'top', title: t('acceptance.bar.rerunSent') });
+                } else if (repairDispatch.reason === 'failed') {
+                  toast.error(repairDispatch.error ?? t('acceptance.actionError'));
+                }
+              });
+            },
           })
         }
         onRerun={async () => {

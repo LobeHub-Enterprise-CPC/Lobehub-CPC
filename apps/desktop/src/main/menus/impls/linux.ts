@@ -1,12 +1,13 @@
 import path from 'node:path';
 
-import { GITHUB, OFFICIAL_SITE } from '@lobechat/const/url';
+import { DOWNLOAD_URL, GITHUB, OFFICIAL_SITE } from '@lobechat/const/url';
 import type { TrayNavigationSnapshot } from '@lobechat/electron-client-ipc';
 import type { MenuItemConstructorOptions } from 'electron';
 import { app, clipboard, dialog, Menu, shell } from 'electron';
 
 import { isDev } from '@/const/env';
 import { HETERO_AGENT_DIR } from '@/const/heteroAgent';
+import { getAppDisplayName } from '@/utils/appIdentity';
 
 import { buildTrayMenuTemplate } from '../trayMenu';
 import type { ContextMenuData, IMenuPlatform, MenuOptions } from '../types';
@@ -116,12 +117,7 @@ export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
             },
             label: t('file.preferences'),
           },
-          {
-            click: () => {
-              this.app.updaterManager.checkForUpdates({ manual: true });
-            },
-            label: t('common.checkUpdates'),
-          },
+          this.getUpdateMenuItem(t),
           { type: 'separator' },
           {
             accelerator: 'CmdOrCtrl+W',
@@ -213,6 +209,12 @@ export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
           { type: 'separator' },
           {
             click: () => {
+              this.app.browserManager.retrieveByIdentifier('processExplorer').show();
+            },
+            label: t('help.processExplorer'),
+          },
+          {
+            click: () => {
               const heteroAgentPath = path.join(this.app.appStoragePath, HETERO_AGENT_DIR);
               console.info(`[Menu] Opening HeteroAgent directory: ${heteroAgentPath}`);
               shell.openPath(heteroAgentPath).catch((err) => {
@@ -239,7 +241,7 @@ export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
                 buttons: [commonT('actions.ok')],
                 detail: dialogT('about.detail'),
                 message: dialogT('about.message', {
-                  appName: app.getName(),
+                  appName: getAppDisplayName(),
                   appVersion: app.getVersion(),
                 }),
                 title: dialogT('about.title'),
@@ -271,6 +273,46 @@ export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
     }
 
     return template;
+  }
+
+  /**
+   * Mirrors the macOS/Windows menus: without this the Linux menu only ever
+   * offered "Check for updates" and never surfaced "Restart to update", so a
+   * downloaded update could not be installed from the menu bar at all.
+   */
+  private getUpdateMenuItem(t: (key: string, opts?: any) => string): MenuItemConstructorOptions {
+    const { stage } = this.app.updaterManager.getUpdaterState();
+
+    switch (stage) {
+      case 'checking': {
+        return { enabled: false, label: t('common.checkingUpdates') };
+      }
+      case 'downloading': {
+        return { enabled: false, label: t('common.downloadingUpdate') };
+      }
+      case 'downloaded': {
+        return {
+          click: () => this.app.updaterManager.installNow(),
+          label: t('common.restartToUpdate'),
+        };
+      }
+      case 'latest': {
+        return { enabled: false, label: t('common.isLatestVersion') };
+      }
+      // snap / tar.gz / a runtime-less AppImage cannot replace themselves.
+      case 'unsupported': {
+        return {
+          click: () => shell.openExternal(DOWNLOAD_URL.default),
+          label: t('common.updateUnsupported'),
+        };
+      }
+      default: {
+        return {
+          click: () => this.app.updaterManager.checkForUpdates({ manual: true }),
+          label: t('common.checkUpdates'),
+        };
+      }
+    }
   }
 
   private getDefaultContextMenuTemplate(data?: ContextMenuData): MenuItemConstructorOptions[] {
@@ -468,7 +510,7 @@ export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
 
   private getTrayMenuTemplate(): MenuItemConstructorOptions[] {
     const t = this.app.i18n.ns('menu');
-    const appName = app.getName();
+    const appName = getAppDisplayName();
 
     return [
       {

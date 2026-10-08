@@ -17,7 +17,7 @@ import { getStoreDefaults } from '../store';
  * returns: every path has to be derived on call.
  */
 describe('userData-derived paths', () => {
-  const brandedUserData = path.join('/appdata', 'TiTu Work');
+  const brandedUserData = path.join('/appdata', 'Example Work');
 
   beforeEach(() => {
     vi.mocked(app.getPath).mockImplementation((name: string) => `/mock/${name}`);

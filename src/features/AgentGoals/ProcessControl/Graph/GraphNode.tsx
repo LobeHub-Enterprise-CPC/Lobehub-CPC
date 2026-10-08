@@ -12,6 +12,7 @@ import RunningGlyph from '@/features/Home/components/RunningGlyph';
 import { shinyTextStyles } from '@/styles';
 
 import type { GoalGraphNodeKind } from '../../Experiments/model';
+import AssigneeProfileAvatar from '../AssigneeProfileAvatar';
 import { coordinatorNodeTitleKey } from '../coordinatorCopy';
 import type { GoalNodeView } from '../goalGraphViewModel';
 import { KIND_COLOR, KIND_ICON } from '../shared';
@@ -27,8 +28,12 @@ import { experimentStatusVisual } from './experimentStatus';
 
 export interface GraphNodeData extends Record<string, unknown> {
   dim: boolean;
+  /** Called out by the host — a detour on a report chapter's local map. */
+  highlighted?: boolean;
   isGate: boolean;
   kind?: GoalGraphNodeKind;
+  /** On the path the wrap-up report marked as the one that led to the result. */
+  mainline?: boolean;
   memberCount?: number;
   running: boolean;
   selected: boolean;
@@ -80,6 +85,11 @@ const styles = createStaticStyles(({ css }) => ({
   `,
   ghost: css`
     border-style: dashed;
+  `,
+  highlighted: css`
+    border-color: ${cssVar.colorWarning};
+    border-style: dashed;
+    box-shadow: 0 0 0 3px ${cssVar.colorWarningBg};
   `,
   ghostBar: css`
     height: 8px;
@@ -164,6 +174,13 @@ const styles = createStaticStyles(({ css }) => ({
     font-variant-numeric: tabular-nums;
     color: ${cssVar.colorTextTertiary};
   `,
+  /* A ring, not a fill: the kind tint and the state chip must stay readable.
+     Blue, not `colorPrimary` — the primary is near-black here, so the ring read
+     as a heavier version of the plain card border and told nothing apart. */
+  mainline: css`
+    border-color: ${cssVar.colorInfo};
+    box-shadow: 0 0 0 1px ${cssVar.colorInfo};
+  `,
   selected: css`
     border-color: ${cssVar.colorPrimaryBorder};
   `,
@@ -217,6 +234,13 @@ const useStateChip = (data: GraphNodeData): StateChip | null => {
   // Running renders the same animated ring the frontier and home surfaces use.
   if (running)
     return { color: TASK_STATUS_VISUALS.running.color, text: t('goalProcess.node.running') };
+  // The goal ended under this run: it was stopped, not still going.
+  if (view.halted)
+    return {
+      color: TASK_STATUS_VISUALS.canceled.color,
+      icon: TASK_STATUS_VISUALS.canceled.icon,
+      text: t('goalProcess.node.stopped'),
+    };
   if (node.kind === 'task' && node.status === 'resolved')
     return {
       color: TASK_STATUS_VISUALS.completed.color,
@@ -263,7 +287,7 @@ RunningClock.displayName = 'GoalGraphRunningClock';
 const GraphNodeView = memo<NodeProps>(({ data }) => {
   const { t } = useTranslation('chat');
   const nodeData = data as GraphNodeData;
-  const { dim, isGate, running, selected, stale, subtitle, view } = nodeData;
+  const { dim, highlighted, isGate, mainline, running, selected, stale, subtitle, view } = nodeData;
   const { node } = view;
   const chip = useStateChip(nodeData);
   const kind = nodeData.kind ?? node.kind;
@@ -282,18 +306,26 @@ const GraphNodeView = memo<NodeProps>(({ data }) => {
         type={'target'}
       />
       <div
+        data-mainline={mainline || undefined}
         className={cx(
           styles.card,
           isGate && styles.gate,
           stale && styles.stale,
           dim && styles.dim,
+          highlighted && styles.highlighted,
           selected && styles.selected,
+          mainline && styles.mainline,
         )}
       >
         {/* Status reads first: its own top row, left-aligned, with the running
             clock riding right behind it (review: bottom placements read poorly). */}
-        {(chip || view.humanTouches.length > 0) && (
+        {(chip || highlighted || view.humanTouches.length > 0) && (
           <div className={styles.statusRow}>
+            {highlighted && (
+              <span className={styles.chipText} style={{ color: cssVar.colorWarningText }}>
+                {t('goalProcess.result.story.detourTag')}
+              </span>
+            )}
             {kind === 'experiment' && (
               <span className={styles.chipText} style={{ color: palette.line }}>
                 {t('goalExperiment.number', { number: view.seq })}
@@ -317,14 +349,11 @@ const GraphNodeView = memo<NodeProps>(({ data }) => {
                 <span className={styles.human}>@</span>
               </Tooltip>
             )}
-            {/* Top-right corner: this Task carries its own verifier. Icon only —
-                the word added nothing the hover hint doesn't say better. */}
-            {isTask && node.taskId && (
-              <Tooltip title={t('goalProcess.node.verifierTooltip')}>
-                <span style={{ display: 'inline-flex', marginInlineStart: 'auto' }}>
-                  <Icon color={cssVar.colorTextTertiary} icon={ShieldCheck} size={13} />
-                </span>
-              </Tooltip>
+            {/* Top-right corner: who is doing this Task, with their profile on hover. */}
+            {isTask && view.assigneeAgentId && (
+              <span style={{ display: 'inline-flex', marginInlineStart: 'auto' }}>
+                <AssigneeProfileAvatar agentId={view.assigneeAgentId} size={16} />
+              </span>
             )}
           </div>
         )}
@@ -347,6 +376,15 @@ const GraphNodeView = memo<NodeProps>(({ data }) => {
         )}
         {isTask && (
           <div className={styles.metrics}>
+            {/* This Task carries its own verifier. Icon only — the word added
+                nothing the hover hint doesn't say better. */}
+            {node.taskId && (
+              <Tooltip title={t('goalProcess.node.verifierTooltip')}>
+                <span className={styles.metric}>
+                  <Icon icon={ShieldCheck} size={13} />
+                </span>
+              </Tooltip>
+            )}
             <Tooltip title={t('goalProcess.node.attemptsTooltip', { count: attempts })}>
               <span className={styles.metric}>
                 <Icon icon={Repeat2} size={13} />

@@ -1,4 +1,9 @@
-import { BRANDING_NAME, LOBE_CHAT_CLOUD, ORG_NAME } from '@lobechat/business-const';
+import {
+  BRANDING_AGENT_TITLE,
+  BRANDING_NAME,
+  LOBE_CHAT_CLOUD,
+  ORG_NAME,
+} from '@lobechat/business-const';
 
 import pkg from '../../../package.json';
 // type-only: loads ./global.d.ts so `__ELECTRON__` exists even when this
@@ -18,4 +23,4 @@ export const isCustomORG = ORG_NAME !== 'LobeHub';
 // slot — @lobechat/locales, which only needs the names to rewrite brand strings
 // baked into translations — can resolve them through the same adaptation layer
 // this package already provides for BRANDING_INBOX_TITLE (see ./meta).
-export { BRANDING_NAME, LOBE_CHAT_CLOUD };
+export { BRANDING_AGENT_TITLE, BRANDING_NAME, LOBE_CHAT_CLOUD };

@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { ChatItem } from '@/features/Conversation/ChatItem';
+import { getScmEventSource } from '@/features/Conversation/Markdown/plugins/ScmEvent/parseScmEvent';
 import { useMessageCommentCount } from '@/features/TopicComment/hooks';
 import MessageCommentBadge from '@/features/TopicComment/MessageCommentBadge';
 import { useUserAvatar } from '@/hooks/useUserAvatar';
@@ -23,8 +24,9 @@ import {
 } from '../Contexts/message-action-context';
 import Actions from './Actions';
 import UserMessageContent from './components/MessageContent';
+import { ScmEventAvatar, ScmEventSenderTitle } from './components/ScmEventSender';
 import { UserMessageExtra } from './Extra';
-import { resolveSenderIdentity } from './resolveSenderIdentity';
+import { getBotSender, resolveSenderIdentity } from './resolveSenderIdentity';
 import ScheduledRunFooter from './ScheduledRunFooter';
 
 interface UserMessageProps {
@@ -35,7 +37,11 @@ interface UserMessageProps {
 
 const UserMessage = memo<UserMessageProps>(({ id, disableEditing, index }) => {
   const item = useConversationStore(dataSelectors.getDisplayMessageById(id), isEqual)!;
-  const { content, createdAt, error, role, extra, targetId, sender } = item;
+  const { content, createdAt, error, role, extra, targetId, sender, metadata } = item;
+  const botSender = getBotSender(item);
+  // A wake-up message from the SCM integration is authored by the pull
+  // request, so GitHub takes the sender slot instead of the card's header.
+  const scmSource = useMemo(() => getScmEventSource(content), [content]);
 
   const { t } = useTranslation('chat');
   const selfAvatar = useUserAvatar();
@@ -47,9 +53,12 @@ const UserMessage = memo<UserMessageProps>(({ id, disableEditing, index }) => {
   // visible even during single-user testing; personal mode keeps the legacy
   // hidden-avatar behavior. Self identity applies only to the viewer's own
   // rows — see resolveSenderIdentity.
-  const showSender = Boolean(activeWorkspaceId);
+  // A bot-channel row is authored by someone else even in personal mode, so
+  // its sender is always shown.
+  const showSender = Boolean(activeWorkspaceId) || !!botSender || !!scmSource;
   const currentUserId = useUserStore(userProfileSelectors.userId);
   const { avatar, title } = resolveSenderIdentity({
+    botSender,
     currentUserId,
     selfAvatar,
     selfTitle,
@@ -103,18 +112,27 @@ const UserMessage = memo<UserMessageProps>(({ id, disableEditing, index }) => {
       actions={<Actions data={item} disableEditing={disableEditing} id={id} />}
       avatar={{ avatar, title }}
       belowMessage={<ScheduledRunFooter id={id} />}
+      customAvatarRender={scmSource ? () => <ScmEventAvatar /> : undefined}
       editing={editing}
       id={id}
       message={content}
-      messageExtra={<UserMessageExtra content={content} extra={extra} id={id} />}
+      messageExtra={<UserMessageExtra extra={extra} id={id} />}
       placement={'right'}
       showAvatar={showSender}
-      showTitle={showSender}
+      showTitle={showSender && !scmSource}
       time={createdAt}
       titleAddon={dmIndicator}
       actionAddon={
         commentCount > 0 && commentTopicId ? (
           <MessageCommentBadge count={commentCount} messageId={id} topicId={commentTopicId} />
+        ) : undefined
+      }
+      headerAddon={
+        scmSource || metadata?.steer ? (
+          <>
+            {scmSource && <ScmEventSenderTitle source={scmSource} />}
+            {metadata?.steer && <Tag>{t('steer.tag')}</Tag>}
+          </>
         ) : undefined
       }
       onDoubleClick={onDoubleClick}

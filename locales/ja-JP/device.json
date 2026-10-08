@@ -104,6 +104,7 @@
   "workingDirectory.uncommittedChanges_one": "未コミットの変更: {{count}} ファイル",
   "workingDirectory.uncommittedChanges_other": "未コミットの変更: {{count}} ファイル",
   "workingDirectory.undo": "元に戻す",
+  "workingDirectory.unselected": "未選択",
   "workingDirectory.useFolder": "このフォルダを使用",
   "workingDirectory.worktreeSearchPlaceholder": "ワークツリーを検索",
   "workingDirectory.worktreeUnavailable": "利用不可",

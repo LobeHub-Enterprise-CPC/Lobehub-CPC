@@ -2,9 +2,9 @@
 
 import { Flexbox } from '@lobehub/ui';
 import { Button, Text } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
-import { EyeIcon, PauseIcon, PlayIcon } from 'lucide-react';
-import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { createStaticStyles } from 'antd-style';
+import { PauseIcon, PlayIcon } from 'lucide-react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 
@@ -17,29 +17,22 @@ import NavHeader from '@/features/NavHeader';
 import { PortalContent } from '@/features/Portal/router';
 import { usePortalPanelWidth } from '@/features/Portal/usePortalPanelWidth';
 import RightPanel from '@/features/RightPanel';
-import ToggleRightPanelButton from '@/features/RightPanel/ToggleRightPanelButton';
+import { useWorkspaceSidePanel } from '@/features/RightPanel/WorkspaceSidePanel';
 import WideScreenContainer from '@/features/WideScreenContainer';
-import { useActivityTime } from '@/hooks/useActivityTime';
 import { usePermission } from '@/hooks/usePermission';
 import { useChatStore } from '@/store/chat';
 import { chatPortalSelectors } from '@/store/chat/selectors';
-import { type GoalMetricKind } from '@/store/chat/slices/portal/initialState';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
 import { goalSelectors, useGoalStore } from '@/store/goal';
 
 import GoalChat from './GoalChat';
 import GoalDetailActions from './GoalDetailActions';
-import {
-  formatSpan,
-  formatUsd,
-  goalManagerConversation,
-  goalStatusKey,
-  summarizeGoalBudget,
-} from './goalPresentation';
+import GoalHeaderMetrics from './GoalHeaderMetrics';
+import { goalManagerConversation } from './goalPresentation';
 import GoalRequirement from './GoalRequirement';
-import GoalStatusGlyph from './GoalStatusGlyph';
 import { GoalSupervision } from './GoalSupervision';
+import GoalSupervisorToggle from './GoalSupervisorToggle';
 import NorthStarMetrics from './NorthStarMetrics';
 import ProcessControl from './ProcessControl';
 import { useGoalChatPanel } from './useGoalChatPanel';
@@ -58,57 +51,7 @@ const styles = createStaticStyles(({ css }) => ({
   header: css`
     padding-block: 8px 4px;
   `,
-  metric: css`
-    cursor: pointer;
-
-    min-width: 112px;
-    padding-block: 4px;
-    padding-inline: 10px;
-    border-radius: ${cssVar.borderRadius};
-
-    transition: background 0.15s;
-
-    &:hover {
-      background: ${cssVar.colorFillQuaternary};
-    }
-  `,
-  metrics: css`
-    /* Negative inline offset keeps the metric text aligned with the title while
-       the hover background still gets breathing room. */
-    margin-inline-start: -10px;
-  `,
 }));
-
-const Metric = memo<{
-  label: string;
-  onClick: () => void;
-  value: ReactNode;
-}>(({ label, onClick, value }) => (
-  <Flexbox className={styles.metric} gap={2} onClick={onClick}>
-    <Flexbox horizontal align={'center'} gap={7} style={{ minHeight: 26 }}>
-      {value}
-    </Flexbox>
-    <Text fontSize={12} type={'secondary'}>
-      {label}
-    </Text>
-  </Flexbox>
-));
-
-Metric.displayName = 'GoalHeaderMetric';
-
-/** Relative "last activity" readout; isolated so its refresh never re-renders the page.
- *  Plain text on purpose: the status control already carries the "running"
- *  animation, and a second spinner here said the same thing twice. */
-const LivenessValue = memo<{ latest?: Date }>(({ latest }) => {
-  const { text } = useActivityTime(latest);
-  return (
-    <Text fontSize={16} weight={600}>
-      {text || '—'}
-    </Text>
-  );
-});
-
-LivenessValue.displayName = 'GoalLivenessValue';
 
 interface GoalDetailPageProps {
   /** Absent for a goal with no responsible agent — e.g. one created from a project. */
@@ -129,8 +72,10 @@ const GoalDetailPage = memo<GoalDetailPageProps>(({ agentId, goalId }) => {
 
   const showPortal = useChatStore(chatPortalSelectors.showPortal);
   const currentViewType = useChatStore(chatPortalSelectors.currentViewType);
+  // On the agent-less `/goal/:goalId` route an ancestor layout already owns the
+  // side panel; mounting ours as well would give the surface two portal hosts.
+  const hasWorkspaceSidePanel = useWorkspaceSidePanel();
   const chat = useGoalChatPanel(goalId, agentId);
-  const openGoalMetric = useChatStore((s) => s.openGoalMetric);
   const clearPortalStack = useChatStore((s) => s.clearPortalStack);
 
   // While the exploration map runs fullscreen its overlay carries the portal
@@ -189,15 +134,6 @@ const GoalDetailPage = memo<GoalDetailPageProps>(({ agentId, goalId }) => {
   // page (or switching goals) must not leak it into the conversation surface.
   useEffect(() => () => clearPortalStack(), [clearPortalStack, goalId]);
 
-  const liveness = useMemo(() => {
-    if (!snapshot) return { latest: undefined };
-    let latest: Date | undefined;
-    for (const node of snapshot.nodes) {
-      if (!latest || node.updatedAt > latest) latest = node.updatedAt;
-    }
-    return { latest };
-  }, [snapshot]);
-
   if (error && !snapshot) return <AsyncError error={error} variant={'page'} onRetry={mutate} />;
   if (!snapshot)
     return isLoading ? (
@@ -207,15 +143,40 @@ const GoalDetailPage = memo<GoalDetailPageProps>(({ agentId, goalId }) => {
     );
 
   const { goal, nodes } = snapshot;
-  const managerConversation = goalManagerConversation(goal.config);
-  const tasks = nodes.filter((node) => node.kind === 'task').length;
-  const findings = nodes.filter((node) => node.kind === 'finding').length;
-  const open = (metric: GoalMetricKind) => () => openGoalMetric(goalId, metric);
+  const managerConversation = goalManagerConversation(goal);
 
-  // The panel hosts the goal conversation only when the goal has a
-  // responsible agent; without one it is drill-down-only.
-  const panelExpandable = !!chat.agentId;
+  // Who supervises this page: the agent the route names, the agent behind the
+  // supervision record, or the goal's own agent. That last fallback is what keeps
+  // the agent-less `/goal/:goalId` route working — there the route names no agent
+  // and an unmanaged goal has no record, but the goal still knows whose
+  // conversation this is.
+  const supervisingAgentId =
+    chat.agentId ?? managerConversation?.agentId ?? goal.agentId ?? undefined;
+  const panelExpandable = !!supervisingAgentId;
   const chatVisible = chat.open && panelExpandable;
+
+  /**
+   * One entry, one destination. A goal with a supervision conversation opens that
+   * record; one without opens the side conversation, rather than an empty panel.
+   * Re-targeting only when the destination is not already the open one keeps a
+   * reopen from bumping the request and remounting the panel.
+   */
+  const panelTarget = managerConversation
+    ? { agentId: managerConversation.agentId, topicId: managerConversation.topicId }
+    : supervisingAgentId
+      ? { agentId: supervisingAgentId, topicId: undefined }
+      : undefined;
+
+  const openPanel = () => {
+    const target = panelTarget;
+    if (!target) return;
+    if (chat.topicId !== target.topicId) {
+      clearPortalStack();
+      chat.openConversation(target);
+      return;
+    }
+    chat.setOpen(true);
+  };
 
   const paused = goal.status === 'paused';
   // Pace control exists only while the coordinator loop is actually moving (or
@@ -225,29 +186,6 @@ const GoalDetailPage = memo<GoalDetailPageProps>(({ agentId, goalId }) => {
     canEdit &&
     nodes.length > 0 &&
     ['paused', 'planning', 'running', 'verifying'].includes(goal.status);
-
-  const durationText = goal.startedAt
-    ? formatSpan((goal.completedAt ?? new Date()).getTime() - goal.startedAt.getTime())
-    : '—';
-  // Spend is the metric; the cap is the context it is read against — see
-  // `summarizeGoalBudget`. The label names only the number in the lead, and the
-  // cap trails it at secondary weight rather than sharing top billing.
-  const budget = summarizeGoalBudget(goal, snapshot.spend);
-  const budgetLabel = t(
-    budget.kind === 'rounds' ? 'goalProcess.metrics.rounds' : 'goalProcess.metrics.spend',
-  );
-  const budgetLead =
-    budget.kind === 'cost'
-      ? formatUsd(budget.spent)
-      : budget.kind === 'rounds'
-        ? String(budget.runs)
-        : formatUsd(budget.spent);
-  const budgetTrail =
-    budget.kind === 'cost'
-      ? `/ ${formatUsd(budget.cap)}`
-      : budget.kind === 'rounds'
-        ? `/ ${t('goalProcess.metrics.roundsValue', { count: budget.cap })}`
-        : t('goalProcess.metrics.uncapped');
 
   return (
     <Flexbox horizontal flex={1} height={'100%'} style={{ overflow: 'hidden' }}>
@@ -274,29 +212,19 @@ const GoalDetailPage = memo<GoalDetailPageProps>(({ agentId, goalId }) => {
             </Flexbox>
           }
           right={
-            graphFullscreen ? undefined : (
-              <Flexbox horizontal align={'center'} gap={8}>
-                {managerConversation && (
-                  <Button
-                    icon={EyeIcon}
-                    size={'small'}
-                    onClick={() => {
-                      clearPortalStack();
-                      chat.openSupervision(managerConversation);
-                    }}
-                  >
-                    {t('goalProcess.manager.viewTrace')}
-                  </Button>
-                )}
-                {panelExpandable && (
-                  <ToggleRightPanelButton
+            graphFullscreen
+              ? undefined
+              : supervisingAgentId && (
+                  <GoalSupervisorToggle
                     hideWhenExpanded
+                    agentId={supervisingAgentId}
                     expand={showPortal || chatVisible}
-                    onToggle={() => chat.setOpen(true)}
+                    label={
+                      managerConversation ? t('goalProcess.manager.viewTrace') : t('goalChat.title')
+                    }
+                    onToggle={openPanel}
                   />
-                )}
-              </Flexbox>
-            )
+                )
           }
         />
         <Flexbox flex={1} style={{ overflowY: 'auto' }}>
@@ -305,66 +233,7 @@ const GoalDetailPage = memo<GoalDetailPageProps>(({ agentId, goalId }) => {
               <Text as={'h1'} fontSize={22} weight={600}>
                 {goal.title}
               </Text>
-              <Flexbox horizontal className={styles.metrics} gap={8} wrap={'wrap'}>
-                <Metric
-                  label={t('goalProcess.metrics.status')}
-                  value={
-                    <>
-                      <GoalStatusGlyph size={16} status={goal.status} />
-                      <Text fontSize={16} weight={600}>
-                        {t(goalStatusKey(goal.status))}
-                      </Text>
-                    </>
-                  }
-                  onClick={open('lifecycle')}
-                />
-                <Metric
-                  label={t('goalProcess.metrics.tasks')}
-                  value={
-                    <Text fontSize={16} weight={600}>
-                      {tasks}
-                    </Text>
-                  }
-                  onClick={open('tasks')}
-                />
-                <Metric
-                  label={t('goalProcess.metrics.findings')}
-                  value={
-                    <Text fontSize={16} weight={600}>
-                      {findings}
-                    </Text>
-                  }
-                  onClick={open('findings')}
-                />
-                <Metric
-                  label={budgetLabel}
-                  value={
-                    <>
-                      <Text fontSize={16} weight={600}>
-                        {budgetLead}
-                      </Text>
-                      <Text fontSize={12} type={'secondary'}>
-                        {budgetTrail}
-                      </Text>
-                    </>
-                  }
-                  onClick={open('budget')}
-                />
-                <Metric
-                  label={t('goalProcess.metrics.duration')}
-                  value={
-                    <Text fontSize={16} weight={600}>
-                      {durationText}
-                    </Text>
-                  }
-                  onClick={open('duration')}
-                />
-                <Metric
-                  label={t('goalProcess.metrics.liveness')}
-                  value={<LivenessValue latest={liveness.latest} />}
-                  onClick={open('liveness')}
-                />
-              </Flexbox>
+              <GoalHeaderMetrics goalId={goalId} />
               {/* Pause/resume above the requirement document — its reviewed
                   home. The status glyph keeps the "running" animation; this
                   button is only the control. */}
@@ -384,20 +253,33 @@ const GoalDetailPage = memo<GoalDetailPageProps>(({ agentId, goalId }) => {
                   )}
                 </Flexbox>
               )}
+              {/* North-star strip reads with the requirement document — the
+                  measured clauses ARE half of the acceptance contract — and
+                  leads it rather than trailing it (review feedback, r3). It
+                  stays below the execution metrics, so it is never squeezed
+                  between the title and those numbers. */}
+              <NorthStarMetrics canEdit={canEdit} goalId={goalId} />
               {goal.requirement && (
                 <GoalRequirement goalId={goal.id} requirement={goal.requirement} />
               )}
-              {/* North-star strip beside the requirement document: the measured
-                  clauses ARE half of the acceptance contract, so they read
-                  with it — not squeezed between the title and the execution
-                  metrics (review feedback, r1). */}
-              <NorthStarMetrics canEdit={canEdit} goalId={goalId} />
             </Flexbox>
 
             <ProcessControl
               goalId={goal.id}
               graphFullscreen={graphFullscreen}
               onGraphFullscreenChange={setGraphFullscreen}
+              onFollowUp={
+                // Viewers can read the result but not talk to its agent; the
+                // backend would reject the turn, so they get no composer.
+                canEdit && panelTarget
+                  ? (message) => {
+                      // Same destination as the header entry — the supervision record
+                      // when there is one — and it replaces any open drill-down.
+                      clearPortalStack();
+                      chat.openConversation({ ...panelTarget, initialMessage: message });
+                    }
+                  : undefined
+              }
             />
           </WideScreenContainer>
         </Flexbox>
@@ -406,10 +288,16 @@ const GoalDetailPage = memo<GoalDetailPageProps>(({ agentId, goalId }) => {
       {/* Same Portal the conversation surface uses — the drill-down chain
           (metric / node → task detail → topic) rides its view stack, and the
           header's back arrow and close come for free. When no drill-down is
-          open, the panel hosts the conversation with the goal's responsible
-          agent so a user can just ask about progress. */}
+          open, the panel hosts the goal agent's supervision record, or its side
+          conversation when the goal has no record yet.
+
+          On the agent-less route the task workspace already mounts the portal
+          host, so a drill-down renders there and this panel stays out of the
+          way: a second host would render the same detail twice while squeezing
+          the goal column to nothing beside it. The goal conversation and the
+          supervision trace have no other home, so those still mount here. */}
       <RightPanel
-        expand={(showPortal || chatVisible) && !graphFullscreen}
+        expand={(showPortal ? !hasWorkspaceSidePanel : chatVisible) && !graphFullscreen}
         maxWidth={maxWidth}
         minWidth={minWidth}
         width={width}
@@ -420,22 +308,30 @@ const GoalDetailPage = memo<GoalDetailPageProps>(({ agentId, goalId }) => {
         }}
       >
         {graphFullscreen ? null : showPortal ? (
-          <PortalContent />
-        ) : chat.agentId && chat.topicId ? (
+          hasWorkspaceSidePanel ? null : (
+            <PortalContent />
+          )
+        ) : supervisingAgentId && chat.topicId ? (
           <GoalSupervision
-            agentId={chat.agentId}
+            agentId={supervisingAgentId}
             goalId={goalId}
-            key={`${goalId}:${chat.agentId}:${chat.request}`}
+            initialMessage={chat.initialMessage}
+            key={`${goalId}:${supervisingAgentId}:${chat.request}`}
             topicId={chat.topicId}
             onCollapse={() => chat.setOpen(false)}
+            onInitialMessageConsumed={chat.consumeInitialMessage}
+            // A question that should not land in the manager's own record.
+            onOpenChat={() => chat.openConversation({ agentId: supervisingAgentId })}
           />
-        ) : chat.agentId ? (
+        ) : supervisingAgentId ? (
           <GoalChat
-            agentId={chat.agentId}
+            agentId={supervisingAgentId}
             goalId={goalId}
+            initialMessage={chat.initialMessage}
             initialTopicId={chat.topicId}
-            key={`${goalId}:${chat.agentId}:${chat.request}`}
+            key={`${goalId}:${supervisingAgentId}:${chat.request}`}
             onCollapse={() => chat.setOpen(false)}
+            onInitialMessageConsumed={chat.consumeInitialMessage}
           />
         ) : null}
       </RightPanel>

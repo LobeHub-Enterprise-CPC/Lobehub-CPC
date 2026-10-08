@@ -273,7 +273,7 @@ export class DroidAcpSession extends AcpAgentSession<
       clientCapabilities: {},
       clientInfo: {
         name: 'lobehub',
-        title: 'LobeHub',
+        title: 'Agent Workspace',
         version: this.options.clientVersion,
       },
       protocolVersion: ACP_PROTOCOL_VERSION,

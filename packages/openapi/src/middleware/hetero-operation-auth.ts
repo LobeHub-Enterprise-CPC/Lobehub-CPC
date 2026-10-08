@@ -1,3 +1,4 @@
+import { isBusinessAuthorizationError } from '@lobechat/business-auth';
 import type { ServerDefaultHeterogeneousIngress } from '@lobechat/heterogeneous-agents';
 import { getServerDefaultHeterogeneousAgentConfig } from '@lobechat/heterogeneous-agents';
 import type { MiddlewareHandler } from 'hono';
@@ -78,6 +79,8 @@ export const requireHeteroModelInvocation =
         });
       }
     } catch (error) {
+      if (isBusinessAuthorizationError(error))
+        throw new HTTPException(error.status, { message: error.message });
       if (error instanceof HeteroOperationPrincipalError) {
         throw new HTTPException(error.status, { message: error.message });
       }

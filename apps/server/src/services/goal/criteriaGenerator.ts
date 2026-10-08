@@ -1,6 +1,7 @@
 import { TRACING_SCENARIOS } from '@lobechat/const';
 import { isProgrammaticTestCheck } from '@lobechat/const/verify';
 import type { TracingOptions } from '@lobechat/llm-generation-tracing';
+import type { GoalClarificationAnswer } from '@lobechat/prompts';
 import {
   chainGoalCriteriaDraft,
   chainGoalDecompose,
@@ -15,6 +16,7 @@ import {
   VERIFY_VERIFIER_TYPES,
 } from '@lobechat/prompts';
 import type { RequiredEvidenceSpec, VerifyCheckItem } from '@lobechat/types';
+import { RequestTrigger } from '@lobechat/types';
 import debug from 'debug';
 import { z } from 'zod';
 
@@ -68,12 +70,35 @@ export interface GoalPlanDraft {
 }
 
 const decompositionSchema = z.object({
+  /** Readings the plan relies on that the goal did not state. */
+  assumptions: z.array(z.string()).default([]),
   problemStatement: z.string().min(1),
+  /**
+   * What the planner could not determine and would change the deliverable.
+   * Defaulted so an older answer without the field still plans.
+   */
+  questions: z
+    .array(
+      z.object({
+        assumption: z.string(),
+        blocking: z.boolean(),
+        impact: z.string().optional(),
+        options: z.array(z.string()).default([]),
+        question: z.string(),
+      }),
+    )
+    .default([]),
   tasks: z
     .array(
       z.object({
         /** 0-based indices of earlier tasks this one consumes; drives `depends_on` edges. */
         dependsOn: z.array(z.number().int().nonnegative()).optional(),
+        /**
+         * Present only when the direction is a candidate answer under test; the
+         * coordinator then wraps its Task in an experiment container. Ordinary
+         * delivery steps carry `null` and attach straight to the problem.
+         */
+        hypothesis: z.string().max(280).nullable().optional(),
         instruction: z.string().min(1),
         title: z.string().min(1).max(80),
       }),
@@ -82,7 +107,7 @@ const decompositionSchema = z.object({
     .max(5),
 });
 
-export type GoalDecompositionDraft = z.infer<typeof decompositionSchema>;
+export type GoalDecompositionDraft = z.input<typeof decompositionSchema>;
 
 export class GoalCriteriaGeneratorService {
   constructor(
@@ -117,7 +142,7 @@ export class GoalCriteriaGeneratorService {
         thinking: { type: 'disabled' },
       },
       {
-        metadata: { trigger: 'goal_criteria_draft' },
+        metadata: { trigger: RequestTrigger.Goal },
         tracing: {
           promptVersion: GOAL_CRITERIA_DRAFT_PROMPT_VERSION,
           scenario: TRACING_SCENARIOS.GoalCriteriaGen,
@@ -145,7 +170,10 @@ export class GoalCriteriaGeneratorService {
    * any model/schema failure so the coordinator can fall back to a single
    * task seeded from the raw requirement instead of stalling the goal.
    */
-  async decompose(params: { requirement: string }): Promise<GoalDecompositionDraft | undefined> {
+  async decompose(params: {
+    clarifications?: GoalClarificationAnswer[];
+    requirement: string;
+  }): Promise<GoalDecompositionDraft | undefined> {
     const modelConfig = await resolveGoalModelConfig(this.db, this.userId);
     const ai = new AiGenerationService(this.db, this.userId, this.workspaceId);
     const raw = await ai.generateObject(
@@ -156,7 +184,7 @@ export class GoalCriteriaGeneratorService {
         thinking: { type: 'disabled' },
       },
       {
-        metadata: { trigger: 'goal_decompose' },
+        metadata: { trigger: RequestTrigger.Goal },
         tracing: {
           promptVersion: GOAL_DECOMPOSE_PROMPT_VERSION,
           scenario: TRACING_SCENARIOS.GoalDecompose,

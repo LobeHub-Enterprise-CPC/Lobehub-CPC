@@ -22,6 +22,8 @@ export interface ToolRunResult {
   deviceExecutionTime?: number;
   error?: unknown;
   executionTime?: number;
+  /** Device dispatch may have happened, but no terminal execution result was observed. */
+  executionUnknown?: boolean;
   state?: Record<string, any>;
   /** Tool result requests the current runtime flow to stop. */
   stop?: boolean;
@@ -138,6 +140,11 @@ export interface ToolRunContext {
  * client adapter wraps `internal_invokeDifferentTypePlugin`.
  */
 export interface ToolTransport {
+  /** Execution-entry control; a returned result settles this call without launching it. */
+  beforeToolCall?: (
+    call: ChatToolPayload,
+    context: ToolRunContext,
+  ) => Promise<ToolRunExecution | undefined>;
   /** This runtime can execute tools whose source is the client directly. */
   canRunClientTools?: boolean;
   getCost?: (toolName: string) => number;

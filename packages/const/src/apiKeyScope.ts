@@ -30,6 +30,8 @@ export const API_KEY_SCOPES = [
   API_KEY_FULL_ACCESS_SCOPE,
   'agent:read',
   'agent:write',
+  'eval:read',
+  'eval:write',
   'chat:read',
   'chat:write',
   'model:invoke',
@@ -170,6 +172,8 @@ const rw = (read: ApiKeyScope | null, write: ApiKeyScope | null): TrpcNamespaceS
 export const TRPC_NAMESPACE_API_KEY_RULES: Record<string, TrpcNamespaceScopeRule> = {
   accountDeletion: 'blocked',
   acceptance: 'blocked',
+  // the discussion on an acceptance follows the acceptance itself
+  acceptanceComment: 'blocked',
   agent: rw('agent:read', 'agent:write'),
   // bot channel wiring carries channel credentials
   agentBotProvider: 'blocked',
@@ -202,16 +206,24 @@ export const TRPC_NAMESPACE_API_KEY_RULES: Record<string, TrpcNamespaceScopeRule
   botMessage: 'blocked',
   brief: rw('chat:read', 'chat:write'),
   changelog: 'open',
+  // Preserve the private deployment's existing fail-closed restricted-key policy.
+  channel: 'blocked',
   chunk: rw('knowledge:read', 'knowledge:write'),
   comfyui: rw('model:read', 'model:write'),
   // third-party integrations hold external credentials
   composio: 'blocked',
   config: 'open',
   connector: 'blocked',
+  // boards only lay out widgets; reads mirror `widget`, writes stay key-less
+  // so a restricted key cannot reshape what a widget run is attached to
+  dashboard: rw('agent:read', null),
   device: 'blocked',
+  deviceMetric: 'blocked',
   document: rw('knowledge:read', 'knowledge:write'),
   documentComment: rw('knowledge:read', 'knowledge:write'),
   documentLike: rw('knowledge:read', 'knowledge:write'),
+  // Session/OIDC and full-access keys still bypass this scope guard.
+  executionPolicy: 'blocked',
   expertise: rw('agent:read', 'agent:write'),
   // whole-account backup dump (settings incl. market tokens, providers, agents)
   exporter: 'blocked',
@@ -256,7 +268,16 @@ export const TRPC_NAMESPACE_API_KEY_RULES: Record<string, TrpcNamespaceScopeRule
   // Member-to-member ownership handover: accepting/declining is an interactive
   // human decision, not something a restricted key should automate.
   resourceTransferRequest: 'blocked',
+  // Reads and DELETES files in the caller's persistent sandbox working
+  // directory. No existing scope honestly describes that store: granting it
+  // under `file:*` would let a key given knowledge-base write access delete
+  // working files too, which is not what that grant means. Blocked until the
+  // feature ships with a scope of its own (full-access keys still reach it).
+  sandboxStorage: 'blocked',
   search: rw('chat:read', null),
+  // source-control integration wiring (installations, linked identities,
+  // tracked pull requests) is configured from Settings, not from keys
+  scm: 'blocked',
   session: rw('chat:read', 'chat:write'),
   sessionGroup: rw('chat:read', 'chat:write'),
   share: rw('chat:read', 'chat:write'),
@@ -273,6 +294,10 @@ export const TRPC_NAMESPACE_API_KEY_RULES: Record<string, TrpcNamespaceScopeRule
   topUp: 'blocked',
   topic: rw('chat:read', 'chat:write'),
   topicComment: rw('chat:read', 'chat:write'),
+  // The recycle bin spans every content kind (chats, agents, files, tasks …) —
+  // restore / purge is a destructive cross-cutting surface, so restricted keys
+  // never reach it; only full-access keys can.
+  trash: 'blocked',
   upload: rw('file:read', 'file:write'),
   usage: rw('usage:read', null),
   user: rw('user:read', 'user:write'),
@@ -282,6 +307,10 @@ export const TRPC_NAMESPACE_API_KEY_RULES: Record<string, TrpcNamespaceScopeRule
   video: { any: 'model:invoke' },
   waitlist: 'blocked',
   webBrowsing: { any: 'model:invoke' },
+  // widget runs execute user scripts in the sandbox with the owner's connector
+  // credentials, so restricted keys may read widgets and runs but not change
+  // or trigger them
+  widget: rw('agent:read', null),
   work: rw('agent:read', 'agent:write'),
   workspace: rw('workspace:read', 'workspace:write'),
   workspaceAuditLog: rw('workspace:read', null),
@@ -398,8 +427,9 @@ export const TRPC_PROCEDURE_EXTRA_SCOPES: Record<string, ApiKeyScope[]> = {
  * blocked here by path prefix.
  */
 export const TRPC_BLOCKED_PATH_PREFIXES: string[] = [
-  // returns an unrestricted user JWT that passes `oidcAuth` as non-API-key
-  // auth and would bypass the scope guard entirely
+  // both return an unrestricted user JWT that passes `oidcAuth` as
+  // non-API-key auth and would bypass the scope guard entirely
+  'aiAgent.issueGatewayUserToken',
   'aiAgent.refreshGatewayToken',
   // sandbox execution mints a full LOBEHUB_JWT for `lh` commands
   // (`preprocessLhCommand`), which would bypass the key's scopes entirely

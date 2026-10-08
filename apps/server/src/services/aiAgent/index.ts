@@ -1,5 +1,6 @@
 import type { AgentState } from '@lobechat/agent-runtime';
 import { BUILTIN_AGENT_SLUGS } from '@lobechat/builtin-agents';
+import type { SandboxStorageClaim } from '@lobechat/builtin-tool-cloud-sandbox';
 import type { LobeChatDatabase } from '@lobechat/database';
 import type {
   ExecAgentResult,
@@ -11,7 +12,6 @@ import type {
   ScheduleAgentRunParams,
   ScheduleAgentRunResult,
   UserInterventionConfig,
-  WorkingDirConfig,
 } from '@lobechat/types';
 import { getWorkingDirEffectivePath, RequestTrigger } from '@lobechat/types';
 import { nanoid } from '@lobechat/utils';
@@ -40,10 +40,17 @@ import type {
   AgentExecutionParams,
   AgentExecutionResult,
   AgentRuntimeServiceOptions,
+  AgentStepContinuation,
   SubAgentBridgeParams,
 } from '@/server/services/agentRuntime';
 import { AgentRuntimeService } from '@/server/services/agentRuntime';
 import { getAbortError, throwIfAborted } from '@/server/services/agentRuntime/abort';
+// Imported from the module itself: tests mock the `agentRuntime` barrel.
+import {
+  isComposerSupersedableTrigger,
+  type SupersedeKind,
+  type SupersedeRecord,
+} from '@/server/services/agentRuntime/foregroundOperation';
 import type {
   ExecGroupMemberParams,
   ExecGroupMemberResult,
@@ -54,25 +61,38 @@ import { MarketService } from '@/server/services/market';
 import { markdownToTxt } from '@/utils/markdownToTxt';
 
 import { createGraphAwareAgentFactory } from './helpers/agentFactory';
-import { createGroupActionMemberBridgeHook } from './hooks/threadRunHooks';
+import {
+  createGroupActionMemberBridgeHook,
+  createThreadHooks,
+  pickThreadUsageBaseline,
+} from './hooks/threadRunHooks';
 import { InterventionController } from './intervention/InterventionController';
 import type { ApprovalClaimState } from './pipeline/approvalResume';
+import { claimApprovalResume, tryReuseInterventionContinuation } from './pipeline/approvalResume';
 import {
-  buildApprovalResumeContext,
-  claimApprovalResume,
-  tryReuseInterventionContinuation,
-} from './pipeline/approvalResume';
+  type GroupMemberBridgeParams,
+  resolveGroupMemberApprovalContinuation,
+} from './pipeline/groupMemberApproval';
 import { dispatchHeteroAgent } from './pipeline/heteroDispatch';
-import { createHistoryMessagesLoader, prepareOperation } from './pipeline/operationPrep';
+import { buildOperationInitRequest, runOperationInit } from './pipeline/operationInit';
+import {
+  createHistoryMessagesLoader,
+  createTranscriptHistoryLoader,
+} from './pipeline/operationPrep';
 import { resolveRunAgentConfig } from './pipeline/resolveRunAgentConfig';
+import { traceSendStage } from './pipeline/sendTracing';
 import { startOperation } from './pipeline/startOperation';
-import { discoverTools } from './pipeline/toolDiscovery';
 import { resolveNewTopicSnapshot, setupTurn } from './pipeline/turnSetup';
+import { createRunFacts, type RunFacts } from './runFacts';
 import { applyShareGateToAgentConfig } from './shareGate';
 import type { SubAgentRunDeps } from './subAgentRuns';
 import { execAgentMember, execAgentThreadRun } from './subAgentRuns';
-import { acquireTopicStartReservation } from './topicStartReservation';
-import type { ExecRunContext, InternalExecAgentParams } from './types';
+import { acquireTopicStartReservation, TopicStartReservationError } from './topicStartReservation';
+import type {
+  BindTopicWorkingDirectoryParams,
+  ExecRunContext,
+  InternalExecAgentParams,
+} from './types';
 
 const log = debug('lobe-server:ai-agent-service');
 
@@ -203,16 +223,34 @@ export class AiAgentService {
     };
   }
 
-  private async getMarketService(): Promise<MarketService> {
-    if (this._marketService) return this._marketService;
+  private async getMarketService(
+    runFacts?: RunFacts,
+    options?: { sandboxStorage: SandboxStorageClaim },
+  ): Promise<MarketService> {
+    if (!options && this._marketService) return this._marketService;
 
-    let accessToken: string | undefined;
-    try {
-      const userModel = new UserModel(this.db, this.userId);
-      const settings = await userModel.getUserSettings();
-      accessToken = (settings?.market as any)?.accessToken;
-    } catch {
-      // non-fatal — MarketService will fall back to trustedClientToken
+    // The turn's fact reader already holds this row when a run is underway
+    // (`execAgent` asks it for the memory / timezone settings too); callers
+    // outside a run read it themselves.
+    // Non-fatal either way — MarketService falls back to trustedClientToken.
+    const settings = await (
+      runFacts ? runFacts.userSettings() : new UserModel(this.db, this.userId).getUserSettings()
+    ).catch(() => undefined);
+    const accessToken = (settings?.market as any)?.accessToken;
+
+    // A sandbox-workspace claim is signed into the trust token, so a service
+    // carrying one is built for that run and kept out of the shared cache.
+    if (options) {
+      return new MarketService({
+        accessToken,
+        userInfo: {
+          sandboxStorage: options.sandboxStorage,
+          userId: this.userId,
+          // The claim resolves against the workspace's mirrored organization,
+          // not the member's personal account, so the scope has to travel with it.
+          workspaceId: this.workspaceId,
+        },
+      });
     }
 
     this._marketService = new MarketService({
@@ -267,25 +305,50 @@ export class AiAgentService {
    * CLI agent does. Purely additive: a topic that already carries a cwd (the
    * client resolved one and sent it as `initialTopicMetadata`, or an earlier
    * turn bound it) is never rewritten, so the historical pin always wins.
+   *
+   * The pin is a bare path that only holds on the machine it came from, so the
+   * device is stamped alongside it (`boundDeviceId`, unless the topic already
+   * names one) — that is what lets another device skip it. A topic already
+   * bound to a different device is left unpinned rather than given this
+   * device's path.
+   *
+   * An unbound topic that already carries a cwd (the client's initial
+   * metadata, or a pre-binding row) still gets the device stamped: the run
+   * just used that cwd here, and the binding is what keeps later turns and the
+   * device picker on this machine.
    */
-  private async bindTopicWorkingDirectory(params: {
-    config?: WorkingDirConfig;
-    currentWorkingDirectory?: string;
-    topicId: string;
-  }): Promise<void> {
-    const { config, currentWorkingDirectory, topicId } = params;
-    if (currentWorkingDirectory || !config) return;
-    const path = getWorkingDirEffectivePath(config);
-    if (!path) return;
+  private async bindTopicWorkingDirectory(params: BindTopicWorkingDirectoryParams): Promise<void> {
+    const { config, currentDeviceId, currentWorkingDirectory, deviceId, topicId } = params;
+    if (!config) {
+      // No directory resolved on this machine (no agent pick, no device
+      // default), so the caller never read the topic either. The run still
+      // happened here — pin an unbound topic to it all the same.
+      if (deviceId) await this.stampTopicDevice(topicId, deviceId);
+      return;
+    }
+    if (currentDeviceId && deviceId && currentDeviceId !== deviceId) return;
+    const stampDevice = !!deviceId && !currentDeviceId;
+    const path = currentWorkingDirectory ? undefined : getWorkingDirEffectivePath(config);
+    if (!path && !stampDevice) return;
 
     try {
       await this.topicModel.updateMetadata(topicId, {
-        workingDirectory: path,
-        workingDirectoryConfig: config,
+        ...(stampDevice && { boundDeviceId: deviceId }),
+        ...(path && { workingDirectory: path, workingDirectoryConfig: config }),
       });
     } catch (err) {
       // Metadata bookkeeping must never fail a run that is otherwise fine.
       log('execAgent: bindTopicWorkingDirectory failed (non-fatal): %O', err);
+    }
+  }
+
+  private async stampTopicDevice(topicId: string, deviceId: string): Promise<void> {
+    try {
+      const topic = await this.topicModel.findById(topicId);
+      if (!topic || topic.metadata?.boundDeviceId) return;
+      await this.topicModel.updateMetadata(topicId, { boundDeviceId: deviceId });
+    } catch (err) {
+      log('execAgent: stampTopicDevice failed (non-fatal): %O', err);
     }
   }
 
@@ -300,6 +363,54 @@ export class AiAgentService {
    */
   executeStep(params: AgentExecutionParams): Promise<AgentExecutionResult> {
     return this.agentRuntimeService.executeStep(params);
+  }
+
+  /**
+   * Drive an operation created with `autoStart: false` to a terminal or parked
+   * state in the current process. Hosts that own their own worker loop
+   * (Channel native runs) use this instead of the queue; the runtime must have
+   * been built with `queueService: null` so no step is scheduled twice.
+   */
+  executeSync(
+    ...args: Parameters<AgentRuntimeService['executeSync']>
+  ): ReturnType<AgentRuntimeService['executeSync']> {
+    return this.agentRuntimeService.executeSync(...args);
+  }
+
+  /**
+   * Mark an operation interrupted at its next step boundary. The companion of
+   * {@link executeSync}: a sync host has no topic to route `interruptTask`
+   * through, so it stops the operation it is driving directly.
+   */
+  interruptOperation(operationId: string): Promise<boolean> {
+    return this.agentRuntimeService.interruptOperation(operationId);
+  }
+
+  /** Continue a run parked in `waiting_for_client` (see AgentRuntimeService). */
+  resumeFromClientLlmWait(
+    params: Parameters<AgentRuntimeService['resumeFromClientLlmWait']>[0],
+  ): ReturnType<AgentRuntimeService['resumeFromClientLlmWait']> {
+    return this.agentRuntimeService.resumeFromClientLlmWait(params);
+  }
+
+  /** Runs of this user parked in `waiting_for_client`. */
+  listClientLlmWaits(providers?: string[]): ReturnType<AgentRuntimeService['listClientLlmWaits']> {
+    return this.agentRuntimeService.listClientLlmWaits(providers);
+  }
+
+  /** Mint a lock owner that spans a whole inline step loop. */
+  createOperationLockOwner(operationId: string): string {
+    return this.agentRuntimeService.createOperationLockOwner(operationId);
+  }
+
+  /** Publish a step that an inline loop deferred instead of running. */
+  scheduleContinuation(continuation: AgentStepContinuation): Promise<void> {
+    return this.agentRuntimeService.scheduleContinuation(continuation);
+  }
+
+  /** Release a lock retained across an inline step loop. */
+  releaseOperationLock(operationId: string, stepLockOwner: string): Promise<void> {
+    return this.agentRuntimeService.releaseOperationLock(operationId, stepLockOwner);
   }
 
   /**
@@ -473,6 +584,60 @@ export class AiAgentService {
    *   → AgentRuntimeService.createOperation(...)
    */
   async execAgent(inputParams: InternalExecAgentParams): Promise<ExecAgentResult> {
+    // Reject private transcript conflicts before approval lookups or thread creation.
+    if (
+      inputParams.transcript &&
+      (inputParams.appContext?.topicId ||
+        inputParams.resume ||
+        inputParams.resumeApproval ||
+        inputParams.resumeApprovals ||
+        inputParams.resumeToolResult)
+    ) {
+      throw new Error(
+        'transcript mode is exclusive with appContext.topicId and every resume* option',
+      );
+    }
+
+    // An approval on a group member's tool continues that member, not the
+    // conversation's supervisor (see `resolveGroupMemberApprovalContinuation`).
+    const memberContinuation = await resolveGroupMemberApprovalContinuation(
+      {
+        createBridgeHook: (bridge) =>
+          createGroupActionMemberBridgeHook(this.agentRuntimeService, bridge),
+        createThreadHooks: async (threadId) => {
+          const thread = await this.threadModel.findById(threadId);
+          if (!thread?.sourceMessageId) return [];
+          return createThreadHooks(
+            this.agentRuntimeService,
+            this.threadModel,
+            this.messageModel,
+            thread.id,
+            thread.metadata?.startedAt ?? new Date().toISOString(),
+            thread.sourceMessageId,
+            'execVirtualSubAgent',
+            pickThreadUsageBaseline(thread.metadata),
+          );
+        },
+        findMessagePlugin: (messageId) => this.messageModel.findMessagePlugin(messageId),
+        loadMember: (operationId) => this.agentRuntimeService.loadGroupMemberBridge(operationId),
+      },
+      inputParams,
+    );
+    if (memberContinuation) {
+      log(
+        'execAgent: approval targets group member %s, continuing it under supervisor op %s',
+        memberContinuation.agentId,
+        memberContinuation.parentOperationId,
+      );
+      const continuation = await this.execAgent(memberContinuation);
+      await this.rearmGroupMemberDeadline(memberContinuation, continuation);
+      return {
+        ...continuation,
+        groupMemberContinuation: true,
+        supervisorOperationId: memberContinuation.parentOperationId,
+      };
+    }
+
     // Creating the thread here (rather than inside the turn) means a run that
     // asked for one is already a thread run by the time the reservation check
     // below reads `appContext.threadId` — same isolation as a follow-up inside
@@ -514,13 +679,17 @@ export class AiAgentService {
       return withCreatedThread(await this.execAgentWithApprovalRollback(params));
     }
 
+    const replacesOperationId = isInterventionThreadStart
+      ? undefined
+      : await this.resolveReplacedOperationId(params, topicId);
+
     // A replacement is allowed to take over the topic marker, but the device
     // process that owned the old marker may still hold a native Codex/CC writer.
     // Settle that physical run before reserving and dispatching the replacement;
     // otherwise two `lh hetero exec` wrappers can resume the same thread.
-    if (params.replacesOperationId && !isInterventionThreadStart) {
+    if (replacesOperationId) {
       const interruption = await this.interruptTask({
-        operationId: params.replacesOperationId,
+        operationId: replacesOperationId,
         topicId,
       });
       if (interruption.deviceCancellationConfirmed === false) {
@@ -529,7 +698,7 @@ export class AiAgentService {
     }
     const reserved = await acquireTopicStartReservation({
       allowSameReservationReentry: !params.approvalResolutionRequestId,
-      replacesOperationId: isInterventionThreadStart ? undefined : params.replacesOperationId,
+      replacesOperationId,
       allowRunningOperationId: params.topicStartOwnerOperationId,
       // A thread continuation shares the topic row but never owns/replaces its
       // main runningOperation anchor. It uses only the short initializer fence.
@@ -540,13 +709,143 @@ export class AiAgentService {
     });
 
     if (!reserved) {
-      throw new Error(`Topic not found: ${topicId}`);
+      throw new TopicStartReservationError(`Topic not found: ${topicId}`);
     }
 
     try {
-      return withCreatedThread(await this.execAgentWithApprovalRollback(params));
+      const superseded =
+        params.interactiveStart && !isInterventionThreadStart
+          ? await this.supersedeRunningForegroundOperation(topicId, [
+              replacesOperationId,
+              params.topicStartOwnerOperationId,
+            ])
+          : undefined;
+      const result = await this.execAgentWithApprovalRollback(params);
+      if (superseded) {
+        await this.recordSupersede(topicId, result.operationId, superseded, params);
+      }
+      return withCreatedThread(result);
     } finally {
       await this.topicModel.releaseTaskCallbackReservation(topicId, reservationId);
+    }
+  }
+
+  /**
+   * The run this start replaces. A composer send names it from client state, so
+   * it is honored only when it is one of this user's runs on the same topic;
+   * server-derived continuations are trusted as given.
+   */
+  private async resolveReplacedOperationId(
+    params: InternalExecAgentParams,
+    topicId: string,
+  ): Promise<string | undefined> {
+    const { replacesOperationId } = params;
+    if (!replacesOperationId || !params.interactiveStart) return replacesOperationId;
+
+    const replaced = await this.agentOperationModel.findById(replacesOperationId);
+    return replaced?.topicId === topicId ? replacesOperationId : undefined;
+  }
+
+  /**
+   * Retire the foreground run that still owns the topic's `runningOperation`
+   * before an interactive send starts the next one.
+   *
+   * The client is expected to stop a live run before sending (Stop / Send now)
+   * or to queue the send until the run yields. When it misses one, nothing else
+   * stops that run: `startOperation` overwrites the marker, and both runs keep
+   * reading the same topic, interleave writes, and invalidate each other's
+   * prompt cache, multiplying the conversation's cost for as long as the old
+   * run lives.
+   *
+   * Runs inside the topic-start reservation so two fast sends cannot both read
+   * the same stale holder. Only a `running` foreground run is retired; these
+   * keep the existing behavior:
+   * - a parked run (`waiting_for_human` etc.) — the send may be its answer;
+   * - a background producer's run (task, cron, bot, …), see
+   *   `isComposerSupersedableTrigger` in `agentRuntime/foregroundOperation`.
+   *   An Agent Signal run on the main spine (task-result wakeup) is retired
+   *   like a foreground run: the client never tracks it, so it cannot queue;
+   * - a device-hosted Claude Code / Codex run: cancelling it waits up to 10s
+   *   for the device, far past the reservation's ~3s retry budget, so a
+   *   concurrent send would fail. Those settle through `replacesOperationId`
+   *   before reserving.
+   *
+   * @returns the retired run and whether it had already been asked to stop, so
+   * the caller can record the overlap on the new run.
+   */
+  private async supersedeRunningForegroundOperation(
+    topicId: string,
+    alreadyHandledOperationIds: (string | undefined)[],
+  ): Promise<{ holderId: string; kind: SupersedeKind } | undefined> {
+    const topic = await this.topicModel.findById(topicId);
+    const marker = topic?.metadata?.runningOperation;
+    const holderId = marker?.operationId;
+    if (!holderId || marker.heteroType || alreadyHandledOperationIds.includes(holderId)) return;
+
+    const holder = await this.agentOperationModel.findById(holderId);
+    if (holder?.status !== 'running') return;
+    if (!isComposerSupersedableTrigger(holder.trigger)) return;
+
+    // Read before interrupting: afterwards the sentinel is always set. The
+    // read is diagnostic only, so a failure must not fail the send.
+    let kind: SupersedeKind;
+    try {
+      kind = (await this.agentRuntimeService.isOperationInterrupted(holderId))
+        ? 'already_stopping'
+        : 'client_missed';
+    } catch (error) {
+      console.error('[execAgent] failed to read interrupt state of %s:', holderId, error);
+      kind = 'unknown';
+    }
+
+    log(
+      'execAgent: superseding running foreground operation %s on topic %s (%s)',
+      holderId,
+      topicId,
+      kind,
+    );
+    const interrupted = await this.interruptTask({ operationId: holderId, topicId });
+    // Unconfirmed only when the run has no runtime state left but its row has
+    // not settled yet: nothing executes its next step, so the send proceeds
+    // rather than failing on a run that cannot spend any more.
+    if (!interrupted.success) {
+      console.warn('[execAgent] supersede of %s was not confirmed', holderId, { topicId });
+    }
+    return { holderId, kind };
+  }
+
+  /**
+   * Persist the supersede on the new run's `metadata.supersede`, with the
+   * client's view of its runs at send time. A `client_missed` supersede means
+   * the client let a live run keep going — the case to investigate — so it is
+   * also warned. Diagnostic only: a failure here never fails the send.
+   */
+  private async recordSupersede(
+    topicId: string,
+    operationId: string,
+    superseded: { holderId: string; kind: SupersedeKind },
+    params: InternalExecAgentParams,
+  ): Promise<void> {
+    const record: SupersedeRecord = {
+      client: params.clientRunSnapshot,
+      kind: superseded.kind,
+      supersededAt: new Date().toISOString(),
+      supersededOperationId: superseded.holderId,
+    };
+
+    if (superseded.kind === 'client_missed') {
+      console.warn('[execAgent] client missed a running foreground operation', {
+        client: params.clientRunSnapshot,
+        operationId,
+        supersededOperationId: superseded.holderId,
+        topicId,
+      });
+    }
+
+    try {
+      await this.agentOperationModel.mergeMetadata(operationId, { supersede: record });
+    } catch (error) {
+      console.error('[execAgent] failed to record supersede on %s:', operationId, error);
     }
   }
 
@@ -654,7 +953,9 @@ export class AiAgentService {
       appContext,
       autoStart = true,
       botContext,
+      botSender,
       createdThreadId,
+      externalOrigin,
       clientIp,
       userAgent,
       deviceId: requestedDeviceId,
@@ -673,6 +974,7 @@ export class AiAgentService {
       provider: providerOverride,
       stream,
       title,
+      steer,
       trigger,
       cronJobId,
       taskId,
@@ -698,29 +1000,22 @@ export class AiAgentService {
       mentionedAgents,
       suppressUserMessage,
       ephemeralUserMessage,
+      channelContext,
+      serverToolManifests,
+      transcript,
     } = params;
 
-    // Agent Share visitor runs execute under the CREATOR's credentials (see
-    // `shareChat.ts` `execAgent` → `AiAgentService.execAgent({ shareGate })`)
-    // with no visitor-facing approval UI at all, so no approval can ever be
-    // WAITED for: `headless` is the only mode that converts an intervention
-    // into an immediate blocked tool result ('always'-policy calls become
-    // `resolve_blocked_tools`) instead of parking the run on
-    // `request_human_approve` forever. Forced unconditionally — overriding
-    // whatever the caller passed — so a future execAgent call site cannot
-    // reintroduce a waiting mode by omission.
+    // Agent Share visitor runs execute under the CREATOR's credentials but are
+    // approved by the VISITOR: granting a tool grants its normal approval
+    // flow, so the run honors the visitor's own approval mode (sent by the
+    // share client, see `shareChat.execAgent`) and parks intervention-gated
+    // calls for the visitor to resolve on the share page.
     //
-    // `headless` DOES auto-run overridable ('required') interventions. That is
-    // acceptable here only because of the two share-specific layers on top:
-    // `applyShareGateToInterventionRequiredApis` strips every
-    // intervention-gated API from what the model is offered, and
-    // `isShareBlockedBuiltinDispatch` re-blocks intervention-gated (and
-    // non-enabled, and data-rule-violating) builtin calls at the executor
-    // dispatch site — re-reading the UNSTRIPPED manifest, since the assembly
-    // strip removes the very intervention config the runtime would otherwise
-    // consult. No 'required' builtin API can execute through either layer.
+    // A share caller that sends no config falls back to `manual`, never to
+    // this method's `headless` default: `headless` auto-runs `'required'`
+    // calls, which would grant a consent nobody gave.
     const userInterventionConfig: UserInterventionConfig = shareGate
-      ? { approvalMode: 'headless' }
+      ? (params.userInterventionConfig ?? { approvalMode: 'manual' })
       : requestedUserInterventionConfig;
 
     // Honour client-minted row ids on a FRESH send only. Resume / regeneration
@@ -803,23 +1098,26 @@ export class AiAgentService {
       memberDeviceOverride,
       persistAgentId,
       resolvedAgentId,
-    } = await resolveRunAgentConfig(
-      {
-        db: this.db,
-        resolveAgentConfigOrThrow: (id) => this.resolveAgentConfigOrThrow(id),
-        userId: this.userId,
-        workspaceId: this.workspaceId,
-      },
-      {
-        appContext,
-        chatConfigOverride,
-        identifier,
-        instructions,
-        modelOverride,
-        providerOverride,
-        throwIfExecutionAborted,
-        toolModeOverride,
-      },
+    } = await traceSendStage('agent_config', () =>
+      resolveRunAgentConfig(
+        {
+          db: this.db,
+          resolveAgentConfigOrThrow: (id) => this.resolveAgentConfigOrThrow(id),
+          userId: this.userId,
+          workspaceId: this.workspaceId,
+        },
+        {
+          appContext,
+          chatConfigOverride,
+          identifier,
+          instructions,
+          modelOverride,
+          providerOverride,
+          shareVisitorUserId: shareGate?.visitorUserId,
+          throwIfExecutionAborted,
+          toolModeOverride,
+        },
+      ),
     );
 
     // Share-visitor runs must never see the creator's files/knowledge bases.
@@ -849,7 +1147,9 @@ export class AiAgentService {
     // instead of appending a new user message — share the message-construction
     // branches below. Resume-specific validation/approval stays gated on
     // `effectiveResume` only.
-    const runFromHistory = effectiveResume || !!suppressUserMessage;
+    // A transcript run likewise appends nothing: its request already lives in
+    // the host store (`transcript.deliveryMessageId`).
+    const runFromHistory = effectiveResume || !!suppressUserMessage || !!transcript;
 
     if (effectiveResume) {
       if (!parentMessageId) {
@@ -895,19 +1195,21 @@ export class AiAgentService {
       approvedToolEntries,
       batchApprovalAnchorId,
       resumeApprovalPlugin,
-    } = await claimApprovalResume(
-      { messageModel: this.messageModel },
-      {
-        appContext,
-        approvalClaim,
-        approvalDecisions,
-        parentMessageId,
-        providedApprovalResolutionRequestId,
-        providedApprovalSourceOperationId,
-        resumeApprovals,
-        resumeParentMessage,
-        resumeToolResult,
-      },
+    } = await traceSendStage('approval_claim', () =>
+      claimApprovalResume(
+        { messageModel: this.messageModel },
+        {
+          appContext,
+          approvalClaim,
+          approvalDecisions,
+          parentMessageId,
+          providedApprovalResolutionRequestId,
+          providedApprovalSourceOperationId,
+          resumeApprovals,
+          resumeParentMessage,
+          resumeToolResult,
+        },
+      ),
     );
 
     // Deterministic continuation identity for a generic (v2) approval claim.
@@ -953,42 +1255,48 @@ export class AiAgentService {
     // Stage 3 + shared turn setup — topic creation/reuse (with the pinned
     // model), device-access policy, hetero detection, attachment ingestion, and
     // the persisted user/assistant rows (see `pipeline/turnSetup`).
-    const turn = await setupTurn(
-      {
-        db: this.db,
-        messageModel: this.messageModel,
-        topicModel: this.topicModel,
-        userId: this.userId,
-        workspaceId: this.workspaceId,
-      },
-      {
-        agentConfig,
-        agentSlug,
-        appContext,
-        assistantAgentId,
-        attachedFileIds,
-        batchApprovalAnchorId,
-        botContext,
-        clientIds,
-        continuationAssistantId,
-        conversationAgentId,
-        createdThreadId,
-        cronJobId,
-        files,
-        modelOverride,
-        operationTaskId,
-        parentMessageId,
-        prompt,
-        providerOverride,
-        requestedDeviceId,
-        resolvedAgentId,
-        resume,
-        runFromHistory,
-        shareGate,
-        throwIfExecutionAborted,
-        title,
-        trigger,
-      },
+    const turn = await traceSendStage('turn_setup', () =>
+      setupTurn(
+        {
+          db: this.db,
+          messageModel: this.messageModel,
+          topicModel: this.topicModel,
+          userId: this.userId,
+          workspaceId: this.workspaceId,
+        },
+        {
+          agentConfig,
+          agentSlug,
+          appContext,
+          assistantAgentId,
+          attachedFileIds,
+          batchApprovalAnchorId,
+          botContext,
+          botSender,
+          clientIds,
+          continuationAssistantId,
+          conversationAgentId,
+          createdThreadId,
+          externalOrigin,
+          cronJobId,
+          files,
+          modelOverride,
+          operationTaskId,
+          parentMessageId,
+          prompt,
+          providerOverride,
+          requestedDeviceId,
+          resolvedAgentId,
+          resume,
+          runFromHistory,
+          shareGate,
+          steer,
+          throwIfExecutionAborted,
+          title,
+          transcript,
+          trigger,
+        },
+      ),
     );
     assistantMessageRef.current = turn.assistantMessageId;
     const {
@@ -1007,9 +1315,20 @@ export class AiAgentService {
     // (`pipeline/*`). Built after the turn rows exist so every stage sees the
     // persisted anchors; `agentConfig` stays the same mutable object so stage
     // systemRole appends remain visible to `createOperation` below.
+    // One reader for the facts that cannot change within this turn, so the
+    // send window asks the routed device and the user's row once each.
+    const runFacts = createRunFacts({
+      db: this.db,
+      userId: this.userId,
+      workspaceId: this.workspaceId,
+    });
+
     const runContext: ExecRunContext = {
       agentConfig,
-      appContext,
+      appContext:
+        turn.editingAgentId && turn.editingAgentId !== appContext?.editingAgentId
+          ? { ...appContext, editingAgentId: turn.editingAgentId }
+          : appContext,
       assistantMessageId: turn.assistantMessageId,
       canUseDevice,
       deviceAccessReason,
@@ -1019,18 +1338,25 @@ export class AiAgentService {
       prompt,
       provider,
       resolvedAgentId,
+      runFacts,
       shareGate,
+      topicEditingGroupId: turn.topicEditingGroupId,
       topicId,
       trigger,
       userMessageId: turn.userMessageId,
     };
 
     if (isHeteroAgent) {
+      // `setupTurn` rejects a hetero agent in transcript mode, so both anchors
+      // exist here; the narrowing gives hetero dispatch the persisted shape.
+      if (runContext.topicId === undefined || runContext.assistantMessageId === undefined) {
+        throw new Error('Heterogeneous dispatch requires a persisted topic and assistant row');
+      }
       return dispatchHeteroAgent(
         {
           bindTopicWorkingDirectory: (p) => this.bindTopicWorkingDirectory(p),
           db: this.db,
-          getMarketService: () => this.getMarketService(),
+          getMarketService: (options) => this.getMarketService(runFacts, options),
           messageModel: this.messageModel,
           resolveDeviceWorkspaceId: (deviceId) => this.resolveDeviceWorkspaceId(deviceId),
           topicModel: this.topicModel,
@@ -1038,7 +1364,11 @@ export class AiAgentService {
           withholdGatewayToken: this.withholdGatewayToken,
           workspaceId: this.workspaceId,
         },
-        runContext,
+        {
+          ...runContext,
+          assistantMessageId: runContext.assistantMessageId,
+          topicId: runContext.topicId,
+        },
         {
           canManageAgent,
           effectiveRequestedDeviceId: turn.effectiveRequestedDeviceId,
@@ -1050,10 +1380,11 @@ export class AiAgentService {
           maxSteps,
           memberDeviceOverride,
           operationTaskId,
+          onOperationCreated: params.onOperationCreated,
           parentOperationId,
           pinnedHeterogeneousTopicModel: turn.pinnedHeterogeneousTopicModel,
           requestTrigger: requestTriggerMetadata.trigger,
-          requestedDeviceId,
+          requestedDeviceId: turn.requestedDeviceId,
           runAttachments,
           selfMessageIds,
           topicStartOwnerOperationId: params.topicStartOwnerOperationId,
@@ -1067,47 +1398,45 @@ export class AiAgentService {
     let globalMemoryEnabled = agentMemoryEnabled ?? false;
     let enableExpertise = false;
     let userTimezone: string | undefined;
-    try {
-      const userModel = new UserModel(this.db, this.userId);
-      const settings = await userModel.getUserSettings();
-      const memorySettings = settings?.memory as { enabled?: boolean } | undefined;
+    await traceSendStage('run_settings', async () => {
+      try {
+        const settings = await runFacts.userSettings();
+        const memorySettings = settings?.memory as { enabled?: boolean } | undefined;
 
-      globalMemoryEnabled = agentMemoryEnabled ?? memorySettings?.enabled !== false;
+        globalMemoryEnabled = agentMemoryEnabled ?? memorySettings?.enabled !== false;
 
-      // Timezone drives the session-date placeholder rendered back to whoever
-      // is actually conversing. In a share-visitor run that is the VISITOR,
-      // not the creator whose settings this block otherwise reads — memory /
-      // expertise intentionally stay creator-scoped below (gated by
-      // `allowReadMemory`), but the timezone has no such gate and must not
-      // leak the creator's own setting into a visitor's turn.
-      if (shareGate) {
-        const visitorSettings = await new UserModel(
-          this.db,
-          shareGate.visitorUserId,
-        ).getUserSettings();
-        const visitorGeneralSettings = visitorSettings?.general as
-          { timezone?: string } | undefined;
-        userTimezone = visitorGeneralSettings?.timezone;
-      } else {
-        const generalSettings = settings?.general as { timezone?: string } | undefined;
-        userTimezone = generalSettings?.timezone;
+        // Timezone drives the session-date placeholder rendered back to whoever
+        // is actually conversing. In a share-visitor run that is the VISITOR,
+        // not the creator whose settings this block otherwise reads — memory /
+        // expertise intentionally stay creator-scoped below (gated by
+        // `allowReadMemory`), but the timezone has no such gate and must not
+        // leak the creator's own setting into a visitor's turn.
+        if (shareGate) {
+          const visitorSettings = await runFacts.userSettings(shareGate.visitorUserId);
+          const visitorGeneralSettings = visitorSettings?.general as
+            { timezone?: string } | undefined;
+          userTimezone = visitorGeneralSettings?.timezone;
+        } else {
+          const generalSettings = settings?.general as { timezone?: string } | undefined;
+          userTimezone = generalSettings?.timezone;
+        }
+      } catch (error) {
+        log('execAgent: failed to fetch user settings: %O', error);
       }
-    } catch (error) {
-      log('execAgent: failed to fetch user settings: %O', error);
-    }
-    try {
-      const preference = await new UserModel(this.db, this.userId).getUserPreference();
-      enableExpertise = preference?.lab?.enableSelfLearning === true;
-    } catch (error) {
-      console.error('Failed to resolve expertise injection Lab preference:', error);
-    }
-    // Share visitors only get the creator's memory (persona + learned
-    // expertise) when the share explicitly allows it — both surfaces would
-    // otherwise leak the creator's personal context into visitor turns.
-    if (shareGate && !shareGate.shareConfig.allowReadMemory) {
-      globalMemoryEnabled = false;
-      enableExpertise = false;
-    }
+      try {
+        const preference = await new UserModel(this.db, this.userId).getUserPreference();
+        enableExpertise = preference?.lab?.enableSelfLearning === true;
+      } catch (error) {
+        console.error('Failed to resolve expertise injection Lab preference:', error);
+      }
+      // Share visitors only get the creator's memory (persona + learned
+      // expertise) when the share explicitly allows it — both surfaces would
+      // otherwise leak the creator's personal context into visitor turns.
+      if (shareGate && !shareGate.shareConfig.allowReadMemory) {
+        globalMemoryEnabled = false;
+        enableExpertise = false;
+      }
+    });
     log(
       'execAgent: globalMemoryEnabled=%s, timezone=%s',
       globalMemoryEnabled,
@@ -1115,24 +1444,27 @@ export class AiAgentService {
     );
 
     // History loader shared by tool discovery (media-availability probe) and
-    // the operation-prep message assembly (see `pipeline/operationPrep`).
-    const loadHistoryMessages = createHistoryMessagesLoader(
-      {
-        db: this.db,
-        isShareVisitorRun: !!shareGate,
-        messageModel: this.messageModel,
-        userId: this.userId,
-        workspaceId: this.workspaceId,
-      },
-      {
-        appContext,
-        effectiveResume,
-        existingMessageIds,
-        parentMessageId,
-        resumeParentMessage,
-        selfMessageIds,
-      },
-    );
+    // the operation-prep message assembly (see `pipeline/operationPrep`). A
+    // transcript run reads the host's store instead of `messages`.
+    const loadHistoryMessages = transcript
+      ? createTranscriptHistoryLoader(transcript)
+      : createHistoryMessagesLoader(
+          {
+            db: this.db,
+            isShareVisitorRun: !!shareGate,
+            messageModel: this.messageModel,
+            userId: this.userId,
+            workspaceId: this.workspaceId,
+          },
+          {
+            appContext,
+            effectiveResume,
+            existingMessageIds,
+            parentMessageId,
+            resumeParentMessage,
+            selfMessageIds,
+          },
+        );
 
     // When the user @-mentions agents (multi-mention, non-group), enable the
     // agent-management tool for this run so the supervisor can `callAgent` to
@@ -1142,99 +1474,75 @@ export class AiAgentService {
     // injected separately via `initialContext.mentionedAgents` below.
     const hasMentionedAgents = !appContext?.groupId && !!mentionedAgents?.length;
 
-    // Stage 5 (5a–5f) — tool discovery (see `pipeline/toolDiscovery`).
-    const discovery = await discoverTools(
-      {
-        agentDocumentsService: this.agentDocumentsService,
-        composioService: this.composioService,
-        connectorModel: this.connectorModel,
-        connectorToolModel: this.connectorToolModel,
-        db: this.db,
-        getMarketService: () => this.getMarketService(),
-        messageModel: this.messageModel,
-        pluginModel: this.pluginModel,
-        userId: this.userId,
-        workspaceId: this.workspaceId,
-      },
-      runContext,
-      {
-        additionalPluginIds,
-        agentSlug,
-        attachedFileIds,
-        botContext,
-        disableLocalSystem,
-        disableSelfFeedbackIntentTool: params.disableSelfFeedbackIntentTool,
-        disableTools: params.disableTools,
-        disabledPluginIds,
-        discordContext,
-        exclusivePluginIds,
-        files,
-        functionTools,
-        globalMemoryEnabled,
-        hasMentionedAgents,
-        isFixedDeviceTarget: turn.isFixedDeviceTarget,
-        loadHistoryMessages,
-        localDeviceId,
-        requestTrigger: requestTriggerMetadata.trigger,
-        requestedDeviceId,
-        selectedToolIds,
-        throwIfExecutionAborted,
-        topicBoundDeviceId: turn.topicBoundDeviceId,
-      },
-    );
-
-    // 15. Generate operation ID: agt_{timestamp}_{agentId}_{topicId}_{random}
-    const timestamp = Date.now();
+    // 15. Generate operation ID: op_{timestamp}_{agentId}_{topicId}_{random}
     const operationId =
-      continuationOperationId ?? `op_${timestamp}_${resolvedAgentId}_${topicId}_${nanoid(8)}`;
+      continuationOperationId ??
+      `op_${Date.now()}_${resolvedAgentId}_${topicId ?? 'transcript'}_${nanoid(8)}`;
 
-    // Stages 9.4–18 — device system info, agent-management context, persona
-    // memory, history + message assembly, the base initial runtime context,
-    // workspace init, the OperationSkillSet, and the expertise snapshot
-    // (see `pipeline/operationPrep`).
-    const prep = await prepareOperation(
-      {
-        agentDocumentsService: this.agentDocumentsService,
-        agentModel: this.agentModel,
-        bindTopicWorkingDirectory: (p) => this.bindTopicWorkingDirectory(p),
-        db: this.db,
-        topicModel: this.topicModel,
-        userId: this.userId,
-        workspaceId: this.workspaceId,
-      },
-      runContext,
-      {
-        botPlatformContext,
-        disabledPluginIds,
-        discovery,
-        ephemeralUserMessage,
-        globalMemoryEnabled,
-        hasMentionedAgents,
-        loadHistoryMessages,
-        mentionedAgents,
-        operationId,
-        runAttachments,
-        runFromHistory,
-        throwIfExecutionAborted,
-      },
-    );
-
-    // 16b/16c — override the initial context with the human decision
-    // (see `pipeline/approvalResume`). Pure; no-op on a fresh send.
-    const initialContext = buildApprovalResumeContext({
+    // Stages 5–18 — the run's init: the tool surface, the message/context
+    // assembly, and the human decision a resumed approval turns into the first
+    // context. One call so the same work can later run in the step-0 worker
+    // instead of on the send path.
+    const initRequest = buildOperationInitRequest({
+      additionalPluginIds,
+      agentSlug,
       approvalOwnerAssistantId,
       approvedToolEntries,
-      assistantMessageId: turn.assistantMessageId,
-      initialContext: prep.initialContext,
-      messageCount: prep.allMessages.length,
+      attachedFileIds,
+      botContext,
+      botPlatformContext,
+      disableLocalSystem,
+      disableSelfFeedbackIntentTool: params.disableSelfFeedbackIntentTool,
+      disableTools: params.disableTools,
+      disabledPluginIds,
+      discordContext,
+      ephemeralUserMessage,
+      exclusivePluginIds,
+      files,
+      functionTools,
+      globalMemoryEnabled,
+      hasMentionedAgents,
+      isFixedDeviceTarget: turn.isFixedDeviceTarget,
+      localDeviceId,
+      mentionedAgents,
       operationId,
       parentMessageId,
+      requestTrigger: requestTriggerMetadata.trigger,
+      requestedDeviceId: turn.requestedDeviceId,
       resumeApproval,
       resumeApprovalPlugin,
       resumeApprovals,
+      resumeFromHistory: runFromHistory,
       resumeToolResult,
+      runAttachments,
+      selectedToolIds,
+      serverToolManifests,
+      topicBoundDeviceId: turn.topicBoundDeviceId,
     });
 
+    const { discovery, initialContext, prep } = await traceSendStage('operation_init', () =>
+      runOperationInit(
+        {
+          agentDocumentsService: this.agentDocumentsService,
+          agentModel: this.agentModel,
+          bindTopicWorkingDirectory: (p) => this.bindTopicWorkingDirectory(p),
+          composioService: this.composioService,
+          connectorModel: this.connectorModel,
+          connectorToolModel: this.connectorToolModel,
+          db: this.db,
+          getMarketService: () => this.getMarketService(runFacts),
+          loadHistoryMessages,
+          messageModel: this.messageModel,
+          pluginModel: this.pluginModel,
+          throwIfExecutionAborted,
+          topicModel: this.topicModel,
+          userId: this.userId,
+          workspaceId: this.workspaceId,
+        },
+        runContext,
+        initRequest,
+      ),
+    );
     // 17. Log final operation parameters summary
     log(
       'execAgent: creating operation %s with params: model=%s, provider=%s, tools=%d, messages=%d, manifests=%d',
@@ -1253,7 +1561,7 @@ export class AiAgentService {
     // marker that no longer lists it. Claiming here keeps the window minimal;
     // a failed claim only wastes the preparation reads (its lone write — the
     // topic cwd pin — is additive and idempotent).
-    if (params.topicStartOwnerOperationId) {
+    if (params.topicStartOwnerOperationId && topicId && turn.assistantMessageId) {
       const attached = await this.topicModel.appendRunningOperationChild(
         topicId,
         params.topicStartOwnerOperationId,
@@ -1287,49 +1595,58 @@ export class AiAgentService {
 
     // 19. Create the operation via AgentRuntimeService, persist the reconnect
     // marker, and mint the gateway token (see `pipeline/startOperation`).
-    return startOperation(
-      {
-        agentRuntimeService: this.agentRuntimeService,
-        messageModel: this.messageModel,
-        retirePendingApprovalOperation: (opId) => this.retirePendingApprovalOperation(opId),
-        topicModel: this.topicModel,
-        userId: this.userId,
-        withholdGatewayToken: this.withholdGatewayToken,
-        workspaceId: this.workspaceId,
-      },
-      runContext,
-      {
-        approvalClaim,
-        approvalSourceOperationId,
-        approvalSourceToolMessageIds,
-        autoStart,
-        botContext,
-        botPlatformContext,
-        clientIp,
-        discordContext,
-        discovery,
-        enableExpertise,
-        evalContext,
-        evalRuntime,
-        hooks,
-        initialContext,
-        initialStepCount,
-        maxSteps,
-        operationId,
-        operationTaskId,
-        parentOperationId,
-        prep,
-        providedApprovalResolutionRequestId,
-        queueRetries,
-        queueRetryDelay,
-        signal,
-        stream,
-        topicStartOwnerOperationId: params.topicStartOwnerOperationId,
-        updateAbortedAssistantMessage,
-        userAgent,
-        userInterventionConfig,
-        userTimezone,
-      },
+    return traceSendStage('start_operation', () =>
+      startOperation(
+        {
+          agentRuntimeService: this.agentRuntimeService,
+          messageModel: this.messageModel,
+          retirePendingApprovalOperation: (opId) => this.retirePendingApprovalOperation(opId),
+          topicModel: this.topicModel,
+          userId: this.userId,
+          withholdGatewayToken: this.withholdGatewayToken,
+          workspaceId: this.workspaceId,
+        },
+        runContext,
+        {
+          acceptsMemberRuntimeEnd: params.acceptsMemberRuntimeEnd,
+          approvalClaim,
+          approvalSourceOperationId,
+          approvalSourceToolMessageIds,
+          autoStart,
+          onOperationCreated: params.onOperationCreated,
+          botContext,
+          botPlatformContext,
+          channelContext,
+          clientIp,
+          disabledPluginIds,
+          discordContext,
+          discovery,
+          enableExpertise,
+          evalContext,
+          evalRuntime,
+          hooks,
+          initialContext,
+          initialStepCount,
+          maxSteps,
+          operationId,
+          operationTaskId,
+          parentOperationId,
+          prep,
+          providedApprovalResolutionRequestId,
+          queueRetries,
+          queueRetryDelay,
+          signal,
+          stream,
+          clientProtocol: params.clientProtocol,
+          includeFinalState: params.includeFinalState,
+          llmExecutor: params.llmExecutor,
+          topicStartOwnerOperationId: params.topicStartOwnerOperationId,
+          updateAbortedAssistantMessage,
+          userAgent,
+          userInterventionConfig,
+          userTimezone,
+        },
+      ),
     );
   }
 
@@ -1456,7 +1773,9 @@ export class AiAgentService {
   execVirtualSubAgent = async (params: ExecVirtualSubAgentParams): Promise<ExecSubAgentResult> =>
     execAgentThreadRun(this.subAgentRunDeps, params, {
       chatConfig: params.chatConfig,
+      deviceId: params.deviceId,
       isSubAgent: true,
+      localDeviceId: params.localDeviceId,
       logScope: 'execVirtualSubAgent',
       // Sub-agent model is resolved at the spawn site (callSubAgent runner) from
       // the parent agent's `agencyConfig.subagent` and threaded through here as an
@@ -1465,6 +1784,33 @@ export class AiAgentService {
       provider: params.provider,
       resumeParentOnComplete: true,
     });
+
+  /**
+   * An approval continuation retires the parked member op, which silently
+   * disarms the timeout watchdog scheduled for it. Re-arm the same absolute
+   * deadline on the continuation (immediately when it has already passed).
+   */
+  private rearmGroupMemberDeadline = async (
+    continuationParams: InternalExecAgentParams,
+    continuation: ExecAgentResult,
+  ): Promise<void> => {
+    const bridge = continuationParams.hooks?.find((hook) => hook.id === 'group-member-bridge')
+      ?.webhook?.body as GroupMemberBridgeParams | undefined;
+    if (!bridge?.deadlineAt || !continuation.success || !continuation.operationId) return;
+
+    await this.agentRuntimeService.scheduleGroupMemberTimeout(
+      {
+        anchorMessageId: bridge.anchorMessageId,
+        expectedMembers: bridge.expectedMembers,
+        groupToolMessageId: bridge.groupToolMessageId,
+        memberOperationId: continuation.operationId,
+        mode: bridge.mode,
+        onComplete: bridge.onComplete,
+        parentOperationId: bridge.parentOperationId,
+      },
+      Math.max(1, bridge.deadlineAt - Date.now()),
+    );
+  };
 
   /**
    * Fork a single group member ("call agent member") under a `lobe-group-management`
@@ -1479,6 +1825,8 @@ export class AiAgentService {
     if (params.mode === 'isolated') {
       // Isolated members reuse the sub-agent isolation-thread machinery, swapping
       // in the group-action member bridge (K=N barrier + resume/finish).
+      const deadlineAt =
+        params.timeout && params.timeout > 0 ? Date.now() + params.timeout : undefined;
       const result = await execAgentThreadRun(
         this.subAgentRunDeps,
         {
@@ -1495,6 +1843,7 @@ export class AiAgentService {
           bridgeHookFactory: (threadId) =>
             createGroupActionMemberBridgeHook(this.agentRuntimeService, {
               anchorMessageId: params.anchorMessageId,
+              deadlineAt,
               expectedMembers: params.expectedMembers,
               groupToolMessageId: params.groupToolMessageId,
               mode: 'isolated',
@@ -1508,6 +1857,7 @@ export class AiAgentService {
           // resume through the group bridge (its own timeout), not the sub-agent one.
           orchestrationRole: 'member',
           resumeParentOnComplete: true,
+          userInterventionConfig: params.userInterventionConfig,
         },
       );
 
@@ -1555,6 +1905,17 @@ export class AiAgentService {
     threadId?: string;
   }> {
     return this.interventionController.interruptTask(params);
+  }
+
+  /**
+   * Flags whether the composer still holds user messages queued behind a run.
+   * Delegates to {@link InterventionController}.
+   */
+  async setQueuedMessages(params: {
+    operationId: string;
+    pending: boolean;
+  }): Promise<{ success: boolean }> {
+    return this.interventionController.setQueuedMessages(params);
   }
 
   /** Settle a parked approval batch and terminate its operation. */

@@ -104,6 +104,7 @@
   "workingDirectory.uncommittedChanges_one": "Modifications non validées : {{count}} fichier",
   "workingDirectory.uncommittedChanges_other": "Modifications non validées : {{count}} fichiers",
   "workingDirectory.undo": "Annuler",
+  "workingDirectory.unselected": "Non sélectionné",
   "workingDirectory.useFolder": "Utiliser ce dossier",
   "workingDirectory.worktreeSearchPlaceholder": "Rechercher des arbres de travail",
   "workingDirectory.worktreeUnavailable": "indisponible",

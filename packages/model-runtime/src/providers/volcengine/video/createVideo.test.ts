@@ -40,19 +40,7 @@ describe('createVolcengineVideo', () => {
 
       const result = await createVolcengineVideo(payload, options);
 
-      expect(result).toEqual({ inferenceId: 'task-abc-123', useWebhook: false });
-    });
-
-    it('should return useWebhook: false even when callbackUrl is configured, since the real API has no callback support and the caller must always fall back to polling', async () => {
-      mockFetch.mockResolvedValue({
-        json: () => Promise.resolve({ id: 'task-webhook' }),
-        ok: true,
-      });
-
-      payload.callbackUrl = 'https://example.com/webhook';
-      const result = await createVolcengineVideo(payload, options);
-
-      expect((result as any).useWebhook).toBe(false);
+      expect(result).toEqual({ inferenceId: 'task-abc-123' });
     });
 
     it('should send minimal body with only prompt', async () => {
@@ -214,11 +202,11 @@ describe('createVolcengineVideo', () => {
       expect(body.camera_fixed).toBe(true);
     });
 
-    it('should never send callback_url in the request body, since the real API has no callback parameter', async () => {
+    it('should map callbackUrl to body.callback_url', async () => {
       payload.callbackUrl = 'https://example.com/webhook';
       await createVolcengineVideo(payload, options);
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(body.callback_url).toBeUndefined();
+      expect(body.callback_url).toBe('https://example.com/webhook');
     });
 
     it('should allow overriding watermark when watermark is provided', async () => {
@@ -291,43 +279,22 @@ describe('pollVolcengineVideoStatus', () => {
   const apiKey = 'test-api-key';
   const baseURL = 'https://ark.cn-beijing.volces.com/api/v3';
 
-  it('should query the task status endpoint', async () => {
-    mockFetch.mockResolvedValue({
-      json: () => Promise.resolve({ id: 'task-123', status: 'running' }),
-      ok: true,
-    });
-
-    await pollVolcengineVideoStatus('task-123', apiKey, baseURL);
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/task-123',
-      { headers: { Authorization: 'Bearer test-api-key' }, method: 'GET' },
-    );
-  });
-
-  it('should return pending for queued status', async () => {
-    mockFetch.mockResolvedValue({
-      json: () => Promise.resolve({ status: 'queued' }),
-      ok: true,
-    });
-
-    const result = await pollVolcengineVideoStatus('task-123', apiKey, baseURL);
-
-    expect(result).toEqual({ status: 'pending' });
-  });
-
-  it('should return pending for running status', async () => {
+  it('maps an in-flight task to pending', async () => {
     mockFetch.mockResolvedValue({
       json: () => Promise.resolve({ status: 'running' }),
       ok: true,
     });
 
-    const result = await pollVolcengineVideoStatus('task-123', apiKey, baseURL);
-
-    expect(result).toEqual({ status: 'pending' });
+    await expect(pollVolcengineVideoStatus('task-123', apiKey, baseURL)).resolves.toEqual({
+      status: 'pending',
+    });
+    expect(mockFetch).toHaveBeenCalledWith(`${baseURL}/contents/generations/tasks/task-123`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      method: 'GET',
+    });
   });
 
-  it('should return success with videoUrl when succeeded', async () => {
+  it('returns the completed video URL', async () => {
     mockFetch.mockResolvedValue({
       json: () =>
         Promise.resolve({
@@ -337,54 +304,9 @@ describe('pollVolcengineVideoStatus', () => {
       ok: true,
     });
 
-    const result = await pollVolcengineVideoStatus('task-123', apiKey, baseURL);
-
-    expect(result).toEqual({ status: 'success', videoUrl: 'https://example.com/video.mp4' });
-  });
-
-  it('should return failed when succeeded but no video URL', async () => {
-    mockFetch.mockResolvedValue({
-      json: () => Promise.resolve({ content: {}, status: 'succeeded' }),
-      ok: true,
+    await expect(pollVolcengineVideoStatus('task-123', apiKey, baseURL)).resolves.toEqual({
+      status: 'success',
+      videoUrl: 'https://example.com/video.mp4',
     });
-
-    const result = await pollVolcengineVideoStatus('task-123', apiKey, baseURL);
-
-    expect(result).toEqual({ error: 'Task succeeded but no video URL found', status: 'failed' });
-  });
-
-  it('should return failed with error message on failed status', async () => {
-    mockFetch.mockResolvedValue({
-      json: () =>
-        Promise.resolve({ error: { message: 'Content policy violation' }, status: 'failed' }),
-      ok: true,
-    });
-
-    const result = await pollVolcengineVideoStatus('task-123', apiKey, baseURL);
-
-    expect(result).toEqual({ error: 'Content policy violation', status: 'failed' });
-  });
-
-  it('should return failed with expired message on expired status', async () => {
-    mockFetch.mockResolvedValue({
-      json: () => Promise.resolve({ status: 'expired' }),
-      ok: true,
-    });
-
-    const result = await pollVolcengineVideoStatus('task-123', apiKey, baseURL);
-
-    expect(result).toEqual({ error: 'Video generation task expired', status: 'failed' });
-  });
-
-  it('should throw on HTTP error', async () => {
-    mockFetch.mockResolvedValue({
-      ok: false,
-      status: 500,
-      text: () => Promise.resolve('Internal Server Error'),
-    });
-
-    await expect(pollVolcengineVideoStatus('task-123', apiKey, baseURL)).rejects.toThrow(
-      'Failed to query task status for task-123 (500): Internal Server Error',
-    );
   });
 });

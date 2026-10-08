@@ -104,6 +104,7 @@
   "workingDirectory.uncommittedChanges_one": "未提交的更改：{{count}} 個檔案",
   "workingDirectory.uncommittedChanges_other": "未提交的更改：{{count}} 個檔案",
   "workingDirectory.undo": "復原",
+  "workingDirectory.unselected": "未選擇",
   "workingDirectory.useFolder": "使用此資料夾",
   "workingDirectory.worktreeSearchPlaceholder": "搜尋工作樹",
   "workingDirectory.worktreeUnavailable": "不可用",

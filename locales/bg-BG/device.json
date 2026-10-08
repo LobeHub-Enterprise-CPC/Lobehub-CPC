@@ -104,6 +104,7 @@
   "workingDirectory.uncommittedChanges_one": "Непотвърдени промени: {{count}} файл",
   "workingDirectory.uncommittedChanges_other": "Непотвърдени промени: {{count}} файла",
   "workingDirectory.undo": "Отмени",
+  "workingDirectory.unselected": "Не е избрано",
   "workingDirectory.useFolder": "Използвайте тази папка",
   "workingDirectory.worktreeSearchPlaceholder": "Търсене на работни дървета",
   "workingDirectory.worktreeUnavailable": "недостъпно",

@@ -1,3 +1,4 @@
+import { BRANDING_EMAIL, BRANDING_NAME } from '@lobechat/business-const';
 import debug from 'debug';
 import { eq } from 'drizzle-orm';
 
@@ -14,6 +15,18 @@ const log = debug('lobe-server:bot:feedback');
  * path stays in the same envelope so downstream tooling can treat the two
  * sources interchangeably.
  */
+export const getPrivateFeedbackMessage = (locale?: string): string | undefined => {
+  if ((BRANDING_NAME as string) === 'LobeHub') return undefined;
+  const address = BRANDING_EMAIL.support;
+  return locale?.startsWith('zh')
+    ? address
+      ? `请发送邮件至 ${address} 联系支持。此处不会自动提交反馈。`
+      : '暂未配置支持邮箱，请联系管理员。'
+    : address
+      ? `Please email ${address} for support. Feedback is not submitted automatically here.`
+      : 'No support email is configured. Please contact your administrator.';
+};
+
 const TITLE_MAX_LENGTH = 80;
 
 const truncateTitle = (raw: string): string => {
@@ -56,6 +69,9 @@ export async function submitBotFeedback(
   serverDB: LobeChatDatabase,
   options: BotFeedbackSubmitOptions,
 ): Promise<BotFeedbackSubmitResult> {
+  // Private distributions must never submit customer feedback to the upstream market.
+  if ((BRANDING_NAME as string) !== 'LobeHub') return { success: false };
+
   const { applicationId, body, platform, threadId, userId } = options;
 
   try {

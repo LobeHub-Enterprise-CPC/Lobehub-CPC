@@ -104,6 +104,7 @@
   "workingDirectory.uncommittedChanges_one": "تغييرات غير ملتزمة: {{count}} ملف",
   "workingDirectory.uncommittedChanges_other": "تغييرات غير ملتزمة: {{count}} ملفات",
   "workingDirectory.undo": "تراجع",
+  "workingDirectory.unselected": "غير محدد",
   "workingDirectory.useFolder": "استخدم هذا المجلد",
   "workingDirectory.worktreeSearchPlaceholder": "ابحث عن مسارات العمل",
   "workingDirectory.worktreeUnavailable": "غير متاح",

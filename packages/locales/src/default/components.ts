@@ -2,6 +2,14 @@ export default {
   'ArgsInput.addArgument': 'Add Argument',
   'ArgsInput.argumentPlaceholder': 'Argument {{index}}',
   'ArgsInput.enterFirstArgument': 'Enter first argument...',
+  'CodeEditorPane.cursor': 'Ln {{line}}, Col {{column}}',
+  'CodeEditorPane.readOnly': 'Read-only',
+  'CodeEditorPane.selected': '({{length}} selected)',
+  'CodeEditorPane.spaces': 'Spaces: {{size}}',
+  'CodeEditorPane.tabSize': 'Tab Size: {{size}}',
+  'CodeEditorPane.toggleWordWrap': 'Toggle word wrap',
+  'CodeEditorPane.wrapOff': 'No Wrap',
+  'CodeEditorPane.wrapOn': 'Wrap',
   'DragUpload.dragDesc': 'Drag and drop files here to upload multiple images.',
   'DragUpload.dragFileDesc':
     'Drag and drop images and files here to upload multiple images and files.',
@@ -141,6 +149,8 @@ export default {
   'LocalFile.action.open': 'Open',
   'LocalFile.action.preview': 'Preview',
   'LocalFile.action.showInFolder': 'Show in Folder',
+  'LocalFile.action.startTopic': 'Start new topic here',
+  'LocalFile.action.startTopicFailed': 'Failed to start a new topic in this folder.',
   'MaxTokenSlider.unlimited': 'Unlimited',
   'ModelSelect.featureTag.audio': 'This model supports audio input recognition.',
   'ModelSelect.featureTag.custom':
@@ -175,6 +185,11 @@ export default {
   'ModelSelect.staleModel.removed.tag': 'Unavailable',
   'ModelSelect.staleModel.removed.tooltip':
     'This model has been removed from the service. Related features may fail — please choose another model.',
+  'ModelSelect.staleModel.unsupported.hint':
+    'This model does not support the capabilities needed here. Choose another model below.',
+  'ModelSelect.staleModel.unsupported.tag': 'Incompatible',
+  'ModelSelect.staleModel.unsupported.tooltip':
+    'Enabling this model will not add the required capabilities. Choose another model.',
   'ModelSwitchPanel.byModel': 'By Model',
   'ModelSwitchPanel.byProvider': 'By Provider',
   'ModelSwitchPanel.detail.abilities': 'Abilities',
@@ -251,7 +266,13 @@ export default {
   'ModelSwitchPanel.detail.releasedAt': 'Released {{date}}',
   'ModelSwitchPanel.emptyModel': 'No enabled model. Please go to settings to enable.',
   'ModelSwitchPanel.emptyProvider': 'No enabled providers. Please go to settings to enable one.',
+  'ModelSwitchPanel.free': 'Free',
   'ModelSwitchPanel.goToSettings': 'Go to settings',
+  'ModelSwitchPanel.meta.price': 'Relative price {{multiplier}}× (1× = $1 per 1M input tokens)',
+  'ModelSwitchPanel.meta.price.credits':
+    'Relative price {{multiplier}}× (1× = 1M credits per 1M input tokens)',
+  'ModelSwitchPanel.meta.rating':
+    '{{dimension}} score {{score}}/100 (relative to the top-rated model)',
   'ModelSwitchPanel.manageProvider': 'Manage Provider',
   'ModelSwitchPanel.provider': 'Provider',
   'ModelSwitchPanel.searchPlaceholder': 'Search models...',

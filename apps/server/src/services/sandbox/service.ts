@@ -79,14 +79,14 @@ export class SandboxMiddlewareService implements SandboxService {
       return this.provider.callTool(toolName, params);
     }
 
-    const ctx: CommandGovernanceContext = {
+    const ctx = {
       apiName: toolName,
       commandText:
         typeof params?.command === 'string' ? params.command : JSON.stringify(params ?? {}),
       executionTarget: 'sandbox',
       toolIdentifier: CloudSandboxIdentifier,
       userId,
-    };
+    } satisfies CommandGovernanceContext;
 
     const decision = await checkCommand(ctx, serverDB);
 
@@ -187,7 +187,11 @@ export class SandboxMiddlewareService implements SandboxService {
   async exportAndUploadFile(
     path: string,
     filename: string,
-    options?: { storageName?: string },
+    options?: {
+      /** Server-owned file-record metadata, e.g. Agent Share provenance. */
+      metadata?: Record<string, unknown>;
+      storageName?: string;
+    },
   ): Promise<SandboxExportFileResult> {
     const { fileService, topicId } = this.options;
 
@@ -230,8 +234,8 @@ export class SandboxMiddlewareService implements SandboxService {
       if (!exported.success) {
         return {
           error: {
+            ...exported.error,
             message: exported.error?.message || 'Failed to export file from sandbox',
-            name: exported.error?.name,
           },
           filename,
           success: false,
@@ -251,6 +255,7 @@ export class SandboxMiddlewareService implements SandboxService {
       const { fileId, url } = await fileService.createFileRecord({
         fileHash,
         fileType: mimeType,
+        ...(options?.metadata ? { metadata: options.metadata } : {}),
         name: filename,
         size: fileSize,
         url: key,
@@ -279,8 +284,12 @@ export class SandboxMiddlewareService implements SandboxService {
 export const normalizeSandboxCommandResult = (
   result: SandboxCallToolResult,
 ): SandboxCommandResult => {
+  const sessionState = result.sessionExpiredAndRecreated
+    ? { sessionExpiredAndRecreated: true }
+    : {};
   if (!result.success) {
     return {
+      ...sessionState,
       exitCode: 1,
       output: '',
       stderr: result.error?.message || 'Command execution failed',
@@ -296,6 +305,7 @@ export const normalizeSandboxCommandResult = (
   const success = typeof raw.success === 'boolean' ? raw.success : exitCode === 0;
 
   return {
+    ...sessionState,
     exitCode,
     output,
     stderr,

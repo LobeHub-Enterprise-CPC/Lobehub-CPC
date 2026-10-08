@@ -4,18 +4,18 @@
 
 export const LOBE_CHAT_CLOUD = 'LobeHub Cloud';
 
-export const BRANDING_NAME = 'TiTu Work';
-/**
- * `/branding/logo-head.png` is served from the *submodule's* `public/`
- * directory, not this package — it only exists there at build/dev time,
- * copied in by `scripts/sync-branding.mjs` from the outer repo's
- * `branding/public/branding/` (gitignored inside the submodule, so the
- * customer's logo file itself never lands in this git history). Left empty
- * this always 404s; every consumer already falls back to a bundled default
- * when this is falsy, so an empty string was "safe" but wrong — it kept
- * showing lobehub's own default avatars instead of the customer's mascot.
- */
-export const BRANDING_LOGO_URL = '/branding/logo-head.png';
+export const BRANDING_NAME = 'LobeHub';
+// Override to preserve an installed PWA identity independently of its display name.
+// An empty value retains the default derived from BRANDING_NAME.
+export const BRANDING_PWA_ID = '';
+// White-label distributions supply their logo through the business package override.
+export const BRANDING_LOGO_URL = '';
+// Optional themed symbol and complete wordmarks; empty values retain the fallback.
+export const BRANDING_LOGO_DARK_URL = '';
+export const BRANDING_WORDMARK_URL = '';
+export const BRANDING_WORDMARK_DARK_URL = '';
+export const BRANDING_TEXT_LOGO_URL = '';
+export const BRANDING_TEXT_LOGO_DARK_URL = '';
 
 /**
  * Display name of the built-in default assistant (the inbox agent).
@@ -26,50 +26,42 @@ export const BRANDING_LOGO_URL = '/branding/logo-head.png';
  * `DEFAULT_INBOX_TITLE` and the i18n brand post-processor, so overriding this
  * one constant renames the assistant everywhere.
  */
-export const BRANDING_INBOX_TITLE = 'TiTu Work AI';
+export const BRANDING_INBOX_TITLE = 'Lobe AI';
 
-/**
- * No graceful "unset" exists for this one — `COPYRIGHT`/`COPYRIGHT_FULL`
- * always render *some* org name — so this defaults to `BRANDING_NAME` rather
- * than staying `'LobeHub'`. Replace with the real legal entity name once
- * known; until then this is a placeholder, not a considered choice.
- */
+// Display name of the built-in agent capability bundle.
+export const BRANDING_AGENT_TITLE = 'Lobe Agent';
+
+// Self-contained square icon for built-in skills (for example, an SVG data URI).
+// Separate from the general logo URL so desktop skills need no public assets.
+export const BRANDING_ICON_URL = '';
+
+// Distributions can override the legal entity independently of the product name.
 export const ORG_NAME = BRANDING_NAME;
 
-// Left unset on purpose: no confirmed enterprise help/privacy/terms pages or
-// hosted-subscription plan yet. `withLinks`-style filtering (see About.tsx)
-// already drops any UI item built from an unset field here.
 export const BRANDING_URL = {
   help: undefined,
   privacy: undefined,
-  subscription: undefined,
+  subscription: 'https://app.lobehub.com/settings/plans',
   support: undefined,
   terms: undefined,
 };
 
-// Left unset on purpose: no enterprise-owned Discord/GitHub/social presence
-// yet. Every call site either drops the link when falsy (About.tsx's
-// `withLinks`) or renders a no-op `href={undefined}` anchor.
 export const SOCIAL_URL = {
-  discord: undefined,
-  github: undefined,
-  medium: undefined,
-  x: undefined,
-  youtube: undefined,
+  discord: 'https://discord.gg/AYFPHvv2jT',
+  github: 'https://github.com/lobehub',
+  medium: 'https://medium.com/@lobehub',
+  x: 'https://x.com/lobehub',
+  youtube: 'https://www.youtube.com/@lobehub',
 };
 
 export const FILE_URL = {
   importFromNotionGuide: 'https://hub-apac-1.lobeobjects.space/assets/notion.mp4',
 };
 
-// Left unset on purpose: no confirmed enterprise support/business mailbox
-// yet. `About.tsx` already drops the affected contact items when falsy;
-// `FeedbackModal/FeedbackContent.tsx` was patched alongside this change to
-// do the same for its email-contact line.
 export const BRANDING_EMAIL = {
-  business: undefined,
+  business: 'hello@lobehub.com',
   replyTo: undefined,
-  support: undefined,
+  support: 'support@lobehub.com',
 };
 
 export const BRANDING_PROVIDER = 'lobehub';

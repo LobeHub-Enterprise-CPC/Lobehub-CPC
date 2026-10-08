@@ -1,4 +1,5 @@
 import type { LocalHeterogeneousAgentType } from '../config';
+import { isKimiModelCandidate } from './modelCompatibility';
 import type {
   HeterogeneousProviderBindingCapability,
   HeterogeneousProviderBindingError,
@@ -228,7 +229,8 @@ export const resolveHeterogeneousProviderBinding = ({
           (model) =>
             model.providerId === apiConfig.providerId &&
             model.id === boundModel &&
-            model.type === 'chat',
+            model.type === 'chat' &&
+            (capability.agentType !== 'kimi-code' || isKimiModelCandidate(model)),
         ),
     );
     if (unavailableModel) {
@@ -266,7 +268,7 @@ export const formatHeterogeneousProviderBindingError = (
 ): string => {
   switch (error.code) {
     case 'agentUnsupported': {
-      return `${error.agentType} does not support LobeHub Provider binding.`;
+      return `${error.agentType} does not support application provider binding.`;
     }
     case 'configMissing': {
       return 'A provider and model binding is required.';

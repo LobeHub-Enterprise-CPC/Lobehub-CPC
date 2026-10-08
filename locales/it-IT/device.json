@@ -104,6 +104,7 @@
   "workingDirectory.uncommittedChanges_one": "Modifiche non confermate: {{count}} file",
   "workingDirectory.uncommittedChanges_other": "Modifiche non confermate: {{count}} file",
   "workingDirectory.undo": "Annulla",
+  "workingDirectory.unselected": "Non selezionato",
   "workingDirectory.useFolder": "Usa questa cartella",
   "workingDirectory.worktreeSearchPlaceholder": "Cerca worktree",
   "workingDirectory.worktreeUnavailable": "non disponibile",

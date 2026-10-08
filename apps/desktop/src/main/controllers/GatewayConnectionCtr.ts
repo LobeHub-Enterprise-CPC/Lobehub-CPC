@@ -1,21 +1,31 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { BRANDING_NAME } from '@lobechat/business-const';
 import type { DeviceControlDeps } from '@lobechat/device-control';
 import type { AgentRunRequestMessage, GatewayMcpParams } from '@lobechat/device-gateway-client';
 import type { GatewayConnectionStatus } from '@lobechat/electron-client-ipc';
+import type { CodexChannelHost } from '@lobechat/heterogeneous-agents/channel';
+import type { HeterogeneousAgentCancellationSignal } from '@lobechat/heterogeneous-agents/protocol';
 import type { RemotePlatformCommandRuntime } from '@lobechat/heterogeneous-agents/scanHost';
 import {
   resolveRemotePlatformCommand,
   resolveRemotePlatformRuntime,
 } from '@lobechat/heterogeneous-agents/scanHost';
 import { type ILocalSystemService, LocalSystemExecutionRuntime } from '@lobechat/tool-runtime';
+import type { HeterogeneousProviderConfig } from '@lobechat/types';
+import { managedProcessEnvironment, spawnManaged } from '@lobechat/utils/managedProcess';
+import { app as electronApp } from 'electron';
 
+import { updaterConfig } from '@/modules/updater/configs';
+import { createRemoteAppUpdateDeps } from '@/modules/updater/remoteUpdate';
 import AuvService, { type AuvRunCommandParams } from '@/services/auvSrv';
+import { backfillDeviceArchitecture } from '@/services/deviceArchitectureBackfill';
 import GatewayConnectionService from '@/services/gatewayConnectionSrv';
 import ImessageBridgeService from '@/services/imessageBridgeSrv';
+import { findHeteroExecProcesses } from '@/utils/heteroExecProcess';
 import { createLogger } from '@/utils/logger';
 import { setDesktopUserAgentHeader } from '@/utils/user-agent';
 
@@ -26,6 +36,13 @@ import LocalFileCtr from './LocalFileCtr';
 import McpCtr from './McpCtr';
 import RemoteServerConfigCtr from './RemoteServerConfigCtr';
 import ShellCommandCtr from './ShellCommandCtr';
+
+/**
+ * How long an orphaned `hetero exec` group may take to exit after cancellation.
+ * Covers the 2s graceful window plus SIGKILL, and stays under the server's 10s
+ * `cancelHeteroTask` timeout.
+ */
+const ORPHAN_EXIT_TIMEOUT_MS = 5000;
 
 const logger = createLogger('controllers:GatewayConnectionCtr');
 const deviceProtocolHandler = createProtocolHandler('device');
@@ -54,8 +71,8 @@ function parseHermesSessionId(stderr: string): string | undefined {
  */
 function buildNotifyProtocol(lhPath: string, topicId: string): string {
   return (
-    `## Context: This task was dispatched by LobeHub\n\n` +
-    `This conversation / task was sent to you by the **LobeHub platform** on behalf of a user. You are running as a background agent; the user is waiting for your response inside the LobeHub chat interface.\n\n` +
+    `## Context: This task was dispatched by ${BRANDING_NAME}\n\n` +
+    `This conversation / task was sent to you by the **${BRANDING_NAME} platform** on behalf of a user. You are running as a background agent; the user is waiting for your response inside the ${BRANDING_NAME} chat interface.\n\n` +
     `**When to call notify**: any time you have something meaningful to tell the user — a key finding, a decision you made, a result, a question, or your final answer.\n\n` +
     `**What to hide**: internal work details such as tool call sequences, file reads, intermediate command output, retries, or low-level reasoning steps.\n\n` +
     `## Sending messages back to the user\n\n` +
@@ -125,9 +142,34 @@ const safeJsonParse = (input: string): unknown => {
  * Thin IPC layer that delegates to GatewayConnectionService.
  */
 export default class GatewayConnectionCtr extends ControllerModule {
+  private channelHost?: Promise<CodexChannelHost>;
+
+  private getChannelHost() {
+    this.channelHost ??= Promise.all([
+      import('@lobechat/heterogeneous-agents/channel'),
+      import('@/modules/heterogeneousAgent/channelLaunch'),
+    ]).then(
+      ([{ CodexChannelHost }, { createChannelLaunch, createChannelProbe }]) =>
+        new CodexChannelHost(
+          path.join(electronApp.getPath('userData'), 'channel-runs'),
+          createChannelLaunch(
+            {
+              getAccessToken: async () =>
+                this.app.getController(RemoteServerConfigCtr).getAccessToken(),
+              getServerUrl: async () =>
+                this.app.getController(RemoteServerConfigCtr).getRemoteServerUrl(),
+            },
+            this.app.appStoragePath,
+            this.app,
+          ),
+          createChannelProbe(this.app),
+        ),
+    );
+    return this.channelHost;
+  }
   static override readonly groupName = 'gatewayConnection';
 
-  /** In-memory registry for running platform agent tasks (openclaw / hermes). */
+  /** In-memory registry for running hetero agent tasks (openclaw / hermes / local-cli dispatch). */
   private readonly platformTasks = new Map<string, PlatformTaskEntry>();
   private readonly platformTaskKillTimers = new Map<number, NodeJS.Timeout>();
 
@@ -238,7 +280,18 @@ export default class GatewayConnectionCtr extends ControllerModule {
 
   @IpcMethod()
   async getConnectionStatus(): Promise<{ status: GatewayConnectionStatus }> {
-    return { status: this.service.getStatus() };
+    return { status: this.service.getDisplayedStatus() };
+  }
+
+  @IpcMethod()
+  async getKeepAwake(): Promise<{ enabled: boolean }> {
+    return { enabled: this.service.getKeepAwake() };
+  }
+
+  @IpcMethod()
+  async setKeepAwake({ enabled }: { enabled: boolean }): Promise<{ enabled: boolean }> {
+    this.service.setKeepAwake(enabled);
+    return { enabled: this.service.getKeepAwake() };
   }
 
   @IpcMethod()
@@ -247,7 +300,26 @@ export default class GatewayConnectionCtr extends ControllerModule {
     hostname: string;
     platform: string;
   }> {
-    return this.service.getDeviceInfo();
+    const info = this.service.getDeviceInfo();
+    try {
+      const [serverUrl, token] = await Promise.all([
+        this.remoteServerConfigCtr.getRemoteServerUrl(),
+        this.remoteServerConfigCtr.getAccessToken(),
+      ]);
+      if (serverUrl && token && info.deviceId !== 'unknown') {
+        const headers = { 'Content-Type': 'application/json', 'Oidc-Auth': token };
+        setDesktopUserAgentHeader(headers);
+        await backfillDeviceArchitecture({
+          architecture: os.arch(),
+          deviceId: info.deviceId,
+          headers,
+          serverUrl,
+        });
+      }
+    } catch (error) {
+      logger.warn('Could not backfill local device architecture; will retry on next read', error);
+    }
+    return info;
   }
 
   /**
@@ -313,6 +385,7 @@ export default class GatewayConnectionCtr extends ControllerModule {
       // the process has actually spawned (or emitted an early error) before
       // acknowledging the server request.
       return await this.heterogeneousAgentCtr.spawnLhHeteroExec({
+        agentId: request.agentId,
         agentType: request.agentType,
         assistantMessageId: request.assistantMessageId,
         args: request.args,
@@ -327,6 +400,30 @@ export default class GatewayConnectionCtr extends ControllerModule {
         systemContext: request.systemContext,
         topicId: request.topicId,
         workspaceId: request.ingestWorkspaceId ?? request.workspaceId,
+        // Register the spawned CLI process so `cancelHeteroTask` (sent by the
+        // server's `interruptTask` when the user clicks Stop) can find and kill
+        // it by operationId. The entry is cleaned up on child exit below.
+        onChildSpawned: (child: ChildProcess) => {
+          const pid = child.pid;
+          if (pid === undefined) return;
+          const taskId = request.operationId;
+          this.platformTasks.set(taskId, {
+            agentType: request.agentType,
+            operationId: request.operationId,
+            pid,
+            topicId: request.topicId,
+            workspaceId: request.ingestWorkspaceId ?? request.workspaceId,
+          });
+          child.once('exit', () => {
+            // Only clear if this exit belongs to the current entry — a
+            // superseding run for the same operationId may have already
+            // replaced it.
+            const current = this.platformTasks.get(taskId);
+            if (current?.pid === pid) {
+              this.platformTasks.delete(taskId);
+            }
+          });
+        },
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
@@ -388,13 +485,25 @@ export default class GatewayConnectionCtr extends ControllerModule {
       // the gateway connections, so both handlers route straight to it.
       enrollWorkspace: (params) => this.service.enrollWorkspace(params),
       getLocalFilePreview: (params) => this.localFileCtr.getLocalFilePreview(params),
+      readExternalAssetForPublish: (params) =>
+        this.localFileCtr.readExternalAssetForPublish(params),
+      copyAssetForPublish: (params) => this.localFileCtr.copyAssetForPublish(params),
       getProjectFileIndex: (params) => this.localFileCtr.getProjectFileIndex(params),
       listHeterogeneousAgentModels: (params) => this.heterogeneousAgentCtr.listModels(params),
       searchProjectFiles: (params) => this.localFileCtr.searchProjectFiles(params),
+      // Remote "delete" uses the desktop trash so it remains recoverable.
+      trashLocalFiles: (params) => this.localFileCtr.trashLocalFiles(params),
       unenrollWorkspace: (params) => this.service.unenrollWorkspace(params),
       // Skill-archive cache (`prepareSkillDirectory` RPC): reuse LocalFileCtr's
       // deps so gateway-prepared skills share one cache with the renderer-IPC path.
       ...this.localFileCtr.getSkillDirectoryDeps(),
+      // Remote app update from the web device page, over the same updater the
+      // local "Check for updates" menu drives.
+      ...createRemoteAppUpdateDeps({
+        currentVersion: electronApp.getVersion(),
+        enabled: updaterConfig.enableAppUpdate,
+        getUpdater: () => this.app.getUpdaterManager(),
+      }),
     };
   }
 
@@ -458,7 +567,53 @@ export default class GatewayConnectionCtr extends ControllerModule {
     );
     if (localSystemOutput) return localSystemOutput;
 
+    if (
+      ['channelProbe', 'channelStart', 'channelInspect', 'channelStop', 'channelApprove'].includes(
+        apiName,
+      )
+    )
+      logger.debug('Channel device operation', { apiName });
+
     switch (apiName) {
+      case 'channelProbe': {
+        const input = args as {
+          cwd: string;
+          runtime?: Parameters<CodexChannelHost['probe']>[1];
+          provider?: HeterogeneousProviderConfig;
+        };
+        const result = await (
+          await this.getChannelHost()
+        ).probe(input.cwd, input.runtime, input.provider);
+        return { content: JSON.stringify(result), success: true };
+      }
+      case 'channelStart': {
+        const host = await this.getChannelHost();
+        const result = await host.start(args as Parameters<typeof host.start>[0]);
+        return { content: JSON.stringify(result), success: true };
+      }
+      case 'channelInspect':
+      case 'channelStop': {
+        const input = args as { ownerId: string; runId: string; fence: number };
+        const host = await this.getChannelHost();
+        const result =
+          apiName === 'channelStop'
+            ? await host.stop(input.ownerId, input.runId, input.fence)
+            : await host.inspect(input.ownerId, input.runId);
+        return { content: JSON.stringify(result), success: true };
+      }
+      case 'channelApprove': {
+        const input = args as {
+          ownerId: string;
+          runId: string;
+          fence: number;
+          approvalId: string;
+          approved: boolean;
+        };
+        await (
+          await this.getChannelHost()
+        ).approve(input.ownerId, input.runId, input.fence, input.approvalId, input.approved);
+        return { content: '{}', success: true };
+      }
       // ─── Platform agent tools (openclaw / hermes) ───
       // These don't go through LocalSystemExecutionRuntime — they return raw
       // domain payloads that we envelope into BuiltinServerRuntimeOutput here.
@@ -836,10 +991,10 @@ export default class GatewayConnectionCtr extends ControllerModule {
         '--local',
       ];
       const spawnPlan = await runtime.prepareSpawn(openclawArgs);
-      const child = spawn(spawnPlan.command, spawnPlan.args, {
+      const child = spawnManaged(spawnPlan.command, spawnPlan.args, {
         cwd: workDir,
         detached: true,
-        env: spawnPlan.env,
+        env: { ...spawnPlan.env, ...managedProcessEnvironment({ topicId, agentId }) },
         stdio: 'ignore',
       });
 
@@ -932,10 +1087,10 @@ export default class GatewayConnectionCtr extends ControllerModule {
       // Hermes keeps stdout response-only in --quiet mode and prints the final
       // session_id to stderr so callers can resume the session on the next turn.
       const spawnPlan = await runtime.prepareSpawn(hermesArgs);
-      const child = spawn(spawnPlan.command, spawnPlan.args, {
+      const child = spawnManaged(spawnPlan.command, spawnPlan.args, {
         cwd: workDir,
         detached: true,
-        env: spawnPlan.env,
+        env: { ...spawnPlan.env, ...managedProcessEnvironment({ topicId, agentId }) },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
@@ -1107,7 +1262,7 @@ export default class GatewayConnectionCtr extends ControllerModule {
     const { signal = 'SIGINT', taskId } = args;
     const localExec = await this.heterogeneousAgentCtr.cancelLhHeteroExec({
       operationId: taskId,
-      signal: signal as NodeJS.Signals,
+      signal: signal as HeterogeneousAgentCancellationSignal,
     });
     if (localExec) {
       return JSON.stringify({ ...localExec, taskId });
@@ -1116,13 +1271,75 @@ export default class GatewayConnectionCtr extends ControllerModule {
     const entry = this.platformTasks.get(taskId);
 
     if (!entry) {
-      return JSON.stringify({ message: `No task found with taskId: ${taskId}`, success: false });
+      return JSON.stringify(await this.cancelUntrackedHeteroExec(taskId, signal as NodeJS.Signals));
     }
 
     // The close handler sends the terminal notify after the whole tree exits.
     this.killPlatformProcessTree(entry.pid, signal as NodeJS.Signals);
 
     return JSON.stringify({ pid: entry.pid, signal, taskId });
+  }
+
+  /**
+   * Cancels an operation that neither in-memory registry knows about.
+   *
+   * Use when:
+   * - The desktop app restarted after dispatching `lh hetero exec`: the
+   *   registries are empty, but the server keeps the task running until the
+   *   device confirms `exited: true`.
+   *
+   * Expects:
+   * - `taskId` is the operation id passed as `--operation-id` to the wrapper.
+   *
+   * Returns:
+   * - `exited: true` only when the OS shows no wrapper for the operation, or
+   *   after every orphaned wrapper group has exited.
+   * - `exited: false` when an orphan survives SIGKILL or the process table
+   *   cannot be read, so a retry never races a live writer.
+   * - Windows keeps the previous unconfirmed answer; orphan lookup is Unix-only.
+   */
+  private async cancelUntrackedHeteroExec(
+    taskId: string,
+    signal: NodeJS.Signals,
+  ): Promise<Record<string, unknown>> {
+    if (process.platform === 'win32') {
+      return { message: `No task found with taskId: ${taskId}`, success: false };
+    }
+
+    let orphans: Awaited<ReturnType<typeof findHeteroExecProcesses>>;
+    try {
+      orphans = await findHeteroExecProcesses(taskId);
+    } catch (error) {
+      logger.warn('cancelHeteroTask: process lookup failed for %s: %O', taskId, error);
+      return {
+        exited: false,
+        message: `Could not inspect running processes for taskId: ${taskId}`,
+        reason: 'lookup_failed',
+        success: false,
+        taskId,
+      };
+    }
+
+    if (orphans.length === 0) {
+      return { exited: true, reason: 'not_found', success: true, taskId };
+    }
+
+    const pids = orphans.map((orphan) => orphan.pid);
+    logger.warn('cancelHeteroTask: terminating orphaned hetero exec for %s: %o', taskId, pids);
+
+    // The wrapper leads a detached group shared by its native agent child, so
+    // this reaches the whole writer tree and escalates to SIGKILL after 2s.
+    for (const pid of pids) this.killPlatformProcessTree(pid, signal);
+
+    const deadline = Date.now() + ORPHAN_EXIT_TIMEOUT_MS;
+    while (pids.some((pid) => this.isPlatformProcessGroupAlive(pid))) {
+      if (Date.now() >= deadline) {
+        return { exited: false, pids, reason: 'orphan_alive', signal, success: false, taskId };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    return { exited: true, pids, reason: 'orphan_terminated', signal, success: true, taskId };
   }
 
   /**

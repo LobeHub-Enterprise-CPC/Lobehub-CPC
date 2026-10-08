@@ -50,8 +50,11 @@ export const WORKSPACE_SETTINGS_TABS: ReadonlySet<string> = new Set([
   'creds',
   'credits',
   'devices',
+  'environments',
   'general',
   'hotkey',
+  // Third-party integrations bind to the workspace that connected them.
+  'integrations',
   'labels',
   'labs',
   'members',
@@ -84,6 +87,8 @@ export const WORKSPACE_MIRRORED_FIRST_SEGMENTS: ReadonlySet<string> = new Set([
   'agents',
   'community',
   'eval',
+  // Top-level goal detail lives beside task/tasks in the shared main area.
+  'goal',
   'group',
   'image',
   'memory',

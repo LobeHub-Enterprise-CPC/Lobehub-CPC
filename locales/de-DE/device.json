@@ -104,6 +104,7 @@
   "workingDirectory.uncommittedChanges_one": "Nicht übermittelte Änderungen: {{count}} Datei",
   "workingDirectory.uncommittedChanges_other": "Nicht übermittelte Änderungen: {{count}} Dateien",
   "workingDirectory.undo": "Rückgängig machen",
+  "workingDirectory.unselected": "Nicht ausgewählt",
   "workingDirectory.useFolder": "Diesen Ordner verwenden",
   "workingDirectory.worktreeSearchPlaceholder": "Arbeitsbäume durchsuchen",
   "workingDirectory.worktreeUnavailable": "nicht verfügbar",

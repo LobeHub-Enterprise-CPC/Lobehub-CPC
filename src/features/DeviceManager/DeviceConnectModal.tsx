@@ -1,6 +1,6 @@
 'use client';
 
-import { DESKTOP_APP_ENABLED } from '@lobechat/business-const';
+import { CLI_INSTALL_COMMAND, DESKTOP_APP_ENABLED } from '@lobechat/business-const';
 import type { DeviceScope, DeviceVisibility } from '@lobechat/types';
 import { Flexbox, Icon } from '@lobehub/ui';
 import { Button, Tabs, Text } from '@lobehub/ui/base-ui';
@@ -120,7 +120,7 @@ const DeviceConnectModal = memo<DeviceConnectModalProps>(
     const cliSteps = (
       <Flexbox>
         <Step index={1} title={t('devices.connectWizard.cli.installTitle')}>
-          <CommandLine command={'npm install -g @lobehub/cli'} />
+          <CommandLine command={CLI_INSTALL_COMMAND} />
         </Step>
         <Step index={2} title={t('devices.connectWizard.cli.loginTitle')}>
           <CommandLine command={'lh login'} />

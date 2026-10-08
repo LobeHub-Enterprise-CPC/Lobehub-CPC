@@ -1,3 +1,4 @@
+import { API_KEY_SCOPES } from '@lobechat/const/apiKeyScope';
 import { describe, expect, it } from 'vitest';
 
 import { createCallerFactory, publicProcedure } from '@/libs/trpc/lambda';
@@ -25,6 +26,13 @@ const testRouter = trpc.router({
   apiKey: trpc.router({
     createApiKey: guarded.mutation(() => 'minted'),
   }),
+  channel: trpc.router({
+    availability: guarded.query(() => 'available'),
+    pauseMember: guarded.mutation(() => 'paused'),
+  }),
+  executionPolicy: trpc.router({
+    get: guarded.mutation(() => 'policy'),
+  }),
   healthcheck: guarded.query(() => 'ok'),
   // public procedures can still serve authenticated data off ctx.userId, so
   // the real `publicProcedure` must carry the guard as well
@@ -39,6 +47,30 @@ const testRouter = trpc.router({
 const createCaller = createCallerFactory(testRouter);
 
 describe('apiKeyScopeGuard', () => {
+  describe('private deployment namespaces', () => {
+    it.each([{ apiKeyScopes: undefined }, { apiKeyScopes: null }, { apiKeyScopes: ['*'] }])(
+      'preserves access with scopes $apiKeyScopes',
+      async ({ apiKeyScopes }) => {
+        const caller = createCaller({ apiKeyScopes, userId: 'user-1' } as any);
+
+        await expect(caller.channel.availability()).resolves.toBe('available');
+        await expect(caller.channel.pauseMember()).resolves.toBe('paused');
+        await expect(caller.executionPolicy.get()).resolves.toBe('policy');
+      },
+    );
+
+    it.each([
+      { apiKeyScopes: [] },
+      { apiKeyScopes: API_KEY_SCOPES.filter((scope) => scope !== '*') },
+    ])('preserves rejection of restricted scopes $apiKeyScopes', async ({ apiKeyScopes }) => {
+      const caller = createCaller({ apiKeyScopes, userId: 'user-1' } as any);
+
+      await expect(caller.channel.availability()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(caller.channel.pauseMember()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(caller.executionPolicy.get()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    });
+  });
+
   describe('non-API-key auth', () => {
     it('is untouched by the guard', async () => {
       const caller = createCaller({ userId: 'user-1' } as any);

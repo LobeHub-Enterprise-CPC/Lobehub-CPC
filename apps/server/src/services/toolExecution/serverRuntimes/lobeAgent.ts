@@ -19,19 +19,26 @@ import {
 } from '@lobechat/builtin-tool-lobe-agent';
 import { PlanExecutionRuntime } from '@lobechat/builtin-tool-lobe-agent/planRuntime';
 import { UserInteractionExecutionRuntime } from '@lobechat/builtin-tool-user-interaction/executionRuntime';
+import { BRANDING_NAME } from '@lobechat/business-const';
 import type { LobeChatDatabase } from '@lobechat/database';
 import type { ChatStreamPayload } from '@lobechat/model-runtime';
 import { consumeStreamUntilDone } from '@lobechat/model-runtime';
 import type { BuiltinServerRuntimeOutput } from '@lobechat/types';
-import { RequestTrigger } from '@lobechat/types';
+import { ChatErrorType, RequestTrigger } from '@lobechat/types';
 import { nanoid } from '@lobechat/utils';
 import { parseDataUri } from '@lobechat/utils/uriParser';
 
 import { MessageModel } from '@/database/models/message';
 import { toolsEnv } from '@/envs/tools';
+import { getAgentRuntimeRedisClient } from '@/server/modules/AgentRuntime/redis';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
 import { FileService } from '@/server/services/file';
-import { createVentService, formatVentResultContent } from '@/server/services/vent';
+import {
+  createRedisVentLedger,
+  createVentService,
+  formatVentResultContent,
+  type VentRuntimeService,
+} from '@/server/services/vent';
 
 import type { ToolExecutionContext } from '../types';
 import { normalizeMultimodalImageItems } from './lobeAgentImage';
@@ -40,9 +47,20 @@ import type { ServerRuntimeRegistration } from './types';
 
 // The durable record of a vent is the persisted vent tool-call message itself.
 // This shared service only validates input, assigns a stable id, and enforces
-// per-scope rate limits. Module-scoped so the rate-limit state survives across
-// per-request runtime instances.
-const sharedVentService = createVentService({ nextToolCallId: () => nanoid() });
+// the per-run cap. The cap lives in Redis because consecutive steps of one run
+// may execute on different instances; created lazily so importing this module
+// does not open a connection.
+let sharedVentService: VentRuntimeService | undefined;
+const getVentService = () => {
+  if (!sharedVentService) {
+    const redis = getAgentRuntimeRedisClient();
+    sharedVentService = createVentService({
+      ledger: redis ? createRedisVentLedger(redis) : undefined,
+      nextToolCallId: () => nanoid(),
+    });
+  }
+  return sharedVentService;
+};
 
 interface LobeAgentRuntimeContext {
   agentId?: string | null;
@@ -52,6 +70,7 @@ interface LobeAgentRuntimeContext {
    */
   agentVisibility?: 'private' | 'public' | null;
   groupId?: string | null;
+  mediaSourceMessages?: MediaSourceMessage[];
   messageId: string;
   /** The current Agent Run (`agent_operations.id`). */
   operationId?: string;
@@ -67,6 +86,24 @@ const buildError = (content: string, code: string): BuiltinServerRuntimeOutput =
   error: { code, message: content },
   success: false,
 });
+
+/**
+ * Quota rejections from the configured multimodal provider. analyzeMedia always
+ * runs on the platform-configured model, so a user chatting with their own API
+ * key can still hit the LobeHub credit budget here.
+ */
+const CREDIT_ERROR_TYPES = new Set<string>([
+  ChatErrorType.FreePlanLimit,
+  ChatErrorType.InsufficientBudgetForModel,
+  ChatErrorType.SubscriptionPlanLimit,
+]);
+
+const getCreditErrorType = (error: unknown): string | undefined => {
+  if (!error || typeof error !== 'object') return;
+  const errorType = (error as { errorType?: unknown }).errorType;
+
+  return typeof errorType === 'string' && CREDIT_ERROR_TYPES.has(errorType) ? errorType : undefined;
+};
 
 const BASE64_CONTENT_PATTERN = /^[A-Z\d+/]+={0,2}$/i;
 const MAX_INLINE_IMAGE_PIXELS = 25_000_000;
@@ -137,6 +174,7 @@ class LobeAgentExecutionRuntime {
   private groupId?: string | null;
   private userId: string;
   private messageId: string;
+  private mediaSourceMessages?: MediaSourceMessage[];
   private operationId?: string;
   private threadId?: string | null;
   private topicId?: string;
@@ -152,6 +190,7 @@ class LobeAgentExecutionRuntime {
     this.db = context.serverDB;
     this.groupId = context.groupId;
     this.messageId = context.messageId;
+    this.mediaSourceMessages = context.mediaSourceMessages;
     this.operationId = context.operationId;
     this.threadId = context.threadId;
     this.topicId = context.topicId;
@@ -235,10 +274,18 @@ class LobeAgentExecutionRuntime {
     if (!instruction || typeof instruction !== 'string') {
       return buildError('instruction is required.', 'INVALID_ARGUMENTS');
     }
+    if (params.subAgentId !== undefined && typeof params.subAgentId !== 'string') {
+      return buildError('subAgentId must be a string.', 'INVALID_ARGUMENTS');
+    }
+    // Models trained on strict function schemas (the GPT family) fill every
+    // declared field, so "start a new sub-agent" arrives as `subAgentId: ""`
+    // rather than an omitted key. Blank means new.
+    const subAgentId = params.subAgentId?.trim() || undefined;
 
     const { started, error, threadId, subOperationId, toolMessageId } = await ctx.subAgent.run({
       description,
       instruction,
+      subAgentId,
       timeout,
     });
 
@@ -247,8 +294,9 @@ class LobeAgentExecutionRuntime {
     // (non-deferred) tool error so the parent's LLM sees the failure and the
     // batch continues instead of hanging in `waiting_for_async_tool`.
     if (!started) {
+      const action = subAgentId ? 'could not be continued' : 'failed to start';
       return buildError(
-        error ? `Sub-agent failed to start: ${error}` : 'Sub-agent failed to start.',
+        error ? `Sub-agent ${action}: ${error}` : `Sub-agent ${action}.`,
         'SUB_AGENT_START_FAILED',
       );
     }
@@ -276,7 +324,7 @@ class LobeAgentExecutionRuntime {
     }
 
     try {
-      const result = await sharedVentService.recordVent({
+      const result = await getVentService().recordVent({
         agentId: this.agentId,
         input: params,
         topicId: this.topicId,
@@ -391,19 +439,26 @@ class LobeAgentExecutionRuntime {
     let selectedRefItems: MediaFileItem[] = [];
 
     if (requestedRefs.length > 0) {
-      const fileService = new FileService(this.db, this.userId, this.workspaceId);
-      const messageModel = new MessageModel(this.db, this.userId, this.workspaceId);
-      const postProcessUrl = (
-        path: string | null,
-        file: { fileType: string; id?: string | null },
-      ) => fileService.getFileAccessUrl({ id: file.id, url: path });
-      const [sourceMessage] = await messageModel.queryByIds([this.messageId], {
-        postProcessUrl,
-      });
-
-      const mediaMessages = sourceMessage
-        ? await this.queryScopeMessages(messageModel, sourceMessage, postProcessUrl)
-        : [];
+      let sourceMessage: MediaSourceMessage | undefined;
+      let mediaMessages: MediaSourceMessage[];
+      if (this.mediaSourceMessages !== undefined) {
+        // Non-legacy hosts supply a fenced, owner-authorized scope. An empty scope
+        // must never fall back to ordinary chat's tables or broaden the lookup.
+        mediaMessages = this.mediaSourceMessages;
+        sourceMessage = mediaMessages.find((message) => message.id === this.messageId);
+      } else {
+        const fileService = new FileService(this.db, this.userId, this.workspaceId);
+        const messageModel = new MessageModel(this.db, this.userId, this.workspaceId);
+        const postProcessUrl = (
+          path: string | null,
+          file: { fileType: string; id?: string | null },
+        ) => fileService.getFileAccessUrl({ id: file.id, url: path });
+        const [legacySource] = await messageModel.queryByIds([this.messageId], { postProcessUrl });
+        sourceMessage = legacySource;
+        mediaMessages = legacySource
+          ? await this.queryScopeMessages(messageModel, legacySource, postProcessUrl)
+          : [];
+      }
       const orderedMediaMessages = [
         ...(sourceMessage && hasAnalyzableMediaFiles(sourceMessage) ? [sourceMessage] : []),
         ...mediaMessages.filter(
@@ -505,24 +560,36 @@ class LobeAgentExecutionRuntime {
       stream: false,
     } satisfies ChatStreamPayload;
 
-    const response = await runtime.chat(payload, {
-      callback: {
-        onCompletion: (data) => {
-          usage = data.usage;
+    try {
+      const response = await runtime.chat(payload, {
+        callback: {
+          onCompletion: (data) => {
+            usage = data.usage;
+          },
+          onContentPart: (part) => {
+            if (part.partType === 'text') content += part.content;
+          },
+          onText: (text) => {
+            content += text;
+          },
         },
-        onContentPart: (part) => {
-          if (part.partType === 'text') content += part.content;
+        metadata: {
+          trigger: RequestTrigger.MultimodalAnalysis,
         },
-        onText: (text) => {
-          content += text;
-        },
-      },
-      metadata: {
-        trigger: RequestTrigger.MultimodalAnalysis,
-      },
-    });
+      });
 
-    await consumeStreamUntilDone(response);
+      await consumeStreamUntilDone(response);
+    } catch (error) {
+      const creditErrorType = getCreditErrorType(error);
+      if (!creditErrorType) throw error;
+
+      return buildError(
+        `Media analysis could not run: it uses the platform model "${provider}/${model}", which is billed to the user's ${BRANDING_NAME} credits, and those credits are exhausted (${creditErrorType}). ` +
+          "The user's own API key for the chat model is not used by this tool, so retrying will not help. " +
+          `Tell the user to top up or upgrade their ${BRANDING_NAME} plan, or to switch the conversation to a vision-capable model on their own API key.`,
+        creditErrorType,
+      );
+    }
 
     return {
       content: content.trim(),
@@ -555,6 +622,7 @@ export const lobeAgentRuntime: ServerRuntimeRegistration = {
       agentVisibility: context.agentVisibility,
       groupId: context.groupId,
       messageId: context.messageId,
+      mediaSourceMessages: context.mediaSourceMessages,
       operationId: context.operationId,
       serverDB: context.serverDB,
       threadId: context.threadId,

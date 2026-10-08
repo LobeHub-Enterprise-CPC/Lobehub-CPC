@@ -1,3 +1,4 @@
+import { assertBusinessUserAccess, isBusinessAuthorizationError } from '@lobechat/business-auth';
 import debug from 'debug';
 import type { Context, Next } from 'hono';
 import { HTTPException } from 'hono/http-exception';
@@ -23,7 +24,9 @@ export const userAuthMiddleware = async (c: Context, next: Next) => {
   const isMockUser = process.env.ENABLE_MOCK_DEV_USER === '1';
   if (process.env.NODE_ENV === 'development' && (isDebugApi || isMockUser)) {
     log('Development debug mode, using mock user ID');
-    c.set('userId', process.env.MOCK_DEV_USER_ID || 'DEV_USER');
+    const mockUserId = process.env.MOCK_DEV_USER_ID || 'DEV_USER';
+    await assertBusinessUserAccess(await getServerDB(), mockUserId);
+    c.set('userId', mockUserId);
     c.set('authType', 'debug');
     return next();
   }
@@ -64,6 +67,7 @@ export const userAuthMiddleware = async (c: Context, next: Next) => {
           const isExpired = apiKeyRecord.expiresAt && new Date() > new Date(apiKeyRecord.expiresAt);
 
           if (!isExpired) {
+            await assertBusinessUserAccess(db, apiKeyRecord.userId);
             userId = apiKeyRecord.userId;
             authType = 'apikey';
             authData = { apiKeyId: apiKeyRecord.id, apiKeyName: apiKeyRecord.name };
@@ -93,6 +97,8 @@ export const userAuthMiddleware = async (c: Context, next: Next) => {
           log('API Key not found in database');
         }
       } catch (error) {
+        if (isBusinessAuthorizationError(error))
+          throw new HTTPException(error.status, { message: error.message });
         log('API Key authentication failed: %O', error);
       }
     } else if (authEnv.ENABLE_OIDC) {
@@ -114,6 +120,8 @@ export const userAuthMiddleware = async (c: Context, next: Next) => {
 
         log('OIDC authentication successful, userId: %s', userId);
       } catch (error) {
+        if (isBusinessAuthorizationError(error))
+          throw new HTTPException(error.status, { message: error.message });
         log('OIDC authentication failed: %O', error);
       }
     } else {

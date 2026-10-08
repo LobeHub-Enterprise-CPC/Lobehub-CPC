@@ -41,6 +41,8 @@ import { type ResolvedAgentConfig } from '@/services/chat/mecha';
 import { composeEnabledTools, resolveAgentConfig } from '@/services/chat/mecha';
 import { localFileService } from '@/services/electron/localFileService';
 import { messageService } from '@/services/message';
+import { hydrateProjectedConversation } from '@/services/message/hydrateProjectedTools';
+import { workService } from '@/services/work';
 import { getAgentStoreState } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { aiModelSelectors } from '@/store/aiInfra/selectors';
@@ -360,14 +362,15 @@ export class StreamingExecutorActionImpl {
         },
         modelRuntimeConfig,
         operationId: operationId ?? agentId,
+        // Single copy of the run's tool set, like the server's state.
         operationToolSet: {
           enabledToolIds,
           manifestMap: toolManifestMap,
           sourceMap: {},
           tools: toolsDetailed.tools ?? [],
         },
-        toolManifestMap,
-        userInterventionConfig,
+        // What this run may do — the approval mode its tool calls answer to.
+        principal: { policy: { userIntervention: userInterventionConfig } },
       });
     const state: AgentState = {
       ...baseState,
@@ -376,6 +379,7 @@ export class StreamingExecutorActionImpl {
         agentId,
         groupId,
         scope,
+        sourceMessageId: baseState.metadata?.sourceMessageId ?? parentMessageId,
         subAgentId: paramSubAgentId,
         threadId,
         topicId,
@@ -419,10 +423,14 @@ export class StreamingExecutorActionImpl {
         let contextPrompt: string | undefined;
 
         if (viewedTask.type === 'list') {
+          const viewedList = taskState.activeTaskListKey
+            ? taskState.taskListMap[taskState.activeTaskListKey]
+            : undefined;
+          const tasks = viewedList?.items ?? [];
           contextPrompt = buildTaskListPrompt({
             defaultAssigneeAgentId: operation.context.defaultTaskAssigneeAgentId,
-            tasks: taskState.tasks,
-            total: taskState.tasksTotal || taskState.tasks.length,
+            tasks,
+            total: viewedList?.total || tasks.length,
           });
         } else {
           const detail = taskState.taskDetailMap[viewedTask.taskId];
@@ -642,8 +650,18 @@ export class StreamingExecutorActionImpl {
       });
     }
 
-    // Create a new array to avoid modifying the original messages
-    const messages = [...originalMessages];
+    // The first step reads `state.messages` directly, before any
+    // `MessageTransport.query()` refill, and those are the folded display
+    // messages. A list cached while the read path projected tool payloads
+    // (Gateway mode on, since switched off) would hand the model empty tool
+    // bodies, so put the stored payloads back first. Ids come from the raw
+    // store list too: a folded tool result no longer carries `payloadOmitted`.
+    // Also returns a new array, so the caller's messages are never mutated.
+    const messages = await hydrateProjectedConversation(
+      [...originalMessages],
+      this.#get().dbMessagesMap[messageKey],
+      messageService.getToolResultPayloads,
+    );
 
     // Decide tool / function-calling capability from real data, not a guess.
     // The enabled-model list hydrates asynchronously (auth session → aiProvider
@@ -924,6 +942,32 @@ export class StreamingExecutorActionImpl {
       state.status,
       stepCount,
     );
+
+    // Registered Works survive message folding; anchor them before refreshing
+    // the message list so its summary query can attach them to the final reply.
+    const finalAssistantId = state.metadata?.workAssistantMessageId;
+    if (state.status === 'done' && typeof finalAssistantId === 'string') {
+      try {
+        const works = await workService.listByRootOperation({
+          limit: 1,
+          rootOperationId: operationId,
+        });
+        if (works.length > 0) {
+          await messageService.updateMessageMetadata(
+            finalAssistantId,
+            {
+              work: {
+                rootOperationId: operationId,
+                userMessageId: state.metadata?.sourceMessageId,
+              },
+            },
+            context,
+          );
+        }
+      } catch (error) {
+        log('[executeClientAgent] Failed to persist Work anchor: %O', error);
+      }
+    }
 
     // Runtime message transports persist through quiet batch mutations. Reconcile
     // once at the run boundary instead of replacing the full list after every write.

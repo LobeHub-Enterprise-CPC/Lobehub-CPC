@@ -87,6 +87,32 @@ export const toTreeItem = (item: {
   visibility: item.visibility,
 });
 
+/**
+ * Explorer row → tree row.
+ *
+ * Kept next to {@link toTreeItem} and named, rather than inlined at the
+ * subscription that reconciles the explorer list into the sidebar, because it
+ * is the one place tree rows are rebuilt from a *different* source: anything it
+ * forgets to carry is silently dropped from every row the next time the list
+ * refreshes. `visibility` and `userId` were lost that way — the sidebar stopped
+ * marking private rows and the row menu mis-gated publish / make-private.
+ */
+export const toTreeItemFromResource = (item: {
+  createdAt?: Date | string | null;
+  fileId?: string | null;
+  fileType: string;
+  id: string;
+  metadata?: Record<string, any> | null;
+  name: string;
+  parentId?: string | null;
+  size?: number | null;
+  slug?: string | null;
+  sourceType?: string;
+  url?: string;
+  userId?: string | null;
+  visibility?: 'private' | 'public' | null;
+}): TreeItem => toTreeItem(item);
+
 type Setter = StoreSetter<TreeState>;
 
 export class TreeActionImpl {
@@ -409,7 +435,11 @@ export class TreeActionImpl {
       if (resourceMap.has(itemId)) {
         await useFileStore.getState().moveResource(itemId, toParent || null);
       } else {
-        await resourceService.moveResource(itemId, toParent || null);
+        const cachePatch = await useFileStore
+          .getState()
+          .prepareResourceMoveCachePatch(fromParent || null, toParent || null);
+        const moved = await resourceService.moveResource(itemId, toParent || null);
+        await useFileStore.getState().applyMovedResourceToCaches(moved, cachePatch);
         await useFileStore.getState().refreshFileList();
       }
 
@@ -441,8 +471,13 @@ export class TreeActionImpl {
         // Item visible in Explorer → delegate (handles optimistic Explorer update + API)
         await useFileStore.getState().moveResource(itemId, toParent || null);
       } else {
-        // Item not in Explorer → API only, then refresh Explorer
-        await resourceService.moveResource(itemId, toParent || null);
+        // Item not in Explorer → API only, then patch the folder-list caches
+        // (the explorer's SWR entries for both folders) and refresh Explorer
+        const cachePatch = await useFileStore
+          .getState()
+          .prepareResourceMoveCachePatch(fromParent || null, toParent || null);
+        const moved = await resourceService.moveResource(itemId, toParent || null);
+        await useFileStore.getState().applyMovedResourceToCaches(moved, cachePatch);
         await useFileStore.getState().refreshFileList();
       }
     };
@@ -488,9 +523,21 @@ export class TreeActionImpl {
         promises.push(useFileStore.getState().moveResource(id, toParent || null));
       }
 
-      // Items not in Explorer → API only
+      // Items not in Explorer → API only, then patch the folder-list caches
+      const cachePatch =
+        notInExplorer.length > 0
+          ? await useFileStore
+              .getState()
+              .prepareResourceMoveCachePatch(fromParent || null, toParent || null)
+          : undefined;
       for (const id of notInExplorer) {
-        promises.push(resourceService.moveResource(id, toParent || null));
+        promises.push(
+          resourceService
+            .moveResource(id, toParent || null)
+            .then((moved) =>
+              useFileStore.getState().applyMovedResourceToCaches(moved, cachePatch!),
+            ),
+        );
       }
 
       await Promise.all(promises);

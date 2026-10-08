@@ -7,6 +7,13 @@ import { ApiKeyModel } from '@/database/models/apiKey';
 
 import { createContextInner, createLambdaContext } from './context';
 
+const mockBusinessAccess = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock('@lobechat/business-auth', () => ({
+  assertBusinessUserAccess: mockBusinessAccess,
+  isBusinessAuthorizationError: (error: any) =>
+    ['PLATFORM_ACCESS_DENIED', 'AUTHORIZATION_UNAVAILABLE'].includes(error?.code),
+}));
+
 const {
   mockAssertOIDCUserActive,
   mockExtractTraceContext,
@@ -39,9 +46,11 @@ vi.mock('@/database/core/db-adaptor', () => ({
 
 vi.mock('@/database/models/apiKey', () => ({
   ApiKeyModel: Object.assign(
-    vi.fn().mockImplementation((_db: unknown, userId: string) => ({
-      updateLastUsed: userId ? mockUpdateLastUsed : vi.fn(),
-    })),
+    vi.fn(function (_db: unknown, userId: string) {
+      return {
+        updateLastUsed: userId ? mockUpdateLastUsed : vi.fn(),
+      };
+    }),
     {
       findByKey: mockFindByKey,
     },
@@ -78,6 +87,15 @@ vi.mock('@/utils/apiKey', async (importOriginal) => {
 });
 
 const mockCanUseWorkspaceApiKeys = vi.hoisted(() => vi.fn(async () => true));
+
+const mockGetRequestClientIP = vi.hoisted(() => vi.fn());
+vi.mock('@/utils/requestClientIP', async (importOriginal) => {
+  const actual = (await importOriginal()) as {
+    getRequestClientIP: (headers: Headers) => string | undefined;
+  };
+  mockGetRequestClientIP.mockImplementation(actual.getRequestClientIP);
+  return { getRequestClientIP: mockGetRequestClientIP };
+});
 
 vi.mock('@/business/server/workspaceApiKey', () => ({
   canUseWorkspaceApiKeys: mockCanUseWorkspaceApiKeys,
@@ -204,8 +222,12 @@ describe('createContextInner', () => {
 describe('createLambdaContext', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockBusinessAccess.mockResolvedValue(undefined);
     mockExtractTraceContext.mockReturnValue(undefined);
-    mockGetSession.mockResolvedValue({ user: { id: 'session-user' } });
+    mockGetSession.mockResolvedValue({
+      response: { user: { id: 'session-user' } },
+      headers: new Headers(),
+    });
     mockAssertOIDCUserActive.mockResolvedValue(undefined);
     mockIsOIDCUserInactiveError.mockReturnValue(false);
     mockValidateOIDCJWT.mockResolvedValue({
@@ -229,6 +251,17 @@ describe('createLambdaContext', () => {
       type: 'web',
       version: '2.2.10',
     });
+  });
+
+  it('should resolve clientIp through the overridable request IP module', async () => {
+    const request = new NextRequest('https://example.com/trpc/lambda', {
+      headers: { 'x-forwarded-for': '198.51.100.3, 10.0.0.1' },
+    });
+
+    const context = await createLambdaContext(request);
+
+    expect(mockGetRequestClientIP).toHaveBeenCalledWith(request.headers);
+    expect(context.clientIp).toBe('198.51.100.3');
   });
 
   it('should authenticate with API key and skip session fallback', async () => {
@@ -472,7 +505,10 @@ describe('createLambdaContext', () => {
     mockValidateOIDCJWT.mockRejectedValueOnce(
       Object.assign(new Error('JWT token validation failed'), { cause }),
     );
-    mockGetSession.mockResolvedValueOnce(null);
+    mockGetSession.mockResolvedValueOnce({
+      response: null,
+      headers: new Headers({ 'set-cookie': 'test.session_token=; Max-Age=0; Path=/' }),
+    });
 
     const request = new NextRequest('https://example.com/trpc/lambda', {
       headers: { 'Oidc-Auth': 'stale-token' },
@@ -482,6 +518,7 @@ describe('createLambdaContext', () => {
 
     expect(context.userId).toBeUndefined();
     expect(context.resHeaders?.get(AUTH_FAILURE_HEADER)).toBe('jwt_expired');
+    expect(context.resHeaders?.getSetCookie()).toContain('test.session_token=; Max-Age=0; Path=/');
   });
 
   it('does not record a failure when the session fallback authenticates the user', async () => {
@@ -511,11 +548,56 @@ describe('createLambdaContext', () => {
   });
 
   it('records no_token when neither Oidc-Auth nor a session is present', async () => {
-    mockGetSession.mockResolvedValueOnce(null);
+    mockGetSession.mockResolvedValueOnce({ response: null, headers: new Headers() });
 
     const context = await createLambdaContext(new NextRequest('https://example.com/trpc/lambda'));
 
     expect(context.userId).toBeUndefined();
     expect(context.resHeaders?.get(AUTH_FAILURE_HEADER)).toBe('no_token');
   });
+});
+
+it.each([403, 503])(
+  'OIDC platform error %s never falls back to cookie or returns a candidate identity',
+  async (status) => {
+    mockValidateOIDCJWT.mockResolvedValue({ userId: 'alice', tokenData: {} });
+    mockAssertOIDCUserActive.mockRejectedValueOnce(
+      Object.assign(new Error('platform'), {
+        status,
+        code: status === 503 ? 'AUTHORIZATION_UNAVAILABLE' : 'PLATFORM_ACCESS_DENIED',
+      }),
+    );
+    mockGetSession.mockClear();
+    await expect(
+      createLambdaContext(
+        new NextRequest('http://localhost/trpc', { headers: { 'Oidc-Auth': 'valid-token' } }),
+      ),
+    ).rejects.toMatchObject({ code: status === 503 ? 'SERVICE_UNAVAILABLE' : 'FORBIDDEN' });
+    expect(mockGetSession).not.toHaveBeenCalled();
+  },
+);
+it('session storage failure is terminal rather than anonymous success', async () => {
+  mockGetSession.mockRejectedValueOnce(new Error('storage unavailable'));
+  await expect(createLambdaContext(new NextRequest('http://localhost/trpc'))).rejects.toMatchObject(
+    { message: 'AUTHORIZATION_UNAVAILABLE' },
+  );
+});
+
+it.each([403, 503])('API key platform %s cannot fall back to a valid cookie', async (status) => {
+  mockFindByKey.mockResolvedValueOnce({ id: 'key', userId: 'alice', enabled: true, scopes: null });
+  mockBusinessAccess.mockRejectedValueOnce(
+    Object.assign(new Error('platform'), {
+      status,
+      code: status === 503 ? 'AUTHORIZATION_UNAVAILABLE' : 'PLATFORM_ACCESS_DENIED',
+    }),
+  );
+  mockGetSession.mockClear();
+  await expect(
+    createLambdaContext(
+      new NextRequest('http://localhost/trpc', {
+        headers: { 'X-API-Key': `${API_KEY_PREFIX}aaaaaaaaaaaaaaaa`, 'cookie': 'session=other' },
+      }),
+    ),
+  ).rejects.toMatchObject({ code: status === 503 ? 'SERVICE_UNAVAILABLE' : 'FORBIDDEN' });
+  expect(mockGetSession).not.toHaveBeenCalled();
 });

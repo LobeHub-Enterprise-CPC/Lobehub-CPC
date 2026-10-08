@@ -151,7 +151,7 @@ export const grokBuildDriver: HeterogeneousAgentDriver = {
     const isMessages = resolution.protocol === 'anthropic-messages';
     const config = [
       `[model.${alias}]`,
-      `name = ${tomlString('LobeHub Provider')}`,
+      `name = ${tomlString('Application Provider')}`,
       `model = ${tomlString(resolution.apiConfig.model)}`,
       `base_url = ${tomlString(baseURL)}`,
       `env_key = ${tomlString(HOST_API_KEY_ENV)}`,
@@ -179,7 +179,7 @@ export const grokBuildDriver: HeterogeneousAgentDriver = {
     const alias = buildModelAlias(['server-default', endpoint, model].join('\0'));
     const config = [
       `[model.${alias}]`,
-      `name = ${tomlString('LobeHub Server Default')}`,
+      `name = ${tomlString('Application Server Default')}`,
       `model = ${tomlString(requestModel)}`,
       `base_url = ${tomlString(`${stripTrailingSlashes(endpoint)}/api/v1/openai/v1`)}`,
       `env_key = ${tomlString(HOST_API_KEY_ENV)}`,

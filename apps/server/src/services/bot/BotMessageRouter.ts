@@ -1,5 +1,5 @@
 import { createIoRedisState } from '@chat-adapter/state-ioredis';
-import { DEFAULT_BOT_DEBOUNCE_MS } from '@lobechat/const';
+import { BRANDING_NAME } from '@lobechat/business-const';
 import type { Message, MessageContext, WebhookOptions } from 'chat';
 import { Chat, ConsoleLogger } from 'chat';
 import debug from 'debug';
@@ -19,13 +19,17 @@ import { AiAgentService } from '@/server/services/aiAgent';
 
 import { AgentBridgeService } from './AgentBridgeService';
 import { buildBotContext } from './buildBotContext';
+import { replayDeferredBotMessages } from './deferredMessages';
 import {
   createOrGetPairingRequest,
   deletePairingRequest,
   peekPairingRequest,
   releasePairingClaim,
 } from './dmPairingStore';
-import { submitBotFeedback } from './feedbackSubmit';
+import { getPrivateFeedbackMessage, submitBotFeedback } from './feedbackSubmit';
+import { isWholeGroupChatThreadId } from './isWholeGroupChatThreadId';
+import { buildReplayMessages, getSameSenderMessages, mergeBotMessages } from './mergeMessages';
+import { patchSenderBatches } from './patchSenderBatches';
 import {
   type BotPlatformRuntimeContext,
   type BotReplyLocale,
@@ -44,10 +48,12 @@ import {
   type GuestSettings,
   messageMatchesWatchKeyword,
   normalizeAllowFromEntries,
+  normalizeBotReactionMode,
   normalizeBotReplyLocale,
   type PlatformClient,
   type PlatformDefinition,
   platformRegistry,
+  resolveBotConcurrency,
   resolveBotProviderConfig,
   shouldAllowSender,
   shouldHandleDm,
@@ -70,6 +76,7 @@ import {
   renderInlineError,
   renderModeStatus,
   renderSenderRejected,
+  renderWhoami,
 } from './replyTemplate';
 
 /** Minimum gap between two webhook re-registrations for the same bot. */
@@ -78,10 +85,8 @@ const WEBHOOK_RECONCILE_COOLDOWN_MS = 5 * 60 * 1000;
 const WEBHOOK_RECONCILE_KEY_PREFIX = 'bot:webhook-reconcile';
 
 const log = debug('lobe-server:bot:message-router');
-const WECHAT_PRO_FEATURE_NOTICE =
-  '提示：由于 WeChat 渠道通信成本过高，LobeHub 微信渠道能力将于近期调整为付费功能。预告期内已有连接可继续使用，但新建或重新连接微信渠道需要升级到个人付费 Plan。';
-const WECHAT_PRO_FEATURE_NOTICE_WORKSPACE =
-  '提示：由于 WeChat 渠道通信成本过高，LobeHub 微信渠道能力将于近期调整为付费功能。预告期内已有连接可继续使用，但新建或重新连接微信渠道需要将所属工作区升级到付费 Plan。';
+const WECHAT_PRO_FEATURE_NOTICE = `提示：由于 WeChat 渠道通信成本过高，${BRANDING_NAME} 微信渠道能力将于近期调整为付费功能。预告期内已有连接可继续使用，但新建或重新连接微信渠道需要升级到个人付费 Plan。`;
+const WECHAT_PRO_FEATURE_NOTICE_WORKSPACE = `提示：由于 WeChat 渠道通信成本过高，${BRANDING_NAME} 微信渠道能力将于近期调整为付费功能。预告期内已有连接可继续使用，但新建或重新连接微信渠道需要将所属工作区升级到付费 Plan。`;
 
 /**
  * Compact summary of a Chat SDK Message's attachments for debug logging.
@@ -119,6 +124,8 @@ interface ResolvedAgentInfo {
 }
 
 interface RegisteredBot {
+  /** Chat SDK adapters keyed by platform id, as passed to the `Chat` config. */
+  adapters: Record<string, any>;
   agentInfo: ResolvedAgentInfo;
   chatBot: Chat<any>;
   client: PlatformClient;
@@ -170,6 +177,14 @@ interface CommandContext {
 /** A single bot command definition.
  *  Add new entries to `buildCommands()` to register additional commands. */
 interface BotCommand {
+  /**
+   * Skip the allowFrom / DM-policy / group-policy gate for this command.
+   * Reserved for commands with no side effects that only reveal the
+   * caller's own data (e.g. `/whoami`), so an operator who hasn't filled in
+   * `settings.userId` yet can still discover it under a `pairing` /
+   * `allowlist` / `disabled` DM policy that would otherwise lock them out.
+   */
+  bypassGate?: boolean;
   description: string;
   handler: (ctx: CommandContext) => Promise<void>;
   name: string;
@@ -458,19 +473,22 @@ export class BotMessageRouter {
       workspaceId: workspaceId ?? undefined,
     });
 
-    // Default to 'queue' for legacy providers that don't have `concurrency`
-    // in their saved settings. Historically this defaulted to 'debounce', but
-    // chat-sdk's debounce semantics are "drop all but the latest" (Lodash-style),
-    // which silently evicts media messages when followed by a quick text query.
-    // 'queue' preserves all pending messages and merges them via
-    // `mergeSkippedMessages`, which is the right default for chat UX.
-    const concurrencyStrategy = (settings.concurrency as string) || 'queue';
-    const debounceMs = (settings.debounceMs as number) || DEFAULT_BOT_DEBOUNCE_MS;
+    // 'queue' stays the fallback for channels that never picked a strategy:
+    // it preserves every pending message and merges them via
+    // `mergeSkippedMessages`. Platforms that split one logical turn across
+    // several messages need the window BEFORE the first dispatch instead —
+    // see `resolveBotConcurrency`, which also rescues channels created before
+    // 'burst' existed in chat-sdk 4.29.
+    const { debounceMs, strategy } = resolveBotConcurrency(platform, settings);
     const chatBot = this.createChatBot(
       adapters,
       `agent-${agentId}`,
-      concurrencyStrategy,
+      strategy,
       debounceMs,
+      (message) => {
+        const text = client.sanitizeUserInput?.(message.text ?? '', message) ?? message.text;
+        return BotMessageRouter.dispatchTextCommand(text, commands) !== null;
+      },
     );
     this.registerHandlers(chatBot, serverDB, client, commands, {
       agentId,
@@ -496,6 +514,7 @@ export class BotMessageRouter {
     }
 
     const registered: RegisteredBot = {
+      adapters,
       agentInfo: { agentId, userId, workspaceId: workspaceId ?? undefined },
       chatBot,
       client,
@@ -552,11 +571,19 @@ export class BotMessageRouter {
     label: string,
     concurrencyStrategy: string,
     debounceMs: number,
+    isCommand: (message: Message) => boolean,
   ): Chat<any> {
     const config: any = {
       adapters,
+      // `burst` and `debounce` both wait `debounceMs` before dispatching; they
+      // differ in what happens to the earlier messages in that window. `burst`
+      // hands them to the handler as `context.skipped`, which
+      // `mergeSkippedMessages` folds into one turn; `debounce` drops them.
+      // Anything else keeps the plain queue, which dispatches immediately.
       concurrency:
-        concurrencyStrategy === 'debounce' ? { debounceMs, strategy: 'debounce' } : 'queue',
+        concurrencyStrategy === 'burst' || concurrencyStrategy === 'debounce'
+          ? { debounceMs, strategy: concurrencyStrategy }
+          : 'queue',
       userName: `lobehub-bot-${label}`,
     };
 
@@ -569,7 +596,9 @@ export class BotMessageRouter {
       });
     }
 
-    return new Chat(config);
+    const bot = new Chat(config);
+    patchSenderBatches(bot, isCommand);
+    return bot;
   }
 
   /**
@@ -581,19 +610,35 @@ export class BotMessageRouter {
     message: Message,
     context?: { skipped?: Message[] },
   ): Message {
-    if (!context?.skipped?.length) return message;
-
     // context.skipped is chronological; current message is the latest
-    const allMessages = [...context.skipped, message];
-    const mergedText = allMessages
-      .map((m) => m.text)
-      .filter(Boolean)
-      .join('\n');
-    const mergedAttachments = allMessages.flatMap((m) => (m as any).attachments || []);
+    return mergeBotMessages(message, context?.skipped);
+  }
 
-    return Object.assign(Object.create(Object.getPrototypeOf(message)), message, {
-      attachments: mergedAttachments,
-      text: mergedText,
+  /**
+   * Re-dispatch the messages that `AgentBridgeService` parked while this
+   * thread's topic was still running. Called by `BotCallbackService` once the
+   * completion callback lands, so the follow-up ("one sentence" after "one
+   * image" on WeChat) becomes the next turn instead of a failed start.
+   *
+   * Each original message goes through `Chat.processMessage`, i.e. the same
+   * subscription / mention / command routing as a live webhook delivery.
+   */
+  async replayDeferredMessages(
+    platform: string,
+    applicationId: string,
+    platformThreadId: string,
+  ): Promise<void> {
+    await replayDeferredBotMessages(applicationId, platformThreadId, async (entries) => {
+      const bot = await this.getOrCreateBot(platform, applicationId);
+      const adapter = bot?.adapters[platform];
+      if (!bot || !adapter) throw new Error(`Bot adapter unavailable for ${platform}`);
+      const results = await Promise.allSettled(
+        buildReplayMessages(entries).map((message) =>
+          bot.chatBot.processMessage(adapter, platformThreadId, message),
+        ),
+      );
+      const failure = results.find((result) => result.status === 'rejected');
+      if (failure?.status === 'rejected') throw failure.reason;
     });
   }
 
@@ -648,6 +693,7 @@ export class BotMessageRouter {
     const bridge = new AgentBridgeService(serverDB, userId, workspaceId);
     const charLimit = (info.settings?.charLimit as number) || undefined;
     const displayToolCalls = info.settings?.displayToolCalls === true;
+    const reactionMode = normalizeBotReactionMode(info.settings?.reactionMode);
     const dmSettings: DmSettings = extractDmSettings(info.settings);
     const guestSettings: GuestSettings = extractGuestSettings(info.settings);
     const groupSettings: GroupSettings = extractGroupSettings(info.settings);
@@ -957,10 +1003,17 @@ export class BotMessageRouter {
       text: string | undefined,
       author: { userId?: string; userName?: string } | undefined,
       replyLocale: BotReplyLocale,
+      /**
+       * `ungatedOnly` restricts dispatch to `bypassGate` commands. Callers
+       * run it once BEFORE `passGatesOrNotify` (so `/whoami` answers even
+       * when the sender would be rejected) and once after for the rest.
+       */
+      options?: { ungatedOnly?: boolean },
     ): Promise<boolean> => {
       const sanitized = client.sanitizeUserInput?.(text ?? '') ?? text;
       const result = BotMessageRouter.dispatchTextCommand(sanitized, commands);
       if (!result) return false;
+      if (options?.ungatedOnly && !result.command.bypassGate) return false;
       await result.command.handler({
         args: result.args,
         authorUserId: author?.userId,
@@ -1213,13 +1266,37 @@ export class BotMessageRouter {
       return { count: participants.length + 1, isNewParticipant: true };
     };
 
+    const trackThreadParticipants = async (
+      thread: { id: string; isDM?: boolean },
+      messages: readonly Message[],
+    ): Promise<{ count: number; isNewParticipant: boolean }> => {
+      let count = 0;
+      let isNewParticipant = false;
+      for (const candidate of messages) {
+        const tracked = await trackThreadParticipant(thread, candidate);
+        count = Math.max(count, tracked.count);
+        isNewParticipant ||= tracked.isNewParticipant;
+      }
+      return { count, isNewParticipant };
+    };
+
     bot.onNewMention(async (thread, message, context?: MessageContext) => {
       const replyLocale = detectReplyLocale(message);
       // Record the original @mentioner so the first follow-up in
       // `onSubscribedMessage` recognises them as participant #1 instead of
       // a "newcomer" — otherwise count would be 0 at that moment and the
       // single-user-relaxation logic wouldn't kick in.
-      await trackThreadParticipant(thread, message);
+      await trackThreadParticipants(thread, [...(context?.skipped ?? []), message]);
+
+      // Side-effect-free `bypassGate` commands (`/whoami`) answer before the
+      // gate so a not-yet-configured operator can discover their own ID.
+      if (
+        await tryDispatch(thread, message.text, message.author, replyLocale, {
+          ungatedOnly: true,
+        })
+      ) {
+        return;
+      }
 
       // Gate first — must run before tryDispatch so a /command from a
       // non-allowlisted sender can't slip through and side-effect.
@@ -1293,6 +1370,7 @@ export class BotMessageRouter {
           charLimit,
           client,
           displayToolCalls,
+          reactionMode,
           replyLocale,
         });
       } catch (error) {
@@ -1311,6 +1389,14 @@ export class BotMessageRouter {
     });
 
     bot.onSubscribedMessage(async (thread, message, context?: MessageContext) => {
+      // Queue/debounce only dispatches the latest message as `message`; every
+      // earlier arrival is preserved in `context.skipped`. Track all of them
+      // before any early return so bot primaries and ignored chatter cannot
+      // hide human participants from the mention-only transition.
+      const { count: humanCount } = await trackThreadParticipants(thread, [
+        ...(context?.skipped ?? []),
+        message,
+      ]);
       if (message.author.isBot === true) return;
       const replyLocale = detectReplyLocale(message);
 
@@ -1340,11 +1426,10 @@ export class BotMessageRouter {
       //
       // Participants are tracked either way so the announcement gate below can
       // still see the 1-human-vs-many transition.
-      const { count: humanCount } = await trackThreadParticipant(thread, message);
       const isExplicitlyAddressed =
         thread.isDM ||
         message.isMention === true ||
-        context?.skipped?.some((m) => m.isMention === true) === true;
+        getSameSenderMessages(message, context?.skipped).some((m) => m.isMention === true) === true;
       // Only consult membership when it can change the outcome: a DM or an
       // @-mention is addressed to the bot regardless, and the platform lookup
       // behind `isSoloBotConversation` is a network round-trip whenever its
@@ -1359,6 +1444,8 @@ export class BotMessageRouter {
             })
           : humanCount <= 1);
       const isAddressedToBot = isExplicitlyAddressed || isSoloBotConversation;
+      const platformReportsShared =
+        !isExplicitlyAddressed && !!client.isSoloBotConversation && !isSoloBotConversation;
       const isCommand = looksLikeCommand(message.text);
       // operator-configured keyword match also wakes the bot in a
       // subscribed group thread. Skipped (debounced) siblings are inspected
@@ -1367,8 +1454,9 @@ export class BotMessageRouter {
       const matchesWatchKeyword =
         watchKeywords.length > 0 &&
         (messageMatchesWatchKeyword(message.text, watchKeywords) ||
-          context?.skipped?.some((m) => messageMatchesWatchKeyword(m.text, watchKeywords)) ===
-            true);
+          getSameSenderMessages(message, context?.skipped).some((m) =>
+            messageMatchesWatchKeyword(m.text, watchKeywords),
+          ) === true);
 
       if (!isAddressedToBot && !isCommand && !matchesWatchKeyword) {
         log(
@@ -1381,7 +1469,11 @@ export class BotMessageRouter {
         // first skip in this thread → tell participants the bot
         // is now mention-only so newcomers don't think it broke. Dedupe by
         // thread id so we never announce more than once.
-        if (!thread.isDM && humanCount >= 2) {
+        if (
+          !thread.isDM &&
+          !isWholeGroupChatThreadId(thread.id) &&
+          (humanCount >= 2 || platformReportsShared)
+        ) {
           try {
             const fresh = await bot
               .getState()
@@ -1408,6 +1500,16 @@ export class BotMessageRouter {
           thread.id,
           watchKeywords,
         );
+      }
+
+      // Side-effect-free `bypassGate` commands (`/whoami`) answer before the
+      // gate so a not-yet-configured operator can discover their own ID.
+      if (
+        await tryDispatch(thread, message.text, message.author, replyLocale, {
+          ungatedOnly: true,
+        })
+      ) {
+        return;
       }
 
       // Gate before tryDispatch so a /command from a non-allowlisted sender
@@ -1503,6 +1605,7 @@ export class BotMessageRouter {
           charLimit,
           client,
           displayToolCalls,
+          reactionMode,
           replyLocale,
         });
       } catch (error) {
@@ -1572,8 +1675,9 @@ export class BotMessageRouter {
           !isDM &&
           keywordCatchAllEnabled &&
           (messageMatchesWatchKeyword(message.text, watchKeywords) ||
-            context?.skipped?.some((m) => messageMatchesWatchKeyword(m.text, watchKeywords)) ===
-              true);
+            getSameSenderMessages(message, context?.skipped).some((m) =>
+              messageMatchesWatchKeyword(m.text, watchKeywords),
+            ) === true);
 
         // If neither path applies, return so the regex doesn't act as a
         // channel-wide hijack. DMs still need the dmCatchAllEnabled gate
@@ -1726,6 +1830,7 @@ export class BotMessageRouter {
             charLimit,
             client,
             displayToolCalls,
+            reactionMode,
             replyLocale,
           });
         } catch (error) {
@@ -2032,7 +2137,10 @@ export class BotMessageRouter {
         name: 'approve',
       },
       {
-        description: 'Send feedback directly to the LobeHub team (no AI reply)',
+        description:
+          (BRANDING_NAME as string) === 'LobeHub'
+            ? `Send feedback directly to the ${BRANDING_NAME} team (no AI reply)`
+            : 'Contact support by email',
         // Declaring the argument so Discord/Slack surface a `/feedback <message>`
         // prompt instead of registering the command as zero-arg (see the
         // `options` comment on the BotCommand interface).
@@ -2040,10 +2148,15 @@ export class BotMessageRouter {
           {
             description: 'Your feedback message',
             name: 'message',
-            required: true,
+            required: (BRANDING_NAME as string) === 'LobeHub',
           },
         ],
         handler: async (ctx) => {
+          const supportMessage = getPrivateFeedbackMessage(ctx.replyLocale);
+          if (supportMessage) {
+            await (ctx.postEphemeral ?? ctx.post)(supportMessage);
+            return;
+          }
           log('command /feedback: agent=%s, platform=%s', agentId, platform);
           // Prefer the ephemeral channel when available (Slack / Discord
           // native slash) so the user's feedback content and the bot's
@@ -2071,6 +2184,38 @@ export class BotMessageRouter {
           await reply(renderFeedbackSubmitted(result.issueUrl, ctx.replyLocale));
         },
         name: 'feedback',
+      },
+      {
+        // Ungated on purpose: the whole point is to let the operator learn
+        // the value for `settings.userId` before it is configured, and the
+        // reply contains nothing but the caller's own identity.
+        bypassGate: true,
+        description: 'Show your platform user ID for the bot settings',
+        handler: async (ctx) => {
+          log(
+            'command /whoami: agent=%s, platform=%s, author=%s',
+            agentId,
+            platform,
+            ctx.authorUserName ?? ctx.authorUserId,
+          );
+          const reply = ctx.postEphemeral ?? ctx.post;
+          const callerId = ctx.authorUserId?.trim();
+          if (!callerId) {
+            await reply(renderCommandReply('cmdWhoamiUnavailable', ctx.replyLocale));
+            return;
+          }
+          await reply(
+            renderWhoami(
+              {
+                isOperator: !!operatorUserId && callerId === operatorUserId,
+                userId: callerId,
+                userName: ctx.authorUserName,
+              },
+              ctx.replyLocale,
+            ),
+          );
+        },
+        name: 'whoami',
       },
     ];
   }
@@ -2137,7 +2282,10 @@ export class BotMessageRouter {
           userName: event.user?.userName,
         };
         const replyLocale = locale.fallback;
-        if (!(await gate(threadLike, authorLike, replyLocale, `onSlashCommand /${cmd.name}`))) {
+        if (
+          !cmd.bypassGate &&
+          !(await gate(threadLike, authorLike, replyLocale, `onSlashCommand /${cmd.name}`))
+        ) {
           return;
         }
         await cmd.handler({
@@ -2177,11 +2325,12 @@ export class BotMessageRouter {
     const regex = new RegExp(`(?:^|\\s)\\/(?:${namePattern})(?:\\s|$|@)`);
     bot.onNewMessage(regex, async (thread, message) => {
       if (message.author.isBot === true) return;
-      const sanitized = client.sanitizeUserInput?.(message.text ?? '') ?? message.text;
+      const sanitized = client.sanitizeUserInput?.(message.text ?? '', message) ?? message.text;
       const result = BotMessageRouter.dispatchTextCommand(sanitized, commands);
       if (!result) return;
       const replyLocale = locale.detectFromMessage(message);
       if (
+        !result.command.bypassGate &&
         !(await gate(thread, message.author, replyLocale, `onNewMessage /${result.command.name}`))
       ) {
         return;

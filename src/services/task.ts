@@ -46,6 +46,8 @@ class TaskService {
     }>;
     parentTaskId?: string | null;
     projectId?: string;
+    /** "My tasks" narrowing: assigned to the caller, or created by them. */
+    scope?: 'assigned' | 'created';
     visibility?: 'private' | 'public';
   }) =>
     lambdaClient.task.groupList.query({
@@ -131,6 +133,8 @@ class TaskService {
       // Automation mode; null = no automation
       automationMode?: TaskAutomationMode | null;
       config?: Record<string, unknown>;
+      /** Deep-merged into `config` server-side under the row lock (vs. `config`, which replaces). */
+      configPatch?: Record<string, unknown>;
       context?: Record<string, unknown>;
       description?: string;
       editorData?: unknown;

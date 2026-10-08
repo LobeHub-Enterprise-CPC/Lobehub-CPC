@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import debug from 'debug';
 
 const log = debug('bot-platform:telegram:client');
@@ -711,7 +712,7 @@ export class TelegramApi {
         parse_mode: useHtml ? 'HTML' : undefined,
       },
       reply_markup: extra?.replyMarkup,
-      title: extra?.title ?? 'LobeHub',
+      title: extra?.title ?? `${BRANDING_NAME}`,
       type: 'article',
     });
 

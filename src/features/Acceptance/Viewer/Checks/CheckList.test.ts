@@ -1,21 +1,22 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { hasAnnotatableEvidence, hasVisualEvidence } from '../Evidence/evidence';
+import { mergeRejectComments, serializeReviewAnnotations } from '../Review/rejectDraft';
 import {
   canDismissRejectModal,
   CHECK_REJECT_MODAL_SIZE,
   checkRejectModalShell,
   checkRejectModalSize,
-  mergeRejectComments,
   rejectModalTitle,
-  serializeReviewAnnotations,
   TEXT_REJECT_MODAL_WIDTH,
-} from '../Review/CheckRejectModal';
+} from '../Review/rejectModalShell';
 import {
   checkFilterState,
   focusedCheckStates,
   groupChecks,
-  isCheckWorkActionable,
   shouldCollapseAfterReview,
   shouldGroupChecks,
   userReviewState,
@@ -24,6 +25,20 @@ import { type AcceptanceCheck } from './types';
 
 const check = (id: string, category: string | null, surface: AcceptanceCheck['surface']) =>
   ({ category, id, surface }) as AcceptanceCheck;
+
+it('ships translations for the check row rejection actions', () => {
+  const source = readFileSync(path.resolve(__dirname, './CheckRow.tsx'), 'utf8');
+  const keys = [...source.matchAll(/t\('(acceptance\.review\.reject[^']*)'\)/g)].map(
+    ([, key]) => key,
+  );
+  expect(keys.length).toBeGreaterThan(0);
+  for (const locale of ['en-US', 'zh-CN']) {
+    const translations = JSON.parse(
+      readFileSync(path.resolve(__dirname, `../../../../../locales/${locale}/verify.json`), 'utf8'),
+    );
+    for (const key of keys) expect(translations[key], `${locale}: ${key}`).toBeTruthy();
+  }
+});
 
 describe('groupChecks', () => {
   it('groups checks by business category', () => {
@@ -243,30 +258,6 @@ describe('userReviewState', () => {
     };
     expect(userReviewState(withReview({ ...reject, stale: false }))).toBe('rejected');
     expect(userReviewState(withReview({ ...reject, stale: true }))).toBe('pending');
-  });
-});
-
-describe('isCheckWorkActionable', () => {
-  const withReview = (action?: 'accept' | 'ignore' | 'reject') =>
-    ({
-      userReview: action
-        ? {
-            action,
-            createdAt: '2026-07-16T00:00:00.000Z',
-            roundIndex: 1,
-            stale: false,
-          }
-        : undefined,
-    }) as AcceptanceCheck;
-
-  it('keeps work available for pending and rejected checks', () => {
-    expect(isCheckWorkActionable(withReview())).toBe(true);
-    expect(isCheckWorkActionable(withReview('reject'))).toBe(true);
-  });
-
-  it('hides work for accepted and ignored checks', () => {
-    expect(isCheckWorkActionable(withReview('accept'))).toBe(false);
-    expect(isCheckWorkActionable(withReview('ignore'))).toBe(false);
   });
 });
 
