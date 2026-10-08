@@ -114,12 +114,21 @@ export class RelayModelRuntime implements Pick<ModelRuntime, 'chat' | 'handleCha
       .set(llmRelayKeys.open(callId), this.params.userId, 'PX', ttlMs)
       .exec();
 
+    let delivered: number | undefined;
     try {
-      await this.dispatch(payload.model, dispatchedAt);
+      delivered = await this.dispatch(payload.model, dispatchedAt);
     } catch (error) {
       log('[%s] llm_execute dispatch failed: %O', callId, error);
       await this.cleanup();
       throw createClientLlmExecutorUnavailableError(provider, 'relay_unsupported');
+    }
+
+    // The gateway reached no client at all: nobody can claim the call, so
+    // waiting out `claimMs` would only delay the run's `waiting_for_client`.
+    if (delivered === 0) {
+      log('[%s] llm_execute reached no client', callId);
+      await this.cleanup();
+      throw createClientLlmExecutorUnavailableError(provider, 'not_delivered');
     }
 
     const reader = new RelayBatchReader(
@@ -145,7 +154,11 @@ export class RelayModelRuntime implements Pick<ModelRuntime, 'chat' | 'handleCha
     log('[%s] relayed attempt failed: %O', this.params.callId, error);
   }
 
-  private async dispatch(model: string, dispatchedAt: number) {
+  /**
+   * Hand the call to the user's clients. Resolves to how many the gateway
+   * delivered it to when it can tell, else `undefined`.
+   */
+  private async dispatch(model: string, dispatchedAt: number): Promise<number | undefined> {
     const { params } = this;
     const data: LlmExecuteData = {
       assistantMessageId: params.assistantMessageId,
@@ -165,7 +178,20 @@ export class RelayModelRuntime implements Pick<ModelRuntime, 'chat' | 'handleCha
       stepIndex: params.stepIndex,
     };
 
-    await params.streamManager.publishStreamEvent(params.operationId, {
+    const { streamManager } = params;
+    if (streamManager.sendLlmExecute) {
+      const { delivered, routed } = await streamManager.sendLlmExecute(params.operationId, data);
+      log(
+        '[%s] llm_execute dispatched (routed=%s, delivered=%s)',
+        params.callId,
+        routed,
+        delivered,
+      );
+      // A broadcast fallback (`routed: false`) cannot tell who got it.
+      return routed ? delivered : undefined;
+    }
+
+    await streamManager.publishStreamEvent(params.operationId, {
       data,
       stepIndex: params.stepIndex,
       type: 'llm_execute',
@@ -312,7 +338,15 @@ export class RelayModelRuntime implements Pick<ModelRuntime, 'chat' | 'handleCha
         this.deadlines.totalMs + LLM_RELAY_KEY_GRACE_MS,
       );
       const data: LlmCancelData = { callId, reason };
-      await streamManager.publishStreamEvent(operationId, { data, stepIndex, type: 'llm_cancel' });
+      if (streamManager.sendLlmCancel) {
+        await streamManager.sendLlmCancel(operationId, { ...data, stepIndex });
+      } else {
+        await streamManager.publishStreamEvent(operationId, {
+          data,
+          stepIndex,
+          type: 'llm_cancel',
+        });
+      }
     } catch (error) {
       log('[%s] failed to cancel the relayed attempt: %O', callId, error);
     }
@@ -320,7 +354,7 @@ export class RelayModelRuntime implements Pick<ModelRuntime, 'chat' | 'handleCha
 
   /** Close the call: late uploads find no open call and get `410`. */
   private async cleanup(reader?: RelayBatchReader) {
-    const { callId, redis } = this.params;
+    const { callId, operationId, redis, streamManager } = this.params;
     try {
       await redis
         .multi()
@@ -331,6 +365,12 @@ export class RelayModelRuntime implements Pick<ModelRuntime, 'chat' | 'handleCha
       log('[%s] failed to clean up relay keys: %O', callId, error);
     }
     reader?.close();
+    // Stop the gateway replaying the attempt to clients that subscribe later.
+    // Best-effort and bounded by the attempt deadline anyway, so a stalled
+    // gateway must not hold up settling the stream.
+    void Promise.resolve(streamManager.closeLlmCall?.(operationId, callId)).catch((error) =>
+      log('[%s] failed to close the call on the gateway: %O', callId, error),
+    );
   }
 
   private createDiagnostics(options: ChatMethodOptions): ProviderResponseDiagnostics {

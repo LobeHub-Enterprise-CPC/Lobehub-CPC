@@ -89,6 +89,15 @@ Never announce a document you have not produced and exported. Say "here is the r
 3. Skill content instructs to run a bundled script (e.g., \`python scripts/init.py\`) → use execScript
 </runcommand_vs_execscript>
 
+<sandbox_environment>
+\`runCommand\` and \`execScript\` run in the same cloud sandbox session as every other
+sandbox tool in this conversation, in the same working directory. What that
+directory is, and whether what you leave there survives the session, is below —
+and it decides where a checkout or a generated file belongs.
+{{sandbox_workspace}}
+</sandbox_environment>
+
+
 <best_practices>
 - Only activate skills when the user's task clearly matches the skill's purpose
 - Follow the skill's instructions carefully once loaded
