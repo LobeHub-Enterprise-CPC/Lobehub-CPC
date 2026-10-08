@@ -1,7 +1,17 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
 
-import { applyBrandStrings, isBrandPostProcessorEnabled } from './brandPostProcessor';
+import { describe, expect, it, vi } from 'vitest';
+
+import { applyBrandStrings } from './brandPostProcessor';
+
+// A processor can be enabled under the default brand too (LobeChat → LobeHub).
+// Exercise white-label coverage explicitly rather than depending on deployment constants.
+vi.mock('@lobechat/const', () => ({
+  BRANDING_AGENT_TITLE: 'Acme Agent',
+  BRANDING_NAME: 'Acme Workspace',
+  DEFAULT_INBOX_TITLE: 'Acme Assistant',
+  LOBE_CHAT_CLOUD: 'Acme Workspace Cloud',
+}));
 
 // Upstream bakes the product name into translated copy instead of interpolating a
 // brand variable, and `brandPostProcessor` rewrites those literals at `t()` time
@@ -30,15 +40,13 @@ const LITERAL = /LobeHub|LobeChat/;
 
 describe('brand literals in SPA-served locales', () => {
   it('stays rewritable in every shipped locale', () => {
-    // Under default branding the processor is never registered and the upstream
-    // name is correct, so there is nothing to rewrite.
-    if (!isBrandPostProcessorEnabled) return;
-
     const root = new URL('../../../locales/', import.meta.url);
     const failures: string[] = [];
     let literals = 0;
 
-    for (const locale of readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory())) {
+    for (const locale of readdirSync(root, { withFileTypes: true }).filter((d) =>
+      d.isDirectory(),
+    )) {
       for (const ns of SPA_NAMESPACES) {
         let resources: Record<string, unknown>;
         try {
