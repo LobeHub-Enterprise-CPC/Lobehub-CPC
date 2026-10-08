@@ -1,4 +1,5 @@
 import { extractLinqLinkCode } from '@lobechat/agent-address-linq';
+import { BRANDING_NAME } from '@lobechat/business-const';
 import debug from 'debug';
 
 import { getMessengerLinqConfig, type MessengerLinqConfig } from '@/config/messenger';
@@ -29,20 +30,17 @@ const settingsUrl = (): string | undefined => {
 
 /** Replies are deliberately short: they arrive as iMessage / SMS bubbles. */
 export const LINQ_REPLY = {
-  alreadyLinkedToOther:
-    'This number is already connected to a different LobeHub account. Disconnect it there first, then send your code again.',
-  codeInvalid:
-    'That link code has expired or was already used. Open LobeHub → Settings → Messenger → iMessage to get a fresh one.',
+  alreadyLinkedToOther: `This number is already connected to a different ${BRANDING_NAME} account. Disconnect it there first, then send your code again.`,
+  codeInvalid: `That link code has expired or was already used. Open ${BRANDING_NAME} → Settings → Messenger → iMessage to get a fresh one.`,
   linked: (agentName?: string) =>
     agentName
-      ? `You're connected to LobeHub. Messages you send here go to ${agentName}.`
-      : "You're connected to LobeHub. Send a message any time.",
+      ? `You're connected to ${BRANDING_NAME}. Messages you send here go to ${agentName}.`
+      : `You're connected to ${BRANDING_NAME}. Send a message any time.`,
   needLink: (url?: string) =>
     url
-      ? `Hi! This number isn't connected to LobeHub yet. Open ${url} and tap Connect — it will text us a one-time code from your phone.`
-      : "Hi! This number isn't connected to LobeHub yet. Open LobeHub → Settings → Messenger → iMessage and tap Connect.",
-  unlinkBeforeRelink:
-    'Your LobeHub account is already connected to another number. Disconnect it in Settings → Messenger first, then send your code again.',
+      ? `Hi! This number isn't connected to ${BRANDING_NAME} yet. Open ${url} and tap Connect — it will text us a one-time code from your phone.`
+      : `Hi! This number isn't connected to ${BRANDING_NAME} yet. Open ${BRANDING_NAME} → Settings → Messenger → iMessage and tap Connect.`,
+  unlinkBeforeRelink: `Your ${BRANDING_NAME} account is already connected to another number. Disconnect it in Settings → Messenger first, then send your code again.`,
 } as const;
 
 type LinkOutcome =
