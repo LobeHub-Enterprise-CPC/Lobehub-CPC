@@ -9,6 +9,7 @@ import { AgentMemberSelection } from '@/features/AgentMemberSelection';
 import { groupKeys } from '@/libs/swr/keys';
 import { agentService } from '@/services/agent';
 
+import { selectAddableAgents } from './selectAddableAgents';
 import { useAgentSelectionStore } from './store';
 
 export interface AddGroupMemberModalProps {
@@ -27,7 +28,7 @@ const AddGroupMemberModal = memo<AddGroupMemberModalProps>(
     const setSelectedAgents = useAgentSelectionStore((s) => s.setSelectedAgents);
     const clearSelection = useAgentSelectionStore((s) => s.clearSelection);
 
-    // Fetch agents from the new API (non-virtual agents only)
+    // Fetch non-virtual agents; the inbox is excluded unless a caller opts in
     const { data: allAgents = [], isLoading: isLoadingAgents } = useSWR(
       open ? groupKeys.queryAgents() : null,
       () => agentService.queryAgents(),
@@ -73,7 +74,7 @@ const AddGroupMemberModal = memo<AddGroupMemberModalProps>(
         onOk={handleConfirm}
       >
         <AgentMemberSelection
-          agents={allAgents}
+          agents={selectAddableAgents(allAgents, [])}
           disabled={isAdding}
           existingMembers={existingMembers}
           isLoading={isLoadingAgents}
