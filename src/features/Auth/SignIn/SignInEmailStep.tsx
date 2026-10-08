@@ -136,6 +136,7 @@ export const SignInEmailStep = ({
             const button = (
               <Button
                 block
+                htmlType="button"
                 key={provider}
                 loading={socialLoading === provider}
                 size="large"
@@ -191,6 +192,7 @@ export const SignInEmailStep = ({
           <Form.Field
             name="email"
             style={{ gap: 0, paddingBlock: '0 24px' }}
+            validateOn="submit"
             validate={(value: string) => {
               if (!value) return t('betterAuth.errors.emailRequired');
               const trimmedValue = value.trim();

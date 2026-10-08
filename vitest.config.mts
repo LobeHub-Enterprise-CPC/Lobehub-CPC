@@ -105,7 +105,9 @@ export default defineConfig({
     include: ['@lobehub/tts'],
   },
   plugins: [
-    tsconfigPaths({ projects: ['.', './apps/workbench'] }),
+    // Standalone SPA files are outside the root tsconfig's include; load their
+    // own configs so aliases also resolve when their tests run in this project.
+    tsconfigPaths({ projects: ['.', './apps/auth', './apps/share', './apps/workbench'] }),
     // Let `.md` imports resolve to their raw text content so Rollup/Vitest
     // doesn't try to parse Markdown as JavaScript.
     {
