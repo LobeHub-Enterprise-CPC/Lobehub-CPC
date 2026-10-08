@@ -1,4 +1,4 @@
-import { ASYNC_TASK_TIMEOUT } from '@lobechat/business-config/server';
+import { VIDEO_GENERATION_POLL_TIMEOUT } from '@lobechat/business-config/server';
 import {
   buildMappedBusinessModelFields,
   resolveBusinessModelMapping,
@@ -25,6 +25,39 @@ import type { VideoGenerationAsset } from '@/types/generation';
 
 const log = debug('lobe-video:background-polling');
 
+/**
+ * Raised when the provider reports a terminal failure for the task, or a success
+ * without a usable URL.
+ *
+ * It is deliberately distinguishable from transport errors: a poller that runs as a
+ * fallback next to a provider callback may not turn a network hiccup into a task
+ * failure, but an authoritative upstream failure must still surface immediately.
+ */
+export class VideoGenerationFailedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'VideoGenerationFailedError';
+  }
+}
+
+/** A single status query must not be able to consume the whole polling budget. */
+const STATUS_QUERY_TIMEOUT = 30_000;
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 interface BackgroundPollingParams {
   asyncTaskCreatedAt: Date;
   asyncTaskId: string;
@@ -33,6 +66,14 @@ interface BackgroundPollingParams {
   generationTopicId: string;
   inferenceId: string;
   model: string;
+  /**
+   * True when a provider callback is also expected for this task.
+   *
+   * The poller must then stay non-authoritative on failure: a transport error or an
+   * exhausted poll budget leaves the task in Processing for the callback, and only an
+   * explicit upstream failure finalizes it. The task deadline is the backstop.
+   */
+  pollingIsFallback?: boolean;
   prechargeResult?: any;
   previousGenerationId?: string;
   provider: string;
@@ -55,6 +96,7 @@ export async function processBackgroundVideoPolling(
     generationTopicId,
     inferenceId,
     model,
+    pollingIsFallback,
     prechargeResult,
     previousGenerationId,
     provider,
@@ -180,12 +222,31 @@ export async function processBackgroundVideoPolling(
     }
 
     log('Video processing completed successfully for task: %s', asyncTaskId);
+
+    console.info(
+      `[video] result stored asyncTask=${asyncTaskId} inferenceId=${inferenceId} provider=${provider} routerId=${route?.routerId ?? '-'} durationMs=${duration} mode=${pollingIsFallback ? 'fallback-polling' : 'polling'}`,
+    );
   } catch (error) {
     // Always visible regardless of DEBUG: this is the terminal "why the video
     // never showed up" reason, not routine per-attempt tracing — matches the
     // console.error already used for the infra-level catch in the caller
     // (routers/lambda/video/index.ts).
-    console.error(`[video] Background polling failed for task ${asyncTaskId}:`, error);
+    console.error(
+      `[video] polling failed asyncTask=${asyncTaskId} inferenceId=${inferenceId} provider=${provider} routerId=${route?.routerId ?? '-'} fallback=${Boolean(pollingIsFallback)}:`,
+      error,
+    );
+
+    // A fallback poller runs next to a provider callback that may still arrive, so it
+    // must not decide the outcome from its own transport failures or from running out
+    // of budget: doing so would fail a task whose video is generated and merely
+    // delivered through the other channel. Only an authoritative upstream failure
+    // finalizes it, and the video task deadline is the backstop for the rest.
+    if (pollingIsFallback && !(error instanceof VideoGenerationFailedError)) {
+      console.warn(
+        `[video] fallback polling inconclusive asyncTask=${asyncTaskId} inferenceId=${inferenceId}; leaving the task for the provider callback`,
+      );
+      return;
+    }
 
     const asyncTaskModel = new AsyncTaskModel(db, userId, workspaceId);
     if (!claimedByThisWorker) {
@@ -227,6 +288,10 @@ export async function processBackgroundVideoPolling(
       status: AsyncTaskStatus.Error,
     });
 
+    console.error(
+      `[video] polling finalized as error asyncTask=${asyncTaskId} inferenceId=${inferenceId} provider=${provider} type=${providerContentPolicyMessage ? 'content-policy' : 'server'}`,
+    );
+
     try {
       const { resolvedModelId } = await resolveBusinessModelMapping(provider, model);
       await chargeAfterGenerate({
@@ -265,10 +330,16 @@ async function pollUntilCompletion(
   videoUrl: string;
 } | null> {
   const pollingInterval = 5000;
-  const maxRetries = Math.ceil(ASYNC_TASK_TIMEOUT / pollingInterval);
+  // Budget on wall-clock time, not on an attempt count: the provider query itself
+  // can block, and a count of intervals silently extends the real wait past the
+  // deadline it was derived from.
   const startedAt = Date.now();
+  const deadline = startedAt + VIDEO_GENERATION_POLL_TIMEOUT;
+  const budgetSec = Math.round(VIDEO_GENERATION_POLL_TIMEOUT / 1000);
+  let attempt = 0;
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
+  while (Date.now() < deadline) {
+    attempt += 1;
     const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
 
     try {
@@ -277,14 +348,18 @@ async function pollUntilCompletion(
       // time so a mid-flight platform kill (no further lines after this one)
       // can be told apart from a genuine multi-minute in-progress wait.
       log(
-        'Polling attempt %d/%d for task: %s (elapsed %ds)',
-        attempt + 1,
-        maxRetries,
+        'Polling attempt %d for task: %s (elapsed %ds/%ds)',
+        attempt,
         inferenceId,
         elapsedSec,
+        budgetSec,
       );
 
-      const result = await modelRuntime.handlePollVideoStatus(inferenceId, model, route);
+      const result = await withTimeout(
+        modelRuntime.handlePollVideoStatus(inferenceId, model, route),
+        STATUS_QUERY_TIMEOUT,
+        `Video status query did not answer within ${STATUS_QUERY_TIMEOUT / 1000}s`,
+      );
 
       log('Poll result for task %s at %ds: %O', inferenceId, elapsedSec, result);
 
@@ -294,17 +369,21 @@ async function pollUntilCompletion(
       }
 
       if (result.status === 'failed') {
-        throw new Error(`Video generation failed: ${result.error}`);
+        throw new VideoGenerationFailedError(`Video generation failed: ${result.error}`);
       }
 
       await sleep(pollingInterval);
     } catch (error) {
-      if (error instanceof Error && error.message.includes('failed')) {
+      // An explicit upstream failure ends the wait; everything else (network resets,
+      // provider 429/5xx, a single query that timed out) is retried on the normal
+      // interval until the budget is exhausted, which then reports the timeout.
+      if (error instanceof VideoGenerationFailedError) {
         throw error;
       }
+
       log(
         'Polling attempt %d failed for task: %s at %ds: %O',
-        attempt + 1,
+        attempt,
         inferenceId,
         elapsedSec,
         error,
@@ -313,9 +392,7 @@ async function pollUntilCompletion(
     }
   }
 
-  throw new Error(
-    `Video generation timeout after ${maxRetries} attempts (${(maxRetries * pollingInterval) / 1000}s)`,
-  );
+  throw new Error(`Video generation timeout after ${budgetSec}s of polling`);
 }
 
 function sleep(ms: number): Promise<void> {

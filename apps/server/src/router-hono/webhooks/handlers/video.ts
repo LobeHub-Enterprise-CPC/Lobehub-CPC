@@ -94,6 +94,9 @@ export const videoWebhook = async (c: Context<BlankEnv, '/video/:provider'>) => 
     const asyncTask = await AsyncTaskModel.findByInferenceId(db, webhookResult.inferenceId);
     if (!asyncTask) {
       log('AsyncTask not found for inferenceId: %s', webhookResult.inferenceId);
+      console.warn(
+        `[video] webhook received for unknown inferenceId=${webhookResult.inferenceId} provider=${provider}`,
+      );
       return c.json(
         { error: `AsyncTask not found for inferenceId: ${webhookResult.inferenceId}` },
         404,
@@ -107,9 +110,17 @@ export const videoWebhook = async (c: Context<BlankEnv, '/video/:provider'>) => 
 
     if (!expectedToken || !token || !safeCompare(token, expectedToken)) {
       log('Webhook token verification failed for asyncTask: %s', asyncTask.id);
+      // Never log the token itself: it is the callback's only authentication.
+      console.warn(
+        `[video] webhook rejected: token verification failed asyncTask=${asyncTask.id} provider=${provider}`,
+      );
       return c.json({ error: 'Unauthorized' }, 401);
     }
     log('Webhook token verified for asyncTask: %s', asyncTask.id);
+
+    console.info(
+      `[video] webhook accepted asyncTask=${asyncTask.id} inferenceId=${webhookResult.inferenceId} provider=${provider} upstreamStatus=${webhookResult.status}`,
+    );
 
     asyncTaskId = asyncTask.id;
     asyncTaskUserId = asyncTask.userId;
@@ -239,6 +250,9 @@ export const videoWebhook = async (c: Context<BlankEnv, '/video/:provider'>) => 
     // Handle error result: refund precharge and mark task as error
     if (result.status === 'error') {
       log('Video generation failed: %s', result.error);
+      console.error(
+        `[video] webhook reported upstream failure asyncTask=${asyncTask.id} inferenceId=${result.inferenceId} provider=${provider}: ${result.error}`,
+      );
       await asyncTaskModel.update(asyncTask.id, {
         error: new AsyncTaskError(AsyncTaskErrorType.ServerError, result.error),
         status: AsyncTaskStatus.Error,
@@ -352,9 +366,16 @@ export const videoWebhook = async (c: Context<BlankEnv, '/video/:provider'>) => 
 
     log('Video webhook processing completed successfully for generation: %s', generation.id);
 
+    console.info(
+      `[video] webhook result stored asyncTask=${asyncTask.id} inferenceId=${result.inferenceId} provider=${provider} durationMs=${duration}`,
+    );
+
     return c.json({ success: true });
   } catch (error) {
-    console.error('[video-webhook] Processing failed:', error);
+    console.error(
+      `[video] webhook processing failed asyncTask=${asyncTaskId ?? '-'} provider=${provider}:`,
+      error,
+    );
 
     // Mark asyncTask as Error so the user sees failure instead of stuck "processing"
     if (asyncTaskModel && asyncTaskId) {

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { ASYNC_TASK_TIMEOUT } from '@lobechat/business-config/server';
+import { ASYNC_TASK_TIMEOUT, VIDEO_GENERATION_TASK_TIMEOUT } from '@lobechat/business-config/server';
 import type {
   HourlyUserMemoryExtractionMetadata,
   UserMemoryExtractionMetadata,
@@ -319,6 +319,91 @@ describe('AsyncTaskModel', () => {
         where: eq(asyncTasks.id, id),
       });
       expect(updatedTask?.status).toBe(AsyncTaskStatus.Processing);
+      expect(updatedTask?.error).toBeNull();
+    });
+
+    /**
+     * A video task is observed through a remote render plus a poller that starts after
+     * submission, so it has its own (longer) deadline. Judging it by ASYNC_TASK_TIMEOUT
+     * is what killed Seedance tasks whose render was still in flight — the poller was
+     * still running when the watchdog already reported "task is timeout".
+     */
+    it('should apply the generic deadline to non-video tasks but not to video tasks', async () => {
+      const pastGenericOnly = new Date(Date.now() - ASYNC_TASK_TIMEOUT - 1000);
+
+      const video = await serverDB
+        .insert(asyncTasks)
+        .values({
+          type: AsyncTaskType.VideoGeneration,
+          status: AsyncTaskStatus.Processing,
+          userId,
+          createdAt: pastGenericOnly,
+        })
+        .returning()
+        .then((res) => res[0]);
+
+      const chunking = await serverDB
+        .insert(asyncTasks)
+        .values({
+          type: AsyncTaskType.Chunking,
+          status: AsyncTaskStatus.Processing,
+          userId,
+          createdAt: pastGenericOnly,
+        })
+        .returning()
+        .then((res) => res[0]);
+
+      // No type hint, exactly like the generation router's call.
+      await asyncTaskModel.checkTimeoutTasks([video.id, chunking.id]);
+
+      const [updatedVideo, updatedChunking] = await Promise.all(
+        [video.id, chunking.id].map((id) =>
+          serverDB.query.asyncTasks.findFirst({ where: eq(asyncTasks.id, id) }),
+        ),
+      );
+
+      expect(updatedVideo?.status).toBe(AsyncTaskStatus.Processing);
+      expect(updatedChunking?.status).toBe(AsyncTaskStatus.Error);
+    });
+
+    it('should time out a video task once its own deadline has passed', async () => {
+      const { id } = await serverDB
+        .insert(asyncTasks)
+        .values({
+          type: AsyncTaskType.VideoGeneration,
+          status: AsyncTaskStatus.Processing,
+          userId,
+          createdAt: new Date(Date.now() - VIDEO_GENERATION_TASK_TIMEOUT - 1000),
+        })
+        .returning()
+        .then((res) => res[0]);
+
+      await asyncTaskModel.checkTimeoutTasks([id]);
+
+      const updatedTask = await serverDB.query.asyncTasks.findFirst({
+        where: eq(asyncTasks.id, id),
+      });
+      expect(updatedTask?.status).toBe(AsyncTaskStatus.Error);
+    });
+
+    it('should not push a task that already finished back to error', async () => {
+      const { id } = await serverDB
+        .insert(asyncTasks)
+        .values({
+          type: AsyncTaskType.Chunking,
+          status: AsyncTaskStatus.Success,
+          userId,
+          createdAt: new Date(Date.now() - ASYNC_TASK_TIMEOUT - 1000),
+        })
+        .returning()
+        .then((res) => res[0]);
+
+      await asyncTaskModel.checkTimeoutTasks([id]);
+
+      const updatedTask = await serverDB.query.asyncTasks.findFirst({
+        where: eq(asyncTasks.id, id),
+      });
+      expect(updatedTask?.status).toBe(AsyncTaskStatus.Success);
       expect(updatedTask?.error).toBeNull();
     });
   });

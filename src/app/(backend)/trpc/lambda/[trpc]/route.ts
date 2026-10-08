@@ -17,7 +17,11 @@ import { lambdaRouter } from '@/server/routers/lambda';
 // (that throws "Invalid segment configuration export detected" at build
 // time). Keep in sync with TRPC_ASYNC_MAX_DURATION in
 // packages/business/config/src/server/route.ts.
-export const maxDuration = 300;
+//
+// 600s covers the video poll budget plus the step that stores the result; a window
+// below VIDEO_GENERATION_POLL_TIMEOUT would kill the poll loop mid-flight, with no
+// error thrown, and leave the watchdog to report the timeout.
+export const maxDuration = 600;
 
 const handler = (req: NextRequest) => {
   // Clone the request to avoid "Response body object should not be disturbed or locked" error

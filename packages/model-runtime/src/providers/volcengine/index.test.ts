@@ -3,6 +3,7 @@ import { ModelProvider } from 'model-bank';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { testProvider } from '../../providerTestUtils';
+import { createVideoWithCompletionMode } from '../../utils/videoCompletionMode';
 import { LobeVolcengineAI } from './index';
 
 testProvider({
@@ -159,6 +160,70 @@ describe('LobeVolcengineAI - custom features', () => {
       const calledPayload = (instance['client'].chat.completions.create as any).mock.calls[0][0];
       expect(calledPayload.thinking).toEqual({ type: 'enabled' });
       expect(calledPayload.reasoning_effort).toBe('low');
+    });
+  });
+
+  /**
+   * Regression cover for the Volcengine/Seedance completion mode.
+   *
+   * Ark's `contents/generations/tasks` API has no callback parameter, so a task can
+   * only be observed by polling `GET .../contents/generations/tasks/{id}`. While the
+   * provider declared `completionModes: ['webhook']`, `createVideo` resolved to
+   * webhook, the server therefore never registered its background poller, and every
+   * task sat in `processing` until the async-task watchdog reported
+   * "task is timeout, please try again" — even though the render had succeeded
+   * upstream. Declaring `polling` is what keeps `handlePollVideoStatus` reachable.
+   */
+  describe('video generation completion mode', () => {
+    const mockFetch = vi.fn();
+
+    beforeEach(() => {
+      mockFetch.mockReset();
+      vi.stubGlobal('fetch', mockFetch);
+    });
+
+    it('declares polling so a submitted task is always polled', () => {
+      expect(
+        instance.getVideoGenerationCapabilities('doubao-seedance-2-0-pro').completionModes,
+      ).toEqual(['polling']);
+    });
+
+    it('resolves to polling and drops callback_url even when a callback URL is supplied', async () => {
+      mockFetch.mockResolvedValue({ json: () => Promise.resolve({ id: 'cgt-123' }), ok: true });
+
+      const response = await createVideoWithCompletionMode(
+        instance,
+        {
+          callbackUrl: 'https://app.example.com/api/webhooks/video/volcengine?token=secret',
+          model: 'doubao-seedance-2-0-pro',
+          params: { prompt: 'a cat dancing' },
+        },
+        { preferredCompletionMode: 'polling' },
+      );
+
+      expect(response?.completionMode).toBe('polling');
+      expect(response?.inferenceId).toBe('cgt-123');
+
+      // Polling mode strips the callback before the request is built: Ark would
+      // otherwise receive a parameter it does not implement.
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body).not.toHaveProperty('callback_url');
+    });
+
+    it('resolves to polling even when the deployment prefers webhook', async () => {
+      mockFetch.mockResolvedValue({ json: () => Promise.resolve({ id: 'cgt-456' }), ok: true });
+
+      const response = await createVideoWithCompletionMode(
+        instance,
+        {
+          callbackUrl: 'https://app.example.com/api/webhooks/video/volcengine?token=secret',
+          model: 'doubao-seedance-2-0-pro',
+          params: { prompt: 'a cat dancing' },
+        },
+        { preferredCompletionMode: 'webhook' },
+      );
+
+      expect(response?.completionMode).toBe('polling');
     });
   });
 });

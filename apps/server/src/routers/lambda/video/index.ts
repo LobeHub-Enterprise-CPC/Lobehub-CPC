@@ -382,7 +382,13 @@ export const videoRouter = router({
         );
         callbackUrl.searchParams.set('model', resolvedModelId);
         callbackUrl.searchParams.set('token', webhookToken);
-        log('Using callback URL: %s', callbackUrl);
+        // Log origin + path only. The `token` in this URL is the callback's only
+        // authentication and DEBUG output routinely ends up in bug reports.
+        log(
+          'Using callback URL: %s?model=%s&token=<redacted>',
+          `${callbackUrl.origin}${callbackUrl.pathname}`,
+          resolvedModelId,
+        );
 
         const requestMetadata: Record<string, unknown> = { trigger: RequestTrigger.Video };
         const response = await modelRuntime.createVideo(
@@ -415,9 +421,13 @@ export const videoRouter = router({
           webhookToken,
         };
 
-        const schedulePolling = (inferenceId: string) => {
+        const schedulePolling = (inferenceId: string, pollingIsFallback: boolean) => {
           after(async () => {
             log('Background video polling scheduled for task: %s', asyncTaskId);
+
+            console.info(
+              `[video] polling started asyncTask=${asyncTaskId} inferenceId=${inferenceId} provider=${provider} model=${model} routerId=${route?.routerId ?? '-'} channelId=${route?.channelId ?? '-'} fallback=${pollingIsFallback}`,
+            );
 
             try {
               const db = await getServerDB();
@@ -430,6 +440,7 @@ export const videoRouter = router({
                 generationTopicId,
                 inferenceId,
                 model,
+                pollingIsFallback,
                 prechargeResult,
                 previousGenerationId,
                 provider,
@@ -446,31 +457,45 @@ export const videoRouter = router({
           });
         };
 
-        if (response.completionMode === 'webhook') {
-          // Webhook-based provider (e.g. Volcengine): wait for callback
-          log('Webhook-based provider detected, waiting for callback');
+        // Always-on submission record: a stuck task is debugged from these ids, and
+        // production runs without DEBUG.
+        console.info(
+          `[video] submitted asyncTask=${asyncTaskId} inferenceId=${response.inferenceId} provider=${provider} model=${resolvedModelId} mode=${response.completionMode} routerId=${route?.routerId ?? '-'} channelId=${route?.channelId ?? '-'}`,
+        );
 
-          await asyncTaskModel.update(asyncTaskId, {
-            inferenceId: response.inferenceId,
-            metadata: taskMetadata,
-            status: AsyncTaskStatus.Processing,
-          });
+        await asyncTaskModel.update(asyncTaskId, {
+          inferenceId: response.inferenceId,
+          metadata: taskMetadata,
+          status: AsyncTaskStatus.Processing,
+        });
+
+        // Register the poller for polling *and* webhook completions, whenever the
+        // runtime can actually poll. Webhook mode used to skip it entirely, so a
+        // callback that never reached us left the task in Processing until the
+        // watchdog reported a generic timeout, even when the upstream render had
+        // already succeeded. Both observers finish through
+        // AsyncTaskModel.claimVideoCompletion, so the first one wins and the second
+        // is a no-op; a fallback poll failure may not finalize the task either (see
+        // `pollingIsFallback`), so a merely-late callback keeps its chance.
+        const pollingIsFallback = response.completionMode === 'webhook';
+
+        if (pollingIsFallback && !modelRuntime.supportsVideoPolling()) {
+          log('Webhook-only provider detected, waiting for callback');
+          console.info(
+            `[video] awaiting webhook only asyncTask=${asyncTaskId} inferenceId=${response.inferenceId} (runtime has no poller)`,
+          );
         } else {
-          // Polling-based provider (e.g. OpenAI Sora): use background polling
-          log('Polling-based provider detected (inferenceId only), scheduling background polling');
+          log('Scheduling background polling for completion mode: %s', response.completionMode);
 
-          await asyncTaskModel.update(asyncTaskId, {
-            inferenceId: response.inferenceId,
-            metadata: taskMetadata,
-            status: AsyncTaskStatus.Processing,
-          });
-
-          schedulePolling(response.inferenceId);
+          schedulePolling(response.inferenceId, pollingIsFallback);
 
           log('After() hook registered for background video polling: %s', asyncTaskId);
         }
       } catch (e) {
-        console.error('Failed to submit video generation task:', e);
+        console.error(
+          `[video] submit failed asyncTask=${asyncTaskId} provider=${provider} model=${resolvedModelId}:`,
+          e,
+        );
 
         const providerContentPolicyMessage = await getProviderContentPolicyErrorMessage({
           error: e,

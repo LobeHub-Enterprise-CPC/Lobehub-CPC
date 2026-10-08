@@ -9,6 +9,13 @@ import type {
 
 const log = createDebug('lobe-video:volcengine');
 
+/**
+ * A single status query must not block for longer than this. The status endpoint
+ * either answers quickly or is unhealthy; the caller retries transient failures on
+ * its own interval, so hanging here would only eat the caller's polling budget.
+ */
+const STATUS_QUERY_TIMEOUT_MS = 30_000;
+
 interface VolcengineVideoTaskResponse {
   content?: { video_url?: string };
   error?: { code?: string; message?: string };
@@ -24,14 +31,19 @@ export async function pollVolcengineVideoStatus(
   const response = await fetch(`${baseURL}/contents/generations/tasks/${taskId}`, {
     headers: { Authorization: `Bearer ${apiKey}` },
     method: 'GET',
+    signal: AbortSignal.timeout(STATUS_QUERY_TIMEOUT_MS),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
+    log('Volcengine video status query failed for task %s: %s %s', taskId, response.status, errorText);
     throw new Error(`Failed to query task status for ${taskId} (${response.status}): ${errorText}`);
   }
 
   const data: VolcengineVideoTaskResponse = await response.json();
+  // Upstream terminal state, logged with the task id so a task id from the database
+  // can be traced to what Ark actually reported.
+  log('Volcengine video task %s status: %s', taskId, data.status);
   if (data.status === 'succeeded') {
     const videoUrl = data.content?.video_url;
     return videoUrl
