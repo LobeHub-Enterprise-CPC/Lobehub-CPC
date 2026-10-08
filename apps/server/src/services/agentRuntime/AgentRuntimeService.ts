@@ -4107,7 +4107,7 @@ export class AgentRuntimeService {
     await this.traceRecorder.finalize(operationId, {
       completionReason: 'error',
       error: {
-        message: `No LobeHub client picked up the ${provider ?? 'local model'} call in time`,
+        message: `No ${BRANDING_NAME} client picked up the ${provider ?? 'local model'} call in time`,
         type: String(finalState.error?.type ?? 'ClientLlmExecutorUnavailable'),
       },
       state: finalState,
