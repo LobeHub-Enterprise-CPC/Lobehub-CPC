@@ -243,6 +243,14 @@ test(
       await expect(disclaimer).toBeVisible();
       await expect(disclaimer).toContainText(brand);
       if (brand !== 'LobeHub') await expect(disclaimer).not.toContainText('LobeHub');
+      // The SPA renders its own <Meta> through react-router, so the document
+      // head carries the share card as well: a hardcoded upstream OG image or
+      // `@lobehub` handle leaks there even when the visible page is branded.
+      const head = await page.evaluate(() => document.head.innerHTML);
+      if (brand !== 'LobeHub') {
+        assert.ok(!head.includes('lobehub.com'), 'share head must not advertise lobehub.com');
+        assert.ok(!head.includes('@lobehub'), 'share head must not advertise @lobehub');
+      }
       assert.deepEqual(errors, [], 'zh-TW share must render without React or module errors');
     } catch (error) {
       console.error({ errors });
