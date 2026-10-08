@@ -182,9 +182,11 @@ export const isSafeSandboxEnvironmentId = (value: string): boolean =>
  * - `sandbox_workspace` fills the `<sandbox_environment>` file-system bullets
  * - `sandbox_session_files` fills the `<session_behavior>` persistence bullet
  *
- * An ephemeral run renders the ORIGINAL wording, byte for byte, so a deployment
- * where persistence is not enabled keeps the exact prompt it had before and
- * never leaks a raw placeholder.
+ * An ephemeral run renders this deployment's pause/resume wording, so a run
+ * without persistence keeps the exact prompt it had before the persistent mode
+ * landed and never leaks a raw placeholder. (Upstream's generic
+ * expire-and-recreate text is false here: the CPC sandbox pauses and resumes
+ * intact — see `<session_behavior>` in the system role.)
  *
  * The persistent wording carries no absolute path on purpose. The mount root is
  * the execution plane's to choose, the runtime already starts every call inside
@@ -221,9 +223,8 @@ export const formatSandboxStoragePromptVariables = ({
     return {
       sandbox_session_files: '- Files from previous sessions may not persist',
       sandbox_workspace: [
-        '- Files created here are temporary and session-specific',
-        '- Each conversation topic has its own isolated session',
-        '- Sessions may expire after inactivity; files will be recreated if needed',
+        '- Each conversation topic has its own isolated session, with its own file system',
+        '- The session is **paused, not destroyed**, when you stop using it, and resumes with everything intact when this topic is used again — installed packages, cloned repos and generated files survive between turns and across days. Assume they did; see session_behavior',
         '- The sandbox has its own isolated file system starting at the root directory',
       ].join('\n'),
     };

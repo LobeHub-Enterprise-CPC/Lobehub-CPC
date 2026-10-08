@@ -203,9 +203,7 @@ describe('serverMessagesEngine', () => {
       });
       expect(fallback[0].content).not.toContain('{{sandbox_workspace}}');
       expect(fallback[0].content).not.toContain('{{sandbox_session_files}}');
-      expect(fallback[0].content).toContain(
-        'Files created here are temporary and session-specific',
-      );
+      expect(fallback[0].content).toContain('paused, not destroyed');
       expect(fallback[0].content).toContain('Files from previous sessions may not persist');
 
       // The builder's persistent-workspace guidance overrides both fallbacks.

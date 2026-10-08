@@ -10,9 +10,8 @@ describe('formatSandboxStoragePromptVariables', () => {
     expect(formatSandboxStoragePromptVariables()).toEqual({
       sandbox_session_files: '- Files from previous sessions may not persist',
       sandbox_workspace: [
-        '- Files created here are temporary and session-specific',
-        '- Each conversation topic has its own isolated session',
-        '- Sessions may expire after inactivity; files will be recreated if needed',
+        '- Each conversation topic has its own isolated session, with its own file system',
+        '- The session is **paused, not destroyed**, when you stop using it, and resumes with everything intact when this topic is used again — installed packages, cloned repos and generated files survive between turns and across days. Assume they did; see session_behavior',
         '- The sandbox has its own isolated file system starting at the root directory',
       ].join('\n'),
     });
@@ -65,7 +64,7 @@ describe('the placement text the skills runtime also renders', () => {
     // the variable generators call this with nothing.
     const { sandbox_workspace: prompt } = formatSandboxStoragePromptVariables();
 
-    expect(prompt).toContain('Files created here are temporary and session-specific');
+    expect(prompt).toContain('paused, not destroyed');
     expect(prompt).not.toContain('{{');
   });
 });

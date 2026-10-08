@@ -321,7 +321,7 @@ describe('contextEngineering', () => {
     const content = String(output[0].content);
     expect(content).not.toContain('{{sandbox_workspace}}');
     expect(content).not.toContain('{{sandbox_session_files}}');
-    expect(content).toContain('Files created here are temporary and session-specific');
+    expect(content).toContain('paused, not destroyed');
     expect(content).toContain('<session>- Files from previous sessions may not persist</session>');
   });
 

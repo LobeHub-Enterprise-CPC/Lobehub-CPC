@@ -81,12 +81,14 @@ describe('formatSandboxStoragePromptVariables', () => {
     const rendered = render(vars);
 
     for (const key of placeholders) expect(rendered).not.toContain(key);
+    // This deployment's ephemeral wording is the pause/resume lifecycle, not
+    // upstream's expire-and-recreate text (see INC-010): the rendered block
+    // must equal what the pre-placeholder CPC prompt said.
     expect(rendered).toContain(
-      '- Files created here are temporary and session-specific\n- Each conversation topic has its own isolated session\n- Sessions may expire after inactivity; files will be recreated if needed\n- The sandbox has its own isolated file system starting at the root directory\n- Commands will time out',
+      '- Each conversation topic has its own isolated session, with its own file system\n- The session is **paused, not destroyed**, when you stop using it, and resumes with everything intact when this topic is used again — installed packages, cloned repos and generated files survive between turns and across days. Assume they did; see session_behavior\n- The sandbox has its own isolated file system starting at the root directory\n- Commands will time out',
     );
-    expect(rendered).toContain(
-      '- If a session expires, it will be automatically recreated\n- Files from previous sessions may not persist\n- The sessionExpiredAndRecreated flag',
-    );
+    expect(rendered).toContain('sessionExpiredAndRecreated');
+    expect(rendered).toContain('- Files from previous sessions may not persist');
   });
 
   it('describes a persistent workspace without naming a directory', () => {
