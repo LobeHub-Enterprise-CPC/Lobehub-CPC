@@ -18,6 +18,8 @@ import {
 } from './agentClient';
 import type { ChannelWorkspaceSnapshot } from './snapshot';
 
+const RENAME_RETRY_DELAYS = [20, 50, 100, 200, 400, 800, 1600];
+
 export interface CodexChannelStart {
   /** Owner-resolved context, refreshed on dispatch; stable identity is in manifest.fileIds. */
   attachmentContext?: { messageId: string; content: string; imageList: ChatImageItem[] }[];
@@ -107,16 +109,20 @@ export class CodexChannelHost {
   private persist(key: string, execution: Execution) {
     const data = JSON.stringify(execution.snapshot);
     const { sessionId, bindingKey } = execution.snapshot;
-    execution.writes = execution.writes.then(async () => {
-      if (sessionId && bindingKey && sessionId !== execution.savedSessionId) {
-        await this.write(
-          this.sessionKey(execution.ownerId, execution.runtime, sessionId),
-          JSON.stringify(bindingKey),
-        );
-        execution.savedSessionId = sessionId;
-      }
-      await this.write(key, data);
-    });
+    // Each write carries the whole snapshot, so a failed write must not poison the queue:
+    // chaining onto a rejected promise replayed one stale EPERM to every later inspect/stop.
+    execution.writes = execution.writes
+      .catch(() => {})
+      .then(async () => {
+        if (sessionId && bindingKey && sessionId !== execution.savedSessionId) {
+          await this.write(
+            this.sessionKey(execution.ownerId, execution.runtime, sessionId),
+            JSON.stringify(bindingKey),
+          );
+          execution.savedSessionId = sessionId;
+        }
+        await this.write(key, data);
+      });
     return execution.writes;
   }
 
@@ -135,7 +141,7 @@ export class CodexChannelHost {
       } finally {
         await file.close();
       }
-      await rename(temporary, this.file(key));
+      await this.replace(temporary, this.file(key));
       // Windows refuses to fsync a directory handle (Node reports EPERM), which failed
       // every receipt write and left Channel runs unconfirmed. NTFS journals the
       // rename's metadata itself, so the directory sync is a POSIX-only step.
@@ -154,12 +160,31 @@ export class CodexChannelHost {
     }
   }
 
+  /**
+   * Antivirus, indexers and backup agents briefly hold receipts open on Windows, where
+   * replacing an open file fails with EPERM/EACCES/EBUSY. Retry like graceful-fs does.
+   */
+  private async replace(from: string, to: string) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await rename(from, to);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        const transient = code === 'EPERM' || code === 'EACCES' || code === 'EBUSY';
+        if (process.platform !== 'win32' || !transient || attempt >= RENAME_RETRY_DELAYS.length)
+          throw error;
+        await new Promise((resolve) => setTimeout(resolve, RENAME_RETRY_DELAYS[attempt]));
+      }
+    }
+  }
+
   async inspect(ownerId: string, runId: string): Promise<CodexChannelSnapshot | null> {
     const key = this.key(ownerId, runId);
     const live = this.runs.get(key);
     if (live) {
       if (live.snapshot.physicalStopped || live.snapshot.runtimeCompleted) await live.done;
-      await live.writes;
+      // A receipt that failed to persist earlier gets a fresh attempt rather than a replay.
+      await live.writes.catch(() => this.persist(key, live));
       return structuredClone(live.snapshot);
     }
     try {
