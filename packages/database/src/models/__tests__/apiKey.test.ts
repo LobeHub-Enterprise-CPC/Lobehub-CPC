@@ -1,14 +1,25 @@
 // @vitest-environment node
 import { API_KEY_PREFIX, validateApiKeyFormat } from '@lobechat/utils/apiKey';
 import { eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as KeyVaultsModule from '@/server/modules/KeyVaultsEncrypt';
 import { hashApiKey } from '@/utils/server/apiKeyHash';
 
 import { getTestDB } from '../../core/getTestDB';
 import { apiKeys, users, workspaces } from '../../schemas';
 import type { LobeChatDatabase } from '../../type';
 import { ApiKeyModel } from '../apiKey';
+
+// Model tests run outside a request, so there is no tenant scope: pin the
+// gatekeeper to one test tenant's derived key.
+vi.mock('@/server/modules/KeyVaultsEncrypt', async (importOriginal) => {
+  const actual = await importOriginal<typeof KeyVaultsModule>();
+  class KeyVaultsGateKeeper extends actual.KeyVaultsGateKeeper {
+    static initWithEnvKey = async () => actual.KeyVaultsGateKeeper.forTenant('test-tenant');
+  }
+  return { ...actual, KeyVaultsGateKeeper };
+});
 
 const serverDB: LobeChatDatabase = await getTestDB();
 
@@ -53,7 +64,7 @@ describe('ApiKeyModel', () => {
         where: eq(apiKeys.id, result.id),
       });
       expect(apiKey).toMatchObject({ ...params, userId });
-      expect(apiKey?.key).toContain(':');
+      expect(apiKey?.key).toMatch(/^v1\.[\w-]+\.[\w-]+\.[\w-]+$/);
       expect(apiKey?.keyHash).toMatch(/^[\da-f]{64}$/);
     });
 
@@ -78,7 +89,7 @@ describe('ApiKeyModel', () => {
 
       const stored = await apiKeyModel.findById(created.id);
       expect(stored?.key).not.toBe(created.key);
-      expect(stored?.key).toContain(':');
+      expect(stored?.key).toMatch(/^v1\.[\w-]+\.[\w-]+\.[\w-]+$/);
     });
   });
 
@@ -166,7 +177,7 @@ describe('ApiKeyModel', () => {
       const [metadata] = await apiKeyModel.queryMetadata();
 
       expect(metadata.key).not.toBe(created.key);
-      expect(metadata.key).toContain(':');
+      expect(metadata.key).toMatch(/^v1\.[\w-]+\.[\w-]+\.[\w-]+$/);
     });
 
     it('should query API keys ordered by updatedAt desc', async () => {
