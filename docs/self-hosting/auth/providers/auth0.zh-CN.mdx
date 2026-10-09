@@ -43,8 +43,8 @@ tags:
   <Callout type={'info'}>
     回调 URL 格式：
 
-    - 本地开发: `http://localhost:3210/api/auth/callback/auth0`
-    - 生产环境: `https://your-domain.com/api/auth/callback/auth0`
+    - 本地开发: `http://localhost:3210/t/<tenant>/api/auth/callback/auth0`
+    - 生产环境: `https://your-domain.com/t/<tenant>/api/auth/callback/auth0`
   </Callout>
 
   <Image alt="创建 Auth0 应用 S4" inStep src="https://github.com/lobehub/lobehub/assets/30863298/62fbd09f-a69a-4460-949b-0f6285fa65b9" />
@@ -55,20 +55,19 @@ tags:
 
   <Image alt="添加用户" inStep src="https://github.com/lobehub/lobehub/assets/30863298/0beda150-d0b6-43cf-a9f1-fce928b83a96" />
 
-  ### 配置环境变量
+  ### 在 Admin 中配置
 
-  | 环境变量                 | 类型 | 描述                                     |
-  | -------------------- | -- | -------------------------------------- |
-  | `AUTH_SECRET`        | 必选 | 会话加密密钥，使用 `openssl rand -base64 32` 生成 |
-  | `AUTH_SSO_PROVIDERS` | 必选 | 填写 `auth0`                             |
-  | `AUTH_AUTH0_ID`      | 必选 | Client ID                              |
-  | `AUTH_AUTH0_SECRET`  | 必选 | Client Secret                          |
-  | `AUTH_AUTH0_ISSUER`  | 必选 | `https://your-tenant.auth0.com`        |
+  SSO 由每个租户在 Admin 中配置，不再使用环境变量。在 Admin 中打开该租户的 SSO 提供商，新增一个提供商并填写：
 
-  <Callout type={'tip'}>
-    前往 [📘 环境变量](/zh/docs/self-hosting/environment-variables/auth#auth0)
-    可查阅相关变量详情。
-  </Callout>
+  | 字段            | 值                                       |
+  | ------------- | --------------------------------------- |
+  | 协议            | OIDC                                    |
+  | 提供商 ID        | 填 `auth0` 使用 auth0 预设；其他 ID 按普通 OIDC 处理 |
+  | Client ID     | 身份提供商的 Client ID                        |
+  | Client Secret | 身份提供商的 Client Secret；Admin 加密保存         |
+  | Issuer        | `https://<your-tenant>.auth0.com`       |
+
+  需要在身份提供商处登记的回调 URL 为 `https://your-domain.com/t/<租户>/api/auth/callback/<提供商 ID>`，Admin 会为每个提供商显示该地址。
 </Steps>
 
 <Callout type={'info'}>

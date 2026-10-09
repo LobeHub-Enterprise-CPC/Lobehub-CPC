@@ -25,8 +25,8 @@ tags:
   <Callout type={'info'}>
     Callback URL format:
 
-    - Local development: `http://localhost:3210/api/auth/callback/github`
-    - Production: `https://your-domain.com/api/auth/callback/github`
+    - Local development: `http://localhost:3210/t/<tenant>/api/auth/callback/github`
+    - Production: `https://your-domain.com/t/<tenant>/api/auth/callback/github`
   </Callout>
 
   Set the Webhook URL according to your needs (can be disabled if not used).
@@ -57,19 +57,18 @@ tags:
 
   <Image alt="Save credentials" inStep src="https://github.com/lobehub/lobehub/assets/64475363/c6108133-a918-48b0-ab1a-e3fa607572a4" />
 
-  ### Configure Environment Variables
+  ### Configure in Admin
 
-  | Environment Variable | Type     | Description                                                     |
-  | -------------------- | -------- | --------------------------------------------------------------- |
-  | `AUTH_SECRET`        | Required | Session encryption key, generate with `openssl rand -base64 32` |
-  | `AUTH_SSO_PROVIDERS` | Required | Set to `github`                                                 |
-  | `AUTH_GITHUB_ID`     | Required | Client ID from the GitHub App                                   |
-  | `AUTH_GITHUB_SECRET` | Required | Client Secret from the GitHub App                               |
+  SSO is configured per tenant in Admin, not with environment variables. In Admin, open the tenant's SSO providers, add a provider and fill in:
 
-  <Callout type={'tip'}>
-    Go to [📘 Environment Variables](/docs/self-hosting/environment-variables/auth#github)
-    for detailed information.
-  </Callout>
+  | Field         | Value                                                        |
+  | ------------- | ------------------------------------------------------------ |
+  | Protocol      | OAuth 2.0, preset **GitHub**                                 |
+  | Provider ID   | `github` (exactly; this selects the built-in github sign-in) |
+  | Client ID     | Client ID from the provider                                  |
+  | Client Secret | Client secret from the provider; Admin stores it encrypted   |
+
+  The callback URL to register with the provider is `https://your-domain.com/t/<tenant>/api/auth/callback/<provider-id>`; Admin shows it for each provider.
 </Steps>
 
 <Callout type={'info'}>
@@ -79,7 +78,7 @@ tags:
 
 ## Common Issues
 
-### email\_not\_found Error
+### email_not_found Error
 
 This usually happens when the GitHub App doesn't have email read permission. Go to your app settings, navigate to **Permissions & events** > **Account permissions** > **Email addresses** and set it to **Read-only**.
 

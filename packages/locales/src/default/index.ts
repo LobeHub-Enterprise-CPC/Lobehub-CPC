@@ -46,6 +46,7 @@ import setting from './setting';
 import spend from './spend';
 import subscription from './subscription';
 import suggestQuestions from './suggestQuestions';
+import tenant from './tenant';
 import thread from './thread';
 import tool from './tool';
 import topic from './topic';
@@ -103,6 +104,7 @@ const resources = {
   spend,
   subscription,
   suggestQuestions,
+  tenant,
   thread,
   tool,
   topic,

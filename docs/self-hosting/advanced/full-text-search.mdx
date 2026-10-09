@@ -87,9 +87,9 @@ service-free `pg_like` backend first.
 Neon stopped offering `pg_search` to new projects on March 19, 2026. Retirement timelines for
 existing projects follow the notice Neon sends for that project. LobeHub users who receive such a
 notice should use
-[Migrate from pg\_search on Neon](/docs/self-hosting/advanced/neon-pg-search-migration) to choose
+[Migrate from pg_search on Neon](/docs/self-hosting/advanced/neon-pg-search-migration) to choose
 `pg_like` or Elasticsearch. Check Neon's
-[current pg\_search notice](https://neon.com/docs/extensions/pg_search) before acting.
+[current pg_search notice](https://neon.com/docs/extensions/pg_search) before acting.
 
 There are two supported ways to run Elasticsearch. Both use the same backfill and incremental
 sync commands and the same `ES_INDEX_NAMESPACE`; they differ only in how LobeHub reaches the
@@ -124,7 +124,7 @@ a PostgreSQL image that can install `pg_search`, such as the bundled `paradedb/p
 Elasticsearch then takes over search traffic after the backfill; the `pg_search` objects can be
 removed later with the supported cleanup command.
 
-See [Migrate from pg\_search on Neon](/docs/self-hosting/advanced/neon-pg-search-migration) for
+See [Migrate from pg_search on Neon](/docs/self-hosting/advanced/neon-pg-search-migration) for
 guidance on choosing a backend and starting the migration.
 
 ## How Elasticsearch synchronization works
@@ -150,6 +150,12 @@ The full reindex is only the initial snapshot. It does not replace the recurring
 `fts-search:sync` scheduled for as long as Elasticsearch serves search traffic.
 
 ## Run Elasticsearch with Docker Compose
+
+Every tenant has its own data and its own indexes. The capture installer
+(`db:install-fts-search-capture`) and the reindex (`fts-search-reindex`, also run on Docker
+startup) run once per active tenant from the tenant directory: each tenant uses the index
+namespace `ES_INDEX_NAMESPACE` plus its tenant hash, and keeps its progress in its own folder
+under `ES_REINDEX_STATE_DIR`. Add `--tenant <id>` to limit a command to one tenant.
 
 The optional services in `docker-compose/deploy/docker-compose.yml` are gated by Compose profiles,
 so a default `docker compose up` neither downloads nor starts them:

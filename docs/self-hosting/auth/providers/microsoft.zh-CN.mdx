@@ -36,8 +36,8 @@ tags:
   <Callout type={'info'}>
     回调 URL 格式：
 
-    - 本地开发: `http://localhost:3210/api/auth/callback/microsoft`
-    - 生产环境: `https://your-domain.com/api/auth/callback/microsoft`
+    - 本地开发: `http://localhost:3210/t/<tenant>/api/auth/callback/microsoft`
+    - 生产环境: `https://your-domain.com/t/<tenant>/api/auth/callback/microsoft`
   </Callout>
 
   点击 **Register**。
@@ -50,7 +50,7 @@ tags:
 
   记录：
 
-  - **Application (client) ID** - 即 `AUTH_MICROSOFT_ID`
+  - **Application (client) ID** - 即 Admin 中的 **Client ID**
   - **Directory (tenant) ID** - 单租户应用需要
 
   ### 创建客户端密钥
@@ -66,30 +66,19 @@ tags:
     立即复制客户端密钥的 **Value** - 之后将无法再次查看。
   </Callout>
 
-  ### 配置环境变量
+  ### 在 Admin 中配置
 
-  | 环境变量                           | 类型 | 描述                                     |
-  | ------------------------------ | -- | -------------------------------------- |
-  | `AUTH_SECRET`                  | 必选 | 会话加密密钥，使用 `openssl rand -base64 32` 生成 |
-  | `AUTH_SSO_PROVIDERS`           | 必选 | 填写 `microsoft`                         |
-  | `AUTH_MICROSOFT_ID`            | 必选 | Application (client) ID                |
-  | `AUTH_MICROSOFT_SECRET`        | 必选 | 客户端密钥值                                 |
-  | `AUTH_MICROSOFT_AUTHORITY_URL` | 可选 | Microsoft Entra ID 的 Authority URL     |
-  | `AUTH_MICROSOFT_TENANT_ID`     | 可选 | 单租户应用的 Directory (tenant) ID           |
+  SSO 由每个租户在 Admin 中配置，不再使用环境变量。在 Admin 中打开该租户的 SSO 提供商，新增一个提供商并填写：
 
-  <Callout type={'warning'}>
-    **已废弃的环境变量**：以下旧版变量名已不再支持，设置其中任意一个都会导致部署在构建 / 启动阶段失败，请改用
-    `AUTH_MICROSOFT_ID` / `AUTH_MICROSOFT_SECRET` / `AUTH_MICROSOFT_TENANT_ID`：
+  | 字段            | 值                                                                                              |
+  | ------------- | ---------------------------------------------------------------------------------------------- |
+  | 协议            | OIDC                                                                                           |
+  | 提供商 ID        | `microsoft`（必须完全一致，以使用内置的 microsoft 登录）                                                        |
+  | Client ID     | 身份提供商的 Client ID                                                                               |
+  | Client Secret | 身份提供商的 Client Secret；Admin 加密保存                                                                |
+  | Issuer        | `https://login.microsoftonline.com/<目录租户 ID>/v2.0`（任意账号用 `common`）；LobeHub 从中取 authority 和目录租户 |
 
-    - `AUTH_MICROSOFT_ENTRA_ID_ID` / `AUTH_MICROSOFT_ENTRA_ID_SECRET`
-    - `AUTH_AZURE_AD_ID` / `AUTH_AZURE_AD_SECRET`
-    - `AZURE_AD_CLIENT_ID` / `AZURE_AD_CLIENT_SECRET`
-  </Callout>
-
-  <Callout type={'tip'}>
-    前往 [📘 环境变量](/zh/docs/self-hosting/environment-variables/auth#microsoft)
-    可查阅相关变量详情。
-  </Callout>
+  需要在身份提供商处登记的回调 URL 为 `https://your-domain.com/t/<租户>/api/auth/callback/<提供商 ID>`，Admin 会为每个提供商显示该地址。
 </Steps>
 
 <Callout type={'info'}>

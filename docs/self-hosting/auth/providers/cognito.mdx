@@ -39,8 +39,8 @@ tags:
   <Callout type={'info'}>
     Callback URL format:
 
-    - Local development: `http://localhost:3210/api/auth/callback/cognito`
-    - Production: `https://your-domain.com/api/auth/callback/cognito`
+    - Local development: `http://localhost:3210/t/<tenant>/api/auth/callback/cognito`
+    - Production: `https://your-domain.com/t/<tenant>/api/auth/callback/cognito`
   </Callout>
 
   ### Configure Domain
@@ -59,21 +59,12 @@ tags:
   - **Region**: AWS region (e.g., `us-east-1`)
   - **Domain**: Your Cognito domain
 
-  ### Configure Environment Variables
+  ### Configure in Admin
 
-  | Environment Variable       | Type     | Description                                                        |
-  | -------------------------- | -------- | ------------------------------------------------------------------ |
-  | `AUTH_SECRET`              | Required | Session encryption key, generate with `openssl rand -base64 32`    |
-  | `AUTH_SSO_PROVIDERS`       | Required | Set to `cognito`                                                   |
-  | `AUTH_COGNITO_ID`          | Required | App Client ID                                                      |
-  | `AUTH_COGNITO_SECRET`      | Required | App Client Secret                                                  |
-  | `AUTH_COGNITO_DOMAIN`      | Required | Cognito domain (e.g., `your-app.auth.us-east-1.amazoncognito.com`) |
-  | `AUTH_COGNITO_REGION`      | Required | AWS Region (e.g., `us-east-1`)                                     |
-  | `AUTH_COGNITO_USERPOOL_ID` | Required | User Pool ID (e.g., `us-east-1_XXXXXXXXX`)                         |
+  SSO is configured per tenant in Admin, not with environment variables.
 
-  <Callout type={'tip'}>
-    Go to [📘 Environment Variables](/docs/self-hosting/environment-variables/auth#cognito)
-    for detailed information.
+  <Callout type={'warning'}>
+    The built-in Cognito preset needs the Cognito hosted UI domain, which Admin cannot store yet. Add Cognito as plain OIDC instead: protocol **OIDC**, a provider ID other than `cognito` (for example `aws-cognito`), the app client ID and secret, and the issuer `https://cognito-idp.<region>.amazonaws.com/<user-pool-id>`. The callback URL then ends in that provider ID.
   </Callout>
 </Steps>
 

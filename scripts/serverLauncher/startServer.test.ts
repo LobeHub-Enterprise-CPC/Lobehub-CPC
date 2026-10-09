@@ -50,7 +50,7 @@ describe('Docker startup migrations', () => {
     const result = await launch({ DATABASE_DRIVER: 'node', FTS_SEARCH_PROVIDER: 'elasticsearch' });
     expect(result.commands).toEqual([
       ['/bin/node', '/app/docker.cjs'],
-      ['/bin/node', '/app/fts-search-elasticsearch-reindex.cjs', '--startup', '--yes'],
+      ['/bin/node', '/app/fts-search-elasticsearch-reindex-tenants.cjs', '--startup', '--yes'],
       ['/bin/node', '/app/server.js'],
     ]);
     expect(result.exits).toEqual([]);
@@ -60,7 +60,7 @@ describe('Docker startup migrations', () => {
     const result = await launch({ FTS_SEARCH_PROVIDER: 'elasticsearch' });
     expect(result.commands.map((command) => command[1])).toEqual([
       '/app/docker.cjs',
-      '/app/fts-search-elasticsearch-reindex.cjs',
+      '/app/fts-search-elasticsearch-reindex-tenants.cjs',
       '/app/server.js',
     ]);
   });
@@ -75,7 +75,7 @@ describe('Docker startup migrations', () => {
       ['/bin/node', '/app/docker.cjs'],
       [
         '/bin/node',
-        '/app/fts-search-elasticsearch-reindex.cjs',
+        '/app/fts-search-elasticsearch-reindex-tenants.cjs',
         '--startup',
         '--yes',
         '--telemetry-environment=production',
@@ -93,7 +93,7 @@ describe('Docker startup migrations', () => {
     ]);
   });
 
-  it.each(['/app/docker.cjs', '/app/fts-search-elasticsearch-reindex.cjs'])(
+  it.each(['/app/docker.cjs', '/app/fts-search-elasticsearch-reindex-tenants.cjs'])(
     'does not serve requests when %s fails',
     async (script) => {
       const result = await launch(

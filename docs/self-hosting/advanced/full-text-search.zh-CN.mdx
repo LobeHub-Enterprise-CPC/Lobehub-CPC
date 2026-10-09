@@ -63,7 +63,7 @@ FTS_SEARCH_PROVIDER=pg_like
 
 如果搜索需要独立容量、希望把搜索存储从事务 PostgreSQL 中拆开，并且能够持续运行同步任务，可以选择 Elasticsearch。个人或小型部署在数据库停止支持 `pg_search` 时，应优先考虑无需额外服务的 `pg_like`。
 
-Neon 已于 2026 年 3 月 19 日停止为新项目提供 `pg_search`。现有项目的停用安排以 Neon 发给该项目的通知为准；收到停用通知的 LobeHub 用户应按 [Neon pg\_search 迁移指南](/zh/docs/self-hosting/advanced/neon-pg-search-migration)选择 `pg_like` 或 Elasticsearch。执行前请核对 Neon 的[最新 pg\_search 公告](https://neon.com/docs/extensions/pg_search)。
+Neon 已于 2026 年 3 月 19 日停止为新项目提供 `pg_search`。现有项目的停用安排以 Neon 发给该项目的通知为准；收到停用通知的 LobeHub 用户应按 [Neon pg_search 迁移指南](/zh/docs/self-hosting/advanced/neon-pg-search-migration)选择 `pg_like` 或 Elasticsearch。执行前请核对 Neon 的[最新 pg_search 公告](https://neon.com/docs/extensions/pg_search)。
 
 Elasticsearch 有两种受支持的运行方式。两者使用同一套回填和增量同步命令、同一个
 `ES_INDEX_NAMESPACE`，区别只在于 LobeHub 如何连接集群。
@@ -93,7 +93,7 @@ Compose 安装）仍必须运行在能够安装 `pg_search` 的 PostgreSQL 镜�
 `paradedb/paradedb:latest-pg17`。回填完成后由 Elasticsearch 接管搜索流量；`pg_search`
 相关对象可以之后通过项目提供的清理命令移除。
 
-选择建议和迁移入口，请参阅 [Neon pg\_search 迁移指南](/zh/docs/self-hosting/advanced/neon-pg-search-migration)。
+选择建议和迁移入口，请参阅 [Neon pg_search 迁移指南](/zh/docs/self-hosting/advanced/neon-pg-search-migration)。
 
 ## Elasticsearch 如何同步数据
 
@@ -115,6 +115,11 @@ PostgreSQL 写入
 `fts-search:sync`。
 
 ## 使用 Docker Compose 运行 Elasticsearch
+
+每个租户有自己的数据和自己的索引。捕获触发器安装（`db:install-fts-search-capture`）和重建索引
+（`fts-search-reindex`，Docker 启动时也会执行）会按租户目录对每个启用中的租户各执行一次：每个租户使用
+`ES_INDEX_NAMESPACE` 加租户哈希作为索引命名空间，进度保存在 `ES_REINDEX_STATE_DIR` 下各自的目录里。
+加 `--tenant <id>` 可以只处理一个租户。
 
 `docker-compose/deploy/docker-compose.yml` 中的可选服务都由 Compose profile 控制，默认的
 `docker compose up` 既不会下载也不会启动它们：

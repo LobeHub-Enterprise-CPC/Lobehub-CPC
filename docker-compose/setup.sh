@@ -245,12 +245,12 @@ show_message() {
                 zh_CN)
                     echo "如需限制用户注册，可在 .env 中配置："
                     echo "  - 使用 SSO 登录时，设置 AUTH_DISABLE_EMAIL_PASSWORD=1 可禁用邮箱密码注册"
-                    echo "  - 使用邮箱密码登录时，设置 AUTH_ALLOWED_EMAILS=user1@example.com,user2@example.com 可限制允许登录的邮箱"
+                    echo "  - 允许注册的邮箱或域名在 Admin 中按租户配置"
                 ;;
                 *)
                     echo "To restrict user registration, configure in .env:"
                     echo "  - For SSO login: set AUTH_DISABLE_EMAIL_PASSWORD=1 to disable email/password registration"
-                    echo "  - For email/password login: set AUTH_ALLOWED_EMAILS=user1@example.com,user2@example.com to allow specific emails"
+                    echo "  - Allowed sign-up emails or domains are configured per tenant in Admin"
                 ;;
             esac
         ;;

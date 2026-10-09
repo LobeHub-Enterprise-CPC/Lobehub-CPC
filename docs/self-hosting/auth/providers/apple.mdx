@@ -48,13 +48,13 @@ tags:
   4. Select your Primary App ID
   5. Add domains and callback URLs:
      - **Domains**: `your-domain.com`
-     - **Return URLs**: `https://your-domain.com/api/auth/callback/apple`
+     - **Return URLs**: `https://your-domain.com/t/<tenant>/api/auth/callback/apple`
   6. Click **Save** > **Continue** > **Save**
 
   <Callout type={'info'}>
     Callback URL format:
 
-    - Production: `https://your-domain.com/api/auth/callback/apple`
+    - Production: `https://your-domain.com/t/<tenant>/api/auth/callback/apple`
     - Apple does **not** support localhost or HTTP URLs
   </Callout>
 
@@ -95,19 +95,22 @@ tags:
     before expiration.
   </Callout>
 
-  ### Configure Environment Variables
+  ### Configure in Admin
 
-  | Environment Variable               | Type     | Description                                                     |
-  | ---------------------------------- | -------- | --------------------------------------------------------------- |
-  | `AUTH_SECRET`                      | Required | Session encryption key, generate with `openssl rand -base64 32` |
-  | `AUTH_SSO_PROVIDERS`               | Required | Set to `apple`                                                  |
-  | `AUTH_APPLE_CLIENT_ID`             | Required | Your Services ID                                                |
-  | `AUTH_APPLE_CLIENT_SECRET`         | Required | The generated JWT                                               |
-  | `AUTH_APPLE_APP_BUNDLE_IDENTIFIER` | Optional | App Bundle ID (for native app integration)                      |
+  SSO is configured per tenant in Admin, not with environment variables. In Admin, open the tenant's SSO providers, add a provider and fill in:
 
-  <Callout type={'tip'}>
-    Go to [📘 Environment Variables](/docs/self-hosting/environment-variables/auth#apple)
-    for detailed information.
+  | Field         | Value                                                                          |
+  | ------------- | ------------------------------------------------------------------------------ |
+  | Protocol      | OIDC                                                                           |
+  | Provider ID   | `apple` (exactly; this selects the built-in apple sign-in)                     |
+  | Client ID     | Client ID from the provider                                                    |
+  | Client Secret | The client secret JWT generated from your Apple key; Admin stores it encrypted |
+  | Issuer        | `https://appleid.apple.com`                                                    |
+
+  The callback URL to register with the provider is `https://your-domain.com/t/<tenant>/api/auth/callback/<provider-id>`; Admin shows it for each provider.
+
+  <Callout type={'info'}>
+    Sign in with Apple from a native iOS app (App Bundle Identifier) cannot be configured yet.
   </Callout>
 </Steps>
 
