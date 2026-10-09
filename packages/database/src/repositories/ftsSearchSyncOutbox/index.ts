@@ -8,7 +8,7 @@ import {
   FTS_SEARCH_SYNC_CAPTURE_FINGERPRINT,
   FTS_SEARCH_SYNC_CAPTURE_FUNCTION_STATEMENTS,
   FTS_SEARCH_SYNC_CAPTURE_FUNCTION_TARGETS,
-  FTS_SEARCH_SYNC_CAPTURE_TRIGGER_STATEMENTS,
+  FTS_SEARCH_SYNC_CAPTURE_TRIGGER_SQL,
   FTS_SEARCH_SYNC_CAPTURE_TRIGGER_TARGETS,
   getFtsSearchSyncCaptureSourceTables,
   normalizeFtsSearchSyncCaptureDefinition,
@@ -66,6 +66,28 @@ const rowsOf = <Row>(result: unknown): Row[] => {
   return ((result as { rows?: Row[] }).rows ?? []) as Row[];
 };
 
+/**
+ * The capture definitions are written for `public`; installed in a tenant
+ * schema their trigger targets name that schema instead. These map between the
+ * two so the definitions, their history and their fingerprint stay the same
+ * everywhere. Tables are otherwise referenced unqualified: the connection's
+ * schema (`public`, or a tenant schema through its search_path).
+ */
+const readCurrentSchema = async (db: FtsSearchSyncExecutor): Promise<string> => {
+  const [row] = rowsOf<{ schema: string }>(
+    await db.execute(sql`SELECT current_schema() AS schema`),
+  );
+  if (!row?.schema || !/^[_a-z][\d_a-z]*$/.test(row.schema))
+    throw new Error('FTS search sync capture requires a plain current schema');
+  return row.schema;
+};
+
+const toSchemaTrigger = (createSql: string, schema: string) =>
+  createSql.replace(/ ON public\./, ` ON ${schema}.`);
+
+const fromSchemaTrigger = (definition: string, schema: string) =>
+  definition.replace(new RegExp(` ON "?${schema}"?\\.`), ' ON public.');
+
 interface CaptureInfrastructureState {
   absent: boolean;
   mismatches: string[];
@@ -90,7 +112,7 @@ const assertCaptureGinIndex = async (db: FtsSearchSyncExecutor): Promise<void> =
       AND search_index.indisready
       AND search_index.indislive
       AND access_method.amname = 'gin'
-      AND table_namespace.nspname = 'public'
+      AND table_namespace.nspname = current_schema()
       AND source_table.relname = 'user_memories_contexts'
       AND search_index.indnkeyatts = 1
       AND search_index.indnatts = 1
@@ -111,7 +133,7 @@ const assertCaptureGinIndex = async (db: FtsSearchSyncExecutor): Promise<void> =
       AND indexed_attribute.attnum = search_index.indkey[0]
     INNER JOIN pg_opclass operator_class ON operator_class.oid = search_index.indclass[0]
     WHERE search_index.indexrelid =
-      to_regclass('public.user_memories_contexts_user_memory_ids_gin_idx')
+      to_regclass(quote_ident(current_schema()) || '.user_memories_contexts_user_memory_ids_gin_idx')
   `);
   const [index] = rowsOf<{ is_valid: boolean }>(indexResult);
   if (!index?.is_valid) {
@@ -137,7 +159,7 @@ const readCaptureInfrastructureState = async (
       pg_get_function_result(search_function.oid) AS function_result
     FROM pg_proc search_function
     INNER JOIN pg_language search_language ON search_language.oid = search_function.prolang
-    WHERE search_function.pronamespace = 'public'::regnamespace
+    WHERE search_function.pronamespace = current_schema()::regnamespace
       AND search_function.proname IN (${functionNames})
     ORDER BY search_function.proname, identity_arguments
   `);
@@ -165,16 +187,20 @@ const readCaptureInfrastructureState = async (
     INNER JOIN pg_class source_table ON source_table.oid = search_trigger.tgrelid
     INNER JOIN pg_namespace source_namespace ON source_namespace.oid = source_table.relnamespace
     WHERE NOT search_trigger.tgisinternal
-      AND source_namespace.nspname = 'public'
+      AND source_namespace.nspname = current_schema()
       AND search_trigger.tgname IN (${triggerNames})
     ORDER BY search_trigger.tgname, source_table.relname
   `);
+  const schema = await readCurrentSchema(db);
   const triggers = rowsOf<{
     definition: string;
     enabled: string;
     name: string;
     table_name: string;
-  }>(triggerResult);
+  }>(triggerResult).map((trigger) => ({
+    ...trigger,
+    definition: fromSchemaTrigger(trigger.definition, schema),
+  }));
 
   const versionResult = await db.execute(sql`
     SELECT id, version FROM fts_search_sync_capture_version ORDER BY id
@@ -313,7 +339,7 @@ const lockCaptureSourceWrites = async (
   const sourceTables = getFtsSearchSyncCaptureSourceTables(entities);
   if (sourceTables.length === 0) throw new Error('Cannot fence writes for an empty entity set');
   const sourceTableIdentifiers = sql.join(
-    sourceTables.map((table) => sql`${sql.identifier('public')}.${sql.identifier(table)}`),
+    sourceTables.map((table) => sql`${sql.identifier(table)}`),
     sql`, `,
   );
   await transaction.execute(sql`SET LOCAL lock_timeout = '3s'`);
@@ -345,12 +371,13 @@ export class FtsSearchSyncOutboxRepository {
         );
       }
       if (state.persisted && state.version === CURRENT_CAPTURE_VERSION) return;
+      const schema = await readCurrentSchema(transaction);
       if (state.absent) {
         for (const statement of FTS_SEARCH_SYNC_CAPTURE_FUNCTION_STATEMENTS) {
           await transaction.execute(statement);
         }
-        for (const statement of FTS_SEARCH_SYNC_CAPTURE_TRIGGER_STATEMENTS) {
-          await transaction.execute(statement);
+        for (const statement of FTS_SEARCH_SYNC_CAPTURE_TRIGGER_SQL) {
+          await transaction.execute(sql.raw(toSchemaTrigger(statement, schema)));
         }
         await transaction.execute(sql`
           INSERT INTO fts_search_sync_capture_version (id, version)
@@ -386,7 +413,7 @@ export class FtsSearchSyncOutboxRepository {
           const tables = sql.join(
             [...new Set(changedTriggers.map(({ table }) => table))]
               .sort()
-              .map((table) => sql`${sql.identifier('public')}.${sql.identifier(table)}`),
+              .map((table) => sql`${sql.identifier(table)}`),
             sql`, `,
           );
           /**
@@ -404,7 +431,7 @@ export class FtsSearchSyncOutboxRepository {
         for (const trigger of changedTriggers) {
           await transaction.execute(
             sql.raw(
-              `${trigger.definition.replace(/^CREATE TRIGGER /, 'CREATE OR REPLACE TRIGGER ')};`,
+              `${toSchemaTrigger(trigger.definition, schema).replace(/^CREATE TRIGGER /, 'CREATE OR REPLACE TRIGGER ')};`,
             ),
           );
         }

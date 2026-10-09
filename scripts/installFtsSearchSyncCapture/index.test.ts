@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   type FtsSearchSyncCaptureRepository,
+  type FtsSearchSyncCaptureTenant,
   installFtsSearchSyncCapture,
   runFtsSearchSyncCaptureCli,
 } from './index';
@@ -10,33 +11,64 @@ const createRepository = (): FtsSearchSyncCaptureRepository => ({
   installCaptureInfrastructure: vi.fn().mockResolvedValue(undefined),
 });
 
+const tenant = (tenantId: string, repository = createRepository()) => {
+  const close = vi.fn().mockResolvedValue(undefined);
+  const entry: FtsSearchSyncCaptureTenant = {
+    open: vi.fn().mockResolvedValue({ close, repository }),
+    tenantId,
+  };
+  return { close, entry, repository };
+};
+
+const runWithLockRetry = () => vi.fn(async (operation: () => Promise<void>) => operation());
+
 describe('installFtsSearchSyncCapture', () => {
-  it('loads the repository only after DATABASE_URL is available and installs capture', async () => {
-    const repository = createRepository();
-    const loadRepository = vi.fn().mockResolvedValue(repository);
-    const runWithLockRetry = vi.fn(async (operation: () => Promise<void>) => operation());
+  it('installs capture in every tenant schema, one connection per tenant', async () => {
+    const a = tenant('tenant-a');
+    const b = tenant('tenant-b');
+    const retry = runWithLockRetry();
 
     await expect(
       installFtsSearchSyncCapture({
-        env: { DATABASE_URL: 'postgres://test' },
-        loadRepository,
-        runWithLockRetry,
+        env: { DATABASE_URL: 'postgres://platform' },
+        listTenants: vi.fn().mockResolvedValue([a.entry, b.entry]),
+        runWithLockRetry: retry,
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual(['tenant-a', 'tenant-b']);
 
-    expect(loadRepository).toHaveBeenCalledOnce();
-    expect(runWithLockRetry).toHaveBeenCalledOnce();
-    expect(repository.installCaptureInfrastructure).toHaveBeenCalledOnce();
+    expect(retry).toHaveBeenCalledTimes(2);
+    for (const { close, repository } of [a, b]) {
+      expect(repository.installCaptureInfrastructure).toHaveBeenCalledOnce();
+      expect(close).toHaveBeenCalledOnce();
+    }
   });
 
-  it('fails before loading the repository when DATABASE_URL is missing', async () => {
-    const loadRepository = vi.fn();
+  it('keeps going past a failing tenant and then fails naming it', async () => {
+    const failing = tenant('tenant-a', {
+      installCaptureInfrastructure: vi.fn().mockRejectedValue(new Error('definition mismatch')),
+    });
+    const healthy = tenant('tenant-b');
 
-    await expect(installFtsSearchSyncCapture({ env: {}, loadRepository })).rejects.toThrow(
+    await expect(
+      installFtsSearchSyncCapture({
+        env: { DATABASE_URL: 'postgres://platform' },
+        listTenants: vi.fn().mockResolvedValue([failing.entry, healthy.entry]),
+        runWithLockRetry: runWithLockRetry(),
+      }),
+    ).rejects.toThrow('capture installation failed for tenants tenant-a');
+
+    expect(failing.close).toHaveBeenCalledOnce();
+    expect(healthy.repository.installCaptureInfrastructure).toHaveBeenCalledOnce();
+  });
+
+  it('fails before reading the tenant directory when DATABASE_URL is missing', async () => {
+    const listTenants = vi.fn();
+
+    await expect(installFtsSearchSyncCapture({ env: {}, listTenants })).rejects.toThrow(
       'DATABASE_URL is required',
     );
 
-    expect(loadRepository).not.toHaveBeenCalled();
+    expect(listTenants).not.toHaveBeenCalled();
   });
 });
 
@@ -44,20 +76,20 @@ describe('runFtsSearchSyncCaptureCli', () => {
   it('returns success and logs only after capture installation succeeds', async () => {
     const logError = vi.fn();
     const logSuccess = vi.fn();
-    const repository = createRepository();
 
     await expect(
       runFtsSearchSyncCaptureCli({
-        env: { DATABASE_URL: 'postgres://test' },
-        loadRepository: vi.fn().mockResolvedValue(repository),
+        env: { DATABASE_URL: 'postgres://platform' },
+        listTenants: vi.fn().mockResolvedValue([tenant('tenant-a').entry]),
         logError,
         logSuccess,
-        runWithLockRetry: vi.fn(async (operation: () => Promise<void>) => operation()),
+        runWithLockRetry: runWithLockRetry(),
       }),
     ).resolves.toBe(0);
 
     expect(logSuccess).toHaveBeenCalledWith(
-      '✅ full-text search sync capture infrastructure installed',
+      '✅ full-text search sync capture infrastructure installed in %d tenant(s)',
+      1,
     );
     expect(logError).not.toHaveBeenCalled();
   });
@@ -68,23 +100,28 @@ describe('runFtsSearchSyncCaptureCli', () => {
     );
     const logError = vi.fn();
     const logSuccess = vi.fn();
-    const runWithLockRetry = vi.fn(async (operation: () => Promise<void>) => operation());
-    const repository: FtsSearchSyncCaptureRepository = {
-      installCaptureInfrastructure: vi.fn().mockRejectedValue(error),
-    };
 
     await expect(
       runFtsSearchSyncCaptureCli({
-        env: { DATABASE_URL: 'postgres://test' },
-        loadRepository: vi.fn().mockResolvedValue(repository),
+        env: { DATABASE_URL: 'postgres://platform' },
+        listTenants: vi
+          .fn()
+          .mockResolvedValue([
+            tenant('tenant-a', { installCaptureInfrastructure: vi.fn().mockRejectedValue(error) })
+              .entry,
+          ]),
         logError,
         logSuccess,
-        runWithLockRetry,
+        runWithLockRetry: runWithLockRetry(),
       }),
     ).resolves.toBe(1);
 
     expect(logError).toHaveBeenCalledWith(
       '❌ Full-text search sync capture installation failed:',
+      'capture installation failed for tenants tenant-a',
+    );
+    expect(logError).toHaveBeenCalledWith(
+      'First failure:',
       'capture installation failed at [redacted-url] token=[redacted]',
     );
     expect(logSuccess).not.toHaveBeenCalled();
