@@ -1,4 +1,4 @@
-import { mkdtemp, open, readdir, readFile, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, open, readdir, readFile, realpath, rename, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -6,14 +6,22 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CodexChannelHost, type CodexChannelStart } from './host';
 
-const { actualOpen } = await vi.hoisted(async () => ({
-  actualOpen: (await import('node:fs/promises')).open,
-}));
+const { actualOpen, actualRename } = await vi.hoisted(async () => {
+  const fs = await import('node:fs/promises');
+  return { actualOpen: fs.open, actualRename: fs.rename };
+});
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, open: vi.fn(actual.open as typeof actualOpen) };
+  return {
+    ...actual,
+    open: vi.fn(actual.open as typeof actualOpen),
+    rename: vi.fn(actual.rename as typeof actualRename),
+  };
 });
+
+const eperm = () =>
+  Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
 
 it.each(['physicalStopped', 'runtimeCompleted'] as const)(
   'persists %s before eviction and deduplicates renewed credentials',
@@ -129,6 +137,7 @@ describe('receipt writes', () => {
   afterEach(() => {
     setPlatform(platform);
     vi.mocked(open).mockImplementation(actualOpen);
+    vi.mocked(rename).mockReset().mockImplementation(actualRename);
   });
 
   const withJournal = async (run: (host: CodexChannelHost, journal: string) => Promise<void>) => {
@@ -185,6 +194,61 @@ describe('receipt writes', () => {
     await withJournal(async (host, journal) => {
       await host['write']('receipt', '{}');
       expect(syncedDirectories).toEqual([journal]);
+    });
+  });
+
+  it('retries a Windows rename that a transient file lock rejects', async () => {
+    setPlatform('win32');
+    vi.mocked(rename)
+      .mockRejectedValueOnce(eperm())
+      .mockRejectedValueOnce(eperm())
+      .mockImplementation(actualRename);
+
+    await withJournal(async (host, journal) => {
+      await expect(host['write']('receipt', '{"status":"running"}')).resolves.toBeUndefined();
+      expect(await readFile(path.join(journal, 'receipt.json'), 'utf8')).toBe(
+        '{"status":"running"}',
+      );
+      expect((await readdir(journal)).filter((name) => name.endsWith('.tmp'))).toEqual([]);
+    });
+  });
+
+  it('lets inspect and stop recover after a failed receipt write', async () => {
+    setPlatform('linux');
+    await withJournal(async (host, journal) => {
+      host['execute'] = vi.fn(async () => {});
+      await host.start({
+        ownerId: 'owner',
+        runId: 'locked',
+        cwd: path.dirname(journal),
+        fence: 1,
+        model: '',
+        manifest: {
+          cutoffSequence: 1,
+          messages: [],
+          requestMessageId: 'message',
+          sessionGeneration: 1,
+          source: 'reconstructed',
+          threadId: null,
+        },
+      });
+      const [[key, execution]] = [...host['runs'].entries()];
+      execution.snapshot.status = 'running';
+      vi.mocked(rename).mockRejectedValueOnce(eperm());
+      await expect(host['persist'](key, execution)).rejects.toThrow('EPERM');
+
+      // The lock is gone: the next inspect must persist again instead of replaying the old error.
+      expect(await host.inspect('owner', 'locked')).toMatchObject({ status: 'running' });
+      expect(JSON.parse(await readFile(path.join(journal, `${key}.json`), 'utf8'))).toMatchObject({
+        status: 'running',
+      });
+
+      vi.spyOn(execution.client, 'closeAndConfirmTermination').mockResolvedValue(true);
+      expect(await host.stop('owner', 'locked', 1)).toMatchObject({
+        status: 'stopped',
+        physicalStopped: true,
+      });
+      expect(host['runs'].size).toBe(0);
     });
   });
 });
