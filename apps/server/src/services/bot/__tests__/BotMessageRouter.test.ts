@@ -5,6 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BotMessageRouter } from '../BotMessageRouter';
 import type * as PlatformUtils from '../platforms/utils';
 
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 // ==================== Hoisted mocks ====================
 
 const mockFindEnabledByPlatform = vi.hoisted(() => vi.fn());

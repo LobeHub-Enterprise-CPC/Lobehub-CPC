@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { composioRouter } from './composio';
 
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 const mocks = vi.hoisted(() => ({
   // composio client
   authConfigsCreate: vi.fn(),

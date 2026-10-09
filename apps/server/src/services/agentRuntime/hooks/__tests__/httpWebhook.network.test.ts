@@ -70,7 +70,8 @@ describe('HTTP hook network boundary', () => {
       await expect(
         deliverWebhook({ url: '/hook', delivery: 'qstash' }, {}),
       ).resolves.toBeUndefined();
-      expect(requests).toEqual(['/hook', '/hook']);
+      // Relative hooks are our own endpoints, delivered to the current tenant.
+      expect(requests).toEqual(['/t/acme/hook', '/t/acme/hook']);
     },
   );
   it.each(['allow', 'deny'] as const)('parses a flat %s over real HTTP', async (decision) => {

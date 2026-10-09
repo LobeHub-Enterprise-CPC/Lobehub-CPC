@@ -2,9 +2,10 @@ import { type OpenAITTSPayload } from '@lobehub/tts';
 import { createOpenaiAudioSpeech } from '@lobehub/tts/server';
 
 import { createBizOpenAI } from '@/app/(backend)/_deprecated/createBizOpenAI';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { createSpeechResponse } from '@/server/utils/createSpeechResponse';
 
-export const POST = async (req: Request) => {
+const handlePost = async (req: Request) => {
   const payload = (await req.json()) as OpenAITTSPayload;
 
   // need to be refactored with jwt auth mode
@@ -28,3 +29,5 @@ export const POST = async (req: Request) => {
     },
   );
 };
+
+export const POST = withTenantRequest(handlePost);

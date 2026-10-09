@@ -7,6 +7,7 @@ import { ConnectorToolModel } from '@/database/models/connectorTool';
 import { serverDB } from '@/database/server';
 import { appEnv } from '@/envs/app';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { exchangeConnectorCode, toClientInformation } from '@/server/services/connector/oauth';
 import { consumeConnectorOAuthState } from '@/server/services/connector/stateStore';
 import { syncConnectorToolsById } from '@/server/services/connector/sync';
@@ -86,7 +87,7 @@ const renderFailure = (error: string, cause?: unknown): NextResponse => {
   return renderResultPage({ error, success: false });
 };
 
-export const GET = async (req: NextRequest) => {
+const handleGet = async (req: NextRequest) => {
   const searchParams = req.nextUrl.searchParams;
   const code = searchParams.get('code');
   const state = searchParams.get('state');
@@ -182,3 +183,5 @@ export const GET = async (req: NextRequest) => {
     return renderFailure(message, err);
   }
 };
+
+export const GET = withTenantRequest(handleGet);

@@ -1,6 +1,7 @@
-import { appEnv } from '@/envs/app';
+import { getInternalApiUrl } from '@/envs/appUrl';
 import { injectActiveTraceHeaders } from '@/libs/observability/traceparent';
 import { workflowClient } from '@/libs/qstash';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 
 import {
   type ProcessCollectedUnderstandingPayload,
@@ -30,7 +31,7 @@ export class UnderstandingWorkflowUnavailableError extends Error {
 
 export class OnboardingUnderstandingWorkflow {
   static assertAvailable() {
-    const baseUrl = appEnv.INTERNAL_APP_URL || appEnv.APP_URL;
+    const baseUrl = getInternalApiUrl();
     if (!process.env.QSTASH_TOKEN || !baseUrl) {
       throw new UnderstandingWorkflowUnavailableError();
     }
@@ -53,7 +54,7 @@ export class OnboardingUnderstandingWorkflow {
     return workflowClient.trigger({
       body: payload,
       headers: Object.fromEntries(traceHeaders.entries()),
-      url: new URL(PROCESS_PROVIDERS_PATH, baseUrl).toString(),
+      url: buildTenantCallbackUrl(PROCESS_PROVIDERS_PATH, baseUrl),
       ...(options?.workflowRunId ? { workflowRunId: options.workflowRunId } : {}),
     });
   }
@@ -70,7 +71,7 @@ export class OnboardingUnderstandingWorkflow {
     return workflowClient.trigger({
       body: payload,
       headers: Object.fromEntries(traceHeaders.entries()),
-      url: new URL(PROCESS_COLLECTED_PATH, baseUrl).toString(),
+      url: buildTenantCallbackUrl(PROCESS_COLLECTED_PATH, baseUrl),
       ...(options?.workflowRunId ? { workflowRunId: options.workflowRunId } : {}),
     });
   }
@@ -87,7 +88,7 @@ export class OnboardingUnderstandingWorkflow {
     return workflowClient.trigger({
       body: payload,
       headers: Object.fromEntries(traceHeaders.entries()),
-      url: new URL(PROCESS_DETAILED_PERSONA_PATH, baseUrl).toString(),
+      url: buildTenantCallbackUrl(PROCESS_DETAILED_PERSONA_PATH, baseUrl),
       ...(options?.workflowRunId ? { workflowRunId: options.workflowRunId } : {}),
     });
   }

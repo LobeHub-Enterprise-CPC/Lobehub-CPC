@@ -7,7 +7,7 @@ import { GatewayStreamNotifier, type GatewayStreamNotifierOptions } from './Gate
 import { FULL_STRIP_REDACTION } from './gatewayVisitorRedaction';
 import { inMemoryAgentStateManager } from './InMemoryAgentStateManager';
 import { inMemoryStreamEventManager } from './InMemoryStreamEventManager';
-import { getAgentRuntimeRedisClient } from './redis';
+import { isAgentRuntimeRedisEnabled } from './redis';
 import { StreamEventManager } from './StreamEventManager';
 import { type IAgentStateManager, type IStreamEventManager } from './types';
 
@@ -17,7 +17,7 @@ const log = debug('lobe-server:agent-runtime:factory');
  * Check if Redis is available for Agent Runtime
  */
 export const isRedisAvailable = (): boolean => {
-  return getAgentRuntimeRedisClient() !== null;
+  return isAgentRuntimeRedisEnabled();
 };
 
 /**

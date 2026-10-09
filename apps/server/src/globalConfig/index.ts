@@ -11,7 +11,6 @@ import { imageEnv } from '@/envs/image';
 import { knowledgeEnv } from '@/envs/knowledge';
 import { langfuseEnv } from '@/envs/langfuse';
 import { toolsEnv } from '@/envs/tools';
-import { parseSSOProviders } from '@/libs/better-auth/utils/server';
 import { parseSystemAgent } from '@/server/globalConfig/parseSystemAgent';
 import { type GlobalServerConfig } from '@/types/serverConfig';
 import { cleanObject } from '@/utils/object';
@@ -24,14 +23,6 @@ import { parseAgentConfig } from './parseDefaultAgent';
 import { parseFilesConfig } from './parseFilesConfig';
 import { getPublicMemoryExtractionConfig } from './parseMemoryExtractionConfig';
 import { getServerFetchOnClientOverride } from './serverFetchOnClient';
-
-/**
- * Get Better-Auth SSO providers list
- * Parses AUTH_SSO_PROVIDERS and returns enabled providers
- */
-const getBetterAuthSSOProviders = () => {
-  return parseSSOProviders(authEnv.AUTH_SSO_PROVIDERS);
-};
 
 /**
  * Which Agent Gateway wire protocol the client may dial.
@@ -178,7 +169,9 @@ export const getServerGlobalConfig = async () => {
     memory: {
       userMemory: cleanObject(getPublicMemoryExtractionConfig()),
     },
-    oAuthSSOProviders: getBetterAuthSSOProviders(),
+    // SSO providers belong to a tenant (`sso_providers`, spec A8): the auth
+    // config endpoint lists the ones of the tenant being signed in to.
+    oAuthSSOProviders: [],
     systemAgent: parseSystemAgent(appEnv.SYSTEM_AGENT),
     telemetry: {
       langfuse: langfuseEnv.ENABLE_LANGFUSE,

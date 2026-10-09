@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentSignalWorkflowRunPayload } from '@/server/workflows/agentSignal';
 import { AgentSignalWorkflow } from '@/server/workflows/agentSignal';
 
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 const mocks = vi.hoisted(() => ({
   appEnv: {
     APP_URL: 'http://localhost:3010',

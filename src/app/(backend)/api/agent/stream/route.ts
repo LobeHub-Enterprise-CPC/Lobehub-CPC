@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 
 import { createLambdaContext } from '@/libs/trpc/lambda/context';
 import { createAgentStateManager, createStreamEventManager } from '@/server/modules/AgentRuntime';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 
 const log = debug('api-route:agent:stream');
 const timing = debug('lobe-server:agent-runtime:timing');
@@ -13,7 +14,7 @@ const timing = debug('lobe-server:agent-runtime:timing');
  * Server-Sent Events (SSE) endpoint
  * Provides real-time Agent execution event stream for clients
  */
-export async function GET(request: NextRequest) {
+async function handleGet(request: NextRequest) {
   // Initialize stream event manager (uses InMemory singleton in local dev, Redis in production)
   const streamManager = createStreamEventManager();
 
@@ -246,3 +247,5 @@ export async function GET(request: NextRequest) {
     headers: createSSEHeaders(),
   });
 }
+
+export const GET = withTenantRequest(handleGet);

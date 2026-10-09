@@ -4,6 +4,9 @@ import type { PlatformDefinition } from '@/server/services/bot/platforms';
 
 import { GatewayManager } from '../GatewayManager';
 
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 const mockFindEnabledByPlatform = vi.hoisted(() => vi.fn());
 const mockFindEnabledByPlatformAndAppId = vi.hoisted(() => vi.fn());
 const mockInitWithEnvKey = vi.hoisted(() => vi.fn());

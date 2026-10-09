@@ -52,7 +52,6 @@ import { ChatErrorType, RequestTrigger } from '@lobechat/types';
 import { isRecord } from '@lobechat/utils/object';
 import debug from 'debug';
 import pMap from 'p-map';
-import urlJoin from 'url-join';
 
 import {
   deriveAgentInterventionQueueDeduplicationId,
@@ -87,6 +86,7 @@ import {
   type RuntimeExecutorContext,
 } from '@/server/modules/AgentRuntime/RuntimeExecutors';
 import { type IStreamEventManager } from '@/server/modules/AgentRuntime/types';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { emitAgentSignalSourceEvent } from '@/server/services/agentSignal';
 import { toAgentSignalTraceEvents } from '@/server/services/agentSignal/observability/traceEvents';
 import { traceStartStage } from '@/server/services/aiAgent/pipeline/sendTracing';
@@ -569,7 +569,8 @@ export class AgentRuntimeService {
   private get baseURL() {
     const baseUrl = process.env.AGENT_RUNTIME_BASE_URL || appEnv.APP_URL || 'http://localhost:3010';
 
-    return urlJoin(baseUrl, '/api/agent');
+    // Step callbacks run in the tenant that scheduled them.
+    return buildTenantCallbackUrl('/api/agent', baseUrl);
   }
   private serverDB: LobeChatDatabase;
   private userId: string;

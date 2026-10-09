@@ -1,9 +1,10 @@
 import type { FlowControl } from '@upstash/qstash';
 import debug from 'debug';
 
-import { appEnv } from '@/envs/app';
+import { getInternalApiUrl } from '@/envs/appUrl';
 import { injectActiveTraceHeaders } from '@/libs/observability/traceparent';
 import { qstashClient, workflowClient } from '@/libs/qstash';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 
 const log = debug('lobe-server:workflows:agent-signal:nightly-review');
 
@@ -97,13 +98,13 @@ export interface ExecuteNightlyReviewUserPayload {
 }
 
 const getWorkflowUrl = (path: string): string => {
-  const baseUrl = appEnv.INTERNAL_APP_URL || appEnv.APP_URL;
+  const baseUrl = getInternalApiUrl();
 
   if (!baseUrl) {
     throw new Error('INTERNAL_APP_URL or APP_URL is required to trigger nightly review workflows');
   }
 
-  return new URL(path, baseUrl).toString();
+  return buildTenantCallbackUrl(path, baseUrl);
 };
 
 const getTriggerHeaders = (): Record<string, string> => {

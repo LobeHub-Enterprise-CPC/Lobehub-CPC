@@ -6,6 +6,7 @@ import { getServerDB } from '@/database/core/db-adaptor';
 import { MessengerInstallationModel } from '@/database/models/messengerInstallation';
 import { appEnv } from '@/envs/app';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { buildTenantCallbackUrl, tenantCallbackPath } from '@/server/modules/Tenant/callbackUrl';
 import { consumeOAuthState } from '@/server/services/messenger/oauth/stateStore';
 import { messengerPlatformRegistry } from '@/server/services/messenger/platforms';
 
@@ -17,7 +18,10 @@ const SETTINGS_PATH = '/settings/messenger';
 // freshly-installed workspace/server without an extra click. The detail page
 // reads `installed=ok` / `error=...` / `workspace=...` from the URL.
 const redirectToPlatform = (origin: string, platform: string, query?: string): Response => {
-  const target = new URL(`${SETTINGS_PATH}/${platform}${query ? `?${query}` : ''}`, origin);
+  const target = new URL(
+    `${tenantCallbackPath(`${SETTINGS_PATH}/${platform}`)}${query ? `?${query}` : ''}`,
+    origin,
+  );
   return Response.redirect(target, 302);
 };
 
@@ -94,7 +98,11 @@ export async function messengerOAuthCallback(c: Context): Promise<Response> {
 
   // 2. Exchange via platform adapter. Use the SAME redirect_uri we generated
   // at install time — most upstreams reject the exchange otherwise.
-  const redirectUri = `${appEnv.APP_URL.replace(/\/$/, '')}/api/agent/messenger/${platform}/oauth/callback`;
+  // The redirect target is a browser hop back into this tenant.
+  const redirectUri = buildTenantCallbackUrl(
+    `/api/agent/messenger/${platform}/oauth/callback`,
+    appEnv.APP_URL,
+  );
   let install;
   try {
     install = await definition.oauth.exchangeCode({

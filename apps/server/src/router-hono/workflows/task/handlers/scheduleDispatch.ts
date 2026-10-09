@@ -6,6 +6,7 @@ import { TaskModel } from '@/database/models/task';
 import { getServerDB } from '@/database/server';
 import { appEnv } from '@/envs/app';
 import { qstashClient } from '@/libs/qstash';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { runScheduleTick } from '@/server/services/taskRunner/scheduleTick';
 
 const log = debug('lobe-server:workflows:task:schedule-dispatch');
@@ -203,7 +204,7 @@ const fanout = async (db: ServerDB, due: DueTask[]): Promise<number> => {
     if (!process.env.APP_URL) {
       throw new Error('APP_URL is required to fan out scheduled task executions via QStash');
     }
-    const url = `${process.env.APP_URL.replace(/\/$/, '')}${SCHEDULE_EXECUTE_PATH}`;
+    const url = buildTenantCallbackUrl(SCHEDULE_EXECUTE_PATH, process.env.APP_URL);
 
     const results = await Promise.allSettled(
       due.map((d) =>

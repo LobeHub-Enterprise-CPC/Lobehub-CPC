@@ -61,7 +61,7 @@ describe('AgentSignalWorkflow', () => {
         parallelism: 1,
       },
       headers: {},
-      url: 'http://localhost:3011/api/workflows/agent-signal/run',
+      url: 'http://localhost:3011/t/acme/api/workflows/agent-signal/run',
     });
   });
 });

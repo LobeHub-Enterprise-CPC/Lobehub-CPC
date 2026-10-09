@@ -18,6 +18,9 @@ import {
   type StartExecutionParams,
 } from './types';
 
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 vi.mock('@lobechat/model-runtime', () => ({
   // RuntimeExecutors (loaded transitively) resolves extend params via this
   // helper; an empty result keeps the runtime payload unchanged.
@@ -412,13 +415,13 @@ describe('AgentRuntimeService', () => {
     it('should initialize with default base URL', () => {
       delete process.env.AGENT_RUNTIME_BASE_URL;
       const newService = new AgentRuntimeService(mockDb, mockUserId);
-      expect((newService as any).baseURL).toBe('http://localhost:3210/api/agent');
+      expect((newService as any).baseURL).toBe('http://localhost:3210/t/acme/api/agent');
     });
 
     it('should initialize with custom base URL from environment', () => {
       process.env.AGENT_RUNTIME_BASE_URL = 'http://custom:3000';
       const newService = new AgentRuntimeService(mockDb, mockUserId);
-      expect((newService as any).baseURL).toBe('http://custom:3000/api/agent');
+      expect((newService as any).baseURL).toBe('http://custom:3000/t/acme/api/agent');
     });
   });
 
@@ -617,7 +620,7 @@ describe('AgentRuntimeService', () => {
         operationId: 'test-operation-1',
         stepIndex: 0,
         context: mockParams.initialContext,
-        endpoint: 'http://localhost:3010/api/agent/run',
+        endpoint: 'http://localhost:3010/t/acme/api/agent/run',
         priority: 'high',
         delay: 50,
       });
@@ -2359,7 +2362,7 @@ describe('AgentRuntimeService', () => {
         operationId: 'test-operation-1',
         stepIndex: 2,
         context: mockParams.context,
-        endpoint: 'http://localhost:3010/api/agent/run',
+        endpoint: 'http://localhost:3010/t/acme/api/agent/run',
         priority: 'high',
         delay: 500,
       });
@@ -2387,7 +2390,7 @@ describe('AgentRuntimeService', () => {
             messageCount: 1,
           }),
         }),
-        endpoint: 'http://localhost:3010/api/agent/run',
+        endpoint: 'http://localhost:3010/t/acme/api/agent/run',
         priority: 'high', // Uses the provided priority from params
         delay: 500, // Uses the provided delay from params
       });
@@ -2467,7 +2470,7 @@ describe('AgentRuntimeService', () => {
         operationId: 'test-operation-1',
         stepIndex: 2,
         context: undefined,
-        endpoint: 'http://localhost:3010/api/agent/run',
+        endpoint: 'http://localhost:3010/t/acme/api/agent/run',
         priority: 'high',
         delay: 100,
         payload: {

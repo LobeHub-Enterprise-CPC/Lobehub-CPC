@@ -4,6 +4,9 @@ import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { FileService } from '@/server/services/file';
 import { AsyncTaskStatus } from '@/types/asyncTask';
 
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 // ---- hoisted mocks (available inside vi.mock factories) ----
 
 const {

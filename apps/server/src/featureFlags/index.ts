@@ -28,6 +28,8 @@ const FEATURE_FLAGS_DOMAIN: RuntimeConfigDomain<IFeatureFlags> = {
   getVersionKey: () => 'runtime-config:feature-flags:version',
   key: 'feature-flags',
   schema: FeatureFlagsSchema,
+  // Published flags are one set per deployment; user overrides are per tenant.
+  shared: true,
 };
 
 const FEATURE_FLAG_OVERRIDE_DOMAIN: RuntimeConfigDomain<Record<string, boolean>> = {

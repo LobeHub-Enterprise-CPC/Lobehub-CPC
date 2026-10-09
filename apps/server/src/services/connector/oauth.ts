@@ -19,22 +19,23 @@ import debug from 'debug';
 
 import type { OIDCConfig } from '@/database/schemas';
 import { appEnv } from '@/envs/app';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 
 const log = debug('lobe-server:connector:oauth');
 
 export const CONNECTOR_OAUTH_CALLBACK_PATH = '/oauth/connector/callback';
 
 /**
- * Fixed redirect URI for all custom-connector OAuth flows. Pre-registration
- * users must register this exact URI with their OAuth app; DCR sends it as a
- * redirect_uri at registration time.
+ * Redirect URI for custom-connector OAuth flows in the current tenant.
+ * Pre-registration users must register this exact URI with their OAuth app;
+ * DCR sends it as a redirect_uri at registration time.
  */
 export const getConnectorRedirectUri = (): string => {
   const base = appEnv.APP_URL;
   if (!base) {
     throw new Error('APP_URL is not configured; cannot build connector OAuth redirect URI');
   }
-  return new URL(CONNECTOR_OAUTH_CALLBACK_PATH, base).toString();
+  return buildTenantCallbackUrl(CONNECTOR_OAUTH_CALLBACK_PATH, base);
 };
 
 export interface DiscoveredOAuth {

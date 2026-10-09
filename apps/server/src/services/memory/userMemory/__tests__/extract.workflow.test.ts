@@ -10,6 +10,9 @@ import {
 
 import { MemoryExtractionWorkflowService } from '../extract';
 
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 interface HourlyMetadataInput {
   cursor?: {
     createdAt: string;
@@ -164,7 +167,7 @@ describe('MemoryExtractionWorkflowService.triggerHourlyTracked', () => {
         hourlyTaskId: '00000000-0000-4000-8000-000000000001',
       },
       headers: { 'x-test-header': '1' },
-      url: 'https://app.example.com/api/workflows/memory-user-memory/call-cron-hourly-analysis',
+      url: 'https://app.example.com/t/acme/api/workflows/memory-user-memory/call-cron-hourly-analysis',
     });
     expect(mockAppendUserMemoryWorkflowRunIds).toHaveBeenCalledWith(
       '00000000-0000-4000-8000-000000000001',

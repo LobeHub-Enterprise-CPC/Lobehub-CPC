@@ -1,3 +1,4 @@
+import { requireTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 
 import {
@@ -9,6 +10,7 @@ import type { DecryptedBotProvider } from '@/database/models/agentBotProvider';
 import { AgentBotProviderModel } from '@/database/models/agentBotProvider';
 import { getAgentRuntimeRedisClient } from '@/server/modules/AgentRuntime/redis';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 import {
   type BotPlatformRuntimeContext,
   buildRuntimeKey,
@@ -250,7 +252,7 @@ export class GatewayManager {
     const { config } = resolveBotProviderConfig(def, provider);
 
     const context: BotPlatformRuntimeContext = {
-      appUrl: process.env.APP_URL,
+      appUrl: tenantPublicBaseUrl(),
       redisClient: getAgentRuntimeRedisClient() as any,
       userId: provider.userId,
     };
@@ -263,15 +265,26 @@ export class GatewayManager {
 // Singleton
 // ------------------------------------------------------------------
 
-const globalForGateway = globalThis as unknown as { gatewayManager?: GatewayManager };
+// One manager per tenant: a manager loads its bots from the tenant database
+// and its clients are started inside that tenant, so incoming messages are
+// handled in the tenant that owns the bot (spec FR-AS-01).
+const globalForGateway = globalThis as unknown as {
+  gatewayManagers?: Map<string, GatewayManager>;
+};
 
+const managers = () => (globalForGateway.gatewayManagers ??= new Map());
+
+/** The current tenant's manager. Throws `TENANT_REQUIRED` outside a tenant. */
 export function getGatewayManager(): GatewayManager | undefined {
-  return globalForGateway.gatewayManager;
+  return managers().get(requireTenantScope().tenantId);
 }
 
 export function createGatewayManager(config: GatewayManagerConfig): GatewayManager {
-  if (!globalForGateway.gatewayManager) {
-    globalForGateway.gatewayManager = new GatewayManager(config);
+  const { tenantId } = requireTenantScope();
+  let manager = managers().get(tenantId);
+  if (!manager) {
+    manager = new GatewayManager(config);
+    managers().set(tenantId, manager);
   }
-  return globalForGateway.gatewayManager;
+  return manager;
 }

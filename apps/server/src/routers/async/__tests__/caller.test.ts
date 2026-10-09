@@ -7,6 +7,9 @@ import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 
 import { createAsyncServerClient } from '../caller';
 
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 // Create mockable appEnv - use object property to allow mutation
 const mockAppEnv: { APP_URL?: string; INTERNAL_APP_URL?: string | null | undefined } = {
   APP_URL: 'https://public.example.com',
@@ -72,7 +75,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const config = vi.mocked(createTRPCClient).mock.calls[0][0];
       const httpLinkOptions = config.links[0] as any;
 
-      expect(httpLinkOptions.url).toBe('http://localhost:3210/trpc/async');
+      expect(httpLinkOptions.url).toBe('http://localhost:3210/t/acme/trpc/async');
       expect(httpLinkOptions.url).not.toContain('public.example.com');
     });
 
@@ -87,7 +90,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const config = vi.mocked(createTRPCClient).mock.calls[0][0];
       const httpLinkOptions = config.links[0] as any;
 
-      expect(httpLinkOptions.url).toBe('https://fallback.example.com/trpc/async');
+      expect(httpLinkOptions.url).toBe('https://fallback.example.com/t/acme/trpc/async');
     });
 
     it('should use localhost to bypass CDN proxy', async () => {
@@ -99,7 +102,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const config = vi.mocked(createTRPCClient).mock.calls[0][0];
       const httpLinkOptions = config.links[0] as any;
 
-      expect(httpLinkOptions.url).toBe('http://127.0.0.1:3210/trpc/async');
+      expect(httpLinkOptions.url).toBe('http://127.0.0.1:3210/t/acme/trpc/async');
       expect(httpLinkOptions.url).not.toContain('cdn-proxied');
     });
 
@@ -112,7 +115,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const config = vi.mocked(createTRPCClient).mock.calls[0][0];
       const httpLinkOptions = config.links[0] as any;
 
-      expect(httpLinkOptions.url).toBe('http://lobe-service:3210/trpc/async');
+      expect(httpLinkOptions.url).toBe('http://lobe-service:3210/t/acme/trpc/async');
     });
 
     it('should handle INTERNAL_APP_URL with trailing slash', async () => {
@@ -124,7 +127,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const httpLinkOptions = config.links[0] as any;
 
       // urlJoin should normalize the trailing slash
-      expect(httpLinkOptions.url).toBe('http://localhost:3210/trpc/async');
+      expect(httpLinkOptions.url).toBe('http://localhost:3210/t/acme/trpc/async');
     });
 
     it('should handle INTERNAL_APP_URL without trailing slash', async () => {
@@ -135,7 +138,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const config = vi.mocked(createTRPCClient).mock.calls[0][0];
       const httpLinkOptions = config.links[0] as any;
 
-      expect(httpLinkOptions.url).toBe('https://example.com/trpc/async');
+      expect(httpLinkOptions.url).toBe('https://example.com/t/acme/trpc/async');
     });
   });
 
@@ -302,7 +305,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const httpLinkOptions = config.links[0] as any;
 
       // Should use localhost to avoid CDN timeout
-      expect(httpLinkOptions.url).toBe('http://localhost:3210/trpc/async');
+      expect(httpLinkOptions.url).toBe('http://localhost:3210/t/acme/trpc/async');
     });
 
     it('should handle Docker Compose deployment with service names', async () => {
@@ -314,7 +317,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const config = vi.mocked(createTRPCClient).mock.calls[0][0];
       const httpLinkOptions = config.links[0] as any;
 
-      expect(httpLinkOptions.url).toBe('http://lobehub:3210/trpc/async');
+      expect(httpLinkOptions.url).toBe('http://lobehub:3210/t/acme/trpc/async');
     });
 
     it('should handle deployment without CDN (INTERNAL_APP_URL not set)', async () => {
@@ -328,7 +331,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const httpLinkOptions = config.links[0] as any;
 
       // Should fallback to APP_URL
-      expect(httpLinkOptions.url).toBe('https://direct-access.example.com/trpc/async');
+      expect(httpLinkOptions.url).toBe('https://direct-access.example.com/t/acme/trpc/async');
     });
   });
 });

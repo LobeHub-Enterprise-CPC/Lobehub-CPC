@@ -42,6 +42,7 @@ import { appEnv } from '@/envs/app';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { FileService } from '@/server/services/file';
 import { getVideoAvgLatencies, getVideoLatencyKey } from '@/server/services/generation/latency';
 import { processBackgroundVideoPolling } from '@/server/services/generation/videoBackgroundPolling';
@@ -376,9 +377,9 @@ export const videoRouter = router({
 
         const callbackBaseUrl = appEnv.WEBHOOK_PROXY_URL || appEnv.APP_URL;
         // Append to the base instead of resolving a root-relative path, which would drop a
-        // reverse-proxy prefix such as `https://host/lobehub`.
+        // reverse-proxy prefix such as `https://host/lobehub`; the callback carries the tenant.
         const callbackUrl = new URL(
-          `${callbackBaseUrl.replace(/\/+$/, '')}/api/webhooks/video/${provider}`,
+          buildTenantCallbackUrl(`/api/webhooks/video/${provider}`, callbackBaseUrl),
         );
         callbackUrl.searchParams.set('model', resolvedModelId);
         callbackUrl.searchParams.set('token', webhookToken);
