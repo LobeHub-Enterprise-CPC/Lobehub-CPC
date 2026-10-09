@@ -134,5 +134,17 @@ export const LobeVolcengineAI = createOpenAICompatibleRuntime({
       } as any;
     },
   },
-  videoGenerationCapabilities: { completionModes: ['webhook'] },
+  /**
+   * Ark's `contents/generations/tasks` API has no callback parameter: a task is
+   * submitted, then polled with `GET .../contents/generations/tasks/{id}` until it
+   * reports `content.video_url` (see `createVideo.ts` and `handlePollVideoStatus`
+   * above). Declaring `webhook` here strands every task on deployments without a
+   * reachable callback endpoint — `createVideo` records the inferenceId and stops,
+   * `schedulePolling` is never registered, and `handlePollVideoStatus` becomes
+   * unreachable until the generic async-task watchdog reports
+   * "task is timeout, please try again". This regression was introduced when a
+   * canary sync added the declaration as a single new line; the CPC polling fix it
+   * overrode is a5af22eea4 / 9c0fe84395.
+   */
+  videoGenerationCapabilities: { completionModes: ['polling'] },
 });

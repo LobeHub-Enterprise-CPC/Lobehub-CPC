@@ -1,3 +1,4 @@
+import { VIDEO_GENERATION_POLL_TIMEOUT } from '@lobechat/business-config/server';
 import { resolveBusinessModelMapping } from '@lobechat/business-model-runtime';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -472,6 +473,39 @@ describe('videoBackgroundPolling', () => {
         'task-123',
         expect.objectContaining({ status: AsyncTaskStatus.Success }),
       );
+    });
+  });
+
+  describe('processBackgroundVideoPolling - fallback polling', () => {
+    it('keeps the task open for the provider callback when polling itself fails', async () => {
+      mockModelRuntime.handlePollVideoStatus.mockRejectedValue(new Error('Network error'));
+
+      const polling = processBackgroundVideoPolling(mockDb, {
+        ...mockParams,
+        pollingIsFallback: true,
+      });
+
+      await vi.advanceTimersByTimeAsync(VIDEO_GENERATION_POLL_TIMEOUT + 10_000);
+      await polling;
+
+      // A fallback poller runs next to a callback that may still arrive, so neither a
+      // transport error nor running out of budget may finalize the task.
+      expect(mockAsyncTaskModel.update).not.toHaveBeenCalled();
+      expect(chargeAfterGenerate).not.toHaveBeenCalled();
+    });
+
+    it('still finalizes the task when the provider reports an explicit failure', async () => {
+      mockModelRuntime.handlePollVideoStatus.mockResolvedValue({
+        status: 'failed',
+        error: 'content blocked by provider',
+      });
+
+      await processBackgroundVideoPolling(mockDb, { ...mockParams, pollingIsFallback: true });
+
+      expect(mockAsyncTaskModel.update).toHaveBeenCalledWith('task-123', {
+        error: expect.any(AsyncTaskError),
+        status: AsyncTaskStatus.Error,
+      });
     });
   });
 

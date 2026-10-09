@@ -555,6 +555,21 @@ export class ModelRuntime {
     return this._runtime.handlePollVideoStatus?.(inferenceId, model, route);
   }
 
+  /**
+   * Whether the underlying runtime can be asked for a video task's status.
+   *
+   * Callers use this to decide whether a webhook-mode submission still needs the
+   * background poller as a fallback. A provider that can poll but whose callback
+   * never arrives (no reachable callback endpoint, dropped callback, token
+   * mismatch) has no other completion observer and would otherwise sit in
+   * Processing until the async-task watchdog times it out. A provider without a
+   * poller must keep relying on the callback alone, which is why this is reported
+   * separately from `getVideoGenerationCapabilities`.
+   */
+  supportsVideoPolling(): boolean {
+    return typeof this._runtime.handlePollVideoStatus === 'function';
+  }
+
   async models() {
     return this._runtime.models?.();
   }

@@ -291,6 +291,9 @@ describe('pollVolcengineVideoStatus', () => {
     expect(mockFetch).toHaveBeenCalledWith(`${baseURL}/contents/generations/tasks/task-123`, {
       headers: { Authorization: `Bearer ${apiKey}` },
       method: 'GET',
+      // The query is bounded so a hanging status endpoint cannot consume the caller's
+      // polling budget.
+      signal: expect.any(AbortSignal),
     });
   });
 
