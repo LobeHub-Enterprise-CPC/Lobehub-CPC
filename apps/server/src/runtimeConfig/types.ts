@@ -29,6 +29,11 @@ export interface RuntimeConfigDomain<T> {
   getVersionKey?: (selector?: RuntimeConfigSelector) => string;
   key: string;
   schema: ZodSchema<T>;
+  /**
+   * The snapshot belongs to the deployment (stored under the `_shared` Redis
+   * keyspace) instead of the current tenant.
+   */
+  shared?: boolean;
 }
 
 export interface RuntimeConfigProvider<T> {

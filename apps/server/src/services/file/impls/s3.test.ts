@@ -68,6 +68,12 @@ vi.mock('@/server/modules/S3', () => ({
   }),
 }));
 
+// Every object belongs to tenant `tenant-1` (slug `acme`).
+vi.mock('@lobechat/database/tenant', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  requireTenantScope: () => ({ slug: 'acme', tenantId: 'tenant-1' }),
+}));
+
 // Mock db
 const mockDb = {} as any;
 
@@ -171,7 +177,7 @@ describe('S3StaticFileImpl', () => {
       );
 
       expect(redisMocks.redis.set).toHaveBeenCalledWith(
-        'file:presigned-preview:7200:path/to/redis-write-file.jpg',
+        'file:presigned-preview:7200:t/tenant-1/path/to/redis-write-file.jpg',
         'https://presigned.example.com/test.jpg',
         { ex: 3600 },
       );
@@ -179,14 +185,16 @@ describe('S3StaticFileImpl', () => {
 
     it('should return correct URL when S3_ENABLE_PATH_STYLE is false', async () => {
       const url = 'path/to/file.jpg';
-      expect(await fileService.getFullFileUrl(url)).toBe('https://example.com/path/to/file.jpg');
+      expect(await fileService.getFullFileUrl(url)).toBe(
+        'https://example.com/t/tenant-1/path/to/file.jpg',
+      );
     });
 
     it('should return correct URL when S3_ENABLE_PATH_STYLE is true', async () => {
       config.S3_ENABLE_PATH_STYLE = true;
       const url = 'path/to/file.jpg';
       expect(await fileService.getFullFileUrl(url)).toBe(
-        'https://example.com/my-bucket/path/to/file.jpg',
+        'https://example.com/my-bucket/t/tenant-1/path/to/file.jpg',
       );
       config.S3_ENABLE_PATH_STYLE = false;
     });
@@ -215,7 +223,7 @@ describe('S3StaticFileImpl', () => {
         const result = await fileService.getFullFileUrl(fullUrl);
 
         expect(fileService.getKeyFromFullUrl).toHaveBeenCalledWith(fullUrl);
-        expect(result).toBe('https://example.com/path/to/file.jpg');
+        expect(result).toBe('https://example.com/t/tenant-1/path/to/file.jpg');
       });
 
       it('should handle normal key input without extraction', async () => {
@@ -226,7 +234,7 @@ describe('S3StaticFileImpl', () => {
         const result = await fileService.getFullFileUrl(key);
 
         expect(spy).not.toHaveBeenCalled();
-        expect(result).toBe('https://example.com/path/to/file.jpg');
+        expect(result).toBe('https://example.com/t/tenant-1/path/to/file.jpg');
       });
 
       it('should handle http:// URLs for legacy compatibility', async () => {
@@ -237,7 +245,7 @@ describe('S3StaticFileImpl', () => {
         const result = await fileService.getFullFileUrl(httpUrl);
 
         expect(fileService.getKeyFromFullUrl).toHaveBeenCalledWith(httpUrl);
-        expect(result).toBe('https://example.com/path/to/file.jpg');
+        expect(result).toBe('https://example.com/t/tenant-1/path/to/file.jpg');
       });
 
       it('should throw error when key extraction returns null', async () => {
@@ -350,7 +358,7 @@ describe('S3StaticFileImpl', () => {
 
   describe('getKeyFromFullUrl', () => {
     it('should extract fileId from proxy URL and return S3 key from database', async () => {
-      const proxyUrl = 'http://localhost:3010/f/abc123';
+      const proxyUrl = 'http://localhost:3010/t/acme/f/abc123';
       const expectedKey = 'ppp/491067/image.jpg';
 
       vi.spyOn(FileModel, 'getFileById').mockResolvedValue({ url: expectedKey } as any);
@@ -362,7 +370,7 @@ describe('S3StaticFileImpl', () => {
     });
 
     it('should return null when file is not found in database', async () => {
-      const proxyUrl = 'http://localhost:3010/f/nonexistent';
+      const proxyUrl = 'http://localhost:3010/t/acme/f/nonexistent';
 
       vi.spyOn(FileModel, 'getFileById').mockResolvedValue(undefined);
 
@@ -373,7 +381,7 @@ describe('S3StaticFileImpl', () => {
     });
 
     it('should handle URL with different domain', async () => {
-      const proxyUrl = 'https://example.com/f/file456';
+      const proxyUrl = 'https://example.com/t/acme/f/file456';
       const expectedKey = 'uploads/file.png';
 
       vi.spyOn(FileModel, 'getFileById').mockResolvedValue({ url: expectedKey } as any);
@@ -384,18 +392,38 @@ describe('S3StaticFileImpl', () => {
       expect(result).toBe(expectedKey);
     });
 
-    it('should extract key from legacy S3 URL (non /f/ path)', async () => {
-      const s3Url = 'https://example.com/path/to/file.jpg';
+    it('should extract the logical key from a tenant object URL', async () => {
+      const s3Url = 'https://example.com/t/tenant-1/path/to/file.jpg';
 
       const result = await fileService.getKeyFromFullUrl(s3Url);
 
-      // Legacy S3 URL: extract key from pathname
       expect(result).toBe('path/to/file.jpg');
+    });
+
+    it('should not resolve an object URL outside the current tenant', async () => {
+      await expect(
+        fileService.getKeyFromFullUrl('https://example.com/t/tenant-2/path/to/file.jpg'),
+      ).resolves.toBeNull();
+      await expect(
+        fileService.getKeyFromFullUrl('https://example.com/path/to/file.jpg'),
+      ).resolves.toBeNull();
+    });
+
+    it('should not resolve a file proxy URL of another tenant or without a tenant', async () => {
+      const spy = vi.spyOn(FileModel, 'getFileById');
+
+      await expect(
+        fileService.getKeyFromFullUrl('https://example.com/t/other/f/file456'),
+      ).resolves.toBeNull();
+      await expect(
+        fileService.getKeyFromFullUrl('https://example.com/f/file456'),
+      ).resolves.toBeNull();
+      expect(spy).not.toHaveBeenCalled();
     });
 
     it('should extract key with path-style S3 URL', async () => {
       config.S3_ENABLE_PATH_STYLE = true;
-      const s3Url = 'https://example.com/my-bucket/path/to/file.jpg';
+      const s3Url = 'https://example.com/my-bucket/t/tenant-1/path/to/file.jpg';
 
       const result = await fileService.getKeyFromFullUrl(s3Url);
 

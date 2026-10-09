@@ -2,6 +2,7 @@ import debug from 'debug';
 
 import { FileModel } from '@/database/models/file';
 import { getServerDB } from '@/database/server';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { FileService } from '@/server/services/file';
 
 const log = debug('lobe-file:proxy');
@@ -22,7 +23,7 @@ type Params = Promise<{ id: string }>;
  * of which can attach auth headers/cookies. Adding `checkAuth` here would break
  * every previously-shared `/f/:id` link, so access stays public by id.
  */
-export const GET = async (req: Request, segmentData: { params: Params }) => {
+const handleGet = async (req: Request, segmentData: { params: Params }) => {
   try {
     const params = await segmentData.params;
     const { id } = params;
@@ -60,3 +61,5 @@ export const GET = async (req: Request, segmentData: { params: Params }) => {
     });
   }
 };
+
+export const GET = withTenantRequest(handleGet);

@@ -1,7 +1,8 @@
+import { currentTenantScope, requireTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 
 import { getRedisConfig } from '@/envs/redis';
-import { initializeRedis } from '@/libs/redis';
+import { initializeRedis, initializeSharedRedis } from '@/libs/redis';
 
 import type {
   RuntimeConfigDomain,
@@ -37,11 +38,11 @@ export class RedisRuntimeConfigProvider<T> implements RuntimeConfigProvider<T> {
   }
 
   private getCacheKey(selector?: RuntimeConfigSelector) {
-    if (!selector || selector.scope === 'global') {
-      return 'global';
-    }
+    const key =
+      !selector || selector.scope === 'global' ? 'global' : `${selector.scope}:${selector.id}`;
 
-    return `${selector.scope}:${selector.id}`;
+    // Tenant snapshots are cached per tenant, like their Redis keys.
+    return this.domain.shared ? key : `${requireTenantScope().tenantId}:${key}`;
   }
 
   private evictExpiredEntriesIfNeeded(now: number) {
@@ -131,11 +132,16 @@ export class RedisRuntimeConfigProvider<T> implements RuntimeConfigProvider<T> {
   }
 
   async getSnapshot(selector?: RuntimeConfigSelector): Promise<VersionedSnapshot<T> | null> {
+    // A tenant snapshot has no meaning outside a tenant.
+    if (!this.domain.shared && !currentTenantScope()) return null;
+
     const cached = this.getCacheRecord(selector);
     if (cached) return cached.snapshot;
 
     try {
-      const redis = await initializeRedis(getRedisConfig());
+      const redis = this.domain.shared
+        ? await initializeSharedRedis(getRedisConfig())
+        : await initializeRedis(getRedisConfig());
       if (!redis) return null;
 
       const key = this.domain.getStorageKey(selector);
