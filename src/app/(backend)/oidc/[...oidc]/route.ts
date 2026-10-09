@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server';
 
 import { authEnv } from '@/envs/auth';
 import { createNodeRequest, createNodeResponse } from '@/libs/oidc-provider/http-adapter';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { getOIDCProvider } from '@/server/services/oidc/oidcProvider';
 
 const log = debug('lobe-oidc:route'); // Create a debug instance with a namespace
@@ -93,8 +94,8 @@ const handler = async (req: NextRequest) => {
   }
 };
 
-export const GET = handler;
-export const POST = handler;
-export const PUT = handler;
-export const DELETE = handler;
-export const PATCH = handler;
+export const GET = withTenantRequest(handler);
+export const POST = withTenantRequest(handler);
+export const PUT = withTenantRequest(handler);
+export const DELETE = withTenantRequest(handler);
+export const PATCH = withTenantRequest(handler);

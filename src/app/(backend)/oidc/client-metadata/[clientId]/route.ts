@@ -4,12 +4,13 @@ import { type NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
 import { authEnv } from '@/envs/auth';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { OIDCService } from '@/server/services/oidc';
 import type { OidcClientMetadata } from '@/types/oidc';
 
 const log = debug('lobe-oidc:client-metadata');
 
-export async function GET(_request: NextRequest, props: { params: Promise<{ clientId: string }> }) {
+async function handleGet(_request: NextRequest, props: { params: Promise<{ clientId: string }> }) {
   if (!authEnv.ENABLE_OIDC) {
     log('OIDC is not enabled');
     return new NextResponse(null, { status: 404 });
@@ -33,3 +34,5 @@ export async function GET(_request: NextRequest, props: { params: Promise<{ clie
     return new NextResponse(null, { status: 500 });
   }
 }
+
+export const GET = withTenantRequest(handleGet);

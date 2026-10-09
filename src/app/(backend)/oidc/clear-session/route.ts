@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server';
 
 import type { OIDCSessionCookieContext } from '@/libs/oidc-provider/session-cleanup';
 import { clearCurrentOIDCSession } from '@/libs/oidc-provider/session-cleanup';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 
 const log = debug('lobe-oidc:clear-session');
 
@@ -21,7 +22,7 @@ const log = debug('lobe-oidc:clear-session');
  *
  * Session verification and cleanup are delegated to the shared OIDC session service.
  */
-export async function POST() {
+async function handlePost() {
   try {
     // Ensure the caller is authenticated (still has a valid better-auth session)
     const { userId } = await getUserAuth();
@@ -49,3 +50,5 @@ export async function POST() {
     return NextResponse.json({ ok: true, cleared: false, error: 'internal' });
   }
 }
+
+export const POST = withTenantRequest(handlePost);

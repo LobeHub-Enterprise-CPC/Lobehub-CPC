@@ -1,4 +1,4 @@
-import { getDBInstance } from '@/database/core/web-server';
+import { serverDB } from '@/database/core/db-adaptor';
 import { authEnv } from '@/envs/auth';
 import { type OIDCProvider } from '@/libs/oidc-provider/provider';
 import { createOIDCProvider } from '@/libs/oidc-provider/provider';
@@ -18,8 +18,9 @@ export const getOIDCProvider = async (): Promise<OIDCProvider> => {
       throw new Error('OIDC is not enabled. Set ENABLE_OIDC=1 to enable it.');
     }
 
-    const db = getDBInstance();
-    provider = await createOIDCProvider(db);
+    // `serverDB` resolves the current request's tenant on every access, so one
+    // provider instance serves every tenant without holding a connection.
+    provider = await createOIDCProvider(serverDB);
   }
 
   return provider;

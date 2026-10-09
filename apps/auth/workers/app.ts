@@ -1,5 +1,6 @@
 import { resolveRequestLocale } from '@/locales/requestLocale';
 
+import { buildTenantPath, parseTenantPath } from '../../../packages/const/src/tenantPath';
 import {
   documentPathFor,
   resolveDocumentLocale,
@@ -36,10 +37,19 @@ const isAssetPath = (pathname: string) =>
 const stripTrailingSlash = (pathname: string) =>
   pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
 
-const loadServerConfig = async (env: Env, request: Request): Promise<unknown | undefined> => {
-  if (!env.AUTH_API_BASE) return undefined;
+/**
+ * The tenant's auth config: accounts belong to a tenant and its pages live under
+ * `/t/{slug}`, so the config request carries the same prefix (the endpoint
+ * refuses a request without a tenant).
+ */
+const loadServerConfig = async (
+  env: Env,
+  request: Request,
+  tenantSlug: string | null,
+): Promise<unknown | undefined> => {
+  if (!env.AUTH_API_BASE || !tenantSlug) return undefined;
 
-  const target = new URL(CONFIG_ENDPOINT, env.AUTH_API_BASE);
+  const target = new URL(buildTenantPath(CONFIG_ENDPOINT, tenantSlug), env.AUTH_API_BASE);
 
   try {
     // The endpoint answers with `s-maxage`, so the edge cache handles the TTL.
@@ -56,7 +66,12 @@ const loadServerConfig = async (env: Env, request: Request): Promise<unknown | u
   }
 };
 
-const serveDocument = async (request: Request, env: Env, pathname: string) => {
+const serveDocument = async (
+  request: Request,
+  env: Env,
+  pathname: string,
+  tenantSlug: string | null,
+) => {
   const locale = resolveDocumentLocale(resolveRequestLocale(request));
   const url = new URL(request.url);
 
@@ -64,7 +79,7 @@ const serveDocument = async (request: Request, env: Env, pathname: string) => {
 
   const [document, serverConfig] = await Promise.all([
     env.ASSETS.fetch(new Request(new URL(documentPath, url.origin), { headers: request.headers })),
-    loadServerConfig(env, request),
+    loadServerConfig(env, request, tenantSlug),
   ]);
 
   if (!document.ok) return document;
@@ -84,10 +99,12 @@ const serveDocument = async (request: Request, env: Env, pathname: string) => {
 export default {
   fetch(request: Request, env: Env) {
     const url = new URL(request.url);
-    const pathname = stripTrailingSlash(url.pathname);
+    // Pages and API calls of a tenant arrive as `/t/{slug}/...`; route on the rest.
+    const { rest, tenantSlug } = parseTenantPath(url.pathname);
+    const pathname = stripTrailingSlash(rest);
 
     // Standalone deployments have no reverse proxy in front: forward the app's
-    // same-origin API calls to the backend, mirroring vite's dev proxy.
+    // same-origin API calls (with their tenant prefix) to the backend, mirroring vite's dev proxy.
     if (env.AUTH_API_BASE && matchesPrefix(pathname, API_PREFIXES)) {
       const target = new URL(url.pathname + url.search, env.AUTH_API_BASE);
 
@@ -99,6 +116,6 @@ export default {
     if (!matchesPrefix(pathname, AUTH_PATH_PREFIXES))
       return Response.redirect(env.AUTH_APP_HOME || 'https://lobehub.com', 302);
 
-    return serveDocument(request, env, pathname);
+    return serveDocument(request, env, pathname, tenantSlug);
   },
 };

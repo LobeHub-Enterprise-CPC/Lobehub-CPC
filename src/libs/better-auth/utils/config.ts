@@ -111,13 +111,15 @@ export const getTrustedOrigins = (enabledSSOProviders: string[]) => {
 
 /**
  * Build Better Auth secondaryStorage backed by Redis.
- * Uses the shared Redis manager to avoid duplicate connections and prefixes keys to prevent clashes.
+ * Uses the shared Redis manager to avoid duplicate connections and prefixes keys per tenant.
  */
-export const createSecondaryStorage = () => {
+export const createSecondaryStorage = (namespace: string) => {
   const redisConfig = getRedisConfig();
   if (!isRedisEnabled(redisConfig)) return undefined;
 
-  const secondaryStorageKeyPrefix = 'better-auth:';
+  // `namespace` carries the tenant id, so cached sessions of one tenant can
+  // never be read by another (spec FR-ID-10, FR-AS-05).
+  const secondaryStorageKeyPrefix = `better-auth:${namespace}:`;
 
   const buildKey = (key: string) => `${secondaryStorageKeyPrefix}${key}`;
 
