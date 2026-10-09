@@ -1,14 +1,16 @@
+import { runWithTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
-import { type NextRequest } from 'next/server';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { UAParser } from 'ua-parser-js';
 import urlJoin from 'url-join';
 
-import { auth } from '@/auth';
+import { getTenantAuth } from '@/auth';
 import { LOBE_LOCALE_COOKIE } from '@/const/locale';
 import { appEnv } from '@/envs/app';
 import { authEnv } from '@/envs/auth';
 import { type Locales } from '@/locales/resources';
+import { signTenantRoute, TENANT_ROUTE_HEADER } from '@/server/modules/Tenant/routeHeader';
+import { getTenantRuntime } from '@/server/modules/Tenant/runtime';
 import { parseBrowserLanguage } from '@/utils/locale';
 import { DEFAULT_LANG, locales, RouteVariants } from '@/utils/server/routeVariants';
 
@@ -16,8 +18,11 @@ import { authSpaRoutes, nextjsOnlyRoutes } from '../nextjsOnlyRoutes';
 import { isShareSpaRoute } from '../shareRoutes';
 import { isAlwaysWorkbenchSpaRoute, isWorkbenchSpaRoute } from '../workbenchRoutes';
 import { createRouteMatcher } from './createRouteMatcher';
+import { resolveTenantRoute, TENANT_REQUIRED_PAGE_PATH } from './tenantRouting';
 
 // Create debug logger instances
+const PUBLIC_ACCEPTANCE_GUIDE = '/acceptance/skill.md';
+
 const logDefault = debug('middleware:default');
 const logBetterAuth = debug('middleware:better-auth');
 
@@ -48,23 +53,18 @@ const persistLocaleCookie = (
 };
 
 export function defineConfig() {
-  // `/oauth/connector` is a backend route handler (custom connector OAuth callback);
-  // the rest of `/oauth/*` (e.g. /oauth/callback/success) are SPA pages, so scope
-  // the passthrough to the connector subtree only.
-  const backendApiEndpoints = ['/api', '/trpc', '/webapi', '/oidc', '/oauth/connector'];
-
-  const defaultMiddleware = (request: NextRequest) => {
+  /**
+   * Page rewrites for a tenant page. `pathname` is the path below `/t/{slug}`:
+   * the SPA reads the tenant prefix from the address bar as its router
+   * basename, so the HTML served for `/t/acme/agent` is the one for `/agent`.
+   */
+  const defaultMiddleware = (request: NextRequest, pathname: string) => {
     const url = new URL(request.url);
+    url.pathname = pathname;
     logDefault('Processing request: %s %s', request.method, request.url);
 
     // Public installation instructions must remain readable by coding agents.
-    if (url.pathname === '/acceptance/skill.md') return NextResponse.next();
-
-    // skip all api requests
-    if (backendApiEndpoints.some((path) => url.pathname.startsWith(path))) {
-      logDefault('Skipping API request: %s', url.pathname);
-      return NextResponse.next();
-    }
+    if (url.pathname === PUBLIC_ACCEPTANCE_GUIDE) return NextResponse.rewrite(url);
 
     // locale has three levels
     // 1. search params
@@ -209,22 +209,6 @@ export function defineConfig() {
   };
 
   const isPublicRoute = createRouteMatcher([
-    // backend api
-    '/api/v1(.*)', // OpenAPI routes should use OpenAPI auth (API Key/OIDC), not BetterAuth session
-    '/api/auth(.*)',
-    '/api/webhooks(.*)',
-    '/api/workflows(.*)',
-    '/api/agent(.*)',
-    '/api/dev(.*)',
-    '/webapi(.*)',
-    '/trpc(.*)',
-    // version
-    '/api/version',
-    '/api/desktop/(.*)',
-    // Composio OAuth callback — hit via a cross-site redirect from the provider
-    // after Composio-managed auth; only renders a popup-closing page, so it must
-    // not be session-gated.
-    '/api/composio/oauth/callback',
     // better auth
     '/signin',
     '/signup',
@@ -234,23 +218,6 @@ export function defineConfig() {
     // oauth
     // Make only the consent view public (GET page), not other oauth paths
     '/oauth/consent/(.*)',
-    // Custom connector OAuth callback — hit via a cross-site redirect from the
-    // provider, carries its own code+state, so it must not be session-gated.
-    '/oauth/connector/callback',
-    '/oidc/handoff',
-    '/oidc/device/auth',
-    '/oidc/token',
-    // OIDC protocol endpoints a client reads before (or without) any browser
-    // session: discovery and JWKS are public by spec, and userinfo authenticates
-    // with the bearer access token the provider itself checks. Session-gating them
-    // redirects non-browser callers to the sign-in HTML, which is what a
-    // third-party app registered through Settings → OAuth Apps hits first.
-    '/oidc/.well-known/openid-configuration',
-    '/oidc/jwks',
-    '/oidc/me',
-    // Interaction details for the consent/login page — must be reachable
-    // before the user has a session, so it cannot be session-gated.
-    '/oidc/interaction/(.*)',
     // market
     '/market-auth-callback',
     // public share pages
@@ -268,59 +235,103 @@ export function defineConfig() {
     '/verify-im',
   ]);
 
+  const rejectJson = (code: string, status: number) =>
+    Response.json({ code }, { headers: { 'Cache-Control': 'private, no-store' }, status });
+
+  const rewriteTo = (request: NextRequest, pathname: string, headers?: Headers) => {
+    const url = new URL(request.url);
+    url.pathname = pathname;
+    return NextResponse.rewrite(url, headers ? { request: { headers } } : undefined);
+  };
+
+  /**
+   * Single entry for every matched request (spec A16, A17, FR-RT-04, FR-RT-06):
+   * the tenant is read from the URL once, here. Backend requests are rewritten
+   * to their unprefixed route with the tenant handed over in a signed header
+   * (any incoming copy of that header is dropped first); pages without a
+   * tenant get the static tenant-required page; tenant pages get the SPA and,
+   * when protected, a session check against that tenant's own accounts.
+   */
   const betterAuthMiddleware = async (req: NextRequest) => {
     logBetterAuth('BetterAuth middleware processing request: %s %s', req.method, req.url);
 
-    const response = defaultMiddleware(req);
+    const pathname = req.nextUrl.pathname;
+    if (
+      pathname === dangerousLocalDevProxyRoute ||
+      pathname.startsWith(`${dangerousLocalDevProxyRoute}/`)
+    )
+      return NextResponse.next();
 
-    // when enable auth protection, only public route is not protected, others are all protected
-    const isProtected = !isPublicRoute(req);
+    // Public installation instructions (a static file) stay readable by coding
+    // agents without a tenant; they hold no tenant data.
+    if (pathname === PUBLIC_ACCEPTANCE_GUIDE) return NextResponse.next();
 
+    const headers = new Headers(req.headers);
+    headers.delete(TENANT_ROUTE_HEADER);
+
+    const route = resolveTenantRoute(pathname);
+    switch (route.kind) {
+      case 'reject': {
+        return rejectJson(route.code, route.status);
+      }
+      case 'tenantless-backend': {
+        return NextResponse.next({ request: { headers } });
+      }
+      case 'tenant-backend': {
+        const signed = signTenantRoute(route.slug);
+        if (!signed) return rejectJson('TENANT_NOT_READY', 503);
+        headers.set(TENANT_ROUTE_HEADER, signed);
+        return rewriteTo(req, route.path, headers);
+      }
+      case 'tenant-required-page': {
+        return rewriteTo(req, TENANT_REQUIRED_PAGE_PATH);
+      }
+    }
+
+    const tenantPage = new NextRequest(new URL(route.path + req.nextUrl.search, req.url), req);
+    const isProtected = !isPublicRoute(tenantPage);
     logBetterAuth('Route protection status: %s, %s', req.url, isProtected ? 'protected' : 'public');
+
+    let scope;
+    try {
+      scope = await getTenantRuntime().admitSlug(route.slug);
+    } catch (error) {
+      // An unknown slug looks exactly like no tenant at all: the page never
+      // reveals which tenants exist (FR-RT-06). An unavailable tenant still
+      // gets its SPA, which shows the tenant-unavailable state from the API.
+      if ((error as { code?: string })?.code === 'TENANT_NOT_FOUND')
+        return rewriteTo(req, TENANT_REQUIRED_PAGE_PATH);
+      return defaultMiddleware(req, route.path);
+    }
+
+    const response = defaultMiddleware(req, route.path);
 
     // Skip session lookup for public routes to reduce latency
     if (!isProtected) return response;
 
-    // Get full session with user data (Next.js 15.2.0+ feature)
-    const { response: session, headers: authHeaders } = await auth.api.getSession({
-      headers: req.headers,
-      returnHeaders: true,
-    });
+    // Better Auth may refresh or clear session cookies while reading the session.
+    const { response: session, headers: authHeaders } = await runWithTenantScope(scope, async () =>
+      (await getTenantAuth()).api.getSession({ headers: req.headers, returnHeaders: true }),
+    );
     for (const cookie of authHeaders.getSetCookie()) response.headers.append('set-cookie', cookie);
-
     const isLoggedIn = !!session?.user;
 
-    logBetterAuth('BetterAuth session status: %O', {
-      isLoggedIn,
-      userId: session?.user?.id,
-    });
+    logBetterAuth('BetterAuth session status: %O', { isLoggedIn, userId: session?.user?.id });
 
     if (!isLoggedIn) {
-      // If request a protected route, redirect to sign-in page
-      if (isProtected) {
-        logBetterAuth('Request a protected route, redirecting to sign-in page');
-
-        const callbackUrl = `${appEnv.APP_URL}${req.nextUrl.pathname}${req.nextUrl.search}`;
-        const signInUrl = new URL('/signin', appEnv.APP_URL);
-        signInUrl.searchParams.set('callbackUrl', callbackUrl);
-        const hl = req.nextUrl.searchParams.get('hl');
-        if (hl) {
-          signInUrl.searchParams.set('hl', hl);
-          logBetterAuth('Preserving locale to sign-in: hl=%s', hl);
-        }
-        // Preserve marketing attribution (e.g. sign-ups originating from Market)
-        // so it survives the auth detour and reaches the sign-up page.
-        const utmSource = req.nextUrl.searchParams.get('utm_source');
-        if (utmSource) {
-          signInUrl.searchParams.set('utm_source', utmSource);
-          logBetterAuth('Preserving utm_source to sign-in: %s', utmSource);
-        }
-        const redirectHeaders = new Headers({ location: signInUrl.href });
-        for (const cookie of authHeaders.getSetCookie())
-          redirectHeaders.append('set-cookie', cookie);
-        return new Response(null, { status: 302, headers: redirectHeaders });
-      }
-      logBetterAuth('Request a free route but not login, allow visit without auth header');
+      logBetterAuth('Request a protected route, redirecting to sign-in page');
+      const tenantBase = `/t/${route.slug}`;
+      const callbackUrl = `${appEnv.APP_URL}${req.nextUrl.pathname}${req.nextUrl.search}`;
+      const signInUrl = new URL(`${tenantBase}/signin`, appEnv.APP_URL);
+      signInUrl.searchParams.set('callbackUrl', callbackUrl);
+      const hl = req.nextUrl.searchParams.get('hl');
+      if (hl) signInUrl.searchParams.set('hl', hl);
+      // Preserve marketing attribution so it survives the auth detour.
+      const utmSource = req.nextUrl.searchParams.get('utm_source');
+      if (utmSource) signInUrl.searchParams.set('utm_source', utmSource);
+      const redirectHeaders = new Headers({ location: signInUrl.href });
+      for (const cookie of authHeaders.getSetCookie()) redirectHeaders.append('set-cookie', cookie);
+      return new Response(null, { headers: redirectHeaders, status: 302 });
     }
 
     return response;

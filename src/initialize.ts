@@ -5,6 +5,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import utc from 'dayjs/plugin/utc';
 import { enableMapSet, enablePatches } from 'immer';
 
+import { installTenantFetch } from '@/libs/tenant/tenantFetch';
 import { isChunkLoadError, notifyChunkError } from '@/utils/chunkError';
 
 enablePatches();
@@ -15,6 +16,9 @@ dayjs.extend(relativeTime);
 dayjs.extend(utc);
 dayjs.extend(isToday);
 dayjs.extend(isYesterday);
+
+// Backend calls carry the tenant of the page (`/t/{slug}`), like its routes.
+if (typeof window !== 'undefined') installTenantFetch();
 
 // Global fallback: catch async chunk-load failures that escape Error Boundaries
 if (typeof window !== 'undefined') {

@@ -1,3 +1,4 @@
+import { buildTenantPath, parseTenantPath } from '@lobechat/const/tenantPath';
 import type { NavigateOptions } from 'react-router';
 
 export interface WorkspaceAwareNavigateOptions extends NavigateOptions {
@@ -76,7 +77,12 @@ export const WORKSPACE_SETTINGS_TABS: ReadonlySet<string> = new Set([
 const SETTINGS_PREFIX_REGEX = /^\/settings\/([^/?#]+)/;
 const FIRST_SEGMENT_REGEX = /^\/([^/?#]+)/;
 
-const WORKSPACE_MIRRORED_FIRST_SEGMENTS = new Set([
+/**
+ * First segments mirrored under `/:workspaceSlug`. Exported because the tenant
+ * reserved-slug list is derived from it — a slug equal to one of these shadows
+ * the real route, so the two must never drift apart.
+ */
+export const WORKSPACE_MIRRORED_FIRST_SEGMENTS: ReadonlySet<string> = new Set([
   'agent',
   'agents',
   'community',
@@ -129,14 +135,23 @@ export const buildWorkspaceAwarePath = (
   options?: WorkspaceAwareNavigateOptions,
 ): string => {
   if (options?.escape) return to;
-  if (!activeSlug) return to;
   if (!to.startsWith('/')) return to;
-  if (isPersonalPath(to)) return to;
-  if (isPersonalSettingsPath(to)) return to;
-  if (to === `/${activeSlug}` || to.startsWith(`/${activeSlug}/`)) return to;
 
-  const firstSegment = parseFirstSegment(to);
+  // Strip the tenant prefix BEFORE any first-segment reasoning, then put it
+  // back. Without this every allowlist test below reads `t` as the first
+  // segment, so nothing is ever recognised as workspace-mirrored and the
+  // workspace prefix silently stops being applied — a url that still resolves,
+  // just to the wrong scope.
+  const { rest, tenantSlug } = parseTenantPath(to);
+  const withTenant = (path: string) => buildTenantPath(path, tenantSlug);
+
+  if (!activeSlug) return to;
+  if (isPersonalPath(rest)) return to;
+  if (isPersonalSettingsPath(rest)) return to;
+  if (rest === `/${activeSlug}` || rest.startsWith(`/${activeSlug}/`)) return to;
+
+  const firstSegment = parseFirstSegment(rest);
   if (firstSegment && !WORKSPACE_MIRRORED_FIRST_SEGMENTS.has(firstSegment)) return to;
 
-  return `/${activeSlug}${to}`;
+  return withTenant(`/${activeSlug}${rest}`);
 };
