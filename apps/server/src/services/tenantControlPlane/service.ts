@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import {
   ControlPlaneError,
@@ -65,12 +65,8 @@ export const effectiveTenantState = (
   lifecycle: Pick<TenantLifecycleRecord, 'desiredState' | 'expiresAt' | 'freezeReasons'>,
   now: Date,
 ): { reasons: FreezeReason[]; state: TenantState } => {
-  const reasons = [...lifecycle.freezeReasons];
-  if (
-    lifecycle.expiresAt &&
-    Date.parse(lifecycle.expiresAt) <= now.getTime() &&
-    !reasons.includes('expired')
-  )
+  const reasons: FreezeReason[] = lifecycle.freezeReasons.filter((reason) => reason !== 'expired');
+  if (lifecycle.expiresAt && Date.parse(lifecycle.expiresAt) <= now.getTime())
     reasons.push('expired');
   if (lifecycle.desiredState === 'offline') return { reasons, state: 'offline' };
   if (lifecycle.desiredState === 'frozen' || reasons.length > 0)
@@ -178,6 +174,8 @@ export class TenantControlPlaneService {
   private readonly repository: ControlPlaneRepository;
   private readonly now: () => Date;
 
+  private leaseUntil = () => new Date(this.now().getTime() + 5 * 60_000).toISOString();
+
   constructor(private readonly options: TenantControlPlaneServiceOptions) {
     this.repository = options.repository;
     this.now = options.now ?? (() => new Date());
@@ -277,6 +275,12 @@ export class TenantControlPlaneService {
       const op = await tx.getOperation(operationId);
       if (!op || op.tenantId !== tenantId) throw new ControlPlaneError(404, 'NOT_FOUND');
       if (op.status === 'applied' || op.status === 'failed') return { op, run: false as const };
+      if (
+        op.status === 'applying' &&
+        op.leaseUntil &&
+        Date.parse(op.leaseUntil) > this.now().getTime()
+      )
+        return { op, run: false as const };
       const bundle = await tx.getOperationBundle(operationId);
       if (!bundle) {
         await this.finishOperation(tx, op, 'CREDENTIALS_UNAVAILABLE');
@@ -284,12 +288,17 @@ export class TenantControlPlaneService {
       }
       op.status = 'applying';
       op.attempts += 1;
+      op.leaseToken = randomUUID();
+      op.leaseUntil = this.leaseUntil();
       await tx.putOperation(op);
       return { bundle, op, run: true as const };
     });
     if (!claimed.run) return toProvisionResult(claimed.op);
 
     const { bundle, op } = claimed;
+    const token = op.leaseToken!;
+    const owns = (current: ProvisionOperationRecord) =>
+      current.status === 'applying' && current.leaseToken === token;
     const ctx: ProvisionStepContext = {
       bundle,
       name: op.name,
@@ -301,26 +310,33 @@ export class TenantControlPlaneService {
 
     for (const [index, step] of remaining.entries()) {
       try {
-        await this.runProvisionStep(step, ctx);
+        await this.runProvisionStep(step, ctx, token);
       } catch {
         return this.repository.transaction(tenantId, async (tx) => {
           const current = (await tx.getOperation(operationId))!;
+          if (!owns(current)) return toProvisionResult(current);
           current.step = step;
           await this.finishOperation(tx, current, STEP_ERROR[step]);
           return toProvisionResult(current);
         });
       }
       const next = remaining[index + 1];
-      if (next)
-        await this.repository.transaction(tenantId, async (tx) => {
+      if (next) {
+        const progress = await this.repository.transaction(tenantId, async (tx) => {
           const current = (await tx.getOperation(operationId))!;
+          if (!owns(current)) return toProvisionResult(current);
           current.step = next;
+          current.leaseUntil = this.leaseUntil();
           await tx.putOperation(current);
+          return null;
         });
+        if (progress) return progress;
+      }
     }
 
     return this.repository.transaction(tenantId, async (tx) => {
       const current = (await tx.getOperation(operationId))!;
+      if (!owns(current)) return toProvisionResult(current);
       Object.assign(current, {
         credentialBundleVersion: bundle.credentialBundleVersion,
         datasourceReady: true,
@@ -328,6 +344,8 @@ export class TenantControlPlaneService {
         schemaName: bundle.schemaName,
         schemaVersion: bundle.schemaVersion,
         status: 'applied',
+        leaseToken: null,
+        leaseUntil: null,
       } satisfies Partial<ProvisionOperationRecord>);
       await tx.putOperation(current);
       // The directory now holds the bundle; drop the operation's copy.
@@ -336,7 +354,11 @@ export class TenantControlPlaneService {
     });
   }
 
-  private async runProvisionStep(step: ProvisionStep, ctx: ProvisionStepContext) {
+  private async runProvisionStep(
+    step: ProvisionStep,
+    ctx: ProvisionStepContext,
+    leaseToken: string,
+  ) {
     const db = this.options.database;
     switch (step) {
       case 'validate': {
@@ -355,6 +377,9 @@ export class TenantControlPlaneService {
       }
       case 'directory': {
         return this.repository.transaction(ctx.tenantId, async (tx) => {
+          const operation = await tx.getOperation(ctx.operationId);
+          if (operation?.leaseToken !== leaseToken || operation.status !== 'applying')
+            throw new Error('PROVISION_LEASE_LOST');
           const current = await tx.getDirectory(ctx.tenantId);
           // A newer bundle already registered (rotation) is never rolled back.
           if (
@@ -390,6 +415,8 @@ export class TenantControlPlaneService {
   ) {
     op.status = 'failed';
     op.errorCode = errorCode;
+    op.leaseToken = null;
+    op.leaseUntil = null;
     await tx.putOperation(op);
   }
 
@@ -630,6 +657,12 @@ export class TenantControlPlaneService {
         await this.finishEvent(tx, event, 'superseded', null);
         return { event, lifecycle, run: false };
       }
+      if (
+        event.status === 'applying' &&
+        event.leaseUntil &&
+        Date.parse(event.leaseUntil) > this.now().getTime()
+      )
+        return { event, lifecycle, run: false };
       if (event.request.desiredState === 'active') {
         const ready = (await tx.listOperations(tenantId)).some((op) => op.status === 'applied');
         if (!ready) {
@@ -639,12 +672,15 @@ export class TenantControlPlaneService {
       }
       event.status = 'applying';
       event.attempts += 1;
+      event.leaseToken = randomUUID();
+      event.leaseUntil = this.leaseUntil();
       event.errorCode = null;
       event.observedAt = this.now().toISOString();
       await tx.putEvent(event);
       return { event, lifecycle, run: true };
     });
     if (!claimed.run) return this.toLifecycleResult(claimed.event, claimed.lifecycle);
+    const token = claimed.event.leaseToken!;
 
     const closing = effectiveTenantState(claimed.event.request, this.now()).state !== 'active';
     const phases: ((id: string) => Promise<void>)[] = closing
@@ -652,7 +688,7 @@ export class TenantControlPlaneService {
       : [hooks.invalidateCaches, hooks.resumeQueue];
 
     for (const phase of phases) {
-      const stale = await this.supersedeIfStale(tenantId, eventId);
+      const stale = await this.supersedeIfStale(tenantId, eventId, token);
       if (stale) return stale;
       try {
         await phase(tenantId);
@@ -662,6 +698,8 @@ export class TenantControlPlaneService {
         return this.repository.transaction(tenantId, async (tx) => {
           const event = (await tx.getEvent(eventId))!;
           const lifecycle = (await tx.getLifecycle(tenantId))!;
+          if (event.leaseToken !== token || event.status !== 'applying')
+            return this.toLifecycleResult(event, lifecycle);
           if (event.version !== lifecycle.acceptedVersion)
             await this.finishEvent(tx, event, 'superseded', null);
           else await this.finishEvent(tx, event, 'failed', 'LIFECYCLE_FAILED');
@@ -673,6 +711,7 @@ export class TenantControlPlaneService {
     return this.repository.transaction(tenantId, async (tx) => {
       const event = (await tx.getEvent(eventId))!;
       const lifecycle = (await tx.getLifecycle(tenantId))!;
+      if (event.leaseToken !== token) return this.toLifecycleResult(event, lifecycle);
       if (event.version !== lifecycle.acceptedVersion || event.status !== 'applying') {
         if (event.status === 'applying') await this.finishEvent(tx, event, 'superseded', null);
         return this.toLifecycleResult(event, lifecycle);
@@ -688,11 +727,16 @@ export class TenantControlPlaneService {
     });
   }
 
-  private async supersedeIfStale(tenantId: string, eventId: string) {
+  private async supersedeIfStale(tenantId: string, eventId: string, leaseToken: string) {
     return this.repository.transaction(tenantId, async (tx) => {
       const event = (await tx.getEvent(eventId))!;
       const lifecycle = (await tx.getLifecycle(tenantId))!;
-      if (event.status === 'applying' && event.version === lifecycle.acceptedVersion) return null;
+      if (event.leaseToken !== leaseToken) return this.toLifecycleResult(event, lifecycle);
+      if (event.status === 'applying' && event.version === lifecycle.acceptedVersion) {
+        event.leaseUntil = this.leaseUntil();
+        await tx.putEvent(event);
+        return null;
+      }
       if (event.status === 'applying') await this.finishEvent(tx, event, 'superseded', null);
       return this.toLifecycleResult(event, lifecycle);
     });
@@ -705,6 +749,8 @@ export class TenantControlPlaneService {
     errorCode: SafeErrorCode | null,
   ) {
     event.status = status;
+    event.leaseToken = null;
+    event.leaseUntil = null;
     event.errorCode = errorCode;
     event.observedAt = this.now().toISOString();
     await tx.putEvent(event);

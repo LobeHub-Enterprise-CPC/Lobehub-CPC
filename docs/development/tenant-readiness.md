@@ -86,7 +86,41 @@ This verifies configuration and database state under trusted provisioning owners
 does not authenticate a database against a malicious database administrator, nor does a
 successful response promise that a later database or credential change cannot occur.
 
+## Durable execution and renewal
+
+Operation IDs and lifecycle event IDs are global identities. Concurrent requests cannot
+reassign an existing ID to another tenant or replace its immutable input. Conflicting
+inserts return a conflict and roll back the receiving transaction.
+
+Provision and lifecycle execution reuse the platform tables' existing lease token and
+expiry columns. A live lease prevents another replica from starting the same work; an
+expired lease can be reclaimed. Progress and terminal writes require the current token,
+so a late failure from an earlier executor cannot overwrite the new result. Leases last
+five minutes and renew between steps. A step exceeding that interval can be repeated
+after takeover, so external steps must remain idempotent; this is not an exactly-once
+side-effect guarantee.
+
+The `expired` freeze reason is derived from `expiresAt`. Renewal to a future date or no
+expiry removes that reason even if an older payload still carries it. Manual and security
+freezes, explicit frozen state and offline state continue to block admission.
+
 ## Migration maintenance
+
+SSO public configuration (`oauth2_config`, `oidc_config`, `saml_config`) uses typed JSONB
+objects; SQL NULL represents an absent protocol configuration. Database checks reject
+arrays, scalars and JSON null. `secret_config_encrypted` remains a text ciphertext envelope.
+Admin writes objects and CPC reads objects, without a second JSON serialization layer.
+
+The text-to-JSONB upgrade preserves the existing tenant migration prefix. A Drizzle custom
+migration performs the explicit `USING column::jsonb` conversion, followed by a generated
+schema diff that records the new types and object checks. Both run in the tenant migrator's
+transaction. Invalid historical JSON or non-object configuration aborts the upgrade without
+changing data or history. The separate conversion is necessary because the installed
+drizzle-kit does not emit `USING` for this type change; generated SQL/snapshots are not patched.
+Deploy CPC's tenant migrations before Admin starts writing JSONB to the mirrored table.
+Coordinate the conversion with replacement of the old SSO readers: old instances expect
+text and cannot consume the objects returned for JSONB. Use a maintenance rollout for
+this schema change rather than leaving old and new readers active together.
 
 The upstream business migration chain is unchanged. CPC's tenant-only chain contains SSO
 providers and has a separate journal to avoid conflicts with future canary migration indices.

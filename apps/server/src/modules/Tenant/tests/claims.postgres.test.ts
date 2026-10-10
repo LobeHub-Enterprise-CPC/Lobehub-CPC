@@ -209,6 +209,59 @@ describe.skipIf(!configured)('strict stop across real OS processes and PostgreSQ
     await command(b, 'finish', 'other');
   }, 20000);
 
+  it('admits renewed expiry claims while retaining manual, security and offline gates', async () => {
+    const child = worker();
+    const cases = [
+      { id: 'renewed-null', reasons: ['expired'], expires: null, state: 'active', code: null },
+      {
+        id: 'renewed-future',
+        reasons: ['expired'],
+        expires: '2099-01-01',
+        state: 'active',
+        code: null,
+      },
+      {
+        id: 'expired-past',
+        reasons: ['expired'],
+        expires: '2000-01-01',
+        state: 'active',
+        code: 'TENANT_EXPIRED',
+      },
+      {
+        id: 'renewed-manual',
+        reasons: ['expired', 'manual'],
+        expires: null,
+        state: 'active',
+        code: 'TENANT_FROZEN',
+      },
+      {
+        id: 'renewed-security',
+        reasons: ['expired', 'security'],
+        expires: null,
+        state: 'active',
+        code: 'TENANT_FROZEN',
+      },
+      {
+        id: 'renewed-offline',
+        reasons: ['expired'],
+        expires: null,
+        state: 'offline',
+        code: 'TENANT_OFFLINE',
+      },
+    ];
+    for (const row of cases) {
+      await seed(row.id);
+      await pool.query(
+        'UPDATE tenant_lifecycle SET freeze_reasons=$2, expires_at=$3, desired_state=$4 WHERE tenant_id=$1',
+        [row.id, JSON.stringify(row.reasons), row.expires, row.state],
+      );
+      expect(await command(child, 'start', row.id)).toMatchObject(
+        row.code ? { event: 'error', code: row.code } : { event: 'start' },
+      );
+      if (!row.code) await command(child, 'finish', row.id);
+    }
+  });
+
   it('keeps remote jobs pending independently of process retirement', async () => {
     await seed('remote');
     await pool.query(

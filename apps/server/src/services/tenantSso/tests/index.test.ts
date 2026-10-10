@@ -1,4 +1,5 @@
 // @vitest-environment node
+import type { SsoProviderItem } from '@lobechat/database/tenant/schemas';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { sealTenantData } from '@/server/crypto/tenantKeys';
@@ -13,30 +14,29 @@ import {
 const TENANT = 'tenant-sso-1';
 const previousSecret = process.env.KEY_VAULTS_SECRET;
 
-const row = (overrides: Record<string, unknown> = {}) =>
-  ({
-    admissionPolicy: 'allowlist',
-    createdAt: new Date(),
-    deletedAt: null,
-    displayName: 'Okta',
-    enabled: true,
-    id: 'sso_1',
-    issuer: 'https://idp.example.com/',
-    logoUrl: null,
-    oauth2Config: null,
-    oidcConfig: JSON.stringify({ clientId: 'client-1' }),
-    protocol: 'oidc',
-    providerId: 'okta',
-    revision: 3,
-    samlConfig: null,
-    secretConfigEncrypted: sealTenantData(
-      TENANT,
-      JSON.stringify({ clientSecret: 's3cret' }),
-      ssoSecretAad(TENANT, 'okta', 3),
-    ),
-    updatedAt: new Date(),
-    ...overrides,
-  }) as any;
+const row = (overrides: Partial<SsoProviderItem> = {}): SsoProviderItem => ({
+  admissionPolicy: 'allowlist',
+  createdAt: new Date(),
+  deletedAt: null,
+  displayName: 'Okta',
+  enabled: true,
+  id: 'sso_1',
+  issuer: 'https://idp.example.com/',
+  logoUrl: null,
+  oauth2Config: null,
+  oidcConfig: { clientId: 'client-1', pkce: true, scopes: ['openid', 'profile', 'email'] },
+  protocol: 'oidc',
+  providerId: 'okta',
+  revision: 3,
+  samlConfig: null,
+  secretConfigEncrypted: sealTenantData(
+    TENANT,
+    JSON.stringify({ clientSecret: 's3cret' }),
+    ssoSecretAad(TENANT, 'okta', 3),
+  ),
+  updatedAt: new Date(),
+  ...overrides,
+});
 
 beforeAll(() => {
   process.env.KEY_VAULTS_SECRET = 'sso-test-master-secret';
@@ -72,7 +72,18 @@ describe('tenant SSO reader', () => {
   it('drops disabled, deleted and unsupported providers', () => {
     expect(toTenantSsoProvider(TENANT, row({ enabled: false }))).toBeNull();
     expect(toTenantSsoProvider(TENANT, row({ deletedAt: new Date() }))).toBeNull();
-    const saml = toTenantSsoProvider(TENANT, row({ protocol: 'saml', samlConfig: '{"x":1}' }));
+    const saml = toTenantSsoProvider(
+      TENANT,
+      row({
+        protocol: 'saml',
+        samlConfig: {
+          cert: 'certificate',
+          entryPoint: 'https://idp.example.com/saml',
+          idpMetadata: { metadata: '<xml />' },
+          mapping: { emailVerified: 'email_verified' },
+        },
+      }),
+    );
     expect(saml && toGenericOAuthConfig(saml, 'https://x')).toBeNull();
   });
 });

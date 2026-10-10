@@ -218,6 +218,50 @@ describe('receiveProvision', () => {
 });
 
 describe('executeProvision', () => {
+  it('does not execute an operation already leased by another executor', async () => {
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    db.migrate.mockImplementationOnce(async () => {
+      started.resolve();
+      await release.promise;
+    });
+    await service.receiveProvision(provision());
+    const first = service.executeProvision(TENANT, 'root-1:lobehub');
+    await started.promise;
+    try {
+      expect((await service.executeProvision(TENANT, 'root-1:lobehub')).status).toBe('applying');
+      expect(db.migrate).toHaveBeenCalledTimes(1);
+    } finally {
+      release.resolve();
+      await first;
+    }
+  });
+
+  it('does not let an expired executor overwrite a newer completed attempt', async () => {
+    let now = NOW;
+    const current = new TenantControlPlaneService({
+      database: db,
+      repository: repo,
+      isRegistrableSlug: () => true,
+      now: () => now,
+    });
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    db.checkOwnership.mockImplementationOnce(async () => {
+      started.resolve();
+      await release.promise;
+      throw new Error('late failure');
+    });
+    await current.receiveProvision(provision());
+    const first = current.executeProvision(TENANT, 'root-1:lobehub');
+    await started.promise;
+    now = new Date(NOW.getTime() + 10 * 60_000);
+    expect((await current.executeProvision(TENANT, 'root-1:lobehub')).status).toBe('applied');
+    release.resolve();
+    expect((await first).status).toBe('applied');
+    expect((await current.getProvision(TENANT, 'root-1:lobehub')).status).toBe('applied');
+  });
+
   it('runs every step in order, registers the directory and reports applied', async () => {
     const order: string[] = [];
     for (const [name, fn] of Object.entries(db))
@@ -427,6 +471,32 @@ describe('executeLifecycle', () => {
     await provisionApplied();
   });
 
+  it('leases lifecycle work and ignores late failure after a replacement attempt completes', async () => {
+    let now = NOW;
+    const current = new TenantControlPlaneService({
+      database: db,
+      repository: repo,
+      isRegistrableSlug: () => true,
+      now: () => now,
+    });
+    await current.receiveLifecycle(lifecycle());
+    const h = hooks();
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    h.invalidateCaches = vi.fn().mockImplementationOnce(async () => {
+      started.resolve();
+      await release.promise;
+      throw new Error('late failure');
+    });
+    const first = current.executeLifecycle(TENANT, 'evt-1', h);
+    await started.promise;
+    expect((await current.executeLifecycle(TENANT, 'evt-1', hooks())).status).toBe('applying');
+    now = new Date(NOW.getTime() + 10 * 60_000);
+    expect((await current.executeLifecycle(TENANT, 'evt-1', hooks())).status).toBe('applied');
+    release.resolve();
+    expect((await first).status).toBe('applied');
+  });
+
   it('runs the closing phases in order and marks the event applied', async () => {
     await service.receiveLifecycle(lifecycle());
     const h = hooks();
@@ -511,6 +581,23 @@ describe('executeLifecycle', () => {
 });
 
 describe('effectiveTenantState', () => {
+  it.each([null, '2030-01-01T00:00:00.000Z'])(
+    'derives expired from expiresAt after renewal (%s)',
+    (expiresAt) => {
+      expect(
+        effectiveTenantState(
+          { desiredState: 'active', expiresAt, freezeReasons: ['expired'] },
+          NOW,
+        ),
+      ).toEqual({ state: 'active', reasons: [] });
+      expect(
+        effectiveTenantState(
+          { desiredState: 'active', expiresAt, freezeReasons: ['expired', 'manual'] },
+          NOW,
+        ),
+      ).toEqual({ state: 'frozen', reasons: ['manual'] });
+    },
+  );
   const base = { desiredState: 'active' as const, expiresAt: null, freezeReasons: [] };
 
   it('is active with no reasons and no expiry', () => {

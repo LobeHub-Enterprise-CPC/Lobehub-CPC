@@ -1,5 +1,6 @@
 import type { LobeChatDatabase } from '@lobechat/database';
 import { ssoProviders } from '@lobechat/database/tenant/schemas';
+import { isPlainRecord } from '@lobechat/utils/object';
 import type { GenericOAuthConfig } from 'better-auth/plugins';
 import debug from 'debug';
 import { and, eq, isNull } from 'drizzle-orm';
@@ -65,14 +66,6 @@ export interface TenantSsoProvider {
   secrets: TenantSsoSecrets;
 }
 
-const parseConfig = (value: string | null): Record<string, unknown> | null => {
-  if (!value) return null;
-  const parsed: unknown = JSON.parse(value);
-  return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-    ? (parsed as Record<string, unknown>)
-    : null;
-};
-
 type Row = typeof ssoProviders.$inferSelect;
 
 export const toTenantSsoProvider = (tenantId: string, row: Row): TenantSsoProvider | null => {
@@ -80,14 +73,13 @@ export const toTenantSsoProvider = (tenantId: string, row: Row): TenantSsoProvid
   const protocol = row.protocol as TenantSsoProtocol;
   if (protocol !== 'oidc' && protocol !== 'oauth2' && protocol !== 'saml') return null;
   try {
-    const config = parseConfig(
+    const config =
       protocol === 'oidc'
         ? row.oidcConfig
         : protocol === 'oauth2'
           ? row.oauth2Config
-          : row.samlConfig,
-    );
-    if (!config) return null;
+          : row.samlConfig;
+    if (!isPlainRecord(config)) return null;
     const secrets = row.secretConfigEncrypted
       ? openTenantSsoSecrets(tenantId, {
           providerId: row.providerId,

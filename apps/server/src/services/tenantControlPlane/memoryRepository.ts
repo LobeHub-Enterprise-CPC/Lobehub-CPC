@@ -1,4 +1,4 @@
-import type { DatasourceBundle } from './contracts';
+import { ControlPlaneError, type DatasourceBundle } from './contracts';
 import type {
   ControlPlaneRepository,
   ControlPlaneTx,
@@ -65,9 +65,27 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
           [...operations.values()].filter((o) => o.tenantId === tenantId),
         putDirectory: async (record, bundle) =>
           void directory.set(record.tenantId, { bundle: clone(bundle), record: clone(record) }),
-        putEvent: async (record) => void events.set(record.eventId, clone(record)),
+        putEvent: async (record) => {
+          const existing = events.get(record.eventId);
+          if (
+            existing &&
+            (existing.tenantId !== record.tenantId ||
+              existing.payloadHash !== record.payloadHash ||
+              existing.version !== record.version)
+          )
+            throw new ControlPlaneError(409, 'VERSION_CONFLICT');
+          events.set(record.eventId, clone(record));
+        },
         putLifecycle: async (record) => void lifecycles.set(record.tenantId, clone(record)),
-        putOperation: async (record) => void operations.set(record.operationId, clone(record)),
+        putOperation: async (record) => {
+          const existing = operations.get(record.operationId);
+          if (
+            existing &&
+            (existing.tenantId !== record.tenantId || existing.inputHash !== record.inputHash)
+          )
+            throw new ControlPlaneError(409, 'VERSION_CONFLICT');
+          operations.set(record.operationId, clone(record));
+        },
         putOperationBundle: async (operationId, bundle) =>
           void (bundle
             ? operationBundles.set(operationId, clone(bundle))

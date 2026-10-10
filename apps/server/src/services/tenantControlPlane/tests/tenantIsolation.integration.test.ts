@@ -38,6 +38,7 @@ import { TENANT_ADMISSION_TTL_MS, TenantRuntime } from '@/server/modules/Tenant/
 import type { DatasourceBundle } from '../contracts';
 import { PostgresTenantDatabaseExecutor } from '../postgresExecutor';
 import { PostgresControlPlaneRepository } from '../postgresRepository';
+import type { LifecycleEventRecord, ProvisionOperationRecord } from '../repository';
 import { TenantControlPlaneService } from '../service';
 import { upgradeTenantSchemas } from '../upgrade';
 
@@ -232,6 +233,71 @@ suite('tenant isolation on PostgreSQL', () => {
     }
     await root.end();
   }, 60_000);
+
+  it.each(['operation', 'event'] as const)(
+    'never reassigns a global %s ID during cross-tenant concurrent inserts',
+    async (kind) => {
+      const repository = new PostgresControlPlaneRepository(platformDB);
+      const ready = Promise.withResolvers<void>();
+      let arrivals = 0;
+      const id = `global-race-${kind}`;
+      const tenants = ['race-tenant-a', 'race-tenant-b'];
+      const outcomes = await Promise.allSettled(
+        tenants.map((tenantId) =>
+          repository.transaction(tenantId, async (tx) => {
+            expect(await (kind === 'operation' ? tx.getOperation(id) : tx.getEvent(id))).toBeNull();
+            if (++arrivals === 2) ready.resolve();
+            await ready.promise;
+            if (kind === 'operation')
+              await tx.putOperation({
+                attempts: 0,
+                credentialBundleVersion: null,
+                datasourceReady: false,
+                errorCode: null,
+                inputHash: tenantId,
+                name: tenantId,
+                operationId: id,
+                schemaName: null,
+                schemaVersion: null,
+                slug: tenantId,
+                status: 'received',
+                step: 'ownership',
+                tenantId,
+              } satisfies ProvisionOperationRecord);
+            else
+              await tx.putEvent({
+                attempts: 0,
+                errorCode: null,
+                eventId: id,
+                observedAt: new Date().toISOString(),
+                payloadHash: tenantId,
+                status: 'received',
+                tenantId,
+                version: 1,
+                request: {
+                  desiredState: 'active',
+                  eventId: id,
+                  expiresAt: null,
+                  freezeReasons: [],
+                  occurredAt: new Date().toISOString(),
+                  tenantId,
+                  version: 1,
+                },
+              } satisfies LifecycleEventRecord);
+            return tenantId;
+          }),
+        ),
+      );
+      expect(outcomes.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      const winner = outcomes.find((result) => result.status === 'fulfilled');
+      const saved = await repository.transaction(tenants[0], (tx) =>
+        kind === 'operation' ? tx.getOperation(id) : tx.getEvent(id),
+      );
+      expect(saved?.tenantId).toBe(winner?.status === 'fulfilled' ? winner.value : undefined);
+      const loser = outcomes.find((result) => result.status === 'rejected');
+      expect(loser?.status === 'rejected' && loser.reason).toMatchObject({ status: 409 });
+    },
+  );
 
   it('refuses a bundle whose owner does not own the schema, before any migration (AC-06-5)', async () => {
     const [a, b] = TENANTS;

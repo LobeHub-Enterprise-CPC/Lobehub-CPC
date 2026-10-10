@@ -8,6 +8,20 @@
       "when": 1791610450689,
       "tag": "0000_tenant_sso_providers",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791613050789,
+      "tag": "0001_sso_config_jsonb_cast",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791613051111,
+      "tag": "0002_sso_config_jsonb",
+      "breakpoints": true
     }
   ]
 }

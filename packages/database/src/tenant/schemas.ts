@@ -1,12 +1,17 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
+
+import type { SsoOAuth2Config, SsoOidcConfig, SsoSamlConfig } from './ssoTypes';
 
 /**
  * Tables only a tenant schema has. They stay out of `../schemas` so the shared
@@ -36,18 +41,24 @@ export const ssoProviders = pgTable(
     id: text('id').primaryKey(),
     issuer: text('issuer').notNull(),
     logoUrl: text('logo_url'),
-    oauth2Config: text('oauth2_config'),
-    oidcConfig: text('oidc_config'),
+    oauth2Config: jsonb('oauth2_config').$type<SsoOAuth2Config>(),
+    oidcConfig: jsonb('oidc_config').$type<SsoOidcConfig>(),
     protocol: text('protocol').notNull(),
     providerId: text('provider_id').notNull(),
     revision: integer('revision').default(1).notNull(),
-    samlConfig: text('saml_config'),
+    samlConfig: jsonb('saml_config').$type<SsoSamlConfig>(),
     secretConfigEncrypted: text('secret_config_encrypted'),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     uniqueIndex('sso_providers_provider_id_idx').on(table.providerId),
     index('sso_providers_enabled_idx').on(table.enabled),
+    check(
+      'sso_providers_oauth2_config_object',
+      sql`jsonb_typeof(${table.oauth2Config}) = 'object'`,
+    ),
+    check('sso_providers_oidc_config_object', sql`jsonb_typeof(${table.oidcConfig}) = 'object'`),
+    check('sso_providers_saml_config_object', sql`jsonb_typeof(${table.samlConfig}) = 'object'`),
   ],
 );
 

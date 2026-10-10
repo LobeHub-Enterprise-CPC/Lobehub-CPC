@@ -12,7 +12,12 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { openDirectoryData, sealDirectoryData } from '@/server/crypto/tenantKeys';
 
-import type { DatasourceBundle, LifecycleRequest, SafeErrorCode } from './contracts';
+import {
+  ControlPlaneError,
+  type DatasourceBundle,
+  type LifecycleRequest,
+  type SafeErrorCode,
+} from './contracts';
 import type {
   ControlPlaneRepository,
   ControlPlaneTx,
@@ -94,6 +99,8 @@ const toOperation = (row: OperationRow): ProvisionOperationRecord => ({
   datasourceReady: row.datasourceReady,
   errorCode: row.errorCode as SafeErrorCode | null,
   inputHash: row.inputHash,
+  leaseToken: row.leaseToken,
+  leaseUntil: row.leaseUntil?.toISOString() ?? null,
   name: row.name,
   operationId: row.operationId,
   schemaName: row.schemaName,
@@ -107,6 +114,8 @@ const toOperation = (row: OperationRow): ProvisionOperationRecord => ({
 type EventRow = typeof tenantLifecycleInbox.$inferSelect;
 const toEvent = (row: EventRow): LifecycleEventRecord => ({
   attempts: row.attempts,
+  leaseToken: row.leaseToken,
+  leaseUntil: row.leaseUntil?.toISOString() ?? null,
   errorCode: row.errorCode as SafeErrorCode | null,
   eventId: row.eventId,
   observedAt: row.observedAt.toISOString(),
@@ -290,6 +299,8 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
   putEvent: async (record) => {
     const values = {
       attempts: record.attempts,
+      leaseToken: record.leaseToken ?? null,
+      leaseUntil: record.leaseUntil ? new Date(record.leaseUntil) : null,
       errorCode: record.errorCode,
       eventId: record.eventId,
       observedAt: new Date(record.observedAt),
@@ -299,11 +310,28 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
       tenantId: record.tenantId,
       version: record.version,
     };
-    const { eventId: _eventId, ...update } = values;
-    await tx
+    const {
+      eventId: _eventId,
+      tenantId: _tenantId,
+      payloadHash: _hash,
+      version: _version,
+      payload: _payload,
+      ...update
+    } = values;
+    const written = await tx
       .insert(tenantLifecycleInbox)
       .values(values)
-      .onConflictDoUpdate({ set: update, target: tenantLifecycleInbox.eventId });
+      .onConflictDoUpdate({
+        set: update,
+        target: tenantLifecycleInbox.eventId,
+        setWhere: and(
+          eq(tenantLifecycleInbox.tenantId, record.tenantId),
+          eq(tenantLifecycleInbox.payloadHash, record.payloadHash),
+          eq(tenantLifecycleInbox.version, record.version),
+        ),
+      })
+      .returning({ id: tenantLifecycleInbox.eventId });
+    if (!written.length) throw new ControlPlaneError(409, 'VERSION_CONFLICT');
   },
 
   putLifecycle: async (record) => {
@@ -329,6 +357,8 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
       datasourceReady: record.datasourceReady,
       errorCode: record.errorCode,
       inputHash: record.inputHash,
+      leaseToken: record.leaseToken ?? null,
+      leaseUntil: record.leaseUntil ? new Date(record.leaseUntil) : null,
       name: record.name,
       operationId: record.operationId,
       schemaName: record.schemaName,
@@ -338,11 +368,27 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
       step: record.step,
       tenantId: record.tenantId,
     };
-    const { operationId: _operationId, ...update } = values;
-    await tx
+    const {
+      operationId: _operationId,
+      tenantId: _tenantId,
+      inputHash: _hash,
+      name: _name,
+      slug: _slug,
+      ...update
+    } = values;
+    const written = await tx
       .insert(tenantProvisionOperation)
       .values(values)
-      .onConflictDoUpdate({ set: update, target: tenantProvisionOperation.operationId });
+      .onConflictDoUpdate({
+        set: update,
+        target: tenantProvisionOperation.operationId,
+        setWhere: and(
+          eq(tenantProvisionOperation.tenantId, record.tenantId),
+          eq(tenantProvisionOperation.inputHash, record.inputHash),
+        ),
+      })
+      .returning({ id: tenantProvisionOperation.operationId });
+    if (!written.length) throw new ControlPlaneError(409, 'VERSION_CONFLICT');
   },
 
   putOperationBundle: async (operationId, bundle) => {

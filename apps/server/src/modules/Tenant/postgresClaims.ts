@@ -50,7 +50,10 @@ export const tenantClaims = new TenantClaims({
         throw new TenantGateError('TENANT_NOT_READY');
       const lifecycle = row.lifecycle;
       if (lifecycle.desiredState === 'offline') throw new TenantGateError('TENANT_OFFLINE');
-      if (lifecycle.desiredState === 'frozen' || lifecycle.freezeReasons.length)
+      if (
+        lifecycle.desiredState === 'frozen' ||
+        lifecycle.freezeReasons.some((reason) => reason !== 'expired')
+      )
         throw new TenantGateError('TENANT_FROZEN');
       if (lifecycle.expiresAt && lifecycle.expiresAt.getTime() <= Date.now())
         throw new TenantGateError('TENANT_EXPIRED');

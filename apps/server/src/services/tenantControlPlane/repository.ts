@@ -36,6 +36,9 @@ export interface ProvisionOperationRecord {
   datasourceReady: boolean;
   errorCode: SafeErrorCode | null;
   inputHash: string;
+  /** Only this attempt may persist progress until the renewable step lease expires. */
+  leaseToken?: string | null;
+  leaseUntil?: string | null;
   name: string;
   operationId: string;
   schemaName: string | null;
@@ -73,6 +76,8 @@ export interface LifecycleEventRecord {
   attempts: number;
   errorCode: SafeErrorCode | null;
   eventId: string;
+  leaseToken?: string | null;
+  leaseUntil?: string | null;
   observedAt: string;
   payloadHash: string;
   request: LifecycleRequest;
