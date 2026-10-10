@@ -1110,14 +1110,17 @@ export class ChannelModel {
     await this.db.transaction(async (tx) => {
       const run = await this.fenced(tx, channelId, runId, fence, true);
       if (run.physicalStopped) return;
+      const environmentError = stopped
+        ? null
+        : error || 'Old execution has not been confirmed stopped';
+      // The worker retries unconfirmed cleanup every tick; repeating the same outcome is not news.
+      if (!stopped && run.environmentError === environmentError) return;
       await tx
         .update(channelRuns)
         .set({
           physicalStopped: stopped,
           ...(stopped && { cleanupRequested: false }),
-          environmentError: stopped
-            ? null
-            : error || 'Old execution has not been confirmed stopped',
+          environmentError,
         })
         .where(eq(channelRuns.id, runId));
       if (stopped) await this.audit(tx, channelId, 'execution_physically_stopped', runId);

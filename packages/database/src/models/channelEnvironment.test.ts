@@ -341,6 +341,35 @@ it('keeps cleanup durable after cancelling a switch, without replaying an interr
   expect((await model.claim(channel.id, queued.id, 0))?.run.executionConfig).toEqual(original);
 });
 
+it('does not rewrite a run when an unconfirmed cleanup repeats the same outcome', async () => {
+  const { channel, member } = await setup();
+  const job = await send(channel.id, member.id);
+  const { run } = (await model.claim(channel.id, job.id, 0))!;
+  await model.releaseWriter(channel.id, run.id, 1);
+  await model.pauseMember(channel.id, member.id, 0);
+  const version = async () =>
+    (await client.query<{ xmin: string }>('SELECT xmin FROM channel_runs WHERE id = $1', [run.id]))
+      .rows[0].xmin;
+
+  await model.recordEnvironmentCleanup(channel.id, run.id, 1, false, 'Device HTTP 503');
+  const first = await version();
+  await model.recordEnvironmentCleanup(channel.id, run.id, 1, false, 'Device HTTP 503');
+  expect(await version()).toBe(first);
+
+  await model.recordEnvironmentCleanup(channel.id, run.id, 1, false, 'Device offline');
+  expect(await version()).not.toBe(first);
+  expect(await storedRun(run.id)).toMatchObject({
+    environmentError: 'Device offline',
+    physicalStopped: false,
+  });
+  await model.recordEnvironmentCleanup(channel.id, run.id, 1, true);
+  expect(await storedRun(run.id)).toMatchObject({
+    cleanupRequested: false,
+    environmentError: null,
+    physicalStopped: true,
+  });
+});
+
 it('does not deliver a delayed routing result into the new environment', async () => {
   const { channel, member } = await setup();
   const job = await send(channel.id, member.id);
