@@ -1,14 +1,15 @@
 import { Given, Then } from '@cucumber/cucumber';
 import { expect } from '@playwright/test';
 
-import { CustomWorld } from '../../support/world';
+import { tenantPath } from '../../support/tenant';
+import type { CustomWorld } from '../../support/world';
 
 // ============================================
 // Given Steps (Preconditions)
 // ============================================
 
 Given('I navigate to {string}', async function (this: CustomWorld, path: string) {
-  const response = await this.page.goto(path, { waitUntil: 'commit' });
+  const response = await this.page.goto(tenantPath(path), { waitUntil: 'commit' });
   this.testContext.lastResponse = response;
   await this.page.waitForLoadState('domcontentloaded');
 });

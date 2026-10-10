@@ -251,7 +251,9 @@ describe('videoRouter', () => {
       expect(result.success).toBe(true);
       expect(mockCreateVideo).toHaveBeenCalledWith(
         expect.objectContaining({
-          callbackUrl: expect.stringMatching(/^https:\/\/app\.example\.com\/api\/webhooks\/video/),
+          callbackUrl: expect.stringMatching(
+            /^https:\/\/app\.example\.com\/t\/acme\/api\/webhooks\/video/,
+          ),
         }),
         expect.objectContaining({ preferredCompletionMode: 'polling' }),
       );
@@ -308,7 +310,7 @@ describe('videoRouter', () => {
       expect(mockCreateVideo).toHaveBeenCalledWith(
         expect.objectContaining({
           callbackUrl: expect.stringMatching(
-            /^https:\/\/local-tunnel\.example\.com\/api\/webhooks\/video/,
+            /^https:\/\/local-tunnel\.example\.com\/t\/acme\/api\/webhooks\/video/,
           ),
         }),
         expect.objectContaining({ preferredCompletionMode: 'webhook' }),
@@ -325,7 +327,7 @@ describe('videoRouter', () => {
       expect(mockCreateVideo).toHaveBeenCalledWith(
         expect.objectContaining({
           callbackUrl: expect.stringMatching(
-            /^https:\/\/proxy\.example\.com\/lobehub\/api\/webhooks\/video\/[^?]+\?/,
+            /^https:\/\/proxy\.example\.com\/lobehub\/t\/acme\/api\/webhooks\/video\/[^?]+\?/,
           ),
         }),
         expect.any(Object),

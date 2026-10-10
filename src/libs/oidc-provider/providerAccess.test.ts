@@ -2,7 +2,12 @@ import { beforeEach, expect, it, vi } from 'vitest';
 
 import { createOIDCProvider } from './provider';
 
-const state = vi.hoisted(() => ({ config: undefined as any, access: vi.fn(), findUser: vi.fn() }));
+const state = vi.hoisted(() => ({
+  issuer: '',
+  config: undefined as any,
+  access: vi.fn(),
+  findUser: vi.fn(),
+}));
 vi.mock('@lobechat/business-auth', () => ({
   assertBusinessUserAccess: state.access,
   isBusinessAuthorizationError: (error: any) =>
@@ -10,7 +15,8 @@ vi.mock('@lobechat/business-auth', () => ({
 }));
 vi.mock('oidc-provider', () => ({
   default: class {
-    constructor(_issuer: string, config: unknown) {
+    constructor(issuer: string, config: unknown) {
+      state.issuer = issuer;
       state.config = config;
     }
     on() {}
@@ -59,4 +65,18 @@ it('findAccount reports unavailable when the current user lookup fails', async (
   await expect(state.config.findAccount({ oidc: {} }, 'alice')).rejects.toMatchObject({
     statusCode: 503,
   });
+});
+
+it('keeps the issuer, device endpoints, cookies and redirects within a tenant', async () => {
+  await createOIDCProvider({} as never, 'acme');
+  expect(state.issuer).toBe('http://localhost:3000/t/acme/oidc');
+  expect(state.config.routes.device_authorization).toBe('/t/acme/oidc/device/auth');
+  expect(state.config.cookies.long.path).toBe('/t/acme');
+  expect(state.config.cookies.short.path).toBe('/t/acme');
+  const redirect = vi.fn();
+  await state.config.features.deviceFlow.successSource({ redirect });
+  expect(redirect).toHaveBeenCalledWith('/t/acme/oauth/device/success');
+  expect(state.config.interactions.url({ oidc: {} }, { uid: 'consent-1' })).toBe(
+    '/t/acme/oauth/consent/consent-1',
+  );
 });

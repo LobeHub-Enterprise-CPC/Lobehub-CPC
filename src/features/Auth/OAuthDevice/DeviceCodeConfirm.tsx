@@ -4,6 +4,7 @@ import { Block, Flexbox } from '@lobehub/ui';
 import { Button, Text } from '@lobehub/ui/base-ui';
 import React, { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useHref } from 'react-router';
 
 import AuthCard from '@/features/AuthCard';
 
@@ -21,6 +22,7 @@ interface DeviceCodeConfirmProps {
 const DeviceCodeConfirm = memo<DeviceCodeConfirmProps>(
   ({ xsrf, userCode, clientName, developerName, isFirstParty, policyUri }) => {
     const { t } = useTranslation('oauth');
+    const action = useHref('/oidc/device');
     const [isLoading, setIsLoading] = useState(false);
 
     return (
@@ -28,7 +30,7 @@ const DeviceCodeConfirm = memo<DeviceCodeConfirmProps>(
         subtitle={t('device.confirm.description', { clientName })}
         title={t('device.confirm.title')}
         footer={
-          <form action="/oidc/device" method="post" style={{ width: '100%' }}>
+          <form action={action} method="post" style={{ width: '100%' }}>
             {xsrf && <input name="xsrf" type="hidden" value={xsrf} />}
             <input name="user_code" type="hidden" value={userCode} />
             <input name="confirm" type="hidden" value="yes" />

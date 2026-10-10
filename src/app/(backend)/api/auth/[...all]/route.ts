@@ -1,4 +1,4 @@
-import { buildTenantPath } from '@lobechat/const/tenantPath';
+import { buildTenantPath, stripTenantPath } from '@lobechat/const/tenantPath';
 import { requireTenantScope } from '@lobechat/database/tenant';
 import { APIError } from 'better-auth/api';
 import type { NextRequest } from 'next/server';
@@ -40,7 +40,7 @@ const CALLBACK_PATH = /^\/callback\/([^/]+)$/;
 const toTenantAuthRequest = async (request: Request): Promise<Request> => {
   const { slug } = requireTenantScope();
   const url = new URL(request.url);
-  let rest = url.pathname.replace(/^\/api\/auth/, '') || '/';
+  let rest = stripTenantPath(url.pathname).replace(/^\/api\/auth/, '') || '/';
 
   const callback = CALLBACK_PATH.exec(rest);
   if (callback) {
@@ -92,7 +92,8 @@ const dispatch = async (request: Request) => {
 };
 
 const handleGet = async (request: Request) => {
-  if (new URL(request.url).pathname === '/api/auth/providers') return listProviders();
+  if (stripTenantPath(new URL(request.url).pathname) === '/api/auth/providers')
+    return listProviders();
   return dispatch(request);
 };
 

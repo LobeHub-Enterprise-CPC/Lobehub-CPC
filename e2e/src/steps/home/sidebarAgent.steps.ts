@@ -12,6 +12,7 @@ import { Given, Then, When } from '@cucumber/cucumber';
 import { expect } from '@playwright/test';
 
 import { TEST_USER } from '../../support/seedTestUser';
+import { tenantClientConfig, tenantPath } from '../../support/tenant';
 import { type CustomWorld, WAIT_TIMEOUT } from '../../support/world';
 
 // ============================================
@@ -63,7 +64,7 @@ async function createTestAgent(title: string = 'Test Agent'): Promise<string> {
   if (!databaseUrl) throw new Error('DATABASE_URL not set');
 
   const { default: pg } = await import('pg');
-  const client = new pg.Client({ connectionString: databaseUrl });
+  const client = new pg.Client(tenantClientConfig(databaseUrl));
 
   try {
     await client.connect();
@@ -116,7 +117,7 @@ Given('用户在 Home 页面有一个 Agent', { timeout: 30_000 }, async functio
   this.testContext.createdAgentId = agentId;
 
   console.log('   📍 Step: 导航到 Home 页面...');
-  await this.page.goto('/');
+  await this.page.goto(tenantPath('/'));
   await this.page.waitForLoadState('domcontentloaded', { timeout: 15_000 });
   await this.page.waitForTimeout(1000);
 

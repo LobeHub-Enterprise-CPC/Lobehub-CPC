@@ -1,5 +1,7 @@
+import { stripTenantPath } from '@lobechat/const/tenantPath';
 import { runWithTenantScope, TenantDatabaseError } from '@lobechat/database/tenant';
 import debug from 'debug';
+import { NextRequest } from 'next/server';
 
 import { TenantGateError } from './errors';
 import { TENANT_ROUTE_HEADER, verifyTenantRoute } from './routeHeader';
@@ -38,7 +40,18 @@ export const withTenantRequest =
     if (!slug) return new TenantGateError('TENANT_REQUIRED').toResponse();
     try {
       const scope = await getTenantRuntime().admitSlug(slug);
-      return await runWithTenantScope(scope, () => handler(request, ...args));
+      // Next rewrites route selection but retains the original URL on Request.
+      // Downstream adapters (tRPC, Hono, auth) are mounted at unprefixed paths.
+      const url = new URL(request.url);
+      const pathname = stripTenantPath(url.pathname);
+      let routedRequest = request;
+      if (pathname !== url.pathname) {
+        url.pathname = pathname;
+        routedRequest = (
+          request instanceof NextRequest ? new NextRequest(url, request) : new Request(url, request)
+        ) as Req;
+      }
+      return await runWithTenantScope(scope, () => handler(routedRequest, ...args));
     } catch (error) {
       const response = toResponse(error);
       if (response) return response;

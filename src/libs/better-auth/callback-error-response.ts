@@ -1,3 +1,5 @@
+import { stripTenantPath } from '@lobechat/const/tenantPath';
+
 const callbackPath =
   /^\/api\/auth\/(?:callback|oauth2\/callback|sso\/callback|sso\/saml2\/sp\/acs)\/[^/]+\/?$/;
 
@@ -10,7 +12,8 @@ export const redirectCallbackError = async (
   response: Response,
   errorPath = '/auth-error',
 ) => {
-  if (response.status < 400 || !callbackPath.test(new URL(request.url).pathname)) return response;
+  if (response.status < 400 || !callbackPath.test(stripTenantPath(new URL(request.url).pathname)))
+    return response;
 
   const body = await response
     .clone()

@@ -89,6 +89,29 @@ describe('/api/auth/[...all] route', () => {
     expect(new URL(mocks.handler.mock.lastCall![0].url).search).toBe('?x=1');
   });
 
+  it('preserves the auth mount when Next retains the original tenant URL after rewriting', async () => {
+    const response = await POST(
+      new Request('https://localhost/t/acme/api/auth/sign-in/email', {
+        body: JSON.stringify({ email: 'user@example.com', password: 'secret' }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      }) as NextRequest,
+    );
+    expect(response.status).toBe(200);
+    expect(forwardedPath()).toBe('/t/acme/api/auth/sign-in/email');
+  });
+
+  it('recognizes tenant-prefixed provider discovery and generic SSO callbacks', async () => {
+    mocks.providers = [{ generic: true, providerId: 'okta', protocol: 'oidc' }];
+    const response = await GET(new Request('https://localhost/t/acme/api/auth/providers'));
+    expect(await response.json()).toMatchObject({ providers: [{ providerId: 'okta' }] });
+    expect(mocks.handler).not.toHaveBeenCalled();
+
+    await GET(new Request('https://localhost/t/acme/api/auth/callback/okta?code=c'));
+    expect(forwardedPath()).toBe('/t/acme/api/auth/oauth2/callback/okta');
+    expect(new URL(mocks.handler.mock.lastCall![0].url).search).toBe('?code=c');
+  });
+
   it('serves a tenant SSO callback from the generic OAuth callback', async () => {
     mocks.providers = [{ generic: true, providerId: 'okta' }];
 
@@ -132,6 +155,17 @@ describe('/api/auth/[...all] route', () => {
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(await response.json()).toEqual({ code: 'SSO_UNAVAILABLE', message: 'SSO_UNAVAILABLE' });
     expect(mocks.handler).not.toHaveBeenCalled();
+  });
+
+  it('redirects a failed callback when Next preserves its tenant URL', async () => {
+    mocks.handler.mockResolvedValueOnce(
+      Response.json({ code: 'EMAIL_NOT_ALLOWED' }, { status: 403 }),
+    );
+    const response = await GET(
+      new Request('https://localhost/t/acme/api/auth/callback/okta?code=private'),
+    );
+    expect(response.status).toBe(303);
+    expect(response.headers.get('location')).toBe('/t/acme/auth-error?error=EMAIL_NOT_ALLOWED');
   });
 
   it.each(['oauth2/callback', 'sso/callback', 'callback'])(

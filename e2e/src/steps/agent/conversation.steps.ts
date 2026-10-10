@@ -7,6 +7,7 @@ import { Given, Then, When } from '@cucumber/cucumber';
 import { expect } from '@playwright/test';
 
 import { llmMockManager, presetResponses } from '../../mocks/llm';
+import { tenantPath } from '../../support/tenant';
 import type { CustomWorld } from '../../support/world';
 import { WAIT_TIMEOUT } from '../../support/world';
 
@@ -104,7 +105,7 @@ Given('用户进入 Lobe AI 对话页面', { timeout: 30_000 }, async function (
   await llmMockManager.setup(this.page);
 
   console.log('   📍 Step: 直接进入 Lobe AI 对话路由...');
-  await this.page.goto('/agent/inbox', { waitUntil: 'domcontentloaded' });
+  await this.page.goto(tenantPath('/agent/inbox'), { waitUntil: 'domcontentloaded' });
 
   console.log('   📍 Step: 查找输入框...');
   await focusChatInput.call(this);
