@@ -16,7 +16,7 @@ const barrel = (name: string) =>
  * CommonJS barrels and only sees the names Node's CJS lexer can detect. An
  * `export *` hides every name, which broke the migration in CI.
  */
-describe('tenant and platform barrels imported from an ES module', () => {
+describe('database barrels imported from an ES module', () => {
   it('expose their named exports', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'lobe-barrel-'));
     try {
@@ -26,7 +26,8 @@ describe('tenant and platform barrels imported from an ES module', () => {
         [
           `import { LOBEHUB_TENANT_SCHEMA_VERSION, registerTenantMigrator, tenantDB } from '${barrel('tenant')}';`,
           `import { getPlatformDB, tenantDirectory } from '${barrel('platform')}';`,
-          `const names = [LOBEHUB_TENANT_SCHEMA_VERSION, registerTenantMigrator, tenantDB, getPlatformDB, tenantDirectory];`,
+          `import { channels, commandGovernanceRules } from '${barrel('privateSchemas')}';`,
+          `const names = [LOBEHUB_TENANT_SCHEMA_VERSION, registerTenantMigrator, tenantDB, getPlatformDB, tenantDirectory, channels, commandGovernanceRules];`,
           `process.stdout.write(String(names.every((value) => value !== undefined)));`,
         ].join('\n'),
       );
@@ -36,6 +37,7 @@ describe('tenant and platform barrels imported from an ES module', () => {
         env: { ...process.env, NODE_OPTIONS: '' },
         timeout: 60_000,
       });
+      expect(result.status).toBe(0);
       expect(result.stderr).not.toMatch(/does not provide an export/);
       expect(result.stdout).toBe('true');
     } finally {

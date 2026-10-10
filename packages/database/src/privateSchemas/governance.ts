@@ -10,35 +10,10 @@ import {
 } from 'drizzle-orm/pg-core';
 
 /**
- * Database schema for command governance and per-user execution policy.
- *
- * ## Why this lives here and not in `packages/database/src/schemas`
- *
- * These three tables are ours, not upstream's. While they sat in the submodule's
- * schema barrel they were also in the submodule's drizzle chain, which collided
- * with canary's migration indices on every merge — `0158`/`0159` had to be
- * renumbered to `0161`/`0162` once already, snapshots rebuilt by hand each time.
- *
- * Ownership now sits with the shell repo's enterprise chain
- * (`packages/enterprise/src/database/migrations`, bookkeeping in
- * `__drizzle_enterprise_migrations`), which has its own journal and snapshot
- * chain and therefore cannot collide with canary's. This file is the single
- * definition of the tables: the shell's `packages/enterprise/drizzle.config.ts`
- * lists it alongside its own schemas, so `drizzle-kit generate` picks it up from
- * here. `packages/database/migrations` is once again byte-identical to canary.
- *
- * Two consequences worth knowing before editing:
- *
- * 1. **Self-contained on purpose.** No `@/database/schemas/_helpers` import, and
- *    no path alias of any kind: `drizzle-kit` reads this file from the shell
- *    root, where the submodule's tsconfig aliases do not resolve. The timestamp
- *    columns are spelled out below instead.
- * 2. **No `.references(() => users.id)`.** `users` belongs to the submodule's
- *    chain; importing it would pull it into the enterprise config's schema graph
- *    and `drizzle-kit generate` would try to create `users` there too. The three
- *    foreign keys to `users` still exist in the database — they are written by
- *    hand in `0008_command_governance.sql`. Keep them in sync if these columns
- *    change.
+ * CPC-only governance tables. Enterprise owns their migration chain; keep
+ * these models out of the shared `schemas` barrel so canary migrations do
+ * not pick them up. Cross-chain foreign keys to `users` live in Enterprise's
+ * custom migration because importing `users` would also generate its table.
  */
 
 const createdAtColumn = () =>

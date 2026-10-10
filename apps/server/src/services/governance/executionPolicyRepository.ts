@@ -1,7 +1,7 @@
 import type { LobeChatDatabase } from '@lobechat/database';
+import { userExecutionPolicies } from '@lobechat/database/privateSchemas';
 import { count, desc, eq } from 'drizzle-orm';
 
-import { userExecutionPolicies } from './schema';
 import type { UserExecutionPolicyCommandMode, UserExecutionPolicyItem } from './types';
 
 export interface UpsertExecutionPolicyParams {

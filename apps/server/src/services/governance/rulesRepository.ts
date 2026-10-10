@@ -1,7 +1,7 @@
 import type { LobeChatDatabase } from '@lobechat/database';
+import { commandGovernanceRules } from '@lobechat/database/privateSchemas';
 import { and, count, desc, eq, inArray } from 'drizzle-orm';
 
-import { commandGovernanceRules } from './schema';
 import type {
   CommandExecutionTarget,
   CommandGovernancePatternType,
