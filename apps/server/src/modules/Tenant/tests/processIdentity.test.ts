@@ -3,7 +3,7 @@ import type * as NodeFS from 'node:fs';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { readProcessIdentity, verifyTerminatedProcess } from './processIdentity';
+import { readProcessIdentity, verifyTerminatedProcess } from '../processIdentity';
 
 const state = vi.hoisted(() => ({ empty: false }));
 vi.mock('node:fs', async (original) => {

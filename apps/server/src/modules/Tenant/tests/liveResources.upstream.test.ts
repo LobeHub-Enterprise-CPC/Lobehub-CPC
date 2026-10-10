@@ -10,8 +10,8 @@ import type { AddressInfo } from 'node:net';
 import { LobeOpenAI } from '@lobechat/model-runtime';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { TenantGateError } from './errors';
-import { guardTenantStream, TenantLiveResources } from './liveResources';
+import { TenantGateError } from '../errors';
+import { guardTenantStream, TenantLiveResources } from '../liveResources';
 
 const chunk = (content: string) =>
   `data: ${JSON.stringify({

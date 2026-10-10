@@ -9,7 +9,7 @@ import {
   openWithKey,
   sealTenantData,
   sealWithKey,
-} from './tenantKeys';
+} from '../tenantKeys';
 
 const env = { KEY_VAULTS_SECRET: 'test-master-secret' };
 

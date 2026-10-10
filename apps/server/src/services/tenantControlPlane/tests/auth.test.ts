@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isAuthorized, parseControlPlaneToken } from './auth';
+import { isAuthorized, parseControlPlaneToken } from '../auth';
 
 const TOKEN = 't'.repeat(32);
 

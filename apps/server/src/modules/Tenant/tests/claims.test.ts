@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { TenantClaims } from './claims';
+import { TenantClaims } from '../claims';
 
 const deferred = () => {
   let resolve!: () => void;

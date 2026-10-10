@@ -1,10 +1,15 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
-import { getServerDB } from '../core/db-adaptor';
-import type { LobeChatDatabase } from '../type';
-import { TenantDatabaseError } from './errors';
-import { currentTenantScope, runWithTenantScope, tenantDB, type TenantScope } from './requestScope';
+import { getServerDB } from '../../core/db-adaptor';
+import type { LobeChatDatabase } from '../../type';
+import { TenantDatabaseError } from '../errors';
+import {
+  currentTenantScope,
+  runWithTenantScope,
+  tenantDB,
+  type TenantScope,
+} from '../requestScope';
 
 const scopeFor = (tenantId: string): TenantScope => {
   const database = { marker: tenantId, query: () => tenantId } as unknown as LobeChatDatabase;

@@ -2,7 +2,7 @@
 import type { TenantPoolManager } from '@lobechat/database/tenant';
 import { describe, expect, it, vi } from 'vitest';
 
-import { TENANT_ADMISSION_TTL_MS, TenantRuntime } from './runtime';
+import { TENANT_ADMISSION_TTL_MS, TenantRuntime } from '../runtime';
 
 const activeRow = {
   directory: { status: 'active', tenantId: 't-1' },

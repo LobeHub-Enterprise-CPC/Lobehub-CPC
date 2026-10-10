@@ -2,7 +2,7 @@
 import { type ChildProcessWithoutNullStreams, spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { resolve } from 'node:path';
+import path from 'node:path';
 import { createInterface } from 'node:readline';
 
 import { readMigrationFiles } from 'drizzle-orm/migrator';
@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PostgresControlPlaneRepository } from '@/server/services/tenantControlPlane/postgresRepository';
 import { TenantControlPlaneService } from '@/server/services/tenantControlPlane/service';
 
-import { waitForTenantClaims } from './postgresClaims';
+import { waitForTenantClaims } from '../postgresClaims';
 
 const configured = process.env.TENANT_CLAIMS_TEST_URL;
 
@@ -28,7 +28,7 @@ describe.skipIf(!configured)('strict stop across real OS processes and PostgreSQ
   const databaseName = `strict_stop_${randomUUID().replaceAll('-', '')}`;
   const children: ChildProcessWithoutNullStreams[] = [];
   const messages = new Map<ChildProcessWithoutNullStreams, any[]>();
-  const migrationFolder = resolve('packages/database/migrations/platform');
+  const migrationFolder = path.resolve('packages/database/migrations/platform');
 
   const eventually = async (check: () => Promise<boolean>, timeout = 12000) => {
     const end = Date.now() + timeout;

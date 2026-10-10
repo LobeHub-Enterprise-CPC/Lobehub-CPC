@@ -1,7 +1,7 @@
 import type { PlatformDatabase } from '@lobechat/database/platform';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { TenantDirectoryRepository } from './directoryRepository';
+import { TenantDirectoryRepository } from '../directoryRepository';
 
 const active = { directory: { tenantId: 'tenant-acme' }, lifecycle: { desiredState: 'active' } };
 const frozen = { ...active, lifecycle: { desiredState: 'frozen' } };

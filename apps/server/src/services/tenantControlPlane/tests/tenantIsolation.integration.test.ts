@@ -11,7 +11,7 @@
  */
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import path from 'node:path';
 
 import * as platformSchema from '@lobechat/database/platform';
 import {
@@ -40,7 +40,7 @@ import { TenantControlPlaneService } from '../service';
 import { upgradeTenantSchemas } from '../upgrade';
 
 // This suite isolates tenant SQL/roles/drain; durable cross-process receipts are
-// exercised against real workers in Tenant/claims.postgres.test.ts.
+// exercised against real workers in Tenant/tests/claims.postgres.test.ts.
 const releases: (() => Promise<void>)[] = [];
 const testRuntime = (...args: ConstructorParameters<typeof TenantRuntime>) =>
   new TenantRuntime(
@@ -66,21 +66,21 @@ const TENANTS = [
 
 /** A two-file chain written for `public`, like the real one. */
 const fixtureChain = () => {
-  const folder = mkdtempSync(join(tmpdir(), 'tenant-chain-'));
-  mkdirSync(join(folder, 'meta'));
+  const folder = mkdtempSync(path.join(tmpdir(), 'tenant-chain-'));
+  mkdirSync(path.join(folder, 'meta'));
   writeFileSync(
-    join(folder, '0000_base.sql'),
+    path.join(folder, '0000_base.sql'),
     [
       `CREATE TABLE "public"."users" ("id" text PRIMARY KEY NOT NULL, "email" text);`,
       `CREATE TABLE "public"."tenant_metadata" ("tenant_id" text PRIMARY KEY NOT NULL, "datasource_kind" text NOT NULL, "schema_version" text NOT NULL, "installed_at" timestamp with time zone DEFAULT now() NOT NULL);`,
     ].join('--> statement-breakpoint\n'),
   );
   writeFileSync(
-    join(folder, '0001_notes.sql'),
+    path.join(folder, '0001_notes.sql'),
     `CREATE TABLE "public"."notes" ("id" text PRIMARY KEY NOT NULL, "user_id" text NOT NULL REFERENCES "public"."users"("id"));`,
   );
   writeFileSync(
-    join(folder, 'meta/_journal.json'),
+    path.join(folder, 'meta/_journal.json'),
     JSON.stringify({
       dialect: 'postgresql',
       entries: [
@@ -183,7 +183,7 @@ suite('tenant isolation on PostgreSQL', () => {
     platformPool = new Pool({ connectionString: dbUrl(ADMIN_URL!, DB_NAME) });
     platformDB = drizzle(platformPool, { schema: platformSchema });
     await migrate(platformDB, {
-      migrationsFolder: join(process.cwd(), 'packages/database/migrations/platform'),
+      migrationsFolder: path.join(process.cwd(), 'packages/database/migrations/platform'),
     });
 
     await platformDB.insert(platformSchema.tenantRuntimeCutover).values({
@@ -360,10 +360,10 @@ suite('tenant isolation on PostgreSQL', () => {
   it('upgrades every active tenant on deploy and reruns one tenant on request (FR-MD-02)', async () => {
     // A new release adds a migration to the chain.
     writeFileSync(
-      join(chainFolder, '0002_tags.sql'),
+      path.join(chainFolder, '0002_tags.sql'),
       `CREATE TABLE "public"."tags" ("id" text PRIMARY KEY NOT NULL);`,
     );
-    const journalPath = join(chainFolder, 'meta/_journal.json');
+    const journalPath = path.join(chainFolder, 'meta/_journal.json');
     const journal = JSON.parse(readFileSync(journalPath, 'utf8'));
     journal.entries.push({
       breakpoints: true,

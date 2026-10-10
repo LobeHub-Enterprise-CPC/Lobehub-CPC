@@ -2,19 +2,19 @@
 import { currentTenantScope } from '@lobechat/database/tenant';
 import { describe, expect, it, vi } from 'vitest';
 
-import { forEachTenant } from './fanOut';
+import { forEachTenant } from '../fanOut';
 
 const mocks = vi.hoisted(() => ({
   enterTenantId: vi.fn(),
   listAvailableTenantIds: vi.fn(),
 }));
 
-vi.mock('./postgresClaims', () => ({
+vi.mock('../postgresClaims', () => ({
   heartbeatTenantProcess: vi.fn(),
   tenantClaims: { bind: () => async () => {}, enter: async () => async () => {} },
 }));
 
-vi.mock('./runtime', () => ({
+vi.mock('../runtime', () => ({
   getTenantRuntime: () => mocks,
 }));
 

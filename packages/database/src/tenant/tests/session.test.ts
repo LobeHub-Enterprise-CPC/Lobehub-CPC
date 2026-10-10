@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { TenantDatabaseError } from './errors';
-import type { TenantPoolLease } from './pool';
-import { createTenantSchemaPool } from './session';
+import { TenantDatabaseError } from '../errors';
+import type { TenantPoolLease } from '../pool';
+import { createTenantSchemaPool } from '../session';
 
 const SCHEMA = 'tenant_0123456789abcdef01234567';
 

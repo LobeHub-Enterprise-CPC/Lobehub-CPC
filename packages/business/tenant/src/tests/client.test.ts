@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { getTenant, initializeTenant } from './client';
-import { resolveTenant } from './resolve';
+import { getTenant, initializeTenant } from '../client';
+import { resolveTenant } from '../resolve';
 
 afterEach(() => initializeTenant(new URL('https://app.test/')));
 

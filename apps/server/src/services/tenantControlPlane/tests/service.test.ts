@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { DatasourceBundle, LifecycleRequest, ProvisionRequest } from './contracts';
-import { tenantDbNames } from './datasource';
-import { MemoryControlPlaneRepository } from './memoryRepository';
+import type { DatasourceBundle, LifecycleRequest, ProvisionRequest } from '../contracts';
+import { tenantDbNames } from '../datasource';
+import { MemoryControlPlaneRepository } from '../memoryRepository';
 import {
   effectiveTenantState,
   type LifecycleHooks,
   TenantControlPlaneService,
   type TenantDatabaseExecutor,
-} from './service';
+} from '../service';
 
 const TENANT = '7a0c3d2e-1111-4222-8333-944455556666';
 const NOW = new Date('2026-10-08T00:00:00.000Z');

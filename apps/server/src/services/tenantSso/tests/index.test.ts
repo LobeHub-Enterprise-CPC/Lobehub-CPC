@@ -8,7 +8,7 @@ import {
   tenantSsoCallbackPath,
   toGenericOAuthConfig,
   toTenantSsoProvider,
-} from './index';
+} from '../index';
 
 const TENANT = 'tenant-sso-1';
 const previousSecret = process.env.KEY_VAULTS_SECRET;

@@ -7,10 +7,10 @@ import {
   tenantCallbackPath,
   tenantPublicBaseUrl,
   withTenantRequestUrl,
-} from './callbackUrl';
+} from '../callbackUrl';
 
 // tests/setup.ts mocks this module for every other test.
-vi.unmock('./callbackUrl');
+vi.unmock('../callbackUrl');
 
 vi.mock('@/envs/app', () => ({
   getAppOriginUrl: () => 'https://app.example.com',

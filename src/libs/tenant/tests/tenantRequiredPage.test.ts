@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { renderTenantRequiredPage } from './tenantRequiredPage';
+import { renderTenantRequiredPage } from '../tenantRequiredPage';
 
 describe('renderTenantRequiredPage', () => {
   it('renders the same static page for every visitor, in their language', () => {

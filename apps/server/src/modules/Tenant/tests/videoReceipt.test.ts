@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { receiveVideoReceipt } from './videoReceipt';
+import { receiveVideoReceipt } from '../videoReceipt';
 
 const state = vi.hoisted(() => ({
   rows: [] as any[],
@@ -9,7 +9,7 @@ const state = vi.hoisted(() => ({
   slug: 'beta' as string | null,
   parse: vi.fn(),
 }));
-vi.mock('./gate', () => ({ routedTenantSlug: () => state.slug }));
+vi.mock('../gate', () => ({ routedTenantSlug: () => state.slug }));
 vi.mock('@lobechat/model-runtime', () => ({
   ModelRuntime: { initializeWithProvider: () => ({ handleCreateVideoWebhook: state.parse }) },
 }));

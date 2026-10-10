@@ -16,7 +16,7 @@ vi.mock('@lobechat/business-tenant', () => ({
 
 describe('PostgresTenantDatabaseExecutor tenant migrators', () => {
   it('loads the business slot chains after the OSS chain', async () => {
-    await import('./postgresExecutor');
+    await import('../postgresExecutor');
 
     expect(getTenantMigrators().map((migrator) => migrator.name)).toEqual([
       'lobehub',

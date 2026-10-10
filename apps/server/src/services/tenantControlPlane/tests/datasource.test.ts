@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto';
 
 import { describe, expect, it } from 'vitest';
 
-import type { DatasourceBundle } from './contracts';
-import { datasourceBundleSchema } from './contracts';
-import { redactDatasourceBundle, tenantDbNames, validateDatasourceBundle } from './datasource';
+import type { DatasourceBundle } from '../contracts';
+import { datasourceBundleSchema } from '../contracts';
+import { redactDatasourceBundle, tenantDbNames, validateDatasourceBundle } from '../datasource';
 
 const TENANT = '7a0c3d2e-1111-4222-8333-944455556666';
 

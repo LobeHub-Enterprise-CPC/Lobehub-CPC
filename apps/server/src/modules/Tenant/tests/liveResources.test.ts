@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { TenantGateError } from './errors';
-import { guardTenantStream, TenantLiveResources } from './liveResources';
+import { TenantGateError } from '../errors';
+import { guardTenantStream, TenantLiveResources } from '../liveResources';
 
 const INTERVAL = 1000;
 const CHECK_TIMEOUT = 200;

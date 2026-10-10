@@ -7,9 +7,9 @@ import { pathToFileURL } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-const repoRoot = path.resolve(__dirname, '../../../..');
+const repoRoot = path.resolve(__dirname, '../../../../..');
 const barrel = (name: string) =>
-  pathToFileURL(path.resolve(__dirname, '..', name, 'index.ts')).href;
+  pathToFileURL(path.resolve(__dirname, '../..', name, 'index.ts')).href;
 
 /**
  * `db:migrate` runs under tsx, where an ES module (apps/server) imports these

@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { reconcileExternalWork } from './reconcileExternal';
+import { reconcileExternalWork } from '../reconcileExternal';
 
 const state = vi.hoisted(() => ({ baseURL: '', work: undefined as any, write: vi.fn() }));
 vi.mock('@/envs/sandbox', () => ({

@@ -4,19 +4,19 @@ import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { TenantGateError } from './errors';
-import { withTenantRequest } from './gate';
-import { getTenantLiveResources } from './liveResources';
-import { signTenantRoute, TENANT_ROUTE_HEADER } from './routeHeader';
+import { TenantGateError } from '../errors';
+import { withTenantRequest } from '../gate';
+import { getTenantLiveResources } from '../liveResources';
+import { signTenantRoute, TENANT_ROUTE_HEADER } from '../routeHeader';
 
 const mocks = vi.hoisted(() => ({ enterSlug: vi.fn() }));
 
-vi.mock('./postgresClaims', () => ({
+vi.mock('../postgresClaims', () => ({
   heartbeatTenantProcess: vi.fn(),
   tenantClaims: { bind: () => async () => {}, enter: async () => async () => {} },
 }));
 
-vi.mock('./runtime', () => ({
+vi.mock('../runtime', () => ({
   getTenantRuntime: () => mocks,
 }));
 

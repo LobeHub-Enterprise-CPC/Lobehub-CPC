@@ -5,7 +5,7 @@
  * migration, including ones canary adds later, inside the tenant schema:
  * a new migration that creates or touches an object elsewhere fails here.
  */
-import { join } from 'node:path';
+import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
 import { vector } from '@electric-sql/pglite/vector';
@@ -13,19 +13,19 @@ import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { Client } from 'pg';
 import { describe, expect, it } from 'vitest';
 
-import { TenantDatabaseError } from './errors';
+import { TenantDatabaseError } from '../errors';
 import {
   getTenantMigrators,
   materializeTenantMigrations,
   materializeTenantStatement,
   TENANT_MIGRATIONS_TABLE,
   TENANT_ONLY_MIGRATIONS_TABLE,
-} from './migrator';
-import { tenantDbNames } from './names';
+} from '../migrator';
+import { tenantDbNames } from '../names';
 
 const SCHEMA = 'tenant_0123456789abcdef01234567';
-const migrationsFolder = join(__dirname, '../../migrations');
-const chains = [migrationsFolder, join(migrationsFolder, 'tenant')];
+const migrationsFolder = path.join(__dirname, '../../../migrations');
+const chains = [migrationsFolder, path.join(migrationsFolder, 'tenant')];
 
 const materializedChains = () =>
   chains.flatMap((folder) =>
