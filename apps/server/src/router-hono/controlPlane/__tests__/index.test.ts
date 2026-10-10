@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { parseControlPlaneGrants } from '@/server/services/tenantControlPlane/auth';
+import { parseControlPlaneToken } from '@/server/services/tenantControlPlane/auth';
 import { tenantDbNames } from '@/server/services/tenantControlPlane/datasource';
 import { MemoryControlPlaneRepository } from '@/server/services/tenantControlPlane/memoryRepository';
 import { TenantControlPlaneService } from '@/server/services/tenantControlPlane/service';
@@ -12,6 +12,14 @@ vi.mock('@/envs/app', () => ({ appEnv: {} }));
 const TOKEN = 't'.repeat(32);
 const TENANT = 'tenant-a';
 const BASE = 'http://lobehub.internal/api/internal/control-plane';
+const endpoints = [
+  { method: 'POST', path: '/tenant-provision' },
+  { method: 'GET', path: '/tenant-provision' },
+  { method: 'POST', path: '/tenant-datasource' },
+  { method: 'POST', path: '/tenant-lifecycle' },
+  { method: 'GET', path: '/tenant-lifecycle' },
+  { method: 'GET', path: '/tenant-overview' },
+];
 
 const setup = (configured = true) => {
   const repo = new MemoryControlPlaneRepository();
@@ -27,7 +35,7 @@ const setup = (configured = true) => {
     repository: repo,
   });
   const app = createControlPlaneApp({
-    grants: configured ? parseControlPlaneGrants({ LOBEHUB_CONTROL_PLANE_TOKEN: TOKEN }) : null,
+    tokenDigest: configured ? parseControlPlaneToken(TOKEN) : null,
     service: () => service,
   });
   const call = (path: string, init: RequestInit & { headers?: Record<string, string> } = {}) =>
@@ -100,19 +108,23 @@ describe('control-plane router', () => {
     expect(await res.json()).toMatchObject({ errorCode: 'TENANT_INVALID', status: 'failed' });
   });
 
-  it('refuses a wrong token with TOKEN_INVALID', async () => {
+  it.each(endpoints)('refuses a wrong token for $method $path', async ({ method, path }) => {
     const { call } = setup();
-    const res = await call('/tenant-overview?tenantId=tenant-a', {
+    const res = await call(path, {
       headers: { authorization: 'Bearer nope' },
+      method,
     });
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ code: 'TOKEN_INVALID' });
   });
 
-  it('answers 503 when no token is configured', async () => {
-    const { call } = setup(false);
-    expect((await call('/tenant-overview?tenantId=tenant-a')).status).toBe(503);
-  });
+  it.each(endpoints)(
+    'disables $method $path when no token is configured',
+    async ({ method, path }) => {
+      const { call } = setup(false);
+      expect((await call(path, { method })).status).toBe(503);
+    },
+  );
 
   it('never lets the header choose the tenant', async () => {
     const { call } = setup();

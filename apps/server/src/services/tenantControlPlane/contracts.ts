@@ -31,16 +31,6 @@ export const SAFE_ERROR_CODES = [
 ] as const;
 export type SafeErrorCode = (typeof SAFE_ERROR_CODES)[number];
 
-export const CONTROL_PLANE_ACTIONS = [
-  'tenant.provision',
-  'tenant.provision_read',
-  'tenant.datasource.apply',
-  'tenant.lifecycle.apply',
-  'tenant.lifecycle.read',
-  'tenant.overview.read',
-] as const;
-export type ControlPlaneAction = (typeof CONTROL_PLANE_ACTIONS)[number];
-
 const roleName = z
   .string()
   .max(63)

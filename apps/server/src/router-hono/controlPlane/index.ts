@@ -10,9 +10,8 @@ import { isRegistrableSlug } from '@/features/Tenant/reservedSlugs';
 import { getTenantLiveResources } from '@/server/modules/Tenant/liveResources';
 import { waitForTenantClaims } from '@/server/modules/Tenant/postgresClaims';
 import { getTenantRuntime } from '@/server/modules/Tenant/runtime';
-import { isAuthorized, parseControlPlaneGrants } from '@/server/services/tenantControlPlane/auth';
+import { isAuthorized, parseControlPlaneToken } from '@/server/services/tenantControlPlane/auth';
 import {
-  type ControlPlaneAction,
   ControlPlaneError,
   datasourceRequestSchema,
   lifecycleQuerySchema,
@@ -42,8 +41,6 @@ export type ControlPlaneJob =
   | { kind: 'provision'; operationId: string; tenantId: string };
 
 export interface ControlPlaneAppDeps {
-  /** Parsed token grants; null answers every request with 503. */
-  grants: ReturnType<typeof parseControlPlaneGrants>;
   /**
    * Starts (or resumes) the asynchronous execution of a received operation or
    * event. Called after a receipt and on every poll of unfinished work, so a
@@ -52,6 +49,8 @@ export interface ControlPlaneAppDeps {
   schedule?: (job: ControlPlaneJob) => void;
   /** Lazily resolved so a missing backing store is a 503, not a boot failure. */
   service: () => TenantControlPlaneService | null;
+  /** Console token digest; null answers every request with 503. */
+  tokenDigest: ReturnType<typeof parseControlPlaneToken>;
 }
 
 const errorBody = (c: Context, status: ControlPlaneError['status'], code: string) =>
@@ -87,12 +86,11 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
   /** Authorises, parses and cross-checks the request; returns the input and service. */
   const prepare = async <S extends z.ZodType<{ tenantId: string }>>(
     c: Context,
-    action: ControlPlaneAction,
     schema: S,
     source: 'body' | 'query',
   ): Promise<{ input: z.output<S>; service: TenantControlPlaneService }> => {
-    if (!deps.grants) throw new ControlPlaneError(503, 'INTERNAL');
-    if (!isAuthorized(deps.grants, c.req.header('authorization'), action))
+    if (!deps.tokenDigest) throw new ControlPlaneError(503, 'INTERNAL');
+    if (!isAuthorized(deps.tokenDigest, c.req.header('authorization')))
       throw new ControlPlaneError(401, 'TOKEN_INVALID');
 
     let raw: unknown;
@@ -130,7 +128,7 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
         : 200;
 
   app.post('/tenant-provision', async (c) => {
-    const { input, service } = await prepare(c, 'tenant.provision', provisionRequestSchema, 'body');
+    const { input, service } = await prepare(c, provisionRequestSchema, 'body');
     const result = await service.receiveProvision(input);
     if (result.status === 'received' || result.status === 'applying')
       deps.schedule?.({
@@ -142,12 +140,7 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
   });
 
   app.get('/tenant-provision', async (c) => {
-    const { input, service } = await prepare(
-      c,
-      'tenant.provision_read',
-      provisionQuerySchema,
-      'query',
-    );
+    const { input, service } = await prepare(c, provisionQuerySchema, 'query');
     const result = await service.getProvision(input.tenantId, input.operationId);
     if (result.status === 'received' || result.status === 'applying')
       deps.schedule?.({
@@ -159,23 +152,13 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
   });
 
   app.post('/tenant-datasource', async (c) => {
-    const { input, service } = await prepare(
-      c,
-      'tenant.datasource.apply',
-      datasourceRequestSchema,
-      'body',
-    );
+    const { input, service } = await prepare(c, datasourceRequestSchema, 'body');
     const result = await service.receiveDatasource(input);
     return c.json(result, statusFor(result.status, true));
   });
 
   app.post('/tenant-lifecycle', async (c) => {
-    const { input, service } = await prepare(
-      c,
-      'tenant.lifecycle.apply',
-      lifecycleRequestSchema,
-      'body',
-    );
+    const { input, service } = await prepare(c, lifecycleRequestSchema, 'body');
     const result = await service.receiveLifecycle(input);
     if (result.status === 'received' || result.status === 'applying')
       deps.schedule?.({ eventId: input.eventId, kind: 'lifecycle', tenantId: input.tenantId });
@@ -183,12 +166,7 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
   });
 
   app.get('/tenant-lifecycle', async (c) => {
-    const { input, service } = await prepare(
-      c,
-      'tenant.lifecycle.read',
-      lifecycleQuerySchema,
-      'query',
-    );
+    const { input, service } = await prepare(c, lifecycleQuerySchema, 'query');
     const result = await service.getLifecycle(input.tenantId, input.eventId);
     if (result.status === 'received' || result.status === 'applying')
       deps.schedule?.({ eventId: input.eventId, kind: 'lifecycle', tenantId: input.tenantId });
@@ -196,12 +174,7 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
   });
 
   app.get('/tenant-overview', async (c) => {
-    const { input, service } = await prepare(
-      c,
-      'tenant.overview.read',
-      overviewQuerySchema,
-      'query',
-    );
+    const { input, service } = await prepare(c, overviewQuerySchema, 'query');
     return c.json(await service.getOverview(input.tenantId));
   });
 
@@ -241,9 +214,9 @@ const getService = () => {
   return service;
 };
 
-let grants: ReturnType<typeof parseControlPlaneGrants> = null;
+let tokenDigest: ReturnType<typeof parseControlPlaneToken> = null;
 try {
-  grants = parseControlPlaneGrants(appEnv);
+  tokenDigest = parseControlPlaneToken(appEnv.LOBEHUB_CONTROL_PLANE_TOKEN);
 } catch (error) {
   // Refuse every call rather than crash unrelated routes sharing the process.
   log('invalid control-plane token configuration: %s', (error as Error).message);
@@ -281,4 +254,4 @@ const schedule = (job: ControlPlaneJob) => {
     .finally(() => running.delete(key));
 };
 
-export default createControlPlaneApp({ grants, schedule, service: getService });
+export default createControlPlaneApp({ tokenDigest, schedule, service: getService });

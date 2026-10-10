@@ -101,8 +101,8 @@ export const getAppConfig = () => {
        * accept requests.
        */
       COMMAND_GOVERNANCE_SERVICE_TOKEN: z.string().optional(),
+      /** Shared Bearer token for Console to call /api/internal/control-plane/*. */
       LOBEHUB_CONTROL_PLANE_TOKEN: z.string().optional(),
-      LOBEHUB_CONTROL_PLANE_TOKENS_JSON: z.string().optional(),
 
       /**
        * Where this deployment serves its own desktop installers.
@@ -185,7 +185,6 @@ export const getAppConfig = () => {
       COMMAND_GOVERNANCE_ENABLED: process.env.COMMAND_GOVERNANCE_ENABLED === '1',
       COMMAND_GOVERNANCE_SERVICE_TOKEN: process.env.COMMAND_GOVERNANCE_SERVICE_TOKEN,
       LOBEHUB_CONTROL_PLANE_TOKEN: process.env.LOBEHUB_CONTROL_PLANE_TOKEN,
-      LOBEHUB_CONTROL_PLANE_TOKENS_JSON: process.env.LOBEHUB_CONTROL_PLANE_TOKENS_JSON,
       DESKTOP_DOWNLOAD_URL_MACOS: process.env.DESKTOP_DOWNLOAD_URL_MACOS,
       DESKTOP_DOWNLOAD_URL_WINDOWS: process.env.DESKTOP_DOWNLOAD_URL_WINDOWS,
       enableQueueAgentRuntime: process.env.AGENT_RUNTIME_MODE === 'queue',
