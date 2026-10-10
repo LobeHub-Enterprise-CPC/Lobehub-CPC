@@ -6,6 +6,7 @@ import {
   type ToolManifestInfo,
 } from '@lobechat/builtin-tool-activator/executionRuntime';
 import { SkillsExecutionRuntime } from '@lobechat/builtin-tool-skills/executionRuntime';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import { describeLockedDevicePicker, getDisabledPluginIds } from '@lobechat/types';
 
 import { AgentModel } from '@/database/models/agent';
@@ -167,13 +168,15 @@ export const activatorRuntime: ServerRuntimeRegistration = {
             activatedIds.push(id);
           }
         }
-        void emitActivationOutcome({
-          identifiers,
-          status: 'succeeded',
-          summary: 'Activator marked skills as active.',
-        }).catch((error) => {
-          console.error('[AgentSignal] Failed to emit activator outcome:', error);
-        });
+        void trackTenantWork(() =>
+          emitActivationOutcome({
+            identifiers,
+            status: 'succeeded',
+            summary: 'Activator marked skills as active.',
+          }).catch((error) => {
+            console.error('[AgentSignal] Failed to emit activator outcome:', error);
+          }),
+        );
       },
     };
 

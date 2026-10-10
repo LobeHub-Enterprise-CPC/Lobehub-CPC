@@ -8,6 +8,7 @@ export type TenantDatabaseErrorCode = 'TENANT_NOT_READY' | 'TENANT_REQUIRED' | '
 export type TenantDatabaseErrorReason =
   | 'capacity'
   | 'connect-failed'
+  | 'connection-released'
   | 'decrypt-failed'
   | 'directory-miss'
   | 'kind-mismatch'

@@ -5,8 +5,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { forEachTenant } from './fanOut';
 
 const mocks = vi.hoisted(() => ({
-  admitTenantId: vi.fn(),
+  enterTenantId: vi.fn(),
   listAvailableTenantIds: vi.fn(),
+}));
+
+vi.mock('./postgresClaims', () => ({
+  heartbeatTenantProcess: vi.fn(),
+  tenantClaims: { bind: () => async () => {}, enter: async () => async () => {} },
 }));
 
 vi.mock('./runtime', () => ({
@@ -19,9 +24,9 @@ vi.mock('@/server/modules/Tenant/gate', async (importOriginal) => importOriginal
 describe('forEachTenant', () => {
   it('runs the job inside each available tenant and isolates failures', async () => {
     mocks.listAvailableTenantIds.mockResolvedValue(['t-a', 't-b', 't-c']);
-    mocks.admitTenantId.mockImplementation(async (tenantId: string) => {
+    mocks.enterTenantId.mockImplementation(async (tenantId: string) => {
       if (tenantId === 't-b') throw Object.assign(new Error('frozen'), { code: 'TENANT_FROZEN' });
-      return { session: {}, slug: tenantId, tenantId };
+      return { release: async () => {}, scope: { session: {}, slug: tenantId, tenantId } };
     });
 
     const seen: (string | undefined)[] = [];

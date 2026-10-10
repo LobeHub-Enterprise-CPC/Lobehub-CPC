@@ -1,8 +1,16 @@
+import { runWithTenantScope } from '@lobechat/database/tenant';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { TenantGateError } from '@/server/modules/Tenant/errors';
+import { getTenantLiveResources } from '@/server/modules/Tenant/liveResources';
 import type { PlatformDefinition } from '@/server/services/bot/platforms';
 
-import { GatewayManager } from '../GatewayManager';
+import { createGatewayManager, GatewayManager } from '../GatewayManager';
+
+vi.mock('@/server/modules/Tenant/postgresClaims', () => ({
+  heartbeatTenantProcess: vi.fn(),
+  tenantClaims: { bind: () => async () => {}, enter: async () => async () => {} },
+}));
 
 // Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
 vi.mock('@/server/modules/Tenant/callbackUrl');
@@ -235,6 +243,24 @@ describe('GatewayManager', () => {
       await manager.start();
 
       expect(manager.isRunning).toBe(true);
+    });
+  });
+
+  describe('tenant suspension', () => {
+    it("stops the tenant's bot connections on freeze and restarts them on resume", async () => {
+      const scope = { session: {} as any, slug: 'acme', tenantId: 't-gateway' };
+      const tenantManager = runWithTenantScope(scope, () =>
+        createGatewayManager({ definitions: [fakeDefinition] }),
+      );
+      await runWithTenantScope(scope, () => tenantManager.start());
+      expect(tenantManager.isRunning).toBe(true);
+
+      await getTenantLiveResources().suspend('t-gateway', new TenantGateError('TENANT_FROZEN'));
+      expect(tenantManager.isRunning).toBe(false);
+
+      await getTenantLiveResources().resume('t-gateway');
+      expect(tenantManager.isRunning).toBe(true);
+      await tenantManager.stop();
     });
   });
 });

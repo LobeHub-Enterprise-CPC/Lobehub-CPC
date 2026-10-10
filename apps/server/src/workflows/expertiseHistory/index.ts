@@ -1,3 +1,4 @@
+import { currentTenantScope, trackTenantWork } from '@lobechat/database/tenant';
 import debug from 'debug';
 
 import { appEnv } from '@/envs/app';
@@ -17,7 +18,12 @@ export class ExpertiseHistoryWorkflow {
   static async trigger(payload: ExpertiseHistoryWorkflowPayload) {
     const runId = `expertise-history-${payload.userId}-${payload.agentId}-${Date.now()}`;
     if (!appEnv.enableQueueAgentRuntime) {
-      const key = `${payload.userId}:${payload.workspaceId ?? 'personal'}:${payload.agentId}`;
+      const key = JSON.stringify([
+        currentTenantScope()?.tenantId ?? null,
+        payload.userId,
+        payload.workspaceId,
+        payload.agentId,
+      ]);
       const previous = localRuns.get(key) ?? Promise.resolve();
       const current = previous
         .catch(() => undefined)
@@ -38,7 +44,9 @@ export class ExpertiseHistoryWorkflow {
           }
         });
       localRuns.set(key, current);
-      void current.finally(() => localRuns.get(key) === current && localRuns.delete(key));
+      void trackTenantWork(() => current).finally(
+        () => localRuns.get(key) === current && localRuns.delete(key),
+      );
       return { workflowRunId: `local-${runId}` };
     }
 

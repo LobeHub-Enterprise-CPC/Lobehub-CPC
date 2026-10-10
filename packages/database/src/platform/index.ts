@@ -6,4 +6,8 @@ export {
   tenantLifecycle,
   tenantLifecycleInbox,
   tenantProvisionOperation,
+  tenantRuntimeClaim,
+  tenantRuntimeCutover,
+  tenantRuntimeExternalWork,
+  tenantRuntimeProcess,
 } from './schemas';

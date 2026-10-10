@@ -4,8 +4,11 @@ import {
   tenantLifecycle,
   tenantLifecycleInbox,
   tenantProvisionOperation,
+  tenantRuntimeClaim,
+  tenantRuntimeCutover,
+  tenantRuntimeExternalWork,
 } from '@lobechat/database/platform';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { openDirectoryData, sealDirectoryData } from '@/server/crypto/tenantKeys';
 
@@ -125,6 +128,29 @@ const toLifecycle = (row: LifecycleRow): TenantLifecycleRecord => ({
 });
 
 const createTx = (tx: Tx): ControlPlaneTx => ({
+  isTenantStopped: async (tenantId) => {
+    const [cutover] = await tx
+      .select()
+      .from(tenantRuntimeCutover)
+      .where(eq(tenantRuntimeCutover.id, 'strict-stop'));
+    if (!cutover?.enforcedAt) return false;
+    const claims = await tx
+      .select({ id: tenantRuntimeClaim.processId })
+      .from(tenantRuntimeClaim)
+      .where(eq(tenantRuntimeClaim.tenantId, tenantId))
+      .limit(1);
+    const remote = await tx
+      .select({ id: tenantRuntimeExternalWork.workId })
+      .from(tenantRuntimeExternalWork)
+      .where(
+        and(
+          eq(tenantRuntimeExternalWork.tenantId, tenantId),
+          isNull(tenantRuntimeExternalWork.completedAt),
+        ),
+      )
+      .limit(1);
+    return claims.length === 0 && remote.length === 0;
+  },
   findEventByVersion: async (tenantId, version) => {
     const [row] = await tx
       .select()

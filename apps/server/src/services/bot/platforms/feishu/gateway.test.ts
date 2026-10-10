@@ -1,3 +1,6 @@
+import { EventEmitter } from 'node:events';
+
+import { runWithTenantScope } from '@lobechat/database/tenant';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FeishuWSConnection } from './gateway';
@@ -6,6 +9,11 @@ import { FeishuWSConnection } from './gateway';
 
 const mockStart = vi.fn().mockResolvedValue(undefined);
 const mockClose = vi.fn();
+const mockConfig = vi.fn().mockResolvedValue({ ok: true });
+const mockConnect = vi.fn().mockResolvedValue(false);
+const mockReconnect = vi.fn().mockResolvedValue(undefined);
+let lastClient: any;
+let socket: (EventEmitter & { readyState: number }) | null = null;
 let capturedEventHandlers: Record<string, (...args: any[]) => any> = {};
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
@@ -17,9 +25,25 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
   }
 
   class MockWSClient {
-    close = mockClose;
+    closed = false;
+    connect = mockConnect;
+    pullConnectConfig = mockConfig;
+    close(params: unknown) {
+      this.closed = true;
+      mockClose(params);
+      if (socket) this.detachSocket(socket);
+    }
+    detachSocket(target: EventEmitter) {
+      target.removeAllListeners();
+    }
+    reConnect = mockReconnect;
+    wsConfig = { getWSInstance: () => socket };
     start = mockStart;
-    constructor() {}
+    constructor() {
+      // Expose the SDK instance so the test can trigger its background reconnect.
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      lastClient = this;
+    }
   }
 
   return {
@@ -35,6 +59,8 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
 describe('FeishuWSConnection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    socket = null;
+    mockReconnect.mockReset().mockResolvedValue(undefined);
     capturedEventHandlers = {};
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('ok', { status: 200 })));
   });
@@ -44,9 +70,7 @@ describe('FeishuWSConnection', () => {
     vi.unstubAllGlobals();
   });
 
-  function createConnection(
-    overrides?: Partial<Parameters<(typeof FeishuWSConnection)['prototype']['start']>>,
-  ) {
+  function createConnection() {
     return new FeishuWSConnection({
       appId: 'cli_test',
       appSecret: 'test_secret',
@@ -107,6 +131,116 @@ describe('FeishuWSConnection', () => {
   });
 
   describe('close', () => {
+    it('waits for config work started by the SDK reconnect timer and fences the subsequent handshake', async () => {
+      let finish!: () => void;
+      mockConfig.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = () => resolve({ ok: true });
+          }),
+      );
+      await runWithTenantScope(
+        { tenantId: 'a', slug: 'a', session: {} as any, trackWork: () => () => {} },
+        async () => {
+          const conn = createConnection();
+          await conn.start();
+          // Real SDK reConnect resolves before this timer body begins.
+          await lastClient.reConnect();
+          const config = lastClient.pullConnectConfig();
+          const done = vi.fn();
+          const closing = conn.close().then(done);
+          await Promise.resolve();
+          expect(done).not.toHaveBeenCalled();
+          finish();
+          await config;
+          expect(await lastClient.connect()).toBe(false);
+          await closing;
+          expect(mockConnect).not.toHaveBeenCalled();
+        },
+      );
+    });
+    it('terminates a handshake that opens after close before completing shutdown', async () => {
+      let open!: () => void;
+      mockConnect.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            open = () => {
+              socket = Object.assign(new EventEmitter(), { readyState: 1 });
+              resolve(true);
+            };
+          }),
+      );
+      await runWithTenantScope(
+        { tenantId: 'a', slug: 'a', session: {} as any, trackWork: () => () => {} },
+        async () => {
+          const conn = createConnection();
+          await conn.start();
+          const connecting = lastClient.connect();
+          const done = vi.fn();
+          const closing = conn.close().then(done);
+          open();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          expect(mockClose).toHaveBeenCalledTimes(2);
+          expect(done).not.toHaveBeenCalled();
+          socket!.readyState = 3;
+          socket!.emit('close');
+          await connecting;
+          await closing;
+        },
+      );
+    });
+    it('waits for an SDK reconnect already in flight as well as its socket', async () => {
+      let finish!: () => void;
+      mockReconnect.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const resources: Promise<void>[] = [];
+      await runWithTenantScope(
+        {
+          tenantId: 'a',
+          slug: 'a',
+          session: {} as any,
+          trackWork: ({ settled }) => {
+            resources.push(settled);
+            return () => {};
+          },
+        },
+        async () => {
+          const conn = createConnection();
+          await conn.start();
+          socket = Object.assign(new EventEmitter(), { readyState: 1 });
+          const reconnect = lastClient.reConnect();
+          const done = vi.fn();
+          const closing = conn.close().then(done);
+          socket.readyState = 3;
+          socket.emit('close');
+          await Promise.resolve();
+          expect(done).not.toHaveBeenCalled();
+          finish();
+          await reconnect;
+          await closing;
+          await Promise.all(resources);
+          expect(done).toHaveBeenCalledTimes(1);
+        },
+      );
+    });
+    it('waits for the actual socket close after SDK force-close', async () => {
+      const conn = createConnection();
+      await conn.start();
+      socket = Object.assign(new EventEmitter(), { readyState: 1 });
+      const finished = vi.fn();
+      const closing = Promise.resolve(conn.close()).then(finished);
+      await Promise.resolve();
+      expect(mockClose).toHaveBeenCalledWith({ force: true });
+      expect(finished).not.toHaveBeenCalled();
+      socket.readyState = 3;
+      socket.emit('close');
+      await closing;
+      expect(finished).toHaveBeenCalledTimes(1);
+    });
     it('should call wsClient.close()', async () => {
       const conn = createConnection();
       await conn.start();

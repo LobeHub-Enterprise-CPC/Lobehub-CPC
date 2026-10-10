@@ -442,6 +442,22 @@ describe('executeLifecycle', () => {
     assertConsoleInvariants(result);
   });
 
+  it('refuses applied if the final locked check still sees work, and retries after its receipt', async () => {
+    await service.receiveLifecycle(lifecycle());
+    repo.stopped.set(TENANT, false);
+    const failed = await service.executeLifecycle(TENANT, 'evt-1', hooks());
+    expect(failed).toMatchObject({
+      status: 'failed',
+      errorCode: 'LIFECYCLE_FAILED',
+      appliedVersion: 0,
+    });
+    repo.stopped.set(TENANT, true);
+    expect(await service.executeLifecycle(TENANT, 'evt-1', hooks())).toMatchObject({
+      status: 'applied',
+      appliedVersion: 1,
+    });
+  });
+
   it('resumes the queue when activating', async () => {
     await service.receiveLifecycle(lifecycle({ desiredState: 'active', freezeReasons: [] }));
     const h = hooks();

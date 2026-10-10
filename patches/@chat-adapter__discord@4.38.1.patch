@@ -1,0 +1,39 @@
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -2345,8 +2345,9 @@
+       partials: [Partials.Channel]
+     });
+     let isShuttingDown = false;
++    const pendingEvents = new Set();
+     if (webhookUrl) {
+-      client.on("raw", async (packet) => {
++      const forwardPacket = async (packet) => {
+         if (isShuttingDown) {
+           return;
+         }
+@@ -2383,6 +2384,15 @@
+           timestamp: Date.now(),
+           data
+         });
++      };
++      client.on("raw", (packet) => {
++        if (isShuttingDown) return;
++        const task = forwardPacket(packet);
++        pendingEvents.add(task);
++        void task.then(
++          () => pendingEvents.delete(task),
++          (error) => { pendingEvents.delete(task); this.logger.error("Gateway forwarding failed", { error: String(error) }); }
++        );
+       });
+     } else {
+       this.setupLegacyGatewayHandlers(client, () => isShuttingDown);
+@@ -2428,7 +2438,8 @@
+       });
+     } finally {
+       isShuttingDown = true;
+-      client.destroy();
++      await client.destroy();
++      await Promise.allSettled([...pendingEvents]);
+       this.logger.info("Discord Gateway listener stopped");
+     }
+   }

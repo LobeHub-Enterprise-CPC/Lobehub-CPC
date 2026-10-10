@@ -8,6 +8,11 @@ import type { PlatformClient, PlatformDefinition } from '@/server/services/bot/p
 
 import { createGatewayManager, GatewayManager, getGatewayManager } from './GatewayManager';
 
+vi.mock('@/server/modules/Tenant/postgresClaims', () => ({
+  heartbeatTenantProcess: vi.fn(),
+  tenantClaims: { bind: () => async () => {}, enter: async () => async () => {} },
+}));
+
 // Mock database and external dependencies
 const { mockFindEnabledByPlatform, mockFindEnabledByPlatformAndAppId } = vi.hoisted(() => ({
   mockFindEnabledByPlatform: vi.fn().mockResolvedValue([]),
@@ -91,6 +96,45 @@ describe('GatewayManager', () => {
     vi.clearAllMocks();
     const globalForGateway = globalThis as any;
     delete globalForGateway.gatewayManagers;
+  });
+
+  it('waits for an in-flight start before stopping late-created clients', async () => {
+    let finish!: () => void;
+    const manager = new GatewayManager({ definitions: [] });
+    const bot = createMockBot();
+    vi.spyOn(manager as any, 'sync').mockImplementation(async () => {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      (manager as any).clients.set('slack:late', bot);
+    });
+    const starting = manager.start();
+    await Promise.resolve();
+    let stopped = false;
+    const stopping = manager.stop().then(() => {
+      stopped = true;
+    });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+    finish();
+    await Promise.all([starting, stopping]);
+    expect(bot.stop).toHaveBeenCalledTimes(1);
+    expect(manager.isRunning).toBe(false);
+  });
+
+  it('stops healthy clients even when another client fails, and retries the failed client', async () => {
+    const manager = new GatewayManager({ definitions: [] });
+    await manager.start();
+    const failed = createMockBot();
+    const healthy = createMockBot();
+    vi.mocked(failed.stop).mockRejectedValueOnce(new Error('socket still open'));
+    (manager as any).clients.set('failed', failed);
+    (manager as any).clients.set('healthy', healthy);
+    await expect(manager.stop()).rejects.toThrow();
+    expect(healthy.stop).toHaveBeenCalledTimes(1);
+    await manager.stop();
+    expect(failed.stop).toHaveBeenCalledTimes(2);
+    expect(healthy.stop).toHaveBeenCalledTimes(1);
   });
 
   describe('constructor and isRunning', () => {

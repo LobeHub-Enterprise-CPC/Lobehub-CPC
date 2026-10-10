@@ -19,6 +19,7 @@ import {
   runWithTenantScope,
   tenantDB,
   tenantDbNames,
+  tenantDrainLockKey,
   type TenantMigrator,
   TenantPoolManager,
 } from '@lobechat/database/tenant';
@@ -28,13 +29,31 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Client, Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { TenantRuntime } from '@/server/modules/Tenant/runtime';
+import { TenantClaims } from '@/server/modules/Tenant/claims';
+import { tenantGateErrorOf } from '@/server/modules/Tenant/errors';
+import { TENANT_ADMISSION_TTL_MS, TenantRuntime } from '@/server/modules/Tenant/runtime';
 
 import type { DatasourceBundle } from '../contracts';
 import { PostgresTenantDatabaseExecutor } from '../postgresExecutor';
 import { PostgresControlPlaneRepository } from '../postgresRepository';
 import { TenantControlPlaneService } from '../service';
 import { upgradeTenantSchemas } from '../upgrade';
+
+// This suite isolates tenant SQL/roles/drain; durable cross-process receipts are
+// exercised against real workers in Tenant/claims.postgres.test.ts.
+const releases: (() => Promise<void>)[] = [];
+const testRuntime = (...args: ConstructorParameters<typeof TenantRuntime>) =>
+  new TenantRuntime(
+    args[0],
+    args[1],
+    args[2],
+    new TenantClaims({ acquire: async () => {}, release: async () => {} }),
+  );
+const admitScope = async (runtime: TenantRuntime, slug: string) => {
+  const work = await runtime.enterSlug(slug);
+  releases.push(work.release);
+  return work.scope;
+};
 
 const ADMIN_URL = process.env.DATABASE_TEST_URL;
 const suite = ADMIN_URL ? describe : describe.skip;
@@ -167,6 +186,13 @@ suite('tenant isolation on PostgreSQL', () => {
       migrationsFolder: join(process.cwd(), 'packages/database/migrations/platform'),
     });
 
+    await platformDB.insert(platformSchema.tenantRuntimeCutover).values({
+      id: 'strict-stop',
+      enforcedAt: new Date(),
+      evidence: 'isolated SQL fixture; no legacy replicas',
+      buildRef: 'test',
+    });
+
     chainFolder = fixtureChain();
     const fixture: TenantMigrator = {
       journalTables: ['__drizzle_migrations'],
@@ -179,11 +205,12 @@ suite('tenant isolation on PostgreSQL', () => {
       isRegistrableSlug: () => true,
       repository: new PostgresControlPlaneRepository(platformDB),
     });
-    runtime = new TenantRuntime(() => platformDB, new TenantPoolManager({ maxPools: 4 }));
+    runtime = testRuntime(() => platformDB, new TenantPoolManager({ maxPools: 4 }));
   }, 60_000);
 
   afterAll(async () => {
     process.env.KEY_VAULTS_SECRET = previousSecret;
+    await Promise.all(releases.splice(0).map((release) => release()));
     await platformPool?.end();
     await admin?.end();
     if (!ADMIN_URL) return;
@@ -227,7 +254,7 @@ suite('tenant isolation on PostgreSQL', () => {
       expect(applied).toMatchObject({ datasourceReady: true, errorCode: null, status: 'applied' });
 
       // Not open for business until Console activates it.
-      await expect(runtime.admitSlug(tenant.slug)).rejects.toMatchObject({
+      await expect(admitScope(runtime, tenant.slug)).rejects.toMatchObject({
         code: 'TENANT_NOT_READY',
       });
 
@@ -241,7 +268,9 @@ suite('tenant isolation on PostgreSQL', () => {
         version: 1,
       });
       runtime.invalidate(tenant.id);
-      await expect(runtime.admitSlug(tenant.slug)).resolves.toMatchObject({ tenantId: tenant.id });
+      await expect(admitScope(runtime, tenant.slug)).resolves.toMatchObject({
+        tenantId: tenant.id,
+      });
     }
 
     // Re-running a finished provision changes nothing (AC-06-2 idempotency).
@@ -258,13 +287,13 @@ suite('tenant isolation on PostgreSQL', () => {
 
   it('keeps the same ids apart per tenant (AC-04-1)', async () => {
     for (const tenant of TENANTS) {
-      const scope = await runtime.admitSlug(tenant.slug);
+      const scope = await admitScope(runtime, tenant.slug);
       await runWithTenantScope(scope, () =>
         tenantDB.execute(sql`INSERT INTO users (id, email) VALUES ('same-id', ${tenant.slug})`),
       );
     }
     for (const tenant of TENANTS) {
-      const scope = await runtime.admitSlug(tenant.slug);
+      const scope = await admitScope(runtime, tenant.slug);
       const rows = await runWithTenantScope(scope, () =>
         tenantDB.execute<{ email: string }>(sql`SELECT email FROM users`),
       );
@@ -274,7 +303,7 @@ suite('tenant isolation on PostgreSQL', () => {
 
   it("denies the runtime role another tenant's schema, the owner role and public (AC-04-2, AC-04-3)", async () => {
     const [a, b] = TENANTS;
-    const scope = await runtime.admitSlug(a.slug);
+    const scope = await admitScope(runtime, a.slug);
     const other = tenantDbNames(b.id).schemaName;
     await expect(
       runWithTenantScope(scope, () => tenantDB.execute(sql.raw(`SELECT * FROM "${other}".users`))),
@@ -307,7 +336,9 @@ suite('tenant isolation on PostgreSQL', () => {
 
   it('fails without a tenant scope instead of using any other connection (AC-04-5)', async () => {
     expect(() => tenantDB.execute(sql`SELECT 1`)).toThrow('TENANT_REQUIRED');
-    await expect(runtime.admitSlug('missing')).rejects.toMatchObject({ code: 'TENANT_NOT_FOUND' });
+    await expect(admitScope(runtime, 'missing')).rejects.toMatchObject({
+      code: 'TENANT_NOT_FOUND',
+    });
   });
 
   it('refuses a frozen tenant at the gate as soon as the event is received (AC-05-4 style)', async () => {
@@ -322,8 +353,8 @@ suite('tenant isolation on PostgreSQL', () => {
       version: 2,
     });
     runtime.invalidate(a.id);
-    await expect(runtime.admitSlug(a.slug)).rejects.toMatchObject({ code: 'TENANT_FROZEN' });
-    await expect(runtime.admitSlug(b.slug)).resolves.toMatchObject({ tenantId: b.id });
+    await expect(admitScope(runtime, a.slug)).rejects.toMatchObject({ code: 'TENANT_FROZEN' });
+    await expect(admitScope(runtime, b.slug)).resolves.toMatchObject({ tenantId: b.id });
   });
 
   it('upgrades every active tenant on deploy and reruns one tenant on request (FR-MD-02)', async () => {
@@ -360,4 +391,148 @@ suite('tenant isolation on PostgreSQL', () => {
       migrated: [a.id],
     });
   });
+
+  it('stops work admitted before a freeze and resumes it after reactivation (FR-DI-07)', async () => {
+    const [, b] = TENANTS;
+    // A second process: it never sees this process's invalidate(), only the
+    // platform database and the propagation window.
+    let clock = Date.now();
+    const remote = testRuntime(
+      () => platformDB,
+      new TenantPoolManager({ maxPools: 2 }),
+      () => new Date(clock),
+    );
+    // A long request or queued step admitted while the tenant was active.
+    const scope = await admitScope(remote, b.slug);
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let inFlightStarted!: () => void;
+    const started = new Promise<void>((resolve) => (inFlightStarted = resolve));
+    const inFlight = runWithTenantScope(scope, () =>
+      tenantDB.transaction(async (tx) => {
+        await tx.execute(sql`INSERT INTO users (id, email) VALUES ('in-flight', 'b')`);
+        inFlightStarted();
+        await held;
+      }),
+    );
+    await started;
+
+    await service.receiveLifecycle({
+      desiredState: 'frozen',
+      eventId: 'evt-freeze-b',
+      expiresAt: null,
+      freezeReasons: ['manual'],
+      occurredAt: new Date().toISOString(),
+      tenantId: b.id,
+      version: 2,
+    });
+
+    // The drain waits for the transaction that was already running.
+    let drained = false;
+    const drain = runtime.drainTransactions(b.id, 10_000).then(() => (drained = true));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(drained).toBe(false);
+    release();
+    await inFlight;
+    await drain;
+
+    // Once its admission cache is older than the propagation window, the
+    // remote process refuses new work through the scope it admitted earlier.
+    clock += TENANT_ADMISSION_TTL_MS + 1;
+    const frozen = (error: unknown) => tenantGateErrorOf(error)?.code === 'TENANT_FROZEN';
+    await expect(
+      runWithTenantScope(scope, () => tenantDB.execute(sql`SELECT 1`)),
+    ).rejects.toSatisfy(frozen);
+    await expect(
+      runWithTenantScope(scope, () =>
+        tenantDB.transaction((tx) => tx.execute(sql`INSERT INTO users (id) VALUES ('late')`)),
+      ),
+    ).rejects.toSatisfy(frozen);
+
+    await service.receiveLifecycle({
+      desiredState: 'active',
+      eventId: 'evt-resume-b',
+      expiresAt: null,
+      freezeReasons: [],
+      occurredAt: new Date().toISOString(),
+      tenantId: b.id,
+      version: 3,
+    });
+    clock += TENANT_ADMISSION_TTL_MS + 1;
+    const rows = await runWithTenantScope(scope, () =>
+      tenantDB.execute<{ id: string }>(sql`SELECT id FROM users WHERE id IN ('in-flight', 'late')`),
+    );
+    expect(rows.rows).toEqual([{ id: 'in-flight' }]);
+  });
+
+  it('re-checks admission after a transaction waited for its connection or the drain lock', async () => {
+    const [, b] = TENANTS;
+    let clock = Date.now();
+    // One connection per pool, so a second transaction waits for the first.
+    const remote = testRuntime(
+      () => platformDB,
+      new TenantPoolManager({ maxConnectionsPerPool: 1, maxPools: 2 }),
+      () => new Date(clock),
+    );
+    const scope = await admitScope(remote, b.slug);
+    const frozen = (error: unknown) => tenantGateErrorOf(error)?.code === 'TENANT_FROZEN';
+    const insert = (id: string) =>
+      runWithTenantScope(scope, () =>
+        tenantDB.transaction((tx) => tx.execute(sql`INSERT INTO users (id) VALUES (${id})`)),
+      );
+
+    // 1. Waiting for the drain lock: a drain holds it exclusively.
+    const lockKey = tenantDrainLockKey(b.id);
+    await admin.query(`SELECT pg_advisory_lock(hashtextextended($1, 0))`, [lockKey]);
+    const waitingForLock = insert('after-drain-lock');
+    // Let it pass the admission check, connect and block on the shared lock.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    // 2. Waiting for a pooled connection held by the blocked transaction:
+    // one Drizzle transaction and one standalone statement.
+    const waitingForConnection = insert('after-pool-wait');
+    const standaloneWaiting = runWithTenantScope(scope, () =>
+      tenantDB.execute(sql`INSERT INTO users (id) VALUES ('after-pool-wait-standalone')`),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    await service.receiveLifecycle({
+      desiredState: 'frozen',
+      eventId: 'evt-freeze-b-2',
+      expiresAt: null,
+      freezeReasons: ['manual'],
+      occurredAt: new Date().toISOString(),
+      tenantId: b.id,
+      version: 4,
+    });
+    clock += TENANT_ADMISSION_TTL_MS + 1;
+    await admin.query(`SELECT pg_advisory_unlock(hashtextextended($1, 0))`, [lockKey]);
+
+    await expect(waitingForLock).rejects.toSatisfy(frozen);
+    await expect(waitingForConnection).rejects.toSatisfy(frozen);
+    await expect(standaloneWaiting).rejects.toSatisfy(frozen);
+
+    await service.receiveLifecycle({
+      desiredState: 'active',
+      eventId: 'evt-resume-b-2',
+      expiresAt: null,
+      freezeReasons: [],
+      occurredAt: new Date().toISOString(),
+      tenantId: b.id,
+      version: 5,
+    });
+    clock += TENANT_ADMISSION_TTL_MS + 1;
+    // Neither refusal leaked the single pooled connection or an open transaction.
+    for (const id of ['resumed-1', 'resumed-2']) await insert(id);
+    await runWithTenantScope(scope, () =>
+      tenantDB.execute(sql`INSERT INTO users (id) VALUES ('resumed-3')`),
+    );
+    const rows = await runWithTenantScope(scope, () =>
+      tenantDB.execute<{ id: string }>(
+        sql`SELECT id FROM users WHERE id IN ('after-drain-lock', 'after-pool-wait', 'after-pool-wait-standalone', 'resumed-1', 'resumed-2', 'resumed-3') ORDER BY id`,
+      ),
+    );
+    expect(rows.rows.map((row) => row.id)).toEqual(['resumed-1', 'resumed-2', 'resumed-3']);
+  }, 30_000);
 });

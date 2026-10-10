@@ -1,4 +1,5 @@
 import { isDraftVerifyRun, normalizeVerifySurface } from '@lobechat/const/verify';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import type {
   AcceptanceAttachment,
   AcceptanceCheckGroup,
@@ -949,12 +950,14 @@ export class AcceptanceService {
    * finds the run already recorded and returns.
    */
   private distilSettledRound = (acceptanceId: string, verifyRunId: string) => {
-    void ExpertiseRejectionWorkflow.trigger({
-      acceptanceId,
-      userId: this.userId,
-      verifyRunId,
-      workspaceId: this.workspaceId,
-    });
+    void trackTenantWork(() =>
+      ExpertiseRejectionWorkflow.trigger({
+        acceptanceId,
+        userId: this.userId,
+        verifyRunId,
+        workspaceId: this.workspaceId,
+      }),
+    );
   };
 
   /**

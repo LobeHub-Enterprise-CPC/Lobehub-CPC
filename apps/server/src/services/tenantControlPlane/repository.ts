@@ -96,6 +96,8 @@ export interface ControlPlaneTx {
   getOperation: (operationId: string) => Promise<ProvisionOperationRecord | null>;
   /** The bundle a provision operation was received with, until the operation applies. */
   getOperationBundle: (operationId: string) => Promise<DatasourceBundle | null>;
+  /** Checked under the tenant control lock immediately before applied. */
+  isTenantStopped: (tenantId: string) => Promise<boolean>;
   listOpenEvents: (tenantId: string) => Promise<LifecycleEventRecord[]>;
   listOperations: (tenantId: string) => Promise<ProvisionOperationRecord[]>;
   putDirectory: (record: TenantDirectoryRecord, bundle: DatasourceBundle) => Promise<void>;

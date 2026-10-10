@@ -16,6 +16,7 @@ export {
   parseErrorRef,
   type SpecErrorCode,
 } from './specs';
+export { SubmissionRejectedError } from './submissionRejected';
 export {
   CATEGORY_NUMERIC_PREFIX,
   CLOUD_TIER_DIGIT,

@@ -16,6 +16,8 @@ export interface TenantScope {
   readonly session: TenantDatabaseSession;
   readonly slug: string;
   readonly tenantId: string;
+  /** Synchronously register detached work before its parent completes. */
+  trackWork?: (resource: { close: () => unknown; settled: Promise<void> }) => () => void;
 }
 
 const storage = new AsyncLocalStorage<TenantScope>();
@@ -68,3 +70,19 @@ export const tenantDB: LobeChatDatabase = new Proxy({} as LobeChatDatabase, {
     return Reflect.has((scope ?? requireTenantScope()).session.database, property);
   },
 });
+
+/** Track the actual promise of immediate background work before invoking it. */
+export const trackTenantWork = async <T>(operation: () => T | Promise<T>): Promise<T> => {
+  const scope = currentTenantScope();
+  let finish!: () => void;
+  const settled = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const release = scope?.trackWork?.({ close: () => {}, settled });
+  try {
+    return await operation();
+  } finally {
+    finish();
+    release?.();
+  }
+};

@@ -47,6 +47,7 @@ export {
   requireTenantScope,
   runWithTenantScope,
   tenantDB,
+  trackTenantWork,
 } from './requestScope';
 export type { TenantDatabaseSessionConfig } from './session';
 export { createTenantSchemaPool, TenantDatabaseSession } from './session';

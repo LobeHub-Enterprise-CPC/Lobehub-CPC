@@ -7,6 +7,20 @@
       "when": 1791515715280,
       "tag": "0000_platform_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791595162360,
+      "tag": "0001_tenant_runtime_claims",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791598592186,
+      "tag": "0002_external_work_receipts",
+      "breakpoints": true
     }
   ],
   "version": "7"

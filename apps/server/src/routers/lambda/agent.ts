@@ -1,5 +1,6 @@
 import { BUILTIN_AGENT_SLUGS } from '@lobechat/builtin-agents';
 import { DEFAULT_AGENT_CONFIG, INBOX_SESSION_ID } from '@lobechat/const';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import type { KnowledgeItem } from '@lobechat/types';
 import { AGENT_PERMISSION_POLICY_KEYS, CreateAgentSchema, KnowledgeType } from '@lobechat/types';
 import { isRecord } from '@lobechat/utils/object';
@@ -1557,9 +1558,11 @@ export const agentRouter = router({
       const prev = await ctx.editLockService.getActiveHolder('agent', input.agentId);
       const result = await ctx.editLockService.acquire('agent', input.agentId);
       if ((result.holderId ?? null) !== (prev ?? null)) {
-        void publishResourceEvent(
-          { id: input.agentId, type: 'agent' },
-          { actorId: ctx.userId, data: { holderId: result.holderId }, type: 'lock.changed' },
+        void trackTenantWork(() =>
+          publishResourceEvent(
+            { id: input.agentId, type: 'agent' },
+            { actorId: ctx.userId, data: { holderId: result.holderId }, type: 'lock.changed' },
+          ),
         );
       }
       return result;
@@ -1587,9 +1590,11 @@ export const agentRouter = router({
       // lease expired and another member took over, the lock is still held.
       const released = await ctx.editLockService.release('agent', input.agentId);
       if (!released) return;
-      void publishResourceEvent(
-        { id: input.agentId, type: 'agent' },
-        { actorId: ctx.userId, data: { holderId: null }, type: 'lock.changed' },
+      void trackTenantWork(() =>
+        publishResourceEvent(
+          { id: input.agentId, type: 'agent' },
+          { actorId: ctx.userId, data: { holderId: null }, type: 'lock.changed' },
+        ),
       );
     }),
 });

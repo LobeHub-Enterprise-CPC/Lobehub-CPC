@@ -1,7 +1,9 @@
 import type { SandboxCallToolResult } from '@lobechat/builtin-tool-cloud-sandbox';
+import { currentTenantScope } from '@lobechat/database/tenant';
 import type { CodeInterpreterToolName } from '@lobehub/market-sdk';
 import debug from 'debug';
 
+import { sealDirectoryData } from '@/server/crypto/tenantKeys';
 import { getToolAccessDeniedError } from '@/server/services/toolExecution/errorClassification';
 
 import { SandboxMiddlewareService } from '../service';
@@ -48,6 +50,21 @@ export class MarketSandboxProvider implements SandboxProvider {
     this.options = options;
   }
 
+  getReceiptContext(workId: string) {
+    const identity = this.options.marketService.getSandboxReceiptIdentity?.();
+    if (!identity) return;
+    const { sandboxMode, sandboxCwd, sandboxWorkingDir } = this.options;
+    const tenantId = currentTenantScope()?.tenantId;
+    if (!tenantId) return;
+    // Omitting the specification can select/recreate a different Market instance.
+    // Preserve the exact original request, sealing env values with the existing key envelope.
+    const sealedSpecification = sealDirectoryData(
+      JSON.stringify(this.options.sandboxSpecification ?? null),
+      `${tenantId}|sandbox:${workId}|specification`,
+    );
+    return { identity, sandboxMode, sandboxCwd, sandboxWorkingDir, sealedSpecification };
+  }
+
   async callTool(
     toolName: string,
     params: Record<string, unknown>,
@@ -72,9 +89,15 @@ export class MarketSandboxProvider implements SandboxProvider {
     );
 
     try {
-      const response = await marketService
-        .getSDK()
-        .plugins.runBuildInTool(toolName as CodeInterpreterToolName, params as never, {
+      const observationOptions: [] | [RequestInit] = ['getCommandOutput', 'killCommand'].includes(
+        toolName,
+      )
+        ? [{ signal: AbortSignal.timeout(2000) }]
+        : [];
+      const response = await marketService.getSDK().plugins.runBuildInTool(
+        toolName as CodeInterpreterToolName,
+        params as never,
+        {
           // Named one by one, and deliberately NOT cast. Market validates this
           // body with a non-strict schema, so an SDK that predates these fields
           // drops them silently and the call runs in a throwaway sandbox while
@@ -97,7 +120,9 @@ export class MarketSandboxProvider implements SandboxProvider {
           sandboxWorkingDir,
           topicId,
           userId,
-        });
+        },
+        ...observationOptions,
+      );
 
       log('Sandbox tool %s response: %O', toolName, response);
 

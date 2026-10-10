@@ -1,6 +1,7 @@
 import createDebug from 'debug';
 
 import type { CreateVideoOptions } from '../../../core/openaiCompatibleFactory';
+import { SubmissionRejectedError } from '../../../errors/submissionRejected';
 import type {
   CreateVideoPayload,
   CreateVideoResult,
@@ -36,7 +37,12 @@ export async function pollVolcengineVideoStatus(
 
   if (!response.ok) {
     const errorText = await response.text();
-    log('Volcengine video status query failed for task %s: %s %s', taskId, response.status, errorText);
+    log(
+      'Volcengine video status query failed for task %s: %s %s',
+      taskId,
+      response.status,
+      errorText,
+    );
     throw new Error(`Failed to query task status for ${taskId} (${response.status}): ${errorText}`);
   }
 
@@ -140,6 +146,12 @@ export async function createVolcengineVideo(
   if (!response.ok) {
     const errorText = await response.text();
     log('Volcengine video API error: %s %s', response.status, errorText);
+    if ([400, 401, 403, 422].includes(response.status))
+      throw new SubmissionRejectedError(
+        `Volcengine video API error: ${response.status} ${errorText}`,
+        'volcengine',
+        response.status,
+      );
     throw new Error(`Volcengine video API error: ${response.status} ${errorText}`);
   }
 

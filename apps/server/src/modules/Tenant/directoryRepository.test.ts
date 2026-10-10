@@ -66,6 +66,36 @@ describe('tenant directory snapshots', () => {
     expect((await repository.findBySlug('acme'))?.lifecycle?.desiredState).toBe('frozen');
   });
 
+  it('counts the cache window from the start of a slow read', async () => {
+    let now = performance.now();
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const { read, repository } = setup();
+    const pending = Promise.withResolvers<(typeof active)[]>();
+    read.mockReturnValueOnce(pending.promise);
+    const first = repository.findBySlug('acme');
+    now += 4000;
+    pending.resolve([active]);
+    await first;
+    read.mockResolvedValue([frozen]);
+    now += 1001;
+    expect((await repository.findBySlug('acme'))?.lifecycle?.desiredState).toBe('frozen');
+  });
+
+  it('rejects an admission read that exceeds the lifecycle propagation bound', async () => {
+    let now = performance.now();
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const { read, repository } = setup();
+    const pending = Promise.withResolvers<(typeof active)[]>();
+    read.mockReturnValueOnce(pending.promise);
+    const first = repository.findBySlug('acme');
+    const refused = expect(first).rejects.toMatchObject({ code: 'TENANT_UNAVAILABLE' });
+    now += 5001;
+    pending.resolve([active]);
+    await refused;
+    read.mockResolvedValue([frozen]);
+    expect((await repository.findBySlug('acme'))?.lifecycle?.desiredState).toBe('frozen');
+  });
+
   it('fails closed on database errors and retries after recovery', async () => {
     const { read, repository } = setup();
     vi.spyOn(console, 'error').mockImplementation(() => {});

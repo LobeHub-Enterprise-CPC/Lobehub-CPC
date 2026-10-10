@@ -96,10 +96,12 @@ export interface SandboxProviderCapabilities {
 
 export interface SandboxProvider extends Pick<ISandboxService, 'callTool'> {
   readonly capabilities: SandboxProviderCapabilities;
-
   exportFileToUploadUrl: (
     request: SandboxProviderFileExportRequest,
   ) => Promise<SandboxProviderFileExportResult>;
+
+  /** Non-secret, allowlisted routing facts for querying this exact remote task after restart. */
+  getReceiptContext?: (workId: string) => Record<string, unknown> | undefined;
 
   readonly kind: SandboxProviderKind;
 }

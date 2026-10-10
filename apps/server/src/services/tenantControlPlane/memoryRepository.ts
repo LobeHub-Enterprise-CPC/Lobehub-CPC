@@ -21,6 +21,7 @@ interface DirectoryEntry {
  * commit when `fn` resolves, matching the rollback behaviour of the real one.
  */
 export class MemoryControlPlaneRepository implements ControlPlaneRepository {
+  stopped = new Map<string, boolean>();
   directory = new Map<string, DirectoryEntry>();
   events = new Map<string, LifecycleEventRecord>();
   lifecycles = new Map<string, TenantLifecycleRecord>();
@@ -37,6 +38,7 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
       const operationBundles = cloneMap(this.operationBundles);
       const operations = cloneMap(this.operations);
       const tx: ControlPlaneTx = {
+        isTenantStopped: async (tenantId) => this.stopped.get(tenantId) ?? true,
         findEventByVersion: async (tenantId, version) =>
           [...events.values()].find((e) => e.tenantId === tenantId && e.version === version) ??
           null,

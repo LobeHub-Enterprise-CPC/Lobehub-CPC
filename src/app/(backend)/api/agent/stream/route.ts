@@ -1,3 +1,4 @@
+import { trackTenantWork } from '@lobechat/database/tenant';
 import { createSSEHeaders, createSSEWriter } from '@lobechat/utils/server';
 import debug from 'debug';
 import { type NextRequest } from 'next/server';
@@ -68,15 +69,17 @@ async function handleGet(request: NextRequest) {
 
   log(`Starting SSE connection for operation ${operationId} from eventId ${lastEventId}`);
 
+  // Set in start(); cancel() runs when the client disconnects or the tenant is
+  // suspended, and must stop the heartbeat and the event subscription.
+  let cleanup: (() => void) | undefined;
+  let subscription: Promise<void> | undefined;
+
   // Create Server-Sent Events stream
   const stream = new ReadableStream({
     cancel(reason) {
       log(`SSE connection cancelled for operation ${operationId}:`, reason);
-
-      // Call cleanup function
-      if ((this as any)._cleanup) {
-        (this as any)._cleanup();
-      }
+      cleanup?.();
+      return subscription;
     },
 
     start(controller) {
@@ -155,11 +158,12 @@ async function handleGet(request: NextRequest) {
       }, 30_000);
 
       // Cleanup function
-      const cleanup = () => {
+      const stop = () => {
         abortController.abort();
         clearInterval(heartbeatInterval);
         log(`SSE connection closed for operation ${operationId}`);
       };
+      cleanup = stop;
 
       // Subscribe to new streaming events
       const subscribeToEvents = async () => {
@@ -205,7 +209,7 @@ async function handleGet(request: NextRequest) {
                     streamEnded = true;
 
                     // Immediately cleanup and close connection
-                    cleanup();
+                    stop();
                     controller.close();
                     log(
                       `SSE connection closed after agent runtime end for operation ${operationId}`,
@@ -232,13 +236,10 @@ async function handleGet(request: NextRequest) {
       };
 
       // Start subscription
-      subscribeToEvents();
+      subscription = trackTenantWork(() => subscribeToEvents());
 
       // Listen for connection close
-      request.signal?.addEventListener('abort', cleanup);
-
-      // Store cleanup function for calling during cancel
-      (controller as any)._cleanup = cleanup;
+      request.signal?.addEventListener('abort', stop);
     },
   });
 

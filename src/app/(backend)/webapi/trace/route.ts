@@ -1,8 +1,8 @@
 import { TraceEventType } from '@lobechat/types';
-import { after } from 'next/server';
 
 import { TraceClient } from '@/libs/traces';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
+import { after } from '@/server/utils/scheduleAfterResponse';
 import { type TraceEventBasePayload, type TraceEventPayloads } from '@/types/trace';
 
 const handlePost = async (req: Request) => {

@@ -7,6 +7,8 @@ import type { z } from 'zod';
 import { invalidateTenantAuth } from '@/auth';
 import { appEnv } from '@/envs/app';
 import { isRegistrableSlug } from '@/features/Tenant/reservedSlugs';
+import { getTenantLiveResources } from '@/server/modules/Tenant/liveResources';
+import { waitForTenantClaims } from '@/server/modules/Tenant/postgresClaims';
 import { getTenantRuntime } from '@/server/modules/Tenant/runtime';
 import { isAuthorized, parseControlPlaneGrants } from '@/server/services/tenantControlPlane/auth';
 import {
@@ -27,6 +29,8 @@ import {
   TenantControlPlaneService,
   type TenantDatabaseExecutor,
 } from '@/server/services/tenantControlPlane/service';
+
+import { createLifecycleHooks } from './lifecycleHooks';
 
 const log = debug('lobe-server:control-plane');
 
@@ -246,21 +250,15 @@ try {
 }
 
 /**
- * Lifecycle side effects in this process (FR-CP-06 execution). Realtime
- * connections and queue claiming have no tenant registry yet, so those stages
- * are no-ops here; the request gate already refuses the tenant from the moment
- * the event was received.
+ * Lifecycle effects collect durable completion receipts before draining.
  */
-const lifecycleHooks: LifecycleHooks = {
-  closeRealtime: async () => {},
-  drainTransactions: (tenantId) => getTenantRuntime().drainTransactions(tenantId),
-  invalidateCaches: async (tenantId) => {
-    getTenantRuntime().invalidate(tenantId);
-    invalidateTenantAuth(tenantId);
-  },
-  resumeQueue: async () => {},
-  stopQueue: async () => {},
-};
+const lifecycleHooks = (): LifecycleHooks =>
+  createLifecycleHooks({
+    invalidateAuth: invalidateTenantAuth,
+    waitForClaims: waitForTenantClaims,
+    live: getTenantLiveResources(),
+    runtime: getTenantRuntime(),
+  });
 
 /** In-process runner: one execution per operation / event at a time. */
 const running = new Set<string>();
@@ -275,7 +273,7 @@ const schedule = (job: ControlPlaneJob) => {
       ? current.executeProvision(job.tenantId, job.operationId).then((result) => {
           if (result.status === 'applied') getTenantRuntime().invalidate(job.tenantId);
         })
-      : current.executeLifecycle(job.tenantId, job.eventId, lifecycleHooks);
+      : current.executeLifecycle(job.tenantId, job.eventId, lifecycleHooks());
   void work
     .catch((error) =>
       log('control-plane %s execution failed: %s', job.kind, (error as Error)?.name),

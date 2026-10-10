@@ -56,3 +56,16 @@ export class TenantGateError extends Error {
     );
   }
 }
+
+/**
+ * The gate refusal behind `error`, looking through wrappers such as Drizzle's
+ * query error: work admitted earlier is refused when its next transaction
+ * re-checks the tenant, deep inside the database driver.
+ */
+export const tenantGateErrorOf = (error: unknown): TenantGateError | undefined => {
+  for (let current = error, depth = 0; current && depth < 8; depth += 1) {
+    if (current instanceof TenantGateError) return current;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+};

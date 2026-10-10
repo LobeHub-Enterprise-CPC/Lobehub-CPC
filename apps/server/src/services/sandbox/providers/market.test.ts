@@ -1,5 +1,7 @@
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { describe, expect, it, vi } from 'vitest';
 
+import { openDirectoryData } from '@/server/crypto/tenantKeys';
 import type { MarketService } from '@/server/services/market';
 
 import { MarketSandboxProvider, redactSandboxParams } from './market';
@@ -15,6 +17,40 @@ describe('MarketSandboxProvider', () => {
       })),
     }) as unknown as MarketService;
 
+  it('preserves the exact sandbox specification for reconciliation without plaintext secrets', async () => {
+    vi.stubEnv('KEY_VAULTS_SECRET', 'local-test-key');
+    try {
+      const provider = new MarketSandboxProvider({
+        marketService: {
+          getSandboxReceiptIdentity: () => ({ userId: 'user-1' }),
+        } as unknown as MarketService,
+        userId: 'user-1',
+        topicId: 'topic-1',
+        sandboxMode: 'persistent',
+        sandboxSpecification: {
+          env: { PRIVATE_TOKEN: 'test-sensitive-value' },
+          sources: [{ kind: 'git', uri: 'fixture' }],
+        },
+      });
+      await runWithTenantScope({ tenantId: 'tenant-1' } as TenantScope, async () => {
+        const context = provider.getReceiptContext('work-1')!;
+        expect(JSON.stringify(context)).not.toContain('test-sensitive-value');
+        expect(
+          JSON.parse(
+            openDirectoryData(
+              context.sealedSpecification as string,
+              'tenant-1|sandbox:work-1|specification',
+            ),
+          ),
+        ).toEqual({
+          env: { PRIVATE_TOKEN: 'test-sensitive-value' },
+          sources: [{ kind: 'git', uri: 'fixture' }],
+        });
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it('keeps the previous Market sandbox callTool success response shape', async () => {
     const marketService = createMarketService({
       data: {
@@ -241,7 +277,7 @@ describe('MarketSandboxProvider', () => {
 describe('MarketSandboxProvider · persistence fields on the wire', () => {
   const callWithRealSDK = async () => {
     const { MarketSDK } = await import('@lobehub/market-sdk');
-    const fetchMock = vi.fn(async () => ({
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => ({
       headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({ data: { result: { exitCode: 0, stdout: '' } }, success: true }),
       ok: true,

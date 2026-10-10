@@ -81,4 +81,5 @@ overrides:
   'zod@^4': 4.6.5
 
 patchedDependencies:
+  '@chat-adapter/discord@4.38.1': patches/@chat-adapter__discord@4.38.1.patch
   '@upstash/qstash': patches/@upstash__qstash.patch

@@ -1,4 +1,5 @@
 import type { ToolRunResult } from '@lobechat/agent-runtime';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import type { SerializedAgentHook } from '@lobechat/types';
 import {
   agentHookMatcherSchema,
@@ -207,16 +208,18 @@ export class HookDispatcher {
     };
     // Observations never become a tool-execution prerequisite. The normal
     // dispatcher retains critical failure reporting and independent siblings.
-    void this.dispatchHooks(
-      operationId,
-      'beforeToolCall',
-      toolCallEvent,
-      serializedHooks,
-      undefined,
-      'webhook',
-    ).catch((error: unknown) => {
-      log('[%s][beforeToolCall] Observation delivery rejected: %O', operationId, error);
-    });
+    void trackTenantWork(() =>
+      this.dispatchHooks(
+        operationId,
+        'beforeToolCall',
+        toolCallEvent,
+        serializedHooks,
+        undefined,
+        'webhook',
+      ).catch((error: unknown) => {
+        log('[%s][beforeToolCall] Observation delivery rejected: %O', operationId, error);
+      }),
+    );
     // Legacy local handlers can supply an asynchronous mock. Invoke them once;
     // the first mock stops only handlers, not the independent HTTP observation.
     await this.dispatchHooks(

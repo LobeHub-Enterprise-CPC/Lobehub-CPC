@@ -18,6 +18,8 @@ import type {
 
 const log = debug('lobe-server:sandbox:onlyboxes');
 
+class OnlyboxesSubmissionRejected extends Error {}
+
 const DEFAULT_TIMEOUT_MS = 120_000;
 const EXPORT_TASK_WAIT_MS = 60_000;
 const DEFAULT_LEASE_TTL_SEC = 900;
@@ -78,98 +80,106 @@ export class OnlyboxesSandboxProvider implements SandboxProvider {
     params: Record<string, unknown>,
   ): Promise<SandboxCallToolResult> {
     if (!this.baseUrl || !this.jitSigningKey) {
-      return this.errorResult('ONLYBOXES_BASE_URL and ONLYBOXES_JIT_SIGNING_KEY are required');
+      return {
+        ...this.errorResult('ONLYBOXES_BASE_URL and ONLYBOXES_JIT_SIGNING_KEY are required'),
+        remoteExecution: 'not-started',
+      };
     }
 
     try {
       switch (toolName) {
         case 'runCommand': {
-          return this.runCommand(params);
+          return await this.runCommand(params);
         }
 
         case 'getCommandOutput': {
-          return this.getCommandOutput(params);
+          return await this.getCommandOutput(params);
         }
 
         case 'killCommand': {
-          return this.killCommand(params);
+          return await this.killCommand(params);
         }
 
         case 'executeCode': {
-          return this.executeCode(params);
+          return await this.executeCode(params);
         }
 
         case 'execScript': {
-          return this.execScript(params);
+          return await this.execScript(params);
         }
 
         case 'listLocalFiles': {
-          return this.runJsonScript(listFilesScript, params);
+          return await this.runJsonScript(listFilesScript, params);
         }
 
         case 'listFiles': {
-          return this.runJsonScript(listFilesScript, params);
+          return await this.runJsonScript(listFilesScript, params);
         }
 
         case 'readLocalFile': {
-          return this.runJsonScript(readFileScript, params);
+          return await this.runJsonScript(readFileScript, params);
         }
 
         case 'readFile': {
-          return this.runJsonScript(readFileScript, params);
+          return await this.runJsonScript(readFileScript, params);
         }
 
         case 'writeLocalFile': {
-          return this.writeLocalFile(params);
+          return await this.writeLocalFile(params);
         }
 
         case 'writeFile': {
-          return this.writeLocalFile(params);
+          return await this.writeLocalFile(params);
         }
 
         case 'editLocalFile': {
-          return this.runJsonScript(editFileScript, params);
+          return await this.runJsonScript(editFileScript, params);
         }
 
         case 'editFile': {
-          return this.runJsonScript(editFileScript, params);
+          return await this.runJsonScript(editFileScript, params);
         }
 
         case 'searchLocalFiles': {
-          return this.runJsonScript(searchFilesScript, params);
+          return await this.runJsonScript(searchFilesScript, params);
         }
 
         case 'searchFiles': {
-          return this.runJsonScript(searchFilesScript, params);
+          return await this.runJsonScript(searchFilesScript, params);
         }
 
         case 'moveLocalFiles': {
-          return this.runJsonScript(moveFilesScript, params);
+          return await this.runJsonScript(moveFilesScript, params);
         }
 
         case 'moveFiles': {
-          return this.runJsonScript(moveFilesScript, params);
+          return await this.runJsonScript(moveFilesScript, params);
         }
 
         case 'grepContent': {
-          return this.runJsonScript(grepContentScript, params);
+          return await this.runJsonScript(grepContentScript, params);
         }
 
         case 'globLocalFiles': {
-          return this.runJsonScript(globFilesScript, params);
+          return await this.runJsonScript(globFilesScript, params);
         }
 
         case 'globFiles': {
-          return this.runJsonScript(globFilesScript, params);
+          return await this.runJsonScript(globFilesScript, params);
         }
 
         default: {
-          return this.errorResult(`Unsupported Onlyboxes sandbox tool: ${toolName}`);
+          return await this.errorResult(`Unsupported Onlyboxes sandbox tool: ${toolName}`);
         }
       }
     } catch (error) {
       log('Onlyboxes tool %s failed: %O', toolName, error);
-      return this.errorResult((error as Error).message, (error as Error).name);
+      return {
+        ...this.errorResult((error as Error).message, (error as Error).name),
+        ...(error instanceof OnlyboxesSubmissionRejected && {
+          remoteExecution: 'not-started' as const,
+        }),
+      };
     }
   }
 
@@ -240,7 +250,10 @@ export class OnlyboxesSandboxProvider implements SandboxProvider {
     const runner = runners[language];
 
     if (!runner) {
-      return this.errorResult(`Unsupported code language for Onlyboxes sandbox: ${language}`);
+      return {
+        ...this.errorResult(`Unsupported code language for Onlyboxes sandbox: ${language}`),
+        remoteExecution: 'not-started',
+      };
     }
 
     const filePath = `/tmp/lobe-code-${Date.now()}.${extensions[language]}`;
@@ -273,7 +286,7 @@ export class OnlyboxesSandboxProvider implements SandboxProvider {
     const command = String(params.command || '');
 
     if (!command.trim()) {
-      return this.errorResult('command is required');
+      return { ...this.errorResult('command is required'), remoteExecution: 'not-started' };
     }
 
     const skillZipUrls = this.resolveExecScriptZipUrls(params);
@@ -325,7 +338,7 @@ export class OnlyboxesSandboxProvider implements SandboxProvider {
     const command = String(params.command || '');
 
     if (!command.trim()) {
-      return this.errorResult('command is required');
+      return { ...this.errorResult('command is required'), remoteExecution: 'not-started' };
     }
 
     if (params.background === true) {
@@ -539,6 +552,9 @@ export class OnlyboxesSandboxProvider implements SandboxProvider {
 
     const running =
       task.status === 'running' || task.status === 'pending' || task.status === 'dispatched';
+    const terminal = ['succeeded', 'failed', 'cancelled', 'canceled', 'timed_out'].includes(
+      task.status || '',
+    );
     const success = running || task.status === 'succeeded';
     const result = task.result || {};
 
@@ -550,7 +566,7 @@ export class OnlyboxesSandboxProvider implements SandboxProvider {
         error: task.error?.message,
         newOutput: String(result.stdout || result.output || ''),
         output: String(result.stdout || result.output || ''),
-        running,
+        running: terminal ? false : running ? true : undefined,
         stderr: String(result.stderr || ''),
         success,
       },
@@ -659,6 +675,9 @@ export class OnlyboxesSandboxProvider implements SandboxProvider {
 
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,
+      signal: AbortSignal.timeout(
+        path.startsWith('/api/v1/tasks/') ? 2000 : DEFAULT_TIMEOUT_MS + 5000,
+      ),
       headers,
     });
     const body = await response.text();
@@ -671,6 +690,12 @@ export class OnlyboxesSandboxProvider implements SandboxProvider {
           : typeof json?.error?.message === 'string'
             ? json.error.message
             : `Onlyboxes request failed with HTTP ${response.status}`;
+      if (
+        init.method === 'POST' &&
+        (path === '/api/v1/tasks' || path === '/api/v1/commands/terminal') &&
+        [400, 401, 403, 422].includes(response.status)
+      )
+        throw new OnlyboxesSubmissionRejected(message);
       throw new Error(message);
     }
 

@@ -1,3 +1,4 @@
+import { trackTenantWork } from '@lobechat/database/tenant';
 import { createSSEHeaders, createSSEWriter } from '@lobechat/utils/server';
 import { TRPCError } from '@trpc/server';
 import debug from 'debug';
@@ -43,9 +44,11 @@ const handleGet = checkAuth(async (req, { userId, serverDB }) => {
   }
 
   let cleanup: (() => void) | undefined;
+  let subscription: Promise<void> | undefined;
   const stream = new ReadableStream<string>({
     cancel() {
       cleanup?.();
+      return subscription;
     },
     start(controller) {
       const writer = createSSEWriter(controller);
@@ -86,20 +89,22 @@ const handleGet = checkAuth(async (req, { userId, serverDB }) => {
           });
       }, 30_000);
 
-      void subscribeResourceEvents(
-        { id: topicId, type: 'topic' },
-        (event) => {
-          if (ac.signal.aborted) return;
-          try {
-            writer.writeStreamEvent(event);
-          } catch (error) {
-            log('failed to write event %O', error);
-          }
-        },
-        ac.signal,
-      ).catch((error) => {
-        if (!ac.signal.aborted) log('subscription error %O', error);
-      });
+      subscription = trackTenantWork(() =>
+        subscribeResourceEvents(
+          { id: topicId, type: 'topic' },
+          (event) => {
+            if (ac.signal.aborted) return;
+            try {
+              writer.writeStreamEvent(event);
+            } catch (error) {
+              log('failed to write event %O', error);
+            }
+          },
+          ac.signal,
+        ).catch((error) => {
+          if (!ac.signal.aborted) log('subscription error %O', error);
+        }),
+      );
 
       req.signal?.addEventListener('abort', stop, { once: true });
     },

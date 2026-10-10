@@ -1,5 +1,6 @@
 import { createIoRedisState } from '@chat-adapter/state-ioredis';
 import { BRANDING_NAME } from '@lobechat/business-const';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import type { Message, MessageContext, WebhookOptions } from 'chat';
 import { Chat, ConsoleLogger } from 'chat';
 import debug from 'debug';
@@ -1327,25 +1328,27 @@ export class BotMessageRouter {
       }
 
       const merged = BotMessageRouter.mergeSkippedMessages(message, context);
-      void emitAgentSignalSourceEvent(
-        {
-          payload: {
-            agentId,
-            applicationId,
-            platform,
-            message: merged.text,
-            platformThreadId: thread.id,
+      void trackTenantWork(() =>
+        emitAgentSignalSourceEvent(
+          {
+            payload: {
+              agentId,
+              applicationId,
+              platform,
+              message: merged.text,
+              platformThreadId: thread.id,
+            },
+            sourceId: merged.id,
+            sourceType: 'bot.message.merged',
           },
-          sourceId: merged.id,
-          sourceType: 'bot.message.merged',
-        },
-        {
-          agentId,
-          db: serverDB,
-          userId,
-          workspaceId: workspaceId ?? undefined,
-        },
-        { ignoreError: true },
+          {
+            agentId,
+            db: serverDB,
+            userId,
+            workspaceId: workspaceId ?? undefined,
+          },
+          { ignoreError: true },
+        ),
       );
 
       log(
@@ -1561,25 +1564,27 @@ export class BotMessageRouter {
           );
         }
       }
-      void emitAgentSignalSourceEvent(
-        {
-          payload: {
-            agentId,
-            applicationId,
-            platform,
-            message: merged.text,
-            platformThreadId: thread.id,
+      void trackTenantWork(() =>
+        emitAgentSignalSourceEvent(
+          {
+            payload: {
+              agentId,
+              applicationId,
+              platform,
+              message: merged.text,
+              platformThreadId: thread.id,
+            },
+            sourceId: merged.id,
+            sourceType: 'bot.message.merged',
           },
-          sourceId: merged.id,
-          sourceType: 'bot.message.merged',
-        },
-        {
-          agentId,
-          db: serverDB,
-          userId,
-          workspaceId: workspaceId ?? undefined,
-        },
-        { ignoreError: true },
+          {
+            agentId,
+            db: serverDB,
+            userId,
+            workspaceId: workspaceId ?? undefined,
+          },
+          { ignoreError: true },
+        ),
       );
 
       log(
@@ -1786,25 +1791,27 @@ export class BotMessageRouter {
             }
           }
         }
-        void emitAgentSignalSourceEvent(
-          {
-            payload: {
-              agentId,
-              applicationId,
-              platform,
-              message: merged.text,
-              platformThreadId: thread.id,
+        void trackTenantWork(() =>
+          emitAgentSignalSourceEvent(
+            {
+              payload: {
+                agentId,
+                applicationId,
+                platform,
+                message: merged.text,
+                platformThreadId: thread.id,
+              },
+              sourceId: merged.id,
+              sourceType: 'bot.message.merged',
             },
-            sourceId: merged.id,
-            sourceType: 'bot.message.merged',
-          },
-          {
-            agentId,
-            db: serverDB,
-            userId,
-            workspaceId: workspaceId ?? undefined,
-          },
-          { ignoreError: true },
+            {
+              agentId,
+              db: serverDB,
+              userId,
+              workspaceId: workspaceId ?? undefined,
+            },
+            { ignoreError: true },
+          ),
         );
 
         log(

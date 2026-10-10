@@ -607,7 +607,7 @@ export class TenantControlPlaneService {
     });
     if (!claimed.run) return this.toLifecycleResult(claimed.event, claimed.lifecycle);
 
-    const closing = claimed.event.request.desiredState !== 'active';
+    const closing = effectiveTenantState(claimed.event.request, this.now()).state !== 'active';
     const phases: ((id: string) => Promise<void>)[] = closing
       ? [hooks.invalidateCaches, hooks.closeRealtime, hooks.stopQueue, hooks.drainTransactions]
       : [hooks.invalidateCaches, hooks.resumeQueue];
@@ -636,6 +636,10 @@ export class TenantControlPlaneService {
       const lifecycle = (await tx.getLifecycle(tenantId))!;
       if (event.version !== lifecycle.acceptedVersion || event.status !== 'applying') {
         if (event.status === 'applying') await this.finishEvent(tx, event, 'superseded', null);
+        return this.toLifecycleResult(event, lifecycle);
+      }
+      if (closing && !(await tx.isTenantStopped(tenantId))) {
+        await this.finishEvent(tx, event, 'failed', 'LIFECYCLE_FAILED');
         return this.toLifecycleResult(event, lifecycle);
       }
       lifecycle.appliedVersion = Math.max(lifecycle.appliedVersion, event.version);

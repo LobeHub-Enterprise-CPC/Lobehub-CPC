@@ -1,10 +1,11 @@
 import debug from 'debug';
 import { type NextRequest } from 'next/server';
-import { after, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
 import { OAuthHandoffModel } from '@/database/models/oauthHandoff';
 import { serverDB } from '@/database/server';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
+import { after } from '@/server/utils/scheduleAfterResponse';
 
 const log = debug('lobe-oidc:callback:desktop');
 

@@ -1,5 +1,6 @@
 import { MessageApiName } from '@lobechat/builtin-tool-message';
 import type { BotPlatformContext } from '@lobechat/context-engine';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import type { BotSenderMetadata, ChatTopicBotContext, ExecAgentResult } from '@lobechat/types';
 import { RequestTrigger } from '@lobechat/types';
 import type { Message, SentMessage, Thread } from 'chat';
@@ -955,9 +956,11 @@ export class AgentBridgeService {
     // were delivered but nobody was told). Fire-and-forget; never blocks.
     const senderPlatformId = userMessage.author?.userId;
     if (client?.ensureThreadMember && botContext?.platformThreadId && senderPlatformId) {
-      void safeSideEffect(
-        () => client.ensureThreadMember!(botContext.platformThreadId!, senderPlatformId),
-        'ensureThreadMember (executeWithCallback)',
+      void trackTenantWork(() =>
+        safeSideEffect(
+          () => client.ensureThreadMember!(botContext.platformThreadId!, senderPlatformId),
+          'ensureThreadMember (executeWithCallback)',
+        ),
       );
     }
 

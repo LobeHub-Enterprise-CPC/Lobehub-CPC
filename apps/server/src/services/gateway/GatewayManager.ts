@@ -11,6 +11,8 @@ import { AgentBotProviderModel } from '@/database/models/agentBotProvider';
 import { getAgentRuntimeRedisClient } from '@/server/modules/AgentRuntime/redis';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
+import { runInTenant } from '@/server/modules/Tenant/gate';
+import { getTenantLiveResources } from '@/server/modules/Tenant/liveResources';
 import {
   type BotPlatformRuntimeContext,
   buildRuntimeKey,
@@ -30,6 +32,14 @@ export interface GatewayManagerConfig {
 export class GatewayManager {
   private clients = new Map<string, PlatformClient>();
   private running = false;
+  private accepting = true;
+  private lifecycle: Promise<unknown> = Promise.resolve();
+
+  private serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.lifecycle.then(operation, operation);
+    this.lifecycle = next.catch(() => undefined);
+    return next;
+  }
   private config: GatewayManagerConfig;
 
   private definitionByPlatform: Map<string, PlatformDefinition>;
@@ -47,7 +57,12 @@ export class GatewayManager {
   // Lifecycle (call once)
   // ------------------------------------------------------------------
 
-  async start(): Promise<void> {
+  start(): Promise<void> {
+    return this.serialize(() => this.startNow());
+  }
+
+  private async startNow(): Promise<void> {
+    this.accepting = true;
     if (this.running) {
       log('GatewayManager already running, skipping');
       return;
@@ -63,26 +78,39 @@ export class GatewayManager {
     log('GatewayManager started with %d clients', this.clients.size);
   }
 
-  async stop(): Promise<void> {
-    if (!this.running) return;
-
-    log('Stopping GatewayManager');
-
-    for (const [key, client] of this.clients) {
-      log('Stopping client %s', key);
-      await client.stop();
-    }
-    this.clients.clear();
-
-    this.running = false;
-    log('GatewayManager stopped');
+  stop(): Promise<void> {
+    // Fence starts immediately, including those queued behind a slow sync.
+    this.accepting = false;
+    return this.serialize(async () => {
+      this.accepting = false;
+      const errors: unknown[] = [];
+      await Promise.all(
+        [...this.clients].map(async ([key, client]) => {
+          try {
+            await client.stop();
+            this.clients.delete(key);
+          } catch (error) {
+            errors.push(error);
+          }
+        }),
+      );
+      this.running = false;
+      if (errors.length) throw new AggregateError(errors, 'BOT_STOP_UNCONFIRMED');
+    });
   }
 
   // ------------------------------------------------------------------
   // Client operations (point-to-point)
   // ------------------------------------------------------------------
 
-  async startClient(platform: string, applicationId: string): Promise<void> {
+  startClient(platform: string, applicationId: string): Promise<void> {
+    return this.serialize(async () => {
+      if (!this.accepting) throw new Error('BOT_GATEWAY_STOPPED');
+      await this.startClientNow(platform, applicationId);
+    });
+  }
+
+  private async startClientNow(platform: string, applicationId: string): Promise<void> {
     const key = buildRuntimeKey(platform, applicationId);
 
     // Stop existing if any
@@ -128,12 +156,16 @@ export class GatewayManager {
       return;
     }
 
-    await client.start();
     this.clients.set(key, client);
+    await client.start();
     log('Started client %s', key);
   }
 
-  async stopClient(platform: string, applicationId: string): Promise<void> {
+  stopClient(platform: string, applicationId: string): Promise<void> {
+    return this.serialize(() => this.stopClientNow(platform, applicationId));
+  }
+
+  private async stopClientNow(platform: string, applicationId: string): Promise<void> {
     const key = buildRuntimeKey(platform, applicationId);
     const client = this.clients.get(key);
     if (!client) return;
@@ -219,8 +251,8 @@ export class GatewayManager {
           continue;
         }
 
-        await client.start();
         this.clients.set(key, client);
+        await client.start();
         log('Sync: started client %s', key);
       } catch (err) {
         log('Sync: failed to start client %s: %O', key, err);
@@ -283,8 +315,15 @@ export function createGatewayManager(config: GatewayManagerConfig): GatewayManag
   const { tenantId } = requireTenantScope();
   let manager = managers().get(tenantId);
   if (!manager) {
-    manager = new GatewayManager(config);
-    managers().set(tenantId, manager);
+    const created = new GatewayManager(config);
+    manager = created;
+    managers().set(tenantId, created);
+    // Bot connections are the tenant's live resources: a freeze or offline
+    // stops them on every process, reactivation starts them again.
+    getTenantLiveResources().bind(tenantId, {
+      close: () => created.stop(),
+      reopen: () => runInTenant(tenantId, () => created.start()),
+    });
   }
   return manager;
 }

@@ -1,3 +1,4 @@
+import { trackTenantWork } from '@lobechat/database/tenant';
 import { createSSEHeaders, createSSEWriter } from '@lobechat/utils/server';
 import debug from 'debug';
 
@@ -41,9 +42,14 @@ const handleGet = checkAuth(async (req, { userId, serverDB }) => {
 
   const ref = { id: documentId, type: 'document' as const };
 
+  // Set in start(); cancel() runs when the client disconnects or the tenant is
+  // suspended, and must stop the heartbeat and the event subscription.
+  let cleanup: (() => void) | undefined;
+  let subscription: Promise<void> | undefined;
   const stream = new ReadableStream<string>({
     cancel() {
-      (this as unknown as { _cleanup?: () => void })._cleanup?.();
+      cleanup?.();
+      return subscription;
     },
     start(controller) {
       const writer = createSSEWriter(controller);
@@ -58,27 +64,29 @@ const handleGet = checkAuth(async (req, { userId, serverDB }) => {
         }
       }, 30_000);
 
-      const cleanup = () => {
+      const stop = () => {
         ac.abort();
         clearInterval(heartbeat);
       };
+      cleanup = stop;
 
-      void subscribeResourceEvents(
-        ref,
-        (event) => {
-          try {
-            writer.writeStreamEvent(event);
-          } catch (error) {
-            log('failed to write event %O', error);
-          }
-        },
-        ac.signal,
-      ).catch((error) => {
-        if (!ac.signal.aborted) log('subscription error %O', error);
-      });
+      subscription = trackTenantWork(() =>
+        subscribeResourceEvents(
+          ref,
+          (event) => {
+            try {
+              writer.writeStreamEvent(event);
+            } catch (error) {
+              log('failed to write event %O', error);
+            }
+          },
+          ac.signal,
+        ).catch((error) => {
+          if (!ac.signal.aborted) log('subscription error %O', error);
+        }),
+      );
 
-      req.signal?.addEventListener('abort', cleanup);
-      (controller as unknown as { _cleanup?: () => void })._cleanup = cleanup;
+      req.signal?.addEventListener('abort', stop);
     },
   });
 

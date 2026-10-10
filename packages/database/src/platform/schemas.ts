@@ -6,6 +6,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -140,4 +141,69 @@ export const tenantProvisionOperation = pgTable(
     index('tenant_provision_operation_slug_idx').on(t.slug),
     index('tenant_provision_operation_status_idx').on(t.status),
   ],
+);
+
+/** Durable stop receipts. Missing heartbeats never discharge a tenant claim. */
+export const tenantRuntimeProcess = pgTable('tenant_runtime_process', {
+  processId: text('process_id').primaryKey(),
+  host: text('host').notNull(),
+  hostId: text('host_id'),
+  bootId: text('boot_id'),
+  pidNs: text('pid_ns'),
+  pidStartTicks: text('pid_start_ticks'),
+  pid: integer('pid').notNull(),
+  startedAt: timestamptz('started_at').notNull().defaultNow(),
+  heartbeatAt: timestamptz('heartbeat_at').notNull().defaultNow(),
+  state: text('state').$type<'running' | 'stopped' | 'retired'>().notNull().default('running'),
+  retiredAt: timestamptz('retired_at'),
+  retiredEvidence: jsonb('retired_evidence').$type<Record<string, unknown>>(),
+});
+
+export const tenantRuntimeClaim = pgTable(
+  'tenant_runtime_claim',
+  {
+    tenantId: text('tenant_id').notNull(),
+    processId: text('process_id')
+      .notNull()
+      .references(() => tenantRuntimeProcess.processId, { onDelete: 'restrict' }),
+    claimToken: text('claim_token').notNull(),
+    claimedVersion: integer('claimed_version').notNull(),
+    claimedAt: timestamptz('claimed_at').notNull().defaultNow(),
+    stopVersion: integer('stop_version'),
+    stopError: text('stop_error'),
+    stopErrorAt: timestamptz('stop_error_at'),
+    openCount: integer('open_count').notNull().default(0),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tenantId, t.processId] }),
+    check('tenant_runtime_claim_count_nonnegative', sql`${t.openCount} >= 0`),
+  ],
+);
+
+/** Absent or unenforced means old, unregistered replicas have not been excluded. */
+export const tenantRuntimeCutover = pgTable(
+  'tenant_runtime_cutover',
+  {
+    id: text('id').primaryKey(),
+    enforcedAt: timestamptz('enforced_at'),
+    evidence: text('evidence'),
+    buildRef: text('build_ref'),
+  },
+  (t) => [check('tenant_runtime_cutover_singleton', sql`${t.id} = 'strict-stop'`)],
+);
+
+/** Remote jobs outlive their originating process; retirement must never erase them. */
+export const tenantRuntimeExternalWork = pgTable(
+  'tenant_runtime_external_work',
+  {
+    workId: text('work_id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    kind: text('kind').notNull(),
+    handle: text('handle'),
+    context: jsonb('context').$type<Record<string, unknown>>(),
+    completedAt: timestamptz('completed_at'),
+    receipt: jsonb('receipt').$type<Record<string, unknown>>(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('tenant_runtime_external_work_tenant_idx').on(t.tenantId)],
 );
