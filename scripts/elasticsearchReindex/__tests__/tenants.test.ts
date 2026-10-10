@@ -45,7 +45,7 @@ describe('runTenantReindex', () => {
     await expect(
       runTenantReindex({
         argv: ['--startup', '--tenant', 'a', '--tenant=b', '--yes'],
-        environment: { ES_INDEX_NAMESPACE: 'lobehub', ES_REINDEX_STATE_DIR: state },
+        environment: { ...process.env, ES_INDEX_NAMESPACE: 'lobehub', ES_REINDEX_STATE_DIR: state },
         listTargets,
         log: vi.fn(),
         parseTenants: () => ['a', 'b'],
@@ -72,7 +72,7 @@ describe('runTenantReindex', () => {
     await expect(
       runTenantReindex({
         argv: ['--status'],
-        environment: { ES_INDEX_NAMESPACE: 'lobehub' },
+        environment: { ...process.env, ES_INDEX_NAMESPACE: 'lobehub' },
         listTargets: vi.fn().mockResolvedValue([target('a', 'aaa'), target('b', 'bbb')]),
         log: vi.fn(),
         parseTenants: () => [],
@@ -89,7 +89,7 @@ describe('runTenantReindex', () => {
     await expect(
       runTenantReindex({
         argv: [],
-        environment: {},
+        environment: { ...process.env, ES_INDEX_NAMESPACE: undefined },
         listTargets: vi.fn(),
         parseTenants: () => [],
       }),

@@ -225,7 +225,9 @@ describe('buildDiscussionTimeline', () => {
           ? entry.comment.id
           : entry.kind === 'approval'
             ? entry.approval.id
-            : `round-${entry.roundIndex}`,
+            : entry.kind === 'round'
+              ? `round-${entry.roundIndex}`
+              : entry.kind,
       ),
     ).toEqual(['first', 'round-2', 'second', 'approval', 'reply']);
   });

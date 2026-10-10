@@ -38,7 +38,13 @@ const chains = [
   { folder: migrationsFolder, journal: TENANT_MIGRATIONS_TABLE },
   { folder: join(migrationsFolder, 'tenant'), journal: TENANT_ONLY_MIGRATIONS_TABLE },
   ...(extraMigrationsFolder
-    ? [{ folder: extraMigrationsFolder, journal: '__drizzle_enterprise_migrations' }]
+    ? [
+        {
+          folder: extraMigrationsFolder,
+          journal: '__drizzle_enterprise_migrations',
+          sourceSchema: process.env.TEST_DB_EXTRA_MIGRATIONS_SCHEMA,
+        },
+      ]
     : []),
 ];
 
@@ -48,12 +54,23 @@ const chains = [
  * rows; pg_search (bm25) is skipped where absent.
  */
 const testMigrationStatements = (skipSearchIndexes: boolean) =>
-  chains.flatMap(({ folder, journal }) => {
+  chains.flatMap(({ folder, journal, sourceSchema }) => {
     const migrations = readMigrationFiles({ migrationsFolder: folder });
     return [
       ...migrations.flatMap((migration) =>
         migration.sql
-          .map((statement) => materializeTenantStatement(statement, 'public')?.trim())
+          .map((statement) => {
+            // Distribution tenant chains may be generated against a placeholder schema.
+            // Keep the production chain intact and materialize it into this disposable DB.
+            if (sourceSchema) {
+              if (!/^[a-z_]\w*$/i.test(sourceSchema))
+                throw new Error('Invalid test migration source schema');
+              statement = statement
+                .replaceAll(`"${sourceSchema}"`, '"public"')
+                .replaceAll(`'${sourceSchema}'`, "'public'");
+            }
+            return materializeTenantStatement(statement, 'public')?.trim();
+          })
           .filter(
             (statement): statement is string =>
               !!statement && !(skipSearchIndexes && /pg_search|bm25/i.test(statement)),
