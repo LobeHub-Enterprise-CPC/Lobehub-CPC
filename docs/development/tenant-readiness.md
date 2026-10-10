@@ -24,14 +24,16 @@ connection version, credential bundle version and schema version. The control-pl
 endpoint always verifies the current connection. Maintenance uses the same verification
 without imposing active-tenant admission, so frozen tenants can still be reconciled.
 
-## Admin contract
+## Console orchestration contract
 
-Admin configures two server-only values:
+Console owns orchestration across CPC and Admin. It calls CPC's control plane using the
+CPC service origin and the shared `LOBEHUB_CONTROL_PLANE_TOKEN` configured in CPC
+(at least 32 characters). This contract does not prescribe Console's configuration names.
 
-- `LOBEHUB_CONTROL_PLANE_URL`: the CPC service origin, such as `https://cpc.internal`, without
-  `/api/internal/control-plane` or a tenant path.
-- `LOBEHUB_CONTROL_PLANE_TOKEN`: the same shared token configured under that name in CPC
-  (at least 32 characters). Do not reuse Admin's inbound token or gateway tokens.
+Admin does not configure a CPC control-plane URL or token and does not call CPC readiness.
+It verifies its own migration history and schema, plus the supplied datasource bundles'
+bindings, actual connections, schema ownership and runtime permissions. These checks do
+not claim that CPC's complete business migrations have been applied.
 
 Call `POST /api/internal/control-plane/tenant-readiness` with Bearer authentication and JSON:
 
@@ -70,12 +72,15 @@ Success is HTTP 200. An unavailable datasource is HTTP 503 with `datasourceReady
 and `TENANT_NOT_READY` or `DATASOURCE_INVALID`. Authentication, malformed requests and a
 conflicting `x-tenant-id` use the existing control-plane 401/400/403 errors.
 
-Admin must validate the response identity/versions against its saved bundle and combine
-this current CPC evidence with its own actual connection/permission checks. It does not
-have CPC's release SQL and cannot prove migration completeness from a nonempty journal.
-Both provisioning and `datasourceApply` use this endpoint; they do not need a CPC operation
-ID. `getProvision` remains an operation receipt, and no relationship between CPC and Admin
-`operationId`/`rootOperationId` is assumed. After rotation, only the new bundle can pass.
+Before reporting provisioning or datasource rotation as complete, Console must validate
+this response's identity/versions against the current CPC bundle and confirm Admin's own
+execution result separately. This is the required orchestration contract; Console's
+implementation is not verified by this repository's readiness tests.
+
+Admin does not need a CPC operation ID or a `lobehubOperationId` field. `getProvision`
+remains an operation receipt, and no relationship between CPC and Admin
+`operationId`/`rootOperationId` is assumed. After rotation, only the new bundle can pass
+CPC readiness; a previous operation receipt is not current readiness evidence.
 
 This verifies configuration and database state under trusted provisioning ownership. It
 does not authenticate a database against a malicious database administrator, nor does a
