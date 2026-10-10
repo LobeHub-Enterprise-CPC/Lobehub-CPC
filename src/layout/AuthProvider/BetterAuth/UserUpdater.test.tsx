@@ -41,6 +41,27 @@ describe('UserUpdater', () => {
     useUserStore.setState({ user: undefined, isSignedIn: false, isLoaded: false });
   });
 
+  it.each(['TENANT_FROZEN', 'TENANT_OFFLINE'])(
+    'blocks an already loaded identity when tenant access becomes %s',
+    (code) => {
+      useUserStore.setState({ isLoaded: true, isSignedIn: true });
+      useSessionMock.mockReturnValue({
+        data: null,
+        error: { code, status: 403 },
+        isPending: false,
+        refetch: vi.fn(),
+      });
+      const { unmount } = render(
+        <UserUpdater>
+          <button>Business action</button>
+        </UserUpdater>,
+      );
+      expect(screen.getByRole('alert').textContent).toContain('tenant.unavailable.title');
+      expect(screen.getByText('Business action').closest('[inert]')).toBeTruthy();
+      unmount();
+    },
+  );
+
   it.each([400, 403, 404])(
     'shows a recoverable error for terminal session status %s',
     async (status) => {

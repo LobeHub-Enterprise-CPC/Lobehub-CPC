@@ -11,7 +11,7 @@ import { TENANT_ROUTE_HEADER, verifyTenantRoute } from '@/server/modules/Tenant/
 import { defineConfig } from './define-config';
 
 const mocks = vi.hoisted(() => ({
-  admitSlug: vi.fn(),
+  enterSlug: vi.fn(),
   getSession: vi.fn(),
 }));
 
@@ -20,7 +20,7 @@ vi.mock('@/auth', () => ({
 }));
 
 vi.mock('@/server/modules/Tenant/runtime', () => ({
-  getTenantRuntime: () => ({ admitSlug: mocks.admitSlug }),
+  getTenantRuntime: () => ({ enterSlug: mocks.enterSlug }),
 }));
 
 process.env.KEY_VAULTS_SECRET = 'proxy-test-master-secret';
@@ -30,8 +30,8 @@ beforeEach(() => {
   mocks.getSession
     .mockReset()
     .mockResolvedValue({ headers: new Headers(), response: { user: { id: 'user-1' } } });
-  mocks.admitSlug.mockReset().mockImplementation(async (slug: string) => {
-    if (slug === 'acme') return { slug, tenantId: 'tenant-1' };
+  mocks.enterSlug.mockReset().mockImplementation(async (slug: string) => {
+    if (slug === 'acme') return { release: async () => {}, scope: { slug, tenantId: 'tenant-1' } };
     throw Object.assign(new Error('not found'), { code: 'TENANT_NOT_FOUND' });
   });
 });

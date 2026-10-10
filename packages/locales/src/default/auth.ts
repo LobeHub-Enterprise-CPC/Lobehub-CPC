@@ -386,6 +386,9 @@ export default {
   'profile.usernameUpdateFailed': 'Failed to update username, please try again later',
   'session.checkFailed.description': 'We could not verify your sign-in session. Please try again.',
   'session.checkFailed.title': 'Unable to check your session',
+  'tenant.unavailable.title': 'Workspace unavailable',
+  'tenant.unavailable.description':
+    'This workspace is not currently available. Contact your administrator, or retry after access is restored.',
   'signin.subtitle': 'Sign up or sign in to your {{appName}} account',
   'signin.title': 'Agent teammates that grow with you',
   'signout': 'Sign Out',

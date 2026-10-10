@@ -31,7 +31,8 @@ const validateJsonBody = async (request: Request) => {
 const CALLBACK_PATH = /^\/callback\/([^/]+)$/;
 
 /**
- * The proxy rewrote `/t/{slug}/api/auth/...` to `/api/auth/...`; the tenant's
+ * Next may retain the original tenant URL after its route rewrite. Normalize
+ * either form before mounting the endpoint once under the tenant's
  * better-auth is mounted at `/t/{slug}/api/auth`, so the request goes back to
  * its tenant path. A tenant SSO callback arrives at `/callback/{providerId}`
  * (the URL registered with the identity provider, spec FR-ID-09): built-in

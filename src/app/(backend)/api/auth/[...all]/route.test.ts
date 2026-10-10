@@ -112,6 +112,20 @@ describe('/api/auth/[...all] route', () => {
     expect(new URL(mocks.handler.mock.lastCall![0].url).search).toBe('?code=c');
   });
 
+  it.each(['/sign-up/email', '/get-session', '/oauth2/callback/okta'])(
+    'preserves the auth endpoint when Next retains the original tenant URL: %s',
+    async (endpoint) => {
+      await GET(new Request(`https://localhost/t/acme/api/auth${endpoint}?x=1`));
+      expect(forwardedPath()).toBe(`/t/acme/api/auth${endpoint}`);
+    },
+  );
+
+  it('lists providers when the request retains its tenant prefix', async () => {
+    const response = await GET(new Request('https://localhost/t/acme/api/auth/providers'));
+    expect(await response.json()).toEqual({ providers: [] });
+    expect(mocks.handler).not.toHaveBeenCalled();
+  });
+
   it('serves a tenant SSO callback from the generic OAuth callback', async () => {
     mocks.providers = [{ generic: true, providerId: 'okta' }];
 

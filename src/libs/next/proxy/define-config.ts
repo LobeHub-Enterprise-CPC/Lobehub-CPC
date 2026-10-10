@@ -293,8 +293,9 @@ export function defineConfig() {
     logBetterAuth('Route protection status: %s, %s', req.url, isProtected ? 'protected' : 'public');
 
     let scope;
+    let release: () => Promise<void>;
     try {
-      scope = await getTenantRuntime().admitSlug(route.slug);
+      ({ scope, release } = await getTenantRuntime().enterSlug(route.slug));
     } catch (error) {
       // An unknown slug looks exactly like no tenant at all: the page never
       // reveals which tenants exist (FR-RT-06). An unavailable tenant still
@@ -307,12 +308,15 @@ export function defineConfig() {
     const response = defaultMiddleware(req, route.path);
 
     // Skip session lookup for public routes to reduce latency
-    if (!isProtected) return response;
+    if (!isProtected) {
+      await release();
+      return response;
+    }
 
     // Better Auth may refresh or clear session cookies while reading the session.
     const { response: session, headers: authHeaders } = await runWithTenantScope(scope, async () =>
       (await getTenantAuth()).api.getSession({ headers: req.headers, returnHeaders: true }),
-    );
+    ).finally(release);
     for (const cookie of authHeaders.getSetCookie()) response.headers.append('set-cookie', cookie);
     const isLoggedIn = !!session?.user;
 
