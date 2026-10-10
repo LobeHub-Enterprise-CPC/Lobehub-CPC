@@ -5,12 +5,13 @@ import {
 } from '@lobechat/database/platform';
 import {
   runWithTenantScope,
+  SUPPORTED_TENANT_SCHEMA_VERSIONS,
   TenantDatabaseSession,
   tenantDbNames,
 } from '@lobechat/database/tenant';
 import type { PollVideoStatusResult } from '@lobechat/model-runtime';
 import type { VideoGenerationRoute, VideoGenerationTaskMetadata } from '@lobechat/types';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { Pool } from 'pg';
 
 import type { TrustedClientUserInfo } from '@/libs/trusted-client';
@@ -20,6 +21,7 @@ import { MarketService } from '@/server/services/market';
 import { MarketSandboxProvider } from '@/server/services/sandbox/providers/market';
 import { OnlyboxesSandboxProvider } from '@/server/services/sandbox/providers/onlyboxes';
 import type { SandboxProvider, SandboxServiceOptions } from '@/server/services/sandbox/types';
+import { verifyRuntimeTenantDatabase } from '@/server/services/tenantControlPlane/postgresExecutor';
 import { directorySecretAad } from '@/server/services/tenantControlPlane/postgresRepository';
 
 type Work = typeof tenantRuntimeExternalWork.$inferSelect;
@@ -42,6 +44,7 @@ async function pollVideo(work: Work): Promise<PollVideoStatusResult | undefined>
   if (!directory) throw new Error('TENANT_NOT_FOUND');
   const names = tenantDbNames(work.tenantId);
   if (
+    !SUPPORTED_TENANT_SCHEMA_VERSIONS.has(directory.schemaVersion) ||
     directory.schemaName !== names.schemaName ||
     directory.runtimeUsername !== names.runtimeUsername
   )
@@ -72,10 +75,15 @@ async function pollVideo(work: Work): Promise<PollVideoStatusResult | undefined>
     tenantId: work.tenantId,
   });
   try {
-    const marker = await session.database.execute(
-      sql`SELECT tenant_id FROM tenant_metadata WHERE tenant_id=${work.tenantId} AND datasource_kind='lobehub'`,
-    );
-    if (marker.rows.length !== 1) throw new Error('TENANT_MARKER_MISMATCH');
+    const client = await pool.connect();
+    try {
+      await verifyRuntimeTenantDatabase(client, {
+        tenantId: work.tenantId,
+        schemaName: directory.schemaName,
+      });
+    } finally {
+      client.release();
+    }
     return await runWithTenantScope(
       { session, tenantId: work.tenantId, slug: directory.slug },
       async () => {

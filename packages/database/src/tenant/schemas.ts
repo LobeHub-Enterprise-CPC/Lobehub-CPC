@@ -15,22 +15,6 @@ import {
  */
 
 /**
- * The tenant marker (spec A4, FR-DI-04): one row
- * `(tenant_id, 'lobehub', schema_version)` written by the provision `marker`
- * step as the schema owner. The runtime role only has SELECT on it; the
- * resolver and Admin's LobeHub session read it to prove a connection really
- * points at the tenant it was registered for.
- */
-export const tenantMetadata = pgTable('tenant_metadata', {
-  datasourceKind: text('datasource_kind').notNull(),
-  installedAt: timestamp('installed_at', { withTimezone: true }).defaultNow().notNull(),
-  schemaVersion: text('schema_version').notNull(),
-  tenantId: text('tenant_id').primaryKey(),
-});
-
-export type TenantMetadataItem = typeof tenantMetadata.$inferSelect;
-
-/**
  * The tenant's SSO providers (spec A8, FR-ID-09). Admin is the only writer: it
  * upserts the whole row on create / update / enable / delete (delete is a soft
  * delete that nulls `secret_config_encrypted`). LobeHub only reads it.

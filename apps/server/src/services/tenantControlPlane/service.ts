@@ -3,6 +3,8 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import {
   ControlPlaneError,
   type DatasourceBundle,
+  type DatasourceReadinessRequest,
+  type DatasourceReadinessResult,
   type DatasourceRequest,
   type DatasourceResult,
   type FreezeReason,
@@ -109,7 +111,7 @@ export interface TenantDatabaseExecutor {
   /**
    * As the schema owner: the schema exists and is owned by the owner role, the
    * owner has no SUPERUSER / CREATEROLE / CREATEDB / BYPASSRLS, and the schema
-   * is empty or already carries this tenant's marker.
+   * is empty or has a valid migration history.
    */
   checkOwnership: (ctx: ProvisionStepContext) => Promise<void>;
   /** As the owner, `search_path = tenant, extensions, paradedb`: the tenant migration chain plus owner-only grants. */
@@ -117,18 +119,15 @@ export interface TenantDatabaseExecutor {
   /** Copies the default config templates (`runtime_configs`, …) into the tenant. */
   seed: (ctx: ProvisionStepContext) => Promise<void>;
   /**
-   * As the runtime user: reads the marker, and asserts no cross-schema USAGE
+   * As the runtime user: verifies schema/history and asserts no cross-schema USAGE
    * beyond the extension schemas, no public table access, DML but no CREATE.
    */
   verify: (ctx: { bundle: DatasourceBundle; tenantId: string }) => Promise<void>;
-  /** Writes `tenant_metadata(tenant_id, 'lobehub', schema_version)`. */
-  writeMarker: (ctx: ProvisionStepContext) => Promise<void>;
 }
 
 /** The code a failed step reports (FR-CP-04 step table). */
 const STEP_ERROR: Record<ProvisionStep, SafeErrorCode> = {
   directory: 'CREDENTIALS_UNAVAILABLE',
-  marker: 'TENANT_PROVISION_FAILED',
   migrate: 'TENANT_PROVISION_FAILED',
   ownership: 'DATASOURCE_INVALID',
   seed: 'TENANT_PROVISION_FAILED',
@@ -271,7 +270,7 @@ export class TenantControlPlaneService {
    * Runs a received operation's remaining steps, from the one recorded on the
    * operation, persisting progress after each so a crash or failure resumes
    * there. `applied` only after `verify`: the directory is registered and the
-   * runtime user has read the marker (FR-CP-04 §6).
+   * runtime connection has passed schema, history and privilege verification.
    */
   async executeProvision(tenantId: string, operationId: string): Promise<ProvisionResult> {
     const claimed = await this.repository.transaction(tenantId, async (tx) => {
@@ -351,9 +350,6 @@ export class TenantControlPlaneService {
       case 'migrate': {
         return db.migrate(ctx);
       }
-      case 'marker': {
-        return db.writeMarker(ctx);
-      }
       case 'seed': {
         return db.seed(ctx);
       }
@@ -395,6 +391,49 @@ export class TenantControlPlaneService {
     op.status = 'failed';
     op.errorCode = errorCode;
     await tx.putOperation(op);
+  }
+
+  /** Current database evidence, independent of Console/Admin operation identifiers. */
+  async getDatasourceReadiness({
+    tenantId,
+    datasource,
+  }: DatasourceReadinessRequest): Promise<DatasourceReadinessResult> {
+    const bindingHash = hashInput(datasource);
+    const load = () =>
+      this.repository.transaction(tenantId, async (tx) => ({
+        directory: await tx.getDirectory(tenantId),
+        provisioned: (await tx.listOperations(tenantId)).some((op) => op.status === 'applied'),
+      }));
+    let errorCode: SafeErrorCode | null = null;
+    try {
+      const { directory, provisioned } = await load();
+      if (!directory || !provisioned) errorCode = 'TENANT_NOT_READY';
+      else if (bindingHash !== hashInput(redactDatasourceBundle(directory.bundle)))
+        errorCode = 'DATASOURCE_INVALID';
+      else {
+        await this.options.database.verify({ tenantId, bundle: directory.bundle });
+        // Rotation during verification invalidates the result for the previous connection.
+        const current = await load();
+        if (
+          !current.provisioned ||
+          !current.directory ||
+          bindingHash !== hashInput(redactDatasourceBundle(current.directory.bundle))
+        )
+          errorCode = 'DATASOURCE_INVALID';
+      }
+    } catch {
+      errorCode = 'DATASOURCE_INVALID';
+    }
+    return {
+      checkedAt: this.now().toISOString(),
+      connectionVersion: datasource.connectionVersion,
+      credentialBundleVersion: datasource.credentialBundleVersion,
+      datasourceReady: errorCode === null,
+      errorCode,
+      schemaName: datasource.schemaName,
+      schemaVersion: datasource.schemaVersion,
+      tenantId,
+    };
   }
 
   // ─── datasource rotation ─────────────────────────────────────────────────

@@ -85,6 +85,32 @@ export const datasourceBundleSchema = z
   );
 export type DatasourceBundle = z.infer<typeof datasourceBundleSchema>;
 
+/** Readiness binds the current datasource without transmitting either password. */
+export const datasourceBindingSchema = z
+  .object({
+    ...datasourceBundleSchema.shape,
+    runtimeCredential: z.object({ username: roleName }).strict(),
+    schemaOwner: z.object({ role: roleName, username: roleName }).strict(),
+  })
+  .strict();
+export const datasourceReadinessRequestSchema = z
+  .object({
+    datasource: datasourceBindingSchema,
+    tenantId: id,
+  })
+  .strict();
+export type DatasourceReadinessRequest = z.infer<typeof datasourceReadinessRequestSchema>;
+export interface DatasourceReadinessResult {
+  checkedAt: string;
+  connectionVersion: number;
+  credentialBundleVersion: number;
+  datasourceReady: boolean;
+  errorCode: SafeErrorCode | null;
+  schemaName: string;
+  schemaVersion: number;
+  tenantId: string;
+}
+
 export const provisionRequestSchema = z
   .object({
     datasource: datasourceBundleSchema,

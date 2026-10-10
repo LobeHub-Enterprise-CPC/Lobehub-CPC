@@ -13,6 +13,7 @@ import debug from 'debug';
 import { sql } from 'drizzle-orm';
 
 import { openDirectoryData } from '@/server/crypto/tenantKeys';
+import { verifyRuntimeTenantDatabase } from '@/server/services/tenantControlPlane/postgresExecutor';
 import { directorySecretAad } from '@/server/services/tenantControlPlane/postgresRepository';
 import { effectiveTenantState } from '@/server/services/tenantControlPlane/service';
 
@@ -53,14 +54,15 @@ export class TenantRuntime {
     { promise: Promise<RouteEntry | null>; startedAt: number }
   >();
   private readonly sessions = new Map<string, { key: string; session: TenantDatabaseSession }>();
-  /** Pools whose marker was read successfully, by pool identity. */
-  private readonly verified = new Set<string>();
+  /** Database verification expires with the same bound as admission facts. */
+  private readonly verified = new Map<string, number>();
 
   constructor(
     platform: () => PlatformDatabase,
     private readonly pools: TenantPoolManager,
     private readonly now: () => Date = () => new Date(),
     private readonly claims?: TenantClaims,
+    private readonly verifyDatabase = verifyRuntimeTenantDatabase,
   ) {
     this.directory = new TenantDirectoryRepository(platform, () => this.now().getTime());
   }
@@ -70,7 +72,8 @@ export class TenantRuntime {
     this.directory.invalidate();
     this.byId.delete(tenantId);
     this.sessions.delete(tenantId);
-    for (const key of this.verified) if (key.startsWith(`${tenantId}|`)) this.verified.delete(key);
+    for (const key of this.verified.keys())
+      if (key.startsWith(`${tenantId}|`)) this.verified.delete(key);
   }
 
   async enterSlug(slug: string) {
@@ -262,33 +265,33 @@ export class TenantRuntime {
       });
   }
 
-  /**
-   * Opens the tenant scope. The first use of a connection version reads the
-   * marker through the runtime role (FR-DI-04): a directory entry pointing at
-   * another tenant's schema is refused before any business query runs.
-   */
+  /** Verify real connection identity, permissions, schema and release history before use. */
   private async openScope(directory: DirectoryRow): Promise<TenantScope> {
     const session = this.sessionFor(directory);
-    const verifiedKey = `${directory.tenantId}|${directory.connectionVersion}|${directory.credentialBundleVersion}`;
-    if (!this.verified.has(verifiedKey)) {
-      let rows: { schema_version: string }[];
+    const verifiedKey = `${directory.tenantId}|${directory.connectionVersion}|${directory.credentialBundleVersion}|${directory.schemaVersion}`;
+    const checkedAt = this.verified.get(verifiedKey);
+    if (checkedAt === undefined || !this.isFresh(checkedAt, TENANT_ADMISSION_TTL_MS)) {
+      const startedAt = this.now().getTime();
+      const lease = this.acquireFor(directory)();
       try {
-        const result = await session.database.execute<{ schema_version: string }>(
-          sql`SELECT schema_version FROM tenant_metadata WHERE tenant_id = ${directory.tenantId} AND datasource_kind = 'lobehub'`,
-        );
-        rows = result.rows;
+        const client = await lease.pool.connect();
+        try {
+          await this.verifyDatabase(client, {
+            schemaName: directory.schemaName,
+            tenantId: directory.tenantId,
+          });
+        } finally {
+          client.release();
+        }
       } catch (cause) {
-        log('tenant marker read failed for %s', directory.tenantId);
-        throw new TenantGateError('TENANT_UNAVAILABLE', undefined, { cause });
+        log('tenant database verification failed for %s', directory.tenantId);
+        throw new TenantGateError('TENANT_NOT_READY', undefined, { cause });
+      } finally {
+        lease.release();
       }
-      if (rows.length !== 1 || rows[0].schema_version !== String(directory.schemaVersion))
-        throw new TenantGateError('TENANT_NOT_READY', undefined, {
-          cause: new TenantDatabaseError(
-            'TENANT_NOT_READY',
-            rows.length === 0 ? 'marker-missing' : 'marker-mismatch',
-          ),
-        });
-      this.verified.add(verifiedKey);
+      if (!this.isFresh(startedAt, TENANT_ADMISSION_TTL_MS))
+        throw new TenantGateError('TENANT_UNAVAILABLE');
+      this.verified.set(verifiedKey, startedAt);
     }
     return { session, slug: directory.slug, tenantId: directory.tenantId };
   }

@@ -1,13 +1,13 @@
 {
+  "version": "7",
   "dialect": "postgresql",
   "entries": [
     {
       "idx": 0,
       "version": "7",
-      "when": 1791590400000,
-      "tag": "0000_tenant_tables",
+      "when": 1791610450689,
+      "tag": "0000_tenant_sso_providers",
       "breakpoints": true
     }
-  ],
-  "version": "7"
+  ]
 }

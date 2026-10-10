@@ -13,6 +13,7 @@ import { getTenantRuntime } from '@/server/modules/Tenant/runtime';
 import { isAuthorized, parseControlPlaneToken } from '@/server/services/tenantControlPlane/auth';
 import {
   ControlPlaneError,
+  datasourceReadinessRequestSchema,
   datasourceRequestSchema,
   lifecycleQuerySchema,
   lifecycleRequestSchema,
@@ -149,6 +150,12 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
         tenantId: input.tenantId,
       });
     return c.json(result, statusFor(result.status, false));
+  });
+
+  app.post('/tenant-readiness', async (c) => {
+    const { input, service } = await prepare(c, datasourceReadinessRequestSchema, 'body');
+    const result = await service.getDatasourceReadiness(input);
+    return c.json(result, result.datasourceReady ? 200 : 503);
   });
 
   app.post('/tenant-datasource', async (c) => {

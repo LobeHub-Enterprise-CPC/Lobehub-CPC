@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { parseControlPlaneToken } from '@/server/services/tenantControlPlane/auth';
-import { tenantDbNames } from '@/server/services/tenantControlPlane/datasource';
+import {
+  redactDatasourceBundle,
+  tenantDbNames,
+} from '@/server/services/tenantControlPlane/datasource';
 import { MemoryControlPlaneRepository } from '@/server/services/tenantControlPlane/memoryRepository';
 import { TenantControlPlaneService } from '@/server/services/tenantControlPlane/service';
 
@@ -16,6 +19,7 @@ const endpoints = [
   { method: 'POST', path: '/tenant-provision' },
   { method: 'GET', path: '/tenant-provision' },
   { method: 'POST', path: '/tenant-datasource' },
+  { method: 'POST', path: '/tenant-readiness' },
   { method: 'POST', path: '/tenant-lifecycle' },
   { method: 'GET', path: '/tenant-lifecycle' },
   { method: 'GET', path: '/tenant-overview' },
@@ -29,7 +33,6 @@ const setup = (configured = true) => {
       migrate: async () => {},
       seed: async () => {},
       verify: async () => {},
-      writeMarker: async () => {},
     },
     isRegistrableSlug: (slug) => slug !== 'admin',
     repository: repo,
@@ -59,10 +62,10 @@ const datasource = {
   connectionVersion: 1,
   credentialBundleVersion: 1,
   database: 'lobehub',
-  datasourceKind: 'lobehub',
+  datasourceKind: 'lobehub' as const,
   deploymentRef: 'default',
   host: '10.1.2.3',
-  mode: 'shared_schema',
+  mode: 'shared_schema' as const,
   port: 5432,
   runtimeCredential: { password: 'run-secret', username: names.runtimeUsername },
   schemaName: names.schemaName,
@@ -242,7 +245,7 @@ describe('control-plane router', () => {
       expect(await ok.json()).toEqual({
         connectionVersion: 1,
         credentialBundleVersion: 2,
-        datasourceKind: 'lobehub',
+        datasourceKind: 'lobehub' as const,
         errorCode: null,
         operationId: 'rot-1',
         status: 'applied',
@@ -302,5 +305,53 @@ describe('control-plane router', () => {
       method: 'POST',
     });
     expect(bad.status).toBe(400);
+  });
+});
+
+describe('readiness HTTP contract', () => {
+  it('returns current binding verification and never echoes passwords', async () => {
+    const { call, service } = setup();
+    await call('/tenant-provision', { method: 'POST', body: JSON.stringify(provisionBody) });
+    await service.executeProvision(TENANT, provisionBody.operationId);
+    const res = await call('/tenant-readiness', {
+      method: 'POST',
+      body: JSON.stringify({ tenantId: TENANT, datasource: redactDatasourceBundle(datasource) }),
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    const result = await res.json();
+    expect(result).toMatchObject({
+      tenantId: TENANT,
+      datasourceReady: true,
+      errorCode: null,
+      connectionVersion: 1,
+      credentialBundleVersion: 1,
+      schemaName: names.schemaName,
+    });
+    expect(JSON.stringify(result)).not.toContain('secret');
+  });
+
+  it('rejects credential-bearing readiness requests and mismatched tenant headers', async () => {
+    const { call } = setup();
+    expect(
+      (
+        await call('/tenant-readiness', {
+          method: 'POST',
+          body: JSON.stringify({ tenantId: TENANT, datasource }),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call('/tenant-readiness', {
+          method: 'POST',
+          headers: { 'x-tenant-id': 'other' },
+          body: JSON.stringify({
+            tenantId: TENANT,
+            datasource: redactDatasourceBundle(datasource),
+          }),
+        })
+      ).status,
+    ).toBe(403);
   });
 });

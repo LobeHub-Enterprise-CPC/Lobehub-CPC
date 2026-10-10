@@ -12,7 +12,7 @@ export interface TenantUpgradeResult {
 }
 
 export interface UpgradeTenantSchemasOptions {
-  executor?: Pick<PostgresTenantDatabaseExecutor, 'migrate' | 'verify' | 'writeMarker'>;
+  executor?: Pick<PostgresTenantDatabaseExecutor, 'migrate' | 'verify'>;
   /** Only these tenants; every active tenant when omitted. */
   tenantIds?: string[];
 }
@@ -20,7 +20,7 @@ export interface UpgradeTenantSchemasOptions {
 /**
  * Deploy-time upgrade of provisioned tenants (spec FR-MD-02): every tenant
  * chain (OSS first, then registered post-OSS chains) runs on each active
- * tenant as its schema owner, then the marker and the directory move to this
+ * tenant as its schema owner, then the directory moves to this
  * build's schema version, then the runtime self-check. Tenants are
  * migrated one at a time and a failure does not stop the others; the caller
  * reports the failures. Credentials come from the directory and are never
@@ -59,14 +59,13 @@ export const upgradeTenantSchemas = async (
         tenantId: row.tenantId,
       };
       await executor.migrate(ctx);
+      await executor.verify({ bundle, tenantId: row.tenantId });
       if (row.schemaVersion !== LOBEHUB_TENANT_SCHEMA_VERSION) {
-        await executor.writeMarker(ctx);
         await platformDB
           .update(tenantDirectory)
           .set({ schemaVersion: LOBEHUB_TENANT_SCHEMA_VERSION })
           .where(eq(tenantDirectory.tenantId, row.tenantId));
       }
-      await executor.verify({ bundle, tenantId: row.tenantId });
       result.migrated.push(row.tenantId);
     } catch (error) {
       // Only the error code: server messages may quote connection details.

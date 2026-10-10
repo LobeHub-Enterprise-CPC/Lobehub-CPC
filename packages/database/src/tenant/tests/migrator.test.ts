@@ -20,6 +20,7 @@ import {
   materializeTenantStatement,
   TENANT_MIGRATIONS_TABLE,
   TENANT_ONLY_MIGRATIONS_TABLE,
+  verifyTenantMigrationHistory,
 } from '../migrator';
 import { tenantDbNames } from '../names';
 
@@ -149,14 +150,9 @@ describe('the shared and tenant-only chains', () => {
     const { rows } = await pglite.query<{ name: string }>(
       `SELECT c.relname AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = $1 AND c.relname = ANY($2)`,
-      [SCHEMA, ['users', 'messages', 'sso_providers', 'tenant_metadata']],
+      [SCHEMA, ['users', 'messages', 'sso_providers']],
     );
-    expect(rows.map((row) => row.name).sort()).toEqual([
-      'messages',
-      'sso_providers',
-      'tenant_metadata',
-      'users',
-    ]);
+    expect(rows.map((row) => row.name).sort()).toEqual(['messages', 'sso_providers', 'users']);
     await pglite.close();
   }, 120_000);
 });
@@ -236,6 +232,8 @@ describe.skipIf(!ADMIN_URL)('tenant migrator on PostgreSQL', () => {
       );
       expect(bm25.rows.length).toBeGreaterThan(0);
 
+      await oss.verify(owner, { schemaName: names.schemaName, tenantId });
+
       // A second run finds nothing to apply.
       await oss.run(owner, { schemaName: names.schemaName, tenantId });
       const rerun = await admin.query(
@@ -250,4 +248,73 @@ describe.skipIf(!ADMIN_URL)('tenant migrator on PostgreSQL', () => {
       await root.end();
     }
   }, 120_000);
+});
+
+describe('migration history verification', () => {
+  it.each(['changed-hash', 'future-time', 'null-time', 'missing-prefix', 'duplicate', 'reordered'])(
+    'rejects %s without altering the journal',
+    async (mutation) => {
+      const db = new PGlite();
+      const migrations = readMigrationFiles({ migrationsFolder });
+      await db.exec(
+        `CREATE SCHEMA "${SCHEMA}"; CREATE TABLE "${SCHEMA}".__drizzle_migrations (id serial primary key, hash text not null, created_at bigint)`,
+      );
+      for (const migration of migrations.slice(0, 2))
+        await db.query(
+          `INSERT INTO "${SCHEMA}".__drizzle_migrations (hash, created_at) VALUES ($1, $2)`,
+          [migration.hash, migration.folderMillis],
+        );
+      const statements: Record<string, string> = {
+        'changed-hash': `UPDATE "${SCHEMA}".__drizzle_migrations SET hash = 'old-draft' WHERE id = 1`,
+        'future-time': `UPDATE "${SCHEMA}".__drizzle_migrations SET created_at = 9007199254740993 WHERE id = 2`,
+        'null-time': `UPDATE "${SCHEMA}".__drizzle_migrations SET created_at = NULL WHERE id = 1`,
+        'missing-prefix': `DELETE FROM "${SCHEMA}".__drizzle_migrations WHERE id = 1`,
+        'duplicate': `INSERT INTO "${SCHEMA}".__drizzle_migrations (hash, created_at) SELECT hash, created_at FROM "${SCHEMA}".__drizzle_migrations WHERE id = 2`,
+        'reordered': `UPDATE "${SCHEMA}".__drizzle_migrations SET id = -id`,
+      };
+      await db.exec(statements[mutation]);
+      const before = await db.query(`SELECT * FROM "${SCHEMA}".__drizzle_migrations ORDER BY id`);
+      try {
+        // PGlite executes the same PostgreSQL catalog and journal queries.
+        await expect(
+          verifyTenantMigrationHistory(db as unknown as Client, migrationsFolder, {
+            schemaName: SCHEMA,
+            allowPending: true,
+          }),
+        ).rejects.toMatchObject({ reason: 'migration-history-mismatch' });
+        expect(
+          await db.query(`SELECT * FROM "${SCHEMA}".__drizzle_migrations ORDER BY id`),
+        ).toEqual(before);
+      } finally {
+        await db.close();
+      }
+    },
+  );
+
+  it('accepts a valid pending prefix for migration, but not for readiness', async () => {
+    const db = new PGlite();
+    const [first] = readMigrationFiles({ migrationsFolder });
+    await db.exec(
+      `CREATE SCHEMA "${SCHEMA}"; CREATE TABLE "${SCHEMA}".__drizzle_migrations (id serial primary key, hash text not null, created_at bigint)`,
+    );
+    await db.query(
+      `INSERT INTO "${SCHEMA}".__drizzle_migrations (hash, created_at) VALUES ($1, $2)`,
+      [first.hash, first.folderMillis],
+    );
+    try {
+      await expect(
+        verifyTenantMigrationHistory(db as unknown as Client, migrationsFolder, {
+          schemaName: SCHEMA,
+          allowPending: true,
+        }),
+      ).resolves.toBe(1);
+      await expect(
+        verifyTenantMigrationHistory(db as unknown as Client, migrationsFolder, {
+          schemaName: SCHEMA,
+        }),
+      ).rejects.toMatchObject({ reason: 'migration-history-mismatch' });
+    } finally {
+      await db.close();
+    }
+  });
 });

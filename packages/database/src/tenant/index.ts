@@ -19,6 +19,7 @@ export {
   runTenantMigrations,
   TENANT_MIGRATIONS_TABLE,
   TENANT_ONLY_MIGRATIONS_TABLE,
+  verifyTenantMigrationHistory,
 } from './migrator';
 export {
   isTenantSchemaName,
@@ -41,6 +42,7 @@ export type {
   TenantPoolPurpose,
 } from './pool';
 export { fingerprintConnection, TenantPoolManager } from './pool';
+export { verifyTenantRuntime } from './readiness';
 export type { TenantScope } from './requestScope';
 export {
   currentTenantScope,

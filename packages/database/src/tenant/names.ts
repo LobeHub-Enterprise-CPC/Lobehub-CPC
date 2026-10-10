@@ -68,7 +68,7 @@ export const tenantTransactionPreludeSql = (schemaName: string, tenantId: string
   return `SELECT set_config('search_path', ${sqlLiteral(path)}, true), pg_advisory_xact_lock_shared(hashtextextended(${sqlLiteral(tenantDrainLockKey(tenantId))}, 0))`;
 };
 
-/** Schema version written into `tenant_metadata` and the credential bundle. */
+/** Protocol schema version in the platform directory and credential bundle. */
 export const LOBEHUB_TENANT_SCHEMA_VERSION = 1;
 
 /** Tenant schema versions this build can run against. */

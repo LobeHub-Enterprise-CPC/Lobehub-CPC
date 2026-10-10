@@ -1,11 +1,15 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import path from 'node:path';
 
+import { getTableColumns, getTableName, is } from 'drizzle-orm';
 import { type MigrationMeta, readMigrationFiles } from 'drizzle-orm/migrator';
+import { PgTable } from 'drizzle-orm/pg-core';
 import type { ClientBase } from 'pg';
 
+import * as businessSchema from '../schemas';
 import { TenantDatabaseError } from './errors';
-import { isTenantSchemaName, tenantSearchPathSql } from './names';
+import { isTenantSchemaName, tenantDbNames, tenantSearchPathSql } from './names';
+import * as tenantSchema from './schemas';
 
 // `"public".users`, `public.users`, `'public.t'::regclass`; not `is_public.` or `"t"."public".`.
 const QUOTED_PUBLIC = /(?<![\w".])"public"\./g;
@@ -74,6 +78,48 @@ export interface RunTenantMigrationsOptions {
   tenantId: string;
 }
 
+/** Verify the entire applied prefix, never just the most recent timestamp. */
+export const verifyTenantMigrationHistory = async (
+  client: Pick<ClientBase, 'query'>,
+  migrationsFolder: string,
+  {
+    schemaName,
+    migrationsTable = TENANT_MIGRATIONS_TABLE,
+    allowPending = false,
+  }: {
+    allowPending?: boolean;
+    migrationsTable?: string;
+    schemaName: string;
+  },
+): Promise<number> => {
+  if (!isTenantSchemaName(schemaName) || !/^[_a-z][\d_a-z]*$/.test(migrationsTable))
+    throw new TenantDatabaseError('TENANT_NOT_READY', 'schema-name-invalid');
+  const migrations = readMigrationFiles({ migrationsFolder });
+  const journal = `"${schemaName}"."${migrationsTable}"`;
+  const exists = await client.query<{ table: string | null }>('SELECT to_regclass($1) AS table', [
+    journal,
+  ]);
+  if (!exists.rows[0]?.table) {
+    if (allowPending) return 0;
+    throw new TenantDatabaseError('TENANT_NOT_READY', 'migration-history-mismatch');
+  }
+  const applied = await client.query<{ hash: string; created_at: string | null }>(
+    `SELECT hash, created_at FROM ${journal} ORDER BY id`,
+  );
+  if (
+    applied.rows.length > migrations.length ||
+    (!allowPending && applied.rows.length !== migrations.length) ||
+    applied.rows.some(
+      (row, index) =>
+        row.hash !== migrations[index]?.hash ||
+        row.created_at === null ||
+        String(row.created_at) !== String(migrations[index]?.folderMillis),
+    )
+  )
+    throw new TenantDatabaseError('TENANT_NOT_READY', 'migration-history-mismatch');
+  return applied.rows.length;
+};
+
 /**
  * Runs a tenant migration chain as the schema owner, in one transaction:
  * search_path pinned to the tenant, a per-tenant advisory lock so two
@@ -97,9 +143,9 @@ export const runTenantMigrations = async (
   await client.query('BEGIN');
   try {
     const owned = await client.query<{ owned: boolean }>(
-      `SELECT pg_has_role(current_user, nspowner, 'USAGE') AS owned
+      `SELECT current_user = $2 AND pg_get_userbyid(nspowner) = $2 AS owned
          FROM pg_namespace WHERE nspname = $1`,
-      [schemaName],
+      [schemaName, tenantDbNames(tenantId).ownerUsername],
     );
     if (!owned.rows[0]?.owned)
       throw new TenantDatabaseError('TENANT_NOT_READY', 'schema-not-provisioned');
@@ -111,14 +157,14 @@ export const runTenantMigrations = async (
     await client.query(
       `CREATE TABLE IF NOT EXISTS ${journal} (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`,
     );
-    const last = await client.query<{ created_at: string | null }>(
-      `SELECT created_at FROM ${journal} ORDER BY created_at DESC LIMIT 1`,
-    );
-    const lastMillis = Number(last.rows[0]?.created_at ?? 0);
+    const appliedCount = await verifyTenantMigrationHistory(client, migrationsFolder, {
+      allowPending: true,
+      migrationsTable,
+      schemaName,
+    });
 
     let applied = 0;
-    for (const migration of migrations) {
-      if (migration.folderMillis <= lastMillis) continue;
+    for (const migration of migrations.slice(appliedCount)) {
       for (const statement of migration.sql) {
         if (statement.trim()) await client.query(statement);
       }
@@ -146,11 +192,15 @@ export const resolveTenantMigrationsFolder = (
   cwd = process.cwd(),
   exists: (path: string) => boolean = existsSync,
 ): string => {
-  const candidates = [join(cwd, 'packages/database/migrations'), join(cwd, 'migrations')];
+  const candidates = [
+    path.join(cwd, 'packages/database/migrations'),
+    path.join(cwd, 'migrations'),
+    path.join(cwd, '../../packages/database/migrations'),
+  ];
   const found = candidates.find(
     (candidate) =>
-      exists(join(candidate, 'meta/_journal.json')) &&
-      exists(join(candidate, 'tenant/meta/_journal.json')),
+      exists(path.join(candidate, 'meta/_journal.json')) &&
+      exists(path.join(candidate, 'tenant/meta/_journal.json')),
   );
   if (!found) throw new TenantDatabaseError('TENANT_NOT_READY', 'migration-failed');
   return found;
@@ -173,6 +223,12 @@ export interface TenantMigrator {
   journalTables: readonly string[];
   name: string;
   run: (client: ClientBase, context: TenantMigrationContext) => Promise<unknown>;
+  /** Exact history for readiness, or a valid prefix before migration. */
+  verify: (
+    client: Pick<ClientBase, 'query'>,
+    context: TenantMigrationContext,
+    allowPending?: boolean,
+  ) => Promise<unknown>;
 }
 
 /**
@@ -182,10 +238,44 @@ export interface TenantMigrator {
 const OSS_TENANT_MIGRATOR: TenantMigrator = {
   journalTables: [TENANT_MIGRATIONS_TABLE, TENANT_ONLY_MIGRATIONS_TABLE],
   name: 'lobehub',
+  verify: async (client, { schemaName }, allowPending = false) => {
+    const folder = resolveTenantMigrationsFolder();
+    await verifyTenantMigrationHistory(client, folder, { schemaName, allowPending });
+    await verifyTenantMigrationHistory(client, path.join(folder, 'tenant'), {
+      migrationsTable: TENANT_ONLY_MIGRATIONS_TABLE,
+      schemaName,
+      allowPending,
+    });
+    if (!allowPending) {
+      const tables = Object.values({ ...businessSchema, ...tenantSchema }).filter((table) =>
+        is(table, PgTable),
+      );
+      const expected = tables.flatMap((table) =>
+        Object.values(getTableColumns(table)).map((column) => ({
+          table: getTableName(table),
+          column: column.name,
+        })),
+      );
+      const missing = await client.query(
+        `SELECT 1 FROM unnest($2::text[], $3::text[]) expected(table_name, column_name)
+          WHERE NOT EXISTS (
+            SELECT 1 FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+              JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = $1 AND c.relname = expected.table_name
+               AND c.relkind IN ('r', 'p') AND a.attname = expected.column_name
+               AND a.attnum > 0 AND NOT a.attisdropped
+          ) LIMIT 1`,
+        [schemaName, expected.map((item) => item.table), expected.map((item) => item.column)],
+      );
+      if (missing.rowCount)
+        throw new TenantDatabaseError('TENANT_NOT_READY', 'schema-not-provisioned');
+    }
+  },
   run: async (client, { schemaName, tenantId }) => {
+    await OSS_TENANT_MIGRATOR.verify(client, { schemaName, tenantId }, true);
     const folder = resolveTenantMigrationsFolder();
     await runTenantMigrations(client, folder, { schemaName, tenantId });
-    await runTenantMigrations(client, join(folder, 'tenant'), {
+    await runTenantMigrations(client, path.join(folder, 'tenant'), {
       migrationsTable: TENANT_ONLY_MIGRATIONS_TABLE,
       schemaName,
       tenantId,
@@ -205,5 +295,6 @@ export const getTenantMigrators = (): readonly TenantMigrator[] => migrators;
 
 /** Runs every registered chain for one tenant, in order, as the schema owner. */
 export const migrateTenantSchema = async (client: ClientBase, context: TenantMigrationContext) => {
+  for (const migrator of migrators) await migrator.verify(client, context, true);
   for (const migrator of migrators) await migrator.run(client, context);
 };

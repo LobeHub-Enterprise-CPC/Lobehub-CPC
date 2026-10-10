@@ -24,7 +24,6 @@ export const PROVISION_STEPS = [
   'validate',
   'ownership',
   'migrate',
-  'marker',
   'seed',
   'directory',
   'verify',

@@ -6,6 +6,7 @@ const distributionMigrator: TenantMigrator = {
   journalTables: ['__drizzle_distribution_migrations'],
   name: 'distribution',
   run: vi.fn(),
+  verify: vi.fn(),
 };
 
 // A distribution overrides the business slot to register its chain.

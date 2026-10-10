@@ -22,6 +22,8 @@ import {
   tenantDrainLockKey,
   type TenantMigrator,
   TenantPoolManager,
+  verifyTenantMigrationHistory,
+  verifyTenantRuntime,
 } from '@lobechat/database/tenant';
 import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -41,6 +43,7 @@ import { upgradeTenantSchemas } from '../upgrade';
 
 // This suite isolates tenant SQL/roles/drain; durable cross-process receipts are
 // exercised against real workers in Tenant/tests/claims.postgres.test.ts.
+let fixtureMigrators: TenantMigrator[];
 const releases: (() => Promise<void>)[] = [];
 const testRuntime = (...args: ConstructorParameters<typeof TenantRuntime>) =>
   new TenantRuntime(
@@ -48,6 +51,7 @@ const testRuntime = (...args: ConstructorParameters<typeof TenantRuntime>) =>
     args[1],
     args[2],
     new TenantClaims({ acquire: async () => {}, release: async () => {} }),
+    (client, ctx) => verifyTenantRuntime(client, ctx, fixtureMigrators),
   );
 const admitScope = async (runtime: TenantRuntime, slug: string) => {
   const work = await runtime.enterSlug(slug);
@@ -70,10 +74,9 @@ const fixtureChain = () => {
   mkdirSync(path.join(folder, 'meta'));
   writeFileSync(
     path.join(folder, '0000_base.sql'),
-    [
-      `CREATE TABLE "public"."users" ("id" text PRIMARY KEY NOT NULL, "email" text);`,
-      `CREATE TABLE "public"."tenant_metadata" ("tenant_id" text PRIMARY KEY NOT NULL, "datasource_kind" text NOT NULL, "schema_version" text NOT NULL, "installed_at" timestamp with time zone DEFAULT now() NOT NULL);`,
-    ].join('--> statement-breakpoint\n'),
+    [`CREATE TABLE "public"."users" ("id" text PRIMARY KEY NOT NULL, "email" text);`].join(
+      '--> statement-breakpoint\n',
+    ),
   );
   writeFileSync(
     path.join(folder, '0001_notes.sql'),
@@ -197,9 +200,14 @@ suite('tenant isolation on PostgreSQL', () => {
     const fixture: TenantMigrator = {
       journalTables: ['__drizzle_migrations'],
       name: 'fixture',
+      verify: async (client, ctx, allowPending) => {
+        await verifyTenantMigrationHistory(client, chainFolder, { ...ctx, allowPending });
+        if (!allowPending) await client.query(`SELECT id FROM "${ctx.schemaName}".users LIMIT 0`);
+      },
       run: (client, ctx) => runTenantMigrations(client, chainFolder, ctx),
     };
-    executor = new PostgresTenantDatabaseExecutor({ migrators: () => [fixture] });
+    fixtureMigrators = [fixture];
+    executor = new PostgresTenantDatabaseExecutor({ migrators: () => fixtureMigrators });
     service = new TenantControlPlaneService({
       database: executor,
       isRegistrableSlug: () => true,
@@ -320,18 +328,96 @@ suite('tenant isolation on PostgreSQL', () => {
     ).rejects.toBeDefined();
     await expect(
       runWithTenantScope(scope, () =>
-        tenantDB.execute(
-          sql.raw(
-            `INSERT INTO tenant_metadata (tenant_id, datasource_kind, schema_version) VALUES ('x', 'lobehub', '1')`,
-          ),
-        ),
+        tenantDB.execute(sql.raw(`UPDATE __drizzle_migrations SET hash = 'tampered'`)),
       ),
     ).rejects.toMatchObject({ cause: expect.objectContaining({ code: '42501' }) });
   });
 
-  it("refuses another tenant's credentials through the marker check (AC-04-4)", async () => {
+  it("refuses another tenant's credentials through connection identity verification (AC-04-4)", async () => {
     const [a, b] = TENANTS;
     await expect(executor.verify({ bundle: bundles.get(b.id)!, tenantId: a.id })).rejects.toThrow();
+  });
+
+  it('rejects a changed historical migration without changing data or the ledger', async () => {
+    const tenant = TENANTS[0];
+    const { schemaName } = tenantDbNames(tenant.id);
+    const journal = `"${schemaName}".__drizzle_migrations`;
+    const before = await admin.query(`SELECT * FROM ${journal} ORDER BY id`);
+    await admin.query(`UPDATE ${journal} SET hash = 'unknown-draft' WHERE id = $1`, [
+      before.rows[0].id,
+    ]);
+    try {
+      await expect(
+        executor.migrate({
+          bundle: bundles.get(tenant.id)!,
+          tenantId: tenant.id,
+          name: 'A',
+          slug: tenant.slug,
+          operationId: 'bad-history',
+        }),
+      ).rejects.toThrow();
+      const after = await admin.query(`SELECT * FROM ${journal} ORDER BY id`);
+      expect(after.rows).toEqual(
+        before.rows.map((row, i) => (i === 0 ? { ...row, hash: 'unknown-draft' } : row)),
+      );
+      const users = await admin.query(`SELECT email FROM "${schemaName}".users`);
+      expect(users.rows).toEqual([{ email: tenant.slug }]);
+    } finally {
+      await admin.query(`UPDATE ${journal} SET hash = $1 WHERE id = $2`, [
+        before.rows[0].hash,
+        before.rows[0].id,
+      ]);
+    }
+  });
+
+  it('rejects altered schema, missing business tables and writable migration journals', async () => {
+    const tenant = TENANTS[0];
+    const names = tenantDbNames(tenant.id);
+    const verify = () => executor.verify({ tenantId: tenant.id, bundle: bundles.get(tenant.id)! });
+    await admin.query(`ALTER SCHEMA "${names.schemaName}" OWNER TO postgres`);
+    try {
+      await expect(verify()).rejects.toThrow('SCHEMA_NOT_OWNED');
+    } finally {
+      await admin.query(`ALTER SCHEMA "${names.schemaName}" OWNER TO "${names.ownerUsername}"`);
+    }
+    await admin.query(`ALTER TABLE "${names.schemaName}".users RENAME TO users_saved`);
+    try {
+      await expect(verify()).rejects.toThrow();
+    } finally {
+      await admin.query(`ALTER TABLE "${names.schemaName}".users_saved RENAME TO users`);
+    }
+    await admin.query(
+      `GRANT UPDATE ON "${names.schemaName}".__drizzle_migrations TO "${names.runtimeUsername}"`,
+    );
+    try {
+      await expect(verify()).rejects.toThrow('MIGRATION_JOURNAL_ACCESS_INVALID');
+    } finally {
+      await admin.query(
+        `REVOKE UPDATE ON "${names.schemaName}".__drizzle_migrations FROM "${names.runtimeUsername}"`,
+      );
+    }
+    await expect(verify()).resolves.toBeUndefined();
+  });
+
+  it('expires readiness verification after five seconds', async () => {
+    const tenant = TENANTS[0];
+    const { schemaName } = tenantDbNames(tenant.id);
+    let now = Date.now();
+    const freshRuntime = testRuntime(
+      () => platformDB,
+      new TenantPoolManager({ maxPools: 2 }),
+      () => new Date(now),
+    );
+    await admitScope(freshRuntime, tenant.slug);
+    await admin.query(`ALTER TABLE "${schemaName}".users RENAME TO users_saved`);
+    now += TENANT_ADMISSION_TTL_MS + 1;
+    try {
+      await expect(admitScope(freshRuntime, tenant.slug)).rejects.toMatchObject({
+        code: 'TENANT_NOT_READY',
+      });
+    } finally {
+      await admin.query(`ALTER TABLE "${schemaName}".users_saved RENAME TO users`);
+    }
   });
 
   it('fails without a tenant scope instead of using any other connection (AC-04-5)', async () => {
