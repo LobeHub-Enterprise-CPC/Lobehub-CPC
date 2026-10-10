@@ -1,4 +1,4 @@
-import { getInternalApiUrl } from '@/envs/appUrl';
+import { getInternalApiUrl } from '@/envs/app';
 import { injectActiveTraceHeaders } from '@/libs/observability/traceparent';
 import { workflowClient } from '@/libs/qstash';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';

@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/envs/app', () => ({
+  getInternalApiUrl: () => 'https://internal.example.com',
   appEnv: {
     APP_URL: 'https://public.example.com',
     INTERNAL_APP_URL: 'https://internal.example.com',

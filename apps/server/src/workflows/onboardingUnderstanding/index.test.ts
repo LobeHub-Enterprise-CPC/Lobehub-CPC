@@ -10,7 +10,10 @@ const appEnv = {
   INTERNAL_APP_URL: 'http://internal:3011',
 };
 
-vi.mock('@/envs/app', () => ({ appEnv }));
+vi.mock('@/envs/app', () => ({
+  appEnv,
+  getInternalApiUrl: () => appEnv.INTERNAL_APP_URL || appEnv.APP_URL,
+}));
 vi.mock('@/libs/observability/traceparent', () => ({
   injectActiveTraceHeaders: (headers: Headers) => headers.set('traceparent', 'trace-1'),
 }));

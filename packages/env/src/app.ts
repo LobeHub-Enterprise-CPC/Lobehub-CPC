@@ -194,3 +194,15 @@ export const getAppConfig = () => {
 };
 
 export const appEnv = getAppConfig();
+
+const trimTrailingSlash = (url: string): string => url.replace(/\/+$/, '');
+
+/** Deployment base URL. Tenant paths are composed by @lobechat/business-tenant/routing. */
+export const getAppOriginUrl = (): string => trimTrailingSlash(appEnv.APP_URL);
+
+/**
+ * Server-to-server base URL, preferring INTERNAL_APP_URL to bypass the CDN/proxy.
+ * Tenant callbacks add their scope through the server's Tenant/callbackUrl module.
+ */
+export const getInternalApiUrl = (): string =>
+  trimTrailingSlash(appEnv.INTERNAL_APP_URL || appEnv.APP_URL);

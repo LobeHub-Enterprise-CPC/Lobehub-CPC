@@ -1,7 +1,6 @@
 import debug from 'debug';
 
-import { appEnv } from '@/envs/app';
-import { getInternalApiUrl } from '@/envs/appUrl';
+import { appEnv, getInternalApiUrl } from '@/envs/app';
 import { injectActiveTraceHeaders } from '@/libs/observability/traceparent';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 

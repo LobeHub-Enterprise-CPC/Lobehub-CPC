@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const triggerMock = vi.fn();
 
 vi.mock('@/envs/app', () => ({
+  getInternalApiUrl: () => 'http://localhost:3011',
   appEnv: {
     APP_URL: 'http://localhost:3011',
     enableQueueAgentRuntime: true,

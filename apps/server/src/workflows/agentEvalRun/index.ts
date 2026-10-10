@@ -3,7 +3,7 @@ import debug from 'debug';
 
 import { AgentEvalRunTopicModel } from '@/database/models/agentEval';
 import type { LobeChatDatabase } from '@/database/type';
-import { getInternalApiUrl } from '@/envs/appUrl';
+import { getInternalApiUrl } from '@/envs/app';
 import { workflowClient } from '@/libs/qstash';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 

@@ -12,7 +12,7 @@ import {
 // tests/setup.ts mocks this module for every other test.
 vi.unmock('./callbackUrl');
 
-vi.mock('@/envs/appUrl', () => ({
+vi.mock('@/envs/app', () => ({
   getAppOriginUrl: () => 'https://app.example.com',
   getInternalApiUrl: () => 'http://lobehub:3210',
 }));

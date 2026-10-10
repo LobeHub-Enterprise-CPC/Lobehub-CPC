@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/envs/app', () => ({
   appEnv: mocks.appEnv,
+  getInternalApiUrl: () => mocks.appEnv.INTERNAL_APP_URL || mocks.appEnv.APP_URL,
 }));
 
 vi.mock('@/libs/observability/traceparent', () => ({

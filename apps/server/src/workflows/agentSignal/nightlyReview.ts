@@ -1,7 +1,7 @@
 import type { FlowControl } from '@upstash/qstash';
 import debug from 'debug';
 
-import { getInternalApiUrl } from '@/envs/appUrl';
+import { getInternalApiUrl } from '@/envs/app';
 import { injectActiveTraceHeaders } from '@/libs/observability/traceparent';
 import { qstashClient, workflowClient } from '@/libs/qstash';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';

@@ -1,7 +1,7 @@
 import type { FlowControl } from '@upstash/qstash';
 import type { Client } from '@upstash/workflow';
 
-import { getInternalApiUrl } from '@/envs/appUrl';
+import { getInternalApiUrl } from '@/envs/app';
 import { OtelWorkflowClient } from '@/libs/qstash';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 

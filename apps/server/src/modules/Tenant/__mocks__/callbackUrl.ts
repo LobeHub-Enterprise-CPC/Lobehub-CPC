@@ -1,4 +1,4 @@
-import { getAppOriginUrl, getInternalApiUrl } from '@/envs/appUrl';
+import { getAppOriginUrl, getInternalApiUrl } from '@/envs/app';
 
 /**
  * Test stand-in for `../callbackUrl`: every callback belongs to the tenant

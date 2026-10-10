@@ -1,7 +1,7 @@
 import { stripTenantPath, withTenantPath } from '@lobechat/business-tenant/routing';
 import { requireTenantScope } from '@lobechat/database/tenant';
 
-import { getAppOriginUrl, getInternalApiUrl } from '@/envs/appUrl';
+import { getAppOriginUrl, getInternalApiUrl } from '@/envs/app';
 
 /**
  * Addresses for work this server hands to itself later: QStash and Upstash

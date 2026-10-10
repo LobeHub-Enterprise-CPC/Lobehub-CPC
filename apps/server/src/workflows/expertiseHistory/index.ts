@@ -1,8 +1,7 @@
 import { currentTenantScope, trackTenantWork } from '@lobechat/database/tenant';
 import debug from 'debug';
 
-import { appEnv } from '@/envs/app';
-import { getInternalApiUrl } from '@/envs/appUrl';
+import { appEnv, getInternalApiUrl } from '@/envs/app';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 
 import { runExpertiseHistoryWorkflow } from './run';
