@@ -1,3 +1,4 @@
+import { initializeTenant } from '@lobechat/business-tenant/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { installTenantFetch, tenantRequestUrl } from './tenantFetch';
@@ -35,10 +36,12 @@ describe('installTenantFetch', () => {
   afterEach(() => {
     window.fetch = originalFetch;
     window.history.replaceState(null, '', '/');
+    initializeTenant(new URL(window.location.href));
   });
 
   it('sends same-origin backend calls under the tenant of the page', async () => {
     window.history.replaceState(null, '', '/t/acme/agent');
+    initializeTenant(new URL(window.location.href));
     const fetchMock = vi.fn(async () => new Response('ok'));
     window.fetch = fetchMock as typeof fetch;
 
@@ -52,6 +55,7 @@ describe('installTenantFetch', () => {
 
   it('leaves fetch alone on a page without a tenant', () => {
     window.history.replaceState(null, '', '/agent');
+    initializeTenant(new URL(window.location.href));
     const fetchMock = vi.fn();
     window.fetch = fetchMock as unknown as typeof fetch;
 

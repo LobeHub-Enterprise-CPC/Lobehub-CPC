@@ -1,7 +1,7 @@
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { Readable } from 'node:stream';
 
-import { stripTenantPath } from '@lobechat/const/tenantPath';
+import { stripTenantPath } from '@lobechat/business-tenant/routing';
 import debug from 'debug';
 import { cookies } from 'next/headers';
 import { type NextRequest } from 'next/server';

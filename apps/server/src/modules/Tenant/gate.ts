@@ -1,4 +1,4 @@
-import { stripTenantPath } from '@lobechat/const/tenantPath';
+import { stripTenantPath } from '@lobechat/business-tenant/routing';
 import { runWithTenantScope, TenantDatabaseError } from '@lobechat/database/tenant';
 import debug from 'debug';
 import { NextRequest } from 'next/server';

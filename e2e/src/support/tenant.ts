@@ -1,4 +1,5 @@
-import { buildTenantPath } from '../../../packages/const/src/tenantPath';
+import { withTenantPath } from '@lobechat/business-tenant/routing';
+
 import { tenantDbNames } from '../../../packages/database/src/tenant/names';
 
 // Shared by provisioning, SQL fixtures and browser/API navigation. Worker users
@@ -8,7 +9,7 @@ export const E2E_TENANT = {
   slug: 'e2e',
 };
 
-export const tenantPath = (path: string) => buildTenantPath(path, E2E_TENANT.slug);
+export const tenantPath = (path: string) => withTenantPath(path, E2E_TENANT.slug);
 
 export const tenantClientConfig = (connectionString: string) => ({
   connectionString,

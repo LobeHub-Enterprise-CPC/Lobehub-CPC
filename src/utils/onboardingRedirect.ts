@@ -1,6 +1,5 @@
-import { buildTenantPath } from '@lobechat/const/tenantPath';
-
-import { resolveAppBasename } from '@/spa/appBasename';
+import { getTenant } from '@lobechat/business-tenant/client';
+import { withTenantPath } from '@lobechat/business-tenant/routing';
 
 const ONBOARDING_PATH = '/onboarding';
 const CALLBACK_STORAGE_KEY = 'onboarding-callback-url';
@@ -20,12 +19,7 @@ export const isSafeRedirectPath = (url: string): boolean =>
  * exists under its tenant, and a bare `/` lands on the no-tenant page.
  */
 const withPageTenant = (path: string): string => {
-  if (typeof window === 'undefined' || !window.location?.pathname) return path;
-  const { tenantSlug } = resolveAppBasename({
-    debugProxy: window.__DEBUG_PROXY__,
-    pathname: window.location.pathname,
-  });
-  return buildTenantPath(path, tenantSlug);
+  return withTenantPath(path, getTenant()?.slug);
 };
 
 /**

@@ -1,4 +1,4 @@
-import { stripTenantPath } from '@lobechat/const/tenantPath';
+import { stripTenantPath } from '@lobechat/business-tenant/routing';
 import { Hono } from 'hono';
 import { getPath } from 'hono/utils/url';
 

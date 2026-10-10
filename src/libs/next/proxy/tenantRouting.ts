@@ -1,4 +1,4 @@
-import { parseTenantPath, TENANT_PREFIX } from '@lobechat/const/tenantPath';
+import { resolveTenant, stripTenantPath, TENANT_PREFIX } from '@lobechat/business-tenant/routing';
 
 /**
  * Where a request goes once its tenant is read from the URL (spec A16, A17,
@@ -52,8 +52,10 @@ export type TenantRoute =
   /** Backend refusal. */
   | { code: 'TENANT_INVALID' | 'TENANT_REQUIRED' | 'NOT_FOUND'; kind: 'reject'; status: number };
 
-export const resolveTenantRoute = (pathname: string): TenantRoute => {
-  const { rest, tenantSlug } = parseTenantPath(pathname);
+export const resolveTenantRoute = (url: URL): TenantRoute => {
+  const { pathname } = url;
+  const tenantSlug = resolveTenant(url)?.slug ?? null;
+  const rest = stripTenantPath(pathname);
   const malformed = tenantSlug === null && new RegExp(`^/${TENANT_PREFIX}(?:/|$)`).test(pathname);
 
   if (tenantSlug) {

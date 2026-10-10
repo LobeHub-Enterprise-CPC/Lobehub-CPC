@@ -1,5 +1,5 @@
 import type { PlatformDatabase } from '@lobechat/database/platform';
-import { getPlatformDB, tenantDirectory, tenantLifecycle } from '@lobechat/database/platform';
+import { getPlatformDB } from '@lobechat/database/platform';
 import {
   SUPPORTED_TENANT_SCHEMA_VERSIONS,
   TenantDatabaseError,
@@ -10,27 +10,19 @@ import {
   type TenantScope,
 } from '@lobechat/database/tenant';
 import debug from 'debug';
-import { eq, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 
 import { openDirectoryData } from '@/server/crypto/tenantKeys';
 import { directorySecretAad } from '@/server/services/tenantControlPlane/postgresRepository';
 import { effectiveTenantState } from '@/server/services/tenantControlPlane/service';
 
+import type { TenantDirectoryEntry } from './directoryRepository';
+import { TenantDirectoryRepository } from './directoryRepository';
 import { TenantGateError } from './errors';
 
 const log = debug('lobe-server:tenant');
 
-/** Directory + lifecycle facts cached per slug for at most this long (FR-ID-07 ≤ 5 s). */
-const ROUTE_CACHE_TTL_MS = 5000;
-
-type DirectoryRow = typeof tenantDirectory.$inferSelect;
-type LifecycleRow = typeof tenantLifecycle.$inferSelect;
-
-interface RouteEntry {
-  directory: DirectoryRow;
-  fetchedAt: number;
-  lifecycle: LifecycleRow | null;
-}
+type DirectoryRow = TenantDirectoryEntry['directory'];
 
 /**
  * Tenant resolution and admission (spec FR-RT-04, FR-ID-07, FR-DI-02..05).
@@ -42,28 +34,29 @@ interface RouteEntry {
  * {@link TenantGateError}; nothing falls back to another connection or tenant.
  */
 export class TenantRuntime {
-  private readonly bySlug = new Map<string, RouteEntry>();
+  private readonly directory: TenantDirectoryRepository;
   private readonly sessions = new Map<string, { key: string; session: TenantDatabaseSession }>();
   /** Pools whose marker was read successfully, by pool identity. */
   private readonly verified = new Set<string>();
 
   constructor(
-    private readonly platform: () => PlatformDatabase,
+    platform: () => PlatformDatabase,
     private readonly pools: TenantPoolManager,
     private readonly now: () => Date = () => new Date(),
-  ) {}
+  ) {
+    this.directory = new TenantDirectoryRepository(platform);
+  }
 
   /** Drops cached routing facts and sessions for a tenant (lifecycle stage 1, rotation). */
   invalidate(tenantId: string) {
-    for (const [slug, entry] of this.bySlug)
-      if (entry.directory.tenantId === tenantId) this.bySlug.delete(slug);
+    this.directory.invalidate();
     this.sessions.delete(tenantId);
     for (const key of this.verified) if (key.startsWith(`${tenantId}|`)) this.verified.delete(key);
   }
 
   /** Request entry: resolve, check lifecycle, open the tenant database. */
   async admitSlug(slug: string): Promise<TenantScope> {
-    const entry = await this.routeBySlug(slug);
+    const entry = await this.directory.findBySlug(slug);
     if (!entry) throw new TenantGateError('TENANT_NOT_FOUND');
     this.assertAvailable(entry);
     return this.openScope(entry.directory);
@@ -71,7 +64,7 @@ export class TenantRuntime {
 
   /** Job entry (FR-AS-01): the tenant id came from a verified payload. */
   async admitTenantId(tenantId: string): Promise<TenantScope> {
-    const entry = await this.load(eq(tenantDirectory.tenantId, tenantId));
+    const entry = await this.directory.findById(tenantId);
     if (!entry) throw new TenantGateError('TENANT_NOT_FOUND');
     this.assertAvailable(entry);
     return this.openScope(entry.directory);
@@ -79,14 +72,11 @@ export class TenantRuntime {
 
   /** Tenants a cron should visit (FR-AS-02): registered and currently admitted. */
   async listAvailableTenantIds(): Promise<string[]> {
-    const rows = await this.platform()
-      .select({ directory: tenantDirectory, lifecycle: tenantLifecycle })
-      .from(tenantDirectory)
-      .leftJoin(tenantLifecycle, eq(tenantLifecycle.tenantId, tenantDirectory.tenantId));
+    const rows = await this.directory.list();
     return rows
       .filter(({ directory, lifecycle }) => {
         try {
-          this.assertAvailable({ directory, fetchedAt: 0, lifecycle });
+          this.assertAvailable({ directory, lifecycle });
           return true;
         } catch {
           return false;
@@ -100,7 +90,7 @@ export class TenantRuntime {
    * the drain lock exclusively, which every business transaction holds shared.
    */
   async drainTransactions(tenantId: string, timeoutMs = 30_000) {
-    const entry = await this.load(eq(tenantDirectory.tenantId, tenantId));
+    const entry = await this.directory.findById(tenantId);
     if (!entry) return;
     const session = this.sessionFor(entry.directory);
     const key = tenantDrainLockKey(tenantId);
@@ -110,7 +100,7 @@ export class TenantRuntime {
     });
   }
 
-  private assertAvailable(entry: RouteEntry) {
+  private assertAvailable(entry: TenantDirectoryEntry) {
     const { directory, lifecycle } = entry;
     if (directory.status !== 'active') throw new TenantGateError('TENANT_NOT_READY');
     // A tenant Console has never activated is not ready rather than offline.
@@ -130,34 +120,6 @@ export class TenantRuntime {
         throw new TenantGateError('TENANT_EXPIRED');
       throw new TenantGateError('TENANT_FROZEN', { freezeReasons: reasons });
     }
-  }
-
-  private async routeBySlug(slug: string): Promise<RouteEntry | null> {
-    const cached = this.bySlug.get(slug);
-    if (cached && this.now().getTime() - cached.fetchedAt < ROUTE_CACHE_TTL_MS) return cached;
-    const entry = await this.load(eq(tenantDirectory.slug, slug));
-    if (entry) this.bySlug.set(slug, entry);
-    else this.bySlug.delete(slug);
-    return entry;
-  }
-
-  private async load(where: ReturnType<typeof eq>): Promise<RouteEntry | null> {
-    let rows;
-    try {
-      rows = await this.platform()
-        .select({ directory: tenantDirectory, lifecycle: tenantLifecycle })
-        .from(tenantDirectory)
-        .leftJoin(tenantLifecycle, eq(tenantLifecycle.tenantId, tenantDirectory.tenantId))
-        .where(where)
-        .limit(1);
-    } catch (cause) {
-      log('platform directory unavailable: %s', (cause as Error)?.name);
-      throw new TenantGateError('TENANT_UNAVAILABLE', undefined, { cause });
-    }
-    const row = rows[0];
-    return row
-      ? { directory: row.directory, fetchedAt: this.now().getTime(), lifecycle: row.lifecycle }
-      : null;
   }
 
   private sessionFor(directory: DirectoryRow): TenantDatabaseSession {

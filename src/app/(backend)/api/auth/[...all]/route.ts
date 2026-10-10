@@ -1,4 +1,4 @@
-import { buildTenantPath, stripTenantPath } from '@lobechat/const/tenantPath';
+import { stripTenantPath, withTenantPath } from '@lobechat/business-tenant/routing';
 import { requireTenantScope } from '@lobechat/database/tenant';
 import { APIError } from 'better-auth/api';
 import type { NextRequest } from 'next/server';
@@ -75,7 +75,7 @@ const listProviders = async () => {
  * browser navigation) lands on the tenant's error page instead of a JSON body.
  */
 const dispatch = async (request: Request) => {
-  const errorPath = buildTenantPath('/auth-error', requireTenantScope().slug);
+  const errorPath = withTenantPath('/auth-error', requireTenantScope().slug);
   try {
     const auth = await getAuthForRequest(request);
     const response = await auth.handler(await toTenantAuthRequest(request));

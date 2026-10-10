@@ -1,4 +1,4 @@
-import { buildTenantPath, parseTenantPath } from '@lobechat/const/tenantPath';
+import { parseTenantPath, withTenantPath } from '@lobechat/business-tenant/routing';
 import type { NavigateOptions } from 'react-router';
 
 export interface WorkspaceAwareNavigateOptions extends NavigateOptions {
@@ -143,7 +143,7 @@ export const buildWorkspaceAwarePath = (
   // workspace prefix silently stops being applied — a url that still resolves,
   // just to the wrong scope.
   const { rest, tenantSlug } = parseTenantPath(to);
-  const withTenant = (path: string) => buildTenantPath(path, tenantSlug);
+  const withTenant = (path: string) => withTenantPath(path, tenantSlug);
 
   if (!activeSlug) return to;
   if (isPersonalPath(rest)) return to;

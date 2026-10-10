@@ -269,7 +269,7 @@ export function defineConfig() {
     const headers = new Headers(req.headers);
     headers.delete(TENANT_ROUTE_HEADER);
 
-    const route = resolveTenantRoute(pathname);
+    const route = resolveTenantRoute(req.nextUrl);
     switch (route.kind) {
       case 'reject': {
         return rejectJson(route.code, route.status);

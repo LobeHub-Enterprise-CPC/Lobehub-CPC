@@ -1,6 +1,5 @@
-import { buildTenantPath } from '@lobechat/const/tenantPath';
-
-import { resolveAppBasename } from '@/spa/appBasename';
+import { getTenant } from '@lobechat/business-tenant/client';
+import { withTenantPath } from '@lobechat/business-tenant/routing';
 
 /**
  * Backend surfaces the request proxy only serves under `/t/{slug}` (spec A16,
@@ -39,7 +38,7 @@ export const tenantRequestUrl = (
   }
   if (url.origin !== location.origin || !isBackendPath(url.pathname)) return null;
 
-  const pathname = buildTenantPath(url.pathname, slug);
+  const pathname = withTenantPath(url.pathname, slug);
   if (pathname === url.pathname) return null;
   url.pathname = pathname;
   // Keep relative inputs relative, so nothing else about the request changes.
@@ -54,10 +53,7 @@ const toUrlString = (input: RequestInfo | URL): string =>
 /** Prefixes same-origin backend calls made with `fetch`, `XMLHttpRequest` and `EventSource`. */
 export const installTenantFetch = (win: Window & typeof globalThis = window) => {
   if (!win.location?.pathname || typeof win.fetch !== 'function') return;
-  const { tenantSlug } = resolveAppBasename({
-    debugProxy: win.__DEBUG_PROXY__,
-    pathname: win.location.pathname,
-  });
+  const tenantSlug = getTenant()?.slug ?? null;
   if (!tenantSlug) return;
 
   const originalFetch = win.fetch.bind(win);

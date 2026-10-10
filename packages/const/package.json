@@ -10,7 +10,6 @@
     "./goal": "./src/goal.ts",
     "./hotkeys": "./src/hotkeys.ts",
     "./media": "./src/media.ts",
-    "./tenantPath": "./src/tenantPath.ts",
     "./mediaRef": "./src/mediaRef.ts",
     "./plugin": "./src/plugin.ts",
     "./rbac": "./src/rbac.ts",

@@ -1,3 +1,4 @@
+import { initializeTenant } from '@lobechat/business-tenant/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -60,10 +61,12 @@ describe('tenant pages', () => {
 
   beforeEach(() => {
     window.history.replaceState(null, '', '/t/acme/signin?callbackUrl=%2F');
+    initializeTenant(new URL(window.location.href));
   });
 
   afterEach(() => {
     window.history.replaceState(null, '', '/');
+    initializeTenant(new URL(window.location.href));
   });
 
   it("should send post-login callbacks to the page's tenant, not the bare root", () => {

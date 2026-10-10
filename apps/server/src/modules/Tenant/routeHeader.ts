@@ -1,6 +1,6 @@
 import { createHmac, hkdfSync, timingSafeEqual } from 'node:crypto';
 
-import { isWellFormedTenantSlug } from '@lobechat/const/tenantPath';
+import { isWellFormedTenantSlug } from '@lobechat/business-tenant/routing';
 
 /**
  * Hand-off of the resolved tenant from the request proxy (`src/proxy.ts`) to

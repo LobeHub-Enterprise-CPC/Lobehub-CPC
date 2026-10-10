@@ -1,6 +1,7 @@
+import { resolveTenant, stripTenantPath, withTenantPath } from '@lobechat/business-tenant/routing';
+
 import { resolveRequestLocale } from '@/locales/requestLocale';
 
-import { buildTenantPath, parseTenantPath } from '../../../packages/const/src/tenantPath';
 import {
   documentPathFor,
   resolveDocumentLocale,
@@ -49,7 +50,7 @@ const loadServerConfig = async (
 ): Promise<unknown | undefined> => {
   if (!env.AUTH_API_BASE || !tenantSlug) return undefined;
 
-  const target = new URL(buildTenantPath(CONFIG_ENDPOINT, tenantSlug), env.AUTH_API_BASE);
+  const target = new URL(withTenantPath(CONFIG_ENDPOINT, tenantSlug), env.AUTH_API_BASE);
 
   try {
     // The endpoint answers with `s-maxage`, so the edge cache handles the TTL.
@@ -100,8 +101,8 @@ export default {
   fetch(request: Request, env: Env) {
     const url = new URL(request.url);
     // Pages and API calls of a tenant arrive as `/t/{slug}/...`; route on the rest.
-    const { rest, tenantSlug } = parseTenantPath(url.pathname);
-    const pathname = stripTrailingSlash(rest);
+    const tenant = resolveTenant(url);
+    const pathname = stripTrailingSlash(stripTenantPath(url.pathname));
 
     // Standalone deployments have no reverse proxy in front: forward the app's
     // same-origin API calls (with their tenant prefix) to the backend, mirroring vite's dev proxy.
@@ -116,6 +117,6 @@ export default {
     if (!matchesPrefix(pathname, AUTH_PATH_PREFIXES))
       return Response.redirect(env.AUTH_APP_HOME || 'https://lobehub.com', 302);
 
-    return serveDocument(request, env, pathname, tenantSlug);
+    return serveDocument(request, env, pathname, tenant?.slug ?? null);
   },
 };

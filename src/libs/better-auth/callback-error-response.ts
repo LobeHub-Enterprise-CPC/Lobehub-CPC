@@ -1,4 +1,4 @@
-import { stripTenantPath } from '@lobechat/const/tenantPath';
+import { stripTenantPath } from '@lobechat/business-tenant/routing';
 
 const callbackPath =
   /^\/api\/auth\/(?:callback|oauth2\/callback|sso\/callback|sso\/saml2\/sp\/acs)\/[^/]+\/?$/;

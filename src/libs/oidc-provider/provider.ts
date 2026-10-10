@@ -1,5 +1,5 @@
 import { assertBusinessUserAccess, isBusinessAuthorizationError } from '@lobechat/business-auth';
-import { buildTenantPath } from '@lobechat/const/tenantPath';
+import { withTenantPath } from '@lobechat/business-tenant/routing';
 import type { LobeChatDatabase } from '@lobechat/database';
 import debug from 'debug';
 import type { Configuration, KoaContextWithOIDC } from 'oidc-provider';
@@ -58,7 +58,7 @@ export const createOIDCProvider = async (
   db: LobeChatDatabase,
   tenantSlug?: string,
 ): Promise<Provider> => {
-  const tenantPath = (path: string) => buildTenantPath(path, tenantSlug);
+  const tenantPath = (path: string) => withTenantPath(path, tenantSlug);
   // Get JWKS
   const jwks = getJWKS();
 

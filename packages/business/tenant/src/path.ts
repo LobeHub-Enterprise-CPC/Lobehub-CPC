@@ -62,7 +62,7 @@ export const parseTenantPath = (pathname: string): ParsedTenantPath => {
  * Returns `to` unchanged for a relative path (react-router resolves those
  * itself) and when the path already carries this tenant's prefix.
  */
-export const buildTenantPath = (to: string, tenantSlug: string | null | undefined): string => {
+export const withTenantPath = (to: string, tenantSlug: string | null | undefined): string => {
   if (!tenantSlug) return to;
   if (!to.startsWith('/')) return to;
 
@@ -73,5 +73,5 @@ export const buildTenantPath = (to: string, tenantSlug: string | null | undefine
   return to === '/' ? base : `${base}${to}`;
 };
 
-/** Strip any `/t/{slug}` prefix. Inverse of {@link buildTenantPath}. */
+/** Strip any `/t/{slug}` prefix. Inverse of {@link withTenantPath}. */
 export const stripTenantPath = (to: string): string => parseTenantPath(to).rest;

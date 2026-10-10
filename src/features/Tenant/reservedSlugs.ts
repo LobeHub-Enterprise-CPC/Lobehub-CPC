@@ -1,4 +1,4 @@
-import { isWellFormedTenantSlug, TENANT_PREFIX } from '@lobechat/const/tenantPath';
+import { isWellFormedTenantSlug, TENANT_PREFIX } from '@lobechat/business-tenant/routing';
 
 import { WORKSPACE_MIRRORED_FIRST_SEGMENTS } from '@/features/Workspace/workspaceAwarePath';
 

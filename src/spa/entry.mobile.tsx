@@ -1,5 +1,6 @@
 import '../initialize';
 
+import { getTenant } from '@lobechat/business-tenant/client';
 import { RouterProvider } from 'react-router/dom';
 
 import NextThemeProvider from '@/layout/GlobalProvider/NextThemeProvider';
@@ -20,6 +21,7 @@ startAppInitialization();
 const { basename } = resolveAppBasename({
   debugProxy: window.__DEBUG_PROXY__,
   pathname: window.location.pathname,
+  tenant: getTenant(),
 });
 
 const router = createAppRouter(mobileRoutes, { basename });

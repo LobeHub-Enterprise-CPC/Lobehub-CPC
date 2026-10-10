@@ -1,4 +1,4 @@
-import { parseTenantPath, TENANT_PREFIX } from '@lobechat/const/tenantPath';
+import type { TenantContext } from '@lobechat/business-tenant/routing';
 
 export const DEBUG_PROXY_BASE = '/_dangerous_local_dev_proxy';
 
@@ -6,6 +6,7 @@ interface ResolveBasenameInput {
   /** `window.__DEBUG_PROXY__` — forces the proxy base even off-path. */
   debugProxy?: boolean;
   pathname: string;
+  tenant: TenantContext | null;
 }
 
 export interface ResolvedBasename {
@@ -35,19 +36,14 @@ export interface ResolvedBasename {
 export const resolveAppBasename = ({
   debugProxy,
   pathname,
+  tenant,
 }: ResolveBasenameInput): ResolvedBasename => {
   const proxyInPath = pathname.startsWith(DEBUG_PROXY_BASE);
   const underProxy = Boolean(debugProxy) || proxyInPath;
   const proxyBase = underProxy ? DEBUG_PROXY_BASE : '';
 
-  // Strip the proxy prefix only when it is actually IN the path. `debugProxy`
-  // can be set by the flag alone, in which case slicing would eat the first 29
-  // characters of a perfectly ordinary path.
-  const afterProxy = proxyInPath ? pathname.slice(DEBUG_PROXY_BASE.length) || '/' : pathname;
-  const { tenantSlug } = parseTenantPath(afterProxy);
-
-  const tenantBase = tenantSlug ? `/${TENANT_PREFIX}/${tenantSlug}` : '';
+  const tenantBase = tenant?.basePath ?? '';
   const basename = `${proxyBase}${tenantBase}`;
 
-  return { basename: basename || undefined, tenantSlug };
+  return { basename: basename || undefined, tenantSlug: tenant?.slug ?? null };
 };

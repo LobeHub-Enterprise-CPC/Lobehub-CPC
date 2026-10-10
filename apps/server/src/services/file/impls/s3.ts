@@ -1,4 +1,4 @@
-import { parseTenantPath } from '@lobechat/const/tenantPath';
+import { parseTenantPath } from '@lobechat/business-tenant/routing';
 import { type LobeChatDatabase } from '@lobechat/database';
 import { requireTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';

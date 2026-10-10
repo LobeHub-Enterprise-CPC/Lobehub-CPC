@@ -1,4 +1,4 @@
-import { buildTenantPath, stripTenantPath } from '@lobechat/const/tenantPath';
+import { stripTenantPath, withTenantPath } from '@lobechat/business-tenant/routing';
 import { requireTenantScope } from '@lobechat/database/tenant';
 
 import { getAppOriginUrl, getInternalApiUrl } from '@/envs/appUrl';
@@ -28,7 +28,7 @@ const trimTrailingSlash = (url: string) => url.replace(/\/+$/, '');
  * without a tenant could never be admitted.
  */
 export const tenantCallbackPath = (path: string): string =>
-  buildTenantPath(path.startsWith('/') ? path : `/${path}`, requireTenantScope().slug);
+  withTenantPath(path.startsWith('/') ? path : `/${path}`, requireTenantScope().slug);
 
 /** Absolute callback URL for `path` under the current tenant (server-to-server base by default). */
 export const buildTenantCallbackUrl = (

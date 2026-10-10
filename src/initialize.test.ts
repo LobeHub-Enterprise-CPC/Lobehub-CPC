@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
 
@@ -26,13 +26,11 @@ const dispatchRejection = (reason: unknown) => {
 describe('chunk-load error listeners', () => {
   beforeAll(async () => {
     (globalThis as any).__REACT_SCAN__ = false;
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: { ...window.location, reload },
-      writable: true,
-    });
+    vi.spyOn(window.location, 'reload').mockImplementation(reload);
     await import('./initialize');
   });
+
+  afterAll(() => vi.restoreAllMocks());
 
   afterEach(() => {
     sessionStorage.clear();
