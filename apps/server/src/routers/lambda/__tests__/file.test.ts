@@ -1152,6 +1152,24 @@ describe('fileRouter', () => {
       expect(KnowledgeRepo).toHaveBeenCalledWith(expect.anything(), 'test-user', 'workspace-1');
     });
 
+    it.each(['name', 'createdAt', 'size'] as const)(
+      'should accept the explorer sort option %s and pass it to the repository',
+      async (sorter) => {
+        await caller.getKnowledgeItems({ sortType: 'asc', sorter });
+
+        expect(mockKnowledgeRepoQuery).toHaveBeenCalledWith(
+          expect.objectContaining({ sortType: 'asc', sorter }),
+        );
+      },
+    );
+
+    it('should still reject a sort field the repository does not know', async () => {
+      await expect(caller.getKnowledgeItems({ sorter: 'path' } as never)).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      });
+      expect(mockKnowledgeRepoQuery).not.toHaveBeenCalled();
+    });
+
     it('should reject preview pages larger than the server limit', async () => {
       await expect(
         caller.getKnowledgeItems({ includeContentPreview: true, limit: 101 }),
