@@ -1,3 +1,4 @@
+import { stripTenantPath } from '@lobechat/business-tenant/routing';
 import { type NextRequest } from 'next/server';
 
 /**
@@ -16,5 +17,9 @@ import { type NextRequest } from 'next/server';
 export function prepareRequestForTRPC(req: NextRequest): Request {
   // Clone the Request to create an independent body stream
   // This ensures tRPC can read the body even if the original request's body was disturbed
-  return req.clone();
+  const url = new URL(req.url);
+  // Next route rewrites can retain the original tenant URL. tRPC extracts
+  // the procedure relative to its unprefixed endpoint, after tenant admission.
+  url.pathname = stripTenantPath(url.pathname);
+  return new Request(url, req.clone());
 }

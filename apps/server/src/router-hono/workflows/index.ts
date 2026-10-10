@@ -1,4 +1,6 @@
+import { stripTenantPath } from '@lobechat/business-tenant/routing';
 import { Hono } from 'hono';
+import { getPath } from 'hono/utils/url';
 
 import agentEvalRunApp from './agent-eval-run';
 import agentSignalApp from './agent-signal';
@@ -14,7 +16,11 @@ import trashApp from './trash';
 import verifyApp from './verify';
 import widgetApp from './widget';
 
-const app = new Hono().basePath('/api/workflows');
+// Requests arrive with their tenant address (see the route shell); routing
+// ignores the tenant prefix, which the proxy has already resolved and signed.
+const app = new Hono({ getPath: (request) => stripTenantPath(getPath(request)) }).basePath(
+  '/api/workflows',
+);
 
 app.route('/agent-eval-run', agentEvalRunApp);
 app.route('/agent-signal', agentSignalApp);

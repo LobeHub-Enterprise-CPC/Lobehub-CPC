@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { MarketService } from '@/server/services/market';
 
 type RouteContext = {
@@ -18,7 +19,7 @@ type RouteContext = {
  * POST /market/social/unlike
  * POST /market/social/toggle-like
  */
-export const POST = async (req: NextRequest, context: RouteContext) => {
+const handlePost = async (req: NextRequest, context: RouteContext) => {
   const { segments = [] } = await context.params;
   const action = segments[0];
 
@@ -106,7 +107,7 @@ export const POST = async (req: NextRequest, context: RouteContext) => {
  * GET /market/social/liked-agents/[userId]
  * GET /market/social/liked-plugins/[userId]
  */
-export const GET = async (req: NextRequest, context: RouteContext) => {
+const handleGet = async (req: NextRequest, context: RouteContext) => {
   const { segments = [] } = await context.params;
   const action = segments[0];
 
@@ -234,3 +235,6 @@ export const GET = async (req: NextRequest, context: RouteContext) => {
 };
 
 export const dynamic = 'force-dynamic';
+
+export const GET = withTenantRequest(handleGet);
+export const POST = withTenantRequest(handlePost);

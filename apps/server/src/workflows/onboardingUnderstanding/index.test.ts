@@ -1,13 +1,19 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 const triggerMock = vi.fn();
 const appEnv = {
   APP_URL: 'http://localhost:3011',
   INTERNAL_APP_URL: 'http://internal:3011',
 };
 
-vi.mock('@/envs/app', () => ({ appEnv }));
+vi.mock('@/envs/app', () => ({
+  appEnv,
+  getInternalApiUrl: () => appEnv.INTERNAL_APP_URL || appEnv.APP_URL,
+}));
 vi.mock('@/libs/observability/traceparent', () => ({
   injectActiveTraceHeaders: (headers: Headers) => headers.set('traceparent', 'trace-1'),
 }));
@@ -44,7 +50,7 @@ describe('OnboardingUnderstandingWorkflow', () => {
     expect(triggerMock).toHaveBeenCalledWith({
       body: payload,
       headers: { traceparent: 'trace-1' },
-      url: 'http://internal:3011/api/workflows/onboarding/understanding/process-providers',
+      url: 'http://internal:3011/t/acme/api/workflows/onboarding/understanding/process-providers',
     });
   });
 
@@ -91,7 +97,7 @@ describe('OnboardingUnderstandingWorkflow', () => {
     expect(triggerMock).toHaveBeenCalledWith({
       body: payload,
       headers: { traceparent: 'trace-1' },
-      url: 'http://internal:3011/api/workflows/onboarding/understanding/process-collected',
+      url: 'http://internal:3011/t/acme/api/workflows/onboarding/understanding/process-collected',
       workflowRunId: 'feedback-session-1-revision-2',
     });
   });

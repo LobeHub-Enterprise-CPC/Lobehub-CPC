@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import { BRANDING_PROVIDER } from '@lobechat/business-const';
 import { isLobeHubModelAvailable } from '@lobechat/business-model-bank/model-config';
@@ -6,6 +6,7 @@ import {
   buildMappedBusinessModelFields,
   resolveBusinessModelMapping,
 } from '@lobechat/business-model-runtime';
+import { SubmissionRejectedError } from '@lobechat/model-runtime/errors';
 import {
   ChatErrorType,
   RequestTrigger,
@@ -42,6 +43,12 @@ import { appEnv } from '@/envs/app';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
+import {
+  beginExternalTenantWork,
+  confirmExternalTenantWork,
+  identifyExternalTenantWork,
+} from '@/server/modules/Tenant/externalWork';
 import { FileService } from '@/server/services/file';
 import { getVideoAvgLatencies, getVideoLatencyKey } from '@/server/services/generation/latency';
 import { processBackgroundVideoPolling } from '@/server/services/generation/videoBackgroundPolling';
@@ -376,9 +383,9 @@ export const videoRouter = router({
 
         const callbackBaseUrl = appEnv.WEBHOOK_PROXY_URL || appEnv.APP_URL;
         // Append to the base instead of resolving a root-relative path, which would drop a
-        // reverse-proxy prefix such as `https://host/lobehub`.
+        // reverse-proxy prefix such as `https://host/lobehub`; the callback carries the tenant.
         const callbackUrl = new URL(
-          `${callbackBaseUrl.replace(/\/+$/, '')}/api/webhooks/video/${provider}`,
+          buildTenantCallbackUrl(`/api/webhooks/video/${provider}`, callbackBaseUrl),
         );
         callbackUrl.searchParams.set('model', resolvedModelId);
         callbackUrl.searchParams.set('token', webhookToken);
@@ -391,6 +398,14 @@ export const videoRouter = router({
         );
 
         const requestMetadata: Record<string, unknown> = { trigger: RequestTrigger.Video };
+        const workContext = {
+          userId,
+          workspaceId: wsId,
+          provider,
+          model: resolvedModelId,
+          webhookTokenHash: createHash('sha256').update(webhookToken).digest('hex'),
+        };
+        await beginExternalTenantWork('video', asyncTaskId, workContext);
         const response = await modelRuntime.createVideo(
           {
             callbackUrl: callbackUrl.toString(),
@@ -420,6 +435,11 @@ export const videoRouter = router({
           ...(ctx.spendOrigin ? { spendOrigin: ctx.spendOrigin } : {}),
           webhookToken,
         };
+
+        await identifyExternalTenantWork('video', asyncTaskId, response.inferenceId, {
+          ...workContext,
+          route,
+        });
 
         const schedulePolling = (inferenceId: string, pollingIsFallback: boolean) => {
           after(async () => {
@@ -492,6 +512,14 @@ export const videoRouter = router({
           log('After() hook registered for background video polling: %s', asyncTaskId);
         }
       } catch (e) {
+        // Only a direct adapter's positive rejection is authoritative. Router fallback errors
+        // cannot prove earlier attempts did not create remote work.
+        if (
+          provider === 'volcengine' &&
+          e instanceof SubmissionRejectedError &&
+          e.provider === provider
+        )
+          await confirmExternalTenantWork('video', asyncTaskId);
         console.error(
           `[video] submit failed asyncTask=${asyncTaskId} provider=${provider} model=${resolvedModelId}:`,
           e,

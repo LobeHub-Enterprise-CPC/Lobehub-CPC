@@ -1,0 +1,5 @@
+{
+  "required.desc": "请使用所在公司提供的访问地址打开 {{appName}}，地址形如 {{example}}。",
+  "required.hint": "如果不清楚访问地址，请联系你的管理员。",
+  "required.title": "请通过专属地址访问"
+}

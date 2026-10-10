@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { initializeTenant } from '@lobechat/business-tenant/client';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   buildOnboardingRedirectUrl,
@@ -7,6 +8,7 @@ import {
   isSafeRedirectPath,
   peekOnboardingCallbackUrl,
   resolvePostOnboardingTargetUrl,
+  sanitizeRedirectPath,
   stashOnboardingCallbackUrl,
   toAbsoluteAuthCallbackUrl,
 } from './onboardingRedirect';
@@ -51,6 +53,37 @@ describe('toAbsoluteAuthCallbackUrl', () => {
     '/\\evil.com',
   ])('should preserve non-relative callback %s', (callbackUrl) => {
     expect(toAbsoluteAuthCallbackUrl(callbackUrl, authOrigin)).toBe(callbackUrl);
+  });
+});
+
+describe('tenant pages', () => {
+  const authOrigin = 'https://auth.example.com';
+
+  beforeEach(() => {
+    window.history.replaceState(null, '', '/t/acme/signin?callbackUrl=%2F');
+    initializeTenant(new URL(window.location.href));
+  });
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+    initializeTenant(new URL(window.location.href));
+  });
+
+  it("should send post-login callbacks to the page's tenant, not the bare root", () => {
+    expect(toAbsoluteAuthCallbackUrl('/', authOrigin)).toBe(`${authOrigin}/t/acme`);
+    expect(toAbsoluteAuthCallbackUrl('/onboarding?callbackUrl=%2Fagent', authOrigin)).toBe(
+      `${authOrigin}/t/acme/onboarding?callbackUrl=%2Fagent`,
+    );
+    // Already addressed to the tenant: unchanged.
+    expect(toAbsoluteAuthCallbackUrl('/t/acme/agent', authOrigin)).toBe(
+      `${authOrigin}/t/acme/agent`,
+    );
+  });
+
+  it('should keep the tenant on full-page redirects, including the fallback', () => {
+    expect(sanitizeRedirectPath(null)).toBe('/t/acme');
+    expect(sanitizeRedirectPath('/agent/abc')).toBe('/t/acme/agent/abc');
+    expect(sanitizeRedirectPath('https://evil.com')).toBe('/t/acme');
   });
 });
 

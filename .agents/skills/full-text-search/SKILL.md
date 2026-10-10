@@ -130,7 +130,8 @@ bun run scripts/pgSearchCleanup/index.ts --apply --yes
 
 ## Mapping Generations
 
-Docker startup runs `fts-search-elasticsearch-reindex.cjs --startup --yes` after PostgreSQL
+Docker startup runs `fts-search-elasticsearch-reindex-tenants.cjs --startup --yes` (the reindex once per tenant,
+each with its own `ES_INDEX_NAMESPACE`-plus-tenant-hash namespace and checkpoint directory) after PostgreSQL
 migrations when the selected provider is Elasticsearch. It blocks serving until index migration
 and catch-up succeed. Persist the same checkpoint volume across application and migration
 containers; failed namespace locks still require explicit recovery. Continuous sync remains a

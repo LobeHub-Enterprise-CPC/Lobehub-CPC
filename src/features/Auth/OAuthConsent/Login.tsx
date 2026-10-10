@@ -4,6 +4,7 @@ import { Block, Flexbox } from '@lobehub/ui';
 import { Avatar, Button, Skeleton, Text } from '@lobehub/ui/base-ui';
 import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useHref } from 'react-router';
 
 import AuthCard from '@/features/AuthCard';
 import { useSession } from '@/libs/better-auth/auth-client';
@@ -17,7 +18,8 @@ interface LoginConfirmProps {
 }
 
 const LoginConfirmClient = memo<LoginConfirmProps>(({ uid, clientMetadata }) => {
-  const { t } = useTranslation('oauth'); // Assuming translations are in 'oauth'
+  const { t } = useTranslation('oauth');
+  const action = useHref('/oidc/consent');
 
   const clientDisplayName = clientMetadata?.clientName || 'the application';
 
@@ -45,7 +47,7 @@ const LoginConfirmClient = memo<LoginConfirmProps>(({ uid, clientMetadata }) => 
         title={titleText}
         footer={
           <form
-            action="/oidc/consent"
+            action={action}
             method="post"
             style={{ width: '100%' }}
             onSubmit={() => setIsLoading(true)}

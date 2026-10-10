@@ -13,10 +13,14 @@ const mocks = vi.hoisted(() => ({
     disableEmailPassword: false,
     enableEmailVerification: true,
     enableMagicLink: false,
-    oAuthSSOProviders: ['github'],
   })),
   getServerFeatureFlagsValue: vi.fn(() => ({ auth_captcha: true })),
+  getTenantSsoProviders: vi.fn(async () => [
+    { clientSecret: 'secret', displayName: 'Okta', providerId: 'okta' },
+  ]),
 }));
+
+vi.mock('@/auth', () => ({ getTenantSsoProviders: mocks.getTenantSsoProviders }));
 
 vi.mock('@/config/featureFlags', () => ({
   getServerFeatureFlagsValue: mocks.getServerFeatureFlagsValue,
@@ -40,10 +44,19 @@ describe('GET /webapi/auth/spa-config', () => {
   });
 
   it('includes the env-level feature flags the auth shell maps onto state', async () => {
-    const response = await GET();
+    const response = await GET(new Request('http://localhost/webapi/auth/spa-config'));
     const body = await response.json();
 
     expect(mocks.getServerFeatureFlagsValue).toHaveBeenCalled();
     expect(body.featureFlags).toEqual({ auth_captcha: true });
+  });
+
+  it("lists the tenant's SSO provider ids only and keeps the answer out of shared caches", async () => {
+    const response = await GET(new Request('http://localhost/webapi/auth/spa-config'));
+    const body = await response.json();
+
+    expect(body.config.oAuthSSOProviders).toEqual(['okta']);
+    expect(JSON.stringify(body)).not.toContain('secret');
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
   });
 });

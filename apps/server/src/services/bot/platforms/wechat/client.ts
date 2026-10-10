@@ -8,6 +8,7 @@ import {
   MessageType,
   WechatApiClient,
 } from '@lobechat/chat-adapter-wechat';
+import { currentTenantScope, trackTenantWork } from '@lobechat/database/tenant';
 import type { Message } from 'chat';
 import debug from 'debug';
 
@@ -78,6 +79,11 @@ class WechatGatewayClient implements PlatformClient {
   private api: WechatApiClient;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  private stopping = false;
+  private starting?: Promise<void>;
+  private closing?: Promise<void>;
+  private releaseTenant?: () => void;
+  private settleTenant?: () => void;
   /** Cached context tokens per user ID for replies */
   private contextTokens = new Map<string, string>();
 
@@ -93,6 +99,27 @@ class WechatGatewayClient implements PlatformClient {
   // --- Lifecycle ---
 
   async start(options?: WechatGatewayOptions): Promise<void> {
+    if (this.stopping) throw new Error('BOT_STOP_IN_PROGRESS');
+    if (this.starting) return this.starting;
+    if (!this.releaseTenant) {
+      const track = currentTenantScope()?.trackWork;
+      if (track) {
+        const settled = new Promise<void>((resolve) => {
+          this.settleTenant = resolve;
+        });
+        this.releaseTenant = track({ close: () => this.stop(), settled });
+      }
+    }
+    const work = this.startNow(options);
+    this.starting = work;
+    try {
+      await work;
+    } finally {
+      if (this.starting === work) this.starting = undefined;
+    }
+  }
+
+  private async startNow(options?: WechatGatewayOptions): Promise<void> {
     log('Starting WechatBot appId=%s', this.applicationId);
 
     this.stopped = false;
@@ -100,7 +127,11 @@ class WechatGatewayClient implements PlatformClient {
 
     const durationMs = options?.durationMs ?? DEFAULT_DURATION_MS;
     const runtimeStatusTtlMs = durationMs + CONNECTED_STATUS_TTL_BUFFER_MS;
-    const waitUntil = options?.waitUntil ?? ((task: Promise<any>) => task.catch(() => {}));
+    const waitUntil = (task: Promise<any>) => {
+      const tracked = trackTenantWork(() => task);
+      if (options?.waitUntil) options.waitUntil(tracked);
+      else void tracked.catch(() => undefined);
+    };
     const webhookUrl = `${(this.context.appUrl || '').trim()}/api/agent/webhooks/wechat/${this.applicationId}`;
     await updateBotRuntimeStatus(
       {
@@ -132,7 +163,7 @@ class WechatGatewayClient implements PlatformClient {
             durationMs / 60_000,
           );
           this.abort.abort();
-          this.start().catch((err) => {
+          trackTenantWork(() => this.start()).catch((err) => {
             log('Failed to refresh WechatBot appId=%s: %O', this.applicationId, err);
           });
         }, durationMs);
@@ -163,21 +194,46 @@ class WechatGatewayClient implements PlatformClient {
   }
 
   async stop(): Promise<void> {
-    log('Stopping WechatBot appId=%s', this.applicationId);
-    this.stopped = true;
-    if (this.refreshTimer) {
-      clearTimeout(this.refreshTimer);
-      this.refreshTimer = null;
+    if (this.closing) return this.closing;
+    const work = this.stopNow().then(() => {
+      this.settleTenant?.();
+      this.releaseTenant?.();
+      this.settleTenant = undefined;
+      this.releaseTenant = undefined;
+    });
+    this.closing = work;
+    try {
+      await work;
+    } finally {
+      if (this.closing === work) this.closing = undefined;
     }
+  }
+
+  private async stopNow(): Promise<void> {
+    this.stopping = true;
+    this.stopped = true;
     this.abort.abort();
-    await updateBotRuntimeStatus(
-      {
-        applicationId: this.applicationId,
-        platform: this.id,
-        status: BOT_RUNTIME_STATUSES.disconnected,
-      },
-      { redisClient: this.context.redisClient as any },
-    );
+    try {
+      await this.starting?.catch(() => undefined);
+
+      log('Stopping WechatBot appId=%s', this.applicationId);
+      this.stopped = true;
+      if (this.refreshTimer) {
+        clearTimeout(this.refreshTimer);
+        this.refreshTimer = null;
+      }
+      this.abort.abort();
+      await updateBotRuntimeStatus(
+        {
+          applicationId: this.applicationId,
+          platform: this.id,
+          status: BOT_RUNTIME_STATUSES.disconnected,
+        },
+        { redisClient: this.context.redisClient as any },
+      );
+    } finally {
+      this.stopping = false;
+    }
   }
 
   // --- Long-polling loop ---

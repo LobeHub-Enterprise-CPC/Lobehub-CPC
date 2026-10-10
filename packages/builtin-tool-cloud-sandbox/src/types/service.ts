@@ -7,6 +7,8 @@ import type { ServiceResult } from '@lobechat/tool-runtime';
  */
 export interface SandboxCallToolResult {
   error?: ServiceResult['error'];
+  /** Positive provider evidence that submission was refused before execution. */
+  remoteExecution?: 'not-started';
   result: any;
   sessionExpiredAndRecreated?: boolean;
   success: boolean;

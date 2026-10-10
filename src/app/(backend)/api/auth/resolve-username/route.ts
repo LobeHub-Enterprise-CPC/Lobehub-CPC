@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 
 import { users } from '@/database/schemas/user';
 import { serverDB } from '@/database/server';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 
 export interface ResolveUsernameResponseData {
   email?: string | null;
@@ -15,7 +16,7 @@ export interface ResolveUsernameResponseData {
  * @param req - POST request with { username: string }
  * @returns { exists: boolean, email?: string | null }
  */
-export async function POST(req: NextRequest) {
+async function handlePost(req: NextRequest) {
   try {
     const body = await req.json();
     const { username } = body;
@@ -49,3 +50,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Internal server error', exists: false }, { status: 500 });
   }
 }
+
+export const POST = withTenantRequest(handlePost);

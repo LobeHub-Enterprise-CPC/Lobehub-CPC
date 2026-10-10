@@ -5,6 +5,7 @@ import { createLambdaContext } from '@/libs/trpc/lambda/context';
 import { createTRPCErrorLogger } from '@/libs/trpc/utils/errorLogger';
 import { prepareRequestForTRPC } from '@/libs/trpc/utils/request-adapter';
 import { createResponseMeta } from '@/libs/trpc/utils/responseMeta';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { lambdaRouter } from '@/server/routers/lambda';
 
 // Some lambda mutations (e.g. video.createVideo) schedule a Next.js `after()`
@@ -48,4 +49,6 @@ const handler = (req: NextRequest) => {
   });
 };
 
-export { handler as GET, handler as POST };
+const tenantHandler = withTenantRequest(handler);
+
+export { tenantHandler as GET, tenantHandler as POST };

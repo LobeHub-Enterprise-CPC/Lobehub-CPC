@@ -3,11 +3,12 @@ import debug from 'debug';
 import { type NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { OIDCService } from '@/server/services/oidc';
 
 const log = debug('lobe-oidc:consent');
 
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest) {
   log('Received POST request for /oidc/consent, URL: %s', request.url);
   try {
     const formData = await request.formData();
@@ -133,3 +134,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withTenantRequest(handlePost);

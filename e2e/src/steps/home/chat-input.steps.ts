@@ -2,6 +2,7 @@ import { After, Given, Then, When } from '@cucumber/cucumber';
 import { expect } from '@playwright/test';
 
 import { llmMockManager } from '../../mocks/llm';
+import { tenantPath } from '../../support/tenant';
 import type { CustomWorld } from '../../support/world';
 import { WAIT_TIMEOUT } from '../../support/world';
 
@@ -72,7 +73,7 @@ Given(
     });
 
     console.log('   📍 Step: 导航到 Home 页面...');
-    await this.page.goto('/');
+    await this.page.goto(tenantPath('/'));
 
     const chatInputContainer = this.page.locator('[data-testid="chat-input"]').first();
     await expect(chatInputContainer).toBeVisible({ timeout: WAIT_TIMEOUT });

@@ -1,12 +1,11 @@
 import { createTRPCClient, httpLink } from '@trpc/client';
 import superjson from 'superjson';
-import urlJoin from 'url-join';
 
-import { appEnv } from '@/envs/app';
 import { LOBE_CHAT_AUTH_HEADER } from '@/envs/auth';
 import { createAsyncCallerFactory } from '@/libs/trpc/async';
 import { signInternalJWT } from '@/libs/trpc/utils/internalJwt';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 
 import { type AsyncRouter } from './index';
 import { asyncRouter } from './index';
@@ -28,8 +27,9 @@ export const createAsyncServerClient = async (userId: string) => {
       httpLink({
         headers,
         transformer: superjson,
-        // Use INTERNAL_APP_URL for server-to-server calls to bypass CDN/proxy
-        url: urlJoin(appEnv.INTERNAL_APP_URL!, '/trpc/async'),
+        // Server-to-server (INTERNAL_APP_URL bypasses the CDN), addressed to
+        // the caller's tenant so the async router runs in the same tenant.
+        url: buildTenantCallbackUrl('/trpc/async'),
       }),
     ],
   });

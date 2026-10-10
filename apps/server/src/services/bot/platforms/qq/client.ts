@@ -1,5 +1,6 @@
 import type { QQAdapter } from '@lobechat/chat-adapter-qq';
 import { createQQAdapter, QQApiClient } from '@lobechat/chat-adapter-qq';
+import { currentTenantScope, trackTenantWork } from '@lobechat/database/tenant';
 import type { Chat as ChatBot, Message } from 'chat';
 import debug from 'debug';
 
@@ -122,6 +123,11 @@ class QQGatewayClient implements PlatformClient {
   private context: BotPlatformRuntimeContext;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  private stopping = false;
+  private starting?: Promise<void>;
+  private closing?: Promise<void>;
+  private releaseTenant?: () => void;
+  private settleTenant?: () => void;
 
   constructor(config: BotProviderConfig, context: BotPlatformRuntimeContext) {
     this.config = config;
@@ -132,6 +138,27 @@ class QQGatewayClient implements PlatformClient {
   // --- Lifecycle ---
 
   async start(options?: GatewayListenerOptions): Promise<void> {
+    if (this.stopping) throw new Error('BOT_STOP_IN_PROGRESS');
+    if (this.starting) return this.starting;
+    if (!this.releaseTenant) {
+      const track = currentTenantScope()?.trackWork;
+      if (track) {
+        const settled = new Promise<void>((resolve) => {
+          this.settleTenant = resolve;
+        });
+        this.releaseTenant = track({ close: () => this.stop(), settled });
+      }
+    }
+    const work = this.startNow(options);
+    this.starting = work;
+    try {
+      await work;
+    } finally {
+      if (this.starting === work) this.starting = undefined;
+    }
+  }
+
+  private async startNow(options?: GatewayListenerOptions): Promise<void> {
     log('Starting QQBot appId=%s', this.applicationId);
 
     this.stopped = false;
@@ -149,7 +176,7 @@ class QQGatewayClient implements PlatformClient {
 
     try {
       if (this.bot) {
-        await this.bot.shutdown().catch(() => {});
+        await this.bot.shutdown();
         this.bot = null;
       }
 
@@ -178,7 +205,11 @@ class QQGatewayClient implements PlatformClient {
       await bot.initialize();
 
       const qqAdapter = (bot as any).adapters.get('qq') as QQAdapter;
-      const waitUntil = options?.waitUntil ?? ((task: Promise<any>) => task.catch(() => {}));
+      const waitUntil = (task: Promise<any>) => {
+        const tracked = trackTenantWork(() => task);
+        if (options?.waitUntil) options.waitUntil(tracked);
+        else void tracked.catch(() => undefined);
+      };
 
       const webhookUrl = `${(this.context.appUrl || '').trim()}/api/agent/webhooks/qq/${this.applicationId}`;
 
@@ -199,7 +230,7 @@ class QQGatewayClient implements PlatformClient {
             durationMs / 3_600_000,
           );
           this.abort.abort();
-          this.start().catch((err) => {
+          trackTenantWork(() => this.start()).catch((err) => {
             log('Failed to refresh QQBot appId=%s: %O', this.applicationId, err);
           });
         }, durationMs);
@@ -230,25 +261,50 @@ class QQGatewayClient implements PlatformClient {
   }
 
   async stop(): Promise<void> {
-    log('Stopping QQBot appId=%s', this.applicationId);
+    if (this.closing) return this.closing;
+    const work = this.stopNow().then(() => {
+      this.settleTenant?.();
+      this.releaseTenant?.();
+      this.settleTenant = undefined;
+      this.releaseTenant = undefined;
+    });
+    this.closing = work;
+    try {
+      await work;
+    } finally {
+      if (this.closing === work) this.closing = undefined;
+    }
+  }
+
+  private async stopNow(): Promise<void> {
+    this.stopping = true;
     this.stopped = true;
-    if (this.refreshTimer) {
-      clearTimeout(this.refreshTimer);
-      this.refreshTimer = null;
-    }
     this.abort.abort();
-    if (this.bot) {
-      await this.bot.shutdown().catch(() => {});
-      this.bot = null;
+    try {
+      await this.starting?.catch(() => undefined);
+
+      log('Stopping QQBot appId=%s', this.applicationId);
+      this.stopped = true;
+      if (this.refreshTimer) {
+        clearTimeout(this.refreshTimer);
+        this.refreshTimer = null;
+      }
+      this.abort.abort();
+      if (this.bot) {
+        await this.bot.shutdown();
+        this.bot = null;
+      }
+      await updateBotRuntimeStatus(
+        {
+          applicationId: this.applicationId,
+          platform: this.id,
+          status: BOT_RUNTIME_STATUSES.disconnected,
+        },
+        { redisClient: this.context.redisClient as any },
+      );
+    } finally {
+      this.stopping = false;
     }
-    await updateBotRuntimeStatus(
-      {
-        applicationId: this.applicationId,
-        platform: this.id,
-        status: BOT_RUNTIME_STATUSES.disconnected,
-      },
-      { redisClient: this.context.redisClient as any },
-    );
   }
 
   // --- Runtime Operations ---

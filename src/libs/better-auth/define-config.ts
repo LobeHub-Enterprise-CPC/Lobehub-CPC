@@ -2,14 +2,21 @@ import { expo } from '@better-auth/expo';
 import { passkey } from '@better-auth/passkey';
 import { configureBusinessAuth, managedBusinessSSO } from '@lobechat/business-auth';
 import { BRANDING_NAME } from '@lobechat/business-const';
-import { createNanoId, idGenerator, serverDB } from '@lobechat/database';
+import { createNanoId, idGenerator, type LobeChatDatabase } from '@lobechat/database';
 import * as schema from '@lobechat/database/schemas';
 import bcrypt from 'bcryptjs';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { verifyPassword as defaultVerifyPassword } from 'better-auth/crypto';
 import { type BetterAuthOptions } from 'better-auth/minimal';
 import { betterAuth } from 'better-auth/minimal';
-import { admin, emailOTP, genericOAuth, magicLink } from 'better-auth/plugins';
+import {
+  admin,
+  emailOTP,
+  genericOAuth,
+  type GenericOAuthConfig,
+  magicLink,
+} from 'better-auth/plugins';
+import { type SocialProviders } from 'better-auth/social-providers';
 import { type BetterAuthPlugin } from 'better-auth/types';
 import { EnvHttpProxyAgent, setGlobalDispatcher } from 'undici';
 
@@ -22,15 +29,11 @@ import {
   getVerificationEmailTemplate,
   getVerificationOTPEmailTemplate,
 } from '@/libs/better-auth/email-templates';
-import { emailWhitelist } from '@/libs/better-auth/plugins/email-whitelist';
-import { initBetterAuthSSOProviders } from '@/libs/better-auth/sso';
 import {
   createSecondaryStorage,
   getPasskeyOrigins,
   getTrustedOrigins,
 } from '@/libs/better-auth/utils/config';
-import { expireLegacyHostOnlyCookies } from '@/libs/better-auth/utils/host-only-cookies';
-import { parseSSOProviders } from '@/libs/better-auth/utils/server';
 import { clearMismatchedOIDCSession } from '@/libs/oidc-provider/session-cleanup';
 import { EmailService } from '@/server/services/email';
 import { UserService } from '@/server/services/user';
@@ -89,62 +92,60 @@ const getPasskeyRpID = (): string | undefined => {
   }
 };
 
-/**
- * Browsers silently drop a cookie whose `Domain` the current host is not a member of.
- * Applying a production domain on a preview deployment (`*.vercel.app`) or localhost would
- * therefore erase every auth cookie instead of widening it, so fall back to host-only there.
- */
-const resolveCookieDomain = (cookieDomain?: string): string | undefined => {
-  if (!cookieDomain) return undefined;
-
-  const base = cookieDomain.replace(/^\./, '');
-  try {
-    const { hostname } = new URL(appEnv.APP_URL);
-    if (hostname !== base && !hostname.endsWith(`.${base}`)) return undefined;
-  } catch {
-    return undefined;
-  }
-
-  return cookieDomain;
-};
-
 const MAGIC_LINK_EXPIRES_IN = 900;
 // OTP expiration time (in seconds) - 5 minutes for mobile OTP verification
 const OTP_EXPIRES_IN = 300;
 const enableMagicLink = authEnv.AUTH_ENABLE_MAGIC_LINK;
-const enabledSSOProviders = parseSSOProviders(authEnv.AUTH_SSO_PROVIDERS);
 
-const { socialProviders, genericOAuthProviders } = managedBusinessSSO
-  ? { socialProviders: {}, genericOAuthProviders: [] }
-  : initBetterAuthSSOProviders();
+export interface TenantAuthTarget {
+  /** Immutable tenant id: keys the cookie prefix and the session cache. */
+  id: string;
+  /** URL name the auth endpoints are mounted under: `/t/{slug}/api/auth`. */
+  slug: string;
+}
 
 interface CustomBetterAuthOptions {
   /**
-   * Share auth cookies across every subdomain of this domain (e.g. `.example.com`).
-   * Omit to keep cookies host-only.
+   * Cookie name prefix, derived from the tenant id (`lh_<h24>`, spec FR-ID-10)
+   * so two tenants' sessions in one browser never overwrite each other.
    */
-  cookieDomain?: string;
-  /** Namespace every Better Auth cookie so colocated deployments cannot overwrite each other. */
-  cookiePrefix?: string;
+  cookiePrefix: string;
+  /** The tenant's own database: accounts and sessions live in its schema (spec A15). */
+  database: LobeChatDatabase;
+  /** The tenant's SSO providers, read from its `sso_providers` (spec A8). */
+  genericOAuthProviders: GenericOAuthConfig[];
+  /** Request-scoped options a distribution contributes (`getBusinessAuthOptions`). */
   overrides?: BetterAuthOptions;
   plugins: BetterAuthPlugin[];
+  /** Redis namespace for cached sessions; includes the tenant id. */
+  secondaryStorageNamespace: string;
+  /** The tenant's SSO providers that are better-auth built-ins (Google, GitHub, …). */
+  socialProviders: SocialProviders;
+  tenant: TenantAuthTarget;
 }
 
+/** Every auth endpoint and cookie of a tenant lives under its path (spec A16, FR-ID-10). */
+export const tenantAuthBasePath = (slug: string) => `/t/${slug}/api/auth`;
+
 export function defineConfig(customOptions: CustomBetterAuthOptions) {
-  const cookieDomain = resolveCookieDomain(customOptions.cookieDomain);
+  const { database, genericOAuthProviders, socialProviders, tenant } = customOptions;
 
   const options = {
     account: {
       accountLinking: {
         allowDifferentEmails: true,
+        // Same email from another provider is a different identity (FR-ID-05):
+        // accounts are only linked when the signed-in user links them.
+        disableImplicitLinking: true,
         enabled: !managedBusinessSSO,
-        trustedProviders: managedBusinessSSO ? [] : enabledSSOProviders,
+        trustedProviders: [],
       },
     },
 
     baseURL: appEnv.APP_URL,
+    basePath: tenantAuthBasePath(tenant.slug),
     secret: authEnv.AUTH_SECRET,
-    trustedOrigins: getTrustedOrigins(enabledSSOProviders),
+    trustedOrigins: getTrustedOrigins(Object.keys(socialProviders)),
 
     emailAndPassword: {
       autoSignIn: true,
@@ -213,7 +214,7 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
       },
     },
     onAPIError: {
-      errorURL: '/auth-error',
+      errorURL: `/t/${tenant.slug}/auth-error`,
     },
     session: {
       cookieCache: {
@@ -223,12 +224,12 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
       // Keep a DB-backed fallback when Redis secondary storage entries are unexpectedly missing.
       storeSessionInDatabase: true,
     },
-    database: drizzleAdapter(serverDB, {
+    database: drizzleAdapter(database, {
       provider: 'pg',
       // experimental joins feature needs schema to pass full relation
       schema,
     }),
-    secondaryStorage: createSecondaryStorage(),
+    secondaryStorage: createSecondaryStorage(customOptions.secondaryStorageNamespace),
     /**
      * Database joins is useful when Better-Auth needs to fetch related data from multiple tables in a single query.
      * Endpoints like /get-session, /get-full-organization and many others benefit greatly from this feature,
@@ -246,7 +247,7 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
         create: {
           before: async (session, context) => {
             try {
-              await clearMismatchedOIDCSession(serverDB, session.userId, context);
+              await clearMismatchedOIDCSession(database, session.userId, context);
             } catch (error) {
               /**
                * OIDC cleanup is a provider-specific recovery guard. Its failure must not prevent
@@ -260,7 +261,7 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
       user: {
         create: {
           after: async (user) => {
-            const userService = new UserService(serverDB);
+            const userService = new UserService(database);
             await userService.initUser({
               email: user.email,
               id: user.id,
@@ -292,10 +293,10 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
 
     socialProviders,
     advanced: {
-      ...(cookieDomain && {
-        crossSubDomainCookies: { domain: cookieDomain, enabled: true },
-      }),
-      ...(customOptions.cookiePrefix && { cookiePrefix: customOptions.cookiePrefix }),
+      // Host-only cookies scoped to the tenant path (spec A17, FR-ID-10): the
+      // browser never sends tenant A's session to tenant B's routes.
+      cookiePrefix: customOptions.cookiePrefix,
+      defaultCookieAttributes: { path: `/t/${tenant.slug}` },
       database: {
         /**
          * Align Better Auth user IDs with our shared idGenerator for consistency.
@@ -321,7 +322,6 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
     },
     plugins: [
       ...customOptions.plugins,
-      ...(!managedBusinessSSO ? [emailWhitelist()] : []),
       expo(),
       admin(),
       // Email OTP plugin for mobile verification
@@ -389,7 +389,7 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
   } satisfies BetterAuthOptions;
 
   const overrides = customOptions.overrides;
-  const instance = betterAuth(
+  return betterAuth(
     configureBusinessAuth({
       ...options,
       verification: overrides?.verification,
@@ -402,7 +402,7 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
       advanced: { ...options.advanced, ...overrides?.advanced },
       plugins: [...options.plugins, ...(overrides?.plugins ?? [])],
       trustedOrigins: [
-        ...(getTrustedOrigins(managedBusinessSSO ? [] : enabledSSOProviders) ?? []),
+        ...(options.trustedOrigins ?? []),
         ...((overrides?.trustedOrigins as string[] | undefined) ?? []),
       ],
       disabledPaths: [
@@ -421,11 +421,4 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
       ],
     }),
   );
-  if (!cookieDomain) return instance;
-
-  const handleRequest = instance.handler;
-  instance.handler = async (request) =>
-    expireLegacyHostOnlyCookies(request, await handleRequest(request), cookieDomain);
-
-  return instance;
 }

@@ -1,4 +1,5 @@
 import { IoRedisRedisProvider } from './redis';
+import { currentTenantRedisPrefix, PrefixedRedisClient, sharedRedisPrefix } from './tenant';
 import { type BaseRedisProvider, type RedisConfig } from './types';
 
 export const isRedisDisabledByEnv = () => !!process.env.DISABLE_REDIS;
@@ -12,8 +13,14 @@ const createProvider = (config: RedisConfig, prefix?: string): BaseRedisProvider
   return new IoRedisRedisProvider({ ...config, prefix: actualPrefix });
 };
 
+// The connection keeps the deployment prefix; the tenant segment is added per
+// command (see ./tenant).
+const tenantClient = (base: BaseRedisProvider) =>
+  new PrefixedRedisClient(base, currentTenantRedisPrefix);
+
 class RedisManager {
   private static instance: BaseRedisProvider | null = null;
+  private static base: BaseRedisProvider | null = null;
   // NOTICE: initPromise keeps concurrent initialize() calls sharing the same in-flight setup,
   // preventing multiple connections from being created in parallel.
   private static initPromise: Promise<BaseRedisProvider | null> | null = null;
@@ -31,9 +38,10 @@ class RedisManager {
       }
 
       await provider.initialize();
-      RedisManager.instance = provider;
+      RedisManager.base = provider;
+      RedisManager.instance = tenantClient(provider);
 
-      return provider;
+      return RedisManager.instance;
     })().catch((error) => {
       RedisManager.initPromise = null;
       throw error;
@@ -48,11 +56,29 @@ class RedisManager {
     }
 
     RedisManager.instance = null;
+    RedisManager.base = null;
     RedisManager.initPromise = null;
+  }
+
+  static async initializeShared(config: RedisConfig): Promise<BaseRedisProvider | null> {
+    await RedisManager.initialize(config);
+    return RedisManager.base ? new PrefixedRedisClient(RedisManager.base, sharedRedisPrefix) : null;
   }
 }
 
+/** The deployment Redis client, confined to the current tenant's keys. */
 export const initializeRedis = (config: RedisConfig) => RedisManager.initialize(config);
+
+/**
+ * The deployment Redis client confined to the `_shared` keyspace, for data
+ * that belongs to the deployment rather than a tenant (published feature
+ * flags). Never use it for tenant data.
+ */
+export const initializeSharedRedis = async (
+  config: RedisConfig,
+): Promise<BaseRedisProvider | null> => {
+  return RedisManager.initializeShared(config);
+};
 export const resetRedisClient = () => RedisManager.reset();
 export { RedisManager };
 
@@ -74,7 +100,7 @@ export const createRedisWithPrefix = async (
   if (!provider) return null;
 
   await provider.initialize();
-  return provider;
+  return tenantClient(provider);
 };
 
 /**
@@ -96,8 +122,9 @@ class PrefixedRedisManager {
       if (!provider) return null;
 
       await provider.initialize();
-      this.instances.set(prefix, provider);
-      return provider;
+      const client = tenantClient(provider);
+      this.instances.set(prefix, client);
+      return client;
     })().catch((error) => {
       this.initPromises.delete(prefix);
       throw error;

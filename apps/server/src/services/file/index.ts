@@ -9,13 +9,16 @@ import { serverDBEnv } from '@/config/db';
 import { FileModel } from '@/database/models/file';
 import { type FileItem } from '@/database/schemas';
 import { appEnv } from '@/envs/app';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { TempFileManager } from '@/server/utils/tempFileManager';
 import { isDev } from '@/utils/env';
 
 import { createFileServiceModule } from './impls';
 import type { FileServiceImpl, PreSignedUpload } from './impls/type';
 
-export const getFileProxyUrl = (fileId: string): string => `${appEnv.APP_URL}/f/${fileId}`;
+/** The file proxy of the current tenant: `/f/{id}` is a tenant backend route. */
+export const getFileProxyUrl = (fileId: string): string =>
+  buildTenantCallbackUrl(`/f/${fileId}`, appEnv.APP_URL);
 
 export interface FileAccessUrlItem {
   fileId?: string | null;

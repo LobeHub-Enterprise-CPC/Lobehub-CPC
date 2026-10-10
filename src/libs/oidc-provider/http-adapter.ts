@@ -1,12 +1,13 @@
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { Readable } from 'node:stream';
 
+import { stripTenantPath } from '@lobechat/business-tenant/routing';
 import debug from 'debug';
 import { cookies } from 'next/headers';
 import { type NextRequest } from 'next/server';
 import urlJoin from 'url-join';
 
-import { appEnv } from '@/envs/app';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 
 const log = debug('lobe-oidc:http-adapter');
 
@@ -46,7 +47,7 @@ export const createNodeRequest = async (req: NextRequest): Promise<IncomingMessa
   // under the `/oidc` prefix the way every other route is. The document lives
   // where clients look for it (`/oidc/.well-known/openid-configuration`, the
   // issuer plus the well-known suffix) and is translated back here.
-  if (providerPath === DISCOVERY_PUBLIC_PATH) {
+  if (stripTenantPath(providerPath) === DISCOVERY_PUBLIC_PATH) {
     providerPath = DISCOVERY_PROVIDER_PATH;
   }
 
@@ -211,7 +212,7 @@ export const createContextForInteractionDetails = async (
   uid: string,
 ): Promise<{ req: IncomingMessage; res: ServerResponse }> => {
   log('Creating context for interaction details for uid: %s', uid);
-  const baseUrl = appEnv.APP_URL!;
+  const baseUrl = tenantPublicBaseUrl();
   log('Using base URL: %s', baseUrl);
 
   // Extract hostname and protocol from baseUrl for headers

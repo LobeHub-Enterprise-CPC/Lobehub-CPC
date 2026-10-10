@@ -25,26 +25,24 @@ tags:
      - 在 redirect URIs 中添加回调 URL
 
   <Callout type={'info'}>
-    **回调 URL 格式**: `https://your-domain.com/api/auth/callback/cloudflare-zero-trust`
+    **回调 URL 格式**: `https://your-domain.com/t/<tenant>/api/auth/callback/cloudflare-zero-trust`
   </Callout>
 
   5. 记下 **Client ID**、**Client Secret** 和 **Issuer URL**
 
-  ### 配置环境变量
+  ### 在 Admin 中配置
 
-  在部署 LobeHub 时，你需要配置以下环境变量：
+  SSO 由每个租户在 Admin 中配置，不再使用环境变量。在 Admin 中打开该租户的 SSO 提供商，新增一个提供商并填写：
 
-  | 环境变量                                | 类型 | 描述                                                      |
-  | ----------------------------------- | -- | ------------------------------------------------------- |
-  | `AUTH_SECRET`                       | 必选 | 用于加密会话令牌的密钥。使用以下命令生成：`openssl rand -base64 32`          |
-  | `AUTH_SSO_PROVIDERS`                | 必选 | SSO 提供商。填写 `cloudflare-zero-trust`                      |
-  | `AUTH_CLOUDFLARE_ZERO_TRUST_ID`     | 必选 | Cloudflare Access 的 Client ID                           |
-  | `AUTH_CLOUDFLARE_ZERO_TRUST_SECRET` | 必选 | Cloudflare Access 的 Client Secret                       |
-  | `AUTH_CLOUDFLARE_ZERO_TRUST_ISSUER` | 必选 | Issuer URL（例如 `https://your-team.cloudflareaccess.com`） |
+  | 字段            | 值                                                                         |
+  | ------------- | ------------------------------------------------------------------------- |
+  | 协议            | OIDC                                                                      |
+  | 提供商 ID        | 填 `cloudflare-zero-trust` 使用 cloudflare-zero-trust 预设；其他 ID 按普通 OIDC 处理   |
+  | Client ID     | 身份提供商的 Client ID                                                          |
+  | Client Secret | 身份提供商的 Client Secret；Admin 加密保存                                           |
+  | Issuer        | `https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client-id>` |
 
-  <Callout type={'tip'}>
-    前往 [📘 环境变量](/zh/docs/self-hosting/environment-variables/auth#cloudflare-zero-trust) 可查阅相关变量详情。
-  </Callout>
+  需要在身份提供商处登记的回调 URL 为 `https://your-domain.com/t/<租户>/api/auth/callback/<提供商 ID>`，Admin 会为每个提供商显示该地址。
 </Steps>
 
 <Callout type={'info'}>部署成功后，用户将可以通过 Cloudflare Zero Trust 身份认证并使用 LobeHub。</Callout>

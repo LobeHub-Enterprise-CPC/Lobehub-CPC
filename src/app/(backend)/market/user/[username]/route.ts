@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { MarketService } from '@/server/services/market';
 
 type RouteContext = {
@@ -15,7 +16,7 @@ type RouteContext = {
  * Fetches user profile information from Market SDK.
  * Returns only user basic info (no agents list).
  */
-export const GET = async (req: NextRequest, context: RouteContext) => {
+const handleGet = async (req: NextRequest, context: RouteContext) => {
   const { username } = await context.params;
   const decodedUsername = decodeURIComponent(username);
 
@@ -65,3 +66,5 @@ export const GET = async (req: NextRequest, context: RouteContext) => {
 };
 
 export const dynamic = 'force-dynamic';
+
+export const GET = withTenantRequest(handleGet);

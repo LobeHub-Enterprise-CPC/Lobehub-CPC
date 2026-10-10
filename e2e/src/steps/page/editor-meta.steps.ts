@@ -6,6 +6,7 @@
 import { Given, Then, When } from '@cucumber/cucumber';
 import { expect } from '@playwright/test';
 
+import { tenantPath } from '../../support/tenant';
 import type { CustomWorld } from '../../support/world';
 import { WAIT_TIMEOUT } from '../../support/world';
 
@@ -83,7 +84,7 @@ Given('用户打开一个文稿编辑器', async function (this: CustomWorld) {
   console.log('   📍 Step: 创建并打开一个文稿...');
 
   // Navigate to page module
-  await this.page.goto('/page');
+  await this.page.goto(tenantPath('/page'));
   await this.page.waitForLoadState('domcontentloaded', { timeout: 15_000 });
   await waitForPageWorkspaceReady(this);
 
@@ -103,7 +104,7 @@ Given('用户打开一个带有 Emoji 的文稿', async function (this: CustomWo
   console.log('   📍 Step: 创建并打开一个带 Emoji 的文稿...');
 
   // First create and open a page
-  await this.page.goto('/page');
+  await this.page.goto(tenantPath('/page'));
   await this.page.waitForLoadState('domcontentloaded', { timeout: 15_000 });
   await waitForPageWorkspaceReady(this);
 

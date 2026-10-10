@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { MarketService } from '@/server/services/market';
 
 /**
@@ -15,7 +16,7 @@ import { MarketService } from '@/server/services/market';
  * - avatarUrl?: string - User's avatar URL
  * - meta?: { description?: string; socialLinks?: { github?: string; twitter?: string; website?: string } }
  */
-export const PUT = async (req: NextRequest) => {
+const handlePut = async (req: NextRequest) => {
   const marketService = await MarketService.createFromRequest(req);
   const market = marketService.market;
 
@@ -62,3 +63,5 @@ export const PUT = async (req: NextRequest) => {
 };
 
 export const dynamic = 'force-dynamic';
+
+export const PUT = withTenantRequest(handlePut);

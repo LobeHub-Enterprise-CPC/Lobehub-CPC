@@ -5,15 +5,21 @@ import { vector } from '@electric-sql/pglite/vector';
 import { sql } from 'drizzle-orm';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { drizzle as nodeDrizzle } from 'drizzle-orm/node-postgres';
-import { migrate as nodeMigrate } from 'drizzle-orm/node-postgres/migrator';
 import { drizzle as pgliteDrizzle } from 'drizzle-orm/pglite';
 import { Pool as NodePool } from 'pg';
 
 import { serverDBEnv } from '@/config/db';
 
 import * as schema from '../schemas';
+import {
+  materializeTenantStatement,
+  TENANT_MIGRATIONS_TABLE,
+  TENANT_ONLY_MIGRATIONS_TABLE,
+} from '../tenant/migrator';
 import type { LobeChatDatabase } from '../type';
 
+// Tests use `public` as the tenant schema: the chains are written for it, and
+// queries are unqualified and resolve through the search path, as in a tenant.
 const migrationsFolder = join(__dirname, '../../migrations');
 
 /**
@@ -27,6 +33,56 @@ const migrationsFolder = join(__dirname, '../../migrations');
  * behavior change.
  */
 const extraMigrationsFolder = process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER;
+
+const chains = [
+  { folder: migrationsFolder, journal: TENANT_MIGRATIONS_TABLE },
+  { folder: join(migrationsFolder, 'tenant'), journal: TENANT_ONLY_MIGRATIONS_TABLE },
+  ...(extraMigrationsFolder
+    ? [
+        {
+          folder: extraMigrationsFolder,
+          journal: '__drizzle_enterprise_migrations',
+          sourceSchema: process.env.TEST_DB_EXTRA_MIGRATIONS_SCHEMA,
+        },
+      ]
+    : []),
+];
+
+/**
+ * The shared chain, the tenant-only chain and a distribution's extra chain, as the tenant migrator runs
+ * them (for `public` the rewrite is a no-op), each followed by its journal
+ * rows; pg_search (bm25) is skipped where absent.
+ */
+const testMigrationStatements = (skipSearchIndexes: boolean) =>
+  chains.flatMap(({ folder, journal, sourceSchema }) => {
+    const migrations = readMigrationFiles({ migrationsFolder: folder });
+    return [
+      ...migrations.flatMap((migration) =>
+        migration.sql
+          .map((statement) => {
+            // Distribution tenant chains may be generated against a placeholder schema.
+            // Keep the production chain intact and materialize it into this disposable DB.
+            if (sourceSchema) {
+              if (!/^[a-z_]\w*$/i.test(sourceSchema))
+                throw new Error('Invalid test migration source schema');
+              statement = statement
+                .replaceAll(`"${sourceSchema}"`, '"public"')
+                .replaceAll(`'${sourceSchema}'`, "'public'");
+            }
+            return materializeTenantStatement(statement, 'public')?.trim();
+          })
+          .filter(
+            (statement): statement is string =>
+              !!statement && !(skipSearchIndexes && /pg_search|bm25/i.test(statement)),
+          ),
+      ),
+      `CREATE TABLE IF NOT EXISTS "${journal}" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`,
+      ...migrations.map(
+        (migration) =>
+          `INSERT INTO "${journal}" (hash, created_at) VALUES ('${migration.hash}', ${migration.folderMillis})`,
+      ),
+    ];
+  });
 
 const isServerDBMode = process.env.TEST_SERVER_DB === '1';
 
@@ -47,12 +103,17 @@ export const getTestDB = async (): Promise<LobeChatDatabase> => {
     const client = new NodePool({ connectionString });
     testServerDB = nodeDrizzle(client, { schema });
 
-    await nodeMigrate(testServerDB, { migrationsFolder });
-    if (extraMigrationsFolder) {
-      await nodeMigrate(testServerDB, {
-        migrationsFolder: extraMigrationsFolder,
-        migrationsTable: '__drizzle_enterprise_migrations',
-      });
+    const { rows } = await client.query<{ exists: boolean }>(
+      `SELECT to_regclass('public.users') IS NOT NULL AS exists`,
+    );
+    if (!rows[0]?.exists) {
+      await client.query('CREATE EXTENSION IF NOT EXISTS vector');
+      const { rows: search } = await client.query(
+        `SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search'`,
+      );
+      if (search.length > 0) await client.query('CREATE EXTENSION IF NOT EXISTS pg_search');
+      for (const statement of testMigrationStatements(search.length === 0))
+        await client.query(statement);
     }
 
     return testServerDB as unknown as LobeChatDatabase;
@@ -64,36 +125,10 @@ export const getTestDB = async (): Promise<LobeChatDatabase> => {
   const pglite = new PGlite({ extensions: { vector } });
   testClientDB = pgliteDrizzle({ client: pglite, schema });
 
-  // Custom migration that skips pg_search-related SQL for PGlite compatibility
-  await testClientDB.execute(sql`CREATE SCHEMA IF NOT EXISTS "drizzle"`);
-  await testClientDB.execute(sql`
-    CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (
-      id SERIAL PRIMARY KEY,
-      hash text NOT NULL,
-      created_at bigint
-    )
-  `);
-
-  const applyMigrations = async (folder: string) => {
-    for (const migration of readMigrationFiles({ migrationsFolder: folder })) {
-      const skipSql = migration.sql.some(
-        (s) => s.toLowerCase().includes('pg_search') || s.toLowerCase().includes('bm25'),
-      );
-
-      if (!skipSql) {
-        for (const stmt of migration.sql) {
-          await testClientDB!.execute(sql.raw(stmt));
-        }
-      }
-
-      await testClientDB!.execute(
-        sql`INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES (${migration.hash}, ${migration.folderMillis})`,
-      );
-    }
-  };
-
-  await applyMigrations(migrationsFolder);
-  if (extraMigrationsFolder) await applyMigrations(extraMigrationsFolder);
+  await testClientDB.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
+  for (const statement of testMigrationStatements(true)) {
+    await testClientDB.execute(sql.raw(statement));
+  }
 
   return testClientDB as unknown as LobeChatDatabase;
 };

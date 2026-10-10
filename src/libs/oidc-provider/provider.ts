@@ -1,4 +1,5 @@
 import { assertBusinessUserAccess, isBusinessAuthorizationError } from '@lobechat/business-auth';
+import { withTenantPath } from '@lobechat/business-tenant/routing';
 import type { LobeChatDatabase } from '@lobechat/database';
 import debug from 'debug';
 import type { Configuration, KoaContextWithOIDC } from 'oidc-provider';
@@ -53,7 +54,11 @@ export const oidcArtifactTTL = {
  * @param db - Database instance
  * @returns Configured OIDC Provider instance
  */
-export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider> => {
+export const createOIDCProvider = async (
+  db: LobeChatDatabase,
+  tenantSlug?: string,
+): Promise<Provider> => {
+  const tenantPath = (path: string) => withTenantPath(path, tenantSlug);
   // Get JWKS
   const jwks = getJWKS();
 
@@ -103,8 +108,8 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
     // 7. Cookie configuration
     cookies: {
       keys: cookieKeys,
-      long: { path: '/', signed: true },
-      short: { path: '/', signed: true },
+      long: { path: tenantPath('/'), signed: true },
+      short: { path: tenantPath('/'), signed: true },
     },
 
     // 5. Features configuration
@@ -117,7 +122,7 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
         enabled: true,
         mask: '****-****',
         successSource: async (ctx) => {
-          ctx.redirect('/oauth/device/success');
+          ctx.redirect(tenantPath('/oauth/device/success'));
         },
         userCodeConfirmSource: async (ctx, form, client, deviceInfo, userCode) => {
           const xsrf = (ctx.oidc.session as any)?.state?.secret;
@@ -126,7 +131,7 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
           params.set('user_code', userCode);
           params.set('client_name', client.clientName || client.clientId);
           params.set('client_id', client.clientId);
-          ctx.redirect(`/oauth/device/confirm?${params.toString()}`);
+          ctx.redirect(tenantPath(`/oauth/device/confirm?${params.toString()}`));
         },
         userCodeInputSource: async (ctx, form, out, err) => {
           const xsrf = (ctx.oidc.session as any)?.state?.secret;
@@ -136,7 +141,7 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
             params.set('error', err.message || 'Unknown error');
             if ((err as any).userCode) params.set('user_code', (err as any).userCode);
           }
-          ctx.redirect(`/oauth/device?${params.toString()}`);
+          ctx.redirect(tenantPath(`/oauth/device?${params.toString()}`));
         },
       },
       introspection: { enabled: true },
@@ -282,7 +287,7 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
           logProvider('No ui_locales provided in authorization request');
         }
 
-        const interactionUrl = `/oauth/consent/${interaction.uid}${query}`;
+        const interactionUrl = tenantPath(`/oauth/consent/${interaction.uid}${query}`);
         logProvider('Generated interaction URL: %s', interactionUrl);
         // ---> End of added logs <---
         return interactionUrl;
@@ -309,7 +314,7 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
       if (out.error) params.set('error', String(out.error));
       if (out.error_description) params.set('error_description', String(out.error_description));
 
-      ctx.redirect(`/oauth/error?${params.toString()}`);
+      ctx.redirect(tenantPath(`/oauth/error?${params.toString()}`));
     },
 
     // Added: enable refresh token rotation
@@ -320,13 +325,13 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
     // left at its default (e.g. `/jwks`) is therefore unreachable: the request
     // arrives as `/oidc/jwks` and the provider answers 404.
     routes: {
-      authorization: '/oidc/auth',
-      code_verification: '/oidc/device',
-      device_authorization: '/oidc/device/auth',
-      end_session: '/oidc/session/end',
-      jwks: '/oidc/jwks',
-      token: '/oidc/token',
-      userinfo: '/oidc/me',
+      authorization: tenantPath('/oidc/auth'),
+      code_verification: tenantPath('/oidc/device'),
+      device_authorization: tenantPath('/oidc/device/auth'),
+      end_session: tenantPath('/oidc/session/end'),
+      jwks: tenantPath('/oidc/jwks'),
+      token: tenantPath('/oidc/token'),
+      userinfo: tenantPath('/oidc/me'),
     },
     // 3. Scopes definition
     scopes: defaultScopes,
@@ -336,7 +341,7 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
   };
 
   // Create provider instance
-  const baseUrl = urlJoin(appEnv.APP_URL!, '/oidc');
+  const baseUrl = urlJoin(appEnv.APP_URL!, tenantPath('/oidc'));
 
   const provider = new Provider(baseUrl, configuration);
   provider.proxy = true;

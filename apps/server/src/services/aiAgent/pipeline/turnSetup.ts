@@ -1,5 +1,6 @@
 import { isHeterogeneousAgentModelId, LOADING_FLAT } from '@lobechat/const';
 import type { LobeChatDatabase } from '@lobechat/database';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import type { HeterogeneousAgentType } from '@lobechat/heterogeneous-agents';
 import type {
   ChatAudioItem,
@@ -986,26 +987,28 @@ export const setupTurn = async (
     !shareGate &&
     !shouldSuppressSignal({ appContext, slug: agentSlug ?? undefined })
   ) {
-    void enqueueAgentSignalSourceEvent(
-      {
-        payload: {
-          agentId: resolvedAgentId,
-          message: prompt,
-          messageId: userMessageRecord.id,
-          threadId: appContext?.threadId ?? undefined,
-          topicId,
-          trigger,
+    void trackTenantWork(() =>
+      enqueueAgentSignalSourceEvent(
+        {
+          payload: {
+            agentId: resolvedAgentId,
+            message: prompt,
+            messageId: userMessageRecord.id,
+            threadId: appContext?.threadId ?? undefined,
+            topicId,
+            trigger,
+          },
+          sourceId: userMessageRecord.id,
+          sourceType: 'agent.user.message',
         },
-        sourceId: userMessageRecord.id,
-        sourceType: 'agent.user.message',
-      },
-      {
-        agentId: resolvedAgentId,
-        userId: deps.userId,
-      },
-    ).catch((error) => {
-      log('execAgent: failed to enqueue user message Agent Signal source event: %O', error);
-    });
+        {
+          agentId: resolvedAgentId,
+          userId: deps.userId,
+        },
+      ).catch((error) => {
+        log('execAgent: failed to enqueue user message Agent Signal source event: %O', error);
+      }),
+    );
   }
 
   return {

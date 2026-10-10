@@ -2,6 +2,7 @@ import { type NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
 import { getTrustedClientTokenForSession } from '@/libs/trusted-client';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { MarketService } from '@/server/services/market';
 
 const MARKET_BASE_URL = process.env.MARKET_BASE_URL || 'https://market.lobehub.com';
@@ -103,8 +104,7 @@ const handleProxy = async (req: NextRequest, context: RouteContext) => {
         const form = new URLSearchParams(body);
 
         const grantType = (form.get('grant_type') || 'authorization_code') as
-          | 'authorization_code'
-          | 'refresh_token';
+          'authorization_code' | 'refresh_token';
 
         if (grantType === 'authorization_code') {
           const clientId = form.get('client_id');
@@ -226,7 +226,10 @@ const handleProxy = async (req: NextRequest, context: RouteContext) => {
   }
 };
 
-export const GET = (req: NextRequest, context: RouteContext) => handleProxy(req, context);
-export const POST = (req: NextRequest, context: RouteContext) => handleProxy(req, context);
+const handleGet = (req: NextRequest, context: RouteContext) => handleProxy(req, context);
+const handlePost = (req: NextRequest, context: RouteContext) => handleProxy(req, context);
 
 export const dynamic = 'force-dynamic';
+
+export const GET = withTenantRequest(handleGet);
+export const POST = withTenantRequest(handlePost);

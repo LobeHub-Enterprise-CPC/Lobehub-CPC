@@ -20,6 +20,7 @@ import {
   SANDBOX_INIT_TIMEOUT_MS,
   type SandboxInitDownload,
 } from './bootstrap';
+import { callTenantSandboxTool } from './tenantWork';
 import type {
   SandboxCommandResult,
   SandboxProvider,
@@ -76,7 +77,7 @@ export class SandboxMiddlewareService implements SandboxService {
     const { serverDB, userId } = this.options;
 
     if (!GOVERNED_SHELL_TOOL_NAMES.has(toolName) || !serverDB || !userId) {
-      return this.provider.callTool(toolName, params);
+      return callTenantSandboxTool(this.provider, toolName, params, this.options);
     }
 
     const ctx = {
@@ -108,7 +109,7 @@ export class SandboxMiddlewareService implements SandboxService {
     }
 
     const startedAt = Date.now();
-    const result = await this.provider.callTool(toolName, params);
+    const result = await callTenantSandboxTool(this.provider, toolName, params, this.options);
 
     try {
       await logCommandExecution(
@@ -168,7 +169,7 @@ export class SandboxMiddlewareService implements SandboxService {
       if (downloads.length === 0) return;
 
       const command = buildSandboxFilesInitCommand(downloads);
-      const result = await this.provider.callTool('runCommand', {
+      const result = await callTenantSandboxTool(this.provider, 'runCommand', {
         command,
         timeout: SANDBOX_INIT_TIMEOUT_MS,
       });

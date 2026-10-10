@@ -4,6 +4,7 @@ import { type NextRequest } from 'next/server';
 import { createAsyncRouteContext } from '@/libs/trpc/async/context';
 import { prepareRequestForTRPC } from '@/libs/trpc/utils/request-adapter';
 import { createResponseMeta } from '@/libs/trpc/utils/responseMeta';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { asyncRouter } from '@/server/routers/async';
 
 const handler = (req: NextRequest) => {
@@ -34,4 +35,6 @@ const handler = (req: NextRequest) => {
   });
 };
 
-export { handler as GET, handler as POST };
+const tenantHandler = withTenantRequest(handler);
+
+export { tenantHandler as GET, tenantHandler as POST };

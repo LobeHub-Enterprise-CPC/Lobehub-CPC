@@ -1,4 +1,11 @@
-import { getServerDBConfig } from '@/config/db';
+import { requireTenantScope } from '@lobechat/database/tenant';
+
+import {
+  deriveTenantDataKey,
+  MasterKeyError,
+  openWithKey,
+  sealWithKey,
+} from '@/server/crypto/tenantKeys';
 import { type UserKeyVaults } from '@/types/user/settings';
 
 interface DecryptionResult {
@@ -6,98 +13,61 @@ interface DecryptionResult {
   wasAuthentic: boolean;
 }
 
-export class KeyVaultsGateKeeper {
-  private aesKey: CryptoKey;
-
-  constructor(aesKey: CryptoKey) {
-    this.aesKey = aesKey;
-  }
-
-  static initWithEnvKey = async () => {
-    const { KEY_VAULTS_SECRET } = getServerDBConfig();
-    if (!KEY_VAULTS_SECRET)
-      throw new Error(` \`KEY_VAULTS_SECRET\` is not set, please set it in your environment variables.
+/**
+ * Encrypts secrets stored in the tenant schema (user key vaults, provider
+ * keys, connector and bot credentials, …) with the tenant data key derived
+ * from `KEY_VAULTS_SECRET` (spec A18). Ciphertexts are the shared
+ * `v1.<iv>.<ciphertext>.<tag>` envelope; one tenant's key cannot open another
+ * tenant's data.
+ */
+const tenantKey = (tenantId: string) => {
+  try {
+    return deriveTenantDataKey(tenantId);
+  } catch (error) {
+    if (error instanceof MasterKeyError)
+      throw new Error(
+        ` \`KEY_VAULTS_SECRET\` is not set, please set it in your environment variables.
 
 If you don't have it, please run \`openssl rand -base64 32\` to create one.
-`);
-
-    const rawKey = Buffer.from(KEY_VAULTS_SECRET, 'base64');
-
-    // Validate key length - AES-GCM supports 128, 192, and 256 bit keys (16, 24, or 32 bytes)
-    // See: https://developer.mozilla.org/en-US/docs/Web/API/AesKeyGenParams#length
-    if (![16, 24, 32].includes(rawKey.length)) {
-      throw new Error(
-        `\`KEY_VAULTS_SECRET\` must be 16, 24, or 32 bytes (128, 192, or 256 bits) when base64 decoded, got ${rawKey.length} bytes. ` +
-          'Please run `openssl rand -base64 32` to create a valid key.',
+`,
+        { cause: error },
       );
-    }
-    const aesKey = await crypto.subtle.importKey(
-      'raw',
-      rawKey,
-      { length: 256, name: 'AES-GCM' },
-      false,
-      ['encrypt', 'decrypt'],
-    );
-    return new KeyVaultsGateKeeper(aesKey);
-  };
+    throw error;
+  }
+};
+
+export class KeyVaultsGateKeeper {
+  constructor(private readonly resolveKey: () => Buffer) {}
 
   /**
-   * encrypt user private data
+   * The gatekeeper of the current tenant. Outside a tenant scope this fails
+   * with `TENANT_REQUIRED`: there is no process-wide data key.
+   *
+   * The key is resolved from the tenant scope on every call, so a gatekeeper
+   * cached in a long-lived object can never encrypt one tenant's data with
+   * another tenant's key.
    */
-  encrypt = async (keyVault: string): Promise<string> => {
-    const iv = crypto.getRandomValues(new Uint8Array(12)); // For GCM, 12-byte IV is recommended
-    const encodedKeyVault = new TextEncoder().encode(keyVault);
-
-    const encryptedData = await crypto.subtle.encrypt(
-      {
-        iv,
-        name: 'AES-GCM',
-      },
-      this.aesKey,
-      encodedKeyVault,
-    );
-
-    const buffer = Buffer.from(encryptedData);
-    const authTag = buffer.slice(-16); // Authentication tag is in the last 16 bytes of encrypted data
-    const encrypted = buffer.slice(0, -16); // The rest is encrypted data
-
-    return `${Buffer.from(iv).toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
+  static initWithEnvKey = async (): Promise<KeyVaultsGateKeeper> => {
+    tenantKey(requireTenantScope().tenantId);
+    return new KeyVaultsGateKeeper(() => tenantKey(requireTenantScope().tenantId));
   };
 
-  // Assuming key and encrypted data are obtained from external sources
+  /** A gatekeeper pinned to one tenant, for work that runs outside its request scope. */
+  static forTenant = (tenantId: string): KeyVaultsGateKeeper => {
+    const key = tenantKey(tenantId);
+    return new KeyVaultsGateKeeper(() => key);
+  };
+
+  /** Encrypts user private data. */
+  encrypt = async (keyVault: string): Promise<string> => sealWithKey(this.resolveKey(), keyVault);
+
   decrypt = async (encryptedData: string): Promise<DecryptionResult> => {
-    const parts = encryptedData.split(':');
-    if (parts.length !== 3) {
+    if (!encryptedData.startsWith('v1.') || encryptedData.split('.').length !== 4)
       throw new Error('Invalid encrypted data format');
-    }
-
-    const iv = Buffer.from(parts[0], 'hex');
-    const authTag = Buffer.from(parts[1], 'hex');
-    const encrypted = Buffer.from(parts[2], 'hex');
-
-    // Combine encrypted data and authentication tag
-    const combined = Buffer.concat([encrypted, authTag]);
-
     try {
-      const decryptedBuffer = await crypto.subtle.decrypt(
-        {
-          iv,
-          name: 'AES-GCM',
-        },
-        this.aesKey,
-        combined,
-      );
-
-      const decrypted = new TextDecoder().decode(decryptedBuffer);
-      return {
-        plaintext: decrypted,
-        wasAuthentic: true,
-      };
+      return { plaintext: openWithKey(this.resolveKey(), encryptedData), wasAuthentic: true };
     } catch {
-      return {
-        plaintext: '',
-        wasAuthentic: false,
-      };
+      return { plaintext: '', wasAuthentic: false };
     }
   };
 
@@ -106,7 +76,6 @@ If you don't have it, please run \`openssl rand -base64 32\` to create one.
     userId?: string,
   ): Promise<UserKeyVaults> => {
     if (!encryptedKeyVaults) return {};
-    // Decrypt keyVaults
     let decryptKeyVaults = {};
 
     const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();

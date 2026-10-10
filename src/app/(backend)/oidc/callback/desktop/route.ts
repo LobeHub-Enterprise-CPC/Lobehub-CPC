@@ -1,9 +1,11 @@
 import debug from 'debug';
 import { type NextRequest } from 'next/server';
-import { after, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
 import { OAuthHandoffModel } from '@/database/models/oauthHandoff';
 import { serverDB } from '@/database/server';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
+import { after } from '@/server/utils/scheduleAfterResponse';
 
 const log = debug('lobe-oidc:callback:desktop');
 
@@ -15,7 +17,7 @@ const redirectTo = (pathname: string, params?: Record<string, string>) => {
   return new NextResponse(null, { headers: { location }, status: 307 });
 };
 
-export const GET = async (req: NextRequest) => {
+const handleGet = async (req: NextRequest) => {
   try {
     const searchParams = req.nextUrl.searchParams;
     const code = searchParams.get('code');
@@ -55,3 +57,5 @@ export const GET = async (req: NextRequest) => {
     });
   }
 };
+
+export const GET = withTenantRequest(handleGet);

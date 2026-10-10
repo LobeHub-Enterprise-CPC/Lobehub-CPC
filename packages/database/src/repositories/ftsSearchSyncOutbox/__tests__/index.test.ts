@@ -444,7 +444,7 @@ describe('FtsSearchSyncOutboxRepository', { concurrent: false }, () => {
       await new FtsSearchSyncOutboxRepository(recordingDatabase).installCaptureInfrastructure();
       expect(statements.filter((statement) => statement.startsWith('DROP TRIGGER'))).toEqual([]);
       expect(statements.filter((statement) => statement.startsWith('LOCK TABLE'))).toEqual([
-        'LOCK TABLE "public"."messages", "public"."topics" IN SHARE ROW EXCLUSIVE MODE',
+        'LOCK TABLE "messages", "topics" IN SHARE ROW EXCLUSIVE MODE',
       ]);
       expect(
         statements.filter((statement) => statement.startsWith('SET LOCAL lock_timeout')),
@@ -541,7 +541,7 @@ describe('FtsSearchSyncOutboxRepository', { concurrent: false }, () => {
     );
     expect(statements[1]).toBe("SET LOCAL lock_timeout = '3s'");
     expect(statements[2]).toBe(
-      `LOCK TABLE ${tables.map((table) => `"public"."${table}"`).join(', ')} IN SHARE MODE`,
+      `LOCK TABLE ${tables.map((table) => `"${table}"`).join(', ')} IN SHARE MODE`,
     );
   });
 
@@ -562,7 +562,7 @@ describe('FtsSearchSyncOutboxRepository', { concurrent: false }, () => {
     await expect(recordedRepository.readCommittedRevisionBoundary(['messages'])).resolves.toBe(42);
     expect(statements).toHaveLength(3);
     expect(statements[0]).toBe("SET LOCAL lock_timeout = '3s'");
-    expect(statements[1]).toBe('LOCK TABLE "public"."messages" IN SHARE MODE');
+    expect(statements[1]).toBe('LOCK TABLE "messages" IN SHARE MODE');
     expect(statements[2]).toBe(
       'SELECT CASE WHEN is_called THEN last_value ELSE 0 END AS revision FROM fts_search_sync_revision_seq',
     );

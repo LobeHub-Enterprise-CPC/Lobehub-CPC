@@ -1,6 +1,9 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
+import { currentTenantScope, runWithTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
+
+import { getTenantLiveResources } from '@/server/modules/Tenant/liveResources';
 
 const log = debug('lobe-server:schedule-after-response');
 
@@ -54,15 +57,32 @@ const drain = async (scope: ScheduledWorkScope) => {
 
 export const after = (work: ScheduleAfterResponseWork): void => {
   const scope = scopeStorage.getStore();
+  const tenant = currentTenantScope();
+  let tracked = work;
+  if (tenant) {
+    let finish!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const unbind = getTenantLiveResources().bind(tenant.tenantId, { close: () => {}, settled });
+    tracked = async () => {
+      try {
+        return await runWithTenantScope(tenant, work);
+      } finally {
+        finish();
+        unbind();
+      }
+    };
+  }
 
   if (scope) {
-    const task = runWork(work);
+    const task = runWork(tracked);
     scope.pending.add(task);
     void task.finally(() => scope.pending.delete(task));
     return;
   }
 
-  scheduleOnHost(() => runWork(work));
+  scheduleOnHost(() => runWork(tracked));
 };
 
 /**

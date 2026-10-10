@@ -5,6 +5,7 @@ import dayjs from 'dayjs';
 import { count, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as KeyVaultsModule from '@/server/modules/KeyVaultsEncrypt';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 
 import { getTestDB } from '../../../core/getTestDB';
@@ -12,6 +13,16 @@ import { SessionModel } from '../../../models/session';
 import { UserModel, UserNotFoundError } from '../../../models/user';
 import type { UserSettingsItem } from '../../../schemas';
 import { nextauthAccounts, users, userSettings } from '../../../schemas';
+
+// Model tests run outside a request, so there is no tenant scope: pin the
+// gatekeeper to one test tenant's derived key. Pinned on the class itself
+// because `getUserKeyVaults` calls `KeyVaultsGateKeeper.initWithEnvKey()`.
+vi.mock('@/server/modules/KeyVaultsEncrypt', async (importOriginal) => {
+  const actual = await importOriginal<typeof KeyVaultsModule>();
+  actual.KeyVaultsGateKeeper.initWithEnvKey = async () =>
+    actual.KeyVaultsGateKeeper.forTenant('test-tenant');
+  return actual;
+});
 
 const serverDB = await getTestDB();
 
@@ -254,8 +265,8 @@ describe('UserModel', () => {
 
     it('should handle decrypt failure and return empty object', async () => {
       const userId = 'user-api-test-id';
-      // Simulate decrypt failure scenario
-      const invalidEncryptedData = 'invalid:-encrypted-:data';
+      // Simulate decrypt failure: a v1 envelope whose tag does not authenticate
+      const invalidEncryptedData = 'v1.AAAAAAAAAAAAAAAA.AAAA.AAAAAAAAAAAAAAAAAAAAAA==';
       await serverDB.insert(users).values({ id: userId });
       await serverDB.insert(userSettings).values({
         id: userId,

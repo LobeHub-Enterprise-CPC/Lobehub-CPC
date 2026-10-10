@@ -1,7 +1,8 @@
 import debug from 'debug';
 
-import { appEnv } from '@/envs/app';
+import { appEnv, getInternalApiUrl } from '@/envs/app';
 import { injectActiveTraceHeaders } from '@/libs/observability/traceparent';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 
 import { scheduleLocalAgentSignalRun } from './impls';
 import type { AgentSignalWorkflowRunPayload } from './types';
@@ -19,13 +20,13 @@ const normalizeFlowControlKeySegment = (value: string) => {
 };
 
 const getWorkflowUrl = (path: string): string => {
-  const baseUrl = appEnv.INTERNAL_APP_URL || appEnv.APP_URL;
+  const baseUrl = getInternalApiUrl();
 
   if (!baseUrl) {
     throw new Error('INTERNAL_APP_URL or APP_URL is required to trigger agent signal workflows');
   }
 
-  return new URL(path, baseUrl).toString();
+  return buildTenantCallbackUrl(path, baseUrl);
 };
 
 /**

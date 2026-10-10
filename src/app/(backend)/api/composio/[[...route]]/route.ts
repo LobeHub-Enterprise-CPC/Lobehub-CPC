@@ -1,3 +1,6 @@
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import app from '@/server/router-hono/composio';
 
-export const GET = (request: Request) => app.fetch(request);
+const handleGet = (request: Request) => app.fetch(request);
+
+export const GET = withTenantRequest(handleGet);

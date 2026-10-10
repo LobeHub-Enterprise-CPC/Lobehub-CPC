@@ -1,3 +1,6 @@
+import { getTenant } from '@lobechat/business-tenant/client';
+import { withTenantPath } from '@lobechat/business-tenant/routing';
+
 const ONBOARDING_PATH = '/onboarding';
 const CALLBACK_STORAGE_KEY = 'onboarding-callback-url';
 
@@ -11,12 +14,23 @@ export const isSafeRedirectPath = (url: string): boolean =>
   url.startsWith('/') && !url.startsWith('//') && !url.includes('\\');
 
 /**
+ * App paths (`/`, `/onboarding`, …) that leave the auth flow as full-page
+ * destinations keep the `/t/{slug}` of the page the flow runs on: the app only
+ * exists under its tenant, and a bare `/` lands on the no-tenant page.
+ */
+const withPageTenant = (path: string): string => {
+  return withTenantPath(path, getTenant()?.slug);
+};
+
+/**
  * Better Auth resolves relative callbacks against its server base URL, but auth pages can run on a
- * different origin. Bind safe web paths to the browser's current origin before sending them to the
- * server, while preserving explicit absolute URLs and mobile schemes.
+ * different origin. Bind safe web paths to the browser's current origin (and the page's tenant)
+ * before sending them to the server, while preserving explicit absolute URLs and mobile schemes.
  */
 export const toAbsoluteAuthCallbackUrl = (callbackUrl: string, origin: string): string =>
-  isSafeRedirectPath(callbackUrl) ? new URL(callbackUrl, origin).toString() : callbackUrl;
+  isSafeRedirectPath(callbackUrl)
+    ? new URL(withPageTenant(callbackUrl), origin).toString()
+    : callbackUrl;
 
 /**
  * Auth detours can produce same-origin absolute callback URLs (e.g. the
@@ -38,12 +52,13 @@ const toRelativePath = (url: string): string => {
 /**
  * Sanitize a user-supplied redirect target before it reaches
  * `window.location.href`: same-origin absolute URLs are normalized to relative
- * paths, anything unsafe (`javascript:`, `https://evil.com`, `//…`) falls back.
+ * paths, anything unsafe (`javascript:`, `https://evil.com`, `//…`) falls back,
+ * and the result keeps the page's tenant prefix.
  */
 export const sanitizeRedirectPath = (url: string | null | undefined, fallback = '/'): string => {
-  if (!url) return fallback;
+  if (!url) return withPageTenant(fallback);
   const target = toRelativePath(url);
-  return isSafeRedirectPath(target) ? target : fallback;
+  return withPageTenant(isSafeRedirectPath(target) ? target : fallback);
 };
 
 /**

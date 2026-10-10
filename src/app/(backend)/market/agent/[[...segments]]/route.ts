@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { MarketService } from '@/server/services/market';
 
 type RouteContext = {
@@ -204,7 +205,10 @@ const handleProxy = async (req: NextRequest, context: RouteContext) => {
   return handleAgent(req, normalizedSegments);
 };
 
-export const GET = (req: NextRequest, context: RouteContext) => handleProxy(req, context);
-export const POST = (req: NextRequest, context: RouteContext) => handleProxy(req, context);
+const handleGet = (req: NextRequest, context: RouteContext) => handleProxy(req, context);
+const handlePost = (req: NextRequest, context: RouteContext) => handleProxy(req, context);
 
 export const dynamic = 'force-dynamic';
+
+export const GET = withTenantRequest(handleGet);
+export const POST = withTenantRequest(handlePost);

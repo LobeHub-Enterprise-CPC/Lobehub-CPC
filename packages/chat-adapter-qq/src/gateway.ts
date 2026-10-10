@@ -71,6 +71,25 @@ export class QQGatewayConnection {
   private closed = false;
   private openConnectionError: Error | null = null;
   private hasConnected = false;
+  private readonly timers = new Set<ReturnType<typeof setTimeout>>();
+  private readonly onAbort = () => {
+    void this.close();
+  };
+  private readonly pending = new Set<Promise<unknown>>();
+  private readonly sockets = new Map<WebSocket, Promise<void>>();
+  private finishLifetime!: () => void;
+  readonly settled = new Promise<void>((resolve) => {
+    this.finishLifetime = resolve;
+  });
+
+  private track<T>(task: Promise<T>): Promise<T> {
+    this.pending.add(task);
+    void task.then(
+      () => this.pending.delete(task),
+      () => this.pending.delete(task),
+    );
+    return task;
+  }
 
   constructor(api: QQApiClient, options: QQGatewayOptions) {
     this.api = api;
@@ -80,6 +99,13 @@ export class QQGatewayConnection {
     this.webhookUrl = options.webhookUrl;
     this.abortSignal = options.abortSignal;
     this.durationMs = options.durationMs;
+    this.abortSignal?.addEventListener('abort', this.onAbort, { once: true });
+    if (this.durationMs)
+      this.timers.add(
+        setTimeout(() => {
+          void this.close();
+        }, this.durationMs),
+      );
   }
 
   /**
@@ -87,10 +113,17 @@ export class QQGatewayConnection {
    * Rejects if the initial connection or identification fails.
    */
   async connect(): Promise<void> {
-    if (this.abortSignal?.aborted) return;
+    if (this.abortSignal?.aborted) {
+      await this.close();
+      return;
+    }
 
     // Fetch gateway URL
-    const gatewayInfo: QQGatewayUrlResponse = await this.api.getGatewayUrl();
+    const gatewayInfo: QQGatewayUrlResponse = await this.track(this.api.getGatewayUrl());
+    if (this.abortSignal?.aborted || this.closed) {
+      await this.close();
+      return;
+    }
     this.gatewayUrl = gatewayInfo.url;
 
     this.log('Gateway URL: %s (shards: %d)', this.gatewayUrl, gatewayInfo.shards ?? 1);
@@ -101,13 +134,17 @@ export class QQGatewayConnection {
   /**
    * Gracefully close the gateway connection.
    */
-  close(): void {
+  async close(): Promise<void> {
     this.closed = true;
+    this.abortSignal?.removeEventListener('abort', this.onAbort);
+    for (const timer of this.timers) clearTimeout(timer);
+    this.timers.clear();
     this.stopHeartbeat();
-    if (this.ws) {
-      this.ws.close(1000, 'Client shutdown');
-      this.ws = null;
-    }
+    for (const socket of this.sockets.keys()) socket.close(1000, 'Client shutdown');
+    await Promise.all(this.sockets.values());
+    while (this.pending.size) await Promise.allSettled(this.pending);
+    this.ws = null;
+    this.finishLifetime();
   }
 
   // ---------- Connection Management ----------
@@ -121,6 +158,19 @@ export class QQGatewayConnection {
 
       const ws = new WebSocket(url);
       this.ws = ws;
+      this.sockets.set(
+        ws,
+        new Promise<void>((done) => {
+          ws.addEventListener(
+            'close',
+            () => {
+              this.sockets.delete(ws);
+              done();
+            },
+            { once: true },
+          );
+        }),
+      );
 
       let resolved = false;
       this.openConnectionError = null;
@@ -197,16 +247,6 @@ export class QQGatewayConnection {
           reject(new Error('WebSocket connection failed'));
         }
       });
-
-      // Auto-close after durationMs
-      if (this.durationMs) {
-        setTimeout(() => {
-          if (!this.closed && !this.abortSignal?.aborted) {
-            this.log('Duration elapsed (%dms), closing', this.durationMs);
-            this.close();
-          }
-        }, this.durationMs);
-      }
     });
   }
 
@@ -217,6 +257,7 @@ export class QQGatewayConnection {
     isResume: boolean,
     onReady: (err?: Error) => void,
   ): void {
+    if (this.closed || this.abortSignal?.aborted) return;
     // Track sequence number for heartbeat and resume
     if (payload.s !== undefined && payload.s !== null) {
       this.seq = payload.s;
@@ -311,56 +352,60 @@ export class QQGatewayConnection {
   // ---------- Send Operations ----------
 
   private sendIdentify(): void {
-    this.api
-      .getAccessToken()
-      .then((token) => {
-        const identifyPayload: QQGatewayPayload = {
-          d: {
-            intents: this.intents,
-            properties: {
-              $browser: 'lobehub-gateway',
-              $device: 'lobehub-gateway',
-              $os: 'linux',
+    this.track(
+      this.api
+        .getAccessToken()
+        .then((token) => {
+          const identifyPayload: QQGatewayPayload = {
+            d: {
+              intents: this.intents,
+              properties: {
+                $browser: 'lobehub-gateway',
+                $device: 'lobehub-gateway',
+                $os: 'linux',
+              },
+              shard: this.shard,
+              token: `QQBot ${token}`,
             },
-            shard: this.shard,
-            token: `QQBot ${token}`,
-          },
-          op: QQ_WS_OP_CODES.IDENTIFY,
-        };
+            op: QQ_WS_OP_CODES.IDENTIFY,
+          };
 
-        this.send(identifyPayload);
-        this.log('Identify sent (intents=%d, shard=%o)', this.intents, this.shard);
-      })
-      .catch((err) => {
-        this.log('Failed to get access token for identify: %O', err);
-        this.openConnectionError =
-          err instanceof Error ? err : new Error('Failed to get access token for identify');
-        this.ws?.close(4000, 'Identify failed');
-      });
+          this.send(identifyPayload);
+          this.log('Identify sent (intents=%d, shard=%o)', this.intents, this.shard);
+        })
+        .catch((err) => {
+          this.log('Failed to get access token for identify: %O', err);
+          this.openConnectionError =
+            err instanceof Error ? err : new Error('Failed to get access token for identify');
+          this.ws?.close(4000, 'Identify failed');
+        }),
+    );
   }
 
   private sendResume(): void {
-    this.api
-      .getAccessToken()
-      .then((token) => {
-        const resumePayload: QQGatewayPayload = {
-          d: {
-            seq: this.seq,
-            session_id: this.sessionId,
-            token: `QQBot ${token}`,
-          },
-          op: QQ_WS_OP_CODES.RESUME,
-        };
+    this.track(
+      this.api
+        .getAccessToken()
+        .then((token) => {
+          const resumePayload: QQGatewayPayload = {
+            d: {
+              seq: this.seq,
+              session_id: this.sessionId,
+              token: `QQBot ${token}`,
+            },
+            op: QQ_WS_OP_CODES.RESUME,
+          };
 
-        this.send(resumePayload);
-        this.log('Resume sent (session_id=%s, seq=%d)', this.sessionId, this.seq);
-      })
-      .catch((err) => {
-        this.log('Failed to get access token for resume: %O', err);
-        this.openConnectionError =
-          err instanceof Error ? err : new Error('Failed to get access token for resume');
-        this.ws?.close(4000, 'Resume failed');
-      });
+          this.send(resumePayload);
+          this.log('Resume sent (session_id=%s, seq=%d)', this.sessionId, this.seq);
+        })
+        .catch((err) => {
+          this.log('Failed to get access token for resume: %O', err);
+          this.openConnectionError =
+            err instanceof Error ? err : new Error('Failed to get access token for resume');
+          this.ws?.close(4000, 'Resume failed');
+        }),
+    );
   }
 
   private sendHeartbeat(): void {
@@ -372,7 +417,7 @@ export class QQGatewayConnection {
   }
 
   private send(payload: QQGatewayPayload): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    if (!this.closed && !this.abortSignal?.aborted && this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(payload));
     }
   }
@@ -385,26 +430,28 @@ export class QQGatewayConnection {
 
     // Send first heartbeat after a random jitter (as per spec)
     const jitter = Math.random() * intervalMs;
-    setTimeout(() => {
-      if (this.closed || this.abortSignal?.aborted) return;
-      this.sendHeartbeat();
-
-      this.heartbeatTimer = setInterval(() => {
-        if (this.closed || this.abortSignal?.aborted) {
-          this.stopHeartbeat();
-          return;
-        }
-
-        if (!this.heartbeatAcked) {
-          this.log('Heartbeat ACK missed — zombie connection, reconnecting');
-          this.ws?.close(4000, 'Heartbeat timeout');
-          return;
-        }
-
-        this.heartbeatAcked = false;
+    this.timers.add(
+      setTimeout(() => {
+        if (this.closed || this.abortSignal?.aborted) return;
         this.sendHeartbeat();
-      }, intervalMs);
-    }, jitter);
+
+        this.heartbeatTimer = setInterval(() => {
+          if (this.closed || this.abortSignal?.aborted) {
+            this.stopHeartbeat();
+            return;
+          }
+
+          if (!this.heartbeatAcked) {
+            this.log('Heartbeat ACK missed — zombie connection, reconnecting');
+            this.ws?.close(4000, 'Heartbeat timeout');
+            return;
+          }
+
+          this.heartbeatAcked = false;
+          this.sendHeartbeat();
+        }, intervalMs);
+      }, jitter),
+    );
   }
 
   private stopHeartbeat(): void {
@@ -427,14 +474,20 @@ export class QQGatewayConnection {
       t: payload.t,
     };
 
-    fetch(this.webhookUrl, {
-      body: JSON.stringify(webhookPayload),
-      headers: { 'Content-Type': 'application/json' },
-      method: 'POST',
-      signal: AbortSignal.timeout(30_000),
-    }).catch((err) => {
-      this.log('Failed to forward event %s to webhook: %O', payload.t, err);
-    });
+    this.track(
+      fetch(this.webhookUrl, {
+        body: JSON.stringify(webhookPayload),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        signal: AbortSignal.timeout(30_000),
+      })
+        .then(async (response) => {
+          await response.body?.cancel();
+        })
+        .catch((err) => {
+          this.log('Failed to forward event %s to webhook: %O', payload.t, err);
+        }),
+    );
   }
 
   // ---------- Reconnection ----------
@@ -458,20 +511,22 @@ export class QQGatewayConnection {
       MAX_RECONNECT_ATTEMPTS,
     );
 
-    setTimeout(() => {
-      if (this.closed || this.abortSignal?.aborted) return;
+    this.timers.add(
+      setTimeout(() => {
+        if (this.closed || this.abortSignal?.aborted) return;
 
-      const canResume = !!this.sessionId;
-      const url = canResume && this.resumeGatewayUrl ? this.resumeGatewayUrl : this.gatewayUrl;
+        const canResume = !!this.sessionId;
+        const url = canResume && this.resumeGatewayUrl ? this.resumeGatewayUrl : this.gatewayUrl;
 
-      if (!url) {
-        this.log('No gateway URL available for reconnect');
-        return;
-      }
+        if (!url) {
+          this.log('No gateway URL available for reconnect');
+          return;
+        }
 
-      this.openConnection(url, canResume).catch((err) => {
-        this.log('Reconnect failed: %O', err);
-      });
-    }, delay);
+        this.openConnection(url, canResume).catch((err) => {
+          this.log('Reconnect failed: %O', err);
+        });
+      }, delay),
+    );
   }
 }

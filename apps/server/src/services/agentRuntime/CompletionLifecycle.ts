@@ -1,4 +1,5 @@
 import { isParkedStatus } from '@lobechat/agent-runtime';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import { readHeterogeneousErrorContext } from '@lobechat/heterogeneous-agents/errors';
 import { RequestTrigger } from '@lobechat/types';
 import { deserializeParts } from '@lobechat/utils';
@@ -1041,8 +1042,10 @@ export class CompletionLifecycle {
         runOrigin.lineage?.orchestrationRole !== 'member' &&
         !shouldSuppressAgentSignal(state)
       ) {
-        void this.recallUserOnCompletion(operationId, event, runOrigin).catch((error) =>
-          log('[%s] Completion notification failed (non-fatal): %O', operationId, error),
+        void trackTenantWork(() =>
+          this.recallUserOnCompletion(operationId, event, runOrigin).catch((error) =>
+            log('[%s] Completion notification failed (non-fatal): %O', operationId, error),
+          ),
         );
       }
 

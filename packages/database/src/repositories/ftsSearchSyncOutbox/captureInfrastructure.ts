@@ -423,9 +423,6 @@ export const normalizeFtsSearchSyncCaptureDefinition = (definition: string) => {
   });
 };
 
-const createCaptureTriggerStatement = ({ createSql }: CaptureTriggerDefinition) =>
-  sql.raw(`${createSql};`);
-
 export const FTS_SEARCH_SYNC_CAPTURE_TRIGGER_TARGETS = CAPTURE_TRIGGER_DEFINITIONS.map(
   ({ createSql, name, table }) => ({
     definition: normalizeFtsSearchSyncCaptureDefinition(createSql),
@@ -434,8 +431,9 @@ export const FTS_SEARCH_SYNC_CAPTURE_TRIGGER_TARGETS = CAPTURE_TRIGGER_DEFINITIO
   }),
 );
 
-export const FTS_SEARCH_SYNC_CAPTURE_TRIGGER_STATEMENTS = CAPTURE_TRIGGER_DEFINITIONS.map(
-  createCaptureTriggerStatement,
+/** Trigger DDL written for `public`; the installer retargets it to the connection's schema. */
+export const FTS_SEARCH_SYNC_CAPTURE_TRIGGER_SQL = CAPTURE_TRIGGER_DEFINITIONS.map(
+  ({ createSql }) => `${createSql};`,
 );
 
 /** Changes whenever a function body, trigger definition, or trigger target changes. */

@@ -23,5 +23,6 @@ app.all('/api/workflows', (c) => fetchWith(c, () => import('./workflows')));
 app.all('/api/workflows/*', (c) => fetchWith(c, () => import('./workflows')));
 app.all('/api/governance', (c) => fetchWith(c, () => import('./governance')));
 app.all('/api/governance/*', (c) => fetchWith(c, () => import('./governance')));
+app.all('/api/internal/control-plane/*', (c) => fetchWith(c, () => import('./controlPlane')));
 
 export default app;

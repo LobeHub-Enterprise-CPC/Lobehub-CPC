@@ -26,7 +26,7 @@ tags:
   6. 添加重定向 URI：
 
   <Callout type={'info'}>
-    **回调 URL 格式**: `https://your-domain.com/api/auth/callback/zitadel`
+    **回调 URL 格式**: `https://your-domain.com/t/<tenant>/api/auth/callback/zitadel`
   </Callout>
 
   7. 创建后，记下 **Client ID** 并生成 **Client Secret**
@@ -38,25 +38,19 @@ tags:
   - 云版：`https://your-instance.zitadel.cloud`
   - 自托管：`https://your-zitadel-domain`
 
-  ### 配置环境变量
+  ### 在 Admin 中配置
 
-  在部署 LobeHub 时，你需要配置以下环境变量：
+  SSO 由每个租户在 Admin 中配置，不再使用环境变量。在 Admin 中打开该租户的 SSO 提供商，新增一个提供商并填写：
 
-  | 环境变量                  | 类型 | 描述                                                           |
-  | --------------------- | -- | ------------------------------------------------------------ |
-  | `AUTH_SECRET`         | 必选 | 用于加密会话令牌的密钥。使用以下命令生成：`openssl rand -base64 32`               |
-  | `AUTH_SSO_PROVIDERS`  | 必选 | SSO 提供商。使用 ZITADEL 请填写 `zitadel`                             |
-  | `AUTH_ZITADEL_ID`     | 必选 | ZITADEL 应用的 Client ID                                        |
-  | `AUTH_ZITADEL_SECRET` | 必选 | ZITADEL 应用的 Client Secret                                    |
-  | `AUTH_ZITADEL_ISSUER` | 必选 | ZITADEL Issuer URL（例如 `https://your-instance.zitadel.cloud`） |
+  | 字段            | 值                                           |
+  | ------------- | ------------------------------------------- |
+  | 协议            | OIDC                                        |
+  | 提供商 ID        | 填 `zitadel` 使用 zitadel 预设；其他 ID 按普通 OIDC 处理 |
+  | Client ID     | 身份提供商的 Client ID                            |
+  | Client Secret | 身份提供商的 Client Secret；Admin 加密保存             |
+  | Issuer        | `https://<instance>.zitadel.cloud`          |
 
-  <Callout type={'warning'}>
-    **已废弃的环境变量**：`ZITADEL_CLIENT_ID` / `ZITADEL_CLIENT_SECRET` / `ZITADEL_ISSUER` 已不再支持，设置其中任意一个都会导致部署在构建 / 启动阶段失败，请改用 `AUTH_ZITADEL_ID` / `AUTH_ZITADEL_SECRET` / `AUTH_ZITADEL_ISSUER`。
-  </Callout>
-
-  <Callout type={'tip'}>
-    前往 [📘 环境变量](/zh/docs/self-hosting/environment-variables/auth#zitadel) 可查阅相关变量详情。
-  </Callout>
+  需要在身份提供商处登记的回调 URL 为 `https://your-domain.com/t/<租户>/api/auth/callback/<提供商 ID>`，Admin 会为每个提供商显示该地址。
 </Steps>
 
 <Callout type={'info'}>部署成功后，用户将可以通过 ZITADEL 身份认证并使用 LobeHub。</Callout>

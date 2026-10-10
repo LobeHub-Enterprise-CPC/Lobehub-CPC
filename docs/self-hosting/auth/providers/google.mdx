@@ -40,23 +40,23 @@ tags:
   <Callout type={'info'}>
     Callback URL format:
 
-    - Local development: `http://localhost:3210/api/auth/callback/google`
-    - Production: `https://your-domain.com/api/auth/callback/google`
+    - Local development: `http://localhost:3210/t/<tenant>/api/auth/callback/google`
+    - Production: `https://your-domain.com/t/<tenant>/api/auth/callback/google`
   </Callout>
 
-  ### Configure Environment Variables
+  ### Configure in Admin
 
-  | Environment Variable | Type     | Description                                                     |
-  | -------------------- | -------- | --------------------------------------------------------------- |
-  | `AUTH_SECRET`        | Required | Session encryption key, generate with `openssl rand -base64 32` |
-  | `AUTH_SSO_PROVIDERS` | Required | Set to `google`                                                 |
-  | `AUTH_GOOGLE_ID`     | Required | Client ID from Google Cloud Console                             |
-  | `AUTH_GOOGLE_SECRET` | Required | Client Secret from Google Cloud Console                         |
+  SSO is configured per tenant in Admin, not with environment variables. In Admin, open the tenant's SSO providers, add a provider and fill in:
 
-  <Callout type={'tip'}>
-    Go to [📘 Environment Variables](/docs/self-hosting/environment-variables/auth#google)
-    for detailed information.
-  </Callout>
+  | Field         | Value                                                        |
+  | ------------- | ------------------------------------------------------------ |
+  | Protocol      | OIDC                                                         |
+  | Provider ID   | `google` (exactly; this selects the built-in google sign-in) |
+  | Client ID     | Client ID from the provider                                  |
+  | Client Secret | Client secret from the provider; Admin stores it encrypted   |
+  | Issuer        | `https://accounts.google.com`                                |
+
+  The callback URL to register with the provider is `https://your-domain.com/t/<tenant>/api/auth/callback/<provider-id>`; Admin shows it for each provider.
 </Steps>
 
 <Callout type={'info'}>
@@ -66,7 +66,7 @@ tags:
 
 ## Common Issues
 
-### redirect\_uri\_mismatch Error
+### redirect_uri_mismatch Error
 
 Ensure the callback URL configured in Google Cloud Console exactly matches your deployment address, including the protocol (http/https) and port number.
 

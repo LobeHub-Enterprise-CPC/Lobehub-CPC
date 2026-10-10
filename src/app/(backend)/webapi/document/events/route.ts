@@ -1,7 +1,9 @@
+import { trackTenantWork } from '@lobechat/database/tenant';
 import { createSSEHeaders, createSSEWriter } from '@lobechat/utils/server';
 import debug from 'debug';
 
 import { checkAuth } from '@/app/(backend)/middleware/auth';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { DocumentService } from '@/server/services/document';
 import { subscribeResourceEvents } from '@/server/services/resourceEvents';
 
@@ -25,7 +27,7 @@ const jsonError = (message: string, status: number) =>
  * and `lock.changed` events so an open editor (including pure viewers) syncs
  * near-instantly instead of waiting for the polling heartbeat.
  */
-export const GET = checkAuth(async (req, { userId, serverDB }) => {
+const handleGet = checkAuth(async (req, { userId, serverDB }) => {
   const documentId = new URL(req.url).searchParams.get('documentId');
   if (!documentId) return jsonError('documentId is required', 400);
 
@@ -40,9 +42,14 @@ export const GET = checkAuth(async (req, { userId, serverDB }) => {
 
   const ref = { id: documentId, type: 'document' as const };
 
+  // Set in start(); cancel() runs when the client disconnects or the tenant is
+  // suspended, and must stop the heartbeat and the event subscription.
+  let cleanup: (() => void) | undefined;
+  let subscription: Promise<void> | undefined;
   const stream = new ReadableStream<string>({
     cancel() {
-      (this as unknown as { _cleanup?: () => void })._cleanup?.();
+      cleanup?.();
+      return subscription;
     },
     start(controller) {
       const writer = createSSEWriter(controller);
@@ -57,29 +64,33 @@ export const GET = checkAuth(async (req, { userId, serverDB }) => {
         }
       }, 30_000);
 
-      const cleanup = () => {
+      const stop = () => {
         ac.abort();
         clearInterval(heartbeat);
       };
+      cleanup = stop;
 
-      void subscribeResourceEvents(
-        ref,
-        (event) => {
-          try {
-            writer.writeStreamEvent(event);
-          } catch (error) {
-            log('failed to write event %O', error);
-          }
-        },
-        ac.signal,
-      ).catch((error) => {
-        if (!ac.signal.aborted) log('subscription error %O', error);
-      });
+      subscription = trackTenantWork(() =>
+        subscribeResourceEvents(
+          ref,
+          (event) => {
+            try {
+              writer.writeStreamEvent(event);
+            } catch (error) {
+              log('failed to write event %O', error);
+            }
+          },
+          ac.signal,
+        ).catch((error) => {
+          if (!ac.signal.aborted) log('subscription error %O', error);
+        }),
+      );
 
-      req.signal?.addEventListener('abort', cleanup);
-      (controller as unknown as { _cleanup?: () => void })._cleanup = cleanup;
+      req.signal?.addEventListener('abort', stop);
     },
   });
 
   return new Response(stream, { headers: createSSEHeaders() });
 });
+
+export const GET = withTenantRequest(handleGet);

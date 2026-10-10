@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 
 import { OAuthHandoffModel } from '@/database/models/oauthHandoff';
 import { serverDB } from '@/database/server';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 
 const log = debug('lobe-oidc:handoff');
 
@@ -11,7 +12,7 @@ const log = debug('lobe-oidc:handoff');
  * GET /oidc/handoff?id=xxx&client=xxx
  * Poll to fetch and consume the authentication credential
  */
-export async function GET(request: NextRequest) {
+async function handleGet(request: NextRequest) {
   log('Received GET request for /oidc/handoff');
 
   try {
@@ -45,3 +46,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export const GET = withTenantRequest(handleGet);

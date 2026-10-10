@@ -24,6 +24,7 @@ import { dynamicInterventionAudits } from '@lobechat/builtin-tools/dynamicInterv
 import { BRANDING_NAME } from '@lobechat/business-const';
 import { ABANDONED_OPERATION_ERROR_PREFIX } from '@lobechat/const/goal';
 import { parse } from '@lobechat/conversation-flow';
+import { currentTenantScope } from '@lobechat/database/tenant';
 import { getModelPropertyWithFallback } from '@lobechat/model-runtime';
 import {
   context as otelContext,
@@ -52,7 +53,6 @@ import { ChatErrorType, RequestTrigger } from '@lobechat/types';
 import { isRecord } from '@lobechat/utils/object';
 import debug from 'debug';
 import pMap from 'p-map';
-import urlJoin from 'url-join';
 
 import {
   deriveAgentInterventionQueueDeduplicationId,
@@ -87,6 +87,8 @@ import {
   type RuntimeExecutorContext,
 } from '@/server/modules/AgentRuntime/RuntimeExecutors';
 import { type IStreamEventManager } from '@/server/modules/AgentRuntime/types';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
+import { getTenantLiveResources } from '@/server/modules/Tenant/liveResources';
 import { emitAgentSignalSourceEvent } from '@/server/services/agentSignal';
 import { toAgentSignalTraceEvents } from '@/server/services/agentSignal/observability/traceEvents';
 import { traceStartStage } from '@/server/services/aiAgent/pipeline/sendTracing';
@@ -569,7 +571,8 @@ export class AgentRuntimeService {
   private get baseURL() {
     const baseUrl = process.env.AGENT_RUNTIME_BASE_URL || appEnv.APP_URL || 'http://localhost:3010';
 
-    return urlJoin(baseUrl, '/api/agent');
+    // Step callbacks run in the tenant that scheduled them.
+    return buildTenantCallbackUrl('/api/agent', baseUrl);
   }
   private serverDB: LobeChatDatabase;
   private userId: string;
@@ -1688,6 +1691,23 @@ export class AgentRuntimeService {
    * Execute Agent step
    */
   async executeStep(params: AgentExecutionParams): Promise<AgentExecutionResult> {
+    const tenantId = currentTenantScope()?.tenantId;
+    let finish!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const unbind = tenantId
+      ? getTenantLiveResources().bind(tenantId, { close: () => {}, settled })
+      : undefined;
+    try {
+      return await this.executeTrackedStep(params);
+    } finally {
+      finish();
+      unbind?.();
+    }
+  }
+
+  private async executeTrackedStep(params: AgentExecutionParams): Promise<AgentExecutionResult> {
     const {
       operationId,
       stepIndex,
@@ -1960,6 +1980,8 @@ export class AgentRuntimeService {
     // would schedule the next one after the step is gone, leaking a loop that
     // re-reads the store forever for a finished operation.
     let stepAbortPollStopped = false;
+    // Unregisters the running step from its tenant's live resources.
+    let releaseTenantStep: (() => void) | undefined;
 
     // Hoisted so the error-path snapshot finalize can record an
     // approximate startedAt for the failing step. The inner `startAt` at the
@@ -2280,6 +2302,22 @@ export class AgentRuntimeService {
           );
         };
         stepAbortPoll = setTimeout(pollForAbort, STEP_ABORT_POLL_INTERVAL_MS);
+
+        // A tenant freeze or offline (FR-CP-06 stage 3) cancels the running
+        // step exactly like a user Stop: the sentinel makes the step boundary
+        // persist `interrupted`, the abort ends the in-flight LLM / tool call.
+        // The operation ends there; nothing it already did is replayed later.
+        const stepTenantId = currentTenantScope()?.tenantId;
+        if (stepTenantId)
+          releaseTenantStep = getTenantLiveResources().bind(stepTenantId, {
+            close: async () => {
+              try {
+                await this.coordinator.markInterrupted(operationId);
+              } finally {
+                stepAbortController.abort();
+              }
+            },
+          });
 
         const { runtime } = await this.createAgentRuntime({
           abortSignal: stepAbortController.signal,
@@ -3107,6 +3145,7 @@ export class AgentRuntimeService {
       invokeAgentSpan.end();
       stepAbortPollStopped = true;
       if (stepAbortPoll) clearTimeout(stepAbortPoll);
+      releaseTenantStep?.();
       stopStepLockHeartbeat();
       // Parked runs (human input, async tools) and finished ones are read back
       // by a different invocation, so the partial cannot stay in memory only.

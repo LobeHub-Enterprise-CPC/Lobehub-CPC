@@ -1,4 +1,6 @@
+import { parseTenantPath } from '@lobechat/business-tenant/routing';
 import { type LobeChatDatabase } from '@lobechat/database';
+import { requireTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 import urlJoin from 'url-join';
 
@@ -7,6 +9,7 @@ import { fileEnv } from '@/envs/file';
 import { getRedisConfig } from '@/envs/redis';
 import { initializeRedis, isRedisEnabled } from '@/libs/redis';
 import { FileS3 } from '@/server/modules/S3';
+import { logicalObjectKey, tenantObjectKey } from '@/server/modules/S3/tenantKey';
 
 import type { FileServiceImpl, PreSignedUpload } from './type';
 
@@ -105,7 +108,8 @@ export class S3StaticFileImpl implements FileServiceImpl {
 
   private async getCachedPreSignedUrlForPreview(key: string, expiresIn?: number): Promise<string> {
     const expiresInSeconds = expiresIn ?? fileEnv.S3_PREVIEW_URL_EXPIRE_IN;
-    const cacheKey = createPresignedPreviewCacheKey(key, expiresInSeconds);
+    // The physical key carries the tenant, so tenants never share a cache entry.
+    const cacheKey = createPresignedPreviewCacheKey(tenantObjectKey(key), expiresInSeconds);
     const ttlSeconds = getPresignedPreviewCacheTtlSeconds(expiresInSeconds);
     const now = Date.now();
     const cached = presignedPreviewUrlCache.get(cacheKey);
@@ -181,39 +185,42 @@ export class S3StaticFileImpl implements FileServiceImpl {
       return await this.getCachedPreSignedUrlForPreview(key, expiresIn);
     }
 
+    const objectKey = tenantObjectKey(key);
+
     if (fileEnv.S3_ENABLE_PATH_STYLE) {
-      return urlJoin(publicUrlBase, fileEnv.S3_BUCKET!, key);
+      return urlJoin(publicUrlBase, fileEnv.S3_BUCKET!, objectKey);
     }
 
-    return urlJoin(publicUrlBase, key);
+    return urlJoin(publicUrlBase, objectKey);
   }
 
+  /**
+   * The logical key behind a file URL of the current tenant, or `null`.
+   *
+   * - File proxy URL `/t/{slug}/f/{fileId}`: looked up in the tenant database;
+   *   another tenant's slug is not resolved.
+   * - Public object URL `…/[bucket/]t/{tenantId}/{key}`: the tenant root is
+   *   stripped; an object outside the current tenant's root is not resolved.
+   */
   async getKeyFromFullUrl(url: string): Promise<string | null> {
     try {
-      const urlObject = new URL(url);
-      const { pathname } = urlObject;
+      const { pathname } = new URL(url);
 
-      // Case 1: File proxy URL pattern /f/{fileId} - query database for S3 key
-      if (pathname.startsWith('/f/')) {
-        const fileId = pathname.slice(3); // Remove '/f/' prefix
+      const { rest, tenantSlug } = parseTenantPath(pathname);
+      if (rest.startsWith('/f/')) {
+        if (tenantSlug !== requireTenantScope().slug) return null;
+        const fileId = rest.slice(3);
         const file = await FileModel.getFileById(this.db, fileId);
         return file?.url ?? null;
       }
 
-      // Case 2: Legacy S3 URL - extract key from pathname
-      if (fileEnv.S3_ENABLE_PATH_STYLE) {
-        if (!fileEnv.S3_BUCKET) {
-          return pathname.startsWith('/') ? pathname.slice(1) : pathname;
-        }
-        const bucketPrefix = `/${fileEnv.S3_BUCKET}/`;
-        if (pathname.startsWith(bucketPrefix)) {
-          return pathname.slice(bucketPrefix.length);
-        }
-        return pathname.startsWith('/') ? pathname.slice(1) : pathname;
+      let objectKey = pathname.replace(/^\/+/, '');
+      if (fileEnv.S3_ENABLE_PATH_STYLE && fileEnv.S3_BUCKET) {
+        const bucketPrefix = `${fileEnv.S3_BUCKET}/`;
+        if (objectKey.startsWith(bucketPrefix)) objectKey = objectKey.slice(bucketPrefix.length);
       }
 
-      // Virtual-hosted-style: path is /<key>
-      return pathname.slice(1);
+      return logicalObjectKey(objectKey);
     } catch {
       // If url is not a valid URL, return null
       return null;

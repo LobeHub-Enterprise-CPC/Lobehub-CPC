@@ -52,6 +52,36 @@ describe('createAuthSlice', () => {
     });
   });
 
+  it.each(['logout', 'openLogin'] as const)('keeps the tenant on %s redirects', async (action) => {
+    const originalLocation = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: {
+        href: '',
+        pathname: '/t/acme/agent',
+        toString: () => 'http://localhost/t/acme/agent',
+      },
+      writable: true,
+    });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null));
+    mockBetterAuthClient.signOut.mockImplementationOnce(async ({ fetchOptions }) => {
+      fetchOptions?.onSuccess?.();
+    });
+    try {
+      await act(async () => {
+        await useUserStore.getState()[action]();
+      });
+      expect(window.location.href).toMatch(/^\/t\/acme\/signin(?:\?|$)/);
+    } finally {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: originalLocation,
+        writable: true,
+      });
+      mockBetterAuthClient.signOut.mockReset().mockResolvedValue({});
+    }
+  });
+
   describe('logout', () => {
     it('clears the captured user snapshot after successful sign-out', async () => {
       writeUserDisplaySnapshot('user-a', { avatar: 'avatar-a' });

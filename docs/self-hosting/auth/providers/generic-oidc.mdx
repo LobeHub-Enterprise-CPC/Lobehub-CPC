@@ -32,8 +32,8 @@ Use Generic OIDC to integrate LobeHub with any OpenID Connect compliant identity
   <Callout type={'info'}>
     Callback URL format:
 
-    - Local development: `http://localhost:3210/api/auth/callback/generic-oidc`
-    - Production: `https://your-domain.com/api/auth/callback/generic-oidc`
+    - Local development: `http://localhost:3210/t/<tenant>/api/auth/callback/generic-oidc`
+    - Production: `https://your-domain.com/t/<tenant>/api/auth/callback/generic-oidc`
   </Callout>
 
   ### Find Your Issuer URL
@@ -46,20 +46,19 @@ Use Generic OIDC to integrate LobeHub with any OpenID Connect compliant identity
 
   Look for the `issuer` field in the JSON response.
 
-  ### Configure Environment Variables
+  ### Configure in Admin
 
-  | Environment Variable       | Type     | Description                                                     |
-  | -------------------------- | -------- | --------------------------------------------------------------- |
-  | `AUTH_SECRET`              | Required | Session encryption key, generate with `openssl rand -base64 32` |
-  | `AUTH_SSO_PROVIDERS`       | Required | Set to `generic-oidc`                                           |
-  | `AUTH_GENERIC_OIDC_ID`     | Required | Client ID                                                       |
-  | `AUTH_GENERIC_OIDC_SECRET` | Required | Client Secret                                                   |
-  | `AUTH_GENERIC_OIDC_ISSUER` | Required | OIDC issuer URL (e.g., `https://your-provider.com`)             |
+  SSO is configured per tenant in Admin, not with environment variables. In Admin, open the tenant's SSO providers, add a provider and fill in:
 
-  <Callout type={'tip'}>
-    Go to [📘 Environment Variables](/docs/self-hosting/environment-variables/auth#generic-oidc)
-    for detailed information.
-  </Callout>
+  | Field         | Value                                                                          |
+  | ------------- | ------------------------------------------------------------------------------ |
+  | Protocol      | OIDC                                                                           |
+  | Provider ID   | Any ID, for example `generic-oidc`; it is the last segment of the callback URL |
+  | Client ID     | Client ID from the provider                                                    |
+  | Client Secret | Client secret from the provider; Admin stores it encrypted                     |
+  | Issuer        | The issuer URL of your provider                                                |
+
+  The callback URL to register with the provider is `https://your-domain.com/t/<tenant>/api/auth/callback/<provider-id>`; Admin shows it for each provider.
 </Steps>
 
 <Callout type={'info'}>

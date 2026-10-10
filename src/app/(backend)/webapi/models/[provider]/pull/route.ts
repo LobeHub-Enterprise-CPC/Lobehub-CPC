@@ -3,11 +3,12 @@ import { ChatErrorType } from '@lobechat/types';
 
 import { checkAuth } from '@/app/(backend)/middleware/auth';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { createErrorResponse } from '@/utils/errorResponse';
 
 import { resolveValidWorkspaceIdFromRequest } from '../../../_utils/workspace';
 
-export const POST = checkAuth(async (req, { params, userId, serverDB }) => {
+const handlePost = checkAuth(async (req, { params, userId, serverDB }) => {
   const provider = (await params)!.provider!;
 
   try {
@@ -36,3 +37,5 @@ export const POST = checkAuth(async (req, { params, userId, serverDB }) => {
     return createErrorResponse(errorType, { error, ...res, provider });
   }
 });
+
+export const POST = withTenantRequest(handlePost);

@@ -4,9 +4,22 @@ import { z } from 'zod';
 
 import { RedisRuntimeConfigProvider } from './RedisRuntimeConfigProvider';
 
-const { getRedisConfigMock, initializeRedisMock } = vi.hoisted(() => ({
-  getRedisConfigMock: vi.fn(),
-  initializeRedisMock: vi.fn(),
+const { getRedisConfigMock, initializeRedisMock, initializeSharedRedisMock, scope } = vi.hoisted(
+  () => ({
+    getRedisConfigMock: vi.fn(),
+    initializeRedisMock: vi.fn(),
+    initializeSharedRedisMock: vi.fn(),
+    scope: { current: { slug: 'acme', tenantId: 'tenant-1' } as any },
+  }),
+);
+
+// Tenant snapshots are read in the tenant of the request (`scope.current`).
+vi.mock('@lobechat/database/tenant', () => ({
+  currentTenantScope: () => scope.current ?? undefined,
+  requireTenantScope: () => {
+    if (!scope.current) throw new Error('TENANT_REQUIRED');
+    return scope.current;
+  },
 }));
 
 vi.mock('@/envs/redis', () => ({
@@ -15,6 +28,7 @@ vi.mock('@/envs/redis', () => ({
 
 vi.mock('@/libs/redis', () => ({
   initializeRedis: initializeRedisMock,
+  initializeSharedRedis: initializeSharedRedisMock,
 }));
 
 const testDomain = {
@@ -28,6 +42,48 @@ describe('RedisRuntimeConfigProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useRealTimers();
+    scope.current = { slug: 'acme', tenantId: 'tenant-1' };
+  });
+
+  it('caches tenant snapshots per tenant', async () => {
+    getRedisConfigMock.mockReturnValue({ enabled: true });
+    const getMock = vi
+      .fn()
+      .mockResolvedValueOnce(JSON.stringify({ enabled: true }))
+      .mockResolvedValueOnce(JSON.stringify({ enabled: false }));
+    initializeRedisMock.mockResolvedValue({ get: getMock });
+
+    const provider = new RedisRuntimeConfigProvider(testDomain);
+    const first = await provider.getSnapshot();
+    scope.current = { slug: 'other', tenantId: 'tenant-2' };
+    const second = await provider.getSnapshot();
+
+    expect(first?.data).toEqual({ enabled: true });
+    expect(second?.data).toEqual({ enabled: false });
+    expect(getMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads no tenant snapshot outside a tenant', async () => {
+    getRedisConfigMock.mockReturnValue({ enabled: true });
+    scope.current = null;
+
+    const provider = new RedisRuntimeConfigProvider(testDomain);
+
+    await expect(provider.getSnapshot()).resolves.toBeNull();
+    expect(initializeRedisMock).not.toHaveBeenCalled();
+  });
+
+  it('reads a shared domain from the shared keyspace, also outside a tenant', async () => {
+    getRedisConfigMock.mockReturnValue({ enabled: true });
+    scope.current = null;
+    initializeSharedRedisMock.mockResolvedValue({
+      get: vi.fn().mockResolvedValue(JSON.stringify({ enabled: true })),
+    });
+
+    const provider = new RedisRuntimeConfigProvider({ ...testDomain, shared: true });
+
+    await expect(provider.getSnapshot()).resolves.toMatchObject({ data: { enabled: true } });
+    expect(initializeRedisMock).not.toHaveBeenCalled();
   });
 
   it('should return parsed snapshot data from versioned envelope', async () => {
@@ -124,8 +180,8 @@ describe('RedisRuntimeConfigProvider', () => {
 
     await expect(provider.getSnapshot({ id: 'user-2', scope: 'user' })).resolves.toBeNull();
 
-    expect((provider as any).cache.has('user:user-1')).toBe(false);
-    expect((provider as any).cache.has('user:user-2')).toBe(true);
+    expect((provider as any).cache.has('tenant-1:user:user-1')).toBe(false);
+    expect((provider as any).cache.has('tenant-1:user:user-2')).toBe(true);
     expect((provider as any).cache.size).toBe(1);
     expect(getMock).toHaveBeenCalledTimes(2);
   });

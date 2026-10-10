@@ -93,11 +93,7 @@ describe('goal decision briefs', () => {
       },
     });
     // The advised answer leads, so the obvious click is the recommended one.
-    expect(brief.actions!.map((action: { key: string }) => action.key)).toEqual([
-      'retry',
-      'retire',
-      'openGoal',
-    ]);
+    expect(brief.actions).toMatchObject([{ key: 'retry' }, { key: 'retire' }, { key: 'openGoal' }]);
 
     await service.decide(goalId, decision.id, 'retire', 'Not worth it');
 
@@ -169,7 +165,8 @@ describe('machine gate briefs', () => {
     });
 
     const [brief] = await goalBriefs();
-    expect(brief.actions![0]).toMatchObject({ key: 'retry', label: '已修好，重试' });
+    if (!Array.isArray(brief.actions)) throw new Error('Expected brief actions to be an array');
+    expect(brief.actions[0]).toMatchObject({ key: 'retry', label: '已修好，重试' });
     expect(brief.summary).toContain('工作目录 /tmp/x');
     expect(brief.summary).toContain('推荐：已修好，重试');
   });

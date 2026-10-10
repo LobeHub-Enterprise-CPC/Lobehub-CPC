@@ -1,3 +1,4 @@
+import { trackTenantWork } from '@lobechat/database/tenant';
 import { createSSEHeaders, createSSEWriter } from '@lobechat/utils/server';
 import debug from 'debug';
 import { type NextRequest } from 'next/server';
@@ -5,6 +6,7 @@ import { NextResponse } from 'next/server';
 
 import { createLambdaContext } from '@/libs/trpc/lambda/context';
 import { createAgentStateManager, createStreamEventManager } from '@/server/modules/AgentRuntime';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 
 const log = debug('api-route:agent:stream');
 const timing = debug('lobe-server:agent-runtime:timing');
@@ -13,7 +15,7 @@ const timing = debug('lobe-server:agent-runtime:timing');
  * Server-Sent Events (SSE) endpoint
  * Provides real-time Agent execution event stream for clients
  */
-export async function GET(request: NextRequest) {
+async function handleGet(request: NextRequest) {
   // Initialize stream event manager (uses InMemory singleton in local dev, Redis in production)
   const streamManager = createStreamEventManager();
 
@@ -67,15 +69,17 @@ export async function GET(request: NextRequest) {
 
   log(`Starting SSE connection for operation ${operationId} from eventId ${lastEventId}`);
 
+  // Set in start(); cancel() runs when the client disconnects or the tenant is
+  // suspended, and must stop the heartbeat and the event subscription.
+  let cleanup: (() => void) | undefined;
+  let subscription: Promise<void> | undefined;
+
   // Create Server-Sent Events stream
   const stream = new ReadableStream({
     cancel(reason) {
       log(`SSE connection cancelled for operation ${operationId}:`, reason);
-
-      // Call cleanup function
-      if ((this as any)._cleanup) {
-        (this as any)._cleanup();
-      }
+      cleanup?.();
+      return subscription;
     },
 
     start(controller) {
@@ -154,11 +158,12 @@ export async function GET(request: NextRequest) {
       }, 30_000);
 
       // Cleanup function
-      const cleanup = () => {
+      const stop = () => {
         abortController.abort();
         clearInterval(heartbeatInterval);
         log(`SSE connection closed for operation ${operationId}`);
       };
+      cleanup = stop;
 
       // Subscribe to new streaming events
       const subscribeToEvents = async () => {
@@ -204,7 +209,7 @@ export async function GET(request: NextRequest) {
                     streamEnded = true;
 
                     // Immediately cleanup and close connection
-                    cleanup();
+                    stop();
                     controller.close();
                     log(
                       `SSE connection closed after agent runtime end for operation ${operationId}`,
@@ -231,13 +236,10 @@ export async function GET(request: NextRequest) {
       };
 
       // Start subscription
-      subscribeToEvents();
+      subscription = trackTenantWork(() => subscribeToEvents());
 
       // Listen for connection close
-      request.signal?.addEventListener('abort', cleanup);
-
-      // Store cleanup function for calling during cancel
-      (controller as any)._cleanup = cleanup;
+      request.signal?.addEventListener('abort', stop);
     },
   });
 
@@ -246,3 +248,5 @@ export async function GET(request: NextRequest) {
     headers: createSSEHeaders(),
   });
 }
+
+export const GET = withTenantRequest(handleGet);

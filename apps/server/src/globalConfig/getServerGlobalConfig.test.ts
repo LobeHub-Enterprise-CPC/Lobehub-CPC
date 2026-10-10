@@ -62,7 +62,6 @@ const mockGlobalConfigDependencies = (
       AUTH_DISABLE_EMAIL_PASSWORD: false,
       AUTH_EMAIL_VERIFICATION: false,
       AUTH_ENABLE_MAGIC_LINK: false,
-      AUTH_SSO_PROVIDERS: '',
     },
   }));
 
@@ -90,10 +89,6 @@ const mockGlobalConfigDependencies = (
 
   vi.doMock('@/envs/tools', () => ({
     toolsEnv: { TOOL_NAME_MAX_LENGTH: options.toolNameMaxLengthEnv },
-  }));
-
-  vi.doMock('@/libs/better-auth/utils/server', () => ({
-    parseSSOProviders: vi.fn(() => []),
   }));
 
   vi.doMock('@/server/globalConfig/parseSystemAgent', () => ({

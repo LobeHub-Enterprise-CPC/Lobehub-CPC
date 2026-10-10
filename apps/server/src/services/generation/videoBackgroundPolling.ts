@@ -16,6 +16,7 @@ import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { GenerationModel } from '@/database/models/generation';
 import type { LobeChatDatabase } from '@/database/type';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { confirmExternalTenantWork } from '@/server/modules/Tenant/externalWork';
 import { VideoGenerationService } from '@/server/services/generation/video';
 import { buildVideoGenerationFilePayload } from '@/server/services/generation/videoFile';
 import { measureVideoOutputUsage } from '@/server/services/generation/videoOutputUsage';
@@ -82,6 +83,8 @@ interface BackgroundPollingParams {
   route?: VideoGenerationRoute;
   /** Keeps the completion charge attributed like the webhook path, which reads it from the task row. */
   spendOrigin?: SpendOrigin;
+  /** Verified durable receipt, used only for admitted business compensation after resume. */
+  terminalReceipt?: Exclude<PollVideoStatusResult, { status: 'pending' }>;
   userId: string;
   workspaceId?: string;
 }
@@ -122,16 +125,28 @@ export async function processBackgroundVideoPolling(
     const videoService = new VideoGenerationService(db, userId, workspaceId);
     const generationModel = new GenerationModel(db, userId, workspaceId);
 
-    const modelRuntime = await initModelRuntimeFromDB(db, userId, provider, workspaceId);
-    // `route` was pinned for the mapped model id at creation, so poll with that id too;
-    // the user-facing alias may resolve to a router list that no longer holds the route.
-    const { resolvedModelId: pollModelId } = await resolveBusinessModelMapping(provider, model);
-    const pollResult = await pollUntilCompletion(modelRuntime, inferenceId, pollModelId, route);
+    let pollResult: {
+      videoUrl: string;
+      headers?: Record<string, string>;
+      usage?: VideoGenerationUsage;
+    } | null;
+    if (params.terminalReceipt) {
+      if (params.terminalReceipt.status === 'failed')
+        throw new VideoGenerationFailedError(String(params.terminalReceipt.error));
+      pollResult = params.terminalReceipt;
+    } else {
+      const modelRuntime = await initModelRuntimeFromDB(db, userId, provider, workspaceId);
+      const { resolvedModelId: pollModelId } = await resolveBusinessModelMapping(provider, model);
+      pollResult = await pollUntilCompletion(modelRuntime, inferenceId, pollModelId, route);
+    }
 
     if (!pollResult) {
       throw new Error('Polling completed but no video URL returned');
     }
 
+    await confirmExternalTenantWork('video', asyncTaskId, {
+      result: { status: 'success', ...pollResult },
+    });
     claimedByThisWorker = await AsyncTaskModel.claimVideoCompletion(db, asyncTaskId);
     if (!claimedByThisWorker) {
       log('Video task already claimed or finalized, skipping polling result: %s', asyncTaskId);
@@ -250,6 +265,10 @@ export async function processBackgroundVideoPolling(
       return;
     }
 
+    if (error instanceof VideoGenerationFailedError)
+      await confirmExternalTenantWork('video', asyncTaskId, {
+        result: { status: 'failed', error: error.message },
+      });
     const asyncTaskModel = new AsyncTaskModel(db, userId, workspaceId);
     if (!claimedByThisWorker) {
       claimedByThisWorker = await AsyncTaskModel.claimVideoCompletion(db, asyncTaskId);

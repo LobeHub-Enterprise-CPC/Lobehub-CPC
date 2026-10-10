@@ -1,5 +1,6 @@
+import { requireTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
-import Redis from 'ioredis';
+import Redis, { type RedisOptions } from 'ioredis';
 
 import { redisEnv } from '@/envs/redis';
 import { isRedisDisabledByEnv } from '@/libs/redis';
@@ -29,7 +30,10 @@ const getRedisConnectionDescription = (url: string): string => {
 /**
  * Create Redis client instance for Agent Runtime
  */
-export const createAgentRuntimeRedisClient = (url?: string): Redis | null => {
+export const createAgentRuntimeRedisClient = (
+  url?: string,
+  options: Pick<RedisOptions, 'keyPrefix'> = {},
+): Redis | null => {
   if (isRedisDisabledByEnv()) return null;
 
   const redisUrl = url || getRedisUrl();
@@ -45,6 +49,7 @@ export const createAgentRuntimeRedisClient = (url?: string): Redis | null => {
   timing('Redis client creating at %d', createStart);
 
   const client = new Redis(redisUrl, {
+    ...options,
     maxRetriesPerRequest: 3,
   });
 
@@ -75,32 +80,79 @@ export const createAgentRuntimeRedisClient = (url?: string): Redis | null => {
 };
 
 /**
- * Global Redis client instance for Agent Runtime (singleton pattern)
+ * Agent runtime keys live in the tenant's keyspace `t:{tenantId}:` (spec
+ * FR-AS-05). Each tenant gets its own connection whose ioredis `keyPrefix`
+ * prefixes every key argument, including stream, Lua (`KEYS[]`) and
+ * pipeline/multi commands; `duplicate()` keeps the prefix. KEYS/SCAN
+ * patterns are confined to the prefix here, since ioredis leaves them as is.
  */
-let globalAgentRuntimeRedisClient: Redis | null = null;
-let redisInitialized = false;
+const TENANT_KEY_SEGMENT = 't';
+
+export const agentRuntimeTenantKeyPrefix = (tenantId: string) => {
+  if (!tenantId || tenantId.includes(':') || tenantId.includes('*')) {
+    throw new Error('TENANT_REDIS_KEY_INVALID');
+  }
+  return `${TENANT_KEY_SEGMENT}:${tenantId}:`;
+};
+
+const tenantClients = new Map<string, Redis>();
+let redisEnabled: boolean | undefined;
+
+const tenantClient = (tenantId: string): Redis | null => {
+  const existing = tenantClients.get(tenantId);
+  if (existing) return existing;
+
+  const keyPrefix = agentRuntimeTenantKeyPrefix(tenantId);
+  const client = createAgentRuntimeRedisClient(undefined, { keyPrefix });
+  if (!client) return null;
+
+  // KEYS/SCAN patterns are not prefixed by ioredis, and the keys they return
+  // carry the prefix: confine the pattern and strip the prefix.
+  const keys = client.keys.bind(client);
+  client.keys = (async (pattern: string) => {
+    const found: string[] = await keys(`${keyPrefix}${pattern}`);
+    return found.map((key) => (key.startsWith(keyPrefix) ? key.slice(keyPrefix.length) : key));
+  }) as Redis['keys'];
+
+  tenantClients.set(tenantId, client);
+  return client;
+};
 
 /**
- * Get global Redis client instance for Agent Runtime
+ * Whether the agent runtime has Redis, without touching a tenant keyspace.
+ */
+export const isAgentRuntimeRedisEnabled = (): boolean => {
+  if (redisEnabled === undefined) redisEnabled = !isRedisDisabledByEnv() && !!getRedisUrl();
+  return redisEnabled;
+};
+
+/**
+ * The current tenant's agent runtime Redis client (fails closed outside a
+ * tenant). Holders may keep the returned client: every command is routed to
+ * the tenant of the scope it runs in.
  */
 export function getAgentRuntimeRedisClient(): Redis | null {
-  if (!redisInitialized) {
-    timing('Redis client not initialized, creating new instance at %d', Date.now());
-    globalAgentRuntimeRedisClient = createAgentRuntimeRedisClient();
-    redisInitialized = true;
-  } else {
-    timing('Redis client already initialized, reusing at %d', Date.now());
-  }
-  return globalAgentRuntimeRedisClient;
+  if (!isAgentRuntimeRedisEnabled()) return null;
+
+  // Resolve the tenant now, so a call outside a tenant fails here.
+  requireTenantScope();
+
+  return new Proxy({} as Redis, {
+    get(_target, prop) {
+      const client = tenantClient(requireTenantScope().tenantId);
+      if (!client) return undefined;
+      const value = Reflect.get(client, prop, client);
+      return typeof value === 'function' ? value.bind(client) : value;
+    },
+  });
 }
 
 /**
- * Close global Redis client connection
+ * Close every tenant's agent runtime Redis connection
  */
 export async function closeAgentRuntimeRedisClient(): Promise<void> {
-  if (globalAgentRuntimeRedisClient) {
-    await globalAgentRuntimeRedisClient.quit();
-    globalAgentRuntimeRedisClient = null;
-    redisInitialized = false;
-  }
+  const clients = [...tenantClients.values()];
+  tenantClients.clear();
+  redisEnabled = undefined;
+  await Promise.all(clients.map((client) => client.quit()));
 }

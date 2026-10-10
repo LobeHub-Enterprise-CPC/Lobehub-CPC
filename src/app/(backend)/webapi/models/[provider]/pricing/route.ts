@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server';
 import { checkAuth } from '@/app/(backend)/middleware/auth';
 import { AiProviderModel } from '@/database/models/aiProvider';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { createErrorResponse } from '@/utils/errorResponse';
 
 const log = debug('lobe-server:models:pricing');
@@ -15,7 +16,7 @@ interface NewApiPricingKeyVaults {
   baseURL?: string;
 }
 
-export const GET = checkAuth(async (req, { params, userId, serverDB }) => {
+const handleGet = checkAuth(async (req, { params, userId, serverDB }) => {
   const provider = (await params).provider;
 
   if (!provider) {
@@ -91,3 +92,5 @@ export const GET = checkAuth(async (req, { params, userId, serverDB }) => {
     return createErrorResponse(ChatErrorType.InternalServerError, { error });
   }
 });
+
+export const GET = withTenantRequest(handleGet);

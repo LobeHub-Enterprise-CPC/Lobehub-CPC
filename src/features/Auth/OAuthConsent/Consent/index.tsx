@@ -4,6 +4,7 @@ import { Block, Flexbox } from '@lobehub/ui';
 import { Button, Text } from '@lobehub/ui/base-ui';
 import React, { memo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useHref } from 'react-router';
 
 import AuthCard from '@/features/AuthCard';
 import type { OidcClientMetadata } from '@/types/oidc';
@@ -31,6 +32,7 @@ const BUILTIN_CLIENTS = new Set(['lobehub-desktop', 'lobehub-mobile', 'lobehub-m
 
 const ConsentClient = memo<ClientProps>(({ uid, clientId, scopes, clientMetadata }) => {
   const { t } = useTranslation('oauth');
+  const action = useHref('/oidc/consent');
 
   const [isLoading, setIsLoading] = useState(false);
   const consentInputRef = useRef<HTMLInputElement>(null);
@@ -53,7 +55,7 @@ const ConsentClient = memo<ClientProps>(({ uid, clientId, scopes, clientMetadata
         subtitle={t('consent.description', { clientName: clientDisplayName })}
         title={t('consent.title', { clientName: clientDisplayName })}
         footer={
-          <form action="/oidc/consent" method="post" style={{ width: '100%' }}>
+          <form action={action} method="post" style={{ width: '100%' }}>
             <input name="uid" type="hidden" value={uid} />
             <input defaultValue="accept" name="consent" ref={consentInputRef} type="hidden" />
             <Flexbox gap={12}>

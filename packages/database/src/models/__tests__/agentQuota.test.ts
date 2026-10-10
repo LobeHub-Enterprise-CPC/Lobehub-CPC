@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type * as KeyVaultsModule from '@/server/modules/KeyVaultsEncrypt';
 
 import { getTestDB } from '../../core/getTestDB';
 import { agentProviderAccounts, agents, users } from '../../schemas';
@@ -13,6 +15,16 @@ import {
   AgentQuotaUsageLedgerModel,
   AgentQuotaWindowModel,
 } from '../agentQuota';
+
+// Model tests run outside a request, so there is no tenant scope: pin the
+// gatekeeper to one test tenant's derived key.
+vi.mock('@/server/modules/KeyVaultsEncrypt', async (importOriginal) => {
+  const actual = await importOriginal<typeof KeyVaultsModule>();
+  class KeyVaultsGateKeeper extends actual.KeyVaultsGateKeeper {
+    static initWithEnvKey = async () => actual.KeyVaultsGateKeeper.forTenant('test-tenant');
+  }
+  return { ...actual, KeyVaultsGateKeeper };
+});
 
 const serverDB: LobeChatDatabase = await getTestDB();
 

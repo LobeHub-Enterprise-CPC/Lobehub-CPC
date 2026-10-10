@@ -1,24 +1,18 @@
+import { tenantDB } from '../tenant/requestScope';
 import type { LobeChatDatabase } from '../type';
-import { getDBInstance } from './web-server';
 
 /**
- * Lazy-load database instance
- * Avoid initializing the database every time the module is imported
+ * The business database of the current tenant (spec A15, FR-DI-09).
+ *
+ * There is no process-wide business database any more: every business and
+ * auth table lives in a tenant schema, and the handle resolves the tenant the
+ * current request or job established (`runWithTenantScope`) on every access.
+ * Outside a tenant scope any use fails with `TENANT_REQUIRED`; it never falls
+ * back to the platform connection or a default tenant.
+ *
+ * The platform connection (`DATABASE_URL`, routing metadata only) is
+ * `getPlatformDB()` in `@lobechat/database/platform`.
  */
-let cachedDB: LobeChatDatabase | null = null;
+export const serverDB: LobeChatDatabase = tenantDB;
 
-export const getServerDB = async (): Promise<LobeChatDatabase> => {
-  // If there's already a cached instance, return it directly
-  if (cachedDB) return cachedDB;
-
-  try {
-    // Select the appropriate database instance based on the environment
-    cachedDB = getDBInstance();
-    return cachedDB;
-  } catch (error) {
-    console.error('❌ Failed to initialize database:', error);
-    throw error;
-  }
-};
-
-export const serverDB = getDBInstance();
+export const getServerDB = async (): Promise<LobeChatDatabase> => tenantDB;

@@ -155,11 +155,23 @@ export interface MarketServiceOptions {
 export class MarketService {
   market: MarketSDK;
 
+  private readonly sandboxReceiptIdentity?: TrustedClientUserInfo;
+
+  getSandboxReceiptIdentity() {
+    return this.sandboxReceiptIdentity && structuredClone(this.sandboxReceiptIdentity);
+  }
+
   private readonly oauthProxyHeaders: Record<string, string>;
 
   constructor(options: MarketServiceOptions = {}) {
     const { accessToken, userInfo, clientCredentials, trustedClientToken, ownerAccountId } =
       options;
+    // Only identity and entitlement facts, never access tokens or signing keys.
+    this.sandboxReceiptIdentity = userInfo && {
+      userId: userInfo.userId,
+      workspaceId: userInfo.workspaceId,
+      sandboxStorage: userInfo.sandboxStorage,
+    };
 
     // Use provided trustedClientToken or generate from userInfo
     const resolvedTrustedClientToken =

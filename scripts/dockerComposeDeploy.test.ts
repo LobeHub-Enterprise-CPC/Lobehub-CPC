@@ -148,7 +148,10 @@ describe('deploy docker-compose optional Elasticsearch', () => {
     expect(reindex.restart).toBe('no');
     // The image ENTRYPOINT is `/bin/node`, and `docker compose run <service> <args>` replaces the
     // whole command, so the script must live in the entrypoint for `run ... --apply` to work.
-    expect(reindex.entrypoint).toEqual(['/bin/node', '/app/fts-search-elasticsearch-reindex.cjs']);
+    expect(reindex.entrypoint).toEqual([
+      '/bin/node',
+      '/app/fts-search-elasticsearch-reindex-tenants.cjs',
+    ]);
     expect(reindex.command).toEqual(['--status']);
     expect(reindex.environment).toContain('ES_REINDEX_STATE_DIR=/app/.elasticsearch-reindex');
     expect(reindex.volumes).toContain('fts-search-reindex-state:/app/.elasticsearch-reindex');

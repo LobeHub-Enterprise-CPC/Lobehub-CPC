@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@lobechat/business-auth": "workspace:*",
+    "@lobechat/business-tenant": "workspace:*",
     "@lobechat/const": "workspace:*",
     "@lobechat/database": "workspace:*",
     "@lobechat/desktop-bridge": "workspace:*",

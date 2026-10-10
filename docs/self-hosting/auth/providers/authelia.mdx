@@ -28,7 +28,7 @@ tags:
           client_name: 'LobeHub'
           client_secret: 'your-client-secret'
           redirect_uris:
-            - 'https://your-domain.com/api/auth/callback/authelia'
+            - 'https://your-domain.com/t/<tenant>/api/auth/callback/authelia'
           scopes:
             - 'openid'
             - 'profile'
@@ -36,24 +36,22 @@ tags:
   ```
 
   <Callout type={'info'}>
-    **Callback URL Format**: `https://your-domain.com/api/auth/callback/authelia`
+    **Callback URL Format**: `https://your-domain.com/t/<tenant>/api/auth/callback/authelia`
   </Callout>
 
-  ### Configure Environment Variables
+  ### Configure in Admin
 
-  When deploying LobeHub, you need to configure the following environment variables:
+  SSO is configured per tenant in Admin, not with environment variables. In Admin, open the tenant's SSO providers, add a provider and fill in:
 
-  | Environment Variable   | Type     | Description                                                                   |
-  | ---------------------- | -------- | ----------------------------------------------------------------------------- |
-  | `AUTH_SECRET`          | Required | Key used to encrypt session tokens. Generate using: `openssl rand -base64 32` |
-  | `AUTH_SSO_PROVIDERS`   | Required | SSO provider for LobeHub. Use `authelia` for Authelia                         |
-  | `AUTH_AUTHELIA_ID`     | Required | Client ID configured in Authelia                                              |
-  | `AUTH_AUTHELIA_SECRET` | Required | Client Secret configured in Authelia                                          |
-  | `AUTH_AUTHELIA_ISSUER` | Required | Authelia issuer URL (e.g., `https://auth.your-domain.com`)                    |
+  | Field         | Value                                                              |
+  | ------------- | ------------------------------------------------------------------ |
+  | Protocol      | OIDC                                                               |
+  | Provider ID   | `authelia` selects the authelia preset; any other ID is plain OIDC |
+  | Client ID     | Client ID from the provider                                        |
+  | Client Secret | Client secret from the provider; Admin stores it encrypted         |
+  | Issuer        | `https://auth.example.com`                                         |
 
-  <Callout type={'tip'}>
-    Go to [📘 Environment Variables](/docs/self-hosting/environment-variables/auth#authelia) for detailed information on these variables.
-  </Callout>
+  The callback URL to register with the provider is `https://your-domain.com/t/<tenant>/api/auth/callback/<provider-id>`; Admin shows it for each provider.
 </Steps>
 
 <Callout type={'info'}>

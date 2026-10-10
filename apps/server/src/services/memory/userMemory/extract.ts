@@ -81,6 +81,7 @@ import { type MemoryAgentConfig } from '@/server/globalConfig/parseMemoryExtract
 import { parseMemoryExtractionConfig } from '@/server/globalConfig/parseMemoryExtractionConfig';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { S3 } from '@/server/modules/S3';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { getUserScopedAiProviderRuntimeState } from '@/server/services/aiProviderAccess';
 import { createFtsSearchRepo } from '@/server/services/ftsSearch';
 import { recordUserMemoryLexicalSearchDecision } from '@/server/services/ftsSearch/observability';
@@ -2776,11 +2777,9 @@ const getProcessUserTopicsFlowControl = (): FlowControl => {
 const buildHourlyChildWorkflowRunId = (entryWorkflowRunId: string) =>
   `memory-user-memory-hourly-${entryWorkflowRunId.replaceAll(/[^\w-]/g, '_')}`;
 
-const getWorkflowUrl = (path: string, baseUrl: string) => {
-  const url = new URL(path, baseUrl);
-
-  return url.toString();
-};
+// The tenant is read when the trigger runs (always inside the tenant that
+// owns the extraction), never carried in `baseUrl`.
+const getWorkflowUrl = (path: string, baseUrl: string) => buildTenantCallbackUrl(path, baseUrl);
 
 const getWorkflowClient = () => {
   const token = process.env.QSTASH_TOKEN;

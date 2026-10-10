@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { BRANDING_URL } from '@lobechat/business-const';
 import { TRACING_SCENARIOS } from '@lobechat/const';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import type { TracingOptions } from '@lobechat/llm-generation-tracing';
 import {
   chainGenerateBrief,
@@ -320,21 +321,23 @@ export class TaskLifecycleService {
       //    scheduled ticks notify — manual "run now" runs and high-frequency
       //    heartbeat ticks stay silent to avoid flooding the inbox.
       if (currentTask?.automationMode === 'schedule' && params.runTrigger === 'schedule') {
-        void notifyScheduledTaskCompleted({
-          agentId: currentTask.assigneeAgentId ?? undefined,
-          lastAssistantContent,
-          operationId: params.operationId,
-          taskId,
-          taskIdentifier,
-          taskName: currentTask.name ?? undefined,
-          topicId,
-          userId: this.userId,
-          workspaceId: this.workspaceId,
-        }).catch((error) =>
-          log(
-            'scheduled-task success notification failed for task=%s (non-fatal): %O',
+        void trackTenantWork(() =>
+          notifyScheduledTaskCompleted({
+            agentId: currentTask.assigneeAgentId ?? undefined,
+            lastAssistantContent,
+            operationId: params.operationId,
+            taskId,
             taskIdentifier,
-            error,
+            taskName: currentTask.name ?? undefined,
+            topicId,
+            userId: this.userId,
+            workspaceId: this.workspaceId,
+          }).catch((error) =>
+            log(
+              'scheduled-task success notification failed for task=%s (non-fatal): %O',
+              taskIdentifier,
+              error,
+            ),
           ),
         );
       }
@@ -506,24 +509,26 @@ export class TaskLifecycleService {
         isAutomationTick &&
         (runTrigger === 'schedule' || pausedByFuse)
       ) {
-        void notifyScheduledTaskFailed({
-          agentId: currentTask.assigneeAgentId ?? undefined,
-          consecutiveFailures: scheduleConsecutiveFailures,
-          errorCode,
-          operationId: params.operationId,
-          paused: pausedByFuse,
-          runTrigger: runTrigger === 'schedule' ? 'schedule' : 'heartbeat',
-          taskId,
-          taskIdentifier,
-          taskName: currentTask.name ?? undefined,
-          topicId,
-          userId: this.userId,
-          workspaceId: this.workspaceId,
-        }).catch((error) =>
-          log(
-            'scheduled-task failure notification failed for task=%s (non-fatal): %O',
+        void trackTenantWork(() =>
+          notifyScheduledTaskFailed({
+            agentId: currentTask.assigneeAgentId ?? undefined,
+            consecutiveFailures: scheduleConsecutiveFailures,
+            errorCode,
+            operationId: params.operationId,
+            paused: pausedByFuse,
+            runTrigger: runTrigger === 'schedule' ? 'schedule' : 'heartbeat',
+            taskId,
             taskIdentifier,
-            error,
+            taskName: currentTask.name ?? undefined,
+            topicId,
+            userId: this.userId,
+            workspaceId: this.workspaceId,
+          }).catch((error) =>
+            log(
+              'scheduled-task failure notification failed for task=%s (non-fatal): %O',
+              taskIdentifier,
+              error,
+            ),
           ),
         );
       }

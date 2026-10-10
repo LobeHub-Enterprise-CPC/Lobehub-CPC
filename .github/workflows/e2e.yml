@@ -102,6 +102,11 @@ jobs:
       - name: Run database migrations
         run: bun run db:migrate
 
+      - name: Provision E2E tenant
+        run: bunx tsx e2e/scripts/provisionTenant.ts
+        env:
+          E2E_ISOLATED_DATABASE: '1'
+
       - name: Build application
         run: bun run build
         env:

@@ -1,0 +1,17 @@
+{
+  "name": "@lobechat/business-tenant",
+  "version": "1.0.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./routing": "./src/routing.ts",
+    "./client": "./src/client.ts"
+  },
+  "main": "./src/index.ts",
+  "dependencies": {
+    "zustand": "5.0.4"
+  },
+  "devDependencies": {
+    "@lobechat/database": "workspace:*"
+  }
+}

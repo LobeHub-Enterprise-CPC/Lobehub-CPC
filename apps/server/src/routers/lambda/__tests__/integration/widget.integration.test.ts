@@ -18,6 +18,7 @@ import { ConnectorModel } from '@/database/models/connector';
 import { DashboardModel } from '@/database/models/dashboard';
 import { WidgetModel } from '@/database/models/widget';
 import { qstashClient } from '@/libs/qstash';
+import type * as KeyVaultsModule from '@/server/modules/KeyVaultsEncrypt';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import widgetWorkflowApp from '@/server/router-hono/workflows/widget';
 import { executeWidgetRun } from '@/server/services/widget/executeRun';
@@ -28,6 +29,16 @@ import { dashboardRouter } from '../../dashboard';
 import { metricRouter } from '../../metric';
 import { widgetRouter } from '../../widget';
 import { cleanupTestUser, createTestAgent, createTestUser } from './setup';
+
+// Router tests run outside a request, so there is no tenant scope: pin the
+// gatekeeper to one test tenant's derived key.
+vi.mock('@/server/modules/KeyVaultsEncrypt', async (importOriginal) => {
+  const actual = await importOriginal<typeof KeyVaultsModule>();
+  class KeyVaultsGateKeeper extends actual.KeyVaultsGateKeeper {
+    static initWithEnvKey = async () => actual.KeyVaultsGateKeeper.forTenant('test-tenant');
+  }
+  return { ...actual, KeyVaultsGateKeeper };
+});
 
 vi.hoisted(() => {
   // 32-byte key so connector credentials round-trip through the real gatekeeper.

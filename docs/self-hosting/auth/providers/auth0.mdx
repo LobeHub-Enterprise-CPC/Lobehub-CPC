@@ -45,8 +45,8 @@ tags:
   <Callout type={'info'}>
     Callback URL format:
 
-    - Local development: `http://localhost:3210/api/auth/callback/auth0`
-    - Production: `https://your-domain.com/api/auth/callback/auth0`
+    - Local development: `http://localhost:3210/t/<tenant>/api/auth/callback/auth0`
+    - Production: `https://your-domain.com/t/<tenant>/api/auth/callback/auth0`
   </Callout>
 
   <Image alt="Create Auth0 Application S4" inStep src="https://github.com/lobehub/lobehub/assets/30863298/62fbd09f-a69a-4460-949b-0f6285fa65b9" />
@@ -57,20 +57,19 @@ tags:
 
   <Image alt="Add Users" inStep src="https://github.com/lobehub/lobehub/assets/30863298/0beda150-d0b6-43cf-a9f1-fce928b83a96" />
 
-  ### Configure Environment Variables
+  ### Configure in Admin
 
-  | Environment Variable | Type     | Description                                                     |
-  | -------------------- | -------- | --------------------------------------------------------------- |
-  | `AUTH_SECRET`        | Required | Session encryption key, generate with `openssl rand -base64 32` |
-  | `AUTH_SSO_PROVIDERS` | Required | Set to `auth0`                                                  |
-  | `AUTH_AUTH0_ID`      | Required | Client ID                                                       |
-  | `AUTH_AUTH0_SECRET`  | Required | Client Secret                                                   |
-  | `AUTH_AUTH0_ISSUER`  | Required | `https://your-tenant.auth0.com`                                 |
+  SSO is configured per tenant in Admin, not with environment variables. In Admin, open the tenant's SSO providers, add a provider and fill in:
 
-  <Callout type={'tip'}>
-    Go to [📘 Environment Variables](/docs/self-hosting/environment-variables/auth#auth0)
-    for detailed information.
-  </Callout>
+  | Field         | Value                                                        |
+  | ------------- | ------------------------------------------------------------ |
+  | Protocol      | OIDC                                                         |
+  | Provider ID   | `auth0` selects the auth0 preset; any other ID is plain OIDC |
+  | Client ID     | Client ID from the provider                                  |
+  | Client Secret | Client secret from the provider; Admin stores it encrypted   |
+  | Issuer        | `https://<your-tenant>.auth0.com`                            |
+
+  The callback URL to register with the provider is `https://your-domain.com/t/<tenant>/api/auth/callback/<provider-id>`; Admin shows it for each provider.
 </Steps>
 
 <Callout type={'info'}>

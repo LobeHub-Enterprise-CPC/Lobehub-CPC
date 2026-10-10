@@ -148,7 +148,7 @@ describe('handleVolcengineVideoWebhook', () => {
       });
     });
 
-    it('should return unknown error for unknown status without error message', async () => {
+    it('keeps unknown provider states nonterminal', async () => {
       const result = await handleVolcengineVideoWebhook({
         body: {
           id: 'task-123',
@@ -157,9 +157,8 @@ describe('handleVolcengineVideoWebhook', () => {
       });
 
       expect(result).toEqual({
-        error: 'Unknown error',
         inferenceId: 'task-123',
-        status: 'error',
+        status: 'pending',
       });
     });
 

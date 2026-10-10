@@ -28,7 +28,7 @@ tags:
   6. Add redirect URI:
 
   <Callout type={'info'}>
-    **Callback URL Format**: `https://your-domain.com/api/auth/callback/zitadel`
+    **Callback URL Format**: `https://your-domain.com/t/<tenant>/api/auth/callback/zitadel`
   </Callout>
 
   7. After creation, note down the **Client ID** and generate a **Client Secret**
@@ -40,25 +40,19 @@ tags:
   - Cloud: `https://your-instance.zitadel.cloud`
   - Self-hosted: `https://your-zitadel-domain`
 
-  ### Configure Environment Variables
+  ### Configure in Admin
 
-  When deploying LobeHub, you need to configure the following environment variables:
+  SSO is configured per tenant in Admin, not with environment variables. In Admin, open the tenant's SSO providers, add a provider and fill in:
 
-  | Environment Variable  | Type     | Description                                                                   |
-  | --------------------- | -------- | ----------------------------------------------------------------------------- |
-  | `AUTH_SECRET`         | Required | Key used to encrypt session tokens. Generate using: `openssl rand -base64 32` |
-  | `AUTH_SSO_PROVIDERS`  | Required | SSO provider for LobeHub. Use `zitadel` for ZITADEL                           |
-  | `AUTH_ZITADEL_ID`     | Required | Client ID from ZITADEL application                                            |
-  | `AUTH_ZITADEL_SECRET` | Required | Client Secret from ZITADEL application                                        |
-  | `AUTH_ZITADEL_ISSUER` | Required | ZITADEL issuer URL (e.g., `https://your-instance.zitadel.cloud`)              |
+  | Field         | Value                                                            |
+  | ------------- | ---------------------------------------------------------------- |
+  | Protocol      | OIDC                                                             |
+  | Provider ID   | `zitadel` selects the zitadel preset; any other ID is plain OIDC |
+  | Client ID     | Client ID from the provider                                      |
+  | Client Secret | Client secret from the provider; Admin stores it encrypted       |
+  | Issuer        | `https://<instance>.zitadel.cloud`                               |
 
-  <Callout type={'warning'}>
-    **Deprecated Environment Variables**: `ZITADEL_CLIENT_ID` / `ZITADEL_CLIENT_SECRET` / `ZITADEL_ISSUER` are no longer supported. Setting any of them will cause the deployment to fail at build/startup — use `AUTH_ZITADEL_ID` / `AUTH_ZITADEL_SECRET` / `AUTH_ZITADEL_ISSUER` instead.
-  </Callout>
-
-  <Callout type={'tip'}>
-    Go to [📘 Environment Variables](/docs/self-hosting/environment-variables/auth#zitadel) for detailed information on these variables.
-  </Callout>
+  The callback URL to register with the provider is `https://your-domain.com/t/<tenant>/api/auth/callback/<provider-id>`; Admin shows it for each provider.
 </Steps>
 
 <Callout type={'info'}>

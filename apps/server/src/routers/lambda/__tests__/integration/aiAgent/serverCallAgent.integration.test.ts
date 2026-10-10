@@ -28,6 +28,9 @@ import { createMockResponsesStream, waitForOperationComplete } from './helpers';
 process.env.OPENAI_API_KEY = 'sk-test-fake-api-key-for-testing';
 
 let testDB: LobeChatDatabase;
+// Agent step callbacks are addressed to the current tenant.
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 vi.mock('@/database/core/db-adaptor', () => ({
   getServerDB: vi.fn(function () {
     return testDB;

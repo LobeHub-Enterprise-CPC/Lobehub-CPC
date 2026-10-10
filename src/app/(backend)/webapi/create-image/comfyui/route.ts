@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { checkAuth } from '@/app/(backend)/middleware/auth';
 import { getServerDBConfig } from '@/config/db';
 import { createCallerFactory } from '@/libs/trpc/lambda';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { lambdaRouter } from '@/server/routers/lambda';
 
 export const maxDuration = 300;
@@ -77,7 +78,7 @@ const handler = async (req: Request, { jwtPayload }: { jwtPayload?: any }) => {
   }
 };
 
-export const POST = async (req: Request) => {
+const handlePost = async (req: Request) => {
   // Check for internal service authentication (only if KEY_VAULTS_SECRET is set)
   if (serverDBEnv.KEY_VAULTS_SECRET) {
     const authorization = req.headers.get('Authorization');
@@ -94,3 +95,5 @@ export const POST = async (req: Request) => {
   // ComfyUI doesn't have a provider param, but checkAuth requires it
   return checkAuth(handler)(req, { params: Promise.resolve({ provider: 'comfyui' }) });
 };
+
+export const POST = withTenantRequest(handlePost);

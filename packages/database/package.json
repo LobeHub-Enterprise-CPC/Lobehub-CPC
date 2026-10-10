@@ -5,8 +5,13 @@
   "exports": {
     ".": "./src/index.ts",
     "./schemas": "./src/schemas/index.ts",
+    "./privateSchemas": "./src/privateSchemas/index.ts",
     "./test-utils": "./tests/test-utils.ts",
-    "./server": "./src/server/index.ts"
+    "./server": "./src/server/index.ts",
+    "./tenant": "./src/tenant/index.ts",
+    "./tenant/requestScope": "./src/tenant/requestScope.ts",
+    "./tenant/schemas": "./src/tenant/schemas.ts",
+    "./platform": "./src/platform/index.ts"
   },
   "scripts": {
     "test": "npm run test:client-db && npm run test:server-db",
