@@ -21,6 +21,11 @@ export const configureBusinessAuth = <T extends BetterAuthOptions>(options: T): 
 export const businessAuthPlugins: BetterAuthPlugin[] = [];
 
 export const managedBusinessSSO = false;
+/** Optional distribution-owned signed login push receiver. */
+export const receiveBusinessBridgeResult = async (
+  _request: Request,
+  _providerId: string,
+): Promise<Response> => new Response(null, { status: 404 });
 export const getBusinessAuthOptions = async (
   _request: Request,
 ): Promise<BetterAuthOptions | null> => null;

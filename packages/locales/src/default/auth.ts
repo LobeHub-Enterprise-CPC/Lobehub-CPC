@@ -1,4 +1,20 @@
 export default {
+  'bridge.popupBlocked': 'Allow pop-ups for this site, then try again.',
+  'bridge.expired': 'This login has expired. Start again.',
+  'bridge.cancelled': 'Login cancelled.',
+  'bridge.failed': 'Unable to sign in. Please try again.',
+  'bridge.linkTitle': 'Connect your account',
+  'bridge.linkDescription': 'Verify your existing account before connecting this sign-in method.',
+  'bridge.confirmAccount': 'Connect this sign-in method to {{email}}?',
+  'bridge.confirm': 'Confirm and sign in',
+  'bridge.email': 'Email',
+  'bridge.password': 'Password',
+  'bridge.verify': 'Verify account',
+  'bridge.cancel': 'Cancel',
+  'bridge.verifyFailed':
+    'Unable to verify this account. Check your email and password and try again.',
+  'bridge.confirmFailed': 'Unable to connect this account. Start again if this login has expired.',
+
   'agreement.checkbox':
     'I have read and agree to the <terms>Terms and Conditions</terms> and <privacy>Privacy Policy</privacy>',
   'agreement.confirm.content':
