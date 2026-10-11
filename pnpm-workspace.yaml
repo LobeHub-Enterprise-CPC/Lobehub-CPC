@@ -1,4 +1,6 @@
 lockfile: false
+# pnpm 12 must keep dependency installation explicit, including exec/run.
+verifyDepsBeforeRun: false
 resolutionMode: highest
 dedupePeerDependents: true
 ignoreWorkspaceRootCheck: true
@@ -81,5 +83,6 @@ overrides:
   'zod@^4': 4.6.5
 
 patchedDependencies:
+  '@lobehub/ui@5.56.0 || 5.57.3': patches/@lobehub__ui@5.56.0-5.57.3.patch
   '@chat-adapter/discord@4.38.1': patches/@chat-adapter__discord@4.38.1.patch
   '@upstash/qstash': patches/@upstash__qstash.patch

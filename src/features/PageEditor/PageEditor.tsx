@@ -127,8 +127,10 @@ interface PageEditorProps {
   onBack?: () => void;
   onDelete?: () => void;
   onDocumentIdChange?: (newId: string) => void;
+  /** Reports an emoji already persisted by the editor; consumers refresh their cached metadata. */
   onEmojiChange?: (emoji: string | undefined) => void;
   onSave?: () => void;
+  /** Reports a title already persisted by the editor; consumers refresh their cached metadata. */
   onTitleChange?: (title: string) => void;
   pageId?: string;
   /**

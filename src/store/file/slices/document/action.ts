@@ -37,7 +37,7 @@ interface ResourceDocumentSnapshot {
   editorData?: LobeDocument['editorData'] | string;
   fileType?: string;
   id: string;
-  knowledgeBaseId?: string;
+  knowledgeBaseId?: string | null;
   metadata?: LobeDocument['metadata'] | null;
   parentId?: string | null;
   slug?: string | null;
@@ -188,7 +188,10 @@ export class DocumentActionImpl {
       editorData: this.#parseEditorData(document.editorData, fallback?.editorData),
       fileType: document.fileType ?? fallback?.fileType ?? EDITOR_DOCUMENT_FILE_TYPE,
       id: document.id,
-      knowledgeBaseId: document.knowledgeBaseId ?? fallback?.knowledgeBaseId,
+      knowledgeBaseId:
+        document.knowledgeBaseId !== undefined
+          ? (document.knowledgeBaseId ?? undefined)
+          : fallback?.knowledgeBaseId,
       metadata: document.metadata ?? fallback?.metadata,
       name:
         document.title !== undefined
@@ -209,7 +212,10 @@ export class DocumentActionImpl {
     };
   };
 
-  #syncResourceItem = (resource: ResourceItem, options?: { allowInsert?: boolean }) => {
+  #syncResourceItem = (
+    resource: ResourceItem,
+    options?: { allowInsert?: boolean; keepWhenUnknown?: boolean },
+  ) => {
     const { queryParams, removeLocalResource, replaceLocalResource, resourceList, resourceMap } =
       this.#get();
     const exists =
@@ -218,7 +224,9 @@ export class DocumentActionImpl {
     if (exists) {
       if (
         !queryParams ||
-        this.#isResourceVisibleInCurrentQuery(resource, { keepWhenUnknown: true })
+        this.#isResourceVisibleInCurrentQuery(resource, {
+          keepWhenUnknown: options?.keepWhenUnknown ?? true,
+        })
       ) {
         replaceLocalResource(resource.id, resource);
       } else {
@@ -451,6 +459,10 @@ export class DocumentActionImpl {
 
       newMap.set(documentId, fullDocument);
       this.#set({ localDocumentMap: newMap }, false, n('fetchDocumentDetail'));
+      this.#syncResourceItem(
+        this.#createResourceItem(document, this.#get().resourceMap.get(documentId)),
+        { allowInsert: false, keepWhenUnknown: false },
+      );
     } catch (error) {
       console.error('[fetchDocumentDetail] Failed to fetch document:', error);
     }

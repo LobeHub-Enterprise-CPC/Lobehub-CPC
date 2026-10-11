@@ -45,6 +45,10 @@ cd packages/database && TEST_SERVER_DB=1 bunx vitest run --silent='passed-only' 
 3. **Regression tests for bug fixes** - Include a regression test that fails without the fix and passes with it; write the failing test first when the failure is easy to reproduce. **Skip** pure style/CSS fixes (selector, hover, mask, spacing, color) when the only practical assertion would be source-string matching on the stylesheet — that is not a regression test worth shipping.
 4. **No new component tests** - Only update existing React component tests. Complex logic should be extracted into hooks and tested there instead
 
+修复已安装依赖时，用彼此独立、全新的依赖预打包缓存，分别验证原始依赖与补丁后的
+同一回归测试。旧的预打包产物可能隐藏原始失败；缓存放在项目内，保证产物能够解析
+项目依赖，不清理其他执行者的缓存。
+
 ## UI Library Mocks (@lobehub/ui/base-ui)
 
 **Default: do NOT mock `@lobehub/ui/base-ui` — render the real components.**

@@ -1,5 +1,9 @@
 import { getTenant } from '@lobechat/business-tenant/client';
-import { withTenantPath } from '@lobechat/business-tenant/routing';
+import {
+  parseTenantPath,
+  stripTenantPath,
+  withTenantPath,
+} from '@lobechat/business-tenant/routing';
 
 const ONBOARDING_PATH = '/onboarding';
 const CALLBACK_STORAGE_KEY = 'onboarding-callback-url';
@@ -23,26 +27,19 @@ const withPageTenant = (path: string): string => {
 };
 
 /**
- * Better Auth resolves relative callbacks against its server base URL, but auth pages can run on a
- * different origin. Bind safe web paths to the browser's current origin (and the page's tenant)
- * before sending them to the server, while preserving explicit absolute URLs and mobile schemes.
- */
-export const toAbsoluteAuthCallbackUrl = (callbackUrl: string, origin: string): string =>
-  isSafeRedirectPath(callbackUrl)
-    ? new URL(withPageTenant(callbackUrl), origin).toString()
-    : callbackUrl;
-
-/**
  * Auth detours can produce same-origin absolute callback URLs (e.g. the
  * protected-route proxy builds `APP_URL + pathname + search`) — normalize
- * them to relative paths instead of dropping them as unsafe.
+ * them to relative paths instead of dropping them as unsafe. Normalize browser
+ * dot segments before checking the destination's tenant.
  */
 const toRelativePath = (url: string): string => {
-  if (!/^https?:\/\//.test(url)) return url;
+  if (typeof window === 'undefined') return url;
+  if (!isSafeRedirectPath(url) && !/^https?:\/\//.test(url)) return url;
   try {
-    const parsed = new URL(url);
-    if (typeof window !== 'undefined' && parsed.origin === window.location.origin)
-      return parsed.pathname + parsed.search + parsed.hash;
+    const parsed = new URL(url, window.location.origin);
+    return parsed.origin === window.location.origin
+      ? parsed.pathname + parsed.search + parsed.hash
+      : parsed.href;
   } catch {
     // fall through — non-parsable URLs are rejected by isSafeRedirectPath
   }
@@ -58,8 +55,21 @@ const toRelativePath = (url: string): string => {
 export const sanitizeRedirectPath = (url: string | null | undefined, fallback = '/'): string => {
   if (!url) return withPageTenant(fallback);
   const target = toRelativePath(url);
-  return withPageTenant(isSafeRedirectPath(target) ? target : fallback);
+  const pageTenant = getTenant()?.slug;
+  const targetTenant = parseTenantPath(target).tenantSlug;
+  const sameTenant = !pageTenant || !targetTenant || pageTenant === targetTenant;
+  return withPageTenant(isSafeRedirectPath(target) && sameTenant ? target : fallback);
 };
+
+/**
+ * Better Auth resolves relative callbacks against its server base URL, but auth pages can run on a
+ * different origin. Bind safe web paths to the browser's current origin (and the page's tenant)
+ * before sending them to the server, while preserving explicit absolute URLs and mobile schemes.
+ */
+export const toAbsoluteAuthCallbackUrl = (callbackUrl: string, origin: string): string =>
+  isSafeRedirectPath(callbackUrl)
+    ? new URL(sanitizeRedirectPath(callbackUrl), origin).toString()
+    : callbackUrl;
 
 /**
  * Build the first-hop URL for a freshly signed-up user. New users always land
@@ -67,10 +77,12 @@ export const sanitizeRedirectPath = (url: string | null | undefined, fallback = 
  * `callbackUrl` query param and restored when onboarding finishes.
  */
 export const buildOnboardingRedirectUrl = (callbackUrl?: string | null): string => {
-  const target = callbackUrl && toRelativePath(callbackUrl);
-  if (!target || target === '/' || !isSafeRedirectPath(target)) return ONBOARDING_PATH;
-  if (target.startsWith(ONBOARDING_PATH)) return target;
-  return `${ONBOARDING_PATH}?callbackUrl=${encodeURIComponent(target)}`;
+  const onboardingPath = withPageTenant(ONBOARDING_PATH);
+  const target = sanitizeRedirectPath(callbackUrl, ONBOARDING_PATH);
+  const appPath = stripTenantPath(target);
+  if (appPath === '/') return onboardingPath;
+  if (/^\/onboarding(?:[/?#]|$)/.test(appPath)) return target;
+  return `${onboardingPath}?callbackUrl=${encodeURIComponent(target)}`;
 };
 
 /**
@@ -96,7 +108,7 @@ export const stashOnboardingCallbackUrl = (search: string): void => {
  * stash intact.
  */
 export const clearStaleOnboardingCallbackUrl = (pathname: string, search: string): void => {
-  if (pathname !== ONBOARDING_PATH) return;
+  if (stripTenantPath(pathname) !== ONBOARDING_PATH) return;
   const params = new URLSearchParams(search);
   if (params.has('step')) return;
   const callbackUrl = params.get('callbackUrl');
@@ -128,4 +140,10 @@ export const consumeOnboardingCallbackUrl = (): string | undefined => {
   return url;
 };
 
-export const resolvePostOnboardingTargetUrl = (): string => consumeOnboardingCallbackUrl() || '/';
+export const resolvePostOnboardingTargetUrl = (): string => {
+  const target = sanitizeRedirectPath(consumeOnboardingCallbackUrl());
+  if (!getTenant()) return target;
+  // React Router adds the tenant basename to this internal navigation.
+  const appPath = stripTenantPath(target);
+  return appPath.startsWith('/') ? appPath : `/${appPath}`;
+};

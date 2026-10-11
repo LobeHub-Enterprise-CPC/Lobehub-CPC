@@ -378,6 +378,7 @@ const InternalEditor = memo<InternalEditorProps>(
           slashOption={slashItems ? { items: slashItems } : undefined}
           type={'text'}
           style={{
+            display: 'flow-root',
             paddingBottom: 32,
             ...style,
             ...contentStyle,

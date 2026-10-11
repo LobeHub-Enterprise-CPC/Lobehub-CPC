@@ -85,6 +85,57 @@ describe('tenant pages', () => {
     expect(sanitizeRedirectPath('/agent/abc')).toBe('/t/acme/agent/abc');
     expect(sanitizeRedirectPath('https://evil.com')).toBe('/t/acme');
   });
+
+  it('should keep default signup landings within the current tenant', () => {
+    expect(buildOnboardingRedirectUrl()).toBe('/t/acme/onboarding');
+    expect(buildOnboardingRedirectUrl('/')).toBe('/t/acme/onboarding');
+    expect(buildOnboardingRedirectUrl('/t/acme')).toBe('/t/acme/onboarding');
+  });
+
+  it('should preserve scoped targets without nesting an existing onboarding callback', () => {
+    expect(buildOnboardingRedirectUrl('/agent/abc?message=hi')).toBe(
+      '/t/acme/onboarding?callbackUrl=%2Ft%2Facme%2Fagent%2Fabc%3Fmessage%3Dhi',
+    );
+    expect(
+      buildOnboardingRedirectUrl(`${window.location.origin}/t/acme/onboarding/agent?step=2`),
+    ).toBe('/t/acme/onboarding/agent?step=2');
+  });
+
+  it.each([
+    '/t/other/agent',
+    '/t/acme/../other/agent',
+    '/t/acme/%2e%2e/other/agent',
+    '/../../t/other/agent',
+    '/\n/evil.com',
+    'https://evil.com',
+  ])('should keep an unsafe or cross-tenant callback %s in the current tenant', (callbackUrl) => {
+    expect(sanitizeRedirectPath(callbackUrl)).toBe('/t/acme');
+    expect(buildOnboardingRedirectUrl(callbackUrl)).toBe('/t/acme/onboarding');
+    if (isSafeRedirectPath(callbackUrl)) {
+      expect(toAbsoluteAuthCallbackUrl(callbackUrl, authOrigin)).toBe(`${authOrigin}/t/acme`);
+    }
+  });
+
+  it('should return router-relative targets after onboarding without repeating its basename', () => {
+    stashOnboardingCallbackUrl('?callbackUrl=%2Ft%2Facme%2Fagent%2Fabc%3Fmessage%3Dhi');
+    expect(resolvePostOnboardingTargetUrl()).toBe('/agent/abc?message=hi');
+    expect(peekOnboardingCallbackUrl()).toBeUndefined();
+
+    stashOnboardingCallbackUrl('?callbackUrl=%2Ft%2Facme%3Fonboarding%3Dtask');
+    expect(resolvePostOnboardingTargetUrl()).toBe('/?onboarding=task');
+
+    stashOnboardingCallbackUrl('?callbackUrl=%2Ft%2Fother%2Fagent');
+    expect(resolvePostOnboardingTargetUrl()).toBe('/');
+  });
+
+  it('should clear abandoned callbacks on a fresh scoped entry while keeping step re-entries', () => {
+    stashOnboardingCallbackUrl('?callbackUrl=%2Fagent');
+    clearStaleOnboardingCallbackUrl('/t/acme/onboarding', '?step=2');
+    expect(peekOnboardingCallbackUrl()).toBe('/agent');
+
+    clearStaleOnboardingCallbackUrl('/t/acme/onboarding', '');
+    expect(peekOnboardingCallbackUrl()).toBeUndefined();
+  });
 });
 
 describe('buildOnboardingRedirectUrl', () => {
@@ -103,6 +154,12 @@ describe('buildOnboardingRedirectUrl', () => {
   it('should not nest when the target is already an onboarding path', () => {
     expect(buildOnboardingRedirectUrl('/onboarding')).toBe('/onboarding');
     expect(buildOnboardingRedirectUrl('/onboarding/agent')).toBe('/onboarding/agent');
+  });
+
+  it('should thread similarly named pages through onboarding instead of bypassing it', () => {
+    expect(buildOnboardingRedirectUrl('/onboarding-history')).toBe(
+      '/onboarding?callbackUrl=%2Fonboarding-history',
+    );
   });
 
   it('should drop unsafe external targets', () => {

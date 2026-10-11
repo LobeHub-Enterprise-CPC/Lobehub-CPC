@@ -78,6 +78,50 @@ afterEach(() => {
 });
 
 describe('DocumentAction', () => {
+  it('refreshes a persisted document into the explorer without another write', async () => {
+    const existing = createDocumentFixture();
+    const resource = createResourceFixture();
+    useStore.setState({
+      documents: [existing],
+      resourceList: [resource],
+      resourceMap: new Map([[resource.id, resource]]),
+    });
+    vi.mocked(documentService.getDocumentById).mockResolvedValue({
+      ...existing,
+      title: 'Saved title',
+      metadata: { emoji: '📄' },
+      updatedAt: new Date('2024-01-02T00:00:00.000Z'),
+    } as any);
+
+    await useStore.getState().fetchDocumentDetail(existing.id);
+
+    expect(useStore.getState().localDocumentMap.get(existing.id)?.title).toBe('Saved title');
+    expect(useStore.getState().resourceMap.get(existing.id)).toMatchObject({
+      title: 'Saved title',
+      name: 'Saved title',
+      metadata: { emoji: '📄' },
+    });
+    expect(documentService.updateDocument).not.toHaveBeenCalled();
+  });
+
+  it('removes a refreshed root document from the library it no longer belongs to', async () => {
+    const resource = createResourceFixture();
+    useStore.setState({
+      queryParams: { libraryId: 'kb-1' },
+      resourceList: [resource],
+      resourceMap: new Map([[resource.id, resource]]),
+    });
+    vi.mocked(documentService.getDocumentById).mockResolvedValue({
+      ...createDocumentFixture(),
+      knowledgeBaseId: null,
+    } as any);
+
+    await useStore.getState().fetchDocumentDetail(resource.id);
+
+    expect(useStore.getState().resourceMap.has(resource.id)).toBe(false);
+    expect(useStore.getState().resourceList).toEqual([]);
+  });
+
   it('creates a folder in the current resource list without full revalidation', async () => {
     const { result } = renderHook(() => useStore());
 

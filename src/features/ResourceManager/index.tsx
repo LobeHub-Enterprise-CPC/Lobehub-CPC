@@ -77,7 +77,7 @@ const ResourceManager = memo<ResourceManagerProps>(({ content }) => {
     ]);
 
   const currentDocument = useFileStore(documentSelectors.getDocumentById(currentViewItemId));
-  const updateDocumentOptimistically = useFileStore((s) => s.updateDocumentOptimistically);
+  const fetchDocumentDetail = useFileStore((s) => s.fetchDocumentDetail);
   const { allowed: canUpload } = usePermission('create_content');
   const uploadTopLevel = useTopLevelFileUpload();
 
@@ -121,26 +121,9 @@ const ResourceManager = memo<ResourceManagerProps>(({ content }) => {
     });
   };
 
-  // Optimistic update handlers for page title and emoji
-  const handleTitleChange = useCallback(
-    (newTitle: string) => {
-      if (currentViewItemId) {
-        updateDocumentOptimistically(currentViewItemId, { title: newTitle });
-      }
-    },
-    [currentViewItemId, updateDocumentOptimistically],
-  );
-
-  const handleEmojiChange = useCallback(
-    (newEmoji: string | undefined) => {
-      if (currentViewItemId) {
-        updateDocumentOptimistically(currentViewItemId, {
-          metadata: { ...currentDocument?.metadata, emoji: newEmoji },
-        });
-      }
-    },
-    [currentViewItemId, currentDocument?.metadata, updateDocumentOptimistically],
-  );
+  const handleMetadataSaved = useCallback(() => {
+    if (currentViewItemId) void fetchDocumentDetail(currentViewItemId);
+  }, [currentViewItemId, fetchDocumentDetail]);
 
   return (
     <>
@@ -170,8 +153,8 @@ const ResourceManager = memo<ResourceManagerProps>(({ content }) => {
                 pageId={currentViewItemId}
                 title={currentDocument?.title}
                 onBack={handleBack}
-                onEmojiChange={handleEmojiChange}
-                onTitleChange={handleTitleChange}
+                onEmojiChange={handleMetadataSaved}
+                onTitleChange={handleMetadataSaved}
               />
             </Flexbox>
           )}

@@ -1,3 +1,4 @@
+import { initializeTenant } from '@lobechat/business-tenant/client';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -69,6 +70,7 @@ describe('useSignUp', () => {
   });
 
   afterEach(() => {
+    initializeTenant(new URL('/', originalLocation.origin));
     Object.defineProperty(window, 'location', {
       configurable: true,
       value: originalLocation,
@@ -135,6 +137,22 @@ describe('useSignUp', () => {
       });
 
       expect(window.location.href).toBe('/onboarding');
+    });
+
+    it('should keep a successful tenant signup on its scoped onboarding page without a callback', async () => {
+      initializeTenant(new URL('/t/acme/signup', originalLocation.origin));
+      mockSignUpEmail.mockResolvedValue({ error: null });
+
+      const { result } = renderHook(() => useSignUp());
+      await act(async () => {
+        await result.current.onSubmit(validValues);
+      });
+
+      expect(window.location.href).toBe('/t/acme/onboarding');
+      expect(mockSignUpEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ callbackURL: `${originalLocation.origin}/t/acme/onboarding` }),
+      );
+      expect(mockNavigate).not.toHaveBeenCalled();
     });
 
     it('should thread callbackUrl from search params through onboarding', async () => {

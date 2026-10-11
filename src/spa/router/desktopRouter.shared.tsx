@@ -1261,7 +1261,7 @@ const createMainAreaChildrenDefinition = (options: MainAreaRouteOptions = {}): R
       // Web renders Home beside the router outlet; Electron injects a per-tab
       // Home element because each tab owns an independent memory router.
       {
-        element: deferPlatformElement(options.createHomeElement),
+        element: deferPlatformElement(options.createHomeElement) ?? <></>,
         handle: { meta: workspaceHomeRouteMeta },
         index: true,
       },
@@ -1613,7 +1613,7 @@ const createMainAreaChildrenDefinition = (options: MainAreaRouteOptions = {}): R
 
   // Web leaves this element empty; Electron injects the per-tab Home route.
   {
-    element: deferPlatformElement(options.createHomeElement),
+    element: deferPlatformElement(options.createHomeElement) ?? <></>,
     handle: {
       meta: routeMeta({
         icon: HomeIcon,
