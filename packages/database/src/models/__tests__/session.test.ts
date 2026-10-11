@@ -159,31 +159,33 @@ describe('SessionModel', () => {
         title: 'Test Group',
       });
 
-      // Verify members are mapped correctly
+      // Members have positional order, but the join does not sort agents by insertion order.
+      expect(groupSession.members.map((member: { order: number }) => member.order)).toEqual([
+        0, 1, 2,
+      ]);
+      const members = [...groupSession.members].sort((a, b) => a.agentId.localeCompare(b.agentId));
+      // Verify every member's identity and mapped fields independently of the query plan.
       expect(groupSession.members).toHaveLength(3);
-      expect(groupSession.members[0]).toMatchObject({
+      expect(members[0]).toMatchObject({
         agentId: 'agent-1',
         chatGroupId: 'group-session-1',
         enabled: true,
-        order: 0,
         role: 'participant',
         title: 'Agent 1',
         model: 'gpt-4',
       });
-      expect(groupSession.members[1]).toMatchObject({
+      expect(members[1]).toMatchObject({
         agentId: 'agent-2',
         chatGroupId: 'group-session-1',
         enabled: true,
-        order: 1,
         role: 'participant',
         title: 'Agent 2',
         model: 'gpt-3.5-turbo',
       });
-      expect(groupSession.members[2]).toMatchObject({
+      expect(members[2]).toMatchObject({
         agentId: 'agent-3',
         chatGroupId: 'group-session-1',
         enabled: true,
-        order: 2,
         role: 'participant',
         title: 'Agent 3',
         model: 'claude-2',
