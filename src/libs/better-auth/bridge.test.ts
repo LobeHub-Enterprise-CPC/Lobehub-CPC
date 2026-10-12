@@ -77,19 +77,6 @@ describe('bridge browser handoff', () => {
     await expect(beginBridgeLogin('company').completion).rejects.toThrow('BRIDGE_CANCELLED');
     expect(vi.getTimerCount()).toBe(0);
   });
-  it('hands off linking without issuing a login notification or further polling', async () => {
-    fetcher
-      .mockReset()
-      .mockResolvedValueOnce(response(task))
-      .mockResolvedValueOnce(response({ state: 'ready' }))
-      .mockResolvedValueOnce(response({ linkRequired: true, taskId: 'task1' }));
-    expect(await beginBridgeLogin('company', '/').completion).toEqual({
-      linkRequired: true,
-      taskId: 'task1',
-      csrfToken: task.csrfToken,
-    });
-    expect(vi.getTimerCount()).toBe(0);
-  });
   it.each([
     ['http://admin.test', 'http://bridge.internal'],
     ['http://admin.test', 'https://bridge.internal'],
@@ -149,7 +136,7 @@ describe('bridge browser handoff', () => {
     const attempt = beginBridgeLogin('company');
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(2000);
-    expect(await attempt.completion).toEqual({ success: true, csrfToken: task.csrfToken });
+    expect(await attempt.completion).toEqual({ success: true });
     const completeCalls = fetcher.mock.calls.filter(([url]) => String(url).endsWith('/complete'));
     expect(completeCalls).toHaveLength(1);
     expect(JSON.parse(completeCalls[0][1].body)).toEqual({
@@ -219,7 +206,7 @@ describe('bridge browser handoff', () => {
     await vi.advanceTimersByTimeAsync(500);
     expect(fetcher.mock.calls[2][1].signal.aborted).toBe(false);
     finish(response({ success: true }));
-    expect(await attempt.completion).toEqual({ success: true, csrfToken: task.csrfToken });
+    expect(await attempt.completion).toEqual({ success: true });
     expect(vi.getTimerCount()).toBe(0);
   });
   it('times out and releases the listener and polling timers', async () => {

@@ -1,6 +1,5 @@
 'use client';
 
-import BridgeAccountLink from './BridgeAccountLink';
 import DevSeedSignIn from './DevSeedSignIn';
 import { SignInEmailSentStep } from './SignInEmailSentStep';
 import { SignInEmailStep } from './SignInEmailStep';
@@ -9,8 +8,6 @@ import { useSignIn } from './useSignIn';
 
 const SignIn = () => {
   const {
-    bridgeLink,
-    clearBridgeLink,
     agreementChecked,
     continueWithAgreement,
     disableEmailPassword,
@@ -37,8 +34,6 @@ const SignIn = () => {
     ssoError,
     step,
   } = useSignIn();
-
-  if (bridgeLink) return <BridgeAccountLink task={bridgeLink} onCancel={clearBridgeLink} />;
 
   if (step === 'emailSent' && sentInfo)
     return (

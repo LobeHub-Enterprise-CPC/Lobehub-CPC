@@ -11,11 +11,8 @@ const taskSchema = z.object({
   taskId: z.string().min(1),
 });
 export type BridgeCompletion = {
-  linkRequired?: boolean;
-  taskId?: string;
-  csrfToken?: string;
   callbackURL?: string;
-  success?: boolean;
+  success: true;
 };
 export type BridgeLogin = { cancel: () => void; completion: Promise<BridgeCompletion> };
 
@@ -124,9 +121,8 @@ export const beginBridgeLogin = (providerId: string, callbackURL = '/'): BridgeL
             taskId: task.taskId,
           });
           if (controller.signal.aborted) throw new Error('BRIDGE_CANCELLED');
-          if (result.success !== true && !(result.linkRequired && result.taskId))
-            throw new Error('BRIDGE_LOGIN_FAILED');
-          return { ...result, csrfToken: task.csrfToken };
+          if (result.success !== true) throw new Error('BRIDGE_LOGIN_FAILED');
+          return result;
         }
         if (status?.state === 'expired') throw new Error('BRIDGE_EXPIRED');
         if (status?.state !== 'pending') throw new Error('BRIDGE_LOGIN_FAILED');

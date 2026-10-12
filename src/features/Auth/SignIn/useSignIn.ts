@@ -72,7 +72,6 @@ export const useSignIn = () => {
   // slow network can't be double-clicked into multiple emails.
   const [sending, setSending] = useState(false);
   const [socialLoading, setSocialLoading] = useState<string | null>(null);
-  const [bridgeLink, setBridgeLink] = useState<{ taskId: string; csrfToken: string }>();
   const bridgeAttempt = useRef<ReturnType<typeof beginBridgeLogin> | null>(null);
   useEffect(() => () => bridgeAttempt.current?.cancel(), []);
   const [step, setStep] = useState<Step>('email');
@@ -289,10 +288,7 @@ export const useSignIn = () => {
         );
         bridgeAttempt.current = attempt;
         const result = await attempt.completion;
-        if (result.linkRequired && result.taskId && result.csrfToken)
-          setBridgeLink({ taskId: result.taskId, csrfToken: result.csrfToken });
-        else if (result.success)
-          window.location.assign(sanitizeRedirectPath(result.callbackURL || '/'));
+        window.location.assign(sanitizeRedirectPath(result.callbackURL || '/'));
       } catch (error) {
         const code = error instanceof Error ? error.message : '';
         toast.error(
@@ -469,8 +465,6 @@ export const useSignIn = () => {
     : resolvedProviders;
 
   return {
-    bridgeLink,
-    clearBridgeLink: () => setBridgeLink(undefined),
     agreementChecked,
     continueWithAgreement,
     disableEmailPassword,
