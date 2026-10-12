@@ -90,7 +90,7 @@ const Page = memo(() => {
         <SettingHeader title={t('tab.advanced')} />
         <SettingsSectionSkeleton
           groups={[
-            { rows: enableGatewayMode ? 2 : 1, titleWidth: 160 },
+            { rows: showGatewayModeToggle ? 2 : 1, titleWidth: 160 },
             ...(isDesktop ? [{ rows: 1, titleWidth: 112 }] : []),
           ]}
         />

@@ -669,8 +669,9 @@ const findServerDefaultHeterogeneousModel = async (
 export const describeServerDefaultHeterogeneousModel = async (
   agentType: ServerDefaultHeterogeneousAgentType,
   model: string,
+  access: ServerDefaultModelAccess = {},
 ): Promise<ServerDefaultHeterogeneousModelDescriptor> => {
-  const modelConfig = await findServerDefaultHeterogeneousModel(agentType, model);
+  const modelConfig = await findServerDefaultHeterogeneousModel(agentType, model, access);
   return {
     abilities: {
       reasoning: modelConfig.abilities?.reasoning === true,
@@ -690,8 +691,9 @@ export const describeServerDefaultHeterogeneousModel = async (
 export const resolveServerDefaultHeterogeneousModel = async (
   agentType: ServerDefaultHeterogeneousAgentType,
   model: string,
+  access: ServerDefaultModelAccess = {},
 ) => {
-  const modelConfig = await findServerDefaultHeterogeneousModel(agentType, model);
+  const modelConfig = await findServerDefaultHeterogeneousModel(agentType, model, access);
 
   return {
     ...toServerModelSelection(ModelProvider.LobeHub, modelConfig),

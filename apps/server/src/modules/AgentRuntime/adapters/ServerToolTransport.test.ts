@@ -42,6 +42,7 @@ describe('ServerToolTransport.run', () => {
 
   const run = async (channel?: Record<string, unknown>) => {
     const transport = new ServerToolTransport({
+      messageModel: { findMessagePlugin: vi.fn() },
       operationId: 'op-1',
       serverDB: {},
       stepIndex: 0,

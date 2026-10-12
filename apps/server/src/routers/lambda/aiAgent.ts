@@ -2118,15 +2118,15 @@ export const aiAgentRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       assertServerDefaultControlAuth(ctx.oidcAuth);
-      return describeServerDefaultHeterogeneousModel(input.agentType, input.model).catch(
-        (error) => {
-          throw new TRPCError({
-            cause: error,
-            code: 'BAD_REQUEST',
-            message: 'The selected server model is not available for this heterogeneous agent',
-          });
-        },
-      );
+      return describeServerDefaultHeterogeneousModel(input.agentType, input.model, {
+        userId: ctx.userId,
+      }).catch((error) => {
+        throw new TRPCError({
+          cause: error,
+          code: 'BAD_REQUEST',
+          message: 'The selected server model is not available for this heterogeneous agent',
+        });
+      });
     }),
 
   beginServerDefaultHeterogeneousOperation: aiAgentBaseProcedure

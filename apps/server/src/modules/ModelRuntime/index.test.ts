@@ -234,6 +234,11 @@ describe('getServerDefaultHeterogeneousModels', () => {
         userEmail: 'normal@example.com',
       }),
     ).rejects.toThrow('not compatible');
+    expect(isLobeHubModelAvailable).toHaveBeenLastCalledWith(
+      'claude-fable-5',
+      'chat',
+      expect.objectContaining({ userEmail: 'normal@example.com' }),
+    );
   });
 
   it('offers newly enabled tool-capable catalog aliases to Kimi without an ID allowlist', async () => {
@@ -587,6 +592,30 @@ describe('describeServerDefaultHeterogeneousModel', () => {
     await expect(
       describeServerDefaultHeterogeneousModel('codex', 'no-tools-model'),
     ).rejects.toThrow('not compatible with this heterogeneous agent');
+  });
+
+  it('forwards caller access into the compatibility check', async () => {
+    getServerGlobalConfig.mockResolvedValue({
+      aiProvider: {
+        lobehub: {
+          enabled: true,
+          serverModelLists: [
+            { abilities: { functionCall: true }, enabled: true, id: 'kimi-k3', type: 'chat' },
+          ],
+        },
+      },
+    });
+    isLobeHubModelAvailable.mockResolvedValueOnce(false);
+    await expect(
+      describeServerDefaultHeterogeneousModel('codex', 'kimi-k3', {
+        userEmail: 'normal@example.com',
+      }),
+    ).rejects.toThrow('not compatible');
+    expect(isLobeHubModelAvailable).toHaveBeenLastCalledWith(
+      'kimi-k3',
+      'chat',
+      expect.objectContaining({ userEmail: 'normal@example.com' }),
+    );
   });
 });
 
