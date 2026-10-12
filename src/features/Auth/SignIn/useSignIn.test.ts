@@ -1,4 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
+import { createAuthClient } from 'better-auth/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useSignIn } from './useSignIn';
@@ -104,6 +105,18 @@ vi.stubGlobal('fetch', mockFetch);
 vi.stubGlobal('localStorage', mockLocalStorage);
 
 const originalLocation = window.location;
+
+// Exercise the SDK's default redirect plugin rather than mocking its success behavior.
+const completeEmailSignInWithSdk = (data: any, options: any) => {
+  const client = createAuthClient({
+    baseURL: originalLocation.origin,
+    fetchOptions: {
+      customFetchImpl: async () =>
+        Response.json({ redirect: true, token: 'fixture-session', url: data.callbackURL }),
+    },
+  });
+  return client.signIn.email(data, options);
+};
 
 describe('useSignIn', () => {
   beforeEach(() => {
@@ -234,11 +247,42 @@ describe('useSignIn', () => {
   });
 
   describe('handleSignIn', () => {
-    it('should call signIn.email and redirect on success', async () => {
-      mockSignInEmail.mockImplementation(async (_data: any, opts: any) => {
-        opts.onSuccess();
-        return { error: null };
+    it('performs one full-page tenant redirect when the SDK handles a successful login', async () => {
+      const navigate = vi.fn();
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: {
+          ...originalLocation,
+          get href() {
+            return `${originalLocation.origin}/t/acme/signin`;
+          },
+          set href(value: string) {
+            navigate(value);
+          },
+          origin: originalLocation.origin,
+          pathname: '/t/acme/signin',
+        },
       });
+      mockSearchParamsGet.mockImplementation((key: string) =>
+        key === 'callbackUrl' ? '/t/acme' : null,
+      );
+      mockSignInEmail.mockImplementation(completeEmailSignInWithSdk);
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({ exists: true, hasPassword: true }),
+        ok: true,
+      });
+      const { result } = renderHook(() => useSignIn());
+      await act(async () => {
+        await result.current.handleCheckUser({ email: 'user@example.com' });
+      });
+      await act(async () => {
+        await result.current.handleSignIn({ password: 'password123' });
+      });
+      expect(navigate).toHaveBeenCalledExactlyOnceWith(`${originalLocation.origin}/t/acme`);
+    });
+
+    it('should call signIn.email and redirect on success', async () => {
+      mockSignInEmail.mockImplementation(completeEmailSignInWithSdk);
 
       mockFetch.mockResolvedValueOnce({
         json: async () => ({ exists: true, hasPassword: true }),
@@ -264,7 +308,7 @@ describe('useSignIn', () => {
         }),
         expect.any(Object),
       );
-      expect(window.location.href).toBe('/');
+      expect(window.location.href).toBe(`${originalLocation.origin}/`);
     });
 
     it.each(['javascript:alert(1)', 'https://evil.com', '//evil.com'])(
@@ -273,10 +317,7 @@ describe('useSignIn', () => {
         mockSearchParamsGet.mockImplementation((key: string) =>
           key === 'callbackUrl' ? hostileUrl : null,
         );
-        mockSignInEmail.mockImplementation(async (_data: any, opts: any) => {
-          opts.onSuccess();
-          return { error: null };
-        });
+        mockSignInEmail.mockImplementation(completeEmailSignInWithSdk);
         mockFetch.mockResolvedValueOnce({
           json: async () => ({ exists: true, hasPassword: true }),
           ok: true,
@@ -292,7 +333,7 @@ describe('useSignIn', () => {
           await result.current.handleSignIn({ password: 'password123' });
         });
 
-        expect(window.location.href).toBe('/');
+        expect(window.location.href).toBe(`${originalLocation.origin}/`);
       },
     );
 

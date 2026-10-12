@@ -239,7 +239,7 @@ export const useSignIn = () => {
     await trackLoginOrSignupClicked({ spm: 'signin.password_step.submit' });
 
     try {
-      const callbackUrl = searchParams.get('callbackUrl') || '/';
+      const callbackUrl = sanitizeRedirectPath(searchParams.get('callbackUrl') || '/');
       const result = await signIn.email(
         {
           callbackURL: toAbsoluteAuthCallbackUrl(callbackUrl, window.location.origin),
@@ -254,10 +254,6 @@ export const useSignIn = () => {
                 `/verify-email?email=${encodeURIComponent(email)}&callbackUrl=${encodeURIComponent(callbackUrl)}`,
               );
             }
-          },
-          // callbackUrl targets the main app, outside this auth SPA — full page load required
-          onSuccess: () => {
-            window.location.href = sanitizeRedirectPath(callbackUrl);
           },
         },
       );
