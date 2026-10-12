@@ -25,6 +25,8 @@ vi.mock('@trpc/client', () => ({
 }));
 
 vi.mock('@/envs/app', () => ({
+  getAppOriginUrl: () => mockAppEnv.APP_URL,
+  getInternalApiUrl: () => mockAppEnv.INTERNAL_APP_URL || mockAppEnv.APP_URL,
   get appEnv() {
     return mockAppEnv;
   },

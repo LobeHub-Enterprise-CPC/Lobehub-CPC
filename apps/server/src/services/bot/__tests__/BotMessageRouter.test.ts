@@ -68,6 +68,8 @@ vi.mock('@/business/server/bot/featureAccess', () => ({
 // Stub appEnv so accessing `appEnv.APP_URL` in vitest doesn't trip
 // `@t3-oss/env-nextjs`'s client-side access guard.
 vi.mock('@/envs/app', () => ({
+  getAppOriginUrl: () => 'http://localhost:3010',
+  getInternalApiUrl: () => 'http://localhost:3010',
   appEnv: {
     APP_URL: 'http://localhost:3010',
   },
