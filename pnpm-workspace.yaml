@@ -64,6 +64,8 @@ allowBuilds:
 
 overrides:
   '@ant-design/icons': 6.3.2
+  # Keep clean installs on the React 19 ref patch's verified UI version.
+  '@lobehub/ui': 5.57.3
   '@react-pdf/image': 3.0.4
   '@types/react': 19.2.13
   '@vitest/coverage-v8': 5.0.0
