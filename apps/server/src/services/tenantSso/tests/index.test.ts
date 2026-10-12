@@ -58,7 +58,6 @@ describe('tenant SSO reader', () => {
     expect(config).toMatchObject({
       clientId: 'client-1',
       clientSecret: 's3cret',
-      discoveryUrl: 'https://idp.example.com/.well-known/openid-configuration',
       providerId: 'okta',
       redirectURI: 'https://app.example.com/t/acme/api/auth/callback/okta',
     });

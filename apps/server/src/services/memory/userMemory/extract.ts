@@ -80,6 +80,7 @@ import { getServerGlobalConfig } from '@/server/globalConfig';
 import { type MemoryAgentConfig } from '@/server/globalConfig/parseMemoryExtractionConfig';
 import { parseMemoryExtractionConfig } from '@/server/globalConfig/parseMemoryExtractionConfig';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { createUserEndpointFetch } from '@/server/modules/ModelRuntime/userEndpoint';
 import { S3 } from '@/server/modules/S3';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { getUserScopedAiProviderRuntimeState } from '@/server/services/aiProviderAccess';
@@ -563,6 +564,8 @@ export const resolveRuntimeAgentConfig = (
     return ModelRuntime.initializeWithProvider(provider, {
       apiKey: userApiKey,
       baseURL: userBaseURL,
+      // The vault baseURL is typed in by the user: keep it off private/metadata targets.
+      ...(userBaseURL && { fetch: createUserEndpointFetch() }),
       userId: options?.userId,
     });
   }

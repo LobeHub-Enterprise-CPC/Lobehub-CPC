@@ -94,7 +94,7 @@ export async function createSiliconCloudImage(
 
   log('Request body: %O', body);
 
-  const response = await fetch(endpoint, {
+  const response = await (options.fetch ?? fetch)(endpoint, {
     body: JSON.stringify(body),
     headers: {
       'Authorization': `Bearer ${apiKey}`,

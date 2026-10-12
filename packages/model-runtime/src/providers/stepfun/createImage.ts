@@ -56,7 +56,7 @@ export async function createStepfunImage(
 
     log('Calling Stepfun image API: %s with body: %O', endpoint, body);
 
-    const res = await fetch(`${baseURL}/images/${endpoint}`, {
+    const res = await (options.fetch ?? fetch)(`${baseURL}/images/${endpoint}`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,

@@ -1,4 +1,5 @@
 import { type LobeChatDatabase, type Transaction } from '@lobechat/database';
+import { ssrfSafeFetch } from '@lobechat/ssrf-safe-fetch';
 import type { FileAccessScope, FileSource } from '@lobechat/types';
 import { ordinaryFileAccessScope } from '@lobechat/types';
 import { inferContentTypeFromImageUrl, nanoid, uuid } from '@lobechat/utils';
@@ -496,7 +497,8 @@ export class FileService {
     externalUrl: string,
     pathname: string,
   ): Promise<{ fileId: string; key: string; url: string }> {
-    const response = await fetch(externalUrl);
+    // `externalUrl` is caller-provided: keep it off private and metadata addresses.
+    const response = await ssrfSafeFetch(externalUrl);
 
     if (!response.ok) {
       throw new TRPCError({

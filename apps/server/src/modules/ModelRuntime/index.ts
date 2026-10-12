@@ -43,13 +43,16 @@ import { getServerDB } from '@/database/server';
 import { type LobeChatDatabase } from '@/database/type';
 import { getLLMConfig } from '@/envs/llm';
 import { getServerGlobalConfig } from '@/server/globalConfig';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { createLLMGenerationTracingHook } from '@/server/services/llmGenerationTracing/hook';
 import { ensureFreshOAuthToken } from '@/server/services/oauthDeviceFlow/refresh';
 
 import { KeyVaultsGateKeeper } from '../KeyVaultsEncrypt';
 import apiKeyManager from './apiKeyManager';
+import { createUserEndpointFetch } from './userEndpoint';
 
 export * from './trace';
+export { createUserEndpointFetch } from './userEndpoint';
 export type { ServerDefaultHeterogeneousAgentType } from '@lobechat/heterogeneous-agents';
 export { SERVER_DEFAULT_HETEROGENEOUS_AGENT_TYPES } from '@lobechat/heterogeneous-agents';
 
@@ -326,7 +329,10 @@ const getParamsFromPayload = (provider: string, payload: ClientSecretPayload) =>
       } = llmConfig;
 
       // ComfyUI specific handling with environment variables fallback
-      const baseURL = payload?.baseURL || COMFYUI_BASE_URL || 'http://127.0.0.1:8000';
+      // No built-in literal here: an absent baseURL means "the platform's ComfyUI", which the
+      // ComfyUI service resolves to its own default. A literal would look like a user-typed URL
+      // downstream, where user-provided servers are SSRF-filtered and platform ones are not.
+      const baseURL = payload?.baseURL || COMFYUI_BASE_URL;
 
       // ComfyUI supports multiple auth types: none, basic, bearer, custom
       // Extract all relevant auth fields from the payload or environment
@@ -416,6 +422,17 @@ const buildVertexOptions = (
   return options;
 };
 
+const hasUserProvidedEndpoint = (runtimeProvider: string, payload: ClientSecretPayload) => {
+  // ComfyUI calls the app's own service route, which guards the endpoint itself.
+  if (runtimeProvider === ModelProvider.ComfyUI) return false;
+  if (payload.baseURL) return true;
+
+  return (
+    runtimeProvider === ModelProvider.Cloudflare &&
+    !!payload.cloudflareBaseURLOrAccountID?.startsWith('http')
+  );
+};
+
 /**
  * Initializes the agent runtime with the user payload in backend
  * @param provider - The provider name.
@@ -449,11 +466,34 @@ export const initModelRuntimeWithUserPayload = (
     return new ModelRuntime(runtime, hooks);
   }
 
+  /**
+   * `lobehub` is the deployment-owned router: its channels (baseURL, keys) come
+   * from platform configuration and may legitimately be private. A baseURL in a
+   * user payload must never take part there, otherwise it could redirect a
+   * channel that has no baseURL of its own (and its platform credentials) to a
+   * user-chosen host.
+   */
+  const effectivePayload =
+    runtimeProvider === ModelProvider.LobeHub && payload.baseURL
+      ? { ...payload, baseURL: undefined }
+      : payload;
+
   return ModelRuntime.initializeWithProvider(
     runtimeProvider,
     {
-      ...getParamsFromPayload(runtimeProvider, payload),
+      ...getParamsFromPayload(runtimeProvider, effectivePayload),
       ...params,
+      // Endpoints the user typed in go through the SSRF-safe transport. Platform
+      // endpoints (env `*_PROXY_URL`, built-in defaults) are used only when the
+      // user supplied none, and keep the plain transport.
+      ...(hasUserProvidedEndpoint(runtimeProvider, effectivePayload) && {
+        fetch: createUserEndpointFetch(),
+      }),
+      // The ComfyUI route is a tenant route: called without the tenant prefix it is
+      // refused with TENANT_REQUIRED.
+      ...(runtimeProvider === ModelProvider.ComfyUI && {
+        serviceURL: buildTenantCallbackUrl('/webapi/create-image/comfyui'),
+      }),
     },
     hooks,
   );

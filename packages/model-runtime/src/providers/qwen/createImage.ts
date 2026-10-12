@@ -71,6 +71,7 @@ async function createLegacySynthesisTask(
   apiKey: string,
   endpoint: 'text2image' | 'image2image',
   baseUrl: string,
+  customFetch?: typeof fetch,
 ): Promise<string> {
   const { model, params } = payload;
   const url = `${baseUrl}/api/v1/services/aigc/${endpoint}/image-synthesis`;
@@ -106,7 +107,7 @@ async function createLegacySynthesisTask(
     input.images = images;
   }
 
-  const response = await fetch(url, {
+  const response = await (customFetch ?? fetch)(url, {
     body: JSON.stringify({
       input,
       model,
@@ -146,6 +147,7 @@ async function createHTTPAsyncGenerationTask(
   payload: CreateImagePayload,
   apiKey: string,
   baseUrl: string,
+  customFetch?: typeof fetch,
 ): Promise<string> {
   const { model, params } = payload;
   const endpoint = `${baseUrl}/api/v1/services/aigc/image-generation/generation`;
@@ -184,7 +186,7 @@ async function createHTTPAsyncGenerationTask(
     ...(params.watermark && { watermark: params.watermark }),
   };
 
-  const response = await fetch(endpoint, {
+  const response = await (customFetch ?? fetch)(endpoint, {
     body: JSON.stringify({
       input: {
         messages: [
@@ -233,6 +235,7 @@ async function createHTTPSyncGeneration(
   payload: CreateImagePayload,
   apiKey: string,
   baseUrl: string,
+  customFetch?: typeof fetch,
 ): Promise<CreateImageResponse> {
   const { model, params } = payload;
   const endpoint = `${baseUrl}/api/v1/services/aigc/multimodal-generation/generation`;
@@ -256,7 +259,7 @@ async function createHTTPSyncGeneration(
     }
   }
 
-  const response = await fetch(endpoint, {
+  const response = await (customFetch ?? fetch)(endpoint, {
     body: JSON.stringify({
       input: {
         messages: [
@@ -315,12 +318,13 @@ async function queryQwenTaskStatus(
   taskId: string,
   apiKey: string,
   baseUrl: string,
+  customFetch?: typeof fetch,
 ): Promise<QwenImageTaskResponse> {
   const endpoint = `${baseUrl}/api/v1/tasks/${taskId}`;
 
   log('Querying task status for: %s', taskId);
 
-  const response = await fetch(endpoint, {
+  const response = await (customFetch ?? fetch)(endpoint, {
     headers: {
       Authorization: `Bearer ${apiKey}`,
     },
@@ -346,6 +350,7 @@ async function pollTaskToImageResponse(
   apiKey: string,
   baseUrl: string,
   model: string,
+  customFetch?: typeof fetch,
 ): Promise<CreateImageResponse> {
   return asyncifyPolling<QwenImageTaskResponse, CreateImageResponse>({
     checkStatus: (taskStatus: QwenImageTaskResponse): TaskResult<CreateImageResponse> => {
@@ -383,7 +388,7 @@ async function pollTaskToImageResponse(
       debug: (message: any, ...args: any[]) => log(message, ...args),
       error: (message: any, ...args: any[]) => log(message, ...args),
     },
-    pollingQuery: () => queryQwenTaskStatus(taskId, apiKey, baseUrl),
+    pollingQuery: () => queryQwenTaskStatus(taskId, apiKey, baseUrl, customFetch),
   });
 }
 
@@ -399,7 +404,7 @@ export async function createQwenImage(
   payload: CreateImagePayload,
   options: CreateImageOptions,
 ): Promise<CreateImageResponse> {
-  const { apiKey, baseURL, provider } = options;
+  const { apiKey, baseURL, fetch: customFetch, provider } = options;
   const { model } = payload;
 
   // Check if URL has /compatible-mode/v1 suffix and remove it
@@ -417,21 +422,27 @@ export async function createQwenImage(
       const endpoint = isImage2Image ? 'image2image' : 'text2image';
       log('Using %s API for model: %s', endpoint, model);
 
-      const taskId = await createLegacySynthesisTask(payload, apiKey, endpoint, dashscopeURL);
+      const taskId = await createLegacySynthesisTask(
+        payload,
+        apiKey,
+        endpoint,
+        dashscopeURL,
+        customFetch,
+      );
 
-      return await pollTaskToImageResponse(taskId, apiKey, dashscopeURL, model);
+      return await pollTaskToImageResponse(taskId, apiKey, dashscopeURL, model, customFetch);
     }
 
     if (isSyncGeneration) {
       log('Using multimodal-generation API for model: %s', model);
-      return await createHTTPSyncGeneration(payload, apiKey, dashscopeURL);
+      return await createHTTPSyncGeneration(payload, apiKey, dashscopeURL, customFetch);
     }
 
     log('Using image-generation async API for model: %s', model);
 
-    const taskId = await createHTTPAsyncGenerationTask(payload, apiKey, dashscopeURL);
+    const taskId = await createHTTPAsyncGenerationTask(payload, apiKey, dashscopeURL, customFetch);
 
-    return await pollTaskToImageResponse(taskId, apiKey, dashscopeURL, model);
+    return await pollTaskToImageResponse(taskId, apiKey, dashscopeURL, model, customFetch);
   } catch (error) {
     log('Error in createQwenImage: %O', error);
 

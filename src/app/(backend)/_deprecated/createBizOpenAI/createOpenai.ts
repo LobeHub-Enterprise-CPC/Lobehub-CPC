@@ -1,3 +1,4 @@
+import { createSsrfSafeFetch } from '@lobechat/ssrf-safe-fetch';
 import { ChatErrorType } from '@lobechat/types';
 import OpenAI from 'openai';
 
@@ -14,5 +15,7 @@ export const createOpenai = (userApiKey: string | null, endpoint?: string | null
 
   if (!apiKey) throw new Error('OPENAI_API_KEY is empty', { cause: ChatErrorType.NoOpenAIAPIKey });
 
-  return new OpenAI({ apiKey, baseURL });
+  // `endpoint` comes from a request header; only the platform's OPENAI_PROXY_URL stays on the
+  // plain transport.
+  return new OpenAI({ apiKey, baseURL, ...(endpoint && { fetch: createSsrfSafeFetch() as any }) });
 };

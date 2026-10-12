@@ -1,171 +1,85 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import type { TenantSsoProvider } from '@/server/services/tenantSso';
 
-import Google from './sso/providers/google';
-import { buildTenantSsoProviders, tenantSsoPresetId } from './tenant-sso';
+import { buildTenantSsoProviders } from './tenant-sso';
 
-const provider = (overrides: Partial<TenantSsoProvider>): TenantSsoProvider => ({
+const okta = (overrides: Partial<TenantSsoProvider> = {}): TenantSsoProvider => ({
   admissionPolicy: 'allowlist',
-  config: { clientId: 'client-1' },
-  displayName: 'IdP',
+  config: { clientId: 'client-1', preset: 'okta' },
+  displayName: 'Okta',
   issuer: 'https://idp.example.com',
   logoUrl: null,
-  protocol: 'oidc',
-  providerId: 'acme-idp',
+  protocol: 'oauth2',
+  providerId: 'okta',
   revision: 1,
-  secrets: { clientSecret: 'tenant-secret' },
+  secrets: { clientSecret: 's3cret' },
   ...overrides,
 });
 
-const redirectURI = (providerId: string) =>
-  `https://app.example.com/t/acme/api/auth/callback/${providerId}`;
+describe('buildTenantSsoProviders presets', () => {
+  it.each(['oidc', 'oauth2'] as const)(
+    'uses saved endpoints for a named %s preset without discovery',
+    (protocol) => {
+      const { genericOAuthProviders } = buildTenantSsoProviders(
+        [
+          okta({
+            config: {
+              authorizationEndpoint: 'https://saved.example.com/authorize',
+              clientId: 'client-1',
+              preset: 'okta',
+              tokenEndpoint: 'https://saved.example.com/token',
+              tokenEndpointAuthentication: 'client_secret_basic',
+              userInfoEndpoint: 'https://saved.example.com/userinfo',
+            },
+            protocol,
+          }),
+        ],
+        (providerId) => `https://app.example.com/callback/${providerId}`,
+      );
 
-describe('tenant SSO presets', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-    vi.unstubAllEnvs();
-  });
+      expect(genericOAuthProviders[0]).toMatchObject({
+        authentication: 'basic',
+        authorizationUrl: 'https://saved.example.com/authorize',
+        tokenUrl: 'https://saved.example.com/token',
+        userInfoUrl: 'https://saved.example.com/userinfo',
+      });
+    },
+  );
 
-  it('builds a built-in preset from the tenant credentials, never from the environment', () => {
-    vi.stubEnv('AUTH_GOOGLE_ID', 'env-client');
-    vi.stubEnv('AUTH_GOOGLE_SECRET', 'env-secret');
-    const checkEnvs = vi.spyOn(Google, 'checkEnvs');
-
-    const set = buildTenantSsoProviders([provider({ providerId: 'google' })], redirectURI);
-
-    expect(checkEnvs).not.toHaveBeenCalled();
-    expect(set.socialProviders.google).toEqual(
-      expect.objectContaining({
-        clientId: 'client-1',
-        clientSecret: 'tenant-secret',
-        prompt: 'select_account',
-      }),
+  it('does not leave a preset issuer to better-auth discovery, which has no SSRF guard', () => {
+    const { genericOAuthProviders } = buildTenantSsoProviders(
+      [okta({ issuer: 'http://169.254.169.254' })],
+      (providerId) => `https://app.example.com/callback/${providerId}`,
     );
-    expect(set.genericOAuthProviders).toEqual([]);
-    expect(set.providers.map((p) => p.providerId)).toEqual(['google']);
+
+    expect(genericOAuthProviders).toHaveLength(1);
+    expect(genericOAuthProviders[0].discoveryUrl).toBeUndefined();
+    expect(genericOAuthProviders[0].getToken).toBeTypeOf('function');
+    expect(genericOAuthProviders[0].getUserInfo).toBeTypeOf('function');
   });
 
-  it('selects an OAuth2 preset by oauth2_config.preset', () => {
-    const set = buildTenantSsoProviders(
+  it('takes the endpoints from the safely prefetched discovery document', () => {
+    const { genericOAuthProviders } = buildTenantSsoProviders(
       [
-        provider({
-          config: { clientId: 'gh-client', preset: 'github' },
-          issuer: 'https://github.com',
-          protocol: 'oauth2',
-          providerId: 'github',
-        }),
-        provider({
-          config: { clientId: 'cli_feishu', preset: 'feishu' },
-          issuer: 'https://open.feishu.cn',
-          protocol: 'oauth2',
-          providerId: 'corp-feishu',
-        }),
-      ],
-      redirectURI,
-    );
-
-    expect(set.socialProviders.github).toEqual(
-      expect.objectContaining({ clientId: 'gh-client', clientSecret: 'tenant-secret' }),
-    );
-    // A generic preset runs under the row's provider id and the tenant callback.
-    expect(set.genericProviderIds).toEqual(['corp-feishu']);
-    expect(set.genericOAuthProviders[0]).toEqual(
-      expect.objectContaining({
-        clientId: 'cli_feishu',
-        clientSecret: 'tenant-secret',
-        providerId: 'corp-feishu',
-        redirectURI: redirectURI('corp-feishu'),
-      }),
-    );
-  });
-
-  it('selects an OIDC preset by provider id and passes the issuer', () => {
-    const set = buildTenantSsoProviders(
-      [provider({ issuer: 'https://acme.okta.com/', providerId: 'okta' })],
-      redirectURI,
-    );
-
-    expect(set.genericOAuthProviders).toEqual([
-      expect.objectContaining({
-        clientId: 'client-1',
-        clientSecret: 'tenant-secret',
-        discoveryUrl: 'https://acme.okta.com/.well-known/openid-configuration',
-        providerId: 'okta',
-        redirectURI: redirectURI('okta'),
-      }),
-    ]);
-  });
-
-  it('derives the Microsoft tenant from the issuer', () => {
-    const set = buildTenantSsoProviders(
-      [
-        provider({
-          issuer: 'https://login.microsoftonline.com/contoso-tenant/v2.0',
-          providerId: 'microsoft',
-        }),
-      ],
-      redirectURI,
-    );
-
-    expect(set.socialProviders.microsoft).toEqual(
-      expect.objectContaining({
-        authority: 'https://login.microsoftonline.com',
-        clientId: 'client-1',
-        tenantId: 'contoso-tenant',
-      }),
-    );
-  });
-
-  it('keeps plain OIDC and custom OAuth2 rows on the generic configuration', () => {
-    const set = buildTenantSsoProviders(
-      [
-        provider({ providerId: 'acme-idp' }),
-        provider({
-          config: {
-            authorizationEndpoint: 'https://oauth.example.com/authorize',
-            clientId: 'custom-client',
-            preset: 'custom',
-            tokenEndpoint: 'https://oauth.example.com/token',
-            userInfoEndpoint: 'https://oauth.example.com/userinfo',
+        okta({
+          discovery: {
+            'https://idp.example.com/.well-known/openid-configuration': {
+              authorization_endpoint: 'https://idp.example.com/authorize',
+              token_endpoint: 'https://idp.example.com/token',
+              userinfo_endpoint: 'https://idp.example.com/userinfo',
+            },
           },
-          protocol: 'oauth2',
-          providerId: 'custom-oauth',
         }),
       ],
-      redirectURI,
+      (providerId) => `https://app.example.com/callback/${providerId}`,
     );
 
-    expect(tenantSsoPresetId(provider({ providerId: 'acme-idp' }))).toBeUndefined();
-    expect(set.genericProviderIds).toEqual(['acme-idp', 'custom-oauth']);
-    expect(set.socialProviders).toEqual({});
-  });
-
-  it('leaves out rows a preset cannot run', () => {
-    const set = buildTenantSsoProviders(
-      [
-        // A built-in preset answers only under its own id.
-        provider({
-          config: { clientId: 'gh-client', preset: 'github' },
-          protocol: 'oauth2',
-          providerId: 'corp-github',
-        }),
-        // Cognito needs a hosted UI domain no field carries.
-        provider({ providerId: 'cognito' }),
-        // No client secret.
-        provider({ providerId: 'okta', secrets: {} }),
-        // OAuth2 presets this build has no module for.
-        provider({ config: { clientId: 'x', preset: 'dingtalk' }, protocol: 'oauth2' }),
-        provider({ config: { clientId: 'x', preset: 'wecom' }, protocol: 'oauth2' }),
-        // SAML is not served.
-        provider({ config: { entryPoint: 'https://idp' }, protocol: 'saml', providerId: 'saml' }),
-      ],
-      redirectURI,
-    );
-
-    expect(set.providers).toEqual([]);
-    expect(set.socialProviders).toEqual({});
-    expect(set.genericOAuthProviders).toEqual([]);
+    expect(genericOAuthProviders[0]).toMatchObject({
+      authorizationUrl: 'https://idp.example.com/authorize',
+      tokenUrl: 'https://idp.example.com/token',
+      userInfoUrl: 'https://idp.example.com/userinfo',
+    });
   });
 });

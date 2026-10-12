@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 
+import { createSsrfSafeFetch } from '@lobechat/ssrf-safe-fetch';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import {
   getDefaultEnvironment,
@@ -203,7 +204,10 @@ export class MCPClient {
         }
 
         // Create StreamableHTTPClientTransport and pass headers
+        // The MCP server URL is typed in by users, so every request (including the SSE
+        // stream and redirects) goes through the connect-time-filtered transport.
         this.transport = new StreamableHTTPClientTransport(new URL(params.url), {
+          fetch: createSsrfSafeFetch(),
           requestInit: { headers },
         });
 

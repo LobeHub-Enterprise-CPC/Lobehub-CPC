@@ -58,14 +58,18 @@ function extractProviderErrorMessage(err: unknown): string | undefined {
 export interface LobeCloudflareParams {
   apiKey?: string;
   baseURLOrAccountID?: string;
+  /** Custom transport; the server injects an SSRF-safe one for user-provided endpoints. */
+  fetch?: typeof fetch;
 }
 
 export class LobeCloudflareAI implements LobeRuntimeAI {
   baseURL: string;
   accountID: string;
   apiKey?: string;
+  private customFetch?: typeof fetch;
 
-  constructor({ apiKey, baseURLOrAccountID }: LobeCloudflareParams = {}) {
+  constructor({ apiKey, baseURLOrAccountID, fetch: customFetch }: LobeCloudflareParams = {}) {
+    this.customFetch = customFetch;
     if (!baseURLOrAccountID) {
       throw AgentRuntimeError.createError(AgentRuntimeErrorType.InvalidProviderAPIKey);
     }
@@ -106,7 +110,7 @@ export class LobeCloudflareAI implements LobeRuntimeAI {
 
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await (this.customFetch ?? fetch)(url, {
         body: JSON.stringify(requestPayload),
         headers: { 'Content-Type': 'application/json', ...headers },
         method: 'POST',

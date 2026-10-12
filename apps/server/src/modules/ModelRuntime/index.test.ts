@@ -57,6 +57,8 @@ vi.mock('@/business/client/model-bank/loadModels', () => ({
   loadModels,
 }));
 
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 vi.mock('@/server/globalConfig', () => ({
   getServerGlobalConfig,
 }));
@@ -1325,8 +1327,16 @@ describe('initModelRuntimeWithUserPayload method', () => {
 
       expect(runtime).toBeInstanceOf(ModelRuntime);
       expect(runtime['_runtime']).toBeInstanceOf(LobeComfyUI);
-      // Should use environment variable defaults
-      expect(runtime['_runtime'].baseURL).toBe('http://127.0.0.1:8000');
+      // No user URL: the runtime falls back to its own platform default (not a typed-in URL)
+      expect(runtime['_runtime'].baseURL).toBe('http://localhost:8188');
+    });
+
+    it('ComfyUI provider: calls the image route under the current tenant', async () => {
+      const runtime = await initModelRuntimeWithUserPayload(ModelProvider.ComfyUI, {});
+
+      expect(runtime['_runtime']['serviceURL']).toMatch(
+        /\/t\/acme\/webapi\/create-image\/comfyui$/,
+      );
     });
 
     it('ComfyUI provider: partial payload (mixed with env vars)', async () => {

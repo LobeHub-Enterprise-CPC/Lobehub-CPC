@@ -2,7 +2,6 @@ import type { MessagePlatformType } from '@lobechat/builtin-tool-message';
 import type { MessageRuntimeService } from '@lobechat/builtin-tool-message/executionRuntime';
 import { LarkApiClient } from '@lobechat/chat-adapter-feishu';
 import { QQApiClient } from '@lobechat/chat-adapter-qq';
-import { WechatApiClient } from '@lobechat/chat-adapter-wechat';
 import { TRPCError } from '@trpc/server';
 
 import type { MessengerPlatform } from '@/config/messenger';
@@ -25,6 +24,7 @@ import { SlackApi } from '@/server/services/bot/platforms/slack/api';
 import { SlackMessageService } from '@/server/services/bot/platforms/slack/service';
 import { TelegramApi } from '@/server/services/bot/platforms/telegram/api';
 import { TelegramMessageService } from '@/server/services/bot/platforms/telegram/service';
+import { createWechatApiClient } from '@/server/services/bot/platforms/wechat/apiClient';
 import { WechatMessageService } from '@/server/services/bot/platforms/wechat/service';
 import { getInstallationStore } from '@/server/services/messenger/installations';
 import { TELEGRAM_INSTALLATION_KEY } from '@/server/services/messenger/installations/telegram';
@@ -87,7 +87,7 @@ export const createMessageServiceForCredentials = (
       return new WechatMessageService(
         // `baseUrl` is issued during QR confirmation and must be honored when
         // it differs from the default endpoint (see wechat/protocol-spec.md).
-        new WechatApiClient(credentials.botToken, credentials.botId, credentials.baseUrl),
+        createWechatApiClient(credentials.botToken, credentials.botId, credentials.baseUrl),
         applicationId,
       );
     }

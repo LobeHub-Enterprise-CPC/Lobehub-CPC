@@ -1,8 +1,10 @@
 // @ts-ignore
+import { PassThrough } from 'node:stream';
+
 import fetch from 'node-fetch';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ssrfSafeFetch } from './index';
+import { createSsrfSafeFetch, ssrfSafeFetch } from './index';
 
 // Mock node-fetch to avoid actual network requests
 vi.mock('node-fetch', () => ({
@@ -505,6 +507,51 @@ describe('ssrfSafeFetch', () => {
           agent: expect.any(Function),
         }),
       );
+    });
+  });
+  describe('createSsrfSafeFetch (SDK fetch injection)', () => {
+    it('hands the body to the caller as a stream instead of buffering it', async () => {
+      const upstream = new PassThrough();
+      const arrayBuffer = vi.fn().mockRejectedValue(new Error('must not buffer'));
+      mockFetch.mockResolvedValue({
+        arrayBuffer,
+        body: upstream,
+        headers: new Map([['content-type', 'text/event-stream']]),
+        status: 200,
+        statusText: 'OK',
+      });
+
+      const response = await createSsrfSafeFetch()('https://api.example.com/v1/chat', {
+        method: 'POST',
+      });
+
+      // The upstream is still open: a buffering implementation would never get here.
+      upstream.write('data: first\n\n');
+      const reader = response.body!.getReader();
+      const chunk = await reader.read();
+
+      expect(new TextDecoder().decode(chunk.value)).toBe('data: first\n\n');
+      expect(arrayBuffer).not.toHaveBeenCalled();
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.example.com/v1/chat',
+        expect.objectContaining({ agent: expect.any(Function), method: 'POST' }),
+      );
+      upstream.end();
+    });
+
+    it('accepts URL objects and returns null-body statuses without a body', async () => {
+      mockFetch.mockResolvedValue({
+        arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
+        body: new PassThrough(),
+        headers: new Map(),
+        status: 204,
+        statusText: 'No Content',
+      });
+
+      const response = await createSsrfSafeFetch()(new URL('https://api.example.com/x'));
+
+      expect(mockFetch.mock.calls[0][0]).toBe('https://api.example.com/x');
+      expect(response.status).toBe(204);
     });
   });
 });

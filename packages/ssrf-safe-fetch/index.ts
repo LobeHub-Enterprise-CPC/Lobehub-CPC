@@ -1,3 +1,5 @@
+import { Readable } from 'node:stream';
+
 import fetch from 'node-fetch';
 import type { RequestFilteringAgentOptions } from 'request-filtering-agent';
 import { RequestFilteringHttpAgent, RequestFilteringHttpsAgent } from 'request-filtering-agent';
@@ -21,7 +23,16 @@ export interface SSRFOptions {
    * up serverless function memory.
    */
   maxContentLength?: number;
+  /**
+   * Hand the upstream body to the caller as a stream instead of buffering it.
+   * Required for SSE / long-lived responses (model SDKs, MCP transports); the
+   * connect-time IP check and redirect-hop check are unchanged.
+   */
+  streamResponse?: boolean;
 }
+
+/** Statuses whose Response must not carry a body. */
+const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
 
 /**
  * Consume a node-fetch Response body up to `cap` bytes, then stop. Breaking out
@@ -53,6 +64,34 @@ const readBodyWithCap = async (
 };
 
 /**
+ * Connect-time filtering agents (request-filtering-agent) configured from the
+ * per-call options and the deployment-level SSRF_* environment variables. Use
+ * them for clients that take an `agent` instead of a `fetch` (e.g. `ws`).
+ */
+export const createSsrfSafeAgents = (ssrfOptions?: SSRFOptions) => {
+  // Configure SSRF protection options with proper precedence using nullish coalescing
+  const envAllowPrivate = process.env.SSRF_ALLOW_PRIVATE_IP_ADDRESS === '1';
+  const allowPrivate = ssrfOptions?.allowPrivateIPAddress ?? envAllowPrivate;
+
+  const agentOptions: RequestFilteringAgentOptions = {
+    allowIPAddressList:
+      ssrfOptions?.allowIPAddressList ??
+      process.env.SSRF_ALLOW_IP_ADDRESS_LIST?.split(',')
+        .map((ip) => ip.trim())
+        .filter(Boolean) ??
+      [],
+    allowMetaIPAddress: allowPrivate,
+    allowPrivateIPAddress: allowPrivate,
+    denyIPAddressList: [],
+  };
+
+  return {
+    httpAgent: new RequestFilteringHttpAgent(agentOptions),
+    httpsAgent: new RequestFilteringHttpsAgent(agentOptions),
+  };
+};
+
+/**
  * SSRF-safe fetch implementation for server-side use
  * Uses request-filtering-agent to prevent requests to private IP addresses
  *
@@ -68,23 +107,8 @@ export const ssrfSafeFetch = async (
   ssrfOptions?: SSRFOptions,
 ): Promise<Response> => {
   try {
-    // Configure SSRF protection options with proper precedence using nullish coalescing
-    const envAllowPrivate = process.env.SSRF_ALLOW_PRIVATE_IP_ADDRESS === '1';
-    const allowPrivate = ssrfOptions?.allowPrivateIPAddress ?? envAllowPrivate;
-
-    const agentOptions: RequestFilteringAgentOptions = {
-      allowIPAddressList:
-        ssrfOptions?.allowIPAddressList ??
-        process.env.SSRF_ALLOW_IP_ADDRESS_LIST?.split(',').filter(Boolean) ??
-        [],
-      allowMetaIPAddress: allowPrivate,
-      allowPrivateIPAddress: allowPrivate,
-      denyIPAddressList: [],
-    };
-
     // Create agents for both protocols
-    const httpAgent = new RequestFilteringHttpAgent(agentOptions);
-    const httpsAgent = new RequestFilteringHttpsAgent(agentOptions);
+    const { httpAgent, httpsAgent } = createSsrfSafeAgents(ssrfOptions);
 
     // Use node-fetch with SSRF protection agent
     // Pass a function to dynamically select agent based on URL protocol
@@ -95,12 +119,18 @@ export const ssrfSafeFetch = async (
     } as any);
 
     const cap = ssrfOptions?.maxContentLength;
-    const body: BodyInit =
-      cap && cap > 0
-        ? // Buffer is a Uint8Array subclass; the Response constructor accepts it at
-          // runtime even though the BodyInit lib type doesn't list Uint8Array.
-          ((await readBodyWithCap(response.body as NodeJS.ReadableStream | null, cap)) as any)
-        : await response.arrayBuffer();
+    let body: BodyInit | null;
+    if (NULL_BODY_STATUSES.has(response.status)) {
+      body = null;
+    } else if (ssrfOptions?.streamResponse && response.body) {
+      body = Readable.toWeb(response.body as unknown as Readable) as unknown as ReadableStream;
+    } else if (cap && cap > 0) {
+      // Buffer is a Uint8Array subclass; the Response constructor accepts it at
+      // runtime even though the BodyInit lib type doesn't list Uint8Array.
+      body = (await readBodyWithCap(response.body as NodeJS.ReadableStream | null, cap)) as any;
+    } else {
+      body = await response.arrayBuffer();
+    }
 
     // Convert node-fetch Response to standard Response
     return new Response(body, {
@@ -126,3 +156,32 @@ export const ssrfSafeFetch = async (
     throw new Error(`Fetch failed: ${errorMessage}`, { cause: error });
   }
 };
+
+/**
+ * Build a `fetch`-compatible function for SDKs that accept a custom `fetch`
+ * (OpenAI, Anthropic, Google GenAI, Ollama, MCP transports, ...). Every
+ * connection, including redirect hops, is IP-checked by request-filtering-agent
+ * at connect time, so DNS rebinding cannot swap in a private address after a
+ * pre-check. Responses are streamed.
+ */
+export const createSsrfSafeFetch =
+  (ssrfOptions?: SSRFOptions) =>
+  async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    if (typeof input === 'string' || input instanceof URL) {
+      return ssrfSafeFetch(String(input), init, { ...ssrfOptions, streamResponse: true });
+    }
+
+    // Request object: carry its method / headers / body over, init wins.
+    const hasBody = input.method !== 'GET' && input.method !== 'HEAD';
+    return ssrfSafeFetch(
+      input.url,
+      {
+        body: hasBody ? await input.clone().arrayBuffer() : undefined,
+        headers: input.headers,
+        method: input.method,
+        signal: input.signal,
+        ...init,
+      } as RequestInit,
+      { ...ssrfOptions, streamResponse: true },
+    );
+  };

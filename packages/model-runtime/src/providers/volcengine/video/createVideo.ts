@@ -28,8 +28,9 @@ export async function pollVolcengineVideoStatus(
   taskId: string,
   apiKey: string,
   baseURL: string,
+  customFetch?: typeof fetch,
 ): Promise<PollVideoStatusResult> {
-  const response = await fetch(`${baseURL}/contents/generations/tasks/${taskId}`, {
+  const response = await (customFetch ?? fetch)(`${baseURL}/contents/generations/tasks/${taskId}`, {
     headers: { Authorization: `Bearer ${apiKey}` },
     method: 'GET',
     signal: AbortSignal.timeout(STATUS_QUERY_TIMEOUT_MS),
@@ -134,7 +135,7 @@ export async function createVolcengineVideo(
 
   log('Volcengine video API request body: %s', JSON.stringify(body, null, 2));
 
-  const response = await fetch(`${baseURL}/contents/generations/tasks`, {
+  const response = await (options.fetch ?? fetch)(`${baseURL}/contents/generations/tasks`, {
     body: JSON.stringify(body),
     headers: {
       'Authorization': `Bearer ${options.apiKey}`,

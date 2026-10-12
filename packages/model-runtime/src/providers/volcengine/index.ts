@@ -101,7 +101,12 @@ export const LobeVolcengineAI = createOpenAICompatibleRuntime({
   handleCreateVideoWebhook: handleVolcengineVideoWebhook,
   handlePollVideoStatus: async (inferenceId, options) => {
     const baseURL = options.baseURL || 'https://ark.cn-beijing.volces.com/api/v3';
-    return pollVolcengineVideoStatus(inferenceId, options.apiKey || '', baseURL);
+    return pollVolcengineVideoStatus(
+      inferenceId,
+      options.apiKey || '',
+      baseURL,
+      options.fetch as typeof fetch | undefined,
+    );
   },
   provider: ModelProvider.Volcengine,
   responses: {

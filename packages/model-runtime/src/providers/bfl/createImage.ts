@@ -18,6 +18,7 @@ const BASE_URL = 'https://api.bfl.ai';
 interface BflCreateImageOptions {
   apiKey: string;
   baseURL?: string;
+  fetch?: typeof fetch;
   provider: string;
 }
 
@@ -118,7 +119,7 @@ async function submitTask(
 
   log('Submitting task to: %s', url);
 
-  const response = await fetch(url, {
+  const response = await (options.fetch ?? fetch)(url, {
     body: JSON.stringify(payload),
     headers: {
       'Content-Type': 'application/json',
@@ -155,7 +156,7 @@ async function queryTaskStatus(
 ): Promise<BflResultResponse> {
   log('Querying task status using polling URL: %s', pollingUrl);
 
-  const response = await fetch(pollingUrl, {
+  const response = await (options.fetch ?? fetch)(pollingUrl, {
     headers: {
       'accept': 'application/json',
       'x-key': options.apiKey,

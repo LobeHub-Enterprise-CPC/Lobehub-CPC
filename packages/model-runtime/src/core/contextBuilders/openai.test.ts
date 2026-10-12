@@ -1,3 +1,4 @@
+import { ssrfSafeFetch } from '@lobechat/ssrf-safe-fetch';
 import { imageUrlToBase64, videoUrlToBase64 } from '@lobechat/utils';
 import type OpenAI from 'openai';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -19,6 +20,7 @@ vi.mock('@lobechat/utils', () => ({
   videoUrlToBase64: vi.fn(),
 }));
 vi.mock('../../utils/uriParser');
+vi.mock('@lobechat/ssrf-safe-fetch', () => ({ ssrfSafeFetch: vi.fn() }));
 
 const MP3_BASE64 = 'SUQzBAAAAAA=';
 const WAV_BASE64 = 'UklGRjAwMDBXQVZFZm10IA==';
@@ -1672,15 +1674,9 @@ describe('convertImageUrlToFile', () => {
   });
 
   describe('HTTP URL handling', () => {
-    const mockFetch = vi.fn();
-
-    beforeEach(() => {
-      // Mock global fetch using vi.stubGlobal for better isolation
-      vi.stubGlobal('fetch', mockFetch);
-    });
+    const mockFetch = vi.mocked(ssrfSafeFetch);
 
     afterEach(() => {
-      vi.unstubAllGlobals();
       vi.clearAllMocks();
     });
 

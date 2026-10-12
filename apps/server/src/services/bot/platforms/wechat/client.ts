@@ -1,4 +1,4 @@
-import type { WechatRawMessage } from '@lobechat/chat-adapter-wechat';
+import type { WechatApiClient, WechatRawMessage } from '@lobechat/chat-adapter-wechat';
 import {
   createWechatAdapter,
   downloadMediaFromRawMessage,
@@ -6,7 +6,6 @@ import {
   MessageItemType,
   MessageState,
   MessageType,
-  WechatApiClient,
 } from '@lobechat/chat-adapter-wechat';
 import { currentTenantScope, trackTenantWork } from '@lobechat/database/tenant';
 import type { Message } from 'chat';
@@ -33,6 +32,7 @@ import {
   type ValidationResult,
 } from '../types';
 import { formatUsageStats } from '../utils';
+import { createWechatApiClient, wechatApiFetch } from './apiClient';
 import { consumeSendCredits, recordInboundToken, type WechatWindowRedis } from './contextWindow';
 import { sendWechatAttachments } from './sendAttachments';
 
@@ -93,7 +93,11 @@ class WechatGatewayClient implements PlatformClient {
     const botToken = getWechatBotToken(config.credentials);
 
     this.applicationId = resolveWechatApplicationId(config, botToken);
-    this.api = new WechatApiClient(botToken, config.credentials.botId, config.credentials.baseUrl);
+    this.api = createWechatApiClient(
+      botToken,
+      config.credentials.botId,
+      config.credentials.baseUrl,
+    );
   }
 
   // --- Lifecycle ---
@@ -414,6 +418,7 @@ class WechatGatewayClient implements PlatformClient {
     return {
       wechat: createWechatAdapter({
         baseUrl: this.config.credentials.baseUrl,
+        fetch: wechatApiFetch(this.config.credentials.baseUrl),
         botId: this.config.credentials.botId,
         botToken: this.config.credentials.botToken,
         onBeforeSendMessage: async ({ count, toUserId }) => {

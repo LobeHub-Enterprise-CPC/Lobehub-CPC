@@ -63,7 +63,12 @@ export const params = {
   createVideo: createHunyuanVideo,
   handlePollVideoStatus: async (inferenceId, options) => {
     const { pollHunyuanVideoStatus } = await import('./createVideo');
-    return pollHunyuanVideoStatus(inferenceId, options.apiKey || '', options.baseURL || '');
+    return pollHunyuanVideoStatus(
+      inferenceId,
+      options.apiKey || '',
+      options.baseURL || '',
+      options.fetch as typeof fetch | undefined,
+    );
   },
   debug: {
     chatCompletion: () => process.env.DEBUG_HUNYUAN_CHAT_COMPLETION === '1',

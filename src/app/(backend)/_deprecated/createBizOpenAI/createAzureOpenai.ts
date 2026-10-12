@@ -1,3 +1,4 @@
+import { createSsrfSafeFetch } from '@lobechat/ssrf-safe-fetch';
 import { ChatErrorType } from '@lobechat/types';
 import { type ClientOptions } from 'openai';
 import OpenAI from 'openai';
@@ -29,6 +30,8 @@ export const createAzureOpenai = (params: {
     baseURL,
     defaultHeaders: { 'api-key': apiKey },
     defaultQuery: { 'api-version': apiVersion },
+    // a caller-provided endpoint must not reach private or metadata addresses
+    ...(params.endpoint && { fetch: createSsrfSafeFetch() as any }),
   };
 
   return new OpenAI(config);

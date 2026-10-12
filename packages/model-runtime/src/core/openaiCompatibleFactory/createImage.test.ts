@@ -13,6 +13,10 @@ vi.mock('@lobechat/business-model-bank/model-config', () => ({
   loadModels: vi.fn().mockResolvedValue([]),
 }));
 
+// Source image URLs are user input and are downloaded through the SSRF-safe fetch.
+const mockSsrfSafeFetch = vi.hoisted(() => vi.fn());
+vi.mock('@lobechat/ssrf-safe-fetch', () => ({ ssrfSafeFetch: mockSsrfSafeFetch }));
+
 // Polyfill File for Node environment
 if (typeof File === 'undefined') {
   // @ts-ignore
@@ -610,7 +614,7 @@ describe('createOpenAICompatibleImage', () => {
 
       // Mock fetch for image download
       const mockArrayBuffer = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]).buffer;
-      global.fetch = vi.fn().mockResolvedValue({
+      mockSsrfSafeFetch.mockResolvedValue({
         ok: true,
         arrayBuffer: async () => mockArrayBuffer,
         headers: {

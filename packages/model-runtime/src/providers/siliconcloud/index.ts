@@ -136,6 +136,7 @@ export const params = {
     return pollSiliconCloudVideoStatus(inferenceId, {
       apiKey: options.apiKey,
       baseURL: options.baseURL || '',
+      fetch: options.fetch,
     });
   },
   debug: {

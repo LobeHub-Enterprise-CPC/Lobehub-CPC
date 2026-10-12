@@ -1,7 +1,11 @@
 import { type GenericOAuthConfig } from 'better-auth/plugins';
 import { type SocialProviders } from 'better-auth/social-providers';
 
-import { type TenantSsoProvider, toGenericOAuthConfig } from '@/server/services/tenantSso';
+import {
+  secureGenericOAuthConfig,
+  type TenantSsoProvider,
+  toGenericOAuthConfig,
+} from '@/server/services/tenantSso';
 
 import Apple from './sso/providers/apple';
 import Auth0 from './sso/providers/auth0';
@@ -211,9 +215,12 @@ export const buildTenantSsoProviders = (
         result.socialProviders[definition.id] = definition.build(presetEnv);
       } else {
         // @ts-expect-error - build expects its preset's env type; presetEnv is the matching shape
-        const config: GenericOAuthConfig = definition.build(presetEnv);
-        config.providerId = provider.providerId;
-        config.redirectURI = redirectURI(provider.providerId);
+        const built: GenericOAuthConfig = definition.build(presetEnv);
+        built.providerId = provider.providerId;
+        built.redirectURI = redirectURI(provider.providerId);
+        // The issuer is the tenant's: discovery / token / userinfo must not run on
+        // better-auth's own fetch (see secureGenericOAuthConfig).
+        const config = secureGenericOAuthConfig(built, provider.discovery, provider.config);
         result.genericOAuthProviders.push(config);
         result.genericProviderIds.push(provider.providerId);
       }
