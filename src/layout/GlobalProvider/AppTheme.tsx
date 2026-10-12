@@ -2,6 +2,7 @@
 
 import 'antd/dist/reset.css';
 
+import { BRANDING_THEME } from '@lobechat/business-const';
 import { type NeutralColors, type PrimaryColors } from '@lobehub/ui';
 import { ConfigProvider, FontLoader, ThemeProvider } from '@lobehub/ui';
 import { createStaticStyles, cx } from 'antd-style';
@@ -23,6 +24,9 @@ import { useUserStore } from '@/store/user';
 import { preferenceSelectors, userGeneralSettingsSelectors } from '@/store/user/selectors';
 import { GlobalStyle } from '@/styles';
 import { setCookie } from '@/utils/client/cookie';
+
+import { createBrandAlgorithm } from './BrandTheme/algorithm';
+import BrandGlobalStyle from './BrandTheme/GlobalStyle';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
   app: css`
@@ -163,6 +167,24 @@ const AppTheme = memo<AppThemeProps>(
 
     const currentAppearence = isDark ? 'dark' : 'light';
 
+    const resolvedPrimaryColor = primaryColor ?? defaultPrimaryColor;
+    const resolvedNeutralColor = neutralColor ?? defaultNeutralColor;
+
+    // A distribution's brand scales stand in for lobe-ui's defaults only: a
+    // colour the user picked in Settings still wins.
+    const brandAlgorithm = useMemo(
+      () =>
+        BRANDING_THEME
+          ? createBrandAlgorithm({
+              appearance: currentAppearence,
+              skipNeutral: !!resolvedNeutralColor,
+              skipPrimary: !!resolvedPrimaryColor,
+              theme: BRANDING_THEME,
+            })
+          : undefined,
+      [currentAppearence, resolvedNeutralColor, resolvedPrimaryColor],
+    );
+
     return (
       <ConfigProvider
         locale={uiLocale}
@@ -181,12 +203,16 @@ const AppTheme = memo<AppThemeProps>(
           defaultAppearance={currentAppearence}
           defaultThemeMode={currentAppearence}
           customTheme={{
-            neutralColor: neutralColor ?? defaultNeutralColor,
-            primaryColor: primaryColor ?? defaultPrimaryColor,
+            neutralColor: resolvedNeutralColor,
+            primaryColor: resolvedPrimaryColor,
           }}
           theme={{
+            ...(brandAlgorithm ? { algorithm: brandAlgorithm } : {}),
             cssVar: { key: 'lobe-vars' },
             token: {
+              // lobe-ui passes its own radii through `theme.token`, which antd applies
+              // after the algorithm chain, so brand overrides have to ride the same path.
+              ...BRANDING_THEME?.token,
               fontFamily,
               fontFamilyCode,
               motion: animationMode !== 'disabled',
@@ -196,6 +222,7 @@ const AppTheme = memo<AppThemeProps>(
         >
           {!!customFontURL && <FontLoader url={customFontURL} />}
           <GlobalStyle />
+          <BrandGlobalStyle />
           {children}
         </ThemeProvider>
       </ConfigProvider>
