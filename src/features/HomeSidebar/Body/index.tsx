@@ -1,5 +1,6 @@
 'use client';
 
+import { NAV_RAIL_ENABLED } from '@lobechat/business-const';
 import type { MenuProps } from '@lobehub/ui';
 import { DropdownMenu, Flexbox, Icon } from '@lobehub/ui';
 import { AccordionRoot, ActionIcon } from '@lobehub/ui/base-ui';
@@ -153,7 +154,14 @@ const Body = memo(() => {
   );
 
   const visibleKeys = useMemo(
-    () => sidebarItems.filter((k) => !HEADER_KEYS.has(k) && isVisible(k)),
+    () =>
+      sidebarItems.filter(
+        (k) =>
+          !HEADER_KEYS.has(k) &&
+          isVisible(k) &&
+          // Page links and the spacer that pins them to the bottom belong to the rail.
+          (!NAV_RAIL_ENABLED || ACCORDION_KEYS.has(k)),
+      ),
     [sidebarItems, isVisible],
   );
 
