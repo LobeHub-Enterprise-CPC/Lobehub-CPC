@@ -29,6 +29,7 @@ import {
   getVerificationEmailTemplate,
   getVerificationOTPEmailTemplate,
 } from '@/libs/better-auth/email-templates';
+import { deriveTenantAuthSecret } from '@/libs/better-auth/tenant-secret';
 import {
   createSecondaryStorage,
   getPasskeyOrigins,
@@ -144,7 +145,8 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
 
     baseURL: appEnv.APP_URL,
     basePath: tenantAuthBasePath(tenant.slug),
-    secret: authEnv.AUTH_SECRET,
+    // Per-tenant: a shared secret lets one tenant's cookies and tokens be replayed on another.
+    secret: deriveTenantAuthSecret(tenant.id),
     trustedOrigins: getTrustedOrigins(Object.keys(socialProviders)),
 
     emailAndPassword: {
@@ -407,16 +409,13 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
       ],
       disabledPaths: [
         ...(managedBusinessSSO
-          ? [
-              '/sign-in/social',
-              '/link-social',
-              '/oauth2/link',
-              '/unlink-account',
-              '/get-access-token',
-              '/refresh-token',
-              '/account-info',
-            ]
+          ? ['/sign-in/social', '/link-social', '/oauth2/link', '/unlink-account', '/account-info']
           : []),
+        // The app never reads provider tokens back. Both endpoints refresh through the
+        // provider's token URL with better-auth's own fetch, and for tenant SSO that URL
+        // is chosen by the tenant admin (SSRF outside the SSRF-safe transport).
+        '/get-access-token',
+        '/refresh-token',
         ...(overrides?.disabledPaths ?? []),
       ],
     }),
