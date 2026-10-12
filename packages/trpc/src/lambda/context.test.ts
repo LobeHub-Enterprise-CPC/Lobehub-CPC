@@ -58,7 +58,6 @@ vi.mock('@/database/models/apiKey', () => ({
 }));
 
 vi.mock('@/envs/auth', () => ({
-  LOBE_CHAT_AUTH_HEADER: 'X-lobe-chat-auth',
   LOBE_CHAT_OIDC_AUTH_HEADER: 'Oidc-Auth',
   authEnv: {
     ENABLE_OIDC: true,

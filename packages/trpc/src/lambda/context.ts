@@ -351,6 +351,7 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
                 model: tokenInfo.payload.model,
                 operation_id: tokenInfo.payload.operation_id,
                 provider_id: tokenInfo.payload.provider_id,
+                tid: tokenInfo.payload.tid,
                 workspace_id: tokenInfo.payload.workspace_id,
               }
             : undefined;

@@ -10,6 +10,7 @@ import { UserModel } from '@/database/models/user';
 import { appEnv } from '@/envs/app';
 import { getJWKS } from '@/libs/oidc-provider/jwt';
 import { OIDC_ISSUER_PATH, OIDC_ROUTES } from '@/libs/oidc-provider/routes';
+import { TENANT_ID_CLAIM } from '@/libs/trpc/utils/tenantBinding';
 import { normalizeLocale } from '@/locales/resources';
 
 import { isOIDCUserBanned } from './access-control';
@@ -58,6 +59,7 @@ export const oidcArtifactTTL = {
 export const createOIDCProvider = async (
   db: LobeChatDatabase,
   tenantSlug?: string,
+  tenantId?: string,
 ): Promise<Provider> => {
   const tenantPath = (path: string) => withTenantPath(path, tenantSlug);
   // Get JWKS
@@ -102,6 +104,11 @@ export const createOIDCProvider = async (
 
     // 1. Client configuration
     clients: defaultClients,
+
+    // Tenants share one signing key, so the JWT access token itself must say
+    // which tenant issued it; `validateOIDCJWT` rejects any other tenant. The id
+    // is fixed when this tenant's provider is created, not read per request.
+    extraTokenClaims: async () => (tenantId ? { [TENANT_ID_CLAIM]: tenantId } : undefined),
 
     // Added: ensure ID Token includes claims for all scopes, not just openid scope
     conformIdTokenClaims: false,

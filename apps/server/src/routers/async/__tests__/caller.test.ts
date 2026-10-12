@@ -3,7 +3,7 @@
 import { createTRPCClient, httpLink } from '@trpc/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { signInternalJWT } from '@/libs/trpc/utils/internalJwt';
 
 import { createAsyncServerClient } from '../caller';
 
@@ -32,12 +32,6 @@ vi.mock('@/envs/app', () => ({
   },
 }));
 
-vi.mock('@/server/modules/KeyVaultsEncrypt', () => ({
-  KeyVaultsGateKeeper: {
-    initWithEnvKey: vi.fn(),
-  },
-}));
-
 vi.mock('@/config/db', () => ({
   serverDBEnv: {
     KEY_VAULTS_SECRET: 'test-secret-key',
@@ -56,10 +50,6 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    const mockEncrypt = vi.fn().mockResolvedValue('encrypted-payload-data');
-    vi.mocked(KeyVaultsGateKeeper.initWithEnvKey).mockResolvedValue({
-      encrypt: mockEncrypt,
-    } as any);
     vi.mocked(createTRPCClient).mockReturnValue({ _mockClient: true } as any);
 
     // Reset to default values by mutating the object
@@ -155,25 +145,18 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       expect(httpLinkOptions.headers.Authorization).toBe('mock-internal-jwt-token');
     });
 
-    it('should encrypt and include userId in x-lobe-chat-auth header', async () => {
-      const mockEncrypt = vi.fn().mockResolvedValue('test-encrypted-auth-data');
-      vi.mocked(KeyVaultsGateKeeper.initWithEnvKey).mockResolvedValueOnce({
-        encrypt: mockEncrypt,
-      } as any);
+    it('should sign the user into the internal JWT instead of sending a separate user header', async () => {
+      await createAsyncServerClient('user-signed');
 
-      await createAsyncServerClient('user-encrypt');
-
-      expect(KeyVaultsGateKeeper.initWithEnvKey).toHaveBeenCalled();
-      expect(mockEncrypt).toHaveBeenCalledWith(JSON.stringify({ userId: 'user-encrypt' }));
+      expect(signInternalJWT).toHaveBeenCalledWith('user-signed');
 
       const config = vi.mocked(createTRPCClient).mock.calls[0][0];
       const httpLinkOptions = config.links[0] as any;
 
-      // The header name is from LOBE_CHAT_AUTH_HEADER constant
-      expect(httpLinkOptions.headers).toHaveProperty('Authorization');
-      // The X-lobe-chat-auth header should be present
-      expect(Object.keys(httpLinkOptions.headers)).toContain('X-lobe-chat-auth');
-      expect(httpLinkOptions.headers['X-lobe-chat-auth']).toBe('test-encrypted-auth-data');
+      expect(httpLinkOptions.headers.Authorization).toBe('mock-internal-jwt-token');
+      expect(Object.keys(httpLinkOptions.headers).map((name) => name.toLowerCase())).not.toContain(
+        'x-lobe-chat-auth',
+      );
     });
 
     it('should include Vercel bypass secret when available', async () => {
@@ -209,15 +192,12 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
   });
 
   describe('error handling', () => {
-    it('should handle encryption failure gracefully', async () => {
-      const mockEncrypt = vi.fn().mockRejectedValueOnce(new Error('Encryption failed'));
-      vi.mocked(KeyVaultsGateKeeper.initWithEnvKey).mockResolvedValueOnce({
-        encrypt: mockEncrypt,
-      } as any);
+    it('should not create a client when the token cannot be signed', async () => {
+      vi.mocked(signInternalJWT).mockRejectedValueOnce(new Error('Signing failed'));
 
-      await expect(createAsyncServerClient('user-enc-fail')).rejects.toThrow('Encryption failed');
+      await expect(createAsyncServerClient('user-sign-fail')).rejects.toThrow('Signing failed');
 
-      expect(KeyVaultsGateKeeper.initWithEnvKey).toHaveBeenCalled();
+      expect(createTRPCClient).not.toHaveBeenCalled();
     });
 
     it('should handle missing INTERNAL_APP_URL by using APP_URL', async () => {

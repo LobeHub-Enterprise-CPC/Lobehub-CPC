@@ -152,5 +152,4 @@ export const authEnv = getAuthConfig() as ReturnType<typeof getAuthConfig> & {
 };
 
 // Auth headers and constants
-export const LOBE_CHAT_AUTH_HEADER = 'X-lobe-chat-auth';
 export const LOBE_CHAT_OIDC_AUTH_HEADER = 'Oidc-Auth';

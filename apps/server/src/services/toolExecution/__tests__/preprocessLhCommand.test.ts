@@ -27,7 +27,12 @@ vi.mock('@/utils/env', () => ({
   isDev: false,
 }));
 
-const CREDS = "LOBEHUB_JWT='mock-jwt-token' LOBEHUB_SERVER='https://app.lobehub.com'";
+vi.mock('@lobechat/database/tenant', () => ({
+  requireTenantScope: () => ({ slug: 'acme', tenantId: 'tenant-acme' }),
+}));
+
+// The sandbox CLI must address the tenant: every backend call is `/t/{slug}/...`.
+const CREDS = "LOBEHUB_JWT='mock-jwt-token' LOBEHUB_SERVER='https://app.lobehub.com/t/acme'";
 /**
  * The shim: an `lh` executable written to a fresh `PATH` directory, with
  * credentials scoped to the `npx` process it execs rather than exported.

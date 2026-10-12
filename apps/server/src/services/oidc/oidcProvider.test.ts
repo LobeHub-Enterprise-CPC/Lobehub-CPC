@@ -9,7 +9,7 @@ import { getOIDCProvider } from './oidcProvider';
 vi.mock('@/envs/auth', () => ({ authEnv: { ENABLE_OIDC: true } }));
 vi.mock('@/database/core/db-adaptor', () => ({ serverDB: {} }));
 vi.mock('@/libs/oidc-provider/provider', () => ({
-  createOIDCProvider: vi.fn(async (_db, slug) => ({ slug })),
+  createOIDCProvider: vi.fn(async (_db, slug, tenantId) => ({ slug, tenantId })),
 }));
 
 const inTenant = (slug: string) =>
@@ -22,6 +22,9 @@ describe('tenant OIDC instances', () => {
     expect(a).not.toBe(b);
     expect(a).toMatchObject({ slug: 'acme' });
     expect(b).toMatchObject({ slug: 'beta' });
+    // Each instance stamps its own tenant id on the access tokens it issues.
+    expect(a).toMatchObject({ tenantId: 'tenant-acme' });
+    expect(b).toMatchObject({ tenantId: 'tenant-beta' });
     expect(createOIDCProvider).toHaveBeenCalledTimes(2);
   });
 

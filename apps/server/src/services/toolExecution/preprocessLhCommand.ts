@@ -4,6 +4,7 @@ import debug from 'debug';
 
 import { appEnv } from '@/envs/app';
 import { signUserJWT } from '@/libs/trpc/utils/internalJwt';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { isDev } from '@/utils/env';
 
 const log = debug('lobe-server:lh-command');
@@ -217,7 +218,9 @@ export const preprocessLhCommand = async (
   try {
     const jwt = await signUserJWT(userId);
 
-    const serverUrl = isDev ? OFFICIAL_URL : appEnv.APP_URL;
+    // Every backend call must address the tenant (`/t/{slug}`); the CLI appends
+    // `/trpc/...` to this base.
+    const serverUrl = isDev ? OFFICIAL_URL : buildTenantCallbackUrl('/', appEnv.APP_URL);
 
     const envAssignments = [
       `LOBEHUB_JWT=${shellSingleQuote(jwt)}`,

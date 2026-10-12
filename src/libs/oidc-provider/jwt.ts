@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 
 import { authEnv } from '@/envs/auth';
+import { isBoundToCurrentTenant } from '@/libs/trpc/utils/tenantBinding';
 
 const log = debug('oidc-jwt');
 
@@ -97,6 +98,11 @@ const getVerificationKey = async () => {
 
 /**
  * Validate OIDC JWT Access Token
+ *
+ * All tenants sign with the same JWKS, so beyond the signature the token must
+ * carry the `tid` claim of the tenant this request runs in (set by the tenant's
+ * OIDC provider and by the server-minted CLI/operation tokens). A token minted
+ * for another tenant, or without the claim, is rejected.
  * @param token - JWT access token
  * @returns Parsed token payload and user information
  */
@@ -126,6 +132,13 @@ export const validateOIDCJWT = async (token: string) => {
       throw new TRPCError({
         code: 'UNAUTHORIZED',
         message: 'JWT token is missing user ID (sub)',
+      });
+    }
+
+    if (!isBoundToCurrentTenant(payload)) {
+      throw new TRPCError({
+        code: 'UNAUTHORIZED',
+        message: 'JWT token was not issued for this tenant',
       });
     }
 

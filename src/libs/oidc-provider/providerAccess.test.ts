@@ -80,3 +80,8 @@ it('keeps the issuer, device endpoints, cookies and redirects within a tenant', 
     '/t/acme/oauth/consent/consent-1',
   );
 });
+
+it('stamps the owning tenant id on every access token its provider issues', async () => {
+  await createOIDCProvider({} as never, 'acme', 'tenant-acme');
+  expect(await state.config.extraTokenClaims({ oidc: {} }, {})).toEqual({ tid: 'tenant-acme' });
+});

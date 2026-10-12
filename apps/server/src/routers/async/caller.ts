@@ -1,22 +1,17 @@
 import { createTRPCClient, httpLink } from '@trpc/client';
 import superjson from 'superjson';
 
-import { LOBE_CHAT_AUTH_HEADER } from '@/envs/auth';
 import { createAsyncCallerFactory } from '@/libs/trpc/async';
 import { signInternalJWT } from '@/libs/trpc/utils/internalJwt';
-import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 
 import { type AsyncRouter } from './index';
 import { asyncRouter } from './index';
 
 export const createAsyncServerClient = async (userId: string) => {
-  const token = await signInternalJWT();
-  const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
-  const headers: Record<string, string> = {
-    Authorization: token,
-    [LOBE_CHAT_AUTH_HEADER]: await gateKeeper.encrypt(JSON.stringify({ userId })),
-  };
+  // Tenant and user are signed into the token (current tenant scope required).
+  const token = await signInternalJWT(userId);
+  const headers: Record<string, string> = { Authorization: token };
 
   if (process.env.VERCEL_AUTOMATION_BYPASS_SECRET) {
     headers['x-vercel-protection-bypass'] = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
