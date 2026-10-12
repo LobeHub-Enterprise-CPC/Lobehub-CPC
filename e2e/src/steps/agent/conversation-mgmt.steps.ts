@@ -24,9 +24,17 @@ async function sendConversationMessage(this: CustomWorld, message: string): Prom
   const existingIds = await topics.evaluateAll((items) =>
     items.map((item) => item.getAttribute('data-topic-id')),
   );
-  await focusChatInput.call(this);
-  await this.page.keyboard.type(message, { delay: 30 });
-  await this.page.keyboard.press('Enter');
+  const editor = await focusChatInput.call(this);
+  await editor.fill(message);
+  await expect(editor).toHaveText(message);
+  const sendButton = this.page
+    .getByTestId('chat-input')
+    .locator('button')
+    .filter({ has: this.page.locator('svg[viewBox="0 0 14 14"]') })
+    .first();
+  await expect(sendButton).toBeEnabled();
+  await expect(editor).toBeFocused();
+  await editor.press('Enter');
 
   await expect(
     this.page.locator('.message-wrapper').filter({ hasText: message }).first(),
@@ -46,7 +54,11 @@ async function sendConversationMessage(this: CustomWorld, message: string): Prom
       { timeout: 15_000 },
     )
     .toBeTruthy();
-  await expect(this.page.locator(`[data-topic-id="${topicId}"]`).first()).toBeVisible();
+  const topic = this.page.locator(`[data-topic-id="${topicId}"]`).first();
+  await expect(topic).toBeVisible();
+  // A list row can arrive before the send flow adopts its new topic. Do not
+  // start another conversation while that transition can still clear its draft.
+  await expect(topic.locator('[data-active="true"]')).toBeVisible();
   return topicId!;
 }
 
@@ -67,6 +79,7 @@ Given('用户有多个对话历史', async function (this: CustomWorld) {
     .first();
   await expect(addTopicButton).toBeVisible();
   await addTopicButton.click();
+  await expect(this.page.getByTestId('topic-item').locator('[data-active="true"]')).toHaveCount(0);
   await expect(this.page.locator('.message-wrapper')).toHaveCount(0);
 
   this.testContext.secondConversation = await sendConversationMessage.call(this, 'hello world');

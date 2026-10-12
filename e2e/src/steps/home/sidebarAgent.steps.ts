@@ -133,74 +133,29 @@ Given('用户在 Home 页面有一个 Agent', { timeout: 30_000 }, async functio
 });
 
 Given('该 Agent 未被置顶', { timeout: 30_000 }, async function (this: CustomWorld) {
-  console.log('   📍 Step: 检查 Agent 未被置顶...');
-  // Check if the agent has a pin icon - if so, unpin it first
   const targetItem = this.page.locator(this.testContext.targetItemSelector).first();
-  // Pin icon uses lucide-react which adds class "lucide lucide-pin"
-  const pinIcon = targetItem.locator('svg[class*="lucide-pin"]');
-
+  const pinIcon = targetItem.locator('svg.lucide-pin');
   if ((await pinIcon.count()) > 0) {
-    console.log('   📍 Agent 已置顶，开始取消置顶操作...');
-    // Unpin it first
-    await targetItem.hover();
-    await this.page.waitForTimeout(200);
-    await targetItem.click({ button: 'right', force: true });
-    await this.page.waitForTimeout(500);
-    const unpinOption = this.page.getByRole('menuitem', { name: /取消置顶|unpin/i });
-    await unpinOption.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {
-      console.log('   ⚠️ 取消置顶选项未找到');
-    });
-    if ((await unpinOption.count()) > 0) {
-      await unpinOption.click();
-      await this.page.waitForTimeout(500);
-    }
-    // Close menu if still open
-    await this.page.keyboard.press('Escape');
-    await this.page.waitForTimeout(300);
+    await targetItem.click({ button: 'right' });
+    const unpinOption = this.page.getByRole('menuitem', { name: /^(unpin|取消置顶)$/i });
+    await expect(unpinOption).toBeVisible();
+    await unpinOption.click();
   }
-
-  console.log('   ✅ Agent 未被置顶');
+  await expect(pinIcon).toHaveCount(0);
 });
 
 Given('该 Agent 已被置顶', { timeout: 30_000 }, async function (this: CustomWorld) {
-  console.log('   📍 Step: 确保 Agent 已被置顶...');
-  // Check if the agent has a pin icon - if not, pin it first
   const targetItem = this.page.locator(this.testContext.targetItemSelector).first();
-  // Pin icon uses lucide-react which adds class "lucide lucide-pin"
-  const pinIcon = targetItem.locator('svg[class*="lucide-pin"]');
-
+  const pinIcon = targetItem.locator('svg.lucide-pin');
   if ((await pinIcon.count()) === 0) {
-    console.log('   📍 Agent 未置顶，开始置顶操作...');
-    // Pin it first - right-click on the NavItem Block inside the Link
-    // The ContextMenuTrigger is attached to the Block component inside the Link
-    await targetItem.hover();
-    await this.page.waitForTimeout(200);
-    await targetItem.click({ button: 'right', force: true });
-    await this.page.waitForTimeout(500);
-
-    // Debug: check menu visibility
-    const menuItems = await this.page.locator('[role="menuitem"]').count();
-    console.log(`   📍 Debug: 发现 ${menuItems} 个菜单项`);
-
-    const pinOption = this.page.getByRole('menuitem', { name: /置顶|pin/i });
-    await pinOption.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {
-      console.log('   ⚠️ 置顶选项未找到');
-    });
-    if ((await pinOption.count()) > 0) {
-      await pinOption.click();
-      await this.page.waitForTimeout(500);
-      console.log('   ✅ 已点击置顶选项');
-    }
-    // Close menu if still open
-    await this.page.keyboard.press('Escape');
-    await this.page.waitForTimeout(300);
+    await targetItem.click({ button: 'right' });
+    const pinOption = this.page.getByRole('menuitem', { name: /^(pin|置顶)$/i });
+    await expect(pinOption).toBeVisible();
+    await pinOption.click();
   }
-
-  // Verify pin is now visible
-  await this.page.waitForTimeout(500);
-  const pinIconAfter = targetItem.locator('svg[class*="lucide-pin"]');
-  const isPinned = (await pinIconAfter.count()) > 0;
-  console.log(`   ✅ Agent 已被置顶: ${isPinned}`);
+  // The mutation and list revalidation are async. A click alone does not
+  // establish the pinned state needed by the next context-menu interaction.
+  await expect(pinIcon).toHaveCount(1, { timeout: WAIT_TIMEOUT });
 });
 
 // ============================================
@@ -208,29 +163,9 @@ Given('该 Agent 已被置顶', { timeout: 30_000 }, async function (this: Custo
 // ============================================
 
 When('用户右键点击该 Agent', { timeout: 30_000 }, async function (this: CustomWorld) {
-  console.log('   📍 Step: 右键点击 Agent...');
-
   const targetItem = this.page.locator(this.testContext.targetItemSelector).first();
-
-  // Hover first to ensure element is interactive
-  await targetItem.hover();
-  await this.page.waitForTimeout(200);
-
-  // Right-click with force option to ensure it triggers
-  await targetItem.click({ button: 'right', force: true });
-  await this.page.waitForTimeout(500);
-
-  // Wait for context menu to appear
-  const menuItem = this.page.locator('[role="menuitem"]').first();
-  await menuItem.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {
-    console.log('   ⚠️ 菜单未出现，重试右键点击...');
-  });
-
-  // Debug: check what menus are visible
-  const menuItems = await this.page.locator('[role="menuitem"]').count();
-  console.log(`   📍 Debug: Found ${menuItems} menu items after right-click`);
-
-  console.log('   ✅ 已右键点击 Agent');
+  await targetItem.click({ button: 'right' });
+  await expect(this.page.getByRole('menuitem').first()).toBeVisible();
 });
 
 When('用户悬停在该 Agent 上', async function (this: CustomWorld) {
@@ -284,7 +219,10 @@ When('用户在菜单中选择置顶', async function (this: CustomWorld) {
   const pinOption = this.page.getByRole('menuitem', { name: /^(pin|置顶)$/i });
   await expect(pinOption).toBeVisible({ timeout: 5000 });
   await pinOption.click();
-  await this.page.waitForTimeout(500);
+  const targetItem = this.page.locator(this.testContext.targetItemSelector).first();
+  await expect(targetItem.locator('svg.lucide-pin')).toHaveCount(1, {
+    timeout: WAIT_TIMEOUT,
+  });
 
   console.log('   ✅ 已选择置顶选项');
 });
@@ -295,7 +233,10 @@ When('用户在菜单中选择取消置顶', async function (this: CustomWorld) 
   const unpinOption = this.page.getByRole('menuitem', { name: /^(unpin|取消置顶)$/i });
   await expect(unpinOption).toBeVisible({ timeout: 5000 });
   await unpinOption.click();
-  await this.page.waitForTimeout(500);
+  const targetItem = this.page.locator(this.testContext.targetItemSelector).first();
+  await expect(targetItem.locator('svg.lucide-pin')).toHaveCount(0, {
+    timeout: WAIT_TIMEOUT,
+  });
 
   console.log('   ✅ 已选择取消置顶选项');
 });
