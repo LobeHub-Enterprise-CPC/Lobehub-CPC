@@ -66,4 +66,18 @@ describe('auth', () => {
     expect(tenantCookiePrefix('tenant-a')).toMatch(/^lh_[\da-f]{24}$/);
     expect(tenantCookiePrefix('tenant-a')).not.toBe(tenantCookiePrefix('tenant-b'));
   });
+
+  it('rebuilds the instance when the runtime replaces the tenant database session', async () => {
+    // A datasource update yields a new session; the old one's pool is retired.
+    mocks.scope = { session: { database: {} }, slug: 'acme', tenantId: 'tenant-a' };
+    const stale = await getTenantAuth();
+
+    const database = {};
+    mocks.scope = { session: { database }, slug: 'acme', tenantId: 'tenant-a' };
+    const current = await getTenantAuth();
+
+    expect(current).not.toBe(stale);
+    expect(mocks.defineConfig).toHaveBeenLastCalledWith(expect.objectContaining({ database }));
+    expect(await getTenantAuth()).toBe(current);
+  });
 });

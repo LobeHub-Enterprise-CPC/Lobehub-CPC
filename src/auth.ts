@@ -31,7 +31,12 @@ const SSO_SNAPSHOT_TTL_MS = 30_000;
 const MAX_INSTANCES = 64;
 
 const ssoSnapshots = new Map<string, { at: number; providers: TenantSsoProvider[] }>();
-const instances = new Map<string, TenantAuth>();
+/**
+ * One instance per tenant. It is bound to the tenant's database session, which
+ * the runtime replaces when Console moves or re-keys the datasource; an
+ * instance built on a replaced session is never served again.
+ */
+const instances = new Map<string, { instance: TenantAuth; session: TenantScope['session'] }>();
 
 const loadSsoSnapshot = async (scope: TenantScope) => {
   const cached = ssoSnapshots.get(scope.tenantId);
@@ -93,18 +98,18 @@ export const getTenantAuth = async (): Promise<TenantAuth> => {
   const key = `${scope.tenantId}|${scope.slug}|${ssoRevisionKey(providers)}`;
 
   const cached = instances.get(key);
-  if (cached) {
+  if (cached?.session === scope.session) {
     // Refresh LRU position.
     instances.delete(key);
     instances.set(key, cached);
-    return cached;
+    return cached.instance;
   }
 
   const instance = buildTenantAuth(scope, providers);
 
   for (const existing of instances.keys())
     if (existing.startsWith(`${scope.tenantId}|`)) instances.delete(existing);
-  instances.set(key, instance);
+  instances.set(key, { instance, session: scope.session });
   while (instances.size > MAX_INSTANCES) instances.delete(instances.keys().next().value!);
   return instance;
 };
