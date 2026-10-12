@@ -92,6 +92,23 @@ const isStable = !channel || channel === 'stable';
 const isNightly = channel === 'nightly';
 const isCanary = channel === 'canary';
 
+/**
+ * The channel name, as the feed path component AND as the update manifest's
+ * filename: electron-builder writes `<channel>.yml`.
+ *
+ * These have to be the same string the shipped client is pointed at.
+ * electron-updater does not ask for `latest.yml` — it asks for
+ * `${autoUpdater.channel}.yml` (see `getChannelFilename()` in electron-updater,
+ * which is literally `${channel}.yml`). Our client runs with channel `stable`,
+ * so it fetches `<feed>/stable.yml`. Leaving electron-builder on its default
+ * channel (`latest`) therefore ships a perfectly valid `latest.yml` that
+ * nobody ever requests — and an updater that fails with
+ * ERR_UPDATER_CHANNEL_FILE_NOT_FOUND while every artifact looks correct.
+ *
+ * Defined once, so the publish config and the emitted filename cannot drift.
+ */
+const channelPath = isStable ? 'stable' : isNightly ? 'nightly' : channel || 'stable';
+
 // Strip trailing channel path from URL for re-appending the correct channel
 // Handles both base URL (https://cdn.example.com) and legacy URL with channel (https://cdn.example.com/stable)
 const stripChannelSuffix = (url) => url.replace(/\/(stable|nightly|canary|beta)\/?$/, '');
@@ -100,14 +117,23 @@ const stripChannelSuffix = (url) => url.replace(/\/(stable|nightly|canary|beta)\
 // - 所有渠道 + UPDATE_SERVER_URL: 使用 generic (S3)
 // - 无 UPDATE_SERVER_URL: 回退到 GitHub (本地开发)
 const getPublishConfig = () => {
-  const channelPath = isStable ? 'stable' : isNightly ? 'nightly' : channel || 'stable';
-
   if (updateServerUrl) {
     const baseUrl = stripChannelSuffix(updateServerUrl);
     const fullUrl = `${baseUrl}/${channelPath}`;
     console.info(`📦 ${channelPath} channel: Using generic provider (${fullUrl})`);
     return [
       {
+        // Names the update manifest this build emits: electron-builder writes
+        // `${publishConfig.channel}.yml` (updateInfoBuilder: `publishConfig.channel
+        // || "latest"`), and it must be the same string the shipped client asks
+        // for, because electron-updater requests `${autoUpdater.channel}.yml`.
+        // Left unset it writes `latest.yml`, which no client of ours ever
+        // fetches — the updater then dies with ERR_UPDATER_CHANNEL_FILE_NOT_FOUND
+        // while every artifact still looks correct.
+        //
+        // It belongs here, on the provider, not at the top level: electron-builder
+        // rejects an unknown top-level `channel` outright.
+        channel: channelPath,
         provider: 'generic',
         url: fullUrl,
       },
