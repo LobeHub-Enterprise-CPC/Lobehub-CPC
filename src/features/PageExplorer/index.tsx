@@ -3,7 +3,7 @@
 import { memo, type ReactNode, useCallback } from 'react';
 
 import { PageEditor } from '@/features/PageEditor';
-import { pageSelectors, usePageStore } from '@/store/page';
+import { pageActions, pageSelectors, usePageStore } from '@/store/page';
 
 interface PageExplorerProps {
   /** Forwarded to PageEditor. */
@@ -24,12 +24,12 @@ interface PageExplorerProps {
  * Work together with a sidebar @/features/Pages/PageLayout/Body
  */
 const PageExplorer = memo<PageExplorerProps>(({ pageId, header, fullWidthHeader, rightPanel }) => {
-  const refreshDocuments = usePageStore((s) => s.refreshDocuments);
+  const { revalidate: refreshPageDetail } = pageActions.useFetchPageDetail(pageId);
   const handleMetadataSaved = useCallback(() => {
-    void refreshDocuments().catch(() => {
+    void Promise.all([refreshPageDetail(), pageActions.refreshDocuments()]).catch(() => {
       // The store reports read errors; a failed refresh must not reject a completed save.
     });
-  }, [refreshDocuments]);
+  }, [refreshPageDetail]);
 
   // Get document title and emoji from PageStore
   const document = usePageStore(pageSelectors.getDocumentById(pageId));

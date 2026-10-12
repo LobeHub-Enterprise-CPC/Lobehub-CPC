@@ -9,6 +9,7 @@ import urlJoin from 'url-join';
 import { UserModel } from '@/database/models/user';
 import { appEnv } from '@/envs/app';
 import { getJWKS } from '@/libs/oidc-provider/jwt';
+import { OIDC_ISSUER_PATH, OIDC_ROUTES } from '@/libs/oidc-provider/routes';
 import { normalizeLocale } from '@/locales/resources';
 
 import { isOIDCUserBanned } from './access-control';
@@ -324,15 +325,9 @@ export const createOIDCProvider = async (
     // mounted under it and the adapter hands it the untouched pathname. A route
     // left at its default (e.g. `/jwks`) is therefore unreachable: the request
     // arrives as `/oidc/jwks` and the provider answers 404.
-    routes: {
-      authorization: tenantPath('/oidc/auth'),
-      code_verification: tenantPath('/oidc/device'),
-      device_authorization: tenantPath('/oidc/device/auth'),
-      end_session: tenantPath('/oidc/session/end'),
-      jwks: tenantPath('/oidc/jwks'),
-      token: tenantPath('/oidc/token'),
-      userinfo: tenantPath('/oidc/me'),
-    },
+    routes: Object.fromEntries(
+      Object.entries(OIDC_ROUTES).map(([key, value]) => [key, tenantPath(value)]),
+    ),
     // 3. Scopes definition
     scopes: defaultScopes,
 
@@ -341,7 +336,7 @@ export const createOIDCProvider = async (
   };
 
   // Create provider instance
-  const baseUrl = urlJoin(appEnv.APP_URL!, tenantPath('/oidc'));
+  const baseUrl = urlJoin(appEnv.APP_URL!, tenantPath(OIDC_ISSUER_PATH));
 
   const provider = new Provider(baseUrl, configuration);
   provider.proxy = true;

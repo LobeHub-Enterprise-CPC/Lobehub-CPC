@@ -2,7 +2,7 @@
 
 import { Flexbox } from '@lobehub/ui';
 import { createStaticStyles, useTheme } from 'antd-style';
-import { memo, type ReactNode, useCallback, useEffect, useMemo } from 'react';
+import { memo, type ReactNode, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router';
 
 import DragUploadZone from '@/components/DragUploadZone';
@@ -10,7 +10,6 @@ import { PageEditor } from '@/features/PageEditor';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { usePermission } from '@/hooks/usePermission';
 import dynamic from '@/libs/next/dynamic';
-import { documentService } from '@/services/document';
 import { useFileStore } from '@/store/file';
 import { documentSelectors } from '@/store/file/slices/document/selectors';
 
@@ -77,7 +76,7 @@ const ResourceManager = memo<ResourceManagerProps>(({ content }) => {
     ]);
 
   const currentDocument = useFileStore(documentSelectors.getDocumentById(currentViewItemId));
-  const fetchDocumentDetail = useFileStore((s) => s.fetchDocumentDetail);
+  const useFetchDocumentDetail = useFileStore((s) => s.useFetchDocumentDetail);
   const { allowed: canUpload } = usePermission('create_content');
   const uploadTopLevel = useTopLevelFileUpload();
 
@@ -96,20 +95,12 @@ const ResourceManager = memo<ResourceManagerProps>(({ content }) => {
     [theme.colorBgContainerSecondary],
   );
 
-  // Fetch specific document when switching to page mode if not already loaded
-  useEffect(() => {
-    if (mode === 'page' && currentViewItemId && !currentDocument) {
-      // Document not in store, fetch it individually
-      documentService.getDocumentById(currentViewItemId).then((doc) => {
-        if (doc) {
-          // Add the document to the store's documents array
-          useFileStore.setState((state) => ({
-            documents: [...state.documents, doc as any],
-          }));
-        }
-      });
-    }
-  }, [mode, currentViewItemId, currentDocument]);
+  // Keep the open item's document row in the replica. Deliberately not gated on
+  // `mode`: on a cold `?file=` deep link the page/file decision itself needs the
+  // row, so gating on it would wait for the very network the projection exists
+  // to avoid. The view is read from the store, so a reload paints from the
+  // persisted projection on the first frame and the network only confirms it.
+  const { mutate: refreshDocumentDetail } = useFetchDocumentDetail(currentViewItemId);
 
   const handleBack = () => {
     setMode('explorer');
@@ -122,8 +113,10 @@ const ResourceManager = memo<ResourceManagerProps>(({ content }) => {
   };
 
   const handleMetadataSaved = useCallback(() => {
-    if (currentViewItemId) void fetchDocumentDetail(currentViewItemId);
-  }, [currentViewItemId, fetchDocumentDetail]);
+    void refreshDocumentDetail().catch(() => {
+      // The replica reports the read error; saving metadata has already succeeded.
+    });
+  }, [refreshDocumentDetail]);
 
   return (
     <>

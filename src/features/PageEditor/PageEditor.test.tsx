@@ -1,10 +1,13 @@
 import { cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
+import { SWRConfig, useSWRConfig } from 'swr';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import PageExplorer from '@/features/PageExplorer';
+import { cacheScope } from '@/libs/replica';
+import { setScopedMutate } from '@/libs/swr/mutate';
 import { documentService } from '@/services/document';
-import { usePageStore } from '@/store/page';
+import { pageActions, pageSelectors, usePageStore } from '@/store/page';
 import { DocumentSourceType, type LobeDocument } from '@/types/document';
 
 import { getTitleTextAreaInteractionProps } from './TitleSection';
@@ -41,10 +44,35 @@ describe('PageExplorer metadata save notifications', () => {
     updatedAt: new Date('2026-10-10T12:00:00Z'),
   };
 
+  const QueryHarness = () => {
+    const { mutate } = useSWRConfig();
+    useEffect(() => setScopedMutate(mutate), [mutate]);
+    pageActions.useFetchDocuments();
+    return <PageExplorer pageId={document.id} />;
+  };
+
+  const renderPage = () =>
+    render(
+      <SWRConfig
+        value={{ provider: () => new Map(), dedupingInterval: 0, shouldRetryOnError: false }}
+      >
+        <QueryHarness />
+      </SWRConfig>,
+    );
+  const currentPage = () => pageSelectors.getDocumentById(document.id)(usePageStore.getState());
+
+  beforeEach(() => {
+    pageActions.reset();
+    const scope = `page-notification-${crypto.randomUUID()}`;
+    vi.spyOn(cacheScope, 'get').mockReturnValue(scope);
+    vi.spyOn(cacheScope, 'use').mockReturnValue(scope);
+    vi.spyOn(cacheScope, 'canPersist').mockReturnValue(false);
+  });
+
   afterEach(() => {
     cleanup();
+    pageActions.reset();
     vi.restoreAllMocks();
-    usePageStore.setState({ documents: undefined });
   });
 
   it.each(['title', 'emoji'])(
@@ -52,15 +80,21 @@ describe('PageExplorer metadata save notifications', () => {
     async (field) => {
       const saved = { ...document, metadata: { emoji: '📄' }, title: 'Saved title' };
       const writes = vi.spyOn(documentService, 'updateDocument').mockResolvedValue({});
-      vi.spyOn(documentService, 'getPageDocuments').mockResolvedValue([saved]);
-      usePageStore.setState({ documents: [document] });
-
-      render(<PageExplorer pageId={document.id} />);
+      const detail = vi
+        .spyOn(documentService, 'getDocumentById')
+        .mockResolvedValue(document as any);
+      const list = vi
+        .spyOn(documentService, 'queryDocuments')
+        .mockResolvedValue({ items: [document], total: 1 } as any);
+      renderPage();
+      await waitFor(() => expect(currentPage()?.title).toBe('Old title'));
+      detail.mockResolvedValue(saved as any);
+      list.mockResolvedValue({ items: [saved], total: 1 } as any);
       fireEvent.click(screen.getByRole('button', { name: `Notify saved ${field}` }));
 
       await waitFor(() => {
-        expect(usePageStore.getState().documents?.[0].title).toBe('Saved title');
-        expect(usePageStore.getState().documents?.[0].metadata?.emoji).toBe('📄');
+        expect(currentPage()?.title).toBe('Saved title');
+        expect(currentPage()?.metadata?.emoji).toBe('📄');
       });
       expect(writes).not.toHaveBeenCalled();
     },
@@ -69,16 +103,19 @@ describe('PageExplorer metadata save notifications', () => {
   it('keeps the saved page when its list refresh fails without another write', async () => {
     const saved = { ...document, title: 'Saved title' };
     const error = new Error('Page list unavailable');
-    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const writes = vi.spyOn(documentService, 'updateDocument').mockResolvedValue({});
-    vi.spyOn(documentService, 'getPageDocuments').mockRejectedValue(error);
-    usePageStore.setState({ documents: [saved] });
-
-    render(<PageExplorer pageId={document.id} />);
+    vi.spyOn(documentService, 'getDocumentById').mockResolvedValue(saved as any);
+    const list = vi
+      .spyOn(documentService, 'queryDocuments')
+      .mockResolvedValue({ items: [saved], total: 1 } as any);
+    renderPage();
+    await waitFor(() => expect(currentPage()?.title).toBe('Saved title'));
+    const initialReads = list.mock.calls.length;
+    list.mockRejectedValue(error);
     fireEvent.click(screen.getByRole('button', { name: 'Notify saved title' }));
 
-    await waitFor(() => expect(errors).toHaveBeenCalledWith('Failed to fetch documents:', error));
-    expect(usePageStore.getState().documents?.[0].title).toBe('Saved title');
+    await waitFor(() => expect(list.mock.calls.length).toBeGreaterThan(initialReads));
+    expect(currentPage()?.title).toBe('Saved title');
     expect(writes).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,8 @@
 import type { ServerDefaultHeterogeneousAgentType } from '@lobechat/heterogeneous-agents';
 import type { ChatStreamPayload } from '@lobechat/model-runtime';
+import { isResponsesAPIModel } from '@lobechat/model-runtime/providers/openai/modelId';
 import type { CodexReasoningEffort } from '@lobechat/types';
-import { getCodexReasoningEffortLevels, isCodexServerDefaultCustomModel } from '@lobechat/types';
+import { getCodexReasoningEffortLevels } from '@lobechat/types';
 
 /** Shared by the live relay and CLI compatibility probe, without auth/DB dependencies. */
 export const prepareServerDefaultChatPayload = (params: {
@@ -55,13 +56,13 @@ export const prepareServerDefaultChatPayload = (params: {
     ...(routedReasoningEffort ? { reasoning_effort: routedReasoningEffort } : {}),
   };
   if (params.agentType === 'codex') {
-    payload = isCodexServerDefaultCustomModel(params.model)
-      ? {
+    payload = isResponsesAPIModel(params.model)
+      ? { ...normalizedPayload, apiMode: 'responses' }
+      : {
           ...chatCompletionsPayload,
           apiMode: 'chatCompletion' as const,
           reasoning_effort: normalizedPayload.reasoning_effort ?? reasoningEffort,
-        }
-      : { ...normalizedPayload, apiMode: 'responses' };
+        };
   }
   return payload;
 };

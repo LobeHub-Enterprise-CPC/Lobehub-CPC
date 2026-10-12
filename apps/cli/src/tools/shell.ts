@@ -19,6 +19,8 @@ import { applySandboxHostPaths } from './srtWin';
 
 const processManager = new ShellProcessManager();
 
+export const getActiveShellCount = () => processManager.activeCount;
+
 export function cleanupAllProcesses() {
   processManager.cleanupAll();
 }

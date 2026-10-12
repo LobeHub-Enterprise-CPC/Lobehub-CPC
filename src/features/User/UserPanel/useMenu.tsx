@@ -158,9 +158,6 @@ export const useMenu = () => {
           key: 'logout',
           label: <span>{t('signout', { ns: 'auth' })}</span>,
         },
-        {
-          type: 'divider',
-        },
       ]
     : [];
 

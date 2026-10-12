@@ -40,6 +40,3 @@ export const getHeterogeneousAgentDriver = (agentType: string): HeterogeneousAge
 
   return driver;
 };
-
-export const listHeterogeneousAgentDriverTypes = (): LocalHeterogeneousAgentType[] =>
-  Object.keys(heterogeneousAgentDrivers) as LocalHeterogeneousAgentType[];

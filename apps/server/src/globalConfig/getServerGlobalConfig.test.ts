@@ -10,14 +10,21 @@ interface CapturedProviderConfig {
 }
 
 const mocks = vi.hoisted(() => ({
+  tenant: undefined as { slug: string; tenantId: string } | undefined,
   genServerAiProvidersConfig: vi.fn(
     async (_specificConfig: Record<string, CapturedProviderConfig>) => ({}),
   ),
 }));
 
+vi.mock('@lobechat/database/tenant', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  currentTenantScope: () => mocks.tenant,
+}));
+
 interface MockGlobalConfigOptions {
   agentGatewayProtocol?: number;
   agentGatewayUrl?: string;
+  appUrl?: string;
   enableAgentGateway?: boolean;
   marketTrustedClient?: boolean;
   toolNameMaxLengthEnv?: string;
@@ -27,7 +34,8 @@ const mockGlobalConfigDependencies = (
   enableBusinessFeatures: boolean,
   options: MockGlobalConfigOptions = {},
 ) => {
-  vi.doMock('@lobechat/business-const', () => ({
+  vi.doMock('@lobechat/business-const', async (importOriginal) => ({
+    ...(await importOriginal<object>()),
     ENABLE_BUSINESS_FEATURES: enableBusinessFeatures,
   }));
 
@@ -45,6 +53,7 @@ const mockGlobalConfigDependencies = (
         ? {}
         : { AGENT_GATEWAY_PROTOCOL: options.agentGatewayProtocol }),
       ...(options.agentGatewayUrl ? { AGENT_GATEWAY_URL: options.agentGatewayUrl } : {}),
+      ...(options.appUrl ? { APP_URL: options.appUrl } : {}),
       ...(options.enableAgentGateway === undefined
         ? {}
         : { ENABLE_AGENT_GATEWAY: options.enableAgentGateway }),
@@ -144,7 +153,9 @@ const loadServerConfig = async (
 
 describe('getServerGlobalConfig', () => {
   afterEach(() => {
+    mocks.tenant = undefined;
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it('should only enable LobeHub by default in business feature mode', async () => {
@@ -280,5 +291,33 @@ describe('getServerGlobalConfig', () => {
     await expect(loadServerConfig(false)).resolves.toMatchObject({
       enableLobehubSkill: false,
     });
+  });
+
+  it('should expose DEVICE_GATEWAY_PUBLIC_URL without a device gateway service token', async () => {
+    vi.stubEnv('DEVICE_GATEWAY_PUBLIC_URL', 'https://device-gateway.example.com');
+    vi.stubEnv('DEVICE_GATEWAY_SERVICE_TOKEN', undefined);
+    vi.stubEnv('DEVICE_GATEWAY_URL', undefined);
+
+    await expect(loadServerConfig(false)).resolves.toHaveProperty(
+      'deviceGatewayUrl',
+      'https://device-gateway.example.com',
+    );
+  });
+
+  it('should expose the current tenant OIDC issuer derived from APP_URL, as the provider does', async () => {
+    mocks.tenant = { slug: 'acme', tenantId: 'tenant-acme' };
+    await expect(
+      loadServerConfig(false, { appUrl: 'https://chat.example.com/' }),
+    ).resolves.toHaveProperty('oidcIssuer', 'https://chat.example.com/t/acme/oidc');
+  });
+
+  it('should omit the OIDC issuer outside a tenant', async () => {
+    await expect(
+      loadServerConfig(false, { appUrl: 'https://chat.example.com' }),
+    ).resolves.not.toHaveProperty('oidcIssuer');
+  });
+
+  it('should omit the OIDC issuer when APP_URL is not configured', async () => {
+    await expect(loadServerConfig(false)).resolves.not.toHaveProperty('oidcIssuer');
   });
 });

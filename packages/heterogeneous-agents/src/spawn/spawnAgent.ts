@@ -9,6 +9,7 @@ import { spawnManaged } from '@lobechat/utils/managedProcess';
 import type { AskUserBridge } from '../askUser/AskUserBridge';
 import { resolveHeterogeneousAgentCommand } from '../config';
 import { AgentStreamPipeline, type UploadHeterogeneousImage } from './agentStreamPipeline';
+import { readClaudeCodeSessionCost } from './claudeCodeSessionCost';
 import { isPathLikeCommand, resolveCliSpawnPlan } from './cliSpawn';
 import { readCodexSessionModel, resolveCodexInitialModel } from './codexModel';
 import { buildCursorAcpPrompt, CursorAcpSession } from './cursorAcpSession';
@@ -115,6 +116,15 @@ export interface SpawnAgentHandle {
    * care about ordering.
    */
   exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
+  /**
+   * Notify a session transport of host-initiated cancellation at the protocol
+   * level (ACP `session/cancel`, RPC abort). Present only on session
+   * transports — absent on one-shot CLI spawns where `kill` is the only
+   * cancel channel. ACP SIGTERM closes the session without resending the
+   * already-delivered signal; SIGINT retains protocol cancellation and its
+   * grace timeout. SIGKILL remains a host-requested force-kill escalation.
+   */
+  interrupt?: (signal?: NodeJS.Signals) => void;
   /**
    * Send a signal to the child. A dedicated Unix process group is signaled as
    * a tree; inherited-group children receive a direct signal because their
@@ -470,10 +480,10 @@ const createAcpSpawnBridge = () => {
   };
 
   const attach = (session: {
-    close: (signal?: NodeJS.Signals) => void;
+    close: (signal?: NodeJS.Signals | null) => void;
     interrupt: () => void;
     run: () => Promise<void>;
-  }): Pick<SpawnAgentHandle, 'exit' | 'kill'> => {
+  }): Pick<SpawnAgentHandle, 'exit' | 'interrupt' | 'kill'> => {
     const exit: SpawnAgentHandle['exit'] = session
       .run()
       .then(() => getHostExit() ?? { code: 0, signal: null })
@@ -497,14 +507,21 @@ const createAcpSpawnBridge = () => {
       if (signal === 'SIGINT') session.interrupt();
       else session.close(signal);
     };
-    return { exit, kill };
+    const interrupt = (signal: NodeJS.Signals = 'SIGINT'): void => {
+      hostSignal = signal;
+      // SIGTERM already reached the child through the inherited process group.
+      // Close pending RPCs without interrupting the child's shutdown again.
+      if (signal === 'SIGTERM') session.close(null);
+      else kill(signal);
+    };
+    return { exit, interrupt, kill };
   };
 
   return { attach, events, onEvents, onStderr, stderr };
 };
 
 interface AcpSpawnSession {
-  close: (signal?: NodeJS.Signals) => void;
+  close: (signal?: NodeJS.Signals | null) => void;
   interrupt: () => void;
   pid?: number;
   run: () => Promise<void>;
@@ -516,11 +533,12 @@ const createAcpSpawnHandle = (
   session: AcpSpawnSession,
   getSessionId: () => string | undefined = () => session.sessionId,
 ): SpawnAgentHandle => {
-  const { exit, kill } = bridge.attach(session);
+  const { exit, interrupt, kill } = bridge.attach(session);
 
   return {
     events: bridge.events,
     exit,
+    interrupt,
     kill,
     get pid() {
       return session.pid;
@@ -612,11 +630,12 @@ const spawnDroidAcpAgent = async (
     resumeSessionId: options.resumeSessionId,
     sessionId: options.operationId,
   });
-  const { exit, kill } = bridge.attach(session);
+  const { exit, interrupt, kill } = bridge.attach(session);
 
   return {
     events: bridge.events,
     exit,
+    interrupt,
     kill,
     get pid() {
       return session.pid;
@@ -710,6 +729,17 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
       ? await readCodexSessionModel(options.resumeSessionId, { env: childEnv })
       : undefined;
   const initialCumulativeUsage = resumedCodexSession?.cumulativeUsage;
+  const initialSessionCostUsd =
+    options.agentType === 'claude-code' && options.resumeSessionId
+      ? await readClaudeCodeSessionCost({
+          configDir: childEnv.CLAUDE_CONFIG_DIR,
+          cwd,
+          // Resolve from the child's environment: an overridden HOME moves the
+          // transcript the CLI resumes from.
+          home: childEnv.HOME,
+          sessionId: options.resumeSessionId,
+        })
+      : undefined;
 
   const cliSpawnPlan = await resolveCliSpawnPlan(command, args);
   const detached = platform() !== 'win32' && (options.detached ?? true);
@@ -727,6 +757,7 @@ export const spawnAgent = async (options: SpawnAgentOptions): Promise<SpawnAgent
     env: childEnv,
     initialCumulativeUsage,
     initialModel,
+    initialSessionCostUsd,
     operationId: options.operationId,
     startedAt,
     uploadImage: options.uploadImage,

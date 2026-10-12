@@ -30,7 +30,10 @@ export const DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small';
  * 2. The parent run's effective model — same provider, same model. Multi-provider
  *    setups otherwise strand sub-agents on a provider the user has moved away
  *    from (Claude Code / Codex sub-agents inherit the parent model the same way).
- * 3. The global default, when the spawn site has no parent model at hand.
+ * 3. The global default, when the spawn site has no parent model at hand. Both
+ *    halves come from `@lobechat/business-const`, so a build that swaps it (the
+ *    cloud one routes through its own official provider) never pairs its
+ *    provider with a model id only the self-hosted catalog carries.
  *
  * Model and provider resolve as a pair: mixing one source's model id with
  * another source's provider would produce a `provider/model` combination the

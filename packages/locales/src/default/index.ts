@@ -8,6 +8,7 @@ import chat from './chat';
 import color from './color';
 import common from './common';
 import components from './components';
+import dashboard from './dashboard';
 import desktopOnboarding from './desktop-onboarding';
 import device from './device';
 import discover from './discover';
@@ -66,6 +67,7 @@ const resources = {
   color,
   common,
   components,
+  dashboard,
   'desktop-onboarding': desktopOnboarding,
   device,
   discover,

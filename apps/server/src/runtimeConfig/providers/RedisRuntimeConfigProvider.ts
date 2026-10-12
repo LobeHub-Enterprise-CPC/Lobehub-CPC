@@ -2,7 +2,7 @@ import { currentTenantScope, requireTenantScope } from '@lobechat/database/tenan
 import debug from 'debug';
 
 import { getRedisConfig } from '@/envs/redis';
-import { initializeRedis, initializeSharedRedis } from '@/libs/redis';
+import { initializeRedis, initializeSharedRedis } from '@/server/modules/Redis';
 
 import type {
   RuntimeConfigDomain,

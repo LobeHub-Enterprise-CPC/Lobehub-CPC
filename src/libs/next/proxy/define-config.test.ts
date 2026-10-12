@@ -6,8 +6,10 @@ import { readFile } from 'node:fs/promises';
 import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { config as proxyConfig } from '@/proxy';
 import { TENANT_ROUTE_HEADER, verifyTenantRoute } from '@/server/modules/Tenant/routeHeader';
 
+import { createRouteMatcher } from './createRouteMatcher';
 import { defineConfig } from './define-config';
 
 const mocks = vi.hoisted(() => ({
@@ -267,4 +269,17 @@ describe('session cookies and OIDC endpoints under a tenant', () => {
       path.replace('/t/acme', ''),
     );
   });
+});
+
+describe('project deep links', () => {
+  it.each(['/projects', '/project/environment-demo', '/project/environment-demo/tasks'])(
+    'routes %s into the SPA on a direct request',
+    async (path) => {
+      expect(
+        createRouteMatcher(proxyConfig.matcher)(new NextRequest(`http://localhost:3010${path}`)),
+      ).toBe(true);
+      const rewrite = await run(`http://localhost:3010${path}`);
+      expect(new URL(rewrite!).pathname).toMatch(new RegExp(`/spa/[^/]+${path}$`));
+    },
+  );
 });
