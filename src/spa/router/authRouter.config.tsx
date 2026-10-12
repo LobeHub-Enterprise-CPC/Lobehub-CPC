@@ -1,3 +1,4 @@
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { useTheme } from 'next-themes';
 import type { ComponentType, CSSProperties, ReactElement } from 'react';
 import { lazy, Suspense } from 'react';
@@ -61,7 +62,7 @@ const AuthErrorBoundary = () => {
           style={buttonStyle}
           type={'button'}
           onClick={() => {
-            window.location.href = '/signin';
+            window.location.href = withCurrentTenantPath('/signin');
           }}
         >
           Back to sign in

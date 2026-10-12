@@ -1,5 +1,6 @@
 'use client';
 
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { Flexbox } from '@lobehub/ui';
 import { Button, Text } from '@lobehub/ui/base-ui';
 import { memo, useEffect, useState } from 'react';
@@ -43,7 +44,10 @@ const DevSeedSignIn = memo(() => {
               // The dev route is an API endpoint that sets the session cookie
               // and redirects, so this must be a full navigation — not a
               // client-side router push.
-              const target = new URL(SEED_SIGN_IN_PATH, window.location.origin);
+              const target = new URL(
+                withCurrentTenantPath(SEED_SIGN_IN_PATH),
+                window.location.origin,
+              );
               target.searchParams.set('account', account);
               // Forward the sign-in page's callbackUrl so the quick login
               // returns to the deep link that triggered it (e.g. a share URL).

@@ -1,3 +1,4 @@
+import { stripTenantPath } from '@lobechat/business-tenant/routing';
 import { isRemoteServerNetworkError } from '@lobechat/types';
 import { type TRPCClientError, type TRPCLink } from '@trpc/client';
 import {
@@ -167,7 +168,7 @@ const linkOptions = {
     let provider: ModelProvider | undefined;
     // for image page, we need to get the provider from the store
     log('Getting provider from store for image page: %s', location.pathname);
-    if (location.pathname === '/image') {
+    if (stripTenantPath(location.pathname) === '/image') {
       const { getImageStoreState } = await import('@/store/image');
       const { imageGenerationConfigSelectors } =
         await import('@/store/image/slices/generationConfig/selectors');

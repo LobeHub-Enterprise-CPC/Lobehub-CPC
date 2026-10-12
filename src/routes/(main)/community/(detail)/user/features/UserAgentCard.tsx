@@ -1,5 +1,6 @@
 'use client';
 
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import {
   Block,
   DropdownMenu,
@@ -154,7 +155,7 @@ const UserAgentCard = memo<UserAgentCardProps>(
     const isUnderReview = isValidated === false;
 
     const handleViewDetail = useCallback(() => {
-      window.open(urlJoin('/community/agent', identifier), '_blank');
+      window.open(withCurrentTenantPath(urlJoin('/community/agent', identifier)), '_blank');
     }, [identifier]);
 
     const handleEdit = useCallback(async () => {

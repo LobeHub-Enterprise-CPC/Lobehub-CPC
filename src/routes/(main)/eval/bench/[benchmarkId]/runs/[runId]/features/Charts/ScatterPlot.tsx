@@ -1,5 +1,6 @@
 'use client';
 
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { formatCost, formatShortenNumber } from '@lobechat/utils';
 import { Flexbox } from '@lobehub/ui';
 import { Divider, Tag, Tooltip } from '@lobehub/ui/base-ui';
@@ -143,7 +144,9 @@ const ScatterPlot = memo<ScatterPlotProps>(({ results, benchmarkId, runId }) => 
         const expectedPreview =
           d.expected.length > 60 ? d.expected.slice(0, 60) + '...' : d.expected;
         const caseUrl = `/eval/bench/${benchmarkId}/runs/${runId}/cases/${d.testCaseId}`;
-        const workspaceAwareCaseUrl = buildWorkspaceAwarePath(caseUrl, activeWorkspaceSlug);
+        const workspaceAwareCaseUrl = withCurrentTenantPath(
+          buildWorkspaceAwarePath(caseUrl, activeWorkspaceSlug),
+        );
         return (
           <Tooltip
             key={i}

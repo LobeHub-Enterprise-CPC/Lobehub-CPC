@@ -1,3 +1,6 @@
+import { currentTenantRelativePath, getTenant } from '@lobechat/business-tenant/client';
+import { withTenantPath } from '@lobechat/business-tenant/routing';
+
 import { getRegisteredAttachment } from './attachmentRegistry';
 
 const FILE_PROXY_PATH = /^\/f\/[^/]+$/;
@@ -21,13 +24,16 @@ export const getFileDownloadUrl = (url: string, options: FileDownloadUrlOptions 
   try {
     const downloadUrl = new URL(options.downloadUrl ?? url, baseUrl);
 
-    if (FILE_PROXY_PATH.test(downloadUrl.pathname)) {
+    if (FILE_PROXY_PATH.test(currentTenantRelativePath(downloadUrl.pathname) ?? '')) {
       downloadUrl.searchParams.set('download', '1');
       return downloadUrl.toString();
     }
 
     if (options.fileId && options.appOrigin) {
-      const proxyUrl = new URL(`/f/${encodeURIComponent(options.fileId)}`, options.appOrigin);
+      const proxyUrl = new URL(
+        withTenantPath(`/f/${encodeURIComponent(options.fileId)}`, getTenant()?.slug),
+        options.appOrigin,
+      );
       proxyUrl.searchParams.set('download', '1');
       return proxyUrl.toString();
     }

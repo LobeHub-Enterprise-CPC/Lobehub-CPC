@@ -1,5 +1,6 @@
 'use client';
 
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { Flexbox, Tooltip, TooltipGroup } from '@lobehub/ui';
 import { ActionIcon, Avatar, Button, Skeleton, Text } from '@lobehub/ui/base-ui';
 import { cssVar } from 'antd-style';
@@ -33,7 +34,7 @@ const WorkspaceHeader = memo(() => {
   const handleOpenPublicProfile = useCallback(() => {
     if (!publicProfileUrl) return;
 
-    window.open(publicProfileUrl, '_blank', 'noopener,noreferrer');
+    window.open(withCurrentTenantPath(publicProfileUrl), '_blank', 'noopener,noreferrer');
   }, [publicProfileUrl]);
 
   return (

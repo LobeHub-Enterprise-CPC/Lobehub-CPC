@@ -1,5 +1,6 @@
 'use client';
 
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { isDesktop } from '@lobechat/const';
 import { RENDERER_HANDLED_LINK_ATTR } from '@lobechat/desktop-bridge';
 import { Icon } from '@lobehub/ui';
@@ -148,7 +149,7 @@ export const InternalEntityLink = memo<InternalEntityLinkProps>(({ href, label, 
           reference.type === 'verify') &&
         shouldHardNavigateToWorkbench(reference.pathname)
       ) {
-        window.location.assign(reference.pathname);
+        window.location.assign(withCurrentTenantPath(reference.pathname));
         return;
       }
 

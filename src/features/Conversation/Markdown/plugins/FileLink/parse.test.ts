@@ -1,3 +1,4 @@
+import { initializeTenant } from '@lobechat/business-tenant/client';
 import { describe, expect, it } from 'vitest';
 
 import { parseFileLinkHref } from './parse';
@@ -14,6 +15,16 @@ describe('parseFileLinkHref', () => {
   it('matches a root-relative file proxy link regardless of currentOrigin', () => {
     expect(parseFileLinkHref('/f/file_xyz')).toEqual({ fileId: 'file_xyz' });
     expect(parseFileLinkHref('/f/file_xyz', ORIGIN)).toEqual({ fileId: 'file_xyz' });
+  });
+
+  it('matches a file proxy link of the current tenant only', () => {
+    initializeTenant(new URL(`${ORIGIN}/t/acme/agent`));
+    expect(parseFileLinkHref(`${ORIGIN}/t/beta/f/file_abc123`, ORIGIN)).toBeNull();
+    expect(parseFileLinkHref(`${ORIGIN}/t/acme/f/file_abc123`, ORIGIN)).toEqual({
+      fileId: 'file_abc123',
+    });
+    expect(parseFileLinkHref('/t/acme/f/file_xyz')).toEqual({ fileId: 'file_xyz' });
+    initializeTenant(new URL(ORIGIN));
   });
 
   it('decodes an encoded file id', () => {

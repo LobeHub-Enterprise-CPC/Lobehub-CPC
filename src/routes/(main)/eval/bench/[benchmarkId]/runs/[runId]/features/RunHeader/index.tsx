@@ -1,5 +1,6 @@
 'use client';
 
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { AGENT_PROFILE_URL } from '@lobechat/const';
 import type { AgentEvalRunDetail } from '@lobechat/types';
 import { copyToClipboard, Flexbox, Highlighter, Markdown } from '@lobehub/ui';
@@ -240,7 +241,9 @@ const RunHeader = memo<RunHeaderProps>(({ run, benchmarkId, hideStart }) => {
   const handleOpenAgent = () => {
     if (run.targetAgentId) {
       window.open(
-        buildWorkspaceAwarePath(AGENT_PROFILE_URL(run.targetAgentId), activeWorkspaceSlug),
+        withCurrentTenantPath(
+          buildWorkspaceAwarePath(AGENT_PROFILE_URL(run.targetAgentId), activeWorkspaceSlug),
+        ),
         '_blank',
       );
     }

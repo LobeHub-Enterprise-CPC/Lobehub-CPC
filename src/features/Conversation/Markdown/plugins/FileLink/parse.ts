@@ -1,6 +1,8 @@
+import { currentTenantRelativePath } from '@lobechat/business-tenant/client';
+
 export const LOBE_FILE_LINK_TAG = 'lobeFileLink';
 
-// Matches this app's own file proxy path, e.g. `${APP_URL}/f/:fileId`
+// Matches this app's own file proxy path, e.g. `${APP_URL}/t/{slug}/f/:fileId`
 // (see server/routers/lambda/file.ts -> getFileProxyUrl). This is deliberately
 // narrower than Link/internalLink.ts's NON_SPA_ROUTE_ROOTS exclusion of `/f`:
 // that keeps the generic link classifier out of the file proxy entirely, so
@@ -40,7 +42,7 @@ export const parseFileLinkHref = (
     }
   }
 
-  const match = url.pathname.match(FILE_PROXY_PATH_REGEX);
+  const match = currentTenantRelativePath(url.pathname)?.match(FILE_PROXY_PATH_REGEX);
   if (!match) return null;
 
   try {

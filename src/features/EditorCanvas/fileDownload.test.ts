@@ -1,6 +1,7 @@
 /**
  * @vitest-environment happy-dom
  */
+import { initializeTenant } from '@lobechat/business-tenant/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { seedAttachments } from './attachmentRegistry';
@@ -8,6 +9,7 @@ import { getFileDownloadUrl, openFileDownload } from './fileDownload';
 
 afterEach(() => {
   vi.restoreAllMocks();
+  initializeTenant(new URL('https://app.lobehub.com/'));
 });
 
 describe('fileDownload', () => {
@@ -65,5 +67,38 @@ describe('fileDownload', () => {
       '_blank',
       'noopener,noreferrer',
     );
+  });
+
+  describe('under a tenant address', () => {
+    it('requests attachment delivery for tenant file proxy URLs', () => {
+      initializeTenant(new URL('https://app.lobehub.com/t/acme/agent'));
+
+      expect(
+        getFileDownloadUrl('https://app.lobehub.com/t/acme/f/file_123', {
+          baseUrl: 'https://app.lobehub.com/t/acme/tasks/T-201',
+        }),
+      ).toBe('https://app.lobehub.com/t/acme/f/file_123?download=1');
+    });
+
+    it("leaves another tenant's file proxy URL as it is", () => {
+      initializeTenant(new URL('https://app.lobehub.com/t/acme/agent'));
+
+      expect(
+        getFileDownloadUrl('https://app.lobehub.com/t/beta/f/file_123', {
+          baseUrl: 'https://app.lobehub.com/t/acme/tasks/T-201',
+        }),
+      ).toBe('https://app.lobehub.com/t/beta/f/file_123');
+    });
+
+    it('builds the stable download proxy under the current tenant', () => {
+      initializeTenant(new URL('https://app.lobehub.com/t/acme/agent'));
+
+      expect(
+        getFileDownloadUrl('https://storage.example.com/video.mp4?sig=1', {
+          appOrigin: 'https://app.lobehub.com',
+          fileId: 'file_video',
+        }),
+      ).toBe('https://app.lobehub.com/t/acme/f/file_video?download=1');
+    });
   });
 });
