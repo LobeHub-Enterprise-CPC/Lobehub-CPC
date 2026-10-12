@@ -1,3 +1,4 @@
+import { HOME_DEFAULT_HIDDEN_WIDGETS, HOME_PORTRAIT_ENABLED } from '@lobechat/business-const';
 import { type NavigateFunction } from 'react-router';
 
 import { type LocaleMode } from '@/types/locale';
@@ -530,7 +531,7 @@ export const INITIAL_STATUS = {
   fileManagerViewMode: 'list' as const,
   filePanelWidth: 320,
   groupAgentBuilderPanelWidth: 360,
-  hiddenHomeWidgets: [],
+  hiddenHomeWidgets: HOME_DEFAULT_HIDDEN_WIDGETS,
   hidePWAInstaller: false,
   hideThreadLimitAlert: false,
   hideTopicSharePrivacyWarning: false,
@@ -554,7 +555,8 @@ export const INITIAL_STATUS = {
   resourceManagerColumnWidths: DEFAULT_RESOURCE_MANAGER_COLUMN_WIDTHS,
   showCommandMenu: false,
   showFilePanel: true,
-  showHomePortrait: true,
+  // A distribution without the portrait must not count it as a visible section.
+  showHomePortrait: HOME_PORTRAIT_ENABLED,
   showHotkeyHelper: false,
   showHomeRail: true,
   showImagePanel: true,

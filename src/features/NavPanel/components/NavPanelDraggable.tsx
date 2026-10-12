@@ -149,6 +149,7 @@ export const NavPanelDraggable = memo<NavPanelDraggableProps>(({ activeContent, 
     <DraggablePanel
       className={draggableStyles.panel}
       classNames={classNames}
+      data-brand-slot="nav-panel"
       defaultSize={defaultSize}
       expand={expand}
       expandable={false}

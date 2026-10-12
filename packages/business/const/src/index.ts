@@ -188,6 +188,14 @@ export const BUILTIN_SKILLS_HIDDEN: readonly string[] = [];
 export const AGENT_GROUP_CREATION_ENABLED = true;
 
 /**
+ * Home sections hidden for a viewer who has not customized Home yet. Listing
+ * every widget key (see `HOME_WIDGET_KEYS`) together with
+ * `HOME_PORTRAIT_ENABLED = false` makes the centered greeting-and-composer
+ * layout the default. The viewer's own choice in Customize still wins.
+ */
+export const HOME_DEFAULT_HIDDEN_WIDGETS: string[] = [];
+
+/**
  * Whether the home dashboard shows the Chief Agent portrait and the speech
  * bubble beside it.
  *

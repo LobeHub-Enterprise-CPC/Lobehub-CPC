@@ -70,3 +70,47 @@ export const APPLE_APP_STORE_ID = '';
 
 export const COPYRIGHT = `© ${new Date().getFullYear()} ${ORG_NAME}`;
 export const COPYRIGHT_FULL = `${COPYRIGHT}. All rights reserved.`;
+
+/** A 13-step colour ramp in the shape `@lobehub/ui` builds every colour role from. */
+export type BrandingColorRamp = [
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+];
+
+export interface BrandingColorScale {
+  dark: BrandingColorRamp;
+  darkA: BrandingColorRamp;
+  light: BrandingColorRamp;
+  lightA: BrandingColorRamp;
+}
+
+export interface BrandingTheme {
+  /**
+   * Raw CSS appended to the global stylesheet. Reads antd CSS variables
+   * (`var(--ant-…)`) and targets the stable `data-brand-slot` hooks the app
+   * shell exposes, so a distribution can restyle the frame without forking
+   * component code.
+   */
+  globalStyle?: string;
+  /** Replaces the neutral family (surfaces, borders, fills, text). */
+  neutralScale?: BrandingColorScale;
+  /** Replaces the primary, info and link families. */
+  primaryScale?: BrandingColorScale;
+  /** Alias-token overrides (radius, control height, …) applied to both appearances. */
+  token?: Record<string, number | string>;
+}
+
+// White-label distributions supply their theme through the business package
+// override. `undefined` keeps the stock LobeHub theme.
+export const BRANDING_THEME: BrandingTheme | undefined = undefined;
