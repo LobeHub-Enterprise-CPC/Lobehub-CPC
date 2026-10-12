@@ -100,7 +100,13 @@ const errorHandlingLink: TRPCLink<LambdaRouter> = () => {
                     // so skip the login redirect/notification there.
                     if (!isDesktop) {
                       const { getUserStoreState } = await import('@/store/user/store');
-                      const { isSignedIn, logout } = getUserStoreState();
+                      const { isSignedIn, isSigningOut, logout } = getUserStoreState();
+                      // Requests already in flight may settle after sign-out.
+                      // The intentional operation owns cleanup and its redirect.
+                      if (isSigningOut) {
+                        err.meta = { ...err.meta, shouldRetry: false };
+                        break;
+                      }
                       // If user is still marked as signed in but got 401,
                       // session is invalid - clear client state first
                       if (isSignedIn) {

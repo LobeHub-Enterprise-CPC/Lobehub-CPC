@@ -1,4 +1,4 @@
-import { parseTenantPath,withTenantPath } from '@lobechat/business-tenant/routing';
+import { parseTenantPath, withTenantPath } from '@lobechat/business-tenant/routing';
 import { type SSOProvider } from '@lobechat/types';
 
 import { clearActiveScopeKey } from '@/libs/swr/useCacheScope';
@@ -42,6 +42,7 @@ export const createAuthSlice = (set: Setter, get: () => UserStore, _api?: unknow
 export class UserAuthActionImpl {
   readonly #get: () => UserStore;
   readonly #set: Setter;
+  #logoutPromise?: Promise<void>;
 
   constructor(set: Setter, get: () => UserStore, _api?: unknown) {
     void _api;
@@ -62,36 +63,51 @@ export class UserAuthActionImpl {
     }
   };
 
-  logout = async (options?: { redirectTo?: string }): Promise<void> => {
-    // Capture the owner before any async work. The store may be updated by a
-    // concurrent session event before Better Auth confirms this sign-out.
-    const signingOutUserId = this.#get().user?.id;
-    const { tenantSlug } = parseTenantPath(window.location.pathname);
+  logout = (options?: { redirectTo?: string }): Promise<void> => {
+    if (this.#get().isSigningOut && this.#logoutPromise) return this.#logoutPromise;
+    this.#set({ isSigningOut: true });
+    this.#logoutPromise = this.#performLogout(options);
+    return this.#logoutPromise;
+  };
 
-    // Clear the OIDC Provider session for the current browser *before*
-    // destroying the better-auth session. This prevents a stale OIDC session
-    // from silently issuing tokens for the old account after the user signs
-    // in as someone else.
+  #performLogout = async (options?: { redirectTo?: string }): Promise<void> => {
+    let confirmed = false;
     try {
-      await fetch(withTenantPath('/oidc/clear-session', tenantSlug), { method: 'POST' });
-    } catch {
-      // Best-effort: don't block sign-out if the cleanup request fails
-    }
+      // Capture the owner before any async work. The store may be updated by a
+      // concurrent session event before Better Auth confirms this sign-out.
+      const signingOutUserId = this.#get().user?.id;
+      const { tenantSlug } = parseTenantPath(window.location.pathname);
 
-    const { signOut } = await import('@/libs/better-auth/auth-client');
-    await signOut({
-      fetchOptions: {
-        onSuccess: () => {
-          // Drop the persisted active scope so the next boot doesn't hydrate the
-          // signed-out user's cache (localStorage survives the reload below).
-          clearActiveScopeKey();
-          clearUserDisplaySnapshot(signingOutUserId);
-          // Use window.location.href to trigger a full page reload
-          // This ensures all client-side state (React, Zustand, cache) is cleared
-          window.location.href = withTenantPath(options?.redirectTo || '/signin', tenantSlug);
+      // Clear the OIDC Provider session for the current browser *before*
+      // destroying the better-auth session. This prevents a stale OIDC session
+      // from silently issuing tokens for the old account after the user signs
+      // in as someone else.
+      try {
+        await fetch(withTenantPath('/oidc/clear-session', tenantSlug), { method: 'POST' });
+      } catch {
+        // Best-effort: don't block sign-out if the cleanup request fails
+      }
+
+      const { signOut } = await import('@/libs/better-auth/auth-client');
+      await signOut({
+        fetchOptions: {
+          onSuccess: () => {
+            confirmed = true;
+            // Drop the persisted active scope so the next boot doesn't hydrate the
+            // signed-out user's cache (localStorage survives the reload below).
+            clearActiveScopeKey();
+            clearUserDisplaySnapshot(signingOutUserId);
+            // Use window.location.href to trigger a full page reload
+            // This ensures all client-side state (React, Zustand, cache) is cleared
+            window.location.href = withTenantPath(options?.redirectTo || '/signin', tenantSlug);
+          },
         },
-      },
-    });
+      });
+    } finally {
+      // Successful sign-out keeps ownership through navigation. A failed
+      // request leaves the current identity intact and permits a real retry.
+      if (!confirmed) this.#set({ isSigningOut: false });
+    }
   };
 
   openLogin = async (reason?: 'sessionExpired'): Promise<void> => {

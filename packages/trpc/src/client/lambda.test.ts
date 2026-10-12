@@ -10,11 +10,54 @@ vi.mock('@/business/client/trpc-headers', () => ({ getBusinessTrpcHeaders: async
 // below check which copy was selected, not its wording.
 vi.mock('i18next', () => ({ t: (key: string) => key }));
 
+const authState = vi.hoisted(() => ({ isSignedIn: true, isSigningOut: false, logout: vi.fn() }));
+const redirect = vi.hoisted(() => vi.fn());
+vi.mock('@/store/user/store', () => ({ getUserStoreState: () => authState }));
+vi.mock('@/components/Error/loginRequiredNotification', () => ({ loginRequired: { redirect } }));
+
 const okTrpcResponse = (data: unknown) =>
   new Response(JSON.stringify({ result: { data: superjson.serialize(data) } }), {
     headers: { 'content-type': 'application/json' },
     status: 200,
   });
+
+describe('lambdaClient sign-out boundary', () => {
+  afterEach(() => {
+    authState.isSigningOut = false;
+    authState.logout.mockClear();
+    redirect.mockClear();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it.each([true, false])('handles a 401 with intentional sign-out=%s', async (isSigningOut) => {
+    authState.isSigningOut = isSigningOut;
+    vi.spyOn(Date, 'now').mockReturnValue(isSigningOut ? 1_800_000_000_000 : 1_800_000_010_000);
+    vi.stubGlobal('location', new URL('http://localhost/t/acme/agent'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: superjson.serialize({
+              code: -32_001,
+              data: { code: 'UNAUTHORIZED', httpStatus: 401 },
+              message: 'UNAUTHORIZED',
+            }),
+          }),
+          { headers: { 'content-type': 'application/json' }, status: 401 },
+        ),
+      ),
+    );
+
+    await expect(
+      lambdaClient.agent.getAgentConfigById.query({ agentId: 'agt_test' }),
+    ).rejects.toThrow('UNAUTHORIZED');
+    expect(authState.logout).toHaveBeenCalledTimes(isSigningOut ? 0 : 1);
+    expect(redirect).not.toHaveBeenCalled();
+  });
+});
 
 describe('lambdaClient large-input query transport', () => {
   const fetchMock = vi.fn();

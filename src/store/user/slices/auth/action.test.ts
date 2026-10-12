@@ -32,6 +32,7 @@ afterEach(() => {
 
   // Reset store state
   useUserStore.setState({
+    isSigningOut: false,
     isLoadedAuthProviders: false,
     authProviders: [],
     hasPasswordAccount: false,
@@ -84,6 +85,40 @@ describe('createAuthSlice', () => {
   });
 
   describe('logout', () => {
+    it('shares an in-progress sign-out and retains its original tenant redirect', async () => {
+      let resolveCleanup!: (response: Response) => void;
+      const fetch = vi.spyOn(globalThis, 'fetch').mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveCleanup = resolve;
+          }),
+      );
+      const originalLocation = window.location;
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: { href: '', pathname: '/t/acme/agent' },
+        writable: true,
+      });
+      mockBetterAuthClient.signOut.mockImplementationOnce(async ({ fetchOptions }) => {
+        fetchOptions.onSuccess();
+      });
+      try {
+        const first = useUserStore.getState().logout();
+        const second = useUserStore
+          .getState()
+          .logout({ redirectTo: '/signin?reason=sessionExpired' });
+        const isSigningOut = useUserStore.getState().isSigningOut;
+        resolveCleanup(new Response(null));
+        await Promise.all([first, second]);
+
+        expect(isSigningOut).toBe(true);
+        expect(fetch).toHaveBeenCalledTimes(1);
+        expect(mockBetterAuthClient.signOut).toHaveBeenCalledTimes(1);
+        expect(window.location.href).toBe('/t/acme/signin');
+      } finally {
+        Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+      }
+    });
     it('clears the captured user snapshot after successful sign-out', async () => {
       writeUserDisplaySnapshot('user-a', { avatar: 'avatar-a' });
       writeUserDisplaySnapshot('user-b', { avatar: 'avatar-b' });
@@ -119,6 +154,8 @@ describe('createAuthSlice', () => {
       const logoutPromise = result.current.logout();
 
       await expect(logoutPromise).rejects.toThrow('sign-out failed');
+
+      expect(useUserStore.getState().isSigningOut).toBe(false);
 
       expect(readUserDisplaySnapshot('user-a')).toEqual({ avatar: 'avatar-a' });
       expect(localStorage.getItem('lobehub:active-scope')).toBe('user-a:personal');
