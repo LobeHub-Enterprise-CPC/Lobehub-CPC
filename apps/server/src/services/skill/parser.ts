@@ -82,6 +82,13 @@ const flattenInline = (tokens: Token[]): string =>
     })
     .join('');
 
+// eslint-disable-next-line no-control-regex
+const UNSAFE_PATH_CHARACTER = /[\\\u0000-\u001F\u007F]/;
+
+const isPlainRelativePath = (path: string) =>
+  !UNSAFE_PATH_CHARACTER.test(path) &&
+  path.split('/').every((segment) => segment && segment !== '.' && segment !== '..');
+
 export class SkillParser {
   /**
    * Parse SKILL.md file content
@@ -454,8 +461,10 @@ export class SkillParser {
       // Calculate relative path
       const relativePath = basePath ? path.slice(basePath.length) : path;
 
-      // Skip empty paths
-      if (!relativePath) continue;
+      // Skip empty paths, and entries that are not a plain path below the skill
+      // (`..` / `.` / empty segments, backslashes, control characters): they would
+      // escape the skill directory and are not valid storage keys.
+      if (!relativePath || !isPlainRelativePath(relativePath)) continue;
 
       resources.set(relativePath, Buffer.from(data));
     }

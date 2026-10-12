@@ -3,6 +3,7 @@ import { type NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
+import { secretsEqual } from '@/server/utils/bearerAuth';
 
 const handleGet = async (request: NextRequest) => {
   if (!process.env.REVALIDATE_SECRET) {
@@ -11,7 +12,7 @@ const handleGet = async (request: NextRequest) => {
 
   const authToken = request.headers.get('Authorization');
 
-  if (!authToken || authToken !== process.env.REVALIDATE_SECRET) {
+  if (!authToken || !secretsEqual(authToken, process.env.REVALIDATE_SECRET)) {
     return NextResponse.json('Unauthorized', { status: 401 });
   }
 

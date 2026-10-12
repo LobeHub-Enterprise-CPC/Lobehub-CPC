@@ -1,3 +1,4 @@
+import { currentTenantScope } from '@lobechat/database/tenant';
 import { TRPCError } from '@trpc/server';
 
 import type { DeviceModel } from '@/database/models/device';
@@ -11,13 +12,16 @@ import { isPathWithinRoot } from '@/server/services/deviceGateway';
  */
 const deviceSkillRoots = new Map<string, Set<string>>();
 
+/** Device ids are chosen by the client, so the grant is scoped to the tenant that registered it. */
+const skillRootsKey = (deviceId: string) => `${currentTenantScope()?.tenantId ?? ''}|${deviceId}`;
+
 export const registerDeviceSkillRoots = (deviceId: string, roots: string[]) => {
   if (roots.length === 0) return;
-  deviceSkillRoots.set(deviceId, new Set(roots));
+  deviceSkillRoots.set(skillRootsKey(deviceId), new Set(roots));
 };
 
 const isWithinSkillRoots = (deviceId: string, workingDirectory: string): boolean => {
-  const roots = deviceSkillRoots.get(deviceId);
+  const roots = deviceSkillRoots.get(skillRootsKey(deviceId));
   if (!roots) return false;
   return [...roots].some((root) => isPathWithinRoot(root, workingDirectory));
 };

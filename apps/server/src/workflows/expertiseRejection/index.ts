@@ -1,3 +1,4 @@
+import { currentTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 
 import { getServerDB } from '@/database/server';
@@ -42,7 +43,8 @@ export class ExpertiseRejectionWorkflow {
   static async trigger(payload: ExpertiseRejectionWorkflowPayload) {
     try {
       if (!appEnv.enableQueueAgentRuntime) {
-        const key = catalogKey(payload);
+        // Serialization only, but the chain runs tenant-scoped work: never queue across tenants.
+        const key = `${currentTenantScope()?.tenantId ?? ''}|${catalogKey(payload)}`;
         const previous = localRuns.get(key) ?? Promise.resolve();
         // `catch` before chaining: one failed distillation must not cancel the rounds queued
         // behind it, and every branch already logs its own error.

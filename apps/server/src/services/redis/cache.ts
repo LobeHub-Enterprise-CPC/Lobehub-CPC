@@ -1,3 +1,5 @@
+import { currentTenantScope } from '@lobechat/database/tenant';
+
 import { getJSONFromRedis, normalizeRedisKey } from '@/server/modules/Redis';
 import type { BaseRedisProvider, RedisKey } from '@/server/modules/Redis/types';
 
@@ -61,7 +63,8 @@ const claimLocally = (key: RedisKey, ttlMs: number): boolean => {
     for (const [k, expiresAt] of localClaims) if (expiresAt <= now) localClaims.delete(k);
   }
 
-  const normalized = normalizeRedisKey(key);
+  // Redis keys are tenant-prefixed by the client; the process-local fallback must be too.
+  const normalized = `${currentTenantScope()?.tenantId ?? ''}|${normalizeRedisKey(key)}`;
   const expiresAt = localClaims.get(normalized);
   if (expiresAt && expiresAt > now) return false;
 

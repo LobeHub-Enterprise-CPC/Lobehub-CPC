@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { AgentRuntimeErrorType } from '@lobechat/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -228,6 +229,27 @@ describe('ensureFreshOAuthToken', () => {
     expect(a.oauthAccessToken).toBe('new-access');
     expect(b).toBe(a);
     expect(c).toBe(a);
+  });
+
+  it('never lets another tenant join a refresh in flight for the same user id', async () => {
+    mockFetch.mockImplementation(async () =>
+      tokenResponse({ access_token: `access-${mockFetch.mock.calls.length}`, refresh_token: 'r' }),
+    );
+    const inTenant = <T>(tenantId: string, fn: () => T) =>
+      runWithTenantScope({ session: {}, slug: tenantId, tenantId } as unknown as TenantScope, fn);
+    const params = makeParams({
+      oauthAccessToken: 'old-access',
+      oauthRefreshToken: 'old-refresh',
+      oauthTokenExpiresAt: String(Date.now() - 1000),
+    });
+
+    const [a, b] = await Promise.all([
+      inTenant('tenant-a', () => ensureFreshOAuthToken(params)),
+      inTenant('tenant-b', () => ensureFreshOAuthToken(params)),
+    ]);
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(b).not.toBe(a);
   });
 
   it('still returns fresh tokens when persisting fails', async () => {

@@ -6,6 +6,7 @@ import {
   sanitizeAgentInterventionRequestForReview,
 } from '@lobechat/agent-gateway-client';
 import { LOADING_FLAT } from '@lobechat/const';
+import { currentTenantScope } from '@lobechat/database/tenant';
 import type {
   MainAgentIntent,
   MainAgentInterventionTransition,
@@ -173,6 +174,9 @@ interface OperationState {
  * tool map / accumulated content / subagent runs.
  */
 const operationStates = new Map<string, OperationState>();
+
+/** Operation ids come from the device: one tenant's run state must never be picked up by another. */
+const stateKey = (operationId: string) => `${currentTenantScope()?.tenantId ?? ''}|${operationId}`;
 
 /** Test-only reset hook to clear the singleton between specs. */
 export const __resetOperationStatesForTesting = () => operationStates.clear();
@@ -444,7 +448,7 @@ export class HeterogeneousPersistenceHandler {
    * publish identity (tracked follow-up), not a bigger in-memory map.
    */
   filterUnpublishedEvents(operationId: string, events: AgentStreamEvent[]): AgentStreamEvent[] {
-    const state = operationStates.get(operationId);
+    const state = operationStates.get(stateKey(operationId));
     if (!state) return events;
 
     return events.filter((event) => !state.publishedKeys.has(eventKey(event)));
@@ -452,7 +456,7 @@ export class HeterogeneousPersistenceHandler {
 
   /** Latch an event as published so a batch retry skips its XADD. */
   markEventPublished(operationId: string, event: AgentStreamEvent): void {
-    operationStates.get(operationId)?.publishedKeys.add(eventKey(event));
+    operationStates.get(stateKey(operationId))?.publishedKeys.add(eventKey(event));
   }
 
   /**
@@ -484,7 +488,7 @@ export class HeterogeneousPersistenceHandler {
      */
     topicId?: string;
   }): Promise<void> {
-    let state = operationStates.get(params.operationId);
+    let state = operationStates.get(stateKey(params.operationId));
 
     // A run that died before producing any stream event has no state — but its
     // terminal error must still land on the assistant message HERE, before the
@@ -516,7 +520,7 @@ export class HeterogeneousPersistenceHandler {
     try {
       if (params.error) await this.persistFinishError(state, params.error);
     } finally {
-      operationStates.delete(params.operationId);
+      operationStates.delete(stateKey(params.operationId));
     }
   }
 
@@ -542,7 +546,7 @@ export class HeterogeneousPersistenceHandler {
     seedAssistantMessageId?: string,
     allowMissingRunningOperation = false,
   ): Promise<OperationState> {
-    let state = operationStates.get(operationId);
+    let state = operationStates.get(stateKey(operationId));
     if (state) {
       // Defensive: caller mismatch on topicId would corrupt persistence —
       // assert and throw rather than silently writing to the wrong topic.
@@ -666,7 +670,7 @@ export class HeterogeneousPersistenceHandler {
     };
     await this.refreshToolMessageIndex(state);
     await this.refreshMainStateFromDb(state);
-    operationStates.set(operationId, state);
+    operationStates.set(stateKey(operationId), state);
     log(
       'created state for operation %s on topic %s msgId=%s tools=%d restored(content=%d tools=%d)',
       operationId,

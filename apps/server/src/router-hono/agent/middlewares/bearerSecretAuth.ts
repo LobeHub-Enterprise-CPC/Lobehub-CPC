@@ -1,6 +1,8 @@
 import debug from 'debug';
 import type { MiddlewareHandler } from 'hono';
 
+import { isBearerSecret } from '@/server/utils/bearerAuth';
+
 const log = debug('lobe-server:agent:bearer-secret-auth');
 
 /**
@@ -23,7 +25,7 @@ export const bearerSecretAuth =
     }
 
     const authHeader = c.req.header('authorization');
-    if (authHeader !== `Bearer ${secret}`) {
+    if (!isBearerSecret(authHeader, secret)) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
 

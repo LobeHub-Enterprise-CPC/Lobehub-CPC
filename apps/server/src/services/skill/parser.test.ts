@@ -497,6 +497,26 @@ Nested content`;
       expect(result.resources.has('SKILL.md')).toBe(false);
     });
 
+    it('drops entries that are not a plain relative path below the skill', async () => {
+      const skillMd = `---
+name: nested-skill
+description: A nested skill
+---
+Nested content`;
+
+      const zipped = await createZip({
+        'my-skill/../escape.txt': new TextEncoder().encode('x'),
+        'my-skill/SKILL.md': new TextEncoder().encode(skillMd),
+        'my-skill/a//b.txt': new TextEncoder().encode('x'),
+        'my-skill/a\\b.txt': new TextEncoder().encode('x'),
+        'my-skill/lib/./x.js': new TextEncoder().encode('x'),
+        'my-skill/lib/helper.js': new TextEncoder().encode('helper code'),
+      });
+      const result = await parser.parseZipPackage(Buffer.from(zipped));
+
+      expect([...result.resources.keys()]).toEqual(['lib/helper.js']);
+    });
+
     it('should skip __MACOSX files', async () => {
       const skillMd = `---
 name: test

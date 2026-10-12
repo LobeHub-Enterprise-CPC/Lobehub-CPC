@@ -1,9 +1,14 @@
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { TRPCError } from '@trpc/server';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { DeviceModel } from '@/database/models/device';
 
-import { assertWorkspaceDeviceVisible, assertWorkspaceRootApproved } from '../deviceWorkspaceGuard';
+import {
+  assertWorkspaceDeviceVisible,
+  assertWorkspaceRootApproved,
+  registerDeviceSkillRoots,
+} from '../deviceWorkspaceGuard';
 
 const mockModel = (
   row: {
@@ -109,5 +114,26 @@ describe('assertWorkspaceDeviceVisible', () => {
     await expect(
       assertWorkspaceDeviceVisible(model, 'someone-elses-private'),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+});
+
+describe('device skill roots', () => {
+  const inTenant = <T>(tenantId: string, fn: () => T) =>
+    runWithTenantScope({ session: {}, slug: tenantId, tenantId } as unknown as TenantScope, fn);
+
+  it('only authorizes skill roots for the tenant that registered them', async () => {
+    inTenant('tenant-a', () => registerDeviceSkillRoots('shared-device', ['/home/a/.skills']));
+    const model = mockModel({ workingDirs: [] });
+
+    await expect(
+      inTenant('tenant-a', () =>
+        assertWorkspaceRootApproved(model, 'shared-device', '/home/a/.skills/x'),
+      ),
+    ).resolves.toBeUndefined();
+    await expect(
+      inTenant('tenant-b', () =>
+        assertWorkspaceRootApproved(model, 'shared-device', '/home/a/.skills/x'),
+      ),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 });

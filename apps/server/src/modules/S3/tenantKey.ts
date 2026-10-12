@@ -18,23 +18,45 @@ const tenantObjectRoot = (tenantId: string) => {
   return `${TENANT_OBJECT_PREFIX}/${tenantId}/`;
 };
 
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARACTER = /[\u0000-\u001F\u007F]/;
+
+/**
+ * A logical key is client-reachable (upload `pathname`, URLs read back), so it
+ * must stay a plain relative path below the tenant root: no `.` / `..` or empty
+ * segments, no backslashes (some backends and proxies treat them as `/`), no
+ * control characters.
+ */
+const assertLogicalKey = (logical: string): string => {
+  if (
+    !logical ||
+    logical.includes('\\') ||
+    CONTROL_CHARACTER.test(logical) ||
+    logical.split('/').some((segment) => !segment || segment === '.' || segment === '..')
+  ) {
+    throw new Error('TENANT_OBJECT_KEY_INVALID');
+  }
+  return logical;
+};
+
 /** The current tenant's physical key for a logical key. */
 export const tenantObjectKey = (key: string): string => {
   const root = tenantObjectRoot(requireTenantScope().tenantId);
-  const logical = key.replace(/^\/+/, '');
-  if (!logical) throw new Error('TENANT_OBJECT_KEY_INVALID');
-  return `${root}${logical}`;
+  // Leading slashes (an empty configured prefix) are dropped, nothing else.
+  return `${root}${assertLogicalKey(key.replace(/^\/+/, ''))}`;
 };
 
 /**
  * The logical key of a physical key read back from a URL. Returns `null` when
  * the key does not belong to the current tenant (another tenant's object, or
- * one stored before tenant prefixes): such a URL is not resolved.
+ * one stored before tenant prefixes): such a URL is not resolved. A key inside
+ * the tenant root whose logical part is malformed throws
+ * `TENANT_OBJECT_KEY_INVALID`.
  */
 export const logicalObjectKey = (physicalKey: string): string | null => {
   const root = tenantObjectRoot(requireTenantScope().tenantId);
   const key = physicalKey.replace(/^\/+/, '');
   if (!key.startsWith(root)) return null;
   const logical = key.slice(root.length);
-  return logical || null;
+  return logical ? assertLogicalKey(logical) : null;
 };

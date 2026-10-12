@@ -1,3 +1,4 @@
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -26,6 +27,23 @@ afterEach(() => {
 describe('telegram guest session (memory fallback)', () => {
   beforeEach(() => {
     redisState.enabled = false;
+  });
+
+  it('does not share in-process sessions between tenants using the same bot application', async () => {
+    const inTenant = <T>(tenantId: string, fn: () => T) =>
+      runWithTenantScope({ session: {}, slug: tenantId, tenantId } as unknown as TenantScope, fn);
+    const threadId = 'telegram:guest:-1:message:10';
+
+    await inTenant('tenant-a', () =>
+      saveTelegramGuestSession('bot-1', threadId, { guestQueryId: 'gq-a', lastText: 'secret-a' }),
+    );
+
+    await expect(
+      inTenant('tenant-b', () => getTelegramGuestSession('bot-1', threadId)),
+    ).resolves.toBeUndefined();
+    await expect(
+      inTenant('tenant-a', () => getTelegramGuestSession('bot-1', threadId)),
+    ).resolves.toMatchObject({ lastText: 'secret-a' });
   });
 
   it('round-trips a session when Redis is unavailable', async () => {

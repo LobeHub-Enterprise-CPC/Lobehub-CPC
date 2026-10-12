@@ -1,6 +1,7 @@
 import debug from 'debug';
 
 import { gatewayEnv } from '@/envs/gateway';
+import { isBearerSecret } from '@/server/utils/bearerAuth';
 
 import type { MessengerPlatformWebhookGate } from '../types';
 
@@ -19,7 +20,7 @@ export const wechatWebhookGate: MessengerPlatformWebhookGate = {
       return new Response('service not configured', { status: 503 });
     }
 
-    if (req.headers.get('authorization') !== `Bearer ${serviceToken}`) {
+    if (!isBearerSecret(req.headers.get('authorization'), serviceToken)) {
       log('webhook: invalid Message Gateway authorization');
       return new Response('unauthorized', { status: 401 });
     }

@@ -5,6 +5,7 @@ import { getServerDBConfig } from '@/config/db';
 import { createCallerFactory } from '@/libs/trpc/lambda';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { lambdaRouter } from '@/server/routers/lambda';
+import { isBearerSecret } from '@/server/utils/bearerAuth';
 
 export const maxDuration = 300;
 
@@ -84,7 +85,7 @@ const handlePost = async (req: Request) => {
     const authorization = req.headers.get('Authorization');
 
     // If request has internal service token, bypass regular auth
-    if (authorization === `Bearer ${serverDBEnv.KEY_VAULTS_SECRET}`) {
+    if (isBearerSecret(authorization, serverDBEnv.KEY_VAULTS_SECRET)) {
       // Internal service call from ComfyUI provider
       // Pass a system user ID for internal service calls
       return handler(req, { jwtPayload: { userId: 'INTERNAL_SERVICE' } });
