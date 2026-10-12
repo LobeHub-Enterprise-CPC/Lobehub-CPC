@@ -52,6 +52,7 @@ const Layout: FC = () => {
           <Flexbox
             horizontal
             className={cx(isPWA ? styles.mainContainerPWA : styles.mainContainer)}
+            data-brand-slot="app-frame"
             height={showCloudPromotion ? `calc(100% - ${BANNER_HEIGHT}px)` : '100%'}
             width={'100%'}
           >

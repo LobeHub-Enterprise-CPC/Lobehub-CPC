@@ -69,7 +69,7 @@ const HomeHeader = memo<HomeHeaderProps>(({ centered }) => {
           <AgentSelect />
         </div>
       )}
-      <Text as={'h1'} className={styles.greeting} weight={600}>
+      <Text as={'h1'} className={styles.greeting} data-brand-slot="home-greeting" weight={600}>
         {greeting}
       </Text>
     </Flexbox>

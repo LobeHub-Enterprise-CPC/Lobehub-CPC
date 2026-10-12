@@ -39,6 +39,8 @@ const DesktopLayoutContainer: FC<PropsWithChildren> = ({ children }) => {
   return (
     <Flexbox
       className={styles.outerContainer}
+      data-brand-slot="main-outer"
+      data-nav-expanded={!!expand}
       height={'100%'}
       padding={8}
       style={outerCssVariables}
@@ -46,6 +48,7 @@ const DesktopLayoutContainer: FC<PropsWithChildren> = ({ children }) => {
     >
       <Flexbox
         className={styles.innerContainer}
+        data-brand-slot="main-inner"
         height={'100%'}
         ref={innerContainerRef}
         style={innerCssVariables}
