@@ -279,7 +279,7 @@ export const useSignIn = () => {
   const handleSocialSignIn = async (provider: string) => {
     if (bridgeAttempt.current) return;
     setSocialLoading(provider);
-    if (managedSSO && ssoProviders.find((item) => item.id === provider)?.protocol === 'bridge') {
+    if (ssoProviders.find((item) => item.id === provider)?.protocol === 'bridge') {
       try {
         // Open in the trusted click, before telemetry or any other async work.
         const attempt = beginBridgeLogin(
@@ -455,7 +455,12 @@ export const useSignIn = () => {
     ? []
     : managedSSO
       ? ssoProviders.map((item) => item.id)
-      : oAuthSSOProviders;
+      : [
+          ...new Set([
+            ...oAuthSSOProviders,
+            ...ssoProviders.filter((item) => item.protocol === 'bridge').map((item) => item.id),
+          ]),
+        ];
   const sortedProviders = lastAuthProvider
     ? [...resolvedProviders].sort((a, b) => {
         if (a === lastAuthProvider) return -1;

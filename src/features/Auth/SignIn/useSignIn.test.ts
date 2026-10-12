@@ -23,7 +23,7 @@ const mockBusinessSignin = vi.hoisted(() => ({
     id: string;
     displayName: string;
     logoUrl: null;
-    protocol: 'oidc' | 'oauth2';
+    protocol: 'oidc' | 'oauth2' | 'bridge';
   }>,
 }));
 const mockLocalStorage = vi.hoisted(() => {
@@ -724,6 +724,14 @@ describe('useSignIn', () => {
       expect(result.current.oAuthSSOProviders[0]).toBe('github');
 
       localStorage.removeItem('lobehub:auth:last-provider:v1');
+    });
+
+    it('keeps tenant OAuth providers alongside the Bridge provider', () => {
+      mockBusinessSignin.ssoProviders = [
+        { id: 'bridge-id', displayName: 'Bridge', logoUrl: null, protocol: 'bridge' },
+      ];
+      const { result } = renderHook(() => useSignIn());
+      expect(result.current.oAuthSSOProviders).toEqual(['google', 'github', 'bridge-id']);
     });
 
     it('uses managed provider IDs instead of environment providers', () => {

@@ -34,6 +34,7 @@ export const ssoProviders = pgTable(
   'sso_providers',
   {
     admissionPolicy: text('admission_policy').default('allowlist').notNull(),
+    bridgeConfig: text('bridge_config'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     displayName: text('display_name').notNull(),
