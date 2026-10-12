@@ -9,6 +9,13 @@ import { TenantDatabaseError } from './errors';
 import { tenantTransactionPreludeSql } from './names';
 import type { TenantPoolLease } from './pool';
 
+/**
+ * Admission check hook. `early` runs before a connection is taken and may be
+ * answered from bounded-staleness facts; `locked` runs once the tenant's shared
+ * drain lock is held and must reflect the state at that moment (FR-DI-07).
+ */
+export type TenantAdmit = (stage: 'early' | 'locked') => Promise<void>;
+
 const BEGIN_STATEMENT = /^\s*begin\b/i;
 const statementText = (query: unknown): string =>
   typeof query === 'string' ? query : String((query as { text?: unknown } | null)?.text ?? '');
@@ -27,7 +34,7 @@ export const createTenantSchemaPool = (
   acquire: () => TenantPoolLease,
   schemaName: string,
   tenantId: string,
-  admit?: () => Promise<void>,
+  admit?: TenantAdmit,
 ): Pool => {
   const prelude = tenantTransactionPreludeSql(schemaName, tenantId);
   const pool = new Pool({ max: 1 });
@@ -35,7 +42,7 @@ export const createTenantSchemaPool = (
   const connect = async (): Promise<PoolClient> => {
     // Refuse early, before taking a pooled connection, when the tenant is
     // already known to be unavailable.
-    if (admit) await admit();
+    if (admit) await admit('early');
     const lease = acquire();
     let client: PoolClient;
     try {
@@ -61,7 +68,7 @@ export const createTenantSchemaPool = (
     const guard = async () => {
       try {
         await client.query(prelude);
-        if (admit) await admit();
+        if (admit) await admit('locked');
       } catch (error) {
         try {
           await client.query('ROLLBACK');
@@ -115,10 +122,11 @@ export const createTenantSchemaPool = (
 export interface TenantDatabaseSessionConfig {
   acquire: () => TenantPoolLease;
   /**
-   * Called before every transaction or standalone statement; a rejection
-   * refuses the work. The tenant runtime re-checks the tenant's lifecycle here.
+   * Called twice for every transaction or standalone statement (before the
+   * connection, and after the drain lock); a rejection refuses the work. The
+   * tenant runtime re-checks the tenant's lifecycle here.
    */
-  admit?: () => Promise<void>;
+  admit?: TenantAdmit;
   schemaName: string;
   tenantId: string;
 }

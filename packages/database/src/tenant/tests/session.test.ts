@@ -90,4 +90,18 @@ describe('createTenantSchemaPool', () => {
     expect(admit).toHaveBeenCalledTimes(2);
     expect(client.release).toHaveBeenCalledTimes(1);
   });
+
+  it('checks early before connecting, then once more after the drain lock', async () => {
+    const { lease, statements } = fakeLease();
+    const order: string[] = [];
+    const admit = vi.fn(async (stage: 'early' | 'locked') => {
+      order.push(`${stage}@${statements.length}`);
+    });
+    const pool = createTenantSchemaPool(() => lease, SCHEMA, 't-1', admit);
+
+    await pool.query('SELECT 1');
+
+    // `early` precedes every statement; `locked` follows BEGIN and the prelude.
+    expect(order).toEqual(['early@0', 'locked@2']);
+  });
 });

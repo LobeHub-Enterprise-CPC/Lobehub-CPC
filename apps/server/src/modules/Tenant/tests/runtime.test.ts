@@ -81,4 +81,52 @@ describe('TenantRuntime.assertAdmitted', () => {
     await expect(earlier).resolves.toBeUndefined();
     await expect(fresh).rejects.toMatchObject({ code: 'TENANT_FROZEN' });
   });
+
+  it('shares one read among strict checks that arrive while another is running, never an earlier one', async () => {
+    const { platform, runtime } = setup();
+    const first = runtime.assertAdmitted('t-1', 0);
+    await vi.waitFor(() => expect(platform.pending).toHaveLength(1));
+    // Four more arrive while the first read is still out: they must not use it.
+    const burst = [1, 2, 3, 4].map(() => runtime.assertAdmitted('t-1', 0));
+    const burstSettled = Promise.allSettled(burst);
+    expect(platform.select).toHaveBeenCalledTimes(1);
+
+    platform.answer([activeRow]);
+    await expect(first).resolves.toBeUndefined();
+    await vi.waitFor(() => expect(platform.select).toHaveBeenCalledTimes(2));
+    platform.answer([
+      { ...activeRow, lifecycle: { ...activeRow.lifecycle, desiredState: 'frozen' } },
+    ]);
+
+    const results = await burstSettled;
+    expect(platform.select).toHaveBeenCalledTimes(2);
+    for (const result of results) {
+      expect(result).toMatchObject({ reason: { code: 'TENANT_FROZEN' }, status: 'rejected' });
+    }
+  });
+
+  it('answers an early (TTL) check from the facts a strict read just loaded', async () => {
+    const { platform, runtime } = setup();
+    const strict = runtime.assertAdmitted('t-1', 0);
+    await vi.waitFor(() => expect(platform.pending).toHaveLength(1));
+    platform.answer([activeRow]);
+    await strict;
+
+    await expect(runtime.assertAdmitted('t-1', TENANT_ADMISSION_TTL_MS)).resolves.toBeUndefined();
+    expect(platform.select).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps serving strict checks after a read fails', async () => {
+    const { platform, runtime } = setup();
+    const failing = runtime.assertAdmitted('t-1', 0);
+    await vi.waitFor(() => expect(platform.pending).toHaveLength(1));
+    const queued = runtime.assertAdmitted('t-1', 0);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    platform.pending.shift()!(Promise.reject(new Error('platform down')) as never);
+    await expect(failing).rejects.toMatchObject({ code: 'TENANT_UNAVAILABLE' });
+
+    await vi.waitFor(() => expect(platform.pending).toHaveLength(1));
+    platform.answer([activeRow]);
+    await expect(queued).resolves.toBeUndefined();
+  });
 });

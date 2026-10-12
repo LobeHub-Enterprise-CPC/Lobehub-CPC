@@ -53,6 +53,11 @@ export class TenantRuntime {
     string,
     { promise: Promise<RouteEntry | null>; startedAt: number }
   >();
+  /** Strict (maxAge 0) reads in flight, and the one read queued behind each. */
+  private readonly strictReads = new Map<
+    string,
+    { queued: Promise<RouteEntry | null> | null; running: Promise<RouteEntry | null> | null }
+  >();
   private readonly sessions = new Map<string, { key: string; session: TenantDatabaseSession }>();
   /** Database verification expires with the same bound as admission facts. */
   private readonly verified = new Map<string, number>();
@@ -105,33 +110,84 @@ export class TenantRuntime {
    * requests, streams and queued steps keep their scope, so every new tenant
    * transaction and every realtime watcher asks again. Facts are at most
    * `maxAgeMs` old, counted from when their read started; concurrent checks
-   * share a platform read only while it is that fresh.
+   * share a platform read only while it is that fresh. `maxAgeMs <= 0` asks
+   * for a read that starts after this call (see {@link readStrict}).
    */
   async assertAdmitted(tenantId: string, maxAgeMs = TENANT_ADMISSION_TTL_MS): Promise<void> {
-    const cached = this.byId.get(tenantId);
     let entry: RouteEntry | null;
-    if (cached && this.isFresh(cached.fetchedAt, maxAgeMs)) entry = cached.entry;
+    if (maxAgeMs <= 0) entry = await this.readStrict(tenantId);
     else {
-      let loading = this.loadingById.get(tenantId);
-      if (!loading || !this.isFresh(loading.startedAt, maxAgeMs)) {
-        const startedAt = this.now().getTime();
-        const promise = this.directory.findById(tenantId).then((loaded) => {
-          this.byId.set(tenantId, { entry: loaded, fetchedAt: startedAt });
-          return loaded;
-        });
-        const current = { promise, startedAt };
-        void promise
-          .catch(() => undefined)
-          .finally(() => {
-            if (this.loadingById.get(tenantId) === current) this.loadingById.delete(tenantId);
-          });
-        this.loadingById.set(tenantId, current);
-        loading = current;
+      const cached = this.byId.get(tenantId);
+      if (cached && this.isFresh(cached.fetchedAt, maxAgeMs)) entry = cached.entry;
+      else {
+        let loading = this.loadingById.get(tenantId);
+        if (!loading || !this.isFresh(loading.startedAt, maxAgeMs)) {
+          const current = this.loadEntry(tenantId);
+          void current.promise
+            .catch(() => undefined)
+            .finally(() => {
+              if (this.loadingById.get(tenantId) === current) this.loadingById.delete(tenantId);
+            });
+          this.loadingById.set(tenantId, current);
+          loading = current;
+        }
+        entry = await loading.promise;
       }
-      entry = await loading.promise;
     }
     if (!entry) throw new TenantGateError('TENANT_NOT_FOUND');
     this.assertAvailable(entry);
+  }
+
+  /** One platform read of a tenant's admission facts; newer facts are never overwritten by older ones. */
+  private loadEntry(tenantId: string) {
+    const startedAt = this.now().getTime();
+    const promise = this.directory.findById(tenantId).then((loaded) => {
+      const current = this.byId.get(tenantId);
+      if (!current || current.fetchedAt <= startedAt)
+        this.byId.set(tenantId, { entry: loaded, fetchedAt: startedAt });
+      return loaded;
+    });
+    return { promise, startedAt };
+  }
+
+  /**
+   * A read that starts after this call, shared among the callers that arrive
+   * while another is running: they wait for it, then all use one next read.
+   * Strictness is kept (nobody gets an answer from a read that began before
+   * their call) while a burst of transactions costs two platform reads at most
+   * instead of one each.
+   */
+  private readStrict(tenantId: string): Promise<RouteEntry | null> {
+    let slot = this.strictReads.get(tenantId);
+    if (!slot) {
+      slot = { queued: null, running: null };
+      this.strictReads.set(tenantId, slot);
+    }
+    if (slot.queued) return slot.queued;
+    if (!slot.running) return this.startStrictRead(tenantId, slot);
+
+    const settled = () => undefined;
+    const queued = slot.running.then(settled, settled).then(() => {
+      slot.queued = null;
+      return this.startStrictRead(tenantId, slot);
+    });
+    slot.queued = queued;
+    return queued;
+  }
+
+  private startStrictRead(
+    tenantId: string,
+    slot: { queued: Promise<RouteEntry | null> | null; running: Promise<RouteEntry | null> | null },
+  ) {
+    const { promise } = this.loadEntry(tenantId);
+    slot.running = promise;
+    const clear = () => {
+      if (slot.running === promise) slot.running = null;
+      if (!slot.running && !slot.queued && this.strictReads.get(tenantId) === slot)
+        this.strictReads.delete(tenantId);
+    };
+    promise.then(clear, clear);
+    return promise;
   }
 
   /** Tenants a cron should visit (FR-AS-02): registered and currently admitted. */
@@ -216,10 +272,14 @@ export class TenantRuntime {
     const { tenantId } = directory;
     const session = new TenantDatabaseSession({
       acquire: this.acquireFor(directory),
-      admit: async () => {
+      // Before connecting, facts within the admission TTL are enough to refuse
+      // early. After the drain lock is held they must be read afresh: a
+      // transaction that waited behind a drain must see the state the drain
+      // was started for, whatever this process cached before.
+      admit: async (stage) => {
         if (this.claims && !this.claims.isHeld(tenantId))
           throw new TenantGateError('TENANT_UNAVAILABLE');
-        await this.assertAdmitted(tenantId, 0);
+        await this.assertAdmitted(tenantId, stage === 'locked' ? 0 : TENANT_ADMISSION_TTL_MS);
       },
       schemaName: directory.schemaName,
       tenantId,
