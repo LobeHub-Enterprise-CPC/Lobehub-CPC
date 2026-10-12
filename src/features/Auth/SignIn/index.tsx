@@ -1,6 +1,5 @@
 'use client';
 
-import DevSeedSignIn from './DevSeedSignIn';
 import { SignInEmailSentStep } from './SignInEmailSentStep';
 import { SignInEmailStep } from './SignInEmailStep';
 import { SignInPasswordStep } from './SignInPasswordStep';
@@ -59,30 +58,27 @@ const SignIn = () => {
     );
 
   return (
-    <>
-      <SignInEmailStep
-        agreementChecked={agreementChecked}
-        continueWithAgreement={continueWithAgreement}
-        disableEmailPassword={disableEmailPassword}
-        form={form as any}
-        isSocialOnly={isSocialOnly}
-        lastAuthProvider={lastAuthProvider}
-        loading={loading}
-        oAuthSSOProviders={oAuthSSOProviders}
-        providerDetails={providerDetails}
-        reloadSSO={reloadSSO}
-        serverConfigInit={serverConfigInit}
-        sessionExpired={sessionExpired}
-        setAgreementChecked={setAgreementChecked}
-        socialLoading={socialLoading}
-        ssoError={ssoError}
-        onGoToSignup={handleGoToSignup}
-        onResetEmail={handleBackToEmail}
-        onSetPassword={handleForgotPassword}
-        onSocialSignIn={handleSocialSignIn}
-      />
-      <DevSeedSignIn />
-    </>
+    <SignInEmailStep
+      agreementChecked={agreementChecked}
+      continueWithAgreement={continueWithAgreement}
+      disableEmailPassword={disableEmailPassword}
+      form={form as any}
+      isSocialOnly={isSocialOnly}
+      lastAuthProvider={lastAuthProvider}
+      loading={loading}
+      oAuthSSOProviders={oAuthSSOProviders}
+      providerDetails={providerDetails}
+      reloadSSO={reloadSSO}
+      serverConfigInit={serverConfigInit}
+      sessionExpired={sessionExpired}
+      setAgreementChecked={setAgreementChecked}
+      socialLoading={socialLoading}
+      ssoError={ssoError}
+      onGoToSignup={handleGoToSignup}
+      onResetEmail={handleBackToEmail}
+      onSetPassword={handleForgotPassword}
+      onSocialSignIn={handleSocialSignIn}
+    />
   );
 };
 
