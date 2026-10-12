@@ -1,5 +1,6 @@
 'use client';
 
+import { NAV_RAIL_ENABLED } from '@lobechat/business-const';
 import { DraggablePanel } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { type ReactNode } from 'react';
@@ -184,9 +185,12 @@ export const NavPanelDraggable = memo<NavPanelDraggableProps>(({ activeContent, 
       <Suspense fallback={null}>
         <NavPanelUpgradeEntry />
       </Suspense>
-      <Suspense>
-        <Footer />
-      </Suspense>
+      {/* With the rail on, help and account live there instead. */}
+      {!NAV_RAIL_ENABLED && (
+        <Suspense>
+          <Footer />
+        </Suspense>
+      )}
     </DraggablePanel>
   );
 });

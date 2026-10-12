@@ -188,6 +188,14 @@ export const BUILTIN_SKILLS_HIDDEN: readonly string[] = [];
 export const AGENT_GROUP_CREATION_ENABLED = true;
 
 /**
+ * Two-level navigation. When on, the app shell renders an icon rail outside
+ * the navigation panel: page links, the help menu and the account entry move
+ * to the rail, and the Home panel keeps the brand header and the lists (agents,
+ * projects, recents). Off keeps the single-panel layout.
+ */
+export const NAV_RAIL_ENABLED = false;
+
+/**
  * Home sections hidden for a viewer who has not customized Home yet. Listing
  * every widget key (see `HOME_WIDGET_KEYS`) together with
  * `HOME_PORTRAIT_ENABLED = false` makes the centered greeting-and-composer

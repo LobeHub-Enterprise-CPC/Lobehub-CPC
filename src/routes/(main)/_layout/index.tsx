@@ -1,5 +1,6 @@
 'use client';
 
+import { NAV_RAIL_ENABLED } from '@lobechat/business-const';
 import { HotkeyScopeEnum } from '@lobechat/const/hotkeys';
 import { Flexbox } from '@lobehub/ui';
 import { cx } from 'antd-style';
@@ -16,6 +17,7 @@ import DesktopLayoutContainer from '@/features/DesktopLayoutContainer';
 import AuthRequiredModal from '@/features/Electron/AuthRequiredModal';
 import HotkeyHelperPanel from '@/features/HotkeyHelperPanel';
 import NavPanelShell from '@/features/NavPanel/Shell';
+import NavRail from '@/features/NavRail';
 import { DndContextWrapper } from '@/features/ResourceManager/DndContextWrapper';
 import { RouteMetaBridge } from '@/features/RouteMeta';
 import { usePlatform } from '@/hooks/usePlatform';
@@ -56,6 +58,7 @@ const Layout: FC = () => {
             height={showCloudPromotion ? `calc(100% - ${BANNER_HEIGHT}px)` : '100%'}
             width={'100%'}
           >
+            {NAV_RAIL_ENABLED && <NavRail />}
             <NavPanelShell />
             <DesktopLayoutContainer>
               <DesktopHomeLayout>
