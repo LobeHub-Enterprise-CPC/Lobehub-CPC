@@ -14,11 +14,21 @@ interface MockGlobalState {
 
 const mocks = vi.hoisted(() => ({
   globalState: undefined as unknown as MockGlobalState,
+  navRailEnabled: false,
   navLayout: {
     bottomMenuItems: [] as { key: string; title: string; url: string }[],
     topNavItems: [] as { key: string; title: string; url: string }[],
   },
   updateSystemStatus: vi.fn(),
+}));
+
+// Distributions flip this slot constant; pin it so both layouts are covered
+// whichever business-const package the workspace resolves.
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  get NAV_RAIL_ENABLED() {
+    return mocks.navRailEnabled;
+  },
 }));
 
 vi.mock('@lobehub/ui', async (importOriginal) => ({
@@ -95,6 +105,7 @@ vi.mock('@/store/global', () => ({
 
 beforeEach(() => {
   mocks.updateSystemStatus.mockReset();
+  mocks.navRailEnabled = false;
   mocks.navLayout = {
     bottomMenuItems: [],
     topNavItems: [],
@@ -168,6 +179,24 @@ describe('Home sidebar body', () => {
     expect(children[4]).toHaveTextContent('Image');
     expect(children[5]).toHaveTextContent('Tasks');
     expect(children[6]).toHaveTextContent('Resource');
+  });
+
+  it('leaves page links and the spacer to the rail when the nav rail is on', () => {
+    mocks.navRailEnabled = true;
+    mocks.navLayout = {
+      bottomMenuItems: [{ key: 'image', title: 'Image', url: '/image' }],
+      topNavItems: [{ key: 'tasks', title: 'Tasks', url: '/tasks' }],
+    };
+    mocks.globalState.status.sidebarItems = ['tasks', 'recents', 'agent', '__spacer__', 'image'];
+
+    render(<Body />);
+
+    const children = Array.from(screen.getByTestId('sidebar-body').children);
+
+    expect(children.some((child) => child.hasAttribute('data-sidebar-bottom-spacer'))).toBe(false);
+    expect(screen.queryByText('Tasks')).toBeNull();
+    expect(screen.queryByText('Image')).toBeNull();
+    expect(children[0]).toHaveAttribute('data-testid', 'sidebar-accordion');
   });
 
   it('keeps a top item that was dragged past the spacer in its new position', () => {
