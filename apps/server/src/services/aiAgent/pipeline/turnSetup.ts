@@ -22,11 +22,13 @@ import debug from 'debug';
 
 import { AiModelModel } from '@/database/models/aiModel';
 import type { MessageModel } from '@/database/models/message';
+import { ProjectWorkingDirectoryModel } from '@/database/models/projectWorkingDirectory';
 import type { TopicModel } from '@/database/models/topic';
 import { resolveModelExtendParamsForUser } from '@/server/modules/AgentRuntime/adapters/serverCallLlmContextHints';
 import type { AgentConfigWithId } from '@/server/services/agent';
 import { enqueueAgentSignalSourceEvent } from '@/server/services/agentSignal';
 import { shouldSuppressSignal } from '@/server/services/agentSignal/suppressSignal';
+import { getScopedOnlineDevices } from '@/server/services/deviceGateway/scopedDevices';
 import { DocumentService } from '@/server/services/document';
 import { FileService } from '@/server/services/file';
 import { resolveAttachmentsByFileIds } from '@/server/services/file/resolveAttachments';
@@ -622,6 +624,48 @@ export const setupTurn = async (
       // (config source of truth), NOT in metadata.
       const existingTopic = await deps.topicModel.findById(topicId);
       topicEditingGroupId = existingTopic?.metadata?.editingGroupId ?? undefined;
+      // A project conversation without a directory follows the plain
+      // topic-pinned device path below, like any other conversation.
+      if (existingTopic?.projectWorkingDirectoryId) {
+        if (shareGate || (botContext && !resolveDeviceAccessPolicy({ botContext }).canUseDevice))
+          throw new Error('Project directory access denied');
+        const directory = await new ProjectWorkingDirectoryModel(
+          deps.db,
+          deps.userId,
+          deps.workspaceId,
+        ).resolveForTopic(topicId);
+        if (!directory) throw new Error('Project directory binding no longer exists');
+        if (
+          agentConfig.agencyConfig?.executionTargetSelectionPolicy === 'fixed' &&
+          agentConfig.agencyConfig.boundDeviceId !== directory.deviceId
+        )
+          throw new Error('Agent is fixed to another execution target');
+        // The directory lives on one device, so only that device can honour the
+        // run. Reject an unavailable device *here*, before the user/assistant
+        // rows are persisted: the client treats a rejected send as never
+        // accepted, keeps the draft and rolls back its optimistic pair, so a
+        // later rejection would leave a failed turn durable server-side that the
+        // client disagrees with. Liveness comes from the gateway's device
+        // listing — not a device round trip — so the send path keeps the latency
+        // fix, and the dispatch remains the authority on whether the directory
+        // still exists on the device.
+        const { canUseDevice: canUseProjectDevice } = resolveDeviceAccessPolicy({ botContext });
+        const projectDevices = canUseProjectDevice
+          ? await getScopedOnlineDevices(deps.db, deps.userId, deps.workspaceId)
+          : [];
+        if (
+          !projectDevices.some((device) => device.deviceId === directory.deviceId && device.online)
+        )
+          throw new Error('Device is offline or working directory is unavailable');
+        resolvedRequestedDeviceId = directory.deviceId;
+        effectiveRequestedDeviceId = directory.deviceId;
+        topicBoundDeviceId = directory.deviceId;
+        agentConfig.agencyConfig = {
+          ...agentConfig.agencyConfig,
+          boundDeviceId: directory.deviceId,
+          executionTarget: 'device',
+        };
+      }
 
       // Fail-closed guard: a non-share run must never operate on a share-visitor
       // topic. `findById` is ownership-scoped but deliberately does NOT exclude
@@ -677,8 +721,10 @@ export const setupTurn = async (
       const topicPinnedDeviceId = canUseTopicPin
         ? existingTopic?.metadata?.boundDeviceId
         : undefined;
+      // A project-directory topic already routed to its directory's device above.
       if (
         !requestedDeviceId &&
+        !existingTopic?.projectWorkingDirectoryId &&
         topicPinnedDeviceId &&
         !isFixedExecutionTargetSelection &&
         agentConfig.agencyConfig?.executionTarget !== 'auto'
