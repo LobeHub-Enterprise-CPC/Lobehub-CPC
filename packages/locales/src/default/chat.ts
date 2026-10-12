@@ -176,8 +176,8 @@ export default {
   'compression.cancel': 'Uncompress',
   'compression.cancelConfirm':
     'Are you sure you want to uncompress? This will restore the original messages.',
-  'compression.history': 'History',
-  'compression.summary': 'Summary',
+  'compression.history': 'Original conversation',
+  'compression.summary': 'History summary',
   'confirmClearCurrentMessages':
     'You are about to clear the current conversation messages. Once cleared, they cannot be retrieved. Please confirm your action.',
   'confirmRemoveChatGroupItemAlert':
@@ -211,6 +211,14 @@ export default {
   'goalProcess.deliverables.from': 'From “{{title}}”',
   'goalProcess.deliverables.title': 'Deliverables',
   'goalProcess.deliverables.untitled': 'Untitled',
+  'taskCard.field.activities': 'Activities',
+  'taskCard.field.dependencies': 'Dependencies',
+  'taskCard.field.description': 'Description',
+  'taskCard.field.instruction': 'Instruction',
+  'taskCard.field.review': 'Review',
+  'taskCard.field.reviewRubrics': 'Review rubrics',
+  'taskCard.field.subtasks': 'Subtasks',
+  'taskCard.field.workspace': 'Workspace',
   'taskExecution.fixedTip': 'The execution environment is fixed in the Agent Profile.',
   'taskExecution.followAgent': 'Follow the agent',
   'taskExecution.followAgentDesc': "Use the assignee agent's execution environment",
@@ -718,6 +726,10 @@ export default {
   'heteroAgent.executionTarget.online': 'Online',
   'heteroAgent.executionTarget.onlineConnections_one': 'Online · {{count}} connection',
   'heteroAgent.executionTarget.onlineConnections_other': 'Online · {{count}} connections',
+  'heteroAgent.executionTarget.projectDevicesHint':
+    "Only devices with this project's working directory are listed. Add a directory for another device in the project settings.",
+  'heteroAgent.executionTarget.switchProjectTopic.content':
+    'This topic will run in the project directory "{{directory}}" on {{device}}. Its next turn starts a fresh session there.',
   'heteroAgent.executionTarget.reconnect': 'Reconnect',
   'heteroAgent.executionTarget.reconnectFailed':
     'Could not reconnect this device. Make sure the desktop app is running, then try again.',
@@ -1161,6 +1173,9 @@ export default {
   'qoderInstallGuide.menuNotification.title': 'Qoder CLI not found',
   'qoderInstallGuide.reason': 'LobeHub could not start Qoder: {{message}}',
   'qoderInstallGuide.title': 'Install Qoder CLI',
+  'quickChatSwitcher.empty': 'No agents found',
+  'quickChatSwitcher.more': 'More agents',
+  'quickChatSwitcher.searchPlaceholder': 'Search agents...',
   'kimiCodeInstallGuide.actions.openDocs': 'Open Install Guide',
   'kimiCodeInstallGuide.actions.openSystemTools': 'Open System Tools',
   'kimiCodeInstallGuide.afterInstall':
@@ -1392,6 +1407,9 @@ export default {
   'sandboxStorage.runningHint':
     'Something else is still running in this instance, so it cannot be picked here. It is released on its own roughly 15 minutes after that run goes quiet.',
   'sandboxStorage.runningOwnHint': "This conversation's own run is using this instance.",
+  'sandboxStorage.runningHintStoppable':
+    'Something else is still running in this instance, so it cannot be picked here. It is released on its own roughly 15 minutes after that run goes quiet, or you can stop it now.',
+  'sandboxStorage.stop': 'Stop',
   // A build holds the same single-writer lease a run does, so it is refused
   // for the same reason — but it is not a conversation, and saying "running"
   // would send someone looking for one.
@@ -1464,6 +1482,9 @@ export default {
   'floatingChatPanel.collapse': 'Collapse chat',
   'floatingChatPanel.expand': 'Expand chat',
   'globalApproval.collapse': 'Collapse',
+  'globalApproval.dismiss': 'Dismiss',
+  'globalApproval.dismissHint': 'Hide it here; it stays on Home',
+  'globalApproval.dismissed': 'Dismissed. You can still handle it from Home.',
   'globalApproval.goToConversation': 'Open conversation',
   'globalApproval.moreCount_one': '{{count}} more pending',
   'globalApproval.moreCount_other': '{{count}} more pending',
@@ -2725,6 +2746,7 @@ export default {
   'terminalPanel.createFailed': 'Failed to start the terminal session',
   'terminalPanel.newTab': 'New terminal',
   'terminalPanel.split': 'Split terminal',
+  'terminalPanel.targetLocal': 'This computer',
   'terminalPanel.title': 'Terminal',
   'thread.threadMessageCount': '{{messageCount}} messages',
   'thread.title': 'Subtopic',
@@ -2991,6 +3013,7 @@ export default {
   'workflow.toolDisplayName.crawlSinglePage': 'Crawled a page',
   'workflow.toolDisplayName.createAgent': 'Created an agent',
   'workflow.toolDisplayName.createDocument': 'Created a document',
+  'workflow.toolDisplayName.createFolder': 'Created a folder',
   'workflow.toolDisplayName.createPlan': 'Created a plan',
   'workflow.toolDisplayName.createTodos': 'Created todos',
   'workflow.toolDisplayName.deleteAgent': 'Deleted an agent',
@@ -3017,6 +3040,7 @@ export default {
   'workflow.toolDisplayName.listLocalFiles': 'Listed files',
   'workflow.toolDisplayName.listOnlineDevices': 'Listed devices',
   'workflow.toolDisplayName.modifyNodes': 'Modified Page',
+  'workflow.toolDisplayName.moveDocuments': 'Moved documents',
   'workflow.toolDisplayName.moveLocalFiles': 'Moved files',
   'workflow.toolDisplayName.readDocument': 'Read a document',
   'workflow.toolDisplayName.readKnowledge': 'Read knowledge',
@@ -3175,6 +3199,7 @@ export default {
   'workingPanel.resources.tree.parentMissing': 'Parent folder is unavailable',
   'workingPanel.resources.tree.create': 'Create',
   'workingPanel.resources.tree.newDocument': 'New document',
+  'workingPanel.resources.tree.newSubDocument': 'New sub-document',
   'workingPanel.resources.tree.newFolder': 'New folder',
   'workingPanel.resources.tree.rename': 'Rename',
   'workingPanel.resources.tree.untitledDocument': 'Untitled document',
@@ -3630,5 +3655,8 @@ export default {
   'internalLink.preview.verifyStatus.uncertain': 'Uncertain',
   'internalLink.preview.verifyStatus.unverified': 'Unverified',
   'internalLink.preview.verifyStatus.verifying': 'Verifying',
+  'userFeedbackCard.count_one': '{{count}} comment',
+  'userFeedbackCard.count_other': '{{count}} comments',
+  'userFeedbackCard.title': 'User feedback',
   'you': 'You',
 };

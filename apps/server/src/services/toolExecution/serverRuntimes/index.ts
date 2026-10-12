@@ -27,6 +27,7 @@ import { calculatorRuntime } from './calculator';
 import { channelArtifactRuntime } from './channelArtifact';
 import { cloudSandboxRuntime } from './cloudSandbox';
 import { credsRuntime } from './creds';
+import { dashboardRuntime } from './dashboard';
 import { goalRuntime } from './goal';
 import { goalReportRuntime } from './goalReport';
 import { goalSupervisorRuntime } from './goalSupervisor';
@@ -92,6 +93,7 @@ registerRuntimes([
   topicReferenceRuntime,
   userInteractionRuntime,
   credsRuntime,
+  dashboardRuntime,
   groupAgentBuilderRuntime,
   groupManagementRuntime,
   goalRuntime,

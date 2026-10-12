@@ -11,7 +11,7 @@ import NotificationCtr from '@/controllers/NotificationCtr';
 import SystemController from '@/controllers/SystemCtr';
 import { getAppDisplayName } from '@/utils/appIdentity';
 
-import { buildTrayMenuTemplate } from '../trayMenu';
+import { buildDockMenuTemplate, buildTrayMenuTemplate } from '../trayMenu';
 import type { ContextMenuData, IMenuPlatform, MenuOptions } from '../types';
 import { BaseMenuPlatform } from './BaseMenuPlatform';
 
@@ -19,6 +19,7 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
   private appMenu: Menu | null = null;
   private dockMenu: Menu | null = null;
   private trayMenu: Menu | null = null;
+  private navigationSnapshot: TrayNavigationSnapshot = { agents: [], pinned: [], recent: [] };
 
   buildAndSetAppMenu(options?: MenuOptions): Menu {
     const template = this.getAppMenuTemplate(options);
@@ -53,6 +54,11 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
     const template = buildTrayMenuTemplate(this.app, snapshot);
     this.trayMenu = Menu.buildFromTemplate(template);
     return this.trayMenu;
+  }
+
+  updateDockMenu(snapshot: TrayNavigationSnapshot): void {
+    this.navigationSnapshot = snapshot;
+    this.buildAndSetDockMenu();
   }
 
   refresh(options?: MenuOptions): void {
@@ -197,8 +203,8 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
       {
         label: t('view.title'),
         submenu: [
-          { label: t('view.reload'), role: 'reload' },
-          { label: t('view.forceReload'), role: 'forceReload' },
+          this.buildReloadMenuItem(t('view.reload')),
+          this.buildReloadMenuItem(t('view.forceReload'), true),
           this.buildDevToolsMenuItem(t('dev.devTools'), 'F12'),
           { type: 'separator' },
           this.buildZoomMenuItem('reset', t('view.resetZoom'), 'CmdOrCtrl+0'),
@@ -740,23 +746,9 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
   private buildAndSetDockMenu() {
     if (!app.dock?.setMenu) return;
 
-    this.dockMenu = Menu.buildFromTemplate(this.getDockMenuTemplate());
+    this.dockMenu = Menu.buildFromTemplate(
+      buildDockMenuTemplate(this.app, this.navigationSnapshot),
+    );
     app.dock.setMenu(this.dockMenu);
-  }
-
-  private getDockMenuTemplate(): MenuItemConstructorOptions[] {
-    const t = this.app.i18n.ns('menu');
-    const appName = getAppDisplayName();
-
-    return [
-      {
-        click: () => this.app.browserManager.showMainWindow(),
-        label: t('tray.show', { appName }),
-      },
-      {
-        click: () => this.app.screenCaptureManager.startSession(),
-        label: t('tray.openMiniToolbar'),
-      },
-    ];
   }
 }

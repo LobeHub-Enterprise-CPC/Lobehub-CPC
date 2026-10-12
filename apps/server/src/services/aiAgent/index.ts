@@ -79,6 +79,7 @@ import {
   createHistoryMessagesLoader,
   createTranscriptHistoryLoader,
 } from './pipeline/operationPrep';
+import { type PrecreatedTopicDeps, resolvePrecreatedTopicConfig } from './pipeline/precreatedTopic';
 import { resolveRunAgentConfig } from './pipeline/resolveRunAgentConfig';
 import { traceSendStage } from './pipeline/sendTracing';
 import { startOperation } from './pipeline/startOperation';
@@ -463,26 +464,22 @@ export class AiAgentService {
     return agentConfig;
   }
 
+  /** Deps shared by every pre-created topic, so its snapshot matches `setupTurn`'s. */
+  private precreatedTopicDeps(): PrecreatedTopicDeps {
+    return {
+      db: this.db,
+      resolveAgentConfigOrThrow: (id) => this.resolveAgentConfigOrThrow(id),
+      userId: this.userId,
+      workspaceId: this.workspaceId,
+    };
+  }
+
   /** Resolve caller model policy before a pre-created topic permanently pins its model. */
-  private async resolvePrecreatedTopicConfig(
+  private resolvePrecreatedTopicConfig(
     identifier: string,
     overrides?: { model?: string; provider?: string },
   ) {
-    const { agentConfig } = await resolveRunAgentConfig(
-      {
-        db: this.db,
-        resolveAgentConfigOrThrow: (id) => this.resolveAgentConfigOrThrow(id),
-        userId: this.userId,
-        workspaceId: this.workspaceId,
-      },
-      {
-        identifier,
-        modelOverride: overrides?.model,
-        providerOverride: overrides?.provider,
-        throwIfExecutionAborted: async () => {},
-      },
-    );
-    return agentConfig;
+    return resolvePrecreatedTopicConfig(this.precreatedTopicDeps(), identifier, overrides);
   }
 
   /**
@@ -613,7 +610,8 @@ export class AiAgentService {
             this.messageModel,
             thread.id,
             thread.metadata?.startedAt ?? new Date().toISOString(),
-            thread.sourceMessageId,
+            // The recovered group-member bridge owns result publication.
+            undefined,
             'execVirtualSubAgent',
             pickThreadUsageBaseline(thread.metadata),
           );
@@ -1195,9 +1193,13 @@ export class AiAgentService {
       approvedToolEntries,
       batchApprovalAnchorId,
       resumeApprovalPlugin,
+      resolvedToolResult,
     } = await traceSendStage('approval_claim', () =>
       claimApprovalResume(
-        { messageModel: this.messageModel },
+        {
+          controlToolResult: (input) => this.agentRuntimeService.controlCompletedToolResult(input),
+          messageModel: this.messageModel,
+        },
         {
           appContext,
           approvalClaim,
@@ -1513,7 +1515,7 @@ export class AiAgentService {
       resumeApprovalPlugin,
       resumeApprovals,
       resumeFromHistory: runFromHistory,
-      resumeToolResult,
+      resumeToolResult: resolvedToolResult,
       runAttachments,
       selectedToolIds,
       serverToolManifests,
@@ -1608,6 +1610,7 @@ export class AiAgentService {
         },
         runContext,
         {
+          acceptsFileWorks: params.acceptsFileWorks,
           acceptsMemberRuntimeEnd: params.acceptsMemberRuntimeEnd,
           approvalClaim,
           approvalSourceOperationId,

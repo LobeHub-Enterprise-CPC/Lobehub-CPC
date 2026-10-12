@@ -13,6 +13,7 @@ import SkeletonList from '@/features/NavPanel/components/SkeletonList';
 import { useAiInfraStore } from '@/store/aiInfra/store';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 
+import { PROVIDER_MENU_WIDTH } from '../const';
 import AddNew from './AddNew';
 import ProviderList from './List';
 import SearchResult from './SearchResult';
@@ -26,7 +27,7 @@ const Layout = memo(({ children, mobile }: ProviderMenuProps) => {
 
   const providerSearchKeyword = useAiInfraStore((s) => s.providerSearchKeyword);
 
-  const width = mobile ? undefined : 280;
+  const width = mobile ? undefined : PROVIDER_MENU_WIDTH;
   return (
     <Flexbox
       width={width}
@@ -100,7 +101,7 @@ const ProviderMenu = ({
   // Own the provider-list fetch here so a failed load surfaces error + Retry
   // instead of a permanent skeleton — `initAiProviderList` only flips on success
   //
-  const { error, mutate } = useFetchAiProviderList();
+  const { error, revalidate } = useFetchAiProviderList();
 
   // Guard after all hooks run (rules-of-hooks): block the list when the
   // `provider_settings` flag is off, covering the mobile `/all` menu view.
@@ -117,7 +118,7 @@ const ProviderMenu = ({
       errorVariant={'page'}
       isLoading={!initAiProviderList && !error}
       loading={<SkeletonList />}
-      onRetry={() => mutate()}
+      onRetry={() => revalidate()}
     >
       <ProviderList mobile={mobile} onProviderSelect={onProviderSelect} />
     </AsyncBoundary>

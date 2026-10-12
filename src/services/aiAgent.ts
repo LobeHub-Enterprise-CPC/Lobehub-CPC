@@ -19,7 +19,7 @@ import { buildLlmExecutorDeclaration } from '@/services/llmRelay';
 export type { ExecAgentResult, ScheduleAgentRunParams, ScheduleAgentRunResult };
 
 /** Gateway stream features every run started from this client handles. */
-const STREAM_FEATURES: AgentStreamClientFeature[] = ['member_runtime_end'];
+const STREAM_FEATURES: AgentStreamClientFeature[] = ['file_works', 'member_runtime_end'];
 
 /** An older server's strict input schema rejected the `streamFeatures` key. */
 const isUnknownStreamFeaturesError = (error: unknown): boolean => {
@@ -341,6 +341,22 @@ class AiAgentService {
    */
   async getSubAgentTaskStatus(params: GetSubAgentTaskStatusParams) {
     return await lambdaClient.aiAgent.getSubAgentTaskStatus.query(params);
+  }
+
+  /**
+   * Authoritative terminal outcome of a server run, by its operation id.
+   *
+   * The leaked-run sweep needs it to tell a run that COMPLETED from one that
+   * failed / was interrupted: only a completion may drain the follow-up the user
+   * queued behind it (a failed run keeps its queue, like every terminal path).
+   * The terminal frame that would have carried this outcome is exactly what the
+   * leak lost.
+   *
+   * Resolves `null` when the server no longer holds the run (its state expired).
+   * Callers must treat that as UNKNOWN, never as a completion.
+   */
+  async getOperationStatus(params: { operationId: string }) {
+    return await lambdaClient.aiAgent.getOperationStatus.query(params);
   }
 
   /**

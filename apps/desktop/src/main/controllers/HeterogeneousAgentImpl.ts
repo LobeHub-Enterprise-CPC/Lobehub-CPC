@@ -92,6 +92,7 @@ import {
   isDevinAcpSessionNotFoundError,
   isDroidAcpSessionNotFoundError,
   normalizeImage,
+  readClaudeCodeSessionCost,
   readCodexSessionModel,
   resolveClaudeCodeTranscriptPath,
   resolveCliSpawnPlan,
@@ -151,6 +152,7 @@ import {
 } from '@/modules/heterogeneousAgent/providerBindingHost';
 import {
   beginServerDefaultOperation,
+  describeServerDefaultModel,
   getProviderBindingRuntime,
   getServerDefaultEndpoint,
   type ServerDefaultOperationSettlement,
@@ -1672,6 +1674,19 @@ export default class HeterogeneousAgentCtr {
         })
         .catch((error) => logger.warn('Provider-binding profile GC failed:', error));
     } else if (params.providerBinding?.kind === 'server-default') {
+      const model = params.providerBinding.apiConfig.model;
+      // Codex and Pi describe the model to the CLI from its card. Best-effort:
+      // a model described without its card still runs (on default window and
+      // modalities), and the operation begin re-validates the model.
+      const modelDescriptor =
+        agentType === 'codex' || agentType === 'pi'
+          ? await describeServerDefaultModel(this.remoteServerAuth, { agentType, model }).catch(
+              (error) => {
+                logger.warn('Server-default model description unavailable:', error);
+                return undefined;
+              },
+            )
+          : undefined;
       hostedProviderBinding = await prepareHostedServerDefaultBinding({
         agentType,
         appStoragePath: this.app.appStoragePath,
@@ -1679,7 +1694,8 @@ export default class HeterogeneousAgentCtr {
         driver,
         endpoint: await getServerDefaultEndpoint(this.remoteServerAuth),
         env: params.env,
-        model: params.providerBinding.apiConfig.model,
+        model,
+        modelDescriptor,
         sessionId,
       });
     }
@@ -1858,6 +1874,7 @@ export default class HeterogeneousAgentCtr {
     let traceSession;
     let cwd: string;
     let initialCumulativeUsage: UsageData | undefined;
+    let initialSessionCostUsd: number | undefined;
     let resolvedCliSpawnPlan;
     let spawnEnv: NodeJS.ProcessEnv;
     try {
@@ -1918,6 +1935,15 @@ export default class HeterogeneousAgentCtr {
             await readCodexSessionModel(session.agentSessionId, { env: spawnEnv })
           )?.cumulativeUsage;
         }
+      }
+
+      if (session.agentType === 'claude-code' && session.agentSessionId) {
+        initialSessionCostUsd = await readClaudeCodeSessionCost({
+          configDir: spawnEnv.CLAUDE_CONFIG_DIR ?? session.hostedProviderBinding?.profileDir,
+          cwd,
+          home: spawnEnv.HOME,
+          sessionId: session.agentSessionId,
+        });
       }
 
       traceSession = await this.createCliTraceSession({
@@ -1995,6 +2021,7 @@ export default class HeterogeneousAgentCtr {
           resolve,
           session,
           initialCumulativeUsage,
+          initialSessionCostUsd,
           spawnEnv,
           startedAt,
           traceSession,
@@ -2053,6 +2080,7 @@ export default class HeterogeneousAgentCtr {
     const sdkSession = new ClaudeAgentSdkSession({
       args: session.args,
       commandPath,
+      configDir: spawnEnv.CLAUDE_CONFIG_DIR ?? session.hostedProviderBinding?.profileDir,
       cwd,
       env: spawnEnv,
       onEvents: async (events) => {
@@ -3114,6 +3142,7 @@ export default class HeterogeneousAgentCtr {
   private handleSpawnedAgentProcess({
     cwd,
     initialCumulativeUsage,
+    initialSessionCostUsd,
     intervention,
     params,
     proc,
@@ -3134,6 +3163,7 @@ export default class HeterogeneousAgentCtr {
     resolve: () => void;
     session: AgentSession;
     initialCumulativeUsage?: UsageData | undefined;
+    initialSessionCostUsd?: number | undefined;
     spawnEnv: NodeJS.ProcessEnv;
     spawnPlan: HeterogeneousAgentBuildPlan;
     /** ISO time taken before the spawn — see `recordInflightRun`. */
@@ -3193,6 +3223,7 @@ export default class HeterogeneousAgentCtr {
       initialCumulativeUsage,
       initialModel: session.model,
       startedAt: startedAt ? Date.parse(startedAt) : undefined,
+      initialSessionCostUsd,
       operationId: params.operationId,
       uploadImage: this.uploadResultImage,
     });
@@ -4282,12 +4313,26 @@ export default class HeterogeneousAgentCtr {
       });
     }
 
+    // Never inherit the launcher's conversation identity for a dispatched run.
+    const childEnv = { ...process.env };
+    for (const key of [
+      'LOBEHUB_AGENT_ID',
+      'LOBEHUB_ASSISTANT_MESSAGE_ID',
+      'LOBEHUB_TASK_ID',
+      'LOBEHUB_WORKSPACE_ID',
+    ]) {
+      delete childEnv[key];
+    }
+
     const env = {
-      ...process.env,
+      ...childEnv,
       ...buildProxyEnv(this.app.storeManager.get('networkProxy')),
       ELECTRON_RUN_AS_NODE: '1',
       [HETERO_EXEC_INHERIT_PROCESS_GROUP_ENV]: '1',
+      ...(params.agentId ? { LOBEHUB_AGENT_ID: params.agentId } : {}),
       LOBEHUB_JWT: jwt,
+      LOBEHUB_OPERATION_ID: operationId,
+      LOBEHUB_TOPIC_ID: topicId,
       ...(assistantMessageId ? { LOBEHUB_ASSISTANT_MESSAGE_ID: assistantMessageId } : {}),
       LOBEHUB_SERVER: serverUrl,
       // Same reason `runHeteroTask` injects this for notify: without it the

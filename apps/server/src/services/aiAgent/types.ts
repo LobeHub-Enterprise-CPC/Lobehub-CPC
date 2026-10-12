@@ -119,6 +119,12 @@ export interface ExecAgentTranscript {
  */
 export interface InternalExecAgentParams extends ExecAgentParams {
   /**
+   * The calling client renders `file` Works in pushed snapshots, derived from
+   * the `streamFeatures` it declared on `aiAgent.execAgent`. See
+   * `OperationCreationParams.acceptsFileWorks`.
+   */
+  acceptsFileWorks?: boolean;
+  /**
    * The calling client handles `member_runtime_end`, derived from the
    * `streamFeatures` it declared on `aiAgent.execAgent`. See
    * `OperationCreationParams.acceptsMemberRuntimeEnd`.
