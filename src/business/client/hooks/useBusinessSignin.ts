@@ -4,7 +4,7 @@ export interface BusinessSSOProvider {
   displayName: string;
   id: string;
   logoUrl: string | null;
-  protocol: 'oidc' | 'oauth2';
+  protocol: 'oidc' | 'oauth2' | 'bridge';
 }
 
 export const useBusinessSignin = () => {

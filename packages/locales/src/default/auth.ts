@@ -1,4 +1,9 @@
 export default {
+  'bridge.popupBlocked': 'Allow pop-ups for this site, then try again.',
+  'bridge.expired': 'This login has expired. Start again.',
+  'bridge.cancelled': 'Login cancelled.',
+  'bridge.failed': 'Unable to sign in. Please try again.',
+
   'agreement.checkbox':
     'I have read and agree to the <terms>Terms and Conditions</terms> and <privacy>Privacy Policy</privacy>',
   'agreement.confirm.content':
