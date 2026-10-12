@@ -3,13 +3,13 @@
  */
 import { readFile } from 'node:fs/promises';
 
+import { unstable_doesMiddlewareMatch } from 'next/experimental/testing/server';
 import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { config as proxyConfig } from '@/proxy';
 import { TENANT_ROUTE_HEADER, verifyTenantRoute } from '@/server/modules/Tenant/routeHeader';
 
-import { createRouteMatcher } from './createRouteMatcher';
 import { defineConfig } from './define-config';
 
 const mocks = vi.hoisted(() => ({
@@ -272,14 +272,20 @@ describe('session cookies and OIDC endpoints under a tenant', () => {
 });
 
 describe('project deep links', () => {
-  it.each(['/projects', '/project/environment-demo', '/project/environment-demo/tasks'])(
-    'routes %s into the SPA on a direct request',
-    async (path) => {
-      expect(
-        createRouteMatcher(proxyConfig.matcher)(new NextRequest(`http://localhost:3010${path}`)),
-      ).toBe(true);
-      const rewrite = await run(`http://localhost:3010${path}`);
-      expect(new URL(rewrite!).pathname).toMatch(new RegExp(`/spa/[^/]+${path}$`));
-    },
-  );
+  const paths = ['/projects', '/project/environment-demo', '/project/environment-demo/tasks'];
+
+  it.each(paths)('routes tenant %s into the SPA on a direct request', async (path) => {
+    const request = new NextRequest(`http://localhost:3010/t/acme${path}`);
+    expect(unstable_doesMiddlewareMatch({ config: proxyConfig, url: request.url })).toBe(true);
+    const response = await middleware(request);
+    const rewrite = response!.headers.get('x-middleware-rewrite')!;
+    expect(new URL(rewrite).pathname).toMatch(new RegExp(`/spa/[^/]+${path}$`));
+    expect(mocks.enterSlug).toHaveBeenCalledWith('acme');
+  });
+
+  it.each(paths)('requires a tenant for an unscoped %s request', async (path) => {
+    const rewrite = await run(`http://localhost:3010${path}`);
+    expect(new URL(rewrite!).pathname).toBe('/tenant-required');
+    expect(mocks.getSession).not.toHaveBeenCalled();
+  });
 });
