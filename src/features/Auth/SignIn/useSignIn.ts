@@ -1,6 +1,6 @@
 import { toast } from '@lobehub/ui/base-ui';
 import { useForm } from '@lobehub/ui/base-ui/form';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router';
 
@@ -11,6 +11,7 @@ import { useAuthAgreement } from '@/features/AuthShell/AuthAgreement';
 import { useAuthServerConfigStore } from '@/features/AuthShell/AuthServerConfigProvider';
 import { trackLoginOrSignupClicked } from '@/features/User/UserLoginOrSignup/trackLoginOrSignupClicked';
 import { requestPasswordReset, signIn } from '@/libs/better-auth/auth-client';
+import { beginBridgeLogin } from '@/libs/better-auth/bridge';
 import { isBuiltinProvider, normalizeProviderId } from '@/libs/better-auth/utils/client';
 import {
   buildOnboardingRedirectUrl,
@@ -71,6 +72,8 @@ export const useSignIn = () => {
   // slow network can't be double-clicked into multiple emails.
   const [sending, setSending] = useState(false);
   const [socialLoading, setSocialLoading] = useState<string | null>(null);
+  const bridgeAttempt = useRef<ReturnType<typeof beginBridgeLogin> | null>(null);
+  useEffect(() => () => bridgeAttempt.current?.cancel(), []);
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
   const [sentInfo, setSentInfo] = useState<SentEmailInfo | null>(null);
@@ -274,7 +277,37 @@ export const useSignIn = () => {
   };
 
   const handleSocialSignIn = async (provider: string) => {
+    if (bridgeAttempt.current) return;
     setSocialLoading(provider);
+    if (managedSSO && ssoProviders.find((item) => item.id === provider)?.protocol === 'bridge') {
+      try {
+        // Open in the trusted click, before telemetry or any other async work.
+        const attempt = beginBridgeLogin(
+          provider,
+          sanitizeRedirectPath(searchParams.get('callbackUrl') || '/'),
+        );
+        bridgeAttempt.current = attempt;
+        const result = await attempt.completion;
+        window.location.assign(sanitizeRedirectPath(result.callbackURL || '/'));
+      } catch (error) {
+        const code = error instanceof Error ? error.message : '';
+        toast.error(
+          t(
+            code === 'BRIDGE_POPUP_BLOCKED'
+              ? 'bridge.popupBlocked'
+              : code === 'BRIDGE_EXPIRED'
+                ? 'bridge.expired'
+                : code === 'BRIDGE_CANCELLED'
+                  ? 'bridge.cancelled'
+                  : 'bridge.failed',
+          ),
+        );
+      } finally {
+        bridgeAttempt.current = null;
+        setSocialLoading(null);
+      }
+      return;
+    }
     const normalizedProvider = normalizeProviderId(provider);
     await trackLoginOrSignupClicked({
       provider: normalizedProvider,

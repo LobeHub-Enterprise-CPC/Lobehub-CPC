@@ -22,12 +22,12 @@ jobs:
 
     services:
       postgres:
-        image: paradedb/paradedb:latest
+        # Keep PostgreSQL/pg_search reproducible; 0.26.1 breaks large-limit BM25 searches.
+        image: paradedb/paradedb:0.25.3-pg17@sha256:3f608f8a531e5552b2e546471271fa11e305a1261b9c4cccfb723b0fa4ad092a
         env:
           POSTGRES_PASSWORD: postgres
         options: >-
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s  --health-retries 5
-
 
         ports:
           - 5432:5432

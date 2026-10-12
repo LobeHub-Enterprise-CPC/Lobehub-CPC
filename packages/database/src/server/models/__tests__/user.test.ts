@@ -22,13 +22,14 @@ const userModel = new UserModel(serverDB, userId);
 beforeEach(async () => {
   await serverDB.delete(users);
   await serverDB.delete(userSettings);
-  process.env.KEY_VAULTS_SECRET = 'ofQiJCXLF8mYemwfMWLOHoHimlPu91YmLfU7YZ4lreQ=';
+  vi.stubEnv('KEY_VAULTS_SECRET', 'ofQiJCXLF8mYemwfMWLOHoHimlPu91YmLfU7YZ4lreQ=');
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
   await serverDB.delete(users);
   await serverDB.delete(userSettings);
-  process.env.KEY_VAULTS_SECRET = undefined;
 });
 
 describe('UserModel', () => {
@@ -285,10 +286,10 @@ describe('UserModel', () => {
 
     it('should calculate correct duration for existing user', async () => {
       // Mock the current date
-      const now = new Date('2024-01-15');
+      const now = new Date(2024, 0, 15);
       vi.setSystemTime(now);
 
-      const createdAt = new Date('2024-01-10'); // 5 days ago
+      const createdAt = new Date(2024, 0, 10); // 5 days ago
       await serverDB.insert(users).values({
         id: userId,
         createdAt,
@@ -301,8 +302,6 @@ describe('UserModel', () => {
         duration: 6, // 5 days difference + 1
         updatedAt: '2024-01-15',
       });
-
-      vi.useRealTimers();
     });
   });
 
