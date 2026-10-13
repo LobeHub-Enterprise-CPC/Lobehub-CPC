@@ -17,7 +17,6 @@ import {
 } from 'drizzle-orm';
 
 import {
-  channelApprovals,
   channelDiscussions,
   channelJobs,
   channelMembers,
@@ -228,7 +227,7 @@ export async function readChannelPage(
   const visibleThreadIds = threads
     .filter((thread) => thread.id === threadId || messageIds.includes(thread.rootMessageId))
     .map((thread) => thread.id);
-  const [runs, contextMessages, discussions, approvals, replyCounts] = await Promise.all([
+  const [runs, contextMessages, discussions, replyCounts] = await Promise.all([
     db
       .select(runSummary)
       .from(channelRuns)
@@ -260,25 +259,6 @@ export async function readChannelPage(
         ),
       ),
     db
-      .select({
-        id: channelApprovals.id,
-        runId: channelApprovals.runId,
-        request: channelApprovals.request,
-        decision: channelApprovals.decision,
-        expiresAt: channelApprovals.expiresAt,
-      })
-      .from(channelApprovals)
-      .innerJoin(channelRuns, eq(channelRuns.id, channelApprovals.runId))
-      .where(
-        and(
-          eq(channelRuns.channelId, channelId),
-          inArray(
-            channelRuns.jobId,
-            jobs.map((job) => job.id),
-          ),
-        ),
-      ),
-    db
       .select({ threadId: channelMessages.threadId, count: count() })
       .from(channelMessages)
       .where(
@@ -298,7 +278,6 @@ export async function readChannelPage(
     discussions,
     jobs: presentChannelJobs(jobs, runs, members),
     runs,
-    approvals,
     replyCounts,
     before: options.before,
     threadId,

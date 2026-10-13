@@ -30,7 +30,6 @@ vi.mock('./MessageAttachments', () => ({ MessageAttachments: () => null }));
 const fixture = (threadId: string | null = null) =>
   ({
     channel: { id: 'channel', archived: false },
-    approvals: [],
     attachments: [],
     contextMessages: [],
     discussions: [],

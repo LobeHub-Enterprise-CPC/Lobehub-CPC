@@ -115,9 +115,7 @@ export const channelRouter = router({
   updateEnvironment: channelProcedure
     .input(memberRevision.extend(environment.shape).strict())
     .mutation(async ({ ctx, input }) => {
-      const detail = await ctx.channelModel.detail(input.channelId);
-      const member = detail.members.find((m) => m.id === input.memberId && m.active);
-      if (!member) throw new TRPCError({ code: 'NOT_FOUND', message: 'Member not found' });
+      const member = await ctx.channelModel.activeMember(input.channelId, input.memberId);
       if (member.config.runtime === 'native')
         throw new TRPCError({
           code: 'BAD_REQUEST',
@@ -147,9 +145,6 @@ export const channelRouter = router({
   rename: channelProcedure
     .input(z.object({ channelId, title: z.string().trim().min(1).max(200) }))
     .mutation(({ ctx, input }) => ctx.channelModel.rename(input.channelId, input.title)),
-  archive: channelProcedure
-    .input(z.object({ channelId }))
-    .mutation(({ ctx, input }) => ctx.channelModel.retire(input.channelId)),
   // Soft deletion retains worker receipts until execution has physically stopped.
   remove: channelProcedure
     .input(z.object({ channelId }))
@@ -160,7 +155,7 @@ export const channelRouter = router({
   addMembers: channelProcedure
     .input(z.object({ channelId, members: z.array(member).min(1).max(CHANNEL_LIMITS.members) }))
     .mutation(async ({ ctx, input }) => {
-      await ctx.channelModel.detail(input.channelId);
+      await ctx.channelModel.assertActive(input.channelId);
       const members = await resolveChannelMembers(ctx.serverDB, ctx.userId, input.members);
       await prepareMembers(ctx.serverDB, ctx.userId, members);
       return ctx.channelModel.addMembers(input.channelId, members);
@@ -170,11 +165,6 @@ export const channelRouter = router({
     .mutation(({ ctx, input }) =>
       ctx.channelModel.resetSession(input.channelId, input.memberId, input.threadId),
     ),
-  detail: channelProcedure.input(z.object({ channelId })).query(async ({ ctx, input }) => {
-    const detail = await ctx.channelModel.detail(input.channelId);
-    if (detail.channel.archived) throw new TRPCError({ code: 'NOT_FOUND' });
-    return detail;
-  }),
   page: channelProcedure
     .input(
       z.object({
@@ -254,11 +244,6 @@ export const channelRouter = router({
     .input(z.object({ channelId, runId: channelId }))
     .query(({ ctx, input }) =>
       getChannelArtifactUrl(ctx.serverDB, ctx.userId, input.channelId, input.runId),
-    ),
-  approve: channelProcedure
-    .input(z.object({ channelId, approvalId: z.string().min(1).max(300), approved: z.boolean() }))
-    .mutation(({ ctx, input }) =>
-      ctx.channelModel.decideApproval(input.channelId, input.approvalId, input.approved),
     ),
   stop: channelProcedure
     .input(

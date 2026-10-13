@@ -139,7 +139,7 @@ describe('Channel bounded presentation reads', () => {
     expect(await model.revision(channel.id)).toEqual(revision);
   });
 
-  it('keeps old active requests and approvals visible without returning the private manifest', async () => {
+  it('keeps old active requests visible without returning the private manifest', async () => {
     const channel = await create();
     const member = (await model.page(channel.id)).members[0];
     const request = await model.send(channel.id, {
@@ -164,21 +164,10 @@ describe('Channel bounded presentation reads', () => {
     const typing = await model.revision(channel.id);
     expect(typing.revision).not.toBe(before.revision);
     expect(typing.navigationRevision).toBe(before.navigationRevision);
-    const approvalId = randomUUID();
-    await model.requestApproval(
-      channel.id,
-      run.id,
-      run.fence,
-      approvalId,
-      { command: 'test' },
-      new Date(Date.now() + 60000),
-    );
-    expect((await model.revision(channel.id)).revision).not.toBe(typing.revision);
     const page = await model.page(channel.id);
     expect(page.messages).toHaveLength(CHANNEL_HISTORY.pageSize);
     expect(page.contextMessages.map((message) => message.id)).toContain(request.id);
     expect(page.jobs.some((item) => item.id === job.id)).toBe(true);
-    expect(page.approvals.map((item) => item.id)).toContain(approvalId);
     expect(page.runs[0].manifest).toEqual({ threadId: null, requestMessageId: request.id });
     expect(JSON.stringify(page)).not.toContain('private-history');
     await model.fail(channel.id, run.id, run.fence, 'failed');

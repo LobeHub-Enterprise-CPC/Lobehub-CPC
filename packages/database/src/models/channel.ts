@@ -7,16 +7,14 @@ import type {
   ChannelMode,
 } from '@lobechat/types';
 import { CHANNEL_LIMITS } from '@lobechat/types';
-import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lte, or } from 'drizzle-orm';
 
 import {
-  channelApprovals,
   channelAudit,
   channelDiscussions,
   channelJobs,
   channelMembers,
   channelMessages,
-  channelOutbox,
   channelRuns,
   channels,
   channelSessions,
@@ -70,15 +68,6 @@ export class ChannelModel {
     await db.insert(channelAudit).values({ id: id('audit'), channelId, event, targetId, details });
   }
 
-  private async outbox(
-    db: DB,
-    channelId: string,
-    kind: 'route' | 'execute' | 'publish' | 'stop',
-    targetId: string,
-  ) {
-    await db.insert(channelOutbox).values({ id: id('outbox'), channelId, kind, targetId });
-  }
-
   list = () =>
     this.db
       .select()
@@ -119,6 +108,29 @@ export class ChannelModel {
       if (!thread) throw new ChannelError('NOT_FOUND', 'Thread not found');
     }
     return readChannelPage(this.db, channel, options);
+  }
+
+  /** Ownership check for an active Channel without loading its contents. */
+  async assertActive(channelId: string) {
+    const channel = await this.owned(this.db, channelId);
+    if (channel.archived) throw new ChannelError('NOT_FOUND', 'Channel not found');
+    return channel;
+  }
+
+  async activeMember(channelId: string, memberId: string) {
+    await this.assertActive(channelId);
+    const [member] = await this.db
+      .select()
+      .from(channelMembers)
+      .where(
+        and(
+          eq(channelMembers.channelId, channelId),
+          eq(channelMembers.id, memberId),
+          eq(channelMembers.active, true),
+        ),
+      );
+    if (!member) throw new ChannelError('NOT_FOUND', 'Member not found');
+    return member;
   }
 
   private validateMembers(members: { config: ChannelMemberConfig }[]) {
@@ -214,17 +226,6 @@ export class ChannelModel {
         .from(channelRuns)
         .where(eq(channelRuns.channelId, channelId)),
     ]);
-    const approvals = await this.db
-      .select({
-        id: channelApprovals.id,
-        runId: channelApprovals.runId,
-        request: channelApprovals.request,
-        decision: channelApprovals.decision,
-        expiresAt: channelApprovals.expiresAt,
-      })
-      .from(channelApprovals)
-      .innerJoin(channelRuns, eq(channelRuns.id, channelApprovals.runId))
-      .where(eq(channelRuns.channelId, channelId));
     const artifacts = await this.db
       .select()
       .from(channelAudit)
@@ -242,7 +243,6 @@ export class ChannelModel {
         blockedReason: job.status === 'queued' ? job.blockedReason : undefined,
       })),
       runs,
-      approvals,
       artifacts: artifacts.map((artifact) => ({
         runId: artifact.targetId,
         sha256: artifact.details.sha256,
@@ -336,7 +336,6 @@ export class ChannelModel {
             }),
           })
           .where(eq(channelRuns.id, run.id));
-        if (revoke && !run.writerReleased) await this.outbox(tx, channelId, 'stop', run.id);
       }
       await this.audit(
         tx,
@@ -381,7 +380,7 @@ export class ChannelModel {
       // Late routing/retry cannot run an old instruction in a newly selected directory.
       if (message.sequence <= member.environmentCutoff) continue;
       const memberId = member.id;
-      const [job] = await db
+      await db
         .insert(channelJobs)
         .values({
           id: id('job'),
@@ -390,9 +389,7 @@ export class ChannelModel {
           messageId: message.id,
           threadId: message.threadId,
         })
-        .onConflictDoNothing()
-        .returning();
-      if (job) await this.outbox(db, message.channelId, 'execute', job.id);
+        .onConflictDoNothing();
     }
   }
 
@@ -575,27 +572,10 @@ export class ChannelModel {
       .where(and(eq(channelMessages.channelId, channelId), eq(channelMessages.id, messageId)));
     if (!message || message.routingStatus !== 'pending') return null;
     const thread = await this.scope(this.db, channelId, message.threadId);
-    const [members, recent] = await Promise.all([
-      this.db
-        .select()
-        .from(channelMembers)
-        .where(and(eq(channelMembers.channelId, channelId), eq(channelMembers.active, true))),
-      this.db
-        .select()
-        .from(channelMessages)
-        .where(
-          and(
-            eq(channelMessages.channelId, channelId),
-            message.threadId
-              ? eq(channelMessages.threadId, message.threadId)
-              : isNull(channelMessages.threadId),
-            lte(channelMessages.sequence, message.sequence),
-            ne(channelMessages.id, messageId),
-          ),
-        )
-        .orderBy(desc(channelMessages.sequence))
-        .limit(CHANNEL_LIMITS.routerMessages),
-    ]);
+    const members = await this.db
+      .select()
+      .from(channelMembers)
+      .where(and(eq(channelMembers.channelId, channelId), eq(channelMembers.active, true)));
     return {
       message,
       members: members.filter((member) =>
@@ -603,7 +583,6 @@ export class ChannelModel {
           ? message.mentions.includes(member.id)
           : !thread || thread.followerMemberIds.includes(member.id),
       ),
-      recent: recent.reverse(),
     };
   }
 
@@ -636,16 +615,6 @@ export class ChannelModel {
           routingReason: decision.reason,
         })
         .where(eq(channelMessages.id, messageId));
-      await tx
-        .update(channelOutbox)
-        .set({ processed: true })
-        .where(
-          and(
-            eq(channelOutbox.channelId, channelId),
-            eq(channelOutbox.kind, 'route'),
-            eq(channelOutbox.targetId, messageId),
-          ),
-        );
       await this.audit(tx, channelId, 'routing_decided', messageId, decision);
       return true;
     });
@@ -654,7 +623,7 @@ export class ChannelModel {
   async retryRouting(channelId: string, messageId: string) {
     await this.db.transaction(async (tx) => {
       await this.owned(tx, channelId, true);
-      const [message] = await tx
+      await tx
         .update(channelMessages)
         .set({ routingStatus: 'pending', routingReason: null })
         .where(
@@ -663,9 +632,7 @@ export class ChannelModel {
             eq(channelMessages.id, messageId),
             eq(channelMessages.routingStatus, 'unassigned'),
           ),
-        )
-        .returning();
-      if (message) await this.outbox(tx, channelId, 'route', messageId);
+        );
     });
   }
 
@@ -749,7 +716,6 @@ export class ChannelModel {
               status: run.writerReleased ? 'stopped' : 'stop_requested',
             })
             .where(eq(channelRuns.id, run.id));
-          if (!run.writerReleased) await this.outbox(tx, channelId, 'stop', run.id);
         }
       }
       await this.audit(tx, channelId, 'thread_follower_removed', threadId, { memberId });
@@ -1256,7 +1222,6 @@ export class ChannelModel {
         return;
       }
       await tx.update(channelRuns).set({ draft: content }).where(eq(channelRuns.id, runId));
-      await this.outbox(tx, channelId, 'publish', runId);
     });
   }
 
@@ -1468,7 +1433,6 @@ export class ChannelModel {
             status: run.writerReleased ? 'stopped' : 'stop_requested',
           })
           .where(eq(channelRuns.id, run.id));
-        if (!run.writerReleased) await this.outbox(tx, channelId, 'stop', run.id);
       }
       if (
         cancellable.length ||
@@ -1536,102 +1500,6 @@ export class ChannelModel {
         .set({ status: 'execution_unknown', error: message })
         .where(eq(channelRuns.id, runId));
       await this.audit(tx, channelId, 'execution_unknown', runId, { message });
-    });
-  }
-
-  async requestApproval(
-    channelId: string,
-    runId: string,
-    fence: number,
-    approvalId: string,
-    request: Record<string, unknown>,
-    expiresAt: Date,
-  ) {
-    // Polling an existing checkpoint is read-only; creation/expiry still serialize with revocation.
-    const [existing] = await this.db
-      .select({ approval: channelApprovals })
-      .from(channelApprovals)
-      .innerJoin(channelRuns, eq(channelRuns.id, channelApprovals.runId))
-      .innerJoin(channels, eq(channels.id, channelRuns.channelId))
-      .where(
-        and(
-          eq(channels.ownerId, this.ownerId),
-          eq(channels.id, channelId),
-          eq(channelRuns.id, runId),
-          eq(channelRuns.fence, fence),
-          eq(channelRuns.publicationRevoked, false),
-          eq(channelRuns.writerReleased, false),
-          eq(channelApprovals.id, approvalId),
-        ),
-      );
-    if (
-      existing &&
-      (existing.approval.decision || existing.approval.expiresAt.getTime() > Date.now())
-    )
-      return existing.approval;
-    return this.db.transaction(async (tx) => {
-      const run = await this.fenced(tx, channelId, runId, fence);
-      const [approval] = await tx
-        .insert(channelApprovals)
-        .values({ id: approvalId, runId, request, expiresAt })
-        .onConflictDoUpdate({ target: channelApprovals.id, set: { id: approvalId } })
-        .returning();
-      if (approval.runId !== run.id)
-        throw new ChannelError('CONFLICT', 'Approval belongs to another Run');
-      if (!approval.decision && approval.expiresAt.getTime() <= Date.now()) {
-        await tx
-          .update(channelApprovals)
-          .set({ decision: 'expired' })
-          .where(eq(channelApprovals.id, approvalId));
-        await tx
-          .update(channelRuns)
-          .set({ publicationRevoked: true, status: 'stop_requested' })
-          .where(eq(channelRuns.id, runId));
-        await tx
-          .update(channelJobs)
-          .set({ status: 'cancelled' })
-          .where(eq(channelJobs.id, run.jobId));
-        await this.outbox(tx, channelId, 'stop', runId);
-        await this.audit(tx, channelId, 'approval_expired', approvalId);
-        return { ...approval, decision: 'expired' as const };
-      }
-      if (!approval.decision)
-        await tx
-          .update(channelRuns)
-          .set({ status: 'awaiting_approval' })
-          .where(eq(channelRuns.id, runId));
-      return approval;
-    });
-  }
-
-  async decideApproval(channelId: string, approvalId: string, approved: boolean) {
-    await this.db.transaction(async (tx) => {
-      await this.owned(tx, channelId, true);
-      const [entry] = await tx
-        .select({ approval: channelApprovals, run: channelRuns })
-        .from(channelApprovals)
-        .innerJoin(channelRuns, eq(channelRuns.id, channelApprovals.runId))
-        .where(and(eq(channelRuns.channelId, channelId), eq(channelApprovals.id, approvalId)));
-      if (!entry || entry.run.publicationRevoked || entry.run.writerReleased)
-        throw new ChannelError('CONFLICT', 'Approval is no longer active');
-      if (entry.approval.decision) {
-        if (entry.approval.decision === (approved ? 'approved' : 'rejected')) return;
-        throw new ChannelError('CONFLICT', 'Approval was already decided');
-      }
-      if (entry.approval.expiresAt.getTime() <= Date.now())
-        throw new ChannelError('CONFLICT', 'Approval expired');
-      await tx
-        .update(channelApprovals)
-        .set({ decision: approved ? 'approved' : 'rejected' })
-        .where(eq(channelApprovals.id, approvalId));
-      await this.audit(tx, channelId, 'approval_decided', approvalId, { approved });
-    });
-  }
-
-  async resumeAfterApproval(channelId: string, runId: string, fence: number) {
-    await this.db.transaction(async (tx) => {
-      await this.fenced(tx, channelId, runId, fence);
-      await tx.update(channelRuns).set({ status: 'running' }).where(eq(channelRuns.id, runId));
     });
   }
 

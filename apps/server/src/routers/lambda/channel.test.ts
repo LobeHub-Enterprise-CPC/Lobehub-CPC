@@ -141,4 +141,11 @@ describe('Channel availability at the API boundary', () => {
     await expect(caller('workspace').list()).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(list).toHaveBeenCalledOnce();
   });
+
+  it('exposes no unreachable approval, full-detail or duplicate archive procedures', () => {
+    const procedures = Object.keys(channelRouter._def.procedures);
+    expect(procedures).toEqual(expect.arrayContaining(['page', 'remove', 'artifact']));
+    for (const removed of ['approve', 'detail', 'archive'])
+      expect(procedures).not.toContain(removed);
+  });
 });

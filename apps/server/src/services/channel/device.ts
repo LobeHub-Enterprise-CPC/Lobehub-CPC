@@ -179,7 +179,4 @@ export class ChannelDevice {
   stop(runId: string, fence: number) {
     return this.call<CodexChannelSnapshot | null>('channelStop', { runId, fence });
   }
-  approve(runId: string, fence: number, approvalId: string, approved: boolean) {
-    return this.call<void>('channelApprove', { runId, fence, approvalId, approved });
-  }
 }

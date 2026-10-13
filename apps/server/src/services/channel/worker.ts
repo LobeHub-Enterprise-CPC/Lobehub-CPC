@@ -486,23 +486,6 @@ export class ChannelWorker {
       await model.setActivity(run.channelId, run.id, run.fence, snapshot.activity || 'running');
     if (!stopped && snapshot.acceptance === 'accepted' && snapshot.sessionId && snapshot.turnId)
       await model.accepted(run.channelId, run.id, run.fence, snapshot.sessionId, snapshot.turnId);
-    if (!stopped && snapshot.approval) {
-      const approval = await model.requestApproval(
-        run.channelId,
-        run.id,
-        run.fence,
-        `${run.id}:${snapshot.approval.id}`,
-        { method: snapshot.approval.method, request: snapshot.approval.request },
-        new Date(snapshot.approval.expiresAt),
-      );
-      if (approval.decision)
-        await device.approve(
-          run.id,
-          run.executionFence,
-          snapshot.approval.id,
-          approval.decision === 'approved',
-        );
-    }
     if (!stopped && snapshot.status === 'completed' && snapshot.content && settled) {
       await model.recordExecution(run.channelId, run.id, run.fence, {
         runtime: config.runtime,

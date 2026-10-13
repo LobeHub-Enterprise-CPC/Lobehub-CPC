@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { channelMigrationSql } from '../../tests/channelMigrations';
 import * as schema from '../privateSchemas/channel';
@@ -317,11 +317,10 @@ describe('Channel durable boundaries', () => {
     await expect(new ChannelModel(db, 'other').detail(c.id)).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
+    // channel_outbox had no consumer; delivery is the durable job row itself.
     expect(
-      (
-        await db.select().from(schema.channelOutbox).where(eq(schema.channelOutbox.channelId, c.id))
-      ).map((x) => x.kind),
-    ).toEqual(['execute']);
+      await db.select().from(schema.channelOutbox).where(eq(schema.channelOutbox.channelId, c.id)),
+    ).toEqual([]);
   });
 
   it('broadcasts atomically to every active member exactly once without a router', async () => {
@@ -339,10 +338,8 @@ describe('Channel durable boundaries', () => {
     expect(detail.jobs.map((job) => job.memberId).sort()).toEqual([a.id, b.id].sort());
     expect(detail.messages[0]).toMatchObject({ routingStatus: 'assigned', mentions: [] });
     expect(
-      (
-        await db.select().from(schema.channelOutbox).where(eq(schema.channelOutbox.channelId, c.id))
-      ).map((row) => row.kind),
-    ).toEqual(['execute', 'execute']);
+      await db.select().from(schema.channelOutbox).where(eq(schema.channelOutbox.channelId, c.id)),
+    ).toEqual([]);
   });
 
   it('includes peers published before claim while retaining the original request identity', async () => {
@@ -773,52 +770,6 @@ describe('Channel durable boundaries', () => {
     current = (await model.detail(c.id)).runs[0];
     expect(current.publishedMessageId).toBeTruthy();
     expect(current.status).toBe('completed');
-  });
-
-  it('polls pending approvals without a write transaction and expires them atomically', async () => {
-    const { c, a } = await setup();
-    await model.send(c.id, { content: 'Approve', mentions: [a.id], requestKey: randomUUID() });
-    const { run } = (await model.claim(c.id, (await model.detail(c.id)).jobs[0].id))!;
-    const approvalId = randomUUID();
-    const deadline = new Date(Date.now() + 60000);
-    await model.requestApproval(c.id, run.id, 1, approvalId, {}, deadline);
-    const transaction = vi.spyOn(db, 'transaction');
-    await model.requestApproval(c.id, run.id, 1, approvalId, {}, deadline);
-    expect(transaction).not.toHaveBeenCalled();
-    transaction.mockRestore();
-    await db
-      .update(schema.channelApprovals)
-      .set({ expiresAt: new Date(0) })
-      .where(eq(schema.channelApprovals.id, approvalId));
-    const expired = await model.requestApproval(c.id, run.id, 1, approvalId, {}, deadline);
-    expect(expired.decision).toBe('expired');
-    expect((await model.detail(c.id)).runs[0]).toMatchObject({
-      status: 'stop_requested',
-      publicationRevoked: true,
-      writerReleased: false,
-    });
-    await expect(model.decideApproval(c.id, approvalId, true)).rejects.toMatchObject({
-      code: 'CONFLICT',
-    });
-  });
-
-  it('retains one immutable approval decision and rejects late approval after stop', async () => {
-    const { c, a } = await setup();
-    await model.send(c.id, { content: 'Approval', mentions: [a.id], requestKey: randomUUID() });
-    const { run } = (await model.claim(c.id, (await model.detail(c.id)).jobs[0].id))!;
-    const approvalId = randomUUID();
-    const expiresAt = new Date(Date.now() + 60000);
-    await model.requestApproval(c.id, run.id, 1, approvalId, { command: 'write file' }, expiresAt);
-    await model.decideApproval(c.id, approvalId, true);
-    await model.decideApproval(c.id, approvalId, true);
-    await expect(model.decideApproval(c.id, approvalId, false)).rejects.toMatchObject({
-      code: 'CONFLICT',
-    });
-    expect((await model.detail(c.id)).approvals).toHaveLength(1);
-    await model.stop(c.id, { runId: run.id });
-    await expect(model.decideApproval(c.id, approvalId, true)).rejects.toMatchObject({
-      code: 'CONFLICT',
-    });
   });
 });
 
