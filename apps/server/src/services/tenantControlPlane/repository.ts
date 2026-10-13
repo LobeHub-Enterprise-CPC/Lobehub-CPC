@@ -100,8 +100,6 @@ export interface ControlPlaneTx {
   getOperation: (operationId: string) => Promise<ProvisionOperationRecord | null>;
   /** The bundle a provision operation was received with, until the operation applies. */
   getOperationBundle: (operationId: string) => Promise<DatasourceBundle | null>;
-  /** Checked under the tenant control lock immediately before applied. */
-  isTenantStopped: (tenantId: string) => Promise<boolean>;
   listOpenEvents: (tenantId: string) => Promise<LifecycleEventRecord[]>;
   listOperations: (tenantId: string) => Promise<ProvisionOperationRecord[]>;
   putDirectory: (record: TenantDirectoryRecord, bundle: DatasourceBundle) => Promise<void>;
@@ -110,6 +108,11 @@ export interface ControlPlaneTx {
   putOperation: (record: ProvisionOperationRecord) => Promise<void>;
   /** Stores (`bundle`) or drops (`null`) the operation's pending bundle. */
   putOperationBundle: (operationId: string, bundle: DatasourceBundle | null) => Promise<void>;
+  /** Checked under the tenant control lock immediately before applied. */
+  /** Why the tenant cannot be certified stopped yet, or null when it is. */
+  tenantStopBlocker: (
+    tenantId: string,
+  ) => Promise<'LIFECYCLE_CUTOVER_REQUIRED' | 'LIFECYCLE_STOP_UNCONFIRMED' | null>;
 }
 
 export interface ControlPlaneRepository {

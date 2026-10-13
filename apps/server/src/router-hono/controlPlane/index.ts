@@ -15,6 +15,7 @@ import {
   ControlPlaneError,
   datasourceReadinessRequestSchema,
   datasourceRequestSchema,
+  isActionRequired,
   lifecycleQuerySchema,
   lifecycleRequestSchema,
   overviewQuerySchema,
@@ -121,12 +122,23 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
     return { input: parsed.data, service };
   };
 
-  const statusFor = (status: string, isPost: boolean) =>
-    status === 'received' || status === 'applying'
-      ? 202
-      : isPost && status === 'failed'
-        ? 503
-        : 200;
+  /**
+   * A failed POST carries its reason as `code`, like any refusal: 409 when an operator must act
+   * first, otherwise 503 with Retry-After so Console retries it.
+   */
+  const reply = (
+    c: Context,
+    result: { errorCode: string | null; status: string },
+    isPost: boolean,
+  ) => {
+    if (isPost && result.status === 'failed') {
+      if (isActionRequired(result.errorCode))
+        return c.json({ ...result, code: result.errorCode }, 409);
+      c.header('Retry-After', '5');
+      return c.json({ ...result, code: result.errorCode ?? 'INTERNAL' }, 503);
+    }
+    return c.json(result, result.status === 'received' || result.status === 'applying' ? 202 : 200);
+  };
 
   app.post('/tenant-provision', async (c) => {
     const { input, service } = await prepare(c, provisionRequestSchema, 'body');
@@ -137,7 +149,7 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
         operationId: input.operationId,
         tenantId: input.tenantId,
       });
-    return c.json(result, statusFor(result.status, true));
+    return reply(c, result, true);
   });
 
   app.get('/tenant-provision', async (c) => {
@@ -149,7 +161,7 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
         operationId: input.operationId,
         tenantId: input.tenantId,
       });
-    return c.json(result, statusFor(result.status, false));
+    return reply(c, result, false);
   });
 
   app.post('/tenant-readiness', async (c) => {
@@ -161,7 +173,7 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
   app.post('/tenant-datasource', async (c) => {
     const { input, service } = await prepare(c, datasourceRequestSchema, 'body');
     const result = await service.receiveDatasource(input);
-    return c.json(result, statusFor(result.status, true));
+    return reply(c, result, true);
   });
 
   app.post('/tenant-lifecycle', async (c) => {
@@ -169,7 +181,7 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
     const result = await service.receiveLifecycle(input);
     if (result.status === 'received' || result.status === 'applying')
       deps.schedule?.({ eventId: input.eventId, kind: 'lifecycle', tenantId: input.tenantId });
-    return c.json(result, statusFor(result.status, true));
+    return reply(c, result, true);
   });
 
   app.get('/tenant-lifecycle', async (c) => {
@@ -177,7 +189,7 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
     const result = await service.getLifecycle(input.tenantId, input.eventId);
     if (result.status === 'received' || result.status === 'applying')
       deps.schedule?.({ eventId: input.eventId, kind: 'lifecycle', tenantId: input.tenantId });
-    return c.json(result, statusFor(result.status, false));
+    return reply(c, result, false);
   });
 
   app.get('/tenant-overview', async (c) => {

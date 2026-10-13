@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DatasourceBundle, LifecycleRequest, ProvisionRequest } from '../contracts';
+import { LifecycleFailure } from '../contracts';
 import { redactDatasourceBundle, tenantDbNames } from '../datasource';
 import { MemoryControlPlaneRepository } from '../memoryRepository';
 import {
@@ -445,13 +446,14 @@ describe('receiveLifecycle', () => {
     await service.receiveLifecycle(lifecycle());
     await expect(
       service.receiveLifecycle(lifecycle({ freezeReasons: ['security'] })),
-    ).rejects.toMatchObject({ code: 'VERSION_CONFLICT', status: 409 });
+    ).rejects.toMatchObject({ code: 'LIFECYCLE_EVENT_CONFLICT', status: 409 });
   });
 
   it('refuses a version another event already holds', async () => {
     await service.receiveLifecycle(lifecycle());
     await expect(service.receiveLifecycle(lifecycle({ eventId: 'evt-x' }))).rejects.toMatchObject({
-      code: 'VERSION_CONFLICT',
+      code: 'LIFECYCLE_VERSION_CONFLICT',
+      status: 409,
     });
   });
 
@@ -512,14 +514,14 @@ describe('executeLifecycle', () => {
 
   it('refuses applied if the final locked check still sees work, and retries after its receipt', async () => {
     await service.receiveLifecycle(lifecycle());
-    repo.stopped.set(TENANT, false);
+    repo.stopBlockers.set(TENANT, 'LIFECYCLE_STOP_UNCONFIRMED');
     const failed = await service.executeLifecycle(TENANT, 'evt-1', hooks());
     expect(failed).toMatchObject({
       status: 'failed',
-      errorCode: 'LIFECYCLE_FAILED',
+      errorCode: 'LIFECYCLE_STOP_UNCONFIRMED',
       appliedVersion: 0,
     });
-    repo.stopped.set(TENANT, true);
+    repo.stopBlockers.delete(TENANT);
     expect(await service.executeLifecycle(TENANT, 'evt-1', hooks())).toMatchObject({
       status: 'applied',
       appliedVersion: 1,
@@ -560,11 +562,54 @@ describe('executeLifecycle', () => {
     (h.drainTransactions as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('timeout'));
 
     const failed = await service.executeLifecycle(TENANT, 'evt-1', h);
-    expect(failed).toMatchObject({ errorCode: 'LIFECYCLE_FAILED', status: 'failed' });
+    expect(failed).toMatchObject({ errorCode: 'LIFECYCLE_DRAIN_FAILED', status: 'failed' });
     expect(repo.lifecycles.get(TENANT)!.desiredState).toBe('frozen');
 
     expect((await service.receiveLifecycle(lifecycle())).status).toBe('received');
     expect((await service.executeLifecycle(TENANT, 'evt-1', h)).status).toBe('applied');
+  });
+
+  it('refuses applied without the strict-stop cutover record', async () => {
+    await service.receiveLifecycle(lifecycle());
+    repo.stopBlockers.set(TENANT, 'LIFECYCLE_CUTOVER_REQUIRED');
+    expect(await service.executeLifecycle(TENANT, 'evt-1', hooks())).toMatchObject({
+      errorCode: 'LIFECYCLE_CUTOVER_REQUIRED',
+      status: 'failed',
+    });
+  });
+
+  it.each([
+    ['closeRealtime', new Error('socket'), 'LIFECYCLE_STOP_FAILED'],
+    ['stopQueue', new Error('queue'), 'LIFECYCLE_STOP_FAILED'],
+    [
+      'drainTransactions',
+      new LifecycleFailure('LIFECYCLE_CUTOVER_REQUIRED'),
+      'LIFECYCLE_CUTOVER_REQUIRED',
+    ],
+    [
+      'drainTransactions',
+      new LifecycleFailure('LIFECYCLE_STOP_UNCONFIRMED'),
+      'LIFECYCLE_STOP_UNCONFIRMED',
+    ],
+    ['invalidateCaches', new Error('cache'), 'LIFECYCLE_FAILED'],
+  ] as const)('records a %s failure (%s) as %s', async (phase, error, errorCode) => {
+    await service.receiveLifecycle(lifecycle());
+    const h = hooks();
+    (h[phase] as ReturnType<typeof vi.fn>).mockRejectedValueOnce(error);
+    expect(await service.executeLifecycle(TENANT, 'evt-1', h)).toMatchObject({
+      errorCode,
+      status: 'failed',
+    });
+  });
+
+  it('records a failed resume when activating', async () => {
+    await service.receiveLifecycle(lifecycle({ desiredState: 'active', freezeReasons: [] }));
+    const h = hooks();
+    (h.resumeQueue as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('resume'));
+    expect(await service.executeLifecycle(TENANT, 'evt-1', h)).toMatchObject({
+      errorCode: 'LIFECYCLE_RESUME_FAILED',
+      status: 'failed',
+    });
   });
 
   it('will not activate a tenant whose datasource is not ready', async () => {

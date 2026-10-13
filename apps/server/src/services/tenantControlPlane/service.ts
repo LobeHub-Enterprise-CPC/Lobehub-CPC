@@ -8,6 +8,8 @@ import {
   type DatasourceRequest,
   type DatasourceResult,
   type FreezeReason,
+  LifecycleFailure,
+  type LifecycleFailureCode,
   type LifecycleRequest,
   type LifecycleResult,
   type ProvisionRequest,
@@ -543,7 +545,7 @@ export class TenantControlPlaneService {
       const existing = await tx.getEvent(request.eventId);
       if (existing) {
         if (existing.payloadHash !== payloadHash || existing.tenantId !== request.tenantId)
-          throw new ControlPlaneError(409, 'VERSION_CONFLICT');
+          throw new ControlPlaneError(409, 'LIFECYCLE_EVENT_CONFLICT');
         // Console re-posts a failed event to retry it; the executor picks it up again.
         if (existing.status === 'failed' && existing.version === lifecycle.acceptedVersion) {
           existing.status = 'received';
@@ -555,7 +557,7 @@ export class TenantControlPlaneService {
       }
 
       const taken = await tx.findEventByVersion(request.tenantId, request.version);
-      if (taken) throw new ControlPlaneError(409, 'VERSION_CONFLICT');
+      if (taken) throw new ControlPlaneError(409, 'LIFECYCLE_VERSION_CONFLICT');
 
       const observedAt = this.now().toISOString();
       const event: LifecycleEventRecord = {
@@ -683,16 +685,26 @@ export class TenantControlPlaneService {
     const token = claimed.event.leaseToken!;
 
     const closing = effectiveTenantState(claimed.event.request, this.now()).state !== 'active';
-    const phases: ((id: string) => Promise<void>)[] = closing
-      ? [hooks.invalidateCaches, hooks.closeRealtime, hooks.stopQueue, hooks.drainTransactions]
-      : [hooks.invalidateCaches, hooks.resumeQueue];
+    // Each phase names the code its failure is recorded with, unless it reports its own reason.
+    const phases: [(id: string) => Promise<void>, LifecycleFailureCode][] = closing
+      ? [
+          [hooks.invalidateCaches, 'LIFECYCLE_FAILED'],
+          [hooks.closeRealtime, 'LIFECYCLE_STOP_FAILED'],
+          [hooks.stopQueue, 'LIFECYCLE_STOP_FAILED'],
+          [hooks.drainTransactions, 'LIFECYCLE_DRAIN_FAILED'],
+        ]
+      : [
+          [hooks.invalidateCaches, 'LIFECYCLE_FAILED'],
+          [hooks.resumeQueue, 'LIFECYCLE_RESUME_FAILED'],
+        ];
 
-    for (const phase of phases) {
+    for (const [phase, failureCode] of phases) {
       const stale = await this.supersedeIfStale(tenantId, eventId, token);
       if (stale) return stale;
       try {
         await phase(tenantId);
-      } catch {
+      } catch (error) {
+        const code = error instanceof LifecycleFailure ? error.code : failureCode;
         // The gate already refuses the tenant; failing here only means the
         // drain is unfinished. Console or the executor retries the event.
         return this.repository.transaction(tenantId, async (tx) => {
@@ -702,7 +714,7 @@ export class TenantControlPlaneService {
             return this.toLifecycleResult(event, lifecycle);
           if (event.version !== lifecycle.acceptedVersion)
             await this.finishEvent(tx, event, 'superseded', null);
-          else await this.finishEvent(tx, event, 'failed', 'LIFECYCLE_FAILED');
+          else await this.finishEvent(tx, event, 'failed', code);
           return this.toLifecycleResult(event, lifecycle);
         });
       }
@@ -716,8 +728,9 @@ export class TenantControlPlaneService {
         if (event.status === 'applying') await this.finishEvent(tx, event, 'superseded', null);
         return this.toLifecycleResult(event, lifecycle);
       }
-      if (closing && !(await tx.isTenantStopped(tenantId))) {
-        await this.finishEvent(tx, event, 'failed', 'LIFECYCLE_FAILED');
+      const blocker = closing ? await tx.tenantStopBlocker(tenantId) : null;
+      if (blocker) {
+        await this.finishEvent(tx, event, 'failed', blocker);
         return this.toLifecycleResult(event, lifecycle);
       }
       lifecycle.appliedVersion = Math.max(lifecycle.appliedVersion, event.version);

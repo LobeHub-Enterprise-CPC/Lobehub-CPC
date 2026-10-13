@@ -12,6 +12,8 @@ import {
 } from '@lobechat/database/platform';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 
+import { LifecycleFailure } from '@/server/services/tenantControlPlane/contracts';
+
 import { TenantClaims } from './claims';
 import { TenantGateError } from './errors';
 import { readProcessIdentity } from './processIdentity';
@@ -103,7 +105,7 @@ export const waitForTenantClaims = async (
       .select()
       .from(tenantRuntimeCutover)
       .where(eq(tenantRuntimeCutover.id, 'strict-stop'));
-    if (!cutover?.enforcedAt) throw new Error('TENANT_STRICT_STOP_CUTOVER_REQUIRED');
+    if (!cutover?.enforcedAt) throw new LifecycleFailure('LIFECYCLE_CUTOVER_REQUIRED');
     const remaining = await db
       .select({ processId: tenantRuntimeClaim.processId })
       .from(tenantRuntimeClaim)
@@ -120,7 +122,7 @@ export const waitForTenantClaims = async (
       )
       .limit(1);
     if (!remaining.length && !remote.length) return;
-    if (Date.now() >= deadline) throw new Error('TENANT_WORK_STOP_UNCONFIRMED');
+    if (Date.now() >= deadline) throw new LifecycleFailure('LIFECYCLE_STOP_UNCONFIRMED');
     await new Promise<void>((resolve) => setTimeout(resolve, 200));
   }
 };

@@ -28,8 +28,43 @@ export const SAFE_ERROR_CODES = [
   'DATASOURCE_VERSION_CONFLICT',
   'CREDENTIALS_UNAVAILABLE',
   'LIFECYCLE_FAILED',
+  'LIFECYCLE_CUTOVER_REQUIRED',
+  'LIFECYCLE_STOP_UNCONFIRMED',
+  'LIFECYCLE_STOP_FAILED',
+  'LIFECYCLE_DRAIN_FAILED',
+  'LIFECYCLE_RESUME_FAILED',
+  'LIFECYCLE_EVENT_CONFLICT',
+  'LIFECYCLE_VERSION_CONFLICT',
 ] as const;
 export type SafeErrorCode = (typeof SAFE_ERROR_CODES)[number];
+
+/**
+ * Why a lifecycle event failed (`errorCode` of a failed result). Admin returns the same codes and
+ * Console maps them to operator guidance (docs/tenant-control-plane.md). `action_required` needs
+ * an operator before a retry can succeed: a failed POST answers it with 409, the rest with 503.
+ * Must match contracts/tenant-control-plane/lifecycle-failure-codes.json (owned by Console, copied
+ * byte-identically here); a unit test binds this table to it.
+ */
+export const LIFECYCLE_FAILURE_CODES = {
+  LIFECYCLE_CUTOVER_REQUIRED: 'action_required',
+  LIFECYCLE_DRAIN_FAILED: 'retryable',
+  LIFECYCLE_FAILED: 'retryable',
+  LIFECYCLE_RESUME_FAILED: 'retryable',
+  LIFECYCLE_STOP_FAILED: 'retryable',
+  LIFECYCLE_STOP_UNCONFIRMED: 'retryable',
+  TENANT_NOT_READY: 'retryable',
+} as const satisfies Partial<Record<SafeErrorCode, 'action_required' | 'retryable'>>;
+export type LifecycleFailureCode = keyof typeof LIFECYCLE_FAILURE_CODES;
+export const isActionRequired = (code: string | null | undefined) =>
+  !!code && (LIFECYCLE_FAILURE_CODES as Record<string, string>)[code] === 'action_required';
+
+/** A lifecycle phase that failed for a known reason; recorded on the event, never as text. */
+export class LifecycleFailure extends Error {
+  constructor(readonly code: LifecycleFailureCode) {
+    super(code);
+    this.name = 'LifecycleFailure';
+  }
+}
 
 const roleName = z
   .string()

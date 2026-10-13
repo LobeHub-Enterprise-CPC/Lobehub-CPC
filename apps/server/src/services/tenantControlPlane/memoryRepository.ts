@@ -21,7 +21,7 @@ interface DirectoryEntry {
  * commit when `fn` resolves, matching the rollback behaviour of the real one.
  */
 export class MemoryControlPlaneRepository implements ControlPlaneRepository {
-  stopped = new Map<string, boolean>();
+  stopBlockers = new Map<string, 'LIFECYCLE_CUTOVER_REQUIRED' | 'LIFECYCLE_STOP_UNCONFIRMED'>();
   directory = new Map<string, DirectoryEntry>();
   events = new Map<string, LifecycleEventRecord>();
   lifecycles = new Map<string, TenantLifecycleRecord>();
@@ -38,7 +38,7 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
       const operationBundles = cloneMap(this.operationBundles);
       const operations = cloneMap(this.operations);
       const tx: ControlPlaneTx = {
-        isTenantStopped: async (tenantId) => this.stopped.get(tenantId) ?? true,
+        tenantStopBlocker: async (tenantId) => this.stopBlockers.get(tenantId) ?? null,
         findEventByVersion: async (tenantId, version) =>
           [...events.values()].find((e) => e.tenantId === tenantId && e.version === version) ??
           null,
@@ -73,7 +73,7 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
               existing.payloadHash !== record.payloadHash ||
               existing.version !== record.version)
           )
-            throw new ControlPlaneError(409, 'VERSION_CONFLICT');
+            throw new ControlPlaneError(409, 'LIFECYCLE_EVENT_CONFLICT');
           events.set(record.eventId, clone(record));
         },
         putLifecycle: async (record) => void lifecycles.set(record.tenantId, clone(record)),

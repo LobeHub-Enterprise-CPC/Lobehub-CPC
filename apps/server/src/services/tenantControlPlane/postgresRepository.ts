@@ -137,12 +137,12 @@ const toLifecycle = (row: LifecycleRow): TenantLifecycleRecord => ({
 });
 
 const createTx = (tx: Tx): ControlPlaneTx => ({
-  isTenantStopped: async (tenantId) => {
+  tenantStopBlocker: async (tenantId) => {
     const [cutover] = await tx
       .select()
       .from(tenantRuntimeCutover)
       .where(eq(tenantRuntimeCutover.id, 'strict-stop'));
-    if (!cutover?.enforcedAt) return false;
+    if (!cutover?.enforcedAt) return 'LIFECYCLE_CUTOVER_REQUIRED';
     const claims = await tx
       .select({ id: tenantRuntimeClaim.processId })
       .from(tenantRuntimeClaim)
@@ -158,7 +158,7 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
         ),
       )
       .limit(1);
-    return claims.length === 0 && remote.length === 0;
+    return claims.length === 0 && remote.length === 0 ? null : 'LIFECYCLE_STOP_UNCONFIRMED';
   },
   findEventByVersion: async (tenantId, version) => {
     const [row] = await tx
