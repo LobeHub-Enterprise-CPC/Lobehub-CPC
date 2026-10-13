@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
@@ -165,7 +166,7 @@ describe('defineConfig', () => {
       expect.objectContaining({
         origin: ['https://example.com'],
         rpID: 'example.com',
-        rpName: 'LobeHub',
+        rpName: BRANDING_NAME,
       }),
     );
   });
