@@ -15,6 +15,7 @@ import { type ModelProvider } from 'model-bank';
 import superjson from 'superjson';
 
 import { isDesktop } from '@/const/version';
+import { isTenantUnavailableCode } from '@/features/Auth/utils/tenantUnavailable';
 import { type LambdaRouter } from '@/server/routers/lambda';
 
 const log = debug('lobe-image:lambda-client');
@@ -59,6 +60,14 @@ const errorHandlingLink: TRPCLink<LambdaRouter> = () => {
             err.message.includes('signal is aborted without reason');
 
           if (!isAbortError) await rewriteUnreadableResponseMessage(err);
+
+          // A closed workspace is explained by the workspace-unavailable screen, and
+          // retrying cannot succeed until an administrator reopens it.
+          if (isTenantUnavailableCode(err.message)) {
+            err.meta = { ...err.meta, shouldRetry: false };
+            observer.error(err);
+            return;
+          }
 
           const showError = (op.context?.showNotification as boolean) ?? true;
           const status = err.data?.httpStatus as number;

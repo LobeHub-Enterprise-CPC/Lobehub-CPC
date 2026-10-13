@@ -14,13 +14,12 @@ const log = debug('lobe-server:tenant-gate');
 export const routedTenantSlug = (request: Request): string | null =>
   verifyTenantRoute(request.headers.get(TENANT_ROUTE_HEADER));
 
-const toResponse = (error: unknown): Response | null => {
-  const refusal = tenantGateErrorOf(error);
-  if (!refusal) return null;
-  if (refusal.cause instanceof TenantDatabaseError)
-    log('tenant database refused: %s', refusal.cause.reason);
-  return refusal.toResponse();
-};
+type RefusalResponder<Req extends Request> = (
+  refusal: TenantGateError,
+  request: Req,
+) => Promise<Response> | Response;
+
+const gateResponse = (refusal: TenantGateError) => refusal.toResponse();
 
 /**
  * A response body outlives the handler (SSE, streamed model output, file
@@ -55,10 +54,12 @@ const guardTenantResponse = (
 export const withTenantRequest =
   <Req extends Request, Args extends unknown[]>(
     handler: (request: Req, ...args: Args) => Promise<Response> | Response,
+    /** `refuse` answers a refusal in the route's own protocol (e.g. tRPC); default `{ code }`. */
+    { refuse = gateResponse }: { refuse?: RefusalResponder<Req> } = {},
   ) =>
   async (request: Req, ...args: Args): Promise<Response> => {
     const slug = routedTenantSlug(request);
-    if (!slug) return new TenantGateError('TENANT_REQUIRED').toResponse();
+    if (!slug) return refuse(new TenantGateError('TENANT_REQUIRED'), request);
     try {
       const { scope, release } = await getTenantRuntime().enterSlug(slug);
       scope.trackWork = (resource) => getTenantLiveResources().bind(scope.tenantId, resource);
@@ -105,9 +106,11 @@ export const withTenantRequest =
         await release();
       }
     } catch (error) {
-      const response = toResponse(error);
-      if (response) return response;
-      throw error;
+      const refusal = tenantGateErrorOf(error);
+      if (!refusal) throw error;
+      if (refusal.cause instanceof TenantDatabaseError)
+        log('tenant database refused: %s', refusal.cause.reason);
+      return refuse(refusal, request);
     }
   };
 

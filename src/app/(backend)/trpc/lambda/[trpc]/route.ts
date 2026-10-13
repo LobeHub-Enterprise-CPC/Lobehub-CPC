@@ -6,6 +6,7 @@ import { createTRPCErrorLogger } from '@/libs/trpc/utils/errorLogger';
 import { prepareRequestForTRPC } from '@/libs/trpc/utils/request-adapter';
 import { createResponseMeta } from '@/libs/trpc/utils/responseMeta';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
+import { trpcTenantRefusal } from '@/server/modules/Tenant/trpcRefusal';
 import { lambdaRouter } from '@/server/routers/lambda';
 
 // Some lambda mutations (e.g. video.createVideo) schedule a Next.js `after()`
@@ -49,6 +50,8 @@ const handler = (req: NextRequest) => {
   });
 };
 
-const tenantHandler = withTenantRequest(handler);
+const tenantHandler = withTenantRequest(handler, {
+  refuse: trpcTenantRefusal({ endpoint: '/trpc/lambda', router: lambdaRouter }),
+});
 
 export { tenantHandler as GET, tenantHandler as POST };

@@ -244,6 +244,30 @@ describe('lambdaClient unreadable response handling', () => {
     ).rejects.toThrow('response.UnreadableServerResponse');
   });
 
+  // The workspace-unavailable screen explains a closed tenant; every request it
+  // refuses must neither log an error nor make SWR retry against a closed gate.
+  it('stops retrying a request refused because the workspace is closed', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: superjson.serialize({
+            code: -32_003,
+            data: { code: 'FORBIDDEN', httpStatus: 403 },
+            message: 'TENANT_FROZEN',
+          }),
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 403 },
+      ),
+    );
+
+    const error = await lambdaClient.agent.getAgentConfigById
+      .query({ agentId: 'agt_test' })
+      .catch((error_: any) => error_);
+    expect(error.message).toBe('TENANT_FROZEN');
+    expect(error.meta?.shouldRetry).toBe(false);
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
   it('keeps a well-formed tRPC error message untouched', async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(

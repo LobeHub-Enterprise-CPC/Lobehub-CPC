@@ -2,12 +2,14 @@
 import { initTRPC } from '@trpc/server';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import { NextRequest } from 'next/server';
+import superjson from 'superjson';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TenantGateError } from '../errors';
 import { withTenantRequest } from '../gate';
 import { getTenantLiveResources } from '../liveResources';
 import { signTenantRoute, TENANT_ROUTE_HEADER } from '../routeHeader';
+import { trpcTenantRefusal } from '../trpcRefusal';
 
 const mocks = vi.hoisted(() => ({ enterSlug: vi.fn() }));
 
@@ -182,6 +184,83 @@ describe('tenant request routing', () => {
       path: '/api/test',
       query: '?x=1',
     });
+  });
+
+  it('answers a tRPC batch refused at the gate with a tRPC error per call', async () => {
+    mocks.enterSlug.mockRejectedValue(
+      new TenantGateError('TENANT_FROZEN', { freezeReasons: ['manual'] }),
+    );
+    const trpc = initTRPC.create({ transformer: superjson });
+    const router = trpc.router({
+      a: trpc.procedure.query(() => 'a'),
+      b: trpc.procedure.query(() => 'b'),
+    });
+    const procedure = vi.fn();
+    const handler = withTenantRequest(procedure, {
+      refuse: trpcTenantRefusal({ endpoint: '/trpc/lambda', router }),
+    });
+
+    const response = await handler(
+      new NextRequest('https://app.test/t/acme/trpc/lambda/a,b?batch=1&input={}', {
+        headers: headers(),
+      }),
+    );
+
+    expect(procedure).not.toHaveBeenCalled();
+    expect(response.status).toBe(403);
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+    // A bare `{ code }` body is not a tRPC response: the client could only report
+    // "Unable to transform response from server" and lose the refusal code.
+    const body = (await response.json()) as Array<{ error: { json: any } }>;
+    expect(body).toHaveLength(2);
+    for (const { error } of body) {
+      expect(error.json.message).toBe('TENANT_FROZEN');
+      expect(error.json.data).toMatchObject({ code: 'FORBIDDEN', httpStatus: 403 });
+    }
+  });
+
+  it('keeps the gate status for a tRPC refusal of a tenant that is not ready', async () => {
+    mocks.enterSlug.mockRejectedValue(new TenantGateError('TENANT_NOT_READY'));
+    const trpc = initTRPC.create({ transformer: superjson });
+    const router = trpc.router({ a: trpc.procedure.query(() => 'a') });
+    const handler = withTenantRequest(vi.fn(), {
+      refuse: trpcTenantRefusal({ endpoint: '/trpc/lambda', router }),
+    });
+
+    const response = await handler(
+      new NextRequest('https://app.test/t/acme/trpc/lambda/a', { headers: headers() }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get('Retry-After')).toBe('5');
+    const { error } = (await response.json()) as { error: { json: any } };
+    expect(error.json.message).toBe('TENANT_NOT_READY');
+  });
+
+  it('answers a tRPC refusal raised after the handler read the body', async () => {
+    const trpc = initTRPC.create({ transformer: superjson });
+    const router = trpc.router({ a: trpc.procedure.mutation(() => 'a') });
+    const handler = withTenantRequest(
+      async (req: Request) => {
+        await req.text();
+        throw Object.assign(new Error('Failed query'), {
+          cause: new TenantGateError('TENANT_OFFLINE'),
+        });
+      },
+      { refuse: trpcTenantRefusal({ endpoint: '/trpc/lambda', router }) },
+    );
+
+    const response = await handler(
+      new NextRequest('https://app.test/t/acme/trpc/lambda/a', {
+        body: JSON.stringify({ json: { x: 1 } }),
+        headers: { ...headers(), 'content-type': 'application/json' },
+        method: 'POST',
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    const { error } = (await response.json()) as { error: { json: any } };
+    expect(error.json.message).toBe('TENANT_OFFLINE');
   });
 
   it('refuses requests without the signed routing header', async () => {

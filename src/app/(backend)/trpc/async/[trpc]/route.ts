@@ -5,6 +5,7 @@ import { createAsyncRouteContext } from '@/libs/trpc/async/context';
 import { prepareRequestForTRPC } from '@/libs/trpc/utils/request-adapter';
 import { createResponseMeta } from '@/libs/trpc/utils/responseMeta';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
+import { trpcTenantRefusal } from '@/server/modules/Tenant/trpcRefusal';
 import { asyncRouter } from '@/server/routers/async';
 
 const handler = (req: NextRequest) => {
@@ -35,6 +36,8 @@ const handler = (req: NextRequest) => {
   });
 };
 
-const tenantHandler = withTenantRequest(handler);
+const tenantHandler = withTenantRequest(handler, {
+  refuse: trpcTenantRefusal({ endpoint: '/trpc/async', router: asyncRouter }),
+});
 
 export { tenantHandler as GET, tenantHandler as POST };

@@ -6,6 +6,7 @@ import { createTRPCErrorLogger } from '@/libs/trpc/utils/errorLogger';
 import { prepareRequestForTRPC } from '@/libs/trpc/utils/request-adapter';
 import { createResponseMeta } from '@/libs/trpc/utils/responseMeta';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
+import { trpcTenantRefusal } from '@/server/modules/Tenant/trpcRefusal';
 import { toolsRouter } from '@/server/routers/tools';
 
 const handler = (req: NextRequest) => {
@@ -29,6 +30,8 @@ const handler = (req: NextRequest) => {
   });
 };
 
-const tenantHandler = withTenantRequest(handler);
+const tenantHandler = withTenantRequest(handler, {
+  refuse: trpcTenantRefusal({ endpoint: '/trpc/tools', router: toolsRouter }),
+});
 
 export { tenantHandler as GET, tenantHandler as POST };
