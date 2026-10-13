@@ -12,8 +12,8 @@ interface TenantState {
 const tenantStore = createStore<TenantState>(() => ({ tenant: null }));
 
 /** Called by each browser entry before routing or issuing requests. */
-export const initializeTenant = (url: URL): void => {
-  tenantStore.setState({ tenant: resolveTenant(url) });
+export const initializeTenant = (url: URL, bootstrap?: TenantContext | null): void => {
+  tenantStore.setState({ tenant: resolveTenant(url, bootstrap) });
 };
 
 export const getTenant = (): TenantContext | null => tenantStore.getState().tenant;
@@ -26,8 +26,10 @@ export const getTenant = (): TenantContext | null => tenantStore.getState().tena
  * the "use your organization address" page. Without a tenant (desktop, unscoped
  * document) the path is returned unchanged.
  */
-export const withCurrentTenantPath = (path: string): string =>
-  withTenantPath(path, getTenant()?.slug);
+export const withCurrentTenantPath = (path: string): string => {
+  const tenant = getTenant();
+  return tenant?.basePath === '' ? path : withTenantPath(path, tenant?.slug);
+};
 
 /**
  * Namespace a `localStorage` key that holds tenant business data (drafts, input
@@ -47,5 +49,6 @@ export const tenantStorageKey = (key: string): string => {
  */
 export const currentTenantRelativePath = (pathname: string): string | null => {
   const { rest, tenantSlug } = parseTenantPath(pathname);
+  if (getTenant()?.basePath === '') return /^\/t(?:\/|$)/.test(pathname) ? null : pathname;
   return tenantSlug === (getTenant()?.slug ?? null) ? rest : null;
 };

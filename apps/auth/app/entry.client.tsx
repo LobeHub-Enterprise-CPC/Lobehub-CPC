@@ -1,10 +1,13 @@
-import { getTenant, initializeTenant } from '@lobechat/business-tenant/client';
-import { withTenantPath } from '@lobechat/business-tenant/routing';
+import {
+  getTenant,
+  initializeTenant,
+  withCurrentTenantPath,
+} from '@lobechat/business-tenant/client';
 import { startTransition, StrictMode } from 'react';
 import { hydrateRoot } from 'react-dom/client';
 import { HydratedRouter } from 'react-router/dom';
 
-initializeTenant(new URL(window.location.href));
+initializeTenant(new URL(window.location.href), window.__SERVER_CONFIG__?.tenant);
 
 // In production the worker inlines this before the document is served. The dev
 // server has no such stage, so fetch it through vite's API proxy instead —
@@ -16,7 +19,7 @@ const loadDevServerConfig = async () => {
   try {
     const tenant = getTenant();
     if (!tenant) return;
-    const response = await fetch(withTenantPath('/webapi/auth/spa-config', tenant.slug));
+    const response = await fetch(withCurrentTenantPath('/webapi/auth/spa-config'));
     if (response.ok) window.__SERVER_CONFIG__ = await response.json();
   } catch {
     // Rendering config-less is the same state a failed lookup gives in production.

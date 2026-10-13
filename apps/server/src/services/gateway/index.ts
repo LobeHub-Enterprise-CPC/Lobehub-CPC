@@ -18,7 +18,7 @@ import {
 } from '@/database/models/messengerAccountLink';
 import { gatewayEnv } from '@/envs/gateway';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
-import { tenantCallbackPath } from '@/server/modules/Tenant/callbackUrl';
+import { tenantPublicPath } from '@/server/modules/Tenant/callbackUrl';
 import {
   getInstallationStore,
   isMessengerConnectionId,
@@ -198,7 +198,7 @@ const buildBotProviderConnectConfig = ({
   credentials: provider.credentials,
   platform,
   userId: provider.userId,
-  webhookPath: tenantCallbackPath(`/api/agent/webhooks/${platform}/${provider.applicationId}`),
+  webhookPath: tenantPublicPath(`/api/agent/webhooks/${platform}/${provider.applicationId}`),
 });
 
 /** The connect payload for one messenger polling link. Same rationale as above. */
@@ -232,7 +232,7 @@ const buildMessengerPollingConnectConfig = ({
     },
     platform,
     userId: link.userId,
-    webhookPath: tenantCallbackPath(`/api/agent/messenger/webhooks/${platform}`),
+    webhookPath: tenantPublicPath(`/api/agent/messenger/webhooks/${platform}`),
   };
 };
 
@@ -1770,9 +1770,7 @@ export class GatewayService {
           : { botToken: creds.botToken },
         platform,
         userId,
-        webhookPath: isPolling
-          ? tenantCallbackPath(`/api/agent/messenger/webhooks/${platform}`)
-          : '',
+        webhookPath: isPolling ? tenantPublicPath(`/api/agent/messenger/webhooks/${platform}`) : '',
       });
 
       // Evict-on-add: the iterator yields keys in insertion order, so the
@@ -1863,7 +1861,7 @@ export class GatewayService {
       return 'started';
     }
 
-    const webhookPath = tenantCallbackPath(`/api/agent/webhooks/${platform}/${applicationId}`);
+    const webhookPath = tenantPublicPath(`/api/agent/webhooks/${platform}/${applicationId}`);
 
     await client.connect({
       applicationId: provider.applicationId,

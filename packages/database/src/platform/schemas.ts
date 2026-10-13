@@ -195,3 +195,59 @@ export const tenantRuntimeExternalWork = pgTable(
   },
   (t) => [index('tenant_runtime_external_work_tenant_idx').on(t.tenantId)],
 );
+
+/** Public entry projection, independently versioned from lifecycle and datasource. */
+export const tenantEndpointState = pgTable(
+  'tenant_endpoint_state',
+  {
+    tenantId: text('tenant_id')
+      .primaryKey()
+      .references(() => tenantDirectory.tenantId),
+    acceptedVersion: integer('accepted_version').notNull(),
+    appliedVersion: integer('applied_version').notNull(),
+    observedAt: timestamptz('observed_at').notNull().defaultNow(),
+  },
+  (t) => [
+    check(
+      'tenant_endpoint_version_positive',
+      sql`${t.appliedVersion} > 0 AND ${t.appliedVersion} = ${t.acceptedVersion}`,
+    ),
+  ],
+);
+
+export const tenantEndpoints = pgTable(
+  'tenant_endpoints',
+  {
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => tenantDirectory.tenantId),
+    id: text('id').notNull(),
+    kind: text('kind').$type<'default' | 'custom'>().notNull(),
+    host: text('host'),
+    active: boolean('active').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tenantId, t.id] }),
+    uniqueIndex('tenant_endpoints_host_idx').on(t.host),
+    uniqueIndex('tenant_endpoints_active_idx')
+      .on(t.tenantId)
+      .where(sql`${t.active}`),
+    check(
+      'tenant_endpoints_kind_valid',
+      sql`(${t.kind} = 'default' AND ${t.id} = 'default' AND ${t.host} IS NULL) OR (${t.kind} = 'custom' AND ${t.id} <> 'default' AND ${t.host} IS NOT NULL)`,
+    ),
+  ],
+);
+
+export const tenantEndpointEvents = pgTable(
+  'tenant_endpoint_events',
+  {
+    eventId: text('event_id').primaryKey(),
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => tenantDirectory.tenantId),
+    version: integer('version').notNull(),
+    payloadHash: text('payload_hash').notNull(),
+  },
+  (t) => [uniqueIndex('tenant_endpoint_events_version_idx').on(t.tenantId, t.version)],
+);

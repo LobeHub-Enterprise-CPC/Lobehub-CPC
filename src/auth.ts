@@ -2,9 +2,9 @@ import { businessAuthPlugins, getBusinessAuthOptions } from '@lobechat/business-
 import { requireTenantScope, tenantHash, type TenantScope } from '@lobechat/database/tenant';
 import type { BetterAuthOptions } from 'better-auth/minimal';
 
-import { appEnv } from '@/envs/app';
 import { defineConfig, tenantAuthBasePath } from '@/libs/better-auth/define-config';
 import { buildTenantSsoProviders } from '@/libs/better-auth/tenant-sso';
+import { buildTenantPublicUrl } from '@/server/modules/Tenant/callbackUrl';
 import {
   loadTenantSsoProviders,
   ssoRevisionKey,
@@ -53,10 +53,8 @@ export const invalidateTenantAuth = (tenantId: string) => {
 };
 
 const tenantSsoProviderSet = (scope: TenantScope, providers: TenantSsoProvider[]) =>
-  buildTenantSsoProviders(
-    providers,
-    (providerId) =>
-      `${appEnv.APP_URL.replace(/\/+$/, '')}${tenantSsoCallbackPath(scope.slug, providerId)}`,
+  buildTenantSsoProviders(providers, (providerId) =>
+    buildTenantPublicUrl(tenantSsoCallbackPath(scope.slug, providerId)),
   );
 
 /**
@@ -88,14 +86,14 @@ const buildTenantAuth = (
     plugins: [...businessAuthPlugins],
     secondaryStorageNamespace: `t:${scope.tenantId}`,
     socialProviders,
-    tenant: { id: scope.tenantId, slug: scope.slug },
+    tenant: { id: scope.tenantId, slug: scope.slug, endpoint: scope.endpoint },
   });
 };
 
 export const getTenantAuth = async (): Promise<TenantAuth> => {
   const scope = requireTenantScope();
   const providers = await loadSsoSnapshot(scope);
-  const key = `${scope.tenantId}|${scope.slug}|${ssoRevisionKey(providers)}`;
+  const key = `${scope.tenantId}|${scope.slug}|${scope.endpoint?.version}|${ssoRevisionKey(providers)}`;
 
   const cached = instances.get(key);
   if (cached?.session === scope.session) {

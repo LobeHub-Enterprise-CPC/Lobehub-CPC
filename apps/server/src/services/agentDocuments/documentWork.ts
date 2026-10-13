@@ -3,15 +3,9 @@ import { buildAgentDocumentUrl } from '@lobechat/builtin-tool-agent-documents';
 import { WorkModel } from '@/database/models/work';
 import { WorkspaceModel } from '@/database/models/workspace';
 import type { LobeChatDatabase } from '@/database/type';
-import { appEnv } from '@/envs/app';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 
-const getAgentDocumentAppUrl = (): string | undefined => {
-  try {
-    return appEnv.APP_URL;
-  } catch {
-    return process.env.APP_URL;
-  }
-};
+const getAgentDocumentAppUrl = (): string => tenantPublicBaseUrl();
 
 /**
  * Shared best-effort agent-document Work helpers for the server tool runtime

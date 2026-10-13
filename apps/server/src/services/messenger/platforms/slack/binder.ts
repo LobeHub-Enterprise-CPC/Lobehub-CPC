@@ -1,7 +1,7 @@
 import { BRANDING_NAME } from '@lobechat/business-const';
 import debug from 'debug';
 
-import { appEnv } from '@/envs/app';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 import type { PlatformClient } from '@/server/services/bot/platforms';
 import { SlackApi } from '@/server/services/bot/platforms/slack/api';
 import { SlackClientFactory } from '@/server/services/bot/platforms/slack/client';
@@ -40,7 +40,7 @@ const buildVerifyImUrl = (params: {
   slackUserId: string;
   thread?: string;
 }): string => {
-  const url = new URL('/verify-im', params.appUrl);
+  const url = new URL(`${params.appUrl.replace(/\/$/, '')}/verify-im`);
   url.searchParams.set('im_type', 'slack');
   url.searchParams.set('random_id', params.randomId);
   url.searchParams.set('slack_user_id', params.slackUserId);
@@ -98,7 +98,7 @@ export class MessengerSlackBinder implements MessengerPlatformBinder {
         platform: 'slack',
         settings: {},
       },
-      { appUrl: appEnv.APP_URL },
+      { appUrl: tenantPublicBaseUrl() },
     );
   }
 
@@ -117,7 +117,7 @@ export class MessengerSlackBinder implements MessengerPlatformBinder {
       log('handleUnlinkedMessage: no creds, skipping');
       return;
     }
-    const appUrl = appEnv.APP_URL;
+    const appUrl = tenantPublicBaseUrl();
     if (!appUrl) {
       log('handleUnlinkedMessage: APP_URL not set, cannot build verify-im link');
       return;

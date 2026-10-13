@@ -7,6 +7,7 @@ import { pythonEnv } from '@/envs/python';
 import { buildAnalyticsConfig, fetchViteDevTemplate, renderSpaHtml } from '@/libs/spaHtml';
 import { type Locales, normalizeLocale } from '@/locales/resources';
 import { getServerGlobalConfig } from '@/server/globalConfig';
+import { getTenantPageBootstrap } from '@/server/modules/Tenant/pageBootstrap';
 import { type SPAClientEnv, type SPAServerConfig } from '@/types/spaServerConfig';
 
 export function generateStaticParams() {
@@ -42,16 +43,21 @@ const buildSeoMeta = (locale: string) =>
   ].join('\n    ');
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ locale: string; path?: string[] }> },
 ) {
   const { locale: rawLocale } = await params;
   const locale = normalizeLocale(rawLocale);
 
+  const tenant = await getTenantPageBootstrap(request);
   const spaConfig: SPAServerConfig = {
+    tenant,
     analyticsConfig: buildAnalyticsConfig(),
     clientEnv: buildClientEnv(),
-    config: await getServerGlobalConfig(),
+    config: {
+      ...(await getServerGlobalConfig()),
+      ...(tenant ? { oidcIssuer: `${tenant.publicUrl}/oidc` } : {}),
+    },
     featureFlags: getServerFeatureFlagsValue(),
     isMobile: true,
   };

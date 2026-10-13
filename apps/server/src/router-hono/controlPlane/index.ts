@@ -22,6 +22,12 @@ import {
   provisionQuerySchema,
   provisionRequestSchema,
 } from '@/server/services/tenantControlPlane/contracts';
+import { TenantEndpointsService } from '@/server/services/tenantControlPlane/endpoints';
+import {
+  endpointQuerySchema,
+  endpointRequestSchema,
+  TenantEndpointError,
+} from '@/server/services/tenantControlPlane/endpointsContract';
 import { PostgresTenantDatabaseExecutor } from '@/server/services/tenantControlPlane/postgresExecutor';
 import { PostgresControlPlaneRepository } from '@/server/services/tenantControlPlane/postgresRepository';
 import type { ControlPlaneRepository } from '@/server/services/tenantControlPlane/repository';
@@ -48,6 +54,7 @@ export interface ControlPlaneAppDeps {
    * event. Called after a receipt and on every poll of unfinished work, so a
    * restarted process picks up where the previous one stopped.
    */
+  endpoints?: () => TenantEndpointsService;
   schedule?: (job: ControlPlaneJob) => void;
   /** Lazily resolved so a missing backing store is a 503, not a boot failure. */
   service: () => TenantControlPlaneService | null;
@@ -78,6 +85,7 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
   });
 
   app.onError((error, c) => {
+    if (error instanceof TenantEndpointError) return errorBody(c, error.status, error.code);
     if (error instanceof ControlPlaneError) return errorBody(c, error.status, error.code);
     log('unexpected control-plane error: %s', (error as Error)?.name);
     return errorBody(c, 500, 'INTERNAL');
@@ -90,6 +98,7 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
     c: Context,
     schema: S,
     source: 'body' | 'query',
+    invalidCode = 'INVALID_INPUT',
   ): Promise<{ input: z.output<S>; service: TenantControlPlaneService }> => {
     if (!deps.tokenDigest) throw new ControlPlaneError(503, 'INTERNAL');
     if (!isAuthorized(deps.tokenDigest, c.req.header('authorization')))
@@ -106,12 +115,12 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
       try {
         raw = JSON.parse(text);
       } catch {
-        throw new ControlPlaneError(400, 'INVALID_INPUT');
+        throw new ControlPlaneError(400, invalidCode as 'INVALID_INPUT');
       }
     }
 
     const parsed = schema.safeParse(raw);
-    if (!parsed.success) throw new ControlPlaneError(400, 'INVALID_INPUT');
+    if (!parsed.success) throw new ControlPlaneError(400, invalidCode as 'INVALID_INPUT');
 
     const headerTenant = c.req.header('x-tenant-id');
     if (headerTenant !== undefined && headerTenant !== parsed.data.tenantId)
@@ -139,6 +148,22 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
     }
     return c.json(result, result.status === 'received' || result.status === 'applying' ? 202 : 200);
   };
+
+  app.post('/tenant-endpoints', async (c) => {
+    const { input } = await prepare(c, endpointRequestSchema, 'body', 'ENDPOINTS_INVALID');
+    const result = await (
+      deps.endpoints?.() ?? new TenantEndpointsService(getPlatformDB())
+    ).receive(input);
+    invalidateTenantAuth(input.tenantId);
+    getTenantRuntime().invalidate(input.tenantId);
+    return c.json(result);
+  });
+  app.get('/tenant-endpoints', async (c) => {
+    const { input } = await prepare(c, endpointQuerySchema, 'query', 'ENDPOINTS_INVALID');
+    return c.json(
+      await (deps.endpoints?.() ?? new TenantEndpointsService(getPlatformDB())).get(input.tenantId),
+    );
+  });
 
   app.post('/tenant-provision', async (c) => {
     const { input, service } = await prepare(c, provisionRequestSchema, 'body');

@@ -10,11 +10,11 @@ const providers = new Map<string, Promise<OIDCProvider>>();
 
 export const getOIDCProvider = async (): Promise<OIDCProvider> => {
   if (!authEnv.ENABLE_OIDC) throw new Error('OIDC is not enabled. Set ENABLE_OIDC=1 to enable it.');
-  const { slug, tenantId } = requireTenantScope();
-  const key = `${tenantId}|${slug}`;
+  const { slug, tenantId, endpoint } = requireTenantScope();
+  const key = `${tenantId}|${slug}|${endpoint?.version}`;
   let provider = providers.get(key);
   if (!provider) {
-    provider = createOIDCProvider(serverDB, slug, tenantId);
+    provider = createOIDCProvider(serverDB, slug, tenantId, endpoint);
     providers.set(key, provider);
     void provider.catch((error) => {
       providers.delete(key);

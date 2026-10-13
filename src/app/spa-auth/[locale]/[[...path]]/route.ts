@@ -4,6 +4,7 @@ import { authEnv } from '@/envs/auth';
 import { buildAnalyticsConfig, fetchViteDevTemplate, renderSpaHtml } from '@/libs/spaHtml';
 import { type Locales, normalizeLocale } from '@/locales/resources';
 import { getServerAuthConfig } from '@/server/globalConfig/getServerAuthConfig';
+import { getTenantPageBootstrap } from '@/server/modules/Tenant/pageBootstrap';
 import { type AuthSPAServerConfig } from '@/types/spaServerConfig';
 
 import { buildSeoMeta } from './seoMeta';
@@ -25,15 +26,20 @@ async function getTemplate(): Promise<string> {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ locale: string; path?: string[] }> },
 ) {
   const { locale: rawLocale, path } = await params;
   const locale = normalizeLocale(rawLocale);
 
+  const tenant = await getTenantPageBootstrap(request);
   const authConfig: AuthSPAServerConfig = {
+    tenant,
     analyticsConfig: buildAnalyticsConfig(),
-    config: getServerAuthConfig(),
+    config: {
+      ...getServerAuthConfig(),
+      ...(tenant ? { oidcIssuer: `${tenant.publicUrl}/oidc` } : {}),
+    },
     enableOIDC: authEnv.ENABLE_OIDC,
     featureFlags: getServerFeatureFlagsValue(),
     globalCDN: appEnv.CDN_USE_GLOBAL,

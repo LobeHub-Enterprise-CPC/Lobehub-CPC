@@ -9,8 +9,8 @@ import { UserModel } from '@/database/models/user';
 import type { ScmChangeRequestItem } from '@/database/schemas';
 import { acceptances, works, workspaces } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
-import { appEnv } from '@/envs/app';
 import { getAgentRuntimeRedisClient } from '@/server/modules/AgentRuntime/redis';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 import { AiAgentService } from '@/server/services/aiAgent';
 import { AcceptanceService } from '@/server/services/verify/acceptanceService';
 
@@ -308,7 +308,7 @@ export class ScmControlService {
   };
 
   private buildCommentBody = async (row: ScmChangeRequestItem): Promise<string> => {
-    const origin = appEnv.APP_URL.replace(/\/$/, '');
+    const origin = tenantPublicBaseUrl();
 
     let acceptance: {
       id: string;

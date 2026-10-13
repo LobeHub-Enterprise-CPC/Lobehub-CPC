@@ -60,8 +60,14 @@ export const createOIDCProvider = async (
   db: LobeChatDatabase,
   tenantSlug?: string,
   tenantId?: string,
+  endpoint?: { basePath: string; publicUrl: string; version: number },
 ): Promise<Provider> => {
-  const tenantPath = (path: string) => withTenantPath(path, tenantSlug);
+  const tenantPath = (path: string) =>
+    endpoint
+      ? path === '/'
+        ? endpoint.basePath || '/'
+        : `${endpoint.basePath}${path}`
+      : withTenantPath(path, tenantSlug);
   // Get JWKS
   const jwks = getJWKS();
 
@@ -103,7 +109,15 @@ export const createOIDCProvider = async (
     },
 
     // 1. Client configuration
-    clients: defaultClients,
+    clients: defaultClients.map((client) =>
+      client.client_id === 'lobehub-desktop' && endpoint
+        ? {
+            ...client,
+            redirect_uris: [`${endpoint.publicUrl}/oidc/callback/desktop`],
+            post_logout_redirect_uris: [`${endpoint.publicUrl}/oauth/logout`],
+          }
+        : client,
+    ),
 
     // Tenants share one signing key, so the JWT access token itself must say
     // which tenant issued it; `validateOIDCJWT` rejects any other tenant. The id
@@ -343,7 +357,10 @@ export const createOIDCProvider = async (
   };
 
   // Create provider instance
-  const baseUrl = urlJoin(appEnv.APP_URL!, tenantPath(OIDC_ISSUER_PATH));
+  // Future activation UI must warn that changing the active entry changes issuer and migrates clients.
+  const baseUrl = endpoint
+    ? `${endpoint.publicUrl}${OIDC_ISSUER_PATH}`
+    : urlJoin(appEnv.APP_URL!, tenantPath(OIDC_ISSUER_PATH));
 
   const provider = new Provider(baseUrl, configuration);
   provider.proxy = true;

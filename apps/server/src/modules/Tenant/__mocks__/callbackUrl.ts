@@ -1,4 +1,9 @@
-import { getAppOriginUrl, getInternalApiUrl } from '@/envs/app';
+import * as appConfig from '@/envs/app';
+
+const getAppOriginUrl = () =>
+  'getAppOriginUrl' in appConfig ? appConfig.getAppOriginUrl() : appConfig.appEnv.APP_URL;
+const getInternalApiUrl = () =>
+  'getInternalApiUrl' in appConfig ? appConfig.getInternalApiUrl() : getAppOriginUrl();
 
 /**
  * Test stand-in for `../callbackUrl`: every callback belongs to the tenant
@@ -23,6 +28,13 @@ export const buildTenantCallbackUrl = (
   baseUrl: string = getInternalApiUrl(),
 ): string => `${trimTrailingSlash(baseUrl ?? '')}${tenantCallbackPath(path)}`;
 
-export const tenantPublicBaseUrl = (): string => buildTenantCallbackUrl('/', getAppOriginUrl());
+export const tenantPublicBaseUrl = (): string =>
+  getAppOriginUrl() ? buildTenantCallbackUrl('/', getAppOriginUrl()) : '';
 
 export const withTenantRequestUrl = (request: Request): Request => request;
+
+export const buildTenantPublicUrl = (path: string): string =>
+  buildTenantCallbackUrl(path, getAppOriginUrl());
+export const withTenantPublicRequestUrl = (request: Request): Request => request;
+
+export const tenantPublicPath = (path: string): string => tenantCallbackPath(path);

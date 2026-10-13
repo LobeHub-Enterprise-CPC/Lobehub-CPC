@@ -24,7 +24,7 @@ if (typeof window !== 'undefined') {
   const url = new URL(window.location.href);
   if (url.pathname === DEBUG_PROXY_BASE || url.pathname.startsWith(`${DEBUG_PROXY_BASE}/`))
     url.pathname = url.pathname.slice(DEBUG_PROXY_BASE.length) || '/';
-  initializeTenant(url);
+  initializeTenant(url, window.__SERVER_CONFIG__?.tenant);
   installTenantFetch();
 }
 

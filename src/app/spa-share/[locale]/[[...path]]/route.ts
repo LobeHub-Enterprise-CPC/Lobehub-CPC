@@ -11,6 +11,7 @@ import { translation } from '@/libs/i18n/serverTranslation';
 import { buildAnalyticsConfig, renderSpaHtml } from '@/libs/spaHtml';
 import { type Locales, normalizeLocale } from '@/locales/resources';
 import { getServerGlobalConfig } from '@/server/globalConfig';
+import { getTenantPageBootstrap } from '@/server/modules/Tenant/pageBootstrap';
 import { type SPAClientEnv, type SPAServerConfig } from '@/types/spaServerConfig';
 
 export function generateStaticParams() {
@@ -65,16 +66,21 @@ async function buildSeoMeta(locale: string): Promise<string> {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ locale: string; path?: string[] }> },
 ) {
   const { locale: rawLocale } = await params;
   const locale = normalizeLocale(rawLocale);
 
+  const tenant = await getTenantPageBootstrap(request);
   const spaConfig: SPAServerConfig = {
+    tenant,
     analyticsConfig: buildAnalyticsConfig(),
     clientEnv: buildClientEnv(),
-    config: await getServerGlobalConfig(),
+    config: {
+      ...(await getServerGlobalConfig()),
+      ...(tenant ? { oidcIssuer: `${tenant.publicUrl}/oidc` } : {}),
+    },
     featureFlags: getServerFeatureFlagsValue(),
     isMobile: false,
   };

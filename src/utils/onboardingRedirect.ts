@@ -1,9 +1,5 @@
-import { getTenant } from '@lobechat/business-tenant/client';
-import {
-  parseTenantPath,
-  stripTenantPath,
-  withTenantPath,
-} from '@lobechat/business-tenant/routing';
+import { getTenant, withCurrentTenantPath } from '@lobechat/business-tenant/client';
+import { parseTenantPath, stripTenantPath } from '@lobechat/business-tenant/routing';
 
 const ONBOARDING_PATH = '/onboarding';
 const CALLBACK_STORAGE_KEY = 'onboarding-callback-url';
@@ -23,7 +19,7 @@ export const isSafeRedirectPath = (url: string): boolean =>
  * exists under its tenant, and a bare `/` lands on the no-tenant page.
  */
 const withPageTenant = (path: string): string => {
-  return withTenantPath(path, getTenant()?.slug);
+  return withCurrentTenantPath(path);
 };
 
 /**
@@ -57,7 +53,10 @@ export const sanitizeRedirectPath = (url: string | null | undefined, fallback = 
   const target = toRelativePath(url);
   const pageTenant = getTenant()?.slug;
   const targetTenant = parseTenantPath(target).tenantSlug;
-  const sameTenant = !pageTenant || !targetTenant || pageTenant === targetTenant;
+  const sameTenant =
+    getTenant()?.basePath === ''
+      ? !targetTenant
+      : !pageTenant || !targetTenant || pageTenant === targetTenant;
   return withPageTenant(isSafeRedirectPath(target) && sameTenant ? target : fallback);
 };
 

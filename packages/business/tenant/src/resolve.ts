@@ -7,7 +7,14 @@ export interface TenantContext {
 }
 
 /** Address resolution belongs here, so consumers do not depend on path-based tenancy. */
-export const resolveTenant = (url: URL): TenantContext | null => {
+export const resolveTenant = (url: URL, bootstrap?: TenantContext | null): TenantContext | null => {
+  if (bootstrap) {
+    if (bootstrap.basePath === '') return /^\/t(?:\/|$)/.test(url.pathname) ? null : bootstrap;
+    const parsed = parseTenantPath(url.pathname);
+    return parsed.tenantSlug === bootstrap.slug && bootstrap.basePath === `/t/${bootstrap.slug}`
+      ? bootstrap
+      : null;
+  }
   const { tenantSlug } = parseTenantPath(url.pathname);
   return tenantSlug ? { basePath: withTenantPath('/', tenantSlug), slug: tenantSlug } : null;
 };

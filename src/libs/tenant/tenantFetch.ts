@@ -54,7 +54,7 @@ const toUrlString = (input: RequestInfo | URL): string =>
 export const installTenantFetch = (win: Window & typeof globalThis = window) => {
   if (!win.location?.pathname || typeof win.fetch !== 'function') return;
   const tenantSlug = getTenant()?.slug ?? null;
-  if (!tenantSlug) return;
+  if (!tenantSlug || getTenant()?.basePath === '') return;
 
   const originalFetch = win.fetch.bind(win);
   win.fetch = (input: RequestInfo | URL, init?: RequestInit) => {

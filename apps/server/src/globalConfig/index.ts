@@ -188,7 +188,11 @@ export const getServerGlobalConfig = async () => {
     // config endpoint lists the ones of the tenant being signed in to.
     oAuthSSOProviders: [],
     ...(appEnv.APP_URL && tenant
-      ? { oidcIssuer: urlJoin(appEnv.APP_URL, withTenantPath(OIDC_ISSUER_PATH, tenant.slug)) }
+      ? {
+          oidcIssuer: tenant.endpoint
+            ? `${tenant.endpoint.publicUrl}${OIDC_ISSUER_PATH}`
+            : urlJoin(appEnv.APP_URL, withTenantPath(OIDC_ISSUER_PATH, tenant.slug)),
+        }
       : undefined),
     systemAgent: parseSystemAgent(appEnv.SYSTEM_AGENT),
     telemetry: {

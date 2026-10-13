@@ -20,6 +20,7 @@ import { effectiveTenantState } from '@/server/services/tenantControlPlane/servi
 import type { TenantClaims } from './claims';
 import type { TenantDirectoryEntry } from './directoryRepository';
 import { TenantDirectoryRepository } from './directoryRepository';
+import { loadTenantPublicEndpoint } from './endpoints';
 import { TenantGateError } from './errors';
 import { tenantClaims } from './postgresClaims';
 
@@ -63,7 +64,7 @@ export class TenantRuntime {
   private readonly verified = new Map<string, number>();
 
   constructor(
-    platform: () => PlatformDatabase,
+    private readonly platform: () => PlatformDatabase,
     private readonly pools: TenantPoolManager,
     private readonly now: () => Date = () => new Date(),
     private readonly claims?: TenantClaims,
@@ -353,7 +354,12 @@ export class TenantRuntime {
         throw new TenantGateError('TENANT_UNAVAILABLE');
       this.verified.set(verifiedKey, startedAt);
     }
-    return { session, slug: directory.slug, tenantId: directory.tenantId };
+    const endpoint = await loadTenantPublicEndpoint(directory.tenantId, this.platform()).catch(
+      (cause) => {
+        throw new TenantGateError('TENANT_NOT_READY', undefined, { cause });
+      },
+    );
+    return { endpoint, session, slug: directory.slug, tenantId: directory.tenantId };
   }
 }
 

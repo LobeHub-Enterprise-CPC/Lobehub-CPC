@@ -1,9 +1,9 @@
-import { stripTenantPath, withTenantPath } from '@lobechat/business-tenant/routing';
+import { stripTenantPath } from '@lobechat/business-tenant/routing';
 import { requireTenantScope } from '@lobechat/database/tenant';
 import { APIError } from 'better-auth/api';
 import type { NextRequest } from 'next/server';
 
-import { getAuthForRequest, getTenantSsoProviders, tenantAuthBasePath } from '@/auth';
+import { getAuthForRequest, getTenantSsoProviders } from '@/auth';
 import { redirectCallbackError } from '@/libs/better-auth/callback-error-response';
 import { tenantRefusalResponse } from '@/server/modules/Tenant/errors';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
@@ -40,7 +40,7 @@ const CALLBACK_PATH = /^\/callback\/([^/]+)$/;
  * providers are served there, generic OAuth ones by `/oauth2/callback/{id}`.
  */
 const toTenantAuthRequest = async (request: Request): Promise<Request> => {
-  const { slug } = requireTenantScope();
+  const { slug, endpoint } = requireTenantScope();
   const url = new URL(request.url);
   let rest = stripTenantPath(url.pathname).replace(/^\/api\/auth/, '') || '/';
 
@@ -52,8 +52,9 @@ const toTenantAuthRequest = async (request: Request): Promise<Request> => {
       rest = `/oauth2/callback/${encodeURIComponent(providerId)}`;
   }
 
-  url.pathname = `${tenantAuthBasePath(slug)}${rest}`;
-  return new Request(url, request);
+  const publicUrl = endpoint?.publicUrl ?? `${url.origin}/t/${slug}`;
+  const canonical = new URL(`${publicUrl}/api/auth${rest}${url.search}`);
+  return new Request(canonical, request);
 };
 
 /** Login page data (FR-ID-09): enabled providers, never their configuration or secrets. */
@@ -77,7 +78,8 @@ const listProviders = async () => {
  * browser navigation) lands on the tenant's error page instead of a JSON body.
  */
 const dispatch = async (request: Request) => {
-  const errorPath = withTenantPath('/auth-error', requireTenantScope().slug);
+  const scope = requireTenantScope();
+  const errorPath = `${scope.endpoint?.basePath ?? `/t/${scope.slug}`}/auth-error`;
   try {
     const auth = await getAuthForRequest(request);
     const response = await auth.handler(await toTenantAuthRequest(request));

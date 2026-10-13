@@ -9,6 +9,12 @@ import { LOBE_LOCALE_COOKIE } from '@/const/locale';
 import { appEnv } from '@/envs/app';
 import { authEnv } from '@/envs/auth';
 import { type Locales } from '@/locales/resources';
+import {
+  endpointHosts,
+  findHostEndpoint,
+  findSlugEndpoint,
+} from '@/server/modules/Tenant/endpoints';
+import { resolveHostTenantRoute } from '@/server/modules/Tenant/hostRouting';
 import { signTenantRoute, TENANT_ROUTE_HEADER } from '@/server/modules/Tenant/routeHeader';
 import { getTenantRuntime } from '@/server/modules/Tenant/runtime';
 import { parseBrowserLanguage } from '@/utils/locale';
@@ -18,7 +24,7 @@ import { authSpaRoutes, nextjsOnlyRoutes } from '../nextjsOnlyRoutes';
 import { isShareSpaRoute } from '../shareRoutes';
 import { isAlwaysWorkbenchSpaRoute, isWorkbenchSpaRoute } from '../workbenchRoutes';
 import { createRouteMatcher } from './createRouteMatcher';
-import { resolveTenantRoute, TENANT_REQUIRED_PAGE_PATH } from './tenantRouting';
+import { TENANT_REQUIRED_PAGE_PATH } from './tenantRouting';
 
 // Create debug logger instances
 const PUBLIC_ACCEPTANCE_GUIDE = '/acceptance/skill.md';
@@ -58,13 +64,17 @@ export function defineConfig() {
    * the SPA reads the tenant prefix from the address bar as its router
    * basename, so the HTML served for `/t/acme/agent` is the one for `/agent`.
    */
-  const defaultMiddleware = (request: NextRequest, pathname: string) => {
+  const defaultMiddleware = (request: NextRequest, pathname: string, routedHeaders?: Headers) => {
     const url = new URL(request.url);
     url.pathname = pathname;
     logDefault('Processing request: %s %s', request.method, request.url);
 
     // Public installation instructions must remain readable by coding agents.
-    if (url.pathname === PUBLIC_ACCEPTANCE_GUIDE) return NextResponse.rewrite(url);
+    if (url.pathname === PUBLIC_ACCEPTANCE_GUIDE)
+      return NextResponse.rewrite(
+        url,
+        routedHeaders ? { request: { headers: routedHeaders } } : undefined,
+      );
 
     // locale has three levels
     // 1. search params
@@ -137,7 +147,10 @@ export function defineConfig() {
       logDefault('Auth SPA route, rewriting to: %s', authSpaPath);
       url.pathname = authSpaPath;
 
-      const response = NextResponse.rewrite(url);
+      const response = NextResponse.rewrite(
+        url,
+        routedHeaders ? { request: { headers: routedHeaders } } : undefined,
+      );
       persistLocaleCookie(response, request, explicitlyLocale);
 
       return response;
@@ -150,7 +163,10 @@ export function defineConfig() {
       logDefault('Share SPA route, rewriting to: %s', sharePath);
       url.pathname = sharePath;
 
-      const response = NextResponse.rewrite(url);
+      const response = NextResponse.rewrite(
+        url,
+        routedHeaders ? { request: { headers: routedHeaders } } : undefined,
+      );
       persistLocaleCookie(response, request, explicitlyLocale);
 
       return response;
@@ -164,7 +180,10 @@ export function defineConfig() {
       logDefault('Workbench SPA route, rewriting to: %s', workbenchPath);
       url.pathname = workbenchPath;
 
-      const response = NextResponse.rewrite(url);
+      const response = NextResponse.rewrite(
+        url,
+        routedHeaders ? { request: { headers: routedHeaders } } : undefined,
+      );
       persistLocaleCookie(response, request, explicitlyLocale);
 
       return response;
@@ -178,7 +197,10 @@ export function defineConfig() {
       logDefault('SPA route, rewriting to: %s', spaPath);
       url.pathname = spaPath;
 
-      const response = NextResponse.rewrite(url);
+      const response = NextResponse.rewrite(
+        url,
+        routedHeaders ? { request: { headers: routedHeaders } } : undefined,
+      );
       persistLocaleCookie(response, request, explicitlyLocale);
 
       return response;
@@ -201,7 +223,10 @@ export function defineConfig() {
 
     logDefault('nextURL after rewrite: %s', url.toString());
     // build rewrite response first
-    const rewrite = NextResponse.rewrite(url, { status: 200 });
+    const rewrite = NextResponse.rewrite(url, {
+      status: 200,
+      ...(routedHeaders ? { request: { headers: routedHeaders } } : {}),
+    });
 
     persistLocaleCookie(rewrite, request, explicitlyLocale);
 
@@ -269,7 +294,50 @@ export function defineConfig() {
     const headers = new Headers(req.headers);
     headers.delete(TENANT_ROUTE_HEADER);
 
-    const route = resolveTenantRoute(req.nextUrl);
+    let route;
+    try {
+      const requestUrl = new URL(req.url);
+      const hosts = endpointHosts();
+      const actualHost = req.headers.get('host');
+      if (actualHost) {
+        const authority = /^(?:\[[\da-f:.]+\]|[a-z\d.-]+)(?::(\d{1,5}))?$/i.exec(actualHost);
+        if (!authority) return rejectJson('NOT_FOUND', 404);
+        let parsed: URL;
+        try {
+          parsed = new URL(`http://${actualHost}`);
+        } catch {
+          return rejectJson('NOT_FOUND', 404);
+        }
+        // Next's URL can retain its deployment origin. URL.host assignment does not clear an
+        // omitted port and silently ignores malformed ports: validate the entire authority,
+        // then assign hostname and port explicitly. Configured public/internal protocols
+        // normalize their default ports; custom entries are always HTTPS. Forwarded headers
+        // never select an authority or a tenant.
+        const origin = [new URL(hosts.appUrl), new URL(hosts.internalUrl)].find(
+          (candidate) => candidate.hostname === parsed.hostname,
+        );
+        requestUrl.protocol = origin?.protocol ?? 'https:';
+        requestUrl.hostname = parsed.hostname;
+        requestUrl.port = authority[1] === undefined ? '' : String(Number(authority[1]));
+      }
+      route = await resolveHostTenantRoute(requestUrl, req.method, {
+        ...hosts,
+        findHost: findHostEndpoint,
+        findSlug: findSlugEndpoint,
+      });
+    } catch {
+      return rejectJson('ENDPOINTS_NOT_READY', 503);
+    }
+    if (route.kind === 'redirect')
+      return new Response(null, {
+        status: 302,
+        headers: { 'location': route.url, 'Cache-Control': 'private, no-store' },
+      });
+    if (route.kind === 'endpoint-changed')
+      return Response.json(
+        { code: 'TENANT_ENDPOINT_CHANGED', activeUrl: route.activeUrl },
+        { status: 409, headers: { 'Cache-Control': 'private, no-store' } },
+      );
     switch (route.kind) {
       case 'reject': {
         return rejectJson(route.code, route.status);
@@ -288,6 +356,10 @@ export function defineConfig() {
       }
     }
 
+    const signed = signTenantRoute(route.slug);
+    if (!signed) return rejectJson('TENANT_NOT_READY', 503);
+    headers.set(TENANT_ROUTE_HEADER, signed);
+
     const tenantPage = new NextRequest(new URL(route.path + req.nextUrl.search, req.url), req);
     const isProtected = !isPublicRoute(tenantPage);
     logBetterAuth('Route protection status: %s, %s', req.url, isProtected ? 'protected' : 'public');
@@ -302,10 +374,10 @@ export function defineConfig() {
       // gets its SPA, which shows the tenant-unavailable state from the API.
       if ((error as { code?: string })?.code === 'TENANT_NOT_FOUND')
         return rewriteTo(req, TENANT_REQUIRED_PAGE_PATH);
-      return defaultMiddleware(req, route.path);
+      return defaultMiddleware(req, route.path, headers);
     }
 
-    const response = defaultMiddleware(req, route.path);
+    const response = defaultMiddleware(req, route.path, headers);
 
     // Skip session lookup for public routes to reduce latency
     if (!isProtected) {
@@ -324,9 +396,9 @@ export function defineConfig() {
 
     if (!isLoggedIn) {
       logBetterAuth('Request a protected route, redirecting to sign-in page');
-      const tenantBase = `/t/${route.slug}`;
-      const callbackUrl = `${appEnv.APP_URL}${req.nextUrl.pathname}${req.nextUrl.search}`;
-      const signInUrl = new URL(`${tenantBase}/signin`, appEnv.APP_URL);
+      const publicUrl = scope.endpoint!.publicUrl;
+      const callbackUrl = `${publicUrl}${route.path === '/' ? '' : route.path}${req.nextUrl.search}`;
+      const signInUrl = new URL(`${publicUrl}/signin`);
       signInUrl.searchParams.set('callbackUrl', callbackUrl);
       const hl = req.nextUrl.searchParams.get('hl');
       if (hl) signInUrl.searchParams.set('hl', hl);

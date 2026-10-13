@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { getTenant, initializeTenant, tenantStorageKey, withCurrentTenantPath } from '../client';
+import {
+  currentTenantRelativePath,
+  getTenant,
+  initializeTenant,
+  tenantStorageKey,
+  withCurrentTenantPath,
+} from '../client';
 import { resolveTenant } from '../resolve';
 
 afterEach(() => initializeTenant(new URL('https://app.test/')));
@@ -42,5 +48,18 @@ describe('current tenant helpers', () => {
   it('leaves paths and keys untouched without a tenant', () => {
     expect(withCurrentTenantPath('/signin')).toBe('/signin');
     expect(tenantStorageKey('draft:agent-1')).toBe('draft:agent-1');
+  });
+});
+
+describe('custom host bootstrap', () => {
+  it('keeps root navigation and rejects other tenant paths', () => {
+    initializeTenant(new URL('https://chat.example.com/agent'), { slug: 'acme', basePath: '' });
+    expect(getTenant()).toEqual({ slug: 'acme', basePath: '' });
+    expect(withCurrentTenantPath('/api/auth')).toBe('/api/auth');
+    expect(currentTenantRelativePath('/agent')).toBe('/agent');
+    expect(currentTenantRelativePath('/t/beta/api/auth')).toBeNull();
+    expect(
+      resolveTenant(new URL('https://chat.example.com/t/beta'), { slug: 'acme', basePath: '' }),
+    ).toBeNull();
   });
 });

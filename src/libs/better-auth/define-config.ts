@@ -82,25 +82,13 @@ if (process.env.NODE_ENV === 'development') {
 // Default is 1 hour (3600 seconds) as per Better Auth documentation
 const VERIFICATION_LINK_EXPIRES_IN = 3600;
 
-/**
- * Safely extract hostname from APP_URL for passkey rpID.
- * Returns undefined if APP_URL is not set (e.g., in e2e tests).
- */
-const getPasskeyRpID = (): string | undefined => {
-  if (!appEnv.APP_URL) return undefined;
-  try {
-    return new URL(appEnv.APP_URL).hostname;
-  } catch {
-    return undefined;
-  }
-};
-
 const MAGIC_LINK_EXPIRES_IN = 900;
 // OTP expiration time (in seconds) - 5 minutes for mobile OTP verification
 const OTP_EXPIRES_IN = 300;
 const enableMagicLink = authEnv.AUTH_ENABLE_MAGIC_LINK;
 
 export interface TenantAuthTarget {
+  endpoint?: { basePath: string; publicUrl: string; version: number };
   /** Immutable tenant id: keys the cookie prefix and the session cache. */
   id: string;
   /** URL name the auth endpoints are mounted under: `/t/{slug}/api/auth`. */
@@ -133,6 +121,8 @@ export const tenantAuthBasePath = (slug: string) => `/t/${slug}/api/auth`;
 export function defineConfig(customOptions: CustomBetterAuthOptions) {
   const { database, genericOAuthProviders, socialProviders, tenant } = customOptions;
 
+  const publicOrigin = tenant.endpoint ? new URL(tenant.endpoint.publicUrl).origin : appEnv.APP_URL;
+  const tenantBase = tenant.endpoint?.basePath ?? `/t/${tenant.slug}`;
   const options = {
     account: {
       accountLinking: {
@@ -145,11 +135,11 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
       },
     },
 
-    baseURL: appEnv.APP_URL,
-    basePath: tenantAuthBasePath(tenant.slug),
+    baseURL: publicOrigin,
+    basePath: `${tenantBase}/api/auth`,
     // Per-tenant: a shared secret lets one tenant's cookies and tokens be replayed on another.
     secret: deriveTenantAuthSecret(tenant.id),
-    trustedOrigins: getTrustedOrigins(Object.keys(socialProviders)),
+    trustedOrigins: getTrustedOrigins(Object.keys(socialProviders), publicOrigin),
 
     emailAndPassword: {
       autoSignIn: true,
@@ -218,7 +208,7 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
       },
     },
     onAPIError: {
-      errorURL: `/t/${tenant.slug}/auth-error`,
+      errorURL: `${tenantBase}/auth-error`,
       // Better Auth answers any non-API error with an empty 500. A tenant refusal
       // (the workspace was frozen or taken offline while this request ran) must
       // reach the auth route instead, which answers with the gate's `{ code }`.
@@ -310,7 +300,7 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
       // Host-only cookies scoped to the tenant path (spec A17, FR-ID-10): the
       // browser never sends tenant A's session to tenant B's routes.
       cookiePrefix: customOptions.cookiePrefix,
-      defaultCookieAttributes: { path: `/t/${tenant.slug}` },
+      defaultCookieAttributes: { path: tenantBase || '/' },
       database: {
         /**
          * Align Better Auth user IDs with our shared idGenerator for consistency.
@@ -369,9 +359,9 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
         rpName: BRANDING_NAME,
         // Extract rpID from auth URL (e.g., 'lobehub.com' from 'https://lobehub.com')
         // Returns undefined if AUTH_URL is not set (e.g., in e2e tests)
-        rpID: getPasskeyRpID(),
+        rpID: new URL(publicOrigin).hostname,
         // Keep Android APK origins aligned with the public Digital Asset Links declaration.
-        origin: getPasskeyOrigins(),
+        origin: getPasskeyOrigins(publicOrigin),
       }),
       ...(genericOAuthProviders.length > 0
         ? [

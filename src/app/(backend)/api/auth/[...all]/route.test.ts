@@ -12,12 +12,13 @@ type RouteHandler = (request: Request) => Promise<Response>;
 
 const mocks = vi.hoisted(() => ({
   handler: vi.fn<RouteHandler>(async () => Response.json({ ok: true })),
+  endpoint: undefined as undefined | { basePath: string; publicUrl: string; version: number },
   providers: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock('@lobechat/database/tenant', async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  requireTenantScope: () => ({ slug: 'acme', tenantId: 'tenant-1' }),
+  requireTenantScope: () => ({ slug: 'acme', tenantId: 'tenant-1', endpoint: mocks.endpoint }),
 }));
 
 vi.mock('@/auth', () => ({
@@ -40,6 +41,7 @@ describe('/api/auth/[...all] route', () => {
     vi.clearAllMocks();
     mocks.handler.mockResolvedValue(Response.json({ ok: true }));
     mocks.providers = [];
+    mocks.endpoint = undefined;
   });
 
   it('returns 400 for malformed JSON auth requests before Better Auth handles them', async () => {
@@ -258,6 +260,29 @@ describe('/api/auth/[...all] route', () => {
     mocks.handler.mockResolvedValueOnce(redirect);
     expect(await GET(new Request('https://localhost/api/auth/oauth2/callback/provider'))).toBe(
       redirect,
+    );
+  });
+});
+
+describe('canonical auth mount', () => {
+  it.each([
+    { basePath: '/t/acme', publicUrl: 'https://app.example.com/t/acme', version: 1 },
+    { basePath: '', publicUrl: 'https://chat.example.com', version: 2 },
+  ])('restores the active auth origin and basePath', async (endpoint) => {
+    mocks.endpoint = endpoint;
+    mocks.providers = [{ generic: true, providerId: 'okta' }];
+    mocks.handler.mockResolvedValue(new Response(null, { status: 200 }));
+    await GET(new Request('http://internal/api/auth/callback/okta?code=secret&state=s'));
+    expect(mocks.handler.mock.lastCall![0].url).toBe(
+      `${endpoint.publicUrl}/api/auth/oauth2/callback/okta?code=secret&state=s`,
+    );
+    mocks.handler.mockResolvedValue(Response.json({ code: 'INVALID_STATE' }, { status: 400 }));
+    const error = await GET(
+      new Request('http://internal/api/auth/callback/okta?code=secret&state=s'),
+    );
+    expect(error.status).toBe(303);
+    expect(error.headers.get('location')).toBe(
+      `${endpoint.basePath}/auth-error?error=INVALID_STATE`,
     );
   });
 });

@@ -9,8 +9,7 @@ import { sha256 } from 'js-sha256';
 import { serverDBEnv } from '@/config/db';
 import { FileModel } from '@/database/models/file';
 import { type FileItem } from '@/database/schemas';
-import { appEnv } from '@/envs/app';
-import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
+import { buildTenantPublicUrl } from '@/server/modules/Tenant/callbackUrl';
 import { TempFileManager } from '@/server/utils/tempFileManager';
 import { isDev } from '@/utils/env';
 
@@ -18,8 +17,7 @@ import { createFileServiceModule } from './impls';
 import type { FileServiceImpl, PreSignedUpload } from './impls/type';
 
 /** The file proxy of the current tenant: `/f/{id}` is a tenant backend route. */
-export const getFileProxyUrl = (fileId: string): string =>
-  buildTenantCallbackUrl(`/f/${fileId}`, appEnv.APP_URL);
+export const getFileProxyUrl = (fileId: string): string => buildTenantPublicUrl(`/f/${fileId}`);
 
 export interface FileAccessUrlItem {
   fileId?: string | null;

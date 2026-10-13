@@ -30,6 +30,7 @@ export interface AuthSPAServerConfig {
   enableOIDC: boolean;
   featureFlags: Partial<IFeatureFlags>;
   globalCDN?: boolean;
+  tenant?: { basePath: string; slug: string };
 }
 
 export interface SPAServerConfig {
@@ -38,4 +39,5 @@ export interface SPAServerConfig {
   config: GlobalServerConfig;
   featureFlags: Partial<IFeatureFlags>;
   isMobile: boolean;
+  tenant?: { basePath: string; slug: string };
 }

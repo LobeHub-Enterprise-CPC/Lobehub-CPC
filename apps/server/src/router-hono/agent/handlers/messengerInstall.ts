@@ -4,7 +4,7 @@ import type { Context } from 'hono';
 
 import { auth } from '@/auth';
 import { appEnv } from '@/envs/app';
-import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
+import { buildTenantPublicUrl } from '@/server/modules/Tenant/callbackUrl';
 import { issueOAuthState } from '@/server/services/messenger/oauth/stateStore';
 import { messengerPlatformRegistry } from '@/server/services/messenger/platforms';
 
@@ -81,10 +81,7 @@ export async function messengerInstall(c: Context): Promise<Response> {
   // 5. Build the platform's authorize URL and 302. The redirect_uri must
   // match exactly at the callback — we generate it the same way both sides.
   // The redirect target is a browser hop back into this tenant.
-  const redirectUri = buildTenantCallbackUrl(
-    `/api/agent/messenger/${platform}/oauth/callback`,
-    appEnv.APP_URL,
-  );
+  const redirectUri = buildTenantPublicUrl(`/api/agent/messenger/${platform}/oauth/callback`);
   const authorizeUrl = definition.oauth.buildAuthorizeUrl({
     clientId: config.clientId,
     redirectUri,

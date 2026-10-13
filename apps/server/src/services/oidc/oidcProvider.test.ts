@@ -32,3 +32,25 @@ describe('tenant OIDC instances', () => {
     await expect(getOIDCProvider()).rejects.toMatchObject({ code: 'TENANT_REQUIRED' });
   });
 });
+
+it('rebuilds a tenant provider when the active endpoint revision changes', async () => {
+  const scope = {
+    slug: 'acme',
+    tenantId: 'endpoint-cache-tenant',
+    endpoint: { basePath: '/t/acme', publicUrl: 'https://app.example.com/t/acme', version: 1 },
+  } as TenantScope;
+  const first = await runWithTenantScope(scope, getOIDCProvider);
+  const next = {
+    ...scope,
+    endpoint: { basePath: '', publicUrl: 'https://chat.example.com', version: 2 },
+  };
+  const changed = await runWithTenantScope(next, getOIDCProvider);
+  expect(first).not.toBe(changed);
+  expect(await runWithTenantScope(next, getOIDCProvider)).toBe(changed);
+  expect(createOIDCProvider).toHaveBeenLastCalledWith(
+    expect.anything(),
+    'acme',
+    scope.tenantId,
+    next.endpoint,
+  );
+});

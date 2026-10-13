@@ -3,6 +3,9 @@ export type { PlatformDatabase } from './db';
 export { getPlatformDB } from './db';
 export {
   tenantDirectory,
+  tenantEndpointEvents,
+  tenantEndpoints,
+  tenantEndpointState,
   tenantLifecycle,
   tenantLifecycleInbox,
   tenantProvisionOperation,

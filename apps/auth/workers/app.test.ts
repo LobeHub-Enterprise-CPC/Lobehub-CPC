@@ -38,13 +38,13 @@ describe('auth worker', () => {
     );
   });
 
-  it('does not ask for a config without a tenant', async () => {
+  it('fails closed for root auth that belongs on the main server', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await worker.fetch(new Request('https://auth.example.com/signin'), env());
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(503);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

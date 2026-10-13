@@ -14,9 +14,25 @@ import { defineConfig } from './define-config';
 
 const mocks = vi.hoisted(() => ({
   enterSlug: vi.fn(),
+  findHost: vi.fn(),
   getSession: vi.fn(),
 }));
 
+vi.mock('@/server/modules/Tenant/endpoints', () => ({
+  endpointHosts: () => ({ appUrl: 'http://localhost:3010', internalUrl: 'http://internal:3210' }),
+  findHostEndpoint: (host: string) => mocks.findHost(host),
+  findSlugEndpoint: async (slug: string) =>
+    slug === 'acme'
+      ? {
+          slug,
+          tenantId: 'tenant-1',
+          state: {
+            activeUrl: 'http://localhost:3010/t/acme',
+            endpoints: [{ kind: 'default', host: null, active: true }],
+          },
+        }
+      : null,
+}));
 vi.mock('@/auth', () => ({
   getTenantAuth: async () => ({ api: { getSession: mocks.getSession } }),
 }));
@@ -28,12 +44,21 @@ vi.mock('@/server/modules/Tenant/runtime', () => ({
 process.env.KEY_VAULTS_SECRET = 'proxy-test-master-secret';
 
 beforeEach(() => {
+  mocks.findHost.mockReset().mockResolvedValue(null);
   // Better Auth changes the result shape when returnHeaders is true.
   mocks.getSession
     .mockReset()
     .mockResolvedValue({ headers: new Headers(), response: { user: { id: 'user-1' } } });
   mocks.enterSlug.mockReset().mockImplementation(async (slug: string) => {
-    if (slug === 'acme') return { release: async () => {}, scope: { slug, tenantId: 'tenant-1' } };
+    if (slug === 'acme')
+      return {
+        release: async () => {},
+        scope: {
+          slug,
+          tenantId: 'tenant-1',
+          endpoint: { basePath: '/t/acme', publicUrl: 'http://localhost:3010/t/acme', version: 1 },
+        },
+      };
     throw Object.assign(new Error('not found'), { code: 'TENANT_NOT_FOUND' });
   });
 });
@@ -287,5 +312,63 @@ describe('project deep links', () => {
     const rewrite = await run(`http://localhost:3010${path}`);
     expect(new URL(rewrite!).pathname).toBe('/tenant-required');
     expect(mocks.getSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('actual Host authority', () => {
+  const custom = {
+    slug: 'acme',
+    tenantId: 'tenant-1',
+    state: {
+      activeUrl: 'https://chat.example.com',
+      endpoints: [
+        { kind: 'default', host: null, active: false },
+        { kind: 'custom', host: 'chat.example.com', active: true },
+      ],
+    },
+  };
+  it('clears the deployment URL port for a custom authority without a port', async () => {
+    mocks.findHost.mockResolvedValue(custom);
+    const response = await middleware(
+      new NextRequest('http://localhost:3392/api/auth/get-session', {
+        headers: { 'host': 'chat.example.com', 'x-forwarded-host': 'evil.example.com' },
+      }),
+    );
+    expect(response?.headers.get('x-middleware-rewrite')).not.toBeNull();
+    expect(
+      verifyTenantRoute(response?.headers.get(`x-middleware-request-${TENANT_ROUTE_HEADER}`)),
+    ).toBe('acme');
+    expect(mocks.findHost).toHaveBeenCalledWith('chat.example.com');
+  });
+  it('uses an explicit configured default port instead of the deployment URL port', async () => {
+    const response = await middleware(
+      new NextRequest('http://localhost:3392/t/acme/api/auth/get-session', {
+        headers: { 'host': 'localhost:3010', 'x-forwarded-host': 'evil.example.com' },
+      }),
+    );
+    expect(response?.headers.get('x-middleware-rewrite')).not.toBeNull();
+    expect(
+      verifyTenantRoute(response?.headers.get(`x-middleware-request-${TENANT_ROUTE_HEADER}`)),
+    ).toBe('acme');
+    expect(mocks.findHost).not.toHaveBeenCalled();
+  });
+  it.each([
+    'localhost:invalid',
+    'localhost:99999',
+    'localhost:',
+    'user@localhost:3010',
+    'localhost:3010/path',
+    'localhost:3010?x=1',
+    'localhost:3010#x',
+    'localhost:3010\\x',
+    'localhost::3010',
+  ])('refuses malformed authority %s without falling back to the URL host', async (host) => {
+    const response = await middleware(
+      new NextRequest('http://localhost:3010/t/acme/api/auth/get-session', { headers: { host } }),
+    );
+    expect(response?.status).toBe(404);
+    await expect(response!.json()).resolves.toEqual({ code: 'NOT_FOUND' });
+    expect(mocks.findHost).not.toHaveBeenCalled();
+    expect(mocks.enterSlug).not.toHaveBeenCalled();
   });
 });

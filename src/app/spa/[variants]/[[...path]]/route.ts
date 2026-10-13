@@ -11,6 +11,7 @@ import { translation } from '@/libs/i18n/serverTranslation';
 import { buildAnalyticsConfig, fetchViteDevTemplate, renderSpaHtml } from '@/libs/spaHtml';
 import { type Locales } from '@/locales/resources';
 import { getServerGlobalConfig } from '@/server/globalConfig';
+import { getTenantPageBootstrap } from '@/server/modules/Tenant/pageBootstrap';
 import { type SPAClientEnv, type SPAServerConfig } from '@/types/spaServerConfig';
 import { RouteVariants } from '@/utils/server/routeVariants';
 
@@ -80,16 +81,21 @@ async function buildSeoMeta(locale: string, isMobile: boolean): Promise<string> 
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ path?: string[]; variants: string }> },
 ) {
   const { variants } = await params;
   const { locale, isMobile } = RouteVariants.deserializeVariants(variants);
 
+  const tenant = await getTenantPageBootstrap(request);
   const spaConfig: SPAServerConfig = {
+    tenant,
     analyticsConfig: buildAnalyticsConfig({ desktop: true }),
     clientEnv: buildClientEnv(),
-    config: await getServerGlobalConfig(),
+    config: {
+      ...(await getServerGlobalConfig()),
+      ...(tenant ? { oidcIssuer: `${tenant.publicUrl}/oidc` } : {}),
+    },
     featureFlags: getServerFeatureFlagsValue(),
     isMobile,
   };

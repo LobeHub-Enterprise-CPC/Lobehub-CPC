@@ -1,3 +1,5 @@
+import { requireTenantScope } from '@lobechat/database/tenant';
+
 import { getTenantSsoProviders } from '@/auth';
 import { getServerFeatureFlagsValue } from '@/config/featureFlags';
 import { appEnv } from '@/envs/app';
@@ -19,6 +21,10 @@ const handleGet = async () => {
 
   return Response.json(
     {
+      tenant: {
+        slug: requireTenantScope().slug,
+        basePath: requireTenantScope().endpoint?.basePath ?? `/t/${requireTenantScope().slug}`,
+      },
       analyticsConfig: buildAnalyticsConfig(),
       config: {
         disableEmailPassword,

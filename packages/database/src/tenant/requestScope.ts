@@ -13,6 +13,11 @@ import type { TenantDatabaseSession } from './session';
  * later, spec A17): auth, sessions and business code only see this scope.
  */
 export interface TenantScope {
+  readonly endpoint?: {
+    readonly basePath: string;
+    readonly publicUrl: string;
+    readonly version: number;
+  };
   readonly session: TenantDatabaseSession;
   readonly slug: string;
   readonly tenantId: string;

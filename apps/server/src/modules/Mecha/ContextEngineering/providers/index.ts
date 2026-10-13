@@ -26,6 +26,7 @@ import { appEnv } from '@/envs/app';
 import { loadConnectedComposioIds } from '@/server/modules/AgentRuntime/adapters/composioConnectedIds';
 import type { RuntimeContextBuilderContext } from '@/server/modules/AgentRuntime/context';
 import { buildPostProcessUrl, log } from '@/server/modules/AgentRuntime/executorHelpers';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 import { AgentDocumentsService } from '@/server/services/agentDocuments';
 import { MarketService } from '@/server/services/market';
 import { OnboardingService } from '@/server/services/onboarding';
@@ -46,13 +47,7 @@ export const resolveServerConnectorFeatures = (): ContextFactRequest['features']
 const toIsoString = (value: Date | string | null | undefined): string =>
   value instanceof Date ? value.toISOString() : (value ?? '');
 
-const getAppUrl = (): string | undefined => {
-  try {
-    return appEnv.APP_URL;
-  } catch {
-    return process.env.APP_URL;
-  }
-};
+const getAppUrl = (): string => tenantPublicBaseUrl();
 
 /**
  * How the server fetches the facts the shared context rules ask for. Every

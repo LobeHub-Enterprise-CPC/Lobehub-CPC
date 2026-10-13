@@ -20,7 +20,7 @@ import debug from 'debug';
 
 import type { OIDCConfig } from '@/database/schemas';
 import { appEnv } from '@/envs/app';
-import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
+import { buildTenantPublicUrl } from '@/server/modules/Tenant/callbackUrl';
 
 const log = debug('lobe-server:connector:oauth');
 
@@ -43,7 +43,7 @@ export const getConnectorRedirectUri = (): string => {
   if (!base) {
     throw new Error('APP_URL is not configured; cannot build connector OAuth redirect URI');
   }
-  return buildTenantCallbackUrl(CONNECTOR_OAUTH_CALLBACK_PATH, base);
+  return buildTenantPublicUrl(CONNECTOR_OAUTH_CALLBACK_PATH);
 };
 
 export interface DiscoveredOAuth {

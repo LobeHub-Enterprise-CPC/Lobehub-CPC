@@ -334,7 +334,7 @@ describe('defineConfig', () => {
 
     const [options] = mocks.betterAuth.mock.lastCall!;
     expect(options.socialProviders).toEqual({ apple });
-    expect(getTrustedOrigins).toHaveBeenLastCalledWith(['apple']);
+    expect(getTrustedOrigins).toHaveBeenLastCalledWith(['apple'], 'https://example.com');
   });
 
   it('should only enable generic OAuth when the tenant has SSO providers', async () => {
@@ -348,4 +348,25 @@ describe('defineConfig', () => {
     defineConfig({ ...tenantOptions(), genericOAuthProviders: [provider] });
     expect(genericOAuth).toHaveBeenCalledWith({ config: [provider] });
   });
+});
+
+it('mounts custom host auth at its canonical root while preserving tenant cookie namespace', async () => {
+  const { defineConfig } = await import('./define-config');
+  const options = tenantOptions();
+  defineConfig({
+    ...options,
+    tenant: {
+      ...options.tenant,
+      endpoint: { publicUrl: 'https://chat.example.com', basePath: '', version: 2 },
+    },
+  });
+  const config = mocks.betterAuth.mock.lastCall![0];
+  expect(config.baseURL).toBe('https://chat.example.com');
+  expect(config.basePath).toBe('/api/auth');
+  expect(config.advanced.cookiePrefix).toBe(options.cookiePrefix);
+  expect(config.advanced.defaultCookieAttributes).toMatchObject({ path: '/' });
+  expect(config.advanced.defaultCookieAttributes.domain).toBeUndefined();
+  expect(mocks.passkey).toHaveBeenLastCalledWith(
+    expect.objectContaining({ rpID: 'chat.example.com' }),
+  );
 });

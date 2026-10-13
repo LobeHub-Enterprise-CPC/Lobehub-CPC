@@ -3,7 +3,7 @@ import type { Message } from 'chat';
 import debug from 'debug';
 
 import { getMessengerTelegramConfig } from '@/config/messenger';
-import { appEnv } from '@/envs/app';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 import type { PlatformClient } from '@/server/services/bot/platforms';
 import { getBotReplyLocale, normalizeBotReplyLocale } from '@/server/services/bot/platforms/const';
 import { TelegramApi } from '@/server/services/bot/platforms/telegram/api';
@@ -49,7 +49,7 @@ const buildVerifyImUrl = (params: {
   platformUserId: string;
   randomId: string;
 }): string => {
-  const url = new URL('/verify-im', params.appUrl);
+  const url = new URL(`${params.appUrl.replace(/\/$/, '')}/verify-im`);
   url.searchParams.set('im_type', 'telegram');
   url.searchParams.set('im_user_id', params.platformUserId);
   url.searchParams.set('random_id', params.randomId);
@@ -93,7 +93,7 @@ export class MessengerTelegramBinder implements MessengerPlatformBinder {
         platform: 'telegram',
         settings: {},
       },
-      { appUrl: appEnv.APP_URL },
+      { appUrl: tenantPublicBaseUrl() },
     );
   }
 
@@ -135,7 +135,7 @@ export class MessengerTelegramBinder implements MessengerPlatformBinder {
     // session-bound binding flow, so it must use APP_URL — same as every other
     // app-side redirect — not the webhook tunnel URL. (Tunnel URLs are only
     // used for inbound platform → server webhooks.)
-    const appUrl = appEnv.APP_URL;
+    const appUrl = tenantPublicBaseUrl();
     if (!appUrl) {
       log('handleUnlinkedMessage: APP_URL not set, cannot build verify-im link');
       return;

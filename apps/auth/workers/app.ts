@@ -117,6 +117,14 @@ export default {
     if (!matchesPrefix(pathname, AUTH_PATH_PREFIXES))
       return Response.redirect(env.AUTH_APP_HOME || 'https://lobehub.com', 302);
 
-    return serveDocument(request, env, pathname, tenant?.slug ?? null);
+    // This independent static worker only supports the established /t/slug deployment.
+    // Custom root auth is served by the main server, which owns trusted Host resolution and
+    // injects its bootstrap. No cross-zone Host spoofing or unsigned tenant headers here.
+    if (!tenant)
+      return Response.json(
+        { code: 'TENANT_REQUIRED' },
+        { status: 503, headers: { 'Cache-Control': 'private, no-store' } },
+      );
+    return serveDocument(request, env, pathname, tenant.slug);
   },
 };

@@ -85,3 +85,22 @@ it('stamps the owning tenant id on every access token its provider issues', asyn
   await createOIDCProvider({} as never, 'acme', 'tenant-acme');
   expect(await state.config.extraTokenClaims({ oidc: {} }, {})).toEqual({ tid: 'tenant-acme' });
 });
+
+it.each([
+  {
+    basePath: '/t/acme',
+    publicUrl: 'https://app.example.com/t/acme',
+    version: 1,
+    cookiePath: '/t/acme',
+  },
+  { basePath: '', publicUrl: 'https://chat.example.com', version: 2, cookiePath: '/' },
+])('uses canonical issuer, cookie path and protocol routes on $publicUrl', async (endpoint) => {
+  await createOIDCProvider({} as never, 'acme', 'tenant-acme', endpoint);
+  expect(state.issuer).toBe(`${endpoint.publicUrl}/oidc`);
+  expect(state.config.cookies.long.path).toBe(endpoint.cookiePath);
+  expect(state.config.cookies.short.path).toBe(endpoint.cookiePath);
+  expect(state.config.routes.authorization).toBe(`${endpoint.basePath}/oidc/auth`);
+  expect(state.config.interactions.url({ oidc: {} }, { uid: 'consent-1' })).toBe(
+    `${endpoint.basePath}/oauth/consent/consent-1`,
+  );
+});
