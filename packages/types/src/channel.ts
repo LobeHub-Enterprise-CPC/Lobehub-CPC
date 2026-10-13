@@ -77,6 +77,8 @@ export const CHANNEL_LIMITS = {
   maxDiscussionRounds: 10,
   approvalMs: 24 * 60 * 60 * 1000,
   executionMs: 10 * 60 * 1000,
+  /** Wall-clock budget for a device-hosted Agent turn before the worker stops it. */
+  deviceExecutionMs: 30 * 60 * 1000,
   members: 6,
   minMembers: 2,
   modelCalls: 32,

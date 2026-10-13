@@ -19,10 +19,10 @@ export function getChannelGatewayUrl(): URL | undefined {
   }
 }
 
-/** Do not accept work when the configured coordinator cannot consume it. */
-export async function isChannelGatewayReady(): Promise<boolean> {
-  const gateway = getChannelGatewayUrl();
-  if (!gateway) return false;
+const READY_CACHE_MS = 2000;
+let readiness: { expires: number; href: string; ready: Promise<boolean> } | undefined;
+
+async function probeChannelGateway(gateway: URL): Promise<boolean> {
   try {
     const response = await fetch(new URL('healthz', gateway), {
       cache: 'no-store',
@@ -35,4 +35,27 @@ export async function isChannelGatewayReady(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Do not accept work when the configured coordinator cannot consume it.
+ * Concurrent and back-to-back callers share one health request for a short window.
+ */
+export async function isChannelGatewayReady(): Promise<boolean> {
+  const gateway = getChannelGatewayUrl();
+  if (!gateway) return false;
+  const now = Date.now();
+  if (!readiness || readiness.href !== gateway.href || now >= readiness.expires) {
+    const entry = { expires: Infinity, href: gateway.href } as NonNullable<typeof readiness>;
+    entry.ready = probeChannelGateway(gateway).finally(() => {
+      entry.expires = Date.now() + READY_CACHE_MS;
+    });
+    readiness = entry;
+  }
+  return readiness.ready;
+}
+
+/** Test seam: forget the cached readiness result. */
+export function resetChannelGatewayReadiness() {
+  readiness = undefined;
 }

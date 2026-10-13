@@ -1,4 +1,5 @@
 import type { ChannelMemberConfig } from '@lobechat/types';
+import { CHANNEL_LIMITS } from '@lobechat/types';
 import debug from 'debug';
 import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import pMap from 'p-map';
@@ -23,6 +24,8 @@ import { routeChannelMessage } from './router';
 import { settleChannelServerDefaultOperation } from './serverDefault';
 
 const log = debug('lobe-server:channel:worker');
+/** A failed readiness probe is retried after this delay instead of every tick. */
+const PROBE_BACKOFF_MS = 10_000;
 
 /** Durable database queue consumer. No execution is tied to a browser or HTTP request. */
 export class ChannelWorker {
@@ -31,6 +34,7 @@ export class ChannelWorker {
   private readonly finalizing = new Map<string, () => Promise<void>>();
   private readonly publicationFences = new Map<string, number>();
   private jobCursor?: { createdAt: string; id: string };
+  private readonly probeBackoff = new Map<string, number>();
 
   constructor(
     private readonly db: LobeChatDatabase,
@@ -84,7 +88,21 @@ export class ChannelWorker {
             const enabled = isChannelEnabled();
             if (!run.publicationRevoked && (!enabled || channel.archived || !memberActive))
               await model.stop(channel.id, { runId: run.id });
-            const stopped = run.publicationRevoked || !enabled || channel.archived || !memberActive;
+            // A stuck device turn would otherwise hold the member queue and its discussion forever.
+            const expired =
+              !run.publicationRevoked &&
+              !run.writerReleased &&
+              config.runtime !== 'native' &&
+              Date.now() - new Date(run.createdAt).getTime() > CHANNEL_LIMITS.deviceExecutionMs;
+            if (expired)
+              await model.fail(
+                channel.id,
+                run.id,
+                run.fence,
+                `Agent execution exceeded ${CHANNEL_LIMITS.deviceExecutionMs / 60_000} minutes and was stopped`,
+              );
+            const stopped =
+              expired || run.publicationRevoked || !enabled || channel.archived || !memberActive;
             if (stopped) {
               this.active.get(run.id)?.abort.abort();
               this.publicationFences.delete(run.id);
@@ -197,7 +215,12 @@ export class ChannelWorker {
         );
       for (const item of discussing) {
         if (!isChannelEnabled()) continue;
-        await new ChannelModel(this.db, item.ownerId).advanceDiscussions(item.channelId);
+        // One broken discussion must not stall every other Channel's dispatch and health.
+        try {
+          await new ChannelModel(this.db, item.ownerId).advanceDiscussions(item.channelId);
+        } catch (error) {
+          log('Discussion advance deferred: channel=%s error=%s', item.channelId, error);
+        }
       }
       const jobs = await this.db
         .select({
@@ -217,6 +240,21 @@ export class ChannelWorker {
             eq(channels.archived, false),
             eq(channelMembers.active, true),
             eq(channelMembers.executionPaused, false),
+            // Only an idle member's FIFO head can be claimed; probing anything else is wasted
+            // device RPCs and Channel-row locks for every tick the member stays busy.
+            sql`${channelJobs.id} = (
+              SELECT head.id FROM channel_jobs head
+              INNER JOIN channel_messages request ON request.id = head.message_id
+              WHERE head.member_id = ${channelJobs.memberId} AND head.status = 'queued'
+              ORDER BY request.sequence ASC, head.created_at ASC
+              LIMIT 1
+            )`,
+            sql`NOT EXISTS (
+              SELECT 1 FROM channel_runs live
+              WHERE live.member_id = ${channelJobs.memberId}
+                AND (live.writer_released = false
+                  OR (live.cleanup_requested = true AND live.physical_stopped = false))
+            )`,
             this.jobCursor
               ? sql`(${channelJobs.createdAt}, ${channelJobs.id}) > (${this.jobCursor.createdAt}::timestamptz, ${this.jobCursor.id})`
               : undefined,
@@ -230,9 +268,12 @@ export class ChannelWorker {
         jobs.length === 40 && last
           ? { createdAt: last.cursorCreatedAt, id: last.job.id }
           : undefined;
+      const now = Date.now();
+      for (const [jobId, until] of this.probeBackoff)
+        if (until <= now) this.probeBackoff.delete(jobId);
       const jobResults = await Promise.allSettled(
         jobs.map(async ({ job, channel, config, revision }) => {
-          if (!isChannelEnabled()) return;
+          if (!isChannelEnabled() || this.probeBackoff.has(job.id)) return;
           const model = new ChannelModel(this.db, channel.ownerId);
           let agentId: string | undefined;
           try {
@@ -250,15 +291,13 @@ export class ChannelWorker {
             if (config.runtime === 'native')
               agentId = (await this.availability(this.db, channel.ownerId, config)).agentId;
           } catch (error) {
-            await model.unavailable(
-              channel.id,
-              job.id,
-              error instanceof Error ? error.message : String(error),
-            );
+            this.probeBackoff.set(job.id, Date.now() + PROBE_BACKOFF_MS);
+            const reason = error instanceof Error ? error.message : String(error);
+            if (job.blockedReason !== reason) await model.unavailable(channel.id, job.id, reason);
             return; /* Unavailable before submission: leave the durable job queued. */
           }
           // Clear a previous availability failure even if the shared workspace is still busy.
-          await model.unavailable(channel.id, job.id, null);
+          if (job.blockedReason) await model.unavailable(channel.id, job.id, null);
           const claim = await model.claim(channel.id, job.id, revision);
           if (!claim) return;
           config = claim.run.executionConfig!;

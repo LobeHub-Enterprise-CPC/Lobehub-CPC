@@ -16,7 +16,7 @@ import { checkChannelNativeAvailability } from '@/server/services/channel/native
 import { watchChannel } from '@/server/services/channel/watch';
 import { resolveAttachmentMetadata } from '@/server/services/file/resolveAttachments';
 
-const channelProcedure = authedProcedure.use(serverDatabase).use(async ({ ctx, next }) => {
+const channelProcedure = authedProcedure.use(serverDatabase).use(async ({ ctx, next, type }) => {
   if (ctx.workspaceId)
     throw new TRPCError({ code: 'FORBIDDEN', message: 'Channels are personal in this release' });
   if (!isChannelEnabled())
@@ -24,7 +24,8 @@ const channelProcedure = authedProcedure.use(serverDatabase).use(async ({ ctx, n
       code: 'FORBIDDEN',
       message: 'Channel gateway is not configured',
     });
-  if (!(await isChannelGatewayReady()))
+  // Reads and watches come straight from the database; only new work needs a live consumer.
+  if (type === 'mutation' && !(await isChannelGatewayReady()))
     throw new TRPCError({
       code: 'SERVICE_UNAVAILABLE',
       message: 'Channel service is unavailable',
