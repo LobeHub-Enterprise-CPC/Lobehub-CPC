@@ -93,6 +93,10 @@ const changed = (
     return { kind: 'endpoint-changed', activeUrl };
   // Carry only business/navigation parameters. Codes, state, tokens and unknown query fields
   // never leave an inactive authority, even if a provider used an unexpected callback path.
+  // When a route adds a query field, opt it in here only if it is navigation/filter data safe
+  // to disclose to the tenant's new authority; credentials, personal data and callback state
+  // must stay excluded. Add a redirect regression for every new field. Unknown fields are lost
+  // on purpose: the user can restart the operation at activeUrl without leaking protocol data.
   const safeSearch = new URLSearchParams();
   const allowed = new Set([
     'hl',

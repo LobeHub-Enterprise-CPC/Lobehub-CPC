@@ -325,8 +325,13 @@ export function defineConfig() {
         findHost: findHostEndpoint,
         findSlug: findSlugEndpoint,
       });
-    } catch {
-      return rejectJson('ENDPOINTS_NOT_READY', 503);
+    } catch (error) {
+      return rejectJson(
+        (error as { code?: string }).code === 'ENDPOINTS_NOT_READY'
+          ? 'ENDPOINTS_NOT_READY'
+          : 'TENANT_UNAVAILABLE',
+        503,
+      );
     }
     if (route.kind === 'redirect')
       return new Response(null, {

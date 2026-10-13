@@ -113,8 +113,18 @@ export const createOIDCProvider = async (
       client.client_id === 'lobehub-desktop' && endpoint
         ? {
             ...client,
-            redirect_uris: [`${endpoint.publicUrl}/oidc/callback/desktop`],
-            post_logout_redirect_uris: [`${endpoint.publicUrl}/oauth/logout`],
+            redirect_uris: [
+              ...new Set([
+                ...(client.redirect_uris ?? []),
+                `${endpoint.publicUrl}/oidc/callback/desktop`,
+              ]),
+            ],
+            post_logout_redirect_uris: [
+              ...new Set([
+                ...(client.post_logout_redirect_uris ?? []),
+                `${endpoint.publicUrl}/oauth/logout`,
+              ]),
+            ],
           }
         : client,
     ),

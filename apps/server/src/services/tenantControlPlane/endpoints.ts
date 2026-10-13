@@ -10,6 +10,7 @@ import {
 import { and, eq, or, sql } from 'drizzle-orm';
 
 import { appEnv } from '@/envs/app';
+import { invalidateEndpointRouting } from '@/server/modules/Tenant/endpointCache';
 
 import {
   canonicalEndpointUrl,
@@ -33,12 +34,15 @@ export class TenantEndpointsService {
 
   private async read(db: Pick<PlatformDatabase, 'select'>, tenantId: string) {
     const [row] = await db
-      .select({ slug: tenantDirectory.slug, state: tenantEndpointState })
+      .select({
+        slug: tenantDirectory.slug,
+        updatedAt: tenantDirectory.updatedAt,
+        state: tenantEndpointState,
+      })
       .from(tenantDirectory)
       .leftJoin(tenantEndpointState, eq(tenantEndpointState.tenantId, tenantDirectory.tenantId))
       .where(eq(tenantDirectory.tenantId, tenantId));
     if (!row) throw new TenantEndpointError('TENANT_NOT_FOUND', 404);
-    if (!row.state) throw new TenantEndpointError('ENDPOINTS_NOT_READY', 503);
     const endpoints = await db
       .select({
         id: tenantEndpoints.id,
@@ -49,6 +53,38 @@ export class TenantEndpointsService {
       .from(tenantEndpoints)
       .where(eq(tenantEndpoints.tenantId, tenantId))
       .orderBy(tenantEndpoints.id);
+    if (!row.state) {
+      // Rolling upgrades may not have received Console's first snapshot yet. Absence is
+      // default-only; orphan rows and database failures must never be mistaken for absence.
+      if (endpoints.length) throw new TenantEndpointError('ENDPOINTS_NOT_READY', 503);
+      const [event] = await db
+        .select({ eventId: tenantEndpointEvents.eventId })
+        .from(tenantEndpointEvents)
+        .where(eq(tenantEndpointEvents.tenantId, tenantId))
+        .limit(1);
+      if (event) throw new TenantEndpointError('ENDPOINTS_NOT_READY', 503);
+      const endpoint = {
+        id: 'default' as const,
+        kind: 'default' as const,
+        host: null,
+        active: true,
+      };
+      return {
+        tenantId,
+        acceptedVersion: 0,
+        appliedVersion: 0,
+        endpoints: [endpoint],
+        activeUrl: canonicalEndpointUrl(this.appUrl, row.slug, endpoint),
+        observedAt: row.updatedAt.toISOString(),
+      };
+    }
+    if (
+      !Number.isInteger(row.state.acceptedVersion) ||
+      row.state.acceptedVersion < row.state.appliedVersion ||
+      row.state.acceptedVersion > 2147483647 ||
+      !Number.isFinite(row.state.observedAt?.getTime())
+    )
+      throw new TenantEndpointError('ENDPOINTS_NOT_READY', 503);
     const parsed = endpointRequestSchema.safeParse({
       tenantId,
       eventId: 'read',
@@ -80,7 +116,7 @@ export class TenantEndpointsService {
       )
       .digest('hex');
     try {
-      return await this.db.transaction(async (tx) => {
+      const result = await this.db.transaction(async (tx) => {
         // Serialize revisions of this tenant; global host uniqueness is enforced by PostgreSQL.
         await tx.execute(
           sql`SELECT pg_advisory_xact_lock(hashtextextended(${`tenant-endpoints:${input.tenantId}`}, 0))`,
@@ -169,6 +205,8 @@ export class TenantEndpointsService {
           observedAt: current.observedAt,
         };
       });
+      invalidateEndpointRouting();
+      return result;
     } catch (error) {
       const pg =
         (error as { cause?: { code?: string; constraint?: string } }).cause ??

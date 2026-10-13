@@ -32,6 +32,17 @@ const deps = {
 };
 const route = (url: string, method = 'GET') => resolveHostTenantRoute(new URL(url), method, deps);
 describe('trusted host routing', () => {
+  it('carries documented navigation queries but drops secrets and unknown fields on both inactive authorities', async () => {
+    for (const prefix of ['https://app.example.com/t/acme', 'https://old.example.com']) {
+      const result = await route(
+        `${prefix}/resource?tab=files&page=2&q=report&code=secret&state=s&access_token=t&refresh_token=r&id_token=i&token=t&password=p&email=e&callbackURL=u&redirect_uri=u&unknown=x&CODE=c`,
+      );
+      expect(result).toEqual({
+        kind: 'redirect',
+        url: 'https://chat.example.com/resource?tab=files&page=2&q=report',
+      });
+    }
+  });
   it('resolves default paths only on the platform authority', async () => {
     expect(await route('https://app.example.com/t/beta/agent')).toEqual({
       kind: 'tenant-page',

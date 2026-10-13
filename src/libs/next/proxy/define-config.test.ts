@@ -63,6 +63,22 @@ beforeEach(() => {
   });
 });
 
+it.each([
+  [new Error('database unavailable'), 'TENANT_UNAVAILABLE'],
+  [
+    Object.assign(new Error('damaged projection'), { code: 'ENDPOINTS_NOT_READY' }),
+    'ENDPOINTS_NOT_READY',
+  ],
+])('reports endpoint lookup failure without admitting a fallback tenant', async (error, code) => {
+  mocks.findHost.mockRejectedValueOnce(error);
+  const response = await defineConfig().middleware(
+    new NextRequest('https://chat.example.com/agent'),
+  );
+  expect(response.status).toBe(503);
+  expect(await response.json()).toEqual({ code });
+  expect(mocks.enterSlug).not.toHaveBeenCalled();
+});
+
 const { middleware } = defineConfig();
 
 const run = async (url: string, userAgent?: string) => {

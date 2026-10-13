@@ -9,42 +9,76 @@ import { eq } from 'drizzle-orm';
 import { appEnv } from '@/envs/app';
 import { TenantEndpointsService } from '@/server/services/tenantControlPlane/endpoints';
 
+import { EndpointRoutingCache } from './endpointCache';
+import { TenantGateError } from './errors';
+
 export const getTenantEndpoints = () => new TenantEndpointsService(getPlatformDB());
+type EndpointEntry = {
+  routingFetchedAt: number;
+  slug: string;
+  tenantId: string;
+  state: Awaited<ReturnType<TenantEndpointsService['get']>>;
+};
+const repositories = new WeakMap<PlatformDatabase, EndpointRoutingCache<EndpointEntry>>();
+const repository = (platform: PlatformDatabase) => {
+  let cache = repositories.get(platform);
+  if (!cache) {
+    cache = new EndpointRoutingCache(
+      async (key) => {
+        const routingFetchedAt = performance.now();
+        const separator = key.indexOf(':');
+        const kind = key.slice(0, separator);
+        const value = key.slice(separator + 1);
+        const columns = { tenantId: tenantDirectory.tenantId, slug: tenantDirectory.slug };
+        const [entry] =
+          kind === 'host'
+            ? await platform
+                .select(columns)
+                .from(tenantEndpoints)
+                .innerJoin(tenantDirectory, eq(tenantDirectory.tenantId, tenantEndpoints.tenantId))
+                .where(eq(tenantEndpoints.host, value))
+            : await platform
+                .select(columns)
+                .from(tenantDirectory)
+                .where(
+                  kind === 'slug'
+                    ? eq(tenantDirectory.slug, value)
+                    : eq(tenantDirectory.tenantId, value),
+                );
+        if (!entry) return null;
+        // Each key reads a fresh snapshot; never wrap an older tenant-key cache entry and
+        // accidentally extend its TTL while resolving a slug or authority.
+        return {
+          ...entry,
+          routingFetchedAt,
+          state: await new TenantEndpointsService(platform).get(entry.tenantId),
+        };
+      },
+      undefined,
+      (entry) => entry.routingFetchedAt,
+    );
+    repositories.set(platform, cache);
+  }
+  return cache;
+};
 export const loadTenantPublicEndpoint = async (
   tenantId: string,
   platform: PlatformDatabase = getPlatformDB(),
 ) => {
-  const state = await new TenantEndpointsService(platform).get(tenantId);
-  const [directory] = await platform
-    .select({ slug: tenantDirectory.slug })
-    .from(tenantDirectory)
-    .where(eq(tenantDirectory.tenantId, tenantId));
-  if (!directory) throw new Error('TENANT_NOT_FOUND');
-  const url = new URL(state.activeUrl);
+  const entry = await repository(platform).get(`tenant:${tenantId}`);
+  if (!entry) throw new TenantGateError('TENANT_NOT_FOUND');
+  const url = new URL(entry.state.activeUrl);
   return {
-    slug: directory.slug,
+    slug: entry.slug,
     basePath: url.pathname === '/' ? '' : url.pathname,
-    publicUrl: state.activeUrl,
-    version: state.appliedVersion,
+    publicUrl: entry.state.activeUrl,
+    version: entry.state.appliedVersion,
   };
 };
-export const findHostEndpoint = async (host: string) => {
-  const [entry] = await getPlatformDB()
-    .select({ tenantId: tenantDirectory.tenantId, slug: tenantDirectory.slug })
-    .from(tenantEndpoints)
-    .innerJoin(tenantDirectory, eq(tenantDirectory.tenantId, tenantEndpoints.tenantId))
-    .where(eq(tenantEndpoints.host, host));
-  if (!entry) return null;
-  return { ...entry, state: await getTenantEndpoints().get(entry.tenantId) };
-};
-export const findSlugEndpoint = async (slug: string) => {
-  const [entry] = await getPlatformDB()
-    .select({ tenantId: tenantDirectory.tenantId, slug: tenantDirectory.slug })
-    .from(tenantDirectory)
-    .where(eq(tenantDirectory.slug, slug));
-  if (!entry) return null;
-  return { ...entry, state: await getTenantEndpoints().get(entry.tenantId) };
-};
+export const findHostEndpoint = (host: string, platform: PlatformDatabase = getPlatformDB()) =>
+  repository(platform).get(`host:${host}`);
+export const findSlugEndpoint = (slug: string, platform: PlatformDatabase = getPlatformDB()) =>
+  repository(platform).get(`slug:${slug}`);
 export const endpointHosts = () => ({
   appUrl: appEnv.APP_URL,
   internalUrl: appEnv.INTERNAL_APP_URL || appEnv.APP_URL,

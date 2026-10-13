@@ -356,6 +356,7 @@ export class TenantRuntime {
     }
     const endpoint = await loadTenantPublicEndpoint(directory.tenantId, this.platform()).catch(
       (cause) => {
+        if (cause instanceof TenantGateError) throw cause;
         throw new TenantGateError('TENANT_NOT_READY', undefined, { cause });
       },
     );
