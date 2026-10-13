@@ -142,6 +142,20 @@ describe('defineConfig', () => {
     process.env = originalEnv;
   });
 
+  it('lets a tenant refusal escape Better Auth so the route can answer with its code', async () => {
+    const { TenantGateError } = await import('@/server/modules/Tenant/errors');
+    const { defineConfig } = await import('./define-config');
+    const { onAPIError } = defineConfig(tenantOptions()) as any;
+    const refusal = new TenantGateError('TENANT_OFFLINE');
+    const logger = { error: vi.fn() };
+
+    expect(() =>
+      onAPIError.onError(new Error('Failed query', { cause: refusal }), { logger }),
+    ).toThrow(refusal);
+    expect(() => onAPIError.onError(new Error('boom'), { logger })).not.toThrow();
+    expect(logger.error).toHaveBeenCalledTimes(1);
+  });
+
   it('should configure passkeys with the approved origins', async () => {
     const { defineConfig } = await import('./define-config');
 

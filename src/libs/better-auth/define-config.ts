@@ -6,6 +6,7 @@ import { createNanoId, idGenerator, type LobeChatDatabase } from '@lobechat/data
 import * as schema from '@lobechat/database/schemas';
 import bcrypt from 'bcryptjs';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { APIError } from 'better-auth/api';
 import { verifyPassword as defaultVerifyPassword } from 'better-auth/crypto';
 import { type BetterAuthOptions } from 'better-auth/minimal';
 import { betterAuth } from 'better-auth/minimal';
@@ -36,6 +37,7 @@ import {
   getTrustedOrigins,
 } from '@/libs/better-auth/utils/config';
 import { clearMismatchedOIDCSession } from '@/libs/oidc-provider/session-cleanup';
+import { tenantGateErrorOf } from '@/server/modules/Tenant/errors';
 import { EmailService } from '@/server/services/email';
 import { UserService } from '@/server/services/user';
 
@@ -217,6 +219,16 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
     },
     onAPIError: {
       errorURL: `/t/${tenant.slug}/auth-error`,
+      // Better Auth answers any non-API error with an empty 500. A tenant refusal
+      // (the workspace was frozen or taken offline while this request ran) must
+      // reach the auth route instead, which answers with the gate's `{ code }`.
+      // Must stay synchronous: Better Auth calls it without awaiting.
+      onError: (error, ctx) => {
+        const refusal = tenantGateErrorOf(error);
+        if (refusal) throw refusal;
+        if (error instanceof APIError && error.status !== 'INTERNAL_SERVER_ERROR') return;
+        ctx.logger?.error(error instanceof Error ? error.name : '', error);
+      },
     },
     session: {
       cookieCache: {

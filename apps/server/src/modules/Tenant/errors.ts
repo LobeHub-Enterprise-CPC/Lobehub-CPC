@@ -1,3 +1,5 @@
+import { TenantDatabaseError } from '@lobechat/database/tenant';
+
 /**
  * Refusals at the tenant gate (spec FR-ID-07, FR-RT-04, FR-DI-03). Each code
  * maps to one HTTP status; the body is `{ code }` (plus freeze reasons for a
@@ -60,12 +62,22 @@ export class TenantGateError extends Error {
 /**
  * The gate refusal behind `error`, looking through wrappers such as Drizzle's
  * query error: work admitted earlier is refused when its next transaction
- * re-checks the tenant, deep inside the database driver.
+ * re-checks the tenant, deep inside the database driver. A tenant database
+ * refusal is the gate refusal with the same code.
  */
 export const tenantGateErrorOf = (error: unknown): TenantGateError | undefined => {
   for (let current = error, depth = 0; current && depth < 8; depth += 1) {
     if (current instanceof TenantGateError) return current;
+    if (current instanceof TenantDatabaseError)
+      return new TenantGateError(current.code, undefined, { cause: current });
     current = (current as { cause?: unknown }).cause;
   }
   return undefined;
 };
+
+/**
+ * The gate's `{ code }` response for a refusal raised inside a handler, so a
+ * handler's own catch-all never turns a closed workspace into a generic failure.
+ */
+export const tenantRefusalResponse = (error: unknown): Response | undefined =>
+  tenantGateErrorOf(error)?.toResponse();

@@ -4,6 +4,7 @@ import type { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getAuthForRequest } from '@/auth';
+import { TenantGateError } from '@/server/modules/Tenant/errors';
 
 import { GET, POST } from './route';
 
@@ -14,7 +15,8 @@ const mocks = vi.hoisted(() => ({
   providers: [] as Array<Record<string, unknown>>,
 }));
 
-vi.mock('@lobechat/database/tenant', () => ({
+vi.mock('@lobechat/database/tenant', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   requireTenantScope: () => ({ slug: 'acme', tenantId: 'tenant-1' }),
 }));
 
@@ -169,6 +171,24 @@ describe('/api/auth/[...all] route', () => {
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(await response.json()).toEqual({ code: 'SSO_UNAVAILABLE', message: 'SSO_UNAVAILABLE' });
     expect(mocks.handler).not.toHaveBeenCalled();
+  });
+
+  it('answers a tenant refusal raised inside Better Auth with its code', async () => {
+    mocks.handler.mockRejectedValueOnce(
+      new Error('Failed query', { cause: new TenantGateError('TENANT_OFFLINE') }),
+    );
+    const response = await POST(createPostRequest('{}'));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: 'TENANT_OFFLINE' });
+  });
+
+  it('answers a tenant refusal while loading the tenant auth with its code', async () => {
+    vi.mocked(getAuthForRequest).mockRejectedValueOnce(
+      new TenantGateError('TENANT_FROZEN', { freezeReasons: ['manual'] }),
+    );
+    const response = await POST(createPostRequest('{}'));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: 'TENANT_FROZEN', reasons: ['manual'] });
   });
 
   it('redirects a failed callback when Next preserves its tenant URL', async () => {

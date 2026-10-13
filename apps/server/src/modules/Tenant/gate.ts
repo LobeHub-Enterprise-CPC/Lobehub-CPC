@@ -16,14 +16,10 @@ export const routedTenantSlug = (request: Request): string | null =>
 
 const toResponse = (error: unknown): Response | null => {
   const refusal = tenantGateErrorOf(error);
-  if (refusal) return refusal.toResponse();
-  if (error instanceof TenantDatabaseError) {
-    log('tenant database refused: %s', error.reason);
-    return new TenantGateError(
-      error.code === 'TENANT_REQUIRED' ? 'TENANT_REQUIRED' : error.code,
-    ).toResponse();
-  }
-  return null;
+  if (!refusal) return null;
+  if (refusal.cause instanceof TenantDatabaseError)
+    log('tenant database refused: %s', refusal.cause.reason);
+  return refusal.toResponse();
 };
 
 /**

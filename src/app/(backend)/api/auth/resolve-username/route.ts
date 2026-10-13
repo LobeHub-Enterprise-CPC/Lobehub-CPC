@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 
 import { users } from '@/database/schemas/user';
 import { serverDB } from '@/database/server';
+import { tenantRefusalResponse } from '@/server/modules/Tenant/errors';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
 
 export interface ResolveUsernameResponseData {
@@ -46,6 +47,8 @@ async function handlePost(req: NextRequest) {
       exists: true,
     } satisfies ResolveUsernameResponseData);
   } catch (error) {
+    const refusal = tenantRefusalResponse(error);
+    if (refusal) return refusal;
     console.error('Error resolving username to email:', error);
     return NextResponse.json({ error: 'Internal server error', exists: false }, { status: 500 });
   }

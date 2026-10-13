@@ -32,6 +32,7 @@ const SignIn = () => {
     socialLoading,
     ssoError,
     step,
+    tenantUnavailable,
   } = useSignIn();
 
   if (step === 'emailSent' && sentInfo)
@@ -74,6 +75,7 @@ const SignIn = () => {
       setAgreementChecked={setAgreementChecked}
       socialLoading={socialLoading}
       ssoError={ssoError}
+      tenantUnavailable={tenantUnavailable}
       onGoToSignup={handleGoToSignup}
       onResetEmail={handleBackToEmail}
       onSetPassword={handleForgotPassword}

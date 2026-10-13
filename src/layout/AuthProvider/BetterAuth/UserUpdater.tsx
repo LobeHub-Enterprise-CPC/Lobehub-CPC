@@ -7,6 +7,7 @@ import { memo, type PropsWithChildren, useEffect, useLayoutEffect, useState } fr
 import { useTranslation } from 'react-i18next';
 
 import { DEFAULT_PREFERENCE } from '@/const/user';
+import { isTenantUnavailableCode } from '@/features/Auth/utils/tenantUnavailable';
 import { useSession } from '@/libs/better-auth/auth-client';
 import { useAppPainted } from '@/spa/atoms/app';
 import { removeStaticLoadingScreen } from '@/spa/loadingScreen';
@@ -27,10 +28,7 @@ const UserUpdater = memo(({ children }: PropsWithChildren) => {
   const isInitialIdentityUnresolved = !useUserStore((state) => state.isLoaded);
   const status = error?.status;
   const tenantUnavailable =
-    !!error &&
-    ['TENANT_FROZEN', 'TENANT_OFFLINE', 'TENANT_NOT_READY', 'TENANT_NOT_FOUND'].includes(
-      String('code' in error ? error.code : undefined),
-    );
+    !!error && isTenantUnavailableCode('code' in error ? error.code : undefined);
   const retryable = !!error && (!status || status >= 500 || status === 408 || status === 429);
   const failed =
     isInitialIdentityUnresolved && !!error && status !== 401 && (!retryable || retryAttempt >= 3);

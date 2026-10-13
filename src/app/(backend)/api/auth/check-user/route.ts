@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import { account } from '@/database/schemas/betterAuth';
 import { users } from '@/database/schemas/user';
 import { serverDB } from '@/database/server';
+import { tenantRefusalResponse } from '@/server/modules/Tenant/errors';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
 
 export interface CheckUserResponseData {
@@ -57,6 +58,8 @@ async function handlePost(req: NextRequest) {
       hasPassword,
     } satisfies CheckUserResponseData);
   } catch (error) {
+    const refusal = tenantRefusalResponse(error);
+    if (refusal) return refusal;
     console.error('Error checking user existence:', error);
     return NextResponse.json({ error: 'Internal server error', exists: false }, { status: 500 });
   }

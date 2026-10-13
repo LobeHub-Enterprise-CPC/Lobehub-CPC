@@ -253,6 +253,21 @@ describe('useSignUp', () => {
       expect(window.location.href).toBe('');
     });
 
+    it('explains an unavailable workspace instead of a generic sign-up failure', async () => {
+      mockSignUpEmail.mockResolvedValue({
+        error: { code: 'TENANT_FROZEN', status: 403 },
+      });
+
+      const { result } = renderHook(() => useSignUp());
+
+      await act(async () => {
+        await result.current.onSubmit(validValues);
+      });
+
+      expect(mockMessageError).toHaveBeenCalledWith('tenant.unavailable.description');
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
     it('should retry sign up with captcha token when captcha is required', async () => {
       mockGetCaptchaTokenOnError.mockResolvedValue('captcha-token');
       mockSignUpEmail

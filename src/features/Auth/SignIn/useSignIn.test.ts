@@ -389,6 +389,49 @@ describe('useSignIn', () => {
     });
   });
 
+  describe('tenant unavailable', () => {
+    it('explains an unavailable workspace instead of sending a user to sign up', async () => {
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({ code: 'TENANT_FROZEN', reasons: ['manual'] }),
+        ok: false,
+        status: 403,
+      });
+
+      const { result } = renderHook(() => useSignIn());
+
+      await act(async () => {
+        await result.current.handleCheckUser({ email: 'user@example.com' });
+      });
+
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockMessageError).toHaveBeenCalledWith('tenant.unavailable.description');
+      expect(result.current.step).toBe('email');
+    });
+
+    it('does not send a frozen workspace sign-in to email verification', async () => {
+      mockSignInEmail.mockImplementation(async (_data: any, opts: any) => {
+        opts.onError({ error: { code: 'TENANT_FROZEN', status: 403 } });
+        return { error: { code: 'TENANT_FROZEN', status: 403 } };
+      });
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({ exists: true, hasPassword: true }),
+        ok: true,
+      });
+
+      const { result } = renderHook(() => useSignIn());
+
+      await act(async () => {
+        await result.current.handleCheckUser({ email: 'user@example.com' });
+      });
+      await act(async () => {
+        await result.current.handleSignIn({ password: 'password' });
+      });
+
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockMessageError).toHaveBeenCalledWith('tenant.unavailable.description');
+    });
+  });
+
   describe('handleSocialSignIn', () => {
     it('should bind relative OAuth callbacks to the current auth origin', async () => {
       const authOrigin = 'https://auth.example.com';

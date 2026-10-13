@@ -56,6 +56,8 @@ export interface SignInEmailStepProps {
   setAgreementChecked: (checked: boolean) => void;
   socialLoading: string | null;
   ssoError?: boolean;
+  /** The workspace is frozen, expired, offline or not provisioned. */
+  tenantUnavailable?: boolean;
 }
 
 export const SignInEmailStep = ({
@@ -74,6 +76,7 @@ export const SignInEmailStep = ({
   setAgreementChecked,
   socialLoading,
   ssoError,
+  tenantUnavailable,
   onGoToSignup,
   onResetEmail,
   onSetPassword,
@@ -111,7 +114,15 @@ export const SignInEmailStep = ({
 
   return (
     <AuthCard title={t('signin.subtitle', { appName: BRANDING_NAME })}>
-      {ssoError ? (
+      {tenantUnavailable ? (
+        <Alert
+          showIcon
+          action={<Button onClick={reloadSSO}>{t('betterAuth.signin.ssoRetry')}</Button>}
+          description={t('tenant.unavailable.description')}
+          title={t('tenant.unavailable.title')}
+          type="error"
+        />
+      ) : ssoError ? (
         <Alert
           showIcon
           action={<Button onClick={reloadSSO}>{t('betterAuth.signin.ssoRetry')}</Button>}

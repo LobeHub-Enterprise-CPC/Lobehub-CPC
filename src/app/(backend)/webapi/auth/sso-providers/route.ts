@@ -1,5 +1,6 @@
 import { listBusinessSSOProviders, managedBusinessSSO } from '@lobechat/business-auth';
 
+import { tenantRefusalResponse } from '@/server/modules/Tenant/errors';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
 
 export const dynamic = 'force-dynamic';
@@ -15,7 +16,9 @@ const handleGet = async () => {
       { managed: managedBusinessSSO, providers: await listBusinessSSOProviders() },
       { headers },
     );
-  } catch {
+  } catch (error) {
+    const refusal = tenantRefusalResponse(error);
+    if (refusal) return refusal;
     return Response.json({ code: 'SSO_CONFIGURATION_UNAVAILABLE' }, { headers, status: 503 });
   }
 };

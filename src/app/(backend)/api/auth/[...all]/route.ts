@@ -5,6 +5,7 @@ import type { NextRequest } from 'next/server';
 
 import { getAuthForRequest, getTenantSsoProviders, tenantAuthBasePath } from '@/auth';
 import { redirectCallbackError } from '@/libs/better-auth/callback-error-response';
+import { tenantRefusalResponse } from '@/server/modules/Tenant/errors';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
 
 const jsonContentTypeRegex = /^application\/(?:[a-z0-9.+-]*\+)?json/i;
@@ -82,6 +83,10 @@ const dispatch = async (request: Request) => {
     const response = await auth.handler(await toTenantAuthRequest(request));
     return await redirectCallbackError(request, response, errorPath);
   } catch (error) {
+    // A closed workspace keeps the gate's `{ code }` whether it was found on entry
+    // or while Better Auth was already handling the request.
+    const refusal = tenantRefusalResponse(error);
+    if (refusal) return redirectCallbackError(request, refusal, errorPath);
     const status = error instanceof APIError ? error.statusCode : 503;
     const code = error instanceof APIError ? error.body?.code : 'SSO_UNAVAILABLE';
     return redirectCallbackError(

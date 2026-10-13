@@ -7,6 +7,10 @@ import { useNavigate, useSearchParams } from 'react-router';
 import type { CheckUserResponseData } from '@/app/(backend)/api/auth/check-user/route';
 import type { ResolveUsernameResponseData } from '@/app/(backend)/api/auth/resolve-username/route';
 import { useBusinessSignin } from '@/business/client/hooks/useBusinessSignin';
+import {
+  isTenantUnavailableCode,
+  isTenantUnavailableResponse,
+} from '@/features/Auth/utils/tenantUnavailable';
 import { useAuthAgreement } from '@/features/AuthShell/AuthAgreement';
 import { useAuthServerConfigStore } from '@/features/AuthShell/AuthServerConfigProvider';
 import { trackLoginOrSignupClicked } from '@/features/User/UserLoginOrSignup/trackLoginOrSignupClicked';
@@ -91,6 +95,7 @@ export const useSignIn = () => {
     ssoError,
     ssoLoaded,
     ssoProviders,
+    tenantUnavailable,
   } = useBusinessSignin();
 
   useEffect(() => {
@@ -194,6 +199,14 @@ export const useSignIn = () => {
         headers: { 'Content-Type': 'application/json' },
         method: 'POST',
       });
+      if (await isTenantUnavailableResponse(response)) {
+        toast.error(t('tenant.unavailable.description'));
+        return;
+      }
+      if (!response.ok) {
+        toast.error(t('betterAuth.signin.error'));
+        return;
+      }
       const data: CheckUserResponseData = await response.json();
 
       if (!data.exists) {
@@ -249,6 +262,10 @@ export const useSignIn = () => {
         {
           onError: (ctx) => {
             console.error('Sign in error:', ctx.error);
+            if (isTenantUnavailableCode(ctx.error.code)) {
+              toast.error(t('tenant.unavailable.description'));
+              return;
+            }
             if (ctx.error.status === 403) {
               navigate(
                 `/verify-email?email=${encodeURIComponent(email)}&callbackUrl=${encodeURIComponent(callbackUrl)}`,
@@ -258,7 +275,11 @@ export const useSignIn = () => {
         },
       );
 
-      if (result.error && result.error.status !== 403) {
+      if (
+        result.error &&
+        result.error.status !== 403 &&
+        !isTenantUnavailableCode(result.error.code)
+      ) {
         // Wrong password is the most common sign-in failure. Keep the error
         // pinned inline on the field (persistent, with retry context) rather
         // than a toast that vanishes in 3s (ux Read §1.1 / Same-Page Error).
@@ -492,6 +513,7 @@ export const useSignIn = () => {
     setAgreementChecked,
     socialLoading,
     ssoError,
+    tenantUnavailable,
     step,
   };
 };
