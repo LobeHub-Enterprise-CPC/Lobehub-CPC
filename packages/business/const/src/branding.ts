@@ -114,3 +114,29 @@ export interface BrandingTheme {
 // White-label distributions supply their theme through the business package
 // override. `undefined` keeps the stock LobeHub theme.
 export const BRANDING_THEME: BrandingTheme | undefined = undefined;
+
+export interface AgentAvatarGalleryChoice {
+  color: string;
+  shape: string;
+}
+
+/**
+ * A fixed avatar set an agent picks from by combining a body shape with a
+ * colour, instead of an emoji or an uploaded image. Every combination is a
+ * static image; the chosen one is stored as its URL in the agent's `avatar`
+ * field, so every surface that already renders an avatar URL shows it.
+ */
+export interface AgentAvatarGallery {
+  /** `swatch` is a CSS `background` value previewing the colour. */
+  colors: { key: string; swatch: string }[];
+  /** Shown for an agent with no avatar of its own. */
+  defaultAvatar: string;
+  /** The combination behind a stored avatar, or `undefined` for any other avatar. */
+  parse: (avatar?: string | null) => AgentAvatarGalleryChoice | undefined;
+  resolve: (choice: AgentAvatarGalleryChoice) => string;
+  /** `preview` is the colour-neutral image of the shape. */
+  shapes: { key: string; preview: string }[];
+}
+
+// `undefined` keeps the emoji / upload / generated avatar picker.
+export const AGENT_AVATAR_GALLERY: AgentAvatarGallery | undefined = undefined;

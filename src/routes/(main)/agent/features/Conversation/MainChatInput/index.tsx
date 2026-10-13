@@ -1,5 +1,6 @@
 'use client';
 
+import { COMPOSER_AGENT_ONLY_LAYOUT } from '@lobechat/business-const';
 import { memo, useMemo } from 'react';
 
 import { type ActionKeys } from '@/features/ChatInput';
@@ -40,13 +41,24 @@ const MainChatInput = memo(() => {
   const provider = useAgentStore(agentByIdSelectors.getAgentModelProviderById(agentId));
   const isAgentConfigLoading = useAgentStore(agentByIdSelectors.isAgentConfigLoadingById(agentId));
   const supportsImageOutput = useModelSupportImageOutput(model, provider);
-  const rightActions = supportsImageOutput
+  const baseRightActions = supportsImageOutput
     ? promptTransformRightActions
     : contextWindowRightActions;
+  // The agent-only composer keeps dictation beside Send, right after the model chip.
+  const rightActions = useMemo<ActionKeys[]>(
+    () =>
+      COMPOSER_AGENT_ONLY_LAYOUT
+        ? [baseRightActions[0], 'voiceDictation', ...baseRightActions.slice(1)]
+        : baseRightActions,
+    [baseRightActions],
+  );
 
   // The model chip lives on the right, next to Send (see rightActions); the
   // left bar keeps the "+" menu, dictation and the expand toggle.
-  const leftActions: ActionKeys[] = useMemo(() => ['plus', 'voiceDictation'], []);
+  const leftActions: ActionKeys[] = useMemo(
+    () => (COMPOSER_AGENT_ONLY_LAYOUT ? ['plus', 'approvalMode'] : ['plus', 'voiceDictation']),
+    [],
+  );
 
   return (
     <>
