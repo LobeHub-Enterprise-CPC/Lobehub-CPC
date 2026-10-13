@@ -4,6 +4,7 @@ import debug from 'debug';
 
 import { UserModel } from '@/database/models/user';
 import { WorkspaceMemberModel } from '@/database/models/workspaceMember';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 import { MarketService } from '@/server/services/market';
 import { resolveSandboxSessionConfig } from '@/server/services/sandbox';
 
@@ -250,6 +251,7 @@ export const credsRuntime: ServerRuntimeRegistration = {
     );
 
     return new CredsExecutionRuntime(credsService, {
+      appUrl: tenantPublicBaseUrl(),
       topicId: context.topicId,
       userId: context.userId,
     });

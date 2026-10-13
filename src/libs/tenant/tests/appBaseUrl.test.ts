@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { useElectronStore } from '@/store/electron';
 
-import { getAppBaseUrl, resolveAppUrl } from '../appBaseUrl';
+import { buildAppUrl, getAppBaseUrl, resolveAppUrl } from '../appBaseUrl';
 
 const env = vi.hoisted(() => ({ isDesktop: false }));
 
@@ -78,5 +78,23 @@ describe('resolveAppUrl', () => {
     ]) {
       expect(resolveAppUrl(value)).toBe(value);
     }
+  });
+});
+
+describe('buildAppUrl', () => {
+  it('addresses an app page under the tenant path, query kept', () => {
+    initializeTenant(new URL(`${window.location.origin}/t/acme/settings`));
+
+    expect(buildAppUrl('/oauth/callback/success?provider=linear')).toBe(
+      `${window.location.origin}/t/acme/oauth/callback/success?provider=linear`,
+    );
+  });
+
+  it('addresses an app page at the root of a custom-domain entry', () => {
+    initializeTenant(new URL(`${window.location.origin}/settings`), { basePath: '', slug: 'acme' });
+
+    expect(buildAppUrl('/market-auth-callback')).toBe(
+      `${window.location.origin}/market-auth-callback`,
+    );
   });
 });

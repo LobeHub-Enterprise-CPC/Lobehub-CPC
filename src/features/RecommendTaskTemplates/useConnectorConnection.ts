@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { LOBEHUB_SKILL_AUTH_SUCCESS_MESSAGE } from '@/const/skillConnection';
 import { useMarketAuth } from '@/layout/AuthProvider/MarketAuth';
+import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { useToolStore } from '@/store/tool';
 import { composioStoreSelectors } from '@/store/tool/slices/composioStore/selectors';
 import { ComposioServerStatus } from '@/store/tool/slices/composioStore/types';
@@ -279,7 +280,7 @@ export const useConnectorConnection = (
         }
         // Skip redirectUri on desktop (app:// protocol) since the system browser can't navigate to it
         const redirectUri = window.location.protocol.startsWith('http')
-          ? `${window.location.origin}/oauth/callback/success?provider=${encodeURIComponent(next.identifier)}`
+          ? buildAppUrl(`/oauth/callback/success?provider=${encodeURIComponent(next.identifier)}`)
           : undefined;
         const { authorizeUrl } = await getLobehubAuth(next.identifier, { redirectUri });
         openOAuthWindow(authorizeUrl, next);

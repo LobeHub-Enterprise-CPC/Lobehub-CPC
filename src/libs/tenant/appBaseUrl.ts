@@ -1,6 +1,6 @@
 import { getTenant } from '@lobechat/business-tenant/client';
 import { isDesktop } from '@lobechat/const';
-import { resolveRemoteUrl } from '@lobechat/utils/remoteUrl';
+import { buildRemoteUrl, resolveRemoteUrl } from '@lobechat/utils/remoteUrl';
 
 import { getElectronStoreState } from '@/store/electron';
 import { electronSyncSelectors } from '@/store/electron/selectors';
@@ -29,3 +29,10 @@ export const getAppBaseUrl = (): string => {
  * protocol-relative, `data:` and `blob:` values are returned as they are.
  */
 export const resolveAppUrl = (value: string): string => resolveRemoteUrl(value, getAppBaseUrl());
+
+/**
+ * Absolute URL of an app page (path, query allowed) under {@link getAppBaseUrl},
+ * e.g. an OAuth `redirect_uri` that must land back in this tenant's app.
+ */
+export const buildAppUrl = (path: string): string =>
+  buildRemoteUrl(path, getAppBaseUrl()).toString();

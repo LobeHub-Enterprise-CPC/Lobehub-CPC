@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { lambdaClient, toolsClient } from '@/libs/trpc/client';
 
 const POLL_INTERVAL_MS = 1000;
@@ -254,7 +255,9 @@ export const useSocialConnect = ({
     setError(null);
 
     try {
-      const redirectUri = `${window.location.origin}/oauth/callback/social?provider=${encodeURIComponent(provider)}`;
+      const redirectUri = buildAppUrl(
+        `/oauth/callback/social?provider=${encodeURIComponent(provider)}`,
+      );
       const result = await toolsClient.market.connectGetAuthorizeUrl.query({
         provider,
         redirectUri,

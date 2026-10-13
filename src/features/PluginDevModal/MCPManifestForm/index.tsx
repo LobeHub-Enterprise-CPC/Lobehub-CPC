@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import KeyValueEditor from '@/components/KeyValueEditor';
 import MCPStdioCommandInput from '@/components/MCPStdioCommandInput';
 import ErrorDetails from '@/features/MCP/MCPInstallProgress/InstallError/ErrorDetails';
+import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { lambdaClient } from '@/libs/trpc/client';
 import { useToolStore } from '@/store/tool';
 import { mcpStoreSelectors, pluginSelectors } from '@/store/tool/selectors';
@@ -74,7 +75,7 @@ const MCPManifestForm = ({
       .then((r) => setRedirectUri(r.redirectUri))
       .catch(() => {
         if (typeof window !== 'undefined') {
-          setRedirectUri(`${window.location.origin}/oauth/connector/callback`);
+          setRedirectUri(buildAppUrl('/oauth/connector/callback'));
         }
       });
   }, [enableOAuth, authType, redirectUri]);

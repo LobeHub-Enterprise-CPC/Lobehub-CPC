@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next';
 import NavItem from '@/features/NavPanel/components/NavItem';
 import { createLobehubSkillDetailModal } from '@/features/SkillStore/SkillDetail';
 import { usePermission } from '@/hooks/usePermission';
+import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { useToolStore } from '@/store/tool';
 import { type LobehubSkillServer } from '@/store/tool/slices/lobehubSkillStore/types';
 import { LobehubSkillStatus } from '@/store/tool/slices/lobehubSkillStore/types';
@@ -163,7 +164,7 @@ const LobehubSkillItem = memo<LobehubSkillItemProps>(
       try {
         // Skip redirectUri on desktop (app:// protocol) since the system browser can't navigate to it
         const redirectUri = window.location.protocol.startsWith('http')
-          ? `${window.location.origin}/oauth/callback/success?provider=${encodeURIComponent(provider.id)}`
+          ? buildAppUrl(`/oauth/callback/success?provider=${encodeURIComponent(provider.id)}`)
           : undefined;
         const { authorizeUrl } = await getAuthorizeUrl(provider.id, { redirectUri });
         openOAuthWindow(authorizeUrl);

@@ -6,6 +6,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { usePermission } from '@/hooks/usePermission';
+import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { useToolStore } from '@/store/tool';
@@ -224,7 +225,7 @@ const LobehubSkillServerItem = memo<LobehubSkillServerItemProps>(
         // Use /oauth/callback/success as redirect URI with provider param for auto-enable
         // Skip redirectUri on desktop (app:// protocol) since the system browser can't navigate to it
         const redirectUri = window.location.protocol.startsWith('http')
-          ? `${window.location.origin}/oauth/callback/success?provider=${encodeURIComponent(provider)}`
+          ? buildAppUrl(`/oauth/callback/success?provider=${encodeURIComponent(provider)}`)
           : undefined;
         const { authorizeUrl } = await getAuthorizeUrl(provider, { redirectUri });
         openOAuthWindow(authorizeUrl);
@@ -306,7 +307,9 @@ const LobehubSkillServerItem = memo<LobehubSkillServerItemProps>(
                 if (!canEdit) return;
                 try {
                   const redirectUri = window.location.protocol.startsWith('http')
-                    ? `${window.location.origin}/oauth/callback/success?provider=${encodeURIComponent(provider)}`
+                    ? buildAppUrl(
+                        `/oauth/callback/success?provider=${encodeURIComponent(provider)}`,
+                      )
                     : undefined;
                   const { authorizeUrl } = await getAuthorizeUrl(provider, { redirectUri });
                   openOAuthWindow(authorizeUrl);

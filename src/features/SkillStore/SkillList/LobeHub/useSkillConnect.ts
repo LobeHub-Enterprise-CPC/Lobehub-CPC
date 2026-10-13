@@ -3,6 +3,7 @@
 import { COMPOSIO_APP_TYPES, getLobehubSkillProviderById } from '@lobechat/const';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { useToolStore } from '@/store/tool';
 import { composioStoreSelectors, lobehubSkillStoreSelectors } from '@/store/tool/selectors';
 import { ComposioServerStatus } from '@/store/tool/slices/composioStore';
@@ -179,7 +180,7 @@ export const useSkillConnect = ({ identifier, serverName, type }: UseSkillConnec
 
       // Skip redirectUri on desktop (app:// protocol) since the system browser can't navigate to it
       const redirectUri = window.location.protocol.startsWith('http')
-        ? `${window.location.origin}/oauth/callback/success?provider=${encodeURIComponent(identifier)}`
+        ? buildAppUrl(`/oauth/callback/success?provider=${encodeURIComponent(identifier)}`)
         : undefined;
       const { authorizeUrl } = await getAuthorizeUrl(identifier, { redirectUri });
       openOAuthWindow(authorizeUrl, identifier);

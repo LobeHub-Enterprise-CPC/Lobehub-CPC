@@ -3,6 +3,7 @@ import type { BuiltinToolContext, BuiltinToolResult } from '@lobechat/types';
 import { BaseExecutor } from '@lobechat/types';
 import debug from 'debug';
 
+import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { lambdaClient, toolsClient } from '@/libs/trpc/client';
 import { getToolStoreState, useToolStore } from '@/store/tool';
 import { composioStoreSelectors } from '@/store/tool/selectors';
@@ -173,7 +174,7 @@ class CredsExecutor extends BaseExecutor<typeof CredsApiName> {
       // Skip redirectUri on desktop (app:// protocol) since the system browser can't navigate to it
       const redirectUri =
         typeof window !== 'undefined' && window.location.protocol.startsWith('http')
-          ? `${window.location.origin}/oauth/callback/success?provider=${provider}`
+          ? buildAppUrl(`/oauth/callback/success?provider=${encodeURIComponent(provider)}`)
           : undefined;
       const response = await toolsClient.market.connectGetAuthorizeUrl.query({
         provider,

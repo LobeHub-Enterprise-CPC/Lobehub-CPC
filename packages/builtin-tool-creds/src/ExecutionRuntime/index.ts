@@ -63,6 +63,13 @@ export interface ICredsService {
   }>;
 }
 
+export interface CredsExecutionContext {
+  /** The tenant's public app address OAuth returns to (`https://host/t/acme`); defaults to APP_URL. */
+  appUrl?: string;
+  topicId?: string;
+  userId?: string;
+}
+
 /**
  * Creds Execution Runtime (Server-side)
  *
@@ -76,9 +83,9 @@ export interface ICredsService {
  */
 export class CredsExecutionRuntime {
   private credsService: ICredsService;
-  private context: { topicId?: string; userId?: string };
+  private context: CredsExecutionContext;
 
-  constructor(credsService: ICredsService, context: { topicId?: string; userId?: string } = {}) {
+  constructor(credsService: ICredsService, context: CredsExecutionContext = {}) {
     this.credsService = credsService;
     this.context = context;
   }
@@ -157,10 +164,14 @@ export class CredsExecutionRuntime {
       }
 
       // Get the authorization URL
-      // Note: In background execution, we cannot use window.location.origin
-      // Normalize APP_URL by removing trailing slash to avoid double-slash in redirectUri
-      const appUrl = (process.env.APP_URL || OFFICIAL_URL).replace(/\/+$/, '');
-      const redirectUri = `${appUrl}/oauth/callback/success?provider=${provider}`;
+      // Note: In background execution, we cannot use window.location.origin; the
+      // caller passes the tenant's app address so OAuth returns into this tenant.
+      // Normalize by removing trailing slash to avoid double-slash in redirectUri
+      const appUrl = (this.context.appUrl || process.env.APP_URL || OFFICIAL_URL).replace(
+        /\/+$/,
+        '',
+      );
+      const redirectUri = `${appUrl}/oauth/callback/success?provider=${encodeURIComponent(provider)}`;
       const response = await this.credsService.getOAuthAuthorizeUrl(provider, redirectUri);
 
       // In server-side context, return the URL for user to click

@@ -29,6 +29,7 @@ import {
   upsertPluginMode,
 } from '@lobechat/types';
 
+import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { getAgentStoreState } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors/selectors';
 import { getAiInfraStoreState } from '@/store/aiInfra';
@@ -991,7 +992,7 @@ export class AgentManagerRuntime {
     // Skip redirectUri on desktop (app:// protocol) since the system browser can't navigate to it
     const redirectUri =
       typeof window !== 'undefined' && window.location.protocol.startsWith('http')
-        ? `${window.location.origin}/oauth/callback/success?provider=${encodeURIComponent(identifier)}`
+        ? buildAppUrl(`/oauth/callback/success?provider=${encodeURIComponent(identifier)}`)
         : undefined;
     const authInfo = await getToolStoreState().getLobehubSkillAuthorizeUrl(identifier, {
       redirectUri,

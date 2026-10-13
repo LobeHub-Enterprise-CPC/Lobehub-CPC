@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import ImperativeModal from '@/components/ImperativeModal';
 import { ConnectorSourceType } from '@/database/schemas';
+import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { lambdaClient } from '@/libs/trpc/client';
 import { useToolStore } from '@/store/tool';
 import { connectorSelectors } from '@/store/tool/slices/connector';
@@ -110,7 +111,7 @@ const AddConnectorModal = memo<AddConnectorModalProps>(({ open, onClose, connect
       })
       .catch(() => {
         if (!cancelled && typeof window !== 'undefined') {
-          setRedirectUri(`${window.location.origin}/oauth/connector/callback`);
+          setRedirectUri(buildAppUrl('/oauth/connector/callback'));
         }
       });
     return () => {

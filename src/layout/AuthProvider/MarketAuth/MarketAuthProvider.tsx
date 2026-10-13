@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { mutate as globalMutate } from 'swr';
 
 import { useSingleton } from '@/hooks/useSingleton';
+import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { lambdaClient } from '@/libs/trpc/client';
 import { MARKET_OIDC_ENDPOINTS } from '@/services/_url';
 import { useServerConfigStore } from '@/store/serverConfig';
@@ -179,9 +180,7 @@ export const MarketAuthProvider = ({ children, isDesktop }: MarketAuthProviderPr
       const desktopRedirectUri = new URL(MARKET_OIDC_ENDPOINTS.desktopCallback, baseUrl).toString();
 
       // Desktop uses Market's manually maintained Web callback; Web uses the current domain
-      const redirectUri = isDesktop
-        ? desktopRedirectUri
-        : `${window.location.origin}/market-auth-callback`;
+      const redirectUri = isDesktop ? desktopRedirectUri : buildAppUrl('/market-auth-callback');
 
       const oidcConfig: OIDCConfig = {
         baseUrl,
