@@ -16,7 +16,6 @@ import { useUserStore } from '@/store/user';
 import { userProfileSelectors } from '@/store/user/selectors';
 
 import { channelActivity } from './activity';
-import { getApprovalContent } from './approvalContent';
 import { Composer } from './Composer';
 import { MessageAttachments } from './MessageAttachments';
 import { MessageReceipts } from './MessageReceipts';
@@ -213,49 +212,6 @@ export function ChannelConversation({
           {error}
         </p>
       )}
-      <Flexbox className={styles.approvals} gap={8}>
-        {data.approvals
-          .filter(
-            (approval) =>
-              !approval.decision &&
-              data.runs.some(
-                (run) =>
-                  run.manifest.threadId === threadId &&
-                  run.id === approval.runId &&
-                  !run.publicationRevoked &&
-                  !run.writerReleased,
-              ),
-          )
-          .map((approval) => (
-            <Flexbox className={styles.message} gap={8} key={approval.id}>
-              <strong>
-                {t('permissionRequest', {
-                  name:
-                    data.members.find(
-                      (member) =>
-                        member.id === data.runs.find((run) => run.id === approval.runId)?.memberId,
-                    )?.name || 'Agent',
-                })}
-              </strong>
-              <pre className={styles.approvalPayload}>{getApprovalContent(approval.request)}</pre>
-              <Flexbox horizontal gap={8}>
-                <Button
-                  onClick={() =>
-                    action(() => channelService.approve(channelId, approval.id, false))
-                  }
-                >
-                  {t('reject')}
-                </Button>
-                <Button
-                  type="primary"
-                  onClick={() => action(() => channelService.approve(channelId, approval.id, true))}
-                >
-                  {t('approve')}
-                </Button>
-              </Flexbox>
-            </Flexbox>
-          ))}
-      </Flexbox>
       <Provider
         createStore={() =>
           createStore({

@@ -1,26 +1,11 @@
+import type { ChannelJobState } from '@lobechat/types';
+
 import type { channelService } from '@/services/channel';
 
 export type ChannelDetail = Awaited<ReturnType<typeof channelService.detail>>;
 type Job = ChannelDetail['jobs'][number];
 type Run = ChannelDetail['runs'][number];
-export type ReceiptState =
-  | 'queued'
-  | 'paused'
-  | 'starting'
-  | 'running'
-  | 'typing'
-  | 'awaiting_approval'
-  | 'stop_requested'
-  | 'execution_unknown'
-  | 'offline'
-  | 'unavailable'
-  | 'failed'
-  | 'publishing'
-  | 'replied'
-  | 'yielded'
-  | 'held'
-  | 'completed'
-  | 'cancelled';
+export type ReceiptState = ChannelJobState;
 
 export interface MemberReceipt {
   accepted: boolean;
@@ -36,31 +21,6 @@ export interface MemberReceipt {
 export interface ChannelReceipts {
   byMember: Map<string, MemberReceipt[]>;
   byMessage: Map<string, MemberReceipt[]>;
-}
-
-function jobState(job: Job, run: Run | undefined, paused: boolean): ReceiptState {
-  const cancelled =
-    job.status === 'cancelled' || ['stop_requested', 'stopped'].includes(run?.status || '');
-  if (cancelled)
-    return !run || (run.writerReleased && run.physicalStopped) ? 'cancelled' : 'stop_requested';
-  if (run?.status === 'execution_unknown') return 'execution_unknown';
-  if (run?.status === 'awaiting_approval') return 'awaiting_approval';
-  if (run?.status === 'failed' || job.status === 'failed') return 'failed';
-  if (run?.status === 'running') return run.activity === 'typing' ? 'typing' : 'running';
-  if (run?.status === 'starting') return 'starting';
-  if (!run && job.status === 'running') return 'starting';
-  if (run?.publishedMessageId) return 'replied';
-  if (run?.publicationStatus === 'yielded') return 'yielded';
-  if (run?.publicationStatus === 'held') return 'held';
-  if (job.status === 'queued') {
-    if (paused) return 'paused';
-    if (job.blockedReason)
-      return /DEVICE_OFFLINE|device.*offline/i.test(job.blockedReason) ? 'offline' : 'unavailable';
-    return 'queued';
-  }
-  if (run?.status === 'completed' && run.publicationStatus === 'pending') return 'publishing';
-  // Older servers/receipts without a publication outcome must not imply silence or a reply.
-  return 'completed';
 }
 
 /** Derive recipients from durable jobs, never from today's roster, mentions or thread followers. */
@@ -97,7 +57,8 @@ export function buildChannelReceipts(data: ChannelDetail): ChannelReceipts {
         jobs[0];
       const run = runs.get(current.id);
       const hasReply = jobs.some((job) => !!runs.get(job.id)?.publishedMessageId);
-      let state = jobState(current, run, member.executionPaused);
+      // The server derives display state once; clients never re-derive it from raw run flags.
+      let state = current.state;
       if (hasReply && ['yielded', 'completed'].includes(state)) state = 'replied';
       const receipt: MemberReceipt = {
         accepted: jobs.some((job) => runs.get(job.id)?.acceptance === 'accepted'),

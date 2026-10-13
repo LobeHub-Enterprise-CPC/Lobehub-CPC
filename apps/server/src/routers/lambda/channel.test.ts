@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { resetChannelGatewayReadiness } from '@/server/services/channel/gateway';
+
 import { channelRouter } from './channel';
 
 const { list, preference } = vi.hoisted(() => ({ list: vi.fn(), preference: vi.fn() }));
@@ -51,6 +53,7 @@ const caller = (workspaceId?: string) =>
   >[0]);
 beforeEach(() => {
   vi.clearAllMocks();
+  resetChannelGatewayReadiness();
   vi.stubEnv('CHANNEL_GATEWAY_URL', 'http://channel-worker:3211');
   preference.mockResolvedValue({ lab: { enableChannel: true } });
   list.mockResolvedValue([{ id: 'owned-channel' }]);
@@ -110,11 +113,24 @@ describe('Channel availability at the API boundary', () => {
     expect(list).not.toHaveBeenCalled();
   });
 
-  it('rejects work when the configured service is unavailable', async () => {
+  it('rejects new work but keeps reads available when the service is unavailable', async () => {
     vi.mocked(fetch).mockResolvedValue(new Response('', { status: 503 }));
     expect(await caller().availability()).toEqual({ enabled: false });
-    await expect(caller().list()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
-    expect(list).not.toHaveBeenCalled();
+    await expect(
+      caller().send({
+        channelId: 'channel',
+        content: 'hello',
+        mentions: [],
+        requestKey: '00000000-0000-4000-8000-000000000000',
+      }),
+    ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+    expect(send).not.toHaveBeenCalled();
+    expect(await caller().list()).toEqual([{ id: 'owned-channel' }]);
+  });
+
+  it('does not contact the worker for read-only calls', async () => {
+    expect(await caller().list()).toEqual([{ id: 'owned-channel' }]);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('serves the authenticated owner only after the service is ready', async () => {
@@ -124,5 +140,12 @@ describe('Channel availability at the API boundary', () => {
     expect(await caller('workspace').availability()).toEqual({ enabled: false });
     await expect(caller('workspace').list()).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(list).toHaveBeenCalledOnce();
+  });
+
+  it('exposes no unreachable approval, full-detail or duplicate archive procedures', () => {
+    const procedures = Object.keys(channelRouter._def.procedures);
+    expect(procedures).toEqual(expect.arrayContaining(['page', 'remove', 'artifact']));
+    for (const removed of ['approve', 'detail', 'archive'])
+      expect(procedures).not.toContain(removed);
   });
 });

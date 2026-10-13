@@ -205,6 +205,11 @@ export class ChannelAgentClient {
       snapshot.activity = 'running';
       const tools = new Set<string>();
       const replies = new Map<number, string>();
+      // Live inspection reads the in-memory receipt; the journal only needs what survives a
+      // restart. Persisting every text delta rewrote (and fsynced) the whole prompt per token.
+      const durable = () =>
+        JSON.stringify([snapshot.status, snapshot.acceptance, snapshot.sessionId, snapshot.turnId]);
+      let persisted = '';
       let failed = false;
       let observedWork = false;
       for await (const event of handle.events) {
@@ -232,7 +237,11 @@ export class ChannelAgentClient {
           snapshot.turnId = input.runId;
           snapshot.acceptance = 'accepted';
         }
-        await persist();
+        const next = durable();
+        if (next !== persisted) {
+          persisted = next;
+          await persist();
+        }
       }
       const exit = await handle.exit;
       if (this.closed) throw new Error('Agent execution interrupted');

@@ -20,6 +20,7 @@ const { methods, inspect, probe, start, stopDevice, settleOperation, deviceConst
       publish: vi.fn(),
       releaseWriter: vi.fn(),
       recordEnvironmentCleanup: vi.fn(),
+      advanceDiscussions: vi.fn(),
     },
     deviceConstructor: vi.fn(),
     inspect: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock('@/database/models/channel', () => ({
   },
 }));
 vi.mock('./device', () => ({
+  ChannelDeviceOfflineError: class extends Error {},
   ChannelDeviceStartError: class extends Error {
     constructor(
       message: string,
@@ -67,7 +69,7 @@ vi.mock('./artifact', () => ({ resolveChannelArtifactRunIds: async () => [] }));
 vi.mock('./serverDefault', () => ({ settleChannelServerDefaultOperation: settleOperation }));
 
 const channel = { id: 'channel', ownerId: 'owner', archived: false };
-function database(rows: unknown[][]) {
+function database(rows: unknown[][], discussing: unknown[] = []) {
   const chain = (result: unknown) => {
     const query = Promise.resolve(result);
     Object.assign(query, {
@@ -81,8 +83,7 @@ function database(rows: unknown[][]) {
   };
   return {
     select: () => chain(rows.shift()!),
-    /** The discussion sweep sees no active discussions in these isolation tests. */
-    selectDistinct: () => chain([]),
+    selectDistinct: () => chain(discussing),
   } as unknown as LobeChatDatabase;
 }
 beforeEach(() => {
@@ -242,6 +243,7 @@ describe('Channel dispatch isolation', () => {
       channel.id,
       'queued',
       expect.stringContaining('WORKSPACE_CHANGED'),
+      'workspace_changed',
     );
   });
 
@@ -434,4 +436,130 @@ describe('Channel dispatch isolation', () => {
       expect(settleOperation).not.toHaveBeenCalled();
     },
   );
+
+  it('keeps dispatching when one Channel discussion fails to advance', async () => {
+    methods.advanceDiscussions.mockRejectedValueOnce(new Error('corrupt discussion'));
+    const worker = new ChannelWorker(
+      database(
+        [[], [], [{ channel, config: { runtime: 'native' }, revision: 3, job: { id: 'queued' } }]],
+        [
+          { channelId: 'broken', ownerId: 'owner' },
+          { channelId: 'healthy', ownerId: 'owner' },
+        ],
+      ),
+    );
+    await expect(worker.tick()).resolves.toBeUndefined();
+    expect(methods.advanceDiscussions).toHaveBeenCalledWith('healthy');
+    expect(methods.claim).toHaveBeenCalledWith(channel.id, 'queued', 3);
+  });
+
+  it('backs off a failed device probe and records an unchanged reason only once', async () => {
+    probe.mockRejectedValue(new Error('DEVICE_OFFLINE'));
+    const queued = (blockedReason: string | null) => [
+      {
+        channel,
+        config: { runtime: 'codex', deviceId: 'device', workingDirectory: '/repo' },
+        job: { id: 'queued', blockedReason, blockedCode: blockedReason && 'unavailable' },
+      },
+    ];
+    const worker = new ChannelWorker(
+      database([[], [], queued(null), [], [], queued('DEVICE_OFFLINE')]),
+    );
+    await worker.tick();
+    await worker.tick();
+    expect(probe).toHaveBeenCalledOnce();
+    expect(methods.unavailable).toHaveBeenCalledOnce();
+
+    vi.useFakeTimers({ now: Date.now() + 10_001, toFake: ['Date'] });
+    try {
+      await new ChannelWorker(database([[], [], queued('DEVICE_OFFLINE')])).tick();
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(probe).toHaveBeenCalledTimes(2);
+    expect(methods.unavailable).toHaveBeenCalledOnce();
+    expect(methods.claim).not.toHaveBeenCalled();
+  });
+
+  it('does not lock the Channel to clear a block that was never recorded', async () => {
+    probe.mockResolvedValue('/repo');
+    const worker = new ChannelWorker(
+      database([
+        [],
+        [],
+        [
+          {
+            channel,
+            config: { runtime: 'codex', deviceId: 'device', workingDirectory: '/repo' },
+            revision: 1,
+            job: { id: 'queued', blockedReason: null },
+          },
+        ],
+      ]),
+    );
+    await worker.tick();
+    expect(methods.unavailable).not.toHaveBeenCalled();
+    expect(methods.claim).toHaveBeenCalledWith(channel.id, 'queued', 1);
+  });
+
+  it.each([
+    [31 * 60 * 1000, true],
+    [5 * 60 * 1000, false],
+  ])('enforces the device execution budget (age=%sms, expired=%s)', async (age, expired) => {
+    stopDevice.mockResolvedValue({
+      fence: 1,
+      physicalStopped: true,
+      runId: 'long',
+      status: 'stopped',
+    });
+    inspect.mockResolvedValue({
+      fence: 1,
+      physicalStopped: false,
+      runId: 'long',
+      status: 'running',
+    });
+    const worker = new ChannelWorker(
+      database([
+        [
+          {
+            channel,
+            memberActive: true,
+            config: { runtime: 'codex', deviceId: 'device' },
+            run: {
+              id: 'long',
+              channelId: channel.id,
+              createdAt: new Date(Date.now() - age),
+              fence: 1,
+              executionFence: 1,
+              executionConfig: { runtime: 'codex', deviceId: 'device' },
+              publicationRevoked: false,
+              writerReleased: false,
+              draft: null,
+            },
+          },
+        ],
+        [],
+        [],
+      ]),
+    );
+    await worker.tick();
+    if (expired) {
+      expect(methods.fail).toHaveBeenCalledWith(
+        channel.id,
+        'long',
+        1,
+        expect.stringContaining('30 minutes'),
+      );
+      expect(stopDevice).toHaveBeenCalledWith('long', 1);
+      expect(settleOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'interrupted' }),
+      );
+      expect(methods.releaseWriter).toHaveBeenCalledWith(channel.id, 'long', 1);
+    } else {
+      expect(methods.fail).not.toHaveBeenCalled();
+      expect(stopDevice).not.toHaveBeenCalled();
+      expect(inspect).toHaveBeenCalledWith('long', 1);
+      expect(methods.releaseWriter).not.toHaveBeenCalled();
+    }
+  });
 });

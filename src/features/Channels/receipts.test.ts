@@ -2,6 +2,8 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { presentChannelJobs } from '@/database/models/channelRead';
+
 import { ReceiptStatus } from './MessageReceipts';
 import {
   buildChannelReceipts,
@@ -9,6 +11,12 @@ import {
   isQuietReceipt,
   memberCurrentReceipt,
 } from './receipts';
+
+/** Mirror the server page: job state is derived by the read model, not the client. */
+const present = (data: ChannelDetail): ChannelDetail => ({
+  ...data,
+  jobs: presentChannelJobs(data.jobs, data.runs, data.members),
+});
 
 const fixture = () =>
   ({
@@ -58,7 +66,8 @@ const fixture = () =>
     ],
   }) as unknown as ChannelDetail;
 
-const receipt = (data: ChannelDetail) => buildChannelReceipts(data).byMessage.get('request')![0];
+const receipt = (data: ChannelDetail) =>
+  buildChannelReceipts(present(data)).byMessage.get('request')![0];
 
 afterEach(cleanup);
 
@@ -72,7 +81,7 @@ describe('Channel request receipts', () => {
       messageId: 'thread-request',
       threadId: 'thread',
     });
-    const result = buildChannelReceipts(data);
+    const result = buildChannelReceipts(present(data));
     expect(result.byMessage.get('request')?.map((item) => item.member.id)).toEqual(['amp']);
     expect(result.byMessage.get('thread-request')?.map((item) => item.member.id)).toEqual(['amp']);
     expect(result.byMember.has('new')).toBe(false);
@@ -82,9 +91,9 @@ describe('Channel request receipts', () => {
   it('does not create receipts for saved requests with no assigned jobs or mismatched scope', () => {
     const data = fixture();
     data.jobs.push({ ...data.jobs[0], id: 'wrong-scope', messageId: 'thread-request' });
-    expect(buildChannelReceipts(data).byMessage.has('thread-request')).toBe(false);
+    expect(buildChannelReceipts(present(data)).byMessage.has('thread-request')).toBe(false);
     data.jobs = [];
-    expect(buildChannelReceipts(data).byMessage.size).toBe(0);
+    expect(buildChannelReceipts(present(data)).byMessage.size).toBe(0);
   });
 
   it('does not infer acceptance or historical environment from a queued job', () => {
@@ -106,7 +115,11 @@ describe('Channel request receipts', () => {
     data.jobs[0].status = 'queued';
     data.jobs[0].blockedReason = 'DEVICE_OFFLINE';
     data.runs = [];
+    // Free-form text is never classified; only the typed code means "offline".
+    expect(receipt(data).state).toBe('unavailable');
+    data.jobs[0].blockedCode = 'device_offline';
     expect(receipt(data).state).toBe('offline');
+    data.jobs[0].blockedCode = 'unavailable';
     data.jobs[0].blockedReason = 'INVALID_ENVIRONMENT';
     expect(receipt(data).state).toBe('unavailable');
     data.members[0].executionPaused = true;
@@ -244,15 +257,17 @@ describe('Channel request receipts', () => {
     });
     data.runs[0].status = 'running';
     data.runs[0].writerReleased = false;
-    expect(memberCurrentReceipt(buildChannelReceipts(data).byMember.get('amp')!)?.request.id).toBe(
-      'request',
-    );
+    expect(
+      memberCurrentReceipt(buildChannelReceipts(present(data)).byMember.get('amp')!)?.request.id,
+    ).toBe('request');
     data.runs[0].status = 'failed';
     data.runs[0].writerReleased = true;
-    expect(memberCurrentReceipt(buildChannelReceipts(data).byMember.get('amp')!)?.request.id).toBe(
-      'thread-request',
-    );
+    expect(
+      memberCurrentReceipt(buildChannelReceipts(present(data)).byMember.get('amp')!)?.request.id,
+    ).toBe('thread-request');
     data.jobs.pop();
-    expect(memberCurrentReceipt(buildChannelReceipts(data).byMember.get('amp')!)).toBeUndefined();
+    expect(
+      memberCurrentReceipt(buildChannelReceipts(present(data)).byMember.get('amp')!),
+    ).toBeUndefined();
   });
 });
