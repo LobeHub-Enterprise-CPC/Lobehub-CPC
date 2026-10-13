@@ -130,3 +130,38 @@ describe('TenantRuntime.assertAdmitted', () => {
     await expect(queued).resolves.toBeUndefined();
   });
 });
+
+describe('TenantRuntime.enterTenantId', () => {
+  // Without claims the runtime refuses after admission, so each entry stops right after
+  // its directory read: enough to count platform reads.
+  const enter = (runtime: TenantRuntime) =>
+    expect(runtime.enterTenantId('t-1')).rejects.toMatchObject({ code: 'TENANT_UNAVAILABLE' });
+
+  it('admits job entries from the shared admission snapshot instead of a read per job', async () => {
+    const { platform, runtime } = setup();
+    const first = enter(runtime);
+    await vi.waitFor(() => expect(platform.pending).toHaveLength(1));
+    platform.answer([activeRow]);
+    await first;
+
+    await enter(runtime);
+    await enter(runtime);
+    expect(platform.select).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads again once the snapshot is older than the admission TTL', async () => {
+    const { advance, platform, runtime } = setup();
+    const first = enter(runtime);
+    await vi.waitFor(() => expect(platform.pending).toHaveLength(1));
+    platform.answer([activeRow]);
+    await first;
+
+    advance(TENANT_ADMISSION_TTL_MS);
+    const again = runtime.enterTenantId('t-1');
+    await vi.waitFor(() => expect(platform.select).toHaveBeenCalledTimes(2));
+    platform.answer([
+      { ...activeRow, lifecycle: { ...activeRow.lifecycle, desiredState: 'frozen' } },
+    ]);
+    await expect(again).rejects.toMatchObject({ code: 'TENANT_FROZEN' });
+  });
+});

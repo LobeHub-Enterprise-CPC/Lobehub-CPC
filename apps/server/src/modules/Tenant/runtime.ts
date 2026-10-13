@@ -88,8 +88,9 @@ export class TenantRuntime {
     return this.enter(entry);
   }
 
+  /** Jobs enter by trusted tenant id on the same ≤ TTL admission facts as requests. */
   async enterTenantId(tenantId: string) {
-    const entry = await this.directory.findById(tenantId);
+    const entry = await this.admissionEntry(tenantId, TENANT_ADMISSION_TTL_MS);
     if (!entry) throw new TenantGateError('TENANT_NOT_FOUND');
     return this.enter(entry);
   }
@@ -115,28 +116,28 @@ export class TenantRuntime {
    * for a read that starts after this call (see {@link readStrict}).
    */
   async assertAdmitted(tenantId: string, maxAgeMs = TENANT_ADMISSION_TTL_MS): Promise<void> {
-    let entry: RouteEntry | null;
-    if (maxAgeMs <= 0) entry = await this.readStrict(tenantId);
-    else {
-      const cached = this.byId.get(tenantId);
-      if (cached && this.isFresh(cached.fetchedAt, maxAgeMs)) entry = cached.entry;
-      else {
-        let loading = this.loadingById.get(tenantId);
-        if (!loading || !this.isFresh(loading.startedAt, maxAgeMs)) {
-          const current = this.loadEntry(tenantId);
-          void current.promise
-            .catch(() => undefined)
-            .finally(() => {
-              if (this.loadingById.get(tenantId) === current) this.loadingById.delete(tenantId);
-            });
-          this.loadingById.set(tenantId, current);
-          loading = current;
-        }
-        entry = await loading.promise;
-      }
-    }
+    const entry = await this.admissionEntry(tenantId, maxAgeMs);
     if (!entry) throw new TenantGateError('TENANT_NOT_FOUND');
     this.assertAvailable(entry);
+  }
+
+  /** Admission facts at most `maxAgeMs` old (see {@link assertAdmitted}). */
+  private async admissionEntry(tenantId: string, maxAgeMs: number): Promise<RouteEntry | null> {
+    if (maxAgeMs <= 0) return this.readStrict(tenantId);
+    const cached = this.byId.get(tenantId);
+    if (cached && this.isFresh(cached.fetchedAt, maxAgeMs)) return cached.entry;
+    let loading = this.loadingById.get(tenantId);
+    if (!loading || !this.isFresh(loading.startedAt, maxAgeMs)) {
+      const current = this.loadEntry(tenantId);
+      void current.promise
+        .catch(() => undefined)
+        .finally(() => {
+          if (this.loadingById.get(tenantId) === current) this.loadingById.delete(tenantId);
+        });
+      this.loadingById.set(tenantId, current);
+      loading = current;
+    }
+    return loading.promise;
   }
 
   /** One platform read of a tenant's admission facts; newer facts are never overwritten by older ones. */
