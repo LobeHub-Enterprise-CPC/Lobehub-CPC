@@ -8,6 +8,7 @@ import { getTestDB } from '../../../core/getTestDB';
 import { users } from '../../../schemas';
 import {
   oidcAccessTokens,
+  oidcAuthorizationCodes,
   oidcClients,
   oidcDeviceCodes,
   oidcInteractions,
@@ -46,6 +47,8 @@ beforeEach(async () => {
 
 // Clean up data after each test
 afterEach(async () => {
+  await serverDB.delete(oidcSessions);
+  await serverDB.delete(oidcAuthorizationCodes);
   await serverDB.delete(users);
   await serverDB.delete(oidcClients);
   await serverDB.delete(oidcDeviceCodes);
@@ -61,6 +64,25 @@ describe('DrizzleAdapter', () => {
   });
 
   describe('upsert', () => {
+    it.each(['Session', 'PushedAuthorizationRequest'])(
+      'persists anonymous pre-auth %s until authentication',
+      async (model) => {
+        const adapter = new DrizzleAdapter(model, serverDB);
+        const payload = {
+          uid: testId,
+          ...(model === 'PushedAuthorizationRequest' ? { clientId: testClientId } : {}),
+        };
+        await adapter.upsert(testId, payload, 3600);
+        expect(await adapter.find(testId)).toMatchObject(payload);
+        const table = model === 'Session' ? oidcSessions : oidcAuthorizationCodes;
+        const [anonymous] = await serverDB.select().from(table).where(eq(table.id, testId));
+        expect(anonymous.userId).toBeNull();
+        await adapter.upsert(testId, { ...payload, accountId: testUserId }, 3600);
+        const [authenticated] = await serverDB.select().from(table).where(eq(table.id, testId));
+        expect(authenticated.userId).toBe(testUserId);
+      },
+    );
+
     it('should create new record for Session model', async () => {
       const adapter = new DrizzleAdapter('Session', serverDB);
       const payload = {

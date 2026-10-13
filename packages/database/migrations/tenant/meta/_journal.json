@@ -29,6 +29,13 @@
       "when": 1791794097576,
       "tag": "0003_tenant_bridge_config",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791905490416,
+      "tag": "0004_oidc_pre_auth_artifacts",
+      "breakpoints": true
     }
   ]
 }

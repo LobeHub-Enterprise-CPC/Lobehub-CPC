@@ -16,9 +16,8 @@ export const oidcAuthorizationCodes = pgTable(
     data: jsonb('data').notNull(),
     expiresAt: timestamptz('expires_at').notNull(),
     consumedAt: timestamptz('consumed_at'),
-    userId: text('user_id')
-      .references(() => users.id, { onDelete: 'cascade' })
-      .notNull(),
+    // PAR shares this store and precedes user authentication.
+    userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
     clientId: varchar('client_id', { length: 255 }).notNull(),
     grantId: varchar('grant_id', { length: 255 }),
     ...timestamps,
@@ -173,9 +172,8 @@ export const oidcSessions = pgTable(
     id: varchar('id', { length: 255 }).primaryKey(),
     data: jsonb('data').notNull(),
     expiresAt: timestamptz('expires_at').notNull(),
-    userId: text('user_id')
-      .references(() => users.id, { onDelete: 'cascade' })
-      .notNull(),
+    // The provider persists anonymous sessions before login and during logout.
+    userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
     ...timestamps,
   },
   (t) => ({
