@@ -1,5 +1,6 @@
 'use client';
 
+import { AGENT_AVATAR_GALLERY } from '@lobechat/business-const';
 import {
   AGENT_ARTWORK_STYLES,
   type AgentArtworkStyle,
@@ -12,6 +13,7 @@ import {
   Button,
   type DropdownItem,
   DropdownMenu,
+  Popover,
   Spin,
   Text,
   toast,
@@ -22,10 +24,12 @@ import { memo, useCallback, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import EmojiPicker from '@/components/EmojiPicker';
+import { DEFAULT_AVATAR } from '@/const/meta';
 import {
   openAgentArtworkStudio,
   styleReferencesForArtworkStyle,
 } from '@/features/AgentArtworkStudio';
+import AgentAvatarGalleryPicker from '@/features/AgentAvatarGallery';
 import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { resolveArtworkReferenceSource } from '@/services/artworkGeneration';
 import { useAgentStore } from '@/store/agent';
@@ -482,72 +486,104 @@ export const AgentProfileArtwork = memo<AgentProfileArtworkProps>(
           ) : null}
         </div>
         <div className={`${styles.avatar} agent-avatar-entry`}>
-          {/* Uploading an image lives in the studio, so the picker keeps only
-              emoji plus the studio launcher tab; the launcher tab is ordered
-              first and auto-selected on open, preserving the old generate-tab
-              position. */}
-          {/* Keyed by the url for the same reason as the studio preview: the
-              underlying Avatar latches its image-error state, so without a
-              remount a newly generated avatar stays invisible whenever the
-              previous one failed to load. */}
-          <EmojiPicker
-            allowModelAvatar
-            allowDelete={canEdit && !!avatar}
-            key={avatarRemountKey(avatar)}
-            locale={locale}
-            open={canEdit ? undefined : false}
-            popupClassName={`${styles.avatarPicker} agent-avatar-artwork-picker`}
-            popupProps={{ placement: 'bottomLeft' }}
-            shape={'square'}
-            size={72}
-            value={avatar || undefined}
-            customTabs={[
-              {
-                label: (
-                  <Tooltip title={t('settingAgent.artwork.avatar.image')}>
-                    <Icon icon={ImageIcon} size={{ size: 20, strokeWidth: 2.5 }} />
-                  </Tooltip>
-                ),
-                render: () => (
-                  <Flexbox gap={16} padding={20} width={348}>
-                    <Center className={styles.generatedPreview} height={156}>
-                      <Avatar
-                        avatar={avatar || undefined}
-                        key={avatarRemountKey(avatar)}
-                        shape={'square'}
-                        size={112}
-                      />
-                    </Center>
-                    <Button
-                      icon={WandSparkles}
-                      type={'primary'}
-                      onClick={() => openAgentArtworkStudio(agentId)}
-                    >
-                      {t('settingAgent.artwork.studio.openAction')}
-                    </Button>
-                  </Flexbox>
-                ),
-                value: 'generate',
-              },
-            ]}
-            onChange={(value) => onAvatarChange(value)}
-            onDelete={() => onAvatarChange(null)}
-            onOpenChange={(open) => {
-              if (!open) return;
+          {AGENT_AVATAR_GALLERY ? (
+            // A gallery avatar is picked, never uploaded or generated, so the
+            // entry opens the shape × colour picker and the studio stays out.
+            <Popover
+              open={canEdit ? undefined : false}
+              placement={'bottomLeft'}
+              styles={{ content: { padding: 0 } }}
+              trigger={'click'}
+              content={
+                <AgentAvatarGalleryPicker
+                  gallery={AGENT_AVATAR_GALLERY}
+                  value={storedAvatar}
+                  onChange={onAvatarChange}
+                  onReset={() => onAvatarChange(null)}
+                />
+              }
+            >
+              <Avatar
+                avatar={avatar || DEFAULT_AVATAR}
+                data-brand-slot={'agent-avatar-gallery-trigger'}
+                key={avatarRemountKey(avatar)}
+                shape={'square'}
+                size={72}
+                style={{ cursor: canEdit ? 'pointer' : undefined }}
+              />
+            </Popover>
+          ) : (
+            <>
+              {/* Uploading an image lives in the studio, so the picker keeps only
+                  emoji plus the studio launcher tab; the launcher tab is ordered
+                  first and auto-selected on open, preserving the old generate-tab
+                  position. */}
+              {/* Keyed by the url for the same reason as the studio preview: the
+                  underlying Avatar latches its image-error state, so without a
+                  remount a newly generated avatar stays invisible whenever the
+                  previous one failed to load. */}
+              <EmojiPicker
+                allowModelAvatar
+                allowDelete={canEdit && !!avatar}
+                key={avatarRemountKey(avatar)}
+                locale={locale}
+                open={canEdit ? undefined : false}
+                popupClassName={`${styles.avatarPicker} agent-avatar-artwork-picker`}
+                popupProps={{ placement: 'bottomLeft' }}
+                shape={'square'}
+                size={72}
+                value={avatar || undefined}
+                customTabs={[
+                  {
+                    label: (
+                      <Tooltip title={t('settingAgent.artwork.avatar.image')}>
+                        <Icon icon={ImageIcon} size={{ size: 20, strokeWidth: 2.5 }} />
+                      </Tooltip>
+                    ),
+                    render: () => (
+                      <Flexbox gap={16} padding={20} width={348}>
+                        <Center className={styles.generatedPreview} height={156}>
+                          <Avatar
+                            avatar={avatar || undefined}
+                            key={avatarRemountKey(avatar)}
+                            shape={'square'}
+                            size={112}
+                          />
+                        </Center>
+                        <Button
+                          icon={WandSparkles}
+                          type={'primary'}
+                          onClick={() => openAgentArtworkStudio(agentId)}
+                        >
+                          {t('settingAgent.artwork.studio.openAction')}
+                        </Button>
+                      </Flexbox>
+                    ),
+                    value: 'generate',
+                  },
+                ]}
+                onChange={(value) => onAvatarChange(value)}
+                onDelete={() => onAvatarChange(null)}
+                onOpenChange={(open) => {
+                  if (!open) return;
 
-              requestAnimationFrame(() => {
-                const tabs = document.querySelectorAll('.agent-avatar-artwork-picker [role="tab"]');
-                (tabs.item(tabs.length - 1) as HTMLElement | null)?.click();
-              });
-            }}
-          />
+                  requestAnimationFrame(() => {
+                    const tabs = document.querySelectorAll(
+                      '.agent-avatar-artwork-picker [role="tab"]',
+                    );
+                    (tabs.item(tabs.length - 1) as HTMLElement | null)?.click();
+                  });
+                }}
+              />
+            </>
+          )}
           {generating === 'avatar' ? (
             <Center className={styles.avatarGenerating}>
               <Spin size="middle" variant="network" />
             </Center>
           ) : null}
           {/* Hover-revealed corner badge as the direct studio entry. */}
-          {canEdit ? (
+          {canEdit && !AGENT_AVATAR_GALLERY ? (
             <Tooltip title={t('settingAgent.artwork.studio.open')}>
               <ActionIcon
                 className={styles.studioBadge}

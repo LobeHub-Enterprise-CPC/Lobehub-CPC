@@ -1700,6 +1700,7 @@
   "reasoningEffort.levels.xhigh": "超高",
   "reasoningEffort.mode.pro": "专业",
   "reasoningEffort.mode.standard": "标准",
+  "reasoningEffort.reset": "恢复默认",
   "reasoningEffort.title": "推理强度",
   "reasoningEffort.updateFailed": "推理强度更新失败，请重试",
   "regenerate": "重新生成",

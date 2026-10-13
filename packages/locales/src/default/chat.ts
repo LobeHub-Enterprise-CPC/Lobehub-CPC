@@ -1362,6 +1362,7 @@ export default {
   'reasoningEffort.levels.xhigh': 'Extra High',
   'reasoningEffort.mode.pro': 'Pro',
   'reasoningEffort.mode.standard': 'Standard',
+  'reasoningEffort.reset': 'Reset to default',
   'reasoningEffort.title': 'Reasoning Effort',
   'reasoningEffort.updateFailed': 'Failed to update reasoning effort, please try again',
   'regenerate': 'Regenerate',

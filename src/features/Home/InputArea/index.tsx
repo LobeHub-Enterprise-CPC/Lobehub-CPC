@@ -1,4 +1,4 @@
-import { EXTERNAL_INTEGRATIONS_ENABLED } from '@lobechat/business-const';
+import { EXTERNAL_INTEGRATIONS_ENABLED, HOME_COMPOSER_AGENT_DOCK } from '@lobechat/business-const';
 import { Flexbox } from '@lobehub/ui';
 import { createStaticStyles } from 'antd-style';
 import { useRef } from 'react';
@@ -14,6 +14,7 @@ import { systemStatusSelectors } from '@/store/global/selectors';
 
 import { HOME_NEW_MODELS_BANNER_ID, NewModelShortcuts } from '../NewModelShortcuts';
 import type { HomeMode } from '../types';
+import AgentDock, { AgentDockAvatar } from './AgentDock';
 import { HOME_INPUT_RESERVED_HEIGHT } from './constants';
 import { EditorSlot } from './EditorSlot';
 import { stripMarkdownLinks } from './hintFormat';
@@ -101,7 +102,12 @@ const InputArea = ({
 
   return (
     <Flexbox>
-      <Flexbox ref={chatInputRef}>
+      <Flexbox
+        data-brand-slot={'home-composer'}
+        ref={chatInputRef}
+        style={HOME_COMPOSER_AGENT_DOCK ? { position: 'relative' } : undefined}
+      >
+        {HOME_COMPOSER_AGENT_DOCK && <AgentDockAvatar />}
         <InputDragUpload
           radius={20}
           style={{ position: 'relative', zIndex: 1 }}
@@ -109,6 +115,7 @@ const InputArea = ({
         >
           {editorSlot}
         </InputDragUpload>
+        {HOME_COMPOSER_AGENT_DOCK && <AgentDock />}
         {showInputBanners && (
           <InputBannerQueue>
             {showNewModelShortcuts && (

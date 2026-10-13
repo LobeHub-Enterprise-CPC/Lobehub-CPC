@@ -17,6 +17,7 @@ const testState = vi.hoisted(() => ({
   aiInfra: {
     isReady: true,
   },
+  composerAgentOnly: false,
   supportToolUse: true,
   user: {
     fetchedPreference: undefined as
@@ -27,6 +28,15 @@ const testState = vi.hoisted(() => ({
       isLoading: testState.user.isLoading,
     }),
     workspaceUserPreference: {} as { agentModeOverrides?: Record<string, boolean> },
+  },
+}));
+
+// The stock layout is the default under test; a distribution may ship the slot
+// flag on, so pin it here instead of inheriting whichever package resolves.
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  get COMPOSER_AGENT_ONLY_LAYOUT() {
+    return testState.composerAgentOnly;
   },
 }));
 
@@ -64,6 +74,7 @@ vi.mock('@/store/user', () => ({
 }));
 
 beforeEach(() => {
+  testState.composerAgentOnly = false;
   testState.access.canManageAgent = false;
   testState.access.isAccessLoading = false;
   testState.agent.agent = undefined;
@@ -202,5 +213,23 @@ describe('useEffectiveAgentMode', () => {
     const { result } = renderHook(() => useEffectiveAgentMode('agent-1'));
 
     expect(result.current.isPreferenceLoading).toBe(true);
+  });
+
+  it('always resolves to Agent mode when the composer is agent-only', () => {
+    testState.composerAgentOnly = true;
+    testState.agent.enableAgentMode = false;
+    testState.agent.agent = { visibility: 'public', workspaceId: 'workspace-1' };
+    testState.user.isLoading = true;
+    testState.user.workspaceUserPreference = {
+      agentModeOverrides: { 'agent-1': false },
+    };
+
+    const { result } = renderHook(() => useEffectiveAgentMode('agent-1'));
+
+    expect(result.current).toMatchObject({
+      currentMode: 'agent',
+      isAgentRuntimeMode: true,
+      isPreferenceLoading: false,
+    });
   });
 });

@@ -1,5 +1,6 @@
 'use client';
 
+import { AGENT_DIRECTORY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { DEFAULT_AVATAR } from '@lobechat/const';
 import { agentDisplayName, type SidebarAgentItem } from '@lobechat/types';
 import { Center, Empty, Flexbox, Icon, SearchBar, Tooltip } from '@lobehub/ui';
@@ -507,9 +508,11 @@ const AgentViewAllPage = memo(() => {
     <Flexbox flex={1} height={'100%'}>
       <NavHeader
         left={
-          <Text style={{ paddingInlineStart: 4 }} weight={500}>
-            {t('agentViewAll.title')}
-          </Text>
+          AGENT_DIRECTORY_SHOWCASE_LAYOUT ? undefined : (
+            <Text style={{ paddingInlineStart: 4 }} weight={500}>
+              {t('agentViewAll.title')}
+            </Text>
+          )
         }
         right={
           <ListConfig
@@ -522,11 +525,43 @@ const AgentViewAllPage = memo(() => {
         }
       />
       <WideScreenContainer gap={16} paddingBlock={16} wrapperStyle={{ flex: 1, overflowY: 'auto' }}>
+        {AGENT_DIRECTORY_SHOWCASE_LAYOUT && (
+          <Flexbox
+            horizontal
+            align={'center'}
+            data-brand-slot="agent-directory-hero"
+            gap={16}
+            justify={'space-between'}
+          >
+            <Text as={'h1'} fontSize={24} style={{ margin: 0 }} weight={600}>
+              {t('agentViewAll.title')}
+            </Text>
+            {canCreate ? (
+              <DropdownMenu items={createMenuItems}>
+                <Button icon={PlusIcon} loading={isMutatingAgent} shape={'round'} type={'primary'}>
+                  {t('addNew')}
+                </Button>
+              </DropdownMenu>
+            ) : (
+              <Tooltip title={createBlockedReason}>
+                <Button disabled icon={PlusIcon} shape={'round'} type={'primary'}>
+                  {t('addNew')}
+                </Button>
+              </Tooltip>
+            )}
+          </Flexbox>
+        )}
         {!isInit && !keyword.trim() && <AgentViewAllSidebarSectionSkeleton />}
         {isInit && !keyword.trim() && sidebarItems.length > 0 && (
           <SidebarAgentsSection items={sidebarItems} onToggleSidebar={handleToggleSidebar} />
         )}
-        <Flexbox horizontal align={'center'} gap={12} justify={'space-between'}>
+        <Flexbox
+          horizontal
+          align={'center'}
+          data-brand-slot="agent-directory-toolbar"
+          gap={12}
+          justify={'space-between'}
+        >
           {/* The workspace/private split only exists inside a workspace;
               personal mode leads with the search box instead. */}
           {activeWorkspaceId ? (
@@ -554,6 +589,15 @@ const AgentViewAllPage = memo(() => {
               ]}
               onChange={(value) => handleSegmentChange(value as SegmentValue)}
             />
+          ) : AGENT_DIRECTORY_SHOWCASE_LAYOUT ? (
+            // The title row owns the create action here, so the toolbar leads
+            // with the total and keeps search on the trailing side.
+            <Flexbox horizontal align={'center'} gap={8}>
+              <Text weight={500}>{t('navPanel.switcherAll')}</Text>
+              <Text type={'secondary'} weight={500}>
+                {filteredItems.length}
+              </Text>
+            </Flexbox>
           ) : (
             <SearchBar
               allowClear
@@ -564,7 +608,7 @@ const AgentViewAllPage = memo(() => {
             />
           )}
           <Flexbox horizontal align={'center'} gap={8}>
-            {activeWorkspaceId && (
+            {(activeWorkspaceId || AGENT_DIRECTORY_SHOWCASE_LAYOUT) && (
               <SearchBar
                 allowClear
                 placeholder={t('navPanel.searchAgent')}
@@ -573,7 +617,7 @@ const AgentViewAllPage = memo(() => {
                 onChange={(e) => setKeyword(e.target.value)}
               />
             )}
-            {canCreate ? (
+            {AGENT_DIRECTORY_SHOWCASE_LAYOUT ? null : canCreate ? (
               <DropdownMenu items={createMenuItems}>
                 <Button icon={PlusIcon} loading={isMutatingAgent}>
                   <Icon icon={ChevronDownIcon} size={14} />
@@ -627,7 +671,7 @@ const AgentViewAllPage = memo(() => {
         ) : (
           // Grouped list shares the card branch's wrapper rhythm (outer gap 8,
           // bare GroupHeader) so toggling the view mode doesn't shift the bars.
-          <Flexbox gap={groupedItems ? 8 : 2}>
+          <Flexbox data-brand-slot="agent-directory-list" gap={groupedItems ? 8 : 2}>
             {groupedItems
               ? groupedItems.map((group, index) => {
                   const collapsed = !expandedGroupSet.has(group.key);

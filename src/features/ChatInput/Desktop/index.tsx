@@ -234,6 +234,7 @@ const DesktopChatInput = memo<DesktopChatInputProps>(
         onDrop={handleDrop}
       >
         <ChatInput
+          data-brand-slot={'composer'}
           data-testid="chat-input"
           defaultHeight={chatInputHeight || 32}
           fullscreen={expand}

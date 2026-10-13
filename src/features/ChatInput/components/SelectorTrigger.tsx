@@ -76,7 +76,12 @@ interface TriggerProps extends ComponentPropsWithRef<'div'> {
 
 const SelectorTrigger = memo<TriggerProps>(
   ({ ariaLabel, className, fast, secondaryText, text, ...rest }) => (
-    <div {...rest} aria-label={ariaLabel} className={cx(styles.trigger, className)}>
+    <div
+      {...rest}
+      aria-label={ariaLabel}
+      className={cx(styles.trigger, className)}
+      data-brand-slot={'composer-selector-trigger'}
+    >
       {fast && <Icon icon={ZapIcon} size={12} />}
       <span className={styles.label}>{text}</span>
       {secondaryText && (

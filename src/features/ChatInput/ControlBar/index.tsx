@@ -1,3 +1,4 @@
+import { COMPOSER_AGENT_ONLY_LAYOUT } from '@lobechat/business-const';
 import { Flexbox } from '@lobehub/ui';
 import { createStaticStyles } from 'antd-style';
 import { memo } from 'react';
@@ -89,13 +90,13 @@ const ControlBar = memo(() => {
     <Flexbox horizontal align={'center'} className={styles.bar} justify={'space-between'}>
       {/* Left: chat-mode switcher + (agent-only) execution device + working directory */}
       <Flexbox horizontal align={'center'} className={styles.leftGroup} gap={4}>
-        <ModeSelector />
+        {!COMPOSER_AGENT_ONLY_LAYOUT && <ModeSelector />}
         {isAgentRuntimeMode && <WorkspaceControls agentId={agentId} />}
       </Flexbox>
 
       <Flexbox horizontal align={'center'} className={styles.rightGroup} gap={4}>
         <ChatInputCredits />
-        {isAgentRuntimeMode && <ApprovalMode />}
+        {isAgentRuntimeMode && !COMPOSER_AGENT_ONLY_LAYOUT && <ApprovalMode />}
         {showContextWindow && <ContextWindow />}
       </Flexbox>
     </Flexbox>
