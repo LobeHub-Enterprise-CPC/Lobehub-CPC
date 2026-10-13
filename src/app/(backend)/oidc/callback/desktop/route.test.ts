@@ -20,6 +20,11 @@ vi.mock('next/server', async (importOriginal) => ({
 
 vi.mock('@/database/server', () => ({ serverDB: {} }));
 
+// The success/error pages live under the tenant's active entry, not the origin root.
+vi.mock('@/server/modules/Tenant/callbackUrl', () => ({
+  tenantPublicPath: (path: string) => `/t/acme${path}`,
+}));
+
 vi.mock('@/database/models/oauthHandoff', () => ({
   OAuthHandoffModel: class {
     cleanupExpired = mocks.cleanupExpired;
@@ -39,13 +44,13 @@ describe('GET /oidc/callback/desktop', () => {
     vi.clearAllMocks();
   });
 
-  it('stores the handoff and redirects to the success page on the current origin', async () => {
+  it('stores the handoff and redirects to the success page under the tenant entry', async () => {
     mocks.create.mockResolvedValue(undefined);
 
     const response = await GET(createRequest('?code=code-1&state=handoff-1'));
 
     expect(response.status).toBe(307);
-    expect(response.headers.get('location')).toBe('/oauth/callback/success');
+    expect(response.headers.get('location')).toBe('/t/acme/oauth/callback/success');
     expect(mocks.create).toHaveBeenCalledWith({
       client: 'desktop',
       id: 'handoff-1',
@@ -53,11 +58,13 @@ describe('GET /oidc/callback/desktop', () => {
     });
   });
 
-  it('redirects to the error page on the current origin when params are missing', async () => {
+  it('redirects to the error page under the tenant entry when params are missing', async () => {
     const response = await GET(createRequest(''));
 
     expect(response.status).toBe(307);
-    expect(response.headers.get('location')).toBe('/oauth/callback/error?reason=invalid_request');
+    expect(response.headers.get('location')).toBe(
+      '/t/acme/oauth/callback/error?reason=invalid_request',
+    );
     expect(mocks.create).not.toHaveBeenCalled();
   });
 });

@@ -2,7 +2,7 @@
 
 import { Block, Flexbox } from '@lobehub/ui';
 import { Avatar, Button, Skeleton, Text } from '@lobehub/ui/base-ui';
-import React, { memo } from 'react';
+import React, { memo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useHref } from 'react-router';
 
@@ -11,6 +11,7 @@ import { useSession } from '@/libs/better-auth/auth-client';
 import type { OidcClientMetadata } from '@/types/oidc';
 
 import OAuthApplicationLogo from './OAuthApplicationLogo';
+import { redirectToSignIn } from './signInRedirect';
 
 interface LoginConfirmProps {
   clientMetadata: OidcClientMetadata;
@@ -27,6 +28,12 @@ const LoginConfirmClient = memo<LoginConfirmProps>(({ uid, clientMetadata }) => 
   const isUserStateInit = !isPending && !!session;
   const avatar = session?.user?.image || '';
   const nickName = session?.user?.name || '';
+
+  // The login prompt can only be confirmed by a signed-in user; a visitor from a
+  // client (e.g. Desktop) signs in first and comes back to this interaction.
+  useEffect(() => {
+    if (!isPending && !session) redirectToSignIn();
+  }, [isPending, session]);
 
   const [isLoading, setIsLoading] = React.useState(false);
 

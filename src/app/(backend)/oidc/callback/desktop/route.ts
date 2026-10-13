@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 
 import { OAuthHandoffModel } from '@/database/models/oauthHandoff';
 import { serverDB } from '@/database/server';
+import { tenantPublicPath } from '@/server/modules/Tenant/callbackUrl';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { after } from '@/server/utils/scheduleAfterResponse';
 
@@ -12,7 +13,10 @@ const log = debug('lobe-oidc:callback:desktop');
 const errorPathname = '/oauth/callback/error';
 
 const redirectTo = (pathname: string, params?: Record<string, string>) => {
-  const location = params ? `${pathname}?${new URLSearchParams(params)}` : pathname;
+  // The result pages are SPA routes under the tenant's active entry, like the redirect_uri itself.
+  const location = tenantPublicPath(
+    params ? `${pathname}?${new URLSearchParams(params)}` : pathname,
+  );
   log('Redirect target: %s', location);
   return new NextResponse(null, { headers: { location }, status: 307 });
 };
