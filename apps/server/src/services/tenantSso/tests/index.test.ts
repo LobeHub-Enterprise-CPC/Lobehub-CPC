@@ -53,7 +53,7 @@ describe('tenant SSO reader', () => {
 
     const config = toGenericOAuthConfig(
       provider!,
-      `https://app.example.com${tenantSsoCallbackPath('acme', 'okta')}`,
+      `https://app.example.com/t/acme${tenantSsoCallbackPath('okta')}`,
     );
     expect(config).toMatchObject({
       clientId: 'client-1',

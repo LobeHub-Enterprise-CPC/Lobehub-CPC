@@ -32,8 +32,9 @@ vi.mock('@/business/client/hooks/useActiveWorkspaceSlug', () => ({
   useActiveWorkspaceSlug: () => mocks.workspaceSlug,
 }));
 
-vi.mock('@/hooks/useAppOrigin', () => ({
-  useAppOrigin: () => 'https://example.com',
+vi.mock('@lobechat/business-tenant/client', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useAppBaseUrl: () => 'https://example.com',
 }));
 
 vi.mock('@/store/task', () => ({

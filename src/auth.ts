@@ -2,7 +2,7 @@ import { businessAuthPlugins, getBusinessAuthOptions } from '@lobechat/business-
 import { requireTenantScope, tenantHash, type TenantScope } from '@lobechat/database/tenant';
 import type { BetterAuthOptions } from 'better-auth/minimal';
 
-import { defineConfig, tenantAuthBasePath } from '@/libs/better-auth/define-config';
+import { defineConfig } from '@/libs/better-auth/define-config';
 import { buildTenantSsoProviders } from '@/libs/better-auth/tenant-sso';
 import { buildTenantPublicUrl } from '@/server/modules/Tenant/callbackUrl';
 import {
@@ -54,7 +54,7 @@ export const invalidateTenantAuth = (tenantId: string) => {
 
 const tenantSsoProviderSet = (scope: TenantScope, providers: TenantSsoProvider[]) =>
   buildTenantSsoProviders(providers, (providerId) =>
-    buildTenantPublicUrl(tenantSsoCallbackPath(scope.slug, providerId)),
+    buildTenantPublicUrl(tenantSsoCallbackPath(providerId)),
   );
 
 /**
@@ -93,7 +93,7 @@ const buildTenantAuth = (
 export const getTenantAuth = async (): Promise<TenantAuth> => {
   const scope = requireTenantScope();
   const providers = await loadSsoSnapshot(scope);
-  const key = `${scope.tenantId}|${scope.slug}|${scope.endpoint?.version}|${ssoRevisionKey(providers)}`;
+  const key = `${scope.tenantId}|${scope.slug}|${scope.endpoint.version}|${ssoRevisionKey(providers)}`;
 
   const cached = instances.get(key);
   if (cached?.session === scope.session) {
@@ -111,8 +111,6 @@ export const getTenantAuth = async (): Promise<TenantAuth> => {
   while (instances.size > MAX_INSTANCES) instances.delete(instances.keys().next().value!);
   return instance;
 };
-
-export { tenantAuthBasePath };
 
 const apiProxy = new Proxy({} as TenantAuth['api'], {
   get(_target, method) {

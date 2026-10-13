@@ -14,6 +14,7 @@
  * Services must be injected via constructor for runtime-agnostic usage
  * (e.g., server-side services vs client-side services).
  */
+import { buildAppUrl } from '@lobechat/business-tenant/client';
 import type { ComposioAppType, LobehubSkillProviderType } from '@lobechat/const';
 import { resolveConnectorCatalogItem } from '@lobechat/const';
 import {
@@ -29,7 +30,6 @@ import {
   upsertPluginMode,
 } from '@lobechat/types';
 
-import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { getAgentStoreState } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors/selectors';
 import { getAiInfraStoreState } from '@/store/aiInfra';

@@ -1,5 +1,5 @@
 import {
-  parseTenantPath,
+  buildTenantEntryUrl,
   stripTenantPath,
   withTenantPath,
 } from '@lobechat/business-tenant/routing';
@@ -69,16 +69,12 @@ export const withTenantRequestUrl = (request: Request): Request => {
  * service that calls us back (bot platform webhooks, message gateway) or a
  * link a person opens from a bot message.
  */
-export const tenantPublicBaseUrl = (): string => {
-  const endpoint = requireTenantScope().endpoint;
-  if (!endpoint) throw new Error('ENDPOINTS_NOT_READY');
-  return endpoint.publicUrl;
-};
+export const tenantPublicBaseUrl = (): string => requireTenantScope().endpoint.publicUrl;
 
 /** Public business links and externally registered OAuth/webhook callbacks use the active entry. */
 export const buildTenantPublicUrl = (path: string): string => {
-  const appPath = publicAppPath(path, requireTenantScope().slug);
-  return `${tenantPublicBaseUrl()}${appPath === '/' ? '' : appPath}`;
+  const { endpoint, slug } = requireTenantScope();
+  return buildTenantEntryUrl({ publicUrl: endpoint.publicUrl, slug }, path);
 };
 
 /** Detached work resolves its explicit tenant id; never infer a document's current tenant. */
@@ -88,8 +84,7 @@ export const buildTenantPublicUrlForId = async (
 ): Promise<string> => {
   const { loadTenantPublicEndpoint } = await import('./endpoints');
   const endpoint = await loadTenantPublicEndpoint(tenantId);
-  const appPath = publicAppPath(path, endpoint.slug);
-  return `${endpoint.publicUrl}${appPath === '/' ? '' : appPath}`;
+  return buildTenantEntryUrl(endpoint, path);
 };
 
 /** OIDC provider routes and issuer use the canonical public entry, including custom root paths. */
@@ -104,27 +99,6 @@ export const withTenantPublicRequestUrl = (request: Request): Request => {
     redirect: request.redirect,
     signal: request.signal,
   } as RequestInit);
-};
-
-/** Reject path escapes before URL normalization; a public helper must never name another tenant. */
-const publicAppPath = (path: string, slug: string): string => {
-  if (!path.startsWith('/') || path.startsWith('//'))
-    throw new Error('Public URL requires an app path');
-  const pathname = path.split(/[?#]/, 1)[0];
-  for (const segment of pathname.split('/')) {
-    let decoded: string;
-    try {
-      decoded = decodeURIComponent(segment);
-    } catch {
-      throw new Error('Invalid public URL path');
-    }
-    if (decoded === '.' || decoded === '..' || /[\\/]/.test(decoded))
-      throw new Error('Invalid public URL path');
-  }
-  const parsed = parseTenantPath(path);
-  if (/^\/t(?:\/|$)/.test(path) && parsed.tenantSlug !== slug)
-    throw new Error('Public URL addresses another tenant');
-  return parsed.rest;
 };
 
 /** Path exposed on the current active public entry (gateway webhooks and browser redirects). */

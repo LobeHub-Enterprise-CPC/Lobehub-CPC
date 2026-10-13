@@ -1,3 +1,5 @@
+import { setRemoteAppAddress } from '@lobechat/business-tenant/client';
+import { isDesktop } from '@lobechat/const';
 import { shallow } from 'zustand/shallow';
 import { createWithEqualityFn } from 'zustand/traditional';
 import { type StateCreator } from 'zustand/vanilla';
@@ -21,6 +23,7 @@ import { type TabPagesAction } from './actions/tabPages';
 import { createTabPagesSlice } from './actions/tabPages';
 import { type ElectronState } from './initialState';
 import { initialState } from './initialState';
+import { electronSyncSelectors } from './selectors';
 
 //  ===============  Aggregate createStoreFn ============ //
 
@@ -70,5 +73,12 @@ export const useElectronStore = createWithEqualityFn<ElectronStore>()(
 );
 
 expose('electron', useElectronStore);
+
+// The desktop renderer is not served by the app server: the tenant package builds
+// every app link and asset URL on the configured remote (tenant) address.
+const syncRemoteAppAddress = (state: ElectronStore) =>
+  setRemoteAppAddress(isDesktop ? electronSyncSelectors.remoteServerUrl(state) : undefined);
+syncRemoteAppAddress(useElectronStore.getState());
+useElectronStore.subscribe(syncRemoteAppAddress);
 
 export const getElectronStoreState = () => useElectronStore.getState();

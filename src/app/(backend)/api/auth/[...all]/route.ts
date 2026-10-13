@@ -40,7 +40,7 @@ const CALLBACK_PATH = /^\/callback\/([^/]+)$/;
  * providers are served there, generic OAuth ones by `/oauth2/callback/{id}`.
  */
 const toTenantAuthRequest = async (request: Request): Promise<Request> => {
-  const { slug, endpoint } = requireTenantScope();
+  const { endpoint } = requireTenantScope();
   const url = new URL(request.url);
   let rest = stripTenantPath(url.pathname).replace(/^\/api\/auth/, '') || '/';
 
@@ -52,8 +52,7 @@ const toTenantAuthRequest = async (request: Request): Promise<Request> => {
       rest = `/oauth2/callback/${encodeURIComponent(providerId)}`;
   }
 
-  const publicUrl = endpoint?.publicUrl ?? `${url.origin}/t/${slug}`;
-  const canonical = new URL(`${publicUrl}/api/auth${rest}${url.search}`);
+  const canonical = new URL(`${endpoint.publicUrl}/api/auth${rest}${url.search}`);
   return new Request(canonical, request);
 };
 
@@ -79,7 +78,7 @@ const listProviders = async () => {
  */
 const dispatch = async (request: Request) => {
   const scope = requireTenantScope();
-  const errorPath = `${scope.endpoint?.basePath ?? `/t/${scope.slug}`}/auth-error`;
+  const errorPath = `${scope.endpoint.basePath}/auth-error`;
   try {
     const auth = await getAuthForRequest(request);
     const response = await auth.handler(await toTenantAuthRequest(request));

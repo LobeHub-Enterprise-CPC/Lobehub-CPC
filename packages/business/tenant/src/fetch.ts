@@ -1,5 +1,5 @@
-import { getTenant } from '@lobechat/business-tenant/client';
-import { withTenantPath } from '@lobechat/business-tenant/routing';
+import { getTenant } from './client';
+import { withTenantPath } from './path';
 
 /**
  * Backend surfaces the request proxy only serves under `/t/{slug}` (spec A16,

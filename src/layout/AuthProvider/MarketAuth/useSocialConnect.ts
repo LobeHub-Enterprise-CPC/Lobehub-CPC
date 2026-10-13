@@ -1,8 +1,8 @@
 'use client';
 
+import { buildAppUrl } from '@lobechat/business-tenant/client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { lambdaClient, toolsClient } from '@/libs/trpc/client';
 
 const POLL_INTERVAL_MS = 1000;

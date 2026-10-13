@@ -1,10 +1,10 @@
+import { buildAppUrl } from '@lobechat/business-tenant/client';
 import type { TaskTemplateConnectorReference } from '@lobechat/const';
 import { COMPOSIO_APP_TYPES } from '@lobechat/const';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { LOBEHUB_SKILL_AUTH_SUCCESS_MESSAGE } from '@/const/skillConnection';
 import { useMarketAuth } from '@/layout/AuthProvider/MarketAuth';
-import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { useToolStore } from '@/store/tool';
 import { composioStoreSelectors } from '@/store/tool/slices/composioStore/selectors';
 import { ComposioServerStatus } from '@/store/tool/slices/composioStore/types';

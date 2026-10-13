@@ -9,19 +9,28 @@ import { getOIDCProvider } from './oidcProvider';
 vi.mock('@/envs/auth', () => ({ authEnv: { ENABLE_OIDC: true } }));
 vi.mock('@/database/core/db-adaptor', () => ({ serverDB: {} }));
 vi.mock('@/libs/oidc-provider/provider', () => ({
-  createOIDCProvider: vi.fn(async (_db, slug, tenantId) => ({ slug, tenantId })),
+  createOIDCProvider: vi.fn(async (_db, { endpoint, tenantId }) => ({ endpoint, tenantId })),
 }));
 
+const entryOf = (slug: string) => ({
+  basePath: `/t/${slug}`,
+  publicUrl: `https://app.example.com/t/${slug}`,
+  version: 1,
+});
+
 const inTenant = (slug: string) =>
-  runWithTenantScope({ slug, tenantId: `tenant-${slug}` } as TenantScope, getOIDCProvider);
+  runWithTenantScope(
+    { endpoint: entryOf(slug), slug, tenantId: `tenant-${slug}` } as TenantScope,
+    getOIDCProvider,
+  );
 
 describe('tenant OIDC instances', () => {
   it('reuses a tenant instance without sharing its issuer configuration with another tenant', async () => {
     const [a, again, b] = await Promise.all([inTenant('acme'), inTenant('acme'), inTenant('beta')]);
     expect(a).toBe(again);
     expect(a).not.toBe(b);
-    expect(a).toMatchObject({ slug: 'acme' });
-    expect(b).toMatchObject({ slug: 'beta' });
+    expect(a).toMatchObject({ endpoint: entryOf('acme') });
+    expect(b).toMatchObject({ endpoint: entryOf('beta') });
     // Each instance stamps its own tenant id on the access tokens it issues.
     expect(a).toMatchObject({ tenantId: 'tenant-acme' });
     expect(b).toMatchObject({ tenantId: 'tenant-beta' });
@@ -47,10 +56,8 @@ it('rebuilds a tenant provider when the active endpoint revision changes', async
   const changed = await runWithTenantScope(next, getOIDCProvider);
   expect(first).not.toBe(changed);
   expect(await runWithTenantScope(next, getOIDCProvider)).toBe(changed);
-  expect(createOIDCProvider).toHaveBeenLastCalledWith(
-    expect.anything(),
-    'acme',
-    scope.tenantId,
-    next.endpoint,
-  );
+  expect(createOIDCProvider).toHaveBeenLastCalledWith(expect.anything(), {
+    endpoint: next.endpoint,
+    tenantId: scope.tenantId,
+  });
 });

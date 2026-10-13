@@ -1,5 +1,6 @@
 'use client';
 
+import { buildAppUrl } from '@lobechat/business-tenant/client';
 import { toast } from '@lobehub/ui/base-ui';
 import { type ReactNode } from 'react';
 import { createContext, lazy, Suspense, use, useCallback, useEffect, useState } from 'react';
@@ -7,7 +8,6 @@ import { useTranslation } from 'react-i18next';
 import { mutate as globalMutate } from 'swr';
 
 import { useSingleton } from '@/hooks/useSingleton';
-import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { lambdaClient } from '@/libs/trpc/client';
 import { MARKET_OIDC_ENDPOINTS } from '@/services/_url';
 import { useServerConfigStore } from '@/store/serverConfig';

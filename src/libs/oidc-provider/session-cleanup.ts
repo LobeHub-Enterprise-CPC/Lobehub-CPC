@@ -26,10 +26,7 @@ const expireOIDCSessionCookies = (context: OIDCSessionCookieContext) => {
     context.setCookie(name, '', {
       expires: new Date(0),
       httpOnly: true,
-      path:
-        (currentTenantScope()?.endpoint?.basePath ??
-          (currentTenantScope() ? `/t/${currentTenantScope()!.slug}` : '/')) ||
-        '/',
+      path: currentTenantScope()?.endpoint.basePath || '/',
     });
   }
 };

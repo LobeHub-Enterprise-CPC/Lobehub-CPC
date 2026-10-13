@@ -1,9 +1,9 @@
 'use client';
 
+import { buildAppUrl } from '@lobechat/business-tenant/client';
 import { COMPOSIO_APP_TYPES, getLobehubSkillProviderById } from '@lobechat/const';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { useToolStore } from '@/store/tool';
 import { composioStoreSelectors, lobehubSkillStoreSelectors } from '@/store/tool/selectors';
 import { ComposioServerStatus } from '@/store/tool/slices/composioStore';

@@ -1,4 +1,4 @@
-import { parseTenantPath, withTenantPath } from '@lobechat/business-tenant/routing';
+import { mapTenantAppPath } from '@lobechat/business-tenant/routing';
 import type { NavigateOptions } from 'react-router';
 
 export interface WorkspaceAwareNavigateOptions extends NavigateOptions {
@@ -138,21 +138,21 @@ export const buildWorkspaceAwarePath = (
   if (options?.escape) return to;
   if (!to.startsWith('/')) return to;
 
-  // Strip the tenant prefix BEFORE any first-segment reasoning, then put it
-  // back. Without this every allowlist test below reads `t` as the first
-  // segment, so nothing is ever recognised as workspace-mirrored and the
-  // workspace prefix silently stops being applied — a url that still resolves,
-  // just to the wrong scope.
-  const { rest, tenantSlug } = parseTenantPath(to);
-  const withTenant = (path: string) => withTenantPath(path, tenantSlug);
-
   if (!activeSlug) return to;
-  if (isPersonalPath(rest)) return to;
-  if (isPersonalSettingsPath(rest)) return to;
-  if (rest === `/${activeSlug}` || rest.startsWith(`/${activeSlug}/`)) return to;
 
-  const firstSegment = parseFirstSegment(rest);
-  if (firstSegment && !WORKSPACE_MIRRORED_FIRST_SEGMENTS.has(firstSegment)) return to;
+  // Reason about the app path below the tenant prefix, and keep that prefix.
+  // Without this every allowlist test below reads `t` as the first segment, so
+  // nothing is ever recognised as workspace-mirrored and the workspace prefix
+  // silently stops being applied — a url that still resolves, just to the
+  // wrong scope.
+  return mapTenantAppPath(to, (rest) => {
+    if (isPersonalPath(rest)) return rest;
+    if (isPersonalSettingsPath(rest)) return rest;
+    if (rest === `/${activeSlug}` || rest.startsWith(`/${activeSlug}/`)) return rest;
 
-  return withTenant(`/${activeSlug}${rest}`);
+    const firstSegment = parseFirstSegment(rest);
+    if (firstSegment && !WORKSPACE_MIRRORED_FIRST_SEGMENTS.has(firstSegment)) return rest;
+
+    return `/${activeSlug}${rest}`;
+  });
 };

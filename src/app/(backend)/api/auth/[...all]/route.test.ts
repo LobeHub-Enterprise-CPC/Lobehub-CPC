@@ -12,7 +12,11 @@ type RouteHandler = (request: Request) => Promise<Response>;
 
 const mocks = vi.hoisted(() => ({
   handler: vi.fn<RouteHandler>(async () => Response.json({ ok: true })),
-  endpoint: undefined as undefined | { basePath: string; publicUrl: string; version: number },
+  endpoint: { basePath: '/t/acme', publicUrl: 'https://localhost/t/acme', version: 1 } as {
+    basePath: string;
+    publicUrl: string;
+    version: number;
+  },
   providers: [] as Array<Record<string, unknown>>,
 }));
 
@@ -24,7 +28,6 @@ vi.mock('@lobechat/database/tenant', async (importOriginal) => ({
 vi.mock('@/auth', () => ({
   getAuthForRequest: vi.fn(async () => ({ handler: mocks.handler })),
   getTenantSsoProviders: async () => mocks.providers,
-  tenantAuthBasePath: (slug: string) => `/t/${slug}/api/auth`,
 }));
 
 const createPostRequest = (body: string, contentType = 'application/json') =>
@@ -41,7 +44,7 @@ describe('/api/auth/[...all] route', () => {
     vi.clearAllMocks();
     mocks.handler.mockResolvedValue(Response.json({ ok: true }));
     mocks.providers = [];
-    mocks.endpoint = undefined;
+    mocks.endpoint = { basePath: '/t/acme', publicUrl: 'https://localhost/t/acme', version: 1 };
   });
 
   it('returns 400 for malformed JSON auth requests before Better Auth handles them', async () => {

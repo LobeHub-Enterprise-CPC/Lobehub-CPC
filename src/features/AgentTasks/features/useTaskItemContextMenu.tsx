@@ -1,3 +1,4 @@
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import type { TaskStatus } from '@lobechat/types';
 import { type ContextMenuItem, copyToClipboard, Icon, type MenuInfo } from '@lobehub/ui';
 import { confirmModal, toast } from '@lobehub/ui/base-ui';
@@ -16,7 +17,6 @@ import { useTranslation } from 'react-i18next';
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import { useTaskTransferMenuItem } from '@/business/client/hooks/useTaskTransferMenuItem';
 import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { usePermission } from '@/hooks/usePermission';
 import { closeContextMenu } from '@/libs/contextMenu';
 import type { NativeContextMenuItem } from '@/libs/contextMenu/types';
@@ -62,7 +62,7 @@ export const useTaskContextMenuActions = (
 ): TaskContextMenuActions => {
   const { t } = useTranslation(['chat', 'common']);
 
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
   const { allowed: canEditTask } = usePermission('create_content');
 

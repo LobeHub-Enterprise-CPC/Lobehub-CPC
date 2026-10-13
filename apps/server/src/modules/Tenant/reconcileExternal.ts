@@ -24,6 +24,8 @@ import type { SandboxProvider, SandboxServiceOptions } from '@/server/services/s
 import { verifyRuntimeTenantDatabase } from '@/server/services/tenantControlPlane/postgresExecutor';
 import { directorySecretAad } from '@/server/services/tenantControlPlane/postgresRepository';
 
+import { loadTenantPublicEndpoint } from './endpoints';
+
 type Work = typeof tenantRuntimeExternalWork.$inferSelect;
 
 /** Maintenance uses the runtime role with PostgreSQL enforcing read-only transactions. */
@@ -84,8 +86,9 @@ async function pollVideo(work: Work): Promise<PollVideoStatusResult | undefined>
     } finally {
       client.release();
     }
+    const endpoint = await loadTenantPublicEndpoint(work.tenantId);
     return await runWithTenantScope(
-      { session, tenantId: work.tenantId, slug: directory.slug },
+      { endpoint, session, tenantId: work.tenantId, slug: directory.slug },
       async () => {
         const runtime = await initModelRuntimeFromDB(
           session.database,

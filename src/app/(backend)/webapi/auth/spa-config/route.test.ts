@@ -22,6 +22,15 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/auth', () => ({ getTenantSsoProviders: mocks.getTenantSsoProviders }));
 
+vi.mock('@lobechat/database/tenant', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  requireTenantScope: () => ({
+    endpoint: { basePath: '', publicUrl: 'https://chat.acme.example', version: 2 },
+    slug: 'acme',
+    tenantId: 'tenant-acme',
+  }),
+}));
+
 vi.mock('@/config/featureFlags', () => ({
   getServerFeatureFlagsValue: mocks.getServerFeatureFlagsValue,
 }));
@@ -56,6 +65,11 @@ describe('GET /webapi/auth/spa-config', () => {
     const body = await response.json();
 
     expect(body.config.oAuthSSOProviders).toEqual(['okta']);
+    expect(body.tenant).toEqual({
+      basePath: '',
+      publicUrl: 'https://chat.acme.example',
+      slug: 'acme',
+    });
     expect(JSON.stringify(body)).not.toContain('secret');
     expect(response.headers.get('cache-control')).toBe('private, no-store');
   });

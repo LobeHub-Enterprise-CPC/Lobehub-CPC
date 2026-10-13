@@ -75,3 +75,13 @@ export const withTenantPath = (to: string, tenantSlug: string | null | undefined
 
 /** Strip any `/t/{slug}` prefix. Inverse of {@link withTenantPath}. */
 export const stripTenantPath = (to: string): string => parseTenantPath(to).rest;
+
+/**
+ * Rewrite the app path below `to`'s `/t/{slug}` prefix and put the same prefix
+ * back (`('/t/acme/agent', p => '/ws' + p)` -> `/t/acme/ws/agent`), so app-path
+ * logic never parses or rebuilds the tenant prefix itself.
+ */
+export const mapTenantAppPath = (to: string, map: (appPath: string) => string): string => {
+  const { rest, tenantSlug } = parseTenantPath(to);
+  return withTenantPath(map(rest), tenantSlug);
+};

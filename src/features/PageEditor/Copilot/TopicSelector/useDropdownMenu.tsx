@@ -1,3 +1,4 @@
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { AGENT_CHAT_TOPIC_URL } from '@lobechat/const';
 import type { ChatTopicStatus } from '@lobechat/types';
 import type { MenuProps } from '@lobehub/ui';
@@ -27,7 +28,6 @@ import { confirmRemoveTopic } from '@/features/DeleteTopicConfirm';
 import { openShareModal } from '@/features/ShareModal';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { usePermission } from '@/hooks/usePermission';
 import { useChatStore } from '@/store/chat';
 import { useElectronStore } from '@/store/electron';
@@ -54,7 +54,7 @@ export const useDropdownMenu = ({
 }: UseDropdownMenuProps): (() => MenuProps['items']) => {
   const { t } = useTranslation(['common', 'topic']);
 
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
   const navigate = useWorkspaceAwareNavigate();
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
   const { allowed: canCreateTopic } = usePermission('create_content');

@@ -1,8 +1,8 @@
+import { resolveAppUrl } from '@lobechat/business-tenant/client';
 import { toast } from '@lobehub/ui/base-ui';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { resolveAppUrl } from '@/libs/tenant/appBaseUrl';
 import { useFileStore } from '@/store/file';
 
 const MAX_LOGO_SIZE = 2 * 1024 * 1024;

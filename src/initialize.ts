@@ -1,4 +1,4 @@
-import { initializeTenant } from '@lobechat/business-tenant/client';
+import { initializeTenant, installTenantFetch } from '@lobechat/business-tenant/client';
 import dayjs from 'dayjs';
 import isToday from 'dayjs/plugin/isToday';
 import isYesterday from 'dayjs/plugin/isYesterday';
@@ -6,7 +6,6 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import utc from 'dayjs/plugin/utc';
 import { enableMapSet, enablePatches } from 'immer';
 
-import { installTenantFetch } from '@/libs/tenant/tenantFetch';
 import { DEBUG_PROXY_BASE } from '@/spa/appBasename';
 import { isChunkLoadError, notifyChunkError } from '@/utils/chunkError';
 

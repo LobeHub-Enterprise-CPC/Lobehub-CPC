@@ -1,7 +1,6 @@
-import { initializeTenant } from '@lobechat/business-tenant/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { installTenantFetch, tenantRequestUrl } from '../tenantFetch';
+import { initializeTenant, installTenantFetch, tenantRequestUrl } from '../client';
 
 const location = {
   href: 'https://app.example.com/t/acme/agent',

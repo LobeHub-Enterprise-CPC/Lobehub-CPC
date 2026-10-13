@@ -1,9 +1,9 @@
+import { buildAppUrl } from '@lobechat/business-tenant/client';
 import { getComposioAppByIdentifier, getLobehubSkillProviderById } from '@lobechat/const';
 import type { BuiltinToolContext, BuiltinToolResult } from '@lobechat/types';
 import { BaseExecutor } from '@lobechat/types';
 import debug from 'debug';
 
-import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { lambdaClient, toolsClient } from '@/libs/trpc/client';
 import { getToolStoreState, useToolStore } from '@/store/tool';
 import { composioStoreSelectors } from '@/store/tool/selectors';

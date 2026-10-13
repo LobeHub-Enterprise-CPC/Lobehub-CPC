@@ -6,12 +6,16 @@ import type * as TenantSso from '@/server/services/tenantSso';
 const mocks = vi.hoisted(() => ({
   defineConfig: vi.fn((config: unknown) => ({ api: {}, config, handler: vi.fn() })),
   loadTenantSsoProviders: vi.fn(async () => []),
-  scope: null as null | { session: { database: object }; slug: string; tenantId: string },
+  scope: null as null | {
+    endpoint: { basePath: string; publicUrl: string; version: number };
+    session: { database: object };
+    slug: string;
+    tenantId: string;
+  },
 }));
 
 vi.mock('@/libs/better-auth/define-config', () => ({
   defineConfig: mocks.defineConfig,
-  tenantAuthBasePath: (slug: string) => `/t/${slug}/api/auth`,
 }));
 
 vi.mock('@/server/services/tenantSso', async (importOriginal) => ({
@@ -45,11 +49,21 @@ describe('auth', () => {
 
   it('builds one instance per tenant, keyed and cookied by the tenant id', async () => {
     const database = {};
-    mocks.scope = { session: { database }, slug: 'acme', tenantId: 'tenant-a' };
+    mocks.scope = {
+      endpoint: { basePath: '/t/acme', publicUrl: 'https://app.example/t/acme', version: 1 },
+      session: { database },
+      slug: 'acme',
+      tenantId: 'tenant-a',
+    };
     const first = await getTenantAuth();
     expect(await getTenantAuth()).toBe(first);
 
-    mocks.scope = { session: { database }, slug: 'beta', tenantId: 'tenant-b' };
+    mocks.scope = {
+      endpoint: { basePath: '/t/beta', publicUrl: 'https://app.example/t/beta', version: 1 },
+      session: { database },
+      slug: 'beta',
+      tenantId: 'tenant-b',
+    };
     const second = await getTenantAuth();
     expect(second).not.toBe(first);
 
@@ -60,7 +74,11 @@ describe('auth', () => {
         cookiePrefix: tenantCookiePrefix('tenant-a'),
         database,
         secondaryStorageNamespace: 't:tenant-a',
-        tenant: { id: 'tenant-a', slug: 'acme' },
+        tenant: {
+          endpoint: { basePath: '/t/acme', publicUrl: 'https://app.example/t/acme', version: 1 },
+          id: 'tenant-a',
+          slug: 'acme',
+        },
       }),
     );
     expect(tenantCookiePrefix('tenant-a')).toMatch(/^lh_[\da-f]{24}$/);
@@ -69,11 +87,21 @@ describe('auth', () => {
 
   it('rebuilds the instance when the runtime replaces the tenant database session', async () => {
     // A datasource update yields a new session; the old one's pool is retired.
-    mocks.scope = { session: { database: {} }, slug: 'acme', tenantId: 'tenant-a' };
+    mocks.scope = {
+      endpoint: { basePath: '/t/acme', publicUrl: 'https://app.example/t/acme', version: 1 },
+      session: { database: {} },
+      slug: 'acme',
+      tenantId: 'tenant-a',
+    };
     const stale = await getTenantAuth();
 
     const database = {};
-    mocks.scope = { session: { database }, slug: 'acme', tenantId: 'tenant-a' };
+    mocks.scope = {
+      endpoint: { basePath: '/t/acme', publicUrl: 'https://app.example/t/acme', version: 1 },
+      session: { database },
+      slug: 'acme',
+      tenantId: 'tenant-a',
+    };
     const current = await getTenantAuth();
 
     expect(current).not.toBe(stale);

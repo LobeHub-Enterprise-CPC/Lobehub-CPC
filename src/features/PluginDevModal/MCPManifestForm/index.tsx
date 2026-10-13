@@ -1,3 +1,4 @@
+import { buildAppUrl } from '@lobechat/business-tenant/client';
 import { type LobeToolCustomPlugin } from '@lobechat/types';
 import { Flexbox } from '@lobehub/ui';
 import { Alert, Button, Divider, Input, InputPassword, RadioGroup } from '@lobehub/ui/base-ui';
@@ -9,7 +10,6 @@ import { useTranslation } from 'react-i18next';
 import KeyValueEditor from '@/components/KeyValueEditor';
 import MCPStdioCommandInput from '@/components/MCPStdioCommandInput';
 import ErrorDetails from '@/features/MCP/MCPInstallProgress/InstallError/ErrorDetails';
-import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { lambdaClient } from '@/libs/trpc/client';
 import { useToolStore } from '@/store/tool';
 import { mcpStoreSelectors, pluginSelectors } from '@/store/tool/selectors';

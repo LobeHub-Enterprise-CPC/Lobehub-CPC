@@ -397,9 +397,12 @@ export const ssoRevisionKey = (providers: TenantSsoProvider[]) =>
     ]),
   );
 
-/** The callback a tenant's identity provider redirects to (FR-ID-09, A15). */
-export const tenantSsoCallbackPath = (tenantSlug: string, providerId: string) =>
-  `/t/${tenantSlug}/api/auth/callback/${encodeURIComponent(providerId)}`;
+/**
+ * App path of the callback a tenant's identity provider redirects to (FR-ID-09,
+ * A15); mount it on the tenant's active entry with `buildTenantPublicUrl`.
+ */
+export const tenantSsoCallbackPath = (providerId: string) =>
+  `/api/auth/callback/${encodeURIComponent(providerId)}`;
 
 const stringList = (value: unknown) =>
   Array.isArray(value) && value.every((item) => typeof item === 'string')

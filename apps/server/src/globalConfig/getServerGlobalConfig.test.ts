@@ -10,7 +10,13 @@ interface CapturedProviderConfig {
 }
 
 const mocks = vi.hoisted(() => ({
-  tenant: undefined as { slug: string; tenantId: string } | undefined,
+  tenant: undefined as
+    | {
+        endpoint: { basePath: string; publicUrl: string; version: number };
+        slug: string;
+        tenantId: string;
+      }
+    | undefined,
   genServerAiProvidersConfig: vi.fn(
     async (_specificConfig: Record<string, CapturedProviderConfig>) => ({}),
   ),
@@ -304,8 +310,12 @@ describe('getServerGlobalConfig', () => {
     );
   });
 
-  it('should expose the current tenant OIDC issuer derived from APP_URL, as the provider does', async () => {
-    mocks.tenant = { slug: 'acme', tenantId: 'tenant-acme' };
+  it("should expose the issuer on the tenant's active entry, as the provider does", async () => {
+    mocks.tenant = {
+      endpoint: { basePath: '/t/acme', publicUrl: 'https://chat.example.com/t/acme', version: 1 },
+      slug: 'acme',
+      tenantId: 'tenant-acme',
+    };
     await expect(
       loadServerConfig(false, { appUrl: 'https://chat.example.com/' }),
     ).resolves.toHaveProperty('oidcIssuer', 'https://chat.example.com/t/acme/oidc');

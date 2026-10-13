@@ -1,5 +1,6 @@
 'use client';
 
+import { buildAppUrl } from '@lobechat/business-tenant/client';
 import { type LobehubSkillProviderType } from '@lobechat/const';
 import { Center, DropdownMenu, Flexbox, Icon, Tooltip } from '@lobehub/ui';
 import { Avatar, Button, Button as LobeButton, confirmModal } from '@lobehub/ui/base-ui';
@@ -11,7 +12,6 @@ import { useTranslation } from 'react-i18next';
 import NavItem from '@/features/NavPanel/components/NavItem';
 import { createLobehubSkillDetailModal } from '@/features/SkillStore/SkillDetail';
 import { usePermission } from '@/hooks/usePermission';
-import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { useToolStore } from '@/store/tool';
 import { type LobehubSkillServer } from '@/store/tool/slices/lobehubSkillStore/types';
 import { LobehubSkillStatus } from '@/store/tool/slices/lobehubSkillStore/types';

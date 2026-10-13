@@ -1,6 +1,5 @@
+import { getAppBaseUrl } from '@lobechat/business-tenant/client';
 import { buildRemoteUrl, relativeToRemoteBase } from '@lobechat/utils/remoteUrl';
-
-import { getAppBaseUrl } from '@/libs/tenant/appBaseUrl';
 
 import { getRegisteredAttachment } from './attachmentRegistry';
 

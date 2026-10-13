@@ -3,6 +3,8 @@ import { parseTenantPath, withTenantPath } from './path';
 /** Public routing context only; server admission establishes the trusted tenant identity. */
 export interface TenantContext {
   readonly basePath: string;
+  /** The tenant's active public address (`https://host/t/acme` or a custom domain), when bootstrapped by the server. */
+  readonly publicUrl?: string;
   readonly slug: string;
 }
 

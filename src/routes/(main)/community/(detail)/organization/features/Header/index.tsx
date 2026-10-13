@@ -1,6 +1,7 @@
 'use client';
 
 import { SiGithub, SiX } from '@icons-pack/react-simple-icons';
+import { resolveAppUrl } from '@lobechat/business-tenant/client';
 import { Flexbox, Tooltip, TooltipGroup } from '@lobehub/ui';
 import { ActionIcon, Avatar, Tag, Text } from '@lobehub/ui/base-ui';
 import { cssVar } from 'antd-style';
@@ -8,7 +9,6 @@ import { Globe } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { resolveAppUrl } from '@/libs/tenant/appBaseUrl';
 import FollowButton from '@/routes/(main)/community/(detail)/features/FollowButton';
 
 import { useOrganizationDetailContext } from '../DetailProvider';

@@ -1,13 +1,11 @@
 import { assertBusinessUserAccess, isBusinessAuthorizationError } from '@lobechat/business-auth';
-import { withTenantPath } from '@lobechat/business-tenant/routing';
 import type { LobeChatDatabase } from '@lobechat/database';
+import type { TenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 import type { Configuration, KoaContextWithOIDC } from 'oidc-provider';
 import Provider, { errors } from 'oidc-provider';
-import urlJoin from 'url-join';
 
 import { UserModel } from '@/database/models/user';
-import { appEnv } from '@/envs/app';
 import { getJWKS } from '@/libs/oidc-provider/jwt';
 import { OIDC_ISSUER_PATH, OIDC_ROUTES } from '@/libs/oidc-provider/routes';
 import { TENANT_ID_CLAIM } from '@/libs/trpc/utils/tenantBinding';
@@ -58,16 +56,11 @@ export const oidcArtifactTTL = {
  */
 export const createOIDCProvider = async (
   db: LobeChatDatabase,
-  tenantSlug?: string,
-  tenantId?: string,
-  endpoint?: { basePath: string; publicUrl: string; version: number },
+  { endpoint, tenantId }: Pick<TenantScope, 'endpoint' | 'tenantId'>,
 ): Promise<Provider> => {
+  // Routes, cookies and redirects live under the tenant's active entry.
   const tenantPath = (path: string) =>
-    endpoint
-      ? path === '/'
-        ? endpoint.basePath || '/'
-        : `${endpoint.basePath}${path}`
-      : withTenantPath(path, tenantSlug);
+    path === '/' ? endpoint.basePath || '/' : `${endpoint.basePath}${path}`;
   // Get JWKS
   const jwks = getJWKS();
 
@@ -110,7 +103,7 @@ export const createOIDCProvider = async (
 
     // 1. Client configuration
     clients: defaultClients.map((client) =>
-      client.client_id === 'lobehub-desktop' && endpoint
+      client.client_id === 'lobehub-desktop'
         ? {
             ...client,
             redirect_uris: [
@@ -132,7 +125,7 @@ export const createOIDCProvider = async (
     // Tenants share one signing key, so the JWT access token itself must say
     // which tenant issued it; `validateOIDCJWT` rejects any other tenant. The id
     // is fixed when this tenant's provider is created, not read per request.
-    extraTokenClaims: async () => (tenantId ? { [TENANT_ID_CLAIM]: tenantId } : undefined),
+    extraTokenClaims: async () => ({ [TENANT_ID_CLAIM]: tenantId }),
 
     // Added: ensure ID Token includes claims for all scopes, not just openid scope
     conformIdTokenClaims: false,
@@ -368,9 +361,7 @@ export const createOIDCProvider = async (
 
   // Create provider instance
   // Future activation UI must warn that changing the active entry changes issuer and migrates clients.
-  const baseUrl = endpoint
-    ? `${endpoint.publicUrl}${OIDC_ISSUER_PATH}`
-    : urlJoin(appEnv.APP_URL!, tenantPath(OIDC_ISSUER_PATH));
+  const baseUrl = `${endpoint.publicUrl}${OIDC_ISSUER_PATH}`;
 
   const provider = new Provider(baseUrl, configuration);
   provider.proxy = true;

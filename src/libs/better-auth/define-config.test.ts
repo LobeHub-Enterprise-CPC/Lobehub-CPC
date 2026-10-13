@@ -118,7 +118,11 @@ const tenantOptions = () => ({
   plugins: [],
   secondaryStorageNamespace: 'tenant-1',
   socialProviders: {},
-  tenant: { id: 'tenant-1', slug: 'acme' },
+  tenant: {
+    endpoint: { basePath: '/t/acme', publicUrl: 'https://example.com/t/acme', version: 1 },
+    id: 'tenant-1',
+    slug: 'acme',
+  },
 });
 
 describe('defineConfig', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseTenantPath, stripTenantPath, withTenantPath } from '../path';
+import { mapTenantAppPath, parseTenantPath, stripTenantPath, withTenantPath } from '../path';
 
 describe('parseTenantPath', () => {
   it('splits a tenant-prefixed path', () => {
@@ -88,5 +88,12 @@ describe('withTenantPath', () => {
 
   it('round-trips with stripTenantPath', () => {
     expect(stripTenantPath(withTenantPath('/agent/1', 'acme'))).toBe('/agent/1');
+  });
+});
+
+describe('mapTenantAppPath', () => {
+  it('rewrites the app path and keeps the tenant prefix', () => {
+    expect(mapTenantAppPath('/t/acme/agent', (p) => `/ws${p}`)).toBe('/t/acme/ws/agent');
+    expect(mapTenantAppPath('/agent', (p) => `/ws${p}`)).toBe('/ws/agent');
   });
 });

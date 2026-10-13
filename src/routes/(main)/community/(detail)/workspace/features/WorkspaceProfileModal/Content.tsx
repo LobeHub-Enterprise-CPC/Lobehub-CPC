@@ -1,5 +1,6 @@
 'use client';
 
+import { resolveAppUrl } from '@lobechat/business-tenant/client';
 import { OFFICIAL_URL } from '@lobechat/const';
 import { Center, Flexbox, Icon, Tooltip } from '@lobehub/ui';
 import {
@@ -26,7 +27,6 @@ import {
   updateCommunityWorkspaceProfile,
 } from '@/business/client/services/communityWorkspaceProfile';
 import AvatarUpload from '@/components/AvatarUpload';
-import { resolveAppUrl } from '@/libs/tenant/appBaseUrl';
 import { useFileStore } from '@/store/file';
 import type { DiscoverUserInfo } from '@/types/discover';
 

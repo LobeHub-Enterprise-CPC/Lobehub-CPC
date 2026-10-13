@@ -50,10 +50,15 @@ vi.mock('./config', () => ({
 }));
 vi.mock('./cookies', () => ({ getOIDCCookieKeys: () => ['test-secret'] }));
 vi.mock('./interaction-policy', () => ({ createInteractionPolicy: () => [] }));
+const acme = {
+  endpoint: { basePath: '/t/acme', publicUrl: 'http://localhost:3000/t/acme', version: 1 },
+  tenantId: 'tenant-acme',
+};
+
 beforeEach(async () => {
   state.access.mockResolvedValue(undefined);
   state.findUser.mockResolvedValue({ id: 'alice', email: 'current@example.com', banned: false });
-  await createOIDCProvider({} as never);
+  await createOIDCProvider({} as never, acme);
 });
 it.each([403, 503])(
   'findAccount preserves platform %s for provider token/refresh/userinfo consumers',
@@ -83,7 +88,7 @@ it('findAccount reports unavailable when the current user lookup fails', async (
 });
 
 it('keeps the issuer, device endpoints, cookies and redirects within a tenant', async () => {
-  await createOIDCProvider({} as never, 'acme');
+  await createOIDCProvider({} as never, acme);
   expect(state.issuer).toBe('http://localhost:3000/t/acme/oidc');
   expect(state.config.routes.device_authorization).toBe('/t/acme/oidc/device/auth');
   expect(state.config.cookies.long.path).toBe('/t/acme');
@@ -97,7 +102,7 @@ it('keeps the issuer, device endpoints, cookies and redirects within a tenant', 
 });
 
 it('stamps the owning tenant id on every access token its provider issues', async () => {
-  await createOIDCProvider({} as never, 'acme', 'tenant-acme');
+  await createOIDCProvider({} as never, acme);
   expect(await state.config.extraTokenClaims({ oidc: {} }, {})).toEqual({ tid: 'tenant-acme' });
 });
 
@@ -110,7 +115,7 @@ it.each([
   },
   { basePath: '', publicUrl: 'https://chat.example.com', version: 2, cookiePath: '/' },
 ])('uses canonical issuer, cookie path and protocol routes on $publicUrl', async (endpoint) => {
-  await createOIDCProvider({} as never, 'acme', 'tenant-acme', endpoint);
+  await createOIDCProvider({} as never, { endpoint, tenantId: 'tenant-acme' });
   expect(state.issuer).toBe(`${endpoint.publicUrl}/oidc`);
   expect(state.config.cookies.long.path).toBe(endpoint.cookiePath);
   expect(state.config.cookies.short.path).toBe(endpoint.cookiePath);
@@ -135,8 +140,13 @@ it.each([
 
 it('deduplicates canonical desktop callbacks without mutating another tenant provider', async () => {
   const endpoint = { basePath: '', publicUrl: 'https://lobehub.com', version: 1 };
-  await createOIDCProvider({} as never, 'acme', 'tenant-acme', endpoint);
+  await createOIDCProvider({} as never, { endpoint, tenantId: 'tenant-acme' });
   expect(state.config.clients[0].redirect_uris).toHaveLength(3);
-  await createOIDCProvider({} as never);
-  expect(state.config.clients[0].redirect_uris).toHaveLength(3);
+  await createOIDCProvider({} as never, acme);
+  expect(state.config.clients[0].redirect_uris).toEqual([
+    'https://app.lobehub.com/oidc/callback/desktop',
+    'https://lobehub.com/oidc/callback/desktop',
+    'http://localhost:3210/oidc/callback/desktop',
+    'http://localhost:3000/t/acme/oidc/callback/desktop',
+  ]);
 });

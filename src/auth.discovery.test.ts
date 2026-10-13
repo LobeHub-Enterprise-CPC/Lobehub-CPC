@@ -15,12 +15,16 @@ const mocks = vi.hoisted(() => ({
     handler: vi.fn(),
   })),
   fetch: vi.fn<typeof ssrfSafeFetch>(),
-  scope: null as null | { session: { database: object }; slug: string; tenantId: string },
+  scope: null as null | {
+    endpoint: { basePath: string; publicUrl: string; version: number };
+    session: { database: object };
+    slug: string;
+    tenantId: string;
+  },
 }));
 
 vi.mock('@/libs/better-auth/define-config', () => ({
   defineConfig: mocks.defineConfig,
-  tenantAuthBasePath: (slug: string) => `/t/${slug}/api/auth`,
 }));
 vi.mock('@lobechat/ssrf-safe-fetch', () => ({ ssrfSafeFetch: mocks.fetch }));
 vi.mock('@lobechat/database/tenant', async (importOriginal) => ({
@@ -68,6 +72,7 @@ beforeEach(() => {
   };
   const query = { from: () => query, orderBy: async () => [row], where: () => query };
   mocks.scope = {
+    endpoint: { basePath: '/t/acme', publicUrl: 'https://app.example/t/acme', version: 1 },
     session: { database: { select: () => query } },
     slug: 'acme',
     tenantId: 'tenant-discovery',

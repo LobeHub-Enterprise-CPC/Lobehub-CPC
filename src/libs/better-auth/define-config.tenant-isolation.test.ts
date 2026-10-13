@@ -39,6 +39,12 @@ beforeAll(async () => {
   );
 });
 
+const entryOf = (id: string) => ({
+  basePath: `/t/${id}`,
+  publicUrl: `http://localhost:3010/t/${id}`,
+  version: 1,
+});
+
 const tenantAuth = async (id: string) =>
   defineConfig({
     cookiePrefix: `lh_${id}`,
@@ -47,7 +53,7 @@ const tenantAuth = async (id: string) =>
     plugins: [],
     secondaryStorageNamespace: `t:${id}`,
     socialProviders: {},
-    tenant: { id, slug: id },
+    tenant: { endpoint: entryOf(id), id, slug: id },
   });
 
 type TenantAuth = Awaited<ReturnType<typeof tenantAuth>>;
@@ -57,6 +63,7 @@ const inTenant = async <T>(id: string, operation: () => Promise<T>): Promise<T> 
   const database = await getTestDB();
   return runWithTenantScope(
     {
+      endpoint: entryOf(id),
       session: { database, run: async () => undefined, schemaName: `tenant_${id}`, tenantId: id },
       slug: id,
       tenantId: id,

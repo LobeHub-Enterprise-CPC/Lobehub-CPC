@@ -1,14 +1,12 @@
 'use client';
 
-import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
+import { resolveAppUrl, withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { Flexbox, Tooltip, TooltipGroup } from '@lobehub/ui';
 import { ActionIcon, Avatar, Button, Skeleton, Text } from '@lobehub/ui/base-ui';
 import { cssVar } from 'antd-style';
 import { ExternalLink, Globe, Settings } from 'lucide-react';
 import { memo, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-
-import { resolveAppUrl } from '@/libs/tenant/appBaseUrl';
 
 import { useWorkspaceDetailContext } from '../DetailProvider';
 import Banner from './Banner';

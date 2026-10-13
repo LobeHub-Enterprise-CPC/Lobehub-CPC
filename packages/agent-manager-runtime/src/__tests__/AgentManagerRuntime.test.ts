@@ -62,10 +62,6 @@ const mockAgentMeta = {
   title: 'Test Agent',
 };
 
-vi.mock('@/libs/tenant/appBaseUrl', () => ({
-  buildAppUrl: (path: string) => `https://app.example/t/acme${path}`,
-}));
-
 vi.mock('@/store/agent', () => ({
   getAgentStoreState: vi.fn(() => ({
     agentMap: { 'agent-id': mockAgentConfig },

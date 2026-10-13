@@ -1,9 +1,7 @@
 import { ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
-import { withTenantPath } from '@lobechat/business-tenant/routing';
 import { parseToolNameMaxLength } from '@lobechat/const/plugin';
 import { currentTenantScope } from '@lobechat/database/tenant';
 import { ModelProvider } from 'model-bank';
-import urlJoin from 'url-join';
 
 import { composioEnv } from '@/config/composio';
 import { isDesktop } from '@/const/version';
@@ -189,9 +187,7 @@ export const getServerGlobalConfig = async () => {
     oAuthSSOProviders: [],
     ...(appEnv.APP_URL && tenant
       ? {
-          oidcIssuer: tenant.endpoint
-            ? `${tenant.endpoint.publicUrl}${OIDC_ISSUER_PATH}`
-            : urlJoin(appEnv.APP_URL, withTenantPath(OIDC_ISSUER_PATH, tenant.slug)),
+          oidcIssuer: `${tenant.endpoint.publicUrl}${OIDC_ISSUER_PATH}`,
         }
       : undefined),
     systemAgent: parseSystemAgent(appEnv.SYSTEM_AGENT),

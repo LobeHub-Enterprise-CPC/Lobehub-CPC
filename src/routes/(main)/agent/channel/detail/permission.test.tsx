@@ -108,8 +108,9 @@ vi.mock('@/store/agent', () => ({
     }),
 }));
 
-vi.mock('@/hooks/useAppOrigin', () => ({
-  useAppOrigin: () => 'https://example.test',
+vi.mock('@lobechat/business-tenant/client', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useAppBaseUrl: () => 'https://example.test',
 }));
 
 vi.mock('@lobehub/ui/base-ui', async (importOriginal) => ({

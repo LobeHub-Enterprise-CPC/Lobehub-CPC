@@ -1,5 +1,6 @@
 'use client';
 
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import {
   AGENT_ARTWORK_STYLES,
   type AgentArtworkStyle,
@@ -26,7 +27,6 @@ import {
   openAgentArtworkStudio,
   styleReferencesForArtworkStyle,
 } from '@/features/AgentArtworkStudio';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { resolveArtworkReferenceSource } from '@/services/artworkGeneration';
 import { useAgentStore } from '@/store/agent';
 import { agentArtworkSelectors } from '@/store/agent/selectors';
@@ -223,7 +223,7 @@ export const AgentProfileArtwork = memo<AgentProfileArtworkProps>(
     onBackgroundChange,
   }) => {
     const { t } = useTranslation('setting');
-    const appOrigin = useAppOrigin();
+    const appOrigin = useAppBaseUrl();
     const uploadWithProgress = useFileStore((s) => s.uploadWithProgress);
     const canGenerate = useAiInfraStore(
       (state) => aiProviderSelectors.enabledImageModelList(state).length > 0,

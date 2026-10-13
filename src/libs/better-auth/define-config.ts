@@ -4,6 +4,7 @@ import { configureBusinessAuth, managedBusinessSSO } from '@lobechat/business-au
 import { BRANDING_NAME } from '@lobechat/business-const';
 import { createNanoId, idGenerator, type LobeChatDatabase } from '@lobechat/database';
 import * as schema from '@lobechat/database/schemas';
+import type { TenantScope } from '@lobechat/database/tenant';
 import bcrypt from 'bcryptjs';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { APIError } from 'better-auth/api';
@@ -21,7 +22,6 @@ import { type SocialProviders } from 'better-auth/social-providers';
 import { type BetterAuthPlugin } from 'better-auth/types';
 import { EnvHttpProxyAgent, setGlobalDispatcher } from 'undici';
 
-import { appEnv } from '@/envs/app';
 import { authEnv } from '@/envs/auth';
 import {
   getChangeEmailVerificationTemplate,
@@ -88,10 +88,10 @@ const OTP_EXPIRES_IN = 300;
 const enableMagicLink = authEnv.AUTH_ENABLE_MAGIC_LINK;
 
 export interface TenantAuthTarget {
-  endpoint?: { basePath: string; publicUrl: string; version: number };
+  /** The tenant's active public entry: auth endpoints and cookies live under it. */
+  endpoint: TenantScope['endpoint'];
   /** Immutable tenant id: keys the cookie prefix and the session cache. */
   id: string;
-  /** URL name the auth endpoints are mounted under: `/t/{slug}/api/auth`. */
   slug: string;
 }
 
@@ -115,14 +115,11 @@ interface CustomBetterAuthOptions {
   tenant: TenantAuthTarget;
 }
 
-/** Every auth endpoint and cookie of a tenant lives under its path (spec A16, FR-ID-10). */
-export const tenantAuthBasePath = (slug: string) => `/t/${slug}/api/auth`;
-
 export function defineConfig(customOptions: CustomBetterAuthOptions) {
   const { database, genericOAuthProviders, socialProviders, tenant } = customOptions;
 
-  const publicOrigin = tenant.endpoint ? new URL(tenant.endpoint.publicUrl).origin : appEnv.APP_URL;
-  const tenantBase = tenant.endpoint?.basePath ?? `/t/${tenant.slug}`;
+  const publicOrigin = new URL(tenant.endpoint.publicUrl).origin;
+  const tenantBase = tenant.endpoint.basePath;
   const options = {
     account: {
       accountLinking: {

@@ -45,8 +45,9 @@ vi.mock('@/business/client/hooks/useTaskTransferMenuItem', () => ({
   useTaskTransferMenuItem: () => mocks.transferItems,
 }));
 
-vi.mock('@/hooks/useAppOrigin', () => ({
-  useAppOrigin: () => 'https://example.com',
+vi.mock('@lobechat/business-tenant/client', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useAppBaseUrl: () => 'https://example.com',
 }));
 
 vi.mock('@/store/agent', () => ({

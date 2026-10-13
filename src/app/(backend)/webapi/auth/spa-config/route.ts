@@ -18,12 +18,14 @@ const handleGet = async () => {
   const { disableEmailPassword, enableEmailVerification, enableMagicLink } = getServerAuthConfig();
   // The tenant's own providers (spec A8); ids only, never their configuration.
   const oAuthSSOProviders = (await getTenantSsoProviders()).map((provider) => provider.providerId);
+  const { endpoint, slug } = requireTenantScope();
 
   return Response.json(
     {
       tenant: {
-        slug: requireTenantScope().slug,
-        basePath: requireTenantScope().endpoint?.basePath ?? `/t/${requireTenantScope().slug}`,
+        basePath: endpoint.basePath,
+        publicUrl: endpoint.publicUrl,
+        slug,
       },
       analyticsConfig: buildAnalyticsConfig(),
       config: {

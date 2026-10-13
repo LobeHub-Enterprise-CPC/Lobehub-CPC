@@ -1,3 +1,4 @@
+import { buildAppUrl } from '@lobechat/business-tenant/client';
 import { Flexbox, Icon, stopPropagation } from '@lobehub/ui';
 import { Checkbox, Spin } from '@lobehub/ui/base-ui';
 import { SquareArrowOutUpRight } from 'lucide-react';
@@ -6,7 +7,6 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { usePermission } from '@/hooks/usePermission';
-import { buildAppUrl } from '@/libs/tenant/appBaseUrl';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { useToolStore } from '@/store/tool';

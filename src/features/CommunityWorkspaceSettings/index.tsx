@@ -1,5 +1,6 @@
 'use client';
 
+import { resolveAppUrl } from '@lobechat/business-tenant/client';
 import { OFFICIAL_URL } from '@lobechat/const';
 import { Block, Center, Flexbox, Icon, Tooltip } from '@lobehub/ui';
 import {
@@ -50,7 +51,6 @@ import {
 import EmojiPicker from '@/components/EmojiPicker';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { usePermission } from '@/hooks/usePermission';
-import { resolveAppUrl } from '@/libs/tenant/appBaseUrl';
 import { useFileStore } from '@/store/file';
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024;

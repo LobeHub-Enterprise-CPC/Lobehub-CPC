@@ -1,3 +1,4 @@
+import { initializeTenant } from '@lobechat/business-tenant/client';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -29,6 +30,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
+  initializeTenant(new URL('http://localhost/'));
 
   // Reset store state
   useUserStore.setState({
@@ -55,6 +57,8 @@ describe('createAuthSlice', () => {
   });
 
   it.each(['logout', 'openLogin'] as const)('keeps the tenant on %s redirects', async (action) => {
+    // The page's tenant context, as the app entry initializes it at boot.
+    initializeTenant(new URL('http://localhost/t/acme/agent'));
     const originalLocation = window.location;
     Object.defineProperty(window, 'location', {
       configurable: true,
@@ -86,6 +90,7 @@ describe('createAuthSlice', () => {
 
   describe('logout', () => {
     it('shares an in-progress sign-out and retains its original tenant redirect', async () => {
+      initializeTenant(new URL('http://localhost/t/acme/agent'));
       let resolveCleanup!: (response: Response) => void;
       const fetch = vi.spyOn(globalThis, 'fetch').mockImplementationOnce(
         () =>

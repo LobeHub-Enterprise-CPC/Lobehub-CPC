@@ -1,10 +1,9 @@
-import { parseTenantPath, withTenantPath } from '@lobechat/business-tenant/routing';
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 
-/** Sign-in under the same tenant entry, returning to `current` once signed in. */
+/** Sign-in under the page's tenant entry, returning to `current` once signed in. */
 export const signInUrlFor = (current: URL): string => {
-  const { tenantSlug } = parseTenantPath(current.pathname);
   const params = new URLSearchParams({ callbackUrl: current.href });
-  return withTenantPath(`/signin?${params.toString()}`, tenantSlug);
+  return withCurrentTenantPath(`/signin?${params.toString()}`);
 };
 
 export const redirectToSignIn = () => {
