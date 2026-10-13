@@ -21,7 +21,7 @@ interface DirectoryEntry {
  * commit when `fn` resolves, matching the rollback behaviour of the real one.
  */
 export class MemoryControlPlaneRepository implements ControlPlaneRepository {
-  stopBlockers = new Map<string, 'LIFECYCLE_CUTOVER_REQUIRED' | 'LIFECYCLE_STOP_UNCONFIRMED'>();
+  stopBlockers = new Map<string, 'LIFECYCLE_STOP_UNCONFIRMED'>();
   directory = new Map<string, DirectoryEntry>();
   events = new Map<string, LifecycleEventRecord>();
   lifecycles = new Map<string, TenantLifecycleRecord>();

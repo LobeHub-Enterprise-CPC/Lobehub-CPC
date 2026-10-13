@@ -28,7 +28,6 @@ export const SAFE_ERROR_CODES = [
   'DATASOURCE_VERSION_CONFLICT',
   'CREDENTIALS_UNAVAILABLE',
   'LIFECYCLE_FAILED',
-  'LIFECYCLE_CUTOVER_REQUIRED',
   'LIFECYCLE_STOP_UNCONFIRMED',
   'LIFECYCLE_STOP_FAILED',
   'LIFECYCLE_DRAIN_FAILED',
@@ -46,7 +45,6 @@ export type SafeErrorCode = (typeof SAFE_ERROR_CODES)[number];
  * byte-identically here); a unit test binds this table to it.
  */
 export const LIFECYCLE_FAILURE_CODES = {
-  LIFECYCLE_CUTOVER_REQUIRED: 'action_required',
   LIFECYCLE_DRAIN_FAILED: 'retryable',
   LIFECYCLE_FAILED: 'retryable',
   LIFECYCLE_RESUME_FAILED: 'retryable',

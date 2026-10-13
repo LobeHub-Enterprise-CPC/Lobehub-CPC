@@ -116,41 +116,6 @@ describe('control-plane router', () => {
     });
   });
 
-  it('answers 409 with its code when a lifecycle POST fails for an operator-fixable reason', async () => {
-    const failed = {
-      acceptedVersion: 2,
-      appliedVersion: 1,
-      errorCode: 'LIFECYCLE_CUTOVER_REQUIRED',
-      eventId: 'evt-1',
-      observedAt: new Date().toISOString(),
-      status: 'failed',
-      tenantId: TENANT,
-      version: 2,
-    };
-    const app = createControlPlaneApp({
-      service: () =>
-        ({ receiveLifecycle: async () => failed }) as unknown as TenantControlPlaneService,
-      tokenDigest: parseControlPlaneToken(TOKEN),
-    });
-    const res = await app.fetch(
-      new Request(`${BASE}/tenant-lifecycle`, {
-        body: JSON.stringify({
-          desiredState: 'frozen',
-          eventId: 'evt-1',
-          expiresAt: null,
-          freezeReasons: ['manual'],
-          occurredAt: new Date().toISOString(),
-          tenantId: TENANT,
-          version: 2,
-        }),
-        headers: { 'authorization': `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-        method: 'POST',
-      }),
-    );
-    expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ ...failed, code: 'LIFECYCLE_CUTOVER_REQUIRED' });
-  });
-
   it.each(endpoints)('refuses a wrong token for $method $path', async ({ method, path }) => {
     const { call } = setup();
     const res = await call(path, {

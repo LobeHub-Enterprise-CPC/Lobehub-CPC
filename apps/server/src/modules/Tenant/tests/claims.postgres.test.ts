@@ -172,13 +172,15 @@ describe.skipIf(!configured)('strict stop across real OS processes and PostgreSQ
     }
   });
 
-  it('refuses to certify an empty table before legacy-worker cutover', async () => {
-    await expect(waitForTenantClaims('historical', 50, db as any)).rejects.toThrow(
-      'CUTOVER_REQUIRED',
-    );
-    await pool.query(
-      "INSERT INTO tenant_runtime_cutover(id,enforced_at,evidence,build_ref) VALUES('strict-stop',now(),'isolated fixture contains only owned new workers','test')",
-    );
+  it('certifies a tenant with no claims and no external work without any deployment cutover record', async () => {
+    expect(
+      (
+        await pool.query(
+          "SELECT count(*) FROM information_schema.tables WHERE table_name = 'tenant_runtime_cutover'",
+        )
+      ).rows[0].count,
+    ).toBe('0');
+    await expect(waitForTenantClaims('historical', 50, db as any)).resolves.toBeUndefined();
   });
 
   it('retains delayed work in two processes, rejects new work, and leaves another tenant running', async () => {

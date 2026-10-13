@@ -1,10 +1,6 @@
 {
   "$comment": "Canonical lifecycle failure codes of the tenant control plane. Owned by Console; Admin and LobeHub (CPC) keep byte-identical copies at the same path. Edit here, copy to both, then run `bun run contracts:check` in Console. A failed tenant-lifecycle POST answers action_required with 409 and retryable with 503 + Retry-After.",
   "codes": {
-    "LIFECYCLE_CUTOVER_REQUIRED": {
-      "disposition": "action_required",
-      "producers": ["admin", "lobehub"]
-    },
     "LIFECYCLE_DATASOURCE_MISSING": { "disposition": "action_required", "producers": ["admin"] },
     "LIFECYCLE_DRAIN_FAILED": { "disposition": "retryable", "producers": ["admin", "lobehub"] },
     "LIFECYCLE_FAILED": { "disposition": "retryable", "producers": ["admin", "lobehub"] },

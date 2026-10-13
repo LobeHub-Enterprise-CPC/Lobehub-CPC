@@ -569,23 +569,9 @@ describe('executeLifecycle', () => {
     expect((await service.executeLifecycle(TENANT, 'evt-1', h)).status).toBe('applied');
   });
 
-  it('refuses applied without the strict-stop cutover record', async () => {
-    await service.receiveLifecycle(lifecycle());
-    repo.stopBlockers.set(TENANT, 'LIFECYCLE_CUTOVER_REQUIRED');
-    expect(await service.executeLifecycle(TENANT, 'evt-1', hooks())).toMatchObject({
-      errorCode: 'LIFECYCLE_CUTOVER_REQUIRED',
-      status: 'failed',
-    });
-  });
-
   it.each([
     ['closeRealtime', new Error('socket'), 'LIFECYCLE_STOP_FAILED'],
     ['stopQueue', new Error('queue'), 'LIFECYCLE_STOP_FAILED'],
-    [
-      'drainTransactions',
-      new LifecycleFailure('LIFECYCLE_CUTOVER_REQUIRED'),
-      'LIFECYCLE_CUTOVER_REQUIRED',
-    ],
     [
       'drainTransactions',
       new LifecycleFailure('LIFECYCLE_STOP_UNCONFIRMED'),

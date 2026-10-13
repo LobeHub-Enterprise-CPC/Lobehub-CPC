@@ -6,7 +6,6 @@ import {
   tenantDirectory,
   tenantLifecycle,
   tenantRuntimeClaim,
-  tenantRuntimeCutover,
   tenantRuntimeExternalWork,
   tenantRuntimeProcess,
 } from '@lobechat/database/platform';
@@ -101,11 +100,6 @@ export const waitForTenantClaims = async (
 ) => {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    const [cutover] = await db
-      .select()
-      .from(tenantRuntimeCutover)
-      .where(eq(tenantRuntimeCutover.id, 'strict-stop'));
-    if (!cutover?.enforcedAt) throw new LifecycleFailure('LIFECYCLE_CUTOVER_REQUIRED');
     const remaining = await db
       .select({ processId: tenantRuntimeClaim.processId })
       .from(tenantRuntimeClaim)

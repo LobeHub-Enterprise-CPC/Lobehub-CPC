@@ -110,9 +110,7 @@ export interface ControlPlaneTx {
   putOperationBundle: (operationId: string, bundle: DatasourceBundle | null) => Promise<void>;
   /** Checked under the tenant control lock immediately before applied. */
   /** Why the tenant cannot be certified stopped yet, or null when it is. */
-  tenantStopBlocker: (
-    tenantId: string,
-  ) => Promise<'LIFECYCLE_CUTOVER_REQUIRED' | 'LIFECYCLE_STOP_UNCONFIRMED' | null>;
+  tenantStopBlocker: (tenantId: string) => Promise<'LIFECYCLE_STOP_UNCONFIRMED' | null>;
 }
 
 export interface ControlPlaneRepository {

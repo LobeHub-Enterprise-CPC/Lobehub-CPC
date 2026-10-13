@@ -5,7 +5,6 @@ import {
   tenantLifecycleInbox,
   tenantProvisionOperation,
   tenantRuntimeClaim,
-  tenantRuntimeCutover,
   tenantRuntimeExternalWork,
 } from '@lobechat/database/platform';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
@@ -138,11 +137,6 @@ const toLifecycle = (row: LifecycleRow): TenantLifecycleRecord => ({
 
 const createTx = (tx: Tx): ControlPlaneTx => ({
   tenantStopBlocker: async (tenantId) => {
-    const [cutover] = await tx
-      .select()
-      .from(tenantRuntimeCutover)
-      .where(eq(tenantRuntimeCutover.id, 'strict-stop'));
-    if (!cutover?.enforcedAt) return 'LIFECYCLE_CUTOVER_REQUIRED';
     const claims = await tx
       .select({ id: tenantRuntimeClaim.processId })
       .from(tenantRuntimeClaim)

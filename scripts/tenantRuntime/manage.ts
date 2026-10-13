@@ -1,19 +1,17 @@
-/** Operator tool: status, verified retirement, or explicit legacy-worker cutover. */
+/** Operator tool: runtime status, verified retirement and external-work reconciliation. */
 import 'dotenv/config';
-
-import { readFileSync } from 'node:fs';
 
 import { Pool } from 'pg';
 
 import { verifyTerminatedProcess } from '../../apps/server/src/modules/Tenant/processIdentity';
 
-const [action, app, argument, buildRef] = process.argv.slice(2);
+const [action, app, argument] = process.argv.slice(2);
 if (
   !['lobehub', 'admin'].includes(app) ||
-  !['status', 'retire', 'cutover', 'reconcile-external', 'complete-external'].includes(action)
+  !['status', 'retire', 'reconcile-external', 'complete-external'].includes(action)
 )
   throw new Error(
-    'Usage: bun scripts/tenantRuntime/manage.ts status|retire|cutover|reconcile-external|complete-external lobehub|admin [process-id|evidence-file] [build-ref]',
+    'Usage: bun scripts/tenantRuntime/manage.ts status|retire|reconcile-external|complete-external lobehub|admin [process-id]',
   );
 const prefix = app === 'admin' ? 'admin_runtime' : 'tenant_runtime';
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
@@ -37,7 +35,6 @@ try {
     const claims = await pool.query(
       `SELECT tenant_id,process_id,claimed_version,claimed_at FROM ${prefix}_claim ORDER BY tenant_id`,
     );
-    const cutover = await pool.query(`SELECT enforced_at,build_ref FROM ${prefix}_cutover`);
     const remote =
       app === 'lobehub'
         ? (
@@ -47,51 +44,33 @@ try {
           ).rows
         : [];
     console.log(
-      JSON.stringify(
-        { remote, processes: processes.rows, claims: claims.rows, cutover: cutover.rows },
-        null,
-        2,
-      ),
+      JSON.stringify({ remote, processes: processes.rows, claims: claims.rows }, null, 2),
     );
   } else {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      if (action === 'retire') {
-        const {
-          rows: [row],
-        } = await client.query(
-          `SELECT *, heartbeat_at > now() - interval '15 seconds' AS heartbeat_fresh FROM ${prefix}_process WHERE process_id=$1 FOR UPDATE`,
-          [argument],
-        );
-        if (!row) throw new Error('PROCESS_NOT_FOUND');
-        if (row.heartbeat_fresh) throw new Error('RETIRE_HEARTBEAT_STILL_FRESH');
-        const evidence = verifyTerminatedProcess({
-          pid: row.pid,
-          hostId: row.host_id,
-          bootId: row.boot_id,
-          pidNs: row.pid_ns,
-          pidStartTicks: row.pid_start_ticks,
-        });
-        await client.query(
-          `UPDATE ${prefix}_process SET state='retired',retired_at=now(),retired_evidence=$2 WHERE process_id=$1`,
-          [argument, JSON.stringify(evidence)],
-        );
-        await client.query(`DELETE FROM ${prefix}_claim WHERE process_id=$1`, [argument]);
-        console.log(JSON.stringify({ processId: argument, evidence }));
-      } else {
-        if (!argument || !buildRef)
-          throw new Error(
-            'Cutover requires an evidence file proving legacy replicas stopped, and a build reference',
-          );
-        const evidence = readFileSync(argument, 'utf8').trim();
-        if (evidence.length < 20) throw new Error('CUTOVER_EVIDENCE_REQUIRED');
-        await client.query(
-          `INSERT INTO ${prefix}_cutover(id,enforced_at,evidence,build_ref) VALUES('strict-stop',now(),$1,$2) ON CONFLICT(id) DO UPDATE SET enforced_at=now(),evidence=excluded.evidence,build_ref=excluded.build_ref`,
-          [evidence, buildRef],
-        );
-        console.log(JSON.stringify({ cutover: app, buildRef }));
-      }
+      const {
+        rows: [row],
+      } = await client.query(
+        `SELECT *, heartbeat_at > now() - interval '15 seconds' AS heartbeat_fresh FROM ${prefix}_process WHERE process_id=$1 FOR UPDATE`,
+        [argument],
+      );
+      if (!row) throw new Error('PROCESS_NOT_FOUND');
+      if (row.heartbeat_fresh) throw new Error('RETIRE_HEARTBEAT_STILL_FRESH');
+      const evidence = verifyTerminatedProcess({
+        pid: row.pid,
+        hostId: row.host_id,
+        bootId: row.boot_id,
+        pidNs: row.pid_ns,
+        pidStartTicks: row.pid_start_ticks,
+      });
+      await client.query(
+        `UPDATE ${prefix}_process SET state='retired',retired_at=now(),retired_evidence=$2 WHERE process_id=$1`,
+        [argument, JSON.stringify(evidence)],
+      );
+      await client.query(`DELETE FROM ${prefix}_claim WHERE process_id=$1`, [argument]);
+      console.log(JSON.stringify({ processId: argument, evidence }));
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK');

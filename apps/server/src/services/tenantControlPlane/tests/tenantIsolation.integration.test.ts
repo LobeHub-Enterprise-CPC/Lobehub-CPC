@@ -190,13 +190,6 @@ suite('tenant isolation on PostgreSQL', () => {
       migrationsFolder: path.join(process.cwd(), 'packages/database/migrations/platform'),
     });
 
-    await platformDB.insert(platformSchema.tenantRuntimeCutover).values({
-      id: 'strict-stop',
-      enforcedAt: new Date(),
-      evidence: 'isolated SQL fixture; no legacy replicas',
-      buildRef: 'test',
-    });
-
     chainFolder = fixtureChain();
     const fixture: TenantMigrator = {
       journalTables: ['__drizzle_migrations'],

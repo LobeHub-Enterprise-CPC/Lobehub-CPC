@@ -180,18 +180,6 @@ export const tenantRuntimeClaim = pgTable(
   ],
 );
 
-/** Absent or unenforced means old, unregistered replicas have not been excluded. */
-export const tenantRuntimeCutover = pgTable(
-  'tenant_runtime_cutover',
-  {
-    id: text('id').primaryKey(),
-    enforcedAt: timestamptz('enforced_at'),
-    evidence: text('evidence'),
-    buildRef: text('build_ref'),
-  },
-  (t) => [check('tenant_runtime_cutover_singleton', sql`${t.id} = 'strict-stop'`)],
-);
-
 /** Remote jobs outlive their originating process; retirement must never erase them. */
 export const tenantRuntimeExternalWork = pgTable(
   'tenant_runtime_external_work',
