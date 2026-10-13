@@ -1,4 +1,5 @@
 import { currentTenantRelativePath } from '@lobechat/business-tenant/client';
+import { relativeToRemoteBase } from '@lobechat/utils/remoteUrl';
 
 export const LOBE_FILE_LINK_TAG = 'lobeFileLink';
 
@@ -13,17 +14,50 @@ export interface ParsedFileLink {
   fileId: string;
 }
 
+/**
+ * The path below this app's tenant prefix, or `null` when the pathname belongs
+ * to another tenant.
+ *
+ * A web document knows its tenant from its own URL. The desktop renderer is not
+ * a tenant document: it is served from `app://`, and the tenant is the path of
+ * the remote server address it is connected to (`https://host/t/acme`), so that
+ * address decides which `/t/{slug}` prefix is ours.
+ */
+const appRelativePath = (
+  pathname: string,
+  isRootRelative: boolean,
+  appUrl: URL | undefined,
+): string | null => {
+  if (!appUrl || appUrl.pathname.replaceAll(/\/+$/g, '') === '') {
+    return currentTenantRelativePath(pathname);
+  }
+
+  const below = relativeToRemoteBase(pathname, appUrl);
+  if (below !== null) return below;
+
+  // A root-relative link without a prefix is relative to the app address itself;
+  // one that names another tenant is not ours.
+  return isRootRelative && !/^\/t(?:\/|$)/.test(pathname) ? pathname : null;
+};
+
+/**
+ * @param currentAppUrl The address the app is served from: the page origin on
+ * web, the remote server address on desktop (which may carry a `/t/{slug}`
+ * tenant path). Absolute links must be on its origin to be ours.
+ */
 export const parseFileLinkHref = (
   href: string | undefined,
-  currentOrigin?: string,
+  currentAppUrl?: string,
 ): ParsedFileLink | null => {
   if (!href) return null;
 
   const isRootRelative = href.startsWith('/') && !href.startsWith('//');
   let url: URL;
+  let appUrl: URL | undefined;
 
   try {
-    url = new URL(href, currentOrigin || 'https://lobehub.com');
+    appUrl = currentAppUrl ? new URL(currentAppUrl) : undefined;
+    url = new URL(href, appUrl?.origin || 'https://lobehub.com');
   } catch {
     return null;
   }
@@ -33,16 +67,11 @@ export const parseFileLinkHref = (
   // root-relative href is inherently same-origin; an absolute one needs an
   // explicit origin to compare against, so without one it's left alone.
   if (!isRootRelative) {
-    if (!currentOrigin) return null;
-
-    try {
-      if (url.origin !== new URL(currentOrigin).origin) return null;
-    } catch {
-      return null;
-    }
+    if (!appUrl) return null;
+    if (url.origin !== appUrl.origin) return null;
   }
 
-  const match = currentTenantRelativePath(url.pathname)?.match(FILE_PROXY_PATH_REGEX);
+  const match = appRelativePath(url.pathname, isRootRelative, appUrl)?.match(FILE_PROXY_PATH_REGEX);
   if (!match) return null;
 
   try {

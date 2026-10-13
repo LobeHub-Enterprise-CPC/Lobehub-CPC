@@ -230,6 +230,19 @@ describe('getValidToken', () => {
     });
   });
 
+  it('should refresh against the tenant path of the server', async () => {
+    vi.mocked(loadCredentials).mockReturnValue(expiredCredentials('my-refresh-token'));
+    vi.mocked(resolveServerUrl).mockReturnValueOnce('https://host/t/acme');
+    vi.mocked(fetch).mockResolvedValue({
+      json: vi.fn().mockResolvedValue({ access_token: 'new-token', token_type: 'Bearer' }),
+      ok: true,
+    } as any);
+
+    await getValidToken();
+
+    expect(fetch).toHaveBeenCalledWith('https://host/t/acme/oidc/token', expect.any(Object));
+  });
+
   it('should send correct request to refresh endpoint', async () => {
     vi.mocked(loadCredentials).mockReturnValue(expiredCredentials('my-refresh-token'));
     vi.mocked(resolveServerUrl).mockReturnValueOnce('https://my-server.com');

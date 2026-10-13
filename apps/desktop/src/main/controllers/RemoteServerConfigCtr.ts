@@ -2,6 +2,7 @@ import querystring from 'node:querystring';
 import { URL } from 'node:url';
 
 import type { DataSyncConfig, DesktopBootstrapIdentity } from '@lobechat/electron-client-ipc';
+import { buildRemoteUrl, normalizeRemoteBaseUrl } from '@lobechat/utils/remoteUrl';
 import { safeStorage, session as electronSession } from 'electron';
 
 import { OFFICIAL_CLOUD_SERVER } from '@/const/env';
@@ -53,13 +54,19 @@ export default class RemoteServerConfigCtr extends ControllerModule {
    * Normalize legacy config that used local storageMode.
    * Local mode has been removed; fall back to cloud.
    */
-  private normalizeConfig = (config: DataSyncConfig): DataSyncConfig => {
+  private normalizeConfig = (rawConfig: DataSyncConfig): DataSyncConfig => {
+    // The remote URL is a tenant address that may carry a path prefix (`https://host/t/acme`):
+    // keep the prefix, drop trailing slashes / query / hash so every `${url}/path` join is exact.
+    const remoteServerUrl = normalizeRemoteBaseUrl(rawConfig.remoteServerUrl);
+    const config =
+      remoteServerUrl === rawConfig.remoteServerUrl ? rawConfig : { ...rawConfig, remoteServerUrl };
+
     // Use type assertion to handle legacy 'local' value from stored data
     if ((config.storageMode as string) !== 'local') return config;
 
     const nextConfig: DataSyncConfig = {
       ...config,
-      remoteServerUrl: config.remoteServerUrl || OFFICIAL_CLOUD_SERVER,
+      remoteServerUrl: config.remoteServerUrl || normalizeRemoteBaseUrl(OFFICIAL_CLOUD_SERVER),
       storageMode: 'cloud',
     };
 
@@ -472,10 +479,10 @@ export default class RemoteServerConfigCtr extends ControllerModule {
         return { error: 'No refresh token available', success: false };
       }
 
-      // Construct refresh request
+      // Construct refresh request (the remote URL may carry a tenant path prefix)
       const remoteUrl = await this.getRemoteServerUrl(config);
 
-      const tokenUrl = new URL('/oidc/token', remoteUrl);
+      const tokenUrl = buildRemoteUrl('/oidc/token', remoteUrl);
 
       // Construct request body
       const body = querystring.stringify({
@@ -573,7 +580,9 @@ export default class RemoteServerConfigCtr extends ControllerModule {
   async getRemoteServerUrl(config?: DataSyncConfig) {
     const dataConfig = this.normalizeConfig(config ?? (await this.getRemoteServerConfig()));
 
-    return dataConfig.storageMode === 'cloud' ? OFFICIAL_CLOUD_SERVER : dataConfig.remoteServerUrl;
+    return dataConfig.storageMode === 'cloud'
+      ? normalizeRemoteBaseUrl(OFFICIAL_CLOUD_SERVER)
+      : dataConfig.remoteServerUrl;
   }
 
   /**

@@ -12,7 +12,8 @@ vi.mock('../api/client', () => ({ getTrpcClient: vi.fn() }));
 vi.mock('../settings', () => ({ resolveServerUrl: () => 'https://self-hosted.example/base/' }));
 
 const acceptanceId = 'd8391b91-60bb-49be-a5b7-f14f0c52876a';
-const acceptanceUrl = `https://self-hosted.example/acceptance/${acceptanceId}`;
+// The server address carries a path prefix (reverse-proxy subpath or tenant): links keep it.
+const acceptanceUrl = `https://self-hosted.example/base/acceptance/${acceptanceId}`;
 const requirement = 'Customers can retry a declined payment';
 const ensure = vi.fn();
 const publishFlow = vi.fn();

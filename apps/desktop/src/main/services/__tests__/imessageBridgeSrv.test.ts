@@ -48,7 +48,7 @@ const config = {
   webhookSecret: 'shared-secret',
 };
 
-function createService() {
+function createService(serverUrl = 'https://lobehub.example.com') {
   const store = new Map<string, unknown>([['imessageBridgeConfigs', []]]);
   const app = {
     storeManager: {
@@ -60,7 +60,7 @@ function createService() {
   const service = new ImessageBridgeService(app);
   service.setRemoteServerProvider({
     getAccessToken: vi.fn().mockResolvedValue('access-token'),
-    getServerUrl: vi.fn().mockResolvedValue('https://lobehub.example.com'),
+    getServerUrl: vi.fn().mockResolvedValue(serverUrl),
   });
 
   return { app, service, store };
@@ -71,6 +71,8 @@ function postLocal(path: string, body: unknown): Promise<{ body: string; status:
     const payload = JSON.stringify(body);
     const req = request(
       {
+        // Fresh socket per request: the loopback server restarts on the same port between tests.
+        agent: false,
         headers: {
           'Content-Length': Buffer.byteLength(payload),
           'Content-Type': 'application/json',
@@ -244,6 +246,26 @@ describe('ImessageBridgeService', () => {
 
     await service.stop();
   });
+
+  it.each(['https://lobehub.example.com/t/acme', 'https://lobehub.example.com/t/acme/'])(
+    'forwards the webhook under the tenant path prefix of %s',
+    async (serverUrl) => {
+      const { service } = createService(serverUrl);
+      await service.upsertConfig(config);
+
+      const response = await postLocal('/webhooks/bluebubbles/home-mac-mini?secret=shared-secret', {
+        data: { guid: 'msg-1' },
+        type: 'new-message',
+      });
+
+      expect(response.status).toBe(200);
+      expect(String(fetchSpy.mock.calls[0][0])).toBe(
+        'https://lobehub.example.com/t/acme/api/agent/webhooks/imessage/home-mac-mini?secret=shared-secret',
+      );
+
+      await service.stop();
+    },
+  );
 
   it('stops the loopback server when the last enabled config is disabled', async () => {
     const { service } = createService();

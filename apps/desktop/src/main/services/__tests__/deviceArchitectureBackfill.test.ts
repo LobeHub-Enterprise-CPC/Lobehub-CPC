@@ -37,6 +37,24 @@ describe('backfillDeviceArchitecture', () => {
     });
   });
 
+  it('calls the device procedures under the tenant path prefix of the server URL', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ result: { data: { json: [localDevice] } } }))
+      .mockResolvedValueOnce(Response.json({ result: { data: { json: {} } } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await backfillDeviceArchitecture({
+      ...options,
+      serverUrl: 'https://server.example.com/t/acme/',
+    });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'https://server.example.com/t/acme/trpc/lambda/device.listDevices',
+      'https://server.example.com/t/acme/trpc/lambda/device.updateDeviceInfo',
+    ]);
+  });
+
   it.each([
     { devices: [{ ...localDevice, architecture: 'x64' }] },
     { devices: [{ ...localDevice, deviceId: 'remote-device' }] },

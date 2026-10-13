@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 
 import { acceptanceSubjectTypes } from '@lobechat/const/verify';
 import type { AcceptanceAttachment, AcceptanceCheckGroup } from '@lobechat/types';
+import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import type { Command } from 'commander';
 import { InvalidArgumentError } from 'commander';
 import pc from 'picocolors';
@@ -126,7 +127,7 @@ export function registerAcceptanceCommands(parent: Command, options?: { deprecat
 
         const client = await getTrpcClient();
         const result = await client.acceptance.ensure.mutate({ ...subject, requirement, title });
-        const acceptanceUrl = new URL(
+        const acceptanceUrl = buildRemoteUrl(
           `/acceptance/${encodeURIComponent(result.id)}`,
           resolveServerUrl(),
         ).toString();

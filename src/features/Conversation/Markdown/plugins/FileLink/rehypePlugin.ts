@@ -14,9 +14,10 @@ const getNodeText = (node: any): string => {
 };
 
 /**
- * The origin file links should be classified against. On desktop the
+ * The address file links should be classified against. On desktop the
  * renderer's own origin isn't the app's — exported files are absolute URLs
- * pointing at the remote server, so that's what has to match (see useAppOrigin,
+ * pointing at the remote server (`https://host/t/acme/f/:id` for a tenant), so
+ * its address, tenant path included, is what has to match (see useAppOrigin,
  * this plugin's non-hook equivalent).
  */
 const getCurrentOrigin = (): string | undefined => {

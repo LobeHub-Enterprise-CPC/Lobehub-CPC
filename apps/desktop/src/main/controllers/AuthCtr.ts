@@ -1,12 +1,12 @@
 import crypto from 'node:crypto';
 import querystring from 'node:querystring';
-import { URL } from 'node:url';
 
 import type {
   AuthorizationProgress,
   DataSyncConfig,
   MarketAuthorizationParams,
 } from '@lobechat/electron-client-ipc';
+import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import { BrowserWindow, shell } from 'electron';
 
 import GatewayConnectionService from '@/services/gatewayConnectionSrv';
@@ -62,13 +62,13 @@ export default class AuthCtr extends ControllerModule {
   private autoRefreshTimer: NodeJS.Timeout | null = null;
 
   /**
-   * Construct redirect_uri, ensuring the same URI is used for authorization and token exchange
+   * Construct redirect_uri, ensuring the same URI is used for authorization and token exchange.
+   * The remote URL may carry a tenant path prefix (`https://host/t/acme`); the result is
+   * `<remote URL>/oidc/callback/desktop`, which the server registers verbatim as a redirect_uri.
    * @param remoteUrl Remote server URL
    */
   private constructRedirectUri(remoteUrl: string): string {
-    const callbackUrl = new URL('/oidc/callback/desktop', remoteUrl);
-
-    return callbackUrl.toString();
+    return buildRemoteUrl('/oidc/callback/desktop', remoteUrl).toString();
   }
 
   /**
@@ -99,7 +99,7 @@ export default class AuthCtr extends ControllerModule {
       logger.debug(`Generated state parameter: ${this.authRequestState}`);
 
       // Construct authorization URL with new redirect_uri
-      const authUrl = new URL('/oidc/auth', remoteUrl);
+      const authUrl = buildRemoteUrl('/oidc/auth', remoteUrl);
       const redirectUri = this.constructRedirectUri(remoteUrl);
 
       logger.info('redirectUri', redirectUri);
@@ -362,7 +362,7 @@ export default class AuthCtr extends ControllerModule {
       const remoteUrl = this.cachedRemoteUrl;
 
       // Construct request URL
-      const url = new URL('/oidc/handoff', remoteUrl);
+      const url = buildRemoteUrl('/oidc/handoff', remoteUrl);
       url.searchParams.set('id', this.authRequestState);
       url.searchParams.set('client', 'desktop');
 
@@ -472,7 +472,7 @@ export default class AuthCtr extends ControllerModule {
     const remoteUrl = this.cachedRemoteUrl;
     logger.info('Starting to exchange authorization code for token');
     try {
-      const tokenUrl = new URL('/oidc/token', remoteUrl);
+      const tokenUrl = buildRemoteUrl('/oidc/token', remoteUrl);
       logger.debug(`Constructed token exchange URL: ${tokenUrl.toString()}`);
 
       // Construct request body

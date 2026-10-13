@@ -513,6 +513,97 @@ describe('AuthCtr', () => {
     });
   });
 
+  describe('Tenant path prefix on the remote server URL', () => {
+    const REDIRECT_URI = 'https://host.example/t/acme/oidc/callback/desktop';
+
+    const runAuthorization = async (remoteServerUrl: string) => {
+      mockFetch.mockImplementation((url: string) => {
+        const { pathname } = new URL(url);
+
+        if (pathname.endsWith('/oidc/handoff')) {
+          return Promise.resolve({
+            json: () =>
+              Promise.resolve({
+                data: { payload: { code: 'mock-auth-code', state: 'mock-random-2' } },
+                success: true,
+              }),
+            ok: true,
+            status: 200,
+          });
+        }
+
+        if (pathname.endsWith('/oidc/token')) {
+          const tokens = {
+            access_token: 'new-access-token',
+            expires_in: 3600,
+            refresh_token: 'new-refresh-token',
+          };
+          return Promise.resolve({
+            clone: () => ({ json: () => Promise.resolve(tokens) }),
+            json: () => Promise.resolve(tokens),
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(''),
+          });
+        }
+
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      await authCtr.requestAuthorization({
+        active: false,
+        remoteServerUrl,
+        storageMode: 'selfHost',
+      });
+      await vi.advanceTimersByTimeAsync(4000);
+    };
+
+    it.each(['https://host.example/t/acme', 'https://host.example/t/acme/'])(
+      'keeps the tenant prefix in the authorization, handoff and token URLs (%s)',
+      async (remoteServerUrl) => {
+        await runAuthorization(remoteServerUrl);
+
+        const authUrl = new URL(vi.mocked(shell.openExternal).mock.calls[0][0]);
+        expect(`${authUrl.origin}${authUrl.pathname}`).toBe(
+          'https://host.example/t/acme/oidc/auth',
+        );
+        // Must match the redirect_uri the server registers for the tenant, byte for byte.
+        expect(authUrl.searchParams.get('redirect_uri')).toBe(REDIRECT_URI);
+
+        const urls = mockFetch.mock.calls.map((call) => call[0] as string);
+        const handoff = urls.find((url) => url.includes('/oidc/handoff'));
+        expect(handoff).toBeDefined();
+        const handoffUrl = new URL(handoff!);
+        expect(`${handoffUrl.origin}${handoffUrl.pathname}`).toBe(
+          'https://host.example/t/acme/oidc/handoff',
+        );
+        expect(handoffUrl.searchParams.get('id')).toBe('mock-random-2');
+
+        const tokenCall = mockFetch.mock.calls.find((call) =>
+          (call[0] as string).includes('/oidc/token'),
+        );
+        expect(tokenCall?.[0]).toBe('https://host.example/t/acme/oidc/token');
+        expect(new URLSearchParams(tokenCall?.[1].body).get('redirect_uri')).toBe(REDIRECT_URI);
+
+        // No request leaked to the tenant-less root path.
+        expect(urls.every((url) => new URL(url).pathname.startsWith('/t/acme/'))).toBe(true);
+      },
+    );
+
+    it('keeps the root behaviour for a custom-domain root address', async () => {
+      await runAuthorization('https://custom.example');
+
+      const authUrl = new URL(vi.mocked(shell.openExternal).mock.calls[0][0]);
+      expect(authUrl.pathname).toBe('/oidc/auth');
+      expect(authUrl.searchParams.get('redirect_uri')).toBe(
+        'https://custom.example/oidc/callback/desktop',
+      );
+      expect(mockFetch.mock.calls.map((call) => call[0])).toContain(
+        'https://custom.example/oidc/token',
+      );
+    });
+  });
+
   describe('Scenario: Authorization Timeout and Retry', () => {
     it('Step 1: User requests authorization but does not complete it within 5 minutes', async () => {
       const config: DataSyncConfig = {

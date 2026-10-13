@@ -110,6 +110,46 @@ describe('RemoteServerConfigCtr', () => {
     });
   });
 
+  describe('remote server URL with a tenant path prefix', () => {
+    it('keeps the path prefix and drops trailing slashes when saving', async () => {
+      mockStoreManager.get.mockReturnValue({ active: false, storageMode: 'cloud' });
+
+      await controller.setRemoteServerConfig({
+        active: true,
+        remoteServerUrl: '  https://host.example/t/acme/  ',
+        storageMode: 'selfHost',
+      });
+
+      expect(mockStoreManager.set).toHaveBeenCalledWith(
+        'dataSyncConfig',
+        expect.objectContaining({ remoteServerUrl: 'https://host.example/t/acme' }),
+      );
+    });
+
+    it('normalizes previously stored addresses on read', async () => {
+      mockStoreManager.get.mockReturnValue({
+        active: true,
+        remoteServerUrl: 'https://host.example/t/acme/',
+        storageMode: 'selfHost',
+      });
+
+      expect(await controller.getRemoteServerUrl()).toBe('https://host.example/t/acme');
+      expect((await controller.getRemoteServerConfig()).remoteServerUrl).toBe(
+        'https://host.example/t/acme',
+      );
+    });
+
+    it('accepts a tenant address as a valid self-host URL', async () => {
+      expect(
+        await controller.isRemoteServerConfigured({
+          active: true,
+          remoteServerUrl: 'https://host.example/t/acme',
+          storageMode: 'selfHost',
+        }),
+      ).toBe(true);
+    });
+  });
+
   describe('clearRemoteServerConfig', () => {
     it('should clear configuration and tokens', async () => {
       const result = await controller.clearRemoteServerConfig();
@@ -524,6 +564,42 @@ describe('RemoteServerConfigCtr', () => {
         }),
       );
     });
+
+    it.each(['https://server.com/t/acme', 'https://server.com/t/acme/'])(
+      'should refresh the token under the tenant path prefix of %s',
+      async (remoteServerUrl) => {
+        const { safeStorage } = await import('electron');
+        vi.mocked(safeStorage.isEncryptionAvailable).mockReturnValue(true);
+        vi.mocked(safeStorage.decryptString).mockImplementation((buffer: Buffer) =>
+          buffer.toString(),
+        );
+
+        mockStoreManager.get.mockImplementation((key) => {
+          if (key === 'dataSyncConfig') {
+            return { active: true, remoteServerUrl, storageMode: 'selfHost' };
+          }
+          return null;
+        });
+
+        await controller.saveTokens('old-access', 'old-refresh');
+
+        mockFetch.mockResolvedValue({
+          json: () =>
+            Promise.resolve({
+              access_token: 'new-access-token',
+              expires_in: 3600,
+              refresh_token: 'new-refresh-token',
+            }),
+          ok: true,
+        });
+
+        const result = await controller.refreshAccessToken();
+
+        expect(result.success).toBe(true);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        expect(mockFetch.mock.calls[0][0]).toBe('https://server.com/t/acme/oidc/token');
+      },
+    );
 
     it.each([
       { error: 'invalid_grant' },

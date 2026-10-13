@@ -2,6 +2,7 @@
 
 import { type AuthorizationPhase, type AuthorizationProgress } from '@lobechat/electron-client-ipc';
 import { useWatchBroadcast } from '@lobechat/electron-client-ipc';
+import { normalizeRemoteBaseUrl } from '@lobechat/utils/remoteUrl';
 import { Center, Flexbox, Icon } from '@lobehub/ui';
 import { Alert, Button, Divider, Input, Text } from '@lobehub/ui/base-ui';
 import { cssVar } from 'antd-style';
@@ -127,7 +128,10 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
   const isSelfHostEndpointVerified =
     isSelfHostAuthed &&
     !!endpoint.trim() &&
-    endpoint.trim() === (dataSyncConfig?.remoteServerUrl ?? '');
+    // The main process stores the normalized address (no trailing slash, tenant
+    // path kept), so compare the typed endpoint in the same form.
+    normalizeRemoteBaseUrl(endpoint) ===
+      normalizeRemoteBaseUrl(dataSyncConfig?.remoteServerUrl ?? '');
 
   const statusSuccessLoginMethod: LoginMethod | null =
     cloudLoginStatus === 'success' && selfhostLoginStatus === 'success'

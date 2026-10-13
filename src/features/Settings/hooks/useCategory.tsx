@@ -35,8 +35,7 @@ import {
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { useElectronStore } from '@/store/electron';
-import { electronSyncSelectors } from '@/store/electron/selectors';
+import { useRemoteAssetUrl } from '@/hooks/useRemoteAssetUrl';
 import { SettingsTabs } from '@/store/global/initialState';
 import {
   featureFlagsSelectors,
@@ -93,7 +92,6 @@ export const useCategory = () => {
     userProfileSelectors.userAvatar(s),
     userProfileSelectors.nickName(s),
   ]);
-  const remoteServerUrl = useElectronStore(electronSyncSelectors.remoteServerUrl);
   const isDevMode = useUserStore((s) => userGeneralSettingsSelectors.config(s).isDevMode);
   const enableOAuthApps = useUserStore(labPreferSelectors.enableOAuthApps);
   const enableIntegrations = useUserStore(labPreferSelectors.enableIntegrations);
@@ -101,13 +99,8 @@ export const useCategory = () => {
   // for environments nothing can run in would be a dead end.
   const enablePersistentSandbox = useUserStore(labPreferSelectors.enablePersistentSandbox);
 
-  const avatarUrl = useMemo(() => {
-    if (!avatar) return undefined;
-    if (isDesktop && avatar.startsWith('/') && remoteServerUrl) {
-      return remoteServerUrl + avatar;
-    }
-    return avatar;
-  }, [avatar, remoteServerUrl]);
+  // On desktop a server-relative avatar is mounted under the remote server address
+  const avatarUrl = useRemoteAssetUrl(avatar || undefined);
   const enableBusinessFeatures = useServerConfigStore(serverConfigSelectors.enableBusinessFeatures);
   const categoryGroups: CategoryGroup[] = useMemo(() => {
     const groups: CategoryGroup[] = [];

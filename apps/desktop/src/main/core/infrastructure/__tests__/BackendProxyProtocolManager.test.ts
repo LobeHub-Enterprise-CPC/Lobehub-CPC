@@ -183,6 +183,79 @@ describe('BackendProxyProtocolManager', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  describe('remote base url with a tenant path prefix', () => {
+    const rewrite = async (base: string, url: string) => {
+      const manager = new BackendProxyProtocolManager();
+      const session = {} as any;
+      const fetchMock = vi.fn<FetchMock>(async () => new Response('ok', { status: 200 }));
+      vi.stubGlobal('fetch', fetchMock as any);
+
+      manager.registerWithRemoteBaseUrl(session, {
+        getAccessToken: async () => 'token',
+        getRemoteBaseUrl: async () => base,
+      });
+
+      const res = await manager.proxy(
+        { headers: new Headers(), method: 'GET', url } as any,
+        session,
+      );
+      return { fetchMock, res };
+    };
+
+    it.each(['https://remote.example.com/t/acme', 'https://remote.example.com/t/acme/'])(
+      'mounts renderer backend paths under the tenant prefix of %s',
+      async (base) => {
+        const { fetchMock, res } = await rewrite(base, 'app://renderer/trpc/hello?batch=1');
+
+        expect(res).not.toBeNull();
+        expect(fetchMock.mock.calls[0]![0]).toBe(
+          'https://remote.example.com/t/acme/trpc/hello?batch=1',
+        );
+        expect(res!.headers.get('X-Src-Url')).toBe(
+          'https://remote.example.com/t/acme/trpc/hello?batch=1',
+        );
+      },
+    );
+
+    it('does not rewrite a same-origin request that already targets the tenant address', async () => {
+      const { fetchMock, res } = await rewrite(
+        'https://remote.example.com/t/acme',
+        'https://remote.example.com/t/acme/trpc/hello',
+      );
+
+      expect(res).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('does not let a same-origin root path through to the tenant-less root', async () => {
+      const { fetchMock, res } = await rewrite(
+        'https://remote.example.com/t/acme',
+        'https://remote.example.com/trpc/hello?x=1',
+      );
+
+      expect(res).not.toBeNull();
+      expect(fetchMock.mock.calls[0]![0]).toBe('https://remote.example.com/t/acme/trpc/hello?x=1');
+    });
+
+    it('does not add the prefix twice to a path that already carries it', async () => {
+      const { fetchMock } = await rewrite(
+        'https://remote.example.com/t/acme',
+        'app://renderer/t/acme/trpc/hello',
+      );
+
+      expect(fetchMock.mock.calls[0]![0]).toBe('https://remote.example.com/t/acme/trpc/hello');
+    });
+
+    it('keeps the root behaviour for a custom-domain root address', async () => {
+      const { fetchMock } = await rewrite(
+        'https://custom.example.com',
+        'app://renderer/trpc/hello',
+      );
+
+      expect(fetchMock.mock.calls[0]![0]).toBe('https://custom.example.com/trpc/hello');
+    });
+  });
+
   it('returns null when rewrite fails (invalid remote base url)', async () => {
     const manager = new BackendProxyProtocolManager();
     const session = {} as any;

@@ -1,3 +1,4 @@
+import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import { taskTitleSlug } from '@lobechat/utils/taskSlug';
 
 import type { TrpcClient } from '../../api/client';
@@ -16,7 +17,9 @@ export const buildAppUrl = ({ pathname, serverUrl, workspaceSlug }: AppUrlOption
     ? `/${encodeURIComponent(workspaceSlug)}${normalizedPath}`
     : normalizedPath;
 
-  return new URL(path, `${serverUrl}/`).toString();
+  // The server address may be a tenant address (`https://host/t/acme`): mount the
+  // app path under it instead of resolving against its origin.
+  return buildRemoteUrl(path, serverUrl).toString();
 };
 
 /**

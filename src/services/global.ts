@@ -1,4 +1,5 @@
 import { isDesktop } from '@lobechat/const';
+import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import { type PartialDeep } from 'type-fest';
 
 import { type VersionResponseData } from '@/app/(backend)/api/version/route';
@@ -29,25 +30,20 @@ class GlobalService extends BusinessGlobalService {
    * @throws Error for other failures (network errors, 500s, etc.) to allow SWR retry
    */
   getServerVersion = async (): Promise<string | null> => {
-    const origin = (() => {
-      if (isDesktop) {
-        const remoteServerUrl = electronSyncSelectors.remoteServerUrl(getElectronStoreState());
-        if (!remoteServerUrl) return undefined;
+    // The remote server address is a tenant address (`https://host/t/acme`) or a
+    // custom-domain root; `/api/version` is a tenant endpoint under it, so the
+    // path is mounted under the address rather than resolved against its origin.
+    const url = (() => {
+      if (!isDesktop) return undefined;
 
-        try {
-          return new URL(remoteServerUrl).origin;
-        } catch {
-          // fallback: use as-is; URL construction below will throw if invalid
-          return remoteServerUrl;
-        }
-      }
+      const remoteServerUrl = electronSyncSelectors.remoteServerUrl(getElectronStoreState());
+      if (!remoteServerUrl) return undefined;
 
-      return undefined;
+      return buildRemoteUrl(SERVER_VERSION_URL, remoteServerUrl).toString();
     })();
 
-    if (!origin) return null;
+    if (!url) return null;
 
-    const url = new URL(SERVER_VERSION_URL, origin).toString();
     const res = await fetch(url);
 
     // Only treat 404 as "server doesn't support version API"

@@ -36,6 +36,7 @@ describe('acceptance publication with missing evidence', () => {
     verify: {
       createRun: { mutate: vi.fn() },
       ingestResult: { mutate: vi.fn() },
+      submitCheckEvidence: { mutate: vi.fn() },
       uploadEvidence: { mutate: vi.fn() },
       upsertReport: { mutate: vi.fn() },
     },
@@ -280,15 +281,55 @@ describe('acceptance publication with missing evidence', () => {
     await run('ingest', dir, '--json');
 
     expect(result().recovery).toMatchObject({
-      cleanupUrl: 'https://lobe.example.test:8443/acceptance',
-      upgradeUrl: 'https://lobe.example.test:8443/settings/plans',
+      cleanupUrl: 'https://lobe.example.test:8443/base/acceptance',
+      upgradeUrl: 'https://lobe.example.test:8443/base/settings/plans',
     });
-    expect(result().recovery.message).toContain('https://lobe.example.test:8443/acceptance');
-    expect(result().recovery.message).toContain('https://lobe.example.test:8443/settings/plans');
+    expect(result().recovery.message).toContain('https://lobe.example.test:8443/base/acceptance');
+    expect(result().recovery.message).toContain(
+      'https://lobe.example.test:8443/base/settings/plans',
+    );
     expect(JSON.stringify(result().recovery)).not.toMatch(
       /quota-user|quota%40password|quota@password/,
     );
     expect(log.warn).toHaveBeenCalledWith(result().recovery.message);
+  });
+
+  it('keeps the tenant path of the server in the acceptance links and recovery links', async () => {
+    vi.mocked(resolveServerUrl).mockReturnValue('https://host/t/acme/');
+    vi.mocked(uploadLocalFile).mockRejectedValue(new Error('storage_block:upgrade_required'));
+    await report(['screenshot'], ["screen's shot.png"]);
+
+    await run('ingest', dir, '--json');
+
+    expect(result()).toMatchObject({
+      acceptanceUrl: 'https://host/t/acme/acceptance/acceptance-1',
+      recovery: {
+        cleanupUrl: 'https://host/t/acme/acceptance',
+        upgradeUrl: 'https://host/t/acme/settings/plans',
+      },
+      roundUrl: 'https://host/t/acme/acceptance/acceptance-1?r=2',
+    });
+  });
+
+  it('keeps the tenant path of the server in the submitted result url', async () => {
+    vi.mocked(resolveServerUrl).mockReturnValue('https://host/t/acme');
+    client.verify.submitCheckEvidence.mutate.mockResolvedValue({
+      checkResult: { id: 'result-screen', verifyRunId: 'run-1' },
+    });
+
+    await run(
+      'result',
+      'submit',
+      '--run',
+      'run-1',
+      '--item',
+      'screen',
+      '--verdict',
+      'passed',
+      '--json',
+    );
+
+    expect(result().url).toBe('https://host/t/acme/verify/run-1');
   });
 
   it.each([undefined, 'Upload failed: 503 Service Unavailable'])(
@@ -361,6 +402,17 @@ describe('acceptance publication with missing evidence', () => {
           scope: 'workspace',
           reason: 'storage_quota',
         });
+    });
+
+    it('keeps the tenant path in the workspace links', async () => {
+      vi.mocked(resolveServerUrl).mockReturnValue('https://host/t/acme');
+
+      await upload(true);
+
+      expect(result().recovery).toMatchObject({
+        cleanupUrl: 'https://host/t/acme/design-team/resource',
+        upgradeUrl: 'https://host/t/acme/design-team/settings/plans',
+      });
     });
 
     it('keeps workspace links on a credential-free self-hosted origin', async () => {

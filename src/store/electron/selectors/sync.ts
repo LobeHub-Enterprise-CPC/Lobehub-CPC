@@ -1,4 +1,5 @@
 import { isOfficialCloudServer, OFFICIAL_URL } from '@lobechat/const';
+import { normalizeRemoteBaseUrl } from '@lobechat/utils/remoteUrl';
 
 import { type ElectronState } from '../initialState';
 
@@ -20,11 +21,20 @@ const storageMode = (s: ElectronState) => s.dataSyncConfig.storageMode;
  *
  * Undefined outside the desktop renderer, where the fallback is the right
  * answer anyway: the web app reads `window.location.origin` and never gets here.
+ *
+ * This is the remote server's *address*, not its origin: a tenant address keeps
+ * its `/t/{slug}` path (`https://host/t/acme`), a custom-domain root has none.
+ * It is normalized (no trailing slash, query or hash) so callers can append an
+ * app path to it; mount a server-returned path with `resolveRemoteUrl` /
+ * `buildRemoteUrl` from `@lobechat/utils/remoteUrl` rather than `new URL(path,
+ * address)`, which would drop the tenant path.
  */
 const remoteServerUrl = (s: ElectronState) =>
-  s.dataSyncConfig.storageMode === 'cloud'
-    ? process.env.OFFICIAL_CLOUD_SERVER || OFFICIAL_URL
-    : s.dataSyncConfig.remoteServerUrl || '';
+  normalizeRemoteBaseUrl(
+    s.dataSyncConfig.storageMode === 'cloud'
+      ? process.env.OFFICIAL_CLOUD_SERVER || OFFICIAL_URL
+      : s.dataSyncConfig.remoteServerUrl || '',
+  );
 
 /**
  * Returns the raw remoteServerUrl from config without transformation.

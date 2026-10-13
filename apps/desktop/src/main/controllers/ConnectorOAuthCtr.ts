@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { OFFICIAL_CLOUD_URL, OFFICIAL_URL } from '@lobechat/const/url';
+import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import { BrowserWindow } from 'electron';
 
 import { preloadDir } from '@/const/dir';
@@ -23,12 +24,14 @@ export default class ConnectorOAuthCtr extends ControllerModule {
     const authorizationUrl = new URL(params.authorizationUrl);
     const remoteUrl = await this.app.getController(RemoteServerConfigCtr).getRemoteServerUrl();
     const remoteOrigin = new URL(remoteUrl).origin;
-    // Official API and app origins differ; self-hosted servers trust only their own origin.
-    const callbackOrigins = [OFFICIAL_CLOUD_URL, OFFICIAL_URL].includes(remoteOrigin)
+    // Official API and app origins differ; self-hosted servers trust only their own address.
+    // The self-hosted address may carry a tenant path prefix (`https://host/t/acme`), and the
+    // server's callback is `<tenant public address>/oauth/connector/callback`.
+    const callbackBases = [OFFICIAL_CLOUD_URL, OFFICIAL_URL].includes(remoteOrigin)
       ? [OFFICIAL_CLOUD_URL, OFFICIAL_URL]
-      : [remoteOrigin];
-    const callbackUrl = callbackOrigins
-      .map((origin) => new URL('/oauth/connector/callback', origin))
+      : [remoteUrl];
+    const callbackUrl = callbackBases
+      .map((base) => buildRemoteUrl('/oauth/connector/callback', base))
       .find((url) => url.href === authorizationUrl.searchParams.get('redirect_uri'));
     const state = authorizationUrl.searchParams.get('state');
     if (!['https:', 'http:'].includes(authorizationUrl.protocol) || !callbackUrl || !state) {

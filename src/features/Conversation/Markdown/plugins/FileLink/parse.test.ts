@@ -58,4 +58,44 @@ describe('parseFileLinkHref', () => {
     expect(parseFileLinkHref(undefined, ORIGIN)).toBeNull();
     expect(parseFileLinkHref('', ORIGIN)).toBeNull();
   });
+
+  // The desktop renderer is not a tenant document, so the tenant comes from the
+  // address of the remote server it is connected to.
+  describe('against a desktop tenant address', () => {
+    const TENANT = 'https://host/t/acme';
+
+    it('matches the tenant-prefixed file proxy link the server renders', () => {
+      expect(parseFileLinkHref('https://host/t/acme/f/file_1', TENANT)).toEqual({
+        fileId: 'file_1',
+      });
+      expect(parseFileLinkHref('https://host/t/acme/f/file_1', `${TENANT}/`)).toEqual({
+        fileId: 'file_1',
+      });
+    });
+
+    it('matches a root-relative link, with or without the tenant prefix', () => {
+      expect(parseFileLinkHref('/f/file_1', TENANT)).toEqual({ fileId: 'file_1' });
+      expect(parseFileLinkHref('/t/acme/f/file_1', TENANT)).toEqual({ fileId: 'file_1' });
+    });
+
+    it('rejects another tenant and a sibling slug on the same host', () => {
+      expect(parseFileLinkHref('https://host/t/other/f/file_1', TENANT)).toBeNull();
+      expect(parseFileLinkHref('https://host/t/acme-x/f/file_1', TENANT)).toBeNull();
+      expect(parseFileLinkHref('/t/other/f/file_1', TENANT)).toBeNull();
+    });
+
+    it('rejects a link on the same host that carries no tenant prefix', () => {
+      expect(parseFileLinkHref('https://host/f/file_1', TENANT)).toBeNull();
+    });
+
+    it('rejects a link to another origin', () => {
+      expect(parseFileLinkHref('https://evil.example/t/acme/f/file_1', TENANT)).toBeNull();
+    });
+
+    it('matches the root address of a custom domain', () => {
+      expect(parseFileLinkHref('https://custom.host/f/file_1', 'https://custom.host')).toEqual({
+        fileId: 'file_1',
+      });
+    });
+  });
 });

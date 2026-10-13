@@ -1,4 +1,5 @@
 import { AUTH_FAILURE_HEADER, AUTH_REQUIRED_HEADER } from '@lobechat/desktop-bridge';
+import { buildRemoteUrl, isUnderRemoteBase } from '@lobechat/utils/remoteUrl';
 import { BrowserWindow, type Session, session as electronSession } from 'electron';
 
 import { isDev } from '@/const/env';
@@ -161,10 +162,20 @@ export class BackendProxyProtocolManager {
         if (!remoteBaseUrl) return null;
         lastRemoteBaseUrl = remoteBaseUrl;
 
+        // The remote base may carry a tenant path prefix (`https://host/t/acme`) that the
+        // renderer's backend paths (`/trpc/...`) do not, so the path is mounted under it.
         const remoteBase = new URL(remoteBaseUrl);
-        if (requestUrl.origin === remoteBase.origin) return null;
+        // A same-origin request already under the base path is addressed to the tenant
+        // as is: leave it alone. A same-origin request outside the base path (the bare
+        // `/trpc` of a prefixed base) is still a tenant request missing its prefix.
+        if (
+          requestUrl.origin === remoteBase.origin &&
+          isUnderRemoteBase(requestUrl.pathname, remoteBase)
+        ) {
+          return null;
+        }
 
-        const rewrittenUrl = new URL(
+        const rewrittenUrl = buildRemoteUrl(
           requestUrl.pathname + requestUrl.search,
           remoteBase,
         ).toString();
