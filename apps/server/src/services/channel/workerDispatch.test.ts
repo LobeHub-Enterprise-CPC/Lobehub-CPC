@@ -37,6 +37,7 @@ vi.mock('@/database/models/channel', () => ({
   },
 }));
 vi.mock('./device', () => ({
+  ChannelDeviceOfflineError: class extends Error {},
   ChannelDeviceStartError: class extends Error {
     constructor(
       message: string,
@@ -242,6 +243,7 @@ describe('Channel dispatch isolation', () => {
       channel.id,
       'queued',
       expect.stringContaining('WORKSPACE_CHANGED'),
+      'workspace_changed',
     );
   });
 
@@ -457,7 +459,7 @@ describe('Channel dispatch isolation', () => {
       {
         channel,
         config: { runtime: 'codex', deviceId: 'device', workingDirectory: '/repo' },
-        job: { id: 'queued', blockedReason },
+        job: { id: 'queued', blockedReason, blockedCode: blockedReason && 'unavailable' },
       },
     ];
     const worker = new ChannelWorker(

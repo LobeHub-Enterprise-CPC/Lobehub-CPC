@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+import type { ChannelJobState } from '@lobechat/types';
 import { CHANNEL_HISTORY } from '@lobechat/types';
 import {
   and,
@@ -63,61 +64,88 @@ const runSummary = {
 const fingerprint = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
-/** The caller has checked ownership; these reads never load private transcripts or manifests. */
+/**
+ * The caller has checked ownership. `channels.revision` is bumped by database triggers on every
+ * observable change, so watching costs one indexed read instead of hashing every live row.
+ */
 export async function readChannelRevision(
   db: LobeChatDatabase,
   channel: typeof channels.$inferSelect,
 ) {
-  const channelId = channel.id;
-  const [members, threads, jobs, runs, discussions, approvals, routing] = await Promise.all([
-    db
-      .select()
-      .from(channelMembers)
-      .where(eq(channelMembers.channelId, channelId))
-      .orderBy(asc(channelMembers.id)),
-    db
-      .select({ id: channelThreads.id, followers: channelThreads.followerMemberIds })
-      .from(channelThreads)
-      .where(eq(channelThreads.channelId, channelId))
-      .orderBy(asc(channelThreads.id)),
-    db
-      .select()
-      .from(channelJobs)
-      .where(and(eq(channelJobs.channelId, channelId), pendingJob))
-      .orderBy(asc(channelJobs.id)),
-    db
-      .select(runSummary)
-      .from(channelRuns)
-      .innerJoin(channelJobs, eq(channelJobs.id, channelRuns.jobId))
-      .where(and(eq(channelRuns.channelId, channelId), unsettledRun))
-      .orderBy(asc(channelRuns.id)),
-    db
-      .select()
-      .from(channelDiscussions)
-      .where(and(eq(channelDiscussions.channelId, channelId), activeDiscussion))
-      .orderBy(asc(channelDiscussions.id)),
-    db
-      .select({ id: channelApprovals.id, decision: channelApprovals.decision })
-      .from(channelApprovals)
-      .innerJoin(channelRuns, eq(channelRuns.id, channelApprovals.runId))
-      .where(and(eq(channelRuns.channelId, channelId), unsettledRun))
-      .orderBy(asc(channelApprovals.id)),
-    db
-      .select({ id: channelMessages.id })
-      .from(channelMessages)
-      .where(
-        and(eq(channelMessages.channelId, channelId), eq(channelMessages.routingStatus, 'pending')),
-      )
-      .orderBy(asc(channelMessages.id)),
-  ]);
+  const threads = await db
+    .select({ id: channelThreads.id })
+    .from(channelThreads)
+    .where(eq(channelThreads.channelId, channel.id))
+    .orderBy(asc(channelThreads.id));
   return {
     navigationRevision: fingerprint([
       channel.title,
       channel.archived,
       threads.map((thread) => thread.id),
     ]),
-    revision: fingerprint([channel, members, threads, jobs, runs, discussions, approvals, routing]),
+    revision: String(channel.revision),
   };
+}
+
+type JobRow = typeof channelJobs.$inferSelect;
+type RunRow = typeof channelRuns.$inferSelect;
+type JobRun = Pick<
+  RunRow,
+  | 'activity'
+  | 'physicalStopped'
+  | 'publicationStatus'
+  | 'publishedMessageId'
+  | 'status'
+  | 'writerReleased'
+>;
+
+/** The single derivation of a job's display state; clients render it and never re-derive it. */
+export function channelJobState(
+  job: Pick<JobRow, 'blockedCode' | 'blockedReason' | 'status'>,
+  run: JobRun | undefined,
+  paused: boolean,
+): ChannelJobState {
+  const cancelled =
+    job.status === 'cancelled' || ['stop_requested', 'stopped'].includes(run?.status || '');
+  if (cancelled)
+    return !run || (run.writerReleased && run.physicalStopped) ? 'cancelled' : 'stop_requested';
+  if (run?.status === 'execution_unknown') return 'execution_unknown';
+  if (run?.status === 'awaiting_approval') return 'awaiting_approval';
+  if (run?.status === 'failed' || job.status === 'failed') return 'failed';
+  if (run?.status === 'running') return run.activity === 'typing' ? 'typing' : 'running';
+  if (run?.status === 'starting') return 'starting';
+  if (!run && job.status === 'running') return 'starting';
+  if (run?.publishedMessageId) return 'replied';
+  if (run?.publicationStatus === 'yielded') return 'yielded';
+  if (run?.publicationStatus === 'held') return 'held';
+  if (job.status === 'queued') {
+    if (paused) return 'paused';
+    if (job.blockedCode === 'device_offline') return 'offline';
+    if (job.blockedCode || job.blockedReason) return 'unavailable';
+    return 'queued';
+  }
+  if (run?.status === 'completed' && run.publicationStatus === 'pending') return 'publishing';
+  // Older runs without a publication outcome must not imply silence or a reply.
+  return 'completed';
+}
+
+/** Attach server-derived state; block details are only meaningful while a job is queued. */
+export function presentChannelJobs(
+  jobs: JobRow[],
+  runs: (JobRun & Pick<RunRow, 'jobId'>)[],
+  members: Pick<typeof channelMembers.$inferSelect, 'executionPaused' | 'id'>[],
+) {
+  const byJob = new Map(runs.map((run) => [run.jobId, run]));
+  const paused = new Set(members.filter((m) => m.executionPaused).map((m) => m.id));
+  return jobs.map((job) => {
+    const queued = job.status === 'queued';
+    return {
+      ...job,
+      blockedCode: queued ? job.blockedCode : null,
+      blockedReason: queued ? job.blockedReason : null,
+      state: channelJobState(job, byJob.get(job.id), paused.has(job.memberId)),
+    };
+  });
 }
 
 export async function readChannelPage(
@@ -268,10 +296,7 @@ export async function readChannelPage(
     messages,
     contextMessages,
     discussions,
-    jobs: jobs.map((job) => ({
-      ...job,
-      blockedReason: job.status === 'queued' ? job.blockedReason : undefined,
-    })),
+    jobs: presentChannelJobs(jobs, runs, members),
     runs,
     approvals,
     replyCounts,

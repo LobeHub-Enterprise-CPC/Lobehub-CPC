@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
-import type { ChannelInputManifest, ChannelMemberConfig, ChannelMode } from '@lobechat/types';
+import type {
+  ChannelInputManifest,
+  ChannelJobBlockCode,
+  ChannelMemberConfig,
+  ChannelMode,
+} from '@lobechat/types';
 import { CHANNEL_LIMITS } from '@lobechat/types';
 import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, or } from 'drizzle-orm';
 
@@ -751,7 +756,12 @@ export class ChannelModel {
     });
   }
 
-  async unavailable(channelId: string, jobId: string, reason: string | null) {
+  async unavailable(
+    channelId: string,
+    jobId: string,
+    reason: string | null,
+    code: ChannelJobBlockCode | null = reason ? 'unavailable' : null,
+  ) {
     await this.db.transaction(async (tx) => {
       await this.owned(tx, channelId, true);
       const [job] = await tx
@@ -765,9 +775,12 @@ export class ChannelModel {
           ),
         );
       if (!job) return;
-      if (job.blockedReason === reason) return;
-      await tx.update(channelJobs).set({ blockedReason: reason }).where(eq(channelJobs.id, jobId));
-      await this.audit(tx, channelId, 'job_unavailable', jobId, { reason });
+      if (job.blockedReason === reason && job.blockedCode === code) return;
+      await tx
+        .update(channelJobs)
+        .set({ blockedReason: reason, blockedCode: code })
+        .where(eq(channelJobs.id, jobId));
+      await this.audit(tx, channelId, 'job_unavailable', jobId, { reason, code });
     });
   }
 

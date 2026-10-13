@@ -25,6 +25,16 @@ export class ChannelDeviceStartError extends Error {
   }
 }
 
+/** The execution device is not connected; distinct from adapter or workspace failures. */
+export class ChannelDeviceOfflineError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ChannelDeviceOfflineError';
+  }
+}
+
+const OFFLINE_CODES = new Set(['DEVICE_OFFLINE', 'DEVICE_NOT_FOUND']);
+
 /** Only this server adapter supplies the owner and native Run authority. */
 export class ChannelDevice {
   constructor(
@@ -39,7 +49,8 @@ export class ChannelDevice {
     onDispatch?: () => void,
   ): Promise<T> {
     const device = await new DeviceModel(this.db, this.ownerId).findByDeviceId(this.deviceId);
-    if (!device || device.workspaceId) throw new Error('Personal execution device is unavailable');
+    if (!device || device.workspaceId)
+      throw new ChannelDeviceOfflineError('Personal execution device is unavailable');
     onDispatch?.();
     const result = await deviceGateway.executeToolCall(
       { userId: this.ownerId, deviceId: this.deviceId },
@@ -50,7 +61,12 @@ export class ChannelDevice {
       },
       10_000,
     );
-    if (!result.success) throw new Error(result.error || 'Channel Desktop adapter is unavailable');
+    if (!result.success) {
+      const message = result.error || 'Channel Desktop adapter is unavailable';
+      throw OFFLINE_CODES.has(result.error ?? '')
+        ? new ChannelDeviceOfflineError(message)
+        : new Error(message);
+    }
     return JSON.parse(result.content) as T;
   }
 

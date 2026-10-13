@@ -1,4 +1,4 @@
-import type { ChannelMemberConfig } from '@lobechat/types';
+import type { ChannelJobBlockCode, ChannelMemberConfig } from '@lobechat/types';
 import { CHANNEL_LIMITS } from '@lobechat/types';
 import debug from 'debug';
 import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
@@ -16,7 +16,7 @@ import {
 import type { LobeChatDatabase } from '@/database/type';
 
 import { resolveChannelArtifactRunIds, saveChannelArtifact } from './artifact';
-import { ChannelDevice, ChannelDeviceStartError } from './device';
+import { ChannelDevice, ChannelDeviceOfflineError, ChannelDeviceStartError } from './device';
 import { isChannelEnabled } from './gate';
 import { checkChannelNativeAvailability } from './native/capabilities';
 import { runChannelNative } from './native/host';
@@ -276,6 +276,7 @@ export class ChannelWorker {
           if (!isChannelEnabled() || this.probeBackoff.has(job.id)) return;
           const model = new ChannelModel(this.db, channel.ownerId);
           let agentId: string | undefined;
+          let block: { code: ChannelJobBlockCode; reason: string } | undefined;
           try {
             if (config.deviceId && config.workingDirectory) {
               const canonical = await new ChannelDevice(
@@ -284,20 +285,29 @@ export class ChannelWorker {
                 config.deviceId,
               ).probe(config.workingDirectory, config.runtime, config.agentId);
               if (canonical !== config.workingDirectory)
-                throw new Error(
-                  'WORKSPACE_CHANGED: The configured directory no longer resolves to its original workspace',
-                );
+                block = {
+                  code: 'workspace_changed',
+                  reason:
+                    'WORKSPACE_CHANGED: The configured directory no longer resolves to its original workspace',
+                };
             }
-            if (config.runtime === 'native')
+            if (!block && config.runtime === 'native')
               agentId = (await this.availability(this.db, channel.ownerId, config)).agentId;
           } catch (error) {
+            block = {
+              code: error instanceof ChannelDeviceOfflineError ? 'device_offline' : 'unavailable',
+              reason: error instanceof Error ? error.message : String(error),
+            };
+          }
+          if (block) {
             this.probeBackoff.set(job.id, Date.now() + PROBE_BACKOFF_MS);
-            const reason = error instanceof Error ? error.message : String(error);
-            if (job.blockedReason !== reason) await model.unavailable(channel.id, job.id, reason);
+            if (job.blockedReason !== block.reason || job.blockedCode !== block.code)
+              await model.unavailable(channel.id, job.id, block.reason, block.code);
             return; /* Unavailable before submission: leave the durable job queued. */
           }
           // Clear a previous availability failure even if the shared workspace is still busy.
-          if (job.blockedReason) await model.unavailable(channel.id, job.id, null);
+          if (job.blockedReason || job.blockedCode)
+            await model.unavailable(channel.id, job.id, null);
           const claim = await model.claim(channel.id, job.id, revision);
           if (!claim) return;
           config = claim.run.executionConfig!;

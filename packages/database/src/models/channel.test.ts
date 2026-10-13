@@ -1,12 +1,12 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 
 import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { channelMigrationSql } from '../../tests/channelMigrations';
 import * as schema from '../privateSchemas/channel';
 import type { LobeChatDatabase } from '../type';
 import { ChannelModel } from './channel';
@@ -25,26 +25,7 @@ beforeAll(async () => {
   await client.exec(
     "create table users (id text primary key); insert into users values ('owner'), ('other');",
   );
-  await client.exec(
-    // Migration ownership moved to the enterprise chain (see
-    // src/privateSchemas/channel.ts) after this test was written.
-    readFileSync(
-      new URL(
-        '../../../../../packages/enterprise/src/database/migrations/0009_channel_mvp.sql',
-        import.meta.url,
-      ),
-      'utf8',
-    ).replaceAll('--> statement-breakpoint', ''),
-  );
-  await client.exec(
-    readFileSync(
-      new URL(
-        '../../../../../packages/enterprise/src/database/migrations/0010_channel_attachments.sql',
-        import.meta.url,
-      ),
-      'utf8',
-    ),
-  );
+  await client.exec(channelMigrationSql());
   await client.exec(`
     CREATE TABLE files (id text PRIMARY KEY, user_id text, workspace_id text, is_deleted boolean);
     INSERT INTO files (id, user_id, workspace_id) VALUES ('doc', 'owner', NULL), ('image', 'owner', NULL),
