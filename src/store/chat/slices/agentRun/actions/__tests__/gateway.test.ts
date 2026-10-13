@@ -4222,6 +4222,8 @@ describe('GatewayActionImpl', () => {
       const captured: { onSessionComplete?: (p: any) => void } = {};
       const completeOperation = vi.fn();
       const updateTopicStatus = vi.fn();
+      const internalDispatchTopic = vi.fn();
+      const internalPinTopicStatus = vi.fn();
       const startOperation = vi.fn(() => ({ operationId: 'gw-op-reconnect' }));
       const state: Record<string, any> = {
         activeAgentId: 'agent-1',
@@ -4241,6 +4243,8 @@ describe('GatewayActionImpl', () => {
         connectToGateway: (params: any) => {
           captured.onSessionComplete = params.onSessionComplete;
         },
+        internal_dispatchTopic: internalDispatchTopic,
+        internal_pinTopicStatus: internalPinTopicStatus,
         onOperationCancel: vi.fn(),
         startOperation,
         updateTopicStatus,
@@ -4258,7 +4262,17 @@ describe('GatewayActionImpl', () => {
       const action = new GatewayActionImpl(set as any, get, undefined);
       action.createClient = vi.fn(() => createMockClient());
 
-      return { action, captured, completeOperation, updateTopicStatus };
+      // `state` is returned live: a test can mutate the topic map mid-stream to
+      // model another run claiming the topic after this reconnect attached.
+      return {
+        action,
+        captured,
+        completeOperation,
+        internalDispatchTopic,
+        internalPinTopicStatus,
+        state,
+        updateTopicStatus,
+      };
     }
 
     // The core black-hole guard: a reconnect that closes WITHOUT witnessing a
@@ -4390,6 +4404,57 @@ describe('GatewayActionImpl', () => {
     // gateway-run op is gone: clear the stale marker AND complete the local op,
     // so reloads / drawer opens stop reconnecting to a dead operation. Without
     // this the persisted runningOperation lingers forever.
+    // The row belongs to the server, not to this tab's map. A local supersede
+    // check used to skip the settle whenever the tab's topic map named some other
+    // operation — a guess, and one that stayed wrong forever: with the call
+    // skipped, nothing retried it, so `metadata.runningOperation` and
+    // `status = 'running'` outlived the run permanently (observed 2026-10-13 as a
+    // topic stuck on "running" whose operation row had been `interrupted` 45
+    // minutes earlier). The server compares the operation id itself, so the call
+    // is safe to always issue: a newer run is answered `conflict`, which
+    // `#restoreRunningOnSettleConflict` re-pins.
+    it('settles the server row even when this tab already names a newer operation', async () => {
+      const { action, captured, internalDispatchTopic, state } = createOnSessionCompleteHarness();
+
+      await action.reconnectToGatewayOperation({
+        assistantMessageId: 'ast-1',
+        heteroType: null,
+        operationId: 'server-op-1',
+        topicId: 'topic-1',
+      });
+
+      // A newer run claims the topic while this reconnect is streaming. The
+      // reconnect itself already bailed for the pre-attach case (the marker
+      // re-check before `connectToGateway`), so this is the only window in which
+      // the removed guard could fire.
+      state.topicDataMap['agent_agent-1'] = {
+        items: [
+          {
+            id: 'topic-1',
+            metadata: { runningOperation: { operationId: 'server-newer-op' } },
+            status: 'running',
+          },
+        ],
+      };
+
+      vi.mocked(topicService.settleRunningOperation).mockClear();
+      captured.onSessionComplete!({
+        authFailed: false,
+        completion: { source: 'resume_status', status: 'completed' },
+        succeeded: false,
+        terminalReceived: false,
+      });
+
+      expect(topicService.settleRunningOperation).toHaveBeenCalledWith(
+        'topic-1',
+        'server-op-1',
+        'active',
+      );
+      // Letting the server decide must not loosen the LOCAL clear: the newer
+      // run's marker is still what this tab's spinner reads.
+      expect(internalDispatchTopic).not.toHaveBeenCalled();
+    });
+
     it('clears runningOperation and completes the local op on auth failure', async () => {
       const { action, captured, completeOperation } = createOnSessionCompleteHarness();
 

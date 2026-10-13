@@ -191,6 +191,16 @@ const QSTASH_SCHEDULES = [
     id: 'lobe-widget-tick',
     path: '/api/workflows/widget/tick',
   },
+  {
+    // Backstop for topics left `running` by an operation that already ended: the
+    // marker is cleared best-effort on every terminal path, and nothing retries
+    // it, so a run that ends without a client attached leaves the row spinning
+    // forever. The sweep only touches rows whose staleness (2h) proves no run is
+    // behind them, and reconciles at most one bounded batch per tick.
+    cron: '*/10 * * * *',
+    id: 'lobe-topic-settle-stale-running',
+    path: '/api/workflows/topic/settle-stale-running',
+  },
 ];
 
 // Function to create the recurring QStash schedules the server relies on
