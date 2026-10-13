@@ -8,6 +8,8 @@ import { Globe } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { resolveAppUrl } from '@/libs/tenant/appBaseUrl';
+
 import { useUserDetailContext } from '../DetailProvider';
 import FollowButton from '../FollowButton';
 import FollowStats from '../FollowStats';
@@ -25,20 +27,12 @@ const UserHeader = memo(() => {
   // Normalize avatar URL - convert relative paths to absolute URLs
   const avatarUrl = useMemo(() => {
     if (!user.avatarUrl) return undefined;
-    // If it's a relative path (starts with /), prepend the origin
-    if (user.avatarUrl.startsWith('/')) {
-      return `${window.location.origin}${user.avatarUrl}`;
-    }
-    return user.avatarUrl;
+    return resolveAppUrl(user.avatarUrl);
   }, [user.avatarUrl]);
 
   const bannerUrl = useMemo(() => {
     if (!user.bannerUrl) return null;
-    // If it's a relative path (starts with /), prepend the origin
-    if (user.bannerUrl.startsWith('/')) {
-      return `${window.location.origin}${user.bannerUrl}`;
-    }
-    return user.bannerUrl;
+    return resolveAppUrl(user.bannerUrl);
   }, [user.bannerUrl]);
 
   return (

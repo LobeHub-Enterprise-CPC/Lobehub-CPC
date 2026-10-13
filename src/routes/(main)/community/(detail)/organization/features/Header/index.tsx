@@ -8,6 +8,7 @@ import { Globe } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { resolveAppUrl } from '@/libs/tenant/appBaseUrl';
 import FollowButton from '@/routes/(main)/community/(detail)/features/FollowButton';
 
 import { useOrganizationDetailContext } from '../DetailProvider';
@@ -16,8 +17,7 @@ import Banner from './Banner';
 
 const normalizeUrl = (input?: string | null) => {
   if (!input) return undefined;
-  if (input.startsWith('/')) return `${window.location.origin}${input}`;
-  return input;
+  return resolveAppUrl(input);
 };
 
 const OrganizationHeader = memo(() => {

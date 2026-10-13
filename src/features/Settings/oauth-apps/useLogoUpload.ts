@@ -2,6 +2,7 @@ import { toast } from '@lobehub/ui/base-ui';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { resolveAppUrl } from '@/libs/tenant/appBaseUrl';
 import { useFileStore } from '@/store/file';
 
 const MAX_LOGO_SIZE = 2 * 1024 * 1024;
@@ -33,7 +34,7 @@ export const useLogoUpload = () => {
       }
 
       // Local storage returns a path; the provider needs an absolute URL.
-      return result.url.startsWith('/') ? `${window.location.origin}${result.url}` : result.url;
+      return resolveAppUrl(result.url);
     } catch (error) {
       console.error('[OAuthApps] Logo upload failed:', error);
       toast.error(t('oauthApp.form.logo.uploadFailed'));

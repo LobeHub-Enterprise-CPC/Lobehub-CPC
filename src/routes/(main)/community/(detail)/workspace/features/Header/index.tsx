@@ -8,13 +8,14 @@ import { ExternalLink, Globe, Settings } from 'lucide-react';
 import { memo, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { resolveAppUrl } from '@/libs/tenant/appBaseUrl';
+
 import { useWorkspaceDetailContext } from '../DetailProvider';
 import Banner from './Banner';
 
 const normalizeUrl = (input?: string | null) => {
   if (!input) return undefined;
-  if (input.startsWith('/')) return `${window.location.origin}${input}`;
-  return input;
+  return resolveAppUrl(input);
 };
 
 const getWorkspacePublicProfileUrl = (username: string) => `/community/org/${username}`;

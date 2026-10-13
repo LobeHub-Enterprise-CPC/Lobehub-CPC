@@ -1,12 +1,14 @@
-import { currentTenantRelativePath, getTenant } from '@lobechat/business-tenant/client';
-import { withTenantPath } from '@lobechat/business-tenant/routing';
+import { buildRemoteUrl, relativeToRemoteBase } from '@lobechat/utils/remoteUrl';
+
+import { getAppBaseUrl } from '@/libs/tenant/appBaseUrl';
 
 import { getRegisteredAttachment } from './attachmentRegistry';
 
 const FILE_PROXY_PATH = /^\/f\/[^/]+$/;
 
 interface FileDownloadUrlOptions {
-  appOrigin?: string;
+  /** The app address the file proxy lives under; defaults to {@link getAppBaseUrl}. */
+  appUrl?: string;
   baseUrl?: string;
   downloadUrl?: string;
   fileId?: string;
@@ -22,18 +24,18 @@ export const getFileDownloadUrl = (url: string, options: FileDownloadUrlOptions 
     options.baseUrl ?? (typeof window === 'undefined' ? undefined : window.location.href);
 
   try {
+    const appUrl = options.appUrl ?? getAppBaseUrl();
     const downloadUrl = new URL(options.downloadUrl ?? url, baseUrl);
 
-    if (FILE_PROXY_PATH.test(currentTenantRelativePath(downloadUrl.pathname) ?? '')) {
+    // The file proxy under this app's tenant path. Any origin: a link minted on an
+    // earlier active entry still reaches the proxy through that entry's redirect.
+    if (FILE_PROXY_PATH.test(relativeToRemoteBase(downloadUrl.pathname, appUrl) ?? '')) {
       downloadUrl.searchParams.set('download', '1');
       return downloadUrl.toString();
     }
 
-    if (options.fileId && options.appOrigin) {
-      const proxyUrl = new URL(
-        withTenantPath(`/f/${encodeURIComponent(options.fileId)}`, getTenant()?.slug),
-        options.appOrigin,
-      );
+    if (options.fileId) {
+      const proxyUrl = buildRemoteUrl(`/f/${encodeURIComponent(options.fileId)}`, appUrl);
       proxyUrl.searchParams.set('download', '1');
       return proxyUrl.toString();
     }
@@ -49,7 +51,6 @@ export const openFileDownload = (url: string): void => {
   const attachment = getRegisteredAttachment(url);
   window.open(
     getFileDownloadUrl(url, {
-      appOrigin: window.location.origin,
       downloadUrl: attachment?.downloadUrl,
       fileId: attachment?.fileId,
     }),

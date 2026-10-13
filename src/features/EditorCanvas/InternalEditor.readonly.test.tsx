@@ -69,7 +69,8 @@ vi.mock('./useImageUpload', () => ({
   useImageUpload: () => vi.fn(),
 }));
 
-vi.mock('@lobechat/const', () => ({
+vi.mock('@lobechat/const', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   isDesktop: false,
 }));
 

@@ -50,6 +50,7 @@ import {
 import EmojiPicker from '@/components/EmojiPicker';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { usePermission } from '@/hooks/usePermission';
+import { resolveAppUrl } from '@/libs/tenant/appBaseUrl';
 import { useFileStore } from '@/store/file';
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024;
@@ -427,9 +428,7 @@ const CommunityWorkspaceSettings = memo(() => {
           toast.error(t('user.workspaceProfile.errors.uploadFailed'));
           return;
         }
-        setAvatarUrl(
-          result.url.startsWith('/') ? `${window.location.origin}${result.url}` : result.url,
-        );
+        setAvatarUrl(resolveAppUrl(result.url));
       } catch (error) {
         console.error('[CommunityWorkspaceSettings] Avatar upload failed:', error);
         toast.error(t('user.workspaceProfile.errors.uploadFailed'));
@@ -454,10 +453,7 @@ const CommunityWorkspaceSettings = memo(() => {
           toast.error(t('user.workspaceProfile.errors.uploadFailed'));
           return;
         }
-        const url = result.url.startsWith('/')
-          ? `${window.location.origin}${result.url}`
-          : result.url;
-        setBannerUrl(url);
+        setBannerUrl(resolveAppUrl(result.url));
       } catch (error) {
         console.error('[CommunityWorkspaceSettings] Banner upload failed:', error);
         toast.error(t('user.workspaceProfile.errors.uploadFailed'));
