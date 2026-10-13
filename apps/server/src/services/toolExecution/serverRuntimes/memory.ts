@@ -204,21 +204,16 @@ class MemoryServerRuntimeService implements MemoryRuntimeService {
 
   searchMemory = async (params: SearchMemoryParams): Promise<SearchMemoryResult> => {
     const normalizedParams = normalizeSearchMemoryParams(params);
-    const defaultEmbeddingConfig =
-      getServerDefaultFilesConfig().embeddingModel || DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM;
-    const embeddingModel = this.memoryEmbeddingRuntime?.model ?? defaultEmbeddingConfig.model;
-    const modelRuntime = this.memoryEmbeddingRuntime
-      ? initModelRuntimeWithUserPayload(
-          this.memoryEmbeddingRuntime.provider,
-          this.memoryEmbeddingRuntime.payload,
-          { userId: this.userId },
-        )
-      : await initModelRuntimeFromDB(
-          this.serverDB,
-          this.userId,
-          defaultEmbeddingConfig.provider,
-          this.workspaceId,
-        );
+    const { agentRuntime: modelRuntime, embeddingModel } = this.memoryEmbeddingRuntime
+      ? {
+          agentRuntime: initModelRuntimeWithUserPayload(
+            this.memoryEmbeddingRuntime.provider,
+            this.memoryEmbeddingRuntime.payload,
+            { userId: this.userId },
+          ),
+          embeddingModel: this.memoryEmbeddingRuntime.model,
+        }
+      : await getEmbeddingRuntime(this.serverDB, this.userId, this.workspaceId);
     const normalizedQueries = normalizeUserMemorySearchQueries(normalizedParams.queries);
 
     const queryEmbeddings =

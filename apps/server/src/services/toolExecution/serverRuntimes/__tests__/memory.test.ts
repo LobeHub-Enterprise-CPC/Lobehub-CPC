@@ -1,3 +1,4 @@
+import { BRANDING_PROVIDER, ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
 import type { LobeChatDatabase } from '@lobechat/database';
 import { MergeStrategyEnum } from '@lobechat/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -168,6 +169,27 @@ describe('memoryRuntime', () => {
 
       expect(topK).toMatchObject({ activities: 3, contexts: 0, experiences: 0, preferences: 3 });
     });
+  });
+
+  it('falls back to the provider every other memory embedding uses', async () => {
+    mocks.embeddings.mockResolvedValueOnce([[0.1, 0.2, 0.3]]);
+    mocks.initModelRuntimeFromDB.mockResolvedValueOnce({ embeddings: mocks.embeddings });
+    mocks.searchMemory.mockResolvedValueOnce({
+      activities: [],
+      contexts: [],
+      experiences: [],
+      identities: [],
+      preferences: [],
+    });
+
+    const runtime = await memoryRuntime.factory({
+      ...createContext(),
+      memoryEmbeddingRuntime: undefined,
+    });
+    await runtime.searchUserMemory({ queries: ['renewal timeline'] });
+
+    const expected = ENABLE_BUSINESS_FEATURES ? BRANDING_PROVIDER : undefined;
+    expect(mocks.initModelRuntimeFromDB.mock.calls[0][2]).toBe(expected);
   });
 
   it('records the lexical decision on the default Gateway memory path', async () => {

@@ -105,15 +105,29 @@ const normalizeMemoryEffort = (value: unknown): MemoryEffort => {
   return 'medium';
 };
 
+const getEmbeddingRuntime = async (serverDB: LobeChatDatabase, userId: string) => {
+  const { provider, model: embeddingModel } =
+    getServerDefaultFilesConfig().embeddingModel || DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM;
+  // Read user's provider config from database
+  const agentRuntime = await initModelRuntimeFromDB(
+    serverDB,
+    userId,
+    ENABLE_BUSINESS_FEATURES ? BRANDING_PROVIDER : provider,
+  );
+
+  return { agentRuntime, embeddingModel };
+};
+
 const searchUserMemories = async (
   ctx: MemorySearchContext,
   input: z.infer<typeof searchMemorySchema>,
   source: UserMemoryLexicalSearchSource,
 ): Promise<SearchMemoryResult> => {
   const normalizedInput = normalizeSearchMemoryParams(input);
-  const { provider, model: embeddingModel } =
-    getServerDefaultFilesConfig().embeddingModel || DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM;
-  const modelRuntime = await initModelRuntimeFromDB(ctx.serverDB, ctx.userId, provider);
+  const { agentRuntime: modelRuntime, embeddingModel } = await getEmbeddingRuntime(
+    ctx.serverDB,
+    ctx.userId,
+  );
   const normalizedQueries = normalizeUserMemorySearchQueries(normalizedInput.queries);
 
   const queryEmbeddings =
@@ -141,19 +155,6 @@ const searchUserMemories = async (
     { ...normalizedInput, queries: normalizedQueries, topK: effortConstrainedLimits },
     queryEmbeddings,
   ) as Promise<SearchMemoryResult>;
-};
-
-const getEmbeddingRuntime = async (serverDB: LobeChatDatabase, userId: string) => {
-  const { provider, model: embeddingModel } =
-    getServerDefaultFilesConfig().embeddingModel || DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM;
-  // Read user's provider config from database
-  const agentRuntime = await initModelRuntimeFromDB(
-    serverDB,
-    userId,
-    ENABLE_BUSINESS_FEATURES ? BRANDING_PROVIDER : provider,
-  );
-
-  return { agentRuntime, embeddingModel };
 };
 
 const createEmbedder = (
