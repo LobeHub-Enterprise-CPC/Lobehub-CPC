@@ -1,6 +1,7 @@
 // @vitest-environment node
 import net from 'node:net';
 
+import { ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
 import { ModelProvider } from 'model-bank';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -97,17 +98,18 @@ describe('user-provided provider baseURL is SSRF-guarded', () => {
 });
 
 describe('platform-configured endpoints are not blocked', () => {
-  it('keeps using the env proxy URL when the user supplies no baseURL', async () => {
+  // Business builds never lend instance provider settings to a tenant.
+  it('uses the env proxy URL without a user baseURL only outside business builds', async () => {
     process.env.OPENAI_PROXY_URL = 'http://127.0.0.1:18080/v1';
 
-    const runtime = initModelRuntimeWithUserPayload(
-      ModelProvider.OpenAI,
-      {},
-      { userId: 'tenant-user' },
-    );
-    await expect(runtime.chat(chatPayload as any)).rejects.toBeDefined();
+    // Business builds have no instance key, so the runtime already fails to initialize.
+    const chat = async () =>
+      initModelRuntimeWithUserPayload(ModelProvider.OpenAI, {}, { userId: 'tenant-user' }).chat(
+        chatPayload as any,
+      );
+    await expect(chat()).rejects.toBeDefined();
 
-    expect(connectTargets).toContain('127.0.0.1:18080');
+    expect(connectTargets.includes('127.0.0.1:18080')).toBe(!ENABLE_BUSINESS_FEATURES);
   });
 
   it('never forwards a user baseURL into the platform-owned lobehub router', () => {
