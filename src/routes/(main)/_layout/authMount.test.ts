@@ -1,3 +1,4 @@
+import type * as BusinessConst from '@lobechat/business-const';
 import { Children, type FC, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -8,7 +9,7 @@ const { nullComponent, passthrough, flags } = vi.hoisted(() => ({
 }));
 
 vi.mock('@lobechat/business-const', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@lobechat/business-const')>()),
+  ...(await importOriginal<typeof BusinessConst>()),
   get NAV_RAIL_ENABLED() {
     return flags.navRailEnabled;
   },
