@@ -75,11 +75,12 @@ vi.mock('@/business/client/hooks/useBusinessSignin', () => ({
 
 let mockEnableBusinessFeatures = false;
 let mockEnableMagicLink = false;
+let mockDisableEmailPassword = false;
 vi.mock('@/features/AuthShell/AuthServerConfigProvider', () => ({
   useAuthServerConfigStore: (selector: (s: any) => any) =>
     selector({
       serverConfig: {
-        disableEmailPassword: false,
+        disableEmailPassword: mockDisableEmailPassword,
         enableBusinessFeatures: mockEnableBusinessFeatures,
         enableMagicLink: mockEnableMagicLink,
         oAuthSSOProviders: ['google', 'github'],
@@ -125,6 +126,7 @@ describe('useSignIn', () => {
     mockSearchParamsGet.mockReturnValue(null);
     mockEnableBusinessFeatures = false;
     mockEnableMagicLink = false;
+    mockDisableEmailPassword = false;
     mockBusinessSignin.ssoProviders = [];
     mockBusinessSignin.managedSSO = false;
     mockBusinessSignin.ssoLoaded = true;
@@ -796,6 +798,115 @@ describe('useSignIn', () => {
       expect(result.current.email).toBe('');
       expect(result.current.sentInfo).toBeNull();
       expect(mockForm.reset).toHaveBeenCalledWith({ email: 'user@example.com', password: '' });
+    });
+  });
+
+  describe('enabled email login methods', () => {
+    it.each([true, false])(
+      'uses magic link when password is disabled (hasPassword=%s)',
+      async (hasPassword) => {
+        mockDisableEmailPassword = true;
+        mockEnableMagicLink = true;
+        mockSignInMagicLink.mockResolvedValue({ error: null });
+        mockFetch.mockResolvedValueOnce({
+          json: async () => ({ exists: true, hasPassword }),
+          ok: true,
+        });
+        const { result } = renderHook(() => useSignIn());
+        await act(async () => {
+          await result.current.handleCheckUser({ email: 'user@example.com' });
+        });
+        expect(mockSignInMagicLink).toHaveBeenCalledWith(
+          expect.objectContaining({ email: 'user@example.com' }),
+        );
+        expect(mockSignInEmail).not.toHaveBeenCalled();
+        expect(result.current.step).toBe('emailSent');
+      },
+    );
+
+    it('sends unknown email through magic-link admission instead of disabled signup', async () => {
+      mockDisableEmailPassword = true;
+      mockEnableMagicLink = true;
+      mockSignInMagicLink.mockResolvedValue({ error: null });
+      mockFetch.mockResolvedValueOnce({ json: async () => ({ exists: false }), ok: true });
+      const { result } = renderHook(() => useSignIn());
+      await act(async () => {
+        await result.current.handleCheckUser({ email: 'new@example.com' });
+      });
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockSignInMagicLink).toHaveBeenCalledWith(
+        expect.objectContaining({ email: 'new@example.com' }),
+      );
+      expect(result.current.step).toBe('emailSent');
+    });
+
+    it('keeps a denied magic-link admission on email entry for retry', async () => {
+      mockDisableEmailPassword = true;
+      mockEnableMagicLink = true;
+      mockSignInMagicLink.mockResolvedValue({ error: { message: 'Registration closed' } });
+      mockFetch.mockResolvedValueOnce({ json: async () => ({ exists: false }), ok: true });
+      const { result } = renderHook(() => useSignIn());
+      await act(async () => {
+        await result.current.handleCheckUser({ email: 'new@example.com' });
+      });
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockMessageError).toHaveBeenCalledWith('Registration closed');
+      expect(result.current.step).toBe('email');
+      expect(result.current.sentInfo).toBeNull();
+    });
+
+    it('makes no email credential request when both email methods are disabled', async () => {
+      mockDisableEmailPassword = true;
+      const { result } = renderHook(() => useSignIn());
+      await act(async () => {
+        await result.current.handleCheckUser({ email: 'user@example.com' });
+        await result.current.handleSignIn({ password: 'fixture-password' });
+        result.current.handleGoToSignup();
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(mockSignInEmail).not.toHaveBeenCalled();
+      expect(mockSignInMagicLink).not.toHaveBeenCalled();
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(result.current.step).toBe('email');
+    });
+
+    it('does not reset passwords after the password method is disabled', async () => {
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({ exists: true, hasPassword: true }),
+        ok: true,
+      });
+      const { result, rerender } = renderHook(() => useSignIn());
+      await act(async () => {
+        await result.current.handleCheckUser({ email: 'user@example.com' });
+      });
+      mockDisableEmailPassword = true;
+      rerender();
+      await act(async () => {
+        await result.current.handleForgotPassword();
+      });
+      expect(mockRequestPasswordReset).not.toHaveBeenCalled();
+      expect(result.current.sentInfo).toBeNull();
+    });
+
+    it('does not resend a magic link after that method is disabled', async () => {
+      mockEnableMagicLink = true;
+      mockSignInMagicLink.mockResolvedValue({ error: null });
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({ exists: true, hasPassword: false }),
+        ok: true,
+      });
+      const { result, rerender } = renderHook(() => useSignIn());
+      await act(async () => {
+        await result.current.handleCheckUser({ email: 'user@example.com' });
+      });
+      mockEnableMagicLink = false;
+      rerender();
+      mockSignInMagicLink.mockClear();
+      await act(async () => {
+        await result.current.handleResendEmail();
+      });
+      expect(mockSignInMagicLink).not.toHaveBeenCalled();
+      expect(mockMessageSuccess).not.toHaveBeenCalled();
     });
   });
 

@@ -40,6 +40,7 @@ export interface SignInEmailStepProps {
   agreementChecked: boolean;
   continueWithAgreement: (continueAction: () => void) => void;
   disableEmailPassword?: boolean;
+  enableMagicLink?: boolean;
   form: FormInstance<{ email: string }>;
   isSocialOnly: boolean;
   lastAuthProvider?: string | null;
@@ -64,6 +65,7 @@ export const SignInEmailStep = ({
   agreementChecked,
   continueWithAgreement,
   disableEmailPassword,
+  enableMagicLink,
   form,
   isSocialOnly,
   lastAuthProvider,
@@ -110,7 +112,8 @@ export const SignInEmailStep = ({
 
   // Config is injected synchronously via window.__SERVER_CONFIG__, so the email
   // form is the primary path unless the account is social-only.
-  const showEmailForm = !disableEmailPassword && !isSocialOnly;
+  const emailSignInEnabled = !disableEmailPassword || enableMagicLink;
+  const showEmailForm = emailSignInEnabled && !isSocialOnly;
 
   return (
     <AuthCard title={t('signin.subtitle', { appName: BRANDING_NAME })}>
@@ -178,7 +181,7 @@ export const SignInEmailStep = ({
             const showLastUsed =
               provider === lastAuthProvider &&
               (oAuthSSOProviders.length > 1 ||
-                (oAuthSSOProviders.length === 1 && !disableEmailPassword));
+                (oAuthSSOProviders.length === 1 && emailSignInEnabled));
             return showLastUsed ? (
               <Badge
                 color="var(--ant-color-info)"
@@ -195,9 +198,13 @@ export const SignInEmailStep = ({
           {showEmailForm && divider}
         </Flexbox>
       )}
-      {serverConfigInit && disableEmailPassword && oAuthSSOProviders.length === 0 && (
-        <Alert showIcon description={t('betterAuth.signin.ssoOnlyNoProviders')} type="warning" />
-      )}
+      {serverConfigInit &&
+        !ssoError &&
+        !tenantUnavailable &&
+        !emailSignInEnabled &&
+        oAuthSSOProviders.length === 0 && (
+          <Alert showIcon description={t('betterAuth.signin.ssoOnlyNoProviders')} type="warning" />
+        )}
       {showEmailForm && (
         <Form form={form} gap={0} layout="vertical">
           <Form.Field
@@ -227,7 +234,7 @@ export const SignInEmailStep = ({
           </Button>
         </Form>
       )}
-      {isSocialOnly && (
+      {isSocialOnly && !disableEmailPassword && (
         <Alert
           showIcon
           style={{ marginTop: 12 }}
@@ -272,7 +279,7 @@ export const SignInEmailStep = ({
         </Text>
       )}
       {!showEmailForm && <AuthAgreement />}
-      {showEmailForm && (
+      {showEmailForm && !disableEmailPassword && (
         <Text align={'center'} fontSize={13} style={{ marginTop: 16 }} type={'secondary'}>
           {t('betterAuth.signin.noAccount')}{' '}
           <a

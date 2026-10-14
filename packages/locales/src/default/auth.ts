@@ -191,7 +191,7 @@ export default {
   'betterAuth.signin.ssoRetry': 'Retry',
   'betterAuth.signin.ssoLoading': 'Loading sign-in providers…',
   'betterAuth.signin.ssoOnlyNoProviders':
-    'Email registration is disabled and no SSO providers are configured. Please contact your administrator.',
+    'No sign-in methods are currently available. Please contact your administrator.',
   'betterAuth.signin.submit': 'Sign In',
   'betterAuth.signup.confirmPasswordPlaceholder': 'Confirm your password',
   'betterAuth.signup.emailPlaceholder': 'Enter your email address',

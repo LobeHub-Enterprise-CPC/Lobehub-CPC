@@ -62,7 +62,7 @@ export const useSignIn = () => {
   const form = useForm<SignInFormValues>({
     initialValues: { email: '', password: '' },
     onSubmit: (values) => {
-      if (step === 'password') {
+      if (step === 'password' && !disableEmailPassword) {
         void handleSignIn(values);
         return;
       }
@@ -112,7 +112,7 @@ export const useSignIn = () => {
   }, [searchParams, form]);
 
   const handleSendMagicLink = async (targetEmail?: string): Promise<boolean> => {
-    if (sending) return false;
+    if (!enableMagicLink || sending) return false;
     try {
       const emailValue =
         targetEmail ||
@@ -186,6 +186,7 @@ export const useSignIn = () => {
   };
 
   const handleCheckUser = async (values: Pick<SignInFormValues, 'email'>) => {
+    if (disableEmailPassword && !enableMagicLink) return;
     setLoading(true);
     await trackLoginOrSignupClicked({ spm: 'signin.email_step.submit' });
 
@@ -214,6 +215,10 @@ export const useSignIn = () => {
           toast.error(t('betterAuth.errors.usernameNotRegistered'));
           return;
         }
+        if (disableEmailPassword) {
+          await handleSendMagicLink(targetEmail);
+          return;
+        }
         const callbackUrl = searchParams.get('callbackUrl') || '/';
         const signupParams = new URLSearchParams();
         signupParams.set('email', targetEmail);
@@ -227,7 +232,7 @@ export const useSignIn = () => {
       }
 
       setEmail(targetEmail);
-      if (data.hasPassword) {
+      if (data.hasPassword && !disableEmailPassword) {
         setStep('password');
         return;
       }
@@ -248,6 +253,7 @@ export const useSignIn = () => {
   };
 
   const handleSignIn = async (values: Pick<SignInFormValues, 'password'>) => {
+    if (disableEmailPassword) return;
     setLoading(true);
     await trackLoginOrSignupClicked({ spm: 'signin.password_step.submit' });
 
@@ -405,6 +411,7 @@ export const useSignIn = () => {
   };
 
   const handleGoToSignup = () => {
+    if (disableEmailPassword) return;
     const currentEmail = form.getValue('email');
     const callbackUrl = searchParams.get('callbackUrl') || '/';
     const params = new URLSearchParams();
@@ -422,7 +429,7 @@ export const useSignIn = () => {
   // Fire the password-reset email. Returns true on success. Shared by the
   // "forgot password" entry and the resend action on the sent screen.
   const dispatchPasswordReset = async (targetEmail: string): Promise<boolean> => {
-    if (sending) return false;
+    if (disableEmailPassword || sending) return false;
     setSending(true);
     try {
       // The better-auth client resolves with `{ data, error }` instead of
@@ -445,7 +452,7 @@ export const useSignIn = () => {
   };
 
   const handleForgotPassword = async () => {
-    if (!email || sending) return;
+    if (disableEmailPassword || !email || sending) return;
     const ok = await dispatchPasswordReset(email);
     if (!ok) return;
     setSentInfo({ email, type: 'resetPassword' });
@@ -491,6 +498,7 @@ export const useSignIn = () => {
     continueWithAgreement,
     disableEmailPassword,
     email,
+    enableMagicLink,
     form,
     handleBackFromSent,
     handleBackToEmail,

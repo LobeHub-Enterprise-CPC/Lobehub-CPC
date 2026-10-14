@@ -11,6 +11,7 @@ const SignIn = () => {
     continueWithAgreement,
     disableEmailPassword,
     email,
+    enableMagicLink,
     form,
     handleBackFromSent,
     handleBackToEmail,
@@ -46,7 +47,7 @@ const SignIn = () => {
       />
     );
 
-  if (step === 'password')
+  if (step === 'password' && !disableEmailPassword)
     return (
       <SignInPasswordStep
         email={email}
@@ -63,6 +64,7 @@ const SignIn = () => {
       agreementChecked={agreementChecked}
       continueWithAgreement={continueWithAgreement}
       disableEmailPassword={disableEmailPassword}
+      enableMagicLink={enableMagicLink}
       form={form as any}
       isSocialOnly={isSocialOnly}
       lastAuthProvider={lastAuthProvider}
