@@ -1,3 +1,5 @@
+import { EventEmitter } from 'node:events';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import { TenantDatabaseError } from '../errors';
@@ -9,13 +11,13 @@ const SCHEMA = 'tenant_0123456789abcdef01234567';
 /** A pooled connection that records every statement sent to it. */
 const fakeLease = () => {
   const statements: string[] = [];
-  const client = {
+  const client = Object.assign(new EventEmitter(), {
     query: vi.fn(async (query: unknown) => {
       statements.push(typeof query === 'string' ? query : String((query as any)?.text));
       return { rows: [] };
     }),
     release: vi.fn(),
-  };
+  });
   const lease = { pool: { connect: async () => client }, release: vi.fn() };
   return { client, lease: lease as unknown as TenantPoolLease, statements };
 };
@@ -31,6 +33,24 @@ const kinds = (statements: string[]) =>
   statements.map((s) => (s.includes('pg_advisory_xact_lock_shared') ? 'PRELUDE' : s));
 
 describe('createTenantSchemaPool', () => {
+  it('keeps a disconnected borrowed client inside its operation until the existing final release', async () => {
+    const { client, lease } = fakeLease();
+    const pool = createTenantSchemaPool(() => lease, SCHEMA, 't-1');
+    const handle = await pool.connect();
+    const disconnected = new Error('borrowed connection lost');
+
+    expect(() => client.emit('error', disconnected)).not.toThrow();
+    expect(client.release).not.toHaveBeenCalled();
+    expect(lease.release).not.toHaveBeenCalled();
+    await expect(handle.query('SELECT 1')).rejects.toBe(disconnected);
+
+    handle.release();
+    handle.release();
+    expect(client.release).toHaveBeenCalledExactlyOnceWith(disconnected);
+    expect(lease.release).toHaveBeenCalledTimes(1);
+    expect(client.listenerCount('error')).toBe(0);
+  });
+
   it('rolls back and returns the connection once when a transaction is refused after BEGIN', async () => {
     const { client, lease, statements } = fakeLease();
     const { admit, refusal } = refusedAfterLock();

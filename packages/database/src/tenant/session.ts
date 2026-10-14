@@ -16,6 +16,27 @@ import type { TenantPoolLease } from './pool';
  */
 export type TenantAdmit = (stage: 'early' | 'locked') => Promise<void>;
 
+/** Keep checked-out pg errors local; the owning operation still performs its final release. */
+export const observeBorrowedClientErrors = (client: PoolClient) => {
+  let failure: Error | undefined;
+  const onError = (error: Error) => {
+    failure ??= error;
+  };
+  client.on('error', onError);
+  return {
+    get error() {
+      return failure;
+    },
+    release(error?: Error | boolean) {
+      try {
+        client.release(error || failure);
+      } finally {
+        client.removeListener('error', onError);
+      }
+    },
+  };
+};
+
 const BEGIN_STATEMENT = /^\s*begin\b/i;
 const statementText = (query: unknown): string =>
   typeof query === 'string' ? query : String((query as { text?: unknown } | null)?.text ?? '');
@@ -51,11 +72,12 @@ export const createTenantSchemaPool = (
       lease.release();
       throw new TenantDatabaseError('TENANT_UNAVAILABLE', 'connect-failed', { cause });
     }
+    const observation = observeBorrowedClientErrors(client);
     let released = false;
     const release = (error?: Error | boolean) => {
       if (released) return;
       released = true;
-      client.release(error);
+      observation.release(error);
       lease.release();
     };
     /**
@@ -88,6 +110,7 @@ export const createTenantSchemaPool = (
             // caller: nothing may run on it through this handle any more.
             if (released)
               throw new TenantDatabaseError('TENANT_UNAVAILABLE', 'connection-released');
+            if (observation.error) throw observation.error;
             const result: unknown = await Reflect.apply(target.query, target, args);
             if (BEGIN_STATEMENT.test(statementText(args[0]))) await guard();
             return result;

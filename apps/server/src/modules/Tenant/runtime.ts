@@ -12,6 +12,7 @@ import {
 import debug from 'debug';
 import { sql } from 'drizzle-orm';
 
+import { observeBorrowedClientErrors } from '@/database/tenant/session';
 import { openDirectoryData } from '@/server/crypto/tenantKeys';
 import { verifyRuntimeTenantDatabase } from '@/server/services/tenantControlPlane/postgresExecutor';
 import { directorySecretAad } from '@/server/services/tenantControlPlane/postgresRepository';
@@ -337,13 +338,14 @@ export class TenantRuntime {
       const lease = this.acquireFor(directory)();
       try {
         const client = await lease.pool.connect();
+        const observation = observeBorrowedClientErrors(client);
         try {
           await this.verifyDatabase(client, {
             schemaName: directory.schemaName,
             tenantId: directory.tenantId,
           });
         } finally {
-          client.release();
+          observation.release();
         }
       } catch (cause) {
         log('tenant database verification failed for %s', directory.tenantId);
