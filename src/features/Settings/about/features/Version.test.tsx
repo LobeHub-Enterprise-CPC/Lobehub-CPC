@@ -12,6 +12,14 @@ const electron = { ipc: {} as unknown, updaterState: { stage: 'idle' } as Update
 // the one slot keeps both of its states testable whatever this build ships.
 const branding = { changelogEnabled: true };
 
+// Whether this build has a homepage of the vendor's to point at. Steered like the
+// changelog slot above, so both builds stay testable here.
+const vendor = { available: true };
+
+vi.mock('@/utils/vendorLink', () => ({
+  vendorLink: (href: string) => (vendor.available ? href : undefined),
+}));
+
 vi.mock('@lobechat/business-const', async (importOriginal) => ({
   ...(await importOriginal<typeof BusinessConst>()),
   get CHANGELOG_ENABLED() {
@@ -44,7 +52,9 @@ vi.mock('@/services/electron/rendererOta', () => ({
   rendererOtaService: { getStatus: vi.fn(async () => ({ current: null, running: null })) },
 }));
 
-vi.mock('@/components/Branding', () => ({ ProductLogo: () => <div /> }));
+vi.mock('@/components/Branding', () => ({
+  ProductLogo: () => <div data-testid={'product-logo'} />,
+}));
 vi.mock('@/features/User/UserPanel/useNewVersion', () => ({ useNewVersion: () => false }));
 
 vi.mock('@/store/global', () => ({
@@ -65,6 +75,7 @@ vi.mock('@/store/serverConfig', () => ({
 
 beforeEach(() => {
   branding.changelogEnabled = true;
+  vendor.available = true;
   flags.enableCheckUpdates = true;
   flags.showChangelog = true;
   electron.ipc = {};
@@ -102,6 +113,30 @@ describe('About > Version', () => {
     render(<Version />);
 
     expect(screen.getByText('Changelog')).toBeInTheDocument();
+  });
+
+  it('leaves the product mark unlinked when the build has no site of its own', () => {
+    // The changelog button is off here so the mark is the only link candidate.
+    branding.changelogEnabled = false;
+    vendor.available = false;
+
+    render(<Version />);
+
+    // OFFICIAL_SITE is lobehub.com — the upstream product's homepage. The mark
+    // used to carry it on every build, so a rebranded distribution opened
+    // another company's site from its own logo. Nothing replaces it: until this
+    // deployment publishes a site, there is nowhere of its own to send anyone.
+    expect(screen.queryAllByRole('link')).toHaveLength(0);
+    // ...and the mark itself stays; only the outbound link goes.
+    expect(screen.getByTestId('product-logo')).toBeInTheDocument();
+  });
+
+  it('keeps linking the product mark where there is a vendor site to point at', () => {
+    branding.changelogEnabled = false;
+
+    render(<Version />);
+
+    expect(screen.getByRole('link')).toHaveAttribute('href', 'https://lobehub.com');
   });
 
   it('offers no update button when the build ships no update feed', async () => {
