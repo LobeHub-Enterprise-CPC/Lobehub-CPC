@@ -469,9 +469,9 @@ export class BuiltinToolsExecutor implements IToolExecutor {
 
     // Command governance: gate command-shaped calls only (see
     // `buildCommandGovernanceContext`). `checkCommand` itself no-ops to
-    // `{ allowed: true }` with zero DB access when the feature is disabled
-    // (`COMMAND_GOVERNANCE_ENABLED`), so this is a no-op in the default
-    // configuration.
+    // `{ allowed: true }` without touching governance rules when the feature
+    // is disabled (`command_governance` flag, off by default), so this is a
+    // no-op in the default configuration.
     const commandGovernance = buildCommandGovernanceContext(
       identifier,
       apiName,

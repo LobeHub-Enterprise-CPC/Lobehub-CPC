@@ -1,8 +1,8 @@
-import { getServerFeatureFlagsValue } from '@/config/featureFlags';
 import { appEnv } from '@/envs/app';
 import { authEnv } from '@/envs/auth';
 import { buildAnalyticsConfig, fetchViteDevTemplate, renderSpaHtml } from '@/libs/spaHtml';
 import { type Locales, normalizeLocale } from '@/locales/resources';
+import { getServerFeatureFlagsFromRuntimeConfig } from '@/server/featureFlags';
 import { getServerAuthConfig } from '@/server/globalConfig/getServerAuthConfig';
 import { getTenantPageBootstrap } from '@/server/modules/Tenant/pageBootstrap';
 import { type AuthSPAServerConfig } from '@/types/spaServerConfig';
@@ -41,7 +41,8 @@ export async function GET(
       ...(tenant ? { oidcIssuer: `${tenant.publicUrl}/oidc` } : {}),
     },
     enableOIDC: authEnv.ENABLE_OIDC,
-    featureFlags: getServerFeatureFlagsValue(),
+    // Rendered outside any tenant scope: business builds embed the product defaults.
+    featureFlags: await getServerFeatureFlagsFromRuntimeConfig(),
     globalCDN: appEnv.CDN_USE_GLOBAL,
   };
 

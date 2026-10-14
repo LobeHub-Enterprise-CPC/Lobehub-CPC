@@ -19,10 +19,10 @@ import { resolveAttachmentMetadata } from '@/server/services/file/resolveAttachm
 const channelProcedure = authedProcedure.use(serverDatabase).use(async ({ ctx, next }) => {
   if (ctx.workspaceId)
     throw new TRPCError({ code: 'FORBIDDEN', message: 'Channels are personal in this release' });
-  if (!isChannelEnabled())
+  if (!(await isChannelEnabled(ctx.userId)))
     throw new TRPCError({
       code: 'FORBIDDEN',
-      message: 'Channel gateway is not configured',
+      message: 'Channels are not enabled',
     });
   if (!(await isChannelGatewayReady()))
     throw new TRPCError({
@@ -82,7 +82,8 @@ async function prepareMembers(
 
 export const channelRouter = router({
   availability: authedProcedure.use(serverDatabase).query(async ({ ctx }) => ({
-    enabled: !ctx.workspaceId && isChannelEnabled() && (await isChannelGatewayReady()),
+    enabled:
+      !ctx.workspaceId && (await isChannelEnabled(ctx.userId)) && (await isChannelGatewayReady()),
   })),
   validateEnvironment: channelProcedure
     .input(environment.extend({ agentId: channelId }).strict())

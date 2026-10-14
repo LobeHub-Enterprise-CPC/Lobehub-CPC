@@ -22,7 +22,9 @@ vi.mock('@/libs/i18n/serverTranslation', () => ({
 }));
 vi.mock('@/server/globalConfig', () => ({ getServerGlobalConfig: async () => ({}) }));
 vi.mock('@/server/globalConfig/getServerAuthConfig', () => ({ getServerAuthConfig: () => ({}) }));
-vi.mock('@/config/featureFlags', () => ({ getServerFeatureFlagsValue: () => ({}) }));
+vi.mock('@/server/featureFlags', () => ({
+  getServerFeatureFlagsFromRuntimeConfig: async () => ({}),
+}));
 vi.mock('/src/app/spa-share/shareHtmlTemplate', () => ({ shareHtmlTemplate: template }));
 vi.mock('/src/app/spa-workbench/workbenchHtmlTemplate', () => ({
   workbenchHtmlTemplate: template,

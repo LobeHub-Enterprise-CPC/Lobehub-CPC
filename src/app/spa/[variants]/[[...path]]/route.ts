@@ -1,7 +1,6 @@
 import { APPLE_APP_STORE_ID, BRANDING_NAME } from '@lobechat/business-const';
 import { OG_URL } from '@lobechat/const';
 
-import { getServerFeatureFlagsValue } from '@/config/featureFlags';
 import { OFFICIAL_URL } from '@/const/url';
 import { isCustomORG, isDesktop } from '@/const/version';
 import { appEnv } from '@/envs/app';
@@ -10,6 +9,7 @@ import { pythonEnv } from '@/envs/python';
 import { translation } from '@/libs/i18n/serverTranslation';
 import { buildAnalyticsConfig, fetchViteDevTemplate, renderSpaHtml } from '@/libs/spaHtml';
 import { type Locales } from '@/locales/resources';
+import { getServerFeatureFlagsFromRuntimeConfig } from '@/server/featureFlags';
 import { getServerGlobalConfig } from '@/server/globalConfig';
 import { getTenantPageBootstrap } from '@/server/modules/Tenant/pageBootstrap';
 import { type SPAClientEnv, type SPAServerConfig } from '@/types/spaServerConfig';
@@ -96,7 +96,9 @@ export async function GET(
       ...(await getServerGlobalConfig()),
       ...(tenant ? { oidcIssuer: `${tenant.publicUrl}/oidc` } : {}),
     },
-    featureFlags: getServerFeatureFlagsValue(),
+    // Rendered outside any tenant scope: business builds embed the product
+    // defaults here, and the tenant's own flags arrive with the server config.
+    featureFlags: await getServerFeatureFlagsFromRuntimeConfig(),
     isMobile,
   };
 

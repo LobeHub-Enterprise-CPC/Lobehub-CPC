@@ -107,7 +107,8 @@ const normalizeMemoryEffort = (value: unknown): MemoryEffort => {
 
 const getEmbeddingRuntime = async (serverDB: LobeChatDatabase, userId: string) => {
   const { provider, model: embeddingModel } =
-    getServerDefaultFilesConfig().embeddingModel || DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM;
+    (await getServerDefaultFilesConfig()).embeddingModel ||
+    DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM;
   // Read user's provider config from database
   const agentRuntime = await initModelRuntimeFromDB(
     serverDB,

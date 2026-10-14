@@ -1,10 +1,10 @@
 import { requireTenantScope } from '@lobechat/database/tenant';
 
 import { getTenantSsoProviders } from '@/auth';
-import { getServerFeatureFlagsValue } from '@/config/featureFlags';
 import { appEnv } from '@/envs/app';
 import { authEnv } from '@/envs/auth';
 import { buildAnalyticsConfig } from '@/libs/spaHtml';
+import { getServerFeatureFlagsFromRuntimeConfig } from '@/server/featureFlags';
 import { getServerAuthConfig } from '@/server/globalConfig/getServerAuthConfig';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
 
@@ -35,7 +35,7 @@ const handleGet = async () => {
         oAuthSSOProviders,
       },
       enableOIDC: authEnv.ENABLE_OIDC,
-      featureFlags: getServerFeatureFlagsValue(),
+      featureFlags: await getServerFeatureFlagsFromRuntimeConfig(),
       globalCDN: appEnv.CDN_USE_GLOBAL,
     },
     {

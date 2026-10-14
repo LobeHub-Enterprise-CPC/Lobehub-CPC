@@ -64,8 +64,9 @@ export class SandboxMiddlewareService implements SandboxService {
    * names (`runCommand`/`execScript`), are covered by one check — and so a
    * new sandbox shell tool is covered automatically.
    *
-   * `checkCommand`/`logCommandExecution` no-op with zero DB access when
-   * `COMMAND_GOVERNANCE_ENABLED` is off, and fail open on any internal error
+   * `checkCommand`/`logCommandExecution` no-op without touching governance
+   * rules or logs when the `command_governance` flag is off for the user, and
+   * fail open on any internal error
    * — see `services/governance/policyGate.ts`.
    */
   async callTool(

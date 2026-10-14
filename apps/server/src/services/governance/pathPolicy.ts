@@ -77,7 +77,7 @@ export const checkPath = async (
   ctx: PathGovernanceContext,
   db: LobeChatDatabase,
 ): Promise<PathGovernanceDecision> => {
-  if (!isGovernanceEnabled()) return { allowed: true };
+  if (!(await isGovernanceEnabled(ctx.userId))) return { allowed: true };
 
   try {
     const policy = await getUserExecutionPolicy(ctx.userId, db);

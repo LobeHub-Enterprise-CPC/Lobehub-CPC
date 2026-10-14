@@ -4,7 +4,8 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
-    "./server": "./src/server/index.ts"
+    "./server": "./src/server/index.ts",
+    "./tenant-settings": "./src/tenantSettings.ts"
   },
   "main": "./src/index.ts",
   "dependencies": {

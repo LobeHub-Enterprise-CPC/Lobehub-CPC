@@ -1,3 +1,4 @@
+import { loadTenantSettings } from '@lobechat/business-config/tenant-settings';
 import createDebug from 'debug';
 import { z } from 'zod';
 
@@ -83,14 +84,29 @@ const getFeatureFlagOverrideProvider = () => {
   return featureFlagsOverrideProvider;
 };
 
-const getMergedFeatureFlags = async (userId?: string) => {
+/**
+ * The explicitly-configured global flags, without schema defaults. Business
+ * builds use the current tenant's `feature_flags` only (spec FR-TS-02): neither
+ * the FEATURE_FLAGS env var nor the deployment-wide published snapshot applies.
+ */
+const getGlobalFeatureFlagsData = async (): Promise<Partial<IFeatureFlags> | undefined> => {
+  const tenantSettings = await loadTenantSettings();
+  // Unknown flags are dropped by the schema.
+  if (tenantSettings) return FeatureFlagsSchema.parse(tenantSettings.featureFlags);
+
   const globalSnapshot = await getFeatureFlagsProvider().getSnapshot({ scope: 'global' });
+
+  return globalSnapshot?.data;
+};
+
+const getMergedFeatureFlags = async (userId?: string) => {
+  const globalData = await getGlobalFeatureFlagsData();
 
   // Shared runtime config can contain production allowlists even in local development.
   // Apply development defaults after the global snapshot; user-specific overrides below still win.
   const globalFlags = applyDevelopmentFeatureFlagDefaults(
-    merge(DEFAULT_FEATURE_FLAGS, globalSnapshot?.data || {}),
-    globalSnapshot?.data,
+    merge(DEFAULT_FEATURE_FLAGS, globalData || {}),
+    globalData,
   );
 
   if (!userId) {
@@ -110,7 +126,8 @@ const getMergedFeatureFlags = async (userId?: string) => {
 };
 
 /**
- * Get feature flags from RuntimeConfig with fallback to environment variables
+ * Get feature flags from RuntimeConfig with fallback to environment variables; business
+ * builds read the current tenant's settings instead
  * @param userId - Optional user ID for user-specific feature flag evaluation
  */
 export const getServerFeatureFlagsFromRuntimeConfig = async (userId?: string) => {

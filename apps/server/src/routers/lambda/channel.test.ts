@@ -44,6 +44,12 @@ vi.mock('@/server/services/channel/native/capabilities', () => ({
   checkChannelNativeAvailability: vi.fn(),
 }));
 vi.mock('@/server/services/channel/watch', () => ({ watchChannel: vi.fn() }));
+const { flags } = vi.hoisted(() => ({
+  flags: { current: {} as Record<string, boolean | string[]> },
+}));
+vi.mock('@/server/featureFlags', () => ({
+  getServerFeatureFlagsFromRuntimeConfig: async () => flags.current,
+}));
 
 const caller = (workspaceId?: string) =>
   channelRouter.createCaller({ serverDB: {}, userId: 'owner', workspaceId } as Parameters<
@@ -52,6 +58,7 @@ const caller = (workspaceId?: string) =>
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv('CHANNEL_GATEWAY_URL', 'http://channel-worker:3211');
+  flags.current = { channel: true };
   preference.mockResolvedValue({ lab: { enableChannel: true } });
   list.mockResolvedValue([{ id: 'owned-channel' }]);
   vi.stubGlobal(
@@ -108,6 +115,16 @@ describe('Channel availability at the API boundary', () => {
     await expect(caller().list()).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(fetch).not.toHaveBeenCalled();
     expect(list).not.toHaveBeenCalled();
+  });
+
+  it('hides availability and rejects direct API calls when the channel flag is off for the user', async () => {
+    flags.current = { channel: ['someone-else'] };
+    expect(await caller().availability()).toEqual({ enabled: false });
+    await expect(caller().list()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(list).not.toHaveBeenCalled();
+
+    flags.current = { channel: ['owner'] };
+    expect(await caller().availability()).toEqual({ enabled: true });
   });
 
   it('rejects work when the configured service is unavailable', async () => {

@@ -18,8 +18,6 @@ import { AgentModel } from '@/database/models/agent';
 import { TopicModel } from '@/database/models/topic';
 import { UserModel } from '@/database/models/user';
 import type { LobeChatDatabase } from '@/database/type';
-import { appEnv } from '@/envs/app';
-import { parseSystemAgent } from '@/server/globalConfig/parseSystemAgent';
 import { AiGenerationService } from '@/server/services/aiGeneration';
 import { ConnectorDataService } from '@/server/services/connectorData';
 import { OnboardingService } from '@/server/services/onboarding';
@@ -421,11 +419,8 @@ export const createTaskRecommendationService = async ({
         if (!writerAgent) throw new Error('Onboarding task recommendation agent is unavailable');
         const settings = await userModel.getUserSettings();
         const userSystemAgent = settings?.systemAgent as Partial<UserSystemAgentConfig> | undefined;
-        const userConfig = userSystemAgent?.onboardingTaskRecommender;
-        const serverConfig = parseSystemAgent(appEnv.SYSTEM_AGENT).onboardingTaskRecommender;
         const modelConfig = await resolveSystemAgentModelConfig({
-          override: userConfig,
-          taskConfig: serverConfig,
+          taskConfig: userSystemAgent?.onboardingTaskRecommender,
           taskKey: 'onboardingTaskRecommender',
         });
         return { ...modelConfig, id: writerAgent.id };

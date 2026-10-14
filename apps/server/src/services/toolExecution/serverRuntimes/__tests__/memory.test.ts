@@ -35,7 +35,7 @@ vi.mock('@/database/schemas', () => ({
 }));
 
 vi.mock('@/server/globalConfig', () => ({
-  getServerDefaultFilesConfig: vi.fn(function () {
+  getServerDefaultFilesConfig: vi.fn(async function () {
     return {
       embeddingModel: { model: 'default-embedding-model', provider: 'default-provider' },
     };

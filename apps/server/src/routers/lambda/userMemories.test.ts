@@ -16,7 +16,7 @@ vi.mock('@/database/core/db-adaptor', () => ({
 }));
 
 vi.mock('@/server/globalConfig', () => ({
-  getServerDefaultFilesConfig: vi.fn().mockReturnValue({
+  getServerDefaultFilesConfig: vi.fn().mockResolvedValue({
     embeddingModel: { model: 'text-embedding-3-small' },
   }),
 }));

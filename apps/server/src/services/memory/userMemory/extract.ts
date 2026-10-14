@@ -102,6 +102,8 @@ import { trimBasedOnBatchProbe } from '@/utils/chunkers';
 import { encodeAsync } from '@/utils/tokenizer';
 import { resolveEmbeddingTokenLimit, trimEmbeddingInput } from '@/utils/tokenizer/embedding';
 
+import { resolveMemoryServiceModelConfig } from './systemAgent';
+
 const SOURCE_ALIAS_MAP: Record<string, MemorySourceType> = {
   benchmark_locomo: MemorySourceType.BenchmarkLocomo,
   chatTopic: MemorySourceType.ChatTopic,
@@ -1606,7 +1608,9 @@ export class MemoryExtractionExecutor {
             this.getAiProviderRuntimeState(job.userId, job.workspaceId),
           ]);
           const memoryServiceConfig = this.resolveUserMemoryServiceConfig(
-            userState.settings?.systemAgent as Partial<UserServiceModelConfig> | undefined,
+            await resolveMemoryServiceModelConfig(
+              userState.settings?.systemAgent as Partial<UserServiceModelConfig> | undefined,
+            ),
           );
           const keyVaults = await this.resolveRuntimeKeyVaults(
             aiProviderRuntimeState,
@@ -2594,7 +2598,9 @@ export class MemoryExtractionExecutor {
             this.getAiProviderRuntimeState(params.userId),
           ]);
           const memoryServiceConfig = this.resolveUserMemoryServiceConfig(
-            userState.settings?.systemAgent as Partial<UserServiceModelConfig> | undefined,
+            await resolveMemoryServiceModelConfig(
+              userState.settings?.systemAgent as Partial<UserServiceModelConfig> | undefined,
+            ),
           );
           const keyVaults = await this.resolveRuntimeKeyVaults(
             aiProviderRuntimeState,

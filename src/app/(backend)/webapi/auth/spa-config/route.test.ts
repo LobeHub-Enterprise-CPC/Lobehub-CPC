@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
     enableEmailVerification: true,
     enableMagicLink: false,
   })),
-  getServerFeatureFlagsValue: vi.fn(() => ({ auth_captcha: true })),
+  getServerFeatureFlagsFromRuntimeConfig: vi.fn(async () => ({ auth_captcha: true })),
   getTenantSsoProviders: vi.fn(async () => [
     { clientSecret: 'secret', displayName: 'Okta', providerId: 'okta' },
   ]),
@@ -31,8 +31,8 @@ vi.mock('@lobechat/database/tenant', async (importOriginal) => ({
   }),
 }));
 
-vi.mock('@/config/featureFlags', () => ({
-  getServerFeatureFlagsValue: mocks.getServerFeatureFlagsValue,
+vi.mock('@/server/featureFlags', () => ({
+  getServerFeatureFlagsFromRuntimeConfig: mocks.getServerFeatureFlagsFromRuntimeConfig,
 }));
 
 vi.mock('@/envs/app', () => ({ appEnv: mocks.appEnv }));
@@ -52,11 +52,11 @@ describe('GET /webapi/auth/spa-config', () => {
     vi.clearAllMocks();
   });
 
-  it('includes the env-level feature flags the auth shell maps onto state', async () => {
+  it("includes the tenant's feature flags the auth shell maps onto state", async () => {
     const response = await GET(new Request('http://localhost/webapi/auth/spa-config'));
     const body = await response.json();
 
-    expect(mocks.getServerFeatureFlagsValue).toHaveBeenCalled();
+    expect(mocks.getServerFeatureFlagsFromRuntimeConfig).toHaveBeenCalled();
     expect(body.featureFlags).toEqual({ auth_captcha: true });
   });
 

@@ -9,7 +9,7 @@ const log = debug('lobe-server:governance:audit-logger');
 
 /**
  * Persist one row to `command_execution_logs`. No-op when governance is
- * disabled (same flag as `policyGate.isGovernanceEnabled`) — zero DB calls on
+ * disabled for the user (`policyGate.isGovernanceEnabled`) — no log write on
  * the hot path when the feature is off.
  *
  * Callers must never let a logging failure mask the real tool result: this
@@ -21,7 +21,7 @@ export const logCommandExecution = async (
   outcome: CommandGovernanceOutcome,
   db: LobeChatDatabase,
 ): Promise<void> => {
-  if (!isGovernanceEnabled()) return;
+  if (!(await isGovernanceEnabled(ctx.userId))) return;
 
   try {
     await insertLog(db, { ...ctx, outcome });

@@ -76,7 +76,8 @@ const getEmbeddingRuntime = async (
   workspaceId?: string,
 ) => {
   const { provider, model: embeddingModel } =
-    getServerDefaultFilesConfig().embeddingModel || DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM;
+    (await getServerDefaultFilesConfig()).embeddingModel ||
+    DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM;
 
   const agentRuntime = await initModelRuntimeFromDB(
     serverDB,

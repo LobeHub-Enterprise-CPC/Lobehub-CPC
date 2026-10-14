@@ -10,12 +10,10 @@ import { authEnv } from '@/envs/auth';
 import { fileEnv } from '@/envs/file';
 import { gatewayEnv } from '@/envs/gateway';
 import { imageEnv } from '@/envs/image';
-import { knowledgeEnv } from '@/envs/knowledge';
 import { langfuseEnv } from '@/envs/langfuse';
 import { sandboxEnv } from '@/envs/sandbox';
 import { toolsEnv } from '@/envs/tools';
 import { OIDC_ISSUER_PATH } from '@/libs/oidc-provider/routes';
-import { parseSystemAgent } from '@/server/globalConfig/parseSystemAgent';
 import { isLlmRelayDeploymentReady } from '@/server/modules/AgentRuntime/llmRelay/deployment';
 import { type GlobalServerConfig } from '@/types/serverConfig';
 import { cleanObject } from '@/utils/object';
@@ -25,9 +23,9 @@ import {
   type ProviderSpecificConfig,
 } from './genServerAiProviderConfig';
 import { parseAgentConfig } from './parseDefaultAgent';
-import { parseFilesConfig } from './parseFilesConfig';
 import { getPublicMemoryExtractionConfig } from './parseMemoryExtractionConfig';
 import { getServerFetchOnClientOverride } from './serverFetchOnClient';
+import { getServerSystemModels } from './systemModels';
 
 /**
  * Which Agent Gateway wire protocol the client may dial.
@@ -116,6 +114,7 @@ export const getServerGlobalConfig = async () => {
   }
 
   const tenant = currentTenantScope();
+  const systemModels = await getServerSystemModels();
   const config: GlobalServerConfig = {
     aiProvider: await genServerAiProvidersConfig(aiProviderSpecificConfig),
     defaultAgent: {
@@ -145,14 +144,12 @@ export const getServerGlobalConfig = async () => {
       appEnv.MARKET_TRUSTED_CLIENT_SECRET && appEnv.MARKET_TRUSTED_CLIENT_ID
     ),
     enableUploadFileToServer: !!fileEnv.S3_SECRET_ACCESS_KEY,
-    enableMultimodalUnderstanding: !!(
-      toolsEnv.MULTIMODAL_UNDERSTANDING_PROVIDER && toolsEnv.MULTIMODAL_UNDERSTANDING_MODEL
-    ),
-    ...(toolsEnv.MULTIMODAL_UNDERSTANDING_PROVIDER && toolsEnv.MULTIMODAL_UNDERSTANDING_MODEL
+    enableMultimodalUnderstanding: !!systemModels.multimodalUnderstanding,
+    ...(systemModels.multimodalUnderstanding
       ? {
           multimodalUnderstanding: {
-            model: toolsEnv.MULTIMODAL_UNDERSTANDING_MODEL,
-            provider: toolsEnv.MULTIMODAL_UNDERSTANDING_PROVIDER,
+            model: systemModels.multimodalUnderstanding.model,
+            provider: systemModels.multimodalUnderstanding.provider,
           },
         }
       : undefined),
@@ -190,7 +187,7 @@ export const getServerGlobalConfig = async () => {
           oidcIssuer: `${tenant.endpoint.publicUrl}${OIDC_ISSUER_PATH}`,
         }
       : undefined),
-    systemAgent: parseSystemAgent(appEnv.SYSTEM_AGENT),
+    systemAgent: systemModels.systemAgent,
     telemetry: {
       langfuse: langfuseEnv.ENABLE_LANGFUSE,
     },
@@ -220,6 +217,8 @@ export const getServerDefaultAgentConfig = () => {
   return parseAgentConfig(DEFAULT_AGENT_CONFIG) || {};
 };
 
-export const getServerDefaultFilesConfig = () => {
-  return parseFilesConfig(knowledgeEnv.DEFAULT_FILES_CONFIG);
+export const getServerDefaultFilesConfig = async () => {
+  const { filesConfig } = await getServerSystemModels();
+
+  return filesConfig;
 };

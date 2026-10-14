@@ -63,7 +63,7 @@ it('scans past a full page of offline jobs, preserves FIFO and revisits them aft
     );
     const db = drizzle(client, { schema }) as unknown as LobeChatDatabase;
     let recovered = false;
-    vi.mocked(isChannelEnabled).mockReturnValue(true);
+    vi.mocked(isChannelEnabled).mockResolvedValue(true);
     probe.mockImplementation(async (cwd: string) => {
       if (!recovered && cwd === '/blocked') throw new Error('DEVICE_OFFLINE');
       return cwd;

@@ -856,7 +856,7 @@ export const discoverTools = async (
     const inputFileTypes = [...externalFileTypes, ...(await toolReads.attachedFileTypes)];
     const inputMediaAvailability = getMediaAvailabilityFromFileTypes(inputFileTypes);
     let historyMediaAvailability = { hasAudios: false, hasImages: false, hasVideos: false };
-    const multimodalUnderstandingConfigured = isMultimodalUnderstandingConfigured();
+    const multimodalUnderstandingConfigured = await isMultimodalUnderstandingConfigured();
 
     if (
       multimodalUnderstandingConfigured &&

@@ -68,6 +68,19 @@ export const FeatureFlagsSchema = z.object({
    */
   dashboard: FeatureFlagValue.optional(),
 
+  /**
+   * Channels, for users this is on for. They also need the deployment to
+   * configure `CHANNEL_GATEWAY_URL`. Array values are user ids.
+   */
+  channel: FeatureFlagValue.optional(),
+
+  /**
+   * Command governance: rule checks, execution policies and the audit log of
+   * governed tool calls. Off: every governance check is a no-op. Array values
+   * are user ids.
+   */
+  command_governance: FeatureFlagValue.optional(),
+
   // internal flag
   agent_self_iteration: FeatureFlagValue.optional(),
   agent_onboarding: FeatureFlagValue.optional(),
@@ -140,6 +153,9 @@ export const DEFAULT_FEATURE_FLAGS: IFeatureFlags = {
 
   // Off until an admin publishes a user allowlist or flips it to true.
   dashboard: false,
+
+  channel: true,
+  command_governance: false,
 
   agent_self_iteration: isDev,
   agent_onboarding: isDev,

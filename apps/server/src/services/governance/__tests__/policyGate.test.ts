@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  appEnv: { COMMAND_GOVERNANCE_ENABLED: false },
+  flags: { command_governance: false } as Record<string, boolean | string[]>,
+  getServerFeatureFlagsFromRuntimeConfig: vi.fn(),
   listEnabledRulesForTarget: vi.fn(),
 }));
 
-vi.mock('@/envs/app', () => ({ appEnv: mocks.appEnv }));
+vi.mock('@/server/featureFlags', () => ({
+  getServerFeatureFlagsFromRuntimeConfig: mocks.getServerFeatureFlagsFromRuntimeConfig,
+}));
 vi.mock('../rulesRepository', () => ({
   listEnabledRulesForTarget: mocks.listEnabledRulesForTarget,
 }));
@@ -26,17 +29,33 @@ const db = {} as any;
 describe('policyGate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.appEnv.COMMAND_GOVERNANCE_ENABLED = false;
+    mocks.flags = { command_governance: false };
+    mocks.getServerFeatureFlagsFromRuntimeConfig.mockImplementation(async () => mocks.flags);
   });
 
   describe('isGovernanceEnabled', () => {
-    it('is false by default', () => {
-      expect(isGovernanceEnabled()).toBe(false);
+    it('is false when the command_governance flag is off', async () => {
+      expect(await isGovernanceEnabled('user-1')).toBe(false);
     });
 
-    it('is true when the flag is set', () => {
-      mocks.appEnv.COMMAND_GOVERNANCE_ENABLED = true;
-      expect(isGovernanceEnabled()).toBe(true);
+    it('is true when the flag is on', async () => {
+      mocks.flags = { command_governance: true };
+      expect(await isGovernanceEnabled('user-1')).toBe(true);
+    });
+
+    it("follows the flag's user allowlist", async () => {
+      mocks.flags = { command_governance: ['user-1'] };
+      expect(await isGovernanceEnabled('user-1')).toBe(true);
+      expect(await isGovernanceEnabled('user-2')).toBe(false);
+    });
+
+    it('fails open to disabled when the flags cannot be read', async () => {
+      mocks.getServerFeatureFlagsFromRuntimeConfig.mockRejectedValueOnce(new Error('Redis down'));
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      expect(await isGovernanceEnabled('user-1')).toBe(false);
+
+      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -51,7 +70,7 @@ describe('policyGate', () => {
 
   describe('checkCommand — flag on, pattern matching', () => {
     beforeEach(() => {
-      mocks.appEnv.COMMAND_GOVERNANCE_ENABLED = true;
+      mocks.flags = { command_governance: true };
     });
 
     it('denies on an exact match', async () => {
@@ -128,7 +147,7 @@ describe('policyGate', () => {
 
   describe('checkCommand — fail open', () => {
     beforeEach(() => {
-      mocks.appEnv.COMMAND_GOVERNANCE_ENABLED = true;
+      mocks.flags = { command_governance: true };
     });
 
     it('returns allowed=true when the rules lookup throws', async () => {

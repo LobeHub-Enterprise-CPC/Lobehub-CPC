@@ -87,14 +87,6 @@ export const getAppConfig = () => {
       AGENT_GATEWAY_URL: z.string().url().optional(),
 
       /**
-       * Master switch for command governance (admin-restricted shell commands +
-       * an execution audit log). Defaults OFF: when unset/false, the
-       * tool-execution chokepoint (`BuiltinToolsExecutor`) and the
-       * `/api/governance/*` endpoints short-circuit before any DB/network call
-       * — see `apps/server/src/services/governance/policyGate.ts`.
-       */
-      COMMAND_GOVERNANCE_ENABLED: z.boolean().optional(),
-      /**
        * Bearer token for the admin panel and sandbox execution service to call
        * the `/api/governance/*` endpoints. Same pattern as
        * `AGENT_GATEWAY_SERVICE_TOKEN` — required (non-empty) for those routes to
@@ -182,7 +174,6 @@ export const getAppConfig = () => {
       AGENT_GATEWAY_URL: process.env.AGENT_GATEWAY_URL,
       AGENT_GATEWAY_PROTOCOL: process.env.AGENT_GATEWAY_PROTOCOL || undefined,
       AGENT_GATEWAY_INTERNAL_URL: process.env.AGENT_GATEWAY_INTERNAL_URL || undefined,
-      COMMAND_GOVERNANCE_ENABLED: process.env.COMMAND_GOVERNANCE_ENABLED === '1',
       COMMAND_GOVERNANCE_SERVICE_TOKEN: process.env.COMMAND_GOVERNANCE_SERVICE_TOKEN,
       LOBEHUB_CONTROL_PLANE_TOKEN: process.env.LOBEHUB_CONTROL_PLANE_TOKEN,
       DESKTOP_DOWNLOAD_URL_MACOS: process.env.DESKTOP_DOWNLOAD_URL_MACOS,

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
         tenantId: string;
       }
     | undefined,
+  systemModels: { filesConfig: {}, systemAgent: {} } as Record<string, unknown>,
   genServerAiProvidersConfig: vi.fn(
     async (_specificConfig: Record<string, CapturedProviderConfig>) => ({}),
   ),
@@ -90,12 +91,6 @@ const mockGlobalConfigDependencies = (
     },
   }));
 
-  vi.doMock('@/envs/knowledge', () => ({
-    knowledgeEnv: {
-      DEFAULT_FILES_CONFIG: undefined,
-    },
-  }));
-
   vi.doMock('@/envs/langfuse', () => ({
     langfuseEnv: {
       ENABLE_LANGFUSE: false,
@@ -104,10 +99,6 @@ const mockGlobalConfigDependencies = (
 
   vi.doMock('@/envs/tools', () => ({
     toolsEnv: { TOOL_NAME_MAX_LENGTH: options.toolNameMaxLengthEnv },
-  }));
-
-  vi.doMock('@/server/globalConfig/parseSystemAgent', () => ({
-    parseSystemAgent: vi.fn(() => undefined),
   }));
 
   vi.doMock('@/utils/object', () => ({
@@ -122,8 +113,8 @@ const mockGlobalConfigDependencies = (
     parseAgentConfig: vi.fn(() => ({})),
   }));
 
-  vi.doMock('./parseFilesConfig', () => ({
-    parseFilesConfig: vi.fn(() => ({})),
+  vi.doMock('./systemModels', () => ({
+    getServerSystemModels: vi.fn(async () => mocks.systemModels),
   }));
 
   vi.doMock('./parseMemoryExtractionConfig', () => ({
@@ -160,6 +151,7 @@ const loadServerConfig = async (
 describe('getServerGlobalConfig', () => {
   afterEach(() => {
     mocks.tenant = undefined;
+    mocks.systemModels = { filesConfig: {}, systemAgent: {} };
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
@@ -325,6 +317,32 @@ describe('getServerGlobalConfig', () => {
     await expect(
       loadServerConfig(false, { appUrl: 'https://chat.example.com' }),
     ).resolves.not.toHaveProperty('oidcIssuer');
+  });
+
+  it('should expose the resolved system models to the client', async () => {
+    const systemAgent = { topic: { model: 'topic-model', provider: 'lobehub' } };
+    mocks.systemModels = {
+      filesConfig: {},
+      multimodalUnderstanding: {
+        imageFormats: ['image/jpeg'],
+        model: 'vision-model',
+        provider: 'lobehub',
+      },
+      systemAgent,
+    };
+
+    const config = await loadServerConfig(true);
+
+    expect(config.systemAgent).toEqual(systemAgent);
+    expect(config.enableMultimodalUnderstanding).toBe(true);
+    expect(config.multimodalUnderstanding).toEqual({ model: 'vision-model', provider: 'lobehub' });
+  });
+
+  it('should turn multimodal understanding off when no model is resolved', async () => {
+    const config = await loadServerConfig(true);
+
+    expect(config.enableMultimodalUnderstanding).toBe(false);
+    expect(config).not.toHaveProperty('multimodalUnderstanding');
   });
 
   it('should omit the OIDC issuer when APP_URL is not configured', async () => {
