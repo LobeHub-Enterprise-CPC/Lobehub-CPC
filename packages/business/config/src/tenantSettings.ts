@@ -11,8 +11,19 @@ export interface TenantSystemModels {
   systemAgent?: Record<string, string>;
 }
 
+/** How users of a tenant sign in to the app; written by Admin. */
+export interface TenantLoginMethods {
+  /** Email and password sign-in and sign-up. */
+  emailPassword: boolean;
+  /** Passwordless sign-in through an emailed link. */
+  magicLink: boolean;
+  /** Email sign-ups must verify their address before signing in. */
+  requireEmailVerification: boolean;
+}
+
 export interface TenantSettings {
   featureFlags: TenantFeatureFlagValues;
+  loginMethods: TenantLoginMethods;
   systemModels: TenantSystemModels;
 }
 

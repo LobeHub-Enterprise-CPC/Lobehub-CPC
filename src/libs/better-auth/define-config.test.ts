@@ -76,9 +76,6 @@ vi.mock('@/envs/app', () => ({
 
 vi.mock('@/envs/auth', () => ({
   authEnv: {
-    AUTH_DISABLE_EMAIL_PASSWORD: false,
-    AUTH_EMAIL_VERIFICATION: true,
-    AUTH_ENABLE_MAGIC_LINK: false,
     AUTH_SECRET: 'test-secret',
   },
 }));
@@ -115,6 +112,7 @@ const tenantOptions = () => ({
   cookiePrefix: 'lh_test',
   database: tenantDatabase,
   genericOAuthProviders: [],
+  loginMethods: { emailPassword: true, magicLink: false, requireEmailVerification: false },
   plugins: [],
   secondaryStorageNamespace: 'tenant-1',
   socialProviders: {},
@@ -230,6 +228,31 @@ describe('defineConfig', () => {
         }),
       }),
     );
+  });
+
+  it("follows the tenant's login methods", async () => {
+    const { defineConfig } = await import('./define-config');
+    const pluginIds = () =>
+      mocks.betterAuth.mock.lastCall![0].plugins.map((plugin: { id: string }) => plugin.id);
+
+    defineConfig(tenantOptions());
+    expect(mocks.betterAuth.mock.lastCall![0].emailAndPassword).toMatchObject({
+      disableSignUp: false,
+      enabled: true,
+      requireEmailVerification: false,
+    });
+    expect(pluginIds()).not.toContain('magic-link');
+
+    defineConfig({
+      ...tenantOptions(),
+      loginMethods: { emailPassword: false, magicLink: true, requireEmailVerification: true },
+    });
+    expect(mocks.betterAuth.mock.lastCall![0].emailAndPassword).toMatchObject({
+      disableSignUp: true,
+      enabled: false,
+      requireEmailVerification: true,
+    });
+    expect(pluginIds()).toContain('magic-link');
   });
 
   it('should clear a mismatched OIDC session before creating a Better Auth session', async () => {

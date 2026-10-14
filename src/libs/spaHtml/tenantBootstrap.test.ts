@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { signTenantRoute, TENANT_ROUTE_HEADER } from '@/server/modules/Tenant/routeHeader';
 
-const mocks = vi.hoisted(() => ({ activeUrl: 'https://chat.example.com' }));
+const mocks = vi.hoisted(() => ({
+  activeUrl: 'https://chat.example.com',
+  gateRefuses: false,
+  inTenant: false,
+}));
 const template =
   '<html><head><!--SEO_META--></head><script>window.__SERVER_CONFIG__ = undefined; /* SERVER_CONFIG */</script></html>';
 vi.mock('@/server/modules/Tenant/endpoints', () => ({
@@ -21,7 +25,33 @@ vi.mock('@/libs/i18n/serverTranslation', () => ({
   translation: async () => ({ t: (key: string) => key }),
 }));
 vi.mock('@/server/globalConfig', () => ({ getServerGlobalConfig: async () => ({}) }));
-vi.mock('@/server/globalConfig/getServerAuthConfig', () => ({ getServerAuthConfig: () => ({}) }));
+// Tenant settings are only readable inside the tenant the request was routed to.
+vi.mock('@/server/globalConfig/getServerAuthConfig', () => ({
+  getServerAuthConfig: async () => (mocks.inTenant ? { disableEmailPassword: true } : {}),
+}));
+vi.mock('@/auth', () => ({
+  getTenantSsoProviders: async () => {
+    if (!mocks.inTenant) throw new Error('TENANT_REQUIRED');
+    return [{ providerId: 'acme-oidc' }];
+  },
+}));
+vi.mock('@/server/modules/Tenant/gate', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  withTenantRequest:
+    (
+      handler: (request: Request) => Promise<Response>,
+      { refuse }: { refuse: (refusal: Error, request: Request) => Promise<Response> },
+    ) =>
+    async (request: Request) => {
+      if (mocks.gateRefuses) return refuse(new Error('TENANT_FROZEN'), request);
+      mocks.inTenant = true;
+      try {
+        return await handler(request);
+      } finally {
+        mocks.inTenant = false;
+      }
+    },
+}));
 vi.mock('@/server/featureFlags', () => ({
   getServerFeatureFlagsFromRuntimeConfig: async () => ({}),
 }));
@@ -67,4 +97,34 @@ describe('all server SPA shells', () => {
       expect(response.headers.get('Cache-Control')).not.toContain('public');
     },
   );
+});
+
+describe('auth SPA shell', () => {
+  const renderSignIn = async () => {
+    const { GET } = await import('../../app/spa-auth/[locale]/[[...path]]/route');
+    const request = new Request('https://chat.example.com/spa', {
+      headers: { [TENANT_ROUTE_HEADER]: signTenantRoute('acme')! },
+    });
+    const response = await GET(request, {
+      params: Promise.resolve({ locale: 'en-US', path: ['signin'] }),
+    });
+    return response.text();
+  };
+
+  it("embeds the routed tenant's login methods and SSO providers", async () => {
+    mocks.gateRefuses = false;
+    const html = await renderSignIn();
+
+    expect(html).toContain('"disableEmailPassword":true');
+    expect(html).toContain('"oAuthSSOProviders":["acme-oidc"]');
+  });
+
+  it('still renders the sign-in page when the tenant cannot be entered', async () => {
+    mocks.gateRefuses = true;
+    const html = await renderSignIn();
+    mocks.gateRefuses = false;
+
+    expect(html).toContain('"slug":"acme"');
+    expect(html).not.toContain('acme-oidc');
+  });
 });

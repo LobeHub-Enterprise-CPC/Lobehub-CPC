@@ -24,7 +24,11 @@ vi.mock('@/envs/tools', async (importOriginal) => ({
 }));
 
 const asTenant = (systemModels: TenantSystemModels) => {
-  mocks.tenantSettings = { featureFlags: {}, systemModels };
+  mocks.tenantSettings = {
+    featureFlags: {},
+    loginMethods: { emailPassword: true, magicLink: false, requireEmailVerification: false },
+    systemModels,
+  };
 };
 
 const setDeploymentEnv = () => {

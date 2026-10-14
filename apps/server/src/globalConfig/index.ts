@@ -6,7 +6,6 @@ import { ModelProvider } from 'model-bank';
 import { composioEnv } from '@/config/composio';
 import { isDesktop } from '@/const/version';
 import { appEnv, getAppConfig } from '@/envs/app';
-import { authEnv } from '@/envs/auth';
 import { fileEnv } from '@/envs/file';
 import { gatewayEnv } from '@/envs/gateway';
 import { imageEnv } from '@/envs/image';
@@ -22,6 +21,7 @@ import {
   genServerAiProvidersConfig,
   type ProviderSpecificConfig,
 } from './genServerAiProviderConfig';
+import { getLoginMethods } from './loginMethods';
 import { parseAgentConfig } from './parseDefaultAgent';
 import { getPublicMemoryExtractionConfig } from './parseMemoryExtractionConfig';
 import { getServerFetchOnClientOverride } from './serverFetchOnClient';
@@ -115,6 +115,7 @@ export const getServerGlobalConfig = async () => {
 
   const tenant = currentTenantScope();
   const systemModels = await getServerSystemModels();
+  const loginMethods = await getLoginMethods();
   const config: GlobalServerConfig = {
     aiProvider: await genServerAiProvidersConfig(aiProviderSpecificConfig),
     defaultAgent: {
@@ -124,9 +125,9 @@ export const getServerGlobalConfig = async () => {
     ...(gatewayEnv.DEVICE_GATEWAY_PUBLIC_URL
       ? { deviceGatewayUrl: gatewayEnv.DEVICE_GATEWAY_PUBLIC_URL }
       : undefined),
-    disableEmailPassword: authEnv.AUTH_DISABLE_EMAIL_PASSWORD,
+    disableEmailPassword: !loginMethods.emailPassword,
     enableBusinessFeatures: ENABLE_BUSINESS_FEATURES,
-    enableEmailVerification: authEnv.AUTH_EMAIL_VERIFICATION,
+    enableEmailVerification: loginMethods.requireEmailVerification,
     enableComposio: !!composioEnv.COMPOSIO_API_KEY,
     enableGatewayMode:
       ENABLE_BUSINESS_FEATURES || (!!appEnv.ENABLE_AGENT_GATEWAY && !!appEnv.AGENT_GATEWAY_URL),
@@ -139,7 +140,7 @@ export const getServerGlobalConfig = async () => {
     enableLobehubSkill:
       !ENABLE_BUSINESS_FEATURES &&
       !!(appEnv.MARKET_TRUSTED_CLIENT_SECRET && appEnv.MARKET_TRUSTED_CLIENT_ID),
-    enableMagicLink: authEnv.AUTH_ENABLE_MAGIC_LINK,
+    enableMagicLink: loginMethods.magicLink,
     enableMarketTrustedClient: !!(
       appEnv.MARKET_TRUSTED_CLIENT_SECRET && appEnv.MARKET_TRUSTED_CLIENT_ID
     ),

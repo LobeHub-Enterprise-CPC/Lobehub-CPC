@@ -3,8 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as TenantSso from '@/server/services/tenantSso';
 
+const defaultLoginMethods = {
+  emailPassword: true,
+  magicLink: false,
+  requireEmailVerification: false,
+};
+
 const mocks = vi.hoisted(() => ({
   defineConfig: vi.fn((config: unknown) => ({ api: {}, config, handler: vi.fn() })),
+  /** Each tenant's saved login methods; unset tenants use the defaults. */
+  loginMethods: {} as Record<string, typeof defaultLoginMethods>,
   loadTenantSsoProviders: vi.fn(async () => []),
   scope: null as null | {
     endpoint: { basePath: string; publicUrl: string; version: number };
@@ -16,6 +24,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/libs/better-auth/define-config', () => ({
   defineConfig: mocks.defineConfig,
+}));
+
+vi.mock('@/server/globalConfig/loginMethods', () => ({
+  getLoginMethods: async () => mocks.loginMethods[mocks.scope!.tenantId] ?? defaultLoginMethods,
 }));
 
 vi.mock('@/server/services/tenantSso', async (importOriginal) => ({
@@ -39,6 +51,7 @@ describe('auth', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.scope = null;
+    mocks.loginMethods = {};
     invalidateTenantAuth('tenant-a');
     invalidateTenantAuth('tenant-b');
   });
@@ -107,5 +120,33 @@ describe('auth', () => {
     expect(current).not.toBe(stale);
     expect(mocks.defineConfig).toHaveBeenLastCalledWith(expect.objectContaining({ database }));
     expect(await getTenantAuth()).toBe(current);
+  });
+
+  it("rebuilds only that tenant's instance when its login methods change", async () => {
+    const scopeOf = (tenantId: string, slug: string) => ({
+      endpoint: { basePath: `/t/${slug}`, publicUrl: `https://app.example/t/${slug}`, version: 1 },
+      session: { database: {} },
+      slug,
+      tenantId,
+    });
+    const scopeA = scopeOf('tenant-a', 'acme');
+    const scopeB = scopeOf('tenant-b', 'beta');
+    mocks.scope = scopeA;
+    const a = await getTenantAuth();
+    mocks.scope = scopeB;
+    const b = await getTenantAuth();
+
+    const changed = { emailPassword: false, magicLink: true, requireEmailVerification: true };
+    mocks.loginMethods['tenant-a'] = changed;
+    mocks.scope = scopeA;
+    const rebuilt = await getTenantAuth();
+
+    expect(rebuilt).not.toBe(a);
+    expect(mocks.defineConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({ loginMethods: changed }),
+    );
+    mocks.scope = scopeB;
+    expect(await getTenantAuth()).toBe(b);
+    expect(mocks.defineConfig).toHaveBeenCalledTimes(3);
   });
 });

@@ -113,6 +113,13 @@ const mockGlobalConfigDependencies = (
     parseAgentConfig: vi.fn(() => ({})),
   }));
 
+  vi.doMock('./loginMethods', () => ({
+    getLoginMethods: vi.fn(async () => ({
+      emailPassword: true,
+      magicLink: false,
+      requireEmailVerification: false,
+    })),
+  }));
   vi.doMock('./systemModels', () => ({
     getServerSystemModels: vi.fn(async () => mocks.systemModels),
   }));

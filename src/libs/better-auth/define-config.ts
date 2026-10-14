@@ -22,7 +22,6 @@ import { type SocialProviders } from 'better-auth/social-providers';
 import { type BetterAuthPlugin } from 'better-auth/types';
 import { EnvHttpProxyAgent, setGlobalDispatcher } from 'undici';
 
-import { authEnv } from '@/envs/auth';
 import {
   getChangeEmailVerificationTemplate,
   getMagicLinkEmailTemplate,
@@ -37,6 +36,7 @@ import {
   getTrustedOrigins,
 } from '@/libs/better-auth/utils/config';
 import { clearMismatchedOIDCSession } from '@/libs/oidc-provider/session-cleanup';
+import type { LoginMethods } from '@/server/globalConfig/loginMethods';
 import { tenantGateErrorOf } from '@/server/modules/Tenant/errors';
 import { EmailService } from '@/server/services/email';
 import { UserService } from '@/server/services/user';
@@ -85,7 +85,6 @@ const VERIFICATION_LINK_EXPIRES_IN = 3600;
 const MAGIC_LINK_EXPIRES_IN = 900;
 // OTP expiration time (in seconds) - 5 minutes for mobile OTP verification
 const OTP_EXPIRES_IN = 300;
-const enableMagicLink = authEnv.AUTH_ENABLE_MAGIC_LINK;
 
 export interface TenantAuthTarget {
   /** The tenant's active public entry: auth endpoints and cookies live under it. */
@@ -105,6 +104,8 @@ interface CustomBetterAuthOptions {
   database: LobeChatDatabase;
   /** The tenant's SSO providers, read from its `sso_providers` (spec A8). */
   genericOAuthProviders: GenericOAuthConfig[];
+  /** How the tenant's users sign in (`getLoginMethods`, spec FR-TS-07). */
+  loginMethods: LoginMethods;
   /** Request-scoped options a distribution contributes (`getBusinessAuthOptions`). */
   overrides?: BetterAuthOptions;
   plugins: BetterAuthPlugin[];
@@ -116,7 +117,7 @@ interface CustomBetterAuthOptions {
 }
 
 export function defineConfig(customOptions: CustomBetterAuthOptions) {
-  const { database, genericOAuthProviders, socialProviders, tenant } = customOptions;
+  const { database, genericOAuthProviders, loginMethods, socialProviders, tenant } = customOptions;
 
   const publicOrigin = new URL(tenant.endpoint.publicUrl).origin;
   const tenantBase = tenant.endpoint.basePath;
@@ -140,11 +141,11 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
 
     emailAndPassword: {
       autoSignIn: true,
-      disableSignUp: authEnv.AUTH_DISABLE_EMAIL_PASSWORD,
-      enabled: !authEnv.AUTH_DISABLE_EMAIL_PASSWORD,
+      disableSignUp: !loginMethods.emailPassword,
+      enabled: loginMethods.emailPassword,
       maxPasswordLength: 64,
       minPasswordLength: 8,
-      requireEmailVerification: authEnv.AUTH_EMAIL_VERIFICATION,
+      requireEmailVerification: loginMethods.requireEmailVerification,
       revokeSessionsOnPasswordReset: true,
 
       // Compatible with bcrypt password hashes migrated from Clerk; after login, you can re-hash in the backend using BetterAuth's default scrypt.
@@ -367,7 +368,7 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
             }),
           ]
         : []),
-      ...(enableMagicLink
+      ...(loginMethods.magicLink
         ? [
             magicLink({
               expiresIn: MAGIC_LINK_EXPIRES_IN,

@@ -1,9 +1,11 @@
+import { getTenantSsoProviders } from '@/auth';
 import { appEnv } from '@/envs/app';
 import { authEnv } from '@/envs/auth';
 import { buildAnalyticsConfig, fetchViteDevTemplate, renderSpaHtml } from '@/libs/spaHtml';
 import { type Locales, normalizeLocale } from '@/locales/resources';
 import { getServerFeatureFlagsFromRuntimeConfig } from '@/server/featureFlags';
 import { getServerAuthConfig } from '@/server/globalConfig/getServerAuthConfig';
+import { routedTenantSlug, withTenantRequest } from '@/server/modules/Tenant/gate';
 import { getTenantPageBootstrap } from '@/server/modules/Tenant/pageBootstrap';
 import { type AuthSPAServerConfig } from '@/types/spaServerConfig';
 
@@ -25,10 +27,15 @@ async function getTemplate(): Promise<string> {
   return authHtmlTemplate;
 }
 
-export async function GET(
+interface RouteContext {
+  params: Promise<{ locale: string; path?: string[] }>;
+}
+
+const renderAuthPage = async (
   request: Request,
-  { params }: { params: Promise<{ locale: string; path?: string[] }> },
-) {
+  { params }: RouteContext,
+  oAuthSSOProviders?: string[],
+) => {
   const { locale: rawLocale, path } = await params;
   const locale = normalizeLocale(rawLocale);
 
@@ -37,11 +44,11 @@ export async function GET(
     tenant,
     analyticsConfig: buildAnalyticsConfig(),
     config: {
-      ...getServerAuthConfig(),
+      ...(await getServerAuthConfig()),
+      ...(oAuthSSOProviders ? { oAuthSSOProviders } : {}),
       ...(tenant ? { oidcIssuer: `${tenant.publicUrl}/oidc` } : {}),
     },
     enableOIDC: authEnv.ENABLE_OIDC,
-    // Rendered outside any tenant scope: business builds embed the product defaults.
     featureFlags: await getServerFeatureFlagsFromRuntimeConfig(),
     globalCDN: appEnv.CDN_USE_GLOBAL,
   };
@@ -51,4 +58,21 @@ export async function GET(
   const seoMeta = await buildSeoMeta(locale, pathname);
 
   return renderSpaHtml(template, { seoMeta, serverConfig: authConfig });
+};
+
+export async function GET(request: Request, context: RouteContext) {
+  if (!routedTenantSlug(request)) return renderAuthPage(request, context);
+
+  // Rendered inside the routed tenant, so the login methods, feature flags and
+  // SSO providers are its own (spec FR-TS-07, A8; ids only, as `spa-config`).
+  // A tenant that cannot be entered still gets a sign-in page, without them.
+  return withTenantRequest(
+    async (tenantRequest: Request) =>
+      renderAuthPage(
+        tenantRequest,
+        context,
+        (await getTenantSsoProviders()).map((provider) => provider.providerId),
+      ),
+    { refuse: (_refusal, refusedRequest) => renderAuthPage(refusedRequest, context) },
+  )(request);
 }

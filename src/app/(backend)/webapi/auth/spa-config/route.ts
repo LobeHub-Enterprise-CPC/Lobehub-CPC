@@ -15,7 +15,8 @@ import { withTenantRequest } from '@/server/modules/Tenant/gate';
 // unauthenticated, so it carries only the fields the auth pages actually read.
 // `enableBusinessFeatures` is not among them — it is a build-time constant.
 const handleGet = async () => {
-  const { disableEmailPassword, enableEmailVerification, enableMagicLink } = getServerAuthConfig();
+  const { disableEmailPassword, enableEmailVerification, enableMagicLink } =
+    await getServerAuthConfig();
   // The tenant's own providers (spec A8); ids only, never their configuration.
   const oAuthSSOProviders = (await getTenantSsoProviders()).map((provider) => provider.providerId);
   const { endpoint, slug } = requireTenantScope();

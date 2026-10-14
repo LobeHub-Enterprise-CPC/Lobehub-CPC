@@ -10,9 +10,6 @@ vi.mock('@/envs/app', () => ({ appEnv: { APP_URL: 'http://localhost:3010' } }));
 
 vi.mock('@/envs/auth', () => ({
   authEnv: {
-    AUTH_DISABLE_EMAIL_PASSWORD: false,
-    AUTH_EMAIL_VERIFICATION: false,
-    AUTH_ENABLE_MAGIC_LINK: false,
     AUTH_SECRET: 'tenant-isolation-test-master-secret-0123456789',
   },
 }));
@@ -50,6 +47,7 @@ const tenantAuth = async (id: string) =>
     cookiePrefix: `lh_${id}`,
     database: await getTestDB(),
     genericOAuthProviders: [],
+    loginMethods: { emailPassword: true, magicLink: false, requireEmailVerification: false },
     plugins: [],
     secondaryStorageNamespace: `t:${id}`,
     socialProviders: {},

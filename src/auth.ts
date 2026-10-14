@@ -4,6 +4,7 @@ import type { BetterAuthOptions } from 'better-auth/minimal';
 
 import { defineConfig } from '@/libs/better-auth/define-config';
 import { buildTenantSsoProviders } from '@/libs/better-auth/tenant-sso';
+import { getLoginMethods, type LoginMethods } from '@/server/globalConfig/loginMethods';
 import { buildTenantPublicUrl } from '@/server/modules/Tenant/callbackUrl';
 import {
   loadTenantSsoProviders,
@@ -72,9 +73,14 @@ export const getTenantSsoProviders = async () => {
   return providers.map((provider) => ({ ...provider, generic: generic.has(provider.providerId) }));
 };
 
+/** Changes whenever the tenant's login methods do, so a saved change rebuilds the instance. */
+const loginMethodsKey = ({ emailPassword, magicLink, requireEmailVerification }: LoginMethods) =>
+  [emailPassword, magicLink, requireEmailVerification].map(Number).join('');
+
 const buildTenantAuth = (
   scope: TenantScope,
   providers: TenantSsoProvider[],
+  loginMethods: LoginMethods,
   overrides?: BetterAuthOptions,
 ) => {
   const { genericOAuthProviders, socialProviders } = tenantSsoProviderSet(scope, providers);
@@ -82,6 +88,7 @@ const buildTenantAuth = (
     cookiePrefix: tenantCookiePrefix(scope.tenantId),
     database: scope.session.database,
     genericOAuthProviders,
+    loginMethods,
     overrides,
     plugins: [...businessAuthPlugins],
     secondaryStorageNamespace: `t:${scope.tenantId}`,
@@ -92,8 +99,9 @@ const buildTenantAuth = (
 
 export const getTenantAuth = async (): Promise<TenantAuth> => {
   const scope = requireTenantScope();
-  const providers = await loadSsoSnapshot(scope);
-  const key = `${scope.tenantId}|${scope.slug}|${scope.endpoint.version}|${ssoRevisionKey(providers)}`;
+  // Both read inside the tenant scope: the providers and the login methods are this tenant's own.
+  const [providers, loginMethods] = await Promise.all([loadSsoSnapshot(scope), getLoginMethods()]);
+  const key = `${scope.tenantId}|${scope.slug}|${scope.endpoint.version}|${ssoRevisionKey(providers)}|${loginMethodsKey(loginMethods)}`;
 
   const cached = instances.get(key);
   if (cached?.session === scope.session) {
@@ -103,7 +111,7 @@ export const getTenantAuth = async (): Promise<TenantAuth> => {
     return cached.instance;
   }
 
-  const instance = buildTenantAuth(scope, providers);
+  const instance = buildTenantAuth(scope, providers, loginMethods);
 
   for (const existing of instances.keys())
     if (existing.startsWith(`${scope.tenantId}|`)) instances.delete(existing);
@@ -141,5 +149,6 @@ export const getAuthForRequest = async (request: Request): Promise<TenantAuth> =
   const overrides = await getBusinessAuthOptions(request);
   if (!overrides) return getTenantAuth();
   const scope = requireTenantScope();
-  return buildTenantAuth(scope, await loadSsoSnapshot(scope), overrides);
+  const [providers, loginMethods] = await Promise.all([loadSsoSnapshot(scope), getLoginMethods()]);
+  return buildTenantAuth(scope, providers, loginMethods, overrides);
 };
