@@ -1,4 +1,5 @@
 import { BRANDING_NAME } from '@lobechat/business-const';
+import { type betterAuth as BetterAuthFactory } from 'better-auth/minimal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
@@ -254,6 +255,107 @@ describe('defineConfig', () => {
     });
     expect(pluginIds()).toContain('magic-link');
   });
+
+  it.each(['/request-password-reset', '/reset-password'])(
+    'disables %s only when tenant password login is off',
+    async (path) => {
+      const { defineConfig } = await import('./define-config');
+
+      defineConfig({
+        ...tenantOptions(),
+        loginMethods: { emailPassword: false, magicLink: true, requireEmailVerification: true },
+      });
+      expect(mocks.betterAuth.mock.lastCall![0].disabledPaths).toContain(path);
+
+      defineConfig(tenantOptions());
+      expect(mocks.betterAuth.mock.lastCall![0].disabledPaths).not.toContain(path);
+    },
+  );
+
+  it.each([false, true])(
+    'enforces password-reset POST availability through the real HTTP handler (password=%s)',
+    async (emailPassword) => {
+      const { defineConfig } = await import('./define-config');
+      const { betterAuth } = await vi.importActual<{ betterAuth: typeof BetterAuthFactory }>(
+        'better-auth/minimal',
+      );
+      const { memoryAdapter } = await import('better-auth/adapters/memory');
+      const now = new Date();
+      const token = 'fixture-reset-token';
+      const database = {
+        account: [],
+        session: [],
+        user: [
+          {
+            id: 'fixture-user',
+            name: 'Fixture',
+            email: 'fixture@example.com',
+            emailVerified: true,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        verification: [
+          {
+            id: 'fixture-verification',
+            identifier: `reset-password:${token}`,
+            value: 'fixture-user',
+            expiresAt: new Date(Date.now() + 60_000),
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      };
+      const sendResetPassword = vi.fn();
+      defineConfig({
+        ...tenantOptions(),
+        loginMethods: { emailPassword, magicLink: !emailPassword, requireEmailVerification: false },
+      });
+      const config = mocks.betterAuth.mock.lastCall![0];
+      // Run the installed router with the application's generated paths/method flag;
+      // all endpoint state and outgoing mail belong to this in-memory fixture.
+      const instance = betterAuth({
+        baseURL: config.baseURL,
+        basePath: config.basePath,
+        secret: 'isolated-auth-handler-fixture-secret-long-enough',
+        database: memoryAdapter(database),
+        disabledPaths: config.disabledPaths,
+        emailAndPassword: { enabled: config.emailAndPassword.enabled, sendResetPassword },
+        logger: { disabled: true },
+        rateLimit: { enabled: false },
+      });
+      const post = (path: string, body: unknown) =>
+        instance.handler(
+          new Request(`${config.baseURL}${config.basePath}${path}`, {
+            body: JSON.stringify(body),
+            headers: { 'Content-Type': 'application/json', 'Origin': config.baseURL },
+            method: 'POST',
+          }),
+        );
+
+      const requested = await post('/request-password-reset', {
+        email: 'fixture@example.com',
+        redirectTo: `${config.baseURL}/t/acme/reset-password`,
+      });
+      expect.soft(requested.status).toBe(emailPassword ? 200 : 404);
+      expect.soft(sendResetPassword).toHaveBeenCalledTimes(emailPassword ? 1 : 0);
+
+      const callback = await instance.handler(
+        new Request(
+          `${config.baseURL}${config.basePath}/reset-password/${token}?callbackURL=${encodeURIComponent(`${config.baseURL}/t/acme/reset-password`)}`,
+        ),
+      );
+      expect(callback.status).toBe(302);
+      expect(new URL(callback.headers.get('location')!).searchParams.get('token')).toBe(token);
+
+      const completed = await post('/reset-password', {
+        newPassword: 'fixture-new-password-123',
+        token,
+      });
+      expect.soft(completed.status).toBe(emailPassword ? 200 : 404);
+      expect.soft(database.account).toHaveLength(emailPassword ? 1 : 0);
+    },
+  );
 
   it('should clear a mismatched OIDC session before creating a Better Auth session', async () => {
     const { defineConfig } = await import('./define-config');

@@ -408,6 +408,9 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
         ...((overrides?.trustedOrigins as string[] | undefined) ?? []),
       ],
       disabledPaths: [
+        // Better Auth does not gate reset endpoints on emailAndPassword.enabled.
+        // The token GET only redirects; both password-reset mutations are disabled here.
+        ...(!loginMethods.emailPassword ? ['/request-password-reset', '/reset-password'] : []),
         ...(managedBusinessSSO
           ? ['/sign-in/social', '/link-social', '/oauth2/link', '/unlink-account', '/account-info']
           : []),
