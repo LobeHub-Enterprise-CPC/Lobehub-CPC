@@ -1,8 +1,21 @@
 // @vitest-environment node
-import type { TenantPoolManager } from '@lobechat/database/tenant';
+import { EventEmitter } from 'node:events';
+
+import {
+  SUPPORTED_TENANT_SCHEMA_VERSIONS,
+  tenantDbNames,
+  type TenantPoolManager,
+} from '@lobechat/database/tenant';
 import { describe, expect, it, vi } from 'vitest';
 
+import { loadTenantPublicEndpoint } from '../endpoints';
+import { TenantRoutingUnavailableError } from '../routingErrors';
 import { TENANT_ADMISSION_TTL_MS, TenantRuntime } from '../runtime';
+
+vi.mock('../endpoints', () => ({ loadTenantPublicEndpoint: vi.fn() }));
+vi.mock('@/server/crypto/tenantKeys', () => ({
+  openDirectoryData: () => 'synthetic-test-password',
+}));
 
 const activeRow = {
   directory: { status: 'active', tenantId: 't-1' },
@@ -132,6 +145,55 @@ describe('TenantRuntime.assertAdmitted', () => {
 });
 
 describe('TenantRuntime.enterTenantId', () => {
+  it('preserves a routing unavailable refusal through real runtime admission and releases claims', async () => {
+    const platform = controlledPlatform();
+    const releaseClaim = vi.fn();
+    const releasePool = vi.fn();
+    const client = Object.assign(new EventEmitter(), { release: vi.fn() });
+    const pools = {
+      acquire: vi.fn(() => ({ pool: { connect: async () => client }, release: releasePool })),
+    };
+    const verify = vi.fn().mockResolvedValue(undefined);
+    const runtime = new TenantRuntime(
+      () => ({ select: platform.select }) as any,
+      pools as never,
+      () => new Date(1_000_000),
+      { enter: async () => releaseClaim, isHeld: () => true } as never,
+      verify,
+    );
+    const names = tenantDbNames('t-1');
+    vi.mocked(loadTenantPublicEndpoint).mockRejectedValueOnce(
+      new TenantRoutingUnavailableError('ROUTING_LOAD_EXPIRED'),
+    );
+    const entering = runtime.enterTenantId('t-1');
+    await vi.waitFor(() => expect(platform.pending).toHaveLength(1));
+    platform.answer([
+      {
+        ...activeRow,
+        directory: {
+          ...activeRow.directory,
+          schemaName: names.schemaName,
+          runtimeUsername: names.runtimeUsername,
+          schemaVersion: [...SUPPORTED_TENANT_SCHEMA_VERSIONS][0],
+          connectionVersion: 1,
+          credentialBundleVersion: 1,
+          runtimeSecret: 'synthetic-envelope',
+          database: 'synthetic-test-db',
+          host: 'localhost',
+          port: 1,
+          tls: { enabled: false },
+        },
+      },
+    ]);
+    await expect(entering).rejects.toMatchObject({
+      code: 'TENANT_UNAVAILABLE',
+      reason: 'ROUTING_LOAD_EXPIRED',
+    });
+    expect(verify).toHaveBeenCalledOnce();
+    expect(releaseClaim).toHaveBeenCalledOnce();
+    expect(releasePool).toHaveBeenCalledOnce();
+    expect(client.release).toHaveBeenCalledOnce();
+  });
   // Without claims the runtime refuses after admission, so each entry stops right after
   // its directory read: enough to count platform reads.
   const enter = (runtime: TenantRuntime) =>

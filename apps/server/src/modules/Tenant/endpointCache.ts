@@ -3,6 +3,7 @@ import { LRUCache } from 'lru-cache';
 import { TenantEndpointError } from '@/server/services/tenantControlPlane/endpointsContract';
 
 import { TenantGateError } from './errors';
+import { TenantRoutingUnavailableError } from './routingErrors';
 
 export const ENDPOINT_ROUTING_TTL_MS = 5000;
 let generation = 0;
@@ -18,7 +19,7 @@ export const invalidateEndpointRouting = () => {
 export class EndpointRoutingCache<T extends object> {
   private generation = generation;
   private readonly cache: LRUCache<string, { value: T | null; fetchedAt: number }>;
-  private readonly pending = new Map<string, { startedAt: number }>();
+  private readonly pending = new Map<string, { aborted: boolean; startedAt: number }>();
 
   constructor(
     load: (key: string) => Promise<T | null>,
@@ -32,27 +33,30 @@ export class EndpointRoutingCache<T extends object> {
       fetchMethod: async (key, _stale, { signal }) => {
         const startedAt = this.now();
         const startedGeneration = generation;
-        const pending = { startedAt };
+        const pending = { aborted: false, startedAt };
         this.pending.set(key, pending);
         const forget = () => {
           if (this.pending.get(key) === pending) this.pending.delete(key);
         };
         // LRU eviction and invalidation abort fetches, bounding pending metadata too.
-        signal.addEventListener('abort', forget, { once: true });
+        const abort = () => {
+          pending.aborted = true;
+          forget();
+        };
+        signal.addEventListener('abort', abort, { once: true });
         try {
           const value = await load(key);
           const fetchedAt = value ? Math.min(startedAt, snapshotStartedAt(value)) : startedAt;
           // Never refill after commit invalidation, pending expiry or LRU eviction.
-          if (
-            signal.aborted ||
-            generation !== startedGeneration ||
-            this.now() - fetchedAt >= ENDPOINT_ROUTING_TTL_MS
-          )
-            throw new TenantGateError('TENANT_UNAVAILABLE');
+          if (generation !== startedGeneration)
+            throw new TenantRoutingUnavailableError('ROUTING_GENERATION_CHANGED');
+          if (signal.aborted) throw new TenantRoutingUnavailableError('ROUTING_ABORTED');
+          if (this.now() - fetchedAt >= ENDPOINT_ROUTING_TTL_MS)
+            throw new TenantRoutingUnavailableError('ROUTING_LOAD_EXPIRED');
           return { value, fetchedAt };
         } finally {
           forget();
-          signal.removeEventListener('abort', forget);
+          signal.removeEventListener('abort', abort);
         }
       },
     });
@@ -75,19 +79,43 @@ export class EndpointRoutingCache<T extends object> {
       if (cached && this.now() - cached.fetchedAt >= ENDPOINT_ROUTING_TTL_MS)
         this.cache.delete(key);
       const startedGeneration = generation;
-      const snapshot = await this.cache.fetch(key);
-      if (!snapshot || startedGeneration !== generation)
-        throw new TenantGateError('TENANT_UNAVAILABLE');
+      const fetch = async () => {
+        const loading = this.cache.fetch(key);
+        const pending = this.pending.get(key);
+        try {
+          const snapshot = await loading;
+          if (startedGeneration !== generation)
+            throw new TenantRoutingUnavailableError('ROUTING_GENERATION_CHANGED');
+          if (!snapshot) throw new TenantRoutingUnavailableError('ROUTING_SNAPSHOT_MISSING');
+          return snapshot;
+        } catch (cause) {
+          if (startedGeneration !== generation)
+            throw new TenantRoutingUnavailableError('ROUTING_GENERATION_CHANGED');
+          if (pending?.aborted) throw new TenantRoutingUnavailableError('ROUTING_ABORTED');
+          throw cause;
+        }
+      };
+      let snapshot = await fetch();
       if (this.now() - snapshot.fetchedAt >= ENDPOINT_ROUTING_TTL_MS) {
         this.cache.delete(key);
-        // The lookup itself already consumed the freshness budget. Refuse this request;
-        // a later request may try again, without recursively retrying a slow database.
-        throw new TenantGateError('TENANT_UNAVAILABLE');
+        // A cache hit can cross the TTL while its promise returns. Only that old hit
+        // gets one fresh lookup; a lookup that consumed its own budget never retries.
+        if (snapshot !== cached) throw new TenantRoutingUnavailableError('ROUTING_LOAD_EXPIRED');
+        snapshot = await fetch();
+        if (this.now() - snapshot.fetchedAt >= ENDPOINT_ROUTING_TTL_MS) {
+          this.cache.delete(key);
+          throw new TenantRoutingUnavailableError('ROUTING_LOAD_EXPIRED');
+        }
       }
       return snapshot.value;
     } catch (cause) {
-      if (cause instanceof TenantEndpointError || cause instanceof TenantGateError) throw cause;
-      throw new TenantGateError('TENANT_UNAVAILABLE', undefined, { cause });
+      if (
+        cause instanceof TenantEndpointError ||
+        cause instanceof TenantGateError ||
+        cause instanceof TenantRoutingUnavailableError
+      )
+        throw cause;
+      throw new TenantRoutingUnavailableError('ROUTING_LOOKUP_FAILED', { cause });
     }
   }
 }

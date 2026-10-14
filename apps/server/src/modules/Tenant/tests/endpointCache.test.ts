@@ -5,12 +5,43 @@ import { TenantEndpointsService } from '@/server/services/tenantControlPlane/end
 import { EndpointRoutingCache, invalidateEndpointRouting } from '../endpointCache';
 
 describe('endpoint routing snapshots', () => {
+  it('refreshes a cached snapshot once when it crosses the TTL while returning', async () => {
+    let now = 0;
+    const load = vi.fn(async () => ({ version: load.mock.calls.length }));
+    const cache = new EndpointRoutingCache(load, () => now);
+    expect(await cache.get('a')).toEqual({ version: 1 });
+    now = 4999;
+    const returningCached = cache.get('a');
+    now = 5000;
+    expect(await returningCached).toEqual({ version: 2 });
+    expect(load).toHaveBeenCalledTimes(2);
+  });
   it('does not retry when a read ages out while returning to its caller', async () => {
     const times = [0, 4999, 5000];
     const load = vi.fn(async () => ({ version: 1 }));
     const cache = new EndpointRoutingCache(load, () => times.shift() ?? 5000);
-    await expect(cache.get('a')).rejects.toMatchObject({ code: 'TENANT_UNAVAILABLE' });
+    await expect(cache.get('a')).rejects.toMatchObject({
+      code: 'TENANT_UNAVAILABLE',
+      reason: 'ROUTING_LOAD_EXPIRED',
+    });
     expect(load).toHaveBeenCalledTimes(1);
+  });
+  it('does not retry again when the one refresh consumes its own freshness budget', async () => {
+    let now = 0;
+    const load = vi.fn(async () => {
+      if (load.mock.calls.length > 1) now += 5000;
+      return { version: load.mock.calls.length };
+    });
+    const cache = new EndpointRoutingCache(load, () => now);
+    await cache.get('a');
+    now = 4999;
+    const returningCached = cache.get('a');
+    now = 5000;
+    await expect(returningCached).rejects.toMatchObject({
+      code: 'TENANT_UNAVAILABLE',
+      reason: 'ROUTING_LOAD_EXPIRED',
+    });
+    expect(load).toHaveBeenCalledTimes(2);
   });
   it('replaces an expired pending key and never lets its old result refill the new key', async () => {
     let now = 0;
@@ -26,7 +57,10 @@ describe('endpoint routing snapshots', () => {
       .mockResolvedValue({ version: 2 });
     const cache = new EndpointRoutingCache(load, () => now);
     const oldRead = cache.get('a');
-    const oldRejection = expect(oldRead).rejects.toMatchObject({ code: 'TENANT_UNAVAILABLE' });
+    const oldRejection = expect(oldRead).rejects.toMatchObject({
+      code: 'TENANT_UNAVAILABLE',
+      reason: 'ROUTING_ABORTED',
+    });
     now = 5000;
     expect(await cache.get('a')).toEqual({ version: 2 });
     await oldRejection;
@@ -149,7 +183,10 @@ describe('endpoint routing snapshots', () => {
       .mockResolvedValue({ version: 2 });
     const cache = new EndpointRoutingCache(load);
     const pending = cache.get('tenant:a');
-    const rejection = expect(pending).rejects.toMatchObject({ code: 'TENANT_UNAVAILABLE' });
+    const rejection = expect(pending).rejects.toMatchObject({
+      code: 'TENANT_UNAVAILABLE',
+      reason: 'ROUTING_GENERATION_CHANGED',
+    });
     invalidateEndpointRouting();
     resolve({ version: 1 });
     await rejection;

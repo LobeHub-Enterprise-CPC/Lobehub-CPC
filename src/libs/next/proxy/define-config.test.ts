@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { config as proxyConfig } from '@/proxy';
 import { TENANT_ROUTE_HEADER, verifyTenantRoute } from '@/server/modules/Tenant/routeHeader';
+import { TenantRoutingUnavailableError } from '@/server/modules/Tenant/routingErrors';
 
 import { defineConfig } from './define-config';
 
@@ -64,19 +65,58 @@ beforeEach(() => {
 });
 
 it.each([
+  [null, 'TENANT_UNAVAILABLE'],
+  [undefined, 'TENANT_UNAVAILABLE'],
   [new Error('database unavailable'), 'TENANT_UNAVAILABLE'],
   [
     Object.assign(new Error('damaged projection'), { code: 'ENDPOINTS_NOT_READY' }),
     'ENDPOINTS_NOT_READY',
   ],
 ])('reports endpoint lookup failure without admitting a fallback tenant', async (error, code) => {
-  mocks.findHost.mockRejectedValueOnce(error);
-  const response = await defineConfig().middleware(
-    new NextRequest('https://chat.example.com/agent'),
-  );
-  expect(response.status).toBe(503);
-  expect(await response.json()).toEqual({ code });
-  expect(mocks.enterSlug).not.toHaveBeenCalled();
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    mocks.findHost.mockRejectedValueOnce(error);
+    const response = await defineConfig().middleware(
+      new NextRequest('https://chat.example.com/agent'),
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ code });
+    expect(mocks.enterSlug).not.toHaveBeenCalled();
+    expect(warn.mock.calls).toEqual([['TENANT_ROUTING_UNAVAILABLE', { reason: 'UNKNOWN' }]]);
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+it.each([
+  [new TenantRoutingUnavailableError('ROUTING_LOAD_EXPIRED'), 'ROUTING_LOAD_EXPIRED'],
+  [
+    Object.assign(new Error('postgres://synthetic-secret@private.invalid/db'), {
+      reason: 'ROUTING_ABORTED',
+      code: 'malicious SQL SELECT synthetic-secret',
+    }),
+    'UNKNOWN',
+  ],
+  [
+    Object.assign(new TenantRoutingUnavailableError('ROUTING_ABORTED'), {
+      reason: 'postgres://synthetic-secret@private.invalid/db',
+    }),
+    'UNKNOWN',
+  ],
+])('logs only a closed routing reason for lookup failures', async (error, reason) => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    mocks.findHost.mockRejectedValueOnce(error);
+    const response = await defineConfig().middleware(
+      new NextRequest('https://chat.example.com/agent'),
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ code: 'TENANT_UNAVAILABLE' });
+    expect(warn.mock.calls).toEqual([['TENANT_ROUTING_UNAVAILABLE', { reason }]]);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('synthetic-secret');
+  } finally {
+    warn.mockRestore();
+  }
 });
 
 const { middleware } = defineConfig();

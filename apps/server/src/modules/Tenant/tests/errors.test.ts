@@ -3,6 +3,7 @@ import { TenantDatabaseError } from '@lobechat/database/tenant';
 import { describe, expect, it } from 'vitest';
 
 import { TenantGateError, tenantGateErrorOf, tenantRefusalResponse } from '../errors';
+import { TenantRoutingUnavailableError } from '../routingErrors';
 
 const wrapped = (cause: unknown) => new Error('Failed query', { cause });
 
@@ -28,6 +29,14 @@ describe('tenantGateErrorOf', () => {
 });
 
 describe('tenantRefusalResponse', () => {
+  it('keeps routing diagnostics internal when returning a wrapped unavailable refusal', async () => {
+    const response = tenantRefusalResponse(
+      wrapped(new TenantRoutingUnavailableError('ROUTING_LOAD_EXPIRED')),
+    )!;
+    expect(response.status).toBe(503);
+    expect(response.headers.get('Retry-After')).toBe('5');
+    await expect(response.json()).resolves.toEqual({ code: 'TENANT_UNAVAILABLE' });
+  });
   it.each([
     ['TENANT_EXPIRED', 403],
     ['TENANT_FROZEN', 403],

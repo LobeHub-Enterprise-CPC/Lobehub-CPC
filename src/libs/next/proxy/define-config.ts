@@ -16,6 +16,7 @@ import {
 } from '@/server/modules/Tenant/endpoints';
 import { resolveHostTenantRoute } from '@/server/modules/Tenant/hostRouting';
 import { signTenantRoute, TENANT_ROUTE_HEADER } from '@/server/modules/Tenant/routeHeader';
+import { routingUnavailableReasonOf } from '@/server/modules/Tenant/routingErrors';
 import { getTenantRuntime } from '@/server/modules/Tenant/runtime';
 import { parseBrowserLanguage } from '@/utils/locale';
 import { DEFAULT_LANG, locales, RouteVariants } from '@/utils/server/routeVariants';
@@ -326,8 +327,9 @@ export function defineConfig() {
         findSlug: findSlugEndpoint,
       });
     } catch (error) {
+      console.warn('TENANT_ROUTING_UNAVAILABLE', { reason: routingUnavailableReasonOf(error) });
       return rejectJson(
-        (error as { code?: string }).code === 'ENDPOINTS_NOT_READY'
+        (error as { code?: string } | null | undefined)?.code === 'ENDPOINTS_NOT_READY'
           ? 'ENDPOINTS_NOT_READY'
           : 'TENANT_UNAVAILABLE',
         503,
