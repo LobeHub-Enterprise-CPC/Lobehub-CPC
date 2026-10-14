@@ -188,6 +188,30 @@ export const BUILTIN_SKILLS_HIDDEN: readonly string[] = [];
 export const AGENT_GROUP_CREATION_ENABLED = true;
 
 /**
+ * Agent directory (`/agents`) presentation. When on, the page leads with a
+ * title and a primary create button, the list toolbar shows the total and the
+ * search box, and each row carries the agent's description under its name.
+ * Off keeps the dense single-line list.
+ */
+export const AGENT_DIRECTORY_SHOWCASE_LAYOUT = false;
+
+/**
+ * Composer presentation for distributions where every agent runs in Agent
+ * mode. When on, the Chat/Agent and home mode switches are not rendered and the
+ * agent-mode preference always resolves to Agent; the tool approval mode moves
+ * into the composer next to the "+" menu, dictation sits beside Send, and the
+ * model menu leads with a reasoning-effort slider. Off keeps the stock layout.
+ */
+export const COMPOSER_AGENT_ONLY_LAYOUT = false;
+
+/**
+ * Where the home page puts its agent switcher. When on, the switcher leaves
+ * the header above the greeting and docks under the composer, and the selected
+ * agent's avatar peeks over the composer's top edge.
+ */
+export const HOME_COMPOSER_AGENT_DOCK = false;
+
+/**
  * Two-level navigation. When on, the app shell renders an icon rail outside
  * the navigation panel: page links, the help menu and the account entry move
  * to the rail, and the Home panel keeps the brand header and the lists (agents,

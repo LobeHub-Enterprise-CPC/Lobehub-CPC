@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 import { expect, it } from 'vitest';
 
+import { channelMigrationSql, readChannelMigration } from '../../tests/channelMigrations';
+
 // Migration ownership moved to the enterprise chain (see
 // src/privateSchemas/channel.ts) after this test was written.
 const migration = readFileSync(
@@ -73,6 +75,42 @@ it('creates the final Channel schema, integrity constraints, and runtime indexes
     await expect(
       db.exec("INSERT INTO channels (id, owner_id, title) VALUES ('bad', 'missing', 'Bad')"),
     ).rejects.toThrow();
+  } finally {
+    await db.close();
+  }
+}, 30_000);
+
+it('bumps the Channel revision for observable changes only, and replays idempotently', async () => {
+  const db = new PGlite();
+  const revision = async () =>
+    (await db.query<{ revision: number }>("SELECT revision FROM channels WHERE id = 'channel'"))
+      .rows[0].revision;
+  try {
+    await db.exec("CREATE TABLE users (id text PRIMARY KEY); INSERT INTO users VALUES ('owner');");
+    await db.exec(channelMigrationSql());
+    await db.exec(readChannelMigration('0017_channel_revision'));
+    await db.exec("INSERT INTO channels (id, owner_id, title) VALUES ('channel', 'owner', 'One')");
+    expect(await revision()).toBe(0);
+
+    await db.exec(
+      "INSERT INTO channel_members (id, channel_id, name, config) VALUES ('member', 'channel', 'Agent', '{}')",
+    );
+    expect(await revision()).toBe(1);
+    await db.exec("UPDATE channel_members SET active = true WHERE id = 'member'");
+    expect(await revision()).toBe(1);
+    await db.exec("UPDATE channel_members SET execution_paused = true WHERE id = 'member'");
+    expect(await revision()).toBe(2);
+    await db.exec("UPDATE channels SET title = 'Two' WHERE id = 'channel'");
+    expect(await revision()).toBe(3);
+    await db.exec("UPDATE channels SET title = 'Two' WHERE id = 'channel'");
+    expect(await revision()).toBe(3);
+    // Audit rows are history, not observable Channel state.
+    await db.exec(
+      "INSERT INTO channel_audit (id, channel_id, event, target_id) VALUES ('audit', 'channel', 'x', 'channel')",
+    );
+    expect(await revision()).toBe(3);
+    await db.exec("DELETE FROM channel_members WHERE id = 'member'");
+    expect(await revision()).toBe(4);
   } finally {
     await db.close();
   }

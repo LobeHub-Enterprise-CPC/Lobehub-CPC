@@ -58,7 +58,21 @@ const ModeItemLabel = memo<{ desc: string; icon: LucideIcon; title: string }>(
   ),
 );
 
-const ModeSelector = memo(() => {
+const MODE_ICONS: Record<ApprovalMode, LucideIcon> = {
+  'allow-list': ListChecks,
+  'auto-run': Zap,
+  'manual': Hand,
+};
+
+interface ModeSelectorProps {
+  /**
+   * Rendered inside the composer action row: the trigger leads with the mode's
+   * icon instead of trailing a chevron, and the menu opens from its left edge.
+   */
+  inline?: boolean;
+}
+
+const ModeSelector = memo<ModeSelectorProps>(({ inline }) => {
   const { t } = useTranslation('chat');
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const { allowed: canCreateContent, reason } = usePermission('create_content');
@@ -141,9 +155,10 @@ const ModeSelector = memo(() => {
   const button = (
     <Button
       className={styles.modeButton}
+      data-brand-slot={inline ? 'composer-approval-mode' : undefined}
       disabled={disabled}
-      icon={ChevronDown}
-      iconPosition="end"
+      icon={inline ? MODE_ICONS[approvalMode] : ChevronDown}
+      iconPosition={inline ? 'start' : 'end'}
       size="small"
       type={'text'}
     >
@@ -168,7 +183,7 @@ const ModeSelector = memo(() => {
     <DropdownMenu
       items={menuItems}
       open={!disabled && dropdownOpen}
-      placement="bottomRight"
+      placement={inline ? 'topLeft' : 'bottomRight'}
       onOpenChange={handleOpenChange}
     >
       <div className={styles.trigger}>

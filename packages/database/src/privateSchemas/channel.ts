@@ -2,6 +2,7 @@ import type {
   ChannelDiscussionStatus,
   ChannelDiscussionTask,
   ChannelInputManifest,
+  ChannelJobBlockCode,
   ChannelJobStatus,
   ChannelMemberConfig,
   ChannelPublicationStatus,
@@ -99,6 +100,12 @@ export const channels = pgTable(
     ownerId: text('owner_id').notNull(),
     title: text('title').notNull(),
     sequence: integer('sequence').notNull().default(0),
+    /**
+     * Bumped by database triggers whenever this Channel or its members, threads, messages,
+     * jobs, runs or discussions change (see 0017_channel_revision.sql). Watchers compare it
+     * instead of serializing and hashing every live row.
+     */
+    revision: integer('revision').notNull().default(0),
     archived: boolean('archived').notNull().default(false),
     createdAt: createdAtColumn(),
   },
@@ -243,6 +250,8 @@ export const channelJobs = pgTable(
     deliveryKey: text('delivery_key').notNull().default('initial'),
     status: text('status').$type<ChannelJobStatus>().notNull().default('queued'),
     blockedReason: text('blocked_reason'),
+    /** Machine-readable cause for blockedReason; clients must not parse the text. */
+    blockedCode: text('blocked_code').$type<ChannelJobBlockCode>(),
     createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [

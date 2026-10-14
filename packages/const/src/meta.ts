@@ -1,7 +1,13 @@
-import { BRANDING_INBOX_TITLE, BRANDING_LOGO_URL } from '@lobechat/business-const';
+import {
+  AGENT_AVATAR_GALLERY,
+  BRANDING_INBOX_TITLE,
+  BRANDING_LOGO_URL,
+} from '@lobechat/business-const';
 import type { MetaData } from '@lobechat/types';
 
-export const DEFAULT_AVATAR = '/avatars/agent-default.png';
+// A distribution with its own avatar gallery supplies the fallback from it, so
+// an agent without an avatar still belongs to the same set as the rest.
+export const DEFAULT_AVATAR = AGENT_AVATAR_GALLERY?.defaultAvatar ?? '/avatars/agent-default.png';
 export const DEFAULT_USER_AVATAR = '😀';
 export const DEFAULT_SUPERVISOR_AVATAR = '🎙️';
 export const DEFAULT_SUPERVISOR_ID = 'supervisor';

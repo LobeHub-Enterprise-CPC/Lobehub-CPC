@@ -16,7 +16,7 @@ import { checkChannelNativeAvailability } from '@/server/services/channel/native
 import { watchChannel } from '@/server/services/channel/watch';
 import { resolveAttachmentMetadata } from '@/server/services/file/resolveAttachments';
 
-const channelProcedure = authedProcedure.use(serverDatabase).use(async ({ ctx, next }) => {
+const channelProcedure = authedProcedure.use(serverDatabase).use(async ({ ctx, next, type }) => {
   if (ctx.workspaceId)
     throw new TRPCError({ code: 'FORBIDDEN', message: 'Channels are personal in this release' });
   if (!(await isChannelEnabled(ctx.userId)))
@@ -24,7 +24,8 @@ const channelProcedure = authedProcedure.use(serverDatabase).use(async ({ ctx, n
       code: 'FORBIDDEN',
       message: 'Channels are not enabled',
     });
-  if (!(await isChannelGatewayReady()))
+  // Reads and watches come straight from the database; only new work needs a live consumer.
+  if (type === 'mutation' && !(await isChannelGatewayReady()))
     throw new TRPCError({
       code: 'SERVICE_UNAVAILABLE',
       message: 'Channel service is unavailable',
@@ -115,9 +116,7 @@ export const channelRouter = router({
   updateEnvironment: channelProcedure
     .input(memberRevision.extend(environment.shape).strict())
     .mutation(async ({ ctx, input }) => {
-      const detail = await ctx.channelModel.detail(input.channelId);
-      const member = detail.members.find((m) => m.id === input.memberId && m.active);
-      if (!member) throw new TRPCError({ code: 'NOT_FOUND', message: 'Member not found' });
+      const member = await ctx.channelModel.activeMember(input.channelId, input.memberId);
       if (member.config.runtime === 'native')
         throw new TRPCError({
           code: 'BAD_REQUEST',
@@ -147,9 +146,6 @@ export const channelRouter = router({
   rename: channelProcedure
     .input(z.object({ channelId, title: z.string().trim().min(1).max(200) }))
     .mutation(({ ctx, input }) => ctx.channelModel.rename(input.channelId, input.title)),
-  archive: channelProcedure
-    .input(z.object({ channelId }))
-    .mutation(({ ctx, input }) => ctx.channelModel.retire(input.channelId)),
   // Soft deletion retains worker receipts until execution has physically stopped.
   remove: channelProcedure
     .input(z.object({ channelId }))
@@ -160,7 +156,7 @@ export const channelRouter = router({
   addMembers: channelProcedure
     .input(z.object({ channelId, members: z.array(member).min(1).max(CHANNEL_LIMITS.members) }))
     .mutation(async ({ ctx, input }) => {
-      await ctx.channelModel.detail(input.channelId);
+      await ctx.channelModel.assertActive(input.channelId);
       const members = await resolveChannelMembers(ctx.serverDB, ctx.userId, input.members);
       await prepareMembers(ctx.serverDB, ctx.userId, members);
       return ctx.channelModel.addMembers(input.channelId, members);
@@ -170,11 +166,6 @@ export const channelRouter = router({
     .mutation(({ ctx, input }) =>
       ctx.channelModel.resetSession(input.channelId, input.memberId, input.threadId),
     ),
-  detail: channelProcedure.input(z.object({ channelId })).query(async ({ ctx, input }) => {
-    const detail = await ctx.channelModel.detail(input.channelId);
-    if (detail.channel.archived) throw new TRPCError({ code: 'NOT_FOUND' });
-    return detail;
-  }),
   page: channelProcedure
     .input(
       z.object({
@@ -254,11 +245,6 @@ export const channelRouter = router({
     .input(z.object({ channelId, runId: channelId }))
     .query(({ ctx, input }) =>
       getChannelArtifactUrl(ctx.serverDB, ctx.userId, input.channelId, input.runId),
-    ),
-  approve: channelProcedure
-    .input(z.object({ channelId, approvalId: z.string().min(1).max(300), approved: z.boolean() }))
-    .mutation(({ ctx, input }) =>
-      ctx.channelModel.decideApproval(input.channelId, input.approvalId, input.approved),
     ),
   stop: channelProcedure
     .input(

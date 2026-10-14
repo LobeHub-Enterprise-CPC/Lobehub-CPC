@@ -1,5 +1,6 @@
 'use client';
 
+import { AGENT_DIRECTORY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { AGENT_CHAT_URL, DEFAULT_AVATAR, GROUP_CHAT_URL } from '@lobechat/const';
 import type { SidebarAgentItem } from '@lobechat/types';
 import { agentDisplayName, agentSecondaryDisplayName } from '@lobechat/types';
@@ -101,7 +102,7 @@ interface AgentRowProps {
 const AgentRow = memo<AgentRowProps>(
   ({ author, item, onToggleSidebar, showAuthor, sidebarHidden }) => {
     const { t } = useTranslation('common');
-    const { id, type, updatedAt } = item;
+    const { description, id, type, updatedAt } = item;
     // Groups have no personal name, so this resolves to their title.
     const displayTitle = agentDisplayName(item, t('agentViewAll.untitled'));
     const roleTag = agentSecondaryDisplayName(item);
@@ -132,6 +133,7 @@ const AgentRow = memo<AgentRowProps>(
           horizontal
           align={'center'}
           className={styles.row}
+          data-brand-slot="agent-row"
           gap={12}
           ref={setAnchor}
           onPointerEnter={activateMenu}
@@ -155,6 +157,11 @@ const AgentRow = memo<AgentRowProps>(
                   </Tag>
                 ) : null}
               </Flexbox>
+              {AGENT_DIRECTORY_SHOWCASE_LAYOUT && description ? (
+                <Text ellipsis fontSize={12} type={'secondary'}>
+                  {description}
+                </Text>
+              ) : null}
             </Flexbox>
           </WorkspaceLink>
           {/* Trailing cluster (Task-list-style): label pills + author avatar +

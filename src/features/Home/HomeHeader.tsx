@@ -1,3 +1,4 @@
+import { HOME_COMPOSER_AGENT_DOCK } from '@lobechat/business-const';
 import { Flexbox } from '@lobehub/ui';
 import { Text } from '@lobehub/ui/base-ui';
 import { createStaticStyles } from 'antd-style';
@@ -62,7 +63,7 @@ const HomeHeader = memo<HomeHeaderProps>(({ centered }) => {
     // its 48px lane, so the pair reads as one compact block flush with the
     // composer. The layout's lift math (MINIMAL_LIFT) counts on these heights.
     <Flexbox className={styles.root} gap={centered ? 8 : 16} justify={'center'}>
-      {centered ? (
+      {HOME_COMPOSER_AGENT_DOCK ? null : centered ? (
         <AgentSelect />
       ) : (
         <div className={styles.toolbar}>

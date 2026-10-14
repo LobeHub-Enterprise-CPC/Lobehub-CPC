@@ -1,6 +1,4 @@
 // @vitest-environment node
-import { readFileSync } from 'node:fs';
-
 import { PGlite } from '@electric-sql/pglite';
 import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
@@ -11,10 +9,16 @@ import type { LobeChatDatabase } from '@/database/type';
 import { isChannelEnabled } from '@/server/services/channel/gate';
 import { ChannelWorker } from '@/server/services/channel/worker';
 
+import { channelMigrationSql } from '../../tests/channelMigrations';
 import * as schema from '../privateSchemas/channel';
 
-const { probe, start } = vi.hoisted(() => ({ probe: vi.fn(), start: vi.fn() }));
+const { probe, start, OfflineError } = vi.hoisted(() => ({
+  probe: vi.fn(),
+  start: vi.fn(),
+  OfflineError: class extends Error {},
+}));
 vi.mock('@/server/services/channel/device', () => ({
+  ChannelDeviceOfflineError: OfflineError,
   ChannelDeviceStartError: class extends Error {},
   ChannelDevice: class {
     probe = probe;
@@ -34,38 +38,19 @@ vi.mock('@/server/services/channel/serverDefault', () => ({
   settleChannelServerDefaultOperation: vi.fn(),
 }));
 
-it('scans past a full page of offline jobs, preserves FIFO and revisits them after recovery', async () => {
+it('probes only idle FIFO heads, backs off offline devices and revisits them after recovery', async () => {
   vi.clearAllMocks();
   const client = new PGlite();
   try {
     await client.exec(
       "CREATE TABLE users (id text PRIMARY KEY); INSERT INTO users VALUES ('blocked'), ('ready');",
     );
-    await client.exec(
-      readFileSync(
-        // Migration ownership moved to the enterprise chain (see
-        // src/privateSchemas/channel.ts) after this test was written.
-        new URL(
-          '../../../../../packages/enterprise/src/database/migrations/0009_channel_mvp.sql',
-          import.meta.url,
-        ),
-        'utf8',
-      ).replaceAll('--> statement-breakpoint', ''),
-    );
-    await client.exec(
-      readFileSync(
-        new URL(
-          '../../../../../packages/enterprise/src/database/migrations/0010_channel_attachments.sql',
-          import.meta.url,
-        ),
-        'utf8',
-      ),
-    );
+    await client.exec(channelMigrationSql());
     const db = drizzle(client, { schema }) as unknown as LobeChatDatabase;
     let recovered = false;
     vi.mocked(isChannelEnabled).mockResolvedValue(true);
     probe.mockImplementation(async (cwd: string) => {
-      if (!recovered && cwd === '/blocked') throw new Error('DEVICE_OFFLINE');
+      if (!recovered && cwd === '/blocked') throw new OfflineError('DEVICE_OFFLINE');
       return cwd;
     });
     start.mockResolvedValue(undefined);
@@ -106,24 +91,41 @@ it('scans past a full page of offline jobs, preserves FIFO and revisits them aft
     }
     const worker = new ChannelWorker(db);
     await worker.tick();
-    expect(start).not.toHaveBeenCalled();
-    await worker.tick();
+    // Only each idle member's FIFO head is probed: one per member, not one per queued job.
+    expect(probe).toHaveBeenCalledTimes(2);
     expect(start).toHaveBeenCalledTimes(1);
     expect(start).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/ready' }), undefined);
+    await worker.tick();
+    // The busy member's later work and the backed-off offline head are not probed again.
+    expect(probe).toHaveBeenCalledTimes(2);
+    expect(start).toHaveBeenCalledTimes(1);
     let jobs = await db.select().from(schema.channelJobs);
     expect(jobs.find((job) => job.id === 'job-041')?.status).toBe('running');
     expect(jobs.find((job) => job.id === 'job-042')?.status).toBe('queued');
     expect(jobs.filter((job) => job.id < 'job-041').every((job) => job.status === 'queued')).toBe(
       true,
     );
+    const unavailable = await db
+      .select()
+      .from(schema.channelAudit)
+      .where(eq(schema.channelAudit.event, 'job_unavailable'));
+    expect(unavailable).toHaveLength(1);
+    expect(jobs.find((job) => job.id === 'job-000')).toMatchObject({
+      blockedCode: 'device_offline',
+      blockedReason: 'DEVICE_OFFLINE',
+    });
 
     recovered = true;
-    await worker.tick();
+    await worker.close();
+    // A fresh worker has no probe backoff, like one started after the device reconnects.
+    const next = new ChannelWorker(db);
+    await next.tick();
     jobs = await db.select().from(schema.channelJobs);
     expect(jobs.find((job) => job.id === 'job-000')?.status).toBe('running');
     expect(jobs.find((job) => job.id === 'job-001')?.status).toBe('queued');
+    expect(jobs.find((job) => job.id === 'job-000')?.blockedReason).toBeNull();
     expect(start).toHaveBeenCalledTimes(2);
-    await worker.close();
+    await next.close();
   } finally {
     await client.close();
   }

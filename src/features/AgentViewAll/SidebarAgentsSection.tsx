@@ -129,7 +129,13 @@ const SidebarMiniCard = memo<SidebarMiniCardProps>(({ item, onToggleSidebar }) =
         to={type === 'group' ? GROUP_CHAT_URL(id) : AGENT_CHAT_URL(id, false)}
         onPointerEnter={activateMenu}
       >
-        <Block clickable className={styles.card} height={'100%'} variant={'outlined'}>
+        <Block
+          clickable
+          className={styles.card}
+          data-brand-slot="agent-sidebar-card"
+          height={'100%'}
+          variant={'outlined'}
+        >
           <Flexbox horizontal align={'center'} gap={8} style={{ minWidth: 0 }}>
             <AgentAvatar item={item} size={24} />
             <Text ellipsis style={{ minWidth: 0 }} weight={600}>
@@ -142,7 +148,12 @@ const SidebarMiniCard = memo<SidebarMiniCardProps>(({ item, onToggleSidebar }) =
             ) : null}
           </Flexbox>
           {description ? (
-            <Text className={styles.description} fontSize={12} type={'secondary'}>
+            <Text
+              className={styles.description}
+              data-brand-slot="agent-sidebar-card-description"
+              fontSize={12}
+              type={'secondary'}
+            >
               {description}
             </Text>
           ) : null}
@@ -185,7 +196,7 @@ const SidebarAgentsSection = memo<SidebarAgentsSectionProps>(({ items, onToggleS
   );
 
   return (
-    <Flexbox className={styles.container} gap={12}>
+    <Flexbox className={styles.container} data-brand-slot="agent-sidebar-section" gap={12}>
       <Flexbox
         horizontal
         align={'center'}
@@ -216,7 +227,7 @@ const SidebarAgentsSection = memo<SidebarAgentsSectionProps>(({ items, onToggleS
         </Flexbox>
       </Flexbox>
       {!collapsed && (
-        <div className={styles.grid}>
+        <div className={styles.grid} data-brand-slot="agent-sidebar-grid">
           {items.map((item) => (
             <SidebarMiniCard item={item} key={item.id} onToggleSidebar={onToggleSidebar} />
           ))}

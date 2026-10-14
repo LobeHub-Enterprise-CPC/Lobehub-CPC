@@ -1,12 +1,12 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 
 import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { channelMigrationSql } from '../../../tests/channelMigrations';
 import * as schema from '../../privateSchemas/channel';
 import type { LobeChatDatabase } from '../../type';
 import { ChannelModel } from '../channel';
@@ -21,19 +21,7 @@ beforeAll(async () => {
   await client.exec(
     "create table users (id text primary key); insert into users values ('owner'), ('other');",
   );
-  // Migration ownership moved to the enterprise chain (see
-  // src/privateSchemas/channel.ts) after this test was written.
-  for (const migration of ['0009_channel_mvp.sql', '0010_channel_attachments.sql']) {
-    await client.exec(
-      readFileSync(
-        new URL(
-          `../../../../../../packages/enterprise/src/database/migrations/${migration}`,
-          import.meta.url,
-        ),
-        'utf8',
-      ).replaceAll('--> statement-breakpoint', ''),
-    );
-  }
+  await client.exec(channelMigrationSql());
   db = drizzle(client, { schema }) as unknown as LobeChatDatabase;
   model = new ChannelModel(db, 'owner');
 }, 30_000);

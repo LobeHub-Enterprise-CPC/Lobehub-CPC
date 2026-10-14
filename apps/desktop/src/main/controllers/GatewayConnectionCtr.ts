@@ -568,11 +568,7 @@ export default class GatewayConnectionCtr extends ControllerModule {
     );
     if (localSystemOutput) return localSystemOutput;
 
-    if (
-      ['channelProbe', 'channelStart', 'channelInspect', 'channelStop', 'channelApprove'].includes(
-        apiName,
-      )
-    )
+    if (['channelProbe', 'channelStart', 'channelInspect', 'channelStop'].includes(apiName))
       logger.debug('Channel device operation', { apiName });
 
     switch (apiName) {
@@ -601,19 +597,6 @@ export default class GatewayConnectionCtr extends ControllerModule {
             ? await host.stop(input.ownerId, input.runId, input.fence)
             : await host.inspect(input.ownerId, input.runId);
         return { content: JSON.stringify(result), success: true };
-      }
-      case 'channelApprove': {
-        const input = args as {
-          ownerId: string;
-          runId: string;
-          fence: number;
-          approvalId: string;
-          approved: boolean;
-        };
-        await (
-          await this.getChannelHost()
-        ).approve(input.ownerId, input.runId, input.fence, input.approvalId, input.approved);
-        return { content: '{}', success: true };
       }
       // ─── Platform agent tools (openclaw / hermes) ───
       // These don't go through LocalSystemExecutionRuntime — they return raw

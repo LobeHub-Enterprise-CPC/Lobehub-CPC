@@ -10,3 +10,11 @@ export const enterpriseTestFiles = [
   'src/models/__tests__/channelDiscussion.test.ts',
   'src/models/__tests__/channelRead.test.ts',
 ];
+
+// Enterprise migrations those suites apply, in order. The parent gate requires each
+// one in its journal, so a fixture can never silently run against a partial schema.
+export const enterpriseChannelMigrations = [
+  '0009_channel_mvp',
+  '0010_channel_attachments',
+  '0017_channel_revision',
+];
