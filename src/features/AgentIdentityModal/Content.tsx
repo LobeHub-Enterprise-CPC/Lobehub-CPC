@@ -60,7 +60,7 @@ const AgentIdentityContent = memo<AgentIdentityContentProps>(({ agentId }) => {
   }, [agentId, locale, setName]);
 
   return (
-    <Flexbox gap={20} padding={20}>
+    <Flexbox data-brand-slot={'agent-identity-form'} gap={20} padding={20}>
       <Field label={t('settingAgent.personalName.label', { ns: 'setting' })}>
         <Input
           autoFocus

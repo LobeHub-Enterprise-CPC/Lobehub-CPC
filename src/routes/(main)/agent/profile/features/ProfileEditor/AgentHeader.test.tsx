@@ -2,6 +2,7 @@
  * @vitest-environment happy-dom
  */
 import { act, render } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import AgentHeader from './AgentHeader';
@@ -48,6 +49,7 @@ const mocks = vi.hoisted(() => {
       },
     },
     permissionState: { allowed: false },
+    profileShowcase: false,
     randomAgentName: vi.fn(() => 'Zoe'),
     refreshAgentList: vi.fn(),
     sidebarAgents: [] as { id: string; name?: string | null }[],
@@ -55,6 +57,20 @@ const mocks = vi.hoisted(() => {
     uploadWithProgress: vi.fn(),
   };
 });
+
+// The stock header is the default under test; a distribution may ship the
+// showcase layout on, so pin it here instead of inheriting whichever package
+// the workspace resolves.
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  get AGENT_PROFILE_SHOWCASE_LAYOUT() {
+    return mocks.profileShowcase;
+  },
+}));
+
+vi.mock('@/features/AgentBreadcrumb/useAgentRoutePath', () => ({
+  useAgentRoutePath: (agentId: string) => () => `/agent/${agentId}`,
+}));
 
 vi.mock('@lobehub/ui/base-ui', async (importOriginal) => ({
   ...((await importOriginal()) as Record<string, unknown>),
@@ -171,6 +187,7 @@ describe('AgentHeader', () => {
     mocks.actionIconProps.all = [];
     mocks.artworkProps.last = undefined;
     mocks.permissionState.allowed = false;
+    mocks.profileShowcase = false;
     mocks.randomAgentName.mockReturnValue('Zoe');
     mocks.sidebarAgents = [];
   });
@@ -425,5 +442,21 @@ describe('AgentHeader', () => {
     expect(mocks.updateAgentMetaById).toHaveBeenCalledExactlyOnceWith('agent-a', {
       avatar: 'https://example.com/agent-a.png',
     });
+  });
+
+  it('lays the showcase header out in one row with a compact avatar and a chat action', () => {
+    mocks.profileShowcase = true;
+    mocks.permissionState.allowed = true;
+    mocks.agentStoreState.agentMap = { 'agent-a': { name: 'Zoe', title: 'Writer' } };
+
+    const view = render(
+      <MemoryRouter>
+        <AgentHeader />
+      </MemoryRouter>,
+    );
+
+    expect(mocks.artworkProps.last?.compact).toBe(true);
+    expect(view.container.querySelector('[data-brand-slot="agent-profile-header"]')).not.toBeNull();
+    expect(view.container.querySelector('[data-brand-slot="agent-profile-chat"]')).not.toBeNull();
   });
 });

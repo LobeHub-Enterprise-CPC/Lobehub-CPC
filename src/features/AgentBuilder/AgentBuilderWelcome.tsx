@@ -1,11 +1,12 @@
 'use client';
 
+import { AGENT_AVATAR_GALLERY } from '@lobechat/business-const';
 import { Flexbox, Markdown } from '@lobehub/ui';
 import { Avatar, Text } from '@lobehub/ui/base-ui';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { DEFAULT_INBOX_AVATAR } from '@/const/index';
+import { DEFAULT_AGENT_BUILDER_AVATAR, DEFAULT_INBOX_AVATAR } from '@/const/index';
 import { conversationSelectors, useConversationStore } from '@/features/Conversation';
 import { type SuggestMode } from '@/features/SuggestQuestions';
 import { useAgentStore } from '@/store/agent';
@@ -39,7 +40,17 @@ const AgentBuilderWelcome = memo<AgentBuilderWelcomeProps>(
             paddingBottom: 16,
           }}
         >
-          <Avatar avatar={agent?.avatar || DEFAULT_INBOX_AVATAR} shape={'square'} size={78} />
+          <Avatar
+            shape={'square'}
+            size={78}
+            avatar={
+              agent?.avatar ||
+              // A distribution with an avatar gallery gives the builder its own figure.
+              (AGENT_AVATAR_GALLERY?.builtinAvatars?.agentBuilder
+                ? DEFAULT_AGENT_BUILDER_AVATAR
+                : DEFAULT_INBOX_AVATAR)
+            }
+          />
           <Text fontSize={24} weight={'bold'}>
             {t('agentBuilder.title')}
           </Text>
