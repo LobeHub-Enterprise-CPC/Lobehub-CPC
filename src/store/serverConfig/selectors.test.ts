@@ -14,6 +14,7 @@ describe('featureFlagsSelectors', () => {
         showProvider: true,
         showMarket: true,
         showAiImage: true,
+        showTokenCounter: false,
       },
     });
 
@@ -23,6 +24,7 @@ describe('featureFlagsSelectors', () => {
     expect(result.showProvider).toBe(true);
     expect(result.showMarket).toBe(true);
     expect(result.showAiImage).toBe(true);
+    expect(result.showTokenCounter).toBe(false);
   });
 });
 

@@ -200,6 +200,7 @@ export const mapFeatureFlagsEnvToState = (
     showApiKeyManage: evaluateFeatureFlag(config.api_key_manage, userId),
 
     showAiImage: evaluateFeatureFlag(config.ai_image, userId),
+    showTokenCounter: evaluateFeatureFlag(config.token_counter, userId),
     showChangelog: evaluateFeatureFlag(config.changelog, userId),
 
     enableCheckUpdates: evaluateFeatureFlag(config.check_updates, userId),
