@@ -85,10 +85,13 @@ export const verifyTenantRuntime = async (
     if (create.rows[0]?.can) throw new TenantReadinessError('RUNTIME_CAN_CREATE');
 
     // By OID: resolving `public.x` by name would itself need USAGE on public.
+    // WHERE predicates may be reordered; CASE prevents privilege calls on the wrong relkind.
     const publicTables = await client.query(
       `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
           WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
-            AND has_table_privilege(current_user, c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+            AND CASE WHEN c.relkind IN ('r', 'p', 'v', 'm', 'f')
+              THEN has_table_privilege(current_user, c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+              ELSE false END
           LIMIT 1`,
     );
     if (publicTables.rowCount) throw new TenantReadinessError('PUBLIC_TABLE_ACCESS');
@@ -96,7 +99,9 @@ export const verifyTenantRuntime = async (
     const publicSequences = await client.query(
       `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
           WHERE n.nspname = 'public' AND c.relkind = 'S'
-            AND has_sequence_privilege(current_user, c.oid, 'USAGE, SELECT, UPDATE') LIMIT 1`,
+            AND CASE WHEN c.relkind = 'S'
+              THEN has_sequence_privilege(current_user, c.oid, 'USAGE, SELECT, UPDATE')
+              ELSE false END LIMIT 1`,
     );
     if (publicSequences.rowCount) throw new TenantReadinessError('PUBLIC_SEQUENCE_ACCESS');
     const sharedCreate = await client.query(
@@ -156,9 +161,11 @@ export const verifyTenantRuntime = async (
       `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
           WHERE n.nspname = $1 AND c.relkind = 'S'
             AND c.oid <> ALL($2::regclass[])
-            AND NOT (has_sequence_privilege(current_user, c.oid, 'USAGE')
-                     AND has_sequence_privilege(current_user, c.oid, 'SELECT')
-                     AND has_sequence_privilege(current_user, c.oid, 'UPDATE')) LIMIT 1`,
+            AND CASE WHEN c.relkind = 'S'
+              THEN NOT (has_sequence_privilege(current_user, c.oid, 'USAGE')
+                        AND has_sequence_privilege(current_user, c.oid, 'SELECT')
+                        AND has_sequence_privilege(current_user, c.oid, 'UPDATE'))
+              ELSE false END LIMIT 1`,
       [schemaName, journalSequences],
     );
     if (sequenceAccess.rowCount) throw new TenantReadinessError('RUNTIME_SEQUENCE_ACCESS_MISSING');

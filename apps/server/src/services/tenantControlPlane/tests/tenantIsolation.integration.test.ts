@@ -122,7 +122,7 @@ suite('tenant isolation on PostgreSQL', () => {
     process.env.KEY_VAULTS_SECRET = 'integration-master-secret';
     const root = new Client({ connectionString: ADMIN_URL });
     await root.connect();
-    await root.query(`CREATE DATABASE "${DB_NAME}"`);
+    await root.query(`CREATE DATABASE "${DB_NAME}" TEMPLATE template0`);
     await root.end();
 
     admin = new Client({ connectionString: dbUrl(ADMIN_URL!, DB_NAME) });
@@ -131,6 +131,8 @@ suite('tenant isolation on PostgreSQL', () => {
     await admin.query(`REVOKE CREATE, USAGE ON SCHEMA public FROM PUBLIC`);
     await admin.query(`CREATE SCHEMA IF NOT EXISTS extensions`);
     await admin.query(`CREATE SCHEMA IF NOT EXISTS paradedb`);
+    // The unsafe-template regression uses an explicit fixture, including on template0.
+    await admin.query(`CREATE SCHEMA IF NOT EXISTS pgivm`);
     // Like Console's baseline, leave tenant roles nothing outside their schema
     // and the extension schemas, whatever else the image's template installs.
     const { rows: otherSchemas } = await admin.query<{ nspname: string }>(
@@ -352,7 +354,23 @@ suite('tenant isolation on PostgreSQL', () => {
     ).resolves.toBeUndefined();
   }, 60_000);
 
-  it('records the real template PUBLIC schema refusal and clears the current diagnostic after repair', async () => {
+  it('accepts inaccessible public relations while verifying tenant sequence permissions', async () => {
+    const tenant = TENANTS[0];
+    await admin.query(
+      'CREATE TABLE public.readiness_planner_table(id int); CREATE VIEW public.readiness_planner_view AS SELECT id FROM public.readiness_planner_table; CREATE SEQUENCE public.readiness_planner_sequence',
+    );
+    try {
+      await expect(
+        executor.verify({ tenantId: tenant.id, bundle: bundles.get(tenant.id)! }),
+      ).resolves.toBeUndefined();
+    } finally {
+      await admin.query(
+        'DROP VIEW public.readiness_planner_view; DROP TABLE public.readiness_planner_table; DROP SEQUENCE public.readiness_planner_sequence',
+      );
+    }
+  });
+
+  it('records an extra PUBLIC schema refusal and clears the current diagnostic after repair', async () => {
     const tenant = TENANTS[0];
     const operationId = `root-${tenant.slug}:lobehub`;
     const repository = new PostgresControlPlaneRepository(platformDB);
