@@ -205,6 +205,15 @@ export const buildPayloadFromKeyVaults = (
 };
 
 /**
+ * Instance provider credentials (`*_API_KEY`, `*_PROXY_URL`, `AZURE_*`, `AWS_*`,
+ * `VERTEXAI_*`, `COMFYUI_*`). Business builds are multi-tenant: a request runs
+ * on its tenant's router channels or on the user's own key, never on keys the
+ * deployment holds for itself, so they read as unset there.
+ */
+const getInstanceProviderEnv = (): Record<string, any> =>
+  ENABLE_BUSINESS_FEATURES ? {} : { ...process.env, ...getLLMConfig() };
+
+/**
  * Retrieves the options object from environment and apikeymanager
  * based on the provider and payload.
  *
@@ -213,7 +222,7 @@ export const buildPayloadFromKeyVaults = (
  * @returns The options object.
  */
 const getParamsFromPayload = (provider: string, payload: ClientSecretPayload) => {
-  const llmConfig = getLLMConfig() as Record<string, any>;
+  const llmConfig = getInstanceProviderEnv();
 
   switch (provider) {
     case ModelProvider.LobeHub: {
@@ -232,13 +241,13 @@ const getParamsFromPayload = (provider: string, payload: ClientSecretPayload) =>
       }
 
       const apiKey = apiKeyManager.pick(payload?.apiKey || llmConfig[`${upperProvider}_API_KEY`]);
-      const baseURL = payload?.baseURL || process.env[`${upperProvider}_PROXY_URL`];
+      const baseURL = payload?.baseURL || llmConfig[`${upperProvider}_PROXY_URL`];
 
       return baseURL ? { apiKey, baseURL } : { apiKey };
     }
 
     case ModelProvider.Ollama: {
-      const baseURL = payload?.baseURL || process.env.OLLAMA_PROXY_URL;
+      const baseURL = payload?.baseURL || llmConfig.OLLAMA_PROXY_URL;
 
       return { baseURL };
     }
@@ -394,18 +403,19 @@ const buildVertexOptions = (
   payload: ClientSecretPayload,
   params: Partial<GoogleGenAIOptions> = {},
 ): GoogleGenAIOptions => {
-  const rawCredentials = payload.apiKey || process.env.VERTEXAI_CREDENTIALS || '';
+  const instanceEnv = getInstanceProviderEnv();
+  const rawCredentials = payload.apiKey || instanceEnv.VERTEXAI_CREDENTIALS || '';
   const credentials = safeParseJSON<Record<string, string>>(rawCredentials);
 
   const projectFromParams = params.project as string | undefined;
   const projectFromCredentials = credentials?.project_id;
-  const projectFromEnv = process.env.VERTEXAI_PROJECT;
+  const projectFromEnv = instanceEnv.VERTEXAI_PROJECT;
 
   const project = projectFromParams || projectFromCredentials || projectFromEnv;
   const location =
     (params.location as string | undefined) ||
     payload.vertexAIRegion ||
-    process.env.VERTEXAI_LOCATION ||
+    instanceEnv.VERTEXAI_LOCATION ||
     undefined;
 
   const googleAuthOptions = params.googleAuthOptions || (credentials ? { credentials } : undefined);

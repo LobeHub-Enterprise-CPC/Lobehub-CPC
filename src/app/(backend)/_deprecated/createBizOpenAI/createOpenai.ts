@@ -1,3 +1,4 @@
+import { ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
 import { createSsrfSafeFetch } from '@lobechat/ssrf-safe-fetch';
 import { ChatErrorType } from '@lobechat/types';
 import OpenAI from 'openai';
@@ -6,8 +7,9 @@ import { getLLMConfig } from '@/envs/llm';
 
 // create OpenAI instance
 export const createOpenai = (userApiKey: string | null, endpoint?: string | null) => {
-  const { OPENAI_API_KEY } = getLLMConfig();
-  const OPENAI_PROXY_URL = process.env.OPENAI_PROXY_URL;
+  // Business builds are multi-tenant: the instance OpenAI credentials are never lent out.
+  const { OPENAI_API_KEY } = ENABLE_BUSINESS_FEATURES ? {} : getLLMConfig();
+  const OPENAI_PROXY_URL = ENABLE_BUSINESS_FEATURES ? undefined : process.env.OPENAI_PROXY_URL;
 
   const baseURL = endpoint || OPENAI_PROXY_URL || undefined;
 

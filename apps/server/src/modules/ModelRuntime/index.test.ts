@@ -25,7 +25,7 @@ import {
 import { LobeVertexAI } from '@lobechat/model-runtime/vertexai';
 import { ChatErrorType, type ClientSecretPayload } from '@lobechat/types';
 import { ModelProvider } from 'model-bank';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import {
   buildPayloadFromKeyVaults,
@@ -1017,6 +1017,10 @@ describe('initModelRuntimeWithUserPayload method', () => {
     });
 
     it('Bedrock AI provider: falls back to env credentials when only region is provided', async () => {
+      businessAccessPolicy.enabled = false;
+      onTestFinished(() => {
+        businessAccessPolicy.enabled = true;
+      });
       const jwtPayload: ClientSecretPayload = {
         awsRegion: 'custom-aws-region',
       };
@@ -1163,6 +1167,14 @@ describe('initModelRuntimeWithUserPayload method', () => {
   });
 
   describe('should initialize without some options', () => {
+    // Instance env credentials are an upstream (single-deployment) fallback only.
+    beforeEach(() => {
+      businessAccessPolicy.enabled = false;
+    });
+    afterEach(() => {
+      businessAccessPolicy.enabled = true;
+    });
+
     it('OpenAI provider: without apikey', async () => {
       const jwtPayload: ClientSecretPayload = {};
       const runtime = await initModelRuntimeWithUserPayload(ModelProvider.OpenAI, jwtPayload);
@@ -1359,6 +1371,50 @@ describe('initModelRuntimeWithUserPayload method', () => {
       // 例如，如果默认使用 OpenAI:
       expect(runtime['_runtime']).toBeInstanceOf(LobeOpenAI);
     });
+  });
+});
+
+describe('initModelRuntimeWithUserPayload in business (multi-tenant) builds', () => {
+  const providerOptions = (provider: string, payload: ClientSecretPayload) => {
+    const init = vi
+      .spyOn(ModelRuntime, 'initializeWithProvider')
+      .mockReturnValue({} as ModelRuntime);
+    try {
+      initModelRuntimeWithUserPayload(provider, payload);
+      return init.mock.calls[0][1] as Record<string, unknown>;
+    } finally {
+      init.mockRestore();
+    }
+  };
+
+  afterEach(() => {
+    delete process.env.OPENAI_PROXY_URL;
+  });
+
+  it.each([
+    ModelProvider.OpenAI,
+    ModelProvider.DeepSeek,
+    ModelProvider.Azure,
+    ModelProvider.Bedrock,
+    'unknown',
+  ])('never lends instance credentials to a %s request without its own', (provider) => {
+    process.env.OPENAI_PROXY_URL = 'https://platform-proxy.example.com/v1';
+
+    const options = providerOptions(provider, {});
+
+    // The key manager reports "no key" as an empty string.
+    expect(options.apiKey || undefined).toBeUndefined();
+    expect(options.baseURL).toBeUndefined();
+    expect(options.accessKeyId).toBeUndefined();
+  });
+
+  it("passes only the request's own key", () => {
+    process.env.OPENAI_PROXY_URL = 'https://platform-proxy.example.com/v1';
+
+    const options = providerOptions(ModelProvider.OpenAI, { apiKey: 'user-openai-key' });
+
+    expect(options.apiKey).toBe('user-openai-key');
+    expect(options.baseURL).toBeUndefined();
   });
 });
 
