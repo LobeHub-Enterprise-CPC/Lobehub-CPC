@@ -1,4 +1,9 @@
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+
 import { eq } from 'drizzle-orm';
+import { decodeJwt, UnsecuredJWT } from 'jose';
+import Provider from 'oidc-provider';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DrizzleAdapter } from '@/libs/oidc-provider/adapter';
@@ -70,18 +75,228 @@ describe('DrizzleAdapter', () => {
         const adapter = new DrizzleAdapter(model, serverDB);
         const payload = {
           uid: testId,
-          ...(model === 'PushedAuthorizationRequest' ? { clientId: testClientId } : {}),
+          ...(model === 'PushedAuthorizationRequest'
+            ? { request: new UnsecuredJWT({ client_id: testClientId, iss: testClientId }).encode() }
+            : {}),
         };
         await adapter.upsert(testId, payload, 3600);
         expect(await adapter.find(testId)).toMatchObject(payload);
         const table = model === 'Session' ? oidcSessions : oidcAuthorizationCodes;
         const [anonymous] = await serverDB.select().from(table).where(eq(table.id, testId));
         expect(anonymous.userId).toBeNull();
+        if (model === 'PushedAuthorizationRequest')
+          expect((anonymous as typeof oidcAuthorizationCodes.$inferSelect).clientId).toBe(
+            testClientId,
+          );
         await adapter.upsert(testId, { ...payload, accountId: testUserId }, 3600);
         const [authenticated] = await serverDB.select().from(table).where(eq(table.id, testId));
         expect(authenticated.userId).toBe(testUserId);
       },
     );
+
+    it('round-trips the real provider PAR across provider recreation before login', async () => {
+      let provider: Provider;
+      const server = createServer((req, res) => provider.callback()(req, res));
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+      const issuer = `${origin}/t/test/oidc`;
+      const clientId = 'adapter-protocol-client';
+      const createProvider = () =>
+        new Provider(issuer, {
+          adapter: DrizzleAdapter.createAdapterFactory(serverDB),
+          clients: [
+            {
+              client_id: clientId,
+              grant_types: ['authorization_code'],
+              redirect_uris: ['http://localhost:3210/callback'],
+              response_types: ['code'],
+              token_endpoint_auth_method: 'none',
+            },
+            {
+              client_id: 'adapter-confidential-client',
+              client_secret: 'isolated-protocol-client-secret',
+              grant_types: ['authorization_code'],
+              redirect_uris: ['http://localhost:3210/callback'],
+              response_types: ['code'],
+              token_endpoint_auth_method: 'client_secret_basic',
+            },
+          ],
+          cookies: { keys: ['isolated-protocol-cookie-key'] },
+          features: { devInteractions: { enabled: false } },
+          interactions: { url: (_ctx, interaction) => `/interaction/${interaction.uid}` },
+          pkce: { required: () => true },
+          renderError: async (ctx, out) => {
+            ctx.status = 400;
+            ctx.body = out;
+          },
+          routes: {
+            authorization: '/t/test/oidc/auth',
+            pushed_authorization_request: '/t/test/oidc/request',
+          },
+        });
+      try {
+        provider = createProvider();
+        const invalid = await fetch(`${issuer}/request`, { method: 'POST' });
+        expect(invalid.status).toBe(400);
+        expect(await invalid.json()).toMatchObject({ error: 'invalid_request' });
+        expect(await serverDB.select().from(oidcAuthorizationCodes)).toEqual([]);
+        const confidential = await fetch(`${issuer}/request`, {
+          body: new URLSearchParams({
+            code_challenge: 'a'.repeat(43),
+            code_challenge_method: 'S256',
+            redirect_uri: 'http://localhost:3210/callback',
+            response_type: 'code',
+            scope: 'openid',
+          }),
+          headers: {
+            Authorization: `Basic ${Buffer.from('adapter-confidential-client:isolated-protocol-client-secret').toString('base64')}`,
+          },
+          method: 'POST',
+        });
+        const confidentialPAR = (await confidential.json()) as {
+          error_description?: string;
+          request_uri: string;
+        };
+        // oidc-provider 9.12.2 requires body client_id before PAR persistence,
+        // even when HTTP Basic has already authenticated the client.
+        expect(confidential.status).toBe(400);
+        expect(confidentialPAR).toMatchObject({
+          error: 'invalid_request',
+          error_description: "missing required parameter 'client_id'",
+        });
+        expect(await serverDB.select().from(oidcAuthorizationCodes)).toEqual([]);
+
+        const acceptedConfidential = await fetch(`${issuer}/request`, {
+          body: new URLSearchParams({
+            client_id: 'adapter-confidential-client',
+            code_challenge: 'a'.repeat(43),
+            code_challenge_method: 'S256',
+            redirect_uri: 'http://localhost:3210/callback',
+            response_type: 'code',
+            scope: 'openid',
+          }),
+          headers: {
+            Authorization: `Basic ${Buffer.from('adapter-confidential-client:isolated-protocol-client-secret').toString('base64')}`,
+          },
+          method: 'POST',
+        });
+        const acceptedPAR = (await acceptedConfidential.json()) as {
+          error_description?: string;
+          request_uri: string;
+        };
+        expect(acceptedConfidential.status, acceptedPAR.error_description).toBe(201);
+        const confidentialId = acceptedPAR.request_uri.split(
+          'urn:ietf:params:oauth:request_uri:',
+        )[1];
+        const [confidentialRow] = await serverDB
+          .select()
+          .from(oidcAuthorizationCodes)
+          .where(eq(oidcAuthorizationCodes.id, confidentialId));
+        expect(confidentialRow.clientId).toBe('adapter-confidential-client');
+        expect(confidentialRow.userId).toBeNull();
+        expect(decodeJwt((confidentialRow.data as { request: string }).request)).toMatchObject({
+          client_id: 'adapter-confidential-client',
+          iss: 'adapter-confidential-client',
+        });
+        provider = createProvider();
+        const confidentialResume = await fetch(
+          `${issuer}/auth?${new URLSearchParams({
+            client_id: 'adapter-confidential-client',
+            request_uri: acceptedPAR.request_uri,
+          })}`,
+          { redirect: 'manual' },
+        );
+        expect(confidentialResume.status).toBe(303);
+        expect(confidentialResume.headers.get('location')).toMatch(/^\/interaction\//);
+
+        const response = await fetch(`${issuer}/request`, {
+          body: new URLSearchParams({
+            client_id: clientId,
+            code_challenge: 'a'.repeat(43),
+            code_challenge_method: 'S256',
+            redirect_uri: 'http://localhost:3210/callback',
+            response_type: 'code',
+            scope: 'openid',
+          }),
+          method: 'POST',
+        });
+        expect(response.status).toBe(201);
+        const pushed = (await response.json()) as { expires_in: number; request_uri: string };
+        expect(pushed.expires_in).toBeGreaterThan(0);
+        const id = pushed.request_uri.split('urn:ietf:params:oauth:request_uri:')[1];
+        const [row] = await serverDB
+          .select()
+          .from(oidcAuthorizationCodes)
+          .where(eq(oidcAuthorizationCodes.id, id));
+        expect(row.clientId).toBe(clientId);
+        expect(row.userId).toBeNull();
+        expect(row.data).not.toHaveProperty('clientId');
+        expect(row.data).not.toHaveProperty('accountId');
+
+        provider = createProvider();
+        const authorize = await fetch(
+          `${issuer}/auth?${new URLSearchParams({ client_id: clientId, request_uri: pushed.request_uri })}`,
+          { redirect: 'manual' },
+        );
+        expect(authorize.status).toBe(303);
+        expect(authorize.headers.get('location')).toMatch(/^\/interaction\//);
+
+        // Starting login does not consume a PAR; completed authorization does.
+        await new DrizzleAdapter('PushedAuthorizationRequest', serverDB).consume(id);
+        const replay = await fetch(
+          `${issuer}/auth?${new URLSearchParams({ client_id: clientId, request_uri: pushed.request_uri })}`,
+          { redirect: 'manual' },
+        );
+        expect(replay.status).toBe(303);
+        const errorRedirect = new URL(replay.headers.get('location')!, origin);
+        expect(errorRedirect.pathname).toBe('/callback');
+        expect(errorRedirect.searchParams.get('error')).toBe('invalid_request_uri');
+        expect(errorRedirect.searchParams.has('code')).toBe(false);
+      } finally {
+        await new Promise<void>((resolve, reject) =>
+          server.close((error) => (error ? reject(error) : resolve())),
+        );
+      }
+    });
+
+    it('persists issuer-only internal PAR metadata without asserting HTTP reachability', async () => {
+      const adapter = new DrizzleAdapter('PushedAuthorizationRequest', serverDB);
+      const payload = { request: new UnsecuredJWT({ iss: testClientId }).encode(), trusted: true };
+
+      await adapter.upsert(testId, payload, 60);
+
+      const [row] = await serverDB
+        .select()
+        .from(oidcAuthorizationCodes)
+        .where(eq(oidcAuthorizationCodes.id, testId));
+      expect(row.clientId).toBe(testClientId);
+      expect(row.userId).toBeNull();
+      expect(await adapter.find(testId)).toEqual(payload);
+      expect(row.data).not.toHaveProperty('clientId');
+      expect(row.data).not.toHaveProperty('accountId');
+    });
+
+    it('preserves PAR consume, expiry and destroy behavior without changing its Request Object', async () => {
+      const adapter = new DrizzleAdapter('PushedAuthorizationRequest', serverDB);
+      const payload = {
+        request: new UnsecuredJWT({ client_id: testClientId, iss: testClientId }).encode(),
+        trusted: false,
+      };
+
+      await adapter.upsert(testId, payload, 60);
+      expect(await adapter.find(testId)).toEqual(payload);
+      await adapter.consume(testId);
+      expect(await adapter.find(testId)).toBeUndefined();
+      await adapter.destroy(testId);
+      expect(
+        await serverDB
+          .select()
+          .from(oidcAuthorizationCodes)
+          .where(eq(oidcAuthorizationCodes.id, testId)),
+      ).toEqual([]);
+      await adapter.upsert(testId, payload, -1);
+      expect(await adapter.find(testId)).toBeUndefined();
+    });
 
     it('should create new record for Session model', async () => {
       const adapter = new DrizzleAdapter('Session', serverDB);

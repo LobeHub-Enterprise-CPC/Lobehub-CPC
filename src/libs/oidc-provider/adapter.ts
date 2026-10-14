@@ -11,6 +11,8 @@ import {
 } from '@lobechat/database/schemas';
 import debug from 'debug';
 import { eq, sql } from 'drizzle-orm';
+import { decodeJwt } from 'jose';
+import { errors } from 'oidc-provider';
 
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 
@@ -70,6 +72,38 @@ const decryptClientSecret = async (clientId: string, stored: string | null) => {
     log('[Client] Error while decrypting the client secret of %s: %O', clientId, error);
     return null;
   }
+};
+
+const pushedAuthorizationClientId = (payload: {
+  clientId?: unknown;
+  request?: unknown;
+}): string => {
+  // oidc-provider supplies this Request Object after its client authentication.
+  // Decode only the database index metadata; this is not signature validation
+  // or an authorization decision, and the protocol payload stays untouched.
+  let clientId: unknown;
+  let issuer: unknown;
+  try {
+    if (typeof payload.request !== 'string') throw new Error('Missing Request Object');
+    const claims = decodeJwt(payload.request);
+    clientId = claims.client_id;
+    issuer = claims.iss;
+  } catch {
+    throw new errors.InvalidRequest('PAR Request Object must contain valid client metadata');
+  }
+
+  if (
+    typeof issuer !== 'string' ||
+    !issuer.trim() ||
+    (clientId !== undefined &&
+      (typeof clientId !== 'string' || !clientId.trim() || clientId !== issuer)) ||
+    (payload.clientId !== undefined && payload.clientId !== issuer)
+  ) {
+    throw new errors.InvalidRequest(
+      'PAR Request Object client_id and iss must identify the same client',
+    );
+  }
+  return issuer;
 };
 
 class OIDCAdapter {
@@ -208,6 +242,11 @@ class OIDCAdapter {
       return;
     }
 
+    const clientId =
+      this.name === 'PushedAuthorizationRequest'
+        ? pushedAuthorizationClientId(payload)
+        : payload.clientId;
+
     // For other models, save complete data and metadata
     const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000) : undefined;
     log('[%s] expiresAt set to: %s', this.name, expiresAt ? expiresAt.toISOString() : 'undefined');
@@ -222,7 +261,7 @@ class OIDCAdapter {
     if (payload.accountId) {
       record.userId = payload.accountId;
       log('[%s] Setting userId: %s', this.name, payload.accountId);
-    } else {
+    } else if (this.name !== 'PushedAuthorizationRequest') {
       try {
         const { getUserAuth } = await import('@lobechat/utils/server');
         try {
@@ -249,9 +288,9 @@ class OIDCAdapter {
       }
     }
 
-    if (payload.clientId) {
-      record.clientId = payload.clientId;
-      log('[%s] Setting clientId: %s', this.name, payload.clientId);
+    if (clientId) {
+      record.clientId = clientId;
+      log('[%s] Setting clientId: %s', this.name, clientId);
     }
 
     if (payload.grantId) {
@@ -275,7 +314,7 @@ class OIDCAdapter {
             data: payload,
             expiresAt,
             ...(payload.accountId ? { userId: payload.accountId } : {}),
-            ...(payload.clientId ? { clientId: payload.clientId } : {}),
+            ...(clientId ? { clientId } : {}),
             ...(payload.grantId ? { grantId: payload.grantId } : {}),
             ...(this.name === 'DeviceCode' && payload.userCode
               ? { userCode: payload.userCode }
