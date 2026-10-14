@@ -54,7 +54,7 @@ const createStreamExecutionError = (errorData: unknown) => {
     (typeof errorData === 'string' ? errorData : JSON.stringify(errorData));
   const error = new Error(message || 'LLM stream failed');
 
-  if (record) Object.assign(error, record);
+  if (record) Object.assign(error, record, { errorType: record.errorType ?? record.type });
   return error;
 };
 
