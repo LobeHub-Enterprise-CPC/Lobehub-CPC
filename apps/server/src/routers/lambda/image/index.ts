@@ -29,6 +29,7 @@ import {
 } from '@/types/asyncTask';
 import { generateUniqueSeeds } from '@/utils/number';
 
+import { assertImageGenerationEnabled } from '../_helpers/imageGenerationFeatureGate';
 import { validateNoUrlsInConfig } from './utils';
 
 const log = debug('lobe-image:lambda');
@@ -51,6 +52,10 @@ const imageProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) =>
 // paid for. Admit at submission instead: refuse to start when storage is
 // already full, and let an in-flight generation finish.
 const imageCreateProcedure = imageProcedure
+  .use(async ({ ctx, next }) => {
+    await assertImageGenerationEnabled(ctx.userId);
+    return next();
+  })
   .use(withScopedPermission('file:upload'))
   .use(checkFileStorageUsage);
 
