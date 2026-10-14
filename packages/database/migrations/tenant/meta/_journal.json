@@ -5,36 +5,15 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1791610450689,
+      "when": 1791947959569,
       "tag": "0000_tenant_sso_providers",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "7",
-      "when": 1791613050789,
-      "tag": "0001_sso_config_jsonb_cast",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1791613051111,
-      "tag": "0002_sso_config_jsonb",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1791794097576,
-      "tag": "0003_tenant_bridge_config",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1791905490416,
-      "tag": "0004_oidc_pre_auth_artifacts",
+      "when": 1791947960048,
+      "tag": "0001_oidc_pre_auth_artifacts",
       "breakpoints": true
     }
   ]

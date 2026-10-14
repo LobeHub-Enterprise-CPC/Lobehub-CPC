@@ -12,19 +12,14 @@ CREATE TABLE "tenant_runtime_claim" (
 	CONSTRAINT "tenant_runtime_claim_count_nonnegative" CHECK ("tenant_runtime_claim"."open_count" >= 0)
 );
 --> statement-breakpoint
-CREATE TABLE "tenant_runtime_cutover" (
-	"id" text PRIMARY KEY NOT NULL,
-	"enforced_at" timestamp with time zone,
-	"evidence" text,
-	"build_ref" text,
-	CONSTRAINT "tenant_runtime_cutover_singleton" CHECK ("tenant_runtime_cutover"."id" = 'strict-stop')
-);
---> statement-breakpoint
 CREATE TABLE "tenant_runtime_external_work" (
 	"work_id" text PRIMARY KEY NOT NULL,
 	"tenant_id" text NOT NULL,
 	"kind" text NOT NULL,
 	"handle" text,
+	"context" jsonb,
+	"completed_at" timestamp with time zone,
+	"receipt" jsonb,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint

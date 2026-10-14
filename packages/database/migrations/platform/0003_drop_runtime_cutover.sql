@@ -1,1 +1,0 @@
-DROP TABLE "tenant_runtime_cutover" CASCADE;

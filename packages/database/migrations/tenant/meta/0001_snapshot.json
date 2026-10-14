@@ -1,6 +1,6 @@
 {
-  "id": "c3e0a5f2-a646-4264-9c44-529c6289fbfc",
-  "prevId": "ba94e093-edb8-4281-8515-6a8a5d806b58",
+  "id": "efec96d0-f996-427a-adc3-cc5c59b227fc",
+  "prevId": "72628a59-aa4a-49a2-bdee-fa6b278b69de",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -14,6 +14,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'allowlist'"
+        },
+        "bridge_config": {
+          "name": "bridge_config",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -61,13 +67,13 @@
         },
         "oauth2_config": {
           "name": "oauth2_config",
-          "type": "text",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
         "oidc_config": {
           "name": "oidc_config",
-          "type": "text",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -92,7 +98,7 @@
         },
         "saml_config": {
           "name": "saml_config",
-          "type": "text",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -146,7 +152,20 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "sso_providers_oauth2_config_object": {
+          "name": "sso_providers_oauth2_config_object",
+          "value": "jsonb_typeof(\"sso_providers\".\"oauth2_config\") = 'object'"
+        },
+        "sso_providers_oidc_config_object": {
+          "name": "sso_providers_oidc_config_object",
+          "value": "jsonb_typeof(\"sso_providers\".\"oidc_config\") = 'object'"
+        },
+        "sso_providers_saml_config_object": {
+          "name": "sso_providers_saml_config_object",
+          "value": "jsonb_typeof(\"sso_providers\".\"saml_config\") = 'object'"
+        }
+      },
       "isRLSEnabled": false
     }
   },

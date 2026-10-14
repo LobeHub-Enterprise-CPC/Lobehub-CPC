@@ -1,41 +1,27 @@
 {
+  "version": "7",
   "dialect": "postgresql",
   "entries": [
     {
       "idx": 0,
       "version": "7",
-      "when": 1791515715280,
+      "when": 1791947944049,
       "tag": "0000_platform_baseline",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "7",
-      "when": 1791595162360,
+      "when": 1791947944570,
       "tag": "0001_tenant_runtime_claims",
       "breakpoints": true
     },
     {
       "idx": 2,
       "version": "7",
-      "when": 1791598592186,
-      "tag": "0002_external_work_receipts",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1791878030978,
-      "tag": "0003_drop_runtime_cutover",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1791885558359,
-      "tag": "0004_tenant_endpoints",
+      "when": 1791947945092,
+      "tag": "0002_tenant_endpoints",
       "breakpoints": true
     }
-  ],
-  "version": "7"
+  ]
 }

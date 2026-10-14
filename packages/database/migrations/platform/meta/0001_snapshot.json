@@ -1,9 +1,271 @@
 {
-  "id": "1859f379-f61b-434a-acb0-40e6179e971b",
-  "prevId": "24d50dcc-1199-4c37-be81-dfc7a2ed7b70",
+  "id": "c0ae1119-ff16-4460-b872-c6ca39f3dd92",
+  "prevId": "977fa8f0-0853-4b28-8ce7-cc140b54e0c3",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "public.tenant_runtime_claim": {
+      "name": "tenant_runtime_claim",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "process_id": {
+          "name": "process_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "claim_token": {
+          "name": "claim_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "claimed_version": {
+          "name": "claimed_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "claimed_at": {
+          "name": "claimed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "stop_version": {
+          "name": "stop_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stop_error": {
+          "name": "stop_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stop_error_at": {
+          "name": "stop_error_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "open_count": {
+          "name": "open_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "tenant_runtime_claim_process_id_tenant_runtime_process_process_id_fk": {
+          "name": "tenant_runtime_claim_process_id_tenant_runtime_process_process_id_fk",
+          "tableFrom": "tenant_runtime_claim",
+          "tableTo": "tenant_runtime_process",
+          "columnsFrom": [
+            "process_id"
+          ],
+          "columnsTo": [
+            "process_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "tenant_runtime_claim_tenant_id_process_id_pk": {
+          "name": "tenant_runtime_claim_tenant_id_process_id_pk",
+          "columns": [
+            "tenant_id",
+            "process_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "tenant_runtime_claim_count_nonnegative": {
+          "name": "tenant_runtime_claim_count_nonnegative",
+          "value": "\"tenant_runtime_claim\".\"open_count\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.tenant_runtime_external_work": {
+      "name": "tenant_runtime_external_work",
+      "schema": "",
+      "columns": {
+        "work_id": {
+          "name": "work_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "handle": {
+          "name": "handle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "context": {
+          "name": "context",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "receipt": {
+          "name": "receipt",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "tenant_runtime_external_work_tenant_idx": {
+          "name": "tenant_runtime_external_work_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.tenant_runtime_process": {
+      "name": "tenant_runtime_process",
+      "schema": "",
+      "columns": {
+        "process_id": {
+          "name": "process_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "host": {
+          "name": "host",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "host_id": {
+          "name": "host_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "boot_id": {
+          "name": "boot_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pid_ns": {
+          "name": "pid_ns",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pid_start_ticks": {
+          "name": "pid_start_ticks",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pid": {
+          "name": "pid",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "heartbeat_at": {
+          "name": "heartbeat_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'running'"
+        },
+        "retired_at": {
+          "name": "retired_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "retired_evidence": {
+          "name": "retired_evidence",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.tenant_directory": {
       "name": "tenant_directory",
       "schema": "",
@@ -522,292 +784,6 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.tenant_runtime_claim": {
-      "name": "tenant_runtime_claim",
-      "schema": "",
-      "columns": {
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "process_id": {
-          "name": "process_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "claim_token": {
-          "name": "claim_token",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "claimed_version": {
-          "name": "claimed_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "claimed_at": {
-          "name": "claimed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "stop_version": {
-          "name": "stop_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "stop_error": {
-          "name": "stop_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "stop_error_at": {
-          "name": "stop_error_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "open_count": {
-          "name": "open_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "tenant_runtime_claim_process_id_tenant_runtime_process_process_id_fk": {
-          "name": "tenant_runtime_claim_process_id_tenant_runtime_process_process_id_fk",
-          "tableFrom": "tenant_runtime_claim",
-          "tableTo": "tenant_runtime_process",
-          "columnsFrom": [
-            "process_id"
-          ],
-          "columnsTo": [
-            "process_id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "tenant_runtime_claim_tenant_id_process_id_pk": {
-          "name": "tenant_runtime_claim_tenant_id_process_id_pk",
-          "columns": [
-            "tenant_id",
-            "process_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "tenant_runtime_claim_count_nonnegative": {
-          "name": "tenant_runtime_claim_count_nonnegative",
-          "value": "\"tenant_runtime_claim\".\"open_count\" >= 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.tenant_runtime_cutover": {
-      "name": "tenant_runtime_cutover",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "enforced_at": {
-          "name": "enforced_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "evidence": {
-          "name": "evidence",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "build_ref": {
-          "name": "build_ref",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "tenant_runtime_cutover_singleton": {
-          "name": "tenant_runtime_cutover_singleton",
-          "value": "\"tenant_runtime_cutover\".\"id\" = 'strict-stop'"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.tenant_runtime_external_work": {
-      "name": "tenant_runtime_external_work",
-      "schema": "",
-      "columns": {
-        "work_id": {
-          "name": "work_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "handle": {
-          "name": "handle",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "tenant_runtime_external_work_tenant_idx": {
-          "name": "tenant_runtime_external_work_tenant_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.tenant_runtime_process": {
-      "name": "tenant_runtime_process",
-      "schema": "",
-      "columns": {
-        "process_id": {
-          "name": "process_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "host": {
-          "name": "host",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "host_id": {
-          "name": "host_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "boot_id": {
-          "name": "boot_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "pid_ns": {
-          "name": "pid_ns",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "pid_start_ticks": {
-          "name": "pid_start_ticks",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "pid": {
-          "name": "pid",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "started_at": {
-          "name": "started_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "heartbeat_at": {
-          "name": "heartbeat_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'running'"
-        },
-        "retired_at": {
-          "name": "retired_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "retired_evidence": {
-          "name": "retired_evidence",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},

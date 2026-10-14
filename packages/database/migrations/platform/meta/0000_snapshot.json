@@ -1,17 +1,8 @@
 {
-  "_meta": {
-    "columns": {},
-    "schemas": {},
-    "tables": {}
-  },
-  "dialect": "postgresql",
-  "enums": {},
-  "id": "24d50dcc-1199-4c37-be81-dfc7a2ed7b70",
-  "policies": {},
+  "id": "977fa8f0-0853-4b28-8ce7-cc140b54e0c3",
   "prevId": "00000000-0000-0000-0000-000000000000",
-  "roles": {},
-  "schemas": {},
-  "sequences": {},
+  "version": "7",
+  "dialect": "postgresql",
   "tables": {
     "public.tenant_directory": {
       "name": "tenant_directory",
@@ -539,6 +530,15 @@
       "isRLSEnabled": false
     }
   },
-  "version": "7",
-  "views": {}
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
 }
