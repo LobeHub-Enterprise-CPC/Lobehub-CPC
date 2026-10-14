@@ -22,6 +22,13 @@
       "when": 1791947945092,
       "tag": "0002_tenant_endpoints",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791991743408,
+      "tag": "0003_readiness_diagnostics",
+      "breakpoints": true
     }
   ]
 }

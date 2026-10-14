@@ -43,6 +43,13 @@ export type {
 } from './pool';
 export { fingerprintConnection, TenantPoolManager } from './pool';
 export { verifyTenantRuntime } from './readiness';
+export type { SafeReadinessDiagnosticCode } from './readinessErrors';
+export {
+  isSafeReadinessDiagnosticCode,
+  readinessDiagnosticOf,
+  SAFE_READINESS_DIAGNOSTIC_CODES,
+  TenantReadinessError,
+} from './readinessErrors';
 export type { TenantScope } from './requestScope';
 export {
   currentTenantScope,

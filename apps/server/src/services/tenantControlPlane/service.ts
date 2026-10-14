@@ -1,6 +1,13 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import {
+  isSafeReadinessDiagnosticCode,
+  readinessDiagnosticOf,
+  type SafeReadinessDiagnosticCode,
+  TenantReadinessError,
+} from '@lobechat/database/tenant';
+
+import {
   ControlPlaneError,
   type DatasourceBundle,
   type DatasourceReadinessRequest,
@@ -150,6 +157,7 @@ export interface TenantControlPlaneServiceOptions {
 const toProvisionResult = (op: ProvisionOperationRecord): ProvisionResult => ({
   credentialBundleVersion: op.credentialBundleVersion,
   datasourceReady: op.datasourceReady,
+  diagnosticCode: isSafeReadinessDiagnosticCode(op.diagnosticCode) ? op.diagnosticCode : null,
   errorCode: op.errorCode,
   operationId: op.operationId,
   schemaName: op.schemaName,
@@ -214,6 +222,16 @@ export class TenantControlPlaneService {
             const code = this.validate(request);
             if (code) {
               existing.errorCode = code;
+              existing.diagnosticCode =
+                code === 'DATASOURCE_INVALID' ? 'DATASOURCE_BINDING_INVALID' : null;
+              if (code === 'DATASOURCE_INVALID')
+                this.logReadinessFailure(
+                  request.tenantId,
+                  request.operationId,
+                  'validate',
+                  code,
+                  new TenantReadinessError('DATASOURCE_BINDING_INVALID'),
+                );
               await tx.putOperation(existing);
               return toProvisionResult(existing);
             }
@@ -221,6 +239,7 @@ export class TenantControlPlaneService {
           }
           existing.status = 'received';
           existing.errorCode = null;
+          existing.diagnosticCode = null;
           await tx.putOperation(existing);
           // Same digest, so same bundle versions; keep the latest secrets.
           await tx.putOperationBundle(existing.operationId, request.datasource);
@@ -240,6 +259,7 @@ export class TenantControlPlaneService {
         attempts: 0,
         credentialBundleVersion: null,
         datasourceReady: false,
+        diagnosticCode: code === 'DATASOURCE_INVALID' ? 'DATASOURCE_BINDING_INVALID' : null,
         errorCode: code,
         inputHash,
         name: request.name,
@@ -251,6 +271,14 @@ export class TenantControlPlaneService {
         step: code ? 'validate' : 'ownership',
         tenantId: request.tenantId,
       };
+      if (code === 'DATASOURCE_INVALID')
+        this.logReadinessFailure(
+          request.tenantId,
+          request.operationId,
+          'validate',
+          code,
+          new TenantReadinessError('DATASOURCE_BINDING_INVALID'),
+        );
       await tx.putOperation(record);
       // An invalid bundle is not kept: nothing will ever run with it.
       if (!code) await tx.putOperationBundle(record.operationId, request.datasource);
@@ -289,6 +317,7 @@ export class TenantControlPlaneService {
         return { op, run: false as const };
       }
       op.status = 'applying';
+      op.diagnosticCode = null;
       op.attempts += 1;
       op.leaseToken = randomUUID();
       op.leaseUntil = this.leaseUntil();
@@ -313,12 +342,19 @@ export class TenantControlPlaneService {
     for (const [index, step] of remaining.entries()) {
       try {
         await this.runProvisionStep(step, ctx, token);
-      } catch {
+      } catch (error) {
+        const diagnosticCode = this.logReadinessFailure(
+          tenantId,
+          operationId,
+          step,
+          STEP_ERROR[step],
+          error,
+        );
         return this.repository.transaction(tenantId, async (tx) => {
           const current = (await tx.getOperation(operationId))!;
           if (!owns(current)) return toProvisionResult(current);
           current.step = step;
-          await this.finishOperation(tx, current, STEP_ERROR[step]);
+          await this.finishOperation(tx, current, STEP_ERROR[step], diagnosticCode);
           return toProvisionResult(current);
         });
       }
@@ -342,6 +378,7 @@ export class TenantControlPlaneService {
       Object.assign(current, {
         credentialBundleVersion: bundle.credentialBundleVersion,
         datasourceReady: true,
+        diagnosticCode: null,
         errorCode: null,
         schemaName: bundle.schemaName,
         schemaVersion: bundle.schemaVersion,
@@ -414,12 +451,35 @@ export class TenantControlPlaneService {
     tx: ControlPlaneTx,
     op: ProvisionOperationRecord,
     errorCode: SafeErrorCode,
+    diagnosticCode: SafeReadinessDiagnosticCode | null = null,
   ) {
+    op.diagnosticCode = diagnosticCode;
     op.status = 'failed';
     op.errorCode = errorCode;
     op.leaseToken = null;
     op.leaseUntil = null;
     await tx.putOperation(op);
+  }
+
+  private logReadinessFailure(
+    tenantId: string,
+    operationId: string | null,
+    step: string,
+    errorCode: SafeErrorCode,
+    error: unknown,
+  ) {
+    const diagnosticCode = readinessDiagnosticOf(error);
+    console.warn(
+      JSON.stringify({
+        event: 'tenant_readiness_failed',
+        tenantId,
+        operationId,
+        step,
+        errorCode,
+        diagnosticCode,
+      }),
+    );
+    return diagnosticCode;
   }
 
   /** Current database evidence, independent of Console/Admin operation identifiers. */
@@ -434,12 +494,14 @@ export class TenantControlPlaneService {
         provisioned: (await tx.listOperations(tenantId)).some((op) => op.status === 'applied'),
       }));
     let errorCode: SafeErrorCode | null = null;
+    let diagnosticCode: SafeReadinessDiagnosticCode | null = null;
     try {
       const { directory, provisioned } = await load();
       if (!directory || !provisioned) errorCode = 'TENANT_NOT_READY';
-      else if (bindingHash !== hashInput(redactDatasourceBundle(directory.bundle)))
+      else if (bindingHash !== hashInput(redactDatasourceBundle(directory.bundle))) {
         errorCode = 'DATASOURCE_INVALID';
-      else {
+        diagnosticCode = 'DATASOURCE_BINDING_INVALID';
+      } else {
         await this.options.database.verify({ tenantId, bundle: directory.bundle });
         // Rotation during verification invalidates the result for the previous connection.
         const current = await load();
@@ -447,17 +509,29 @@ export class TenantControlPlaneService {
           !current.provisioned ||
           !current.directory ||
           bindingHash !== hashInput(redactDatasourceBundle(current.directory.bundle))
-        )
+        ) {
           errorCode = 'DATASOURCE_INVALID';
+          diagnosticCode = 'DATASOURCE_BINDING_INVALID';
+        }
       }
-    } catch {
+    } catch (error) {
       errorCode = 'DATASOURCE_INVALID';
+      diagnosticCode = this.logReadinessFailure(tenantId, null, 'readiness', errorCode, error);
     }
+    if (errorCode === 'DATASOURCE_INVALID' && diagnosticCode === 'DATASOURCE_BINDING_INVALID')
+      this.logReadinessFailure(
+        tenantId,
+        null,
+        'readiness',
+        errorCode,
+        new TenantReadinessError(diagnosticCode),
+      );
     return {
       checkedAt: this.now().toISOString(),
       connectionVersion: datasource.connectionVersion,
       credentialBundleVersion: datasource.credentialBundleVersion,
       datasourceReady: errorCode === null,
+      diagnosticCode,
       errorCode,
       schemaName: datasource.schemaName,
       schemaVersion: datasource.schemaVersion,
@@ -477,10 +551,12 @@ export class TenantControlPlaneService {
     const result = (
       status: DatasourceResult['status'],
       errorCode: SafeErrorCode | null,
+      diagnosticCode: SafeReadinessDiagnosticCode | null = null,
     ): DatasourceResult => ({
       connectionVersion: datasource.connectionVersion,
       credentialBundleVersion: datasource.credentialBundleVersion,
       datasourceKind: 'lobehub',
+      diagnosticCode,
       errorCode,
       operationId,
       status,
@@ -508,13 +584,26 @@ export class TenantControlPlaneService {
       if (validateDatasourceBundle(tenantId, datasource)) return 'invalid' as const;
       return compare(tx);
     });
-    if (first === 'invalid') return result('failed', 'DATASOURCE_INVALID');
+    if (first === 'invalid') {
+      const diagnostic = this.logReadinessFailure(
+        tenantId,
+        operationId,
+        'datasource',
+        'DATASOURCE_INVALID',
+        new TenantReadinessError('DATASOURCE_BINDING_INVALID'),
+      );
+      return result('failed', 'DATASOURCE_INVALID', diagnostic);
+    }
     if (first === 'same') return result('applied', null);
 
     try {
       await this.options.database.verify({ bundle: datasource, tenantId });
-    } catch {
-      return result('failed', 'DATASOURCE_INVALID');
+    } catch (error) {
+      return result(
+        'failed',
+        'DATASOURCE_INVALID',
+        this.logReadinessFailure(tenantId, operationId, 'datasource', 'DATASOURCE_INVALID', error),
+      );
     }
 
     return this.repository.transaction(tenantId, async (tx) => {

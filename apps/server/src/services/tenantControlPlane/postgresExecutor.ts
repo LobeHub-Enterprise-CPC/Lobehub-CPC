@@ -6,6 +6,7 @@ import {
   TENANT_MIGRATIONS_TABLE,
   tenantDbNames,
   type TenantMigrator,
+  TenantReadinessError,
   verifyTenantRuntime,
 } from '@lobechat/database/tenant';
 import { Client, type ClientConfig } from 'pg';
@@ -59,7 +60,14 @@ const withClient = async <T>(
   const client = new Client(bundleClientConfig(bundle, role));
   // A dropped connection must reject the step, not crash the process.
   client.on('error', () => undefined);
-  await client.connect();
+  try {
+    await client.connect();
+  } catch {
+    await client.end().catch(() => undefined);
+    throw new TenantReadinessError(
+      role === 'owner' ? 'OWNER_CONNECTION_FAILED' : 'RUNTIME_CONNECTION_FAILED',
+    );
+  }
   try {
     return await fn(client);
   } finally {
@@ -87,7 +95,8 @@ export class PostgresTenantDatabaseExecutor implements TenantDatabaseExecutor {
   }
 
   async checkOwnership(ctx: ProvisionStepContext): Promise<void> {
-    if (validateDatasourceBundle(ctx.tenantId, ctx.bundle)) throw new Error('DATASOURCE_INVALID');
+    if (validateDatasourceBundle(ctx.tenantId, ctx.bundle))
+      throw new TenantReadinessError('DATASOURCE_BINDING_INVALID');
     const { schemaName, ownerUsername } = tenantDbNames(ctx.tenantId);
     await withClient(ctx.bundle, 'owner', async (client) => {
       const role = await client.query<{
@@ -101,15 +110,16 @@ export class PostgresTenantDatabaseExecutor implements TenantDatabaseExecutor {
            FROM pg_roles WHERE rolname = current_user`,
       );
       const attrs = role.rows[0];
-      if (!attrs || attrs.user !== ownerUsername) throw new Error('OWNER_MISMATCH');
+      if (!attrs || attrs.user !== ownerUsername) throw new TenantReadinessError('OWNER_MISMATCH');
       if (attrs.rolsuper || attrs.rolcreaterole || attrs.rolcreatedb || attrs.rolbypassrls)
-        throw new Error('OWNER_PRIVILEGED');
+        throw new TenantReadinessError('OWNER_PRIVILEGED');
 
       const schema = await client.query<{ owner: string }>(
         `SELECT pg_get_userbyid(nspowner) AS owner FROM pg_namespace WHERE nspname = $1`,
         [schemaName],
       );
-      if (schema.rows[0]?.owner !== ownerUsername) throw new Error('SCHEMA_NOT_OWNED');
+      if (schema.rows[0]?.owner !== ownerUsername)
+        throw new TenantReadinessError('SCHEMA_NOT_OWNED');
 
       const relations = await client.query<{ relname: string }>(
         `SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -217,7 +227,8 @@ export class PostgresTenantDatabaseExecutor implements TenantDatabaseExecutor {
 
   /** Verifies the bundle, actual role/schema permissions and every migration chain. */
   async verify({ bundle, tenantId }: { bundle: DatasourceBundle; tenantId: string }) {
-    if (validateDatasourceBundle(tenantId, bundle)) throw new Error('DATASOURCE_INVALID');
+    if (validateDatasourceBundle(tenantId, bundle))
+      throw new TenantReadinessError('DATASOURCE_BINDING_INVALID');
     await withClient(bundle, 'runtime', (client) =>
       verifyTenantRuntime(client, { schemaName: bundle.schemaName, tenantId }, this.migrators()),
     );

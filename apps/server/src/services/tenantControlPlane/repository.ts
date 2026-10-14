@@ -1,3 +1,5 @@
+import type { SafeReadinessDiagnosticCode } from '@lobechat/database/tenant';
+
 import type {
   DatasourceBundle,
   FreezeReason,
@@ -34,6 +36,7 @@ export interface ProvisionOperationRecord {
   attempts: number;
   credentialBundleVersion: number | null;
   datasourceReady: boolean;
+  diagnosticCode?: SafeReadinessDiagnosticCode | null;
   errorCode: SafeErrorCode | null;
   inputHash: string;
   /** Only this attempt may persist progress until the renewable step lease expires. */

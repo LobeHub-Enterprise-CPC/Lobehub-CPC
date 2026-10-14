@@ -251,6 +251,7 @@ describe('control-plane router', () => {
         connectionVersion: 1,
         credentialBundleVersion: 2,
         datasourceKind: 'lobehub' as const,
+        diagnosticCode: null,
         errorCode: null,
         operationId: 'rot-1',
         status: 'applied',

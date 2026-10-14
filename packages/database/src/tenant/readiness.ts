@@ -2,6 +2,7 @@ import type { ClientBase } from 'pg';
 
 import { getTenantMigrators, type TenantMigrationContext, type TenantMigrator } from './migrator';
 import { TENANT_EXTENSION_OWNED_SCHEMAS, TENANT_EXTENSION_SCHEMAS, tenantDbNames } from './names';
+import { TenantReadinessError } from './readinessErrors';
 
 /** Shared by provisioning, request admission and background reconciliation. Read-only. */
 export const verifyTenantRuntime = async (
@@ -10,7 +11,7 @@ export const verifyTenantRuntime = async (
   migrators: readonly TenantMigrator[] = getTenantMigrators(),
 ): Promise<void> => {
   const names = tenantDbNames(tenantId);
-  if (schemaName !== names.schemaName) throw new Error('TENANT_DIRECTORY_MISMATCH');
+  if (schemaName !== names.schemaName) throw new TenantReadinessError('TENANT_DIRECTORY_MISMATCH');
   const { runtimeUsername, ownerUsername } = names;
   await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
   try {
@@ -37,18 +38,18 @@ export const verifyTenantRuntime = async (
       me.rolbypassrls ||
       me.member_of_owner
     )
-      throw new Error('RUNTIME_ROLE_INVALID');
+      throw new TenantReadinessError('RUNTIME_ROLE_INVALID');
 
     const ownerRole = await client.query(
       `SELECT 1 FROM pg_roles WHERE rolname = $1
           AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls)`,
       [ownerUsername],
     );
-    if (ownerRole.rowCount !== 1) throw new Error('OWNER_PRIVILEGED');
+    if (ownerRole.rowCount !== 1) throw new TenantReadinessError('OWNER_PRIVILEGED');
     const databaseCreate = await client.query<{ can: boolean }>(
       `SELECT has_database_privilege(current_user, current_database(), 'CREATE') AS can`,
     );
-    if (databaseCreate.rows[0]?.can) throw new Error('RUNTIME_CAN_CREATE_SCHEMA');
+    if (databaseCreate.rows[0]?.can) throw new TenantReadinessError('RUNTIME_CAN_CREATE_SCHEMA');
     const owned = await client.query<{ owner: string; usage: boolean }>(
       `SELECT pg_get_userbyid(nspowner) AS owner,
                 has_schema_privilege(current_user, oid, 'USAGE') AS usage
@@ -56,7 +57,7 @@ export const verifyTenantRuntime = async (
       [schemaName],
     );
     if (owned.rows[0]?.owner !== ownerUsername || !owned.rows[0]?.usage)
-      throw new Error('SCHEMA_NOT_OWNED');
+      throw new TenantReadinessError('SCHEMA_NOT_OWNED');
 
     for (const migrator of migrators) await migrator.verify(client, { schemaName, tenantId });
 
@@ -75,22 +76,35 @@ export const verifyTenantRuntime = async (
         ],
       ],
     );
-    if (foreign.rowCount) throw new Error('CROSS_SCHEMA_USAGE');
+    if (foreign.rowCount) throw new TenantReadinessError('CROSS_SCHEMA_USAGE');
 
     const create = await client.query<{ can: boolean }>(
       `SELECT has_schema_privilege(current_user, $1, 'CREATE') AS can`,
       [schemaName],
     );
-    if (create.rows[0]?.can) throw new Error('RUNTIME_CAN_CREATE');
+    if (create.rows[0]?.can) throw new TenantReadinessError('RUNTIME_CAN_CREATE');
 
     // By OID: resolving `public.x` by name would itself need USAGE on public.
     const publicTables = await client.query(
       `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-          WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm')
-            AND has_table_privilege(current_user, c.oid, 'SELECT, INSERT, UPDATE, DELETE')
+          WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+            AND has_table_privilege(current_user, c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
           LIMIT 1`,
     );
-    if (publicTables.rowCount) throw new Error('PUBLIC_TABLE_ACCESS');
+    if (publicTables.rowCount) throw new TenantReadinessError('PUBLIC_TABLE_ACCESS');
+
+    const publicSequences = await client.query(
+      `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public' AND c.relkind = 'S'
+            AND has_sequence_privilege(current_user, c.oid, 'USAGE, SELECT, UPDATE') LIMIT 1`,
+    );
+    if (publicSequences.rowCount) throw new TenantReadinessError('PUBLIC_SEQUENCE_ACCESS');
+    const sharedCreate = await client.query(
+      `SELECT 1 FROM pg_namespace WHERE nspname = ANY($1::text[])
+          AND has_schema_privilege(current_user, oid, 'CREATE') LIMIT 1`,
+      [[...TENANT_EXTENSION_SCHEMAS, ...TENANT_EXTENSION_OWNED_SCHEMAS]],
+    );
+    if (sharedCreate.rowCount) throw new TenantReadinessError('RUNTIME_CAN_CREATE');
 
     const readOnly = migrators.flatMap((migrator) => migrator.journalTables);
     const missingDml = await client.query(
@@ -104,7 +118,7 @@ export const verifyTenantRuntime = async (
           LIMIT 1`,
       [schemaName, readOnly],
     );
-    if (missingDml.rowCount) throw new Error('RUNTIME_DML_MISSING');
+    if (missingDml.rowCount) throw new TenantReadinessError('RUNTIME_DML_MISSING');
 
     const journalSequences: string[] = [];
     for (const table of readOnly) {
@@ -121,13 +135,14 @@ export const verifyTenantRuntime = async (
         access.rows[0].can_write ||
         access.rows[0].owner !== ownerUsername
       )
-        throw new Error('MIGRATION_JOURNAL_ACCESS_INVALID');
+        throw new TenantReadinessError('MIGRATION_JOURNAL_ACCESS_INVALID');
       const serial = await client.query<{ sequence: string | null; can_write: boolean | null }>(
         `SELECT sequence, has_sequence_privilege(current_user, sequence, 'USAGE, UPDATE') AS can_write
              FROM (SELECT pg_get_serial_sequence(format('%I.%I', $1::text, $2::text), 'id') AS sequence) s`,
         [schemaName, table],
       );
-      if (serial.rows[0]?.can_write) throw new Error('MIGRATION_JOURNAL_ACCESS_INVALID');
+      if (serial.rows[0]?.can_write)
+        throw new TenantReadinessError('MIGRATION_JOURNAL_ACCESS_INVALID');
       if (serial.rows[0]?.sequence) journalSequences.push(serial.rows[0].sequence);
     }
     const ownedObjects = await client.query(
@@ -136,7 +151,7 @@ export const verifyTenantRuntime = async (
             AND pg_get_userbyid(c.relowner) <> $2 LIMIT 1`,
       [schemaName, ownerUsername],
     );
-    if (ownedObjects.rowCount) throw new Error('SCHEMA_OBJECT_NOT_OWNED');
+    if (ownedObjects.rowCount) throw new TenantReadinessError('SCHEMA_OBJECT_NOT_OWNED');
     const sequenceAccess = await client.query(
       `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
           WHERE n.nspname = $1 AND c.relkind = 'S'
@@ -146,7 +161,7 @@ export const verifyTenantRuntime = async (
                      AND has_sequence_privilege(current_user, c.oid, 'UPDATE')) LIMIT 1`,
       [schemaName, journalSequences],
     );
-    if (sequenceAccess.rowCount) throw new Error('RUNTIME_SEQUENCE_ACCESS_MISSING');
+    if (sequenceAccess.rowCount) throw new TenantReadinessError('RUNTIME_SEQUENCE_ACCESS_MISSING');
 
     await client.query('COMMIT');
   } catch (error) {

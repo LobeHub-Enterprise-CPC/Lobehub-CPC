@@ -1,3 +1,4 @@
+import type { SafeReadinessDiagnosticCode } from '@lobechat/database/tenant';
 import { z } from 'zod';
 
 /**
@@ -138,6 +139,7 @@ export interface DatasourceReadinessResult {
   connectionVersion: number;
   credentialBundleVersion: number;
   datasourceReady: boolean;
+  diagnosticCode?: SafeReadinessDiagnosticCode | null;
   errorCode: SafeErrorCode | null;
   schemaName: string;
   schemaVersion: number;
@@ -165,6 +167,7 @@ export type ProvisionStatus = 'received' | 'applying' | 'applied' | 'failed';
 export interface ProvisionResult {
   credentialBundleVersion: number | null;
   datasourceReady: boolean;
+  diagnosticCode?: SafeReadinessDiagnosticCode | null;
   errorCode: SafeErrorCode | null;
   operationId: string;
   schemaName: string | null;
@@ -183,6 +186,7 @@ export interface DatasourceResult {
   connectionVersion: number;
   credentialBundleVersion: number;
   datasourceKind: 'lobehub';
+  diagnosticCode?: SafeReadinessDiagnosticCode | null;
   errorCode: SafeErrorCode | null;
   operationId: string;
   status: 'applied' | 'failed';

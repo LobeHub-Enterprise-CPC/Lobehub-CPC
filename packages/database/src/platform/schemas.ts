@@ -114,6 +114,7 @@ export const tenantProvisionOperation = pgTable(
     createdAt: timestamptz('created_at').notNull().defaultNow(),
     credentialBundleVersion: integer('credential_bundle_version'),
     datasourceReady: boolean('datasource_ready').notNull().default(false),
+    diagnosticCode: text('diagnostic_code'),
     errorCode: text('error_code'),
     inputHash: text('input_hash').notNull(),
     leaseToken: text('lease_token'),

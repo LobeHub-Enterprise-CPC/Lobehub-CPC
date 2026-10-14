@@ -7,6 +7,7 @@ import {
   tenantRuntimeClaim,
   tenantRuntimeExternalWork,
 } from '@lobechat/database/platform';
+import { isSafeReadinessDiagnosticCode } from '@lobechat/database/tenant';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { openDirectoryData, sealDirectoryData } from '@/server/crypto/tenantKeys';
@@ -96,6 +97,7 @@ const toOperation = (row: OperationRow): ProvisionOperationRecord => ({
   attempts: row.attempts,
   credentialBundleVersion: row.credentialBundleVersion,
   datasourceReady: row.datasourceReady,
+  diagnosticCode: isSafeReadinessDiagnosticCode(row.diagnosticCode) ? row.diagnosticCode : null,
   errorCode: row.errorCode as SafeErrorCode | null,
   inputHash: row.inputHash,
   leaseToken: row.leaseToken,
@@ -349,6 +351,9 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
       attempts: record.attempts,
       credentialBundleVersion: record.credentialBundleVersion,
       datasourceReady: record.datasourceReady,
+      diagnosticCode: isSafeReadinessDiagnosticCode(record.diagnosticCode)
+        ? record.diagnosticCode
+        : null,
       errorCode: record.errorCode,
       inputHash: record.inputHash,
       leaseToken: record.leaseToken ?? null,

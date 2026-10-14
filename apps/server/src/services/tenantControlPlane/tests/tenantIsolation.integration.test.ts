@@ -29,7 +29,7 @@ import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Client, Pool } from 'pg';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { TenantClaims } from '@/server/modules/Tenant/claims';
 import { tenantGateErrorOf } from '@/server/modules/Tenant/errors';
@@ -351,6 +351,103 @@ suite('tenant isolation on PostgreSQL', () => {
       }),
     ).resolves.toBeUndefined();
   }, 60_000);
+
+  it('records the real template PUBLIC schema refusal and clears the current diagnostic after repair', async () => {
+    const tenant = TENANTS[0];
+    const operationId = `root-${tenant.slug}:lobehub`;
+    const repository = new PostgresControlPlaneRepository(platformDB);
+    const logged = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await admin.query('GRANT USAGE ON SCHEMA pgivm TO PUBLIC');
+    try {
+      await repository.transaction(tenant.id, async (tx) => {
+        const op = (await tx.getOperation(operationId))!;
+        await tx.putOperation({ ...op, status: 'received', step: 'verify' });
+        await tx.putOperationBundle(operationId, bundles.get(tenant.id)!);
+      });
+      const failed = await service.executeProvision(tenant.id, operationId);
+      expect(failed).toMatchObject({
+        errorCode: 'DATASOURCE_INVALID',
+        diagnosticCode: 'CROSS_SCHEMA_USAGE',
+        status: 'failed',
+      });
+      expect(await service.getProvision(tenant.id, operationId)).toMatchObject({
+        diagnosticCode: 'CROSS_SCHEMA_USAGE',
+      });
+      expect(JSON.stringify(logged.mock.calls)).toContain('CROSS_SCHEMA_USAGE');
+      process.stdout.write(
+        JSON.stringify({
+          evidence: 'safe_template_diagnostic',
+          result: {
+            diagnosticCode: failed.diagnosticCode,
+            errorCode: failed.errorCode,
+            status: failed.status,
+          },
+          serviceLog: JSON.parse(logged.mock.calls.at(-1)![0]),
+        }) + '\n',
+      );
+      expect(JSON.stringify([failed, logged.mock.calls])).not.toContain('-pw');
+    } finally {
+      await admin.query('REVOKE USAGE ON SCHEMA pgivm FROM PUBLIC');
+      logged.mockRestore();
+      await service.receiveProvision({
+        datasource: bundles.get(tenant.id)!,
+        name: tenant.slug,
+        operationId,
+        rootOperationId: `root-${tenant.slug}`,
+        slug: tenant.slug,
+        tenantId: tenant.id,
+      });
+      expect(await service.executeProvision(tenant.id, operationId)).toMatchObject({
+        status: 'applied',
+        diagnosticCode: null,
+      });
+    }
+  });
+
+  it.each(['sequence', 'foreign table', 'truncate-only table', 'shared extension schema'] as const)(
+    'refuses public %s access without public schema USAGE',
+    async (kind) => {
+      const tenant = TENANTS[0];
+      const { runtimeUsername } = tenantDbNames(tenant.id);
+      let cleanup: string;
+      if (kind === 'shared extension schema') {
+        await admin.query(`GRANT CREATE ON SCHEMA extensions TO "${runtimeUsername}"`);
+        cleanup = `REVOKE CREATE ON SCHEMA extensions FROM "${runtimeUsername}"`;
+      } else if (kind === 'sequence') {
+        await admin.query(
+          `CREATE SEQUENCE public.diagnostic_sequence; GRANT USAGE ON SEQUENCE public.diagnostic_sequence TO "${runtimeUsername}"`,
+        );
+        cleanup = 'DROP SEQUENCE public.diagnostic_sequence';
+      } else if (kind === 'foreign table') {
+        await admin.query(
+          `CREATE EXTENSION IF NOT EXISTS postgres_fdw; CREATE SERVER diagnostic_fdw FOREIGN DATA WRAPPER postgres_fdw OPTIONS(host '127.0.0.1', dbname 'unused'); CREATE FOREIGN TABLE public.diagnostic_foreign(id int) SERVER diagnostic_fdw; GRANT SELECT ON public.diagnostic_foreign TO "${runtimeUsername}"`,
+        );
+        cleanup = 'DROP FOREIGN TABLE public.diagnostic_foreign; DROP SERVER diagnostic_fdw';
+      } else {
+        await admin.query(
+          `CREATE TABLE public.diagnostic_table(id int); GRANT TRUNCATE ON public.diagnostic_table TO "${runtimeUsername}"`,
+        );
+        cleanup = 'DROP TABLE public.diagnostic_table';
+      }
+      try {
+        await expect(
+          executor.verify({ tenantId: tenant.id, bundle: bundles.get(tenant.id)! }),
+        ).rejects.toMatchObject({
+          diagnosticCode:
+            kind === 'shared extension schema'
+              ? 'RUNTIME_CAN_CREATE'
+              : kind === 'sequence'
+                ? 'PUBLIC_SEQUENCE_ACCESS'
+                : 'PUBLIC_TABLE_ACCESS',
+        });
+      } finally {
+        await admin.query(cleanup);
+      }
+      await expect(
+        executor.verify({ tenantId: tenant.id, bundle: bundles.get(tenant.id)! }),
+      ).resolves.toBeUndefined();
+    },
+  );
 
   it('keeps the same ids apart per tenant (AC-04-1)', async () => {
     for (const tenant of TENANTS) {
