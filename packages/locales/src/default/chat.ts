@@ -17,6 +17,8 @@ export default {
   'backgroundActivity.topic': 'Conversation',
   'backgroundActivity.unavailable':
     'Resource data is unavailable. Displayed values may be out of date.',
+  'backgroundActivity.unavailableSlow':
+    'This device is responding too slowly, so process sampling timed out. Displayed values may be out of date; try again shortly.',
   'processExplorer.copyPid': 'Copy PID',
   'processExplorer.filter': 'Filter',
   'processExplorer.live': 'Live · updates every 2 s',

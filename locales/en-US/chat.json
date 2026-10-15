@@ -95,6 +95,7 @@
   "backgroundActivity.title": "Background activity",
   "backgroundActivity.topic": "Conversation",
   "backgroundActivity.unavailable": "Resource data is unavailable. Displayed values may be out of date.",
+  "backgroundActivity.unavailableSlow": "This device is responding too slowly, so process sampling timed out. Displayed values may be out of date; try again shortly.",
   "beforeUnload.confirmLeave": "A request is still running. Leave anyway?",
   "builtinCopilot": "Built-in Copilot",
   "chatList.earlierHistoryError": "Couldn't load earlier messages",
