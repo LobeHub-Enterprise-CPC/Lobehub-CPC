@@ -1,3 +1,4 @@
+import { currentTenantScope } from '@lobechat/database/tenant';
 import type { ChannelJobBlockCode, ChannelMemberConfig } from '@lobechat/types';
 import { CHANNEL_LIMITS } from '@lobechat/types';
 import debug from 'debug';
@@ -379,10 +380,23 @@ export class ChannelWorker {
   ) {
     const artifactRunIds = await resolveChannelArtifactRunIds(this.db, ownerId, run);
     const abort = new AbortController();
+    // The run outlives the tick (and its tenant scope). Registering it keeps the tenant's
+    // claim, so its later transactions are admitted, and lets a freeze or removal of the
+    // tenant abort it; the registration ends only once the run has fully settled.
+    let settle = () => {};
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    const untrack = currentTenantScope()?.trackWork?.({
+      close: () => abort.abort(),
+      settled,
+    });
     const done = this.native(model, ownerId, run, config, { agentId, artifactRunIds }, abort)
       .catch((error) => log('Native execution settlement deferred: run=%s error=%s', run.id, error))
       .finally(() => {
         this.active.delete(run.id);
+        settle();
+        untrack?.();
       });
     this.active.set(run.id, { abort, done });
   }

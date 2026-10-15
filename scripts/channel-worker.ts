@@ -14,8 +14,8 @@ async function main() {
     return 0;
   }
   // Disabled deployments must not initialize the database or agent runtime.
-  const [{ ChannelWorker }, { serverDB }] = await Promise.all([
-    import('../apps/server/src/services/channel/worker'),
+  const [{ ChannelTenantWorker }, { serverDB }] = await Promise.all([
+    import('../apps/server/src/services/channel/tenantWorker'),
     import('../packages/database/src/server'),
   ]);
   if (check) {
@@ -23,13 +23,14 @@ async function main() {
     return 0;
   }
 
-
   // A coordinator process never diagnoses another live coordinator's Native tools as orphaned.
   const ownership = new Client({
     connectionString: process.env.DATABASE_URL,
     connectionTimeoutMillis: 10_000,
   });
-  const worker = new ChannelWorker(serverDB);
+  // Channel data lives in tenant schemas: the coordinator enters every available tenant per tick.
+  // The ownership lock above stays on the platform database, one coordinator for all tenants.
+  const worker = new ChannelTenantWorker(serverDB);
   let stopping = false;
   let exitCode = 0;
   let lastSuccess = 0;
@@ -73,6 +74,8 @@ async function main() {
     console.info('[channel-worker] Coordinator started');
     while (!stopping) {
       try {
+        // A failing tenant is skipped and reported inside the tick; only an unreadable
+        // tenant directory throws, and zero tenants is a healthy idle loop.
         await worker.tick();
         lastSuccess = Date.now();
       } catch (error) {
