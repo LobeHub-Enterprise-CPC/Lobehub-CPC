@@ -84,7 +84,7 @@ const mcpProcedure = wsCompatProcedure
 export const mcpRouter = router({
   getStreamableMcpServerManifest: mcpProcedure
     .input(GetStreamableMcpServerManifestInputSchema)
-    .query(async ({ input }) => {
+    .mutation(async ({ input }) => {
       return await mcpService.getStreamableMcpServerManifest(
         input.identifier,
         input.url,
@@ -97,7 +97,7 @@ export const mcpRouter = router({
   // listTools now accepts MCPClientParams directly
   listTools: mcpProcedure
     .input(mcpClientParamsSchema) // Use the unified schema
-    .query(async ({ input }) => {
+    .mutation(async ({ input }) => {
       // Stdio check can be done here or rely on the service/client layer
       checkStdioEnvironment(input);
 
@@ -108,7 +108,7 @@ export const mcpRouter = router({
   // listResources now accepts MCPClientParams directly
   listResources: mcpProcedure
     .input(mcpClientParamsSchema) // Use the unified schema
-    .query(async ({ input }) => {
+    .mutation(async ({ input }) => {
       // Stdio check can be done here or rely on the service/client layer
       checkStdioEnvironment(input);
 
@@ -119,7 +119,7 @@ export const mcpRouter = router({
   // listPrompts now accepts MCPClientParams directly
   listPrompts: mcpProcedure
     .input(mcpClientParamsSchema) // Use the unified schema
-    .query(async ({ input }) => {
+    .mutation(async ({ input }) => {
       // Stdio check can be done here or rely on the service/client layer
       checkStdioEnvironment(input);
 

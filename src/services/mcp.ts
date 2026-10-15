@@ -245,7 +245,7 @@ class MCPService {
     }
 
     // Otherwise use toolsClient (via server relay)
-    return toolsClient.mcp.getStreamableMcpServerManifest.query(params, { signal });
+    return toolsClient.mcp.getStreamableMcpServerManifest.mutate(params, { signal });
   }
 
   async getStdioMcpServerManifest(

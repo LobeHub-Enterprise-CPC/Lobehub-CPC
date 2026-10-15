@@ -676,7 +676,7 @@ export const marketRouter = router({
         clientSecret: z.string(),
       }),
     )
-    .query(async ({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       log('registerM2MToken input: %O', { clientId: input.clientId, clientSecret: '[HIDDEN]' });
 
       try {

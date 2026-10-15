@@ -73,7 +73,7 @@ export const comfyuiRouter = router({
         options: z.custom<ComfyUIKeyVault>().optional(),
       }),
     )
-    .query(async ({ input }) => {
+    .mutation(async ({ input }) => {
       const clientService = new ComfyUIClientService(input.options || {});
       return clientService.getAuthHeaders();
     }),
@@ -87,7 +87,7 @@ export const comfyuiRouter = router({
         options: z.custom<ComfyUIKeyVault>().optional(),
       }),
     )
-    .query(async ({ input }) => {
+    .mutation(async ({ input }) => {
       const clientService = new ComfyUIClientService(input.options || {});
       const modelResolverService = new ModelResolverService(clientService);
 

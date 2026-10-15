@@ -565,7 +565,7 @@ export const agentBotProviderRouter = router({
 
   wechatPollQrStatus: authedProcedure
     .input(z.object({ qrcode: z.string() }))
-    .query(async ({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       await assertBotFeatureAccess({
         action: 'manage',
         platform: 'wechat',

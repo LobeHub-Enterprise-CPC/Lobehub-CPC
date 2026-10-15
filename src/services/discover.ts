@@ -473,7 +473,7 @@ class DiscoverService {
 
     // 5. Get access token (server will automatically set HTTP-Only cookie)
     try {
-      const result = await lambdaClient.market.registerM2MToken.query({
+      const result = await lambdaClient.market.registerM2MToken.mutate({
         clientId,
         clientSecret,
       });

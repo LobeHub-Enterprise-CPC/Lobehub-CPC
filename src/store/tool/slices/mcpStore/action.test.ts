@@ -34,7 +34,7 @@ vi.mock('@/libs/trpc/client', () => ({
           clientSecret: 'test-client-secret',
         }),
       },
-      registerM2MToken: { query: vi.fn().mockResolvedValue({ success: true }) },
+      registerM2MToken: { mutate: vi.fn().mockResolvedValue({ success: true }) },
       reportCall: { mutate: vi.fn().mockResolvedValue(undefined) },
       reportMcpEvent: { mutate: vi.fn().mockResolvedValue(undefined) },
       reportMcpInstallResult: { mutate: vi.fn().mockResolvedValue(undefined) },
@@ -46,7 +46,7 @@ vi.mock('@/libs/trpc/client', () => ({
     },
     mcp: {
       callTool: { mutate: vi.fn() },
-      getStreamableMcpServerManifest: { query: vi.fn() },
+      getStreamableMcpServerManifest: { mutate: vi.fn() },
     },
   },
 }));
