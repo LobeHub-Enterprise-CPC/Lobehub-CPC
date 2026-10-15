@@ -95,6 +95,7 @@
   "backgroundActivity.title": "后台活动",
   "backgroundActivity.topic": "会话",
   "backgroundActivity.unavailable": "暂时无法获取资源数据，已显示的数据可能已过期。",
+  "backgroundActivity.unavailableSlow": "设备响应过慢，进程采样超时。已显示的数据可能已过期，请稍候再试。",
   "beforeUnload.confirmLeave": "你有正在生成中的请求，确定要离开吗？",
   "builtinCopilot": "内置 Copilot",
   "chatList.earlierHistoryError": "未能加载更早的消息",
