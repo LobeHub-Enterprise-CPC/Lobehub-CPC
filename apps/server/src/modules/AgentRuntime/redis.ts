@@ -28,7 +28,23 @@ const getRedisConnectionDescription = (url: string): string => {
 };
 
 /**
- * Create Redis client instance for Agent Runtime
+ * Connection options from the shared Redis env, applied the way the main
+ * provider (`IoRedisRedisProvider`) applies them. ioredis lets values already
+ * in the URL win, so `redis://user:pass@host/1` keeps working.
+ */
+const getRedisEnvConnectionOptions = (): RedisOptions => ({
+  db: redisEnv.REDIS_DATABASE,
+  password: redisEnv.REDIS_PASSWORD,
+  tls: redisEnv.REDIS_TLS ? {} : undefined,
+  username: redisEnv.REDIS_USERNAME,
+});
+
+/**
+ * Create Redis client instance for Agent Runtime.
+ *
+ * Without an explicit `url` the client targets the env-configured server and
+ * also uses its credentials/db/TLS. An explicit `url` is self-contained: the
+ * env credentials belong to the env server and are not sent to another host.
  */
 export const createAgentRuntimeRedisClient = (
   url?: string,
@@ -49,6 +65,7 @@ export const createAgentRuntimeRedisClient = (
   timing('Redis client creating at %d', createStart);
 
   const client = new Redis(redisUrl, {
+    ...(url ? {} : getRedisEnvConnectionOptions()),
     ...options,
     maxRetriesPerRequest: 3,
   });
