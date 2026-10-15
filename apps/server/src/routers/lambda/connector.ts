@@ -341,8 +341,20 @@ export const connectorRouter = router({
       // The upsert path rewrites another creator's config/credentials — only
       // the creator (or a workspace owner) may re-add over an existing row.
       assertWorkspaceRowManageable(ctx, existing.userId, 'connector');
+      // Marketplace retries may change scopes/headers, but must keep the DCR
+      // registration (including its server-owned secret) for this same endpoint.
+      const reuseMarketplaceClient =
+        input.sourceType === ConnectorSourceType.marketplace &&
+        input.metadata?.marketplaceOAuth === true &&
+        existing.sourceType === ConnectorSourceType.marketplace &&
+        existing.metadata?.marketplaceOAuth === true &&
+        existing.mcpServerUrl === input.mcpServerUrl;
       await ctx.connectorModel.update(existing.id, {
         ...fields,
+        ...(reuseMarketplaceClient && {
+          metadata: { ...existing.metadata, ...fields.metadata },
+          oidcConfig: { ...existing.oidcConfig, ...input.oidcConfig },
+        }),
         isEnabled: input.isEnabled ?? true,
         sourceType: input.sourceType,
         status: ConnectorStatus.disconnected,
@@ -972,6 +984,24 @@ export const connectorRouter = router({
           code: 'NOT_FOUND',
           message: `Plugin '${input.identifier}' not found`,
         });
+      }
+
+      if (plugin.customParams?.oauthConnectorId) {
+        const connector = await ctx.connectorModel.findById(plugin.customParams.oauthConnectorId);
+        if (
+          !connector ||
+          connector.identifier !== input.identifier ||
+          connector.sourceType !== ConnectorSourceType.marketplace ||
+          connector.metadata?.marketplaceOAuth !== true
+        ) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Marketplace OAuth connector not found',
+          });
+        }
+        assertWorkspaceRowManageable(ctx, connector.userId, 'connector');
+        const { toolCount } = await syncConnectorToolsById(connector.id, ctx);
+        return { connectorId: connector.id, toolCount };
       }
 
       // The customPlugin migration guard MUST run before the manifest check.

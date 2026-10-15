@@ -10,6 +10,7 @@ import { pluginService } from '@/services/plugin';
 import { globalHelpers } from '@/store/global/helpers';
 import { type CheckMcpInstallResult } from '@/types/plugins';
 import { MCPInstallStep } from '@/types/plugins';
+import * as connectorOAuth from '@/utils/connectorOAuth';
 import type * as PlatformModule from '@/utils/platform';
 
 import { useToolStore } from '../../store';
@@ -724,6 +725,205 @@ describe('mcpStore actions', () => {
       vi.spyOn(pluginService, 'installPlugin').mockResolvedValue(undefined);
       vi.spyOn(discoverService, 'reportMcpInstallResult').mockResolvedValue(undefined as any);
       vi.spyOn(discoverService, 'getMcpDetail').mockResolvedValue(mockPlugin as any);
+    });
+
+    describe('marketplace OAuth via installationDetails', () => {
+      const originalActions = {
+        createConnector: useToolStore.getState().createConnector,
+        deleteConnector: useToolStore.getState().deleteConnector,
+        startConnectorOAuth: useToolStore.getState().startConnectorOAuth,
+        fetchConnectors: useToolStore.getState().fetchConnectors,
+      };
+      afterEach(() => useToolStore.setState(originalActions));
+      const oauthManifest = {
+        name: 'Tencent Docs',
+        version: '1.0.0',
+        deploymentOptions: [
+          {
+            connection: { type: 'http', url: 'https://docs.example.test/mcp' },
+            installationDetails: {
+              mcpAuth: { version: 1, type: 'oauth2', registration: 'dcr', scopes: ['docs:read'] },
+            },
+          },
+        ],
+      };
+
+      beforeEach(() => {
+        vi.mocked(discoverService.getMCPPluginManifest).mockResolvedValue(oauthManifest as any);
+        useToolStore.setState({ mcpPluginList: pagedPluginList([mockPlugin]), connectors: [] });
+        vi.spyOn(connectorOAuth, 'waitForConnectorOAuth').mockResolvedValue();
+      });
+
+      it('pauses for a user gesture without probing the unauthenticated MCP or installing', async () => {
+        const probe = vi.spyOn(mcpService, 'getStreamableMcpServerManifest');
+        const success = await useToolStore.getState().installMCPPlugin('test-plugin');
+        expect(success).toBe(false);
+        expect(useToolStore.getState().mcpInstallProgress['test-plugin']?.step).toBe(
+          MCPInstallStep.AUTHORIZATION_REQUIRED,
+        );
+        expect(probe).not.toHaveBeenCalled();
+        expect(pluginService.installPlugin).not.toHaveBeenCalled();
+      });
+
+      it('fails closed for malformed or unsupported auth declarations', async () => {
+        vi.mocked(discoverService.getMCPPluginManifest).mockResolvedValue({
+          ...oauthManifest,
+          deploymentOptions: [
+            {
+              ...oauthManifest.deploymentOptions[0],
+              installationDetails: { mcpAuth: { type: 'oauth2', registration: 'unknown' } },
+            },
+          ],
+        } as any);
+        await useToolStore.getState().installMCPPlugin('test-plugin');
+        expect(useToolStore.getState().mcpInstallProgress['test-plugin']?.step).toBe(
+          MCPInstallStep.ERROR,
+        );
+        expect(pluginService.installPlugin).not.toHaveBeenCalled();
+      });
+
+      it('reuses connector OAuth and installs only a non-secret marker after tool sync', async () => {
+        const createConnector = vi.fn().mockResolvedValue({ id: 'oauth-conn', isNew: true });
+        const startConnectorOAuth = vi.fn().mockResolvedValue('https://provider.test/authorize');
+        const fetchConnectors = vi.fn().mockResolvedValue(undefined);
+        vi.mocked(connectorOAuth.waitForConnectorOAuth).mockImplementation(async () => {
+          useToolStore.setState({ connectors: [{ id: 'oauth-conn', status: 'connected' }] as any });
+        });
+        useToolStore.setState({ createConnector, startConnectorOAuth, fetchConnectors });
+        await useToolStore.getState().installMCPPlugin('test-plugin');
+        expect(
+          await useToolStore.getState().installMCPPlugin('test-plugin', {
+            authorize: true,
+            resume: true,
+          }),
+        ).toBe(true);
+        expect(createConnector).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sourceType: 'marketplace',
+            mcpServerUrl: 'https://docs.example.test/mcp',
+            oidcConfig: { scheme: 'dcr', scopes: ['docs:read'] },
+          }),
+        );
+        expect(startConnectorOAuth).toHaveBeenCalledWith('oauth-conn');
+        expect(pluginService.installPlugin).toHaveBeenCalledWith(
+          expect.objectContaining({
+            customParams: { oauthConnectorId: 'oauth-conn' },
+            manifest: expect.objectContaining({ api: [] }),
+          }),
+        );
+      });
+
+      it('does not install when authorization succeeds but tool synchronization fails', async () => {
+        useToolStore.setState({
+          createConnector: vi.fn().mockResolvedValue({ id: 'oauth-conn', isNew: true }),
+          startConnectorOAuth: vi.fn().mockResolvedValue('https://provider.test/authorize'),
+          fetchConnectors: vi.fn().mockResolvedValue(undefined),
+        });
+        await useToolStore.getState().installMCPPlugin('test-plugin');
+        await useToolStore
+          .getState()
+          .installMCPPlugin('test-plugin', { authorize: true, resume: true });
+        expect(pluginService.installPlugin).not.toHaveBeenCalled();
+        expect(useToolStore.getState().mcpInstallProgress['test-plugin']?.step).toBe(
+          MCPInstallStep.ERROR,
+        );
+      });
+
+      it('updates retry configuration through the server’s registration-preserving upsert', async () => {
+        const existing = {
+          id: 'oauth-conn',
+          identifier: 'test-plugin',
+          status: 'connected',
+          sourceType: 'marketplace',
+          mcpServerUrl: 'https://docs.example.test/mcp',
+          metadata: { marketplaceOAuth: true },
+        };
+        const createConnector = vi.fn().mockResolvedValue({ id: 'oauth-conn', isNew: false });
+        useToolStore.setState({
+          connectors: [existing] as any,
+          createConnector,
+          startConnectorOAuth: vi.fn().mockResolvedValue('https://provider.test/authorize'),
+          fetchConnectors: vi.fn().mockResolvedValue(undefined),
+        });
+        await useToolStore.getState().installMCPPlugin('test-plugin');
+        expect(
+          await useToolStore.getState().installMCPPlugin('test-plugin', {
+            authorize: true,
+            resume: true,
+          }),
+        ).toBe(true);
+        expect(createConnector).toHaveBeenCalledWith(
+          expect.objectContaining({
+            oidcConfig: { scheme: 'dcr', scopes: ['docs:read'] },
+          }),
+        );
+      });
+
+      it('rolls back only a new connector if DCR is rejected and does not mark installed', async () => {
+        const deleteConnector = vi.fn().mockResolvedValue(undefined);
+        useToolStore.setState({
+          deleteConnector,
+          createConnector: vi.fn().mockResolvedValue({ id: 'new-conn', isNew: true }),
+          startConnectorOAuth: vi.fn().mockRejectedValue(new Error('redirect_uri not trusted')),
+          fetchConnectors: vi.fn().mockResolvedValue(undefined),
+        });
+        await useToolStore.getState().installMCPPlugin('test-plugin');
+        await useToolStore
+          .getState()
+          .installMCPPlugin('test-plugin', { authorize: true, resume: true });
+        expect(deleteConnector).toHaveBeenCalledWith('new-conn');
+        expect(pluginService.installPlugin).not.toHaveBeenCalled();
+        expect(useToolStore.getState().mcpInstallProgress['test-plugin']?.errorInfo?.type).toBe(
+          'AUTHORIZATION_ERROR',
+        );
+      });
+
+      it('does not install after the user cancels an in-flight authorization', async () => {
+        let complete!: () => void;
+        let entered!: () => void;
+        const waiting = new Promise<void>((resolve) => {
+          entered = resolve;
+        });
+        vi.mocked(connectorOAuth.waitForConnectorOAuth).mockImplementation(() => {
+          entered();
+          return new Promise<void>((resolve) => {
+            complete = resolve;
+          });
+        });
+        useToolStore.setState({
+          createConnector: vi.fn().mockResolvedValue({ id: 'new-conn', isNew: true }),
+          startConnectorOAuth: vi.fn().mockResolvedValue('https://provider.test/authorize'),
+          fetchConnectors: vi.fn().mockResolvedValue(undefined),
+        });
+        await useToolStore.getState().installMCPPlugin('test-plugin');
+        const pending = useToolStore
+          .getState()
+          .installMCPPlugin('test-plugin', { authorize: true, resume: true });
+        await waiting;
+        await useToolStore.getState().cancelInstallMCPPlugin('test-plugin');
+        complete();
+        await pending;
+        expect(pluginService.installPlugin).not.toHaveBeenCalled();
+        expect(useToolStore.getState().mcpInstallProgress['test-plugin']).toBeUndefined();
+      });
+
+      it('does not overwrite an unrelated same-name connector', async () => {
+        const createConnector = vi.fn();
+        const startConnectorOAuth = vi.fn();
+        useToolStore.setState({
+          connectors: [{ identifier: 'test-plugin', sourceType: 'custom' }] as any,
+          createConnector,
+          startConnectorOAuth,
+          fetchConnectors: vi.fn().mockResolvedValue(undefined),
+        });
+        await useToolStore.getState().installMCPPlugin('test-plugin');
+        await useToolStore
+          .getState()
+          .installMCPPlugin('test-plugin', { authorize: true, resume: true });
+        expect(createConnector).not.toHaveBeenCalled();
+        expect(startConnectorOAuth).not.toHaveBeenCalled();
+        expect(pluginService.installPlugin).not.toHaveBeenCalled();
+      });
     });
 
     describe('normal installation flow', () => {

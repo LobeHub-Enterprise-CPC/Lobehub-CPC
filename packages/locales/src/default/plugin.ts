@@ -871,6 +871,11 @@ export default {
   'mcpEmpty.prompts': 'No prompts',
   'mcpEmpty.resources': 'No resources',
   'mcpEmpty.tools': 'No tools',
+  'mcpInstall.AUTHORIZING': 'Waiting for authorization and tool synchronization…',
+  'mcpInstall.AUTHORIZATION_REQUIRED': 'Connect your account to continue installation',
+  'mcpInstall.oauthConnect': 'Connect and authorize',
+  'mcpInstall.oauthDescription':
+    'Sign in and authorize on the provider’s page. No Client ID or Client Secret is required.',
   'mcpInstall.CHECKING_INSTALLATION': 'Checking installation…',
   'mcpInstall.COMPLETED': 'Completed',
   'mcpInstall.CONFIGURATION_REQUIRED': 'Complete configuration to continue',
