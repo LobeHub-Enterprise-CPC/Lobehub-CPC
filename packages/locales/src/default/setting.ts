@@ -1096,6 +1096,7 @@ export default {
   'settingAgent.personalName.pickForMe': 'Name it for me',
   'settingAgent.personalName.pickFailed': 'Could not save the name, please try again',
   'settingAgent.personalName.roll': 'Roll a random name',
+  'settingAgent.identity.chat': 'Chat',
   'settingAgent.identity.done': 'Done',
   'settingAgent.identity.edit': 'Edit identity',
   'settingAgent.identity.saveFailed': 'Could not save the identity, please try again',

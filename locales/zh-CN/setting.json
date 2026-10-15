@@ -1163,6 +1163,7 @@
   "settingAgent.export.tags": "标签",
   "settingAgent.export.untitled": "未命名助理",
   "settingAgent.export.untitledFileName": "助理档案",
+  "settingAgent.identity.chat": "跟他聊聊",
   "settingAgent.identity.done": "完成",
   "settingAgent.identity.edit": "编辑身份信息",
   "settingAgent.identity.saveFailed": "身份信息保存失败，请重试",

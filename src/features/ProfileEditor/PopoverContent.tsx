@@ -76,7 +76,7 @@ const PopoverContent = memo<PopoverContentProps>(({ items, onOpenStore, onClose 
   const isEmpty = filteredItems.length === 0;
 
   return (
-    <Flexbox style={{ maxHeight: 500, width: '100%' }}>
+    <Flexbox data-brand-slot={'agent-skill-picker'} style={{ maxHeight: 500, width: '100%' }}>
       <div className={styles.header} onClick={stopPropagation}>
         <SearchBar
           allowClear

@@ -1,5 +1,6 @@
 'use client';
 
+import { AGENT_PROFILE_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { getActivePluginIds } from '@lobechat/types';
 import { Flexbox } from '@lobehub/ui';
 import { Button, Text } from '@lobehub/ui/base-ui';
@@ -83,27 +84,41 @@ const UserToolsSection = memo<Props>(
     // Copyable = the user's own base connectors (not agent-owned, not mounted).
     const copyable = userConnectors.filter((c) => !c.agentId && !c.metadata?.mountedByAgentId);
 
+    const confirmCopyButton = (
+      <Button
+        disabled={selected.size === 0 || copying}
+        loading={copying}
+        size={'small'}
+        type={'primary'}
+        onClick={onConfirmCopy}
+      >
+        {t('settingAgent.agentTools.copyConfirm', { count: selected.size })}
+      </Button>
+    );
+
     if (copyMode) {
+      const copyActions = (
+        <Flexbox horizontal gap={8}>
+          {AGENT_PROFILE_SHOWCASE_LAYOUT && confirmCopyButton}
+          <Button disabled={copying} size={'small'} type={'text'} onClick={onCancelCopy}>
+            {t('cancel', { ns: 'common' })}
+          </Button>
+          {!AGENT_PROFILE_SHOWCASE_LAYOUT && confirmCopyButton}
+        </Flexbox>
+      );
+
+      // The showcase layout reads top to bottom — hint, the tools to pick,
+      // then the decision — so the confirm sits under what it applies to.
       return (
-        <Flexbox gap={8}>
+        <Flexbox
+          data-brand-slot={'agent-tools-copy-panel'}
+          gap={AGENT_PROFILE_SHOWCASE_LAYOUT ? 12 : 8}
+        >
           <Flexbox horizontal align={'center'} justify={'space-between'}>
             <Text style={{ fontSize: 12 }} type={'secondary'}>
               {t('settingAgent.agentTools.copyPick')}
             </Text>
-            <Flexbox horizontal gap={8}>
-              <Button disabled={copying} size={'small'} type={'text'} onClick={onCancelCopy}>
-                {t('cancel', { ns: 'common' })}
-              </Button>
-              <Button
-                disabled={selected.size === 0 || copying}
-                loading={copying}
-                size={'small'}
-                type={'primary'}
-                onClick={onConfirmCopy}
-              >
-                {t('settingAgent.agentTools.copyConfirm', { count: selected.size })}
-              </Button>
-            </Flexbox>
+            {!AGENT_PROFILE_SHOWCASE_LAYOUT && copyActions}
           </Flexbox>
           <Flexbox horizontal align={'center'} gap={8} wrap={'wrap'}>
             {copyable.length === 0 && (
@@ -121,13 +136,18 @@ const UserToolsSection = memo<Props>(
               />
             ))}
           </Flexbox>
+          {AGENT_PROFILE_SHOWCASE_LAYOUT && copyActions}
         </Flexbox>
       );
     }
 
     return (
-      <Flexbox gap={8}>
-        <Text style={{ fontSize: 12, fontWeight: 500 }} type={'secondary'}>
+      <Flexbox data-brand-slot={'agent-user-tools'} gap={8}>
+        <Text
+          data-brand-slot={'agent-config-label'}
+          style={{ fontSize: 12, fontWeight: 500 }}
+          type={'secondary'}
+        >
           {baseToolsLabel} · {userToolCount}
         </Text>
         <SharedAgentTool

@@ -1163,6 +1163,7 @@
   "settingAgent.export.tags": "Tags",
   "settingAgent.export.untitled": "Untitled Agent",
   "settingAgent.export.untitledFileName": "agent-profile",
+  "settingAgent.identity.chat": "Chat",
   "settingAgent.identity.done": "Done",
   "settingAgent.identity.edit": "Edit identity",
   "settingAgent.identity.saveFailed": "Could not save the identity, please try again",

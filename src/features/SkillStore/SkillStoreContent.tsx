@@ -42,7 +42,7 @@ export const SkillStoreContent = () => {
   const isMCP = activeTab === SkillStoreTab.MCP;
 
   return (
-    <Flexbox gap={8} style={{ maxHeight: '75vh' }} width={'100%'}>
+    <Flexbox data-brand-slot={'skill-store'} gap={8} style={{ maxHeight: '75vh' }} width={'100%'}>
       <Flexbox gap={8}>
         <Flexbox horizontal align={'center'} gap={8}>
           <Tabs

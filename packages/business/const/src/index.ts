@@ -212,6 +212,15 @@ export const COMPOSER_AGENT_ONLY_LAYOUT = false;
 export const HOME_COMPOSER_AGENT_DOCK = false;
 
 /**
+ * Agent profile presentation. When on, the profile group's tabs lead the top
+ * bar in place of the agent breadcrumb, the profile header lays the avatar,
+ * name and role out in one row with a "chat" action, the cover banner is left
+ * out, and copying user tools confirms below the picked tools. Off keeps the
+ * stock profile layout.
+ */
+export const AGENT_PROFILE_SHOWCASE_LAYOUT = false;
+
+/**
  * Two-level navigation. When on, the app shell renders an icon rail outside
  * the navigation panel: page links, the help menu and the account entry move
  * to the rail, and the Home panel keeps the brand header and the lists (agents,
