@@ -335,6 +335,12 @@ export function defineConfig() {
         503,
       );
     }
+    if (route.kind === 'unknown-tenant') {
+      // Served exactly like the same request without a tenant (FR-RT-06); the
+      // real reason stays in the server log.
+      console.warn('TENANT_NOT_FOUND', { slug: route.slug });
+      route = route.fallback;
+    }
     if (route.kind === 'redirect')
       return new Response(null, {
         status: 302,
@@ -350,7 +356,9 @@ export function defineConfig() {
         return rejectJson(route.code, route.status);
       }
       case 'tenantless-backend': {
-        return NextResponse.next({ request: { headers } });
+        return route.path
+          ? rewriteTo(req, route.path, headers)
+          : NextResponse.next({ request: { headers } });
       }
       case 'tenant-backend': {
         const signed = signTenantRoute(route.slug);
@@ -379,8 +387,10 @@ export function defineConfig() {
       // An unknown slug looks exactly like no tenant at all: the page never
       // reveals which tenants exist (FR-RT-06). An unavailable tenant still
       // gets its SPA, which shows the tenant-unavailable state from the API.
-      if ((error as { code?: string })?.code === 'TENANT_NOT_FOUND')
+      if ((error as { code?: string })?.code === 'TENANT_NOT_FOUND') {
+        console.warn('TENANT_NOT_FOUND', { slug: route.slug });
         return rewriteTo(req, TENANT_REQUIRED_PAGE_PATH);
+      }
       return defaultMiddleware(req, route.path, headers);
     }
 

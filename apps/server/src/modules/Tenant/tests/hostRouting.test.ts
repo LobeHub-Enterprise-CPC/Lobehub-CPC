@@ -134,4 +134,23 @@ describe('trusted host routing', () => {
       ),
     ).toMatchObject({ kind: 'reject' });
   });
+  it('answers an unknown slug with what the same path gets without a tenant', async () => {
+    for (const path of [
+      '/agent',
+      '/trpc/lambda/x',
+      '/api/auth/get-session',
+      '/f/id',
+      '/api/version',
+    ]) {
+      const unknown = await route(`https://app.example.com/t/nope${path}`, 'POST');
+      expect(unknown).toMatchObject({ kind: 'unknown-tenant', slug: 'nope' });
+      const without = await route(`https://app.example.com${path}`, 'POST');
+      expect((unknown as { fallback: unknown }).fallback).toMatchObject(without);
+    }
+    expect(await route('https://app.example.com/t/nope/api/auth/get-session')).toEqual({
+      kind: 'unknown-tenant',
+      slug: 'nope',
+      fallback: { kind: 'reject', code: 'TENANT_REQUIRED', status: 400 },
+    });
+  });
 });

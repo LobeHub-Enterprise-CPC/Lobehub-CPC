@@ -45,8 +45,11 @@ export type TenantRoute =
   | { kind: 'tenant-backend'; path: string; slug: string }
   /** Page request for a tenant: serve the SPA for `path` (the tenant is the basename). */
   | { kind: 'tenant-page'; path: string; slug: string }
-  /** Tenantless backend path that is allowed without a tenant. */
-  | { kind: 'tenantless-backend' }
+  /**
+   * Tenantless backend path that is allowed without a tenant. `path` is set
+   * only when the request carried a tenant prefix that must be dropped.
+   */
+  | { kind: 'tenantless-backend'; path?: string }
   /** Page without a tenant: the static "use your organisation's address" page. */
   | { kind: 'tenant-required-page' }
   /** Backend refusal. */
@@ -76,6 +79,11 @@ export const resolveTenantRoute = (url: URL): TenantRoute => {
       : { kind: 'tenant-required-page' };
   }
 
+  return resolveTenantlessRoute(pathname);
+};
+
+/** What a request for `pathname` gets when it names no tenant at all. */
+export const resolveTenantlessRoute = (pathname: string): TenantRoute => {
   if (isBackendPath(pathname)) {
     if (TENANTLESS_BACKEND.some((pattern) => pattern.test(pathname)))
       return { kind: 'tenantless-backend' };

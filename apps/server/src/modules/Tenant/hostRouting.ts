@@ -2,6 +2,7 @@ import { parseTenantPath } from '@lobechat/business-tenant/routing';
 
 import {
   isBackendPath,
+  resolveTenantlessRoute,
   resolveTenantRoute,
   type TenantRoute,
 } from '@/libs/next/proxy/tenantRouting';
@@ -18,7 +19,15 @@ export interface HostRoutingDeps {
   internalUrl: string;
 }
 export type HostTenantRoute =
-  TenantRoute | { kind: 'redirect'; url: string } | { kind: 'endpoint-changed'; activeUrl: string };
+  | TenantRoute
+  | { kind: 'redirect'; url: string }
+  | { kind: 'endpoint-changed'; activeUrl: string }
+  /**
+   * A `/t/{slug}` request for a slug that does not exist. `fallback` is
+   * exactly what the same path gets without a tenant; callers serve it and
+   * keep `slug` for server logs only (FR-RT-06).
+   */
+  | { fallback: TenantRoute; kind: 'unknown-tenant'; slug: string };
 
 // Internal transport retains deployment+path addressing; its handlers independently authenticate
 // QStash signatures, workflow signatures, API keys or signed callback state. Never admit pages
@@ -54,7 +63,15 @@ export const resolveHostTenantRoute = async (
     const route = resolveTenantRoute(url);
     if (route.kind !== 'tenant-page' && route.kind !== 'tenant-backend') return route;
     const entry = await deps.findSlug(route.slug);
-    if (!entry) return route.kind === 'tenant-page' ? { kind: 'tenant-required-page' } : reject();
+    if (!entry) {
+      const fallback = resolveTenantlessRoute(route.path);
+      return {
+        fallback:
+          fallback.kind === 'tenantless-backend' ? { ...fallback, path: route.path } : fallback,
+        kind: 'unknown-tenant',
+        slug: route.slug,
+      };
+    }
     if (
       entry.state.endpoints.find((e) => e.kind === 'default')?.active ||
       (route.kind === 'tenant-backend' && internalHost && INTERNAL_CALLBACKS.test(route.path))

@@ -250,9 +250,14 @@ describe('tenant routing', () => {
   });
 
   it('serves the same page for an unknown tenant, without revealing that it does not exist', async () => {
-    const rewrite = await run('http://localhost:3010/t/nope/settings?hl=en-US');
-    expect(new URL(rewrite!).pathname).toBe('/tenant-required');
-    expect(mocks.getSession).not.toHaveBeenCalled();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const rewrite = await run('http://localhost:3010/t/nope/settings?hl=en-US');
+      expect(new URL(rewrite!).pathname).toBe('/tenant-required');
+      expect(mocks.getSession).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('refuses tenantless backend requests with TENANT_REQUIRED', async () => {
@@ -320,6 +325,96 @@ describe('tenant routing', () => {
     const location = new URL(response!.headers.get('location')!);
     expect(location.pathname).toBe('/t/acme/signin');
     expect(location.searchParams.get('callbackUrl')).toContain('/t/acme/settings');
+  });
+});
+
+describe('unknown tenant is indistinguishable from no tenant (FR-RT-06)', () => {
+  const origin = 'http://localhost:3010';
+
+  /** Everything a client can observe, with a rewrite/next folded into the path it serves. */
+  const observe = async (path: string, method: string) => {
+    const response = (await middleware(new NextRequest(`${origin}${path}`, { method })))!;
+    const rewrite = response.headers.get('x-middleware-rewrite');
+    const target = rewrite
+      ? `${new URL(rewrite).pathname}${new URL(rewrite).search}`
+      : response.headers.get('x-middleware-next')
+        ? path
+        : null;
+    return {
+      body: response.body ? await response.text() : '',
+      cacheControl: response.headers.get('cache-control'),
+      contentType: response.headers.get('content-type'),
+      location: response.headers.get('location'),
+      status: response.status,
+      target,
+      tenantHeader: response.headers.get(`x-middleware-request-${TENANT_ROUTE_HEADER}`),
+    };
+  };
+
+  const cases: [string, string][] = [
+    ['GET', '/settings?hl=en-US'],
+    ['GET', '/webapi/user/avatar/x/y.webp'],
+    ['POST', '/webapi/chat/openai'],
+    ['GET', '/trpc/lambda/config.getGlobalConfig?batch=1'],
+    ['POST', '/trpc/lambda/message.createMessage?batch=1'],
+    ['GET', '/api/auth/get-session'],
+    ['POST', '/api/auth/sign-in/email'],
+    ['GET', '/oidc/auth'],
+    ['POST', '/oidc/token'],
+    ['GET', '/oauth/connector/callback?code=x'],
+    ['GET', '/f/file-id'],
+    ['PUT', '/f/file-id'],
+    ['GET', '/market/api/x'],
+    ['DELETE', '/api/agent/run'],
+    ['GET', '/api/version'],
+  ];
+
+  it.each(cases)('%s %s answers exactly as it does without a tenant', async (method, path) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const withoutTenant = await observe(path, method);
+      const unknown = await observe(`/t/nope${path}`, method);
+      expect(unknown).toEqual(withoutTenant);
+      expect(JSON.stringify(unknown)).not.toMatch(/NOT_FOUND|nope/);
+      expect(unknown.tenantHeader).toBeNull();
+      expect(mocks.getSession).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('refuses unknown-tenant API requests with TENANT_REQUIRED', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const response = await middleware(
+        new NextRequest(`${origin}/t/nope/trpc/lambda/config.getGlobalConfig`),
+      );
+      expect(response?.status).toBe(400);
+      await expect(response!.json()).resolves.toEqual({ code: 'TENANT_REQUIRED' });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('records the real reason on the server only', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await middleware(new NextRequest(`${origin}/t/nope/api/auth/get-session`));
+      expect(warn).toHaveBeenCalledWith('TENANT_NOT_FOUND', { slug: 'nope' });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('keeps the root-only surfaces closed under any tenant prefix, known or not', async () => {
+    for (const slug of ['acme', 'nope'])
+      expect(
+        (
+          await middleware(
+            new NextRequest(`${origin}/t/${slug}/api/internal/control-plane/v1/tenants/x`),
+          )
+        )?.status,
+      ).toBe(404);
   });
 });
 
