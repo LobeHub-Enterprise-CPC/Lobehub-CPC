@@ -76,6 +76,28 @@ describe('resolveGenerationModelNotice', () => {
     ).toBeUndefined();
   });
 
+  it('returns the provider-agnostic noModelAvailable notice when no model of this type is enabled', () => {
+    expect(
+      resolveGenerationModelNotice({
+        enabledModelList: [],
+        isModelConfigReady: true,
+        model: 'gemini-3.1-flash-image-preview:image',
+        provider: 'google',
+      }),
+    ).toEqual({ key: 'notice.noModelAvailable', type: 'warning' });
+  });
+
+  it('treats provider groups without any model as no model available', () => {
+    expect(
+      resolveGenerationModelNotice({
+        enabledModelList: [{ children: [], id: 'openai' }],
+        isModelConfigReady: true,
+        model: 'gemini-3.1-flash-image-preview:image',
+        provider: 'google',
+      }),
+    ).toEqual({ key: 'notice.noModelAvailable', type: 'warning' });
+  });
+
   it('does not return a notice when the current model is present in the enabled list', () => {
     expect(
       resolveGenerationModelNotice({
@@ -111,6 +133,16 @@ describe('resolveGenerationModelNotice', () => {
 });
 
 describe('useImageGenerationModelNotice', () => {
+  it('flags noModelAvailable without a provider when the tenant has no image model', () => {
+    testState.aiInfra.isInitAiProviderRuntimeState = true;
+    testState.aiInfra.enabledImageModelList = [];
+
+    const { result } = renderHook(() => useImageGenerationModelNotice());
+
+    expect(result.current.isModelUnavailable).toBe(true);
+    expect(result.current.notice).toEqual({ key: 'notice.noModelAvailable', type: 'warning' });
+  });
+
   beforeEach(() => {
     testState.aiInfra.enabledImageModelList = [];
     testState.aiInfra.isInitAiProviderRuntimeState = false;
@@ -168,6 +200,16 @@ describe('useImageGenerationModelNotice', () => {
 });
 
 describe('useVideoGenerationModelNotice', () => {
+  it('flags noModelAvailable without a provider when the tenant has no video model', () => {
+    testState.aiInfra.isInitAiProviderRuntimeState = true;
+    testState.aiInfra.enabledVideoModelList = [];
+
+    const { result } = renderHook(() => useVideoGenerationModelNotice());
+
+    expect(result.current.isModelUnavailable).toBe(true);
+    expect(result.current.notice).toEqual({ key: 'notice.noModelAvailable', type: 'warning' });
+  });
+
   beforeEach(() => {
     testState.aiInfra.enabledVideoModelList = [];
     testState.aiInfra.isInitAiProviderRuntimeState = false;

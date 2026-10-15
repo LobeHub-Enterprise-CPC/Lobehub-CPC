@@ -155,11 +155,22 @@ export class GenerationConfigActionImpl {
 
   /**
    * Load a previous generation's model and settings, including its images. The image input mode
-   * follows the images, so reference-mode settings reopen in reference mode.
+   * follows the images, so reference-mode settings reopen in reference mode. Returns `false`
+   * (leaving the state untouched) when that model/provider is no longer in the enabled list.
    */
-  reuseVideoSettings = (model: string, provider: string, config?: RuntimeVideoGenParams): void => {
+  reuseVideoSettings = (
+    model: string,
+    provider: string,
+    config?: RuntimeVideoGenParams,
+  ): boolean => {
+    try {
+      getVideoModelAndDefaults(model, provider);
+    } catch {
+      return false;
+    }
+
     this.setModelAndProviderOnSelect(model, provider);
-    if (!config) return;
+    if (!config) return true;
 
     const { imageInputMode, parameters, parametersSchema } = this.#get();
     // The reused images replace the draft's instead of mixing with them
@@ -176,6 +187,8 @@ export class GenerationConfigActionImpl {
       false,
       `reuseVideoSettings/${model}/${provider}`,
     );
+
+    return true;
   };
 
   /**
