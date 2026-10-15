@@ -67,6 +67,7 @@ the next free number of that prefix.
 - **L-S24** Read the dev server's URL from its own log, and treat "ready" as any status but `000` — `/` answers `302` to `/signin` when signed out.
 - **L-S25** `dev:static` 的 Electron 重启会清空 `dist/renderer`（renderer Vite dev server 启动即删 outDir）；`start`/`restart` 后必须重建 renderer 再驱动，否则页面只有 Internal Server Error。
 - **L-S26** A hand-built Electron main bundle bakes its endpoints in: build with `OFFICIAL_CLOUD_SERVER` and `DEVICE_GATEWAY_URL` pointing at local or unreachable hosts, and before launch confirm `dist/main` carries those values (`DEVICE_GATEWAY_URL:` / `OFFICIAL_CLOUD_SERVER:` followed by the local URL, not `void 0`).
+- **L-S27** `apps/desktop` install relinks the shared `packages/*/node_modules` to the desktop store and breaks root type-check (duplicate `@types/react`); snapshot those links before the install and restore them after, or install in an isolated worktree.
 
 ## Entries
 
@@ -626,3 +627,25 @@ references); `void 0` means the define was not baked and the app
 falls back to the official host, so rebuild. Grepping for `lobehub.com` proves
 nothing: a correct bundle still carries the official defaults as constants.
 Treat any token that reached an official host as burned, and say so in the report.
+
+### L-S27 — Desktop install relinks the shared packages under the root checkout
+
+`since 2026-10-15` · `holds-while: apps/desktop/pnpm-workspace.yaml lists ../../packages/* and the root workspace has lockfile: false`
+
+**Trap:** `cd apps/desktop && pnpm install --frozen-lockfile` (needed for desktop
+vitest and Electron runs) also relinks every shared package it lists
+(`packages/utils`, `types`, `heterogeneous-agents`, …) to
+`apps/desktop/node_modules/.pnpm`. The desktop lock pins newer versions, so the
+root `bun run type-check` starts failing with duplicate React types
+(`DroidIcon.tsx`, `ComposioServerItem.tsx`) while git shows no change. A root
+`--frozen-lockfile` install cannot undo it: the root has no lockfile. A filtered
+`--offline` install fails resolving the whole graph, and an online install
+re-resolves every root dependency against today's registry.
+
+**Rule:** in a checkout others also use for root checks, run desktop work in an
+isolated worktree (`cow-workspace`). Otherwise, before the desktop install, save
+the links:
+`find packages -maxdepth 5 -path '*/node_modules/*' -type l -printf '%p\t%l\n' > <task-root>/package-links.tsv`.
+After the desktop work, restore every saved link and confirm that none still
+points into `apps/desktop/node_modules`. Then run root `bun run type-check`
+before handing the checkout back.
