@@ -30,6 +30,8 @@ export interface ElectronMainStore {
   encryptedTokens: {
     accessToken?: string;
     expiresAt?: number;
+    /** `dataSyncConfig.cloudTenant.generation` these tokens were committed with. */
+    generation?: string;
     lastRefreshAt?: number;
     refreshToken?: string;
   };

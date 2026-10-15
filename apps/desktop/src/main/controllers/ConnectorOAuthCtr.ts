@@ -23,6 +23,8 @@ export default class ConnectorOAuthCtr extends ControllerModule {
   }): Promise<ConnectorOAuthResult> {
     const authorizationUrl = new URL(params.authorizationUrl);
     const remoteUrl = await this.app.getController(RemoteServerConfigCtr).getRemoteServerUrl();
+    // Not signed in to a confirmed tenant entry: there is no server to authorize against.
+    if (!remoteUrl) return 'failed';
     const remoteOrigin = new URL(remoteUrl).origin;
     // Official API and app origins differ; self-hosted servers trust only their own address.
     // The self-hosted address may carry a tenant path prefix (`https://host/t/acme`), and the

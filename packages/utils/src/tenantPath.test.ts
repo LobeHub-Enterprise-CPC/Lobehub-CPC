@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { mapTenantAppPath, parseTenantPath, stripTenantPath, withTenantPath } from '../path';
+import { mapTenantAppPath, parseTenantPath, stripTenantPath, withTenantPath } from './tenantPath';
 
 describe('parseTenantPath', () => {
   it('splits a tenant-prefixed path', () => {

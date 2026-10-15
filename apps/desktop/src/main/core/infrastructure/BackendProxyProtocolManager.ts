@@ -16,6 +16,8 @@ import type { RendererRequestInterceptor } from './RendererProtocolManager';
 
 interface BackendProxyContext {
   getAccessToken: () => Promise<string | undefined | null>;
+  /** The server answered 409 TENANT_ENDPOINT_CHANGED: the entry must be resolved again. */
+  onEndpointChanged?: () => void;
   rewriteUrl: (rawUrl: string) => Promise<string | null>;
   source?: string;
 }
@@ -23,6 +25,7 @@ interface BackendProxyContext {
 interface BackendProxyRemoteBaseOptions {
   getAccessToken: () => Promise<string | undefined | null>;
   getRemoteBaseUrl: () => Promise<string | undefined | null>;
+  onEndpointChanged?: () => void;
   source?: string;
 }
 
@@ -48,6 +51,38 @@ const proxyNetworkErrorBody = (reason: string, url?: string) =>
     body: { detail: reason, ...(url ? { url } : {}) },
     errorType: classifyProxyNetworkError(reason),
   });
+
+/**
+ * What the renderer gets for a backend call while the session has no remote server (cloud
+ * mode before sign-in: the platform origin is never a fallback for business requests). It is
+ * the same answer the server gives an unauthenticated call, so every client-side error chain
+ * already knows it, instead of a plain-text 502 that fails JSON parsing on every call.
+ *
+ * Deliberately without `X-Auth-Required`: that header (and the `authorizationRequired`
+ * broadcast it drives) means "your session expired, sign in again". Nobody has signed in
+ * yet here, and the desktop renderer does not redirect on a plain 401.
+ */
+const notSignedInResponse = (pathname: string) => {
+  const message = 'Not signed in to an organization yet';
+  const isTrpc = pathname === '/trpc' || pathname.startsWith('/trpc/');
+
+  // tRPC (superjson transformer): a bare error object is applied by the batch link to every
+  // operation of the batch, so the same body serves batched and single calls.
+  const body = isTrpc
+    ? {
+        error: {
+          json: { code: -32_001, data: { code: 'UNAUTHORIZED', httpStatus: 401 }, message },
+        },
+      }
+    : // `ChatErrorType.Unauthorized` (= 401) in the app's `ErrorResponse` envelope.
+      { body: { detail: message }, errorType: 401 };
+
+  return new Response(JSON.stringify(body), {
+    headers: { 'Content-Type': 'application/json' },
+    status: 401,
+    statusText: 'Unauthorized',
+  });
+};
 
 export class BackendProxyProtocolManager {
   private readonly contexts = new WeakMap<Session, BackendProxyContext>();
@@ -194,6 +229,7 @@ export class BackendProxyProtocolManager {
 
     this.register(session, {
       getAccessToken: options.getAccessToken,
+      onEndpointChanged: options.onEndpointChanged,
       rewriteUrl,
       source: options.source,
     });
@@ -208,6 +244,10 @@ export class BackendProxyProtocolManager {
     this.contexts.set(session, context);
   }
 
+  private hasContext(session: Session) {
+    return this.contexts.has(session);
+  }
+
   /**
    * Build an `app://` request interceptor that diverts backend-prefixed paths
    * (trpc / webapi / api/auth / market) through `proxy()` against the default
@@ -215,7 +255,8 @@ export class BackendProxyProtocolManager {
    * protocol manager doesn't need to know what "backend" means.
    *
    * Returns `null` for non-backend paths (lets the fallback run). Returns a
-   * 502 if the backend context isn't wired up yet — for backend prefixes we
+   * 502 if the backend context isn't wired up yet, and a 401 when it is but no
+   * remote server is configured (not signed in) — for backend prefixes we
    * must never fall through to the SPA HTML / Vite path.
    */
   createAppRequestInterceptor(): RendererRequestInterceptor {
@@ -229,14 +270,15 @@ export class BackendProxyProtocolManager {
 
       try {
         const proxied = await this.proxy(request, session);
-        // No context bound yet, or no remote base URL resolved — distinct from an
-        // upstream network failure, so say which one it was.
-        return (
-          proxied ??
-          new Response('Backend Proxy Unavailable: no proxy context for this session', {
-            status: 502,
-          })
-        );
+        if (proxied) return proxied;
+
+        // Nothing was proxied. With a bound context that means there is no remote server to
+        // send this to (not signed in): answer as unauthenticated. Without a context the
+        // wiring itself is missing, which is an app problem and stays a 502.
+        if (this.hasContext(session)) return notSignedInResponse(url.pathname);
+        return new Response('Backend Proxy Unavailable: no proxy context for this session', {
+          status: 502,
+        });
       } catch (error) {
         const reason = describeError(error);
         this.logger.error(`BackendProxy interceptor failed (${reason}): ${request.url}`, error);
@@ -354,6 +396,20 @@ export class BackendProxyProtocolManager {
     responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     responseHeaders.set('Access-Control-Allow-Headers', '*');
     responseHeaders.set('X-Src-Url', rewrittenUrl);
+
+    // 409 TENANT_ENDPOINT_CHANGED only says the tenant moved. Never follow the address in
+    // the body: tell the owner of the session so it can pause and ask for a fresh login.
+    if (upstreamResponse.status === 409 && context.onEndpointChanged) {
+      try {
+        const body = (await upstreamResponse.clone().text()).slice(0, 2048);
+        if ((JSON.parse(body) as { code?: unknown })?.code === 'TENANT_ENDPOINT_CHANGED') {
+          this.logger.warn(`${logPrefix} tenant endpoint changed`);
+          context.onEndpointChanged();
+        }
+      } catch {
+        // Not the endpoint-changed body; leave the response to the renderer as is.
+      }
+    }
 
     // Re-auth prompt: rely on X-Auth-Required (set by tRPC responseMeta for UNAUTHORIZED).
     // Batched tRPC responses can use HTTP 207 when calls mix success (200) and UNAUTHORIZED (401);

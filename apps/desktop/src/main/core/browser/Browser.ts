@@ -811,6 +811,7 @@ export default class Browser {
         const remoteServerUrl = await remoteServerConfigCtr.getRemoteServerUrl(config);
         return remoteServerUrl || null;
       },
+      onEndpointChanged: () => remoteServerConfigCtr.handleEndpointChanged(),
       source: this.identifier,
     });
   }
