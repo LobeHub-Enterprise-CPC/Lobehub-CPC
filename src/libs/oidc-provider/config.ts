@@ -136,7 +136,8 @@ export const defaultScopes = [
  */
 export const defaultClaims = {
   email: ['email', 'email_verified'],
-  openid: ['sub'],
-  // subject (unique user identifier)
+  // `sub` is the subject (unique user identifier). `tenant_name` / `tenant_slug` / `has_other_organizations` are
+  // display values for the desktop confirmation; the provider only fills them in for the id_token.
+  openid: ['sub', 'tenant_name', 'tenant_slug', 'has_other_organizations'],
   profile: ['name', 'picture'],
 };

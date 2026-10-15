@@ -14,7 +14,7 @@ export const getOIDCProvider = async (): Promise<OIDCProvider> => {
   const key = `${tenantId}|${slug}|${endpoint.version}`;
   let provider = providers.get(key);
   if (!provider) {
-    provider = createOIDCProvider(serverDB, { endpoint, tenantId });
+    provider = createOIDCProvider(serverDB, { endpoint, slug, tenantId });
     providers.set(key, provider);
     void provider.catch((error) => {
       providers.delete(key);

@@ -58,6 +58,7 @@ it('rebuilds a tenant provider when the active endpoint revision changes', async
   expect(await runWithTenantScope(next, getOIDCProvider)).toBe(changed);
   expect(createOIDCProvider).toHaveBeenLastCalledWith(expect.anything(), {
     endpoint: next.endpoint,
+    slug: scope.slug,
     tenantId: scope.tenantId,
   });
 });

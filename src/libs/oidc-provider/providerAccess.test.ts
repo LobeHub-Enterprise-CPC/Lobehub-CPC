@@ -24,6 +24,10 @@ vi.mock('oidc-provider', () => ({
   errors: {},
 }));
 vi.mock('@/database/models/user', () => ({ UserModel: { findById: state.findUser } }));
+vi.mock('@/server/services/tenantDiscovery/otherOrganizations', () => ({
+  hasOtherOrganizations: async () => undefined,
+}));
+vi.mock('@/server/modules/Tenant/endpoints', () => ({ findSlugEndpoint: async () => null }));
 vi.mock('@/envs/app', () => ({ appEnv: { APP_URL: 'http://localhost:3000' } }));
 vi.mock('@/libs/oidc-provider/jwt', () => ({ getJWKS: () => ({ keys: [] }) }));
 vi.mock('@/locales/resources', () => ({ normalizeLocale: (locale: string) => locale }));
@@ -51,6 +55,7 @@ vi.mock('./config', () => ({
 vi.mock('./cookies', () => ({ getOIDCCookieKeys: () => ['test-secret'] }));
 vi.mock('./interaction-policy', () => ({ createInteractionPolicy: () => [] }));
 const acme = {
+  slug: 'acme',
   endpoint: { basePath: '/t/acme', publicUrl: 'http://localhost:3000/t/acme', version: 1 },
   tenantId: 'tenant-acme',
 };
@@ -115,7 +120,7 @@ it.each([
   },
   { basePath: '', publicUrl: 'https://chat.example.com', version: 2, cookiePath: '/' },
 ])('uses canonical issuer, cookie path and protocol routes on $publicUrl', async (endpoint) => {
-  await createOIDCProvider({} as never, { endpoint, tenantId: 'tenant-acme' });
+  await createOIDCProvider({} as never, { endpoint, slug: 'acme', tenantId: 'tenant-acme' });
   expect(state.issuer).toBe(`${endpoint.publicUrl}/oidc`);
   expect(state.config.cookies.long.path).toBe(endpoint.cookiePath);
   expect(state.config.cookies.short.path).toBe(endpoint.cookiePath);
@@ -140,7 +145,7 @@ it.each([
 
 it('deduplicates canonical desktop callbacks without mutating another tenant provider', async () => {
   const endpoint = { basePath: '', publicUrl: 'https://lobehub.com', version: 1 };
-  await createOIDCProvider({} as never, { endpoint, tenantId: 'tenant-acme' });
+  await createOIDCProvider({} as never, { endpoint, slug: 'acme', tenantId: 'tenant-acme' });
   expect(state.config.clients[0].redirect_uris).toHaveLength(3);
   await createOIDCProvider({} as never, acme);
   expect(state.config.clients[0].redirect_uris).toEqual([

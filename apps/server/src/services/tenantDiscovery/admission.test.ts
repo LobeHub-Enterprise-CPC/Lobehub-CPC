@@ -48,6 +48,42 @@ describe('discovery admission', () => {
     expect(work).not.toHaveBeenCalled();
   });
 
+  it('tryRun takes a free slot but never queues: a full gate answers at once', async () => {
+    const gate = new DiscoveryAdmission();
+    const released = block();
+    const active = Array.from({ length: 4 }, () =>
+      gate.tryRun(new AbortController().signal, () => released.promise),
+    );
+    const work = vi.fn();
+
+    await expect(gate.tryRun(new AbortController().signal, work)).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(work).not.toHaveBeenCalled();
+
+    // Nothing was queued behind the busy slots, and a finished slot is reusable.
+    released.resolve();
+    await Promise.all(active);
+    await expect(gate.tryRun(new AbortController().signal, async () => 'ok')).resolves.toBe('ok');
+  });
+
+  it('tryRun does not use the queue capacity that blocking callers rely on', async () => {
+    const gate = new DiscoveryAdmission();
+    const released = block();
+    const active = Array.from({ length: 4 }, () =>
+      gate.run(new AbortController().signal, () => released.promise),
+    );
+    const queued = Array.from({ length: 16 }, () =>
+      gate.run(new AbortController().signal, async () => 'queued'),
+    );
+    for (let index = 0; index < 5; index += 1)
+      await expect(gate.tryRun(new AbortController().signal, async () => 1)).rejects.toMatchObject({
+        status: 503,
+      });
+    released.resolve();
+    await Promise.all([...active, ...queued]);
+  });
+
   it('includes connection and queue time in the six-second deadline and cancels its signal', async () => {
     vi.useFakeTimers();
     let signal: AbortSignal | undefined;

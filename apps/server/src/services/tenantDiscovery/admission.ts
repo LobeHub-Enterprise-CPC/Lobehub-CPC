@@ -37,6 +37,21 @@ export class DiscoveryAdmission {
         if (signal.aborted) waiter.cancel();
       });
     } else this.active += 1;
+    return this.occupy(signal, work);
+  }
+
+  /**
+   * For optional work that must never compete with user-initiated lookups: takes a free slot
+   * now or fails at once, and never joins the queue.
+   */
+  async tryRun<T>(signal: AbortSignal, work: () => Promise<T>): Promise<T> {
+    signal.throwIfAborted();
+    if (this.active >= 4) throw unavailable();
+    this.active += 1;
+    return this.occupy(signal, work);
+  }
+
+  private async occupy<T>(signal: AbortSignal, work: () => Promise<T>): Promise<T> {
     try {
       signal.throwIfAborted();
       return await work();

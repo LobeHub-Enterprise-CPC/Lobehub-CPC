@@ -10,6 +10,8 @@ import { getJWKS } from '@/libs/oidc-provider/jwt';
 import { OIDC_ISSUER_PATH, OIDC_ROUTES } from '@/libs/oidc-provider/routes';
 import { TENANT_ID_CLAIM } from '@/libs/trpc/utils/tenantBinding';
 import { normalizeLocale } from '@/locales/resources';
+import { findSlugEndpoint } from '@/server/modules/Tenant/endpoints';
+import { hasOtherOrganizations } from '@/server/services/tenantDiscovery/otherOrganizations';
 
 import { isOIDCUserBanned } from './access-control';
 import { DrizzleAdapter } from './adapter';
@@ -21,6 +23,12 @@ import { describeError } from './safe-log';
 const logProvider = debug('lobe-oidc:provider');
 
 export const API_AUDIENCE = 'urn:lobehub:chat';
+
+// Only the desktop client shows the organization-switch affordance this claim drives.
+const DESKTOP_CLIENT_ID = 'lobehub-desktop';
+
+// One deadline for every optional display claim of an id_token.
+const DISPLAY_CLAIMS_BUDGET_MS = 1000;
 
 const MINUTE_SECONDS = 60;
 const HOUR_SECONDS = 60 * MINUTE_SECONDS;
@@ -51,13 +59,69 @@ export const oidcArtifactTTL = {
 } satisfies NonNullable<Configuration['ttl']>;
 
 /**
+ * Display-only id_token claims, resolved under one shared deadline. Nothing here may delay or fail
+ * a sign-in or refresh: whatever has not answered when the budget is spent is left out (the
+ * desktop client reads a missing value as "unknown"), and the identity claims go out regardless.
+ *
+ * The organization name is read live rather than captured when the provider is created: providers
+ * are cached per tenant, slug and endpoint version, none of which change on a rename.
+ *
+ * Work still running at the deadline: the cross-organization lookup is cancelled (its connections
+ * are released and destroyed). The directory read is a shared, de-duplicated routing-cache fetch
+ * that other requests may be waiting on, so it is abandoned rather than cancelled; it ends on its
+ * own with the database statement timeout and returns its connection to the pool, and there is at
+ * most one per key at a time.
+ */
+const resolveDisplayClaims = async (
+  slug: string,
+  tenantId: string,
+  otherOrganizationsEmail: string | undefined,
+): Promise<Record<string, string | boolean>> => {
+  const budget = new AbortController();
+  const timer = setTimeout(() => budget.abort(), DISPLAY_CLAIMS_BUDGET_MS);
+  const expired = new Promise<never>((_, reject) =>
+    budget.signal.addEventListener('abort', () => reject(new Error('DISPLAY_CLAIMS_TIMEOUT')), {
+      once: true,
+    }),
+  );
+  expired.catch(() => {});
+  const bounded = <T>(work: () => Promise<T>) =>
+    Promise.race([work(), expired]).catch((error: unknown) => {
+      logProvider('Optional id_token claim skipped: %s', describeError(error));
+      return undefined;
+    });
+
+  try {
+    const [organization, others] = await Promise.all([
+      bounded(() => findSlugEndpoint(slug)),
+      otherOrganizationsEmail
+        ? bounded(() =>
+            hasOtherOrganizations(otherOrganizationsEmail, tenantId, { signal: budget.signal }),
+          )
+        : undefined,
+    ]);
+
+    const claims: Record<string, string | boolean> = {};
+    if (organization?.tenantId === tenantId) {
+      if (organization.name) claims.tenant_name = organization.name;
+      if (organization.slug) claims.tenant_slug = organization.slug;
+    }
+    // `undefined` is "unknown": the client must not read it as "no".
+    if (others !== undefined) claims.has_other_organizations = others;
+    return claims;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+/**
  * Create OIDC Provider instance
  * @param db - Database instance
  * @returns Configured OIDC Provider instance
  */
 export const createOIDCProvider = async (
   db: LobeChatDatabase,
-  { endpoint, tenantId }: Pick<TenantScope, 'endpoint' | 'tenantId'>,
+  { endpoint, slug, tenantId }: Pick<TenantScope, 'endpoint' | 'slug' | 'tenantId'>,
 ): Promise<Provider> => {
   // Routes, cookies and redirects live under the tenant's active entry.
   const tenantPath = (path: string) =>
@@ -265,6 +329,21 @@ export const createOIDCProvider = async (
             if (scope.includes('email')) {
               claims.email = user.email;
               claims.email_verified = !!user.emailVerifiedAt;
+            }
+
+            // Display text for the desktop confirmation card; the id_token is the only carrier,
+            // so neither userinfo nor access tokens expose the organization.
+            if (use === 'id_token') {
+              // The client is read from the live request: claims() is not handed one.
+              const desktop = ctx.oidc?.client?.clientId === DESKTOP_CLIENT_ID;
+              Object.assign(
+                claims,
+                await resolveDisplayClaims(
+                  slug,
+                  tenantId,
+                  desktop ? user.email || undefined : undefined,
+                ),
+              );
             }
 
             logProvider('Returning claims: %s', Object.keys(claims).join(','));
