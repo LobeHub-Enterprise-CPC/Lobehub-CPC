@@ -1,6 +1,7 @@
 import { loadTenantSettings } from '@lobechat/business-config/tenant-settings';
 import type { UserMemoryServiceModelConfigKey, UserServiceModelConfig } from '@lobechat/types';
 
+import type { MemoryAgentConfig } from '@/server/globalConfig/parseMemoryExtractionConfig';
 import { getServerSystemModels } from '@/server/globalConfig/systemModels';
 
 const MEMORY_SERVICE_SLOTS: UserMemoryServiceModelConfigKey[] = [
@@ -48,4 +49,38 @@ export const resolveMemoryServiceModelConfig = async (
   }
 
   return resolved;
+};
+
+const normalizeProvider = (provider: string) => provider.toLowerCase();
+
+/**
+ * Layers one memory service slot of the resolved system agent config over the
+ * extraction config fallback. The extractor and every user-memory embedding
+ * call site share this so vectors are written and queried with the same model.
+ */
+export const resolveUserMemoryAgent = (
+  systemAgent: Partial<UserServiceModelConfig> | undefined,
+  key: UserMemoryServiceModelConfigKey,
+  fallback: MemoryAgentConfig,
+): MemoryAgentConfig => {
+  const override = systemAgent?.[key];
+  const provider = override?.provider || fallback.provider;
+  const shouldInheritCredentials =
+    !override?.provider ||
+    normalizeProvider(override.provider) === normalizeProvider(fallback.provider || 'openai');
+  const contextLimit =
+    typeof override?.contextLimit === 'number' &&
+    Number.isFinite(override.contextLimit) &&
+    override.contextLimit > 0
+      ? Math.floor(override.contextLimit)
+      : fallback.contextLimit;
+
+  return {
+    apiKey: shouldInheritCredentials ? fallback.apiKey : undefined,
+    baseURL: shouldInheritCredentials ? fallback.baseURL : undefined,
+    contextLimit,
+    language: fallback.language,
+    model: override?.model || fallback.model,
+    provider,
+  };
 };

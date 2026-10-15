@@ -14,6 +14,10 @@ const mocks = vi.hoisted(() => ({
     return queries ?? [];
   }),
   recordUserMemoryLexicalSearchDecision: vi.fn(),
+  resolveUserMemoryEmbeddingModel: vi.fn(async () => ({
+    model: 'memory-embedding-model',
+    provider: 'memory-provider',
+  })),
   searchMemory: vi.fn(),
   shouldRunUserMemoryLexicalSearch: vi.fn(),
   updateIdentityEntry: vi.fn(),
@@ -40,6 +44,10 @@ vi.mock('@/server/globalConfig', () => ({
       embeddingModel: { model: 'default-embedding-model', provider: 'default-provider' },
     };
   }),
+}));
+
+vi.mock('@/server/services/memory/userMemory/embeddingModel', () => ({
+  resolveUserMemoryEmbeddingModel: mocks.resolveUserMemoryEmbeddingModel,
 }));
 
 vi.mock('@/server/modules/ModelRuntime', () => ({
@@ -188,8 +196,33 @@ describe('memoryRuntime', () => {
     });
     await runtime.searchUserMemory({ queries: ['renewal timeline'] });
 
-    const expected = ENABLE_BUSINESS_FEATURES ? BRANDING_PROVIDER : undefined;
+    const expected = ENABLE_BUSINESS_FEATURES ? BRANDING_PROVIDER : 'memory-provider';
     expect(mocks.initModelRuntimeFromDB.mock.calls[0][2]).toBe(expected);
+  });
+
+  // Vectors are written with the memory embedding model; the file embedding model
+  // would query a different (or unavailable) model and silently find nothing.
+  it('embeds fallback-path queries with the memory embedding model, not the file one', async () => {
+    mocks.embeddings.mockResolvedValueOnce([[0.1, 0.2, 0.3]]);
+    mocks.initModelRuntimeFromDB.mockResolvedValueOnce({ embeddings: mocks.embeddings });
+    mocks.searchMemory.mockResolvedValueOnce({
+      activities: [],
+      contexts: [],
+      experiences: [],
+      identities: [],
+      preferences: [],
+    });
+
+    const runtime = await memoryRuntime.factory({
+      ...createContext(),
+      memoryEmbeddingRuntime: undefined,
+    });
+    await runtime.searchUserMemory({ queries: ['renewal timeline'] });
+
+    expect(mocks.embeddings).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'memory-embedding-model' }),
+      expect.anything(),
+    );
   });
 
   it('records the lexical decision on the default Gateway memory path', async () => {

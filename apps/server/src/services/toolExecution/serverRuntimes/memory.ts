@@ -4,7 +4,6 @@ import {
   type MemoryRuntimeService,
 } from '@lobechat/builtin-tool-memory/executionRuntime';
 import { BRANDING_PROVIDER, ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
-import { DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM } from '@lobechat/const';
 import type { LobeChatDatabase } from '@lobechat/database';
 import type {
   ActivityMemoryItemSchema,
@@ -41,7 +40,6 @@ import {
   UserMemoryModel,
 } from '@/database/models/userMemory';
 import { userSettings } from '@/database/schemas';
-import { getServerDefaultFilesConfig } from '@/server/globalConfig';
 import {
   initModelRuntimeFromDB,
   initModelRuntimeWithUserPayload,
@@ -55,6 +53,7 @@ import { createFtsSearchRepo } from '@/server/services/ftsSearch';
 import { recordUserMemoryLexicalSearchDecision } from '@/server/services/ftsSearch/observability';
 import type { UserMemoryEmbeddingRuntime } from '@/server/services/memory/userMemory/embedding';
 import { embedUserMemoryTexts } from '@/server/services/memory/userMemory/embedding';
+import { resolveUserMemoryEmbeddingModel } from '@/server/services/memory/userMemory/embeddingModel';
 import {
   normalizeSearchMemoryParams,
   resolveMemorySearchTopK,
@@ -75,9 +74,11 @@ const getEmbeddingRuntime = async (
   userId: string,
   workspaceId?: string,
 ) => {
-  const { provider, model: embeddingModel } =
-    (await getServerDefaultFilesConfig()).embeddingModel ||
-    DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM;
+  // Same model the extractor writes memory vectors with, never the file embedding model.
+  const { provider, model: embeddingModel } = await resolveUserMemoryEmbeddingModel(
+    serverDB,
+    userId,
+  );
 
   const agentRuntime = await initModelRuntimeFromDB(
     serverDB,

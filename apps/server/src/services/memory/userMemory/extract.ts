@@ -102,7 +102,7 @@ import { trimBasedOnBatchProbe } from '@/utils/chunkers';
 import { encodeAsync } from '@/utils/tokenizer';
 import { resolveEmbeddingTokenLimit, trimEmbeddingInput } from '@/utils/tokenizer/embedding';
 
-import { resolveMemoryServiceModelConfig } from './systemAgent';
+import { resolveMemoryServiceModelConfig, resolveUserMemoryAgent } from './systemAgent';
 
 const SOURCE_ALIAS_MAP: Record<string, MemorySourceType> = {
   benchmark_locomo: MemorySourceType.BenchmarkLocomo,
@@ -738,50 +738,20 @@ export class MemoryExtractionExecutor {
     return new MemoryExtractionExecutor(serverConfig, privateConfig);
   }
 
-  private resolveUserMemoryAgent(
-    systemAgent: Partial<UserServiceModelConfig> | undefined,
-    key: keyof Pick<
-      UserServiceModelConfig,
-      'userMemoryEmbedding' | 'memoryAnalysisAgentConfig' | 'userMemoryPersonaWriter'
-    >,
-    fallback: MemoryAgentConfig,
-  ): MemoryAgentConfig {
-    const override = systemAgent?.[key];
-    const provider = override?.provider || fallback.provider;
-    const shouldInheritCredentials =
-      !override?.provider ||
-      normalizeProvider(override.provider) === normalizeProvider(fallback.provider || 'openai');
-    const contextLimit =
-      typeof override?.contextLimit === 'number' &&
-      Number.isFinite(override.contextLimit) &&
-      override.contextLimit > 0
-        ? Math.floor(override.contextLimit)
-        : fallback.contextLimit;
-
-    return {
-      apiKey: shouldInheritCredentials ? fallback.apiKey : undefined,
-      baseURL: shouldInheritCredentials ? fallback.baseURL : undefined,
-      contextLimit,
-      language: fallback.language,
-      model: override?.model || fallback.model,
-      provider,
-    };
-  }
-
   private resolveUserMemoryServiceConfig(
     systemAgent?: Partial<UserServiceModelConfig>,
   ): ResolvedMemoryServiceConfig {
-    const gatekeeper = this.resolveUserMemoryAgent(
+    const gatekeeper = resolveUserMemoryAgent(
       systemAgent,
       'memoryAnalysisAgentConfig',
       this.privateConfig.agentGateKeeper,
     );
-    const layerExtractor = this.resolveUserMemoryAgent(
+    const layerExtractor = resolveUserMemoryAgent(
       systemAgent,
       'memoryAnalysisAgentConfig',
       this.privateConfig.agentLayerExtractor,
     );
-    const embedding = this.resolveUserMemoryAgent(
+    const embedding = resolveUserMemoryAgent(
       systemAgent,
       'userMemoryEmbedding',
       this.privateConfig.embedding,
