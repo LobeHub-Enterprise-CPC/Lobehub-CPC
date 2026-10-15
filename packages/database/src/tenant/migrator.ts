@@ -219,6 +219,13 @@ export interface TenantMigrationContext {
  * {@link registerTenantMigrator}; OSS code never imports them.
  */
 export interface TenantMigrator {
+  /**
+   * Throws unless the chain's migration files can be read from `cwd` (the
+   * process working directory, as the chain resolves them). No database
+   * access: lets a process fail at startup, or in an image smoke check, when
+   * `verify` would otherwise fail for every tenant at runtime.
+   */
+  assertSources?: (cwd: string) => void;
   /** Journal tables the chain keeps in the tenant schema; the runtime role only reads them. */
   journalTables: readonly string[];
   name: string;
@@ -236,6 +243,11 @@ export interface TenantMigrator {
  * Each keeps its own journal, since a journal resumes after its newest entry.
  */
 const OSS_TENANT_MIGRATOR: TenantMigrator = {
+  assertSources: (cwd) => {
+    const folder = resolveTenantMigrationsFolder(cwd);
+    readMigrationFiles({ migrationsFolder: folder });
+    readMigrationFiles({ migrationsFolder: path.join(folder, 'tenant') });
+  },
   journalTables: [TENANT_MIGRATIONS_TABLE, TENANT_ONLY_MIGRATIONS_TABLE],
   name: 'lobehub',
   verify: async (client, { schemaName }, allowPending = false) => {
@@ -292,6 +304,18 @@ export const registerTenantMigrator = (migrator: TenantMigrator) => {
 
 /** Registered chains in run order: OSS first. */
 export const getTenantMigrators = (): readonly TenantMigrator[] => migrators;
+
+/**
+ * Every registered chain's migration files are readable from `cwd`: the
+ * database-free half of what entering a tenant verifies. A worker image that
+ * ships without its chains fails here, not with `TENANT_NOT_READY` per tenant.
+ */
+export const assertTenantMigrationSources = (
+  cwd = process.cwd(),
+  chains: readonly TenantMigrator[] = migrators,
+) => {
+  for (const chain of chains) chain.assertSources?.(cwd);
+};
 
 /** Runs every registered chain for one tenant, in order, as the schema owner. */
 export const migrateTenantSchema = async (client: ClientBase, context: TenantMigrationContext) => {

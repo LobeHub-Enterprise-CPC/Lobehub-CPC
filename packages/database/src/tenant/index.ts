@@ -10,6 +10,7 @@ export type {
   TenantMigrator,
 } from './migrator';
 export {
+  assertTenantMigrationSources,
   getTenantMigrators,
   materializeTenantMigrations,
   materializeTenantStatement,

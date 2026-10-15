@@ -5,6 +5,8 @@
  * migration, including ones canary adds later, inside the tenant schema:
  * a new migration that creates or touches an object elsewhere fails here.
  */
+import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
@@ -15,9 +17,11 @@ import { describe, expect, it } from 'vitest';
 
 import { TenantDatabaseError } from '../errors';
 import {
+  assertTenantMigrationSources,
   getTenantMigrators,
   materializeTenantMigrations,
   materializeTenantStatement,
+  resolveTenantMigrationsFolder,
   TENANT_MIGRATIONS_TABLE,
   TENANT_ONLY_MIGRATIONS_TABLE,
   verifyTenantMigrationHistory,
@@ -315,6 +319,66 @@ describe('migration history verification', () => {
       ).rejects.toMatchObject({ reason: 'migration-history-mismatch' });
     } finally {
       await db.close();
+    }
+  });
+});
+
+describe('tenant migration sources', () => {
+  /** A working directory laid out like the worker image: `<cwd>/migrations`. */
+  const imageLayout = (withChains: boolean) => {
+    const cwd = mkdtempSync(path.join(tmpdir(), 'tenant-migration-sources-'));
+    if (withChains) symlinkSync(migrationsFolder, path.join(cwd, 'migrations'), 'dir');
+    return cwd;
+  };
+
+  it('resolves the shared and tenant-only chains from <cwd>/migrations', () => {
+    const cwd = imageLayout(true);
+    try {
+      expect(resolveTenantMigrationsFolder(cwd)).toBe(path.join(cwd, 'migrations'));
+    } finally {
+      rmSync(cwd, { force: true, recursive: true });
+    }
+  });
+
+  it('accepts a layout where every registered chain can be read', () => {
+    const cwd = imageLayout(true);
+    try {
+      expect(() => assertTenantMigrationSources(cwd)).not.toThrow();
+    } finally {
+      rmSync(cwd, { force: true, recursive: true });
+    }
+  });
+
+  it('refuses a layout without the OSS chains, as every tenant entry would', () => {
+    const cwd = imageLayout(false);
+    try {
+      expect(() => assertTenantMigrationSources(cwd)).toThrow(
+        expect.objectContaining({ code: 'TENANT_NOT_READY', reason: 'migration-failed' }),
+      );
+    } finally {
+      rmSync(cwd, { force: true, recursive: true });
+    }
+  });
+
+  it('asks every registered chain, so a distribution chain cannot go missing', () => {
+    const cwd = imageLayout(true);
+    try {
+      const missing = new Error('Enterprise tenant migrations folder not found');
+      const chain = {
+        assertSources: (received: string) => {
+          expect(received).toBe(cwd);
+          throw missing;
+        },
+        journalTables: [],
+        name: 'distribution',
+        run: async () => {},
+        verify: async () => {},
+      };
+      expect(() => assertTenantMigrationSources(cwd, [...getTenantMigrators(), chain])).toThrow(
+        missing,
+      );
+    } finally {
+      rmSync(cwd, { force: true, recursive: true });
     }
   });
 });
