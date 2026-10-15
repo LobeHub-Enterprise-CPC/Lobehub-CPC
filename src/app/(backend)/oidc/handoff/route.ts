@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 
 import { OAuthHandoffModel } from '@/database/models/oauthHandoff';
 import { serverDB } from '@/database/server';
+import { describeError } from '@/libs/oidc-provider/safe-log';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
 
 const log = debug('lobe-oidc:handoff');
@@ -27,21 +28,21 @@ async function handleGet(request: NextRequest) {
       );
     }
 
-    log('Fetching handoff record - id=%s, client=%s', id, client);
+    log('Fetching handoff record - client=%s', client);
 
     const authHandoffModel = new OAuthHandoffModel(serverDB);
     const result = await authHandoffModel.fetchAndConsume(id, client);
 
     if (!result) {
-      log('Handoff record not found or expired - id=%s', id);
+      log('Handoff record not found or expired');
       return NextResponse.json({ error: 'Handoff record not found or expired' }, { status: 404 });
     }
 
-    log('Handoff record found and consumed - id=%s', id);
+    log('Handoff record found and consumed');
 
     return NextResponse.json({ data: result, success: true });
   } catch (error) {
-    console.error('Error fetching handoff record: %O', error);
+    console.error('Error fetching handoff record: %s', describeError(error));
 
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }

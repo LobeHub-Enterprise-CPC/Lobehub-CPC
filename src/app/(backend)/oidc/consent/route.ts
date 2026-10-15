@@ -3,19 +3,20 @@ import debug from 'debug';
 import { type NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
+import { describeError } from '@/libs/oidc-provider/safe-log';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { OIDCService } from '@/server/services/oidc';
 
 const log = debug('lobe-oidc:consent');
 
 async function handlePost(request: NextRequest) {
-  log('Received POST request for /oidc/consent, URL: %s', request.url);
+  log('Received POST request for /oidc/consent');
   try {
     const formData = await request.formData();
     const consent = formData.get('consent') as string;
     const uid = formData.get('uid') as string;
 
-    log('POST /oauth/consent - uid=%s, choice=%s', uid, consent);
+    log('POST /oauth/consent - choice=%s', consent);
 
     const oidcService = await OIDCService.initialize();
 
@@ -28,10 +29,7 @@ async function handlePost(request: NextRequest) {
         details.params.client_id,
       );
     } catch (error) {
-      log(
-        'Error: Interaction details not found - %s',
-        error instanceof Error ? error.message : 'unknown error',
-      );
+      log('Error: Interaction details not found - %s', describeError(error));
       if (error instanceof Error && error.message.includes('interaction session not found')) {
         return NextResponse.json(
           {
@@ -93,7 +91,7 @@ async function handlePost(request: NextRequest) {
 
         // 4. Save Grant object to get its jti (grantId)
         const newGrantId = await grant.save();
-        log('Saved grant with ID: %s', newGrantId);
+        log('Saved grant');
 
         // 5. Prepare result containing grantId
         result = { consent: { grantId: newGrantId } };
@@ -110,10 +108,7 @@ async function handlePost(request: NextRequest) {
       log('User %s the authorization', consent);
     }
 
-    log('Interaction Result: %O', result);
-
     const internalRedirectUrlString = await oidcService.getInteractionResult(uid, result);
-    log('OIDC Provider internal redirect URL string: %s', internalRedirectUrlString);
 
     // The gateway rewrites Host on the way to the origin, so the server cannot tell which
     // public origin the browser is on. A relative Location keeps it on the origin that holds
@@ -121,10 +116,10 @@ async function handlePost(request: NextRequest) {
     const { pathname, search, hash } = new URL(internalRedirectUrlString);
     const location = `${pathname}${search}${hash}`;
 
-    log('Redirecting to: %s', location);
+    log('Redirecting to the provider resume path');
     return new NextResponse(null, { headers: { location }, status: 303 });
   } catch (error) {
-    console.error('Error processing consent:', error);
+    console.error('Error processing consent: %s', describeError(error));
     return NextResponse.json(
       {
         error: 'server_error',

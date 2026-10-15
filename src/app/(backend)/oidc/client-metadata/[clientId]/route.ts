@@ -4,6 +4,7 @@ import { type NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
 import { authEnv } from '@/envs/auth';
+import { describeError } from '@/libs/oidc-provider/safe-log';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { OIDCService } from '@/server/services/oidc';
 import type { OidcClientMetadata } from '@/types/oidc';
@@ -30,7 +31,7 @@ async function handleGet(_request: NextRequest, props: { params: Promise<{ clien
 
     return NextResponse.json<OidcClientMetadata>(clientMetadata);
   } catch (error) {
-    log('Error resolving client metadata for %s: %O', clientId, error);
+    log('Error resolving client metadata for %s: %s', clientId, describeError(error));
     return new NextResponse(null, { status: 500 });
   }
 }

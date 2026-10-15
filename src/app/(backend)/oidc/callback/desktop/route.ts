@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 
 import { OAuthHandoffModel } from '@/database/models/oauthHandoff';
 import { serverDB } from '@/database/server';
+import { describeError } from '@/libs/oidc-provider/safe-log';
 import { tenantPublicPath } from '@/server/modules/Tenant/callbackUrl';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { after } from '@/server/utils/scheduleAfterResponse';
@@ -17,7 +18,8 @@ const redirectTo = (pathname: string, params?: Record<string, string>) => {
   const location = tenantPublicPath(
     params ? `${pathname}?${new URLSearchParams(params)}` : pathname,
   );
-  log('Redirect target: %s', location);
+  // The error page URL can embed the failure text, so the target is not logged.
+  log('Redirecting to %s', pathname);
   return new NextResponse(null, { headers: { location }, status: 307 });
 };
 
@@ -33,7 +35,7 @@ const handleGet = async (req: NextRequest) => {
       return redirectTo(errorPathname, { reason: 'invalid_request' });
     }
 
-    log('Received OIDC callback. state(handoffId): %s', state);
+    log('Received OIDC callback');
 
     // The 'client' is 'desktop' because this redirect_uri is for the desktop client.
     const client = 'desktop';
@@ -42,7 +44,7 @@ const handleGet = async (req: NextRequest) => {
 
     const authHandoffModel = new OAuthHandoffModel(serverDB);
     await authHandoffModel.create({ client, id, payload });
-    log('Handoff record created successfully for id: %s', id);
+    log('Handoff record created successfully');
 
     // cleanup expired
     after(async () => {
@@ -53,12 +55,10 @@ const handleGet = async (req: NextRequest) => {
 
     return redirectTo('/oauth/callback/success');
   } catch (error) {
-    log('Error in OIDC callback: %O', error);
+    log('Error in OIDC callback: %s', describeError(error));
 
-    return redirectTo(errorPathname, {
-      reason: 'internal_error',
-      ...(error instanceof Error && { errorMessage: error.message }),
-    });
+    // The failure text can embed the stored values (code, handoff id): only a code travels.
+    return redirectTo(errorPathname, { reason: 'internal_error' });
   }
 };
 

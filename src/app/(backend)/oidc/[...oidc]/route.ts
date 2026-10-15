@@ -1,21 +1,21 @@
-import { URL } from 'node:url';
-
 import debug from 'debug';
 import { type NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
 import { authEnv } from '@/envs/auth';
 import { createNodeRequest, createNodeResponse } from '@/libs/oidc-provider/http-adapter';
+import { describeError } from '@/libs/oidc-provider/safe-log';
 import { withTenantPublicRequestUrl } from '@/server/modules/Tenant/callbackUrl';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { getOIDCProvider } from '@/server/services/oidc/oidcProvider';
+import { redactUrlEmail } from '@/server/services/tenantDiscovery/navigation';
 
 const log = debug('lobe-oidc:route'); // Create a debug instance with a namespace
 
 const handler = async (req: NextRequest) => {
-  const requestUrl = new URL(req.url);
-  log(`Received ${req.method.toUpperCase()} request: %s %s`, req.method, req.url);
-  log('Path: %s, Pathname: %s', requestUrl.pathname, requestUrl.pathname);
+  // Queries and authorization paths carry state, code_challenge, codes and tokens.
+  const safeUrl = redactUrlEmail(req.url);
+  log(`Received ${req.method.toUpperCase()} request: %s %s`, req.method, safeUrl);
 
   // Declare the response collector
   let responseCollector;
@@ -38,7 +38,7 @@ const handler = async (req: NextRequest) => {
         middleware = provider.callback();
         log('Successfully obtained middleware function.');
       } catch (syncError) {
-        log('SYNC ERROR during provider.callback() call itself: %O', syncError);
+        log('SYNC ERROR during provider.callback() call itself: %s', describeError(syncError));
         reject(syncError);
         return;
       }
@@ -53,7 +53,7 @@ const handler = async (req: NextRequest) => {
         middleware(nodeRequest, nodeResponse, (error?: Error) => {
           log('Middleware callback function HAS BEEN EXECUTED.');
           if (error) {
-            log('Middleware error reported via callback: %O', error);
+            log('Middleware error reported via callback: %s', describeError(error));
             reject(error);
           } else {
             log(
@@ -79,8 +79,9 @@ const handler = async (req: NextRequest) => {
       responseHeaders: finalHeaders,
     } = responseCollector;
 
+    // Header values (Set-Cookie, Location, Authorization) and the body are credentials.
     log('Final Response Status: %d', finalStatus);
-    log('Final Response Headers: %O', finalHeaders);
+    log('Final Response Header names: %s', Object.keys(finalHeaders).join(','));
 
     return new NextResponse(finalBody, {
       headers: finalHeaders as HeadersInit,
@@ -90,7 +91,8 @@ const handler = async (req: NextRequest) => {
     // Surface the real stack to production logs. A debug `log()` only writes to the
     // `lobe-oidc:route` namespace, which is disabled in production, so 500s otherwise
     // land with no application-layer error signature (monitoring blind spot).
-    console.error(`[OIDC Route] Error handling ${req.method} ${requestUrl.pathname}:`, error);
+    // The error text is not logged: it can embed query parameters or request contents.
+    console.error(`[OIDC Route] Error handling ${req.method} ${safeUrl}: ${describeError(error)}`);
     return new NextResponse(`Internal Server Error: ${(error as Error).message}`, { status: 500 });
   }
 };

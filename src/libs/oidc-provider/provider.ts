@@ -16,6 +16,7 @@ import { DrizzleAdapter } from './adapter';
 import { defaultClaims, defaultClients, defaultScopes } from './config';
 import { getOIDCCookieKeys } from './cookies';
 import { createInteractionPolicy } from './interaction-policy';
+import { describeError } from './safe-log';
 
 const logProvider = debug('lobe-oidc:provider');
 
@@ -232,11 +233,7 @@ export const createOIDCProvider = async (
 
       try {
         const user = await UserModel.findById(db, accountIdToFind);
-        logProvider(
-          'UserModel.findById result for %s: %O',
-          accountIdToFind,
-          user ? { id: user.id, name: user.username } : null,
-        );
+        logProvider('UserModel.findById found a user for %s: %s', accountIdToFind, !!user);
 
         if (!user) {
           logProvider('No user found for accountId: %s', accountIdToFind);
@@ -270,15 +267,15 @@ export const createOIDCProvider = async (
               claims.email_verified = !!user.emailVerifiedAt;
             }
 
-            logProvider('Returning claims: %O', claims);
+            logProvider('Returning claims: %s', Object.keys(claims).join(','));
             return claims;
           },
         };
       } catch (error) {
         if (isBusinessAuthorizationError(error))
           throw Object.assign(error, { statusCode: error.status, expose: true });
-        logProvider('Error finding account or generating claims: %O', error);
-        console.error('Error finding account:', error);
+        logProvider('Error finding account or generating claims: %s', describeError(error));
+        console.error(`Error finding account: ${describeError(error)}`);
         throw Object.assign(new Error('AUTHORIZATION_UNAVAILABLE', { cause: error }), {
           code: 'AUTHORIZATION_UNAVAILABLE',
           status: 503,
@@ -294,7 +291,6 @@ export const createOIDCProvider = async (
       url(ctx, interaction) {
         // ---> Add logs <---
         logProvider('interactions.url function called');
-        logProvider('Interaction details: %O', interaction);
 
         // Read the ui_locales parameter from the OIDC request (space-separated language priorities)
         // https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
@@ -313,7 +309,7 @@ export const createOIDCProvider = async (
         }
 
         const interactionUrl = tenantPath(`/oauth/consent/${interaction.uid}${query}`);
-        logProvider('Generated interaction URL: %s', interactionUrl);
+        logProvider('Generated interaction URL');
         // ---> End of added logs <---
         return interactionUrl;
       },
@@ -333,7 +329,7 @@ export const createOIDCProvider = async (
     // on a dedicated page instead of a raw JSON dump. Only the spec-defined
     // `error` and `error_description` travel along; `state` stays behind.
     renderError: async (ctx, out, error) => {
-      logProvider('renderError: %O', error);
+      logProvider('renderError: %s', describeError(error));
 
       const params = new URLSearchParams();
       if (out.error) params.set('error', String(out.error));
@@ -367,8 +363,8 @@ export const createOIDCProvider = async (
   provider.proxy = true;
 
   provider.on('server_error', (ctx, err) => {
-    logProvider('OIDC Provider Server Error: %O', err); // Use logProvider
-    console.error('OIDC Provider Error:', err);
+    logProvider('OIDC Provider Server Error: %s', describeError(err)); // Use logProvider
+    console.error(`OIDC Provider Error: ${describeError(err)}`);
   });
 
   provider.on('authorization.success', (ctx) => {
@@ -402,12 +398,11 @@ export const createOIDCProvider = async (
     );
   });
 
-  provider.on('grant.revoked', (ctx, grantId) => {
+  provider.on('grant.revoked', (ctx) => {
     console.warn(
       '[OIDC] grant revoked',
       JSON.stringify({
         clientId: ctx.oidc?.client?.clientId,
-        grantId,
         grantType: ctx.oidc?.params?.grant_type,
       }),
     );

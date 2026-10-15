@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm';
 import { defaultClients } from '@/libs/oidc-provider/config';
 import { createContextForInteractionDetails } from '@/libs/oidc-provider/http-adapter';
 import { type OIDCProvider } from '@/libs/oidc-provider/provider';
+import { describeError } from '@/libs/oidc-provider/safe-log';
 
 import { getOIDCProvider } from './oidcProvider';
 
@@ -54,15 +55,14 @@ export class OIDCService {
     if (existingGrantId) {
       // If a previous interaction step already associated a Grant
       grant = await this.provider.Grant.find(existingGrantId);
-      log('Found existing grantId: %s', existingGrantId);
+      log('Looked up the existing grant: %s', grant ? 'found' : 'missing');
       if (grant) {
         const accountMismatch = grant.accountId && grant.accountId !== accountId;
         const clientMismatch = grant.clientId && grant.clientId !== clientId;
 
         if (accountMismatch || clientMismatch) {
           log(
-            'Discarding stale grant %s due to mismatch (stored account=%s, client=%s; expected account=%s, client=%s)',
-            existingGrantId,
+            'Discarding stale grant due to mismatch (stored account=%s, client=%s; expected account=%s, client=%s)',
             grant.accountId,
             grant.clientId,
             accountId,
@@ -70,14 +70,14 @@ export class OIDCService {
           );
           try {
             await grant.destroy();
-            log('Destroyed mismatched grant: %s', existingGrantId);
+            log('Destroyed mismatched grant');
           } catch (error) {
-            log('Failed to destroy mismatched grant %s: %O', existingGrantId, error);
+            log('Failed to destroy mismatched grant: %s', describeError(error));
           }
           grant = undefined;
         }
       } else {
-        log('Existing grantId %s not found in storage, will create a new grant', existingGrantId);
+        log('Existing grant not found in storage, will create a new grant');
       }
     }
 

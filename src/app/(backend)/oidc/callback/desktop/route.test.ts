@@ -58,6 +58,21 @@ describe('GET /oidc/callback/desktop', () => {
     });
   });
 
+  it('does not put the failure text in the error page address', async () => {
+    mocks.create.mockRejectedValue(
+      new Error('insert into oauth_handoffs params: SENTINEL_HANDOFF, SENTINEL_CODE'),
+    );
+
+    const response = await GET(createRequest('?code=SENTINEL_CODE&state=SENTINEL_HANDOFF'));
+
+    expect(response.status).toBe(307);
+    const location = new URL(response.headers.get('location')!, 'https://example.com');
+    expect(location.pathname).toBe('/t/acme/oauth/callback/error');
+    expect(location.searchParams.get('reason')).toBe('internal_error');
+    expect(location.search).not.toContain('SENTINEL');
+    expect(location.searchParams.has('errorMessage')).toBe(false);
+  });
+
   it('redirects to the error page under the tenant entry when params are missing', async () => {
     const response = await GET(createRequest(''));
 

@@ -4,6 +4,8 @@ import debug from 'debug';
 import { authEnv } from '@/envs/auth';
 import { isBoundToCurrentTenant } from '@/libs/trpc/utils/tenantBinding';
 
+import { describeError } from './safe-log';
+
 const log = debug('oidc-jwt');
 
 /**
@@ -44,7 +46,7 @@ export const getJWKS = (): object => {
 
     return jwks;
   } catch (error) {
-    console.error('Failed to parse JWKS:', error);
+    console.error('Failed to parse JWKS: %s', describeError(error));
     throw new Error(`JWKS_KEY parse error: ${(error as Error).message}`, { cause: error });
   }
 };
@@ -89,7 +91,7 @@ const getVerificationKey = async () => {
     // Now, in any environment, `importJWK` will correctly identify this object as a public key.
     return await importJWK(publicKeyJwk, 'RS256');
   } catch (error) {
-    log('Failed to get JWKS public key: %O', error);
+    log('Failed to get JWKS public key: %s', describeError(error));
     throw new Error(`JWKS_KEY public key retrieval failed: ${(error as Error).message}`, {
       cause: error,
     });
@@ -122,7 +124,8 @@ export const validateOIDCJWT = async (token: string) => {
       algorithms: ['RS256'],
     });
 
-    log('JWT validation successful, payload: %O', payload);
+    // Claims (jti, email, scope) are not logged.
+    log('JWT validation successful');
 
     const userId = payload.sub;
     const clientId = payload.client_id;
@@ -162,7 +165,7 @@ export const validateOIDCJWT = async (token: string) => {
       throw error;
     }
 
-    log('JWT validation failed: %O', error);
+    log('JWT validation failed: %s', describeError(error));
 
     // Preserve the original jose error via `cause` so upstream middleware
     // can still inspect specific codes like `ERR_JWT_EXPIRED`.

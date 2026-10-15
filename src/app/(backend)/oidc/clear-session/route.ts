@@ -4,6 +4,7 @@ import debug from 'debug';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
+import { describeError } from '@/libs/oidc-provider/safe-log';
 import type { OIDCSessionCookieContext } from '@/libs/oidc-provider/session-cleanup';
 import { clearCurrentOIDCSession } from '@/libs/oidc-provider/session-cleanup';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
@@ -45,7 +46,7 @@ async function handlePost() {
     log('OIDC session cleanup completed: cleared=%s', cleared);
     return response;
   } catch (error) {
-    log('Error clearing OIDC session: %O', error);
+    log('Error clearing OIDC session: %s', describeError(error));
     // Non-fatal — don't block the sign-out flow
     return NextResponse.json({ ok: true, cleared: false, error: 'internal' });
   }
