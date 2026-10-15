@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import {
   type CheckMcpInstallResult,
   type CustomPluginMetadata,
@@ -20,12 +22,20 @@ import {
   type StdioMCPParams,
 } from '@/libs/mcp';
 import { MCPClient } from '@/libs/mcp';
+import {
+  redactMcpText,
+  sanitizeErrorForMcp,
+  sanitizeMcpParamsForLogging,
+} from '@/libs/mcp/sanitize';
 
 import { type ProcessContentBlocksFn } from './contentProcessor';
 import { contentBlocksToString } from './contentProcessor';
 import { mcpSystemDepsCheckService } from './deps';
 
 const log = debug('lobe-mcp:service');
+
+const fingerprint = (value: string) =>
+  createHash('sha256').update(value).digest('hex').slice(0, 12);
 
 /**
  * MCP Tool call raw result type
@@ -81,13 +91,6 @@ export class MCPService {
     return { content, state, success: true };
   }
 
-  private sanitizeForLogging = <T extends Record<string, any>>(obj: T): Omit<T, 'env'> => {
-    if (!obj) return obj;
-
-    const { env: _, ...rest } = obj;
-    return rest as Omit<T, 'env'>;
-  };
-
   /**
    * Run an MCP operation with automatic session re-establishment.
    *
@@ -103,7 +106,7 @@ export class MCPService {
     operationName: string,
     operation: (client: MCPClient) => Promise<T>,
   ): Promise<T> {
-    const loggableParams = this.sanitizeForLogging(params);
+    const loggableParams = sanitizeMcpParamsForLogging(params);
 
     return retry(
       async (bail, attemptNumber) => {
@@ -121,14 +124,22 @@ export class MCPService {
         } catch (error) {
           // Only retry for NoValidSessionId errors
           if ((error as Error).message !== 'NoValidSessionId') {
-            console.error(`Error ${operationName} for params %O:`, loggableParams, error);
+            // Errors echo request URLs / headers / tokens (e.g. "request to
+            // https://host/mcp?apikey=... failed"). Log and rethrow only a
+            // sanitized copy; it also reaches the API response.
+            const safeError = sanitizeErrorForMcp(error, params);
+            console.error(`Error ${operationName} for params %O:`, loggableParams, safeError);
             bail(
               error instanceof TRPCError
-                ? error
+                ? new TRPCError({
+                    cause: error.cause ? sanitizeErrorForMcp(error.cause, params) : undefined,
+                    code: error.code,
+                    message: safeError.message,
+                  })
                 : new TRPCError({
-                    cause: error,
+                    cause: safeError,
                     code: 'INTERNAL_SERVER_ERROR',
-                    message: `Error ${operationName} from MCP server: ${(error as Error).message}`,
+                    message: `Error ${operationName} from MCP server: ${safeError.message}`,
                   }),
             );
             // After bail() the promise is already rejected; return (do NOT throw)
@@ -225,11 +236,13 @@ export class MCPService {
         if (error instanceof McpError) {
           const mcpError = error as McpError;
 
+          const message = redactMcpText(mcpError.message, clientParams);
+
           return {
-            content: mcpError.message,
-            error,
+            content: message,
+            error: sanitizeErrorForMcp(error, clientParams),
             state: {
-              content: [{ text: mcpError.message, type: 'text' }],
+              content: [{ text: message, type: 'text' }],
               isError: true,
             },
             success: false,
@@ -259,17 +272,21 @@ export class MCPService {
         },
       }); // Initialization logic should be within MCPClient
       this.clients.set(key, client);
-      log(`New client initialized and cached for key: ${key.slice(0, 20)}`);
+      // The key embeds raw credentials; log only an irreversible fingerprint.
+      log(`New client initialized and cached, key fingerprint: ${fingerprint(key)}`);
       return client;
     } catch (error) {
-      console.error(`Failed to initialize MCP client:`, error);
+      // Initialization errors echo the target URL (userinfo / query-string keys)
+      // and sometimes header values; sanitize before logging or rethrowing.
+      const safeError = sanitizeErrorForMcp(error, params);
+      console.error(`Failed to initialize MCP client:`, safeError);
 
       // Preserve complete error information, especially detailed stderr output
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = safeError.message;
 
       if (typeof error === 'object' && !!error && 'data' in error) {
         throw new TRPCError({
-          cause: error,
+          cause: safeError,
           code: 'SERVICE_UNAVAILABLE',
           message: errorMessage,
         });
@@ -278,19 +295,22 @@ export class MCPService {
       // Log detailed error information for debugging
       log('Detailed initialization error: %O', {
         error: errorMessage,
-        params: this.sanitizeForLogging(params),
-        stack: error instanceof Error ? error.stack : undefined,
+        params: sanitizeMcpParamsForLogging(params),
+        stack: safeError.stack,
       });
 
       throw new TRPCError({
-        cause: error,
+        cause: safeError,
         code: 'INTERNAL_SERVER_ERROR',
         message: errorMessage, // Use complete error message directly
       });
     }
   }
 
-  // Custom serialization function to ensure consistent keys
+  // Cache key for a client: the full params, serialized deterministically.
+  // Object keys are sorted at every depth (env / headers / auth key order is not
+  // semantic); arrays keep their order (argument order IS semantic, so `args`
+  // must never be sorted or dropped, or distinct servers would share a client).
   private serializeParams(params: MCPClientParams): string {
     const sortedKeys = Object.keys(params).sort();
     const sortedParams: Record<string, any> = {};
@@ -398,7 +418,7 @@ export class MCPService {
   }): Promise<CheckMcpInstallResult> {
     try {
       const loggableInput = {
-        deploymentOptions: input.deploymentOptions.map((o) => this.sanitizeForLogging(o)),
+        deploymentOptions: input.deploymentOptions.map((o) => sanitizeMcpParamsForLogging(o)),
       };
       log('Checking MCP plugin installation status: %O', loggableInput);
       const results = [];

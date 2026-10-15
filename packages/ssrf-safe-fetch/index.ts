@@ -4,6 +4,10 @@ import fetch from 'node-fetch';
 import type { RequestFilteringAgentOptions } from 'request-filtering-agent';
 import { RequestFilteringHttpAgent, RequestFilteringHttpsAgent } from 'request-filtering-agent';
 
+import { redactUrlsInText, sanitizeErrorForLogging } from './redact';
+
+export * from './redact';
+
 /**
  * Options for per-call SSRF configuration overrides
  */
@@ -139,21 +143,27 @@ export const ssrfSafeFetch = async (
       statusText: response.statusText,
     });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    // The failed request's URL (userinfo, query-string API keys) is echoed in the
+    // error message and cause chain, and both end up in logs and API responses.
+    // Only ever log / rethrow a sanitized copy.
+    const safeError = sanitizeErrorForLogging(error);
+    const errorMessage = redactUrlsInText(error instanceof Error ? error.message : String(error));
     // request-filtering-agent errors contain "is not allowed" when blocking private/denied IPs
     const isSSRFBlock = errorMessage.includes('is not allowed');
 
     if (isSSRFBlock) {
-      console.error('SSRF protection blocked request:', error);
+      console.error('SSRF protection blocked request:', safeError);
       throw new Error(
         `SSRF blocked: ${errorMessage}. ` +
           'See: https://lobehub.com/docs/self-hosting/environment-variables/basic#ssrf-allow-private-ip-address',
-        { cause: error },
+        // eslint-disable-next-line preserve-caught-error -- the cause is the sanitized copy on purpose
+        { cause: safeError },
       );
     }
 
-    console.error('Fetch error:', error);
-    throw new Error(`Fetch failed: ${errorMessage}`, { cause: error });
+    console.error('Fetch error:', safeError);
+    // eslint-disable-next-line preserve-caught-error -- the cause is the sanitized copy on purpose
+    throw new Error(`Fetch failed: ${errorMessage}`, { cause: safeError });
   }
 };
 

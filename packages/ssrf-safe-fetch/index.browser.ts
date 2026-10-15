@@ -4,6 +4,8 @@
  * as SSRF attacks are not applicable in client-side code
  */
 
+export * from './redact';
+
 /**
  * Options for per-call SSRF configuration overrides
  * (ignored in browser - kept for API parity with server version)

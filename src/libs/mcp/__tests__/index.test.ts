@@ -164,8 +164,10 @@ describe('MCPClient', () => {
           const errorLog: string = thrown?.data?.metadata?.errorLog ?? '';
           // the child env dumped to stderr must not contain the server secret
           expect(errorLog).not.toContain(SECRET_VALUE);
-          // sanity: user-configured env vars are still forwarded to the subprocess
-          expect(errorLog).toContain(ALLOWED_VALUE);
+          // sanity: user-configured env vars are still forwarded to the subprocess;
+          // their values are user-supplied secrets, so the surfaced stderr masks them
+          expect(errorLog).toContain(`${ALLOWED_KEY}=`);
+          expect(errorLog).not.toContain(ALLOWED_VALUE);
         } finally {
           delete process.env[SECRET_KEY];
         }
