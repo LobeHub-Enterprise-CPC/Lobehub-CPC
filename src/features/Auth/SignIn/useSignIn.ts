@@ -7,6 +7,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 import type { CheckUserResponseData } from '@/app/(backend)/api/auth/check-user/route';
 import type { ResolveUsernameResponseData } from '@/app/(backend)/api/auth/resolve-username/route';
 import { useBusinessSignin } from '@/business/client/hooks/useBusinessSignin';
+import { useDesktopAuthContext } from '@/features/Auth/desktopAuth';
 import {
   isTenantUnavailableCode,
   isTenantUnavailableResponse,
@@ -51,6 +52,7 @@ export const useSignIn = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const sessionExpired = searchParams.get('reason') === 'sessionExpired';
+  const desktopAuth = useDesktopAuthContext(searchParams.get('callbackUrl'));
   const enableMagicLink = useAuthServerConfigStore((s) => s.serverConfig.enableMagicLink || false);
   const disableEmailPassword = useAuthServerConfigStore(
     (s) => s.serverConfig.disableEmailPassword || false,
@@ -76,6 +78,11 @@ export const useSignIn = () => {
   // slow network can't be double-clicked into multiple emails.
   const [sending, setSending] = useState(false);
   const [socialLoading, setSocialLoading] = useState<string | null>(null);
+  // Set after mount so the stored terms acceptance (read in an effect) has settled with it.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const continueButtonRef = useRef<HTMLButtonElement | HTMLAnchorElement>(null);
+  const prefillHandled = useRef(false);
   const bridgeAttempt = useRef<ReturnType<typeof beginBridgeLogin> | null>(null);
   useEffect(() => () => bridgeAttempt.current?.cancel(), []);
   const [step, setStep] = useState<Step>('email');
@@ -185,7 +192,7 @@ export const useSignIn = () => {
     }
   };
 
-  const handleCheckUser = async (values: Pick<SignInFormValues, 'email'>) => {
+  const checkUser = async (values: Pick<SignInFormValues, 'email'>) => {
     if (disableEmailPassword && !enableMagicLink) return;
     setLoading(true);
     await trackLoginOrSignupClicked({ spm: 'signin.email_step.submit' });
@@ -250,6 +257,13 @@ export const useSignIn = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Every submission goes through here, and the first one retires the prefill's own
+  // auto-continue: whatever the user submitted is what they meant, not the URL's email.
+  const handleCheckUser = (values: Pick<SignInFormValues, 'email'>) => {
+    prefillHandled.current = true;
+    return checkUser(values);
   };
 
   const handleSignIn = async (values: Pick<SignInFormValues, 'password'>) => {
@@ -493,9 +507,44 @@ export const useSignIn = () => {
       })
     : resolvedProviders;
 
+  // A prefilled email (arriving from the organization lookup) carries on by itself, once.
+  // Where SSO is offered the user still has a choice to make, so it only hands them the
+  // button; where the terms were not accepted on this origin the click has to be theirs.
+  const emailParam = searchParams.get('email')?.trim() ?? '';
+  const emailSignInEnabled = !disableEmailPassword || enableMagicLink;
+  const prefillSettled = mounted && ssoLoaded && !ssoError && !tenantUnavailable;
+  const checkUserRef = useRef(checkUser);
+  checkUserRef.current = checkUser;
+
+  useEffect(() => {
+    if (prefillHandled.current || !prefillSettled || !emailSignInEnabled) return;
+    if (step !== 'email' || !EMAIL_REGEX.test(emailParam)) return;
+    prefillHandled.current = true;
+
+    // The field is editable while the SSO configuration loads. Carry on only with what it
+    // still holds: an edited address is the user's, and is theirs to submit.
+    if (String(form.getValue('email') ?? '').trim() !== emailParam) return;
+
+    if (resolvedProviders.length > 0 || !agreementChecked) {
+      continueButtonRef.current?.focus();
+      return;
+    }
+    void checkUserRef.current({ email: emailParam });
+  }, [
+    agreementChecked,
+    emailParam,
+    emailSignInEnabled,
+    form,
+    prefillSettled,
+    resolvedProviders.length,
+    step,
+  ]);
+
   return {
     agreementChecked,
+    continueButtonRef,
     continueWithAgreement,
+    desktopAuth,
     disableEmailPassword,
     email,
     enableMagicLink,

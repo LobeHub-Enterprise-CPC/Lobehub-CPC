@@ -128,6 +128,8 @@ export interface TenantDatabaseExecutor {
    * beyond the extension schemas, no public table access, DML but no CREATE.
    */
   verify: (ctx: { bundle: DatasourceBundle; tenantId: string }) => Promise<void>;
+  /** Lookup readiness is certified only at provision, upgrade and actual recovery. */
+  verifyDiscovery: (ctx: { bundle: DatasourceBundle; tenantId: string }) => Promise<void>;
 }
 
 /** The code a failed step reports (FR-CP-04 step table). */
@@ -434,7 +436,7 @@ export class TenantControlPlaneService {
               schemaName: ctx.bundle.schemaName,
               schemaVersion: ctx.bundle.schemaVersion,
               slug: ctx.slug,
-              status: 'active',
+              status: 'provisioning',
               tenantId: ctx.tenantId,
             },
             ctx.bundle,
@@ -442,7 +444,18 @@ export class TenantControlPlaneService {
         });
       }
       case 'verify': {
-        return db.verify({ bundle: ctx.bundle, tenantId: ctx.tenantId });
+        await db.verify({ bundle: ctx.bundle, tenantId: ctx.tenantId });
+        await db.verifyDiscovery({ bundle: ctx.bundle, tenantId: ctx.tenantId });
+        return this.repository.transaction(ctx.tenantId, async (tx) => {
+          const operation = await tx.getOperation(ctx.operationId);
+          if (operation?.leaseToken !== leaseToken || operation.status !== 'applying')
+            throw new Error('PROVISION_LEASE_LOST');
+          const directory = await tx.getDirectory(ctx.tenantId);
+          if (!directory) throw new Error('DIRECTORY_NOT_READY');
+          if (directory.record.credentialBundleVersion !== ctx.bundle.credentialBundleVersion)
+            throw new Error('PROVISION_VERSION_CHANGED');
+          await tx.putDirectory({ ...directory.record, status: 'active' }, directory.bundle);
+        });
       }
     }
   }
@@ -670,6 +683,20 @@ export class TenantControlPlaneService {
           open.observedAt = observedAt;
           await tx.putEvent(open);
         }
+        // Receipt stays free of owner IO. Only a real recovery closes directory readiness
+        // until execution repairs grants; initial activation and active renewals do not migrate.
+        if (
+          lifecycle.acceptedVersion > 0 &&
+          effectiveTenantState(lifecycle, this.now()).state !== 'active' &&
+          effectiveTenantState(request, this.now()).state === 'active'
+        ) {
+          const directory = await tx.getDirectory(request.tenantId);
+          if (directory?.record.status === 'active')
+            await tx.putDirectory(
+              { ...directory.record, status: 'provisioning' },
+              directory.bundle,
+            );
+        }
         // Accepting and taking effect at the gate are one step: from this
         // commit on, admission sees the new desired state (FR-ID-07).
         lifecycle.acceptedVersion = request.version;
@@ -743,23 +770,30 @@ export class TenantControlPlaneService {
       if (!event || !lifecycle || event.tenantId !== tenantId)
         throw new ControlPlaneError(404, 'NOT_FOUND');
       if (event.status === 'applied' || event.status === 'superseded')
-        return { event, lifecycle, run: false };
+        return { event, lifecycle, run: false, recovery: null };
       if (event.version !== lifecycle.acceptedVersion) {
         await this.finishEvent(tx, event, 'superseded', null);
-        return { event, lifecycle, run: false };
+        return { event, lifecycle, run: false, recovery: null };
       }
       if (
         event.status === 'applying' &&
         event.leaseUntil &&
         Date.parse(event.leaseUntil) > this.now().getTime()
       )
-        return { event, lifecycle, run: false };
+        return { event, lifecycle, run: false, recovery: null };
+      let recovery: Awaited<ReturnType<ControlPlaneTx['getDirectory']>> = null;
       if (event.request.desiredState === 'active') {
         const ready = (await tx.listOperations(tenantId)).some((op) => op.status === 'applied');
-        if (!ready) {
+        const directory = await tx.getDirectory(tenantId);
+        if (!ready || !directory) {
           await this.finishEvent(tx, event, 'failed', 'TENANT_NOT_READY');
-          return { event, lifecycle, run: false };
+          return { event, lifecycle, run: false, recovery: null };
         }
+        if (
+          directory.record.status === 'provisioning' &&
+          effectiveTenantState(event.request, this.now()).state === 'active'
+        )
+          recovery = directory;
       }
       event.status = 'applying';
       event.attempts += 1;
@@ -768,7 +802,7 @@ export class TenantControlPlaneService {
       event.errorCode = null;
       event.observedAt = this.now().toISOString();
       await tx.putEvent(event);
-      return { event, lifecycle, run: true };
+      return { event, lifecycle, run: true, recovery };
     });
     if (!claimed.run) return this.toLifecycleResult(claimed.event, claimed.lifecycle);
     const token = claimed.event.leaseToken!;
@@ -786,6 +820,48 @@ export class TenantControlPlaneService {
           [hooks.invalidateCaches, 'LIFECYCLE_FAILED'],
           [hooks.resumeQueue, 'LIFECYCLE_RESUME_FAILED'],
         ];
+
+    if (!closing && claimed.recovery) {
+      const recovery = claimed.recovery;
+      phases.unshift([
+        async () => {
+          const ctx: ProvisionStepContext = {
+            bundle: recovery.bundle,
+            name: recovery.record.name,
+            slug: recovery.record.slug,
+            operationId: `restore:${eventId}`,
+            tenantId,
+          };
+          await this.options.database.migrate(ctx);
+          await this.options.database.verify({ bundle: ctx.bundle, tenantId });
+          await this.options.database.verifyDiscovery({ bundle: ctx.bundle, tenantId });
+          await this.repository.transaction(tenantId, async (tx) => {
+            const event = await tx.getEvent(eventId);
+            const lifecycle = await tx.getLifecycle(tenantId);
+            const directory = await tx.getDirectory(tenantId);
+            if (
+              !event ||
+              !lifecycle ||
+              event.leaseToken !== token ||
+              event.status !== 'applying' ||
+              event.version !== lifecycle.acceptedVersion ||
+              !event.leaseUntil ||
+              Date.parse(event.leaseUntil) <= this.now().getTime() ||
+              !directory ||
+              directory.record.status !== 'provisioning' ||
+              directory.record.connectionVersion !== recovery.record.connectionVersion ||
+              directory.record.credentialBundleVersion !==
+                recovery.record.credentialBundleVersion ||
+              directory.record.schemaName !== recovery.record.schemaName
+            )
+              throw new LifecycleFailure('LIFECYCLE_FAILED');
+            // Live resource reopen uses runtime admission, so publish after all checks and before hooks.
+            await tx.putDirectory({ ...directory.record, status: 'active' }, directory.bundle);
+          });
+        },
+        'LIFECYCLE_RESUME_FAILED',
+      ]);
+    }
 
     for (const [phase, failureCode] of phases) {
       const stale = await this.supersedeIfStale(tenantId, eventId, token);

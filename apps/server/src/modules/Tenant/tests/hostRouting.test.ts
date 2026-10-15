@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { resolveTenantRoute } from '@/libs/next/proxy/tenantRouting';
+
 import { resolveHostTenantRoute } from '../hostRouting';
 
 const custom = {
@@ -152,5 +154,39 @@ describe('trusted host routing', () => {
       slug: 'nope',
       fallback: { kind: 'reject', code: 'TENANT_REQUIRED', status: 400 },
     });
+  });
+});
+
+describe('discovery deployment boundary', () => {
+  it.each([
+    '/api/tenant-discovery',
+    '/api/tenant-discovery/select',
+    '/api/tenant-discovery/desktop-handoff',
+  ])('serves %s only on the default host without a tenant prefix', async (path) => {
+    expect(resolveTenantRoute(new URL(`https://app.example.com${path}`))).toEqual({
+      kind: 'tenantless-backend',
+    });
+    for (const slug of ['beta', 'nope'])
+      expect(resolveTenantRoute(new URL(`https://app.example.com/t/${slug}${path}`))).toEqual({
+        kind: 'reject',
+        code: 'NOT_FOUND',
+        status: 404,
+      });
+    expect(await route(`https://app.example.com${path}`, 'POST')).toEqual({
+      kind: 'tenantless-backend',
+    });
+    for (const prefix of [
+      'http://internal:3010',
+      'https://chat.example.com',
+      'https://old.example.com',
+      'https://app.example.com/t/beta',
+      'https://app.example.com/t/nope',
+      'https://app.example.com/t/INVALID',
+      'https://app.example.com/t/',
+    ])
+      expect(await route(`${prefix}${path}`, 'POST')).toMatchObject({
+        kind: 'reject',
+        status: 404,
+      });
   });
 });

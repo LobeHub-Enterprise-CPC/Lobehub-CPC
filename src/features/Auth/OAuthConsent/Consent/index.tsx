@@ -1,7 +1,7 @@
 'use client';
 
 import { Block, Flexbox } from '@lobehub/ui';
-import { Button, Text } from '@lobehub/ui/base-ui';
+import { Alert, Button, Text } from '@lobehub/ui/base-ui';
 import React, { memo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useHref } from 'react-router';
@@ -9,6 +9,8 @@ import { useHref } from 'react-router';
 import AuthCard from '@/features/AuthCard';
 import type { OidcClientMetadata } from '@/types/oidc';
 
+import { isDesktopClientId } from '../../desktopAuth';
+import { isAutoApprovedClient } from '../consentPolicy';
 import OAuthApplicationLogo from '../OAuthApplicationLogo';
 import ThirdPartyNotice from '../ThirdPartyNotice';
 import BuiltinConsent from './BuiltinConsent';
@@ -28,10 +30,8 @@ function getScopeDescription(scope: string, t: any): string {
   return t(`consent.scope.${scope.replace(':', '-')}`, scope);
 }
 
-const BUILTIN_CLIENTS = new Set(['lobehub-desktop', 'lobehub-mobile', 'lobehub-market']);
-
 const ConsentClient = memo<ClientProps>(({ uid, clientId, scopes, clientMetadata }) => {
-  const { t } = useTranslation('oauth');
+  const { t } = useTranslation(['oauth', 'auth']);
   const action = useHref('/oidc/consent');
 
   const [isLoading, setIsLoading] = useState(false);
@@ -39,7 +39,7 @@ const ConsentClient = memo<ClientProps>(({ uid, clientId, scopes, clientMetadata
 
   const clientDisplayName = clientMetadata?.clientName || clientId;
 
-  if (BUILTIN_CLIENTS.has(clientId)) {
+  if (isAutoApprovedClient(clientId)) {
     return <BuiltinConsent uid={uid} />;
   }
 
@@ -86,6 +86,14 @@ const ConsentClient = memo<ClientProps>(({ uid, clientId, scopes, clientMetadata
           </form>
         }
       >
+        {isDesktopClientId(clientId) && (
+          <Flexbox gap={8} style={{ marginBottom: 16 }}>
+            <Alert showIcon description={t('consent.desktop.notice')} type={'warning'} />
+            <Text fontSize={13} type={'secondary'}>
+              {t('auth:organization.desktop.switchHint')}
+            </Text>
+          </Flexbox>
+        )}
         {clientMetadata.isFirstParty === false && (
           <Flexbox style={{ marginBottom: 16 }}>
             <ThirdPartyNotice

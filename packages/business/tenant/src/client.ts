@@ -21,7 +21,8 @@ interface TenantState {
   tenant: TenantContext | null;
 }
 
-// Document-local state: never persist a shared "current tenant" in cookies or localStorage.
+// Document-local identity comes only from the URL and trusted same-origin bootstrap.
+// The last-organization cookie is a navigation preference and never selects this context.
 const tenantStore = createStore<TenantState>(() => ({ remoteAddress: undefined, tenant: null }));
 
 /** Called by each browser entry before routing or issuing requests. */
@@ -35,8 +36,8 @@ export const getTenant = (): TenantContext | null => tenantStore.getState().tena
  * Prefix an absolute app path with the current document's tenant.
  *
  * The router basename already does this for in-SPA navigation; a full-page load
- * (`location.href = …`, `window.open`) bypasses it and a bare `/agent` lands on
- * the "use your organization address" page. Without a tenant (desktop, unscoped
+ * (`location.href = …`, `window.open`) bypasses it and a bare `/agent` returns to
+ * the deployment root to select an organization. Without a tenant (desktop, unscoped
  * document) the path is returned unchanged.
  */
 export const withCurrentTenantPath = (path: string): string => {

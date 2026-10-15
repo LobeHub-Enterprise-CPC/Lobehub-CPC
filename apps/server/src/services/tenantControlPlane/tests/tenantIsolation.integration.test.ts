@@ -35,6 +35,7 @@ import { TenantClaims } from '@/server/modules/Tenant/claims';
 import { tenantGateErrorOf } from '@/server/modules/Tenant/errors';
 import { TENANT_ADMISSION_TTL_MS, TenantRuntime } from '@/server/modules/Tenant/runtime';
 
+import { ACCOUNT_LOOKUP_ROLE } from '../../tenantDiscovery/permissions';
 import type { DatasourceBundle } from '../contracts';
 import { PostgresTenantDatabaseExecutor } from '../postgresExecutor';
 import { PostgresControlPlaneRepository } from '../postgresRepository';
@@ -75,9 +76,9 @@ const fixtureChain = () => {
   mkdirSync(path.join(folder, 'meta'));
   writeFileSync(
     path.join(folder, '0000_base.sql'),
-    [`CREATE TABLE "public"."users" ("id" text PRIMARY KEY NOT NULL, "email" text);`].join(
-      '--> statement-breakpoint\n',
-    ),
+    [
+      `CREATE TABLE "public"."users" ("id" text PRIMARY KEY NOT NULL, "email" text, "banned" boolean, "ban_expires" timestamptz);`,
+    ].join('--> statement-breakpoint\n'),
   );
   writeFileSync(
     path.join(folder, '0001_notes.sql'),
@@ -109,6 +110,7 @@ const dbUrl = (base: string, database: string, user?: string, password?: string)
 
 suite('tenant isolation on PostgreSQL', () => {
   let admin: Client;
+  let createdLookupRole = false;
   let platformPool: Pool;
   let runtime: TenantRuntime;
   let service: TenantControlPlaneService;
@@ -144,6 +146,20 @@ suite('tenant isolation on PostgreSQL', () => {
       await admin.query(`REVOKE ALL ON SCHEMA "${nspname}" FROM PUBLIC`);
     await admin.query(`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM PUBLIC`);
 
+    const lookup = await admin.query('SELECT 1 FROM pg_roles WHERE rolname=$1', [
+      ACCOUNT_LOOKUP_ROLE,
+    ]);
+    if (!lookup.rowCount) {
+      if (process.env.TEST_ACCOUNT_LOOKUP_ISOLATED_CLUSTER !== '1')
+        throw new Error(
+          'Initialize the account lookup role first, or use an explicitly isolated test cluster',
+        );
+      await admin.query(
+        `CREATE ROLE "${ACCOUNT_LOOKUP_ROLE}" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`,
+      );
+      createdLookupRole = true;
+    }
+    await admin.query(`GRANT CONNECT ON DATABASE "${DB_NAME}" TO "${ACCOUNT_LOOKUP_ROLE}"`);
     const url = new URL(ADMIN_URL!);
     for (const tenant of TENANTS) {
       const names = tenantDbNames(tenant.id);
@@ -226,6 +242,7 @@ suite('tenant isolation on PostgreSQL', () => {
       await root.query(`DROP ROLE IF EXISTS "${names.ownerUsername}"`).catch(() => undefined);
       await root.query(`DROP ROLE IF EXISTS "${names.runtimeUsername}"`).catch(() => undefined);
     }
+    if (createdLookupRole) await root.query(`DROP ROLE "${ACCOUNT_LOOKUP_ROLE}"`);
     await root.end();
   }, 60_000);
 
@@ -353,6 +370,37 @@ suite('tenant isolation on PostgreSQL', () => {
       }),
     ).resolves.toBeUndefined();
   }, 60_000);
+
+  it.skipIf(process.env.TEST_ACCOUNT_LOOKUP_ISOLATED_CLUSTER !== '1')(
+    'keeps runtime verification independent from missing lookup role or column grants',
+    async () => {
+      const tenant = TENANTS[0];
+      const bundle = bundles.get(tenant.id)!;
+      await admin.query(
+        `REVOKE SELECT (email) ON "${bundle.schemaName}".users FROM "${ACCOUNT_LOOKUP_ROLE}"`,
+      );
+      try {
+        await expect(executor.verify({ bundle, tenantId: tenant.id })).resolves.toBeUndefined();
+        await expect(executor.verifyDiscovery({ bundle, tenantId: tenant.id })).rejects.toThrow(
+          'USERS_COLUMN',
+        );
+      } finally {
+        await admin.query(
+          `GRANT SELECT (email) ON "${bundle.schemaName}".users TO "${ACCOUNT_LOOKUP_ROLE}"`,
+        );
+      }
+      const hidden = `lookup_hidden_${process.pid}`;
+      await admin.query(`ALTER ROLE "${ACCOUNT_LOOKUP_ROLE}" RENAME TO "${hidden}"`);
+      try {
+        await expect(executor.verify({ bundle, tenantId: tenant.id })).resolves.toBeUndefined();
+        await expect(
+          executor.verifyDiscovery({ bundle, tenantId: tenant.id }),
+        ).rejects.toBeDefined();
+      } finally {
+        await admin.query(`ALTER ROLE "${hidden}" RENAME TO "${ACCOUNT_LOOKUP_ROLE}"`);
+      }
+    },
+  );
 
   it('accepts inaccessible public relations while verifying tenant sequence permissions', async () => {
     const tenant = TENANTS[0];
@@ -719,6 +767,17 @@ suite('tenant isolation on PostgreSQL', () => {
       tenantId: b.id,
       version: 3,
     });
+    expect(
+      (
+        await service.executeLifecycle(b.id, 'evt-resume-b', {
+          invalidateCaches: async () => {},
+          closeRealtime: async () => {},
+          stopQueue: async () => {},
+          drainTransactions: async () => {},
+          resumeQueue: async () => {},
+        })
+      ).status,
+    ).toBe('applied');
     clock += TENANT_ADMISSION_TTL_MS + 1;
     const rows = await runWithTenantScope(scope, () =>
       tenantDB.execute<{ id: string }>(sql`SELECT id FROM users WHERE id IN ('in-flight', 'late')`),
@@ -782,6 +841,17 @@ suite('tenant isolation on PostgreSQL', () => {
       tenantId: b.id,
       version: 5,
     });
+    expect(
+      (
+        await service.executeLifecycle(b.id, 'evt-resume-b-2', {
+          invalidateCaches: async () => {},
+          closeRealtime: async () => {},
+          stopQueue: async () => {},
+          drainTransactions: async () => {},
+          resumeQueue: async () => {},
+        })
+      ).status,
+    ).toBe('applied');
     clock += TENANT_ADMISSION_TTL_MS + 1;
     // Neither refusal leaked the single pooled connection or an open transaction.
     for (const id of ['resumed-1', 'resumed-2']) await insert(id);

@@ -7,6 +7,10 @@ import { getServerFeatureFlagsFromRuntimeConfig } from '@/server/featureFlags';
 import { getServerAuthConfig } from '@/server/globalConfig/getServerAuthConfig';
 import { routedTenantSlug, withTenantRequest } from '@/server/modules/Tenant/gate';
 import { getTenantPageBootstrap } from '@/server/modules/Tenant/pageBootstrap';
+import {
+  DESKTOP_FLOW_HEADER,
+  readDesktopFlowStatus,
+} from '@/server/services/tenantDiscovery/navigation';
 import { type AuthSPAServerConfig } from '@/types/spaServerConfig';
 
 import { buildSeoMeta } from './seoMeta';
@@ -40,8 +44,16 @@ const renderAuthPage = async (
   const locale = normalizeLocale(rawLocale);
 
   const tenant = await getTenantPageBootstrap(request);
+  // This marker controls presentation only, never authorization. Direct shell requests
+  // cannot gain a tenant or bypass select's independent Origin/flow checks with it.
+  const desktopStatus =
+    !tenant && !path?.length
+      ? readDesktopFlowStatus(request.headers.get(DESKTOP_FLOW_HEADER))
+      : undefined;
   const authConfig: AuthSPAServerConfig = {
+    ...(desktopStatus ? { desktopFlow: { status: desktopStatus } } : {}),
     tenant,
+    appUrl: new URL(appEnv.APP_URL).origin,
     analyticsConfig: buildAnalyticsConfig(),
     config: {
       ...(await getServerAuthConfig()),
@@ -57,7 +69,9 @@ const renderAuthPage = async (
   const pathname = `/${(path ?? []).join('/')}`;
   const seoMeta = await buildSeoMeta(locale, pathname);
 
-  return renderSpaHtml(template, { seoMeta, serverConfig: authConfig });
+  const response = renderSpaHtml(template, { seoMeta, serverConfig: authConfig });
+  response.headers.set('Referrer-Policy', 'no-referrer');
+  return response;
 };
 
 export async function GET(request: Request, context: RouteContext) {

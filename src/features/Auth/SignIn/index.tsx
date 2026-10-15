@@ -8,7 +8,9 @@ import { useSignIn } from './useSignIn';
 const SignIn = () => {
   const {
     agreementChecked,
+    continueButtonRef,
     continueWithAgreement,
+    desktopAuth,
     disableEmailPassword,
     email,
     enableMagicLink,
@@ -39,6 +41,7 @@ const SignIn = () => {
   if (step === 'emailSent' && sentInfo)
     return (
       <SignInEmailSentStep
+        desktopAuth={desktopAuth}
         email={sentInfo.email}
         sending={sending}
         type={sentInfo.type}
@@ -50,6 +53,7 @@ const SignIn = () => {
   if (step === 'password' && !disableEmailPassword)
     return (
       <SignInPasswordStep
+        desktopAuth={desktopAuth}
         email={email}
         forgotLoading={sending}
         form={form as any}
@@ -62,7 +66,9 @@ const SignIn = () => {
   return (
     <SignInEmailStep
       agreementChecked={agreementChecked}
+      continueButtonRef={continueButtonRef}
       continueWithAgreement={continueWithAgreement}
+      desktopAuth={desktopAuth}
       disableEmailPassword={disableEmailPassword}
       enableMagicLink={enableMagicLink}
       form={form as any}

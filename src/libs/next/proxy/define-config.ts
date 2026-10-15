@@ -1,5 +1,6 @@
 import { runWithTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
+import { escapeText } from 'entities';
 import { NextRequest, NextResponse } from 'next/server';
 import { UAParser } from 'ua-parser-js';
 import urlJoin from 'url-join';
@@ -8,16 +9,30 @@ import { getTenantAuth } from '@/auth';
 import { LOBE_LOCALE_COOKIE } from '@/const/locale';
 import { appEnv } from '@/envs/app';
 import { authEnv } from '@/envs/auth';
+import { translation } from '@/libs/i18n/serverTranslation';
 import { type Locales } from '@/locales/resources';
 import {
   endpointHosts,
   findHostEndpoint,
   findSlugEndpoint,
+  getTenantEndpoints,
 } from '@/server/modules/Tenant/endpoints';
 import { resolveHostTenantRoute } from '@/server/modules/Tenant/hostRouting';
 import { signTenantRoute, TENANT_ROUTE_HEADER } from '@/server/modules/Tenant/routeHeader';
 import { routingUnavailableReasonOf } from '@/server/modules/Tenant/routingErrors';
 import { getTenantRuntime } from '@/server/modules/Tenant/runtime';
+import { selectDesktopTenant } from '@/server/services/tenantDiscovery/desktop';
+import { parseDesktopFlow } from '@/server/services/tenantDiscovery/desktopFlow';
+import {
+  clearTenantCookie,
+  DESKTOP_FLOW_HEADER,
+  isDocumentNavigation,
+  isValidTenantId,
+  redactUrlEmail,
+  serializeTenantCookie,
+  tenantCookieName,
+} from '@/server/services/tenantDiscovery/navigation';
+import type { DesktopFlowStatus } from '@/types/spaServerConfig';
 import { parseBrowserLanguage } from '@/utils/locale';
 import { DEFAULT_LANG, locales, RouteVariants } from '@/utils/server/routeVariants';
 
@@ -25,7 +40,11 @@ import { authSpaRoutes, nextjsOnlyRoutes } from '../nextjsOnlyRoutes';
 import { isShareSpaRoute } from '../shareRoutes';
 import { isAlwaysWorkbenchSpaRoute, isWorkbenchSpaRoute } from '../workbenchRoutes';
 import { createRouteMatcher } from './createRouteMatcher';
-import { TENANT_REQUIRED_PAGE_PATH } from './tenantRouting';
+import {
+  NAVIGATION_REDIRECT_HEADER,
+  NAVIGATION_REDIRECT_PATH,
+  navigationRedirect,
+} from './navigationRedirect';
 
 // Create debug logger instances
 const PUBLIC_ACCEPTANCE_GUIDE = '/acceptance/skill.md';
@@ -68,7 +87,7 @@ export function defineConfig() {
   const defaultMiddleware = (request: NextRequest, pathname: string, routedHeaders?: Headers) => {
     const url = new URL(request.url);
     url.pathname = pathname;
-    logDefault('Processing request: %s %s', request.method, request.url);
+    logDefault('Processing request: %s %s', request.method, redactUrlEmail(request.url));
 
     // Public installation instructions must remain readable by coding agents.
     if (url.pathname === PUBLIC_ACCEPTANCE_GUIDE)
@@ -120,7 +139,7 @@ export function defineConfig() {
     if (appEnv.MIDDLEWARE_REWRITE_THROUGH_LOCAL) {
       logDefault('Local container rewrite enabled: %O', {
         host: '127.0.0.1',
-        original: url.toString(),
+        original: redactUrlEmail(url.toString()),
         port: process.env.PORT || '3210',
         protocol: 'http',
       });
@@ -135,7 +154,7 @@ export function defineConfig() {
       url.pathname.startsWith(`${dangerousLocalDevProxyRoute}/`)
     ) {
       logDefault('Skipping rewrite for dangerous local dev proxy route: %s', url.pathname);
-      return NextResponse.next();
+      return NextResponse.next(routedHeaders ? { request: { headers: routedHeaders } } : undefined);
     }
 
     const isAuthSpaRoute = authSpaRoutes.some(
@@ -222,7 +241,7 @@ export function defineConfig() {
 
     url.pathname = nextPathname;
 
-    logDefault('nextURL after rewrite: %s', url.toString());
+    logDefault('nextURL after rewrite: %s', redactUrlEmail(url.toString()));
     // build rewrite response first
     const rewrite = NextResponse.rewrite(url, {
       status: 200,
@@ -262,7 +281,13 @@ export function defineConfig() {
   ]);
 
   const rejectJson = (code: string, status: number) =>
-    Response.json({ code }, { headers: { 'Cache-Control': 'private, no-store' }, status });
+    Response.json(
+      { code },
+      {
+        headers: { 'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer' },
+        status,
+      },
+    );
 
   const rewriteTo = (request: NextRequest, pathname: string, headers?: Headers) => {
     const url = new URL(request.url);
@@ -270,30 +295,160 @@ export function defineConfig() {
     return NextResponse.rewrite(url, headers ? { request: { headers } } : undefined);
   };
 
+  const navigationUnavailable = async (request: NextRequest) => {
+    const locale = toSafeLocale(
+      request.nextUrl.searchParams.get('hl') ||
+        request.cookies.get(LOBE_LOCALE_COOKIE)?.value ||
+        parseBrowserLanguage(request.headers),
+    );
+    const [{ t }, { t: common }] = await Promise.all([
+      translation('auth', locale),
+      translation('common', locale),
+    ]);
+    return new Response(
+      `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>503</title></head><body><main><p>${escapeText(t('organization.discovery.unavailable'))}</p><a href="/#">${escapeText(common('retry'))}</a></main></body></html>`,
+      {
+        status: 503,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Retry-After': '5',
+          'Cache-Control': 'private, no-store',
+          'Referrer-Policy': 'no-referrer',
+        },
+      },
+    );
+  };
+
+  const discoveryPage = (
+    request: NextRequest,
+    headers: Headers,
+    desktopStatus?: DesktopFlowStatus,
+  ) => {
+    const locale = toSafeLocale(
+      request.nextUrl.searchParams.get('hl') ||
+        request.cookies.get(LOBE_LOCALE_COOKIE)?.value ||
+        parseBrowserLanguage(request.headers),
+    );
+    const url = new URL(request.url);
+    url.pathname = `/spa-auth/${locale}/`;
+    // The root shell must not receive arbitrary authentication/protocol query context.
+    url.search = '';
+    const routedHeaders = new Headers(headers);
+    routedHeaders.delete(DESKTOP_FLOW_HEADER);
+    if (desktopStatus) routedHeaders.set(DESKTOP_FLOW_HEADER, desktopStatus);
+    return NextResponse.rewrite(url, { request: { headers: routedHeaders } });
+  };
+
+  const desktopDiscoveryNavigation = async (req: NextRequest, headers: Headers) => {
+    const params = req.nextUrl.searchParams;
+    const unambiguous = ['client', 'state', 'code_challenge'].every(
+      (key) => params.getAll(key).length === 1,
+    );
+    const flow = unambiguous
+      ? parseDesktopFlow({
+          state: params.get('state'),
+          codeChallenge: params.get('code_challenge'),
+        })
+      : null;
+    if (!flow) return discoveryPage(req, headers, 'invalid');
+    if (params.getAll('switch').includes('1')) return discoveryPage(req, headers, 'ready');
+    const tenantId = req.cookies.get(tenantCookieName(endpointHosts().appUrl))?.value;
+    if (!tenantId || !isValidTenantId(tenantId)) return discoveryPage(req, headers, 'ready');
+    try {
+      // The shared service owns select rate limits and its deadline. An existing immutable
+      // snapshot is replayed there before any fresh endpoint lookup, including after a move.
+      const { url } = await selectDesktopTenant({ headers, flow, tenantId, signal: req.signal });
+      return navigationRedirect(req, headers, `${url}#`);
+    } catch (error) {
+      const code = (error as { code?: string } | null)?.code;
+      const status =
+        code === 'TENANT_NOT_AVAILABLE'
+          ? 'ready'
+          : code === 'HANDOFF_EXISTS'
+            ? 'expired'
+            : 'unavailable';
+      console.warn('TENANT_DESKTOP_NAVIGATION_FAILED', { reason: status });
+      return discoveryPage(req, headers, status);
+    }
+  };
+
+  const discoveryNavigation = async (
+    req: NextRequest,
+    headers: Headers,
+    explicitTenant = false,
+  ) => {
+    // A trailing empty `#` makes the browser drop the fragment it would otherwise inherit.
+    const redirect = (path: string) =>
+      navigationRedirect(req, headers, `${new URL(endpointHosts().appUrl).origin}${path}`);
+    if (!isDocumentNavigation(req))
+      return ['GET', 'HEAD'].includes(req.method) && req.nextUrl.pathname === '/'
+        ? discoveryPage(req, headers)
+        : rejectJson('NOT_FOUND', 404);
+    if (
+      explicitTenant ||
+      authSpaRoutes.some(
+        (path) => req.nextUrl.pathname === path || req.nextUrl.pathname.startsWith(`${path}/`),
+      ) ||
+      isPublicRoute(req) ||
+      isShareSpaRoute(req.nextUrl.pathname)
+    )
+      return redirect('/?switch=1#');
+    if (req.nextUrl.pathname !== '/') return redirect('/#');
+    if (req.nextUrl.searchParams.getAll('client').includes('desktop'))
+      return desktopDiscoveryNavigation(req, headers);
+    if (req.nextUrl.searchParams.get('switch') === '1') return discoveryPage(req, headers);
+    const remembered = req.cookies.get(tenantCookieName(endpointHosts().appUrl))?.value;
+    if (!remembered) return discoveryPage(req, headers);
+    const clear = () => {
+      const response = discoveryPage(req, headers);
+      response.headers.append('set-cookie', clearTenantCookie(endpointHosts().appUrl));
+      return response;
+    };
+    if (!isValidTenantId(remembered)) return clear();
+    try {
+      // This service reads PostgreSQL in a fresh transaction, independently of routing caches
+      // and lifecycle admission: stopped tenants still have a usable switch-organisation page.
+      const state = await getTenantEndpoints().get(remembered);
+      return navigationRedirect(req, headers, `${state.activeUrl}/#`);
+    } catch (error) {
+      if ((error as { code?: string } | null)?.code === 'TENANT_NOT_FOUND') return clear();
+      console.warn('TENANT_MEMORY_UNAVAILABLE', { reason: routingUnavailableReasonOf(error) });
+      return navigationUnavailable(req);
+    }
+  };
+
   /**
    * Single entry for every matched request (spec A16, A17, FR-RT-04, FR-RT-06):
    * the tenant is read from the URL once, here. Backend requests are rewritten
    * to their unprefixed route with the tenant handed over in a signed header
    * (any incoming copy of that header is dropped first); pages without a
-   * tenant get the static tenant-required page; tenant pages get the SPA and,
+   * tenant follow the discovery navigation policy; tenant pages get the SPA and,
    * when protected, a session check against that tenant's own accounts.
    */
-  const betterAuthMiddleware = async (req: NextRequest) => {
-    logBetterAuth('BetterAuth middleware processing request: %s %s', req.method, req.url);
+  const betterAuthMiddleware = async (
+    req: NextRequest,
+    onDefaultTenantPage: (tenantId: string | undefined) => void,
+  ) => {
+    logBetterAuth(
+      'BetterAuth middleware processing request: %s %s',
+      req.method,
+      redactUrlEmail(req.url),
+    );
 
     const pathname = req.nextUrl.pathname;
+    const headers = new Headers(req.headers);
+    headers.delete(TENANT_ROUTE_HEADER);
+    headers.delete(DESKTOP_FLOW_HEADER);
+    headers.delete(NAVIGATION_REDIRECT_HEADER);
     if (
       pathname === dangerousLocalDevProxyRoute ||
       pathname.startsWith(`${dangerousLocalDevProxyRoute}/`)
     )
-      return NextResponse.next();
+      return NextResponse.next({ request: { headers } });
 
     // Public installation instructions (a static file) stay readable by coding
     // agents without a tenant; they hold no tenant data.
-    if (pathname === PUBLIC_ACCEPTANCE_GUIDE) return NextResponse.next();
-
-    const headers = new Headers(req.headers);
-    headers.delete(TENANT_ROUTE_HEADER);
+    if (pathname === PUBLIC_ACCEPTANCE_GUIDE) return NextResponse.next({ request: { headers } });
 
     let route;
     try {
@@ -325,6 +480,7 @@ export function defineConfig() {
         ...hosts,
         findHost: findHostEndpoint,
         findSlug: findSlugEndpoint,
+        onDefaultTenantPage: (entry) => onDefaultTenantPage(entry.tenantId),
       });
     } catch (error) {
       console.warn('TENANT_ROUTING_UNAVAILABLE', { reason: routingUnavailableReasonOf(error) });
@@ -339,6 +495,8 @@ export function defineConfig() {
       // Served exactly like the same request without a tenant (FR-RT-06); the
       // real reason stays in the server log.
       console.warn('TENANT_NOT_FOUND', { slug: route.slug });
+      if (route.fallback.kind === 'tenant-discovery-page')
+        return discoveryNavigation(req, headers, true);
       route = route.fallback;
     }
     if (route.kind === 'redirect')
@@ -349,7 +507,10 @@ export function defineConfig() {
     if (route.kind === 'endpoint-changed')
       return Response.json(
         { code: 'TENANT_ENDPOINT_CHANGED', activeUrl: route.activeUrl },
-        { status: 409, headers: { 'Cache-Control': 'private, no-store' } },
+        {
+          status: 409,
+          headers: { 'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer' },
+        },
       );
     switch (route.kind) {
       case 'reject': {
@@ -366,8 +527,8 @@ export function defineConfig() {
         headers.set(TENANT_ROUTE_HEADER, signed);
         return rewriteTo(req, route.path, headers);
       }
-      case 'tenant-required-page': {
-        return rewriteTo(req, TENANT_REQUIRED_PAGE_PATH);
+      case 'tenant-discovery-page': {
+        return discoveryNavigation(req, headers, /^\/t(?:\/|$)/.test(pathname));
       }
     }
 
@@ -377,7 +538,11 @@ export function defineConfig() {
 
     const tenantPage = new NextRequest(new URL(route.path + req.nextUrl.search, req.url), req);
     const isProtected = !isPublicRoute(tenantPage);
-    logBetterAuth('Route protection status: %s, %s', req.url, isProtected ? 'protected' : 'public');
+    logBetterAuth(
+      'Route protection status: %s, %s',
+      redactUrlEmail(req.url),
+      isProtected ? 'protected' : 'public',
+    );
 
     let scope;
     let release: () => Promise<void>;
@@ -389,7 +554,9 @@ export function defineConfig() {
       // gets its SPA, which shows the tenant-unavailable state from the API.
       if ((error as { code?: string })?.code === 'TENANT_NOT_FOUND') {
         console.warn('TENANT_NOT_FOUND', { slug: route.slug });
-        return rewriteTo(req, TENANT_REQUIRED_PAGE_PATH);
+        onDefaultTenantPage(undefined);
+        headers.delete(TENANT_ROUTE_HEADER);
+        return discoveryNavigation(req, headers, true);
       }
       return defaultMiddleware(req, route.path, headers);
     }
@@ -432,5 +599,32 @@ export function defineConfig() {
 
   logDefault('Middleware configuration: %O', { enableOIDC: authEnv.ENABLE_OIDC });
 
-  return { middleware: betterAuthMiddleware };
+  return {
+    middleware: async (request: NextRequest) => {
+      let explicitTenantId: string | undefined;
+      const response = await betterAuthMiddleware(request, (tenantId) => {
+        explicitTenantId = tenantId;
+      });
+      // Apply after every routing/session early return. This preference never enters signed
+      // tenant headers or runtime/session admission and is written only on the default host.
+      if (explicitTenantId && isDocumentNavigation(request)) {
+        const appUrl = endpointHosts().appUrl;
+        const previous = request.cookies.get(tenantCookieName(appUrl))?.value;
+        if (previous !== explicitTenantId)
+          response.headers.append('set-cookie', serializeTenantCookie(explicitTenantId, appUrl));
+        response.headers.set('Cache-Control', 'private, no-store');
+      }
+      const rewrite = response.headers.get('x-middleware-rewrite');
+      if (
+        response.headers.has('location') ||
+        (rewrite &&
+          (new URL(rewrite).pathname.startsWith('/spa-auth/') ||
+            new URL(rewrite).pathname === NAVIGATION_REDIRECT_PATH))
+      ) {
+        response.headers.set('Cache-Control', 'private, no-store');
+        response.headers.set('Referrer-Policy', 'no-referrer');
+      }
+      return response;
+    },
+  };
 }

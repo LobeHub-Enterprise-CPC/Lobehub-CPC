@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { createAuthClient } from 'better-auth/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -76,6 +76,7 @@ vi.mock('@/business/client/hooks/useBusinessSignin', () => ({
 let mockEnableBusinessFeatures = false;
 let mockEnableMagicLink = false;
 let mockDisableEmailPassword = false;
+let mockOAuthProviders: string[] = ['google', 'github'];
 vi.mock('@/features/AuthShell/AuthServerConfigProvider', () => ({
   useAuthServerConfigStore: (selector: (s: any) => any) =>
     selector({
@@ -83,7 +84,7 @@ vi.mock('@/features/AuthShell/AuthServerConfigProvider', () => ({
         disableEmailPassword: mockDisableEmailPassword,
         enableBusinessFeatures: mockEnableBusinessFeatures,
         enableMagicLink: mockEnableMagicLink,
-        oAuthSSOProviders: ['google', 'github'],
+        oAuthSSOProviders: mockOAuthProviders,
       },
       serverConfigInit: true,
     }),
@@ -127,6 +128,7 @@ describe('useSignIn', () => {
     mockEnableBusinessFeatures = false;
     mockEnableMagicLink = false;
     mockDisableEmailPassword = false;
+    mockOAuthProviders = ['google', 'github'];
     mockBusinessSignin.ssoProviders = [];
     mockBusinessSignin.managedSSO = false;
     mockBusinessSignin.ssoLoaded = true;
@@ -159,6 +161,232 @@ describe('useSignIn', () => {
       expect(result.current.socialLoading).toBeNull();
       expect(result.current.isSocialOnly).toBe(false);
       expect(result.current.disableEmailPassword).toBe(false);
+    });
+  });
+
+  describe('desktop authorization', () => {
+    const callbackFor = (callbackUrl: string | null) =>
+      mockSearchParamsGet.mockImplementation((key: string) =>
+        key === 'callbackUrl' ? callbackUrl : null,
+      );
+
+    it('is recognised from a callback that is the desktop authorization request', () => {
+      callbackFor('https://app.example.com/t/acme/oidc/auth?client_id=lobehub-desktop&x=1');
+
+      const { result } = renderHook(() => useSignIn());
+
+      expect(result.current.desktopAuth).toBe(true);
+    });
+
+    it.each([
+      ['another client', 'https://app.example.com/oidc/auth?client_id=lobehub-mobile'],
+      ['a plain page', '/agent'],
+      ['no callback', null],
+    ])('is not set for %s', (_, callbackUrl) => {
+      callbackFor(callbackUrl);
+
+      const { result } = renderHook(() => useSignIn());
+
+      expect(result.current.desktopAuth).toBe(false);
+    });
+  });
+
+  describe('email prefill from the organization lookup', () => {
+    it('fills the email field from ?email= without leaving the email step', () => {
+      mockSearchParamsGet.mockImplementation((key: string) =>
+        key === 'email' ? 'member@example.com' : null,
+      );
+
+      const { result } = renderHook(() => useSignIn());
+
+      expect(mockForm.setValue).toHaveBeenCalledWith('email', 'member@example.com');
+      // Prefilling is a convenience; it must not skip the step that offers SSO.
+      expect(result.current.step).toBe('email');
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('leaves the field alone when no ?email= is present', () => {
+      renderHook(() => useSignIn());
+
+      expect(mockForm.setValue).not.toHaveBeenCalled();
+    });
+
+    describe('continuing by itself', () => {
+      const AGREEMENT_KEY = 'lobehub:auth:agreement-accepted:v1';
+      const checkUserCalls = () =>
+        mockFetch.mock.calls.filter(([url]) => url === '/api/auth/check-user');
+      const arrive = (email: string | null = 'member@example.com') => {
+        mockSearchParamsGet.mockImplementation((key: string) => (key === 'email' ? email : null));
+        // The field holds what the URL prefilled until the user changes it.
+        mockForm.getValue.mockImplementation(() => email ?? '');
+      };
+      const continueButton = () => {
+        const button = document.createElement('button');
+        document.body.append(button);
+        return button;
+      };
+
+      beforeEach(() => {
+        mockOAuthProviders = [];
+        localStorage.setItem(AGREEMENT_KEY, 'true');
+        mockFetch.mockResolvedValue({
+          json: async () => ({ exists: true, hasPassword: true }),
+          ok: true,
+        });
+      });
+
+      afterEach(() => document.body.replaceChildren());
+
+      it('runs the same check as clicking Continue when the organization offers no SSO', async () => {
+        arrive();
+
+        const { result } = renderHook(() => useSignIn());
+
+        await waitFor(() => expect(result.current.step).toBe('password'));
+        expect(checkUserCalls()).toHaveLength(1);
+        expect(JSON.parse(checkUserCalls()[0][1].body)).toEqual({ email: 'member@example.com' });
+        expect(result.current.email).toBe('member@example.com');
+      });
+
+      it('does it once: coming back to the email step does not repeat it', async () => {
+        arrive();
+        const { result, rerender } = renderHook(() => useSignIn());
+        await waitFor(() => expect(result.current.step).toBe('password'));
+
+        act(() => result.current.handleBackToEmail());
+        rerender();
+
+        expect(result.current.step).toBe('email');
+        expect(checkUserCalls()).toHaveLength(1);
+      });
+
+      it('stops on the email step with the usual error when the check fails', async () => {
+        arrive();
+        mockFetch.mockResolvedValue({ json: async () => ({}), ok: false });
+
+        const { result } = renderHook(() => useSignIn());
+
+        await waitFor(() =>
+          expect(mockMessageError).toHaveBeenCalledWith('betterAuth.signin.error'),
+        );
+        expect(result.current.step).toBe('email');
+        expect(checkUserCalls()).toHaveLength(1);
+      });
+
+      it('only prefills and focuses Continue when SSO providers are offered', async () => {
+        mockOAuthProviders = ['google'];
+        arrive();
+        mockBusinessSignin.ssoLoaded = false;
+        const { result, rerender } = renderHook(() => useSignIn());
+        const button = continueButton();
+        result.current.continueButtonRef.current = button;
+
+        mockBusinessSignin.ssoLoaded = true;
+        rerender();
+
+        await waitFor(() => expect(document.activeElement).toBe(button));
+        expect(mockForm.setValue).toHaveBeenCalledWith('email', 'member@example.com');
+        expect(checkUserCalls()).toHaveLength(0);
+        expect(result.current.step).toBe('email');
+      });
+
+      it('drops the auto-continue when the user edits the email while SSO config loads', async () => {
+        arrive();
+        mockBusinessSignin.ssoLoaded = false;
+        const { result, rerender } = renderHook(() => useSignIn());
+        const button = continueButton();
+        result.current.continueButtonRef.current = button;
+
+        // Typed over the prefilled address before the configuration came back.
+        mockForm.getValue.mockImplementation(() => 'other@example.com');
+        mockBusinessSignin.ssoLoaded = true;
+        rerender();
+        await act(async () => {});
+
+        expect(checkUserCalls()).toHaveLength(0);
+        expect(document.activeElement).not.toBe(button);
+        expect(result.current.step).toBe('email');
+      });
+
+      it('does not race a manual submit that is already in flight', async () => {
+        arrive();
+        mockBusinessSignin.ssoLoaded = false;
+        let finishManual!: (value: unknown) => void;
+        mockFetch.mockReturnValueOnce(new Promise((resolve) => (finishManual = resolve)));
+        const { result, rerender } = renderHook(() => useSignIn());
+
+        let manual!: Promise<void>;
+        act(() => {
+          manual = result.current.handleCheckUser({ email: 'typed@example.com' });
+        });
+        mockBusinessSignin.ssoLoaded = true;
+        rerender();
+        await act(async () => {});
+
+        // Only the user's own submission exists; the URL's address was never sent.
+        expect(checkUserCalls()).toHaveLength(1);
+        expect(JSON.parse(checkUserCalls()[0][1].body)).toEqual({ email: 'typed@example.com' });
+
+        await act(async () => {
+          finishManual({ json: async () => ({ exists: true, hasPassword: true }), ok: true });
+          await manual;
+        });
+        expect(result.current.email).toBe('typed@example.com');
+      });
+
+      it('waits for the SSO configuration before deciding anything', async () => {
+        arrive();
+        mockBusinessSignin.ssoLoaded = false;
+
+        const { result } = renderHook(() => useSignIn());
+        await act(async () => {});
+
+        expect(checkUserCalls()).toHaveLength(0);
+        expect(result.current.step).toBe('email');
+      });
+
+      it('leaves the click to the user while the terms are not accepted on this origin', async () => {
+        arrive();
+        localStorage.removeItem(AGREEMENT_KEY);
+        mockBusinessSignin.ssoLoaded = false;
+        const { result, rerender } = renderHook(() => useSignIn());
+        const button = continueButton();
+        result.current.continueButtonRef.current = button;
+
+        mockBusinessSignin.ssoLoaded = true;
+        rerender();
+
+        await waitFor(() => expect(document.activeElement).toBe(button));
+        expect(checkUserCalls()).toHaveLength(0);
+      });
+
+      it.each([
+        ['an invalid email', () => arrive('not-an-email')],
+        ['no email', () => arrive(null)],
+        [
+          'email sign-in turned off',
+          () => {
+            arrive();
+            mockDisableEmailPassword = true;
+          },
+        ],
+        [
+          'a closed organization',
+          () => {
+            arrive();
+            (mockBusinessSignin as { tenantUnavailable?: boolean }).tenantUnavailable = true;
+          },
+        ],
+      ])('does nothing with %s', async (_, arrange) => {
+        arrange();
+
+        const { result } = renderHook(() => useSignIn());
+        await act(async () => {});
+
+        expect(checkUserCalls()).toHaveLength(0);
+        expect(result.current.step).toBe('email');
+        delete (mockBusinessSignin as { tenantUnavailable?: boolean }).tenantUnavailable;
+      });
     });
   });
 

@@ -16,6 +16,8 @@ export default {
   'authorizeError.title': "Authorization Can't Continue",
   'consent.buttons.accept': 'Authorize',
   'consent.buttons.deny': 'Deny',
+  'consent.desktop.notice':
+    'Continue only if you just started this sign-in from your own desktop app.',
   'consent.description':
     'The application {{clientName}} is requesting authorization for your account',
   'consent.error.sessionInvalid.message':

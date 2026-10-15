@@ -11,6 +11,11 @@ import {
 } from '@lobechat/database/tenant';
 import { Client, type ClientConfig } from 'pg';
 
+import {
+  ACCOUNT_LOOKUP_ROLE,
+  requireLookupRole,
+  verifyLookupPermissions,
+} from '../tenantDiscovery/permissions';
 import type { DatasourceBundle } from './contracts';
 import { validateDatasourceBundle } from './datasource';
 import type { ProvisionStepContext, TenantDatabaseExecutor } from './service';
@@ -141,6 +146,7 @@ export class PostgresTenantDatabaseExecutor implements TenantDatabaseExecutor {
     await this.checkOwnership(ctx);
     const { schemaName, runtimeUsername, ownerUsername } = tenantDbNames(ctx.tenantId);
     await withClient(ctx.bundle, 'owner', async (client) => {
+      await requireLookupRole(client);
       // Preflight every chain before any schema mutation.
       for (const migrator of this.migrators())
         await migrator.verify(client, { schemaName, tenantId: ctx.tenantId }, true);
@@ -199,6 +205,42 @@ export class PostgresTenantDatabaseExecutor implements TenantDatabaseExecutor {
             );
         }
       }
+      await client.query(`GRANT USAGE ON SCHEMA ${schema} TO ${ident(ACCOUNT_LOOKUP_ROLE)}`);
+      await client.query(
+        `GRANT SELECT (email, banned, ban_expires) ON ${schema}.users TO ${ident(ACCOUNT_LOOKUP_ROLE)}`,
+      );
+      // A schema-level REVOKE cannot subtract the global default PUBLIC EXECUTE.
+      // Each schema has its own owner role; remove its global default as well.
+      await client.query(
+        `ALTER DEFAULT PRIVILEGES FOR ROLE ${owner} REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC`,
+      );
+      await client.query(
+        `ALTER DEFAULT PRIVILEGES FOR ROLE ${owner} IN SCHEMA ${schema} REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC`,
+      );
+      await client.query(
+        `ALTER DEFAULT PRIVILEGES FOR ROLE ${owner} GRANT EXECUTE ON FUNCTIONS TO ${run}`,
+      );
+      const invokers = await client.query<{ kind: string; signature: string }>(
+        `SELECT p.prokind AS kind, p.oid::regprocedure::text AS signature
+         FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = $1 AND NOT p.prosecdef`,
+        [names.schemaName],
+      );
+      for (const proc of invokers.rows)
+        await client.query(
+          `GRANT EXECUTE ON ${proc.kind === 'p' ? 'PROCEDURE' : 'FUNCTION'} ${proc.signature} TO ${run}`,
+        );
+      const definers = await client.query<{ oid: number; kind: string; signature: string }>(
+        `SELECT p.oid, p.prokind AS kind, p.oid::regprocedure::text AS signature
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = $1 AND p.prosecdef`,
+        [names.schemaName],
+      );
+      // regprocedure is PostgreSQL's escaped, overload-aware identifier representation.
+      for (const proc of definers.rows)
+        await client.query(
+          `REVOKE EXECUTE ON ${proc.kind === 'p' ? 'PROCEDURE' : 'FUNCTION'} ${proc.signature} FROM PUBLIC`,
+        );
+      await verifyLookupPermissions(client, names.schemaName);
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK').catch(() => undefined);
@@ -231,6 +273,13 @@ export class PostgresTenantDatabaseExecutor implements TenantDatabaseExecutor {
       throw new TenantReadinessError('DATASOURCE_BINDING_INVALID');
     await withClient(bundle, 'runtime', (client) =>
       verifyTenantRuntime(client, { schemaName: bundle.schemaName, tenantId }, this.migrators()),
+    );
+  }
+
+  /** Provision/upgrade/recovery only: lookup readiness must never gate runtime credentials. */
+  async verifyDiscovery({ bundle }: { bundle: DatasourceBundle; tenantId: string }) {
+    await withClient(bundle, 'owner', (client) =>
+      verifyLookupPermissions(client, bundle.schemaName),
     );
   }
 }

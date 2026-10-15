@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 
+import type * as AppEnvironment from '@/envs/app';
 import { signTenantRoute, TENANT_ROUTE_HEADER } from '@/server/modules/Tenant/routeHeader';
 
 const mocks = vi.hoisted(() => ({
@@ -8,11 +9,20 @@ const mocks = vi.hoisted(() => ({
   gateRefuses: false,
   inTenant: false,
 }));
+vi.mock('@/envs/app', async (importOriginal) => {
+  const original = await importOriginal<typeof AppEnvironment>();
+  return {
+    ...original,
+    appEnv: { ...original.appEnv, APP_URL: 'https://app.example.com/deployment/' },
+  };
+});
 const template =
   '<html><head><!--SEO_META--></head><script>window.__SERVER_CONFIG__ = undefined; /* SERVER_CONFIG */</script></html>';
 vi.mock('@/server/modules/Tenant/endpoints', () => ({
   findSlugEndpoint: async () => ({
+    name: 'Acme </script> & Co.',
     slug: 'acme',
+    tenantId: 'tenant-1',
     state: { activeUrl: mocks.activeUrl, appliedVersion: 2 },
   }),
 }));
@@ -93,8 +103,12 @@ describe('all server SPA shells', () => {
       const html = await response.text();
       expect(html).toContain('"basePath":""');
       expect(html).toContain('"slug":"acme"');
+      // The display name is tenant-controlled text and must not break out of the script tag.
+      expect(html).toContain(String.raw`"name":"Acme \u003c/script\u003e \u0026 Co."`);
+      if (shell === 'web' || shell === 'auth')
+        expect(html).toContain('"appUrl":"https://app.example.com"');
       expect(html).toContain('"oidcIssuer":"https://chat.example.com/oidc"');
-      expect(response.headers.get('Cache-Control')).not.toContain('public');
+      expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     },
   );
 });

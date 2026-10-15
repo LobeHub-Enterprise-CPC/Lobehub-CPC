@@ -33,6 +33,7 @@ const setup = (configured = true) => {
       migrate: async () => {},
       seed: async () => {},
       verify: async () => {},
+      verifyDiscovery: async () => {},
     },
     isRegistrableSlug: (slug) => slug !== 'admin',
     repository: repo,

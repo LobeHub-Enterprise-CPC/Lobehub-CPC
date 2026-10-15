@@ -13,6 +13,7 @@
   "consent.buttons.accept": "授权",
   "consent.buttons.deny": "拒绝",
   "consent.description": "应用 {{clientName}} 申请你的账户授权",
+  "consent.desktop.notice": "仅在你刚刚从自己的桌面客户端发起登录时继续",
   "consent.error.sessionInvalid.message": "授权会话已过期或无效。请返回并重新发起授权流程",
   "consent.error.sessionInvalid.title": "授权会话无效",
   "consent.error.title": "发生错误",

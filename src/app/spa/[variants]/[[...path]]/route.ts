@@ -76,8 +76,9 @@ export async function GET(
   const { locale, isMobile } = RouteVariants.deserializeVariants(variants);
 
   const tenant = await getTenantPageBootstrap(request);
-  const spaConfig: SPAServerConfig = {
+  const spaConfig: SPAServerConfig & { appUrl: string } = {
     tenant,
+    appUrl: new URL(appEnv.APP_URL).origin,
     analyticsConfig: buildAnalyticsConfig({ desktop: true }),
     clientEnv: buildClientEnv(),
     config: {

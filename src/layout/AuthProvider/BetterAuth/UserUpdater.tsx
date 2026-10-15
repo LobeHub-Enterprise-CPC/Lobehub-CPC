@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 
 import { DEFAULT_PREFERENCE } from '@/const/user';
 import { isTenantUnavailableCode } from '@/features/Auth/utils/tenantUnavailable';
+import { SwitchOrganizationLink } from '@/features/TenantDiscovery/SwitchOrganizationLink';
 import { useSession } from '@/libs/better-auth/auth-client';
 import { useAppPainted } from '@/spa/atoms/app';
 import { removeStaticLoadingScreen } from '@/spa/loadingScreen';
@@ -157,17 +158,20 @@ const UserUpdater = memo(({ children }: PropsWithChildren) => {
                 : 'auth:session.checkFailed.title',
             )}
           />
-          <Button
-            loading={
-              isPending || isRefetching || (!failed && !tenantUnavailable && recoveryVisible)
-            }
-            onClick={() => {
-              setRetryAttempt(0);
-              void refetch();
-            }}
-          >
-            {t('common:retry')}
-          </Button>
+          <Flexbox horizontal gap={8}>
+            <Button
+              loading={
+                isPending || isRefetching || (!failed && !tenantUnavailable && recoveryVisible)
+              }
+              onClick={() => {
+                setRetryAttempt(0);
+                void refetch();
+              }}
+            >
+              {t('common:retry')}
+            </Button>
+            {tenantUnavailable && <SwitchOrganizationLink originFallback appearance={'button'} />}
+          </Flexbox>
         </Flexbox>
       )}
     </>

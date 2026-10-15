@@ -28,6 +28,20 @@ describe('document tenant context', () => {
     expect(getTenant()).toBeNull();
   });
 
+  it.each([
+    ['https://app.test/t/acme/signin', '/t/acme'],
+    ['https://chat.acme.test/signin', ''],
+  ])('keeps the bootstrapped display name for %s', (href, basePath) => {
+    const bootstrap = { basePath, name: 'Acme Inc.', slug: 'acme' };
+    initializeTenant(new URL(href), bootstrap);
+    expect(getTenant()).toEqual(bootstrap);
+  });
+
+  it('has no display name when the address is the only source', () => {
+    initializeTenant(new URL('https://app.test/t/acme/signin'));
+    expect(getTenant()?.name).toBeUndefined();
+  });
+
   it.each(['/t/UPPER/agent', '/t', '/t/a/agent', '/agent'])('rejects %s', (path) => {
     expect(resolveTenant(new URL(path, 'https://app.test'))).toBeNull();
   });
@@ -53,7 +67,10 @@ describe('current tenant helpers', () => {
 
 describe('custom host bootstrap', () => {
   it('keeps root navigation and rejects other tenant paths', () => {
-    initializeTenant(new URL('https://chat.example.com/agent'), { slug: 'acme', basePath: '' });
+    initializeTenant(new URL('https://chat.example.com/agent'), {
+      slug: 'acme',
+      basePath: '',
+    });
     expect(getTenant()).toEqual({ slug: 'acme', basePath: '' });
     expect(withCurrentTenantPath('/api/auth')).toBe('/api/auth');
     expect(currentTenantRelativePath('/agent')).toBe('/agent');

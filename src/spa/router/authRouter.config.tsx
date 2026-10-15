@@ -76,6 +76,10 @@ export const authRoutes: RouteObject[] = [
   {
     children: [
       {
+        element: lazyElement(() => import('@/routes/auth/tenant-discovery')),
+        index: true,
+      },
+      {
         element: lazyElement(() => import('@/routes/auth/signin')),
         path: 'signin',
       },

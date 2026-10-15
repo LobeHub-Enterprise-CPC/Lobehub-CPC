@@ -12,7 +12,7 @@ export interface TenantUpgradeResult {
 }
 
 export interface UpgradeTenantSchemasOptions {
-  executor?: Pick<PostgresTenantDatabaseExecutor, 'migrate' | 'verify'>;
+  executor?: Pick<PostgresTenantDatabaseExecutor, 'migrate' | 'verify' | 'verifyDiscovery'>;
   /** Only these tenants; every active tenant when omitted. */
   tenantIds?: string[];
 }
@@ -60,6 +60,7 @@ export const upgradeTenantSchemas = async (
       };
       await executor.migrate(ctx);
       await executor.verify({ bundle, tenantId: row.tenantId });
+      await executor.verifyDiscovery({ bundle, tenantId: row.tenantId });
       if (row.schemaVersion !== LOBEHUB_TENANT_SCHEMA_VERSION) {
         await platformDB
           .update(tenantDirectory)

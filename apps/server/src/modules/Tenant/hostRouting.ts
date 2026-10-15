@@ -17,6 +17,7 @@ export interface HostRoutingDeps {
   findHost: (host: string) => Promise<Entry | null>;
   findSlug: (slug: string) => Promise<Entry | null>;
   internalUrl: string;
+  onDefaultTenantPage?: (entry: Entry) => void;
 }
 export type HostTenantRoute =
   | TenantRoute
@@ -54,6 +55,12 @@ export const resolveHostTenantRoute = async (
   if (ROOT_INTERNAL.test(url.pathname))
     return defaultHost || internalHost ? { kind: 'tenantless-backend' } : reject();
   const parsed = parseTenantPath(url.pathname);
+  // Deployment discovery is never a tenant endpoint, including inactive custom authorities
+  // and prefixed forms whose slug does not exist. Check before any endpoint redirect.
+  if (/^(?:\/t\/[^/]*)?\/api\/tenant-discovery(?:\/|$)/.test(url.pathname))
+    return defaultHost && /^\/api\/tenant-discovery(?:\/|$)/.test(url.pathname)
+      ? { kind: 'tenantless-backend' }
+      : reject();
   if (internalHost && !defaultHost) {
     if (!parsed.tenantSlug || !INTERNAL_CALLBACKS.test(parsed.rest)) return reject();
     const entry = await deps.findSlug(parsed.tenantSlug);
@@ -72,6 +79,7 @@ export const resolveHostTenantRoute = async (
         slug: route.slug,
       };
     }
+    if (route.kind === 'tenant-page') deps.onDefaultTenantPage?.(entry);
     if (
       entry.state.endpoints.find((e) => e.kind === 'default')?.active ||
       (route.kind === 'tenant-backend' && internalHost && INTERNAL_CALLBACKS.test(route.path))

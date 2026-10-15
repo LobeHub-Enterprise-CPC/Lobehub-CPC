@@ -14,7 +14,6 @@ export {
   getTenantMigrators,
   materializeTenantMigrations,
   materializeTenantStatement,
-  migrateTenantSchema,
   registerTenantMigrator,
   resolveTenantMigrationsFolder,
   runTenantMigrations,

@@ -26,11 +26,12 @@ const BACKEND_PREFIXES = [
 const TENANTLESS_BACKEND = [
   /^\/api\/internal\/control-plane(?:\/|$)/,
   /^\/api\/cron(?:\/|$)/,
+  /^\/api\/tenant-discovery(?:\/|$)/,
   /^\/api\/version\/?$/,
 ];
 
 /** Deployment-level surfaces that never exist under a tenant prefix. */
-const ROOT_ONLY_BACKEND = ['/api/internal', '/api/cron'];
+const ROOT_ONLY_BACKEND = ['/api/internal', '/api/cron', '/api/tenant-discovery'];
 
 const startsWithSegment = (pathname: string, prefix: string) =>
   prefix.endsWith('/')
@@ -50,8 +51,8 @@ export type TenantRoute =
    * only when the request carried a tenant prefix that must be dropped.
    */
   | { kind: 'tenantless-backend'; path?: string }
-  /** Page without a tenant: the static "use your organisation's address" page. */
-  | { kind: 'tenant-required-page' }
+  /** Page without a tenant: apply the document-navigation discovery policy. */
+  | { kind: 'tenant-discovery-page' }
   /** Backend refusal. */
   | { code: 'TENANT_INVALID' | 'TENANT_REQUIRED' | 'NOT_FOUND'; kind: 'reject'; status: number };
 
@@ -76,7 +77,7 @@ export const resolveTenantRoute = (url: URL): TenantRoute => {
     const afterPrefix = pathname.replace(/^\/t\/[^/]*/, '') || '/';
     return isBackendPath(afterPrefix)
       ? { code: 'TENANT_INVALID', kind: 'reject', status: 400 }
-      : { kind: 'tenant-required-page' };
+      : { kind: 'tenant-discovery-page' };
   }
 
   return resolveTenantlessRoute(pathname);
@@ -90,8 +91,5 @@ export const resolveTenantlessRoute = (pathname: string): TenantRoute => {
     return { code: 'TENANT_REQUIRED', kind: 'reject', status: 400 };
   }
 
-  return { kind: 'tenant-required-page' };
+  return { kind: 'tenant-discovery-page' };
 };
-
-/** Internal route of the static tenant-required page. */
-export const TENANT_REQUIRED_PAGE_PATH = '/tenant-required';

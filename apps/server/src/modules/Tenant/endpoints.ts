@@ -14,6 +14,8 @@ import { TenantGateError } from './errors';
 
 export const getTenantEndpoints = () => new TenantEndpointsService(getPlatformDB());
 type EndpointEntry = {
+  /** The organization's display name in the platform directory. */
+  name: string;
   routingFetchedAt: number;
   slug: string;
   tenantId: string;
@@ -29,7 +31,11 @@ const repository = (platform: PlatformDatabase) => {
         const separator = key.indexOf(':');
         const kind = key.slice(0, separator);
         const value = key.slice(separator + 1);
-        const columns = { tenantId: tenantDirectory.tenantId, slug: tenantDirectory.slug };
+        const columns = {
+          name: tenantDirectory.name,
+          slug: tenantDirectory.slug,
+          tenantId: tenantDirectory.tenantId,
+        };
         const [entry] =
           kind === 'host'
             ? await platform

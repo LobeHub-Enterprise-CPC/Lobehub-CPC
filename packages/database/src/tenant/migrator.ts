@@ -316,9 +316,3 @@ export const assertTenantMigrationSources = (
 ) => {
   for (const chain of chains) chain.assertSources?.(cwd);
 };
-
-/** Runs every registered chain for one tenant, in order, as the schema owner. */
-export const migrateTenantSchema = async (client: ClientBase, context: TenantMigrationContext) => {
-  for (const migrator of migrators) await migrator.verify(client, context, true);
-  for (const migrator of migrators) await migrator.run(client, context);
-};
