@@ -95,9 +95,9 @@ export const pluginRouter = router({
       if (target.customParams?.oauthConnectorId) {
         return ctx.serverDB.transaction(async (tx) => {
           const connectorModel = new ConnectorModel(tx, ctx.userId, ctx.workspaceId ?? undefined);
-          const connector = await connectorModel.findPublicById(
-            target.customParams!.oauthConnectorId!,
-          );
+          // Managed lifecycle checks need metadata, which the public projection omits.
+          // No gatekeeper is supplied: uninstall neither decrypts nor returns credentials.
+          const connector = await connectorModel.findById(target.customParams!.oauthConnectorId!);
           if (
             connector &&
             connector.identifier === input.id &&

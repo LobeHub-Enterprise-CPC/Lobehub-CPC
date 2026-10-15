@@ -124,6 +124,31 @@ describe('connectorRouter.syncPluginTools — customPlugin guard', () => {
     expect(connectorModelMock.create).not.toHaveBeenCalled();
   });
 
+  it('keeps a required DCR scheme when a managed retry omits both stored and input OIDC config', async () => {
+    connectorModelMock.findScopedByIdentifier.mockResolvedValue({
+      id: 'oauth-conn',
+      sourceType: 'marketplace',
+      userId: 'user_test',
+      mcpServerUrl: 'https://docs.example.test/mcp',
+      metadata: { marketplaceOAuth: true },
+      oidcConfig: null,
+    });
+    await callerFor().create({
+      identifier: 'docs',
+      name: 'Docs',
+      sourceType: 'marketplace',
+      mcpConnectionType: 'http',
+      mcpServerUrl: 'https://docs.example.test/mcp',
+      metadata: { marketplaceOAuth: true },
+    });
+    expect(connectorModelMock.update).toHaveBeenCalledWith(
+      'oauth-conn',
+      expect.objectContaining({
+        oidcConfig: { scheme: 'dcr' },
+      }),
+    );
+  });
+
   it('syncs managed OAuth tools remotely instead of projecting the empty installation marker', async () => {
     pluginModelMock.findById.mockResolvedValue({
       customParams: { oauthConnectorId: 'oauth-conn' },

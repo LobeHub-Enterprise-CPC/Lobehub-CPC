@@ -22,7 +22,7 @@ vi.mock('@/libs/trpc/lambda/middleware', () => ({
 
 describe('marketplace OAuth plugin lifecycle', () => {
   const plugin = { findById: vi.fn(), delete: vi.fn(), update: vi.fn() };
-  const connector = { findPublicById: vi.fn(), delete: vi.fn() };
+  const connector = { findById: vi.fn(), delete: vi.fn() };
   const tx = {};
   const transaction = vi.fn(async (fn: (db: unknown) => unknown) => fn(tx));
   const caller = (workspaceId?: string) =>
@@ -45,7 +45,7 @@ describe('marketplace OAuth plugin lifecycle', () => {
       userId: 'owner',
       customParams: { oauthConnectorId: 'conn' },
     });
-    connector.findPublicById.mockResolvedValue({
+    connector.findById.mockResolvedValue({
       id: 'conn',
       userId: 'owner',
       identifier: 'docs',
@@ -63,7 +63,7 @@ describe('marketplace OAuth plugin lifecycle', () => {
   });
 
   it('does not delete an unrelated connector referenced by an invalid marker', async () => {
-    connector.findPublicById.mockResolvedValue({
+    connector.findById.mockResolvedValue({
       id: 'conn',
       identifier: 'other',
       sourceType: 'custom',
@@ -74,7 +74,7 @@ describe('marketplace OAuth plugin lifecycle', () => {
   });
 
   it('rejects removal of another workspace member’s managed connector', async () => {
-    connector.findPublicById.mockResolvedValue({
+    connector.findById.mockResolvedValue({
       id: 'conn',
       userId: 'another',
       identifier: 'docs',

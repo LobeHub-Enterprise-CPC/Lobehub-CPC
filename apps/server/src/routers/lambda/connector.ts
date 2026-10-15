@@ -353,7 +353,11 @@ export const connectorRouter = router({
         ...fields,
         ...(reuseMarketplaceClient && {
           metadata: { ...existing.metadata, ...fields.metadata },
-          oidcConfig: { ...existing.oidcConfig, ...input.oidcConfig },
+          oidcConfig: {
+            ...existing.oidcConfig,
+            ...input.oidcConfig,
+            scheme: input.oidcConfig?.scheme ?? existing.oidcConfig?.scheme ?? 'dcr',
+          },
         }),
         isEnabled: input.isEnabled ?? true,
         sourceType: input.sourceType,
