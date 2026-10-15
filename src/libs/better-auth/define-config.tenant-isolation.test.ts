@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { configureBusinessAuth } from '@lobechat/business-auth';
 import { runWithTenantScope } from '@lobechat/database/tenant';
 import { getTestDB } from '@lobechat/database/test-utils';
 import { sql } from 'drizzle-orm';
@@ -28,9 +29,16 @@ vi.mock('@/libs/oidc-provider/session-cleanup', () => ({
 
 const { defineConfig } = await import('./define-config');
 
-// A provisioned tenant always has an email registration policy; without one sign-up is refused.
+// A distribution that keeps its registration policy in `runtime_configs` (a table its own tenant
+// chain adds through TEST_DB_EXTRA_MIGRATIONS_FOLDER) refuses sign-up for a tenant without one, and
+// every provisioned tenant has one. The plain checkout has no such table and no such gate.
 beforeAll(async () => {
   const database = await getTestDB();
+  const { rows } = await database.execute<{ present: boolean }>(
+    sql`SELECT to_regclass('runtime_configs') IS NOT NULL AS present`,
+  );
+  if (!rows[0]?.present) return;
+
   await database.execute(
     sql`INSERT INTO runtime_configs (config_key, value) VALUES ('frontend_email_registration', '{"policy":"all"}') ON CONFLICT DO NOTHING`,
   );
@@ -98,11 +106,15 @@ describe('tenant auth isolation', () => {
     sessionCookies = cookieHeaderOf(response);
   });
 
-  // Business auth disables the session_data cookie cache: it could keep authorizing a
-  // session that was deleted, so every request reads the durable session.
-  it('issues only the signed session token, without a session_data cache cookie', () => {
+  // A distribution may disable the session_data cookie cache (a deleted session must not stay
+  // authorized), so the expectation follows what its `configureBusinessAuth` leaves enabled.
+  it('issues the signed session token, and session_data only while the cookie cache is enabled', () => {
+    const cookieCache = configureBusinessAuth({ session: { cookieCache: { enabled: true } } })
+      .session?.cookieCache?.enabled;
+
     expect(sessionCookies).toContain('lh_tenant-a.session_token=');
-    expect(sessionCookies).not.toContain('session_data=');
+    if (cookieCache) expect(sessionCookies).toContain('lh_tenant-a.session_data=');
+    else expect(sessionCookies).not.toContain('session_data=');
   });
 
   it('accepts a tenant session on the tenant that issued it', async () => {
