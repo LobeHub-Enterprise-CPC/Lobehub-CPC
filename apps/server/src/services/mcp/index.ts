@@ -312,20 +312,19 @@ export class MCPService {
   // semantic); arrays keep their order (argument order IS semantic, so `args`
   // must never be sorted or dropped, or distinct servers would share a client).
   private serializeParams(params: MCPClientParams): string {
-    const sortedKeys = Object.keys(params).sort();
-    const sortedParams: Record<string, any> = {};
-
-    for (const key of sortedKeys) {
-      const value = (params as any)[key];
-      // Sort the 'args' array if it exists
-      if (key === 'args' && Array.isArray(value)) {
-        sortedParams[key] = JSON.stringify(key);
-      } else {
-        sortedParams[key] = value;
+    const canonicalize = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map((item) => canonicalize(item));
+      if (value && typeof value === 'object') {
+        return Object.fromEntries(
+          Object.keys(value)
+            .sort()
+            .map((key) => [key, canonicalize((value as Record<string, unknown>)[key])]),
+        );
       }
-    }
+      return value;
+    };
 
-    return JSON.stringify(sortedParams);
+    return JSON.stringify(canonicalize(params));
   }
 
   async getStreamableMcpServerManifest(
