@@ -66,6 +66,7 @@ the next free number of that prefix.
 - **L-S23** A hand-built `node_modules` symlink farm runs unit tests but cannot start the dev server; clone a working checkout's `node_modules` instead of a fresh install, which this lockfile-less repo resolves against a moving registry.
 - **L-S24** Read the dev server's URL from its own log, and treat "ready" as any status but `000` — `/` answers `302` to `/signin` when signed out.
 - **L-S25** `dev:static` 的 Electron 重启会清空 `dist/renderer`（renderer Vite dev server 启动即删 outDir）；`start`/`restart` 后必须重建 renderer 再驱动，否则页面只有 Internal Server Error。
+- **L-S26** A hand-built Electron main bundle bakes its endpoints in: build with `OFFICIAL_CLOUD_SERVER` and `DEVICE_GATEWAY_URL` pointing at local or unreachable hosts, and before launch confirm `dist/main` carries those values (`DEVICE_GATEWAY_URL:` / `OFFICIAL_CLOUD_SERVER:` followed by the local URL, not `void 0`).
 
 ## Entries
 
@@ -605,3 +606,23 @@ dev.mjs 每次启动都会拉起 renderer Vite dev server，而后者启动即�
 **Rule:** 每次 `start`/`restart` 之后、驱动之前，先 `cd apps/desktop && pnpm build:renderer`
 （约 25s）并确认 `dist/renderer/apps/desktop/index.html` 存在。同一个 dev.mjs 生命周期内
 的后续重启不会再次清空；改用 `restart` 而不是 `start` 时也按同一规则处理。
+
+### L-S26 — Hand-built desktop bundle still talks to the official cloud and gateway
+
+`since 2026-10-15` · `holds-while: apps/desktop/vite.main.config.ts defines OFFICIAL_CLOUD_SERVER and DEVICE_GATEWAY_URL at build time and the store default gatewayUrl is the official gateway`
+
+**Trap:** building `vite.main.config.ts` / `vite.preload.config.ts` by hand (to avoid
+`dev.mjs` watchers) with only `OFFICIAL_CLOUD_SERVER` set, then passing
+`DEVICE_GATEWAY_URL` to the launch command. Both are vite `define`s, so runtime
+env is ignored; the app signed in to the local server and then sent the local
+access token to `device-gateway.lobehub.com` (rejected with signature
+verification failed).
+
+**Rule:** set every endpoint define in the **build** environment, pointing at the
+local service or an unreachable address (`http://127.0.0.1:9`). Before launch,
+`grep -ohE '(DEVICE_GATEWAY_URL|OFFICIAL_CLOUD_SERVER):[^,]+' apps/desktop/dist/main/*.js`
+must show the local URLs as the literal values (other hits are identifier
+references); `void 0` means the define was not baked and the app
+falls back to the official host, so rebuild. Grepping for `lobehub.com` proves
+nothing: a correct bundle still carries the official defaults as constants.
+Treat any token that reached an official host as burned, and say so in the report.
