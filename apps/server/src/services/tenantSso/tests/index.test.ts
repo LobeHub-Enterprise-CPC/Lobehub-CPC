@@ -85,4 +85,71 @@ describe('tenant SSO reader', () => {
     );
     expect(saml && toGenericOAuthConfig(saml, 'https://x')).toBeNull();
   });
+
+  describe('display name fallback', () => {
+    const oidc = () => toGenericOAuthConfig(toTenantSsoProvider(TENANT, row())!, 'https://x')!;
+    const custom = () =>
+      toGenericOAuthConfig(
+        toTenantSsoProvider(
+          TENANT,
+          row({
+            oauth2Config: {
+              authorizationEndpoint: 'https://idp.example.com/authorize',
+              clientId: 'client-1',
+              preset: 'custom',
+              tokenEndpoint: 'https://idp.example.com/token',
+              userInfoEndpoint: 'https://idp.example.com/userinfo',
+            },
+            oidcConfig: null,
+            protocol: 'oauth2',
+          }),
+        )!,
+        'https://x',
+      )!;
+
+    it.each([
+      ['OIDC', oidc],
+      ['custom OAuth2', custom],
+    ])(
+      '%s: a profile without name (Clerk-like) is named by preferred_username',
+      async (_, build) => {
+        const mapped = await build().mapProfileToUser!({
+          email: 'cpc@x.com',
+          emailVerified: true,
+          id: 'user_1',
+          preferred_username: 'cpc_admin',
+          sub: 'user_1',
+        });
+        expect(mapped.name).toBe('cpc_admin');
+      },
+    );
+
+    it('falls back to the email, then the subject, and keeps a given name', async () => {
+      const { mapProfileToUser } = oidc();
+      expect((await mapProfileToUser!({ email: 'cpc@x.com', sub: 'u1' })).name).toBe('cpc@x.com');
+      expect((await mapProfileToUser!({ sub: 'u1' })).name).toBe('u1');
+      expect(
+        (await mapProfileToUser!({ email: 'a@x.com', name: 'Ada', preferred_username: 'ada' }))
+          .name,
+      ).toBe('Ada');
+    });
+
+    it('composes given and family names before other claims', async () => {
+      const mapped = await oidc().mapProfileToUser!({
+        family_name: 'Lovelace',
+        given_name: 'Ada',
+        preferred_username: 'ada',
+      });
+      expect(mapped.name).toBe('Ada Lovelace');
+    });
+
+    it('does not override the email, image or verification better-auth merges from the profile', async () => {
+      const mapped = await oidc().mapProfileToUser!({
+        email: 'cpc@x.com',
+        image: 'https://img/x.png',
+        preferred_username: 'cpc_admin',
+      });
+      expect(mapped).toEqual({ name: 'cpc_admin' });
+    });
+  });
 });

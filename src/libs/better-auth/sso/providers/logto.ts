@@ -13,12 +13,6 @@ const provider: GenericProviderDefinition<{
       clientId: env.AUTH_LOGTO_ID,
       clientSecret: env.AUTH_LOGTO_SECRET,
       issuer: env.AUTH_LOGTO_ISSUER,
-      overrides: {
-        mapProfileToUser: (profile) => ({
-          email: profile.email,
-          name: profile.name ?? profile.username ?? profile.email ?? profile.sub,
-        }),
-      },
       providerId: 'logto',
       scopes: ['openid', 'profile', 'email', 'offline_access'],
     }),

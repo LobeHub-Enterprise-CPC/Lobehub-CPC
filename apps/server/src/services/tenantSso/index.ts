@@ -8,6 +8,7 @@ import debug from 'debug';
 import { and, eq, isNull } from 'drizzle-orm';
 import { decodeJwt } from 'jose';
 
+import { mapProfileNameToUser } from '@/libs/better-auth/sso/helpers';
 import { openTenantData } from '@/server/crypto/tenantKeys';
 
 const log = debug('lobe-server:tenant-sso');
@@ -433,6 +434,7 @@ export const toGenericOAuthConfig = (
         clientSecret,
         discoveryUrl:
           string(provider.config.discoveryEndpoint) ?? issuerDiscoveryUrl(provider.issuer.trim()),
+        mapProfileToUser: mapProfileNameToUser,
         pkce: provider.config.pkce !== false,
         providerId: provider.providerId,
         redirectURI,
@@ -455,6 +457,7 @@ export const toGenericOAuthConfig = (
       authorizationUrl,
       clientId,
       clientSecret,
+      mapProfileToUser: mapProfileNameToUser,
       pkce: provider.config.pkce !== false,
       providerId: provider.providerId,
       redirectURI,

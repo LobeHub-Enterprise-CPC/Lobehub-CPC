@@ -13,12 +13,6 @@ const provider: GenericProviderDefinition<{
       clientId: env.AUTH_CLOUDFLARE_ZERO_TRUST_ID,
       clientSecret: env.AUTH_CLOUDFLARE_ZERO_TRUST_SECRET,
       issuer: env.AUTH_CLOUDFLARE_ZERO_TRUST_ISSUER,
-      overrides: {
-        mapProfileToUser: (profile) => ({
-          email: profile.email,
-          name: profile.name ?? profile.email ?? profile.sub,
-        }),
-      },
       providerId: 'cloudflare-zero-trust',
     }),
   checkEnvs: () => {

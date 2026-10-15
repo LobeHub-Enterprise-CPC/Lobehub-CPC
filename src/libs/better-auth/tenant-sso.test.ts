@@ -48,6 +48,24 @@ describe('buildTenantSsoProviders presets', () => {
     },
   );
 
+  it.each(['keycloak', 'zitadel', 'auth0', 'authelia', 'authentik', 'okta', 'logto'])(
+    'names a %s user whose profile has no name claim',
+    async (preset) => {
+      const { genericOAuthProviders } = buildTenantSsoProviders(
+        [okta({ config: { clientId: 'client-1', preset }, providerId: preset })],
+        (providerId) => `https://app.example.com/callback/${providerId}`,
+      );
+
+      expect(
+        await genericOAuthProviders[0].mapProfileToUser?.({
+          email: 'cpc@x.com',
+          preferred_username: 'cpc_admin',
+          sub: 'u1',
+        }),
+      ).toEqual({ name: 'cpc_admin' });
+    },
+  );
+
   it('does not leave a preset issuer to better-auth discovery, which has no SSRF guard', () => {
     const { genericOAuthProviders } = buildTenantSsoProviders(
       [okta({ issuer: 'http://169.254.169.254' })],

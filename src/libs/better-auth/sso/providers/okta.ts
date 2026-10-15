@@ -13,12 +13,6 @@ const provider: GenericProviderDefinition<{
       clientId: env.AUTH_OKTA_ID,
       clientSecret: env.AUTH_OKTA_SECRET,
       issuer: env.AUTH_OKTA_ISSUER,
-      overrides: {
-        mapProfileToUser: (profile) => ({
-          email: profile.email,
-          name: profile.name ?? profile.preferred_username ?? profile.email ?? profile.sub,
-        }),
-      },
       providerId: 'okta',
     }),
   checkEnvs: () => {
