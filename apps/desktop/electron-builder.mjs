@@ -110,6 +110,17 @@ const getPublishConfig = () => {
       {
         provider: 'generic',
         url: fullUrl,
+        // electron-builder names the emitted manifest `${publishConfig.channel}.yml`
+        // (app-builder-lib/out/publish/updateInfoBuilder.js: `publishConfig.channel || "latest"`),
+        // while electron-updater fetches `${autoUpdater.channel}.yml` — our shipped
+        // client runs with channel `stable`, so it asks for stable.yml. Without this
+        // the build ships a perfectly valid latest.yml that no client of ours ever
+        // requests, and updates fail with ERR_UPDATER_CHANNEL_FILE_NOT_FOUND while
+        // every artifact looks correct.
+        //
+        // It has to live on the provider: a top-level `channel` is rejected by the
+        // schema ("configuration has an unknown property 'channel'").
+        channel: channelPath,
       },
     ];
   }
