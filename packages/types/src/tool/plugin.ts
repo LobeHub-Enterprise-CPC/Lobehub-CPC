@@ -54,6 +54,8 @@ export interface CustomPluginParams {
     // Added headers configuration support
     headers?: Record<string, string>;
   };
+  /** Marketplace OAuth connection; credentials remain in user_connectors. */
+  oauthConnectorId?: string;
   useProxy?: boolean;
 }
 

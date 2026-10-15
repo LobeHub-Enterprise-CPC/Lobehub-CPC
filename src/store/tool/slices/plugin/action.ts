@@ -160,10 +160,13 @@ export class PluginActionImpl {
    * plugin again.
    */
   uninstallPlugin = async (identifier: string): Promise<void> => {
+    const managedOAuth = this.#get().installedPlugins.find((p) => p.identifier === identifier)
+      ?.customParams?.oauthConnectorId;
     await pluginService.uninstallPlugin(identifier);
     this.#installedPlugins.removeEntity(identifier);
 
     await this.#get().refreshPlugins();
+    if (managedOAuth) await this.#get().fetchConnectors();
   };
 
   updateInstallLoadingState = (id: string, loading: boolean | undefined): void => {

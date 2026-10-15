@@ -13,6 +13,7 @@ import { MCPInstallStep } from '@/types/plugins';
 import InstallError from './InstallError';
 import MCPConfigForm from './MCPConfigForm';
 import MCPDependenciesGuide from './MCPDependenciesGuide';
+import MCPOAuthConnect from './MCPOAuthConnect';
 
 const MCPInstallProgress = memo<{ identifier: string }>(({ identifier }) => {
   const { t } = useTranslation('plugin');
@@ -92,6 +93,10 @@ const MCPInstallProgress = memo<{ identifier: string }>(({ identifier }) => {
             />
           </Flexbox>
         </m.div>
+      )}
+
+      {installProgress?.step === MCPInstallStep.AUTHORIZATION_REQUIRED && (
+        <MCPOAuthConnect identifier={identifier} />
       )}
 
       {needsConfig && installProgress && (

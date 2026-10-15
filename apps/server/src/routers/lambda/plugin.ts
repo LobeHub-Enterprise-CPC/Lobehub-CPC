@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
 import { wsCompatProcedure } from '@/business/server/trpc-middlewares/workspaceAuth';
+import { ConnectorModel } from '@/database/models/connector';
 import { PluginModel } from '@/database/models/plugin';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
@@ -50,7 +51,10 @@ export const pluginRouter = router({
       // or we can just update the plugin manifest — but only the creator (or a
       // workspace owner) may overwrite an existing row's manifest.
       assertWorkspaceRowManageable(ctx, result.userId, 'plugin');
-      await ctx.pluginModel.update(input.identifier, { manifest: input.manifest });
+      await ctx.pluginModel.update(input.identifier, {
+        ...(input.customParams?.oauthConnectorId && { customParams: input.customParams }),
+        manifest: input.manifest,
+      });
     }),
 
   createPlugin: pluginProcedure
@@ -88,6 +92,24 @@ export const pluginRouter = router({
       // Missing row → keep the delete idempotent, nothing to authorize.
       if (!target) return;
       assertWorkspaceRowManageable(ctx, target.userId, 'plugin');
+      if (target.customParams?.oauthConnectorId) {
+        return ctx.serverDB.transaction(async (tx) => {
+          const connectorModel = new ConnectorModel(tx, ctx.userId, ctx.workspaceId ?? undefined);
+          // Managed lifecycle checks need metadata, which the public projection omits.
+          // No gatekeeper is supplied: uninstall neither decrypts nor returns credentials.
+          const connector = await connectorModel.findById(target.customParams!.oauthConnectorId!);
+          if (
+            connector &&
+            connector.identifier === input.id &&
+            connector.sourceType === 'marketplace' &&
+            connector.metadata?.marketplaceOAuth === true
+          ) {
+            assertWorkspaceRowManageable(ctx, connector.userId, 'connector');
+            await connectorModel.delete(connector.id);
+          }
+          return new PluginModel(tx, ctx.userId, ctx.workspaceId ?? undefined).delete(input.id);
+        });
+      }
       return ctx.pluginModel.delete(input.id);
     }),
 

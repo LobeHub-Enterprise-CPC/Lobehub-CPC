@@ -6,6 +6,8 @@ import debug from 'debug';
 import { produce } from 'immer';
 import { gt, valid } from 'semver';
 
+import { ConnectorSourceType } from '@/database/schemas';
+import { executeOAuthCreate } from '@/features/Connectors/CustomConnectorModal/oauthCreate';
 import { type MCPErrorData } from '@/libs/mcp/types';
 import { parseStdioErrorMessage } from '@/libs/mcp/types';
 import {
@@ -28,6 +30,8 @@ import {
   type MCPInstallProgress,
 } from '@/types/plugins';
 import { MCPInstallStep } from '@/types/plugins';
+import { waitForConnectorOAuth } from '@/utils/connectorOAuth';
+import { type MarketplaceOAuth, readMarketplaceOAuth } from '@/utils/marketplaceOAuth';
 import { getPlatform } from '@/utils/platform';
 import { sleep } from '@/utils/sleep';
 import { setNamespace } from '@/utils/storeDebug';
@@ -248,7 +252,13 @@ export class PluginMCPStoreActionImpl {
 
   installMCPPlugin = async (
     identifier: string,
-    options: { config?: Record<string, any>; resume?: boolean; skipDepsCheck?: boolean } = {},
+    options: {
+      authorize?: boolean;
+      config?: Record<string, any>;
+      oauthPopup?: Window | null;
+      resume?: boolean;
+      skipDepsCheck?: boolean;
+    } = {},
   ): Promise<boolean | undefined> => {
     const { resume = false, config, skipDepsCheck } = options;
     const normalizedConfig = toNonEmptyStringRecord(config);
@@ -351,7 +361,9 @@ export class PluginMCPStoreActionImpl {
         // Web: endpoint only (stdio not supported)
         const shouldUseHttpDeployment = !!httpOption;
 
-        if (hasCloudEndpoint) {
+        const httpOAuth = readMarketplaceOAuth(httpOption?.installationDetails);
+
+        if (hasCloudEndpoint && !httpOAuth) {
           // Use cloudEndPoint, create cloud type connection
           log('Using cloudEndPoint for stdio plugin: %s', haveCloudEndpoint);
 
@@ -389,6 +401,7 @@ export class PluginMCPStoreActionImpl {
 
           connection = {
             auth: httpOption.connection?.auth || { type: 'none' },
+            marketplaceOAuth: httpOAuth,
             headers: httpOption.connection?.headers,
             type: 'http',
             url: httpOption.connection?.url,
@@ -508,13 +521,28 @@ export class PluginMCPStoreActionImpl {
         }
       }
 
+      const oauth: MarketplaceOAuth | undefined = connection?.marketplaceOAuth;
+      if (oauth && connection?.type !== 'http') {
+        throw new Error('Marketplace OAuth requires an HTTP MCP connection');
+      }
+      if (oauth && !options.authorize) {
+        updateMCPInstallProgress(identifier, {
+          connection: { ...connection, headers: mergedHttpHeaders },
+          manifest: data,
+          progress: 55,
+          step: MCPInstallStep.AUTHORIZATION_REQUIRED,
+        });
+        updateInstallLoadingState(identifier, undefined);
+        return false;
+      }
+
       // Get server manifest logic
       updateInstallLoadingState(identifier, true);
 
       // Step 5: Get server manifest
       updateMCPInstallProgress(identifier, {
         progress: 70,
-        step: MCPInstallStep.GETTING_SERVER_MANIFEST,
+        step: oauth ? MCPInstallStep.AUTHORIZING : MCPInstallStep.GETTING_SERVER_MANIFEST,
       });
 
       // Check if already cancelled
@@ -523,8 +551,92 @@ export class PluginMCPStoreActionImpl {
       }
 
       let manifest: ToolManifest | undefined;
+      let oauthConnectorId: string | undefined;
 
-      if (connection?.type === 'stdio') {
+      if (oauth) {
+        const store = this.#get();
+        const closePopup = () => options.oauthPopup?.close();
+        abortController.signal.addEventListener('abort', closePopup, { once: true });
+        try {
+          if (options.oauthPopup === null)
+            throw new Error('OAuth popup blocked; allow popups and retry');
+          await store.fetchConnectors();
+          if (abortController.signal.aborted) return;
+          const existing = this.#get().connectors.find(
+            (c) => c.identifier === identifier && !c.agentId,
+          );
+          if (
+            existing &&
+            (existing.sourceType !== ConnectorSourceType.marketplace ||
+              existing.metadata?.marketplaceOAuth !== true ||
+              existing.mcpServerUrl !== connection.url)
+          ) {
+            throw new Error('A different connector already uses this identifier');
+          }
+          await executeOAuthCreate(
+            {
+              identifier,
+              mcpConnectionType: 'http' as const,
+              mcpServerUrl: connection.url as string,
+              metadata: {
+                avatar: plugin.icon,
+                customHeaders: mergedHttpHeaders,
+                description: plugin.description,
+                marketplaceOAuth: true,
+                marketplaceVersion: data.version,
+              },
+              name: data.name || identifier,
+              oidcConfig: { scheme: 'dcr' as const, scopes: oauth.scopes },
+              sourceType: ConnectorSourceType.marketplace,
+            },
+            options.oauthPopup,
+            {
+              createConnector: async (payload) => {
+                const created = await store.createConnector(payload);
+                oauthConnectorId = created.id;
+                return created;
+              },
+              deleteConnector: store.deleteConnector,
+              isConnectorConnected: async (id) => {
+                await store.fetchConnectors();
+                return this.#get().connectors.some((c) => c.id === id && c.status === 'connected');
+              },
+              startConnectorOAuth: async (id) => {
+                abortController.signal.throwIfAborted();
+                return store.startConnectorOAuth(id);
+              },
+              waitForConnectorOAuth: async (...args) => {
+                abortController.signal.throwIfAborted();
+                return waitForConnectorOAuth(...args);
+              },
+            },
+          );
+          if (abortController.signal.aborted) return;
+          await store.fetchConnectors();
+          const connected = this.#get().connectors.find((c) => c.id === oauthConnectorId);
+          if (connected?.status !== 'connected') {
+            throw new Error('OAuth completed but tool synchronization failed; retry installation');
+          }
+          // Marker only: tools and encrypted tokens belong to the connector.
+          // Empty api prevents anonymous legacy fallback after disconnect.
+          manifest = {
+            api: [],
+            identifier,
+            meta: {
+              avatar: plugin.icon,
+              description: plugin.description,
+              title: data.name || identifier,
+            },
+            type: 'mcp',
+            version: data.version,
+          };
+        } finally {
+          abortController.signal.removeEventListener('abort', closePopup);
+          options.oauthPopup?.close();
+        }
+      }
+
+      if (!oauth && connection?.type === 'stdio') {
         manifest = await mcpService.getStdioMcpServerManifest(
           {
             args: connection.args,
@@ -536,7 +648,7 @@ export class PluginMCPStoreActionImpl {
           abortController.signal,
         );
       }
-      if (connection?.type === 'http') {
+      if (!oauth && connection?.type === 'http') {
         manifest = await mcpService.getStreamableMcpServerManifest(
           {
             auth: connection.auth,
@@ -611,7 +723,7 @@ export class PluginMCPStoreActionImpl {
 
       await pluginService.installPlugin({
         // For mcp, store connection info in customParams field first
-        customParams: { mcp: finalConnection },
+        customParams: oauthConnectorId ? { oauthConnectorId } : { mcp: finalConnection },
         identifier: plugin.identifier,
         manifest,
         settings: normalizedConfig,
@@ -643,7 +755,9 @@ export class PluginMCPStoreActionImpl {
       discoverService.reportMcpInstallResult({
         identifier: plugin.identifier,
         installDurationMs,
-        installParams: connection,
+        installParams: connection?.marketplaceOAuth
+          ? { type: 'http', auth: { type: 'oauth2' } }
+          : connection,
         manifest: {
           prompts: (manifest as any).prompts,
           resources: (manifest as any).resources,
@@ -718,7 +832,7 @@ export class PluginMCPStoreActionImpl {
             step: 'installation_error',
             timestamp: Date.now(),
           },
-          type: 'UNKNOWN_ERROR',
+          type: connection?.marketplaceOAuth ? 'AUTHORIZATION_ERROR' : 'UNKNOWN_ERROR',
         };
       }
 
@@ -735,7 +849,9 @@ export class PluginMCPStoreActionImpl {
         errorMessage: errorInfo.message,
         identifier: plugin.identifier,
         installDurationMs,
-        installParams: connection,
+        installParams: connection?.marketplaceOAuth
+          ? { type: 'http', auth: { type: 'oauth2' } }
+          : connection,
         metadata: errorInfo.metadata,
         platform: result?.platform || getPlatform(),
         success: false,
