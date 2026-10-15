@@ -1,6 +1,8 @@
 import type { ServerDefaultHeterogeneousAgentType } from '@lobechat/heterogeneous-agents';
 import type { ChatStreamPayload } from '@lobechat/model-runtime';
+import { parseClaudeModelId } from '@lobechat/model-runtime/providers/anthropic/modelId';
 import { isResponsesAPIModel } from '@lobechat/model-runtime/providers/openai/modelId';
+import { normalizeAnthropicToolSchema } from '@lobechat/model-runtime/utils/anthropicToolSchema';
 import type { CodexReasoningEffort } from '@lobechat/types';
 import { getCodexReasoningEffortLevels } from '@lobechat/types';
 
@@ -14,6 +16,17 @@ export const prepareServerDefaultChatPayload = (params: {
   supportsAdaptiveThinking: boolean;
 }): ChatStreamPayload => {
   const normalizedPayload = { ...params.payload };
+  // OpenAI-compatible routers can also select Claude. Normalize before routing,
+  // using the logical model rather than an opaque provider deployment alias.
+  if (parseClaudeModelId(params.model)) {
+    normalizedPayload.tools = normalizedPayload.tools?.map((tool) => ({
+      ...tool,
+      function: {
+        ...tool.function,
+        parameters: normalizeAnthropicToolSchema(tool.function.parameters),
+      },
+    }));
+  }
   if (
     (params.agentType === 'claude-code' || params.agentType === 'kimi-code') &&
     normalizedPayload.thinking?.type === 'adaptive' &&

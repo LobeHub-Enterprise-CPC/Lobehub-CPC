@@ -132,3 +132,16 @@ describe('computeShellAbi', () => {
     expect(abi()).toBe(base);
   });
 });
+
+it('hashes startup-window translations before packaging without depending on the generated copy', () => {
+  const file = 'locales/en-US/electron.json';
+  write(file, JSON.stringify({ 'startupUpdate.title': 'Ready', 'other': 'One' }));
+  write('apps/desktop/shell/update/strings.json', '{}');
+  git('add', '-A');
+  const initial = abi();
+  write('apps/desktop/shell/update/strings.json', '{"en-US":{"title":"Ready"}}');
+  write(file, JSON.stringify({ 'startupUpdate.title': 'Ready', 'other': 'Two' }));
+  expect(abi()).toBe(initial);
+  write(file, JSON.stringify({ 'startupUpdate.title': 'Updated', 'other': 'Two' }));
+  expect(abi()).not.toBe(initial);
+});

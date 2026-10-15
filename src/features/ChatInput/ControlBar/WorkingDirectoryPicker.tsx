@@ -18,8 +18,7 @@ import {
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { useConversationStore } from '@/features/Conversation/store';
-import { openAddWorkingDirModal } from '@/features/WorkingDirectory';
+import { openPickWorkingDirModal } from '@/features/WorkingDirectory';
 import {
   resolveAgentWorkingDirectorySource,
   resolveTargetDeviceId,
@@ -29,7 +28,6 @@ import {
   getWorkingDirectoryPathString,
 } from '@/helpers/workingDirectoryPath';
 import { useEffectiveAgencyConfig } from '@/hooks/useEffectiveAgencyConfig';
-import { deviceService } from '@/services/device';
 import { electronSystemService } from '@/services/electron/system';
 import { useAgentStore } from '@/store/agent';
 import { useChatStore } from '@/store/chat';
@@ -39,6 +37,7 @@ import { useElectronStore } from '@/store/electron';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 
+import { useTopicId } from '../hooks/useTopicId';
 import DashedFolderIcon from './DashedFolderIcon';
 import DirIcon from './DirIcon';
 import { useCommitWorkingDirectory } from './useCommitWorkingDirectory';
@@ -199,27 +198,9 @@ const AddRemoteFolderRow = memo<{
 }>(({ defaultCwd, deviceId, onBeforeOpen, onPick }) => {
   const { t } = useTranslation('device');
 
-  // Validate the selected or manually entered path on the target device: block
-  // on a definitive negative, otherwise commit with the detected repoType so the
-  // recent entry shows the right (git / github) icon. An unreachable device
-  // (null) is treated as "can't verify" and allowed through without a repoType.
-  const handleSubmit = async (path: string): Promise<string | undefined> => {
-    const result = deviceId ? await deviceService.statPath(deviceId, path) : undefined;
-    if (result) {
-      if (!result.exists) return t('workingDirectory.pathNotExist');
-      if (!result.isDirectory) return t('workingDirectory.pathNotDirectory');
-    }
-    onPick({ path, repoType: result?.repoType });
-    return undefined;
-  };
-
   const handleClick = () => {
     onBeforeOpen();
-    openAddWorkingDirModal({
-      defaultPath: defaultCwd || undefined,
-      deviceId,
-      onSubmit: handleSubmit,
-    });
+    openPickWorkingDirModal({ defaultPath: defaultCwd || undefined, deviceId, onPick });
   };
   return (
     <Flexbox
@@ -253,7 +234,7 @@ interface WorkingDirectoryPickerProps {
  * runs in when nothing is picked is never invisible.
  */
 const WorkingDirectoryPicker = memo<WorkingDirectoryPickerProps>(({ agentId }) => {
-  const topicId = useConversationStore((s) => s.context.topicId);
+  const topicId = useTopicId();
   const { t } = useTranslation('device');
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -269,7 +250,7 @@ const WorkingDirectoryPicker = memo<WorkingDirectoryPickerProps>(({ agentId }) =
   // Effective config (shared row + this member's device override)
   // so recents / default cwd / the selected-repo label all resolve against the
   // device THIS member's run actually targets.
-  const { agencyConfig, workspaceScoped } = useEffectiveAgencyConfig(agentId);
+  const { agencyConfig, workspaceScoped } = useEffectiveAgencyConfig(agentId, { topicId });
   const currentDeviceId = useElectronStore((s) => s.gatewayDeviceInfo?.deviceId);
   const targetDeviceId = resolveTargetDeviceId(agencyConfig, currentDeviceId, {
     workspaceScoped,

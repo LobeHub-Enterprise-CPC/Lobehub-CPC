@@ -14,6 +14,14 @@ export default {
   'agent_intervention_required_title': '{{agent}} needs your review',
   'agent_run_completed': '{{preview}}',
   'agent_run_completed_title': 'Agent task completed',
+  'agent_task_run_failed': 'Your task "{{jobName}}" failed. Open the task to see the full error.',
+  'agent_task_run_failed_heartbeat_timeout':
+    'Your task "{{jobName}}" stopped responding and was marked as failed. Open the task to run it again.',
+  'agent_task_run_failed_heartbeat_timeout_title': 'Task timed out',
+  'agent_task_run_failed_insufficient_budget':
+    'Your task "{{jobName}}" couldn\'t run because your account is out of credits. Top up or upgrade your plan to continue.',
+  'agent_task_run_failed_insufficient_budget_title': 'Task failed: insufficient credits',
+  'agent_task_run_failed_title': 'Task failed',
   'agent_transfer_reassigned':
     'A workspace owner transferred your agent "{{agentTitle}}" to {{recipientLabel}}.',
   'agent_transfer_reassigned_title': 'Agent reassigned',
@@ -110,6 +118,10 @@ export default {
   'document_mentioned_title': 'You were mentioned in a document',
   'document_liked': '{{actorLabel}} liked your document "{{documentTitle}}".',
   'document_liked_title': 'Someone liked your document',
+  'subscription_one_time_expired':
+    'Your one-time {{plan}} plan has ended and your account is now on the Free plan. Renew {{plan}} to get your benefits back.',
+  'subscription_one_time_expired_action': 'Renew {{plan}}',
+  'subscription_one_time_expired_title': 'Your {{plan}} plan has ended',
   'subscription_payment_failed':
     'Your subscription renewal payment failed. Please update your payment method to keep your subscription active.',
   'subscription_payment_failed_action': 'Update payment method',

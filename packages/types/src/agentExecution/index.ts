@@ -173,6 +173,12 @@ export interface ExecAgentAppContext {
    * `metadata.orchestrationRole` so the role snapshot persists for rendering.
    */
   orchestrationRole?: 'supervisor' | 'member';
+  /**
+   * Project working directory a NEW topic is born in — the blank conversation a
+   * project group's "+" opened. The topic is bound to it and the run routes to
+   * the directory's device. Ignored when a topicId is already provided.
+   */
+  projectWorkingDirectoryId?: string;
   /** Scope identifier */
   scope?: string | null;
   /** Session ID */
@@ -233,6 +239,12 @@ export interface ExecAgentClientIds {
   topicId?: string;
   /** Id for the user message row this run creates. */
   userMessageId?: string;
+  /**
+   * Tail of the branch the client renders the new user row under. The server
+   * keeps the turn on this branch unless its newer spine head extends it, so a
+   * turn sent while an older branch is selected stays visible.
+   */
+  userMessageParentId?: string;
 }
 
 /** A client's declaration that it can run relayed LLM attempts (`llm_execute`). */
