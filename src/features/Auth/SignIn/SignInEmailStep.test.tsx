@@ -1,5 +1,5 @@
 import { useForm } from '@lobehub/ui/base-ui/form';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { SignInEmailStep, type SignInEmailStepProps } from './SignInEmailStep';
@@ -12,7 +12,7 @@ vi.mock('@/features/AuthShell/AuthAgreement', () => ({ default: () => null }));
 const EmailStep = (
   props: Pick<
     SignInEmailStepProps,
-    'disableEmailPassword' | 'enableMagicLink' | 'oAuthSSOProviders'
+    'disableEmailPassword' | 'enableMagicLink' | 'oAuthSSOProviders' | 'providerDetails'
   > & { isSocialOnly?: boolean },
 ) => {
   const form = useForm({ initialValues: { email: '' } });
@@ -78,5 +78,75 @@ describe('email login availability', () => {
     expect(
       screen.getByRole('button', { name: 'betterAuth.signin.emailSent.changeEmail' }),
     ).toBeTruthy();
+  });
+});
+
+describe('tenant SSO provider buttons', () => {
+  const clerk = {
+    displayName: 'Clerk SSO',
+    id: 'clerk',
+    logoUrl: 'https://img.clerk.com/logo.png',
+    protocol: 'oidc' as const,
+  };
+  const noLogo = { ...clerk, logoUrl: null };
+  const logos = (container: HTMLElement) => [...container.querySelectorAll('img')];
+
+  it("shows the logo the administrator configured instead of the provider's built-in icon", () => {
+    const { container } = render(
+      <EmailStep oAuthSSOProviders={['clerk']} providerDetails={{ clerk }} />,
+    );
+
+    expect(logos(container).map((img) => img.getAttribute('src'))).toEqual([clerk.logoUrl]);
+    // A custom logo replaces the built-in glyph, it does not sit next to it.
+    expect(container.querySelectorAll('button svg').length).toBe(0);
+  });
+
+  it('names the button after the configured display name', () => {
+    render(<EmailStep oAuthSSOProviders={['clerk']} providerDetails={{ clerk }} />);
+
+    expect(
+      screen.getByRole('button', { name: /betterAuth\.signin\.continueWithProvider/ }),
+    ).toBeTruthy();
+  });
+
+  it('keeps the built-in icon of a known provider that has no custom logo', () => {
+    const { container } = render(
+      <EmailStep
+        oAuthSSOProviders={['github']}
+        providerDetails={{ github: { ...noLogo, id: 'github' } }}
+      />,
+    );
+
+    expect(logos(container)).toHaveLength(0);
+    expect(container.querySelectorAll('button svg').length).toBeGreaterThan(0);
+  });
+
+  it('falls back to the icon when the logo fails to load', () => {
+    const { container } = render(
+      <EmailStep oAuthSSOProviders={['clerk']} providerDetails={{ clerk }} />,
+    );
+
+    fireEvent.error(logos(container)[0]);
+
+    expect(logos(container)).toHaveLength(0);
+    expect(container.querySelectorAll('button svg').length).toBeGreaterThan(0);
+  });
+
+  it('tries a changed logo URL again after an earlier one failed', () => {
+    const { container, rerender } = render(
+      <EmailStep oAuthSSOProviders={['clerk']} providerDetails={{ clerk }} />,
+    );
+    fireEvent.error(logos(container)[0]);
+
+    rerender(
+      <EmailStep
+        oAuthSSOProviders={['clerk']}
+        providerDetails={{ clerk: { ...clerk, logoUrl: 'https://img.clerk.com/new.png' } }}
+      />,
+    );
+
+    expect(logos(container).map((img) => img.getAttribute('src'))).toEqual([
+      'https://img.clerk.com/new.png',
+    ]);
   });
 });

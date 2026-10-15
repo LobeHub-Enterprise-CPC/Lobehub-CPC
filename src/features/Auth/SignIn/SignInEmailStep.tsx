@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 
 import type { BusinessSSOProvider } from '@/business/client/hooks/useBusinessSignin';
 import AuthIcons from '@/components/AuthIcons';
+import SsoProviderIcon from '@/features/Auth/SsoProviderIcon';
 import AuthCard from '@/features/AuthCard';
 import AuthAgreement from '@/features/AuthShell/AuthAgreement';
 
@@ -157,17 +158,10 @@ export const SignInEmailStep = ({
                 styles={{ icon: PROVIDER_ICON_STYLE }}
                 type="fill"
                 icon={
-                  providerDetails[provider]?.logoUrl ? (
-                    <img
-                      alt=""
-                      height={18}
-                      referrerPolicy="no-referrer"
-                      src={providerDetails[provider].logoUrl!}
-                      width={18}
-                    />
-                  ) : (
-                    <Icon icon={AuthIcons(provider, 18)} />
-                  )
+                  <SsoProviderIcon
+                    fallback={<Icon icon={AuthIcons(provider, 18)} />}
+                    logoUrl={providerDetails[provider]?.logoUrl}
+                  />
                 }
                 onClick={() =>
                   continueWithAgreement(() => {

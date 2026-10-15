@@ -122,6 +122,47 @@ export const toTenantSsoProvider = (tenantId: string, row: Row): TenantSsoProvid
   }
 };
 
+/**
+ * A provider as the sign-in page and the account settings may see it. The id,
+ * the name an administrator gave it and its logo are all that leaves the
+ * server: no client id, secret, issuer or endpoint (spec A8).
+ */
+export interface PublicSsoProvider {
+  displayName: string;
+  id: string;
+  logoUrl: string | null;
+  protocol: 'oauth2' | 'oidc';
+}
+
+const MAX_LOGO_URL_LENGTH = 2048;
+
+/**
+ * The logo of a frontend provider is a public HTTPS image URL: Admin accepts
+ * nothing else for them (`FrontendSsoLogoSchema`; uploads exist only for
+ * Admin's own sign-in, where the bytes live in Admin). Anything else cannot be
+ * loaded from a tenant page, so it is left out and the page keeps its built-in
+ * icon instead of requesting a broken or foreign path.
+ */
+export const publicSsoLogoUrl = (value: string | null | undefined): string | null => {
+  const candidate = value?.trim();
+  if (!candidate || candidate.length > MAX_LOGO_URL_LENGTH) return null;
+  try {
+    const url = new URL(candidate);
+    return url.protocol === 'https:' && !url.username && !url.password ? candidate : null;
+  } catch {
+    return null;
+  }
+};
+
+export const toPublicSsoProvider = (
+  provider: Pick<TenantSsoProvider, 'displayName' | 'logoUrl' | 'protocol' | 'providerId'>,
+): PublicSsoProvider => ({
+  displayName: provider.displayName,
+  id: provider.providerId,
+  logoUrl: publicSsoLogoUrl(provider.logoUrl),
+  protocol: provider.protocol === 'oauth2' ? 'oauth2' : 'oidc',
+});
+
 /** Enabled, usable providers of the tenant, in a stable order. */
 export const loadTenantSsoProviders = async (
   db: LobeChatDatabase,

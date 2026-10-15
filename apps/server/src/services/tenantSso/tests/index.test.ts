@@ -5,9 +5,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sealTenantData } from '@/server/crypto/tenantKeys';
 
 import {
+  publicSsoLogoUrl,
   ssoSecretAad,
   tenantSsoCallbackPath,
   toGenericOAuthConfig,
+  toPublicSsoProvider,
   toTenantSsoProvider,
 } from '../index';
 
@@ -151,5 +153,63 @@ describe('tenant SSO reader', () => {
       });
       expect(mapped).toEqual({ name: 'cpc_admin' });
     });
+  });
+});
+
+describe('public sign-in metadata', () => {
+  it('exposes the provider id, display name, logo and protocol only', () => {
+    const provider = toTenantSsoProvider(
+      TENANT,
+      row({
+        displayName: 'Clerk',
+        logoUrl: 'https://img.clerk.com/logo.png',
+        providerId: 'clerk',
+        secretConfigEncrypted: sealTenantData(
+          TENANT,
+          JSON.stringify({ clientSecret: 's3cret' }),
+          ssoSecretAad(TENANT, 'clerk', 3),
+        ),
+      }),
+    )!;
+
+    const publicProvider = toPublicSsoProvider(provider);
+
+    expect(publicProvider).toEqual({
+      displayName: 'Clerk',
+      id: 'clerk',
+      logoUrl: 'https://img.clerk.com/logo.png',
+      protocol: 'oidc',
+    });
+    expect(JSON.stringify(publicProvider)).not.toContain('s3cret');
+    expect(JSON.stringify(publicProvider)).not.toContain('client-1');
+    expect(JSON.stringify(publicProvider)).not.toContain('idp.example.com');
+  });
+
+  it('serves no logo for a provider without one', () => {
+    const provider = toTenantSsoProvider(TENANT, row({ logoUrl: null }))!;
+    expect(toPublicSsoProvider(provider).logoUrl).toBeNull();
+  });
+
+  it.each([
+    ['https://cdn.example.com/a.png', 'https://cdn.example.com/a.png'],
+    ['  https://cdn.example.com/a.png  ', 'https://cdn.example.com/a.png'],
+    // Admin's frontend scope only stores public https URLs. Anything else (a hosted asset
+    // reference that lives in Admin, inline data, plain http, credentials) is not loadable
+    // from the sign-in page and must not reach an <img src>.
+    ['http://cdn.example.com/a.png', null],
+    ['data:image/png;base64,AAAA', null],
+    ['javascript:alert(1)', null],
+    ['/api/sso/logo/abc', null],
+    ['//cdn.example.com/a.png', null],
+    ['https://user:pass@cdn.example.com/a.png', null],
+    ['not a url', null],
+    ['', null],
+    [null, null],
+  ])('publicSsoLogoUrl(%j) -> %j', (value, expected) => {
+    expect(publicSsoLogoUrl(value)).toBe(expected);
+  });
+
+  it('drops a logo URL longer than Admin accepts', () => {
+    expect(publicSsoLogoUrl(`https://cdn.example.com/${'a'.repeat(2048)}`)).toBeNull();
   });
 });
