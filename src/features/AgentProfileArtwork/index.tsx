@@ -1,7 +1,7 @@
 'use client';
 
 import { AGENT_AVATAR_GALLERY } from '@lobechat/business-const';
-import { useAppBaseUrl } from '@lobechat/business-tenant/client';
+import { resolveTenantAssetUrl, useAppBaseUrl } from '@lobechat/business-tenant/client';
 import {
   AGENT_ARTWORK_STYLES,
   type AgentArtworkStyle,
@@ -385,7 +385,11 @@ export const AgentProfileArtwork = memo<AgentProfileArtworkProps>(
       <div style={{ paddingBlockEnd: 36, position: 'relative' }}>
         <div
           className={`${styles.background} ${!backgroundUrl && !backgroundGenerationActive ? styles.compactBackground : ''} agent-background`}
-          style={{ backgroundImage: backgroundUrl ? `url(${backgroundUrl})` : undefined }}
+          style={{
+            backgroundImage: backgroundUrl
+              ? `url(${resolveTenantAssetUrl(backgroundUrl)})`
+              : undefined,
+          }}
         >
           {backgroundUrl ? <div className={styles.scrim} /> : null}
           {generating === 'background' ? (

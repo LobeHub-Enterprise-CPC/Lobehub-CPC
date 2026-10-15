@@ -129,4 +129,5 @@ export const appRelativePath = (pathname: string): string | null => {
   }
 };
 
+export { installTenantAssets, resolveTenantAssetUrl } from './assets';
 export { installTenantFetch, tenantRequestUrl } from './fetch';

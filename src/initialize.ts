@@ -1,4 +1,8 @@
-import { initializeTenant, installTenantFetch } from '@lobechat/business-tenant/client';
+import {
+  initializeTenant,
+  installTenantAssets,
+  installTenantFetch,
+} from '@lobechat/business-tenant/client';
 import dayjs from 'dayjs';
 import isToday from 'dayjs/plugin/isToday';
 import isYesterday from 'dayjs/plugin/isYesterday';
@@ -18,13 +22,15 @@ dayjs.extend(utc);
 dayjs.extend(isToday);
 dayjs.extend(isYesterday);
 
-// Backend calls carry the tenant of the page (`/t/{slug}`), like its routes.
+// Backend calls carry the tenant of the page (`/t/{slug}`), like its routes; so do the
+// backend URLs the browser loads itself (<img src>, <a href>, ...).
 if (typeof window !== 'undefined') {
   const url = new URL(window.location.href);
   if (url.pathname === DEBUG_PROXY_BASE || url.pathname.startsWith(`${DEBUG_PROXY_BASE}/`))
     url.pathname = url.pathname.slice(DEBUG_PROXY_BASE.length) || '/';
   initializeTenant(url, window.__SERVER_CONFIG__?.tenant);
   installTenantFetch();
+  installTenantAssets();
 }
 
 // Global fallback: catch async chunk-load failures that escape Error Boundaries
