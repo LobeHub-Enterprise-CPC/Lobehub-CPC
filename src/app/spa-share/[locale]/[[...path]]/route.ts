@@ -8,17 +8,17 @@ import { fileEnv } from '@/envs/file';
 import { pythonEnv } from '@/envs/python';
 import { translation } from '@/libs/i18n/serverTranslation';
 import { buildAnalyticsConfig, renderSpaHtml } from '@/libs/spaHtml';
-import { type Locales, normalizeLocale } from '@/locales/resources';
+import { normalizeLocale } from '@/locales/resources';
 import { getServerFeatureFlagsFromRuntimeConfig } from '@/server/featureFlags';
 import { getServerGlobalConfig } from '@/server/globalConfig';
 import { getTenantPageBootstrap } from '@/server/modules/Tenant/pageBootstrap';
 import { type SPAClientEnv, type SPAServerConfig } from '@/types/spaServerConfig';
 
-export function generateStaticParams() {
-  const staticLocales: Locales[] = ['en-US', 'zh-CN'];
-
-  return staticLocales.map((locale) => ({ locale }));
-}
+// The shell is rendered per request: tenant bootstrap, login methods and feature
+// flags come from the signed tenant route header, which a prerendered route
+// handler cannot read (production build: DYNAMIC_SERVER_USAGE -> 500). Hence no
+// static params; the proxy rewrite supplies any locale/variant.
+export const dynamic = 'force-dynamic';
 
 // No dev branch here: share is developed against its own Vite server
 // (`dev:spa:share`), and asking the main one for a shell it doesn't own gets the

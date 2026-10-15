@@ -2,35 +2,23 @@ import { APPLE_APP_STORE_ID, BRANDING_NAME } from '@lobechat/business-const';
 import { OG_URL } from '@lobechat/const';
 
 import { OFFICIAL_URL } from '@/const/url';
-import { isCustomORG, isDesktop } from '@/const/version';
+import { isCustomORG } from '@/const/version';
 import { appEnv } from '@/envs/app';
 import { fileEnv } from '@/envs/file';
 import { pythonEnv } from '@/envs/python';
 import { translation } from '@/libs/i18n/serverTranslation';
 import { buildAnalyticsConfig, fetchViteDevTemplate, renderSpaHtml } from '@/libs/spaHtml';
-import { type Locales } from '@/locales/resources';
 import { getServerFeatureFlagsFromRuntimeConfig } from '@/server/featureFlags';
 import { getServerGlobalConfig } from '@/server/globalConfig';
 import { getTenantPageBootstrap } from '@/server/modules/Tenant/pageBootstrap';
 import { type SPAClientEnv, type SPAServerConfig } from '@/types/spaServerConfig';
 import { RouteVariants } from '@/utils/server/routeVariants';
 
-export function generateStaticParams() {
-  const mobileOptions = isDesktop ? [false] : [true, false];
-  const staticLocales: Locales[] = ['en-US', 'zh-CN'];
-
-  const variants: { variants: string }[] = [];
-
-  for (const locale of staticLocales) {
-    for (const isMobile of mobileOptions) {
-      variants.push({
-        variants: RouteVariants.serializeVariants({ isMobile, locale }),
-      });
-    }
-  }
-
-  return variants;
-}
+// The shell is rendered per request: tenant bootstrap, login methods and feature
+// flags come from the signed tenant route header, which a prerendered route
+// handler cannot read (production build: DYNAMIC_SERVER_USAGE -> 500). Hence no
+// static params; the proxy rewrite supplies any locale/variant.
+export const dynamic = 'force-dynamic';
 
 const isDev = process.env.NODE_ENV === 'development';
 
