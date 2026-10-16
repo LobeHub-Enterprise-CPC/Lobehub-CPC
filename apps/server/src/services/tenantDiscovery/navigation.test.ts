@@ -184,6 +184,15 @@ describe('hideSessionDataCookies', () => {
     expect(result.headers.get('cookie')).toBe(cookie);
     expect(result.removed).toEqual([]);
   });
+  it('treats the whole <name>.* namespace as cache, digits or not, and nothing beyond it', () => {
+    const result = hide(
+      'lh_x.session_data.backup=1; __Secure-lh_x.session_data.tmp=2; lh_x.session_dataX=3; lh_y.session_data=4; lh_x.session_token=t',
+    );
+    expect(result.headers.get('cookie')).toBe(
+      'lh_x.session_dataX=3; lh_y.session_data=4; lh_x.session_token=t',
+    );
+    expect(result.removed).toEqual(['lh_x.session_data.backup', '__Secure-lh_x.session_data.tmp']);
+  });
   it('drops the header when nothing else remains and leaves a missing header and other headers alone', () => {
     expect(hide('lh_x.session_data=z').headers.has('cookie')).toBe(false);
     expect(hide(null).headers.has('cookie')).toBe(false);

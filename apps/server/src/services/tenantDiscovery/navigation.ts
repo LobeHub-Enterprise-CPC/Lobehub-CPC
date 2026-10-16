@@ -17,11 +17,14 @@ export const isNonCanonicalSessionEntryPath = (path: string): boolean =>
   path === `${SESSION_ENTRY_PATH}/`;
 
 /**
- * A copy of `headers` without the cookie-cache cookie of one auth instance: `sessionDataName`
- * (read from that instance's own cookie configuration, never guessed), its numbered chunks
- * `<name>.<n>` and the `__Secure-` spelling of either. Better Auth decodes this cookie before it
- * decides whether to use it, so a damaged one fails even a lookup that bypasses the cache; the
- * session entry hides it and leaves the session token and every other cookie byte for byte.
+ * A copy of `headers` without the cookie-cache namespace of one auth instance: `sessionDataName`
+ * (read from that instance's own cookie configuration, never guessed) and everything named
+ * `<name>.<any suffix>` (the numbered chunks `<name>.<n>`, but the match does not require digits),
+ * each also in its `__Secure-` spelling. The namespace is bounded by that instance's full cookie
+ * name, so another tenant's prefix or a longer name such as `<name>X` is never touched. Better Auth
+ * decodes this cookie before it decides whether to use it, so a damaged one fails even a lookup
+ * that bypasses the cache; the session entry hides it and leaves the session token and every other
+ * cookie byte for byte.
  * `removed` lists the hidden names exactly as the browser sent them: Better Auth can no longer
  * see them to clean them up, so {@link expiredCookieHeaders} does.
  */
@@ -59,10 +62,12 @@ export interface CookieAttributes {
 }
 
 /**
- * Expiring `Set-Cookie` lines for `names`, with the auth instance's own cookie attributes (Path,
- * Domain, Secure, SameSite, HttpOnly: the browser only replaces a cookie it matches on all of
- * them). A name that `present` (the `Set-Cookie` lines already on the response) sets or deletes
- * is left to that line, so nothing Better Auth decided is overridden.
+ * Expiring `Set-Cookie` lines for `names`, with the auth instance's own cookie attributes. A browser
+ * replaces a cookie by name, domain and path, so Path and Domain must equal the original's. The
+ * other attributes are kept so the line satisfies the same constraints and matches the original:
+ * a `__Secure-` name needs `Secure`, and HttpOnly / SameSite stay as configured. A name that
+ * `present` (the `Set-Cookie` lines already on the response) sets or deletes is left to that line,
+ * so nothing Better Auth decided is overridden.
  */
 export const expiredCookieHeaders = (
   names: string[],

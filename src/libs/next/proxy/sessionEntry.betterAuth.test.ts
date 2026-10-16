@@ -19,7 +19,7 @@ const secret = 'isolated-entry-test-secret-0123456789-0123456789';
 
 type Db = { account: unknown[]; session: unknown[]; user: unknown[]; verification: unknown[] };
 const databases = new WeakMap<object, Db>();
-const build = (cookieCache: boolean) => {
+const build = (cookieCache: boolean, lifetime?: { expiresIn: number; updateAge: number }) => {
   const db: Db = { account: [], session: [], user: [], verification: [] };
   const auth = betterAuth({
     // The tenant instance scopes its cookies to the organization path (src/auth.ts).
@@ -29,7 +29,11 @@ const build = (cookieCache: boolean) => {
     emailAndPassword: { enabled: true },
     logger: { disabled: true },
     secret,
-    session: { cookieCache: { enabled: cookieCache, maxAge: 1 }, storeSessionInDatabase: true },
+    session: {
+      cookieCache: { enabled: cookieCache, maxAge: 1 },
+      storeSessionInDatabase: true,
+      ...lifetime,
+    },
   });
   databases.set(auth, db);
   return auth;
@@ -189,5 +193,57 @@ describe('session entry cleanup of hidden cache cookies, real Better Auth', () =
         new RegExp(`^__Secure-${PREFIX}\\.session_data\\.0=; Max-Age=0; Path=/t/acme; .*Secure`),
       ),
     ]);
+  });
+});
+
+describe.each([
+  ['cookie cache off (enterprise)', false],
+  ['cookie cache on (base distribution)', true],
+])('session entry does not renew, real Better Auth, %s', (_name, cacheEnabled) => {
+  // Lifetime 1h, renewal threshold 60s: past the threshold Better Auth's normal lookup extends the
+  // session, so the entry's lack of renewal is a decision, not "not due yet".
+  const lifetime = { expiresIn: 3600, updateAge: 60 };
+  const AFTER_THRESHOLD = 120_000;
+
+  const sessionRow = (auth: Auth) => {
+    const [row] = dbOf(auth).session as { expiresAt: Date; token: string; updatedAt: Date }[];
+    return { expiresAt: row.expiresAt.getTime(), updatedAt: row.updatedAt.getTime() };
+  };
+
+  /** A signed-in instance whose clock has moved past the renewal threshold but not past expiry. */
+  const pastThreshold = async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const auth = build(cacheEnabled, lifetime);
+    const { data, token } = await signUp(auth);
+    const before = sessionRow(auth);
+    vi.setSystemTime(Date.now() + AFTER_THRESHOLD);
+    // Without a cache cookie in play, the lookup reads the persisted row either way.
+    return { auth, before, cookie: cacheEnabled && data ? `${token}; ${data}` : token, token };
+  };
+
+  it('keeps expiresAt, updatedAt and the session token untouched past the renewal threshold', async () => {
+    const { auth, before, cookie } = await pastThreshold();
+    const result = await entry(auth, cookie);
+    expect(result.hasSession).toBe(true);
+    expect(sessionRow(auth)).toEqual(before);
+    expect(deletion(result.setCookies, `${PREFIX}.session_token`)).toBeUndefined();
+    expect(result.setCookies.some((line) => line.startsWith(`${PREFIX}.session_token=`))).toBe(
+      false,
+    );
+  });
+
+  it('control: the ordinary lookup at the same point does renew (threshold really reached)', async () => {
+    const { auth, before, cookie } = await pastThreshold();
+    const { headers, response } = await auth.api.getSession({
+      headers: new Headers({ cookie }),
+      returnHeaders: true,
+    });
+    expect(response?.user).toBeDefined();
+    const after = sessionRow(auth);
+    expect(after.expiresAt).toBeGreaterThanOrEqual(before.expiresAt + AFTER_THRESHOLD - 1000);
+    expect(after.updatedAt).toBeGreaterThan(before.updatedAt);
+    expect(headers.getSetCookie().some((line) => line.startsWith(`${PREFIX}.session_token=`))).toBe(
+      true,
+    );
   });
 });
