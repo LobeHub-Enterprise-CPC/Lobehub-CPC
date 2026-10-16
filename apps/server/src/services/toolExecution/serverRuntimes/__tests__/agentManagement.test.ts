@@ -11,6 +11,7 @@ const {
   mockCountAgents,
   mockCreateAgent,
   mockGetAssistantList,
+  mockGetAssistantDetail,
   mockQueryAgents,
   mockExistsById,
   mockGetAgentConfigById,
@@ -39,6 +40,7 @@ const {
   mockGetAgentConfigById: vi.fn(),
   mockGetAssistantList: vi.fn(),
   mockListServableChatProviders: vi.fn(),
+  mockGetAssistantDetail: vi.fn(),
   mockQueryAgents: vi.fn(),
   mockServiceUpdateConfig: vi.fn(),
   mockUpdateAgent: vi.fn(),
@@ -93,6 +95,7 @@ vi.mock('@/database/models/connector', () => ({
 vi.mock('@/server/services/discover', () => ({
   DiscoverService: vi.fn(function () {
     return {
+      getAssistantDetail: mockGetAssistantDetail,
       getAssistantList: mockGetAssistantList,
       getMcpManifest: mockGetMcpManifest,
     };

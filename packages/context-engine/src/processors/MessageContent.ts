@@ -1,4 +1,3 @@
-import { INLINE_VIDEO_SIZE_LIMIT } from '@lobechat/const/media';
 import { createMediaFileRef } from '@lobechat/const/mediaRef';
 import { filesPrompts } from '@lobechat/prompts';
 import type { ChatAudioItem, MessageContentPart } from '@lobechat/types';
@@ -10,6 +9,9 @@ import debug from 'debug';
 
 import { BaseProcessor } from '../base/BaseProcessor';
 import type { PipelineContext, ProcessorOptions } from '../types';
+import { applyVideoInlineLimit } from './videoInlineLimit';
+
+export { videoInlineLimitPlaceholder } from './videoInlineLimit';
 
 declare module '../types' {
   interface PipelineContextMetadataOverrides {
@@ -32,30 +34,6 @@ const log = debug('context-engine:processor:MessageContentProcessor');
 export const VISION_DOWNGRADE_PLACEHOLDER =
   '[image omitted: native vision is not supported. Do not infer or describe the image. If the request depends on it, use an available visual-analysis tool before answering; otherwise state that the image cannot be inspected.]';
 
-const formatMebibytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
-
-/**
- * Stands in for a video too large to inline. Names both sizes so the model can
- * say why the video is not attached, and carries the media ref `filesPrompts`
- * emits for the same attachment so the media-analysis tool resolves it to the
- * same file.
- */
-export const videoInlineLimitPlaceholder = ({
-  index,
-  limit,
-  messageId,
-  size,
-}: {
-  index: number;
-  limit: number;
-  messageId?: string;
-  size: number;
-}) => {
-  const ref = createMediaFileRef({ index, messageId, type: 'video' });
-
-  return `[video omitted: ${formatMebibytes(size)} exceeds the ${formatMebibytes(limit)} this provider accepts inline. Media ref: ${ref}. Do not infer or describe the video. Use an available media-analysis tool with this ref before answering.]`;
-};
-
 /**
  * AVIF must stay as a media ref even when the active model supports vision.
  * Model capability flags do not describe per-format support, while Analyze Media
@@ -63,6 +41,31 @@ export const videoInlineLimitPlaceholder = ({
  */
 const requiresVisualAnalysis = (mediaType: unknown): boolean =>
   typeof mediaType === 'string' && mediaType.split(';', 1)[0].trim().toLowerCase() === 'image/avif';
+
+/**
+ * Image formats no vision API accepts. Agent-mode uploads skip the chat
+ * file-type whitelist, so an SVG still lands in `imageList`; sending it as an
+ * `image_url` part makes every request in that topic fail with a 400.
+ * Provider-specific formats (e.g. HEIC on Gemini) stay with each provider's
+ * context builder, and images without a known type keep the previous behavior.
+ */
+const NON_VISION_IMAGE_TYPES = new Set(['image/svg+xml']);
+
+const getUnsupportedVisionImageType = (image: {
+  mimeType?: string;
+  url?: string;
+}): string | undefined => {
+  const mimeType =
+    image.mimeType ||
+    (typeof image.url === 'string' ? parseDataUri(image.url).mimeType : undefined);
+  if (!mimeType) return;
+
+  const normalized = mimeType.split(';', 1)[0].trim().toLowerCase();
+  return NON_VISION_IMAGE_TYPES.has(normalized) ? normalized : undefined;
+};
+
+const createUnsupportedImageFormatPlaceholder = (mimeType: string) =>
+  `[image omitted: ${mimeType} is not a supported vision input format. Do not infer or describe the image. If the request depends on it, read the attached file with an available tool.]`;
 
 /**
  * Heterogeneous-agent image uploads mirror each persisted image URL into tool
@@ -129,8 +132,8 @@ export interface MessageContentConfig {
   provider: string;
   /**
    * Largest video, in bytes, that may be sent inline as a `video_url` part.
-   * Anything above it is downgraded to a media ref. Defaults to
-   * {@link INLINE_VIDEO_SIZE_LIMIT}.
+   * Anything above it is downgraded to a media ref; see `videoInlineLimit.ts`.
+   * Defaults to `INLINE_VIDEO_SIZE_LIMIT`.
    */
   videoInlineSizeLimit?: number;
 }
@@ -292,47 +295,38 @@ export class MessageContentProcessor extends BaseProcessor {
       (!canUseVision && hasImages ? message.imageList.length : 0) +
       (!canUseVision ? arrayImageUrlCount : 0);
 
-    if (imageDowngradeCount > 0) {
-      const placeholders = Array.from(
-        { length: imageDowngradeCount },
-        () => VISION_DOWNGRADE_PLACEHOLDER,
-      ).join('\n');
+    const unsupportedImageTypes: string[] = [];
+    const visionImageList = canUseVision
+      ? (message.imageList || []).filter((image: { mimeType?: string; url?: string }) => {
+          const unsupportedType = getUnsupportedVisionImageType(image);
+          if (unsupportedType) unsupportedImageTypes.push(unsupportedType);
+          return !unsupportedType;
+        })
+      : [];
+
+    const placeholders = [
+      ...Array.from({ length: imageDowngradeCount }, () => VISION_DOWNGRADE_PLACEHOLDER),
+      ...unsupportedImageTypes.map(createUnsupportedImageFormatPlaceholder),
+    ].join('\n');
+
+    if (placeholders) {
       textContent = textContent ? `${textContent}\n\n${placeholders}` : placeholders;
     }
 
-    // An inlined video is a URL the provider fetches for itself, and it measures
-    // what it fetched against its own ceiling before running any inference.
-    // Sending one that is over that ceiling does not just fail this turn: the
-    // attachment stays in the conversation history, so every later turn carries
-    // it and fails identically, whatever the user sends next. The topic is dead
-    // from the moment the file enters it.
-    //
-    // Hand the oversized ones to the media-analysis tool instead — the same
-    // escape hatch an image takes when the model has no native vision. That path
-    // fetches the file on its own terms and is not bound by the inline limit.
-    const inlineVideoLimit = this.config.videoInlineSizeLimit ?? INLINE_VIDEO_SIZE_LIMIT;
+    // Oversized videos never inline: the topic would already be dead from the
+    // moment the file entered it. The helper moves them to the media-analysis
+    // tool instead and returns the text content with the placeholders appended.
     const videoList: any[] = hasVideos ? message.videoList : [];
-    const oversizedVideoIndexes = new Set<number>(
-      canUseVideo
-        ? videoList.flatMap((video, index) =>
-            typeof video?.size === 'number' && video.size > inlineVideoLimit ? [index] : [],
-          )
-        : [],
+    const { oversizedVideoIndexes, textContent: textContentWithVideoLimit } = applyVideoInlineLimit(
+      {
+        canUseVideo,
+        limit: this.config.videoInlineSizeLimit,
+        messageId: message.id,
+        textContent,
+        videoList,
+      },
     );
-
-    if (oversizedVideoIndexes.size > 0) {
-      const placeholders = [...oversizedVideoIndexes]
-        .map((index) =>
-          videoInlineLimitPlaceholder({
-            index,
-            limit: inlineVideoLimit,
-            messageId: message.id,
-            size: videoList[index].size,
-          }),
-        )
-        .join('\n');
-      textContent = textContent ? `${textContent}\n\n${placeholders}` : placeholders;
-    }
+    textContent = textContentWithVideoLimit;
 
     // Add file context (if file context is enabled and has files, images, videos or audios)
     if ((hasFiles || hasImages || hasVideos || hasAudios) && this.config.fileContext?.enabled) {
@@ -363,8 +357,8 @@ export class MessageContentProcessor extends BaseProcessor {
     }
 
     // Process image content (legacy imageList path)
-    if (hasImages && canUseVision) {
-      const imageContentParts = await this.processImageList(message.imageList || []);
+    if (visionImageList.length > 0) {
+      const imageContentParts = await this.processImageList(visionImageList);
       contentParts.push(...imageContentParts);
     }
 
@@ -391,7 +385,7 @@ export class MessageContentProcessor extends BaseProcessor {
     // Explicitly return fields, keeping only necessary message fields
     const hasFileContext =
       (hasFiles || hasImages || hasVideos || hasAudios) && this.config.fileContext?.enabled;
-    const hasVisionContent = (hasImages || arrayImageUrlCount > 0) && canUseVision;
+    const hasVisionContent = (visionImageList.length > 0 || arrayImageUrlCount > 0) && canUseVision;
     const hasVideoContent = canUseVideo && inlineVideoList.length > 0;
     const hasAudioContent = hasAudios && canUseAudio;
 

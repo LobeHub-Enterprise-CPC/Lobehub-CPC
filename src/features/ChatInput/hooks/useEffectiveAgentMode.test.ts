@@ -1,7 +1,11 @@
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { resolveEffectiveAgentMode, useEffectiveAgentMode } from './useEffectiveAgentMode';
+import {
+  resolveEffectiveAgentMode,
+  useAgentDefaultModelAgentMode,
+  useEffectiveAgentMode,
+} from './useEffectiveAgentMode';
 
 const testState = vi.hoisted(() => ({
   access: {
@@ -18,7 +22,12 @@ const testState = vi.hoisted(() => ({
     isReady: true,
   },
   composerAgentOnly: false,
-  supportToolUse: true,
+  /** Tool-use capability keyed by `provider/model`; unknown models lack tool use. */
+  toolUseByModel: {} as Record<string, boolean>,
+  topic: {
+    pinned: undefined as { model: string; provider: string } | undefined,
+    useFetchTopicDetail: vi.fn(),
+  },
   user: {
     fetchedPreference: undefined as
       { agentModeOverrides?: Record<string, boolean> } | null | undefined,
@@ -45,7 +54,8 @@ vi.mock('@/features/ResourcePermission/useAgentManagementAccess', () => ({
 }));
 
 vi.mock('@/hooks/useModelSupportToolUse', () => ({
-  useModelSupportToolUse: () => testState.supportToolUse,
+  useModelSupportToolUse: (model: string, provider: string) =>
+    testState.toolUseByModel[`${provider}/${model}`] ?? false,
 }));
 
 vi.mock('@/store/agent', () => ({
@@ -69,6 +79,22 @@ vi.mock('@/store/aiInfra', () => ({
     selector(testState.aiInfra),
 }));
 
+vi.mock('../store', () => ({
+  useChatInputStore: (selector: (s: { topicId: string }) => unknown) =>
+    selector({ topicId: 'topic-1' }),
+}));
+
+vi.mock('@/store/chat', () => ({
+  useChatStore: (selector: (s: typeof testState.topic) => unknown) => selector(testState.topic),
+}));
+
+vi.mock('@/store/chat/slices/topic/selectors', () => ({
+  topicSelectors: {
+    getTopicById: () => (s: typeof testState.topic) => s.pinned,
+    getTopicModelById: () => (s: typeof testState.topic) => s.pinned,
+  },
+}));
+
 vi.mock('@/store/user', () => ({
   useUserStore: (selector: (s: typeof testState.user) => unknown) => selector(testState.user),
 }));
@@ -82,7 +108,8 @@ beforeEach(() => {
   testState.agent.model = 'model-1';
   testState.agent.provider = 'provider-1';
   testState.aiInfra.isReady = true;
-  testState.supportToolUse = true;
+  testState.toolUseByModel = { 'provider-1/model-1': true };
+  testState.topic.pinned = undefined;
   testState.user.fetchedPreference = undefined;
   testState.user.isLoading = false;
   testState.user.workspaceUserPreference = {};
@@ -230,6 +257,73 @@ describe('useEffectiveAgentMode', () => {
       currentMode: 'agent',
       isAgentRuntimeMode: true,
       isPreferenceLoading: false,
+    });
+  });
+});
+
+describe('model used for the tool-use capability', () => {
+  const topicModel = { model: 'topic-model', provider: 'topic-provider' };
+
+  describe('useEffectiveAgentMode', () => {
+    it('lets a tool-capable topic model unlock Agent mode when the agent default lacks tool use', () => {
+      testState.toolUseByModel = { 'topic-provider/topic-model': true };
+      testState.topic.pinned = topicModel;
+
+      const { result } = renderHook(() => useEffectiveAgentMode('agent-1'));
+
+      expect(result.current).toMatchObject({
+        canSelectAgentMode: true,
+        currentMode: 'agent',
+        isAgentModeUnavailable: false,
+        isAgentRuntimeMode: true,
+      });
+    });
+
+    it('marks Agent mode unavailable when the topic model lacks tool use although the agent default has it', () => {
+      testState.topic.pinned = topicModel;
+
+      const { result } = renderHook(() => useEffectiveAgentMode('agent-1'));
+
+      expect(result.current).toMatchObject({
+        canSelectAgentMode: false,
+        currentMode: 'chat',
+        isAgentModeUnavailable: true,
+        isAgentRuntimeMode: false,
+      });
+    });
+
+    it('falls back to the agent default model when the topic pins nothing', () => {
+      const { result } = renderHook(() => useEffectiveAgentMode('agent-1'));
+
+      expect(result.current).toMatchObject({ currentMode: 'agent', isAgentModeUnavailable: false });
+    });
+  });
+
+  describe('useAgentDefaultModelAgentMode', () => {
+    // Task execution has no topic context: the active chat topic must never leak in.
+    it('ignores the active topic pin and judges the agent default model', () => {
+      testState.toolUseByModel = {
+        'provider-1/model-1': false,
+        'topic-provider/topic-model': true,
+      };
+      testState.topic.pinned = topicModel;
+
+      const { result } = renderHook(() => useAgentDefaultModelAgentMode('agent-1'));
+
+      expect(result.current).toMatchObject({
+        canSelectAgentMode: false,
+        currentMode: 'chat',
+        isAgentModeUnavailable: true,
+        isAgentRuntimeMode: false,
+      });
+    });
+
+    it('keeps Agent mode when the agent default has tool use even if the active topic pin lacks it', () => {
+      testState.topic.pinned = topicModel;
+
+      const { result } = renderHook(() => useAgentDefaultModelAgentMode('agent-1'));
+
+      expect(result.current).toMatchObject({ currentMode: 'agent', isAgentRuntimeMode: true });
     });
   });
 });

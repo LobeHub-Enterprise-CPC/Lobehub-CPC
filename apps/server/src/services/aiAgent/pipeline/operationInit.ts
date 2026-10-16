@@ -70,8 +70,11 @@ export interface OperationInitRequest {
   resumeFromHistory: boolean;
   resumeToolResult?: InternalExecAgentParams['resumeToolResult'];
   runAttachments: RunAttachments;
+  selectedSkillIds?: string[];
   selectedToolIds?: string[];
   serverToolManifests?: InternalExecAgentParams['serverToolManifests'];
+  /** The Task this run executes, when it runs inside the Task system. */
+  taskId?: string;
   topicBoundDeviceId?: string | null;
 }
 
@@ -215,6 +218,8 @@ export const runOperationInit = async (
         operationId: request.operationId,
         runAttachments: request.runAttachments,
         runFromHistory: request.resumeFromHistory,
+        selectedSkillIds: request.selectedSkillIds,
+        taskId: request.taskId,
         throwIfExecutionAborted: deps.throwIfExecutionAborted,
       },
     ),

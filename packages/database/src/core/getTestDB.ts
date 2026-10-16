@@ -2,11 +2,10 @@ import { join } from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
 import { vector } from '@electric-sql/pglite/vector';
-import { sql } from 'drizzle-orm';
-import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { drizzle as nodeDrizzle } from 'drizzle-orm/node-postgres';
 import { migrate as nodeMigrate } from 'drizzle-orm/node-postgres/migrator';
 import { drizzle as pgliteDrizzle } from 'drizzle-orm/pglite';
+import { migrate as pgliteMigrate } from 'drizzle-orm/pglite/migrator';
 import { Pool as NodePool } from 'pg';
 
 import { serverDBEnv } from '@/config/db';
@@ -64,36 +63,14 @@ export const getTestDB = async (): Promise<LobeChatDatabase> => {
   const pglite = new PGlite({ extensions: { vector } });
   testClientDB = pgliteDrizzle({ client: pglite, schema });
 
-  // Custom migration that skips pg_search-related SQL for PGlite compatibility
-  await testClientDB.execute(sql`CREATE SCHEMA IF NOT EXISTS "drizzle"`);
-  await testClientDB.execute(sql`
-    CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (
-      id SERIAL PRIMARY KEY,
-      hash text NOT NULL,
-      created_at bigint
-    )
-  `);
-
-  const applyMigrations = async (folder: string) => {
-    for (const migration of readMigrationFiles({ migrationsFolder: folder })) {
-      const skipSql = migration.sql.some(
-        (s) => s.toLowerCase().includes('pg_search') || s.toLowerCase().includes('bm25'),
-      );
-
-      if (!skipSql) {
-        for (const stmt of migration.sql) {
-          await testClientDB!.execute(sql.raw(stmt));
-        }
-      }
-
-      await testClientDB!.execute(
-        sql`INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES (${migration.hash}, ${migration.folderMillis})`,
-      );
-    }
-  };
-
-  await applyMigrations(migrationsFolder);
-  if (extraMigrationsFolder) await applyMigrations(extraMigrationsFolder);
+  // pg_search migrations skip themselves when the extension is unavailable, as in PGlite.
+  await pgliteMigrate(testClientDB, { migrationsFolder });
+  if (extraMigrationsFolder) {
+    await pgliteMigrate(testClientDB, {
+      migrationsFolder: extraMigrationsFolder,
+      migrationsTable: '__drizzle_enterprise_migrations',
+    });
+  }
 
   return testClientDB as unknown as LobeChatDatabase;
 };

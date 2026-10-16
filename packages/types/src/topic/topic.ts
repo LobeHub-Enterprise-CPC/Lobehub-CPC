@@ -6,13 +6,12 @@ import type { HeterogeneousReasoningEffort } from '../agent/heteroSelectorCapabi
 import type { SerializedAgentHook } from '../agentHook';
 import type { WorkingDirConfig } from '../device';
 import { workingDirConfigSchema } from '../device';
+import type { BotSenderMetadata } from '../message';
 import type { BaseDataModel } from '../meta';
 import type { OnboardingUnderstandingSession } from '../understanding';
 import type { OnboardingTaskRecommendationSession } from '../user/onboardingTasks';
 
-// Type definitions
 export type ShareVisibility = 'private' | 'link';
-
 export type TimeGroupId =
   'today' | 'yesterday' | 'week' | 'month' | `${number}-${string}` | `${number}`;
 
@@ -122,8 +121,17 @@ export interface ChatTopicMetadata {
   };
 
   bot?: ChatTopicBotContext;
+  botCreator?: BotSenderMetadata | null;
   boundDeviceId?: string;
   cronJobId?: string;
+  /**
+   * Set on a topic created by editing and resending a user message of a
+   * runtime whose native history cannot be rewound (Codex). The topic holds a
+   * copy of the source ancestry but no native session, so a fresh local run
+   * replays the copied history as `<previous_conversation>`. Ordinary topics
+   * never carry it, so their fresh sessions keep starting without replay.
+   */
+  editedFrom?: { messageId: string; topicId: string };
   /**
    * The agent whose Profile page this Agent Builder conversation was started
    * from (mirrors `ExecAgentAppContext.editingAgentId`).
