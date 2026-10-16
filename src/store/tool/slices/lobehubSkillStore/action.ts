@@ -14,6 +14,7 @@ import { toolsClient } from '@/libs/trpc/client';
 import { type StoreSetter } from '@/store/types';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
+import { isSkillConnectionError } from '@/types/skillConnectionError';
 import { setNamespace } from '@/utils/storeDebug';
 
 import { type ToolStore } from '../../store';
@@ -190,7 +191,13 @@ export class LobehubSkillStoreActionImpl {
 
       const errorMessage = error instanceof Error ? error.message : String(error);
 
-      if (errorMessage.includes('NOT_CONNECTED') || errorMessage.includes('TOKEN_EXPIRED')) {
+      // The server flags a missing / expired connection as PRECONDITION_FAILED
+      // plus a discriminator; the message check covers older servers.
+      if (
+        isSkillConnectionError(error) ||
+        errorMessage.includes('NOT_CONNECTED') ||
+        errorMessage.includes('TOKEN_EXPIRED')
+      ) {
         return {
           error: errorMessage,
           errorCode: 'NOT_CONNECTED',

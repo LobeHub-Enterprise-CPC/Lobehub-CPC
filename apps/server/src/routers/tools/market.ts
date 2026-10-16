@@ -1,4 +1,5 @@
 import { MARKET_AUTH_REQUIRED_MESSAGE } from '@lobechat/desktop-bridge';
+import { MarketAPIError } from '@lobehub/market-sdk';
 import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 import { z } from 'zod';
@@ -25,6 +26,7 @@ import {
 } from '@/server/services/mcp/contentProcessor';
 import { createSandboxService, resolveSandboxSessionConfig } from '@/server/services/sandbox';
 import { preprocessLhCommand } from '@/server/services/toolExecution/preprocessLhCommand';
+import { SkillConnectionErrorCode } from '@/types/skillConnectionError';
 
 import { beginToolCallReport } from './_helpers';
 import {
@@ -500,16 +502,27 @@ export const marketRouter = router({
         const errorMessage = (error as Error).message;
         log('connectCallTool error: %s', errorMessage);
 
-        if (errorMessage.includes('NOT_CONNECTED')) {
+        // The SDK carries the machine code in `error.code`; the message is human text.
+        // The message check stays as a fallback for errors that embed the code.
+        const isCode = (code: string) =>
+          (error instanceof MarketAPIError && error.isErrorCode(code)) ||
+          errorMessage.includes(code);
+
+        // Not UNAUTHORIZED: that code opens the LobeHub / Market re-login flows
+        // (see createResponseMeta), and a provider connection is neither. The
+        // client tells these apart by `errorData.code`.
+        if (isCode(SkillConnectionErrorCode.NotConnected)) {
           throw new TRPCError({
-            code: 'UNAUTHORIZED',
+            cause: { data: { code: SkillConnectionErrorCode.NotConnected } },
+            code: 'PRECONDITION_FAILED',
             message: 'Provider not connected. Please authorize first.',
           });
         }
 
-        if (errorMessage.includes('TOKEN_EXPIRED')) {
+        if (isCode(SkillConnectionErrorCode.TokenExpired)) {
           throw new TRPCError({
-            code: 'UNAUTHORIZED',
+            cause: { data: { code: SkillConnectionErrorCode.TokenExpired } },
+            code: 'PRECONDITION_FAILED',
             message: 'Token expired. Please re-authorize.',
           });
         }
