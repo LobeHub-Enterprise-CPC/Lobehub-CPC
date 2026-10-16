@@ -227,3 +227,67 @@ describe('TenantRuntime.enterTenantId', () => {
     await expect(again).rejects.toMatchObject({ code: 'TENANT_FROZEN' });
   });
 });
+
+describe('TenantRuntime refusal source', () => {
+  const answerWith = async (
+    runtime: TenantRuntime,
+    platform: ReturnType<typeof controlledPlatform>,
+    row: unknown,
+  ) => {
+    const entering = runtime.enterTenantId('t-1');
+    entering.catch(() => undefined);
+    await vi.waitFor(() => expect(platform.pending).toHaveLength(1));
+    platform.answer([row]);
+    return entering;
+  };
+
+  it.each([
+    ['a directory entry that is not active', { ...activeRow, directory: { status: 'pending' } }],
+    ['a tenant Console that was never activated', { ...activeRow, lifecycle: null }],
+    [
+      'a tenant Console at accepted version 0',
+      { ...activeRow, lifecycle: { ...activeRow.lifecycle, acceptedVersion: 0 } },
+    ],
+  ])('marks %s as an admission refusal', async (_name, row) => {
+    const { platform, runtime } = setup();
+    await expect(answerWith(runtime, platform, row)).rejects.toMatchObject({
+      code: 'TENANT_NOT_READY',
+      source: 'admission',
+    });
+  });
+
+  it.each([
+    ['offline', { desiredState: 'offline' }, 'TENANT_OFFLINE'],
+    ['frozen', { desiredState: 'frozen' }, 'TENANT_FROZEN'],
+    ['expired', { expiresAt: new Date(1) }, 'TENANT_EXPIRED'],
+  ])('marks a %s tenant as an admission refusal', async (_name, lifecycle, code) => {
+    const { platform, runtime } = setup();
+    await expect(
+      answerWith(runtime, platform, {
+        ...activeRow,
+        lifecycle: { ...activeRow.lifecycle, ...lifecycle },
+      }),
+    ).rejects.toMatchObject({ code, source: 'admission' });
+  });
+
+  it('marks a database that cannot be opened for an admitted tenant as infrastructure', async () => {
+    const platform = controlledPlatform();
+    const runtime = new TenantRuntime(
+      () => ({ select: platform.select }) as any,
+      {} as TenantPoolManager,
+      () => new Date(1_000_000),
+      { enter: async () => async () => {}, isHeld: () => true } as never,
+    );
+    // The schema name does not match what the tenant id derives: not a lifecycle refusal.
+    const error = await answerWith(runtime, platform, {
+      ...activeRow,
+      directory: {
+        ...activeRow.directory,
+        schemaName: 'tenant_wrong',
+        runtimeUsername: 'wrong',
+        schemaVersion: [...SUPPORTED_TENANT_SCHEMA_VERSIONS][0],
+      },
+    }).catch((caught) => caught);
+    expect(error).toMatchObject({ code: 'TENANT_NOT_READY', source: 'infrastructure' });
+  });
+});

@@ -28,14 +28,32 @@ export const TENANT_GATE_STATUS: Record<TenantGateCode, number> = {
   TENANT_UNAVAILABLE: 503,
 };
 
+/**
+ * Where a refusal comes from, for callers that must tell "this tenant is not admitted" apart from
+ * "the platform failed while checking" (the root session entry: the first is shown as an
+ * unavailable organization, the second is a retryable failure and never a missing session).
+ * Lifecycle refusals are admission; a raiser marks the other admission refusals explicitly.
+ * Everything else, including wrapped database and endpoint failures, is infrastructure.
+ */
+export type TenantGateSource = 'admission' | 'infrastructure';
+
+const ADMISSION_CODES: ReadonlySet<TenantGateCode> = new Set([
+  'TENANT_EXPIRED',
+  'TENANT_FROZEN',
+  'TENANT_OFFLINE',
+]);
+
 export class TenantGateError extends Error {
+  readonly source: TenantGateSource;
+
   constructor(
     readonly code: TenantGateCode,
     readonly detail?: { freezeReasons?: string[] },
-    options?: ErrorOptions,
+    options?: ErrorOptions & { source?: TenantGateSource },
   ) {
     super(code, options);
     this.name = 'TenantGateError';
+    this.source = options?.source ?? (ADMISSION_CODES.has(code) ? 'admission' : 'infrastructure');
   }
 
   get status() {

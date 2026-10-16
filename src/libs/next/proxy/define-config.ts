@@ -17,6 +17,7 @@ import {
   findSlugEndpoint,
   getTenantEndpoints,
 } from '@/server/modules/Tenant/endpoints';
+import { tenantGateErrorOf } from '@/server/modules/Tenant/errors';
 import { resolveHostTenantRoute } from '@/server/modules/Tenant/hostRouting';
 import { signTenantRoute, TENANT_ROUTE_HEADER } from '@/server/modules/Tenant/routeHeader';
 import { routingUnavailableReasonOf } from '@/server/modules/Tenant/routingErrors';
@@ -28,8 +29,10 @@ import {
   DESKTOP_FLOW_HEADER,
   isDocumentNavigation,
   isValidTenantId,
+  lookupEntrySession,
   redactUrlEmail,
   serializeTenantCookie,
+  SESSION_ENTRY_PATH,
   tenantCookieName,
 } from '@/server/services/tenantDiscovery/navigation';
 import type { DesktopFlowStatus } from '@/types/spaServerConfig';
@@ -295,7 +298,8 @@ export function defineConfig() {
     return NextResponse.rewrite(url, headers ? { request: { headers } } : undefined);
   };
 
-  const navigationUnavailable = async (request: NextRequest) => {
+  /** `retryUrl` must be a trusted, context-free URL; the default retries the platform root. */
+  const navigationUnavailable = async (request: NextRequest, retryUrl = '/#') => {
     const locale = toSafeLocale(
       request.nextUrl.searchParams.get('hl') ||
         request.cookies.get(LOBE_LOCALE_COOKIE)?.value ||
@@ -306,7 +310,7 @@ export function defineConfig() {
       translation('common', locale),
     ]);
     return new Response(
-      `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>503</title></head><body><main><p>${escapeText(t('organization.discovery.unavailable'))}</p><a href="/#">${escapeText(common('retry'))}</a></main></body></html>`,
+      `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>503</title></head><body><main><p>${escapeText(t('organization.discovery.unavailable'))}</p><a href="${escapeText(retryUrl)}">${escapeText(common('retry'))}</a></main></body></html>`,
       {
         status: 503,
         headers: {
@@ -409,12 +413,79 @@ export function defineConfig() {
       // This service reads PostgreSQL in a fresh transaction, independently of routing caches
       // and lifecycle admission: stopped tenants still have a usable switch-organisation page.
       const state = await getTenantEndpoints().get(remembered);
-      return navigationRedirect(req, headers, `${state.activeUrl}/#`);
+      // The organization decides whether the browser has a session there (the session entry).
+      return navigationRedirect(req, headers, `${state.activeUrl}${SESSION_ENTRY_PATH}#`);
     } catch (error) {
       if ((error as { code?: string } | null)?.code === 'TENANT_NOT_FOUND') return clear();
       console.warn('TENANT_MEMORY_UNAVAILABLE', { reason: routingUnavailableReasonOf(error) });
       return navigationUnavailable(req);
     }
+  };
+
+  /**
+   * The session entry of an active endpoint: asks the remembered organization whether this
+   * browser holds a valid session there and answers with a navigation only. Routing has already
+   * required a top-level document GET and kept the visit out of the memory cookie. Every target
+   * comes from the directory (`activeUrl`) or the platform URL, never from the request.
+   *
+   * - valid session: the organization root.
+   * - no session (missing, expired, revoked): the organization finder; cookies Better Auth
+   *   clears for a dead session ride on this response.
+   * - the organization refuses admission (frozen, offline, expired, not activated): its root,
+   *   whose page explains it. The session is not judged then; there is no scope to read it in.
+   * - the organization vanished: the organization finder.
+   * - anything else (opening the tenant database, building auth, reading the session): 503
+   *   that retries this entry. A failure is never read as "no session".
+   */
+  const sessionEntry = async (
+    req: NextRequest,
+    headers: Headers,
+    route: { activeUrl: string; slug: string },
+    onDefaultTenantPage: (tenantId: string | undefined) => void,
+  ) => {
+    const root = `${route.activeUrl}/#`;
+    const finder = `${new URL(endpointHosts().appUrl).origin}/?switch=1#`;
+    const entryUrl = `${route.activeUrl}${SESSION_ENTRY_PATH}`;
+    const unavailable = (reason: string) => {
+      console.warn('TENANT_SESSION_ENTRY_UNAVAILABLE', { reason });
+      return navigationUnavailable(req, `${entryUrl}#`);
+    };
+
+    let entered;
+    try {
+      entered = await getTenantRuntime().enterSlug(route.slug);
+    } catch (error) {
+      if ((error as { code?: string } | null)?.code === 'TENANT_NOT_FOUND') {
+        console.warn('TENANT_NOT_FOUND', { slug: route.slug });
+        onDefaultTenantPage(undefined);
+        return navigationRedirect(req, headers, finder);
+      }
+      // Only an explicit admission refusal is shown as the organization's own page; a runtime or
+      // database failure while opening the scope, or anything unrecognized, is retryable.
+      if (tenantGateErrorOf(error)?.source === 'admission')
+        return navigationRedirect(req, headers, root);
+      return unavailable(routingUnavailableReasonOf(error));
+    }
+
+    const { release, scope } = entered;
+    let lookup;
+    try {
+      // Persisted state decides (see `lookupEntrySession`): no cookie cache, no refresh, and this
+      // instance's own cache cookie hidden because Better Auth decodes it before it honours
+      // `disableCookieCache`. The cookie names and attributes come from the tenant's auth
+      // instance, never a fixed pattern.
+      lookup = await runWithTenantScope(scope, async () =>
+        lookupEntrySession(await getTenantAuth(), req.headers),
+      );
+    } catch {
+      return unavailable('SESSION_LOOKUP_FAILED');
+    } finally {
+      await release().catch(() => console.warn('TENANT_SESSION_ENTRY_RELEASE_FAILED'));
+    }
+
+    const response = navigationRedirect(req, headers, lookup.hasSession ? root : finder);
+    for (const cookie of lookup.setCookies) response.headers.append('set-cookie', cookie);
+    return response;
   };
 
   /**
@@ -480,6 +551,7 @@ export function defineConfig() {
         ...hosts,
         findHost: findHostEndpoint,
         findSlug: findSlugEndpoint,
+        documentNavigation: isDocumentNavigation(req),
         onDefaultTenantPage: (entry) => onDefaultTenantPage(entry.tenantId),
       });
     } catch (error) {
@@ -499,9 +571,12 @@ export function defineConfig() {
         return discoveryNavigation(req, headers, true);
       route = route.fallback;
     }
+    if (route.kind === 'session-entry')
+      return sessionEntry(req, headers, route, onDefaultTenantPage);
+    if (route.kind === 'navigation-redirect') return navigationRedirect(req, headers, route.url);
     if (route.kind === 'redirect')
       return new Response(null, {
-        status: 302,
+        status: route.status ?? 302,
         headers: { 'location': route.url, 'Cache-Control': 'private, no-store' },
       });
     if (route.kind === 'endpoint-changed')

@@ -4,6 +4,132 @@ import type { DesktopFlowStatus } from '@/types/spaServerConfig';
 export const tenantCookieName = (appUrl: string): string =>
   new URL(appUrl).protocol === 'https:' ? '__Host-lobe-last-tenant' : 'lobe-last-tenant';
 
+/**
+ * Organization-relative path of the session entry: where the root page sends a visitor whose
+ * remembered organization should be asked for the browser's session. It is reserved (a leading
+ * `__` never belongs to an SPA route), canonical without a trailing slash, and every URL built
+ * for it uses exactly this form.
+ */
+export const SESSION_ENTRY_PATH = '/__entry';
+export const isSessionEntryPath = (path: string): boolean => path === SESSION_ENTRY_PATH;
+/** The one non-canonical spelling the framework may hand over; it is only ever redirected. */
+export const isNonCanonicalSessionEntryPath = (path: string): boolean =>
+  path === `${SESSION_ENTRY_PATH}/`;
+
+/**
+ * A copy of `headers` without the cookie-cache cookie of one auth instance: `sessionDataName`
+ * (read from that instance's own cookie configuration, never guessed), its numbered chunks
+ * `<name>.<n>` and the `__Secure-` spelling of either. Better Auth decodes this cookie before it
+ * decides whether to use it, so a damaged one fails even a lookup that bypasses the cache; the
+ * session entry hides it and leaves the session token and every other cookie byte for byte.
+ * `removed` lists the hidden names exactly as the browser sent them: Better Auth can no longer
+ * see them to clean them up, so {@link expiredCookieHeaders} does.
+ */
+export const hideSessionDataCookies = (
+  headers: Headers,
+  sessionDataName: string,
+): { headers: Headers; removed: string[] } => {
+  const result = new Headers(headers);
+  const cookie = headers.get('cookie');
+  if (cookie === null) return { headers: result, removed: [] };
+  const base = sessionDataName.replace(/^__Secure-/, '');
+  const hidden = [base, `__Secure-${base}`];
+  const kept: string[] = [];
+  const removed: string[] = [];
+  for (const raw of cookie.split(';')) {
+    const pair = raw.trim();
+    if (!pair) continue;
+    const equals = pair.indexOf('=');
+    const name = equals > 0 ? pair.slice(0, equals) : pair;
+    if (hidden.some((candidate) => name === candidate || name.startsWith(`${candidate}.`)))
+      removed.push(name);
+    else kept.push(pair);
+  }
+  if (kept.length) result.set('cookie', kept.join('; '));
+  else result.delete('cookie');
+  return { headers: result, removed };
+};
+
+export interface CookieAttributes {
+  domain?: string;
+  httpOnly?: boolean;
+  path?: string;
+  sameSite?: string;
+  secure?: boolean;
+}
+
+/**
+ * Expiring `Set-Cookie` lines for `names`, with the auth instance's own cookie attributes (Path,
+ * Domain, Secure, SameSite, HttpOnly: the browser only replaces a cookie it matches on all of
+ * them). A name that `present` (the `Set-Cookie` lines already on the response) sets or deletes
+ * is left to that line, so nothing Better Auth decided is overridden.
+ */
+export const expiredCookieHeaders = (
+  names: string[],
+  present: string[],
+  attributes: CookieAttributes,
+): string[] => {
+  const answered = new Set(present.map((line) => line.slice(0, line.indexOf('=')).trim()));
+  const lines: string[] = [];
+  for (const name of new Set(names)) {
+    if (answered.has(name)) continue;
+    const parts = [`${name}=`, 'Max-Age=0'];
+    if (attributes.path) parts.push(`Path=${attributes.path}`);
+    if (attributes.domain) parts.push(`Domain=${attributes.domain}`);
+    if (attributes.httpOnly) parts.push('HttpOnly');
+    if (attributes.secure || name.startsWith('__Secure-')) parts.push('Secure');
+    if (attributes.sameSite)
+      parts.push(
+        `SameSite=${attributes.sameSite.charAt(0).toUpperCase()}${attributes.sameSite.slice(1).toLowerCase()}`,
+      );
+    lines.push(parts.join('; '));
+  }
+  return lines;
+};
+
+/** The part of a Better Auth instance the session entry uses. */
+interface EntryAuth {
+  $context: Promise<{
+    authCookies: { sessionData: { attributes: CookieAttributes; name: string } };
+  }>;
+  api: {
+    getSession: (input: {
+      headers: Headers;
+      query: { disableCookieCache: true; disableRefresh: true };
+      returnHeaders: true;
+    }) => Promise<{ headers: Headers; response: { user?: unknown } | null }>;
+  };
+}
+
+/**
+ * The session entry's lookup: the persisted session only (no cookie cache, no refresh), with this
+ * instance's cache cookie hidden from Better Auth (see {@link hideSessionDataCookies}). Returns
+ * whether a session exists and every `Set-Cookie` line for the response: Better Auth's own, then
+ * an expiry for each hidden cache cookie it did not answer itself (valid session or not, so a
+ * damaged cache does not stay in the browser). Throws when the lookup fails; callers must not
+ * read that as "no session".
+ */
+export const lookupEntrySession = async (
+  auth: EntryAuth,
+  headers: Headers,
+): Promise<{ hasSession: boolean; setCookies: string[] }> => {
+  const { authCookies } = await auth.$context;
+  const hidden = hideSessionDataCookies(headers, authCookies.sessionData.name);
+  const { headers: authHeaders, response } = await auth.api.getSession({
+    headers: hidden.headers,
+    query: { disableCookieCache: true, disableRefresh: true },
+    returnHeaders: true,
+  });
+  const own = authHeaders.getSetCookie();
+  return {
+    hasSession: !!response?.user,
+    setCookies: [
+      ...own,
+      ...expiredCookieHeaders(hidden.removed, own, authCookies.sessionData.attributes),
+    ],
+  };
+};
+
 /** Same grammar as the control-plane tenant identifier contract. */
 export const isValidTenantId = (value: string): boolean => /^[\w.:-]{1,128}$/.test(value);
 

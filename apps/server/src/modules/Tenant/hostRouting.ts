@@ -6,6 +6,11 @@ import {
   resolveTenantRoute,
   type TenantRoute,
 } from '@/libs/next/proxy/tenantRouting';
+import {
+  isNonCanonicalSessionEntryPath,
+  isSessionEntryPath,
+  SESSION_ENTRY_PATH,
+} from '@/server/services/tenantDiscovery/navigation';
 
 type Entry = {
   slug: string;
@@ -14,6 +19,11 @@ type Entry = {
 };
 export interface HostRoutingDeps {
   appUrl: string;
+  /**
+   * Whether the request is a top-level browser document navigation. Only the session entry
+   * consults it (anything else answers it with 404); omitted means "not a navigation".
+   */
+  documentNavigation?: boolean;
   findHost: (host: string) => Promise<Entry | null>;
   findSlug: (slug: string) => Promise<Entry | null>;
   internalUrl: string;
@@ -21,8 +31,16 @@ export interface HostRoutingDeps {
 }
 export type HostTenantRoute =
   | TenantRoute
-  | { kind: 'redirect'; url: string }
+  | { kind: 'redirect'; status?: 308; url: string }
   | { kind: 'endpoint-changed'; activeUrl: string }
+  /**
+   * The session entry on an active endpoint of a known organization, for a qualified request.
+   * `activeUrl` is the organization's trusted public URL; the caller checks the session there.
+   * No memory write has been requested for it.
+   */
+  | { activeUrl: string; kind: 'session-entry'; slug: string }
+  /** A redirect that must end with an empty fragment (see `navigationRedirect`). */
+  | { kind: 'navigation-redirect'; url: string }
   /**
    * A `/t/{slug}` request for a slug that does not exist. `fallback` is
    * exactly what the same path gets without a tenant; callers serve it and
@@ -79,9 +97,22 @@ export const resolveHostTenantRoute = async (
         slug: route.slug,
       };
     }
-    if (route.kind === 'tenant-page') deps.onDefaultTenantPage?.(entry);
+    const defaultActive = entry.state.endpoints.find((e) => e.kind === 'default')?.active;
+    if (route.kind === 'tenant-page') {
+      // The session entry is decided before the visit is remembered and before an endpoint
+      // move, so neither can see it.
+      const sessionEntry = resolveSessionEntry(
+        route.path,
+        entry,
+        !!defaultActive,
+        `${platform.origin}/t/${entry.slug}`,
+        deps,
+      );
+      if (sessionEntry) return sessionEntry;
+      deps.onDefaultTenantPage?.(entry);
+    }
     if (
-      entry.state.endpoints.find((e) => e.kind === 'default')?.active ||
+      defaultActive ||
       (route.kind === 'tenant-backend' && internalHost && INTERNAL_CALLBACKS.test(route.path))
     )
       return route;
@@ -92,13 +123,50 @@ export const resolveHostTenantRoute = async (
   const entry = await deps.findHost(url.hostname.toLowerCase());
   if (!entry || /^\/t(?:\/|$)/.test(url.pathname)) return reject();
   if (/^\/api\/(?:internal|cron)(?:\/|$)/.test(url.pathname)) return reject();
-  if (!entry.state.endpoints.find((e) => e.host === url.hostname.toLowerCase())?.active)
-    return changed(url.pathname, entry.state.activeUrl, url.search, method);
+  const hostActive = !!entry.state.endpoints.find((e) => e.host === url.hostname.toLowerCase())
+    ?.active;
+  const sessionEntry = resolveSessionEntry(
+    url.pathname,
+    entry,
+    hostActive,
+    `https://${url.hostname.toLowerCase()}`,
+    deps,
+  );
+  if (sessionEntry) return sessionEntry;
+  if (!hostActive) return changed(url.pathname, entry.state.activeUrl, url.search, method);
   return {
     kind: isBackendPath(url.pathname) ? 'tenant-backend' : 'tenant-page',
     slug: entry.slug,
     path: url.pathname,
   };
+};
+
+/**
+ * The session entry (`/__entry` below the organization root). Returns `null` for any other path.
+ * Everything here uses only the directory's own URLs: never the request host, query or fragment.
+ * - Not a top-level document GET: 404, the same on active and deactivated endpoints.
+ * - A deactivated endpoint: to the active endpoint's entry (any spelling), dropping the whole
+ *   query and the fragment.
+ * - A trailing-slash spelling on an active endpoint: a same-origin permanent redirect to the
+ *   canonical entry of this very endpoint, nothing else.
+ */
+const resolveSessionEntry = (
+  path: string,
+  entry: Entry,
+  endpointActive: boolean,
+  /** This request's own, directory-verified origin and base path (`https://host[/t/slug]`). */
+  currentBase: string,
+  deps: HostRoutingDeps,
+): HostTenantRoute | null => {
+  const canonical = isSessionEntryPath(path);
+  if (!canonical && !isNonCanonicalSessionEntryPath(path)) return null;
+  if (!deps.documentNavigation) return reject();
+  const activeEntry = `${entry.state.activeUrl}${SESSION_ENTRY_PATH}`;
+  // A deactivated endpoint never answers: any spelling goes to the active endpoint's entry.
+  if (!endpointActive) return { kind: 'navigation-redirect', url: `${activeEntry}#` };
+  if (!canonical)
+    return { kind: 'redirect', status: 308, url: `${currentBase}${SESSION_ENTRY_PATH}` };
+  return { activeUrl: entry.state.activeUrl, kind: 'session-entry', slug: entry.slug };
 };
 
 const changed = (

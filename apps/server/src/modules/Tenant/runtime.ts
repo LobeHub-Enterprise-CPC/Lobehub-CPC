@@ -230,10 +230,11 @@ export class TenantRuntime {
 
   private assertAvailable(entry: RouteEntry) {
     const { directory, lifecycle } = entry;
-    if (directory.status !== 'active') throw new TenantGateError('TENANT_NOT_READY');
+    if (directory.status !== 'active')
+      throw new TenantGateError('TENANT_NOT_READY', undefined, { source: 'admission' });
     // A tenant Console has never activated is not ready rather than offline.
     if (!lifecycle || lifecycle.acceptedVersion === 0)
-      throw new TenantGateError('TENANT_NOT_READY');
+      throw new TenantGateError('TENANT_NOT_READY', undefined, { source: 'admission' });
     const { state, reasons } = effectiveTenantState(
       {
         desiredState: lifecycle.desiredState,

@@ -61,3 +61,39 @@ describe('tenantRefusalResponse', () => {
     expect(tenantRefusalResponse(new Error('boom'))).toBeUndefined();
   });
 });
+
+describe('TenantGateError.source', () => {
+  it.each(['TENANT_EXPIRED', 'TENANT_FROZEN', 'TENANT_OFFLINE'] as const)(
+    'marks the lifecycle refusal %s as an admission refusal by default',
+    (code) => {
+      expect(new TenantGateError(code).source).toBe('admission');
+    },
+  );
+
+  it.each(['TENANT_NOT_READY', 'TENANT_UNAVAILABLE'] as const)(
+    'treats %s as an infrastructure failure unless the raiser says it is an admission refusal',
+    (code) => {
+      expect(new TenantGateError(code).source).toBe('infrastructure');
+      expect(new TenantGateError(code, undefined, { source: 'admission' }).source).toBe(
+        'admission',
+      );
+    },
+  );
+
+  it('keeps the marker, the code and the status of the wrapped refusal the callers already see', () => {
+    const refusal = new TenantGateError('TENANT_NOT_READY', undefined, {
+      cause: new Error('db'),
+      source: 'admission',
+    });
+    expect(refusal.code).toBe('TENANT_NOT_READY');
+    expect(refusal.status).toBe(503);
+    expect(refusal.cause).toBeInstanceOf(Error);
+  });
+
+  it('marks a tenant database failure as infrastructure when it is lifted into a gate refusal', () => {
+    expect(
+      tenantGateErrorOf(wrapped(new TenantDatabaseError('TENANT_NOT_READY', 'schema-name-invalid')))
+        ?.source,
+    ).toBe('infrastructure');
+  });
+});

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { resolveTenantRoute } from '@/libs/next/proxy/tenantRouting';
 
@@ -33,6 +33,14 @@ const deps = {
     slug === 'acme' ? custom : slug === 'beta' ? defaultEntry : null,
 };
 const route = (url: string, method = 'GET') => resolveHostTenantRoute(new URL(url), method, deps);
+const entryRoute = (url: string, documentNavigation: boolean, method = 'GET') => {
+  const onDefaultTenantPage = vi.fn();
+  return resolveHostTenantRoute(new URL(url), method, {
+    ...deps,
+    documentNavigation,
+    onDefaultTenantPage,
+  }).then((result) => ({ onDefaultTenantPage, result }));
+};
 describe('trusted host routing', () => {
   it('carries documented navigation queries but drops secrets and unknown fields on both inactive authorities', async () => {
     for (const prefix of ['https://app.example.com/t/acme', 'https://old.example.com']) {
@@ -188,5 +196,138 @@ describe('discovery deployment boundary', () => {
         kind: 'reject',
         status: 404,
       });
+  });
+});
+
+describe('session entry (/__entry)', () => {
+  it('hands an active default endpoint to the session check without recording the visit', async () => {
+    const { onDefaultTenantPage, result } = await entryRoute(
+      'https://app.example.com/t/beta/__entry',
+      true,
+    );
+    expect(result).toEqual({
+      kind: 'session-entry',
+      slug: 'beta',
+      activeUrl: 'https://app.example.com/t/beta',
+    });
+    expect(onDefaultTenantPage).not.toHaveBeenCalled();
+  });
+  it('still records an ordinary explicit visit, so the entry exception stays narrow', async () => {
+    const { onDefaultTenantPage } = await entryRoute('https://app.example.com/t/beta/agent', true);
+    expect(onDefaultTenantPage).toHaveBeenCalledTimes(1);
+  });
+  it('hands an active custom host to the session check', async () => {
+    const { result } = await entryRoute('https://chat.example.com/__entry', true);
+    expect(result).toEqual({
+      kind: 'session-entry',
+      slug: 'acme',
+      activeUrl: 'https://chat.example.com',
+    });
+  });
+  it.each([
+    ['https://app.example.com/t/beta/__entry', 'GET', false],
+    ['https://app.example.com/t/beta/__entry', 'HEAD', false],
+    ['https://app.example.com/t/beta/__entry', 'POST', false],
+    ['https://app.example.com/t/beta/__entry/', 'GET', false],
+    ['https://chat.example.com/__entry', 'GET', false],
+    ['https://chat.example.com/__entry/', 'GET', false],
+    // An inactive endpoint answers a non-document request exactly like an active one.
+    ['https://app.example.com/t/acme/__entry', 'GET', false],
+    ['https://app.example.com/t/acme/__entry', 'HEAD', false],
+    ['https://old.example.com/__entry', 'GET', false],
+  ])(
+    'refuses %s (%s, document navigation %s) without recording or redirecting',
+    async (url, method, nav) => {
+      const { onDefaultTenantPage, result } = await entryRoute(url, nav, method);
+      expect(result).toEqual({ kind: 'reject', code: 'NOT_FOUND', status: 404 });
+      expect(onDefaultTenantPage).not.toHaveBeenCalled();
+    },
+  );
+  it('refuses a request whose navigation status was never supplied', async () => {
+    expect(await route('https://app.example.com/t/beta/__entry')).toEqual({
+      kind: 'reject',
+      code: 'NOT_FOUND',
+      status: 404,
+    });
+  });
+  it.each([
+    'https://app.example.com/t/acme/__entry?token=secret&email=a@example.com&callbackUrl=https://evil.example',
+    'https://old.example.com/__entry?code=secret&hl=en-US',
+  ])('moves an inactive endpoint to the active one dropping every query field: %s', async (url) => {
+    const { onDefaultTenantPage, result } = await entryRoute(url, true);
+    expect(result).toEqual({
+      kind: 'navigation-redirect',
+      url: 'https://chat.example.com/__entry#',
+    });
+    expect(onDefaultTenantPage).not.toHaveBeenCalled();
+  });
+  it('normalizes a trailing slash on an active endpoint to the same origin and nothing else', async () => {
+    for (const [url, target] of [
+      [
+        'https://app.example.com/t/beta/__entry/?x=secret',
+        'https://app.example.com/t/beta/__entry',
+      ],
+      ['https://chat.example.com/__entry/', 'https://chat.example.com/__entry'],
+    ]) {
+      const { onDefaultTenantPage, result } = await entryRoute(url, true);
+      expect(result).toEqual({ kind: 'redirect', status: 308, url: target });
+      expect(onDefaultTenantPage).not.toHaveBeenCalled();
+    }
+  });
+  it('keeps the same-origin spelling when another endpoint is the primary one', async () => {
+    const both = {
+      ...custom,
+      state: {
+        activeUrl: 'https://chat.example.com',
+        endpoints: [
+          { kind: 'default', host: null, active: true },
+          { kind: 'custom', host: 'chat.example.com', active: true },
+        ],
+      },
+    };
+    const result = await resolveHostTenantRoute(
+      new URL('https://app.example.com/t/acme/__entry/'),
+      'GET',
+      { ...deps, documentNavigation: true, findSlug: async () => both },
+    );
+    expect(result).toEqual({
+      kind: 'redirect',
+      status: 308,
+      url: 'https://app.example.com/t/acme/__entry',
+    });
+  });
+  it.each([
+    'https://app.example.com/t/acme/__entry/?token=secret',
+    'https://old.example.com/__entry/?code=secret',
+  ])(
+    'moves a deactivated endpoint straight to the active entry, clearing the fragment: %s',
+    async (url) => {
+      const { onDefaultTenantPage, result } = await entryRoute(url, true);
+      expect(result).toEqual({
+        kind: 'navigation-redirect',
+        url: 'https://chat.example.com/__entry#',
+      });
+      expect(onDefaultTenantPage).not.toHaveBeenCalled();
+    },
+  );
+  it('treats an unknown slug like any unknown tenant page and an unknown host as unknown', async () => {
+    const { onDefaultTenantPage, result } = await entryRoute(
+      'https://app.example.com/t/nope/__entry',
+      true,
+    );
+    expect(result).toMatchObject({ kind: 'unknown-tenant', slug: 'nope' });
+    expect(onDefaultTenantPage).not.toHaveBeenCalled();
+    expect((await entryRoute('https://other.example.com/__entry', true)).result).toMatchObject({
+      kind: 'reject',
+      status: 404,
+    });
+    expect(
+      (await entryRoute('https://chat.example.com/t/beta/__entry', true)).result,
+    ).toMatchObject({ kind: 'reject' });
+  });
+  it('is not reachable through the internal authority', async () => {
+    expect((await entryRoute('http://internal:3010/t/beta/__entry', true)).result).toMatchObject({
+      kind: 'reject',
+    });
   });
 });

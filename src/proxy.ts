@@ -17,6 +17,9 @@ export const config = {
     '/market/:path*',
     // include the /
     '/',
+    // Session entry of a custom authority; `/t/:slug/(.*)` below covers the path form. Without
+    // this entry the request never reaches the proxy on a custom authority and 404s.
+    '/__entry',
     '/acceptance',
     '/acceptance(.*)',
     '/channels',

@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import {
   clearTenantCookie,
+  expiredCookieHeaders,
+  hideSessionDataCookies,
   isDocumentNavigation,
+  isNonCanonicalSessionEntryPath,
+  isSessionEntryPath,
   isValidTenantId,
   redactUrlEmail,
   serializeTenantCookie,
+  SESSION_ENTRY_PATH,
   tenantCookieName,
 } from './navigation';
 
@@ -138,5 +143,93 @@ describe('desktop URL privacy', () => {
         'https://app.example.com/t/acme/oidc/auth?client_id=lobehub-desktop&state=secret',
       ),
     ).toBe('[authorization-url-redacted]');
+  });
+});
+
+describe('session entry path', () => {
+  it('matches exactly the canonical path, and names the trailing-slash form separately', () => {
+    expect(SESSION_ENTRY_PATH).toBe('/__entry');
+    expect(isSessionEntryPath('/__entry')).toBe(true);
+    for (const path of ['/__entry/', '/__entry//', '/__ENTRY', '/__entry/x', '/__entryx', '/', ''])
+      expect(isSessionEntryPath(path)).toBe(false);
+    expect(isNonCanonicalSessionEntryPath('/__entry/')).toBe(true);
+    for (const path of ['/__entry', '/__entry//', '/__entry/x', '/agent/', '/'])
+      expect(isNonCanonicalSessionEntryPath(path)).toBe(false);
+  });
+});
+
+describe('hideSessionDataCookies', () => {
+  const hide = (cookie: string | null, name = 'lh_x.session_data') => {
+    const headers = new Headers({ 'x-keep': '1' });
+    if (cookie !== null) headers.set('cookie', cookie);
+    return hideSessionDataCookies(headers, name);
+  };
+  it('removes the cache cookie, its chunks and the secure-prefixed spelling only, and names them as sent', () => {
+    const result = hide(
+      'a=1; lh_x.session_data=z; lh_x.session_token=t; lh_x.session_data.0=z; __Secure-lh_x.session_data.1=z; b=2',
+    );
+    expect(result.headers.get('cookie')).toBe('a=1; lh_x.session_token=t; b=2');
+    expect(result.removed).toEqual([
+      'lh_x.session_data',
+      'lh_x.session_data.0',
+      '__Secure-lh_x.session_data.1',
+    ]);
+    const secure = hide('__Secure-lh_x.session_data=z; c=3', '__Secure-lh_x.session_data');
+    expect(secure.headers.get('cookie')).toBe('c=3');
+    expect(secure.removed).toEqual(['__Secure-lh_x.session_data']);
+  });
+  it('keeps lookalike and foreign cookies byte for byte, including empty values', () => {
+    const cookie = 'lh_y.session_data=1; lh_x.session_dataX=2; lh_x.session_data_o=3; e=';
+    const result = hide(cookie);
+    expect(result.headers.get('cookie')).toBe(cookie);
+    expect(result.removed).toEqual([]);
+  });
+  it('drops the header when nothing else remains and leaves a missing header and other headers alone', () => {
+    expect(hide('lh_x.session_data=z').headers.has('cookie')).toBe(false);
+    expect(hide(null).headers.has('cookie')).toBe(false);
+    expect(hide(null).removed).toEqual([]);
+    expect(hide('lh_x.session_data=z').headers.get('x-keep')).toBe('1');
+  });
+  it('does not mutate the request headers', () => {
+    const headers = new Headers({ cookie: 'lh_x.session_data=z; a=1' });
+    hideSessionDataCookies(headers, 'lh_x.session_data');
+    expect(headers.get('cookie')).toBe('lh_x.session_data=z; a=1');
+  });
+});
+
+describe('expiredCookieHeaders', () => {
+  const attributes = { httpOnly: true, path: '/t/acme', sameSite: 'lax', secure: false };
+  it('expires each name with the instance attributes, empty value and Max-Age=0', () => {
+    expect(
+      expiredCookieHeaders(['lh_x.session_data.0', 'lh_x.session_data.1'], [], attributes),
+    ).toEqual([
+      'lh_x.session_data.0=; Max-Age=0; Path=/t/acme; HttpOnly; SameSite=Lax',
+      'lh_x.session_data.1=; Max-Age=0; Path=/t/acme; HttpOnly; SameSite=Lax',
+    ]);
+  });
+  it('carries Domain, Secure and the other spellings of SameSite when configured', () => {
+    expect(
+      expiredCookieHeaders(['n'], [], {
+        domain: 'example.com',
+        httpOnly: true,
+        path: '/',
+        sameSite: 'none',
+        secure: true,
+      }),
+    ).toEqual(['n=; Max-Age=0; Path=/; Domain=example.com; HttpOnly; Secure; SameSite=None']);
+  });
+  it('always secures a __Secure- cookie, whatever the instance attributes say', () => {
+    expect(
+      expiredCookieHeaders(['__Secure-n.0'], [], { path: '/t/acme', secure: false })[0],
+    ).toContain('; Secure');
+  });
+  it('never overrides a cookie the response already sets or deletes, and does not repeat names', () => {
+    expect(
+      expiredCookieHeaders(
+        ['a', 'b', 'a', 'c'],
+        ['b=; Max-Age=0; Path=/t/acme', 'c=new; Path=/t/acme; Max-Age=60'],
+        attributes,
+      ),
+    ).toEqual(['a=; Max-Age=0; Path=/t/acme; HttpOnly; SameSite=Lax']);
   });
 });

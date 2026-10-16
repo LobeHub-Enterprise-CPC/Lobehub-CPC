@@ -47,8 +47,11 @@ export const tenantClaims = new TenantClaims({
         .from(tenantDirectory)
         .leftJoin(tenantLifecycle, eq(tenantDirectory.tenantId, tenantLifecycle.tenantId))
         .where(eq(tenantDirectory.tenantId, tenantId));
-      if (!row || row.directory.status !== 'active' || !row.lifecycle?.acceptedVersion)
-        throw new TenantGateError('TENANT_NOT_READY');
+      if (!row) throw new TenantGateError('TENANT_NOT_READY');
+      // Read inside the claim transaction: an entry that is no longer active, or whose Console
+      // never activated, is an admission refusal exactly as the runtime's own check reports it.
+      if (row.directory.status !== 'active' || !row.lifecycle?.acceptedVersion)
+        throw new TenantGateError('TENANT_NOT_READY', undefined, { source: 'admission' });
       const lifecycle = row.lifecycle;
       if (lifecycle.desiredState === 'offline') throw new TenantGateError('TENANT_OFFLINE');
       if (

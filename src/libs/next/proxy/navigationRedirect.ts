@@ -4,7 +4,8 @@ import { NextResponse } from 'next/server';
 
 /**
  * 302 responses that must discard the visitor's inherited URL context (the discovery policy's
- * `/?switch=1#`, `/#`, a remembered endpoint root, a desktop authorize URL) end their `Location`
+ * `/?switch=1#`, `/#`, the remembered organization's session entry `/__entry#` and the
+ * organization root it answers with, a desktop authorize URL) end their `Location`
  * with an empty fragment: a redirect without one makes the browser carry the old fragment over.
  *
  * Next cannot deliver that from the proxy. It rebuilds a proxy `Location` twice, through
