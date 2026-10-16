@@ -21,6 +21,7 @@ vi.mock('@/features/Workspace/useWorkspaceAwareNavigate', () => ({
 }));
 
 vi.mock('@/layout/AuthProvider/MarketAuth', () => ({
+  getMarketProfileKey: (info?: { sub?: string }) => info?.sub ?? null,
   useMarketAuth: () => ({
     getCurrentUserInfo: () => ({ sub: 'current-user' }),
     isAuthenticated: true,

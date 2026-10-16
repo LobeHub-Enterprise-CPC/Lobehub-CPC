@@ -276,6 +276,11 @@ export interface ToolExecutionContext {
    */
   execSubAgent?: (params: ExecSubAgentParams) => Promise<unknown>;
   /**
+   * 1-based number of this try as the runtime's tool retry loop counts it.
+   * Telemetry names the execution event after it; absent means the first.
+   */
+  executionAttempt?: number;
+  /**
    * The run's resolved execution plan. Lets a runtime explain a gate the plan
    * imposes (e.g. a device-locked run has no device picker) instead of the
    * gated tool just looking missing.

@@ -14,6 +14,7 @@ import {
 import { TopicModel } from '@/database/models/topic';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { ConnectorDataService } from '@/server/services/connectorData';
 import { MarketService } from '@/server/services/market';
 import { resolveSandboxSessionConfig, resolveSandboxStorageClaim } from '@/server/services/sandbox';
@@ -140,7 +141,12 @@ const storageClaimProcedure = wsCompatProcedure.use(serverDatabase).use(async (o
     ctx: {
       claim,
       marketService: new MarketService({
-        userInfo: { sandboxStorage: claim, userId: ctx.userId, workspaceId },
+        userInfo: await resolveMarketServiceIdentity({
+          sandboxStorage: claim,
+          serverDB: ctx.serverDB,
+          userId: ctx.userId,
+          workspaceId,
+        }),
       }),
     },
   });

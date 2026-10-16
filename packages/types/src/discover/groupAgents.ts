@@ -1,4 +1,5 @@
 import type { MetaData } from '../meta';
+import type { MarketContentSyncState, MarketEditCapabilities } from './capabilities';
 
 /**
  * Group Agent Member - represents a member agent in a group
@@ -31,12 +32,7 @@ export type GroupAgentVisibility = 'public' | 'private' | 'internal';
  * Group Agent Category
  */
 export type GroupAgentCategory =
-  | 'productivity'
-  | 'entertainment'
-  | 'education'
-  | 'development'
-  | 'business'
-  | 'other';
+  'productivity' | 'entertainment' | 'education' | 'development' | 'business' | 'other';
 
 /**
  * Group Agent Config - similar to LobeAgentConfig but for groups
@@ -63,7 +59,8 @@ export interface GroupAgentConfig {
 /**
  * Group Agent Item - basic info for list display
  */
-export interface DiscoverGroupAgentItem extends MetaData {
+export interface DiscoverGroupAgentItem
+  extends MarketContentSyncState, MarketEditCapabilities, MetaData {
   author?: string;
   avatar?: string;
   backgroundColor?: string;

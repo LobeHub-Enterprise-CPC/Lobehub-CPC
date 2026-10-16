@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';
 
 import PublishedTime from '@/components/PublishedTime';
+import ContentSyncTag from '@/features/CommunityContentSyncTag';
 import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 import { useMarketAuth } from '@/layout/AuthProvider/MarketAuth';
 import { favoriteKeys } from '@/libs/swr/keys';
@@ -171,6 +172,7 @@ const Header = memo<{ mobile?: boolean }>(({ mobile: isMobile }) => {
             <Icon icon={DotIcon} />
             <PublishedTime className={styles.time} date={createdAt as string} />
             <GroupAgentForkTag />
+            <ContentSyncTag contentSync={data.contentSync} />
             {!!forkCount && forkCount > 0 && (
               <Tag color="default" icon={<Icon icon={GitBranchIcon} />}>
                 {forkCount} {t('fork.forks')}

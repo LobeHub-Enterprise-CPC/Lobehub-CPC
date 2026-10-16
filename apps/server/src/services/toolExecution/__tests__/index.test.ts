@@ -26,6 +26,47 @@ vi.mock('@/server/services/deviceGateway/scopedDevices', () => ({
   getScopedOnlineDevices: vi.fn().mockResolvedValue([]),
 }));
 
+const { callCloudMcpEndpoint, discoverServiceCtor } = vi.hoisted(() => ({
+  callCloudMcpEndpoint: vi.fn(),
+  discoverServiceCtor: vi.fn(),
+}));
+vi.mock('../../discover', () => ({
+  DiscoverService: vi.fn(function (options: unknown) {
+    discoverServiceCtor(options);
+    return { callCloudMcpEndpoint };
+  }),
+}));
+vi.mock('@/libs/trusted-client/resolveIdentity', () => ({
+  resolveMarketServiceIdentity: vi.fn(async ({ userId }: { userId: string }) => ({
+    tenantId: 'tenant-a',
+    userId,
+  })),
+}));
+
+describe('ToolExecutionService cloud MCP identity', () => {
+  it('signs the cloud gateway call with the full Market identity, tenant included', async () => {
+    callCloudMcpEndpoint.mockResolvedValue({ content: [] });
+    const service = new ToolExecutionService({
+      builtinToolsExecutor: {} as any,
+      mcpService: {} as any,
+    });
+
+    await service.executeTool(
+      { apiName: 'run', arguments: '{}', id: 'call_cloud', identifier: 'my-mcp', type: 'mcp' },
+      {
+        serverDB: {} as never,
+        toolManifestMap: { 'my-mcp': { mcpParams: { type: 'cloud' } } as never },
+        userId: 'user-1',
+      },
+    );
+
+    expect(discoverServiceCtor).toHaveBeenCalledWith({
+      userInfo: { tenantId: 'tenant-a', userId: 'user-1' },
+    });
+    expect(callCloudMcpEndpoint).toHaveBeenCalled();
+  });
+});
+
 describe('ToolExecutionService', () => {
   it('keeps a readable content when a runtime throws a plain budget error object', async () => {
     // The lobehub provider rejects with a plain object (not an Error) whose

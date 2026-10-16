@@ -55,6 +55,96 @@ describe('deriveSandboxStorageKey', () => {
   });
 });
 
+describe('deriveSandboxStorageKey with a tenant dimension', () => {
+  const digestA = 'a'.repeat(32);
+  const digestB = 'b'.repeat(32);
+
+  it('puts a fixed-length tenant digest in front of the principal', () => {
+    expect(deriveSandboxStorageKey({ tenantDigest: digestA, userId: 'user_abc' })).toBe(
+      `wt-${digestA}-user_abc`,
+    );
+    expect(
+      deriveSandboxStorageKey({ tenantDigest: digestA, userId: 'user_abc', workspaceId: 'wsp_42' }),
+    ).toBe(`wt-${digestA}-org-wsp_42`);
+  });
+
+  // The reason the dimension exists: ids are unique per tenant, not across them.
+  it('gives the same principal a different directory in each tenant', () => {
+    const a = deriveSandboxStorageKey({ tenantDigest: digestA, userId: 'user_abc' });
+    const b = deriveSandboxStorageKey({ tenantDigest: digestB, userId: 'user_abc' });
+
+    expect(a).toBeDefined();
+    expect(a).not.toBe(b);
+  });
+
+  // `wt-` and `ws-` differ in the second character, and the tenant family is
+  // decodable by position (3 + 32 + 1), so no pair of inputs can land together.
+  it('is injective across tenants, principals and both families', () => {
+    const digests = [digestA, digestB, `${'a'.repeat(31)}b`, `ab${'a'.repeat(30)}`];
+    const principals = [
+      { userId: 'user_1' },
+      { userId: 'user_1-' },
+      { userId: 'user_1-2' },
+      { userId: 'u', workspaceId: 'wsp_1' },
+      { userId: 'u', workspaceId: 'wsp_1-2' },
+      { userId: 'wsp_1' },
+    ];
+    const keys = [
+      // The untenanted family is a different family, not a collision candidate.
+      ...principals.map((p) => deriveSandboxStorageKey(p)),
+      ...digests.flatMap((tenantDigest) =>
+        principals.map((p) => deriveSandboxStorageKey({ ...p, tenantDigest })),
+      ),
+    ];
+
+    expect(keys.every(Boolean)).toBe(true);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('never collides with a key from the untenanted family', () => {
+    // Even a principal whose id spells out a tenant-shaped key stays under `ws-`.
+    const crafted = deriveSandboxStorageKey({ userId: `wt-${digestA}-user_abc` });
+
+    expect(crafted).toBe(`ws-wt-${digestA}-user_abc`);
+    expect(crafted).not.toBe(
+      deriveSandboxStorageKey({ tenantDigest: digestA, userId: 'user_abc' }),
+    );
+  });
+
+  it('keeps personal and organization namespaces apart inside a tenant', () => {
+    expect(
+      deriveSandboxStorageKey({ tenantDigest: digestA, userId: 'org-wsp_42' }),
+    ).toBeUndefined();
+  });
+
+  // A tenant whose digest is malformed gets no persistence at all: falling back
+  // to the untenanted key would hand every tenant the same directory.
+  it('refuses a malformed digest rather than dropping the tenant', () => {
+    for (const tenantDigest of [
+      '',
+      'a'.repeat(31),
+      'a'.repeat(33),
+      'A'.repeat(32),
+      'g'.repeat(32),
+    ]) {
+      expect(deriveSandboxStorageKey({ tenantDigest, userId: 'user_abc' })).toBeUndefined();
+    }
+  });
+
+  it('stays inside the length and character limits the execution plane enforces', () => {
+    const key = deriveSandboxStorageKey({
+      tenantDigest: digestA,
+      userId: 'u'.repeat(92),
+    });
+    expect(key).toHaveLength(128);
+    expect(key).toMatch(/^\w[\w.-]{0,127}$/);
+
+    expect(
+      deriveSandboxStorageKey({ tenantDigest: digestA, userId: 'u'.repeat(93) }),
+    ).toBeUndefined();
+  });
+});
+
 describe('formatSandboxStoragePromptVariables', () => {
   const placeholders = ['{{sandbox_workspace}}', '{{sandbox_session_files}}'];
   const render = (vars: SandboxStoragePromptVariables) =>

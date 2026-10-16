@@ -15,6 +15,8 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { Pool } from 'pg';
 
 import type { TrustedClientUserInfo } from '@/libs/trusted-client';
+import { TrustedClientIdentityError } from '@/libs/trusted-client/errors';
+import { resolveTrustedClientIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { openDirectoryData } from '@/server/crypto/tenantKeys';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
 import { MarketService } from '@/server/services/market';
@@ -28,23 +30,22 @@ import { loadTenantPublicEndpoint } from './endpoints';
 
 type Work = typeof tenantRuntimeExternalWork.$inferSelect;
 
-/** Maintenance uses the runtime role with PostgreSQL enforcing read-only transactions. */
-async function pollVideo(work: Work): Promise<PollVideoStatusResult | undefined> {
-  const context = work.context;
-  if (
-    !context ||
-    typeof context.userId !== 'string' ||
-    typeof context.provider !== 'string' ||
-    typeof context.model !== 'string'
-  )
-    throw new Error('EXTERNAL_WORK_CONTEXT_MISSING');
+/**
+ * Opens the tenant's business database for this work, read-only (PostgreSQL
+ * enforces it), and runs `run` inside that tenant's scope. The pool is always
+ * closed.
+ */
+async function withTenantReadScope<T>(
+  tenantId: string,
+  run: (session: TenantDatabaseSession) => Promise<T>,
+): Promise<T> {
   const [directory] = await getPlatformDB()
     .select()
     .from(tenantDirectory)
-    .where(eq(tenantDirectory.tenantId, work.tenantId))
+    .where(eq(tenantDirectory.tenantId, tenantId))
     .limit(1);
   if (!directory) throw new Error('TENANT_NOT_FOUND');
-  const names = tenantDbNames(work.tenantId);
+  const names = tenantDbNames(tenantId);
   if (
     !SUPPORTED_TENANT_SCHEMA_VERSIONS.has(directory.schemaVersion) ||
     directory.schemaName !== names.schemaName ||
@@ -58,7 +59,7 @@ async function pollVideo(work: Work): Promise<PollVideoStatusResult | undefined>
     user: directory.runtimeUsername,
     password: openDirectoryData(
       directory.runtimeSecret,
-      directorySecretAad(work.tenantId, directory.credentialBundleVersion, 'runtime'),
+      directorySecretAad(tenantId, directory.credentialBundleVersion, 'runtime'),
     ),
     ssl: directory.tls.enabled
       ? {
@@ -74,37 +75,84 @@ async function pollVideo(work: Work): Promise<PollVideoStatusResult | undefined>
   const session = new TenantDatabaseSession({
     acquire: () => ({ pool, release: () => {} }),
     schemaName: directory.schemaName,
-    tenantId: work.tenantId,
+    tenantId,
   });
   try {
     const client = await pool.connect();
     try {
       await verifyRuntimeTenantDatabase(client, {
-        tenantId: work.tenantId,
+        tenantId,
         schemaName: directory.schemaName,
       });
     } finally {
       client.release();
     }
-    const endpoint = await loadTenantPublicEndpoint(work.tenantId);
-    return await runWithTenantScope(
-      { endpoint, session, tenantId: work.tenantId, slug: directory.slug },
-      async () => {
-        const runtime = await initModelRuntimeFromDB(
-          session.database,
-          context.userId as string,
-          context.provider as string,
-          typeof context.workspaceId === 'string' ? context.workspaceId : undefined,
-        );
-        return runtime.handlePollVideoStatus(
-          work.handle!,
-          context.model as string,
-          context.route as VideoGenerationRoute | undefined,
-        );
-      },
+    const endpoint = await loadTenantPublicEndpoint(tenantId);
+    return await runWithTenantScope({ endpoint, session, tenantId, slug: directory.slug }, () =>
+      run(session),
     );
   } finally {
     await pool.end();
+  }
+}
+
+/** Maintenance uses the runtime role with PostgreSQL enforcing read-only transactions. */
+async function pollVideo(work: Work): Promise<PollVideoStatusResult | undefined> {
+  const context = work.context;
+  if (
+    !context ||
+    typeof context.userId !== 'string' ||
+    typeof context.provider !== 'string' ||
+    typeof context.model !== 'string'
+  )
+    throw new Error('EXTERNAL_WORK_CONTEXT_MISSING');
+  return withTenantReadScope(work.tenantId, async (session) => {
+    const runtime = await initModelRuntimeFromDB(
+      session.database,
+      context.userId as string,
+      context.provider as string,
+      typeof context.workspaceId === 'string' ? context.workspaceId : undefined,
+    );
+    return runtime.handlePollVideoStatus(
+      work.handle!,
+      context.model as string,
+      context.route as VideoGenerationRoute | undefined,
+    );
+  });
+}
+
+/**
+ * The identity a market receipt is re-signed with. The receipt keeps who and
+ * where (user, tenant, entitlement) but not the email: it is looked up again in
+ * the work's own tenant, so no extra PII is persisted and an email change is
+ * followed. Without a current email nothing is signed (Market refuses an empty
+ * one anyway) and the reconciliation fails with a safe code, never the user.
+ */
+async function resolveReceiptIdentity(
+  work: Work,
+  receipt: TrustedClientUserInfo,
+): Promise<TrustedClientUserInfo> {
+  try {
+    const identity = await withTenantReadScope(work.tenantId, (session) =>
+      resolveTrustedClientIdentity({
+        sandboxStorage: receipt.sandboxStorage,
+        serverDB: session.database,
+        userId: receipt.userId,
+      }),
+    );
+    if (!identity?.email || identity.tenantId !== work.tenantId) {
+      throw new TrustedClientIdentityError('USER_UNAVAILABLE');
+    }
+    return identity;
+  } catch (error) {
+    // Lookup failures are already TrustedClientIdentityErrors (resolveTrustedClientIdentity
+    // wraps them); the tenant database itself failing to open is reported as
+    // pollVideo reports it. Only the code is logged: the chain can carry a
+    // database error.
+    if (error instanceof TrustedClientIdentityError) {
+      console.error('Sandbox receipt identity unavailable: %s (work %s)', error.code, work.workId);
+    }
+    throw error;
   }
 }
 
@@ -145,6 +193,9 @@ export const reconcileExternalWork = async (workId: string) => {
       if (
         !identity ||
         identity.userId !== userId ||
+        // The receipt must have been taken under this work's own tenant: the
+        // token is signed from the identity alone, outside any tenant scope.
+        identity.tenantId !== work.tenantId ||
         typeof work.context?.sealedSpecification !== 'string'
       )
         throw new Error('EXTERNAL_WORK_CONTEXT_MISSING');
@@ -152,7 +203,9 @@ export const reconcileExternalWork = async (workId: string) => {
         userId,
         topicId,
         sandboxInstanceId,
-        marketService: new MarketService({ userInfo: identity }),
+        marketService: new MarketService({
+          userInfo: await resolveReceiptIdentity(work, identity),
+        }),
         sandboxSpecification:
           JSON.parse(
             openDirectoryData(

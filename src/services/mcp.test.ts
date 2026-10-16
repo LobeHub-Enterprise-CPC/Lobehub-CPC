@@ -138,6 +138,7 @@ describe('MCPService', () => {
           },
           meta: {
             customPluginInfo: undefined,
+            executionId: expect.any(String),
             isCustomPlugin: false,
             sessionId: 'topic-1',
             version: '1.0.0',
@@ -328,6 +329,7 @@ describe('MCPService', () => {
         identifier: 'cloud-plugin',
         meta: {
           customPluginInfo: undefined,
+          executionId: expect.any(String),
           isCustomPlugin: false,
           sessionId: 'topic-123',
           version: '1.0.0',
@@ -427,6 +429,7 @@ describe('MCPService', () => {
               description: 'Custom tool description',
               name: 'Custom Tool',
             },
+            executionId: expect.any(String),
             isCustomPlugin: true,
             sessionId: 'topic-123',
             version: '3.0.0',

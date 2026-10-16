@@ -34,6 +34,7 @@ import { TaskModel } from '@/database/models/task';
 import { ThreadModel } from '@/database/models/thread';
 import { TopicModel } from '@/database/models/topic';
 import { UserModel } from '@/database/models/user';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { AgentService } from '@/server/services/agent';
 import { AgentDocumentsService } from '@/server/services/agentDocuments';
 import type {
@@ -122,6 +123,13 @@ export class AiAgentService {
   private readonly agentRuntimeService: AgentRuntimeService;
   private readonly interventionController: InterventionController;
   private _marketService?: MarketService;
+  /** Caller-supplied Market token; wins over the one stored in the user's settings. */
+  private readonly marketAccessToken?: string;
+  /**
+   * Share-visitor entry points drive the run under the creator's identity, so
+   * the Market identity this service signs must not publish Market content.
+   */
+  private readonly proxyExecution: boolean;
   private readonly composioService: ComposioService;
 
   private readonly workspaceId?: string;
@@ -154,6 +162,8 @@ export class AiAgentService {
     this.userId = userId;
     this.db = db;
     this.workspaceId = options?.workspaceId;
+    this.marketAccessToken = options?.marketAccessToken;
+    this.proxyExecution = options?.includeShareVisitor ?? false;
     this.withholdGatewayToken = options?.withholdGatewayToken ?? false;
     const wsId = this.workspaceId;
     const includeShareVisitor = options?.includeShareVisitor ?? false;
@@ -191,14 +201,8 @@ export class AiAgentService {
       workspaceId: wsId,
     });
 
-    // marketService is used for creds, sandbox, skills etc.
-    // Read accessToken from DB; if options.marketAccessToken is provided, use it as override.
-    if (options?.marketAccessToken) {
-      this._marketService = new MarketService({
-        accessToken: options.marketAccessToken,
-        userInfo: { userId },
-      });
-    }
+    // marketService is used for creds, sandbox, skills etc. — built lazily by
+    // `getMarketService`: its Market identity is assembled asynchronously.
     this.composioService = new ComposioService({ db, userId, workspaceId: wsId });
     this.interventionController = new InterventionController({
       agentOperationModel: this.agentOperationModel,
@@ -234,29 +238,38 @@ export class AiAgentService {
     // (`execAgent` asks it for the memory / timezone settings too); callers
     // outside a run read it themselves.
     // Non-fatal either way — MarketService falls back to trustedClientToken.
-    const settings = await (
-      runFacts ? runFacts.userSettings() : new UserModel(this.db, this.userId).getUserSettings()
-    ).catch(() => undefined);
-    const accessToken = (settings?.market as any)?.accessToken;
+    // A caller-supplied token (`options.marketAccessToken`) overrides the stored one.
+    const settings = this.marketAccessToken
+      ? undefined
+      : await (
+          runFacts ? runFacts.userSettings() : new UserModel(this.db, this.userId).getUserSettings()
+        ).catch(() => undefined);
+    const accessToken = this.marketAccessToken ?? (settings?.market as any)?.accessToken;
 
     // A sandbox-workspace claim is signed into the trust token, so a service
     // carrying one is built for that run and kept out of the shared cache.
     if (options) {
       return new MarketService({
         accessToken,
-        userInfo: {
+        userInfo: await resolveMarketServiceIdentity({
+          proxyExecution: this.proxyExecution,
           sandboxStorage: options.sandboxStorage,
+          serverDB: this.db,
           userId: this.userId,
           // The claim resolves against the workspace's mirrored organization,
           // not the member's personal account, so the scope has to travel with it.
           workspaceId: this.workspaceId,
-        },
+        }),
       });
     }
 
     this._marketService = new MarketService({
       accessToken,
-      userInfo: { userId: this.userId },
+      userInfo: await resolveMarketServiceIdentity({
+        proxyExecution: this.proxyExecution,
+        serverDB: this.db,
+        userId: this.userId,
+      }),
     });
     return this._marketService;
   }

@@ -1357,8 +1357,11 @@ describe('mcpStore actions', () => {
 
         expect(discoverService.reportMcpInstallResult).toHaveBeenCalledWith(
           expect.objectContaining({
-            success: false,
-            errorMessage: 'Installation failed',
+            execution: expect.objectContaining({
+              errorMessage: 'Installation failed',
+              eventType: 'install',
+              success: false,
+            }),
             identifier: 'test-plugin',
           }),
         );
@@ -1381,12 +1384,40 @@ describe('mcpStore actions', () => {
 
         expect(discoverService.reportMcpInstallResult).toHaveBeenCalledWith(
           expect.objectContaining({
-            success: true,
+            execution: expect.objectContaining({
+              durationMs: expect.any(Number),
+              eventId: expect.stringMatching(/^v1:install:.+:1$/),
+              success: true,
+            }),
             identifier: 'test-plugin',
             platform: 'darwin',
             version: '1.0.0',
           }),
         );
+      });
+
+      // One install is one execution with one identity. The installation report
+      // already carries the full snapshot, so a second `install` interaction
+      // event for the same install would be counted as another install that
+      // cannot be de-duplicated against it.
+      it('counts one install once: the installation report only, no extra install event', async () => {
+        const { result } = renderHook(() => useToolStore());
+
+        act(() => {
+          useToolStore.setState({
+            mcpPluginList: pagedPluginList([mockPlugin]),
+          });
+        });
+
+        await act(async () => {
+          await result.current.installMCPPlugin('test-plugin');
+        });
+
+        expect(discoverService.reportMcpInstallResult).toHaveBeenCalledTimes(1);
+        const installEvents = vi
+          .mocked(discoverService.reportMcpEvent)
+          .mock.calls.filter(([event]) => event.event === 'install');
+        expect(installEvents).toHaveLength(0);
       });
 
       it('should fall back to the browser platform when the check result has none', async () => {
@@ -1409,7 +1440,10 @@ describe('mcpStore actions', () => {
 
         expect(installResult).toBe(true);
         expect(discoverService.reportMcpInstallResult).toHaveBeenCalledWith(
-          expect.objectContaining({ platform: 'Mac OS', success: true }),
+          expect.objectContaining({
+            execution: expect.objectContaining({ success: true }),
+            platform: 'Mac OS',
+          }),
         );
       });
     });

@@ -6,6 +6,7 @@ import { isDeviceOnlyMcpEndpoint } from '@lobechat/utils/mcpEndpoint';
 import debug from 'debug';
 
 import { ConnectorToolPermission } from '@/database/schemas';
+import { composeExecutionId } from '@/libs/market-telemetry';
 import {
   type CloudMCPParams,
   type HttpMCPClientParams,
@@ -16,6 +17,7 @@ import {
   buildBlockedToolResponse,
   getConnectorToolPermission,
 } from '@/libs/mcp/connectorPermissionCheck';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { deviceGateway } from '@/server/services/deviceGateway';
 import { resolveDeviceClientKind } from '@/server/services/deviceGateway/deviceChannels';
 import { resolveDeviceDispatchAuthorizationFailure } from '@/server/services/deviceGateway/dispatchAuthorization';
@@ -23,6 +25,7 @@ import { getScopedOnlineDevices } from '@/server/services/deviceGateway/scopedDe
 import { contentBlocksToString } from '@/server/services/mcp/contentProcessor';
 
 import { DiscoverService } from '../discover';
+import { beginToolCallTelemetry, type ToolCallTelemetry } from '../marketTelemetry';
 import { type MCPService } from '../mcp';
 import { type BuiltinToolsExecutor } from './builtin';
 import { classifyToolError, getToolAccessDeniedError } from './errorClassification';
@@ -35,6 +38,22 @@ import {
 } from './types';
 
 const log = debug('lobe-server:tool-execution-service');
+
+/** What the dispatcher learns about how an MCP call was routed, for its report. */
+interface McpRoute {
+  viaDevice?: boolean;
+}
+
+/** A code Market can store: the executor's own, never free text. */
+const telemetryErrorCode = (error: unknown): string | undefined => {
+  const code = (error as { code?: unknown } | null | undefined)?.code;
+  return typeof code === 'string' && /^[\w.:-]{1,100}$/.test(code) ? code : undefined;
+};
+
+const telemetryErrorMessage = (data: ToolExecutionResult): string | undefined => {
+  const message = (data.errorData ?? data.error)?.message;
+  return typeof message === 'string' ? message : undefined;
+};
 
 interface ToolExecutionServiceDeps {
   builtinToolsExecutor: Pick<BuiltinToolsExecutor, 'execute'>;
@@ -142,6 +161,15 @@ export class ToolExecutionService {
 
     log('Executing tool: %s:%s (type: %s)', identifier, apiName, type);
 
+    const startTime = Date.now();
+    // The one boundary every MCP execution reports through — cloud, http/sse,
+    // stdio and device alike — started before anything can refuse or fail (the
+    // identity of the execution is already known here) and completed where the
+    // outcome becomes known.
+    const route: McpRoute = {};
+    const telemetry =
+      (type as string) === 'mcp' ? this.beginMcpTelemetry(payload, context) : undefined;
+
     // ── Connector tool permission gate (covers ALL paths + qstash) ────────
     // Check before any execution so that disabled tools are blocked universally:
     // Lobehub market skills, Composio, MCP connectors, and execAgent/qstash alike.
@@ -149,29 +177,41 @@ export class ToolExecutionService {
     // hard-block 'disabled' here (and needs_approval in headless/qstash context
     // since the manifest's humanIntervention auto-rejects them there already).
     if (context.serverDB && context.userId && identifier && apiName) {
-      const permission = await getConnectorToolPermission(
-        context.serverDB,
-        context.userId,
-        identifier,
-        apiName,
-        context.workspaceId,
-        context.agentId,
-      );
+      let permission: Awaited<ReturnType<typeof getConnectorToolPermission>>;
+      try {
+        permission = await getConnectorToolPermission(
+          context.serverDB,
+          context.userId,
+          identifier,
+          apiName,
+          context.workspaceId,
+          context.agentId,
+        );
+      } catch (error) {
+        // The lookup failure still escapes as before; the execution it stopped
+        // is reported as the failure it is.
+        telemetry?.complete({ thrown: error });
+        throw error;
+      }
       if (permission === ConnectorToolPermission.disabled) {
         log('Tool %s:%s is disabled by user — blocking execution', identifier, apiName);
         const blocked = buildBlockedToolResponse(apiName);
+        telemetry?.complete({
+          errorCode: 'TOOL_DISABLED',
+          errorMessage: 'The tool is disabled by the user',
+          success: false,
+        });
         return { ...blocked, executionTime: 0 };
       }
     }
     // ── End permission gate ───────────────────────────────────────────────
 
-    const startTime = Date.now();
     try {
       const typeStr = type as string;
       let data: ToolExecutionResult;
       switch (typeStr) {
         case 'mcp': {
-          data = await this.executeMCPTool(payload, context);
+          data = await this.executeMCPTool(payload, context, route);
           break;
         }
 
@@ -211,6 +251,13 @@ export class ToolExecutionService {
       }
 
       if (!data.success) {
+        telemetry?.complete({
+          errorCode: telemetryErrorCode(data.errorData ?? data.error),
+          errorMessage: telemetryErrorMessage(data),
+          result: data,
+          success: false,
+          viaDevice: route.viaDevice,
+        });
         return {
           ...data,
           content: truncatedContent,
@@ -218,6 +265,10 @@ export class ToolExecutionService {
           executionTime,
         };
       }
+
+      // A result can succeed as a call and still say it is an error (an MCP
+      // `isError`); `complete` reads that off the result.
+      telemetry?.complete({ result: data, success: true, viaDevice: route.viaDevice });
 
       return {
         ...data,
@@ -230,6 +281,7 @@ export class ToolExecutionService {
       const executionTime = Date.now() - startTime;
       log('Error executing tool %s:%s: %O', identifier, apiName, error);
       const errorMessage = getThrownErrorText(error);
+      telemetry?.complete({ thrown: error, viaDevice: route.viaDevice });
       const denial = getToolAccessDeniedError(error, errorMessage);
       const content = denial ? JSON.stringify({ error: denial }) : errorMessage;
 
@@ -242,9 +294,43 @@ export class ToolExecutionService {
     }
   }
 
+  /**
+   * Start the telemetry of one MCP execution. Its identity is the operation and
+   * the tool call (stable across a redelivered step) plus the retry loop's
+   * attempt (a retried tool is a new event). A run that cannot name both is an
+   * independent execution.
+   */
+  private beginMcpTelemetry(
+    payload: ChatToolPayload,
+    context: ToolExecutionContext,
+  ): ToolCallTelemetry {
+    const { apiName, id: toolCallId, identifier } = payload;
+    const mcpParams = (context.toolManifestMap[identifier] as any)?.mcpParams as
+      { command?: string; type?: string } | undefined;
+
+    return beginToolCallTelemetry({
+      attempt: context.executionAttempt,
+      command: mcpParams?.type === 'stdio' ? mcpParams.command : undefined,
+      context: { serverDB: context.serverDB, userId: context.userId },
+      executionId:
+        context.operationId && toolCallId
+          ? composeExecutionId(context.operationId, toolCallId)
+          : undefined,
+      identifier,
+      mcpType: mcpParams?.type,
+      meta: {
+        sessionId: context.topicId,
+        version: (context.toolManifestMap[identifier] as any)?.version,
+      },
+      methodName: apiName,
+      requestPayload: payload.arguments,
+    });
+  }
+
   private async executeMCPTool(
     payload: ChatToolPayload,
     context: ToolExecutionContext,
+    route: McpRoute = {},
   ): Promise<ToolExecutionResult> {
     const { identifier, apiName, arguments: args } = payload;
 
@@ -331,6 +417,7 @@ export class ToolExecutionService {
             success: false,
           };
         }
+        route.viaDevice = true;
         return await this.executeMcpViaDevice(payload, context, mcpParams, tunnelTarget);
       }
 
@@ -542,7 +629,12 @@ export class ToolExecutionService {
     try {
       // Create DiscoverService with user context
       const discoverService = new DiscoverService({
-        userInfo: context.userId ? { userId: context.userId } : undefined,
+        userInfo: context.userId
+          ? await resolveMarketServiceIdentity({
+              serverDB: context.serverDB,
+              userId: context.userId,
+            })
+          : undefined,
       });
 
       // Parse arguments

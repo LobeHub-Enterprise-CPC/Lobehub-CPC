@@ -53,6 +53,8 @@ const GroupAgentDetailPage = memo<GroupAgentDetailPageProps>(({ mobile }) => {
     backgroundColor: (data as any)?.currentVersion?.backgroundColor,
     category: (data as any)?.currentVersion?.category,
     commentCount: (data as any)?.group?.commentCount,
+    // The group's own sync state lives on `.group`; the envelope carries none.
+    contentSync: (data as any)?.group?.contentSync,
 
     // From currentVersion.config - rename systemPrompt to systemRole for consistency
     config: {

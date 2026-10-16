@@ -5,6 +5,8 @@ import { z } from 'zod';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { marketSDK, marketUserInfo, serverDatabase } from '@/libs/trpc/lambda/middleware';
 
+import { actAsInput } from './actingAs';
+
 const log = debug('lambda-router:market:socialProfile');
 
 const MARKET_BASE_URL = process.env.MARKET_BASE_URL || 'https://market.lobehub.com';
@@ -179,7 +181,7 @@ export const socialProfileRouter = router({
   submitRepo: socialProfileAuthProcedure
     .input(
       z.object({
-        actAs: z.number().int().positive().optional(),
+        actAs: actAsInput,
         branch: z.string().optional(),
         gitUrl: z.string().url(),
         type: z.enum(['skill', 'plugin']).default('skill'),

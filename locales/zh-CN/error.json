@@ -24,6 +24,8 @@
   "import.incompatible.title": "版本不兼容",
   "loginRequired.desc": "将为你跳转到登录页。登录后即可继续",
   "loginRequired.title": "需要登录后继续",
+  "marketIdentity.desc": "社区无法确认你在当前组织中的身份，所以没有加载任何内容。请刷新页面；如果问题持续出现，请联系管理员。",
+  "marketIdentity.title": "社区身份不可用",
   "notFound.backHome": "返回首页",
   "notFound.check": "请检查 URL 是否正确",
   "notFound.desc": "未找到你访问的页面",

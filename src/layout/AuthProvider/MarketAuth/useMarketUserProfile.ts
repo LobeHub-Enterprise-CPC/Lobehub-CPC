@@ -15,7 +15,8 @@ const fetchUserProfile = async (username: string): Promise<MarketUserProfile | n
 /**
  * Hook to fetch and cache Market user profile using SWR
  *
- * @param username - The username to fetch profile for (typically userInfo.sub)
+ * @param username - The profile to fetch: a username, or the numeric Market account id
+ *   (see `getMarketProfileKey`, which picks the right one for the signed-in user)
  * @returns SWR response with user profile data
  */
 export const useMarketUserProfile = (username: string | null | undefined) => {

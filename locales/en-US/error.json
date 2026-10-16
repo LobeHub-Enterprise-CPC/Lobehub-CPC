@@ -24,6 +24,8 @@
   "import.incompatible.title": "Current application does not support importing this file",
   "loginRequired.desc": "You will be redirected to the sign-in page shortly",
   "loginRequired.title": "Please sign in to use this feature",
+  "marketIdentity.desc": "The community could not confirm who you are in this organization, so nothing was loaded. Reload the page, or contact your administrator if it keeps happening.",
+  "marketIdentity.title": "Community identity unavailable",
   "notFound.backHome": "Back to Home",
   "notFound.check": "Please check if your URL is correct.",
   "notFound.desc": "We couldn't find the page you were looking for.",

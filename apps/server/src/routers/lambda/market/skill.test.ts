@@ -238,11 +238,21 @@ describe('skillRouter.getSkillList error mapping', () => {
   });
 
   it('falls back to INTERNAL_SERVER_ERROR for unmapped upstream statuses', async () => {
-    mockSearchSkill.mockRejectedValue(new MarketAPIError(503, 'Service Unavailable', undefined));
+    mockSearchSkill.mockRejectedValue(new MarketAPIError(502, 'Bad Gateway', undefined));
     const caller = await createCaller();
 
     await expect(caller.getSkillList({ page: 1 })).rejects.toMatchObject({
       code: 'INTERNAL_SERVER_ERROR',
+    });
+  });
+
+  // An instance that is not ready (or is frozen) is not the same as a Market outage.
+  it('keeps an upstream 503 as SERVICE_UNAVAILABLE', async () => {
+    mockSearchSkill.mockRejectedValue(new MarketAPIError(503, 'Service Unavailable', undefined));
+    const caller = await createCaller();
+
+    await expect(caller.getSkillList({ page: 1 })).rejects.toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
     });
   });
 

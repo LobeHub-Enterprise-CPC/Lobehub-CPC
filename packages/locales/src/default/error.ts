@@ -6,6 +6,9 @@ export default {
   'chatRequestBlocked.description':
     'This request was blocked by our security checks. If you think this is a mistake, contact support to restore access.',
   'chatRequestBlocked.title': 'Request blocked',
+  'marketIdentity.desc':
+    'The community could not confirm who you are in this organization, so nothing was loaded. Reload the page, or contact your administrator if it keeps happening.',
+  'marketIdentity.title': 'Community identity unavailable',
   'saveState.retry': 'Retry',
   'saveState.saveFailed': 'Failed to save your changes. Please try again.',
   'error.backHome': 'Back to Home',

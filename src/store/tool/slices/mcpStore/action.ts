@@ -6,6 +6,7 @@ import debug from 'debug';
 import { produce } from 'immer';
 import { gt, valid } from 'semver';
 
+import { newClientExecutionId, startTelemetryExecution } from '@/libs/market-telemetry';
 import { type MCPErrorData } from '@/libs/mcp/types';
 import { parseStdioErrorMessage } from '@/libs/mcp/types';
 import {
@@ -280,8 +281,13 @@ export class PluginMCPStoreActionImpl {
       n('installMCPPlugin/setController'),
     );
 
-    // Record installation start time
-    const installStartTime = Date.now();
+    // The install's own telemetry boundary: its outcome and duration are fixed
+    // where the install ends (success or failure), not where the report is sent.
+    const installTelemetry = startTelemetryExecution({
+      attempt: 1,
+      eventType: 'install',
+      executionId: newClientExecutionId(),
+    });
 
     let data: any;
     let result: CheckMcpInstallResult | undefined;
@@ -631,26 +637,20 @@ export class PluginMCPStoreActionImpl {
         step: MCPInstallStep.COMPLETED,
       });
 
-      // Calculate installation duration
-      const installDurationMs = Date.now() - installStartTime;
+      const installExecution = installTelemetry.complete({ success: true });
 
-      discoverService.reportMcpEvent({
-        event: 'install',
-        identifier: plugin.identifier,
-        source: 'self',
-      });
-
+      // The installation report is the one install report: it carries the
+      // snapshot under the identity the completion boundary just fixed. A second
+      // `install` event for the same install would count it twice.
       discoverService.reportMcpInstallResult({
+        execution: installExecution,
         identifier: plugin.identifier,
-        installDurationMs,
-        installParams: connection,
         manifest: {
           prompts: (manifest as any).prompts,
           resources: (manifest as any).resources,
           tools: (manifest as any).tools,
         },
         platform: result?.platform || getPlatform(),
-        success: true,
         userAgent,
         version: manifest.version || data.version,
       });
@@ -681,9 +681,6 @@ export class PluginMCPStoreActionImpl {
       const error = e as TRPCClientError<any>;
 
       console.error('MCP plugin installation failed:', error);
-
-      // Calculate installation duration (failure case)
-      const installDurationMs = Date.now() - installStartTime;
 
       // Handle structured error info
       let errorInfo: MCPErrorInfo;
@@ -722,6 +719,13 @@ export class PluginMCPStoreActionImpl {
         };
       }
 
+      // The install failed: its outcome and duration are fixed now
+      const installExecution = installTelemetry.complete({
+        errorCode: errorInfo.type,
+        errorMessage: errorInfo.message,
+        success: false,
+      });
+
       // Set error status, display structured error info
       updateMCPInstallProgress(identifier, {
         errorInfo,
@@ -731,14 +735,10 @@ export class PluginMCPStoreActionImpl {
 
       // Report installation failure result
       discoverService.reportMcpInstallResult({
-        errorCode: errorInfo.type,
-        errorMessage: errorInfo.message,
+        execution: installExecution,
         identifier: plugin.identifier,
-        installDurationMs,
-        installParams: connection,
         metadata: errorInfo.metadata,
         platform: result?.platform || getPlatform(),
-        success: false,
         userAgent,
         version: data?.version,
       });

@@ -56,12 +56,7 @@ import {
   type MarketSDK,
   type UserInfoResponse,
 } from '@lobehub/market-sdk';
-import {
-  type AgentEventRequest,
-  type CallReportRequest,
-  type InstallReportRequest,
-  type PluginEventRequest,
-} from '@lobehub/market-types';
+import {} from '@lobehub/market-types';
 import dayjs from 'dayjs';
 import debug from 'debug';
 import { cloneDeep, countBy, isString, merge, uniq, uniqBy } from 'es-toolkit/compat';
@@ -74,6 +69,9 @@ import { normalizeLocale } from '@/locales/resources';
 import { AssistantStore } from '@/server/modules/AssistantStore';
 import { PluginStore } from '@/server/modules/PluginStore';
 import { MarketService } from '@/server/services/market';
+import { marketFetchCache } from '@/server/services/market/fetchCache';
+
+import { pickContentSync, pickMarketResourceState } from './marketResourceState';
 
 const log = debug('lobe-server:discover');
 
@@ -576,6 +574,7 @@ export class DiscoverService {
 
       const normalizedAuthor = this.normalizeAuthorField(data.author);
       const assistant = {
+        ...pickMarketResourceState(data),
         author:
           normalizedAuthor.name || (data.ownerId !== null ? `User${data.ownerId}` : 'Unknown'),
         avatar: data.avatar || normalizedAuthor.name || '',
@@ -741,12 +740,16 @@ export class DiscoverService {
         q,
         sort: apiSort,
         status: 'published',
+        // Always public, tenant or not: every tenant has its own schema, so
+        // "public" there is already visible to that tenant only, and the group
+        // list has no viewer filter of its own.
         visibility: 'public',
       } as any);
 
       const transformedItems: DiscoverAssistantItem[] = (data.items || []).map((item: any) => {
         const normalizedAuthor = this.normalizeAuthorField(item.author);
         return {
+          ...pickMarketResourceState(item),
           author:
             normalizedAuthor.name || (item.ownerId !== null ? `User${item.ownerId}` : 'Unknown'),
           avatar: item.avatar || normalizedAuthor.name || '',
@@ -811,11 +814,7 @@ export class DiscoverService {
         ...params,
         locale: normalizedLocale,
       },
-      {
-        next: {
-          revalidate: 3600,
-        },
-      },
+      marketFetchCache({ revalidate: 3600 }),
     );
     log('getMcpCategories: returning %d categories', result.length);
     return result;
@@ -831,11 +830,7 @@ export class DiscoverService {
     const normalizedLocale = normalizeLocale(locale);
     const mcp = await this.market.plugins.getPluginDetail(
       { ...params, locale: normalizedLocale },
-      {
-        next: {
-          revalidate: 3600,
-        },
-      },
+      marketFetchCache({ revalidate: 3600 }),
     );
 
     // Fetch related MCPs
@@ -869,12 +864,10 @@ export class DiscoverService {
         locale: normalizedLocale,
         sort: shouldOmitCategory ? McpSorts.Recommended : sort,
       },
-      {
-        next: {
-          revalidate: CacheRevalidate.List,
-          tags: [CacheTag.Discover, CacheTag.MCP],
-        },
-      },
+      marketFetchCache({
+        revalidate: CacheRevalidate.List,
+        tags: [CacheTag.Discover, CacheTag.MCP],
+      }),
     );
     log('getMcpList: returning %d items on page %d', result.items.length, result.currentPage);
     return result;
@@ -889,54 +882,13 @@ export class DiscoverService {
         ...params,
         locale: normalizedLocale,
       },
-      {
-        next: {
-          revalidate: CacheRevalidate.List,
-          tags: [CacheTag.Discover, CacheTag.MCP],
-        },
-      },
+      marketFetchCache({
+        revalidate: CacheRevalidate.List,
+        tags: [CacheTag.Discover, CacheTag.MCP],
+      }),
     );
     log('getMcpManifest: returning manifest for %s', params.identifier);
     return result;
-  };
-
-  // ============================== MCP Analytics ==============================
-
-  /**
-   * report MCP plugin result marketplace
-   */
-  reportPluginInstallation = async (params: InstallReportRequest) => {
-    await this.market.plugins.reportInstallation(params);
-  };
-
-  /**
-   * record Agent plugin event
-   */
-  createAgentEvent = async (params: AgentEventRequest) => {
-    await this.market.agents.createEvent(params);
-  };
-
-  /**
-   * record MCP plugin event
-   */
-  createPluginEvent = async (params: PluginEventRequest) => {
-    await this.market.plugins.createEvent(params);
-  };
-
-  /**
-   * report plugin call result to marketplace
-   */
-  reportCall = async (params: CallReportRequest) => {
-    await this.market.plugins.reportCall(params);
-  };
-
-  // ============================== Agent Analytics ==============================
-
-  /**
-   * Increase agent install count in marketplace
-   */
-  increaseAgentInstallCount = async (identifier: string) => {
-    await this.market.agents.increaseInstallCount(identifier);
   };
 
   /**
@@ -964,6 +916,7 @@ export class DiscoverService {
       const items: DiscoverAssistantItem[] = (data.items || []).map((item: any) => {
         const normalizedAuthor = this.normalizeAuthorField(item.author);
         return {
+          ...pickContentSync(item),
           author:
             normalizedAuthor.name || (item.ownerId !== null ? `User${item.ownerId}` : 'Unknown'),
           avatar: item.avatar || '',
@@ -1109,6 +1062,7 @@ export class DiscoverService {
     try {
       const mcpDetail = await this.getMcpDetail({ identifier, locale });
       const convertedMcp: Partial<DiscoverPluginDetail> = {
+        ...pickContentSync(mcpDetail),
         author:
           typeof (mcpDetail as any).author === 'object'
             ? (mcpDetail as any).author?.name || ''
@@ -1844,6 +1798,7 @@ export class DiscoverService {
 
       // Transform agents to DiscoverAssistantItem format
       const transformedAgents: DiscoverAssistantItem[] = (agents || []).map((agent: any) => ({
+        ...pickMarketResourceState(agent),
         author: user.displayName || user.userName || user.namespace || '',
         avatar: agent.avatar || '',
         category: agent.category as any,
@@ -1866,6 +1821,7 @@ export class DiscoverService {
 
       // Transform agentGroups to DiscoverGroupAgentItem format
       const transformedAgentGroups = (agentGroups || []).map((group: any) => ({
+        ...pickMarketResourceState(group),
         author: user.displayName || user.userName || user.namespace || '',
         avatar: group.avatar || '👥',
         category: group.category as any,
@@ -1889,6 +1845,7 @@ export class DiscoverService {
       // Transform forkedAgents to DiscoverAssistantItem format
       const transformedForkedAgents: DiscoverAssistantItem[] = (forkedAgents || []).map(
         (agent: any) => ({
+          ...pickContentSync(agent),
           author: user.displayName || user.userName || user.namespace || '',
           avatar: agent.avatar || '',
           category: agent.category as any,
@@ -1913,6 +1870,7 @@ export class DiscoverService {
 
       // Transform forkedAgentGroups to DiscoverGroupAgentItem format
       const transformedForkedAgentGroups = (forkedAgentGroups || []).map((group: any) => ({
+        ...pickContentSync(group),
         author: user.displayName || user.userName || user.namespace || '',
         avatar: group.avatar || '👥',
         category: group.category as any,
@@ -1937,6 +1895,7 @@ export class DiscoverService {
       // Transform favoriteAgents to DiscoverAssistantItem format
       const transformedFavoriteAgents: DiscoverAssistantItem[] = (favoriteAgents || []).map(
         (agent: any) => ({
+          ...pickContentSync(agent),
           author: agent.author || '',
           avatar: agent.avatar || '',
           category: agent.category as any,
@@ -1961,6 +1920,7 @@ export class DiscoverService {
 
       // Transform favoriteAgentGroups to DiscoverGroupAgentItem format
       const transformedFavoriteAgentGroups = (favoriteAgentGroups || []).map((group: any) => ({
+        ...pickContentSync(group),
         author: group.author || '',
         avatar: group.avatar || '👥',
         category: group.category as any,
@@ -1984,6 +1944,7 @@ export class DiscoverService {
 
       // Transform skills to DiscoverSkillItem format
       const transformedSkills: DiscoverSkillItem[] = (skills || []).map((skill: any) => ({
+        ...pickMarketResourceState(skill),
         author: skill.author || '',
         category: skill.category,
         commentCount: skill.commentCount,
@@ -2009,6 +1970,7 @@ export class DiscoverService {
 
       // Transform plugins to DiscoverPluginItem format
       const transformedPlugins: DiscoverPluginItem[] = (plugins || []).map((plugin: any) => ({
+        ...pickMarketResourceState(plugin),
         author: plugin.author || '',
         avatar: plugin.avatar,
         category: plugin.category,
@@ -2127,34 +2089,13 @@ export class DiscoverService {
       const response = await this.market.agentGroups.getAgentGroupList({
         ...params,
         status: 'published' as any,
+        // Always public, tenant or not (see getAssistantList).
         visibility: 'public' as any,
       });
       return response;
     } catch (error) {
       log('getGroupAgentList: error: %O', error);
       return { currentPage: 1, items: [], totalCount: 0, totalPages: 1 };
-    }
-  };
-
-  createGroupAgentEvent = async (params: {
-    event: 'add' | 'chat' | 'click';
-    identifier: string;
-    source?: string;
-  }) => {
-    try {
-      // TODO: SDK method not yet available
-      await (this.market.agentGroups as any).createAgentGroupEvent?.(params);
-    } catch (error) {
-      log('createGroupAgentEvent: error: %O', error);
-    }
-  };
-
-  increaseGroupAgentInstallCount = async (identifier: string) => {
-    try {
-      // TODO: SDK method not yet available
-      await (this.market.agentGroups as any).increaseInstallCount?.(identifier);
-    } catch (error) {
-      log('increaseGroupAgentInstallCount: error: %O', error);
     }
   };
 }

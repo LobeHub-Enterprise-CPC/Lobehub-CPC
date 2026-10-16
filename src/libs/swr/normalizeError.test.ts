@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { isAutoRetryable, normalizeAsyncError } from './normalizeError';
+import {
+  isAutoRetryable,
+  isMarketIdentityUnavailable,
+  normalizeAsyncError,
+} from './normalizeError';
 
 describe('normalizeAsyncError', () => {
   it('treats a missing error as retryable with no status', () => {
@@ -70,5 +74,29 @@ describe('isAutoRetryable', () => {
     expect(isAutoRetryable({ status: 408 })).toBe(true);
     expect(isAutoRetryable(new Error('network down'))).toBe(true);
     expect(isAutoRetryable(undefined)).toBe(true);
+  });
+
+  it('does not retry on a timer when Market could not establish who is asking', () => {
+    expect(isAutoRetryable(new Error('MARKET_IDENTITY_UNAVAILABLE:TENANT_REQUIRED'))).toBe(false);
+  });
+});
+
+describe('isMarketIdentityUnavailable', () => {
+  it('recognises the server refusal by its message prefix', () => {
+    expect(
+      isMarketIdentityUnavailable(new Error('MARKET_IDENTITY_UNAVAILABLE:USER_UNAVAILABLE')),
+    ).toBe(true);
+    expect(
+      isMarketIdentityUnavailable({ message: 'MARKET_IDENTITY_UNAVAILABLE:TENANT_REQUIRED' }),
+    ).toBe(true);
+  });
+
+  it('does not take an ordinary Market failure for it', () => {
+    expect(isMarketIdentityUnavailable(new Error('Failed to get user info'))).toBe(false);
+    expect(
+      isMarketIdentityUnavailable(new Error('fetch failed: MARKET_IDENTITY_UNAVAILABLE')),
+    ).toBe(false);
+    expect(isMarketIdentityUnavailable(undefined)).toBe(false);
+    expect(isMarketIdentityUnavailable({ message: 42 })).toBe(false);
   });
 });

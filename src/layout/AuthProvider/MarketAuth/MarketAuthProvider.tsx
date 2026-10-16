@@ -2,12 +2,14 @@
 
 import { buildAppUrl } from '@lobechat/business-tenant/client';
 import { toast } from '@lobehub/ui/base-ui';
+import i18next from 'i18next';
 import { type ReactNode } from 'react';
 import { createContext, lazy, Suspense, use, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { mutate as globalMutate } from 'swr';
 
 import { useSingleton } from '@/hooks/useSingleton';
+import { isMarketIdentityUnavailable } from '@/libs/swr/normalizeError';
 import { lambdaClient } from '@/libs/trpc/client';
 import { MARKET_OIDC_ENDPOINTS } from '@/services/_url';
 import { useServerConfigStore } from '@/store/serverConfig';
@@ -20,6 +22,7 @@ import { MarketAuthError } from './errors';
 import { marketAuthEvents } from './events';
 import MarketAuthConfirmModal from './MarketAuthConfirmModal';
 import { MarketOIDC } from './oidc';
+import { getMarketProfileKey } from './profileKey';
 import type { MarketAuthScene } from './scenes';
 import { createSingleFlight } from './singleFlight';
 import {
@@ -54,6 +57,12 @@ const fetchUserInfo = async (accessToken?: string): Promise<MarketUserInfo | nul
     return userInfo as MarketUserInfo;
   } catch (error) {
     console.error('[MarketAuth] Error fetching user info:', error);
+    // Returning null reads as "not signed in to the community". When the server
+    // could not even establish who is asking, say so: the user is signed in, and
+    // an empty community would otherwise look like their own doing.
+    if (isMarketIdentityUnavailable(error)) {
+      toast.error(i18next.t('errors.identityUnavailable', { ns: 'marketAuth' }));
+    }
     return null;
   }
 };
@@ -433,8 +442,9 @@ export const MarketAuthProvider = ({ children, isDesktop }: MarketAuthProviderPr
       setStatus('authenticated');
 
       // Check if user needs to set up profile (first-time login)
-      if (userInfo?.sub) {
-        const needsSetup = await checkNeedsProfileSetup(userInfo.sub);
+      const profileKey = getMarketProfileKey(userInfo);
+      if (profileKey) {
+        const needsSetup = await checkNeedsProfileSetup(profileKey);
         if (needsSetup) {
           // Wait for next tick to ensure session state is updated before opening modal
           // This prevents the edge case where accessToken is null when modal opens
@@ -792,8 +802,8 @@ export const MarketAuthProvider = ({ children, isDesktop }: MarketAuthProviderPr
 
   // Get current user's profile for the edit modal
   const userInfo = session?.userInfo;
-  const username = userInfo?.sub;
-  const { data: userProfile, mutate: mutateUserProfile } = useMarketUserProfile(username);
+  const profileKey = getMarketProfileKey(userInfo);
+  const { data: userProfile, mutate: mutateUserProfile } = useMarketUserProfile(profileKey);
 
   // Handle profile update success - also refresh the cached profile
   const handleProfileSuccess = useCallback(

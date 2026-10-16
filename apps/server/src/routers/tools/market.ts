@@ -26,7 +26,7 @@ import {
 import { createSandboxService, resolveSandboxSessionConfig } from '@/server/services/sandbox';
 import { preprocessLhCommand } from '@/server/services/toolExecution/preprocessLhCommand';
 
-import { scheduleToolCallReport } from './_helpers';
+import { beginToolCallReport } from './_helpers';
 import {
   isMarketConnectionsTimeoutError,
   listOptionalMarketConnectionsWithTimeout,
@@ -119,6 +119,8 @@ const metaSchema = z
         name: z.string().optional(),
       })
       .optional(),
+    // The client's id for this invocation, kept across transport retries
+    executionId: z.string().min(1).max(200).optional(),
     isCustomPlugin: z.boolean().optional(),
     sessionId: z.string().optional(),
     version: z.string().optional(),
@@ -378,11 +380,16 @@ export const marketRouter = router({
     .mutation(async ({ input, ctx }) => {
       log('callCloudMcpEndpoint input: %O', input);
 
-      const startTime = Date.now();
-      let success = true;
-      let errorCode: string | undefined;
-      let errorMessage: string | undefined;
+      const telemetry = beginToolCallReport({
+        context: ctx,
+        identifier: input.identifier,
+        mcpType: 'cloud',
+        meta: input.meta,
+        requestPayload: input.apiParams,
+        toolName: input.toolName,
+      });
       let result: { content: string; state: any; success: boolean } | undefined;
+      let thrown: unknown;
 
       try {
         // Check if trusted client is enabled - if so, we don't need user's accessToken
@@ -429,10 +436,7 @@ export const marketRouter = router({
         result = { content, state, success: true };
         return result;
       } catch (error) {
-        success = false;
-        const err = error as Error;
-        errorCode = 'CALL_FAILED';
-        errorMessage = err.message;
+        thrown = error;
 
         log('Error calling cloud MCP endpoint: %O', error);
 
@@ -446,20 +450,8 @@ export const marketRouter = router({
           message: 'Failed to call cloud MCP endpoint',
         });
       } finally {
-        scheduleToolCallReport({
-          errorCode,
-          errorMessage,
-          identifier: input.identifier,
-          marketAccessToken: ctx.marketAccessToken,
-          mcpType: 'cloud',
-          meta: input.meta,
-          requestPayload: input.apiParams,
-          result,
-          startTime,
-          success,
-          telemetryEnabled: ctx.telemetryEnabled,
-          toolName: input.toolName,
-        });
+        // The cloud gateway answers `isError` inside a successful response; it counts.
+        telemetry.complete({ result, thrown });
       }
     }),
 

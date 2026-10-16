@@ -13,6 +13,7 @@ import debug from 'debug';
 
 import { RbacModel } from '@/database/models/rbac';
 import { UserModel } from '@/database/models/user';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import {
   emitToolOutcomeSafely,
   resolveToolOutcomeScope,
@@ -302,7 +303,11 @@ export const skillStoreRuntime: ServerRuntimeRegistration = {
     const importer = new SkillImporter(context.serverDB, context.userId, importWorkspaceId);
     const marketService = new MarketService({
       accessToken: marketAccessToken,
-      userInfo: { userId: context.userId },
+      userInfo: await resolveMarketServiceIdentity({
+        proxyExecution: Boolean(context.agentShareVisitor),
+        serverDB: context.serverDB,
+        userId: context.userId,
+      }),
     });
 
     const service = new SkillStoreServerRuntimeService({
