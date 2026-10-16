@@ -24,6 +24,16 @@ export interface ChannelNativeResult {
 /** Statuses `executeSync` parks on; nothing in a Channel run can resume them. */
 const PARKED = new Set<AgentState['status']>(['waiting_for_human', 'waiting_for_async_tool']);
 
+/** Model-runtime errors arrive as `{ error: { message }, errorType }`, not as an `Error`. */
+const runtimeError = (error: AgentState['error']) => {
+  if (error instanceof Error) return error;
+  if (typeof error === 'string' && error) return new Error(error);
+  const message = error?.message || error?.error?.message;
+  const type = error?.errorType || error?.type;
+  if (!message && !type) return new Error('Native runtime failed');
+  return new Error([type, message].filter(Boolean).join(': '));
+};
+
 /**
  * Runs one Channel member turn through `execAgent`, the same pipeline as chat.
  *
@@ -166,10 +176,7 @@ export async function runChannelNative(input: {
   }
   // A first-call failure may have no usage. Preserve its cause before reading counters.
   if (stopReason) throw stopReason;
-  if (state.status === 'error')
-    throw state.error instanceof Error
-      ? state.error
-      : new Error(String(state.error?.message || 'Native runtime failed'));
+  if (state.status === 'error') throw runtimeError(state.error);
   if (PARKED.has(state.status))
     throw new Error(
       state.status === 'waiting_for_human'
