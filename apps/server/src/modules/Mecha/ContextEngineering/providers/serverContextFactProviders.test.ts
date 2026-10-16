@@ -1,6 +1,8 @@
 import { defaultUninstalledBuiltinTools } from '@lobechat/builtin-tools';
 import { describe, expect, it, vi } from 'vitest';
 
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
+
 import { createServerContextFactProviders } from './index';
 
 const {
@@ -214,15 +216,15 @@ describe('createServerContextFactProviders', () => {
     const providers = createServerContextFactProviders(source());
 
     await expect(providers.getWorkspaceContext!(undefined)).resolves.toEqual({
-      appUrl: 'https://app.test',
+      appUrl: tenantPublicBaseUrl(),
     });
     await expect(providers.getWorkspaceContext!('ws-1')).resolves.toEqual({
-      appUrl: 'https://app.test',
+      appUrl: tenantPublicBaseUrl(),
       slug: 'team',
     });
     findById.mockResolvedValue({ slug: null });
     await expect(providers.getWorkspaceContext!('ws-1')).resolves.toEqual({
-      appUrl: 'https://app.test',
+      appUrl: tenantPublicBaseUrl(),
       slug: undefined,
     });
   });
