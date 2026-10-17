@@ -96,7 +96,7 @@ export function createGatewayIdentityProvider(
       }),
       headers: {
         'Content-Type': 'application/json',
-        [credential.tokenType === 'apiKey' ? 'X-API-Key' : 'Oidc-Auth']: credential.token,
+        'Authorization': `Bearer ${credential.token}`,
       },
       method: 'POST',
       redirect: 'error',

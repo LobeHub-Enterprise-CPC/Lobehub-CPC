@@ -90,7 +90,12 @@ describe('desktop committed login identity provider', () => {
     expect(JSON.parse(fetcher.mock.calls[1][1]!.body as string).renewAuthorizationId).toBe(
       'source-A',
     );
-    expect(fetcher.mock.calls[1][1]!.headers).toMatchObject({ 'Oidc-Auth': 'original-oidc' });
+    for (const [, request] of fetcher.mock.calls) {
+      const headers = new Headers(request!.headers);
+      expect(headers.get('Authorization')).toBe('Bearer original-oidc');
+      expect(headers.has('Oidc-Auth')).toBe(false);
+      expect(headers.has('X-API-Key')).toBe(false);
+    }
   });
   it('drops a mint arriving after A/B switch with the same subject', async () => {
     let release!: (res: Response) => void;

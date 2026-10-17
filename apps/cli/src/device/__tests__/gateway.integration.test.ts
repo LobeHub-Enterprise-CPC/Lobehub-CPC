@@ -7,6 +7,7 @@ import path from 'node:path';
 
 import type { GatewayIdentityResponse } from '@lobechat/agent-gateway-client';
 import { GatewayClient } from '@lobechat/device-gateway-client';
+import { extractBearerToken } from '@lobechat/utils/server/auth';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type WebSocket from 'ws';
 import { WebSocketServer } from 'ws';
@@ -14,6 +15,10 @@ import { WebSocketServer } from 'ws';
 import { createGatewayIdentityProvider } from '../../auth/gatewayIdentity';
 import type { GatewayHandlerContext } from '../gatewayHandlers';
 import { bindGatewayClientHandlers } from '../gatewayHandlers';
+
+// The real OpenAPI Bearer parser also shares a module with session helpers.
+// Session lookup is outside this transport test; never mock the parser itself.
+vi.mock('@/auth', () => ({ auth: {} }));
 
 const fixture = JSON.parse(
   await readFile(
@@ -61,7 +66,10 @@ describe('CLI gateway transport through local execution', () => {
     };
     receivedIdentityBodies.length = 0;
     server = createServer(async (req, res) => {
-      if (req.url !== '/t/a/api/v1/gateway/identity' || req.headers['x-api-key'] !== 'TEST-ONLY') {
+      if (
+        req.url !== '/t/a/api/v1/gateway/identity' ||
+        extractBearerToken(req.headers.authorization) !== 'TEST-ONLY'
+      ) {
         res.writeHead(404).end();
         return;
       }

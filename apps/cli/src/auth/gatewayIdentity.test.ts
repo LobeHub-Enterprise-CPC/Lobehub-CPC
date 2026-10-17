@@ -1,7 +1,11 @@
 import type { GatewayIdentityResponse } from '@lobechat/agent-gateway-client';
+import { extractBearerToken } from '@lobechat/utils/server/auth';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createGatewayIdentityProvider } from './gatewayIdentity';
+
+// Keep the real parser used by OpenAPI auth; session helpers in its module are unused.
+vi.mock('@/auth', () => ({ auth: {} }));
 
 const identity = (overrides: Partial<GatewayIdentityResponse> = {}): GatewayIdentityResponse => {
   const response = {
@@ -47,21 +51,48 @@ const input = () => ({ signal: new AbortController().signal });
 afterEach(() => vi.restoreAllMocks());
 
 describe('CLI original-source gateway identity', () => {
-  it('exchanges on the tenant entry and renews the exact authorization with the captured credential', async () => {
-    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => reply());
-    const mutable = { ...auth };
-    const provider = createGatewayIdentityProvider(mutable);
-    const first = await provider(input());
-    mutable.token = 'other-key';
-    await provider(input());
-    expect(String(fetcher.mock.calls[0][0])).toBe(
-      'https://example.test/t/a/api/v1/gateway/identity',
-    );
-    const init = fetcher.mock.calls[1][1]!;
-    expect(JSON.parse(init.body as string).renewAuthorizationId).toBe(first.authorizationId);
-    expect(init.headers).toMatchObject({ 'X-API-Key': 'original-api-key' });
-    expect(init.redirect).toBe('error');
-  });
+  it.each(['apiKey', 'jwt'] as const)(
+    'exchanges and renews %s with the original Bearer credential',
+    async (tokenType) => {
+      const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => reply());
+      const mutable = { ...auth, tokenType };
+      const provider = createGatewayIdentityProvider(mutable);
+      const first = await provider(input());
+      mutable.token = 'other-key';
+      await provider(input());
+      expect(String(fetcher.mock.calls[0][0])).toBe(
+        'https://example.test/t/a/api/v1/gateway/identity',
+      );
+      const init = fetcher.mock.calls[1][1]!;
+      expect(JSON.parse(init.body as string).renewAuthorizationId).toBe(first.authorizationId);
+      for (const [, request] of fetcher.mock.calls) {
+        const headers = new Headers(request!.headers);
+        expect(headers.get('Authorization')).toBe(`Bearer ${auth.token}`);
+        expect(headers.has('X-API-Key')).toBe(false);
+        expect(headers.has('Oidc-Auth')).toBe(false);
+      }
+      expect(init.redirect).toBe('error');
+    },
+  );
+
+  it.each(['apiKey', 'jwt'] as const)(
+    'has its %s mint and renew recognized by the actual OpenAPI Bearer parser',
+    async (tokenType) => {
+      const accepted: string[] = [];
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+        const token = extractBearerToken(new Headers(init!.headers).get('Authorization'));
+        if (token !== auth.token)
+          return Response.json({ error: { code: 'SOURCE_UNVERIFIABLE' } }, { status: 401 });
+        accepted.push(token);
+        return reply();
+      });
+      const provider = createGatewayIdentityProvider({ ...auth, tokenType });
+      const first = await provider(input());
+      const renewed = await provider(input());
+      expect(renewed.authorizationId).toBe(first.authorizationId);
+      expect(accepted).toEqual([auth.token, auth.token]);
+    },
+  );
 
   it('rejects an authorization ID replaced by the server during renew', async () => {
     const fetcher = vi

@@ -91,7 +91,7 @@ export async function createDesktopGatewayIdentityProvider(
           ...(workspaceId ? { workspaceId } : {}),
           ...(identity ? { renewAuthorizationId: identity.authorizationId } : {}),
         }),
-        headers: { 'Content-Type': 'application/json', 'Oidc-Auth': token },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         method: 'POST',
         signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
       },
