@@ -274,6 +274,23 @@ describe('login command', () => {
     expect(fetch).toHaveBeenCalledWith('https://test.com/oidc/device/auth', expect.any(Object));
   });
 
+  it('should keep the tenant path of the server for every OIDC endpoint', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(deviceAuthResponse())
+      .mockResolvedValueOnce(tokenSuccessResponse());
+
+    const program = createProgram();
+    await runLoginAndAdvanceTimers(program, ['--server', 'https://host/t/acme/']);
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      'https://host/t/acme/oidc/device/auth',
+      expect.any(Object),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(2, 'https://host/t/acme/oidc/token', expect.any(Object));
+    expect(saveSettings).toHaveBeenCalledWith({ serverUrl: 'https://host/t/acme' });
+  });
+
   it('should handle device auth failure', async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: false,

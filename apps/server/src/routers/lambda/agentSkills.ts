@@ -9,6 +9,7 @@ import { AgentSkillModel } from '@/database/models/agentSkill';
 import { FileModel } from '@/database/models/file';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { FileService } from '@/server/services/file';
 import { MarketService } from '@/server/services/market';
 import {
@@ -72,7 +73,12 @@ const skillProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) =>
     ctx: {
       fileModel: new FileModel(ctx.serverDB, ctx.userId, workspaceId),
       fileService: new FileService(ctx.serverDB, ctx.userId, workspaceId),
-      marketService: new MarketService({ userInfo: { userId: ctx.userId } }),
+      marketService: new MarketService({
+        userInfo: await resolveMarketServiceIdentity({
+          serverDB: ctx.serverDB,
+          userId: ctx.userId,
+        }),
+      }),
       skillImporter: new SkillImporter(ctx.serverDB, ctx.userId, workspaceId),
       skillModel,
     },

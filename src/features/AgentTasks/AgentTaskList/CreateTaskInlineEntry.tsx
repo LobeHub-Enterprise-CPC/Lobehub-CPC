@@ -1,5 +1,6 @@
 'use client';
 
+import { tenantStorageKey } from '@lobechat/business-tenant/client';
 import { canWorkspaceRoleBeTaskAssignee } from '@lobechat/const/rbac';
 import type { TaskExecutionConfig, TaskIntentAnalysis } from '@lobechat/types';
 import { readTaskExecutionConfig, toTaskExecutionConfigPatch } from '@lobechat/types';
@@ -172,7 +173,9 @@ const CreateTaskInlineEntry = memo<CreateTaskInlineEntryProps>((props) => {
     () =>
       parentTaskId
         ? null
-        : `lobehub:task-create-draft:${activeWorkspaceId ?? 'personal'}:${projectId ?? agentId ?? 'all'}`,
+        : tenantStorageKey(
+            `lobehub:task-create-draft:${activeWorkspaceId ?? 'personal'}:${projectId ?? agentId ?? 'all'}`,
+          ),
     [activeWorkspaceId, agentId, parentTaskId, projectId],
   );
   // Tracks which scope key the editor is currently hydrated for. The component

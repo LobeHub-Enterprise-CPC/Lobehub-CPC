@@ -10,6 +10,12 @@ import {
   type PluginEventRequest,
 } from '@lobehub/market-types';
 
+import {
+  type CompletedTelemetryExecution,
+  newClientExecutionId,
+  startTelemetryExecution,
+  type TelemetryEventType,
+} from '@/libs/market-telemetry';
 import { lambdaClient } from '@/libs/trpc/client';
 import { globalHelpers } from '@/store/global/helpers';
 import { useUserStore } from '@/store/user';
@@ -44,6 +50,32 @@ import {
 } from '@/types/discover';
 import { type MCPPluginListParams } from '@/types/plugins';
 import { cleanObject } from '@/utils/object';
+
+/** A client-side install result: the fixed facts come from `execution`. */
+export type McpInstallReport = Omit<
+  InstallReportRequest,
+  'errorCode' | 'errorMessage' | 'installDurationMs' | 'installParams' | 'success'
+> & { execution: CompletedTelemetryExecution };
+
+/** A call the client ran itself: the fixed facts come from `execution`. */
+export type PluginCallReport = Omit<
+  CallReportRequest,
+  'callDurationMs' | 'clientId' | 'errorCode' | 'errorMessage' | 'success'
+> & { execution: CompletedTelemetryExecution };
+
+/**
+ * An interaction (click, add, install, …) is an execution of its own: it gets
+ * an identity here, once, and the request that carries it can be retried
+ * without becoming a second event.
+ */
+const interactionIdentity = (eventType: TelemetryEventType) => {
+  const { eventId, occurredAt } = startTelemetryExecution({
+    attempt: 1,
+    eventType,
+    executionId: newClientExecutionId(),
+  }).complete();
+  return { eventId, occurredAt };
+};
 
 class DiscoverService {
   private _isRetrying = false;
@@ -209,15 +241,19 @@ class DiscoverService {
   };
 
   /**
-   * Report MCP plugin installation result
+   * Report MCP plugin installation result.
+   *
+   * `execution` is what the installer's completion boundary fixed (outcome,
+   * duration, time). The connection parameters the user installed with carry
+   * their credentials, so the type has no place for them.
    */
   reportMcpInstallResult = async ({
-    success,
+    execution,
     manifest,
-    errorMessage,
-    errorCode,
+    // Connection parameters carry credentials: never forwarded, whatever a caller passes.
+    installParams: _installParams,
     ...params
-  }: InstallReportRequest) => {
+  }: McpInstallReport & { installParams?: unknown }) => {
     // if user don't allow tracing, just not report installation
     const allow = userGeneralSettingsSelectors.telemetry(useUserStore.getState());
 
@@ -225,11 +261,14 @@ class DiscoverService {
     await this.safeInjectMPToken();
 
     const reportData = {
-      errorCode: success ? undefined : errorCode,
-      errorMessage: success ? undefined : errorMessage,
-      manifest: success ? manifest : undefined,
-      success,
       ...params,
+      errorCode: execution.errorCode,
+      errorMessage: execution.errorMessage,
+      eventId: execution.eventId,
+      installDurationMs: execution.durationMs,
+      manifest: execution.success ? manifest : undefined,
+      occurredAt: execution.occurredAt,
+      success: execution.success,
     };
 
     lambdaClient.market.reportMcpInstallResult
@@ -240,9 +279,10 @@ class DiscoverService {
   };
 
   /**
-   * Report plugin call result
+   * Report plugin call result. Reports a call the client ran itself (desktop
+   * stdio); the server reports the ones it runs.
    */
-  reportPluginCall = async (reportData: CallReportRequest) => {
+  reportPluginCall = async ({ execution, ...reportData }: PluginCallReport) => {
     // if user don't allow tracing , just not report calling
     const allow = userGeneralSettingsSelectors.telemetry(useUserStore.getState());
 
@@ -250,9 +290,21 @@ class DiscoverService {
 
     await this.safeInjectMPToken();
 
-    lambdaClient.market.reportCall.mutate(cleanObject(reportData)).catch((reportError) => {
-      console.warn('Failed to report call:', reportError);
-    });
+    lambdaClient.market.reportCall
+      .mutate(
+        cleanObject({
+          ...reportData,
+          callDurationMs: execution.durationMs,
+          errorCode: execution.errorCode,
+          errorMessage: execution.errorMessage,
+          eventId: execution.eventId,
+          occurredAt: execution.occurredAt,
+          success: execution.success,
+        }),
+      )
+      .catch((reportError) => {
+        console.warn('Failed to report call:', reportError);
+      });
   };
 
   reportMcpEvent = async (eventData: PluginEventRequest) => {
@@ -263,6 +315,7 @@ class DiscoverService {
 
     const payload = cleanObject({
       ...eventData,
+      ...interactionIdentity(eventData.event),
       source: eventData.source ?? 'community/mcp',
     });
 
@@ -282,9 +335,11 @@ class DiscoverService {
 
     await this.safeInjectMPToken();
 
-    lambdaClient.market.reportAgentInstall.mutate({ identifier }).catch((reportError) => {
-      console.warn('Failed to report agent installation:', reportError);
-    });
+    lambdaClient.market.reportAgentInstall
+      .mutate({ identifier, ...interactionIdentity('install') })
+      .catch((reportError) => {
+        console.warn('Failed to report agent installation:', reportError);
+      });
   };
 
   reportAgentEvent = async (eventData: AgentEventRequest) => {
@@ -295,6 +350,7 @@ class DiscoverService {
 
     const payload = cleanObject({
       ...eventData,
+      ...interactionIdentity(eventData.event),
       source: eventData.source ?? 'community/agent',
     });
 
@@ -473,7 +529,7 @@ class DiscoverService {
 
     // 5. Get access token (server will automatically set HTTP-Only cookie)
     try {
-      const result = await lambdaClient.market.registerM2MToken.query({
+      const result = await lambdaClient.market.registerM2MToken.mutate({
         clientId,
         clientSecret,
       });
@@ -632,11 +688,25 @@ class DiscoverService {
     identifier: string;
     source?: string;
   }): Promise<void> => {
-    await lambdaClient.market.reportGroupAgentEvent.mutate(params);
+    const allow = userGeneralSettingsSelectors.telemetry(useUserStore.getState());
+    if (!allow) return;
+
+    lambdaClient.market.reportGroupAgentEvent
+      .mutate({ ...params, ...interactionIdentity(params.event) })
+      .catch((error) => {
+        console.warn('Failed to report Group Agent event:', error);
+      });
   };
 
   reportGroupAgentInstall = async (identifier: string): Promise<void> => {
-    await lambdaClient.market.reportGroupAgentInstall.mutate({ identifier });
+    const allow = userGeneralSettingsSelectors.telemetry(useUserStore.getState());
+    if (!allow) return;
+
+    lambdaClient.market.reportGroupAgentInstall
+      .mutate({ identifier, ...interactionIdentity('install') })
+      .catch((error) => {
+        console.warn('Failed to report Group Agent installation:', error);
+      });
   };
 }
 

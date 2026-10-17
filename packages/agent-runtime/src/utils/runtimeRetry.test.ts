@@ -44,6 +44,20 @@ describe('runtimeRetry', () => {
     expect(onRetry).toHaveBeenCalledWith({ attempt: 1, kind: 'retry', maxAttempts: 3 });
   });
 
+  // The attempt number is the scheduler's own count; downstream bookkeeping
+  // (telemetry event identity) keys on it rather than counting again.
+  it('tells each tool execution which attempt it is', async () => {
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({ error: { kind: 'retry' }, success: false })
+      .mockResolvedValueOnce({ error: { kind: 'retry' }, success: false })
+      .mockResolvedValueOnce({ content: 'done', success: true });
+
+    await executeToolWithRetry(execute, { maxRetries: 3 });
+
+    expect(execute.mock.calls.map(([attempt]) => attempt)).toEqual([1, 2, 3]);
+  });
+
   it('stops tool retries when interrupted', async () => {
     const firstResult = { error: { kind: 'retry' }, success: false };
     const execute = vi.fn().mockResolvedValue(firstResult);

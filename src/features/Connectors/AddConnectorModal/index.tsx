@@ -1,3 +1,4 @@
+import { buildAppUrl } from '@lobechat/business-tenant/client';
 import { Input, InputPassword, toast } from '@lobehub/ui/base-ui';
 import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
 import { memo, useEffect, useState } from 'react';
@@ -110,7 +111,7 @@ const AddConnectorModal = memo<AddConnectorModalProps>(({ open, onClose, connect
       })
       .catch(() => {
         if (!cancelled && typeof window !== 'undefined') {
-          setRedirectUri(`${window.location.origin}/oauth/connector/callback`);
+          setRedirectUri(buildAppUrl('/oauth/connector/callback'));
         }
       });
     return () => {

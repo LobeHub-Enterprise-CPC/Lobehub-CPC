@@ -1,5 +1,6 @@
 import { getRedisConfig } from '@/envs/redis';
 import {
+  initializeSharedRedis,
   type RedisKeyScope,
   RedisKeyScopeNamespace,
   tryInitializeRedisWithPrefix,
@@ -98,4 +99,28 @@ export const getRedisServiceClient = async (
   }
 
   return observeFailures(client, scope);
+};
+
+/** Deployment-wide domains have no tenant context; share the existing manager's base connection. */
+export const getSharedRedisServiceClient = async (): Promise<BaseRedisProvider | null> => {
+  const config = getRedisConfig();
+  if (!config.enabled) return null;
+  try {
+    const client = await withDeadline(
+      initializeSharedRedis({
+        ...config,
+        commandTimeoutMs: COMMAND_TIMEOUT_MS,
+        connectTimeoutMs: CONNECT_TIMEOUT_MS,
+      }),
+      ACQUIRE_TIMEOUT_MS,
+    );
+    if (!client) {
+      return null;
+    }
+    // Discovery is fail-closed but does not share send-cache cooldown policy.
+    return client;
+  } catch {
+    console.warn('SHARED_REDIS_UNAVAILABLE');
+    return null;
+  }
 };

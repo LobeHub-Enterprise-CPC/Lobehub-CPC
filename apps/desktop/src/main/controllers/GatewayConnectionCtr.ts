@@ -17,6 +17,7 @@ import {
 import { type ILocalSystemService, LocalSystemExecutionRuntime } from '@lobechat/tool-runtime';
 import type { HeterogeneousProviderConfig } from '@lobechat/types';
 import { managedProcessEnvironment, spawnManaged } from '@lobechat/utils/managedProcess';
+import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import { app as electronApp } from 'electron';
 
 import { updaterConfig } from '@/modules/updater/configs';
@@ -1374,7 +1375,7 @@ export default class GatewayConnectionCtr extends ControllerModule {
       if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
       setDesktopUserAgentHeader(headers);
 
-      await fetch(`${serverUrl}/trpc/lambda/agentNotify.notify`, {
+      await fetch(buildRemoteUrl('/trpc/lambda/agentNotify.notify', serverUrl).toString(), {
         body: JSON.stringify({ json: body }),
         headers,
         method: 'POST',
@@ -1408,7 +1409,7 @@ export default class GatewayConnectionCtr extends ControllerModule {
     };
     setDesktopUserAgentHeader(headers);
 
-    await fetch(`${serverUrl}/trpc/lambda/device.register`, {
+    await fetch(buildRemoteUrl('/trpc/lambda/device.register', serverUrl).toString(), {
       body: JSON.stringify({ json: info }),
       headers,
       method: 'POST',
@@ -1448,13 +1449,16 @@ export default class GatewayConnectionCtr extends ControllerModule {
     const auth = await this.buildWorkspaceHeaders(workspaceId);
     if (!auth) return null;
 
-    const res = await fetch(`${auth.serverUrl}/trpc/lambda/device.mintWorkspaceConnectToken`, {
-      // The mutation takes no input; `{json: null}` is the superjson-encoded
-      // empty payload the tRPC HTTP handler expects.
-      body: JSON.stringify({ json: null }),
-      headers: auth.headers,
-      method: 'POST',
-    });
+    const res = await fetch(
+      buildRemoteUrl('/trpc/lambda/device.mintWorkspaceConnectToken', auth.serverUrl).toString(),
+      {
+        // The mutation takes no input; `{json: null}` is the superjson-encoded
+        // empty payload the tRPC HTTP handler expects.
+        body: JSON.stringify({ json: null }),
+        headers: auth.headers,
+        method: 'POST',
+      },
+    );
     if (!res.ok) throw new Error(`mintWorkspaceConnectToken failed: HTTP ${res.status}`);
 
     const payload = (await res.json()) as { result?: { data?: { json?: { token?: unknown } } } };
@@ -1476,9 +1480,12 @@ export default class GatewayConnectionCtr extends ControllerModule {
       const auth = await this.buildWorkspaceHeaders(workspaceId);
       if (!auth) return undefined;
 
-      const res = await fetch(`${auth.serverUrl}/trpc/lambda/device.listDevices`, {
-        headers: auth.headers,
-      });
+      const res = await fetch(
+        buildRemoteUrl('/trpc/lambda/device.listDevices', auth.serverUrl).toString(),
+        {
+          headers: auth.headers,
+        },
+      );
       if (!res.ok) return undefined;
 
       const payload = (await res.json()) as { result?: { data?: { json?: unknown } } };

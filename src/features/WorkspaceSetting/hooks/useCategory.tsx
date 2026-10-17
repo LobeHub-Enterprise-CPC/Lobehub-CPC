@@ -1,4 +1,3 @@
-import { isDesktop } from '@lobechat/const';
 import { Avatar } from '@lobehub/ui/base-ui';
 import { SkillsIcon } from '@lobehub/ui/icons';
 import {
@@ -34,8 +33,7 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { usePermission } from '@/hooks/usePermission';
-import { useElectronStore } from '@/store/electron';
-import { electronSyncSelectors } from '@/store/electron/selectors';
+import { useRemoteAssetUrl } from '@/hooks/useRemoteAssetUrl';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useUserStore } from '@/store/user';
 import { labPreferSelectors, userProfileSelectors } from '@/store/user/selectors';
@@ -85,15 +83,9 @@ export const useWorkspaceSettingCategory = (): WorkspaceSettingCategoryGroup[] =
     userProfileSelectors.userAvatar(s),
     userProfileSelectors.nickName(s),
   ]);
-  const remoteServerUrl = useElectronStore(electronSyncSelectors.remoteServerUrl);
 
-  const avatarUrl = useMemo(() => {
-    if (!avatar) return undefined;
-    if (isDesktop && avatar.startsWith('/') && remoteServerUrl) {
-      return remoteServerUrl + avatar;
-    }
-    return avatar;
-  }, [avatar, remoteServerUrl]);
+  // On desktop a server-relative avatar is mounted under the remote server address
+  const avatarUrl = useRemoteAssetUrl(avatar || undefined);
 
   return useMemo(
     () =>

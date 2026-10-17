@@ -1,3 +1,4 @@
+import { buildAppUrl } from '@lobechat/business-tenant/client';
 import type { TaskTemplateConnectorReference } from '@lobechat/const';
 import { COMPOSIO_APP_TYPES } from '@lobechat/const';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -279,7 +280,7 @@ export const useConnectorConnection = (
         }
         // Skip redirectUri on desktop (app:// protocol) since the system browser can't navigate to it
         const redirectUri = window.location.protocol.startsWith('http')
-          ? `${window.location.origin}/oauth/callback/success?provider=${encodeURIComponent(next.identifier)}`
+          ? buildAppUrl(`/oauth/callback/success?provider=${encodeURIComponent(next.identifier)}`)
           : undefined;
         const { authorizeUrl } = await getLobehubAuth(next.identifier, { redirectUri });
         openOAuthWindow(authorizeUrl, next);

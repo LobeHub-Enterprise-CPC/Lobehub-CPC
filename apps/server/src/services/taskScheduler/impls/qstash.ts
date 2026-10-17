@@ -1,6 +1,8 @@
 import type { Client } from '@upstash/qstash';
 import debug from 'debug';
 
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
+
 import type { ScheduleNextTopicParams, TaskSchedulerImpl } from './type';
 
 const log = debug('task-scheduler:qstash');
@@ -32,7 +34,7 @@ export class QStashTaskScheduler implements TaskSchedulerImpl {
 
   async scheduleNextTopic(params: ScheduleNextTopicParams): Promise<string> {
     const { taskId, userId, delay = 0, tickToken } = params;
-    const url = `${this.baseUrl}${HEARTBEAT_TICK_PATH}`;
+    const url = buildTenantCallbackUrl(HEARTBEAT_TICK_PATH, this.baseUrl);
 
     log('Publishing tick: task=%s delay=%ds url=%s', taskId, delay, url);
 

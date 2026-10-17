@@ -128,6 +128,23 @@ describe('evaluateFeatureFlag', () => {
 });
 
 describe('mapFeatureFlagsEnvToState', () => {
+  it('should show the token counter by default and respect global on/off', () => {
+    expect(mapFeatureFlagsEnvToState(DEFAULT_FEATURE_FLAGS).showTokenCounter).toBe(true);
+    expect(mapFeatureFlagsEnvToState({ token_counter: true }).showTokenCounter).toBe(true);
+    expect(mapFeatureFlagsEnvToState({ token_counter: false }).showTokenCounter).toBe(false);
+  });
+
+  it('should show the token counter only for allowlisted users', () => {
+    const config = { token_counter: ['user-123'] };
+
+    expect(mapFeatureFlagsEnvToState(config, 'user-123').showTokenCounter).toBe(true);
+    expect(mapFeatureFlagsEnvToState(config, 'user-456').showTokenCounter).toBe(false);
+    expect(mapFeatureFlagsEnvToState(config).showTokenCounter).toBe(false);
+    expect(mapFeatureFlagsEnvToState({ token_counter: [] }, 'user-123').showTokenCounter).toBe(
+      false,
+    );
+  });
+
   it('should enable auth captcha by default', () => {
     const mappedState = mapFeatureFlagsEnvToState(DEFAULT_FEATURE_FLAGS);
 

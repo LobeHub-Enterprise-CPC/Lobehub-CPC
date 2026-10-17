@@ -63,7 +63,7 @@ const { mockLambdaClaudeQuota, mockLambdaCodexQuota, mockLambdaKimiCodeQuota } =
 vi.mock('@/libs/trpc/client', () => ({
   lambdaClient: {
     device: {
-      getClaudeCodeQuota: { query: mockLambdaClaudeQuota },
+      getClaudeCodeQuota: { mutate: mockLambdaClaudeQuota },
     },
   },
 }));

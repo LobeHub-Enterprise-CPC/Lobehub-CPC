@@ -36,7 +36,10 @@ vi.mock('@lobehub/ui/base-ui', () => ({
 vi.mock('@/features/Messenger/PushResourceModal/useSendToMessengerMenuItem', () => ({
   useSendToMessengerMenuItem: mocks.useSendToMessengerMenuItem,
 }));
-vi.mock('@/hooks/useAppOrigin', () => ({ useAppOrigin: () => 'https://app.example.com' }));
+vi.mock('@lobechat/business-tenant/client', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useAppBaseUrl: () => 'https://app.example.com',
+}));
 vi.mock('@/hooks/usePermission', () => ({ usePermission: () => ({ allowed: true }) }));
 vi.mock('@/features/ResourceManager/components/KnowledgeBaseListProvider', () => ({
   useKnowledgeBaseListContext: () => [],

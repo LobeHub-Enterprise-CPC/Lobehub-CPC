@@ -1,4 +1,5 @@
 import type { WechatRawMessage } from '@lobechat/chat-adapter-wechat';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import debug from 'debug';
 
 import { getMessengerWechatConfig } from '@/config/messenger';
@@ -88,16 +89,18 @@ export class WechatInstallationStore implements MessengerInstallationStore {
         // was closed. Fire-and-forget: the inbound message still has to reach
         // the router and start the agent run, which keeps the process alive
         // long enough for the bounded flush to finish.
-        void flushPendingWechatPushes({
-          applicationId: credentials.applicationId,
-          baseUrl: credentials.baseUrl,
-          botId: credentials.botId,
-          botToken: credentials.botToken,
-          platformUserId: payload.from_user_id,
-          redis,
-        }).catch((error) => {
-          log('resolveByPayload: pending push flush failed: %O', error);
-        });
+        void trackTenantWork(() =>
+          flushPendingWechatPushes({
+            applicationId: credentials.applicationId,
+            baseUrl: credentials.baseUrl,
+            botId: credentials.botId,
+            botToken: credentials.botToken,
+            platformUserId: payload.from_user_id,
+            redis,
+          }).catch((error) => {
+            log('resolveByPayload: pending push flush failed: %O', error);
+          }),
+        );
       }
     }
 

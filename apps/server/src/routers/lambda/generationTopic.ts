@@ -11,6 +11,7 @@ import { FileService } from '@/server/services/file';
 import { GenerationService } from '@/server/services/generation';
 
 import { assertWorkspaceRowManageable } from './_helpers/assertWorkspaceRowManageable';
+import { assertImageGenerationEnabled } from './_helpers/imageGenerationFeatureGate';
 
 const generationTopicProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
@@ -55,6 +56,7 @@ export const generationTopicRouter = router({
         .optional(),
     )
     .mutation(async ({ ctx, input }) => {
+      if ((input?.type ?? 'image') === 'image') await assertImageGenerationEnabled(ctx.userId);
       const data = await ctx.generationTopicModel.create(
         input?.title ?? '',
         input?.type,

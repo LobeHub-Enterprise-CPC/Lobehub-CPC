@@ -1,6 +1,8 @@
 // @vitest-environment node
+import { MarketAPIError } from '@lobehub/market-sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createResponseMeta } from '../../../../../packages/trpc/src/utils/responseMeta';
 import { marketRouter } from './market';
 
 const mockPreprocessLhCommand = vi.hoisted(() => vi.fn());
@@ -264,6 +266,49 @@ describe('tools marketRouter', () => {
       args: { query: 'select * from events' },
       tool: 'query',
       topicId: undefined,
+    });
+  });
+
+  describe('connectCallTool connection errors', () => {
+    const call = () =>
+      marketRouter.createCaller({ userId: 'user-1' } as any).connectCallTool({
+        provider: 'github',
+        toolName: 'list_repos',
+      });
+
+    it.each([
+      ['NOT_CONNECTED', 'Not connected to github. Please authorize first.', 'authorize'],
+      ['TOKEN_EXPIRED', 'Token for github has expired', 'Token expired'],
+    ])(
+      'maps SDK error code %s (human message) to PRECONDITION_FAILED with the discriminator',
+      async (code, message, hint) => {
+        mockMarketSDK.skills.callTool.mockRejectedValue(
+          new MarketAPIError(400, message, { code, message }),
+        );
+
+        await expect(call()).rejects.toMatchObject({
+          cause: { data: { code } },
+          code: 'PRECONDITION_FAILED',
+          message: expect.stringContaining(hint),
+        });
+      },
+    );
+
+    it('does not trigger the re-login header', async () => {
+      mockMarketSDK.skills.callTool.mockRejectedValue(
+        new MarketAPIError(400, 'Not connected to github', { code: 'NOT_CONNECTED' }),
+      );
+      const error = await call().catch((e) => e);
+
+      expect(createResponseMeta({ ctx: undefined, errors: [error] }).headers).toBeUndefined();
+    });
+
+    it('keeps other failures as INTERNAL_SERVER_ERROR', async () => {
+      mockMarketSDK.skills.callTool.mockRejectedValue(
+        new MarketAPIError(500, 'boom', { code: 'UPSTREAM_FAILED', message: 'boom' }),
+      );
+
+      await expect(call()).rejects.toMatchObject({ code: 'INTERNAL_SERVER_ERROR' });
     });
   });
 });

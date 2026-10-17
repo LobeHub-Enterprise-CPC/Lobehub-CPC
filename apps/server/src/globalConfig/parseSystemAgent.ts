@@ -9,24 +9,61 @@ const memoryServiceModelKeys = new Set([
   'userMemoryEmbedding',
   'userMemoryPersonaWriter',
 ]);
-// `default=` names a chat model; a speech-to-text slot must be set explicitly.
+// `default` names a chat model; a speech-to-text slot must be set explicitly.
 const nonChatModelKeys = new Set(['asr']);
 const defaultModelAssignmentKeys = protectedKeys.filter(
   (key) => !memoryServiceModelKeys.has(key) && !nonChatModelKeys.has(key),
 );
 
+export interface SystemAgentModelAssignment {
+  model: string;
+  provider: string;
+}
+
+const toSlotConfig = (key: string, { model, provider }: SystemAgentModelAssignment) => ({
+  enabled: defaultTrueLey.has(key) ? true : undefined,
+  model,
+  provider,
+});
+
+/**
+ * Turns per-slot model assignments into a system agent config. Unknown slots are
+ * ignored; `default` fills every chat slot left unassigned, but never the memory
+ * service slots or speech-to-text.
+ */
+export const buildSystemAgentConfig = (
+  assignments: Record<string, SystemAgentModelAssignment>,
+): Partial<UserServiceModelConfig> => {
+  const config: Partial<UserServiceModelConfig> = {};
+
+  for (const [key, assignment] of Object.entries(assignments)) {
+    if (key !== 'default' && protectedKeys.includes(key)) {
+      config[key as keyof UserServiceModelConfig] = toSlotConfig(key, assignment) as any;
+    }
+  }
+
+  const defaultSetting = assignments.default;
+
+  if (defaultSetting) {
+    for (const key of defaultModelAssignmentKeys) {
+      if (!config[key as keyof UserServiceModelConfig]) {
+        config[key as keyof UserServiceModelConfig] = toSlotConfig(key, defaultSetting) as any;
+      }
+    }
+  }
+
+  return config;
+};
+
 export const parseSystemAgent = (envString: string = ''): Partial<UserServiceModelConfig> => {
   if (!envString) return {};
 
-  const config: Partial<UserServiceModelConfig> = {};
+  const assignments: Record<string, SystemAgentModelAssignment> = {};
 
   // Handle full-width commas and extra spaces
   const envValue = envString.replaceAll('，', ',').trim();
 
   const pairs = envValue.split(',');
-
-  // Store default settings if there is a default=provider/model case
-  let defaultSetting: { model: string; provider: string } | undefined;
 
   for (const pair of pairs) {
     const [key, value] = pair.split('=').map((s) => s.trim());
@@ -39,39 +76,11 @@ export const parseSystemAgent = (envString: string = ''): Partial<UserServiceMod
         throw new Error('Missing model or provider value');
       }
 
-      // If it's the default key, save the default settings
-      if (key === 'default') {
-        defaultSetting = {
-          model: model.trim(),
-          provider: provider.trim(),
-        };
-        continue;
-      }
-
-      if (protectedKeys.includes(key)) {
-        config[key as keyof UserServiceModelConfig] = {
-          enabled: defaultTrueLey.has(key) ? true : undefined,
-          model: model.trim(),
-          provider: provider.trim(),
-        } as any;
-      }
+      assignments[key] = { model: model.trim(), provider: provider.trim() };
     } else {
       throw new Error('Invalid environment variable format');
     }
   }
 
-  // If there are default settings, apply them to all unconfigured system agents
-  if (defaultSetting) {
-    for (const key of defaultModelAssignmentKeys) {
-      if (!config[key as keyof UserServiceModelConfig]) {
-        config[key as keyof UserServiceModelConfig] = {
-          enabled: defaultTrueLey.has(key) ? true : undefined,
-          model: defaultSetting.model,
-          provider: defaultSetting.provider,
-        } as any;
-      }
-    }
-  }
-
-  return config;
+  return buildSystemAgentConfig(assignments);
 };

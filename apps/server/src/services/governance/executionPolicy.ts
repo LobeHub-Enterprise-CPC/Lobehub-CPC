@@ -21,7 +21,7 @@ export const getUserExecutionPolicy = async (
   userId: string,
   db: LobeChatDatabase,
 ): Promise<ResolvedExecutionPolicy | null> => {
-  if (!isGovernanceEnabled()) return null;
+  if (!(await isGovernanceEnabled(userId))) return null;
 
   try {
     const row = await getPolicyForUser(db, userId);

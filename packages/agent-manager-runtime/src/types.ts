@@ -41,6 +41,12 @@ export interface IAgentService {
  * Interface for discover/marketplace service operations
  */
 export interface IDiscoverService {
+  getAssistantDetail?: (params: {
+    identifier: string;
+    locale?: string;
+    source?: AssistantMarketSource;
+    version?: string;
+  }) => Promise<DiscoverAssistantDetail | undefined>;
   getAssistantList: (params: { category?: string; pageSize?: number; q?: string }) => Promise<{
     items: Array<{
       avatar?: string;
@@ -51,12 +57,6 @@ export interface IDiscoverService {
     }>;
     totalCount: number;
   }>;
-  getAssistantDetail?: (params: {
-    identifier: string;
-    locale?: string;
-    source?: AssistantMarketSource;
-    version?: string;
-  }) => Promise<DiscoverAssistantDetail | undefined>;
   getMcpList: (params: { category?: string; pageSize?: number; q?: string }) => Promise<{
     items: Array<{
       author?: string;

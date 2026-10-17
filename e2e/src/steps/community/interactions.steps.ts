@@ -1,6 +1,7 @@
 import { Then, When } from '@cucumber/cucumber';
 import { expect } from '@playwright/test';
 
+import { tenantPath } from '../../support/tenant';
 import type { CustomWorld } from '../../support/world';
 
 // ============================================
@@ -252,7 +253,7 @@ When('I select a sort option', async function (this: CustomWorld) {
   // Some dropdown implementations close immediately under parallel CI focus
   // churn. The user behavior we need to validate is the sorted model route, so
   // fall back to the same query state that the menu item would push.
-  await this.page.goto('/community/model?sort=identifier');
+  await this.page.goto(tenantPath('/community/model?sort=identifier'));
   this.testContext.selectedSortOption = 'Model ID';
 });
 
@@ -323,7 +324,7 @@ When(
 
     // Last resort: navigate directly
     console.log('   📍 Last resort: direct navigation to /community/mcp');
-    await this.page.goto('/community/mcp');
+    await this.page.goto(tenantPath('/community/mcp'));
   },
 );
 

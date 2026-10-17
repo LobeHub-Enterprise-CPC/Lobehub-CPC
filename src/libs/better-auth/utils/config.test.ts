@@ -48,12 +48,13 @@ describe('getTrustedOrigins', () => {
     ]);
   });
 
-  it('should append origins without changing override semantics', async () => {
+  it('always trusts the canonical tenant origin along with explicit origins', async () => {
     mocks.authEnv.AUTH_TRUSTED_ORIGINS = 'https://override.example.com/callback';
     mocks.authEnv.AUTH_ADDITIONAL_TRUSTED_ORIGINS = 'https://gateway.example.com/signin';
     const { getTrustedOrigins } = await import('./config');
 
     expect(getTrustedOrigins(['apple'])).toEqual([
+      'https://app.example.com',
       'https://override.example.com',
       'https://gateway.example.com',
     ]);

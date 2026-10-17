@@ -73,8 +73,8 @@ const getAndroidPasskeyOrigins = () =>
  * LobeHub credentials, so keep Better Auth's allowlist in sync with it instead of duplicating
  * hashes in deployment configuration.
  */
-export const getPasskeyOrigins = () => {
-  const webOrigin = normalizeOrigin(appEnv.APP_URL);
+export const getPasskeyOrigins = (publicOrigin = appEnv.APP_URL) => {
+  const webOrigin = normalizeOrigin(publicOrigin);
   if (!webOrigin) return undefined;
 
   return mergeOrigins([webOrigin], getAndroidPasskeyOrigins());
@@ -82,19 +82,19 @@ export const getPasskeyOrigins = () => {
 
 /**
  * Build trusted origins with Vercel-aware defaults and optional additions.
- * AUTH_TRUSTED_ORIGINS keeps its replacement semantics, while
+ * The canonical tenant origin is always trusted. AUTH_TRUSTED_ORIGINS replaces optional defaults, while
  * AUTH_ADDITIONAL_TRUSTED_ORIGINS is merged into either the override or the defaults.
  */
-export const getTrustedOrigins = (enabledSSOProviders: string[]) => {
+export const getTrustedOrigins = (enabledSSOProviders: string[], publicOrigin = appEnv.APP_URL) => {
   const additionalOrigins = parseTrustedOrigins(authEnv.AUTH_ADDITIONAL_TRUSTED_ORIGINS);
   const originsFromEnv = parseTrustedOrigins(authEnv.AUTH_TRUSTED_ORIGINS);
 
   if (originsFromEnv?.length) {
-    return mergeOrigins(originsFromEnv, additionalOrigins);
+    return mergeOrigins([publicOrigin], originsFromEnv, additionalOrigins);
   }
 
   const defaults = [
-    normalizeOrigin(appEnv.APP_URL),
+    normalizeOrigin(publicOrigin),
     normalizeOrigin(process.env.VERCEL_URL),
     normalizeOrigin(process.env.VERCEL_BRANCH_URL),
     MOBILE_APP_SCHEME,
@@ -111,13 +111,15 @@ export const getTrustedOrigins = (enabledSSOProviders: string[]) => {
 
 /**
  * Build Better Auth secondaryStorage backed by Redis.
- * Uses the shared Redis manager to avoid duplicate connections and prefixes keys to prevent clashes.
+ * Uses the shared Redis manager to avoid duplicate connections and prefixes keys per tenant.
  */
-export const createSecondaryStorage = () => {
+export const createSecondaryStorage = (namespace: string) => {
   const redisConfig = getRedisConfig();
   if (!isRedisEnabled(redisConfig)) return undefined;
 
-  const secondaryStorageKeyPrefix = 'better-auth:';
+  // `namespace` carries the tenant id, so cached sessions of one tenant can
+  // never be read by another (spec FR-ID-10, FR-AS-05).
+  const secondaryStorageKeyPrefix = `better-auth:${namespace}:`;
 
   const buildKey = (key: string) => `${secondaryStorageKeyPrefix}${key}`;
 

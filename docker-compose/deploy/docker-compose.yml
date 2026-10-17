@@ -256,7 +256,7 @@ services:
       - 'fts-search-reindex-state:/app/.elasticsearch-reindex'
     # The script lives in the entrypoint so that arguments given to
     # `docker compose run fts-search-reindex ...` replace only `--status`.
-    entrypoint: ['/bin/node', '/app/fts-search-elasticsearch-reindex.cjs']
+    entrypoint: ['/bin/node', '/app/fts-search-elasticsearch-reindex-tenants.cjs']
     command: ['--status']
     restart: 'no'
     networks:

@@ -1,5 +1,6 @@
 'use client';
 
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { Center, copyToClipboard, Flexbox, Icon, Popover, usePopoverContext } from '@lobehub/ui';
 import { Button, Checkbox, confirmModal, Input, Switch, Text, toast } from '@lobehub/ui/base-ui';
 import { cx } from 'antd-style';
@@ -20,7 +21,6 @@ import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';
 
 import { ArticleSkeleton } from '@/components/Skeleton';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { usePermission } from '@/hooks/usePermission';
 import { useTopicSharePermission } from '@/hooks/useTopicSharePermission';
@@ -54,7 +54,7 @@ const SharePopoverContent = memo<SharePopoverContentProps>(({ agentId, onOpenMod
   const [updating, setUpdating] = useState(false);
   const { close } = usePopoverContext();
   const containerRef = useRef<HTMLDivElement>(null);
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
   const { allowed: canShare, reason } = usePermission('edit_own_content');
   // Narrower than `canShare`: publishing a link may be reserved to the agent's
   // creator and workspace owners. Export and revoking stay open to everyone who

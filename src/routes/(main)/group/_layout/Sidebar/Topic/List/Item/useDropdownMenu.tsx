@@ -1,3 +1,4 @@
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { GROUP_CHAT_TOPIC_URL } from '@lobechat/const';
 import type { ChatTopicStatus } from '@lobechat/types';
 import { type MenuProps } from '@lobehub/ui';
@@ -23,7 +24,6 @@ import { isDesktop } from '@/const/version';
 import { confirmRemoveTopic } from '@/features/DeleteTopicConfirm';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { usePermission } from '@/hooks/usePermission';
 import { useAgentGroupStore } from '@/store/agentGroup';
 import { useChatStore } from '@/store/chat';
@@ -51,7 +51,7 @@ export const useTopicItemDropdownMenu = ({
   const openGroupTopicInNewWindow = useGlobalStore((s) => s.openGroupTopicInNewWindow);
   const activeGroupId = useAgentGroupStore((s) => s.activeGroupId);
   const addTab = useElectronStore((s) => s.addTab);
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
 
   const [
     autoRenameTopicTitle,

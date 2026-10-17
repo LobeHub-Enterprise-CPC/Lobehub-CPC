@@ -1,3 +1,4 @@
+import { buildAppUrl } from '@lobechat/business-tenant/client';
 import { type LobeToolCustomPlugin } from '@lobechat/types';
 import { Flexbox } from '@lobehub/ui';
 import { Alert, Button, Divider, Input, InputPassword, RadioGroup } from '@lobehub/ui/base-ui';
@@ -74,7 +75,7 @@ const MCPManifestForm = ({
       .then((r) => setRedirectUri(r.redirectUri))
       .catch(() => {
         if (typeof window !== 'undefined') {
-          setRedirectUri(`${window.location.origin}/oauth/connector/callback`);
+          setRedirectUri(buildAppUrl('/oauth/connector/callback'));
         }
       });
   }, [enableOAuth, authType, redirectUri]);

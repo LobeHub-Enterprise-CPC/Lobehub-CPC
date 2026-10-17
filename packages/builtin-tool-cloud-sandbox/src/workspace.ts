@@ -35,6 +35,16 @@ export type SandboxMode = 'ephemeral' | 'persistent';
 export const DEFAULT_SANDBOX_MODE: SandboxMode = 'ephemeral';
 
 export interface SandboxStorageScope {
+  /**
+   * Fixed-length digest of the tenant the principal belongs to (see
+   * {@link isSandboxTenantDigest}); present exactly when the run has a tenant
+   * scope. Ids are unique per tenant, not across tenants, so without it two
+   * tenants' principals with the same id would share one directory.
+   *
+   * Computed by the caller (the digest needs a hash, and this module is also
+   * bundled for the browser, where it only formats prompts).
+   */
+  tenantDigest?: string;
   userId: string;
   /** Organization workspace id when the run is workspace-scoped. */
   workspaceId?: string | null;
@@ -79,6 +89,20 @@ const isSafeKeySegment = (value: string): boolean => /^\w[\w.-]*$/.test(value);
 const ORG_KEY_INFIX = 'org-';
 
 /**
+ * Tenant dimension of a key: exactly 32 lowercase hex characters (128 bits of a
+ * SHA-256 of the tenant id). Fixed length is what makes the key decodable, and
+ * so injective: `wt-<32 hex>-` is always the first 36 characters, whatever the
+ * tenant id or the principal id look like.
+ */
+const TENANT_DIGEST = /^[\da-f]{32}$/;
+
+export const isSandboxTenantDigest = (value: string): boolean => TENANT_DIGEST.test(value);
+
+/** Family prefixes. They differ in the second character, so no key is in both. */
+const LEGACY_KEY_PREFIX = 'ws-';
+const TENANT_KEY_PREFIX = 'wt-';
+
+/**
  * Derive the workspace key for a principal. An organization workspace shares
  * one directory across its members (`ws-org-<workspaceId>`); a personal run
  * gets `ws-<userId>`. LobeHub is the sole authority for this mapping: the
@@ -95,6 +119,7 @@ const ORG_KEY_INFIX = 'org-';
  * nothing real.
  */
 export const deriveSandboxStorageKey = ({
+  tenantDigest,
   userId,
   workspaceId,
 }: SandboxStorageScope): string | undefined => {
@@ -106,7 +131,20 @@ export const deriveSandboxStorageKey = ({
   // platform issues looks like that, which is exactly why it would go unnoticed.
   if (!workspaceId && userId.startsWith(ORG_KEY_INFIX)) return undefined;
 
-  const key = workspaceId ? `ws-${ORG_KEY_INFIX}${workspaceId}` : `ws-${userId}`;
+  const principal = workspaceId ? `${ORG_KEY_INFIX}${workspaceId}` : userId;
+
+  // Without a tenant scope (community, single tenant) the key is what it always
+  // was. With one, the tenant leads: `wt-<digest>-<principal>`. A tenant that
+  // brought a malformed digest gets no persistence — never the untenanted key,
+  // which every other tenant's same-named principal would also reach.
+  let key: string;
+  if (tenantDigest === undefined) {
+    key = `${LEGACY_KEY_PREFIX}${principal}`;
+  } else if (isSandboxTenantDigest(tenantDigest)) {
+    key = `${TENANT_KEY_PREFIX}${tenantDigest}-${principal}`;
+  } else {
+    return undefined;
+  }
   if (!SAFE_WORKSPACE_KEY.test(key)) return undefined;
 
   return key;

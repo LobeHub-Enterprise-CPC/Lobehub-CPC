@@ -1,3 +1,4 @@
+import { initializeTenant } from '@lobechat/business-tenant/client';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -47,6 +48,20 @@ describe('useLogoUpload', () => {
     });
 
     expect(url).toBe(`${window.location.origin}/f/logo.png`);
+  });
+
+  it('keeps the tenant path when turning a storage path into an absolute URL', async () => {
+    initializeTenant(new URL(`${window.location.origin}/t/acme/settings`));
+    mocks.uploadWithProgress.mockResolvedValue({ url: '/f/logo.png' });
+    const { result } = renderHook(() => useLogoUpload());
+
+    let url: string | undefined;
+    await act(async () => {
+      url = await result.current.upload(file());
+    });
+    initializeTenant(new URL(window.location.href));
+
+    expect(url).toBe(`${window.location.origin}/t/acme/f/logo.png`);
   });
 
   it('refuses a file over 2 MB without uploading it', async () => {

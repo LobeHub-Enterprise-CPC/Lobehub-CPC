@@ -184,6 +184,36 @@ describe('rehypeFileLink', () => {
       expect((tree as any).children[0].tagName).toBe(LOBE_FILE_LINK_TAG);
     });
 
+    it('classifies the tenant-prefixed file link of a tenant address', () => {
+      useElectronStore.setState({
+        dataSyncConfig: {
+          remoteServerUrl: 'https://host/t/acme/',
+          storageMode: 'selfHost',
+        },
+      });
+
+      const tenantLink = (href: string) => ({
+        type: 'root',
+        children: [
+          {
+            type: 'element',
+            tagName: 'a',
+            properties: { href },
+            children: [{ type: 'text', value: 'bubble_sort.py' }],
+          },
+        ],
+      });
+      const own = tenantLink('https://host/t/acme/f/file_abc123');
+      const other = tenantLink('https://host/t/other/f/file_abc123');
+
+      run(own);
+      run(other);
+
+      expect((own as any).children[0].tagName).toBe(LOBE_FILE_LINK_TAG);
+      expect((own as any).children[0].properties.fileId).toBe('file_abc123');
+      expect((other as any).children[0].tagName).toBe('a');
+    });
+
     it('still rejects a link to a different origin than the configured remote server', () => {
       useElectronStore.setState({
         dataSyncConfig: {

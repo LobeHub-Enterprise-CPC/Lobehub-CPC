@@ -88,14 +88,14 @@ function database(rows: unknown[][], discussing: unknown[] = []) {
 }
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(isChannelEnabled).mockReturnValue(true);
+  vi.mocked(isChannelEnabled).mockResolvedValue(true);
   for (const method of Object.values(methods)) method.mockResolvedValue(undefined);
   methods.claim.mockResolvedValue(null);
 });
 
 describe('Channel dispatch isolation', () => {
-  it('does not claim queued work when the gateway is unconfigured', async () => {
-    vi.mocked(isChannelEnabled).mockReturnValue(false);
+  it('does not claim queued work when Channels are disabled for the owner', async () => {
+    vi.mocked(isChannelEnabled).mockResolvedValue(false);
     const worker = new ChannelWorker(
       database([
         [],
@@ -104,13 +104,13 @@ describe('Channel dispatch isolation', () => {
       ]),
     );
     await worker.tick();
-    expect(isChannelEnabled).toHaveBeenCalledWith();
+    expect(isChannelEnabled).toHaveBeenCalledWith(channel.ownerId);
     expect(methods.claim).not.toHaveBeenCalled();
     expect(start).not.toHaveBeenCalled();
   });
 
-  it('revokes unpublished runs when the gateway is removed instead of publishing their drafts', async () => {
-    vi.mocked(isChannelEnabled).mockReturnValue(false);
+  it('revokes unpublished runs when Channels are disabled instead of publishing their drafts', async () => {
+    vi.mocked(isChannelEnabled).mockResolvedValue(false);
     const worker = new ChannelWorker(
       database([
         [

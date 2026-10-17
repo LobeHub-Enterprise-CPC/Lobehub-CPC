@@ -1,14 +1,30 @@
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { buildTrustedClientPayload, createTrustedClientToken } from '@lobehub/market-sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { generateTrustedClientToken, isSyntheticTrustedClientUserId } from './index';
+import {
+  generateTrustedClientToken as signToken,
+  isSyntheticTrustedClientUserId,
+  TrustedClientIdentityError,
+  type TrustedClientUserInfo,
+} from './index';
 
-vi.mock('@/envs/app', () => ({
+const inTenant = <T>(tenantId: string, fn: () => T) =>
+  runWithTenantScope({ session: {}, slug: tenantId, tenantId } as unknown as TenantScope, fn);
+
+// Every real token is signed for a tenant; the cases below that are not about
+// the tenant run inside one.
+const generateTrustedClientToken = (userInfo: TrustedClientUserInfo) =>
+  inTenant('tenant-a', () => signToken(userInfo));
+
+const { appEnv } = vi.hoisted(() => ({
   appEnv: {
-    MARKET_TRUSTED_CLIENT_ID: 'client-id',
-    MARKET_TRUSTED_CLIENT_SECRET: 'client-secret',
+    MARKET_TRUSTED_CLIENT_ID: 'client-id' as string | undefined,
+    MARKET_TRUSTED_CLIENT_SECRET: 'client-secret' as string | undefined,
   },
 }));
+
+vi.mock('@/envs/app', () => ({ appEnv }));
 
 vi.mock('@lobehub/market-sdk', () => ({
   buildTrustedClientPayload: vi.fn((params) => ({ ...params, nonce: 'n', timestamp: 0 })),
@@ -17,6 +33,8 @@ vi.mock('@lobehub/market-sdk', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  appEnv.MARKET_TRUSTED_CLIENT_ID = 'client-id';
+  appEnv.MARKET_TRUSTED_CLIENT_SECRET = 'client-secret';
 });
 
 describe('isSyntheticTrustedClientUserId', () => {
@@ -50,6 +68,25 @@ describe('generateTrustedClientToken', () => {
       expect.objectContaining({ clientId: 'client-id', userId: 'user_real' }),
     );
     expect(createTrustedClientToken).toHaveBeenCalledWith(expect.anything(), 'client-secret');
+  });
+
+  // R13: acting as an organization is closed inside a tenant. Every token this
+  // module signs carries a tenantId, so none of them may carry a workspaceId:
+  // Market refuses a tenant token that has one.
+  it('never signs a workspaceId into a tenant token', () => {
+    const token = generateTrustedClientToken({
+      email: 'a@b.com',
+      userId: 'user_real',
+      workspaceId: 'wsp_1',
+    });
+
+    expect(token).toBe('signed-token');
+    expect(buildTrustedClientPayload).toHaveBeenCalledWith(
+      expect.not.objectContaining({ workspaceId: expect.anything() }),
+    );
+    const [payload] = vi.mocked(createTrustedClientToken).mock.calls[0];
+    expect(payload).not.toHaveProperty('workspaceId');
+    expect(payload).toMatchObject({ tenantId: 'tenant-a', userId: 'user_real' });
   });
 
   // The claim is what the execution plane routes a persistent sandbox on, so it
@@ -88,5 +125,141 @@ describe('generateTrustedClientToken', () => {
 
     const [payload] = vi.mocked(createTrustedClientToken).mock.calls[0];
     expect(payload).not.toHaveProperty('sandboxStorage');
+  });
+});
+
+describe('generateTrustedClientToken tenant claim', () => {
+  const signedPayload = () => vi.mocked(createTrustedClientToken).mock.calls[0][0] as any;
+
+  it('signs the tenant of the current scope into the token', () => {
+    inTenant('tenant-a', () => signToken({ email: 'a@b.com', userId: 'user_real' }));
+
+    expect(signedPayload()).toMatchObject({ tenantId: 'tenant-a', userId: 'user_real' });
+  });
+
+  // Operator reconciliation replays a receipt's identity outside any request.
+  it('signs the tenant an identity carries when there is no scope', () => {
+    signToken({ email: 'a@b.com', tenantId: 'tenant-a', userId: 'user_real' });
+
+    expect(signedPayload()).toMatchObject({ tenantId: 'tenant-a' });
+  });
+
+  it('refuses to sign without a tenant, and says so instead of returning no token', () => {
+    expect(() => signToken({ email: 'a@b.com', userId: 'user_real' })).toThrowError(
+      expect.objectContaining({ code: 'TENANT_REQUIRED' }),
+    );
+    expect(createTrustedClientToken).not.toHaveBeenCalled();
+  });
+
+  it('refuses an identity assembled under another tenant', () => {
+    expect(() =>
+      inTenant('tenant-b', () =>
+        signToken({ email: 'a@b.com', tenantId: 'tenant-a', userId: 'user_real' }),
+      ),
+    ).toThrowError(expect.objectContaining({ code: 'TENANT_MISMATCH' }));
+    expect(createTrustedClientToken).not.toHaveBeenCalled();
+  });
+
+  // Market accepts [A-Za-z0-9_.-]{1,64}; a tenant id outside it would be a
+  // guaranteed 401 from Market, so fail here with a name for it.
+  it.each(['tenant:a', 'tenant a', 'x'.repeat(65), 'té'])(
+    'refuses a tenant id Market cannot take: %s',
+    (tenantId) => {
+      expect(() => inTenant(tenantId, () => signToken({ userId: 'user_real' }))).toThrowError(
+        expect.objectContaining({ code: 'TENANT_ID_UNSUPPORTED' }),
+      );
+    },
+  );
+
+  it('reports the failure as a TrustedClientIdentityError', () => {
+    expect(() => signToken({ userId: 'user_real' })).toThrowError(TrustedClientIdentityError);
+  });
+
+  // "Trusted client is off" is a configuration the caller falls back from; it is
+  // not an identity failure, so it needs no tenant and raises nothing.
+  it('returns undefined, without needing a tenant, when trusted client is not configured', () => {
+    appEnv.MARKET_TRUSTED_CLIENT_SECRET = undefined;
+
+    expect(signToken({ userId: 'user_real' })).toBeUndefined();
+    expect(createTrustedClientToken).not.toHaveBeenCalled();
+  });
+
+  it('still returns undefined, without needing a tenant, for a synthetic user', () => {
+    expect(signToken({ userId: 'eval_xyz' })).toBeUndefined();
+  });
+});
+
+// Tenant mode is "a tenant scope is running, or trusted client is configured".
+// In it a Market request must carry a trust token or not leave at all: an
+// unsigned request lands in the default instance (public reads) or is refused
+// (a legacy Bearer), neither of which is the tenant the user asked for.
+describe('generateTrustedClientToken fails closed in tenant mode', () => {
+  const secretLike = 'x'.repeat(83);
+
+  it.each([
+    ['secret', () => (appEnv.MARKET_TRUSTED_CLIENT_SECRET = undefined)],
+    ['id', () => (appEnv.MARKET_TRUSTED_CLIENT_ID = undefined)],
+  ])(
+    'refuses to continue unsigned when the trusted client %s is missing in a tenant',
+    (_, unset) => {
+      unset();
+
+      expect(() =>
+        generateTrustedClientToken({ email: 'a@b.com', userId: 'user_real' }),
+      ).toThrowError(expect.objectContaining({ code: 'TRUST_NOT_CONFIGURED' }));
+      expect(createTrustedClientToken).not.toHaveBeenCalled();
+    },
+  );
+
+  it('refuses unsigned for an identity that carries its tenant, even outside a scope', () => {
+    appEnv.MARKET_TRUSTED_CLIENT_SECRET = undefined;
+
+    expect(() =>
+      signToken({ email: 'a@b.com', tenantId: 'tenant-a', userId: 'user_real' }),
+    ).toThrowError(expect.objectContaining({ code: 'TRUST_NOT_CONFIGURED' }));
+  });
+
+  it('surfaces a signing failure as TRUST_SIGNING_FAILED instead of "no token"', () => {
+    vi.mocked(createTrustedClientToken).mockImplementationOnce(() => {
+      throw new Error(`bad secret ${secretLike}`);
+    });
+
+    const attempt = () => generateTrustedClientToken({ email: 'a@b.com', userId: 'user_real' });
+
+    expect(attempt).toThrowError(TrustedClientIdentityError);
+    vi.mocked(createTrustedClientToken).mockImplementationOnce(() => {
+      throw new Error(`bad secret ${secretLike}`);
+    });
+    expect(attempt).toThrowError(expect.objectContaining({ code: 'TRUST_SIGNING_FAILED' }));
+  });
+
+  it('logs the failure without the secret, a token, the payload or the SDK message', () => {
+    appEnv.MARKET_TRUSTED_CLIENT_SECRET = secretLike;
+    vi.mocked(createTrustedClientToken).mockImplementationOnce(() => {
+      throw new Error(`bad secret ${secretLike}`);
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    let thrown: unknown;
+    try {
+      generateTrustedClientToken({ email: 'private@b.com', userId: 'user_real' });
+    } catch (error) {
+      thrown = error;
+    }
+
+    const logged = JSON.stringify(errorSpy.mock.calls);
+    expect(errorSpy).toHaveBeenCalled();
+    expect(logged).not.toContain(secretLike);
+    expect(logged).not.toContain('private@b.com');
+    expect(logged).toContain('TRUST_SIGNING_FAILED');
+    expect(String((thrown as Error).message)).not.toContain(secretLike);
+    expect((thrown as Error).cause).toBeUndefined();
+    errorSpy.mockRestore();
+  });
+
+  it('keeps the community behaviour: no scope and nothing configured is just "no token"', () => {
+    appEnv.MARKET_TRUSTED_CLIENT_SECRET = undefined;
+
+    expect(signToken({ userId: 'user_real' })).toBeUndefined();
   });
 });

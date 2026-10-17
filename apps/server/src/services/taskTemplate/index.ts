@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { UserModel } from '@/database/models/user';
 import { appEnv } from '@/envs/app';
 import { isTrustedClientEnabled } from '@/libs/trusted-client';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { MarketService } from '@/server/services/market';
 
 const clampRecommendationCount = (count?: number) =>
@@ -136,7 +137,7 @@ export class TaskTemplateService {
 
     this.marketService = new MarketService({
       accessToken,
-      userInfo: { userId: this.userId },
+      userInfo: await resolveMarketServiceIdentity({ serverDB: this.db, userId: this.userId }),
     });
     return this.marketService;
   }

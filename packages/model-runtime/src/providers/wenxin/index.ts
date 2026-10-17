@@ -43,6 +43,7 @@ export const params = {
     return pollWenxinVideoStatus(inferenceId, {
       apiKey: options.apiKey,
       baseURL: (options.baseURL || '').replace('/v2', ''),
+      fetch: options.fetch,
     });
   },
   debug: {

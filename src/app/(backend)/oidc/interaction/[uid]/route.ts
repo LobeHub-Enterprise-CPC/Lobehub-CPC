@@ -7,6 +7,8 @@ import { NextResponse } from 'next/server';
 import { getServerDB } from '@/database/core/db-adaptor';
 import { authEnv } from '@/envs/auth';
 import { isAcceptanceReviewClient } from '@/libs/oidc-provider/acceptanceReview';
+import { describeError } from '@/libs/oidc-provider/safe-log';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { resolveReviewAccess } from '@/server/services/acceptanceReview/access';
 import { OIDCService } from '@/server/services/oidc';
 import type { OidcInteractionDetailsResponse, OidcInteractionErrorResponse } from '@/types/oidc';
@@ -30,14 +32,14 @@ const acceptanceReviewOf = async (
   };
 };
 
-export async function GET(request: NextRequest, props: { params: Promise<{ uid: string }> }) {
+async function handleGet(_request: NextRequest, props: { params: Promise<{ uid: string }> }) {
   if (!authEnv.ENABLE_OIDC) {
     log('OIDC is not enabled');
     return new NextResponse(null, { status: 404 });
   }
 
   const { uid } = await props.params;
-  log('Received GET request for /oidc/interaction/%s, URL: %s', uid, request.url);
+  log('Received GET request for /oidc/interaction');
 
   try {
     const oidcService = await OIDCService.initialize();
@@ -84,10 +86,12 @@ export async function GET(request: NextRequest, props: { params: Promise<{ uid: 
       );
     }
 
-    log('Error handling OIDC interaction: %O', error);
+    log('Error handling OIDC interaction: %s', describeError(error));
     return NextResponse.json<OidcInteractionErrorResponse>(
       { error: 'server_error' },
       { status: 500 },
     );
   }
 }
+
+export const GET = withTenantRequest(handleGet);

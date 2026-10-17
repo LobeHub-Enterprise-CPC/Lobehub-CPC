@@ -9,6 +9,7 @@ import { RouteLoading } from '@/components/Skeleton/RouteSegment';
 import { useQuery } from '@/hooks/useQuery';
 import { useDiscoverStore } from '@/store/discover';
 import { groupAgentSelectors } from '@/store/discover/selectors';
+import { isTrpcErrorCode } from '@/utils/trpcError';
 
 import NotFound from '../components/NotFound';
 import { TocProvider } from '../features/Toc/useToc';
@@ -34,7 +35,9 @@ const GroupAgentDetailPage = memo<GroupAgentDetailPageProps>(({ mobile }) => {
 
   if (data === undefined) {
     if (isLoading) return <RouteLoading />;
-    if (error) return <AsyncError error={error} variant={'page'} onRetry={() => void mutate()} />;
+    if (error && !isTrpcErrorCode(error, 'NOT_FOUND')) {
+      return <AsyncError error={error} variant={'page'} onRetry={() => void mutate()} />;
+    }
     return <NotFound />;
   }
   const status = (data as any)?.group?.status || (data as any)?.status;
@@ -53,6 +56,8 @@ const GroupAgentDetailPage = memo<GroupAgentDetailPageProps>(({ mobile }) => {
     backgroundColor: (data as any)?.currentVersion?.backgroundColor,
     category: (data as any)?.currentVersion?.category,
     commentCount: (data as any)?.group?.commentCount,
+    // The group's own sync state lives on `.group`; the envelope carries none.
+    contentSync: (data as any)?.group?.contentSync,
 
     // From currentVersion.config - rename systemPrompt to systemRole for consistency
     config: {

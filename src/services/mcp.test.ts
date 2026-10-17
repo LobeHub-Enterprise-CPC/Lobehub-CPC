@@ -47,7 +47,7 @@ vi.mock('@/libs/trpc/client', () => ({
         mutate: vi.fn(),
       },
       getStreamableMcpServerManifest: {
-        query: vi.fn(),
+        mutate: vi.fn(),
       },
     },
   },
@@ -138,6 +138,7 @@ describe('MCPService', () => {
           },
           meta: {
             customPluginInfo: undefined,
+            executionId: expect.any(String),
             isCustomPlugin: false,
             sessionId: 'topic-1',
             version: '1.0.0',
@@ -328,6 +329,7 @@ describe('MCPService', () => {
         identifier: 'cloud-plugin',
         meta: {
           customPluginInfo: undefined,
+          executionId: expect.any(String),
           isCustomPlugin: false,
           sessionId: 'topic-123',
           version: '1.0.0',
@@ -427,6 +429,7 @@ describe('MCPService', () => {
               description: 'Custom tool description',
               name: 'Custom Tool',
             },
+            executionId: expect.any(String),
             isCustomPlugin: true,
             sessionId: 'topic-123',
             version: '3.0.0',
@@ -452,7 +455,7 @@ describe('MCPService', () => {
           },
         ],
       };
-      vi.mocked(toolsClient.mcp.getStreamableMcpServerManifest.query).mockResolvedValue(
+      vi.mocked(toolsClient.mcp.getStreamableMcpServerManifest.mutate).mockResolvedValue(
         mockManifest,
       );
 
@@ -465,7 +468,7 @@ describe('MCPService', () => {
       const result = await mcpService.getStreamableMcpServerManifest(params);
 
       expect(result).toEqual(mockManifest);
-      expect(toolsClient.mcp.getStreamableMcpServerManifest.query).toHaveBeenCalledWith(params, {
+      expect(toolsClient.mcp.getStreamableMcpServerManifest.mutate).toHaveBeenCalledWith(params, {
         signal: undefined,
       });
     });
@@ -484,7 +487,7 @@ describe('MCPService', () => {
           },
         ],
       };
-      vi.mocked(toolsClient.mcp.getStreamableMcpServerManifest.query).mockResolvedValue(
+      vi.mocked(toolsClient.mcp.getStreamableMcpServerManifest.mutate).mockResolvedValue(
         mockManifest,
       );
 
@@ -502,7 +505,7 @@ describe('MCPService', () => {
       );
 
       expect(result).toEqual(mockManifest);
-      expect(toolsClient.mcp.getStreamableMcpServerManifest.query).toHaveBeenCalledWith(params, {
+      expect(toolsClient.mcp.getStreamableMcpServerManifest.mutate).toHaveBeenCalledWith(params, {
         signal: abortController.signal,
       });
     });
@@ -521,7 +524,7 @@ describe('MCPService', () => {
           },
         ],
       };
-      vi.mocked(toolsClient.mcp.getStreamableMcpServerManifest.query).mockResolvedValue(
+      vi.mocked(toolsClient.mcp.getStreamableMcpServerManifest.mutate).mockResolvedValue(
         mockManifest,
       );
 
@@ -534,7 +537,7 @@ describe('MCPService', () => {
       const result = await mcpService.getStreamableMcpServerManifest(params);
 
       expect(result).toEqual(mockManifest);
-      expect(toolsClient.mcp.getStreamableMcpServerManifest.query).toHaveBeenCalled();
+      expect(toolsClient.mcp.getStreamableMcpServerManifest.mutate).toHaveBeenCalled();
     });
 
     it('should handle OAuth2 authentication', async () => {
@@ -551,7 +554,7 @@ describe('MCPService', () => {
           },
         ],
       };
-      vi.mocked(toolsClient.mcp.getStreamableMcpServerManifest.query).mockResolvedValue(
+      vi.mocked(toolsClient.mcp.getStreamableMcpServerManifest.mutate).mockResolvedValue(
         mockManifest,
       );
 
@@ -572,7 +575,7 @@ describe('MCPService', () => {
       const result = await mcpService.getStreamableMcpServerManifest(params);
 
       expect(result).toEqual(mockManifest);
-      expect(toolsClient.mcp.getStreamableMcpServerManifest.query).toHaveBeenCalledWith(
+      expect(toolsClient.mcp.getStreamableMcpServerManifest.mutate).toHaveBeenCalledWith(
         params,
         expect.any(Object),
       );

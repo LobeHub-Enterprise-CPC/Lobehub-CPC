@@ -213,6 +213,7 @@ export const params = {
     return pollZhipuVideoStatus(inferenceId, {
       apiKey: options.apiKey,
       baseURL: options.baseURL || '',
+      fetch: options.fetch,
     });
   },
   debug: {

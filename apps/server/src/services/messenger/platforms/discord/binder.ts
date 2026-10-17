@@ -3,7 +3,7 @@ import type { ActionEvent } from 'chat';
 import debug from 'debug';
 
 import { getMessengerDiscordConfig } from '@/config/messenger';
-import { appEnv } from '@/envs/app';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 import type { PlatformClient } from '@/server/services/bot/platforms';
 import { DiscordApi } from '@/server/services/bot/platforms/discord/api';
 import { DiscordClientFactory } from '@/server/services/bot/platforms/discord/client';
@@ -46,7 +46,7 @@ const buildVerifyImUrl = (params: {
   platformUserId: string;
   randomId: string;
 }): string => {
-  const url = new URL('/verify-im', params.appUrl);
+  const url = new URL(`${params.appUrl.replace(/\/$/, '')}/verify-im`);
   url.searchParams.set('im_type', 'discord');
   url.searchParams.set('im_user_id', params.platformUserId);
   url.searchParams.set('random_id', params.randomId);
@@ -103,7 +103,7 @@ export class MessengerDiscordBinder implements MessengerPlatformBinder {
         platform: 'discord',
         settings: {},
       },
-      { appUrl: appEnv.APP_URL },
+      { appUrl: tenantPublicBaseUrl() },
     );
   }
 
@@ -111,7 +111,7 @@ export class MessengerDiscordBinder implements MessengerPlatformBinder {
     const config = await getMessengerDiscordConfig();
     if (!config) return;
 
-    const appUrl = appEnv.APP_URL;
+    const appUrl = tenantPublicBaseUrl();
     if (!appUrl) {
       log('handleUnlinkedMessage: APP_URL not set, cannot build verify-im link');
       return;

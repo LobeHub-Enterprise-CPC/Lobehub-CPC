@@ -19,12 +19,15 @@ const log = debug('lobe-image:comfyui');
  */
 export class LobeComfyUI implements LobeRuntimeAI, AuthenticatedImageRuntime {
   private options: ComfyUIKeyVault;
+  /** Absolute URL of the app's ComfyUI route, when the host server decides it (e.g. per tenant). */
+  private serviceURL?: string;
   baseURL: string;
 
-  constructor(options: ComfyUIKeyVault = {}) {
+  constructor({ serviceURL, ...options }: ComfyUIKeyVault & { serviceURL?: string } = {}) {
     log('🏗️ ComfyUI Runtime initialized');
 
     this.options = options;
+    this.serviceURL = serviceURL;
     this.baseURL = options.baseURL || process.env.COMFYUI_DEFAULT_URL || 'http://localhost:8188';
 
     log('✅ ComfyUI Runtime ready - baseURL: %s', this.baseURL);
@@ -98,7 +101,7 @@ export class LobeComfyUI implements LobeRuntimeAI, AuthenticatedImageRuntime {
         headers['Authorization'] = `Bearer ${keyVaultSecret}`;
       }
 
-      const response = await fetch(`${appUrl}/webapi/create-image/comfyui`, {
+      const response = await fetch(this.serviceURL ?? `${appUrl}/webapi/create-image/comfyui`, {
         body: JSON.stringify({
           model: payload.model,
           options: this.options,

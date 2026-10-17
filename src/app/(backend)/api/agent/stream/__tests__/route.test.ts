@@ -476,6 +476,22 @@ data: {"type":"stream_end","timestamp":300,"operationId":"test-operation","data"
       expect(callArgs[3]).toBeInstanceOf(AbortSignal); // signal
     });
 
+    it('should stop the subscription when the response stream is cancelled', async () => {
+      const request = new NextRequest(
+        'https://test.com/api/agent/stream?operationId=test-operation',
+      );
+      mockStreamEventManager.subscribeStreamEvents.mockResolvedValue(undefined);
+
+      const response = await GET(request);
+      const signal = mockStreamEventManager.subscribeStreamEvents.mock.calls[0][3] as AbortSignal;
+      expect(signal.aborted).toBe(false);
+
+      // A suspended tenant or a disconnected client cancels the body.
+      await response.body!.cancel('tenant suspended');
+
+      expect(signal.aborted).toBe(true);
+    });
+
     it('should verify default parameters with exact values', async () => {
       const request = new NextRequest(
         'https://test.com/api/agent/stream?operationId=test-operation',

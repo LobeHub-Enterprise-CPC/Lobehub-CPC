@@ -9,6 +9,7 @@ import { getServerDB } from '@/database/core/db-adaptor';
 import { AgentBotProviderModel } from '@/database/models/agentBotProvider';
 import { getAgentRuntimeRedisClient } from '@/server/modules/AgentRuntime/redis';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 import type { BotPlatformRuntimeContext } from '@/server/services/bot/platforms';
 import {
   platformRegistry,
@@ -39,7 +40,7 @@ const waitUntil = (task: Promise<unknown>) => {
 
 function createRuntimeContext(): BotPlatformRuntimeContext {
   return {
-    appUrl: process.env.APP_URL,
+    appUrl: tenantPublicBaseUrl(),
     redisClient: getAgentRuntimeRedisClient() as any,
   };
 }

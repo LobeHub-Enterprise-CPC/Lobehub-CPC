@@ -5,6 +5,8 @@ import {
 } from '@lobechat/builtin-tool-task';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
+
 import { createTaskRuntime, taskRuntime } from '../task';
 
 const verifyMocks = vi.hoisted(() => ({ createCriteriaFromDrafts: vi.fn() }));
@@ -345,7 +347,7 @@ describe('createTaskRuntime', () => {
       expect(result.success).toBe(true);
       // The identifier is an absolute markdown link so it stays clickable when
       // the tool result is delivered to an IM channel / mobile.
-      expect(result.content).toContain('[T-1](https://app.lobehub.com/task/T-1)');
+      expect(result.content).toContain(`[T-1](${tenantPublicBaseUrl()}/task/T-1)`);
       expect(deps.taskService.createTask).toHaveBeenCalledWith(
         expect.objectContaining({
           assigneeAgentId: 'agt-xyz',
@@ -858,8 +860,8 @@ describe('createTaskRuntime', () => {
       expect(result.content).toContain('Created 2 tasks');
       // Identifiers are rendered as absolute markdown links so they stay
       // clickable when the message is delivered to IM / mobile.
-      expect(result.content).toContain('[T-A](https://app.lobehub.com/task/T-A)');
-      expect(result.content).toContain('[T-B](https://app.lobehub.com/task/T-B)');
+      expect(result.content).toContain(`[T-A](${tenantPublicBaseUrl()}/task/T-A)`);
+      expect(result.content).toContain(`[T-B](${tenantPublicBaseUrl()}/task/T-B)`);
       expect(result.content).toContain('T-A');
       expect(result.content).toContain('T-B');
       // State parity with the client executor: the dispatch-layer registration

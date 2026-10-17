@@ -1,4 +1,4 @@
-import { TRPCError } from '@trpc/server';
+import { currentTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 import { customAlphabet } from 'nanoid/non-secure';
 import { z } from 'zod';
@@ -9,8 +9,17 @@ import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { marketSDK, marketUserInfo, serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { type TrustedClientUserInfo } from '@/libs/trusted-client';
 import { generateTrustedClientToken } from '@/libs/trusted-client';
+import { TrustedClientIdentityError } from '@/libs/trusted-client/errors';
 import { normalizeLocale } from '@/locales/resources';
-import type { AgentForkBatchResult, AgentForkResponse } from '@/types/discover';
+import type {
+  AgentForkBatchResult,
+  AgentForkResponse,
+  MarketEditCapabilities,
+} from '@/types/discover';
+
+import { actAsInput } from './actingAs';
+import { resolveEditRights } from './editRights';
+import { isMarketNotFound, mapMarketError } from './marketError';
 
 const MARKET_BASE_URL = process.env.MARKET_BASE_URL || 'https://market.lobehub.com';
 
@@ -88,6 +97,9 @@ const fetchMarketUserInfo = async (
 
     return (await response.json()) as MarketUserInfo;
   } catch (error) {
+    // Not "no user": the caller would read null as "not the owner" and, for a
+    // publish, create a second agent under a different identity.
+    if (error instanceof TrustedClientIdentityError) throw error;
     log('Error fetching Market user info: %O', error);
     return null;
   }
@@ -221,7 +233,7 @@ const forkAgentItemSchema = z.object({
    * `X-Lobe-Owner-Account-Id` on the fork request. Caller is responsible for
    * resolving the organization account id before passing this field.
    */
-  actAs: z.number().int().positive().optional(),
+  actAs: actAsInput,
   identifier: z.string(),
   name: z.string().optional(),
   sourceIdentifier: z.string(),
@@ -260,7 +272,7 @@ const agentWriteProcedure = agentProcedure.use(withScopedPermission('agent:creat
 
 // Schema definitions
 const createAgentSchema = z.object({
-  actAs: z.number().int().positive().optional(),
+  actAs: actAsInput,
   homepage: z.string().optional(),
   identifier: z.string(),
   isFeatured: z.boolean().optional(),
@@ -271,7 +283,7 @@ const createAgentSchema = z.object({
 });
 
 const createAgentVersionSchema = z.object({
-  actAs: z.number().int().positive().optional(),
+  actAs: actAsInput,
   a2aProtocolVersion: z.string().optional(),
   avatar: z.string().optional(),
   category: z.string().optional(),
@@ -306,7 +318,7 @@ const paginationSchema = z.object({
 
 // Schema for the unified publish/create flow
 const publishOrCreateSchema = z.object({
-  actAs: z.number().int().positive().optional(),
+  actAs: actAsInput,
   // Version data
   avatar: z.string().optional(),
 
@@ -354,13 +366,20 @@ export const agentRouter = router({
         // Support both trustedClientToken and OIDC accessToken authentication
         const userInfo = ctx.marketUserInfo as TrustedClientUserInfo | undefined;
         const accessToken = (ctx as { marketOidcAccessToken?: string }).marketOidcAccessToken;
-        let currentAccountId: number | null = null;
-
-        const marketUserInfoResult = await fetchMarketUserInfo({ accessToken, userInfo });
-        currentAccountId = marketUserInfoResult?.accountId ?? null;
-
         const ownerId = agentDetail.ownerId;
-        const isOwner = currentAccountId !== null && `${ownerId}` === `${currentAccountId}`;
+
+        // In a tenant Market answers "may this requester edit it" itself, so the
+        // requester's account is only needed for the single-tenant comparison.
+        let currentAccountId: number | null = null;
+        if (!currentTenantScope()) {
+          const marketUserInfoResult = await fetchMarketUserInfo({ accessToken, userInfo });
+          currentAccountId = marketUserInfoResult?.accountId ?? null;
+        }
+
+        const { canEdit: isOwner } = resolveEditRights(
+          agentDetail as MarketEditCapabilities,
+          () => currentAccountId !== null && `${ownerId}` === `${currentAccountId}`,
+        );
 
         log(
           'checkOwnership result: isOwner=%s, currentAccountId=%s, ownerId=%s',
@@ -383,12 +402,18 @@ export const agentRouter = router({
         };
       } catch (error) {
         log('Error checking ownership: %O', error);
-        // If agent not found or error, treat as not existing
-        return {
-          exists: false,
-          isOwner: false,
-          originalAgent: null,
-        };
+        // Only "not in this scope" means the agent does not exist. A refusal
+        // (403), a missing credential (401) or an instance that is not ready (503)
+        // says nothing about it, and reading it as "does not exist" would send the
+        // caller on to publish a second agent.
+        if (isMarketNotFound(error)) {
+          return {
+            exists: false,
+            isOwner: false,
+            originalAgent: null,
+          };
+        }
+        throw mapMarketError(error, 'Failed to check agent ownership', { exposeMessage: true });
       }
     }),
 
@@ -407,11 +432,7 @@ export const agentRouter = router({
       return response;
     } catch (error) {
       log('Error creating agent: %O', error);
-      throw new TRPCError({
-        cause: error,
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error instanceof Error ? error.message : 'Failed to create agent',
-      });
+      throw mapMarketError(error, 'Failed to create agent', { exposeMessage: true });
     }
   }),
 
@@ -432,11 +453,7 @@ export const agentRouter = router({
         return response;
       } catch (error) {
         log('Error creating agent version: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to create agent version',
-        });
+        throw mapMarketError(error, 'Failed to create agent version', { exposeMessage: true });
       }
     }),
 
@@ -454,11 +471,7 @@ export const agentRouter = router({
         return response ?? { success: true };
       } catch (error) {
         log('Error deprecating agent: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to deprecate agent',
-        });
+        throw mapMarketError(error, 'Failed to deprecate agent', { exposeMessage: true });
       }
     }),
 
@@ -493,11 +506,7 @@ export const agentRouter = router({
         return response;
       } catch (error) {
         log('Error getting agent detail: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to get agent detail',
-        });
+        throw mapMarketError(error, 'Failed to get agent detail', { exposeMessage: true });
       }
     }),
 
@@ -548,11 +557,7 @@ export const agentRouter = router({
         return (await response.json()) as Record<string, unknown[]>;
       } catch (error) {
         log('Error getting onboarding full: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to get onboarding full',
-        });
+        throw mapMarketError(error, 'Failed to get onboarding full', { exposeMessage: true });
       }
     }),
 
@@ -606,11 +611,7 @@ export const agentRouter = router({
         return result;
       } catch (error) {
         log('Error getting agent fork source: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to get agent fork source',
-        });
+        throw mapMarketError(error, 'Failed to get agent fork source', { exposeMessage: true });
       }
     }),
 
@@ -664,11 +665,7 @@ export const agentRouter = router({
         return result;
       } catch (error) {
         log('Error getting agent forks: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to get agent forks',
-        });
+        throw mapMarketError(error, 'Failed to get agent forks', { exposeMessage: true });
       }
     }),
 
@@ -687,11 +684,7 @@ export const agentRouter = router({
       return response;
     } catch (error) {
       log('Error getting own agents: %O', error);
-      throw new TRPCError({
-        cause: error,
-        code: 'INTERNAL_SERVER_ERROR',
-        message: error instanceof Error ? error.message : 'Failed to get own agents',
-      });
+      throw mapMarketError(error, 'Failed to get own agents', { exposeMessage: true });
     }
   }),
 
@@ -709,11 +702,7 @@ export const agentRouter = router({
         return response ?? { success: true };
       } catch (error) {
         log('Error publishing agent: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to publish agent',
-        });
+        throw mapMarketError(error, 'Failed to publish agent', { exposeMessage: true });
       }
     }),
 
@@ -748,9 +737,12 @@ export const agentRouter = router({
             const accessToken = (ctx as { marketOidcAccessToken?: string }).marketOidcAccessToken;
             let currentAccountId: number | null = null;
 
-            const marketUserInfoResult = await fetchMarketUserInfo({ accessToken, userInfo });
-            currentAccountId = marketUserInfoResult?.accountId ?? null;
-            log('Market user info: accountId=%s', currentAccountId);
+            // In a tenant Market says whether this requester may add a version.
+            if (!currentTenantScope()) {
+              const marketUserInfoResult = await fetchMarketUserInfo({ accessToken, userInfo });
+              currentAccountId = marketUserInfoResult?.accountId ?? null;
+              log('Market user info: accountId=%s', currentAccountId);
+            }
 
             const ownerId = agentDetail?.ownerId;
 
@@ -758,15 +750,25 @@ export const agentRouter = router({
 
             const actingAccountId = actAs ?? currentAccountId;
 
-            if (!actingAccountId || `${ownerId}` !== `${actingAccountId}`) {
+            const { canEdit } = resolveEditRights(
+              agentDetail as MarketEditCapabilities | undefined,
+              () => !!actingAccountId && `${ownerId}` === `${actingAccountId}`,
+            );
+
+            if (!canEdit) {
               // Not the owner, need to create a new agent
               log('User is not owner, will create new agent');
               finalIdentifier = undefined;
               isNewAgent = true;
             }
           } catch (detailError) {
-            // Agent not found or error, create new
-            log('Agent not found or error, will create new: %O', detailError);
+            // Only an agent that is not in this scope becomes a new one. A refusal,
+            // a missing credential or an instance that is not ready says nothing
+            // about whether it exists, and publishing a second agent over it
+            // would answer the wrong question.
+            if (!isMarketNotFound(detailError)) throw detailError;
+
+            log('Agent not found, will create new: %O', detailError);
             finalIdentifier = undefined;
             isNewAgent = true;
           }
@@ -808,11 +810,7 @@ export const agentRouter = router({
         };
       } catch (error) {
         log('Error in publishOrCreate: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to publish agent',
-        });
+        throw mapMarketError(error, 'Failed to publish agent', { exposeMessage: true });
       }
     }),
 
@@ -830,11 +828,7 @@ export const agentRouter = router({
         return response ?? { success: true };
       } catch (error) {
         log('Error unpublishing agent: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to unpublish agent',
-        });
+        throw mapMarketError(error, 'Failed to unpublish agent', { exposeMessage: true });
       }
     }),
 });

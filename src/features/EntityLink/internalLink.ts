@@ -1,4 +1,6 @@
 import { BUILTIN_AGENT_SLUGS } from '@lobechat/builtin-agents';
+import { getTenant } from '@lobechat/business-tenant/client';
+import { parseTenantPath } from '@lobechat/business-tenant/routing';
 import { OFFICIAL_SITE, OFFICIAL_URL } from '@lobechat/const';
 
 import { getIdFromIdentifier } from '@/utils/identifier';
@@ -115,11 +117,18 @@ export const parseInternalLink = (
 
   if (!isRootRelative && !isInternalHost(url, currentOrigin)) return null;
 
-  const route = getRouteSegments(url.pathname, new Set(workspaceSlugs));
-  const pathname = `${url.pathname}${url.search}${url.hash}`;
+  // `/t/{slug}` is the address the router mounts as its basename, so a route
+  // reference is tenant-relative: strip the prefix here and `navigate` re-emits
+  // it. A link to another tenant (or any tenant prefix outside a tenant
+  // document) is not this app's route and stays a plain anchor.
+  const { rest: routePath, tenantSlug } = parseTenantPath(url.pathname);
+  if (tenantSlug && tenantSlug !== getTenant()?.slug) return null;
+
+  const route = getRouteSegments(routePath, new Set(workspaceSlugs));
+  const pathname = `${routePath}${url.search}${url.hash}`;
 
   if (!route) {
-    const rootSegment = url.pathname.split('/').find(Boolean);
+    const rootSegment = routePath.split('/').find(Boolean);
 
     if (
       !rootSegment ||

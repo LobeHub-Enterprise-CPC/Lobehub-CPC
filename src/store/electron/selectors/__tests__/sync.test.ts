@@ -53,6 +53,31 @@ describe('electronSyncSelectors.remoteServerUrl', () => {
   it('returns an empty string for self-host with nothing configured', () => {
     expect(electronSyncSelectors.remoteServerUrl(stateWith({ storageMode: 'selfHost' }))).toBe('');
   });
+
+  // The configured address is a tenant address (`https://host/t/acme`) or a
+  // custom-domain root. Consumers append app paths to it, so it has to keep the
+  // tenant prefix and carry no trailing slash.
+  it.each([
+    ['https://host/t/acme', 'https://host/t/acme'],
+    ['https://host/t/acme/', 'https://host/t/acme'],
+    ['https://host/t/acme//', 'https://host/t/acme'],
+    ['https://custom.host/', 'https://custom.host'],
+    ['https://custom.host', 'https://custom.host'],
+  ])('keeps the tenant path of %s and drops trailing slashes', (configured, expected) => {
+    expect(
+      electronSyncSelectors.remoteServerUrl(
+        stateWith({ remoteServerUrl: configured, storageMode: 'selfHost' }),
+      ),
+    ).toBe(expected);
+  });
+
+  it('keeps the tenant path of the cloud this build talks to', () => {
+    process.env.OFFICIAL_CLOUD_SERVER = 'https://cloud.example/t/acme/';
+
+    expect(electronSyncSelectors.remoteServerUrl(stateWith({ storageMode: 'cloud' }))).toBe(
+      'https://cloud.example/t/acme',
+    );
+  });
 });
 
 describe('electronSyncSelectors.isOfficialServer', () => {

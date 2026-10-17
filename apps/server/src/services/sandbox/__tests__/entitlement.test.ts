@@ -1,4 +1,5 @@
 import type { LobeChatDatabase } from '@lobechat/database';
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const resolveSandboxStorageEntitlement = vi.fn();
@@ -15,7 +16,7 @@ vi.mock('@/database/models/user', () => ({
   }),
 }));
 
-const { resolveSandboxStorageClaim } = await import('../entitlement');
+const { resolveSandboxStorageClaim, sandboxTenantDigest } = await import('../entitlement');
 
 const serverDB = {} as LobeChatDatabase;
 
@@ -129,5 +130,44 @@ describe('resolveSandboxStorageClaim', () => {
     getUserPreference.mockResolvedValue({ lab: { enablePersistentSandbox: true } });
     resolveSandboxStorageEntitlement.mockRejectedValue(new Error('entitlement lookup failed'));
     await expect(resolve()).resolves.toBeNull();
+  });
+});
+
+describe('resolveSandboxStorageClaim inside a tenant scope', () => {
+  const inTenant = <T>(tenantId: string, fn: () => T) =>
+    runWithTenantScope({ session: {}, slug: tenantId, tenantId } as unknown as TenantScope, fn);
+
+  beforeEach(() => {
+    resolveSandboxStorageEntitlement.mockReset();
+    getUserPreference.mockReset();
+    getUserPreference.mockResolvedValue({ lab: { enablePersistentSandbox: true } });
+    resolveSandboxStorageEntitlement.mockResolvedValue({ quotaBytes: 2048 });
+  });
+
+  it('keys the directory on the tenant as well as the principal', async () => {
+    const a = await inTenant('tenant-a', () => resolve());
+    const b = await inTenant('tenant-b', () => resolve());
+
+    expect(a?.key).toMatch(/^wt-[\da-f]{32}-user_1$/);
+    expect(b?.key).toMatch(/^wt-[\da-f]{32}-user_1$/);
+    expect(a?.key).not.toBe(b?.key);
+  });
+
+  // A tenant id may carry characters a directory name cannot, and has no length
+  // bound of its own; the digest is what makes any of them addressable.
+  it('accepts a tenant id that is not a safe path segment', async () => {
+    const claim = await inTenant('tenant:a/../b', () => resolve());
+
+    expect(claim?.key).toMatch(/^wt-[\da-f]{32}-user_1$/);
+  });
+
+  it('derives the same digest for the same tenant and a different one for another', () => {
+    expect(inTenant('tenant-a', sandboxTenantDigest)).toBe(
+      inTenant('tenant-a', sandboxTenantDigest),
+    );
+    expect(inTenant('tenant-a', sandboxTenantDigest)).not.toBe(
+      inTenant('tenant-b', sandboxTenantDigest),
+    );
+    expect(sandboxTenantDigest()).toBeUndefined();
   });
 });

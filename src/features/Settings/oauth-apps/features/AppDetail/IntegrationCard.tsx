@@ -1,5 +1,6 @@
 'use client';
 
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { Flexbox } from '@lobehub/ui';
 import { Button, Text, toast } from '@lobehub/ui/base-ui';
 import { createStaticStyles } from 'antd-style';
@@ -7,7 +8,6 @@ import { CopyIcon } from 'lucide-react';
 import { type FC, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { useServerConfigStore } from '@/store/serverConfig';
 import { serverConfigSelectors } from '@/store/serverConfig/selectors';
 
@@ -51,7 +51,7 @@ interface IntegrationCardProps {
  */
 export const useIntegrationEndpoints = (applicationType?: string | null) => {
   const configuredIssuer = useServerConfigStore(serverConfigSelectors.oidcIssuer);
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
   const issuer = resolveIssuer(configuredIssuer, appOrigin);
 
   return useMemo(() => getIntegrationEndpoints(issuer, applicationType), [issuer, applicationType]);

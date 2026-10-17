@@ -1,5 +1,6 @@
 'use client';
 
+import { resolveAppUrl } from '@lobechat/business-tenant/client';
 import { OFFICIAL_URL } from '@lobechat/const';
 import { Center, Flexbox, Icon, Tooltip } from '@lobehub/ui';
 import {
@@ -142,9 +143,7 @@ export const Content = memo<ContentProps>(({ user, onSuccess }) => {
           toast.error(t('user.workspaceProfile.errors.uploadFailed'));
           return;
         }
-        setAvatarUrl(
-          result.url.startsWith('/') ? `${window.location.origin}${result.url}` : result.url,
-        );
+        setAvatarUrl(resolveAppUrl(result.url));
       } catch (error) {
         console.error('[WorkspaceProfileModal] Avatar upload failed:', error);
         toast.error(t('user.workspaceProfile.errors.uploadFailed'));
@@ -169,10 +168,7 @@ export const Content = memo<ContentProps>(({ user, onSuccess }) => {
           toast.error(t('user.workspaceProfile.errors.uploadFailed'));
           return;
         }
-        const url = result.url.startsWith('/')
-          ? `${window.location.origin}${result.url}`
-          : result.url;
-        setBannerUrl(url);
+        setBannerUrl(resolveAppUrl(result.url));
       } catch (error) {
         console.error('[WorkspaceProfileModal] Banner upload failed:', error);
         toast.error(t('user.workspaceProfile.errors.uploadFailed'));

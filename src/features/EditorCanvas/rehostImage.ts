@@ -1,3 +1,4 @@
+import { currentTenantRelativePath } from '@lobechat/business-tenant/client';
 import { toast } from '@lobehub/ui/base-ui';
 import { t } from 'i18next';
 
@@ -14,7 +15,10 @@ export const needsImageRehost = (src: string): boolean => {
   try {
     const url = resolveImageUrl(src);
     if (!['http:', 'https:'].includes(url.protocol)) return false;
-    return url.origin !== window.location.origin || !url.pathname.startsWith('/f/');
+    return (
+      url.origin !== window.location.origin ||
+      !currentTenantRelativePath(url.pathname)?.startsWith('/f/')
+    );
   } catch {
     return false;
   }

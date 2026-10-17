@@ -191,7 +191,7 @@ export default {
   'betterAuth.signin.ssoRetry': 'Retry',
   'betterAuth.signin.ssoLoading': 'Loading sign-in providers…',
   'betterAuth.signin.ssoOnlyNoProviders':
-    'Email registration is disabled and no SSO providers are configured. Please contact your administrator.',
+    'No sign-in methods are currently available. Please contact your administrator.',
   'betterAuth.signin.submit': 'Sign In',
   'betterAuth.signup.confirmPasswordPlaceholder': 'Confirm your password',
   'betterAuth.signup.emailPlaceholder': 'Enter your email address',
@@ -425,8 +425,38 @@ export default {
   'profile.usernameRule': 'Username can only contain letters, numbers, or underscores',
   'profile.usernameTooLong': 'Username cannot exceed 64 characters',
   'profile.usernameUpdateFailed': 'Failed to update username, please try again later',
+  'organization.current.named': 'Current organization: {{name}} ({{slug}})',
+  'organization.current.slugOnly': 'Current organization: {{slug}}',
+  'organization.desktop.expired':
+    'This sign-in request is no longer valid. Go back to the desktop app and start again.',
+  'organization.desktop.fastPathUnavailable':
+    'We could not take you straight to your last organization. Choose it below, or refresh the page to try again.',
+  'organization.desktop.invalid': 'Start the sign-in again from the desktop app.',
+  'organization.desktop.subtitle': 'Choose the organization to sign in to from your desktop app',
+  'organization.desktop.switchHint': 'Go back to the desktop app and choose "Switch organization".',
+  'organization.discovery.emailInvalid': 'Enter a valid email address.',
+  'organization.discovery.emailLabel': 'Work email',
+  'organization.discovery.emailPlaceholder': 'Enter your work email',
+  'organization.discovery.emailRequired': 'Enter your work email.',
+  'organization.discovery.notAvailable':
+    'This organization is not available right now. Choose another organization or try again later.',
+  'organization.discovery.notFound': 'No organization was found for this email address.',
+  'organization.discovery.rateLimited': 'Too many requests. Try again in {{seconds}} seconds.',
+  'organization.discovery.rateLimitedGeneric': 'Too many requests. Try again later.',
+  'organization.discovery.submit': 'Continue',
+  'organization.discovery.subtitle': 'Enter your work email to find your organization',
+  'organization.discovery.unavailable':
+    'We could not look up your organization right now. Check your connection and try again.',
+  'organization.picker.description':
+    'This email address belongs to more than one organization. Choose the one you want to sign in to.',
+  'organization.picker.itemUnavailable': 'Currently unavailable',
+  'organization.picker.title': 'Choose an organization',
+  'organization.switch.link': 'Switch organization',
   'session.checkFailed.description': 'We could not verify your sign-in session. Please try again.',
   'session.checkFailed.title': 'Unable to check your session',
+  'tenant.unavailable.title': 'Workspace unavailable',
+  'tenant.unavailable.description':
+    'This workspace is not currently available. Contact your administrator, or retry after access is restored.',
   'signin.subtitle': 'Sign up or sign in to your {{appName}} account',
   'signin.title': 'Agent teammates that grow with you',
   'signout': 'Sign Out',

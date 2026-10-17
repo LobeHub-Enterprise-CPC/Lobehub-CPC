@@ -1,5 +1,6 @@
 'use client';
 
+import { getTenant } from '@lobechat/business-tenant/client';
 import { Avatar, Button, Skeleton } from '@lobehub/ui/base-ui';
 import { UserCircleIcon } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
@@ -7,7 +8,11 @@ import { useTranslation } from 'react-i18next';
 
 import { useCommunityWorkspaceProfile } from '@/business/client/hooks/useCommunityWorkspaceProfile';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
-import { useMarketAuth, useMarketUserProfile } from '@/layout/AuthProvider/MarketAuth';
+import {
+  getMarketProfileKey,
+  useMarketAuth,
+  useMarketUserProfile,
+} from '@/layout/AuthProvider/MarketAuth';
 import { useServerConfigStore } from '@/store/serverConfig';
 import { serverConfigSelectors } from '@/store/serverConfig/selectors';
 
@@ -57,10 +62,12 @@ const UserAvatar = memo<UserAvatarProps>(({ avatarOverride }) => {
   );
 
   const userInfo = getCurrentUserInfo();
-  const username = userInfo?.sub;
+  const profileKey = getMarketProfileKey(userInfo);
+  // `sub` is a username only in a community deployment; in a tenant it is an identity key.
+  const username = getTenant()?.slug ? undefined : userInfo?.sub;
 
   // Use SWR to fetch user profile with caching
-  const { data: userProfile } = useMarketUserProfile(username);
+  const { data: userProfile } = useMarketUserProfile(profileKey);
 
   // Check whether profile setup is needed
   const needsProfileSetup = checkNeedsProfileSetup(enableMarketTrustedClient, userProfile);
@@ -117,7 +124,7 @@ const UserAvatar = memo<UserAvatarProps>(({ avatarOverride }) => {
     avatarOverride ||
     (isWorkspaceScope
       ? workspaceAvatarUrl || workspaceUsername
-      : userProfile?.avatarUrl || userProfile?.userName || username);
+      : userProfile?.avatarUrl || userProfile?.userName || userProfile?.namespace || username);
 
   return <Avatar avatar={avatarUrl} shape={'square'} size={28} onClick={handleAvatarClick} />;
 });

@@ -40,7 +40,7 @@ export interface NavLayout {
 export const useNavLayout = (): NavLayout => {
   const { t } = useTranslation('common');
   const toggleCommandMenu = useGlobalStore((s) => s.toggleCommandMenu);
-  const { showMarket, hideGitHub } = useServerConfigStore(featureFlagsSelectors);
+  const { showMarket, hideGitHub, showAiImage } = useServerConfigStore(featureFlagsSelectors);
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
   const enableDashboard = useServerConfigStore(serverConfigSelectors.enableDashboard);
 
@@ -91,7 +91,7 @@ export const useNavLayout = (): NavLayout => {
           icon: getRouteById('image')!.icon,
           key: SidebarTabKey.Image,
           title: t('tab.generation'),
-          url: '/image',
+          url: showAiImage ? '/image' : '/video',
         },
         {
           hidden: !showMarket,
@@ -114,7 +114,7 @@ export const useNavLayout = (): NavLayout => {
           url: '/memory',
         },
       ] as NavItem[],
-    [t, showMarket, activeWorkspaceSlug],
+    [t, showMarket, activeWorkspaceSlug, showAiImage],
   );
 
   const footer = useMemo(

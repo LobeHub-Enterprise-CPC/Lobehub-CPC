@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 
 import PublishedTime from '@/components/PublishedTime';
 import Rate from '@/components/RatingOverview/Rate';
+import ContentSyncTag from '@/features/CommunityContentSyncTag';
 import { usePermission } from '@/hooks/usePermission';
 import { useSkillCategoryItem } from '@/hooks/useSkillCategory';
 import { agentSkillService } from '@/services/skill';
@@ -231,6 +232,7 @@ const Header = memo<{ mobile?: boolean }>(({ mobile: isMobile }) => {
     github,
     icon,
     isValidated,
+    contentSync,
   } = useDetailContext();
   const { t } = useTranslation('discover');
   const { mobile = isMobile } = useResponsive();
@@ -367,6 +369,12 @@ const Header = memo<{ mobile?: boolean }>(({ mobile: isMobile }) => {
                   date={(updatedAt || createdAt) as string}
                   template={'MMM DD, YYYY'}
                 />
+              </>
+            )}
+            {contentSync?.detached === true && (
+              <>
+                <MetaDivider />
+                <ContentSyncTag contentSync={contentSync} />
               </>
             )}
           </Flexbox>

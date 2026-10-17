@@ -22,6 +22,7 @@ import debug from 'debug';
 import { AgentModel } from '@/database/models/agent';
 import { ConnectorModel } from '@/database/models/connector';
 import { PluginModel } from '@/database/models/plugin';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { AgentService } from '@/server/services/agent';
 import {
   createAiInfraRepos,
@@ -65,9 +66,17 @@ export const agentManagementRuntime: ServerRuntimeRegistration = {
     // Same identity requirement as the Agent Builder runtime: built without an
     // identity, DiscoverService sends no credentials and every market read fails
     // as `unauthorized`.
-    const discoverService = new DiscoverService({
-      userInfo: { userId: context.userId, workspaceId: context.workspaceId },
-    });
+    const { serverDB, userId } = context;
+    // The Market identity (tenant, email, name) is assembled asynchronously, so
+    // the client is built on first use rather than when the runtime is created.
+    const getDiscoverService = async () =>
+      new DiscoverService({
+        userInfo: await resolveMarketServiceIdentity({
+          serverDB,
+          userId,
+          workspaceId: context.workspaceId,
+        }),
+      });
 
     /**
      * The injected context lists the servable models, but a model that ignores
@@ -240,7 +249,10 @@ export const agentManagementRuntime: ServerRuntimeRegistration = {
             // have no local agents row; read their detail through the market
             // fallback instead of reporting a false "not found" (same behavior
             // as the client AgentManagerRuntime).
-            const marketDetail = await getMarketAgentDetail(discoverService, params.agentId);
+            const marketDetail = await getMarketAgentDetail(
+              await getDiscoverService(),
+              params.agentId,
+            );
             if (marketDetail) return marketDetail;
 
             return { content: `Agent "${params.agentId}" not found.`, success: false };
@@ -309,7 +321,7 @@ export const agentManagementRuntime: ServerRuntimeRegistration = {
           // success for ids that never produced a tool.
           const { installedNow, resolution } = await resolveOrInstallMarketPlugin(
             identifier,
-            { connectorModel, discoverService, pluginModel },
+            { connectorModel, discoverService: await getDiscoverService(), pluginModel },
             { agentId, source },
           );
           if (resolution.status !== 'loadable')
@@ -376,7 +388,9 @@ export const agentManagementRuntime: ServerRuntimeRegistration = {
 
           // Marketplace search returns the first page only — offset does not apply
           if (source === 'market' || source === 'all') {
-            const marketResult = await discoverService.getAssistantList({
+            const marketResult = await (
+              await getDiscoverService()
+            ).getAssistantList({
               pageSize: limit,
               q: params.keyword,
               ...(params.category && { category: params.category }),

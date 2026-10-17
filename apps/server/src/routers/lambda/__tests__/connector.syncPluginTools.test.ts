@@ -43,6 +43,7 @@ vi.mock('@/business/server/trpc-middlewares/workspaceAuth', async () => {
 vi.mock('@/libs/trpc/lambda/middleware', () => ({
   serverDatabase: async (opts: any) =>
     opts.next({ ctx: { ...opts.ctx, serverDB: opts.ctx.serverDB ?? {} } }),
+  telemetry: async (opts: any) => opts.next(),
 }));
 
 describe('connectorRouter.syncPluginTools — customPlugin guard', () => {

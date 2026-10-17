@@ -47,6 +47,39 @@ describe('OnlyboxesSandboxProvider', () => {
     vi.useRealTimers();
   });
 
+  it.each([400, 401, 403, 422])('preserves explicit rejection for HTTP %s', async (status) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{}', { status })),
+    );
+    const { OnlyboxesSandboxProvider } = await import('./onlyboxes');
+    const provider = new OnlyboxesSandboxProvider({
+      marketService: {} as MarketService,
+      topicId: 't',
+      userId: 'u',
+    });
+    expect(
+      await provider.callTool('runCommand', { command: 'sleep', background: true }),
+    ).toMatchObject({ success: false, remoteExecution: 'not-started' });
+  });
+  it.each([undefined, 'unknown', 'cancel_requested'])(
+    'does not infer completion from status %s',
+    async (status) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response(JSON.stringify({ status }))),
+      );
+      const { OnlyboxesSandboxProvider } = await import('./onlyboxes');
+      const provider = new OnlyboxesSandboxProvider({
+        marketService: {} as MarketService,
+        topicId: 't',
+        userId: 'u',
+      });
+      const result = await provider.callTool('getCommandOutput', { commandId: 'task' });
+      expect(result.result?.running).not.toBe(false);
+    },
+  );
+
   it('maps runCommand to the terminal command endpoint with a persistent session', async () => {
     const fetchMock = vi.fn(async () => {
       return new Response(

@@ -1,8 +1,5 @@
 import { BRANDING_PROVIDER, ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
-import {
-  DEFAULT_SEARCH_USER_MEMORY_TOP_K,
-  DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM,
-} from '@lobechat/const';
+import { DEFAULT_SEARCH_USER_MEMORY_TOP_K } from '@lobechat/const';
 import { type LobeChatDatabase } from '@lobechat/database';
 import {
   ActivityMemoryItemSchema,
@@ -47,7 +44,6 @@ import {
 import { notTrashed } from '@/database/utils/softDelete';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
-import { getServerDefaultFilesConfig } from '@/server/globalConfig';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
 import { createFtsSearchRepo } from '@/server/services/ftsSearch';
 import {
@@ -56,6 +52,7 @@ import {
 } from '@/server/services/ftsSearch/observability';
 import type { UserMemoryEmbeddingRuntime } from '@/server/services/memory/userMemory/embedding';
 import { embedUserMemoryTexts } from '@/server/services/memory/userMemory/embedding';
+import { resolveUserMemoryEmbeddingModel } from '@/server/services/memory/userMemory/embeddingModel';
 import {
   normalizeSearchMemoryParams,
   resolveMemorySearchTopK,
@@ -105,15 +102,32 @@ const normalizeMemoryEffort = (value: unknown): MemoryEffort => {
   return 'medium';
 };
 
+const getEmbeddingRuntime = async (serverDB: LobeChatDatabase, userId: string) => {
+  // Same model the extractor writes memory vectors with, never the file embedding model.
+  const { provider, model: embeddingModel } = await resolveUserMemoryEmbeddingModel(
+    serverDB,
+    userId,
+  );
+  // Read user's provider config from database
+  const agentRuntime = await initModelRuntimeFromDB(
+    serverDB,
+    userId,
+    ENABLE_BUSINESS_FEATURES ? BRANDING_PROVIDER : provider,
+  );
+
+  return { agentRuntime, embeddingModel };
+};
+
 const searchUserMemories = async (
   ctx: MemorySearchContext,
   input: z.infer<typeof searchMemorySchema>,
   source: UserMemoryLexicalSearchSource,
 ): Promise<SearchMemoryResult> => {
   const normalizedInput = normalizeSearchMemoryParams(input);
-  const { provider, model: embeddingModel } =
-    getServerDefaultFilesConfig().embeddingModel || DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM;
-  const modelRuntime = await initModelRuntimeFromDB(ctx.serverDB, ctx.userId, provider);
+  const { agentRuntime: modelRuntime, embeddingModel } = await getEmbeddingRuntime(
+    ctx.serverDB,
+    ctx.userId,
+  );
   const normalizedQueries = normalizeUserMemorySearchQueries(normalizedInput.queries);
 
   const queryEmbeddings =
@@ -141,19 +155,6 @@ const searchUserMemories = async (
     { ...normalizedInput, queries: normalizedQueries, topK: effortConstrainedLimits },
     queryEmbeddings,
   ) as Promise<SearchMemoryResult>;
-};
-
-const getEmbeddingRuntime = async (serverDB: LobeChatDatabase, userId: string) => {
-  const { provider, model: embeddingModel } =
-    getServerDefaultFilesConfig().embeddingModel || DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM;
-  // Read user's provider config from database
-  const agentRuntime = await initModelRuntimeFromDB(
-    serverDB,
-    userId,
-    ENABLE_BUSINESS_FEATURES ? BRANDING_PROVIDER : provider,
-  );
-
-  return { agentRuntime, embeddingModel };
 };
 
 const createEmbedder = (

@@ -245,6 +245,26 @@ describe('LobeComfyUI Runtime', () => {
       }
     });
 
+    it('posts to the tenant service URL it was given, without sending it in the body', async () => {
+      runtime = new LobeComfyUI({
+        apiKey: 'test-key',
+        authType: 'bearer',
+        baseURL: 'https://test.comfyui.com',
+        serviceURL: 'http://internal-service:3210/t/acme/webapi/create-image/comfyui',
+      });
+      mockFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue({}), ok: true });
+
+      await runtime.createImage({ model: 'flux1-dev.safetensors', params: { prompt: 'p' } });
+
+      const [url, init] = mockFetch.mock.calls[0];
+      expect(url).toBe('http://internal-service:3210/t/acme/webapi/create-image/comfyui');
+      expect(JSON.parse(init.body).options).toEqual({
+        apiKey: 'test-key',
+        authType: 'bearer',
+        baseURL: 'https://test.comfyui.com',
+      });
+    });
+
     it('should prefer INTERNAL_APP_URL over APP_URL for server-to-server calls', async () => {
       const mockPayload: CreateImagePayload = {
         model: 'flux1-dev.safetensors',

@@ -4,6 +4,7 @@ import debug from 'debug';
 import type { MiddlewareHandler } from 'hono';
 
 import { verifyQStashSignature } from '@/libs/qstash';
+import { isBearerSecret } from '@/server/utils/bearerAuth';
 
 const log = debug('lobe-server:agent:qstash-or-apikey-auth');
 
@@ -29,7 +30,7 @@ export const qstashOrApiKeyAuth = (): MiddlewareHandler => async (c, next) => {
   let isValidApiKey = false;
   if (apiKey) {
     const authHeader = c.req.header('authorization');
-    isValidApiKey = authHeader === `Bearer ${apiKey}`;
+    isValidApiKey = isBearerSecret(authHeader, apiKey);
   }
 
   if (!isValidQStash && !isValidApiKey) {

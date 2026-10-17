@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  appEnv: { COMMAND_GOVERNANCE_ENABLED: false },
+  flags: { command_governance: false },
   getUserExecutionPolicy: vi.fn(),
 }));
 
-vi.mock('@/envs/app', () => ({ appEnv: mocks.appEnv }));
+vi.mock('@/server/featureFlags', () => ({
+  getServerFeatureFlagsFromRuntimeConfig: async () => mocks.flags,
+}));
 vi.mock('../executionPolicy', () => ({
   getUserExecutionPolicy: mocks.getUserExecutionPolicy,
 }));
@@ -55,7 +57,7 @@ describe('pathMatchesRoot', () => {
 describe('checkPath', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.appEnv.COMMAND_GOVERNANCE_ENABLED = false;
+    mocks.flags = { command_governance: false };
   });
 
   it('allows without querying the policy when governance is disabled', async () => {
@@ -67,7 +69,7 @@ describe('checkPath', () => {
 
   describe('governance enabled', () => {
     beforeEach(() => {
-      mocks.appEnv.COMMAND_GOVERNANCE_ENABLED = true;
+      mocks.flags = { command_governance: true };
     });
 
     it('allows when the user has no policy configured', async () => {

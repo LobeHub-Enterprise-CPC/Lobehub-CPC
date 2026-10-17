@@ -10,6 +10,7 @@ import { UserModel } from '@/database/models/user';
 import { initModelRuntimeForRequest } from '@/server/modules/AgentRuntime/llmRelay/oneShot';
 import { runRouteWithLlmRelayRequest } from '@/server/modules/AgentRuntime/llmRelay/requestScope';
 import { createTraceOptions } from '@/server/modules/ModelRuntime';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { type ChatStreamPayload } from '@/types/openai/chat';
 import { createErrorResponse } from '@/utils/errorResponse';
 import { getTracePayload } from '@/utils/trace';
@@ -20,7 +21,7 @@ import { resolveValidWorkspaceIdFromRequest } from '../../_utils/workspace';
 // this enforce user to enable fluid compute
 export const maxDuration = 300;
 
-export const POST = checkAuth(async (req: Request, { params, userId, serverDB }) => {
+const handlePost = checkAuth(async (req: Request, { params, userId, serverDB }) => {
   const provider = (await params)!.provider!;
 
   try {
@@ -98,3 +99,5 @@ export const POST = checkAuth(async (req: Request, { params, userId, serverDB })
     return createErrorResponse(errorType, { error, ...res, provider });
   }
 });
+
+export const POST = withTenantRequest(handlePost);

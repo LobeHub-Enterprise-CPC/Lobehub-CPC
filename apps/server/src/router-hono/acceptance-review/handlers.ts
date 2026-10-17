@@ -2,7 +2,7 @@ import { createReviewCommentSchema, reviewDecisionSchema } from '@lobechat/types
 import type { Context } from 'hono';
 import { z } from 'zod';
 
-import { appEnv } from '@/envs/app';
+import { buildTenantPublicUrl } from '@/server/modules/Tenant/callbackUrl';
 import { acceptanceRouter } from '@/server/routers/lambda/acceptance';
 import { acceptanceCommentRouter } from '@/server/routers/lambda/acceptanceComment';
 
@@ -52,7 +52,7 @@ export const getSession = async (c: ReviewContext) => {
       round: round.round,
       status: acceptance.status,
       title: acceptance.metadata?.title || acceptance.requirement || '',
-      url: `${(appEnv.APP_URL ?? '').replace(/\/$/, '')}/acceptance/${acceptance.id}`,
+      url: buildTenantPublicUrl(`/acceptance/${acceptance.id}`),
     },
     can,
     expiresAt: new Date(c.get('expiresAt') * 1000).toISOString(),

@@ -1,3 +1,4 @@
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { DESKTOP_HEADER_ICON_SMALL_SIZE } from '@lobechat/const';
 import { ActionIcon } from '@lobehub/ui/base-ui';
 import { ExternalLink } from 'lucide-react';
@@ -5,7 +6,6 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { useChatStore } from '@/store/chat';
 import { chatPortalSelectors } from '@/store/chat/selectors';
 import { useTaskStore } from '@/store/task';
@@ -17,7 +17,7 @@ import { getTaskDetailPageUrl } from './url';
 
 const TaskDetailHeader = memo<{ onClose?: () => void }>(({ onClose }) => {
   const { t } = useTranslation('verify');
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
   const taskId = useChatStore(chatPortalSelectors.taskDetailId);
   const agentId = useTaskStore((state) =>

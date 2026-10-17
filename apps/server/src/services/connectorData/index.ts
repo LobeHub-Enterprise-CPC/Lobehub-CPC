@@ -15,6 +15,7 @@ import { createTwitterMarketConnectorClient } from '@lobechat/connector-data/twi
 import { ConnectorModel } from '@/database/models/connector';
 import type { LobeChatDatabase } from '@/database/type';
 import { getComposioClient, isComposioConnectedAccountLookupNotFoundError } from '@/libs/composio';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { MarketService } from '@/server/services/market';
 
 const unavailable = (provider: ConnectorDataProvider) =>
@@ -76,6 +77,13 @@ export class ConnectorDataService {
     private readonly workspaceId?: string,
   ) {}
 
+  private marketIdentity = () =>
+    resolveMarketServiceIdentity({
+      serverDB: this.db,
+      userId: this.userId,
+      workspaceId: this.workspaceId,
+    });
+
   private resolveProviderClient = (providerId: ConnectorDataProvider): Promise<unknown> => {
     const resolvers: Record<ConnectorDataProvider, () => Promise<unknown>> = {
       github: () => this.getGitHubClient(),
@@ -135,9 +143,7 @@ export class ConnectorDataService {
    * - A user-scoped GitHub connector client backed by Market's OAuth proxy
    */
   getGitHubClient = async (): Promise<GitHubConnectorClient> => {
-    const market = new MarketService({
-      userInfo: { userId: this.userId, workspaceId: this.workspaceId },
-    });
+    const market = new MarketService({ userInfo: await this.marketIdentity() });
     const status = await market.market.skills.getStatus('github');
     if (!status.success || !status.connected) throw unavailable('github');
 
@@ -242,9 +248,7 @@ export class ConnectorDataService {
    * - A user-scoped X connector client backed by Market skill tools
    */
   getTwitterClient = async (): Promise<TwitterConnectorClient> => {
-    const market = new MarketService({
-      userInfo: { userId: this.userId, workspaceId: this.workspaceId },
-    }).market;
+    const market = new MarketService({ userInfo: await this.marketIdentity() }).market;
     const status = await market.skills.getStatus('twitter');
     if (!status.success || !status.connected) throw unavailable('twitter');
 

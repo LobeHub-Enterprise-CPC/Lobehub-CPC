@@ -4,6 +4,7 @@ import { CUSTOM_DOCUMENT_FILE_TYPE, CUSTOM_FOLDER_FILE_TYPE } from '@lobechat/co
 import { type LobeChatDatabase } from '@lobechat/database';
 import { type DocumentItem } from '@lobechat/database/schemas';
 import { documents, files } from '@lobechat/database/schemas';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import { loadFile, UnsupportedFileTypeError } from '@lobechat/file-loaders';
 import { sliceHead } from '@lobechat/prompts/textWindow';
 import type { DocumentAccessScope, FileAccessScope } from '@lobechat/types';
@@ -319,9 +320,11 @@ export class DocumentService {
     const result = await this.documentModel.setVisibility(documentId, visibility);
 
     if (this.workspaceId) {
-      void publishResourceEvent(
-        { id: documentId, type: 'document' },
-        { actorId: this.userId, type: 'doc.updated' },
+      void trackTenantWork(() =>
+        publishResourceEvent(
+          { id: documentId, type: 'document' },
+          { actorId: this.userId, type: 'doc.updated' },
+        ),
       );
     }
 
@@ -404,17 +407,19 @@ export class DocumentService {
       (result.holderId ?? null) !== (prevHolder?.userId ?? null) ||
       (result.ownerId ?? null) !== (prevHolder?.ownerId ?? null)
     ) {
-      void publishResourceEvent(
-        { id, type: 'document' },
-        {
-          actorId: this.userId,
-          data: {
-            expiresAt: result.expiresAt?.toISOString() ?? null,
-            holderId: result.holderId,
-            ownerId: result.ownerId,
+      void trackTenantWork(() =>
+        publishResourceEvent(
+          { id, type: 'document' },
+          {
+            actorId: this.userId,
+            data: {
+              expiresAt: result.expiresAt?.toISOString() ?? null,
+              holderId: result.holderId,
+              ownerId: result.ownerId,
+            },
+            type: 'lock.changed',
           },
-          type: 'lock.changed',
-        },
+        ),
       );
     }
 
@@ -462,13 +467,15 @@ export class DocumentService {
     // a bogus holderId:null would wrongly flip their viewers to editable.
     const released = await this.editLockService.release('document', id, ownerId);
     if (!released) return;
-    void publishResourceEvent(
-      { id, type: 'document' },
-      {
-        actorId: this.userId,
-        data: { expiresAt: null, holderId: null, ownerId: null },
-        type: 'lock.changed',
-      },
+    void trackTenantWork(() =>
+      publishResourceEvent(
+        { id, type: 'document' },
+        {
+          actorId: this.userId,
+          data: { expiresAt: null, holderId: null, ownerId: null },
+          type: 'lock.changed',
+        },
+      ),
     );
   }
 
@@ -857,9 +864,11 @@ export class DocumentService {
     // Notify other workspace members that the document changed so their open
     // editor refreshes immediately (best-effort; the heartbeat is the fallback).
     if (this.workspaceId && changed) {
-      void publishResourceEvent(
-        { id, type: 'document' },
-        { actorId: this.userId, type: 'doc.updated' },
+      void trackTenantWork(() =>
+        publishResourceEvent(
+          { id, type: 'document' },
+          { actorId: this.userId, type: 'doc.updated' },
+        ),
       );
     }
 

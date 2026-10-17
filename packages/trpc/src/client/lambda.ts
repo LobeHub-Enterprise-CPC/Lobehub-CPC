@@ -1,3 +1,4 @@
+import { stripTenantPath } from '@lobechat/business-tenant/routing';
 import { isRemoteServerNetworkError } from '@lobechat/types';
 import { type TRPCClientError, type TRPCLink } from '@trpc/client';
 import {
@@ -14,6 +15,7 @@ import { type ModelProvider } from 'model-bank';
 import superjson from 'superjson';
 
 import { isDesktop } from '@/const/version';
+import { isTenantUnavailableCode } from '@/features/Auth/utils/tenantUnavailable';
 import { type LambdaRouter } from '@/server/routers/lambda';
 
 const log = debug('lobe-image:lambda-client');
@@ -59,6 +61,14 @@ const errorHandlingLink: TRPCLink<LambdaRouter> = () => {
 
           if (!isAbortError) await rewriteUnreadableResponseMessage(err);
 
+          // A closed workspace is explained by the workspace-unavailable screen, and
+          // retrying cannot succeed until an administrator reopens it.
+          if (isTenantUnavailableCode(err.message)) {
+            err.meta = { ...err.meta, shouldRetry: false };
+            observer.error(err);
+            return;
+          }
+
           const showError = (op.context?.showNotification as boolean) ?? true;
           const status = err.data?.httpStatus as number;
 
@@ -99,7 +109,13 @@ const errorHandlingLink: TRPCLink<LambdaRouter> = () => {
                     // so skip the login redirect/notification there.
                     if (!isDesktop) {
                       const { getUserStoreState } = await import('@/store/user/store');
-                      const { isSignedIn, logout } = getUserStoreState();
+                      const { isSignedIn, isSigningOut, logout } = getUserStoreState();
+                      // Requests already in flight may settle after sign-out.
+                      // The intentional operation owns cleanup and its redirect.
+                      if (isSigningOut) {
+                        err.meta = { ...err.meta, shouldRetry: false };
+                        break;
+                      }
                       // If user is still marked as signed in but got 401,
                       // session is invalid - clear client state first
                       if (isSignedIn) {
@@ -167,7 +183,7 @@ const linkOptions = {
     let provider: ModelProvider | undefined;
     // for image page, we need to get the provider from the store
     log('Getting provider from store for image page: %s', location.pathname);
-    if (location.pathname === '/image') {
+    if (stripTenantPath(location.pathname) === '/image') {
       const { getImageStoreState } = await import('@/store/image');
       const { imageGenerationConfigSelectors } =
         await import('@/store/image/slices/generationConfig/selectors');

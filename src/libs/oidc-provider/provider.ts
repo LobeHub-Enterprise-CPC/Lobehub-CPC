@@ -1,15 +1,17 @@
 import { assertBusinessUserAccess, isBusinessAuthorizationError } from '@lobechat/business-auth';
 import type { LobeChatDatabase } from '@lobechat/database';
+import type { TenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 import type { Configuration, KoaContextWithOIDC } from 'oidc-provider';
 import Provider, { errors } from 'oidc-provider';
-import urlJoin from 'url-join';
 
 import { UserModel } from '@/database/models/user';
-import { appEnv } from '@/envs/app';
 import { getJWKS } from '@/libs/oidc-provider/jwt';
 import { OIDC_ISSUER_PATH, OIDC_ROUTES } from '@/libs/oidc-provider/routes';
+import { TENANT_ID_CLAIM } from '@/libs/trpc/utils/tenantBinding';
 import { normalizeLocale } from '@/locales/resources';
+import { findSlugEndpoint } from '@/server/modules/Tenant/endpoints';
+import { hasOtherOrganizations } from '@/server/services/tenantDiscovery/otherOrganizations';
 
 import { accessTokenTTL, isAcceptanceReviewClient, reviewResourceServer } from './acceptanceReview';
 import { isOIDCUserBanned } from './access-control';
@@ -17,10 +19,17 @@ import { DrizzleAdapter } from './adapter';
 import { defaultClaims, defaultClients, defaultScopes } from './config';
 import { getOIDCCookieKeys } from './cookies';
 import { createInteractionPolicy } from './interaction-policy';
+import { describeError } from './safe-log';
 
 const logProvider = debug('lobe-oidc:provider');
 
 export const API_AUDIENCE = 'urn:lobehub:chat';
+
+// Only the desktop client shows the organization-switch affordance this claim drives.
+const DESKTOP_CLIENT_ID = 'lobehub-desktop';
+
+// One deadline for every optional display claim of an id_token.
+const DISPLAY_CLAIMS_BUDGET_MS = 1000;
 
 const MINUTE_SECONDS = 60;
 const HOUR_SECONDS = 60 * MINUTE_SECONDS;
@@ -51,11 +60,73 @@ export const oidcArtifactTTL = {
 } satisfies NonNullable<Configuration['ttl']>;
 
 /**
+ * Display-only id_token claims, resolved under one shared deadline. Nothing here may delay or fail
+ * a sign-in or refresh: whatever has not answered when the budget is spent is left out (the
+ * desktop client reads a missing value as "unknown"), and the identity claims go out regardless.
+ *
+ * The organization name is read live rather than captured when the provider is created: providers
+ * are cached per tenant, slug and endpoint version, none of which change on a rename.
+ *
+ * Work still running at the deadline: the cross-organization lookup is cancelled (its connections
+ * are released and destroyed). The directory read is a shared, de-duplicated routing-cache fetch
+ * that other requests may be waiting on, so it is abandoned rather than cancelled; it ends on its
+ * own with the database statement timeout and returns its connection to the pool, and there is at
+ * most one per key at a time.
+ */
+const resolveDisplayClaims = async (
+  slug: string,
+  tenantId: string,
+  otherOrganizationsEmail: string | undefined,
+): Promise<Record<string, string | boolean>> => {
+  const budget = new AbortController();
+  const timer = setTimeout(() => budget.abort(), DISPLAY_CLAIMS_BUDGET_MS);
+  const expired = new Promise<never>((_, reject) =>
+    budget.signal.addEventListener('abort', () => reject(new Error('DISPLAY_CLAIMS_TIMEOUT')), {
+      once: true,
+    }),
+  );
+  expired.catch(() => {});
+  const bounded = <T>(work: () => Promise<T>) =>
+    Promise.race([work(), expired]).catch((error: unknown) => {
+      logProvider('Optional id_token claim skipped: %s', describeError(error));
+      return undefined;
+    });
+
+  try {
+    const [organization, others] = await Promise.all([
+      bounded(() => findSlugEndpoint(slug)),
+      otherOrganizationsEmail
+        ? bounded(() =>
+            hasOtherOrganizations(otherOrganizationsEmail, tenantId, { signal: budget.signal }),
+          )
+        : undefined,
+    ]);
+
+    const claims: Record<string, string | boolean> = {};
+    if (organization?.tenantId === tenantId) {
+      if (organization.name) claims.tenant_name = organization.name;
+      if (organization.slug) claims.tenant_slug = organization.slug;
+    }
+    // `undefined` is "unknown": the client must not read it as "no".
+    if (others !== undefined) claims.has_other_organizations = others;
+    return claims;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+/**
  * Create OIDC Provider instance
  * @param db - Database instance
  * @returns Configured OIDC Provider instance
  */
-export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider> => {
+export const createOIDCProvider = async (
+  db: LobeChatDatabase,
+  { endpoint, slug, tenantId }: Pick<TenantScope, 'endpoint' | 'slug' | 'tenantId'>,
+): Promise<Provider> => {
+  // Routes, cookies and redirects live under the tenant's active entry.
+  const tenantPath = (path: string) =>
+    path === '/' ? endpoint.basePath || '/' : `${endpoint.basePath}${path}`;
   // Get JWKS
   const jwks = getJWKS();
 
@@ -101,7 +172,30 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
     },
 
     // 1. Client configuration
-    clients: defaultClients,
+    clients: defaultClients.map((client) =>
+      client.client_id === 'lobehub-desktop'
+        ? {
+            ...client,
+            redirect_uris: [
+              ...new Set([
+                ...(client.redirect_uris ?? []),
+                `${endpoint.publicUrl}/oidc/callback/desktop`,
+              ]),
+            ],
+            post_logout_redirect_uris: [
+              ...new Set([
+                ...(client.post_logout_redirect_uris ?? []),
+                `${endpoint.publicUrl}/oauth/logout`,
+              ]),
+            ],
+          }
+        : client,
+    ),
+
+    // Tenants share one signing key, so the JWT access token itself must say
+    // which tenant issued it; `validateOIDCJWT` rejects any other tenant. The id
+    // is fixed when this tenant's provider is created, not read per request.
+    extraTokenClaims: async () => ({ [TENANT_ID_CLAIM]: tenantId }),
 
     // Added: ensure ID Token includes claims for all scopes, not just openid scope
     conformIdTokenClaims: false,
@@ -109,8 +203,8 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
     // 7. Cookie configuration
     cookies: {
       keys: cookieKeys,
-      long: { path: '/', signed: true },
-      short: { path: '/', signed: true },
+      long: { path: tenantPath('/'), signed: true },
+      short: { path: tenantPath('/'), signed: true },
     },
 
     // 5. Features configuration
@@ -123,7 +217,7 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
         enabled: true,
         mask: '****-****',
         successSource: async (ctx) => {
-          ctx.redirect('/oauth/device/success');
+          ctx.redirect(tenantPath('/oauth/device/success'));
         },
         userCodeConfirmSource: async (ctx, form, client, deviceInfo, userCode) => {
           const xsrf = (ctx.oidc.session as any)?.state?.secret;
@@ -132,7 +226,7 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
           params.set('user_code', userCode);
           params.set('client_name', client.clientName || client.clientId);
           params.set('client_id', client.clientId);
-          ctx.redirect(`/oauth/device/confirm?${params.toString()}`);
+          ctx.redirect(tenantPath(`/oauth/device/confirm?${params.toString()}`));
         },
         userCodeInputSource: async (ctx, form, out, err) => {
           const xsrf = (ctx.oidc.session as any)?.state?.secret;
@@ -142,7 +236,7 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
             params.set('error', err.message || 'Unknown error');
             if ((err as any).userCode) params.set('user_code', (err as any).userCode);
           }
-          ctx.redirect(`/oauth/device?${params.toString()}`);
+          ctx.redirect(tenantPath(`/oauth/device?${params.toString()}`));
         },
       },
       introspection: { enabled: true },
@@ -216,11 +310,7 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
 
       try {
         const user = await UserModel.findById(db, accountIdToFind);
-        logProvider(
-          'UserModel.findById result for %s: %O',
-          accountIdToFind,
-          user ? { id: user.id, name: user.username } : null,
-        );
+        logProvider('UserModel.findById found a user for %s: %s', accountIdToFind, !!user);
 
         if (!user) {
           logProvider('No user found for accountId: %s', accountIdToFind);
@@ -254,15 +344,30 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
               claims.email_verified = !!user.emailVerifiedAt;
             }
 
-            logProvider('Returning claims: %O', claims);
+            // Display text for the desktop confirmation card; the id_token is the only carrier,
+            // so neither userinfo nor access tokens expose the organization.
+            if (use === 'id_token') {
+              // The client is read from the live request: claims() is not handed one.
+              const desktop = ctx.oidc?.client?.clientId === DESKTOP_CLIENT_ID;
+              Object.assign(
+                claims,
+                await resolveDisplayClaims(
+                  slug,
+                  tenantId,
+                  desktop ? user.email || undefined : undefined,
+                ),
+              );
+            }
+
+            logProvider('Returning claims: %s', Object.keys(claims).join(','));
             return claims;
           },
         };
       } catch (error) {
         if (isBusinessAuthorizationError(error))
           throw Object.assign(error, { statusCode: error.status, expose: true });
-        logProvider('Error finding account or generating claims: %O', error);
-        console.error('Error finding account:', error);
+        logProvider('Error finding account or generating claims: %s', describeError(error));
+        console.error(`Error finding account: ${describeError(error)}`);
         throw Object.assign(new Error('AUTHORIZATION_UNAVAILABLE', { cause: error }), {
           code: 'AUTHORIZATION_UNAVAILABLE',
           status: 503,
@@ -278,7 +383,6 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
       url(ctx, interaction) {
         // ---> Add logs <---
         logProvider('interactions.url function called');
-        logProvider('Interaction details: %O', interaction);
 
         // Read the ui_locales parameter from the OIDC request (space-separated language priorities)
         // https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
@@ -296,8 +400,8 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
           logProvider('No ui_locales provided in authorization request');
         }
 
-        const interactionUrl = `/oauth/consent/${interaction.uid}${query}`;
-        logProvider('Generated interaction URL: %s', interactionUrl);
+        const interactionUrl = tenantPath(`/oauth/consent/${interaction.uid}${query}`);
+        logProvider('Generated interaction URL');
         // ---> End of added logs <---
         return interactionUrl;
       },
@@ -317,13 +421,13 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
     // on a dedicated page instead of a raw JSON dump. Only the spec-defined
     // `error` and `error_description` travel along; `state` stays behind.
     renderError: async (ctx, out, error) => {
-      logProvider('renderError: %O', error);
+      logProvider('renderError: %s', describeError(error));
 
       const params = new URLSearchParams();
       if (out.error) params.set('error', String(out.error));
       if (out.error_description) params.set('error_description', String(out.error_description));
 
-      ctx.redirect(`/oauth/error?${params.toString()}`);
+      ctx.redirect(tenantPath(`/oauth/error?${params.toString()}`));
     },
 
     // Added: enable refresh token rotation
@@ -333,7 +437,9 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
     // mounted under it and the adapter hands it the untouched pathname. A route
     // left at its default (e.g. `/jwks`) is therefore unreachable: the request
     // arrives as `/oidc/jwks` and the provider answers 404.
-    routes: { ...OIDC_ROUTES },
+    routes: Object.fromEntries(
+      Object.entries(OIDC_ROUTES).map(([key, value]) => [key, tenantPath(value)]),
+    ),
     // 3. Scopes definition
     scopes: defaultScopes,
 
@@ -345,14 +451,15 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
   };
 
   // Create provider instance
-  const baseUrl = urlJoin(appEnv.APP_URL!, OIDC_ISSUER_PATH);
+  // Future activation UI must warn that changing the active entry changes issuer and migrates clients.
+  const baseUrl = `${endpoint.publicUrl}${OIDC_ISSUER_PATH}`;
 
   const provider = new Provider(baseUrl, configuration);
   provider.proxy = true;
 
   provider.on('server_error', (ctx, err) => {
-    logProvider('OIDC Provider Server Error: %O', err); // Use logProvider
-    console.error('OIDC Provider Error:', err);
+    logProvider('OIDC Provider Server Error: %s', describeError(err)); // Use logProvider
+    console.error(`OIDC Provider Error: ${describeError(err)}`);
   });
 
   provider.on('authorization.success', (ctx) => {
@@ -386,12 +493,11 @@ export const createOIDCProvider = async (db: LobeChatDatabase): Promise<Provider
     );
   });
 
-  provider.on('grant.revoked', (ctx, grantId) => {
+  provider.on('grant.revoked', (ctx) => {
     console.warn(
       '[OIDC] grant revoked',
       JSON.stringify({
         clientId: ctx.oidc?.client?.clientId,
-        grantId,
         grantType: ctx.oidc?.params?.grant_type,
       }),
     );

@@ -1,5 +1,6 @@
 import type { LobeChatDatabase } from '@lobechat/database';
 import { oidcSessions } from '@lobechat/database/schemas';
+import { currentTenantScope } from '@lobechat/database/tenant';
 import { eq } from 'drizzle-orm';
 
 import {
@@ -25,7 +26,7 @@ const expireOIDCSessionCookies = (context: OIDCSessionCookieContext) => {
     context.setCookie(name, '', {
       expires: new Date(0),
       httpOnly: true,
-      path: '/',
+      path: currentTenantScope()?.endpoint.basePath || '/',
     });
   }
 };

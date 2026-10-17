@@ -10,9 +10,17 @@ import {
   deriveAgentInterventionContinuationOperationId,
   deriveAgentInterventionQueueDeduplicationId,
 } from '@/business/server/agent-run/agentInterventionIdentity';
+import type * as TenantBinding from '@/libs/trpc/utils/tenantBinding';
 
 import { aiAgentRouter, dispatchClaimedAgentIntervention } from '../aiAgent';
 import { cleanupTestUser, createTestUser } from './integration/setup';
+
+// Operation tokens are bound to the tenant of the request by their `tid` claim
+// (covered in heteroOperationAuth.test.ts); these tests run outside a tenant scope.
+vi.mock('@/libs/trpc/utils/tenantBinding', async (importOriginal) => ({
+  ...(await importOriginal<typeof TenantBinding>()),
+  isBoundToCurrentTenant: () => true,
+}));
 
 const business = vi.hoisted(() => ({
   getHeteroInterventionReview: vi.fn(),
@@ -155,7 +163,7 @@ describe('aiAgentRouter — remote Human-in-the-loop', () => {
       },
       userId,
     } as any);
-  // Exec leg from a token minted before operation-bound claims were deployed.
+  // Exec leg from a token minted before operation-bound claims existed (now refused).
   const legacyHeteroCaller = (sub: string) =>
     aiAgentRouter.createCaller({
       jwtPayload: { userId: sub },
@@ -1743,35 +1751,17 @@ describe('aiAgentRouter — remote Human-in-the-loop', () => {
   });
 
   describe('waitInterventionResponse ownership guard', () => {
-    it('lets a pre-deploy operation token read an operation owned by its subject', async () => {
+    // Tokens minted before operation-bound claims existed are no longer honoured: an
+    // operation token must carry the full contract (and its tenant), never the owner path.
+    it('rejects an operation token without the operation claims', async () => {
       await insertOperation('op-legacy-owned', userId);
-      await userCaller().submitHeteroIntervention({
-        operationId: 'op-legacy-owned',
-        result: { answer: 'yes' },
-        toolCallId: 't-legacy-own',
-      });
-
-      const res = await legacyHeteroCaller(userId).waitInterventionResponse({
-        lastEventId: '0',
-        operationId: 'op-legacy-owned',
-      });
-
-      expect(res.events).toHaveLength(1);
-      expect(res.events[0].data).toMatchObject({ toolCallId: 't-legacy-own' });
-    });
-
-    it("rejects a pre-deploy operation token reading another user's operation", async () => {
-      const otherUserId = await createTestUser(serverDB);
-      await insertOperation('op-legacy-others', otherUserId);
 
       await expect(
         legacyHeteroCaller(userId).waitInterventionResponse({
           lastEventId: '0',
-          operationId: 'op-legacy-others',
+          operationId: 'op-legacy-owned',
         }),
-      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-
-      await cleanupTestUser(serverDB, otherUserId);
+      ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
     });
 
     it('lets an owner token read its own operation', async () => {

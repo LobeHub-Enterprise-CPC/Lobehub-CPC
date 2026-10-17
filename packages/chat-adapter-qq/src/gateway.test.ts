@@ -109,6 +109,32 @@ describe('QQGatewayConnection', () => {
     return { ...result, connectPromise, ws };
   }
 
+  it('waits for socket close and admitted webhook work before reporting shutdown', async () => {
+    const { conn, connectPromise, ws } = await connectAndGetWs();
+    ws.simulateMessage({ op: 0, t: 'READY', d: { session_id: 'session' } });
+    await connectPromise;
+    let finishRequest!: (response: Response) => void;
+    vi.mocked(fetch).mockReturnValue(
+      new Promise((resolve) => {
+        finishRequest = resolve;
+      }),
+    );
+    ws.simulateMessage({ op: 0, t: 'MESSAGE_CREATE', d: {} });
+    vi.spyOn(ws, 'close').mockImplementation(() => {});
+    let stopped = false;
+    const stopping = Promise.resolve(conn.close()).then(() => {
+      stopped = true;
+    });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+    ws.emit('close', { code: 1000, reason: 'shutdown' });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+    finishRequest(new Response('ok'));
+    await stopping;
+    expect(stopped).toBe(true);
+  });
+
   describe('connect', () => {
     it('should fetch gateway URL and open WebSocket', async () => {
       const { api, connectPromise, ws } = await connectAndGetWs();

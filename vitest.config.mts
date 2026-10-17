@@ -18,10 +18,11 @@ if (process.env.NODE_ENV === 'production') {
 if (!process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER) {
   const enterpriseMigrationsFolder = resolve(
     __dirname,
-    '../packages/enterprise/src/database/migrations',
+    '../packages/enterprise/src/database/migrations/tenant',
   );
   if (existsSync(enterpriseMigrationsFolder)) {
     process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER = enterpriseMigrationsFolder;
+    process.env.TEST_DB_EXTRA_MIGRATIONS_SCHEMA = 'tenant_template';
   }
 }
 
@@ -174,7 +175,10 @@ export default defineConfig({
   test: {
     alias,
     env: process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER
-      ? { TEST_DB_EXTRA_MIGRATIONS_FOLDER: process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER }
+      ? {
+          TEST_DB_EXTRA_MIGRATIONS_FOLDER: process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER,
+          TEST_DB_EXTRA_MIGRATIONS_SCHEMA: process.env.TEST_DB_EXTRA_MIGRATIONS_SCHEMA,
+        }
       : undefined,
     coverage: {
       exclude: [

@@ -1,3 +1,4 @@
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { Block, Flexbox, Icon } from '@lobehub/ui';
 import { Avatar, Tag, Text } from '@lobehub/ui/base-ui';
 import { createStaticStyles } from 'antd-style';
@@ -95,7 +96,7 @@ const AssistantItem = memo<DiscoverAssistantItem>(
         // Open the public author profile outside the current workspace scope.
         if (userName) {
           window.open(
-            resolveCommunityProfileLink(userName, ownerType),
+            withCurrentTenantPath(resolveCommunityProfileLink(userName, ownerType)),
             '_blank',
             'noopener,noreferrer',
           );

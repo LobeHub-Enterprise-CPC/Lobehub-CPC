@@ -1803,7 +1803,11 @@ describe('ChatService', () => {
         request({ channel: 'llmcall:user-1:abcdefgh', headers: {} }),
       );
       const relayedError = {
-        error: { message: "model 'gpt-oss:20b' not found", name: 'ResponseError', status_code: 404 },
+        error: {
+          message: "model 'gpt-oss:20b' not found",
+          name: 'ResponseError',
+          status_code: 404,
+        },
         errorType: 'OllamaBizError',
         provider: 'ollama',
       };

@@ -9,6 +9,11 @@ import { ModelResolverService } from '@/server/services/comfyui/core/modelResolv
 import { WorkflowBuilderService } from '@/server/services/comfyui/core/workflowBuilderService';
 import { WorkflowDetector } from '@/server/services/comfyui/utils/workflowDetector';
 
+const mockSsrfSafeFetch = vi.hoisted(() => vi.fn());
+
+// img2img source URLs are user input and must go through the SSRF-safe transport
+vi.mock('@lobechat/ssrf-safe-fetch', () => ({ ssrfSafeFetch: mockSsrfSafeFetch }));
+
 // Mock dependencies
 vi.mock('@/server/services/comfyui/core/comfyUIClientService');
 vi.mock('@/server/services/comfyui/core/modelResolverService');
@@ -58,9 +63,8 @@ describe('ImageService', () => {
       handleError: vi.fn(),
     };
 
-    // Mock global fetch
-    mockFetch = vi.fn();
-    global.fetch = mockFetch;
+    mockFetch = mockSsrfSafeFetch;
+    mockFetch.mockReset();
 
     // Setup mocks for constructor
     vi.mocked(ComfyUIClientService, true).mockImplementation(function () {

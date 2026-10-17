@@ -1,5 +1,6 @@
 'use client';
 
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { isDesktop } from '@lobechat/const';
 import { Flexbox, Icon } from '@lobehub/ui';
 import { Button, Input, Text, toast } from '@lobehub/ui/base-ui';
@@ -8,7 +9,6 @@ import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import urlJoin from 'url-join';
 
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { changeEmail } from '@/libs/better-auth/auth-client';
 import { electronSystemService } from '@/services/electron/system';
 import { useUserStore } from '@/store/user';
@@ -25,7 +25,7 @@ const EmailRow = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
   const [saving, setSaving] = useState(false);
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
 
   const handleStartEdit = () => {
     setEditValue('');

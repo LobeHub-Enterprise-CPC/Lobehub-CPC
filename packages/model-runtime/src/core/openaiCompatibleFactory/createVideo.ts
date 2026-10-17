@@ -40,13 +40,13 @@ interface OpenAIVideoStatusResponse {
  */
 export async function queryOpenAICompatibleVideoStatus(
   inferenceId: string,
-  options: { apiKey: string; baseURL: string },
+  options: { apiKey: string; baseURL: string; fetch?: typeof fetch },
 ): Promise<OpenAIVideoStatusResponse> {
   const statusUrl = `${options.baseURL}/videos/${inferenceId}`;
 
   log('Querying video status for: %s', inferenceId);
 
-  const response = await fetch(statusUrl, {
+  const response = await (options.fetch ?? fetch)(statusUrl, {
     headers: {
       'Authorization': `Bearer ${options.apiKey}`,
       'Content-Type': 'application/json',
@@ -71,7 +71,7 @@ export async function queryOpenAICompatibleVideoStatus(
  */
 export async function pollOpenAICompatibleVideoStatus(
   inferenceId: string,
-  options: { apiKey: string; baseURL: string },
+  options: { apiKey: string; baseURL: string; fetch?: typeof fetch },
 ): Promise<PollVideoStatusResult> {
   const response = await queryOpenAICompatibleVideoStatus(inferenceId, options);
 
@@ -161,7 +161,7 @@ export async function createOpenAICompatibleVideo(
 
   log('OpenAI-compatible video API request body: %O', body);
 
-  const response = await fetch(`${baseURL}/videos`, {
+  const response = await (options.fetch ?? fetch)(`${baseURL}/videos`, {
     body: JSON.stringify(body),
     headers: {
       'Authorization': `Bearer ${options.apiKey}`,

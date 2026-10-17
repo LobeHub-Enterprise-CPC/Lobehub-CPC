@@ -1,20 +1,8 @@
-import { CURRENT_VERSION } from '@lobechat/const';
-import { type CallReportRequest } from '@lobehub/market-types';
-
-import { DiscoverService } from '@/server/services/discover';
-import { after } from '@/server/utils/scheduleAfterResponse';
-
-/**
- * Calculate byte size of object
- */
-const calculateObjectSizeBytes = (obj: unknown): number => {
-  try {
-    const jsonString = JSON.stringify(obj);
-    return new TextEncoder().encode(jsonString).length;
-  } catch {
-    return 0;
-  }
-};
+import {
+  beginToolCallTelemetry,
+  type ToolCallTelemetry,
+  type ToolCallTelemetryInput,
+} from '@/server/services/marketTelemetry';
 
 export interface ToolCallReportMeta {
   customPluginInfo?: {
@@ -22,90 +10,69 @@ export interface ToolCallReportMeta {
     description?: string;
     name?: string;
   };
+  /**
+   * The client's id for this invocation, kept across transport retries of the
+   * same call. Without it the call cannot be told apart from a repeat of it, so
+   * the server treats the request as an independent execution.
+   */
+  executionId?: string;
   isCustomPlugin?: boolean;
   sessionId?: string;
   version?: string;
 }
 
-export interface ScheduleToolCallReportParams {
-  /** Error code if call failed */
-  errorCode?: string;
-  /** Error message if call failed */
-  errorMessage?: string;
+/** The slice of the tRPC context a report needs. */
+export interface ToolCallReportContext {
+  /** Only used by a deployment without tenants; see `reportMarketTelemetry`. */
+  marketAccessToken?: string;
+  serverDB?: ToolCallTelemetryInput['context']['serverDB'];
+  /** What the `telemetry` middleware decided for this user. */
+  telemetryEnabled?: boolean;
+  userId?: string | null;
+}
+
+export interface BeginToolCallReportParams {
+  context: ToolCallReportContext;
   /** Plugin/tool identifier */
   identifier: string;
-  /** Market access token for reporting */
-  marketAccessToken?: string;
   /** MCP connection type */
   mcpType: string;
-  /** Metadata for reporting */
   meta?: ToolCallReportMeta;
-  /** Request payload for size calculation */
+  /** Request payload; only its size is reported. */
   requestPayload: unknown;
-  /** Result for size calculation */
-  result?: unknown;
-  /** Start time of the call */
-  startTime: number;
-  /** Whether the call was successful */
-  success: boolean;
-  /** Whether telemetry is enabled */
-  telemetryEnabled: boolean;
   /** Tool/method name */
   toolName: string;
 }
 
 /**
- * Schedule a tool call report to be sent after the response.
+ * Foreground tool-call reporting for the tRPC procedures the web and desktop
+ * clients call. It only translates the request into the shared execution
+ * boundary (`beginToolCallTelemetry`), which owns the event identity, the
+ * outcome, whether and how to report, and scheduling after the response. Call it
+ * where the call starts and `complete` where its outcome is known.
  */
-export function scheduleToolCallReport(params: ScheduleToolCallReportParams): void {
-  const {
-    telemetryEnabled,
-    marketAccessToken,
-    startTime,
-    success,
-    errorCode,
-    errorMessage,
-    result,
-    meta,
+export const beginToolCallReport = ({
+  context,
+  identifier,
+  mcpType,
+  meta,
+  requestPayload,
+  toolName,
+}: BeginToolCallReportParams): ToolCallTelemetry => {
+  const { executionId, ...descriptorMeta } = meta ?? {};
+
+  return beginToolCallTelemetry({
+    context: {
+      marketAccessToken: context.marketAccessToken,
+      serverDB: context.serverDB,
+      telemetryEnabled: context.telemetryEnabled,
+      userId: context.userId,
+    },
+    executionId,
     identifier,
-    toolName,
     mcpType,
+    meta: descriptorMeta,
+    methodName: toolName,
     requestPayload,
-  } = params;
-
-  // Only report when telemetry is enabled and marketAccessToken exists
-  if (!telemetryEnabled || !marketAccessToken) return;
-
-  after(async () => {
-    try {
-      const callDurationMs = Date.now() - startTime;
-      const requestSizeBytes = calculateObjectSizeBytes(requestPayload);
-      const responseSizeBytes = success && result ? calculateObjectSizeBytes(result) : 0;
-
-      const reportData: CallReportRequest = {
-        callDurationMs,
-        customPluginInfo: meta?.customPluginInfo,
-        errorCode,
-        errorMessage,
-        identifier,
-        isCustomPlugin: meta?.isCustomPlugin,
-        metadata: {
-          appVersion: CURRENT_VERSION,
-          mcpType,
-        },
-        methodName: toolName,
-        methodType: 'tool',
-        requestSizeBytes,
-        responseSizeBytes,
-        sessionId: meta?.sessionId,
-        success,
-        version: meta?.version || 'unknown',
-      };
-
-      const discoverService = new DiscoverService({ accessToken: marketAccessToken });
-      await discoverService.reportCall(reportData);
-    } catch (reportError) {
-      console.error('Failed to report tool call: %O', reportError);
-    }
   });
-}
+};

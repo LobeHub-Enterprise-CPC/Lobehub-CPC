@@ -144,12 +144,14 @@ const provider: GenericProviderDefinition<{
         // 1. Admin hasn't enabled "Allow OpenAPI to access email field" in Feishu admin console
         // 2. User hasn't bound an email in Feishu
         // 3. User's email changes later (which would cause account mismatch)
-        const email = profile.email || profile.enterprise_email || `${unionId}@feishu.sso`;
+        // Only the enterprise email is assigned by the organisation's Feishu admin;
+        // the personal email and the union_id fallback are not verified addresses.
+        const email = profile.enterprise_email || profile.email || `${unionId}@feishu.sso`;
 
         return {
           ...profile,
           email,
-          emailVerified: false,
+          emailVerified: !!profile.enterprise_email,
           id: unionId,
           image:
             profile.avatar_url ??

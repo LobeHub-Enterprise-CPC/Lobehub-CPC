@@ -1,3 +1,4 @@
+import { currentTenantScope } from '@lobechat/database/tenant';
 import type { ChannelJobBlockCode, ChannelMemberConfig } from '@lobechat/types';
 import { CHANNEL_LIMITS } from '@lobechat/types';
 import debug from 'debug';
@@ -85,7 +86,7 @@ export class ChannelWorker {
             if (!config)
               throw new Error('Run execution environment is missing; migration is required');
             const model = new ChannelModel(this.db, channel.ownerId);
-            const enabled = isChannelEnabled();
+            const enabled = await isChannelEnabled(channel.ownerId);
             if (!run.publicationRevoked && (!enabled || channel.archived || !memberActive))
               await model.stop(channel.id, { runId: run.id });
             // A stuck device turn would otherwise hold the member queue and its discussion forever.
@@ -193,7 +194,7 @@ export class ChannelWorker {
         .limit(20);
       const routingResults = await Promise.allSettled(
         pending.map(async ({ message, ownerId }) => {
-          if (!isChannelEnabled()) return;
+          if (!(await isChannelEnabled(ownerId))) return;
           return routeChannelMessage(
             new ChannelModel(this.db, ownerId),
             message.channelId,
@@ -214,7 +215,7 @@ export class ChannelWorker {
           ),
         );
       for (const item of discussing) {
-        if (!isChannelEnabled()) continue;
+        if (!(await isChannelEnabled(item.ownerId))) continue;
         // One broken discussion must not stall every other Channel's dispatch and health.
         try {
           await new ChannelModel(this.db, item.ownerId).advanceDiscussions(item.channelId);
@@ -273,7 +274,7 @@ export class ChannelWorker {
         if (until <= now) this.probeBackoff.delete(jobId);
       const jobResults = await Promise.allSettled(
         jobs.map(async ({ job, channel, config, revision }) => {
-          if (!isChannelEnabled() || this.probeBackoff.has(job.id)) return;
+          if (this.probeBackoff.has(job.id) || !(await isChannelEnabled(channel.ownerId))) return;
           const model = new ChannelModel(this.db, channel.ownerId);
           let agentId: string | undefined;
           let block: { code: ChannelJobBlockCode; reason: string } | undefined;
@@ -379,10 +380,23 @@ export class ChannelWorker {
   ) {
     const artifactRunIds = await resolveChannelArtifactRunIds(this.db, ownerId, run);
     const abort = new AbortController();
+    // The run outlives the tick (and its tenant scope). Registering it keeps the tenant's
+    // claim, so its later transactions are admitted, and lets a freeze or removal of the
+    // tenant abort it; the registration ends only once the run has fully settled.
+    let settle = () => {};
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    const untrack = currentTenantScope()?.trackWork?.({
+      close: () => abort.abort(),
+      settled,
+    });
     const done = this.native(model, ownerId, run, config, { agentId, artifactRunIds }, abort)
       .catch((error) => log('Native execution settlement deferred: run=%s error=%s', run.id, error))
       .finally(() => {
         this.active.delete(run.id);
+        settle();
+        untrack?.();
       });
     this.active.set(run.id, { abort, done });
   }

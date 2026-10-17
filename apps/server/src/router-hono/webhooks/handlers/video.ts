@@ -26,6 +26,7 @@ import { GenerationModel } from '@/database/models/generation';
 import { generationBatches } from '@/database/schemas';
 import { getServerDB } from '@/database/server';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { confirmExternalTenantWork } from '@/server/modules/Tenant/externalWork';
 import { GenerationService } from '@/server/services/generation';
 import { VideoGenerationService } from '@/server/services/generation/video';
 import { measureVideoOutputUsage } from '@/server/services/generation/videoOutputUsage';
@@ -238,6 +239,7 @@ export const videoWebhook = async (c: Context<BlankEnv, '/video/:provider'>) => 
       result = webhookResult;
     }
 
+    await confirmExternalTenantWork('video', asyncTask.id, { result });
     const claimed = await AsyncTaskModel.claimVideoCompletion(
       db,
       asyncTask.id,

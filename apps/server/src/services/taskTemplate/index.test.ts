@@ -37,6 +37,11 @@ vi.mock('@/envs/app', () => ({
   appEnv: mockAppEnv,
 }));
 
+// Identity assembly has its own tests; here the service only needs one to sign with.
+vi.mock('@/libs/trusted-client/resolveIdentity', () => ({
+  resolveMarketServiceIdentity: vi.fn(async ({ userId }: { userId: string }) => ({ userId })),
+}));
+
 const template = {
   category: 'engineering',
   connectors: [],

@@ -5,8 +5,9 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { ConnectorModel } from '@/database/models/connector';
 import { ConnectorToolModel } from '@/database/models/connectorTool';
 import { serverDB } from '@/database/server';
-import { appEnv } from '@/envs/app';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { exchangeConnectorCode, toClientInformation } from '@/server/services/connector/oauth';
 import { consumeConnectorOAuthState } from '@/server/services/connector/stateStore';
 import { syncConnectorToolsById } from '@/server/services/connector/sync';
@@ -15,13 +16,7 @@ import { tokensToCredentials } from '@/server/services/connector/tokens';
 const log = debug('lobe-server:connector:oauth-callback');
 
 /** Origin allowed to receive the postMessage result (the app itself). */
-const targetOrigin = (): string => {
-  try {
-    return appEnv.APP_URL ? new URL(appEnv.APP_URL).origin : '*';
-  } catch {
-    return '*';
-  }
-};
+const targetOrigin = (): string => new URL(tenantPublicBaseUrl()).origin;
 
 /**
  * Serialize a value for safe embedding inside an inline `<script>`. Plain
@@ -86,7 +81,7 @@ const renderFailure = (error: string, cause?: unknown): NextResponse => {
   return renderResultPage({ error, success: false });
 };
 
-export const GET = async (req: NextRequest) => {
+const handleGet = async (req: NextRequest) => {
   const searchParams = req.nextUrl.searchParams;
   const code = searchParams.get('code');
   const state = searchParams.get('state');
@@ -182,3 +177,5 @@ export const GET = async (req: NextRequest) => {
     return renderFailure(message, err);
   }
 };
+
+export const GET = withTenantRequest(handleGet);

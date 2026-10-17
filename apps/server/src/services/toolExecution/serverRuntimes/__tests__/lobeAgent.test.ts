@@ -85,8 +85,14 @@ vi.mock('@/business/client/model-bank/loadModels', () => ({
   loadModels: vi.fn().mockResolvedValue(mockBuiltinModels),
 }));
 
-vi.mock('model-bank', () => ({
+vi.mock('model-bank', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   LOBE_DEFAULT_MODEL_LIST: mockBuiltinModels,
+}));
+
+// The model comes from the tools env below; tenant settings are covered in globalConfig.
+vi.mock('@lobechat/business-config/tenant-settings', () => ({
+  loadTenantSettings: vi.fn(async () => undefined),
 }));
 
 vi.mock('sharp', async (importOriginal) => {

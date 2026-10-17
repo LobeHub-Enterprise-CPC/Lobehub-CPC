@@ -1,13 +1,16 @@
 'use client';
 
 import { Block, Flexbox } from '@lobehub/ui';
-import { Button, Text } from '@lobehub/ui/base-ui';
+import { Alert, Button, Text } from '@lobehub/ui/base-ui';
 import React, { memo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useHref } from 'react-router';
 
 import AuthCard from '@/features/AuthCard';
 import type { OidcClientMetadata, OidcInteractionDetailsResponse } from '@/types/oidc';
 
+import { isDesktopClientId } from '../../desktopAuth';
+import { isAutoApprovedClient } from '../consentPolicy';
 import OAuthApplicationLogo from '../OAuthApplicationLogo';
 import ThirdPartyNotice from '../ThirdPartyNotice';
 import BuiltinConsent from './BuiltinConsent';
@@ -28,11 +31,10 @@ function getScopeDescription(scope: string, t: any): string {
   return t(`consent.scope.${scope.replace(':', '-')}`, scope);
 }
 
-const BUILTIN_CLIENTS = new Set(['lobehub-desktop', 'lobehub-mobile', 'lobehub-market']);
-
 const ConsentClient = memo<ClientProps>(
   ({ acceptanceReview, uid, clientId, scopes, clientMetadata }) => {
-    const { t } = useTranslation('oauth');
+    const { t } = useTranslation(['oauth', 'auth']);
+    const action = useHref('/oidc/consent');
 
     const [isLoading, setIsLoading] = useState(false);
     const consentInputRef = useRef<HTMLInputElement>(null);
@@ -40,7 +42,7 @@ const ConsentClient = memo<ClientProps>(
     const clientDisplayName = clientMetadata?.clientName || clientId;
     const reviewDenied = acceptanceReview?.allowed === false;
 
-    if (BUILTIN_CLIENTS.has(clientId)) {
+    if (isAutoApprovedClient(clientId)) {
       return <BuiltinConsent uid={uid} />;
     }
 
@@ -56,7 +58,7 @@ const ConsentClient = memo<ClientProps>(
           subtitle={t('consent.description', { clientName: clientDisplayName })}
           title={t('consent.title', { clientName: clientDisplayName })}
           footer={
-            <form action="/oidc/consent" method="post" style={{ width: '100%' }}>
+            <form action={action} method="post" style={{ width: '100%' }}>
               <input name="uid" type="hidden" value={uid} />
               <input defaultValue="accept" name="consent" ref={consentInputRef} type="hidden" />
               <Flexbox gap={12}>
@@ -89,6 +91,14 @@ const ConsentClient = memo<ClientProps>(
             </form>
           }
         >
+          {isDesktopClientId(clientId) && (
+            <Flexbox gap={8} style={{ marginBottom: 16 }}>
+              <Alert showIcon description={t('consent.desktop.notice')} type={'warning'} />
+              <Text fontSize={13} type={'secondary'}>
+                {t('auth:organization.desktop.switchHint')}
+              </Text>
+            </Flexbox>
+          )}
           {clientMetadata.isFirstParty === false && (
             <Flexbox style={{ marginBottom: 16 }}>
               <ThirdPartyNotice

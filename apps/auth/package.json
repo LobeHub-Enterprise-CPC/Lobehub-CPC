@@ -10,6 +10,9 @@
     "preview": "wrangler dev",
     "type-check": "tsc --noEmit"
   },
+  "dependencies": {
+    "@lobechat/business-tenant": "workspace:*"
+  },
   "devDependencies": {
     "@ant-design/cssinjs": "^2.1.2",
     "@react-router/dev": "^8.3.0",

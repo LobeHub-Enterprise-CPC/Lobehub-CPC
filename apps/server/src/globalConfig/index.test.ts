@@ -1,45 +1,34 @@
 import type * as BusinessConst from '@lobechat/business-const';
+import type * as BusinessModelConfig from '@lobechat/business-model-bank/model-config';
 import { type LobeDefaultAiModelListItem, ModelProvider } from 'model-bank';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { loadModels } from '@/business/client/model-bank/loadModels';
 import type * as AppEnv from '@/envs/app';
 import { getAppConfig } from '@/envs/app';
-import { type SystemEmbeddingConfig } from '@/types/knowledgeBase';
-import { type FilesConfigItem } from '@/types/user/settings/filesConfig';
 
-import {
-  getServerAiProviderConfig,
-  getServerDefaultAgentConfig,
-  getServerDefaultFilesConfig,
-} from './index';
+import { getServerAiProviderConfig, getServerDefaultAgentConfig } from './index';
 import { parseAgentConfig } from './parseDefaultAgent';
-import { parseFilesConfig } from './parseFilesConfig';
 
 vi.mock('@lobechat/business-const', async (importOriginal) => ({
   ...(await importOriginal<typeof BusinessConst>()),
   ENABLE_BUSINESS_FEATURES: true,
 }));
 
-vi.mock('@lobechat/business-model-bank/model-config', () => ({ loadModels: vi.fn() }));
+vi.mock('@lobechat/business-model-bank/model-config', async (importOriginal) => ({
+  ...(await importOriginal<typeof BusinessModelConfig>()),
+  // Business builds gate server-default models per user; the catalog under test is open to all.
+  isLobeHubModelAvailable: vi.fn().mockResolvedValue(true),
+  loadModels: vi.fn(),
+}));
 
 vi.mock('@/envs/app', async (importOriginal) => ({
   ...(await importOriginal<typeof AppEnv>()),
   getAppConfig: vi.fn(),
 }));
 
-vi.mock('@/envs/knowledge', () => ({
-  knowledgeEnv: {
-    DEFAULT_FILES_CONFIG: 'test_config',
-  },
-}));
-
 vi.mock('./parseDefaultAgent', () => ({
   parseAgentConfig: vi.fn(),
-}));
-
-vi.mock('./parseFilesConfig', () => ({
-  parseFilesConfig: vi.fn(),
 }));
 
 describe('getServerAiProviderConfig', () => {
@@ -146,32 +135,5 @@ describe('getServerDefaultAgentConfig', () => {
     const result = getServerDefaultAgentConfig();
 
     expect(result).toEqual({});
-  });
-});
-
-describe('getServerDefaultFilesConfig', () => {
-  it('should return parsed files config', () => {
-    const mockEmbeddingModel: FilesConfigItem = {
-      model: 'test-model',
-      provider: 'test-provider',
-    };
-
-    const mockRerankerModel: FilesConfigItem = {
-      model: 'test-reranker',
-      provider: 'test-provider',
-    };
-
-    const mockConfig: SystemEmbeddingConfig = {
-      embeddingModel: mockEmbeddingModel,
-      queryMode: 'hybrid',
-      rerankerModel: mockRerankerModel,
-    };
-
-    vi.mocked(parseFilesConfig).mockReturnValue(mockConfig);
-
-    const result = getServerDefaultFilesConfig();
-
-    expect(parseFilesConfig).toHaveBeenCalledWith('test_config');
-    expect(result).toEqual(mockConfig);
   });
 });

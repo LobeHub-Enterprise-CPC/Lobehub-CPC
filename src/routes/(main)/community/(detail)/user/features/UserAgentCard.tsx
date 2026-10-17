@@ -1,5 +1,6 @@
 'use client';
 
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import {
   Block,
   DropdownMenu,
@@ -38,6 +39,7 @@ import { type AgentStatus, type DiscoverAssistantItem } from '@/types/discover';
 import { formatIntergerNumber } from '@/utils/format';
 
 import { useUserDetailContext } from './DetailProvider';
+import { resolveItemRights } from './itemRights';
 
 const getStatusTagColor = (status?: AgentStatus) => {
   switch (status) {
@@ -129,11 +131,19 @@ const UserAgentCard = memo<UserAgentCardProps>(
     status,
     identifier,
     isValidated,
+    canEdit: marketCanEdit,
+    canUnpublish: marketCanUnpublish,
   }) => {
     const { t } = useTranslation(['discover', 'setting']);
     const navigate = useWorkspaceAwareNavigate();
 
-    const { isOwner, onStatusChange } = useUserDetailContext();
+    const { isOwner: isProfileOwner, onStatusChange } = useUserDetailContext();
+    // Per item: Market says what this user may do with it (see `resolveItemRights`).
+    const rights = resolveItemRights(
+      { canEdit: marketCanEdit, canUnpublish: marketCanUnpublish },
+      isProfileOwner,
+    );
+    const hasItemActions = rights.canEdit || rights.canUnpublish;
     const { allowed: canCreate } = usePermission('create_content');
     const { allowed: canEdit } = usePermission('edit_own_content');
     const activeWorkspaceId = useActiveWorkspaceId();
@@ -154,7 +164,7 @@ const UserAgentCard = memo<UserAgentCardProps>(
     const isUnderReview = isValidated === false;
 
     const handleViewDetail = useCallback(() => {
-      window.open(urlJoin('/community/agent', identifier), '_blank');
+      window.open(withCurrentTenantPath(urlJoin('/community/agent', identifier)), '_blank');
     }, [identifier]);
 
     const handleEdit = useCallback(async () => {
@@ -208,7 +218,16 @@ const UserAgentCard = memo<UserAgentCardProps>(
       } finally {
         setIsEditLoading(false);
       }
-    }, [canCreate, canEdit, identifier, navigate, createAgent, refreshAgentList, t]);
+    }, [
+      activeWorkspaceId,
+      canCreate,
+      canEdit,
+      identifier,
+      navigate,
+      createAgent,
+      refreshAgentList,
+      t,
+    ]);
 
     const handleStatusAction = useCallback(
       (action: 'deprecate') => {
@@ -218,7 +237,7 @@ const UserAgentCard = memo<UserAgentCardProps>(
       [canEdit, identifier, onStatusChange],
     );
 
-    const menuItems = isOwner
+    const menuItems = hasItemActions
       ? [
           {
             icon: <Icon icon={ExternalLink} />,
@@ -226,24 +245,32 @@ const UserAgentCard = memo<UserAgentCardProps>(
             label: t('setting:myAgents.actions.viewDetail'),
             onClick: handleViewDetail,
           },
-          {
-            disabled: !canEdit || !canCreate,
-            icon: <Icon icon={Pencil} />,
-            key: 'edit',
-            label: t('setting:myAgents.actions.edit'),
-            onClick: handleEdit,
-          },
-          {
-            type: 'divider' as const,
-          },
-          {
-            danger: true,
-            disabled: !canEdit,
-            icon: <Icon icon={AlertTriangle} />,
-            key: 'deprecate',
-            label: t('setting:myAgents.actions.deprecate'),
-            onClick: () => handleStatusAction('deprecate'),
-          },
+          ...(rights.canEdit
+            ? [
+                {
+                  disabled: !canEdit || !canCreate,
+                  icon: <Icon icon={Pencil} />,
+                  key: 'edit',
+                  label: t('setting:myAgents.actions.edit'),
+                  onClick: handleEdit,
+                },
+              ]
+            : []),
+          ...(rights.canUnpublish
+            ? [
+                {
+                  type: 'divider' as const,
+                },
+                {
+                  danger: true,
+                  disabled: !canEdit,
+                  icon: <Icon icon={AlertTriangle} />,
+                  key: 'deprecate',
+                  label: t('setting:myAgents.actions.deprecate'),
+                  onClick: () => handleStatusAction('deprecate'),
+                },
+              ]
+            : []),
         ]
       : [];
 
@@ -261,7 +288,7 @@ const UserAgentCard = memo<UserAgentCardProps>(
         }}
         onClick={() => navigate(link)}
       >
-        {isOwner && !isUnderReview && (
+        {hasItemActions && !isUnderReview && (
           <div onClick={stopPropagation}>
             <DropdownMenu items={menuItems as any}>
               <div className={cx('more-button', styles.moreButton)}>
@@ -314,7 +341,7 @@ const UserAgentCard = memo<UserAgentCardProps>(
                     {t('assistant.underReview', { defaultValue: 'Under Review' })}
                   </AntTag>
                 ) : (
-                  isOwner &&
+                  hasItemActions &&
                   status && (
                     <AntTag color={getStatusTagColor(status)} style={{ flexShrink: 0, margin: 0 }}>
                       {t(`setting:myAgents.status.${status}`)}

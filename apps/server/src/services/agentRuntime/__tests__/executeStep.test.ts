@@ -13,6 +13,9 @@ import { AgentRuntimeService } from '../AgentRuntimeService';
 import { CriticalAgentInterventionPersistenceError } from '../CompletionLifecycle';
 import { hookDispatcher } from '../hooks';
 
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 // Mock all heavy dependencies to isolate executeStep logic
 vi.mock('@/envs/app', () => ({ appEnv: { APP_URL: 'http://localhost:3010' } }));
 vi.mock('@/database/models/message', () => ({

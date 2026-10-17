@@ -22,6 +22,26 @@ describe('app URLs', () => {
     ).toBe('https://app.example.com/Lobe%20Hub/goal/goal-1');
   });
 
+  it.each([
+    ['https://host/t/acme', 'https://host/t/acme/goal/goal-1'],
+    ['https://host/t/acme/', 'https://host/t/acme/goal/goal-1'],
+    ['https://custom.host', 'https://custom.host/goal/goal-1'],
+    ['https://custom.host/', 'https://custom.host/goal/goal-1'],
+  ])('keeps the tenant path of the server %s', (serverUrl, expected) => {
+    expect(buildAppUrl({ pathname: '/goal/goal-1', serverUrl })).toBe(expected);
+    expect(buildAppUrl({ pathname: 'goal/goal-1', serverUrl })).toBe(expected);
+  });
+
+  it('places the workspace slug below the tenant path', () => {
+    expect(
+      buildAppUrl({
+        pathname: '/goal/goal-1',
+        serverUrl: 'https://host/t/acme',
+        workspaceSlug: 'lobehub',
+      }),
+    ).toBe('https://host/t/acme/lobehub/goal/goal-1');
+  });
+
   it('does not fetch workspace context in personal mode', async () => {
     vi.mocked(resolveWorkspaceId).mockReturnValue(undefined);
     const query = vi.fn();

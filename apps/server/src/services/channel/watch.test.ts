@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ChannelModel } from '@/database/models/channel';
@@ -36,5 +37,26 @@ describe('Channel shared snapshots', () => {
     expect(load).toHaveBeenCalledTimes(3);
     await first.return();
     await second.return();
+  });
+  it('does not reuse snapshots across tenants for the same owner and channel', async () => {
+    const inTenant = <T>(tenantId: string, fn: () => T) =>
+      runWithTenantScope({ session: {}, slug: tenantId, tenantId } as unknown as TenantScope, fn);
+    const loadOf = (revision: string) =>
+      vi.fn().mockResolvedValue({ revision, navigationRevision: 'nav' } satisfies Revision);
+    const loadA = loadOf('tenant-a-data');
+    const loadB = loadOf('tenant-b-data');
+
+    const a = inTenant('tenant-a', () => watchChannel('owner:channel', loadA));
+    const b = inTenant('tenant-b', () => watchChannel('owner:channel', loadB));
+    const [first, second] = await Promise.all([
+      inTenant('tenant-a', () => a.next()),
+      inTenant('tenant-b', () => b.next()),
+    ]);
+
+    expect(first.value).toMatchObject({ revision: 'tenant-a-data' });
+    expect(second.value).toMatchObject({ revision: 'tenant-b-data' });
+    expect(loadB).toHaveBeenCalledTimes(1);
+    await a.return();
+    await b.return();
   });
 });

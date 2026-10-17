@@ -31,8 +31,8 @@ import { TaskModel } from '@/database/models/task';
 import { UserModel } from '@/database/models/user';
 import { WorkspaceModel } from '@/database/models/workspace';
 import { WorkspaceMemberModel } from '@/database/models/workspaceMember';
-import { appEnv } from '@/envs/app';
 import { formatPgError, unwrapPgError } from '@/server/modules/AgentRuntime/pgError';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 import { taskRouter } from '@/server/routers/lambda/task';
 import { TaskService } from '@/server/services/task';
 import { after } from '@/server/utils/scheduleAfterResponse';
@@ -97,7 +97,7 @@ export const createTaskRuntime = (deps: TaskRuntimeDeps) => {
   // in the path too or the link resolves to the wrong (personal) scope. The
   // factory supplies the workspace-aware resolver; fall back to the bare origin.
   const taskLinkBaseUrl = async (): Promise<string> =>
-    (await deps.resolveLinkBaseUrl?.()) ?? appEnv.APP_URL.replace(/\/$/, '');
+    (await deps.resolveLinkBaseUrl?.()) ?? tenantPublicBaseUrl();
 
   const resolveAssigneeAgent = async (assigneeAgentId?: string | null) => {
     if (!assigneeAgentId) return { success: true } as const;
@@ -972,7 +972,7 @@ export const taskRuntime: ServerRuntimeRegistration = {
     let workspaceId: string | undefined;
     let slugPromise: Promise<string | undefined> | undefined;
     const resolveLinkBaseUrl = async (): Promise<string> => {
-      const origin = appEnv.APP_URL.replace(/\/$/, '');
+      const origin = tenantPublicBaseUrl();
       if (!workspaceId) return origin;
       slugPromise ??= new WorkspaceModel(db, userId)
         .findById(workspaceId)

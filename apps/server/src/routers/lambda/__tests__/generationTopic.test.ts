@@ -11,6 +11,11 @@ vi.mock('@/database/models/generationTopic');
 vi.mock('@/server/services/file');
 vi.mock('@/server/services/generation');
 
+const getFeatureFlags = vi.hoisted(() => vi.fn());
+vi.mock('@/server/featureFlags', () => ({
+  getServerFeatureFlagsStateFromRuntimeConfig: getFeatureFlags,
+}));
+
 describe('generationTopicRouter', () => {
   const mockCtx = {
     userId: 'test-user',
@@ -19,6 +24,38 @@ describe('generationTopicRouter', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    getFeatureFlags.mockResolvedValue({ showAiImage: true });
+  });
+
+  it.each([undefined, { type: 'image' as const }])(
+    'refuses creating image topics when ai_image is disabled (%s)',
+    async (input) => {
+      getFeatureFlags.mockResolvedValue({ showAiImage: false });
+      const create = vi.fn().mockResolvedValue({ id: 'new-topic' });
+      vi.mocked(GenerationTopicModel).mockImplementation(function () {
+        return { create } as any;
+      });
+      await expect(
+        generationTopicRouter.createCaller(mockCtx).createTopic(input),
+      ).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: 'Image generation is not enabled for this account',
+      });
+      expect(getFeatureFlags).toHaveBeenCalledWith(mockCtx.userId);
+      expect(create).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps video topic creation available when ai_image is disabled', async () => {
+    getFeatureFlags.mockResolvedValue({ showAiImage: false });
+    const create = vi.fn().mockResolvedValue({ id: 'video-topic' });
+    vi.mocked(GenerationTopicModel).mockImplementation(function () {
+      return { create } as any;
+    });
+    await expect(
+      generationTopicRouter.createCaller(mockCtx).createTopic({ type: 'video' }),
+    ).resolves.toBe('video-topic');
+    expect(create).toHaveBeenCalledWith('', 'video', undefined);
   });
 
   it('should create a new topic', async () => {
@@ -84,6 +121,7 @@ describe('generationTopicRouter', () => {
   });
 
   it('should get all generation topics', async () => {
+    getFeatureFlags.mockResolvedValue({ showAiImage: false });
     const mockTopics: GenerationTopicItem[] = [
       {
         id: 'topic-1',
@@ -130,6 +168,7 @@ describe('generationTopicRouter', () => {
   });
 
   it('should update a topic', async () => {
+    getFeatureFlags.mockResolvedValue({ showAiImage: false });
     const mockTopicId = 'topic-123';
     const mockUpdateValue = {
       title: 'Updated Title',
@@ -182,6 +221,7 @@ describe('generationTopicRouter', () => {
   });
 
   it('should update topic cover', async () => {
+    getFeatureFlags.mockResolvedValue({ showAiImage: false });
     const mockTopicId = 'topic-123';
     const mockCoverUrl = 'https://example.com/cover.jpg';
     const mockNewCoverKey = 'generations/covers/new-cover-key.webp';
@@ -260,6 +300,7 @@ describe('generationTopicRouter', () => {
   });
 
   it('should delete a topic without cover', async () => {
+    getFeatureFlags.mockResolvedValue({ showAiImage: false });
     const mockTopicId = 'topic-123';
     const mockDeletedTopic = {
       id: mockTopicId,

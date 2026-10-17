@@ -1,3 +1,5 @@
+import type { TenantContext } from '@lobechat/business-tenant/routing';
+
 import type { IFeatureFlags } from '@/config/featureFlags';
 import type { GlobalServerConfig } from '@/types/serverConfig';
 
@@ -25,18 +27,25 @@ export interface SPAClientEnv {
   s3FilePath?: string;
 }
 
+export type DesktopFlowStatus = 'ready' | 'invalid' | 'expired' | 'unavailable';
+
 export interface AuthSPAServerConfig {
   analyticsConfig: AnalyticsConfig;
+  appUrl: string;
   config: GlobalServerConfig;
+  desktopFlow?: { status: DesktopFlowStatus };
   enableOIDC: boolean;
   featureFlags: Partial<IFeatureFlags>;
   globalCDN?: boolean;
+  tenant?: TenantContext;
 }
 
 export interface SPAServerConfig {
   analyticsConfig: AnalyticsConfig;
+  appUrl?: string;
   clientEnv: SPAClientEnv;
   config: GlobalServerConfig;
   featureFlags: Partial<IFeatureFlags>;
   isMobile: boolean;
+  tenant?: TenantContext;
 }

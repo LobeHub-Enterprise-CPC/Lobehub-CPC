@@ -7,6 +7,7 @@ import {
   type LarkRawMessage,
   toFeishuEmojiType,
 } from '@lobechat/chat-adapter-feishu';
+import { currentTenantScope, trackTenantWork } from '@lobechat/database/tenant';
 import type { Chat as ChatBot, Message } from 'chat';
 import debug from 'debug';
 
@@ -488,6 +489,11 @@ class FeishuWSClientImpl implements PlatformClient {
   private bot: ChatBot<any> | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  private stopping = false;
+  private starting?: Promise<void>;
+  private closing?: Promise<void>;
+  private releaseTenant?: () => void;
+  private settleTenant?: () => void;
   /** Lazy-cached LarkApiClient — keeps the tenant token cache hot across calls. */
   private _api?: LarkApiClient;
 
@@ -511,6 +517,27 @@ class FeishuWSClientImpl implements PlatformClient {
   }
 
   async start(options?: GatewayListenerOptions): Promise<void> {
+    if (this.stopping) throw new Error('BOT_STOP_IN_PROGRESS');
+    if (this.starting) return this.starting;
+    if (!this.releaseTenant) {
+      const track = currentTenantScope()?.trackWork;
+      if (track) {
+        const settled = new Promise<void>((resolve) => {
+          this.settleTenant = resolve;
+        });
+        this.releaseTenant = track({ close: () => this.stop(), settled });
+      }
+    }
+    const work = this.startNow(options);
+    this.starting = work;
+    try {
+      await work;
+    } finally {
+      if (this.starting === work) this.starting = undefined;
+    }
+  }
+
+  private async startNow(options?: GatewayListenerOptions): Promise<void> {
     log('Starting FeishuClient (ws) appId=%s domain=%s', this.applicationId, this.domain);
 
     this.stopped = false;
@@ -527,7 +554,7 @@ class FeishuWSClientImpl implements PlatformClient {
 
     try {
       if (this.bot) {
-        await this.bot.shutdown().catch(() => {});
+        await this.bot.shutdown();
         this.bot = null;
       }
 
@@ -579,8 +606,10 @@ class FeishuWSClientImpl implements PlatformClient {
             this.applicationId,
             durationMs / 3_600_000,
           );
-          this.gateway?.close();
-          this.start().catch((err) => {
+          trackTenantWork(async () => {
+            await this.gateway?.close();
+            await this.start();
+          }).catch((err) => {
             log('Failed to refresh FeishuClient appId=%s: %O', this.applicationId, err);
           });
         }, durationMs);
@@ -611,26 +640,50 @@ class FeishuWSClientImpl implements PlatformClient {
   }
 
   async stop(): Promise<void> {
-    log('Stopping FeishuClient (ws) appId=%s', this.applicationId);
+    if (this.closing) return this.closing;
+    const work = this.stopNow().then(() => {
+      this.settleTenant?.();
+      this.releaseTenant?.();
+      this.settleTenant = undefined;
+      this.releaseTenant = undefined;
+    });
+    this.closing = work;
+    try {
+      await work;
+    } finally {
+      if (this.closing === work) this.closing = undefined;
+    }
+  }
+
+  private async stopNow(): Promise<void> {
+    this.stopping = true;
     this.stopped = true;
-    if (this.refreshTimer) {
-      clearTimeout(this.refreshTimer);
-      this.refreshTimer = null;
+    try {
+      await this.starting?.catch(() => undefined);
+
+      log('Stopping FeishuClient (ws) appId=%s', this.applicationId);
+      this.stopped = true;
+      if (this.refreshTimer) {
+        clearTimeout(this.refreshTimer);
+        this.refreshTimer = null;
+      }
+      await this.gateway?.close();
+      this.gateway = null;
+      if (this.bot) {
+        await this.bot.shutdown();
+        this.bot = null;
+      }
+      await updateBotRuntimeStatus(
+        {
+          applicationId: this.applicationId,
+          platform: this.id,
+          status: BOT_RUNTIME_STATUSES.disconnected,
+        },
+        { redisClient: this.context.redisClient as any },
+      );
+    } finally {
+      this.stopping = false;
     }
-    this.gateway?.close();
-    this.gateway = null;
-    if (this.bot) {
-      await this.bot.shutdown().catch(() => {});
-      this.bot = null;
-    }
-    await updateBotRuntimeStatus(
-      {
-        applicationId: this.applicationId,
-        platform: this.id,
-        status: BOT_RUNTIME_STATUSES.disconnected,
-      },
-      { redisClient: this.context.redisClient as any },
-    );
   }
 
   createAdapter(): Record<string, any> {

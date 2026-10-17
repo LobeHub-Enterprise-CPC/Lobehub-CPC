@@ -1,5 +1,6 @@
 'use client';
 
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { Flexbox } from '@lobehub/ui';
 import { Alert, Button, Tag } from '@lobehub/ui/base-ui';
 import { type FormInstance, useWatch } from '@lobehub/ui/base-ui/form';
@@ -8,7 +9,6 @@ import { RefreshCw, Trash2 } from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import type { SerializedPlatformDefinition } from '@/server/services/bot/platforms/types';
 
 import type { ChannelFormValues, CurrentConfig, TestResult } from './index';
@@ -119,7 +119,7 @@ const Footer = memo<FooterProps>(
     onCopied,
   }) => {
     const { t } = useTranslation('agent');
-    const origin = useAppOrigin();
+    const origin = useAppBaseUrl();
     const platformId = platformDef.id;
     const applicationId = useWatch(form, 'applicationId');
 

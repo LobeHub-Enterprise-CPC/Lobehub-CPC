@@ -121,6 +121,11 @@ PostgreSQL 写入
 
 ## 使用 Docker Compose 运行 Elasticsearch
 
+每个租户有自己的数据和自己的索引。捕获触发器安装（`db:install-fts-search-capture`）和重建索引
+（`fts-search-reindex`，Docker 启动时也会执行）会按租户目录对每个启用中的租户各执行一次：每个租户使用
+`ES_INDEX_NAMESPACE` 加租户哈希作为索引命名空间，进度保存在 `ES_REINDEX_STATE_DIR` 下各自的目录里。
+加 `--tenant <id>` 可以只处理一个租户。
+
 `docker-compose/deploy/docker-compose.yml` 中的可选服务都由 Compose profile 控制，默认的
 `docker compose up` 既不会下载也不会启动它们：
 

@@ -24,25 +24,17 @@ interface PageExplorerProps {
  * Work together with a sidebar @/features/Pages/PageLayout/Body
  */
 const PageExplorer = memo<PageExplorerProps>(({ pageId, header, fullWidthHeader, rightPanel }) => {
+  const { revalidate: refreshPageDetail } = pageActions.useFetchPageDetail(pageId);
+  const handleMetadataSaved = useCallback(() => {
+    void Promise.all([refreshPageDetail(), pageActions.refreshDocuments()]).catch(() => {
+      // The store reports read errors; a failed refresh must not reject a completed save.
+    });
+  }, [refreshPageDetail]);
+
   // Get document title and emoji from PageStore
   const document = usePageStore(pageSelectors.getDocumentById(pageId));
   const title = document?.title;
   const emoji = document?.metadata?.emoji as string | undefined;
-
-  // Optimistic update handlers for title and emoji
-  const handleTitleChange = useCallback(
-    (newTitle: string) => {
-      pageActions.updatePageOptimistically(pageId, { title: newTitle });
-    },
-    [pageId],
-  );
-
-  const handleEmojiChange = useCallback(
-    (newEmoji: string | undefined) => {
-      pageActions.updatePageOptimistically(pageId, { emoji: newEmoji });
-    },
-    [pageId],
-  );
 
   return (
     <PageEditor
@@ -53,8 +45,8 @@ const PageExplorer = memo<PageExplorerProps>(({ pageId, header, fullWidthHeader,
       pageId={pageId}
       rightPanel={rightPanel}
       title={title}
-      onEmojiChange={handleEmojiChange}
-      onTitleChange={handleTitleChange}
+      onEmojiChange={handleMetadataSaved}
+      onTitleChange={handleMetadataSaved}
     />
   );
 });

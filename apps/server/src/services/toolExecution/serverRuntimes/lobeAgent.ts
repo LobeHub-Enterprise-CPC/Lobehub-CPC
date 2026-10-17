@@ -29,7 +29,7 @@ import { nanoid } from '@lobechat/utils';
 import { parseDataUri } from '@lobechat/utils/uriParser';
 
 import { MessageModel } from '@/database/models/message';
-import { toolsEnv } from '@/envs/tools';
+import { getServerSystemModels } from '@/server/globalConfig/systemModels';
 import { getAgentRuntimeRedisClient } from '@/server/modules/AgentRuntime/redis';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
 import { FileService } from '@/server/services/file';
@@ -445,15 +445,16 @@ class LobeAgentExecutionRuntime {
   };
 
   analyzeMedia = async (params: AnalyzeMediaParams): Promise<BuiltinServerRuntimeOutput> => {
-    const provider = toolsEnv.MULTIMODAL_UNDERSTANDING_PROVIDER;
-    const model = toolsEnv.MULTIMODAL_UNDERSTANDING_MODEL;
+    const { multimodalUnderstanding } = await getServerSystemModels();
 
-    if (!provider || !model) {
+    if (!multimodalUnderstanding) {
       return buildError(
-        'Multimodal understanding is not configured. Set MULTIMODAL_UNDERSTANDING_PROVIDER and MULTIMODAL_UNDERSTANDING_MODEL.',
+        'Multimodal understanding is not configured by the administrator.',
         'MULTIMODAL_UNDERSTANDING_NOT_CONFIGURED',
       );
     }
+
+    const { imageFormats, model, provider } = multimodalUnderstanding;
 
     if (!params.question || typeof params.question !== 'string') {
       return buildError('question is required.', 'INVALID_ARGUMENTS');
@@ -579,10 +580,7 @@ class LobeAgentExecutionRuntime {
     let modelItems = selectedItems;
     if (hasImages) {
       try {
-        modelItems = await normalizeMultimodalImageItems(
-          selectedItems,
-          toolsEnv.MULTIMODAL_UNDERSTANDING_IMAGE_FORMATS,
-        );
+        modelItems = await normalizeMultimodalImageItems(selectedItems, imageFormats);
       } catch (error) {
         console.error('Failed to prepare images for multimodal understanding:', {
           name: error instanceof Error ? error.name : 'UnknownError',

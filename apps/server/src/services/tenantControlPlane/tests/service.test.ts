@@ -1,0 +1,944 @@
+import { TenantDatabaseError } from '@lobechat/database/tenant';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { DatasourceBundle, LifecycleRequest, ProvisionRequest } from '../contracts';
+import { LifecycleFailure } from '../contracts';
+import { redactDatasourceBundle, tenantDbNames } from '../datasource';
+import { MemoryControlPlaneRepository } from '../memoryRepository';
+import {
+  effectiveTenantState,
+  type LifecycleHooks,
+  TenantControlPlaneService,
+  type TenantDatabaseExecutor,
+} from '../service';
+
+const TENANT = '7a0c3d2e-1111-4222-8333-944455556666';
+const NOW = new Date('2026-10-08T00:00:00.000Z');
+
+const bundle = (tenantId = TENANT, over: Partial<DatasourceBundle> = {}): DatasourceBundle => {
+  const names = tenantDbNames(tenantId);
+  return {
+    connectionVersion: 1,
+    credentialBundleVersion: 1,
+    database: 'lobehub',
+    datasourceKind: 'lobehub',
+    deploymentRef: 'default',
+    host: 'pg-1.db.internal',
+    mode: 'shared_schema',
+    port: 5432,
+    runtimeCredential: { password: 'run-secret', username: names.runtimeUsername },
+    schemaName: names.schemaName,
+    schemaOwner: {
+      password: 'owner-secret',
+      role: names.ownerUsername,
+      username: names.ownerUsername,
+    },
+    schemaVersion: 1,
+    tenantId,
+    tls: { enabled: true, rejectUnauthorized: true },
+    ...over,
+  };
+};
+
+const provision = (over: Partial<ProvisionRequest> = {}): ProvisionRequest => ({
+  datasource: bundle(over.tenantId ?? TENANT),
+  name: 'Acme',
+  operationId: 'root-1:lobehub',
+  rootOperationId: 'root-1',
+  slug: 'acme',
+  tenantId: TENANT,
+  ...over,
+});
+
+const lifecycle = (over: Partial<LifecycleRequest> = {}): LifecycleRequest => ({
+  desiredState: 'frozen',
+  eventId: 'evt-1',
+  expiresAt: null,
+  freezeReasons: ['manual'],
+  occurredAt: NOW.toISOString(),
+  tenantId: TENANT,
+  version: 1,
+  ...over,
+});
+
+const hooks = (): LifecycleHooks => ({
+  closeRealtime: vi.fn(async () => {}),
+  drainTransactions: vi.fn(async () => {}),
+  invalidateCaches: vi.fn(async () => {}),
+  resumeQueue: vi.fn(async () => {}),
+  stopQueue: vi.fn(async () => {}),
+});
+
+const database = () =>
+  ({
+    checkOwnership: vi.fn(async () => {}),
+    migrate: vi.fn(async () => {}),
+    seed: vi.fn(async () => {}),
+    verify: vi.fn(async () => {}),
+    verifyDiscovery: vi.fn(async () => {}),
+  }) satisfies TenantDatabaseExecutor;
+
+/** The checks Console runs on every lifecycle result (RESPONSE_MISMATCH otherwise). */
+const assertConsoleInvariants = (
+  r: Awaited<ReturnType<TenantControlPlaneService['receiveLifecycle']>>,
+) => {
+  expect(r.appliedVersion).toBeLessThanOrEqual(r.acceptedVersion);
+  expect(r.acceptedVersion).toBeGreaterThanOrEqual(r.version);
+  if (r.status === 'superseded') expect(r.acceptedVersion).toBeGreaterThan(r.version);
+  if (r.status === 'applied') expect(r.appliedVersion).toBeGreaterThanOrEqual(r.version);
+};
+
+let repo: MemoryControlPlaneRepository;
+let db: ReturnType<typeof database>;
+let service: TenantControlPlaneService;
+
+const makeService = (isRegistrableSlug = (slug: string) => slug !== 'admin') =>
+  new TenantControlPlaneService({
+    database: db,
+    isRegistrableSlug,
+    now: () => NOW,
+    repository: repo,
+  });
+
+beforeEach(() => {
+  repo = new MemoryControlPlaneRepository();
+  db = database();
+  service = makeService();
+});
+
+const provisionApplied = async (request = provision()) => {
+  await service.receiveProvision(request);
+  return service.executeProvision(request.tenantId, request.operationId);
+};
+
+describe('receiveProvision', () => {
+  it('records a new operation as received and keeps its bundle for the executor', async () => {
+    const result = await service.receiveProvision(provision());
+    expect(result).toMatchObject({ datasourceReady: false, errorCode: null, status: 'received' });
+    expect(repo.operations.get('root-1:lobehub')!.step).toBe('ownership');
+    expect(repo.operationBundles.get('root-1:lobehub')).toEqual(bundle());
+  });
+
+  it('keeps passwords out of the operation record', async () => {
+    await service.receiveProvision(provision());
+    expect(JSON.stringify([...repo.operations.values()])).not.toContain('secret');
+  });
+
+  it('returns the same result for an identical retry without new side effects', async () => {
+    await service.receiveProvision(provision());
+    await service.receiveProvision(provision());
+    expect(repo.operations.size).toBe(1);
+  });
+
+  it('treats a retry that only changes passwords as the same request', async () => {
+    await service.receiveProvision(provision());
+    const changed = bundle(TENANT, {
+      runtimeCredential: { ...bundle().runtimeCredential, password: 'rotated' },
+    });
+    const result = await service.receiveProvision(provision({ datasource: changed }));
+    expect(result.status).toBe('received');
+  });
+
+  it('refuses the same operation id with different input', async () => {
+    await service.receiveProvision(provision());
+    await expect(service.receiveProvision(provision({ name: 'Other' }))).rejects.toMatchObject({
+      code: 'VERSION_CONFLICT',
+      status: 409,
+    });
+    await expect(
+      service.receiveProvision(provision({ datasource: bundle(TENANT, { port: 6543 }) })),
+    ).rejects.toMatchObject({ code: 'VERSION_CONFLICT', status: 409 });
+  });
+
+  it('fails a reserved slug without creating anything to provision', async () => {
+    const result = await service.receiveProvision(provision({ slug: 'admin' }));
+    expect(result).toMatchObject({ errorCode: 'TENANT_INVALID', status: 'failed' });
+    expect(repo.operationBundles.size).toBe(0);
+  });
+
+  it.each<[string, Partial<DatasourceBundle>]>([
+    ['a schema not derived from the tenant id', { schemaName: 'tenant_acme' }],
+    ['an unsupported schema version', { schemaVersion: 99 }],
+    ['an Admin bundle', { datasourceKind: 'admin' }],
+  ])('fails %s with DATASOURCE_INVALID before any DB work', async (_, over) => {
+    const result = await service.receiveProvision(provision({ datasource: bundle(TENANT, over) }));
+    expect(result).toMatchObject({ errorCode: 'DATASOURCE_INVALID', status: 'failed' });
+    expect(repo.operationBundles.size).toBe(0);
+    await service.executeProvision(TENANT, 'root-1:lobehub');
+    expect(db.checkOwnership).not.toHaveBeenCalled();
+    expect(db.migrate).not.toHaveBeenCalled();
+  });
+
+  it('trusts whatever database host Console sends', async () => {
+    const result = await service.receiveProvision(
+      provision({ datasource: bundle(TENANT, { host: '10.20.30.40' }) }),
+    );
+    expect(result).toMatchObject({ errorCode: null, status: 'received' });
+  });
+
+  it('re-validates a failed validation on retry, so a fixed deployment lets it through', async () => {
+    service = makeService(() => false);
+    await service.receiveProvision(provision());
+    service = makeService();
+    const result = await service.receiveProvision(provision());
+    expect(result).toMatchObject({ errorCode: null, status: 'received' });
+    expect(repo.operationBundles.has('root-1:lobehub')).toBe(true);
+  });
+
+  it('requeues a failed operation when Console re-posts it, at the step that failed', async () => {
+    db.migrate.mockRejectedValueOnce(new Error('postgres://lh:pw@host failed'));
+    const failed = await provisionApplied();
+    expect(failed).toMatchObject({ errorCode: 'TENANT_PROVISION_FAILED', status: 'failed' });
+
+    const result = await service.receiveProvision(provision());
+    expect(result).toMatchObject({ errorCode: null, status: 'received' });
+    expect(repo.operations.get('root-1:lobehub')!.step).toBe('migrate');
+  });
+
+  it('refuses a second operation for an already provisioned tenant', async () => {
+    await provisionApplied();
+    await expect(
+      service.receiveProvision(
+        provision({ operationId: 'root-2:lobehub', rootOperationId: 'root-2' }),
+      ),
+    ).rejects.toMatchObject({ code: 'TENANT_INVALID', status: 409 });
+  });
+
+  it('refuses a slug another tenant already holds', async () => {
+    await service.receiveProvision(provision());
+    await expect(
+      service.receiveProvision(
+        provision({ operationId: 'other:lobehub', rootOperationId: 'other', tenantId: 'other' }),
+      ),
+    ).rejects.toMatchObject({ code: 'TENANT_INVALID', status: 409 });
+  });
+
+  it('keeps a freshly provisioned tenant closed until Console activates it', async () => {
+    await provisionApplied();
+    const overview = await service.getOverview(TENANT);
+    expect(overview).toMatchObject({ effectiveState: 'offline', readiness: 'ready' });
+  });
+});
+
+describe('executeProvision', () => {
+  it('does not execute an operation already leased by another executor', async () => {
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    db.migrate.mockImplementationOnce(async () => {
+      started.resolve();
+      await release.promise;
+    });
+    await service.receiveProvision(provision());
+    const first = service.executeProvision(TENANT, 'root-1:lobehub');
+    await started.promise;
+    try {
+      expect((await service.executeProvision(TENANT, 'root-1:lobehub')).status).toBe('applying');
+      expect(db.migrate).toHaveBeenCalledTimes(1);
+    } finally {
+      release.resolve();
+      await first;
+    }
+  });
+
+  it('does not let an expired executor overwrite a newer completed attempt', async () => {
+    let now = NOW;
+    const current = new TenantControlPlaneService({
+      database: db,
+      repository: repo,
+      isRegistrableSlug: () => true,
+      now: () => now,
+    });
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    db.checkOwnership.mockImplementationOnce(async () => {
+      started.resolve();
+      await release.promise;
+      throw new Error('late failure');
+    });
+    await current.receiveProvision(provision());
+    const first = current.executeProvision(TENANT, 'root-1:lobehub');
+    await started.promise;
+    now = new Date(NOW.getTime() + 10 * 60_000);
+    expect((await current.executeProvision(TENANT, 'root-1:lobehub')).status).toBe('applied');
+    release.resolve();
+    expect((await first).status).toBe('applied');
+    expect((await current.getProvision(TENANT, 'root-1:lobehub')).status).toBe('applied');
+  });
+
+  it('runs every step in order, registers the directory and reports applied', async () => {
+    const order: string[] = [];
+    for (const [name, fn] of Object.entries(db))
+      fn.mockImplementation(async () => void order.push(name));
+
+    const result = await provisionApplied();
+    expect(order).toEqual(['checkOwnership', 'migrate', 'seed', 'verify', 'verifyDiscovery']);
+    expect(result).toEqual({
+      credentialBundleVersion: 1,
+      datasourceReady: true,
+      diagnosticCode: null,
+      errorCode: null,
+      operationId: 'root-1:lobehub',
+      schemaName: tenantDbNames(TENANT).schemaName,
+      schemaVersion: 1,
+      status: 'applied',
+      tenantId: TENANT,
+    });
+    expect(repo.directory.get(TENANT)!.record).toMatchObject({
+      credentialBundleVersion: 1,
+      status: 'active',
+    });
+    // The directory holds the bundle now; the operation's copy is gone.
+    expect(repo.operationBundles.size).toBe(0);
+  });
+
+  it.each<[keyof TenantDatabaseExecutor, string]>([
+    ['checkOwnership', 'DATASOURCE_INVALID'],
+    ['migrate', 'TENANT_PROVISION_FAILED'],
+    ['seed', 'TENANT_PROVISION_FAILED'],
+    ['verify', 'DATASOURCE_INVALID'],
+    ['verifyDiscovery', 'DATASOURCE_INVALID'],
+  ])('fails with the code of the step that failed (%s → %s)', async (step, code) => {
+    db[step].mockRejectedValueOnce(new Error('boom'));
+    const result = await provisionApplied();
+    expect(result).toMatchObject({ datasourceReady: false, errorCode: code, status: 'failed' });
+  });
+
+  it('does not migrate when the ownership check fails', async () => {
+    db.checkOwnership.mockRejectedValueOnce(new Error('schema owned by someone else'));
+    await provisionApplied();
+    expect(db.migrate).not.toHaveBeenCalled();
+  });
+
+  it('resumes at the failed step instead of redoing finished ones', async () => {
+    db.seed.mockRejectedValueOnce(new Error('boom'));
+    await provisionApplied();
+    await service.receiveProvision(provision());
+    const result = await service.executeProvision(TENANT, 'root-1:lobehub');
+    expect(result.status).toBe('applied');
+    expect(db.migrate).toHaveBeenCalledTimes(1);
+    expect(db.seed).toHaveBeenCalledTimes(2);
+  });
+
+  it('never puts the database error into the result', async () => {
+    db.migrate.mockRejectedValueOnce(new Error('postgres://lh:owner-secret@host'));
+    expect(JSON.stringify(await provisionApplied())).not.toContain('secret');
+  });
+});
+
+const rotate = (over: Partial<DatasourceBundle> = {}) => ({
+  datasource: bundle(TENANT, {
+    credentialBundleVersion: 2,
+    runtimeCredential: {
+      password: 'run-secret-2',
+      username: tenantDbNames(TENANT).runtimeUsername,
+    },
+    ...over,
+  }),
+  operationId: 'rot-1',
+  tenantId: TENANT,
+});
+
+describe('receiveDatasource', () => {
+  it('is not found for a tenant without a directory record', async () => {
+    await service.receiveProvision(provision());
+    await expect(service.receiveDatasource(rotate())).rejects.toMatchObject({
+      code: 'TENANT_NOT_FOUND',
+      status: 404,
+    });
+  });
+
+  it('verifies the new credentials, then swaps them into the directory', async () => {
+    await provisionApplied();
+    db.verify.mockClear();
+    const result = await service.receiveDatasource(rotate({ connectionVersion: 2 }));
+    expect(result).toEqual({
+      connectionVersion: 2,
+      credentialBundleVersion: 2,
+      datasourceKind: 'lobehub',
+      diagnosticCode: null,
+      errorCode: null,
+      operationId: 'rot-1',
+      status: 'applied',
+      tenantId: TENANT,
+    });
+    expect(db.verify).toHaveBeenCalledWith(
+      expect.objectContaining({ bundle: rotate({ connectionVersion: 2 }).datasource }),
+    );
+    expect(repo.directory.get(TENANT)).toMatchObject({
+      bundle: { runtimeCredential: { password: 'run-secret-2' } },
+      record: { connectionVersion: 2, credentialBundleVersion: 2 },
+    });
+  });
+
+  it('keeps the old credentials when verification fails', async () => {
+    await provisionApplied();
+    db.verify.mockRejectedValueOnce(new Error('password authentication failed'));
+    const result = await service.receiveDatasource(rotate());
+    expect(result).toMatchObject({ errorCode: 'DATASOURCE_INVALID', status: 'failed' });
+    expect(repo.directory.get(TENANT)!.record.credentialBundleVersion).toBe(1);
+  });
+
+  it('fails validation the same way provisioning does', async () => {
+    await provisionApplied();
+    const result = await service.receiveDatasource(rotate({ schemaVersion: 99 }));
+    expect(result).toMatchObject({ errorCode: 'DATASOURCE_INVALID', status: 'failed' });
+  });
+
+  it('is idempotent for the same version and content', async () => {
+    await provisionApplied();
+    await service.receiveDatasource(rotate());
+    db.verify.mockClear();
+    expect((await service.receiveDatasource(rotate())).status).toBe('applied');
+    expect(db.verify).not.toHaveBeenCalled();
+  });
+
+  it('refuses the same version with different content, passwords included', async () => {
+    await provisionApplied();
+    await service.receiveDatasource(rotate());
+    const other = rotate();
+    other.datasource.schemaOwner.password = 'different';
+    await expect(service.receiveDatasource(other)).rejects.toMatchObject({
+      code: 'DATASOURCE_VERSION_CONFLICT',
+      status: 409,
+    });
+  });
+
+  it('refuses an older bundle version', async () => {
+    await provisionApplied();
+    await service.receiveDatasource(rotate({ credentialBundleVersion: 3 }));
+    await expect(service.receiveDatasource(rotate())).rejects.toMatchObject({
+      code: 'DATASOURCE_VERSION_CONFLICT',
+      status: 409,
+    });
+  });
+
+  it('refuses a connection version that goes backwards', async () => {
+    await provisionApplied();
+    await service.receiveDatasource(rotate({ connectionVersion: 3 }));
+    await expect(
+      service.receiveDatasource(rotate({ connectionVersion: 2, credentialBundleVersion: 3 })),
+    ).rejects.toMatchObject({ code: 'DATASOURCE_VERSION_CONFLICT', status: 409 });
+  });
+});
+
+describe('receiveLifecycle', () => {
+  beforeEach(async () => {
+    await provisionApplied();
+  });
+
+  it('is not found for a tenant LobeHub never saw', async () => {
+    await expect(
+      service.receiveLifecycle(lifecycle({ tenantId: 'stranger' })),
+    ).rejects.toMatchObject({ code: 'TENANT_NOT_FOUND', status: 404 });
+  });
+
+  it('accepts a new version and closes the gate in the same step', async () => {
+    const result = await service.receiveLifecycle(lifecycle());
+    expect(result).toMatchObject({ acceptedVersion: 1, appliedVersion: 0, status: 'received' });
+    assertConsoleInvariants(result);
+    expect(repo.lifecycles.get(TENANT)).toMatchObject({
+      desiredState: 'frozen',
+      freezeReasons: ['manual'],
+    });
+  });
+
+  it('returns the stored record for an identical retry', async () => {
+    const first = await service.receiveLifecycle(lifecycle());
+    expect(await service.receiveLifecycle(lifecycle())).toEqual(first);
+  });
+
+  it('refuses a reused event id with different content', async () => {
+    await service.receiveLifecycle(lifecycle());
+    await expect(
+      service.receiveLifecycle(lifecycle({ freezeReasons: ['security'] })),
+    ).rejects.toMatchObject({ code: 'LIFECYCLE_EVENT_CONFLICT', status: 409 });
+  });
+
+  it('refuses a version another event already holds', async () => {
+    await service.receiveLifecycle(lifecycle());
+    await expect(service.receiveLifecycle(lifecycle({ eventId: 'evt-x' }))).rejects.toMatchObject({
+      code: 'LIFECYCLE_VERSION_CONFLICT',
+      status: 409,
+    });
+  });
+
+  it('records an older version as superseded without touching state', async () => {
+    await service.receiveLifecycle(lifecycle({ eventId: 'evt-2', version: 2 }));
+    const late = await service.receiveLifecycle(
+      lifecycle({ desiredState: 'active', eventId: 'evt-1', freezeReasons: [], version: 1 }),
+    );
+    expect(late.status).toBe('superseded');
+    assertConsoleInvariants(late);
+    expect(repo.lifecycles.get(TENANT)!.desiredState).toBe('frozen');
+  });
+});
+
+describe('executeLifecycle', () => {
+  beforeEach(async () => {
+    await provisionApplied();
+  });
+
+  it('leases lifecycle work and ignores late failure after a replacement attempt completes', async () => {
+    let now = NOW;
+    const current = new TenantControlPlaneService({
+      database: db,
+      repository: repo,
+      isRegistrableSlug: () => true,
+      now: () => now,
+    });
+    await current.receiveLifecycle(lifecycle());
+    const h = hooks();
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    h.invalidateCaches = vi.fn().mockImplementationOnce(async () => {
+      started.resolve();
+      await release.promise;
+      throw new Error('late failure');
+    });
+    const first = current.executeLifecycle(TENANT, 'evt-1', h);
+    await started.promise;
+    expect((await current.executeLifecycle(TENANT, 'evt-1', hooks())).status).toBe('applying');
+    now = new Date(NOW.getTime() + 10 * 60_000);
+    expect((await current.executeLifecycle(TENANT, 'evt-1', hooks())).status).toBe('applied');
+    release.resolve();
+    expect((await first).status).toBe('applied');
+  });
+
+  it('runs the closing phases in order and marks the event applied', async () => {
+    await service.receiveLifecycle(lifecycle());
+    const h = hooks();
+    const order: string[] = [];
+    for (const [name, fn] of Object.entries(h))
+      (fn as ReturnType<typeof vi.fn>).mockImplementation(async () => void order.push(name));
+
+    const result = await service.executeLifecycle(TENANT, 'evt-1', h);
+    expect(order).toEqual(['invalidateCaches', 'closeRealtime', 'stopQueue', 'drainTransactions']);
+    expect(result).toMatchObject({ appliedVersion: 1, status: 'applied' });
+    assertConsoleInvariants(result);
+  });
+
+  it('refuses applied if the final locked check still sees work, and retries after its receipt', async () => {
+    await service.receiveLifecycle(lifecycle());
+    repo.stopBlockers.set(TENANT, 'LIFECYCLE_STOP_UNCONFIRMED');
+    const failed = await service.executeLifecycle(TENANT, 'evt-1', hooks());
+    expect(failed).toMatchObject({
+      status: 'failed',
+      errorCode: 'LIFECYCLE_STOP_UNCONFIRMED',
+      appliedVersion: 0,
+    });
+    repo.stopBlockers.delete(TENANT);
+    expect(await service.executeLifecycle(TENANT, 'evt-1', hooks())).toMatchObject({
+      status: 'applied',
+      appliedVersion: 1,
+    });
+  });
+
+  it('resumes the queue when activating', async () => {
+    await service.receiveLifecycle(lifecycle({ desiredState: 'active', freezeReasons: [] }));
+    const h = hooks();
+    await service.executeLifecycle(TENANT, 'evt-1', h);
+    expect(h.resumeQueue).toHaveBeenCalled();
+    expect(h.drainTransactions).not.toHaveBeenCalled();
+  });
+
+  it('stops a slow executor when a newer event arrives mid-drain', async () => {
+    await service.receiveLifecycle(lifecycle());
+    const h = hooks();
+    (h.closeRealtime as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      await service.receiveLifecycle(
+        lifecycle({ desiredState: 'active', eventId: 'evt-2', freezeReasons: [], version: 2 }),
+      );
+    });
+
+    const result = await service.executeLifecycle(TENANT, 'evt-1', h);
+    expect(result.status).toBe('superseded');
+    assertConsoleInvariants(result);
+    expect(h.drainTransactions).not.toHaveBeenCalled();
+    // The newer state stands; the old event never reached appliedVersion.
+    expect(repo.lifecycles.get(TENANT)).toMatchObject({
+      appliedVersion: 0,
+      desiredState: 'active',
+    });
+  });
+
+  it('fails on a drain timeout but keeps the gate closed, then retries', async () => {
+    await service.receiveLifecycle(lifecycle());
+    const h = hooks();
+    (h.drainTransactions as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('timeout'));
+
+    const failed = await service.executeLifecycle(TENANT, 'evt-1', h);
+    expect(failed).toMatchObject({ errorCode: 'LIFECYCLE_DRAIN_FAILED', status: 'failed' });
+    expect(repo.lifecycles.get(TENANT)!.desiredState).toBe('frozen');
+
+    expect((await service.receiveLifecycle(lifecycle())).status).toBe('received');
+    expect((await service.executeLifecycle(TENANT, 'evt-1', h)).status).toBe('applied');
+  });
+
+  it.each([
+    ['closeRealtime', new Error('socket'), 'LIFECYCLE_STOP_FAILED'],
+    ['stopQueue', new Error('queue'), 'LIFECYCLE_STOP_FAILED'],
+    [
+      'drainTransactions',
+      new LifecycleFailure('LIFECYCLE_STOP_UNCONFIRMED'),
+      'LIFECYCLE_STOP_UNCONFIRMED',
+    ],
+    ['invalidateCaches', new Error('cache'), 'LIFECYCLE_FAILED'],
+  ] as const)('records a %s failure (%s) as %s', async (phase, error, errorCode) => {
+    await service.receiveLifecycle(lifecycle());
+    const h = hooks();
+    (h[phase] as ReturnType<typeof vi.fn>).mockRejectedValueOnce(error);
+    expect(await service.executeLifecycle(TENANT, 'evt-1', h)).toMatchObject({
+      errorCode,
+      status: 'failed',
+    });
+  });
+
+  it('records a failed resume when activating', async () => {
+    await service.receiveLifecycle(lifecycle({ desiredState: 'active', freezeReasons: [] }));
+    const h = hooks();
+    (h.resumeQueue as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('resume'));
+    expect(await service.executeLifecycle(TENANT, 'evt-1', h)).toMatchObject({
+      errorCode: 'LIFECYCLE_RESUME_FAILED',
+      status: 'failed',
+    });
+  });
+
+  it('will not activate a tenant whose datasource is not ready', async () => {
+    const other = 'tenant-b';
+    await service.receiveProvision(
+      provision({ operationId: 'b:lobehub', rootOperationId: 'b', slug: 'beta', tenantId: other }),
+    );
+    await service.receiveLifecycle(
+      lifecycle({ desiredState: 'active', freezeReasons: [], tenantId: other }),
+    );
+    expect(await service.executeLifecycle(other, 'evt-1', hooks())).toMatchObject({
+      errorCode: 'TENANT_NOT_READY',
+      status: 'failed',
+    });
+    expect(repo.lifecycles.get(other)?.acceptedVersion).toBe(1);
+  });
+});
+
+describe('effectiveTenantState', () => {
+  it.each([null, '2030-01-01T00:00:00.000Z'])(
+    'derives expired from expiresAt after renewal (%s)',
+    (expiresAt) => {
+      expect(
+        effectiveTenantState(
+          { desiredState: 'active', expiresAt, freezeReasons: ['expired'] },
+          NOW,
+        ),
+      ).toEqual({ state: 'active', reasons: [] });
+      expect(
+        effectiveTenantState(
+          { desiredState: 'active', expiresAt, freezeReasons: ['expired', 'manual'] },
+          NOW,
+        ),
+      ).toEqual({ state: 'frozen', reasons: ['manual'] });
+    },
+  );
+  const base = { desiredState: 'active' as const, expiresAt: null, freezeReasons: [] };
+
+  it('is active with no reasons and no expiry', () => {
+    expect(effectiveTenantState(base, NOW)).toEqual({ reasons: [], state: 'active' });
+  });
+
+  it('freezes at expiry without waiting for an expired event', () => {
+    expect(effectiveTenantState({ ...base, expiresAt: NOW.toISOString() }, NOW)).toEqual({
+      reasons: ['expired'],
+      state: 'frozen',
+    });
+  });
+
+  it('puts offline above frozen', () => {
+    expect(
+      effectiveTenantState({ ...base, desiredState: 'offline', freezeReasons: ['manual'] }, NOW)
+        .state,
+    ).toBe('offline');
+  });
+});
+
+describe('current datasource readiness', () => {
+  const request = (data = bundle()) => ({
+    tenantId: TENANT,
+    datasource: redactDatasourceBundle(data),
+  });
+
+  it('does not mark an unprovisioned bundle ready', async () => {
+    expect(await service.getDatasourceReadiness(request())).toMatchObject({
+      datasourceReady: false,
+      errorCode: 'TENANT_NOT_READY',
+    });
+    expect(db.verify).not.toHaveBeenCalled();
+  });
+
+  it('verifies the current database without a provision operation ID', async () => {
+    await provisionApplied();
+    db.verify.mockClear();
+    expect(await service.getDatasourceReadiness(request())).toMatchObject({
+      datasourceReady: true,
+      errorCode: null,
+      checkedAt: NOW.toISOString(),
+      connectionVersion: 1,
+    });
+    expect(db.verify).toHaveBeenCalledWith({ tenantId: TENANT, bundle: bundle() });
+    db.verify.mockRejectedValueOnce(new Error('private connection error'));
+    const failed = await service.getDatasourceReadiness(request());
+    expect(failed).toMatchObject({ datasourceReady: false, errorCode: 'DATASOURCE_INVALID' });
+    expect(JSON.stringify(failed)).not.toContain('private');
+  });
+
+  it.each([
+    { host: 'other.internal' },
+    { database: 'other' },
+    { connectionVersion: 2 },
+    { credentialBundleVersion: 2 },
+  ])('rejects a mismatched current binding %j before opening a connection', async (change) => {
+    await provisionApplied();
+    db.verify.mockClear();
+    expect(await service.getDatasourceReadiness(request(bundle(TENANT, change)))).toMatchObject({
+      datasourceReady: false,
+      errorCode: 'DATASOURCE_INVALID',
+    });
+    expect(db.verify).not.toHaveBeenCalled();
+  });
+
+  it('accepts the rotated bundle and refuses the previous binding without a new provision', async () => {
+    await provisionApplied();
+    const rotated = bundle(TENANT, { connectionVersion: 2, credentialBundleVersion: 2 });
+    await service.receiveDatasource({
+      tenantId: TENANT,
+      operationId: 'rotation',
+      datasource: rotated,
+    });
+    expect(await service.getDatasourceReadiness(request())).toMatchObject({
+      datasourceReady: false,
+    });
+    expect(await service.getDatasourceReadiness(request(rotated))).toMatchObject({
+      datasourceReady: true,
+      connectionVersion: 2,
+      credentialBundleVersion: 2,
+    });
+  });
+
+  it('refuses a binding replaced while its verification is in flight', async () => {
+    await provisionApplied();
+    db.verify.mockImplementationOnce(async () => {
+      await service.receiveDatasource({
+        tenantId: TENANT,
+        operationId: 'rotation',
+        datasource: bundle(TENANT, { connectionVersion: 2, credentialBundleVersion: 2 }),
+      });
+    });
+    expect(await service.getDatasourceReadiness(request())).toMatchObject({
+      datasourceReady: false,
+      errorCode: 'DATASOURCE_INVALID',
+    });
+  });
+});
+
+describe('safe readiness diagnostics', () => {
+  it('persists a trusted migration diagnostic across query and clears it on successful retry', async () => {
+    const logged = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      db.verify.mockRejectedValueOnce(
+        new TenantDatabaseError('TENANT_NOT_READY', 'migration-history-mismatch'),
+      );
+      expect(await provisionApplied()).toMatchObject({
+        errorCode: 'DATASOURCE_INVALID',
+        diagnosticCode: 'MIGRATION_HISTORY_MISMATCH',
+        status: 'failed',
+      });
+      expect(await service.getProvision(TENANT, 'root-1:lobehub')).toMatchObject({
+        diagnosticCode: 'MIGRATION_HISTORY_MISMATCH',
+      });
+      expect(JSON.stringify(logged.mock.calls)).toContain('MIGRATION_HISTORY_MISMATCH');
+      await service.receiveProvision(provision());
+      expect(await service.executeProvision(TENANT, 'root-1:lobehub')).toMatchObject({
+        diagnosticCode: null,
+        status: 'applied',
+      });
+    } finally {
+      logged.mockRestore();
+    }
+  });
+  it('returns a trusted diagnostic for current readiness and rotated credentials', async () => {
+    await provisionApplied();
+    db.verify.mockRejectedValueOnce(
+      new TenantDatabaseError('TENANT_NOT_READY', 'schema-not-provisioned'),
+    );
+    expect(
+      await service.getDatasourceReadiness({
+        tenantId: TENANT,
+        datasource: redactDatasourceBundle(bundle()),
+      }),
+    ).toMatchObject({ errorCode: 'DATASOURCE_INVALID', diagnosticCode: 'SCHEMA_NOT_PROVISIONED' });
+    db.verify.mockRejectedValueOnce(
+      new TenantDatabaseError('TENANT_NOT_READY', 'migration-history-mismatch'),
+    );
+    expect(await service.receiveDatasource(rotate())).toMatchObject({
+      errorCode: 'DATASOURCE_INVALID',
+      diagnosticCode: 'MIGRATION_HISTORY_MISMATCH',
+    });
+    expect(await service.receiveDatasource(rotate())).toMatchObject({
+      diagnosticCode: null,
+      status: 'applied',
+    });
+  });
+  it('does not trust a diagnostic-looking Error.message or property', async () => {
+    await provisionApplied();
+    const secret = 'postgres://fixture:private-password@private-host/db';
+    const fake = Object.assign(new Error(secret), { diagnosticCode: 'CROSS_SCHEMA_USAGE' });
+    const logged = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      db.verify.mockRejectedValueOnce(fake);
+      const failed = await service.receiveDatasource(rotate());
+      expect(failed).toMatchObject({ errorCode: 'DATASOURCE_INVALID', diagnosticCode: null });
+      expect(JSON.stringify([failed, logged.mock.calls])).not.toContain(secret);
+    } finally {
+      logged.mockRestore();
+    }
+  });
+});
+
+describe('discovery recovery publication', () => {
+  const active = () =>
+    lifecycle({ desiredState: 'active', freezeReasons: [], eventId: 'restore', version: 2 });
+  const freeze = () => lifecycle({ eventId: 'new-freeze', version: 3 });
+  const prepare = async () => {
+    await provisionApplied();
+    await service.receiveLifecycle(lifecycle());
+    db.migrate.mockClear();
+    db.verify.mockClear();
+    db.verifyDiscovery.mockClear();
+    await service.receiveLifecycle(active());
+  };
+  it('keeps directory provisioning when special verification fails during provision', async () => {
+    db.verifyDiscovery.mockRejectedValueOnce(new Error('lookup grant missing'));
+    expect((await provisionApplied()).status).toBe('failed');
+    expect(repo.directory.get(TENANT)?.record.status).toBe('provisioning');
+    await service.receiveProvision(provision());
+    expect((await service.executeProvision(TENANT, 'root-1:lobehub')).status).toBe('applied');
+    expect(repo.directory.get(TENANT)?.record.status).toBe('active');
+  });
+  it.each(['frozen', 'offline', 'expired'] as const)(
+    'accepts %s recovery without owner IO and retains an admission barrier until repair succeeds',
+    async (state) => {
+      await provisionApplied();
+      await service.receiveLifecycle(
+        lifecycle({
+          desiredState: state === 'offline' ? 'offline' : state === 'frozen' ? 'frozen' : 'active',
+          freezeReasons: state === 'frozen' ? ['manual'] : [],
+          expiresAt: state === 'expired' ? '2020-01-01T00:00:00.000Z' : null,
+        }),
+      );
+      db.migrate.mockClear();
+      db.verifyDiscovery.mockClear();
+      await expect(service.receiveLifecycle(active())).resolves.toMatchObject({
+        status: 'received',
+        acceptedVersion: 2,
+      });
+      expect(db.migrate).not.toHaveBeenCalled();
+      expect(repo.directory.get(TENANT)?.record.status).toBe('provisioning');
+      db.verifyDiscovery.mockRejectedValueOnce(new Error('grant repair failed'));
+      expect(await service.executeLifecycle(TENANT, 'restore', hooks())).toMatchObject({
+        status: 'failed',
+        errorCode: 'LIFECYCLE_RESUME_FAILED',
+      });
+      expect(repo.directory.get(TENANT)?.record.status).toBe('provisioning');
+      await service.receiveLifecycle(active());
+      expect(await service.executeLifecycle(TENANT, 'restore', hooks())).toMatchObject({
+        status: 'applied',
+      });
+      expect(repo.directory.get(TENANT)?.record.status).toBe('active');
+      expect(db.migrate).toHaveBeenCalledTimes(2);
+    },
+  );
+  it('does not repeat migration on first activation or an active renewal', async () => {
+    await provisionApplied();
+    db.migrate.mockClear();
+    db.verifyDiscovery.mockClear();
+    await service.receiveLifecycle(lifecycle({ desiredState: 'active', freezeReasons: [] }));
+    await service.executeLifecycle(TENANT, 'evt-1', hooks());
+    await service.receiveLifecycle(active());
+    await service.executeLifecycle(TENANT, 'restore', hooks());
+    expect(db.migrate).not.toHaveBeenCalled();
+    expect(db.verifyDiscovery).not.toHaveBeenCalled();
+  });
+  it('cannot publish an old recovery when a new freeze arrives during verification', async () => {
+    await prepare();
+    const started = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<void>();
+    db.verifyDiscovery.mockImplementationOnce(async () => {
+      started.resolve();
+      await finish.promise;
+    });
+    const restoring = service.executeLifecycle(TENANT, 'restore', hooks());
+    await started.promise;
+    await service.receiveLifecycle(freeze());
+    finish.resolve();
+    expect(await restoring).toMatchObject({ status: 'superseded' });
+    expect(repo.directory.get(TENANT)?.record.status).toBe('provisioning');
+    expect(repo.lifecycles.get(TENANT)?.desiredState).toBe('frozen');
+  });
+  it('does not reopen after a newer freeze arrives following publication but during resume', async () => {
+    await prepare();
+    const h = hooks();
+    const started = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<void>();
+    vi.mocked(h.resumeQueue).mockImplementationOnce(async () => {
+      expect(repo.directory.get(TENANT)?.record.status).toBe('active');
+      started.resolve();
+      await finish.promise;
+    });
+    const restoring = service.executeLifecycle(TENANT, 'restore', h);
+    await started.promise;
+    await service.receiveLifecycle(freeze());
+    finish.resolve();
+    expect(await restoring).toMatchObject({ status: 'superseded' });
+    expect(repo.lifecycles.get(TENANT)?.desiredState).toBe('frozen');
+  });
+  it('retries failed resume without rolling back already certified grants', async () => {
+    await prepare();
+    const h = hooks();
+    vi.mocked(h.resumeQueue).mockRejectedValueOnce(new Error('resume failed'));
+    expect(await service.executeLifecycle(TENANT, 'restore', h)).toMatchObject({
+      status: 'failed',
+    });
+    expect(repo.directory.get(TENANT)?.record.status).toBe('active');
+    await service.receiveLifecycle(active());
+    expect(await service.executeLifecycle(TENANT, 'restore', hooks())).toMatchObject({
+      status: 'applied',
+    });
+    expect(db.migrate).toHaveBeenCalledTimes(1);
+  });
+  it('rejects publication if credentials rotate during repair', async () => {
+    await prepare();
+    db.verifyDiscovery.mockImplementationOnce(async () => {
+      await repo.transaction(TENANT, async (tx) => {
+        const d = (await tx.getDirectory(TENANT))!;
+        await tx.putDirectory(
+          { ...d.record, connectionVersion: 2 },
+          { ...d.bundle, connectionVersion: 2 },
+        );
+      });
+    });
+    expect(await service.executeLifecycle(TENANT, 'restore', hooks())).toMatchObject({
+      status: 'failed',
+    });
+    expect(repo.directory.get(TENANT)?.record.status).toBe('provisioning');
+  });
+  it('does not let lookup readiness failure affect runtime readiness or credential rotation', async () => {
+    await provisionApplied();
+    db.verifyDiscovery.mockClear();
+    db.verifyDiscovery.mockRejectedValue(new Error('lookup unavailable'));
+    expect(
+      await service.getDatasourceReadiness({
+        tenantId: TENANT,
+        datasource: redactDatasourceBundle(bundle()),
+      }),
+    ).toMatchObject({ datasourceReady: true });
+    expect(await service.receiveDatasource(rotate())).toMatchObject({ status: 'applied' });
+    expect(db.verifyDiscovery).not.toHaveBeenCalled();
+  });
+});

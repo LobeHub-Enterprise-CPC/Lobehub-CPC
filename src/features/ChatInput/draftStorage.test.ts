@@ -1,3 +1,4 @@
+import { initializeTenant } from '@lobechat/business-tenant/client';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,6 +17,16 @@ describe('draftStorage', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    initializeTenant(new URL('https://app.test/'));
+  });
+
+  it("keeps one tenant's drafts out of another tenant on the same origin", () => {
+    initializeTenant(new URL('https://app.test/t/acme/agent'));
+    saveDraft('main_a_new', { root: { children: [] } });
+    expect(getDraft('main_a_new')).toBeDefined();
+
+    initializeTenant(new URL('https://app.test/t/other/agent'));
+    expect(getDraft('main_a_new')).toBeUndefined();
   });
 
   it('saves and reads a draft back', () => {

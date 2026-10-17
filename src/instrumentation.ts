@@ -15,9 +15,9 @@ export async function register() {
     !process.env.VERCEL_ENV &&
     (!isDev || process.env.ENABLE_BOT_IN_DEV === '1')
   ) {
-    const { GatewayService } = await import('@/server/services/gateway');
-    const service = new GatewayService();
-    service.ensureRunning().catch((err) => {
+    // Bots belong to tenants: start each tenant's gateway inside that tenant.
+    const { startGatewayForAllTenants } = await import('@/server/services/gateway/tenantStart');
+    startGatewayForAllTenants().catch((err) => {
       console.error('[Instrumentation] Failed to auto-start GatewayManager:', err);
     });
   }
@@ -32,11 +32,16 @@ export async function register() {
     !process.env.VERCEL_ENV
   ) {
     void (async () => {
-      const [{ getServerDB }, { resumePendingAgentTransferJobs }] = await Promise.all([
-        import('@lobechat/database'),
-        import('@/business/server/agent-transfer/jobRunner'),
-      ]);
-      await resumePendingAgentTransferJobs(await getServerDB());
+      const [{ getServerDB }, { resumePendingAgentTransferJobs }, { forEachTenant }] =
+        await Promise.all([
+          import('@lobechat/database'),
+          import('@/business/server/agent-transfer/jobRunner'),
+          import('@/server/modules/Tenant/fanOut'),
+        ]);
+      // Each tenant's pending jobs live in its own schema.
+      await forEachTenant('agent-transfer:resume', async () =>
+        resumePendingAgentTransferJobs(await getServerDB()),
+      );
     })().catch((err) => {
       console.error('[Instrumentation] Failed to resume agent-transfer jobs:', err);
     });

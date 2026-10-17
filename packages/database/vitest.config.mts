@@ -31,7 +31,9 @@ export default defineConfig({
       '@/locales': resolve(__dirname, '../locales/src'),
       '@/business/server': resolve(__dirname, '../business-server/src'),
       '@/server/services': resolve(__dirname, '../../apps/server/src/services'),
+      '@/server/crypto': resolve(__dirname, '../../apps/server/src/crypto'),
       '@/server/modules': resolve(__dirname, '../../apps/server/src/modules'),
+      '@/server/globalConfig': resolve(__dirname, '../../apps/server/src/globalConfig'),
       '@': resolve(__dirname, '../../src'),
     },
     // Standalone means the same thing inside and outside a parent checkout.

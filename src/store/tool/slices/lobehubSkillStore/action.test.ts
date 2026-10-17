@@ -300,6 +300,48 @@ describe('lobehubSkillStore actions', () => {
       expect(result.current.lobehubSkillExecutingToolIds.has('linear:createIssue')).toBe(false);
     });
 
+    it('should flag a PRECONDITION_FAILED connection error as needing authorization', async () => {
+      const { result } = renderHook(() => useToolStore());
+
+      vi.mocked(toolsClient.market.connectCallTool.mutate).mockRejectedValue(
+        Object.assign(new Error('Provider not connected. Please authorize first.'), {
+          data: { code: 'PRECONDITION_FAILED', errorData: { code: 'TOKEN_EXPIRED' } },
+        }),
+      );
+
+      let callResult;
+      await act(async () => {
+        callResult = await result.current.callLobehubSkillTool({
+          provider: 'linear',
+          toolName: 'createIssue',
+        });
+      });
+
+      expect(callResult).toEqual({
+        error: 'Provider not connected. Please authorize first.',
+        errorCode: 'NOT_CONNECTED',
+        success: false,
+      });
+    });
+
+    it('should not treat a generic UNAUTHORIZED error as NOT_CONNECTED', async () => {
+      const { result } = renderHook(() => useToolStore());
+
+      vi.mocked(toolsClient.market.connectCallTool.mutate).mockRejectedValue(
+        Object.assign(new Error('Unauthorized'), { data: { code: 'UNAUTHORIZED' } }),
+      );
+
+      let callResult;
+      await act(async () => {
+        callResult = await result.current.callLobehubSkillTool({
+          provider: 'linear',
+          toolName: 'createIssue',
+        });
+      });
+
+      expect(callResult).toEqual({ error: 'Unauthorized', success: false });
+    });
+
     it('should handle TOKEN_EXPIRED error', async () => {
       const { result } = renderHook(() => useToolStore());
 

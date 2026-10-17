@@ -104,10 +104,9 @@ export const defaultClients: ClientMetadata[] = [
   {
     application_type: 'native',
     client_id: ACCEPTANCE_REVIEW_CLIENT_ID,
-    client_name: 'LobeHub Review',
+    ...clientDisplay('Review', 'https://hub-apac-1.lobeobjects.space/lobehub-desktop-icon.png'),
     grant_types: ['urn:ietf:params:oauth:grant-type:device_code'],
     scope: ACCEPTANCE_REVIEW_SCOPE,
-    logo_uri: 'https://hub-apac-1.lobeobjects.space/lobehub-desktop-icon.png',
     response_types: [],
     token_endpoint_auth_method: 'none',
   },
@@ -148,7 +147,8 @@ export const defaultScopes = [
  */
 export const defaultClaims = {
   email: ['email', 'email_verified'],
-  openid: ['sub'],
-  // subject (unique user identifier)
+  // `sub` is the subject (unique user identifier). `tenant_name` / `tenant_slug` / `has_other_organizations` are
+  // display values for the desktop confirmation; the provider only fills them in for the id_token.
+  openid: ['sub', 'tenant_name', 'tenant_slug', 'has_other_organizations'],
   profile: ['name', 'picture'],
 };

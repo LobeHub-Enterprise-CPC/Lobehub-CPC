@@ -1,0 +1,60 @@
+{
+  "contract": "tenant-endpoints",
+  "version": 1,
+  "path": "/api/internal/control-plane/tenant-endpoints",
+  "request": {
+    "tenantId": "tenant-fixture",
+    "eventId": "endpoints-fixture-1",
+    "version": 1,
+    "endpoints": [
+      {
+        "id": "default",
+        "kind": "default",
+        "host": null,
+        "active": true
+      }
+    ]
+  },
+  "customRequest": {
+    "tenantId": "tenant-fixture",
+    "eventId": "endpoints-fixture-2",
+    "version": 2,
+    "endpoints": [
+      {
+        "id": "default",
+        "kind": "default",
+        "host": null,
+        "active": false
+      },
+      {
+        "id": "custom-a",
+        "kind": "custom",
+        "host": "chat.example.com",
+        "active": true
+      },
+      {
+        "id": "custom-b",
+        "kind": "custom",
+        "host": "other.example.com",
+        "active": false
+      }
+    ]
+  },
+  "appliedResponse": {
+    "tenantId": "tenant-fixture",
+    "eventId": "endpoints-fixture-1",
+    "version": 1,
+    "acceptedVersion": 1,
+    "appliedVersion": 1,
+    "status": "applied",
+    "errorCode": null,
+    "activeUrl": "https://app.example.com/t/acme",
+    "observedAt": "2026-10-13T00:00:00.000Z"
+  },
+  "errors": [
+    "ENDPOINTS_INVALID",
+    "ENDPOINT_VERSION_CONFLICT",
+    "ENDPOINT_HOST_CONFLICT",
+    "ENDPOINTS_NOT_READY"
+  ]
+}

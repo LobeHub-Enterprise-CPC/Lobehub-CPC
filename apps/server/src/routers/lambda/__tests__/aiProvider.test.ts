@@ -165,6 +165,45 @@ describe('aiProviderRouter', () => {
       );
     });
 
+    describe('does not read upstream bodies back to the caller', () => {
+      const secretBody = '{"Code":"Success","AccessKeyId":"ASIA-SECRET","Token":"imds-token"}';
+
+      const runCheck = async (runtimeChat: () => Promise<unknown>) => {
+        vi.mocked(AiInfraRepos).prototype.getAiProviderDetail = vi
+          .fn()
+          .mockResolvedValue({ ...mockProviderDetail, checkModel: 'gpt-4' });
+        vi.mocked(initModelRuntimeFromDB).mockResolvedValue({ chat: runtimeChat } as any);
+
+        const caller = aiProviderRouter.createCaller(createMockContext());
+        return caller.checkProviderConnectivity({ id: mockProviderId });
+      };
+
+      it('returns only the status code for a failed upstream response', async () => {
+        const result = await runCheck(async () => new Response(secretBody, { status: 502 }));
+
+        expect(result).toMatchObject({ model: 'gpt-4', ok: false, status: 502 });
+        expect(JSON.stringify(result)).not.toContain('ASIA-SECRET');
+        expect(JSON.stringify(result)).not.toContain('imds-token');
+      });
+
+      it('does not echo upstream payloads carried by a thrown runtime error', async () => {
+        const result = await runCheck(async () => {
+          throw Object.assign(new Error(secretBody), { error: { body: secretBody } });
+        });
+
+        expect(result).toMatchObject({ model: 'gpt-4', ok: false });
+        expect(JSON.stringify(result)).not.toContain('ASIA-SECRET');
+      });
+
+      it('keeps the error classification of a runtime error', async () => {
+        const result = await runCheck(async () => {
+          throw { error: { body: secretBody }, errorType: 'InvalidProviderAPIKey' };
+        });
+
+        expect(result).toEqual({ error: 'InvalidProviderAPIKey', model: 'gpt-4', ok: false });
+      });
+    });
+
     // A relayed check streams even with `stream: false`: the device's provider
     // failure is an `error` event in a 200 body, not an error status.
     it('reports a provider error carried in the response stream as a failed check', async () => {

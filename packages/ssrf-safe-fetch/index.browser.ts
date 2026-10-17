@@ -4,6 +4,8 @@
  * as SSRF attacks are not applicable in client-side code
  */
 
+export * from './redact';
+
 /**
  * Options for per-call SSRF configuration overrides
  * (ignored in browser - kept for API parity with server version)
@@ -15,6 +17,8 @@ export interface SSRFOptions {
   allowPrivateIPAddress?: boolean;
   /** Maximum response body size in bytes (server-only; ignored in browser) */
   maxContentLength?: number;
+  /** Stream the response body (server-only; ignored in browser) */
+  streamResponse?: boolean;
 }
 
 /**
@@ -33,3 +37,11 @@ export const ssrfSafeFetch = async (
 ): Promise<Response> => {
   return fetch(url, options);
 };
+
+/**
+ * Browser version of createSsrfSafeFetch: native fetch, kept for API parity.
+ */
+export const createSsrfSafeFetch =
+  (_ssrfOptions?: SSRFOptions) =>
+  (input: string | URL | Request, init?: RequestInit): Promise<Response> =>
+    fetch(input, init);

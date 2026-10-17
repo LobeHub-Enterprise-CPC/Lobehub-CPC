@@ -7,6 +7,7 @@ import {
   isMessageGatewayHostConfigured,
   type MessageGatewayHost,
 } from '@/server/services/gateway/MessageGatewayClient';
+import { isBearerSecret } from '@/server/utils/bearerAuth';
 
 const log = debug('lobe-server:agent:gateway-desired-connections');
 
@@ -21,7 +22,7 @@ const log = debug('lobe-server:agent:gateway-desired-connections');
  */
 function resolvePullHost(authorization: string | undefined): MessageGatewayHost | null {
   const nodeToken = gatewayEnv.MESSAGE_GATEWAY_NODE_PULL_TOKEN;
-  if (nodeToken && authorization === `Bearer ${nodeToken}`) return 'node';
+  if (nodeToken && isBearerSecret(authorization, nodeToken)) return 'node';
   return null;
 }
 

@@ -42,6 +42,7 @@ vi.mock('@/envs/app', () => ({
 
 vi.mock('../redis', () => ({
   getAgentRuntimeRedisClient: mockGetAgentRuntimeRedisClient,
+  isAgentRuntimeRedisEnabled: () => mockGetAgentRuntimeRedisClient() !== null,
 }));
 
 vi.mock('../InMemoryAgentStateManager', () => ({

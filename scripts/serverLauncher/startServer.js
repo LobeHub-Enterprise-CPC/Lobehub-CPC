@@ -20,7 +20,8 @@ const { checkGatewayConfig } = require(
 
 // Set file paths
 const DB_MIGRATION_SCRIPT_PATH = '/app/docker.cjs';
-const ES_MIGRATION_SCRIPT_PATH = '/app/fts-search-elasticsearch-reindex.cjs';
+// Runs `/app/fts-search-elasticsearch-reindex.cjs` once per tenant.
+const ES_MIGRATION_SCRIPT_PATH = '/app/fts-search-elasticsearch-reindex-tenants.cjs';
 const SERVER_SCRIPT_PATH = '/app/server.js';
 const PROXYCHAINS_CONF_PATH = '/etc/proxychains4.conf';
 
@@ -139,7 +140,8 @@ const startGateway = async () => {
   if (!KEY_VAULTS_SECRET) return;
 
   const port = process.env.PORT || 3210;
-  const url = `http://localhost:${port}/api/agent/gateway/start`;
+  // Tenantless entry that starts the bot gateway inside every tenant.
+  const url = `http://localhost:${port}/api/cron/gateway/start`;
   const maxRetries = 10;
   const retryDelay = 3000;
 
@@ -170,7 +172,9 @@ const startGateway = async () => {
   console.error('❌ Gateway: Failed to start after retries.');
 };
 
-// Recurring QStash schedules this deployment needs.
+// Recurring QStash schedules this deployment needs. Each one hits a
+// deployment-wide `/api/cron/*` entry that fans the job out to every tenant
+// (one QStash message per tenant, addressed to `/t/{slug}/api/workflows/...`).
 //
 // The goal sweep is not an optimization: a Goal Graph advances on events, so a
 // dropped delivery or a process that dies after dispatch would strand the goal
@@ -179,12 +183,12 @@ const QSTASH_SCHEDULES = [
   {
     cron: '*/10 * * * *',
     id: 'lobe-task-schedule-dispatch',
-    path: '/api/workflows/task/schedule-dispatch',
+    path: '/api/cron/task-schedule-dispatch',
   },
   {
     cron: '*/5 * * * *',
     id: 'lobe-goal-sweep',
-    path: '/api/workflows/goal/sweep',
+    path: '/api/cron/goal-sweep',
   },
   {
     cron: '* * * * *',

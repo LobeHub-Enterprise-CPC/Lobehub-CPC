@@ -5,6 +5,8 @@ import { NextResponse } from 'next/server';
 import { account } from '@/database/schemas/betterAuth';
 import { users } from '@/database/schemas/user';
 import { serverDB } from '@/database/server';
+import { tenantRefusalResponse } from '@/server/modules/Tenant/errors';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 
 export interface CheckUserResponseData {
   exists: boolean;
@@ -16,7 +18,7 @@ export interface CheckUserResponseData {
  * @param req - POST request with { email: string }
  * @returns { exists: boolean, emailVerified?: boolean }
  */
-export async function POST(req: NextRequest) {
+async function handlePost(req: NextRequest) {
   try {
     const body = await req.json();
     const { email } = body;
@@ -56,7 +58,11 @@ export async function POST(req: NextRequest) {
       hasPassword,
     } satisfies CheckUserResponseData);
   } catch (error) {
+    const refusal = tenantRefusalResponse(error);
+    if (refusal) return refusal;
     console.error('Error checking user existence:', error);
     return NextResponse.json({ error: 'Internal server error', exists: false }, { status: 500 });
   }
 }
+
+export const POST = withTenantRequest(handlePost);

@@ -15,6 +15,7 @@
   "consent.buttons.accept": "Authorize",
   "consent.buttons.deny": "Deny",
   "consent.description": "The application {{clientName}} is requesting authorization for your account",
+  "consent.desktop.notice": "Continue only if you just started this sign-in from your own desktop app.",
   "consent.error.sessionInvalid.message": "The authorization session has expired or is invalid. Please restart the authorization process.",
   "consent.error.sessionInvalid.title": "Invalid Authorization Session",
   "consent.error.title": "An Error Occurred",

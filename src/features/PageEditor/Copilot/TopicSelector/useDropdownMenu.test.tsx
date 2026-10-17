@@ -44,8 +44,9 @@ vi.mock('@/features/Workspace/useWorkspaceAwareNavigate', () => ({
   useWorkspaceAwareNavigate: () => vi.fn(),
 }));
 
-vi.mock('@/hooks/useAppOrigin', () => ({
-  useAppOrigin: () => 'https://example.com',
+vi.mock('@lobechat/business-tenant/client', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useAppBaseUrl: () => 'https://example.com',
 }));
 
 vi.mock('@/hooks/usePermission', () => ({

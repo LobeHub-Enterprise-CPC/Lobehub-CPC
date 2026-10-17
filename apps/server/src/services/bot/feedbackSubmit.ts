@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 
 import { users } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { MarketService } from '@/server/services/market';
 
 const log = debug('lobe-server:bot:feedback');
@@ -81,11 +82,12 @@ export async function submitBotFeedback(
     });
 
     const marketService = new MarketService({
-      userInfo: {
+      userInfo: await resolveMarketServiceIdentity({
         email: user?.email ?? undefined,
         name: user?.fullName ?? undefined,
+        serverDB,
         userId,
-      },
+      }),
     });
 
     const title = truncateTitle(body) || `Bot feedback from ${platform}`;

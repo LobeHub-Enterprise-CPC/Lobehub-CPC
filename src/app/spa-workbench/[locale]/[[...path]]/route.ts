@@ -1,19 +1,20 @@
 import { BRANDING_NAME } from '@lobechat/business-const';
 
-import { getServerFeatureFlagsValue } from '@/config/featureFlags';
 import { appEnv } from '@/envs/app';
 import { fileEnv } from '@/envs/file';
 import { pythonEnv } from '@/envs/python';
 import { buildAnalyticsConfig, fetchViteDevTemplate, renderSpaHtml } from '@/libs/spaHtml';
-import { type Locales, normalizeLocale } from '@/locales/resources';
+import { normalizeLocale } from '@/locales/resources';
+import { getServerFeatureFlagsFromRuntimeConfig } from '@/server/featureFlags';
 import { getServerGlobalConfig } from '@/server/globalConfig';
+import { getTenantPageBootstrap } from '@/server/modules/Tenant/pageBootstrap';
 import { type SPAClientEnv, type SPAServerConfig } from '@/types/spaServerConfig';
 
-export function generateStaticParams() {
-  const staticLocales: Locales[] = ['en-US', 'zh-CN'];
-
-  return staticLocales.map((locale) => ({ locale }));
-}
+// The shell is rendered per request: tenant bootstrap, login methods and feature
+// flags come from the signed tenant route header, which a prerendered route
+// handler cannot read (production build: DYNAMIC_SERVER_USAGE -> 500). Hence no
+// static params; the proxy rewrite supplies any locale/variant.
+export const dynamic = 'force-dynamic';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -43,17 +44,24 @@ const buildSeoMeta = (locale: string) =>
   ].join('\n    ');
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ locale: string; path?: string[] }> },
 ) {
   const { locale: rawLocale } = await params;
   const locale = normalizeLocale(rawLocale);
 
+  const tenant = await getTenantPageBootstrap(request);
   const spaConfig: SPAServerConfig = {
+    tenant,
     analyticsConfig: buildAnalyticsConfig(),
     clientEnv: buildClientEnv(),
-    config: await getServerGlobalConfig(),
-    featureFlags: getServerFeatureFlagsValue(),
+    config: {
+      ...(await getServerGlobalConfig()),
+      ...(tenant ? { oidcIssuer: `${tenant.publicUrl}/oidc` } : {}),
+    },
+    // Rendered outside any tenant scope: business builds embed the product
+    // defaults here, and the tenant's own flags arrive with the server config.
+    featureFlags: await getServerFeatureFlagsFromRuntimeConfig(),
     isMobile: true,
   };
 

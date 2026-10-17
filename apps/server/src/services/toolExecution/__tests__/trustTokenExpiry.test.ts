@@ -30,9 +30,18 @@ vi.mock('@/envs/app', () => ({
 }));
 
 vi.mock('@/database/models/user', () => ({
-  UserModel: vi.fn().mockImplementation(function () {
-    return { getUserSettings: vi.fn(async () => ({})) };
-  }),
+  UserModel: Object.assign(
+    vi.fn().mockImplementation(function () {
+      return { getUserSettings: vi.fn(async () => ({})) };
+    }),
+    { findById: vi.fn(async () => ({ email: 'repro@example.com', id: 'user_repro' })) },
+  ),
+}));
+
+// Every token is signed for a tenant; the executor runs inside one in production.
+vi.mock('@lobechat/database/tenant', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  currentTenantScope: () => ({ tenantId: 'tenant-repro' }),
 }));
 
 vi.mock('../serverRuntimes', () => ({
@@ -62,6 +71,8 @@ const marketValidate = (token: string) => {
 const market = vi.hoisted(() => ({
   calls: [] as { expired: boolean; token: string }[],
   minted: [] as number[],
+  /** `tenantId` claim of every token the executor signed. */
+  tenants: [] as (string | undefined)[],
   /** Tokens Market rejects regardless of age (e.g. clock skew between hosts). */
   rejectAll: false,
   rejectOnce: new Set<string>(),
@@ -75,7 +86,9 @@ vi.mock('@lobehub/market-sdk', async (importOriginal) => {
 
     constructor(opts: { trustedClientToken?: string }) {
       const token = opts.trustedClientToken!;
-      market.minted.push(marketValidate(token).payload.timestamp);
+      const { payload } = marketValidate(token);
+      market.minted.push(payload.timestamp);
+      market.tenants.push(payload.tenantId);
       this.skills = {
         callTool: async () => {
           const { expired } = marketValidate(token);
@@ -111,6 +124,7 @@ describe('LobeHub Skill trust token lifetime vs executor lifetime', () => {
   beforeEach(() => {
     market.calls.length = 0;
     market.minted.length = 0;
+    market.tenants.length = 0;
     market.rejectAll = false;
     market.rejectOnce.clear();
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -135,6 +149,17 @@ describe('LobeHub Skill trust token lifetime vs executor lifetime', () => {
     expect(at301s).toMatchObject({ success: true });
     // Market never saw an expired token: it was re-minted before the deadline
     expect(market.calls.map(({ expired }) => expired)).toEqual([false, false, false]);
+  });
+
+  // Market admits a request into one tenant's instance by the token's tenantId: a
+  // background run's token has to say which tenant it runs for, as the user's own
+  // requests do.
+  it('signs the tenant the run belongs to into the token', async () => {
+    const executor = new BuiltinToolsExecutor({} as any, 'user_repro');
+
+    await executor.execute(githubRunCommand, context);
+
+    expect(market.tenants).toEqual(['tenant-repro']);
   });
 
   it('re-mints the token and retries once when Market rejects it as invalid_trust_token', async () => {

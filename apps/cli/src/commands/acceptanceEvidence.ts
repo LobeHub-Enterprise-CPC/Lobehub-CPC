@@ -1,6 +1,8 @@
 import { access } from 'node:fs/promises';
 import path from 'node:path';
 
+import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
+
 import type { TrpcClient } from '../api/client';
 import { resolveWorkspaceId } from '../api/workspace';
 import { resolveServerUrl } from '../settings';
@@ -36,15 +38,15 @@ export async function storageQuotaRecovery(client: TrpcClient) {
     }
     if (workspace?.id === workspaceId && workspace.slug) {
       const prefix = `/${encodeURIComponent(workspace.slug)}`;
-      cleanupUrl = new URL(`${prefix}/resource`, serverUrl).toString();
-      upgradeUrl = new URL(`${prefix}/settings/plans`, serverUrl).toString();
+      cleanupUrl = buildRemoteUrl(`${prefix}/resource`, serverUrl).toString();
+      upgradeUrl = buildRemoteUrl(`${prefix}/settings/plans`, serverUrl).toString();
       guidance = `Free workspace space: ${cleanupUrl} — ask a workspace owner/admin to delete unneeded files from this workspace's resource library. Deletion is permanent and may affect shared evidence. Upgrade the workspace plan: ${upgradeUrl} (ask a workspace owner/admin if you cannot manage billing). Personal cleanup or a personal plan upgrade will not resolve this workspace quota.`;
     } else {
       guidance = `Could not verify workspace ${workspaceId}. Run lh workspace current and lh workspace list to check the scope, then ask its owner/admin to clean up workspace files or upgrade the workspace plan. Recovery links are unavailable; do not invent links or substitute personal pages.`;
     }
   } else {
-    cleanupUrl = new URL('/acceptance', serverUrl).toString();
-    upgradeUrl = new URL('/settings/plans', serverUrl).toString();
+    cleanupUrl = buildRemoteUrl('/acceptance', serverUrl).toString();
+    upgradeUrl = buildRemoteUrl('/settings/plans', serverUrl).toString();
     guidance = `Free space: ${cleanupUrl} — delete unneeded acceptances and select the option to permanently delete all rounds, reports, and evidence files. This cannot be undone; deleting only the acceptance record does not free file storage.\nUpgrade your plan: ${upgradeUrl}`;
   }
   return {

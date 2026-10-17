@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { TRACING_SCENARIOS } from '@lobechat/const';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import type { TracingOptions } from '@lobechat/llm-generation-tracing';
 import {
   chainGenerateBrief,
@@ -306,21 +307,23 @@ export class TaskLifecycleService {
       //    scheduled ticks notify — manual "run now" runs and high-frequency
       //    heartbeat ticks stay silent to avoid flooding the inbox.
       if (currentTask?.automationMode === 'schedule' && params.runTrigger === 'schedule') {
-        void notifyScheduledTaskCompleted({
-          agentId: currentTask.assigneeAgentId ?? undefined,
-          lastAssistantContent,
-          operationId: params.operationId,
-          taskId,
-          taskIdentifier,
-          taskName: currentTask.name ?? undefined,
-          topicId,
-          userId: this.userId,
-          workspaceId: this.workspaceId,
-        }).catch((error) =>
-          log(
-            'scheduled-task success notification failed for task=%s (non-fatal): %O',
+        void trackTenantWork(() =>
+          notifyScheduledTaskCompleted({
+            agentId: currentTask.assigneeAgentId ?? undefined,
+            lastAssistantContent,
+            operationId: params.operationId,
+            taskId,
             taskIdentifier,
-            error,
+            taskName: currentTask.name ?? undefined,
+            topicId,
+            userId: this.userId,
+            workspaceId: this.workspaceId,
+          }).catch((error) =>
+            log(
+              'scheduled-task success notification failed for task=%s (non-fatal): %O',
+              taskIdentifier,
+              error,
+            ),
           ),
         );
       }
@@ -425,13 +428,36 @@ export class TaskLifecycleService {
         // task deleted mid-run has no page left to link to.
       } else if (currentTask.automationMode && isAutomationTick) {
         if (runTrigger === 'schedule' || pausedByFuse) {
-          void notifyScheduledTaskFailed({
+          void trackTenantWork(() =>
+            notifyScheduledTaskFailed({
+              agentId: currentTask.assigneeAgentId ?? undefined,
+              consecutiveFailures: scheduleConsecutiveFailures,
+              errorCode,
+              operationId: params.operationId,
+              paused: pausedByFuse,
+              runTrigger: runTrigger === 'schedule' ? 'schedule' : 'heartbeat',
+              taskId,
+              taskIdentifier,
+              taskName: currentTask.name ?? undefined,
+              topicId,
+              userId: this.userId,
+              workspaceId: this.workspaceId,
+            }).catch((error) =>
+              log(
+                'scheduled-task failure notification failed for task=%s (non-fatal): %O',
+                taskIdentifier,
+                error,
+              ),
+            ),
+          );
+        }
+      } else {
+        void trackTenantWork(() =>
+          notifyTaskRunFailed({
             agentId: currentTask.assigneeAgentId ?? undefined,
-            consecutiveFailures: scheduleConsecutiveFailures,
             errorCode,
             operationId: params.operationId,
-            paused: pausedByFuse,
-            runTrigger: runTrigger === 'schedule' ? 'schedule' : 'heartbeat',
+            reason: 'error',
             taskId,
             taskIdentifier,
             taskName: currentTask.name ?? undefined,
@@ -440,29 +466,10 @@ export class TaskLifecycleService {
             workspaceId: this.workspaceId,
           }).catch((error) =>
             log(
-              'scheduled-task failure notification failed for task=%s (non-fatal): %O',
+              'task-run failure notification failed for task=%s (non-fatal): %O',
               taskIdentifier,
               error,
             ),
-          );
-        }
-      } else {
-        void notifyTaskRunFailed({
-          agentId: currentTask.assigneeAgentId ?? undefined,
-          errorCode,
-          operationId: params.operationId,
-          reason: 'error',
-          taskId,
-          taskIdentifier,
-          taskName: currentTask.name ?? undefined,
-          topicId,
-          userId: this.userId,
-          workspaceId: this.workspaceId,
-        }).catch((error) =>
-          log(
-            'task-run failure notification failed for task=%s (non-fatal): %O',
-            taskIdentifier,
-            error,
           ),
         );
       }

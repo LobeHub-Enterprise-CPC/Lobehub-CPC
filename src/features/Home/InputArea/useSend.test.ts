@@ -451,6 +451,7 @@ describe('Home InputArea useSend', () => {
           clearContent: vi.fn(),
           editor: {} as Parameters<SendButtonHandler>[0]['editor'],
           getMarkdownContent: () => 'Report',
+          getEditorData: () => undefined,
         });
       });
       expect(createTaskMock).not.toHaveBeenCalled();

@@ -2,6 +2,7 @@ import { Given, When } from '@cucumber/cucumber';
 import { expect, request } from '@playwright/test';
 
 import { TEST_USER } from '../../support/seedTestUser';
+import { tenantPath } from '../../support/tenant';
 import type { CustomWorld } from '../../support/world';
 
 /**
@@ -9,7 +10,7 @@ import type { CustomWorld } from '../../support/world';
  */
 Given('I am logged in as the test user', async function (this: CustomWorld) {
   // Navigate to signin page
-  await this.page.goto('/signin');
+  await this.page.goto(tenantPath('/signin'));
 
   // Wait for the login form to be visible
   await this.page.waitForSelector('input[type="email"], input[name="email"]', { timeout: 30_000 });
@@ -38,7 +39,7 @@ Given('I am logged in with a session', async function (this: CustomWorld) {
   const api = await request.newContext({ baseURL });
 
   try {
-    const response = await api.post('/api/auth/sign-in/email', {
+    const response = await api.post(tenantPath('/api/auth/sign-in/email'), {
       data: {
         email: TEST_USER.email,
         password: TEST_USER.password,
@@ -61,7 +62,7 @@ Given('I am logged in with a session', async function (this: CustomWorld) {
  * Navigate to signin page
  */
 When('I navigate to the signin page', async function (this: CustomWorld) {
-  await this.page.goto('/signin');
+  await this.page.goto(tenantPath('/signin'));
   await this.page.waitForLoadState('domcontentloaded');
 });
 

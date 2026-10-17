@@ -11,6 +11,12 @@ import {
   toClientInformation,
 } from './oauth';
 
+// These cases stub the network through global fetch; the SSRF filtering itself is covered in
+// oauth.ssrf.test.ts, so the safe transport here just forwards to it.
+vi.mock('@lobechat/ssrf-safe-fetch', () => ({
+  createSsrfSafeFetch: () => (url: string | URL, init?: RequestInit) => globalThis.fetch(url, init),
+}));
+
 vi.mock('@modelcontextprotocol/sdk/client/auth.js', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   registerClient: vi.fn(),

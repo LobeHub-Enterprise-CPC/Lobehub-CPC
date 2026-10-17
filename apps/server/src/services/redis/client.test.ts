@@ -2,16 +2,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as RedisModule from '@/server/modules/Redis';
 
-const { mockGetRedisConfig, mockTryInitializeRedisWithPrefix } = vi.hoisted(() => ({
-  mockGetRedisConfig: vi.fn(),
-  mockTryInitializeRedisWithPrefix: vi.fn(),
-}));
+const { mockGetRedisConfig, mockTryInitializeRedisWithPrefix, mockInitializeSharedRedis } =
+  vi.hoisted(() => ({
+    mockGetRedisConfig: vi.fn(),
+    mockInitializeSharedRedis: vi.fn(),
+    mockTryInitializeRedisWithPrefix: vi.fn(),
+  }));
 
 vi.mock('@/envs/redis', () => ({ getRedisConfig: mockGetRedisConfig }));
 
 vi.mock('@/server/modules/Redis', async (importOriginal) => ({
   ...(await importOriginal<typeof RedisModule>()),
   tryInitializeRedisWithPrefix: mockTryInitializeRedisWithPrefix,
+  initializeSharedRedis: mockInitializeSharedRedis,
 }));
 
 const enabledConfig = {
@@ -30,6 +33,7 @@ const loadClient = async () => {
 beforeEach(() => {
   mockGetRedisConfig.mockReset();
   mockTryInitializeRedisWithPrefix.mockReset();
+  mockInitializeSharedRedis.mockReset();
 });
 
 describe('getRedisServiceClient', () => {
@@ -141,5 +145,28 @@ describe('getRedisServiceClient', () => {
 
     await expect(getRedisServiceClient('sendPathCache')).resolves.toBeNull();
     await expect(getRedisServiceClient('agentSignal')).resolves.not.toBeNull();
+  });
+});
+
+describe('independent discovery Redis health', () => {
+  it('does not reject discovery when the send-cache cooldown is open', async () => {
+    mockGetRedisConfig.mockReturnValue(enabledConfig);
+    mockTryInitializeRedisWithPrefix.mockResolvedValue(null);
+    const provider = { get: vi.fn().mockResolvedValue('ok') };
+    mockInitializeSharedRedis.mockResolvedValue(provider);
+    const { getRedisServiceClient, getSharedRedisServiceClient } = await loadClient();
+    expect(await getRedisServiceClient('sendPathCache')).toBeNull();
+    const shared = await getSharedRedisServiceClient();
+    expect(await shared!.get('key')).toBe('ok');
+  });
+  it('does not open send-cache cooldown after a discovery command fails', async () => {
+    mockGetRedisConfig.mockReturnValue(enabledConfig);
+    const provider = { get: vi.fn().mockRejectedValue(new Error('offline')) };
+    mockInitializeSharedRedis.mockResolvedValue(provider);
+    mockTryInitializeRedisWithPrefix.mockResolvedValue({ get: vi.fn().mockResolvedValue('send') });
+    const { getRedisServiceClient, getSharedRedisServiceClient } = await loadClient();
+    await expect((await getSharedRedisServiceClient())!.get('key')).rejects.toThrow('offline');
+    const sending = await getRedisServiceClient('sendPathCache');
+    expect(await sending!.get('key')).toBe('send');
   });
 });

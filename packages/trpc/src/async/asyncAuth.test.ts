@@ -12,11 +12,13 @@ vi.mock('@lobechat/business-auth', () => ({
 vi.mock('@/database/models/user', () => ({
   UserModel: { findById: async () => ({ id: 'alice' }) },
 }));
-vi.mock('@/libs/trpc/utils/internalJwt', () => ({ validateInternalJWT: async () => true }));
+const validateInternalJWT = vi.hoisted(() => vi.fn());
+vi.mock('@/libs/trpc/utils/internalJwt', () => ({ validateInternalJWT }));
 
 it.each([403, 503])(
   'internal JWT does not bypass platform %s and never runs the resolver',
   async (status) => {
+    validateInternalJWT.mockResolvedValueOnce({ userId: 'alice' });
     access.mockRejectedValueOnce(
       Object.assign(new Error('platform'), {
         status,
@@ -28,7 +30,6 @@ it.each([403, 503])(
       .router({ work: asyncTrpc.procedure.use(asyncAuth).query(run) })
       .createCaller({
         authorizationToken: 'valid-internal-jwt',
-        userId: 'alice',
         serverDB: {} as never,
       });
     await expect(caller.work()).rejects.toMatchObject({
@@ -37,3 +38,26 @@ it.each([403, 503])(
     expect(run).not.toHaveBeenCalled();
   },
 );
+
+it('runs as the user signed into the token', async () => {
+  validateInternalJWT.mockResolvedValueOnce({ userId: 'alice' });
+  const caller = asyncTrpc
+    .router({ work: asyncTrpc.procedure.use(asyncAuth).query(({ ctx }) => ctx.userId) })
+    .createCaller({
+      authorizationToken: 'valid-internal-jwt',
+      serverDB: {} as never,
+    });
+
+  await expect(caller.work()).resolves.toBe('alice');
+});
+
+it('rejects a token that is not valid for the current tenant before touching the database', async () => {
+  validateInternalJWT.mockResolvedValueOnce(null);
+  const run = vi.fn();
+  const caller = asyncTrpc
+    .router({ work: asyncTrpc.procedure.use(asyncAuth).query(run) })
+    .createCaller({ authorizationToken: 'other-tenant-jwt', serverDB: {} as never });
+
+  await expect(caller.work()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+  expect(run).not.toHaveBeenCalled();
+});

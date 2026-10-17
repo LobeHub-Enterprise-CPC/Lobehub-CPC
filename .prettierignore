@@ -28,6 +28,9 @@ packages/database/migrations/meta/
 *.lock
 package-lock.json
 
+# Drizzle SQL, snapshots and journals must preserve generator/history bytes.
+packages/database/migrations/
+
 # ci
 coverage
 .coverage

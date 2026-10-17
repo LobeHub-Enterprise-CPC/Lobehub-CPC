@@ -1,5 +1,6 @@
 import { defineReplica } from '@/libs/replica';
 import { type LobeDocument } from '@/types/document';
+import type { ResourceItem } from '@/types/resource';
 
 /**
  * The value of one file-store document entry.
@@ -12,6 +13,8 @@ import { type LobeDocument } from '@/types/document';
 export interface FileDocumentDetail {
   /** The document row, or `null` when the server has no such document. */
   document: LobeDocument | null;
+  /** Authoritative network row for updating the explorer; not persisted here. */
+  resource?: ResourceItem;
 }
 
 /**

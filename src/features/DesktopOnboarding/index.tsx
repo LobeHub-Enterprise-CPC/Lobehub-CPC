@@ -1,5 +1,6 @@
 'use client';
 
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { APP_WINDOW_MIN_SIZE } from '@lobechat/desktop-bridge';
 import { Flexbox } from '@lobehub/ui';
 import { Skeleton } from '@lobehub/ui/base-ui';
@@ -153,7 +154,7 @@ const DesktopOnboardingPage = memo(() => {
     }
 
     // Use hard reload instead of SPA navigation to ensure the app boots with the new desktop state.
-    window.location.replace('/');
+    window.location.replace(withCurrentTenantPath('/'));
   }, []);
 
   const goToNextStep = useCallback(async () => {

@@ -153,7 +153,7 @@ export function renderSpaHtml(
 
   return new Response(html, {
     headers: {
-      'Cache-Control': 'no-cache',
+      'Cache-Control': 'private, no-store',
       'content-type': 'text/html; charset=utf-8',
     },
   });

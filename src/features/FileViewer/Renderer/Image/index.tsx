@@ -255,7 +255,7 @@ const ImageViewer = ({
     if (!url) return;
     // The `/f/:id` proxy redirects to storage without CORS, so a blob download
     // cannot read it; its `download=1` answer carries an attachment disposition.
-    const downloadUrl = getFileDownloadUrl(url, { appOrigin: window.location.origin });
+    const downloadUrl = getFileDownloadUrl(url);
     if (downloadUrl !== url) {
       window.open(downloadUrl, '_blank', 'noopener,noreferrer');
       return;

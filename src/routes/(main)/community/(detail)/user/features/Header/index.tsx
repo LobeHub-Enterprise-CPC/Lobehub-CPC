@@ -1,6 +1,7 @@
 'use client';
 
 import { SiGithub, SiX } from '@icons-pack/react-simple-icons';
+import { resolveAppUrl } from '@lobechat/business-tenant/client';
 import { Flexbox, Tooltip, TooltipGroup } from '@lobehub/ui';
 import { ActionIcon, Avatar, Button, Tag, Text } from '@lobehub/ui/base-ui';
 import { cssVar } from 'antd-style';
@@ -25,20 +26,12 @@ const UserHeader = memo(() => {
   // Normalize avatar URL - convert relative paths to absolute URLs
   const avatarUrl = useMemo(() => {
     if (!user.avatarUrl) return undefined;
-    // If it's a relative path (starts with /), prepend the origin
-    if (user.avatarUrl.startsWith('/')) {
-      return `${window.location.origin}${user.avatarUrl}`;
-    }
-    return user.avatarUrl;
+    return resolveAppUrl(user.avatarUrl);
   }, [user.avatarUrl]);
 
   const bannerUrl = useMemo(() => {
     if (!user.bannerUrl) return null;
-    // If it's a relative path (starts with /), prepend the origin
-    if (user.bannerUrl.startsWith('/')) {
-      return `${window.location.origin}${user.bannerUrl}`;
-    }
-    return user.bannerUrl;
+    return resolveAppUrl(user.bannerUrl);
   }, [user.bannerUrl]);
 
   return (

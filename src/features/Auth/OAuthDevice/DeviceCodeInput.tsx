@@ -4,6 +4,7 @@ import { Block, Flexbox } from '@lobehub/ui';
 import { Button, Input, Text } from '@lobehub/ui/base-ui';
 import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useHref } from 'react-router';
 
 import AuthCard from '@/features/AuthCard';
 
@@ -15,13 +16,14 @@ interface DeviceCodeInputProps {
 
 const DeviceCodeInput = memo<DeviceCodeInputProps>(({ xsrf, errorKey, userCode }) => {
   const { t } = useTranslation('oauth');
+  const action = useHref('/oidc/device');
 
   return (
     <AuthCard
       subtitle={t('device.input.description')}
       title={t('device.input.title')}
       footer={
-        <form action="/oidc/device" method="post" style={{ width: '100%' }}>
+        <form action={action} method="post" style={{ width: '100%' }}>
           {xsrf && <input name="xsrf" type="hidden" value={xsrf} />}
           <Flexbox gap={16}>
             <Input

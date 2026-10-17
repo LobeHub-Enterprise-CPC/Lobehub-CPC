@@ -1,5 +1,6 @@
 import type { DiscordAdapter } from '@chat-adapter/discord';
 import { createDiscordAdapter } from '@chat-adapter/discord';
+import { currentTenantScope, trackTenantWork } from '@lobechat/database/tenant';
 import type { Chat as ChatBot, Message } from 'chat';
 import debug from 'debug';
 
@@ -74,6 +75,11 @@ class DiscordGatewayClient implements PlatformClient {
   private discord: DiscordApi;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  private stopping = false;
+  private starting?: Promise<void>;
+  private closing?: Promise<void>;
+  private releaseTenant?: () => void;
+  private settleTenant?: () => void;
 
   constructor(config: BotProviderConfig, context: BotPlatformRuntimeContext) {
     this.config = config;
@@ -85,6 +91,27 @@ class DiscordGatewayClient implements PlatformClient {
   // --- Lifecycle ---
 
   async start(options?: GatewayListenerOptions): Promise<void> {
+    if (this.stopping) throw new Error('BOT_STOP_IN_PROGRESS');
+    if (this.starting) return this.starting;
+    if (!this.releaseTenant) {
+      const track = currentTenantScope()?.trackWork;
+      if (track) {
+        const settled = new Promise<void>((resolve) => {
+          this.settleTenant = resolve;
+        });
+        this.releaseTenant = track({ close: () => this.stop(), settled });
+      }
+    }
+    const work = this.startNow(options);
+    this.starting = work;
+    try {
+      await work;
+    } finally {
+      if (this.starting === work) this.starting = undefined;
+    }
+  }
+
+  private async startNow(options?: GatewayListenerOptions): Promise<void> {
     log('Starting DiscordBot appId=%s', this.applicationId);
 
     this.stopped = false;
@@ -102,7 +129,7 @@ class DiscordGatewayClient implements PlatformClient {
 
     try {
       if (this.bot) {
-        await this.bot.shutdown().catch(() => {});
+        await this.bot.shutdown();
         this.bot = null;
       }
 
@@ -132,7 +159,11 @@ class DiscordGatewayClient implements PlatformClient {
       await bot.initialize();
 
       const discordAdapter = (bot as any).adapters.get('discord') as DiscordAdapter;
-      const waitUntil = options?.waitUntil ?? ((task: Promise<any>) => task.catch(() => {}));
+      const waitUntil = (task: Promise<any>) => {
+        const tracked = trackTenantWork(() => task);
+        if (options?.waitUntil) options.waitUntil(tracked);
+        else void tracked.catch(() => undefined);
+      };
 
       const webhookUrl =
         options?.webhookUrl ??
@@ -163,7 +194,7 @@ class DiscordGatewayClient implements PlatformClient {
             durationMs / 3_600_000,
           );
           this.abort.abort();
-          this.start(refreshOptions).catch((err) => {
+          trackTenantWork(() => this.start(refreshOptions)).catch((err) => {
             log('Failed to refresh DiscordBot appId=%s: %O', this.applicationId, err);
           });
         }, durationMs);
@@ -194,25 +225,50 @@ class DiscordGatewayClient implements PlatformClient {
   }
 
   async stop(): Promise<void> {
-    log('Stopping DiscordBot appId=%s', this.applicationId);
+    if (this.closing) return this.closing;
+    const work = this.stopNow().then(() => {
+      this.settleTenant?.();
+      this.releaseTenant?.();
+      this.settleTenant = undefined;
+      this.releaseTenant = undefined;
+    });
+    this.closing = work;
+    try {
+      await work;
+    } finally {
+      if (this.closing === work) this.closing = undefined;
+    }
+  }
+
+  private async stopNow(): Promise<void> {
+    this.stopping = true;
     this.stopped = true;
-    if (this.refreshTimer) {
-      clearTimeout(this.refreshTimer);
-      this.refreshTimer = null;
-    }
     this.abort.abort();
-    if (this.bot) {
-      await this.bot.shutdown().catch(() => {});
-      this.bot = null;
+    try {
+      await this.starting?.catch(() => undefined);
+
+      log('Stopping DiscordBot appId=%s', this.applicationId);
+      this.stopped = true;
+      if (this.refreshTimer) {
+        clearTimeout(this.refreshTimer);
+        this.refreshTimer = null;
+      }
+      this.abort.abort();
+      if (this.bot) {
+        await this.bot.shutdown();
+        this.bot = null;
+      }
+      await updateBotRuntimeStatus(
+        {
+          applicationId: this.applicationId,
+          platform: this.id,
+          status: BOT_RUNTIME_STATUSES.disconnected,
+        },
+        { redisClient: this.context.redisClient as any },
+      );
+    } finally {
+      this.stopping = false;
     }
-    await updateBotRuntimeStatus(
-      {
-        applicationId: this.applicationId,
-        platform: this.id,
-        status: BOT_RUNTIME_STATUSES.disconnected,
-      },
-      { redisClient: this.context.redisClient as any },
-    );
   }
 
   // --- Runtime Operations ---

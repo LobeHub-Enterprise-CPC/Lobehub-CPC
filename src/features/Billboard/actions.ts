@@ -1,3 +1,4 @@
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { isDesktop, isOfficialCloudServer, OFFICIAL_URL } from '@lobechat/const';
 import urlJoin from 'url-join';
 
@@ -73,7 +74,7 @@ const billboardActionHandlers: Record<BillboardAction, () => Promise<void> | voi
       return;
     }
 
-    window.location.href = '/onboarding';
+    window.location.href = withCurrentTenantPath('/onboarding');
   },
 };
 

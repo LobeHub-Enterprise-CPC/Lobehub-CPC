@@ -1,3 +1,4 @@
+import { initializeTenant } from '@lobechat/business-tenant/client';
 import { cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -55,6 +56,18 @@ describe('buildCacheScope', () => {
   it('isolates different users and workspaces', () => {
     expect(buildCacheScope('u1', 'w1')).not.toBe(buildCacheScope('u2', 'w1'));
     expect(buildCacheScope('u1', 'w1')).not.toBe(buildCacheScope('u1', 'w2'));
+  });
+
+  it('isolates the same user and workspace ids across tenants', () => {
+    initializeTenant(new URL('https://app.test/t/acme/agent'));
+    const acme = buildCacheScope('u1', 'w1');
+    initializeTenant(new URL('https://app.test/t/other/agent'));
+    const other = buildCacheScope('u1', 'w1');
+    initializeTenant(new URL('https://app.test/'));
+
+    expect(acme).toBe('u1:w1@acme');
+    expect(other).not.toBe(acme);
+    expect(buildCacheScope('u1', 'w1')).toBe('u1:w1');
   });
 });
 

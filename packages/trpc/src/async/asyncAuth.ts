@@ -13,42 +13,39 @@ const log = debug('lobe-async:auth');
 export const asyncAuth = asyncTrpc.middleware(async (opts) => {
   const { ctx } = opts;
 
-  log('Async auth middleware called for userId: %s', ctx.userId);
+  log('Async auth middleware called');
 
-  // Validate JWT token to verify request is from lambda
+  // The token is the only trusted input: it proves the request is from lambda,
+  // names the tenant it was minted for, and carries the user the call acts as.
   if (!ctx.authorizationToken) {
     log('Async auth failed - missing authorization token');
     throw new TRPCError({ code: 'UNAUTHORIZED' });
   }
 
   log('Validating internal JWT token');
-  const isValid = await validateInternalJWT(ctx.authorizationToken);
-  if (!isValid) {
+  const claims = await validateInternalJWT(ctx.authorizationToken);
+  if (!claims) {
     log('JWT validation failed');
     throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid JWT token' });
   }
-  log('JWT validation successful');
-
-  if (!ctx.userId) {
-    log('Async auth failed - missing userId');
-    throw new TRPCError({ code: 'UNAUTHORIZED' });
-  }
+  const { userId } = claims;
+  log('JWT validation successful for userId: %s', userId);
 
   try {
-    log('Looking up user in database: %s', ctx.userId);
-    const result = await UserModel.findById(ctx.serverDB as LobeChatDatabase, ctx.userId);
+    log('Looking up user in database: %s', userId);
+    const result = await UserModel.findById(ctx.serverDB as LobeChatDatabase, userId);
 
     if (!result) {
-      log('User not found in database: %s', ctx.userId);
+      log('User not found in database: %s', userId);
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'user is invalid' });
     }
 
-    await assertBusinessUserAccess(ctx.serverDB as LobeChatDatabase, ctx.userId);
-    log('User authentication successful: %s', ctx.userId);
+    await assertBusinessUserAccess(ctx.serverDB as LobeChatDatabase, userId);
+    log('User authentication successful: %s', userId);
 
     return opts.next({
       ctx: {
-        userId: ctx.userId,
+        userId,
       },
     });
   } catch (error) {

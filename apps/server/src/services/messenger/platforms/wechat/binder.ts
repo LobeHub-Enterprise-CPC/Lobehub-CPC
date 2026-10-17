@@ -1,5 +1,5 @@
-import { appEnv } from '@/envs/app';
 import { getAgentRuntimeRedisClient } from '@/server/modules/AgentRuntime/redis';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 import type { PlatformClient } from '@/server/services/bot/platforms';
 import { WechatClientFactory } from '@/server/services/bot/platforms/wechat/client';
 
@@ -24,7 +24,7 @@ export class MessengerWechatBinder implements MessengerPlatformBinder {
         settings: {},
       },
       {
-        appUrl: appEnv.APP_URL,
+        appUrl: tenantPublicBaseUrl(),
         redisClient: getAgentRuntimeRedisClient() as any,
       },
     );

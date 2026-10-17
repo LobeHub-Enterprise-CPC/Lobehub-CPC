@@ -10,6 +10,7 @@
 import { Given, Then, When } from '@cucumber/cucumber';
 import { expect } from '@playwright/test';
 
+import { tenantPath } from '../../support/tenant';
 import type { CustomWorld } from '../../support/world';
 import { WAIT_TIMEOUT } from '../../support/world';
 
@@ -170,7 +171,7 @@ async function clickNewPageButton(world: CustomWorld): Promise<void> {
 
 Given('用户在 Page 页面', { timeout: 30_000 }, async function (this: CustomWorld) {
   console.log('   📍 Step: 导航到 Page 页面...');
-  await this.page.goto('/page');
+  await this.page.goto(tenantPath('/page'));
   await this.page.waitForLoadState('domcontentloaded', { timeout: 15_000 });
   await waitForPageWorkspaceReady(this);
 
@@ -179,7 +180,7 @@ Given('用户在 Page 页面', { timeout: 30_000 }, async function (this: Custom
 
 Given('用户在 Page 页面有一个文稿', async function (this: CustomWorld) {
   console.log('   📍 Step: 导航到 Page 页面...');
-  await this.page.goto('/page');
+  await this.page.goto(tenantPath('/page'));
   await this.page.waitForLoadState('domcontentloaded', { timeout: 15_000 });
 
   console.log('   📍 Step: 通过 UI 创建新文稿...');
@@ -287,7 +288,7 @@ Given('用户在 Page 页面有一个文稿', async function (this: CustomWorld)
 
 Given('用户在 Page 页面有一个文稿 {string}', async function (this: CustomWorld, title: string) {
   console.log('   📍 Step: 导航到 Page 页面...');
-  await this.page.goto('/page');
+  await this.page.goto(tenantPath('/page'));
   await this.page.waitForLoadState('domcontentloaded', { timeout: 15_000 });
 
   console.log('   📍 Step: 通过 UI 创建新文稿...');
@@ -437,11 +438,8 @@ When(
 Then('应该创建一个新的文稿', async function (this: CustomWorld) {
   console.log('   📍 Step: 验证新文稿已创建...');
 
-  await this.page.waitForTimeout(1000);
-
-  // Check if URL changed to a new page
-  const currentUrl = this.page.url();
-  expect(currentUrl).toMatch(/\/page\/.+/);
+  // Creation and navigation are asynchronous, especially with parallel workers.
+  await expect(this.page).toHaveURL(/\/page\/[^/?#]+/, { timeout: WAIT_TIMEOUT });
 
   console.log('   ✅ 新文稿已创建');
 });

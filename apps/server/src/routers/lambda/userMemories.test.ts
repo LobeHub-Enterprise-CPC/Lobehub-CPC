@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { BRANDING_PROVIDER, ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
 import { LayersEnum, TypesEnum } from '@lobechat/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -15,7 +16,7 @@ vi.mock('@/database/core/db-adaptor', () => ({
 }));
 
 vi.mock('@/server/globalConfig', () => ({
-  getServerDefaultFilesConfig: vi.fn().mockReturnValue({
+  getServerDefaultFilesConfig: vi.fn().mockResolvedValue({
     embeddingModel: { model: 'text-embedding-3-small' },
   }),
 }));
@@ -309,6 +310,22 @@ describe('userMemories.getMemoryDetail', () => {
 });
 
 describe('userMemories.retrieveMemory', () => {
+  it('embeds search queries with the same provider as every other memory embedding', async () => {
+    vi.mocked(UserMemoryModel).mockImplementation(function () {
+      return { searchMemory: vi.fn().mockResolvedValue({}) } as any;
+    });
+    vi.mocked(getServerDB).mockResolvedValue(makeServerDBMock() as any);
+
+    await userMemoriesRouter
+      .createCaller(mockCtx as any)
+      .searchMemory({ queries: ['Project Atlas'] });
+
+    // With business features only the branding provider is configured; any other
+    // provider has no key and fails every search with InvalidProviderAPIKey.
+    const expected = ENABLE_BUSINESS_FEATURES ? BRANDING_PROVIDER : undefined;
+    expect(vi.mocked(initModelRuntimeFromDB).mock.calls[0][2]).toBe(expected);
+  });
+
   it('returns aggregated memory search results', async () => {
     const searchMemory = vi.fn().mockResolvedValue({
       activities: [],

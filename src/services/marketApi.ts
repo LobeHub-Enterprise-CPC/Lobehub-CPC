@@ -46,13 +46,15 @@ export class MarketApiService {
     }) as Promise<AgentItemDetail>;
   }
 
-  // Check if agent exists (returns true if exists, false if not)
+  // Check if agent exists (returns true if exists, false if Market says it is not there).
+  // A refusal or an outage says nothing about it, so those still throw.
   async checkAgentExists(identifier: string): Promise<boolean> {
     try {
       await this.getAgentDetail(identifier);
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      if ((error as { data?: { code?: string } } | null)?.data?.code === 'NOT_FOUND') return false;
+      throw error;
     }
   }
 

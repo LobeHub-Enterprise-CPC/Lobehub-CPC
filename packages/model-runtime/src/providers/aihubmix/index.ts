@@ -178,7 +178,9 @@ export const params: CreateRouterRuntimeOptions = {
     const timeoutId = setTimeout(() => controller.abort(), 10_000);
 
     try {
-      const response = await fetch(urlJoin(rootBaseURL, '/api/v1/models'), {
+      // The client carries the SSRF-safe transport when the endpoint is user-provided.
+      const clientFetch = (client as any).fetch as typeof fetch | undefined;
+      const response = await (clientFetch ?? fetch)(urlJoin(rootBaseURL, '/api/v1/models'), {
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'APP-Code': 'LobeHub',

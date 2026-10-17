@@ -20,6 +20,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
@@ -129,7 +130,9 @@ export const channelMembers = pgTable(
     createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [
-    uniqueIndex('channel_members_scope_idx').on(t.channelId, t.id),
+    // Composite foreign keys reference (channel_id, id). A table constraint is
+    // created with the table, so generated migrations have it before those keys.
+    unique('channel_members_scope_idx').on(t.channelId, t.id),
   ],
 );
 
@@ -147,7 +150,7 @@ export const channelThreads = pgTable(
   },
   (t): PgTableExtraConfigValue[] => [
     uniqueIndex('channel_threads_root_idx').on(t.channelId, t.rootMessageId),
-    uniqueIndex('channel_threads_scope_idx').on(t.channelId, t.id),
+    unique('channel_threads_scope_idx').on(t.channelId, t.id),
     foreignKey({
       columns: [t.channelId, t.rootMessageId],
       foreignColumns: [channelMessages.channelId, channelMessages.id],
@@ -179,7 +182,7 @@ export const channelMessages = pgTable(
     createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [
-    uniqueIndex('channel_messages_scope_idx').on(t.channelId, t.id),
+    unique('channel_messages_scope_idx').on(t.channelId, t.id),
     uniqueIndex('channel_messages_seq_idx').on(t.channelId, t.sequence),
     index('channel_messages_thread_sequence_idx').on(t.channelId, t.threadId, t.sequence),
     index('channel_messages_request_sequence_idx')
@@ -253,7 +256,7 @@ export const channelJobs = pgTable(
   },
   (t): PgTableExtraConfigValue[] => [
     uniqueIndex('channel_jobs_delivery_idx').on(t.messageId, t.memberId, t.deliveryKey),
-    uniqueIndex('channel_jobs_scope_idx').on(t.channelId, t.id),
+    unique('channel_jobs_scope_idx').on(t.channelId, t.id),
     index('channel_jobs_queue_idx').on(t.status, t.createdAt),
     index('channel_jobs_channel_status_idx').on(t.channelId, t.status),
     foreignKey({

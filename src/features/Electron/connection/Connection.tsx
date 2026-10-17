@@ -1,9 +1,10 @@
 import { Center, Flexbox } from '@lobehub/ui';
 import { Drawer } from '@lobehub/ui/base-ui';
 import { cssVar } from 'antd-style';
-import { Suspense, useCallback } from 'react';
+import { Suspense, useCallback, useEffect } from 'react';
 
 import { BrandTextLoading } from '@/components/Loading';
+import { useAuthorizationEventsSync } from '@/features/DesktopOnboarding/hooks/useAuthorizationEventsSync';
 import LoginStep from '@/features/DesktopOnboarding/steps/LoginStep';
 import { useElectronStore } from '@/store/electron';
 import { isMacOS } from '@/utils/platform';
@@ -13,10 +14,23 @@ import RemoteStatus from './RemoteStatus';
 const isMac = isMacOS();
 
 const Connection = () => {
-  const [isOpen, setConnectionDrawerOpen] = useElectronStore((s) => [
-    s.isConnectionDrawerOpen,
-    s.setConnectionDrawerOpen,
-  ]);
+  const [isOpen, setConnectionDrawerOpen, confirmationId, endpointChangedKind] = useElectronStore(
+    (s) => [
+      s.isConnectionDrawerOpen,
+      s.setConnectionDrawerOpen,
+      s.pendingAuthorizationConfirmation?.confirmationId,
+      s.tenantEndpointChanged,
+    ],
+  );
+
+  // This host is always mounted in the main window, so it must keep listening: a login can be
+  // started from the session-expired modal, and a verified login or a moved organization entry
+  // needs the user's attention wherever they are in the app.
+  useAuthorizationEventsSync();
+
+  useEffect(() => {
+    if (confirmationId || endpointChangedKind) setConnectionDrawerOpen(true);
+  }, [confirmationId, endpointChangedKind, setConnectionDrawerOpen]);
 
   const handleClose = useCallback(() => {
     setConnectionDrawerOpen(false);

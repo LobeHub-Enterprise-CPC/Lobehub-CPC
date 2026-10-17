@@ -24,6 +24,7 @@ import { getComposioClient } from '@/libs/composio';
 import { inferCrudType } from '@/libs/mcp/utils';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { buildTenantPublicUrl } from '@/server/modules/Tenant/callbackUrl';
 
 import { assertWorkspaceRowManageable } from './_helpers/assertWorkspaceRowManageable';
 
@@ -245,7 +246,7 @@ export const composioRouter = router({
       // the remote Composio account.
       await assertComposioRowManageable(ctx, identifier, agentId);
 
-      const callbackUrl = `${process.env.APP_URL || process.env.NEXTAUTH_URL || ''}/api/composio/oauth/callback`;
+      const callbackUrl = buildTenantPublicUrl('/api/composio/oauth/callback');
 
       // Prefer a pre-configured auth config (e.g. a custom/white-label config
       // created in the Composio dashboard), pinned per toolkit via env. Falls

@@ -1,7 +1,8 @@
 import type { LobeChatDatabase } from '@lobechat/database';
 import debug from 'debug';
 
-import { appEnv } from '@/envs/app';
+import { evaluateFeatureFlag } from '@/config/featureFlags';
+import { getServerFeatureFlagsFromRuntimeConfig } from '@/server/featureFlags';
 
 import { listEnabledRulesForTarget } from './rulesRepository';
 import type {
@@ -32,12 +33,25 @@ export const COMMAND_BLOCKED_MESSAGE =
   "and tell the user the command was blocked by their administrator's policy.";
 
 /**
- * Master switch. Every governance code path (the `builtin.ts` chokepoint AND
- * the `/api/governance/check` + `/api/governance/log` HTTP handlers) must
- * call this FIRST and short-circuit on `false` — the product requirement is
- * zero DB/network calls when the feature is off, not "cheap" calls.
+ * Master switch: the `command_governance` feature flag, evaluated for the user
+ * whose call is governed. Every governance code path (the `builtin.ts`
+ * chokepoint AND the `/api/governance/check` + `/api/governance/log` HTTP
+ * handlers) must call this FIRST and short-circuit on `false` — the product
+ * requirement is that no governance rule, policy or log is touched when the
+ * feature is off; the flag lookup itself is cached.
+ *
+ * Fails open like the checks it guards: flags that cannot be read count as off.
  */
-export const isGovernanceEnabled = (): boolean => appEnv.COMMAND_GOVERNANCE_ENABLED === true;
+export const isGovernanceEnabled = async (userId: string): Promise<boolean> => {
+  try {
+    const flags = await getServerFeatureFlagsFromRuntimeConfig(userId);
+
+    return evaluateFeatureFlag(flags.command_governance, userId) === true;
+  } catch (error) {
+    console.error('[governance] feature flag lookup failed, governance off: %O', error);
+    return false;
+  }
+};
 
 const matchesRule = (
   commandText: string,
@@ -80,7 +94,7 @@ export const checkCommand = async (
   ctx: CommandGovernanceContext & { commandText: string },
   db: LobeChatDatabase,
 ): Promise<CommandGovernanceDecision> => {
-  if (!isGovernanceEnabled()) return { allowed: true };
+  if (!(await isGovernanceEnabled(ctx.userId))) return { allowed: true };
 
   try {
     const rules = await listEnabledRulesForTarget(db, ctx.userId, ctx.executionTarget);

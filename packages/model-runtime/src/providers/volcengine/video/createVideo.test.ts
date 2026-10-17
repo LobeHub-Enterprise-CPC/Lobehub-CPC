@@ -31,6 +31,22 @@ describe('createVolcengineVideo', () => {
     };
   });
 
+  it.each([400, 401, 403, 422])(
+    'marks explicit HTTP %s submission rejection as not created',
+    async (status) => {
+      mockFetch.mockResolvedValue({ ok: false, status, text: async () => 'rejected' });
+      await expect(createVolcengineVideo(payload, options)).rejects.toMatchObject({
+        name: 'SubmissionRejectedError',
+        status,
+      });
+    },
+  );
+  it.each([408, 429, 500, 502, 504])('retains uncertainty for HTTP %s', async (status) => {
+    mockFetch.mockResolvedValue({ ok: false, status, text: async () => 'uncertain' });
+    await expect(createVolcengineVideo(payload, options)).rejects.not.toMatchObject({
+      name: 'SubmissionRejectedError',
+    });
+  });
   describe('successful creation', () => {
     it('should return inferenceId on success', async () => {
       mockFetch.mockResolvedValue({

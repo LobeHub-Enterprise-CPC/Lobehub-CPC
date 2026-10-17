@@ -1,5 +1,6 @@
 'use client';
 
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { Center } from '@lobehub/ui';
 import { Button } from '@lobehub/ui/base-ui';
 import { TRPCClientError } from '@trpc/client';
@@ -37,7 +38,7 @@ const ShareErrorView = memo<ShareErrorViewProps>(({ error }) => {
                 void trackLoginOrSignupClicked({
                   spm: 'share.unauthorized.signin.click',
                 }).finally(() => {
-                  window.location.href = target;
+                  window.location.href = withCurrentTenantPath(target);
                 });
               }}
             >

@@ -8,6 +8,7 @@ import { readBlobWithLimit } from '@lobechat/utils/readBlobWithLimit';
 import { QstashError } from '@upstash/qstash';
 
 import { OtelQstashClient } from '@/libs/qstash';
+import { tenantCallbackPath } from '@/server/modules/Tenant/callbackUrl';
 
 import type { AgentHookWebhook } from './types';
 
@@ -32,7 +33,12 @@ class HookHttpError extends Error {
 
 function resolveUrl(url: string): string {
   try {
-    const resolved = new URL(url, process.env.INTERNAL_APP_URL || process.env.APP_URL || undefined);
+    // A relative path is one of our own endpoints: deliver it to the current
+    // tenant's address, so it runs in the same tenant.
+    const resolved = new URL(
+      /^[a-z][\d+.a-z-]*:/i.test(url) ? url : tenantCallbackPath(url),
+      process.env.INTERNAL_APP_URL || process.env.APP_URL || undefined,
+    );
     if (
       !['http:', 'https:'].includes(resolved.protocol) ||
       resolved.username ||

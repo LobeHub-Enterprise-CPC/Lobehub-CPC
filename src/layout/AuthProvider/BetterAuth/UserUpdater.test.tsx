@@ -1,3 +1,4 @@
+import { initializeTenant } from '@lobechat/business-tenant/client';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -39,6 +40,92 @@ describe('UserUpdater', () => {
     localStorage.clear();
     vi.useRealTimers();
     useUserStore.setState({ user: undefined, isSignedIn: false, isLoaded: false });
+  });
+
+  it.each(['TENANT_FROZEN', 'TENANT_OFFLINE'])(
+    'blocks an already loaded identity when tenant access becomes %s',
+    (code) => {
+      useUserStore.setState({ isLoaded: true, isSignedIn: true });
+      useSessionMock.mockReturnValue({
+        data: null,
+        error: { code, status: 403 },
+        isPending: false,
+        refetch: vi.fn(),
+      });
+      const { unmount } = render(
+        <UserUpdater>
+          <button>Business action</button>
+        </UserUpdater>,
+      );
+      expect(screen.getByRole('alert').textContent).toContain('tenant.unavailable.title');
+      expect(screen.getByText('Business action').closest('[inert]')).toBeTruthy();
+      unmount();
+    },
+  );
+
+  it('lets a user of an unavailable organization go back to the organization lookup', () => {
+    initializeTenant(new URL('https://app.example.com/t/acme/agent'));
+    try {
+      useSessionMock.mockReturnValue({
+        data: null,
+        error: { code: 'TENANT_FROZEN', status: 403 },
+        isPending: false,
+        refetch: vi.fn(),
+      });
+      render(<UserUpdater />);
+
+      expect(
+        screen.getByText('organization.switch.link').closest('[href]')?.getAttribute('href'),
+      ).toBe(`${window.location.origin}/?switch=1`);
+    } finally {
+      initializeTenant(new URL('https://app.example.com/'));
+    }
+  });
+
+  it('sends a custom-domain organization to the deployment root named by appUrl', () => {
+    initializeTenant(new URL('https://acme.example.org/agent'), { basePath: '', slug: 'acme' });
+    Object.defineProperty(window, '__SERVER_CONFIG__', {
+      configurable: true,
+      value: { appUrl: 'https://app.example.com' },
+      writable: true,
+    });
+    try {
+      useSessionMock.mockReturnValue({
+        data: null,
+        error: { code: 'TENANT_OFFLINE', status: 403 },
+        isPending: false,
+        refetch: vi.fn(),
+      });
+      render(<UserUpdater />);
+
+      expect(
+        screen.getByText('organization.switch.link').closest('[href]')?.getAttribute('href'),
+      ).toBe('https://app.example.com/?switch=1');
+    } finally {
+      Object.defineProperty(window, '__SERVER_CONFIG__', {
+        configurable: true,
+        value: undefined,
+        writable: true,
+      });
+      initializeTenant(new URL('https://app.example.com/'));
+    }
+  });
+
+  it('offers no organization switch for failures that are not about the organization', () => {
+    initializeTenant(new URL('https://app.example.com/t/acme/agent'));
+    try {
+      useSessionMock.mockReturnValue({
+        data: null,
+        error: { status: 404 },
+        isPending: false,
+        refetch: vi.fn(),
+      });
+      render(<UserUpdater />);
+
+      expect(screen.queryByText('organization.switch.link')).toBeNull();
+    } finally {
+      initializeTenant(new URL('https://app.example.com/'));
+    }
   });
 
   it.each([400, 403, 404])(

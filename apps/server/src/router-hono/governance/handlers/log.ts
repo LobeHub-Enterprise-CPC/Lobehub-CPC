@@ -27,7 +27,7 @@ const LogBodySchema = z.object({
  *
  * No response body (`204`) — this is a fire-and-forget write, same shape as
  * `POST /api/agent/tool-result`. No-ops (still `204`) when governance is
- * disabled, matching `logCommandExecution`'s own short-circuit.
+ * disabled for the user, matching `logCommandExecution`'s own short-circuit.
  */
 export async function log(c: Context): Promise<Response> {
   let parsed;
@@ -41,7 +41,7 @@ export async function log(c: Context): Promise<Response> {
     return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   }
 
-  if (!isGovernanceEnabled()) {
+  if (!(await isGovernanceEnabled(parsed.data.userId))) {
     return c.body(null, 204);
   }
 

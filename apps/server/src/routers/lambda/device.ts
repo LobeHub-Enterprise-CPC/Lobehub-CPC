@@ -568,7 +568,7 @@ export const deviceRouter = router({
         force: z.boolean().optional(),
       }),
     )
-    .query(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
       const result = await deviceGateway.claudeCodeQuota({
         deviceId: input.deviceId,
         env: input.env,
@@ -603,7 +603,7 @@ export const deviceRouter = router({
         ]),
       }),
     )
-    .query(async ({ ctx, input }) =>
+    .mutation(async ({ ctx, input }) =>
       deviceGateway.listHeterogeneousAgentModels({
         args: input.args,
         command: input.command,

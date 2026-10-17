@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 
+import { createSsrfSafeFetch } from '@lobechat/ssrf-safe-fetch';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import {
   getDefaultEnvironment,
@@ -10,6 +11,11 @@ import { type Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { type Progress } from '@modelcontextprotocol/sdk/types.js';
 import debug from 'debug';
 
+import {
+  sanitizeErrorForMcp,
+  sanitizeMcpParamsForLogging,
+  sanitizeUrlForLogging,
+} from './sanitize';
 import {
   type MCPClientParams,
   type MCPError,
@@ -40,7 +46,11 @@ async function preCheckStdioCommand(params: {
   success: boolean;
 }> {
   return new Promise((resolve) => {
-    log('Pre-checking stdio command: %s with args: %O', params.command, params.args);
+    log(
+      'Pre-checking stdio command: %s with args: %O',
+      params.command,
+      sanitizeMcpParamsForLogging({ args: params.args }),
+    );
 
     // Do NOT spread the full process.env here: it would leak server-side secrets
     // (DATABASE_URL, KEY_VAULTS_SECRET, provider API keys, OAuth/JWT secrets, ...)
@@ -172,7 +182,7 @@ export class MCPClient {
 
     switch (params.type) {
       case 'http': {
-        log('Using HTTP transport with url: %s', params.url);
+        log('Using HTTP transport with url: %s', sanitizeUrlForLogging(params.url));
 
         // Build headers, including custom headers and authentication information
         const headers: Record<string, string> = { ...params.headers };
@@ -203,7 +213,10 @@ export class MCPClient {
         }
 
         // Create StreamableHTTPClientTransport and pass headers
+        // The MCP server URL is typed in by users, so every request (including the SSE
+        // stream and redirects) goes through the connect-time-filtered transport.
         this.transport = new StreamableHTTPClientTransport(new URL(params.url), {
+          fetch: createSsrfSafeFetch(),
           requestInit: { headers },
         });
 
@@ -213,7 +226,11 @@ export class MCPClient {
       }
 
       case 'stdio': {
-        log('Using Stdio transport with command: %s , args: %O', params.command, params.args);
+        log(
+          'Using Stdio transport with command: %s , args: %O',
+          params.command,
+          sanitizeMcpParamsForLogging({ args: params.args }),
+        );
 
         this.transport = new StdioClientTransport({
           args: params.args,
@@ -247,15 +264,23 @@ export class MCPClient {
       await this.mcp.connect(this.transport, { onprogress: options.onProgress });
       log('MCP connection initialized.');
     } catch (e) {
-      log('MCP connection failed:', e);
+      // Connection errors echo the request URL (userinfo / query-string keys) and
+      // sometimes header values. Everything logged or rethrown below is derived
+      // from this sanitized copy; the raw error is only used for control flow.
+      const safe = this.redactError(e);
+      log('MCP connection failed:', safe);
 
       if (this.params.type === 'http') {
-        const error = e as Error;
-        if (error.message.includes('401'))
-          throw createMCPError('AUTHORIZATION_ERROR', error.message);
+        if (safe.message.includes('401')) throw createMCPError('AUTHORIZATION_ERROR', safe.message);
 
-        throw e;
+        throw safe;
       }
+
+      const safeParams = {
+        args: (sanitizeMcpParamsForLogging({ args: this.params.args }) as { args: string[] }).args,
+        command: this.params.command,
+        type: this.params.type,
+      };
 
       // For stdio connection failure, attempt to pre-check command to get detailed error information
       if (this.params.type === 'stdio') {
@@ -268,8 +293,9 @@ export class MCPClient {
         });
 
         if (!preCheckResult.success && preCheckResult.error) {
-          log('Detailed error captured: %O', preCheckResult.error);
-          throw preCheckResult.error;
+          const safePreCheck = this.redactError(preCheckResult.error);
+          log('Detailed error captured: %O', safePreCheck);
+          throw safePreCheck;
         }
       }
 
@@ -279,25 +305,17 @@ export class MCPClient {
           'CONNECTION_FAILED',
           'Failed to connect to MCP server, please check your configuration',
           {
-            originalError: (e as Error).message,
-            params: {
-              args: this.params.args,
-              command: this.params.command,
-              type: this.params.type,
-            },
+            originalError: safe.message,
+            params: safeParams,
             step: 'mcp_connect',
           },
         );
       }
 
       // Wrap other unknown errors
-      throw createMCPError('UNKNOWN_ERROR', (e as Error).message, {
-        originalError: (e as Error).message,
-        params: {
-          args: this.params.args,
-          command: this.params.command,
-          type: this.params.type,
-        },
+      throw createMCPError('UNKNOWN_ERROR', safe.message, {
+        originalError: safe.message,
+        params: safeParams,
         step: 'mcp_connect',
       });
     }
@@ -319,6 +337,11 @@ export class MCPClient {
     }
   }
 
+  /** Log-safe copy of an error for this client's params (see `sanitizeErrorForMcp`). */
+  private redactError(e: unknown): Error {
+    return sanitizeErrorForMcp(e, this.params);
+  }
+
   /**
    * Detect the StreamableHTTP "session expired" error.
    *
@@ -338,10 +361,11 @@ export class MCPClient {
       log('Listed tools: %O', tools);
       return tools as McpTool[];
     } catch (e) {
-      console.error('Listed tools error: %O', e);
+      console.error('Listed tools error: %O', this.redactError(e));
 
       if (MCPClient.isNoValidSessionError(e)) {
-        throw new Error('NoValidSessionId', { cause: e });
+        // eslint-disable-next-line preserve-caught-error -- the cause is the sanitized copy on purpose
+        throw new Error('NoValidSessionId', { cause: this.redactError(e) });
       }
 
       return [];
@@ -355,10 +379,11 @@ export class MCPClient {
       log('Listed resources: %O', resources);
       return resources as McpResource[];
     } catch (e) {
-      log('Listed resources: %O', e);
+      log('Listed resources: %O', this.redactError(e));
 
       if (MCPClient.isNoValidSessionError(e)) {
-        throw new Error('NoValidSessionId', { cause: e });
+        // eslint-disable-next-line preserve-caught-error -- the cause is the sanitized copy on purpose
+        throw new Error('NoValidSessionId', { cause: this.redactError(e) });
       }
 
       return [];
@@ -372,10 +397,11 @@ export class MCPClient {
       log('Listed prompts: %O', prompts);
       return prompts as McpPrompt[];
     } catch (e) {
-      log('Listed prompts: %O', e);
+      log('Listed prompts: %O', this.redactError(e));
 
       if (MCPClient.isNoValidSessionError(e)) {
-        throw new Error('NoValidSessionId', { cause: e });
+        // eslint-disable-next-line preserve-caught-error -- the cause is the sanitized copy on purpose
+        throw new Error('NoValidSessionId', { cause: this.redactError(e) });
       }
 
       return [];
@@ -417,7 +443,8 @@ export class MCPClient {
       // The server rejects the request before executing the tool, so retrying
       // with a fresh session is safe (no double side effects).
       if (MCPClient.isNoValidSessionError(e)) {
-        throw new Error('NoValidSessionId', { cause: e });
+        // eslint-disable-next-line preserve-caught-error -- the cause is the sanitized copy on purpose
+        throw new Error('NoValidSessionId', { cause: this.redactError(e) });
       }
       throw e;
     }

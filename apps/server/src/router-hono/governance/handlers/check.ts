@@ -38,9 +38,9 @@ export async function check(c: Context): Promise<Response> {
   }
 
   // Mirror the in-process chokepoint's short-circuit: no DB connection is
-  // opened at all when the feature is off, even though a caller may hit this
-  // endpoint unconditionally for every command it dispatches.
-  if (!isGovernanceEnabled()) {
+  // opened here when the feature is off for the user, even though a caller may
+  // hit this endpoint unconditionally for every command it dispatches.
+  if (!(await isGovernanceEnabled(parsed.data.userId))) {
     return c.json({ allowed: true }, 200);
   }
 

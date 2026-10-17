@@ -76,7 +76,6 @@ const ResourceManager = memo<ResourceManagerProps>(({ content }) => {
     ]);
 
   const currentDocument = useFileStore(documentSelectors.getDocumentById(currentViewItemId));
-  const updateDocumentOptimistically = useFileStore((s) => s.updateDocumentOptimistically);
   const useFetchDocumentDetail = useFileStore((s) => s.useFetchDocumentDetail);
   const { allowed: canUpload } = usePermission('create_content');
   const uploadTopLevel = useTopLevelFileUpload();
@@ -101,7 +100,7 @@ const ResourceManager = memo<ResourceManagerProps>(({ content }) => {
   // row, so gating on it would wait for the very network the projection exists
   // to avoid. The view is read from the store, so a reload paints from the
   // persisted projection on the first frame and the network only confirms it.
-  useFetchDocumentDetail(currentViewItemId);
+  const { mutate: refreshDocumentDetail } = useFetchDocumentDetail(currentViewItemId);
 
   const handleBack = () => {
     setMode('explorer');
@@ -113,26 +112,11 @@ const ResourceManager = memo<ResourceManagerProps>(({ content }) => {
     });
   };
 
-  // Optimistic update handlers for page title and emoji
-  const handleTitleChange = useCallback(
-    (newTitle: string) => {
-      if (currentViewItemId) {
-        updateDocumentOptimistically(currentViewItemId, { title: newTitle });
-      }
-    },
-    [currentViewItemId, updateDocumentOptimistically],
-  );
-
-  const handleEmojiChange = useCallback(
-    (newEmoji: string | undefined) => {
-      if (currentViewItemId) {
-        updateDocumentOptimistically(currentViewItemId, {
-          metadata: { ...currentDocument?.metadata, emoji: newEmoji },
-        });
-      }
-    },
-    [currentViewItemId, currentDocument?.metadata, updateDocumentOptimistically],
-  );
+  const handleMetadataSaved = useCallback(() => {
+    void refreshDocumentDetail().catch(() => {
+      // The replica reports the read error; saving metadata has already succeeded.
+    });
+  }, [refreshDocumentDetail]);
 
   return (
     <>
@@ -162,8 +146,8 @@ const ResourceManager = memo<ResourceManagerProps>(({ content }) => {
                 pageId={currentViewItemId}
                 title={currentDocument?.title}
                 onBack={handleBack}
-                onEmojiChange={handleEmojiChange}
-                onTitleChange={handleTitleChange}
+                onEmojiChange={handleMetadataSaved}
+                onTitleChange={handleMetadataSaved}
               />
             </Flexbox>
           )}

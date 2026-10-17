@@ -66,6 +66,9 @@ the next free number of that prefix.
 - **L-S23** A hand-built `node_modules` symlink farm runs unit tests but cannot start the dev server; clone a working checkout's `node_modules` instead of a fresh install, which this lockfile-less repo resolves against a moving registry.
 - **L-S24** Read the dev server's URL from its own log, and treat "ready" as any status but `000` — `/` answers `302` to `/signin` when signed out.
 - **L-S25** `dev:static` 的 Electron 重启会清空 `dist/renderer`（renderer Vite dev server 启动即删 outDir）；`start`/`restart` 后必须重建 renderer 再驱动，否则页面只有 Internal Server Error。
+- **L-S26** A hand-built Electron main bundle bakes its endpoints in: build with `OFFICIAL_CLOUD_SERVER` and `DEVICE_GATEWAY_URL` pointing at local or unreachable hosts, and before launch confirm `dist/main` carries those values (`DEVICE_GATEWAY_URL:` / `OFFICIAL_CLOUD_SERVER:` followed by the local URL, not `void 0`).
+- **L-S27** `apps/desktop` install relinks the shared `packages/*/node_modules` to the desktop store and breaks root type-check (duplicate `@types/react`); snapshot those links before the install and restore them after, or install in an isolated worktree.
+- **L-S28** 本地验收前核对所有对外服务的实际客户端和服务端请求：`MARKET_BASE_URL`、`NEXT_PUBLIC_MARKET_BASE_URL`、设备网关等须指向本地或已隔离的目标；S3、发信、模型等外部例外须有明确范围授权。
 
 ## Entries
 
@@ -605,3 +608,62 @@ dev.mjs 每次启动都会拉起 renderer Vite dev server，而后者启动即�
 **Rule:** 每次 `start`/`restart` 之后、驱动之前，先 `cd apps/desktop && pnpm build:renderer`
 （约 25s）并确认 `dist/renderer/apps/desktop/index.html` 存在。同一个 dev.mjs 生命周期内
 的后续重启不会再次清空；改用 `restart` 而不是 `start` 时也按同一规则处理。
+
+### L-S26 — Hand-built desktop bundle still talks to the official cloud and gateway
+
+`since 2026-10-15` · `holds-while: apps/desktop/vite.main.config.ts defines OFFICIAL_CLOUD_SERVER and DEVICE_GATEWAY_URL at build time and the store default gatewayUrl is the official gateway`
+
+**Trap:** building `vite.main.config.ts` / `vite.preload.config.ts` by hand (to avoid
+`dev.mjs` watchers) with only `OFFICIAL_CLOUD_SERVER` set, then passing
+`DEVICE_GATEWAY_URL` to the launch command. Both are vite `define`s, so runtime
+env is ignored; the app signed in to the local server and then sent the local
+access token to `device-gateway.lobehub.com` (rejected with signature
+verification failed).
+
+**Rule:** set every endpoint define in the **build** environment, pointing at the
+local service or an unreachable address (`http://127.0.0.1:9`). Before launch,
+`grep -ohE '(DEVICE_GATEWAY_URL|OFFICIAL_CLOUD_SERVER):[^,]+' apps/desktop/dist/main/*.js`
+must show the local URLs as the literal values (other hits are identifier
+references); `void 0` means the define was not baked and the app
+falls back to the official host, so rebuild. Grepping for `lobehub.com` proves
+nothing: a correct bundle still carries the official defaults as constants.
+Treat any token that reached an official host as burned, and say so in the report.
+
+### L-S27 — Desktop install relinks the shared packages under the root checkout
+
+`since 2026-10-15` · `holds-while: apps/desktop/pnpm-workspace.yaml lists ../../packages/* and the root workspace has lockfile: false`
+
+**Trap:** `cd apps/desktop && pnpm install --frozen-lockfile` (needed for desktop
+vitest and Electron runs) also relinks every shared package it lists
+(`packages/utils`, `types`, `heterogeneous-agents`, …) to
+`apps/desktop/node_modules/.pnpm`. The desktop lock pins newer versions, so the
+root `bun run type-check` starts failing with duplicate React types
+(`DroidIcon.tsx`, `ComposioServerItem.tsx`) while git shows no change. A root
+`--frozen-lockfile` install cannot undo it: the root has no lockfile. A filtered
+`--offline` install fails resolving the whole graph, and an online install
+re-resolves every root dependency against today's registry.
+
+**Rule:** in a checkout others also use for root checks, run desktop work in an
+isolated worktree (`cow-workspace`). Otherwise, before the desktop install, save
+the links:
+`find packages -maxdepth 5 -path '*/node_modules/*' -type l -printf '%p\t%l\n' > <task-root>/package-links.tsv`.
+After the desktop work, restore every saved link and confirm that none still
+points into `apps/desktop/node_modules`. Then run root `bun run type-check`
+before handing the checkout back.
+
+### L-S28 — 本地登录成功仍可能向公共服务发请求
+
+`since 2026-10-15` · `holds-while: Market 的服务端与客户端下载地址缺省回落公共 Market，且本地启动未统一隔离所有对外服务`
+
+**Trap:** 本地 Work 登录成功、`.env` 有配置或浏览器 network 没有公共 Market，
+就认定环境已隔离。`MARKET_BASE_URL` 未生效时，服务端仍回落
+`https://market.lobehub.com`；`NEXT_PUBLIC_MARKET_BASE_URL` 独立控制 skill 下载地址。
+浏览器采证不能覆盖服务端出口，构建参数也不能证明实际运行时目标。
+
+**Rule:** 验收前列清所有对外服务地址，确认 Market、设备网关、S3 对象存储、发信、
+模型等实际目标均为本地或已隔离的环境；允许访问外部的例外须先取得具体服务、用途和
+写入范围授权，不能从一次模型调用授权推及其他服务。通过正常启动 override 配置，
+同时核对实际客户端与服务端请求的目标；设备网关构建值沿用 [L-S26](#l-s26--hand-built-desktop-bundle-still-talks-to-the-official-cloud-and-gateway)。
+只保留白名单元数据或有效配置布尔值，不读取或打印 `.env`、个人数据、令牌及秘密；
+需要凭据时使用任务私有临时凭据。发现未授权外发后停止复用该路径，记录请求类别、
+凭据类别是否可知及观测限制；只精确清理归属明确的任务对象，不扩大到共享数据。

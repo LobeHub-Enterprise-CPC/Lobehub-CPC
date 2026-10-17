@@ -1,4 +1,5 @@
 import { isFullAccessApiKey } from '@lobechat/const/apiKeyScope';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import { isRemoteHeterogeneousType } from '@lobechat/heterogeneous-agents';
 import { RequestTrigger } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
@@ -399,7 +400,7 @@ export const agentNotifyRouter = router({
           }
           await ctx.messageModel.update(resolvedMessageId, { content });
           if (isTerminal) await publishRemoteHeteroEvent(resolvedMessageId);
-          else void publishRemoteHeteroEvent(resolvedMessageId);
+          else void trackTenantWork(() => publishRemoteHeteroEvent(resolvedMessageId));
           if (shouldContinue) {
             const result = await ctx.aiAgentService.execAgent({
               agentId,
@@ -430,7 +431,7 @@ export const agentNotifyRouter = router({
         });
 
         if (isTerminal) await publishRemoteHeteroEvent(msg.id);
-        else void publishRemoteHeteroEvent(msg.id);
+        else void trackTenantWork(() => publishRemoteHeteroEvent(msg.id));
 
         // Optionally trigger a follow-up agent turn.
         // Use resume=true + parentMessageId so execAgent skips creating an

@@ -2,13 +2,17 @@
  * @vitest-environment node
  */
 import { BRANDING_NAME } from '@lobechat/business-const';
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { getModelPropertyWithFallback } from '@lobechat/model-runtime';
+import type * as SsrfSafeFetch from '@lobechat/ssrf-safe-fetch';
 import type { UIChatMessage } from '@lobechat/types';
 import type * as ModelBankModule from 'model-bank';
 import type { MockInstance } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentOperationModel } from '@/database/models/agentOperation';
+import { TenantGateError } from '@/server/modules/Tenant/errors';
+import { getTenantLiveResources } from '@/server/modules/Tenant/liveResources';
 
 import { AgentRuntimeService, createEvalToolForwardingHook } from './AgentRuntimeService';
 import { hookDispatcher } from './hooks';
@@ -17,6 +21,14 @@ import {
   type OperationCreationParams,
   type StartExecutionParams,
 } from './types';
+
+vi.mock('@/server/modules/Tenant/postgresClaims', () => ({
+  heartbeatTenantProcess: vi.fn(),
+  tenantClaims: { bind: () => async () => {}, enter: async () => async () => {} },
+}));
+
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');
 
 vi.mock('@lobechat/model-runtime', () => ({
   // RuntimeExecutors (loaded transitively) resolves extend params via this
@@ -34,7 +46,10 @@ vi.mock('@lobechat/model-runtime', () => ({
 }));
 
 const { ssrfSafeFetch: mockSsrfSafeFetch } = vi.hoisted(() => ({ ssrfSafeFetch: vi.fn() }));
-vi.mock('@lobechat/ssrf-safe-fetch', () => ({ ssrfSafeFetch: mockSsrfSafeFetch }));
+vi.mock('@lobechat/ssrf-safe-fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof SsrfSafeFetch>()),
+  ssrfSafeFetch: mockSsrfSafeFetch,
+}));
 
 // Mock trusted client to avoid server-side env access
 vi.mock('@/libs/trusted-client', () => ({
@@ -414,13 +429,13 @@ describe('AgentRuntimeService', () => {
     it('should initialize with default base URL', () => {
       delete process.env.AGENT_RUNTIME_BASE_URL;
       const newService = new AgentRuntimeService(mockDb, mockUserId);
-      expect((newService as any).baseURL).toBe('http://localhost:3210/api/agent');
+      expect((newService as any).baseURL).toBe('http://localhost:3210/t/acme/api/agent');
     });
 
     it('should initialize with custom base URL from environment', () => {
       process.env.AGENT_RUNTIME_BASE_URL = 'http://custom:3000';
       const newService = new AgentRuntimeService(mockDb, mockUserId);
-      expect((newService as any).baseURL).toBe('http://custom:3000/api/agent');
+      expect((newService as any).baseURL).toBe('http://custom:3000/t/acme/api/agent');
     });
   });
 
@@ -733,7 +748,7 @@ describe('AgentRuntimeService', () => {
         operationId: 'test-operation-1',
         stepIndex: 0,
         context: mockParams.initialContext,
-        endpoint: 'http://localhost:3010/api/agent/run',
+        endpoint: 'http://localhost:3010/t/acme/api/agent/run',
         priority: 'high',
         delay: 50,
       });
@@ -1969,6 +1984,57 @@ describe('AgentRuntimeService', () => {
       }
     });
 
+    it('should cancel an in-flight step like a Stop when its tenant is suspended', async () => {
+      const mockStepResult = {
+        events: [],
+        newState: { ...mockState, status: 'running', stepCount: 2 },
+        nextContext: mockParams.context,
+      };
+      let stepStarted!: () => void;
+      const started = new Promise<void>((resolve) => (stepStarted = resolve));
+      let stepSignal: AbortSignal | undefined;
+      vi.spyOn(service as any, 'createAgentRuntime').mockImplementation(function (
+        ...args: unknown[]
+      ) {
+        const { abortSignal } = args[0] as { abortSignal: AbortSignal };
+        stepSignal = abortSignal;
+        return {
+          runtime: {
+            step: vi.fn(function () {
+              stepStarted();
+              // A long LLM / tool call that only ends when aborted.
+              return new Promise((resolve) => {
+                abortSignal.addEventListener('abort', () => resolve(mockStepResult), {
+                  once: true,
+                });
+              });
+            }),
+          },
+        };
+      });
+      mockCoordinator.loadAgentState.mockResolvedValueOnce(mockState);
+      let interrupted = false;
+      mockCoordinator.isInterrupted.mockImplementation(async () => interrupted);
+      mockCoordinator.markInterrupted.mockImplementation(async () => {
+        interrupted = true;
+      });
+
+      const scope = { session: {}, slug: 'acme', tenantId: 't-step' } as unknown as TenantScope;
+      const execution = runWithTenantScope(scope, () => service.executeStep(mockParams));
+      await started;
+      expect(getTenantLiveResources().size('t-step')).toBeGreaterThan(0);
+
+      await getTenantLiveResources().suspend('t-step', new TenantGateError('TENANT_FROZEN'));
+      const result = await execution;
+
+      expect(stepSignal?.aborted).toBe(true);
+      expect(mockCoordinator.markInterrupted).toHaveBeenCalledWith('test-operation-1');
+      expect(result.state).toEqual(expect.objectContaining({ status: 'interrupted' }));
+      expect(result.nextStepScheduled).toBe(false);
+      // The finished step leaves nothing registered for the tenant.
+      expect(getTenantLiveResources().size('t-step')).toBe(0);
+    });
+
     it('should resolve pending client tools when interruption races the parked result', async () => {
       const completedTool = {
         apiName: 'calculate',
@@ -2509,7 +2575,7 @@ describe('AgentRuntimeService', () => {
         operationId: 'test-operation-1',
         stepIndex: 2,
         context: mockParams.context,
-        endpoint: 'http://localhost:3010/api/agent/run',
+        endpoint: 'http://localhost:3010/t/acme/api/agent/run',
         priority: 'high',
         delay: 500,
       });
@@ -2537,7 +2603,7 @@ describe('AgentRuntimeService', () => {
             messageCount: 1,
           }),
         }),
-        endpoint: 'http://localhost:3010/api/agent/run',
+        endpoint: 'http://localhost:3010/t/acme/api/agent/run',
         priority: 'high', // Uses the provided priority from params
         delay: 500, // Uses the provided delay from params
       });
@@ -2617,7 +2683,7 @@ describe('AgentRuntimeService', () => {
         operationId: 'test-operation-1',
         stepIndex: 2,
         context: undefined,
-        endpoint: 'http://localhost:3010/api/agent/run',
+        endpoint: 'http://localhost:3010/t/acme/api/agent/run',
         priority: 'high',
         delay: 100,
         payload: {

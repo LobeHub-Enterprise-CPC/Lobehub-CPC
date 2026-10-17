@@ -1,3 +1,4 @@
+import { ssrfSafeFetch } from '@lobechat/ssrf-safe-fetch';
 import { imageUrlToBase64, videoUrlToBase64 } from '@lobechat/utils';
 import { Buffer } from 'buffer.js';
 import type OpenAI from 'openai';
@@ -649,9 +650,10 @@ export const convertImageUrlToFile = async (imageUrl: string) => {
     mimeType = mimeTypePart.split(':')[1].split(';')[0];
     buffer = Buffer.from(base64Data, 'base64');
   } else {
-    // a http url; generation retries and batch siblings reuse the same download
+    // a http url; generation retries and batch siblings reuse the same download.
+    // User-controlled, so it must not reach private/metadata addresses.
     ({ buffer, mimeType } = await fetchReferenceImageBytes(imageUrl, async (url) => {
-      const response = await fetch(url);
+      const response = await ssrfSafeFetch(url);
       if (!response.ok) {
         throw new Error(`Failed to fetch image from ${url}: ${response.statusText}`);
       }

@@ -1,3 +1,4 @@
+import { getTenant, tenantStorageKey } from '@lobechat/business-tenant/client';
 import { isDesktop } from '@lobechat/const';
 import { useEffect, useLayoutEffect, useState } from 'react';
 
@@ -26,12 +27,15 @@ const PERSONAL = 'personal';
  */
 const ACTIVE_SCOPE_STORAGE_KEY = 'lobehub:active-scope';
 
+// Tenants share one origin: the last-known scope of tenant A must not be read as tenant B's.
+const activeScopeStorageKey = () => tenantStorageKey(ACTIVE_SCOPE_STORAGE_KEY);
+
 const isBrowser = () => typeof localStorage !== 'undefined';
 
 const readActiveScope = (): string | null => {
   if (!isBrowser()) return null;
   try {
-    return localStorage.getItem(ACTIVE_SCOPE_STORAGE_KEY);
+    return localStorage.getItem(activeScopeStorageKey());
   } catch {
     return null;
   }
@@ -40,7 +44,7 @@ const readActiveScope = (): string | null => {
 const writeActiveScope = (scope: string): void => {
   if (!isBrowser()) return;
   try {
-    localStorage.setItem(ACTIVE_SCOPE_STORAGE_KEY, scope);
+    localStorage.setItem(activeScopeStorageKey(), scope);
   } catch {
     // best-effort
   }
@@ -53,7 +57,7 @@ const writeActiveScope = (scope: string): void => {
 export const clearActiveScopeKey = (): void => {
   if (!isBrowser()) return;
   try {
-    localStorage.removeItem(ACTIVE_SCOPE_STORAGE_KEY);
+    localStorage.removeItem(activeScopeStorageKey());
   } catch {
     // best-effort
   }
@@ -69,11 +73,17 @@ export const clearActiveScopeKey = (): void => {
  *
  * Personal mode (no active workspace) collapses to `${userId}:personal`;
  * logged-out / SSR / first-ever boot collapses to `anon:personal`.
+ *
+ * Tenants share one browser origin, so a tenant document appends `@${slug}`:
+ * the same partition name in two tenants must never address one cache.
  */
 export const buildCacheScope = (
   userId: string | null | undefined,
   workspaceId: string | null | undefined,
-): string => `${userId || ANON}:${workspaceId || PERSONAL}`;
+): string => {
+  const tenantSlug = getTenant()?.slug;
+  return `${userId || ANON}:${workspaceId || PERSONAL}${tenantSlug ? `@${tenantSlug}` : ''}`;
+};
 
 /**
  * Whether a scope belongs to the anonymous (identity-unresolved) partition.

@@ -86,8 +86,9 @@ vi.mock('@/business/client/hooks/useActiveWorkspaceSlug', () => ({
   useActiveWorkspaceSlug: () => undefined,
 }));
 
-vi.mock('@/hooks/useAppOrigin', () => ({
-  useAppOrigin: () => 'https://app.lobehub.com',
+vi.mock('@lobechat/business-tenant/client', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useAppBaseUrl: () => 'https://app.lobehub.com',
 }));
 
 /** Title the SWR cache holds after the most recent optimistic write/rollback. */
