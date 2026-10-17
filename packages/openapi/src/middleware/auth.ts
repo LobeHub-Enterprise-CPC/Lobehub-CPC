@@ -1,4 +1,5 @@
 import { assertBusinessUserAccess, isBusinessAuthorizationError } from '@lobechat/business-auth';
+import { hashApiKey } from '@lobechat/utils/server';
 import debug from 'debug';
 import type { Context, Next } from 'hono';
 import { HTTPException } from 'hono/http-exception';
@@ -8,6 +9,7 @@ import { ApiKeyModel } from '@/database/models/apiKey';
 import { authEnv } from '@/envs/auth';
 import { assertOIDCUserActive } from '@/libs/oidc-provider/access-control';
 import { validateOIDCJWT } from '@/libs/oidc-provider/jwt';
+import type { GatewayAuthorizationSource } from '@/server/services/gatewayAuthorization/types';
 import { validateApiKeyFormat } from '@/utils/apiKey';
 import { extractBearerToken } from '@/utils/server/auth';
 
@@ -43,10 +45,11 @@ export const userAuthMiddleware = async (c: Context, next: Next) => {
   let apiKeyWorkspaceId: string | null | undefined;
   // capability scopes of the API key (`null` = full-access key)
   let apiKeyScopes: string[] | null = null;
+  let gatewaySource: GatewayAuthorizationSource | undefined;
 
   // Try Bearer token authentication - check format first to determine type
   if (bearerToken) {
-    log('Bearer token received: %s...', bearerToken.slice(0, 10));
+    log('Bearer credential received');
 
     // Check if bearerToken matches API Key format (prefix + 16 alphanumeric chars)
     const isApiKeyFormat = validateApiKeyFormat(bearerToken);
@@ -73,6 +76,13 @@ export const userAuthMiddleware = async (c: Context, next: Next) => {
             authData = { apiKeyId: apiKeyRecord.id, apiKeyName: apiKeyRecord.name };
             apiKeyWorkspaceId = apiKeyRecord.workspaceId;
             apiKeyScopes = apiKeyRecord.scopes ?? null;
+            gatewaySource = {
+              kind: 'apiKey',
+              keyId: apiKeyRecord.id,
+              keyHash: hashApiKey(bearerToken),
+              subject: apiKeyRecord.userId,
+              ...(apiKeyRecord.workspaceId ? { workspaceId: apiKeyRecord.workspaceId } : {}),
+            };
 
             log(
               'API Key authentication successful, userId: %s, apiKeyId: %s',
@@ -117,6 +127,8 @@ export const userAuthMiddleware = async (c: Context, next: Next) => {
         userId = tokenInfo.userId;
         authType = 'oidc';
         authData = tokenInfo.tokenData;
+        if (typeof tokenInfo.payload.jti === 'string')
+          gatewaySource = { kind: 'oidc', jti: tokenInfo.payload.jti, subject: tokenInfo.userId };
 
         log('OIDC authentication successful, userId: %s', userId);
       } catch (error) {
@@ -131,6 +143,7 @@ export const userAuthMiddleware = async (c: Context, next: Next) => {
 
   // Set authentication context in Hono context
   if (userId) {
+    c.set('gatewaySource', gatewaySource);
     c.set('userId', userId);
     c.set('authType', authType);
     c.set('authData', authData);

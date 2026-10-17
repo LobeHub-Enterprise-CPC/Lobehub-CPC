@@ -24,6 +24,7 @@ const BACKEND_PREFIXES = [
  * the version probe. New endpoints need a tenant by default (FR-RT-04).
  */
 const TENANTLESS_BACKEND = [
+  /^\/api\/internal\/gateway\/(?:admission|authorize|tool-result|finalize-abandoned)\/?$/,
   /^\/api\/internal\/control-plane(?:\/|$)/,
   /^\/api\/cron(?:\/|$)/,
   /^\/api\/tenant-discovery(?:\/|$)/,

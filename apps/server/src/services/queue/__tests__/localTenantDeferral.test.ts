@@ -15,14 +15,32 @@ vi.mock('@/server/modules/Tenant/postgresClaims', () => ({
   tenantClaims: { bind: () => async () => {}, enter: async () => async () => {} },
 }));
 
-const admission = vi.hoisted(() => ({ enterTenantId: vi.fn() }));
+const admission = vi.hoisted(() => ({
+  enterTenantId: vi.fn(),
+  gatewayAdmission: vi.fn(async (tenantId: string) => ({
+    tenantId,
+    acceptedVersion: 7,
+    effectiveState: 'active',
+  })),
+}));
 vi.mock('@/server/modules/Tenant/runtime', () => ({ getTenantRuntime: () => admission }));
 // The global test setup replaces the gate with a pass-through; use the real one.
 vi.mock('@/server/modules/Tenant/gate', async (importOriginal) => importOriginal());
 
 const scopeOf = (credential: string) =>
-  ({ session: { credential }, slug: 'acme', tenantId: 't-1' }) as unknown as TenantScope;
-const message = { context: {}, delay: 10, operationId: 'op-1', stepIndex: 3 } as any;
+  ({
+    session: { credential },
+    slug: 'acme',
+    tenantId: 't-1',
+    acceptedVersion: 7,
+  }) as unknown as TenantScope;
+const message = {
+  execution: { tenantId: 't-1', sourceAcceptedVersion: 7 },
+  context: {},
+  delay: 10,
+  operationId: 'op-1',
+  stepIndex: 3,
+} as any;
 
 describe('LocalQueueServiceImpl tenant admission', () => {
   beforeEach(() => {
@@ -85,11 +103,10 @@ describe('LocalQueueServiceImpl tenant admission', () => {
     expect(seenScopes[0]).toBe(admitted);
   });
 
-  it('keeps running steps scheduled outside any tenant', async () => {
-    const { executed, queue } = setup();
-    await queue.scheduleMessage(message);
-    await vi.advanceTimersByTimeAsync(10);
-    expect(executed).toHaveBeenCalledTimes(1);
-    expect(admission.enterTenantId).not.toHaveBeenCalled();
+  it('rejects an envelope outside any tenant', async () => {
+    const { queue } = setup();
+    await expect(queue.scheduleMessage(message)).rejects.toMatchObject({
+      code: 'TENANT_EXECUTION_VERSION_REQUIRED',
+    });
   });
 });

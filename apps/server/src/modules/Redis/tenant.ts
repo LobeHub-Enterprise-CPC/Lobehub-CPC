@@ -27,10 +27,8 @@ export const TENANT_REDIS_SEGMENT = 't';
 export const SHARED_REDIS_TENANT = '_shared';
 
 export const tenantRedisPrefix = (tenantId: string) => {
-  if (!tenantId || tenantId.includes(':') || tenantId.includes('*')) {
-    throw new Error('TENANT_REDIS_KEY_INVALID');
-  }
-  return `${TENANT_REDIS_SEGMENT}:${tenantId}:`;
+  if (!/^[A-Z0-9][\w.:-]{0,127}$/i.test(tenantId)) throw new Error('TENANT_REDIS_KEY_INVALID');
+  return `${TENANT_REDIS_SEGMENT}:${encodeURIComponent(tenantId)}:`;
 };
 
 /** The current tenant's key prefix; fails closed outside a tenant. */

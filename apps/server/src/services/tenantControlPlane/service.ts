@@ -86,7 +86,10 @@ export const effectiveTenantState = (
 /** The side effects a lifecycle change needs, in order (FR-CP-06 execution). */
 export interface LifecycleHooks {
   /** Close, or force re-validation of, the tenant's SSE / WebSocket connections. */
-  closeRealtime: (tenantId: string) => Promise<void>;
+  closeRealtime: (
+    tenantId: string,
+    context: { tenantId: string; eventId: string; acceptedVersion: number },
+  ) => Promise<void>;
   /** Wait for in-flight business transactions; reject on timeout. */
   drainTransactions: (tenantId: string) => Promise<void>;
   /** Broadcast invalidation of the tenant's admission, authz and config caches. */
@@ -753,12 +756,6 @@ export class TenantControlPlaneService {
 
   // ─── lifecycle execution ─────────────────────────────────────────────────
 
-  /**
-   * Drives one received event to `applied`, `failed` or `superseded`.
-   * Before every phase it re-checks that the event is still the tenant's
-   * accepted version, so a slow executor for an old event stops instead of
-   * overwriting a newer state.
-   */
   async executeLifecycle(
     tenantId: string,
     eventId: string,
@@ -812,7 +809,15 @@ export class TenantControlPlaneService {
     const phases: [(id: string) => Promise<void>, LifecycleFailureCode][] = closing
       ? [
           [hooks.invalidateCaches, 'LIFECYCLE_FAILED'],
-          [hooks.closeRealtime, 'LIFECYCLE_STOP_FAILED'],
+          [
+            (id) =>
+              hooks.closeRealtime(id, {
+                tenantId: id,
+                eventId: claimed.event.eventId,
+                acceptedVersion: claimed.event.version,
+              }),
+            'LIFECYCLE_STOP_FAILED',
+          ],
           [hooks.stopQueue, 'LIFECYCLE_STOP_FAILED'],
           [hooks.drainTransactions, 'LIFECYCLE_DRAIN_FAILED'],
         ]
@@ -934,11 +939,6 @@ export class TenantControlPlaneService {
     await tx.putEvent(event);
   }
 
-  /**
-   * Shapes a result that satisfies every invariant Console checks
-   * (`RESPONSE_MISMATCH` otherwise): accepted ≥ version, applied ≤ accepted,
-   * superseded ⇒ accepted > version, applied ⇒ appliedVersion ≥ version.
-   */
   private toLifecycleResult(
     event: LifecycleEventRecord,
     lifecycle: TenantLifecycleRecord,

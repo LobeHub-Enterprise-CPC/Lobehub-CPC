@@ -2,7 +2,7 @@ import { assertBusinessUserAccess, isBusinessAuthorizationError } from '@lobecha
 import { type Context as OtContext } from '@lobechat/observability-otel/api';
 import { type ClientSecretPayload, type SpendOrigin } from '@lobechat/types';
 import type { ClientMetadata } from '@lobechat/utils/server';
-import { parseClientMetadata } from '@lobechat/utils/server';
+import { hashApiKey, parseClientMetadata } from '@lobechat/utils/server';
 import { TRPCError } from '@trpc/server';
 import { parse } from 'cookie';
 import debug from 'debug';
@@ -22,6 +22,7 @@ import {
   type LlmRelayRequest,
   readLlmRelayRequest,
 } from '@/server/modules/AgentRuntime/llmRelay/requestScope';
+import type { GatewayAuthorizationSource } from '@/server/services/gatewayAuthorization/types';
 import { isApiKeyExpired, validateApiKeyFormat } from '@/utils/apiKey';
 import { getRequestClientIP } from '@/utils/requestClientIP';
 
@@ -33,6 +34,7 @@ const log = debug('lobe-trpc:lambda:context');
 const LOBE_CHAT_API_KEY_HEADER = 'X-API-Key';
 
 interface ValidatedApiKey {
+  gatewaySource: GatewayAuthorizationSource;
   scopes: string[] | null;
   userId: string;
   workspaceId: string | null;
@@ -61,6 +63,13 @@ const validateApiKey = async (apiKey: string): Promise<ValidatedApiKey | null> =
     });
 
     return {
+      gatewaySource: {
+        kind: 'apiKey',
+        keyId: apiKeyRecord.id,
+        keyHash: hashApiKey(apiKey),
+        subject: apiKeyRecord.userId,
+        ...(apiKeyRecord.workspaceId ? { workspaceId: apiKeyRecord.workspaceId } : {}),
+      },
       scopes: apiKeyRecord.scopes ?? null,
       userId: apiKeyRecord.userId,
       workspaceId: apiKeyRecord.workspaceId ?? null,
@@ -108,6 +117,8 @@ export interface AuthContext {
   apiKeyScopes?: string[] | null;
   clientIp?: string | null;
   clientMetadata?: ClientMetadata;
+  /** Derived only from successful original authentication, never request JSON. */
+  gatewaySource?: GatewayAuthorizationSource;
   jwtPayload?: ClientSecretPayload | null;
   /**
    * The browser tab this request came from, when it subscribed a one-shot
@@ -141,6 +152,7 @@ export interface AuthContext {
  * This is useful for testing when we don't want to mock Next.js' request/response
  */
 export const createContextInner = async (params?: {
+  gatewaySource?: GatewayAuthorizationSource;
   /** See {@link AuthContext.actingAgentId} — server-side callers only. */
   actingAgentId?: string | null;
   apiKeyScopes?: string[] | null;
@@ -158,13 +170,14 @@ export const createContextInner = async (params?: {
   userId?: string | null;
   workspaceId?: string | null;
 }): Promise<AuthContext> => {
-  log('createContextInner called with params: %O', params);
+  log('createContextInner for authenticated user: %s', params?.userId);
   const responseHeaders = new Headers();
   if (params?.authFailure && !params.userId) {
     setAuthFailureHeader(responseHeaders, params.authFailure);
   }
 
   return {
+    gatewaySource: params?.gatewaySource,
     actingAgentId: params?.actingAgentId,
     apiKeyScopes: params?.apiKeyScopes,
     clientMetadata: params?.clientMetadata || { type: 'unknown' },
@@ -320,6 +333,7 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
     return createContextInner({
       ...commonContext,
       apiKeyScopes: apiKeyAuth.scopes,
+      gatewaySource: apiKeyAuth.gatewaySource,
       traceContext,
       userId: apiKeyAuth.userId,
       workspaceId: apiKeyAuth.workspaceId ?? undefined,
@@ -374,6 +388,10 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
         log('OIDC authentication successful, creating context and returning');
         return createContextInner({
           oidcAuth,
+          gatewaySource:
+            typeof tokenInfo.payload?.jti === 'string'
+              ? { kind: 'oidc', jti: tokenInfo.payload.jti, subject: tokenInfo.userId }
+              : undefined,
           oidcClientId,
           ...commonContext,
           traceContext,
@@ -424,6 +442,10 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
     }
 
     const context = await createContextInner({
+      gatewaySource:
+        session?.session?.id && userId
+          ? { kind: 'session', sessionId: session.session.id, subject: userId }
+          : undefined,
       ...commonContext,
       authFailure,
       traceContext,

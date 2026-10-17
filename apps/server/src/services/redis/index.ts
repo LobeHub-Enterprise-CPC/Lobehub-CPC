@@ -1,5 +1,6 @@
 import { agentSignal } from './agentSignal';
 import { deviceSystemInfo } from './deviceSystemInfo';
+import { gatewayAuthorization } from './gatewayAuthorization';
 import { skillTools } from './skillTools';
 import { tenantDiscovery } from './tenantDiscovery';
 import { workspaceRescan } from './workspaceRescan';
@@ -8,6 +9,7 @@ import { workspaceRescan } from './workspaceRescan';
 export const redisService = {
   agentSignal,
   deviceSystemInfo,
+  gatewayAuthorization,
   skillTools,
   tenantDiscovery,
   workspaceRescan,

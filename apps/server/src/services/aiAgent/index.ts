@@ -36,6 +36,7 @@ import { TopicModel } from '@/database/models/topic';
 import { UserModel } from '@/database/models/user';
 import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { createStreamEventManager } from '@/server/modules/AgentRuntime/factory';
+import { assertGatewayProviderCapability } from '@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite';
 import { AgentService } from '@/server/services/agent';
 import { AgentDocumentsService } from '@/server/services/agentDocuments';
 import type {
@@ -136,12 +137,7 @@ export class AiAgentService {
   private readonly composioService: ComposioService;
 
   private readonly workspaceId?: string;
-  /**
-   * When the caller authenticated with a restricted API key, the unrestricted
-   * user JWT minted for gateway WebSocket auth must not be handed back — it
-   * passes `oidcAuth` as non-API-key auth and would bypass the scope guard
-   * entirely.
-   */
+  /** Restricted API keys do not receive executable gateway tickets. */
   private readonly withholdGatewayToken: boolean;
 
   constructor(
@@ -597,7 +593,8 @@ export class AiAgentService {
    *   → AgentRuntimeService.createOperation(...)
    */
   async execAgent(inputParams: InternalExecAgentParams): Promise<ExecAgentResult> {
-    // Reject private transcript conflicts before approval lookups or thread creation.
+    if (inputParams.shareGate)
+      throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'SHARE_GATEWAY_UNSUPPORTED' });
     if (
       inputParams.transcript &&
       (inputParams.appContext?.topicId ||
@@ -1331,6 +1328,9 @@ export class AiAgentService {
       topicId,
     } = turn;
 
+    if (!isHeteroAgent)
+      await assertGatewayProviderCapability(this.db, this.userId, provider, this.workspaceId);
+
     // Shared context for the extracted execAgent pipeline stages
     // (`pipeline/*`). Built after the turn rows exist so every stage sees the
     // persisted anchors; `agentConfig` stays the same mutable object so stage
@@ -1990,7 +1990,6 @@ export class AiAgentService {
 
   /**
    * Repair the topic reconnect marker and release the exact start reservation
-   * after a durable queue ACK. Delegates to {@link InterventionController}.
    */
   repairInterventionContinuationTopicAnchor(params: {
     assistantMessageId: string;

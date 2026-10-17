@@ -128,13 +128,31 @@ export class AbandonOperationService {
   async finalizeAbandoned(
     operationId: string,
     reason: string,
-    options?: { settledAsAbandoned?: boolean },
+    options?: { cleanupOnly?: boolean; settledAsAbandoned?: boolean },
   ): Promise<FinalizeAbandonedResult> {
     const result: FinalizeAbandonedResult = {
       assistantMessageUpdated: false,
       finalized: false,
       found: false,
     };
+
+    if (options?.cleanupOnly) {
+      const row = await this.findOperationRow(operationId);
+      if (
+        row &&
+        ['running', 'waiting_for_human', 'waiting_for_async_tool', 'waiting_for_client'].includes(
+          row.status,
+        )
+      ) {
+        await new AgentOperationModel(this.db, row.userId, row.workspaceId ?? undefined).settleLive(
+          operationId,
+          'error',
+        );
+        await this.coordinator.deleteAgentOperation(operationId);
+        result.abandoned = true;
+      }
+      return result;
+    }
 
     const state = await this.coordinator.loadAgentState(operationId);
     if (!state) {

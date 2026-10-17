@@ -36,6 +36,7 @@ import {
 } from '@/server/services/deviceGateway';
 import { filterAuthorizedDevicePresence } from '@/server/services/deviceGateway/scopedDevicePresence';
 import { deviceTunnels, TUNNEL_MAX_TTL_SECONDS } from '@/server/services/deviceGateway/tunnels';
+import { requireGatewaySource } from '@/server/services/gatewayAuthorization/context';
 
 import { loadDeviceBoundAgents } from './deviceBoundAgents';
 import { preserveWorkspaceCache } from './deviceWorkingDirs';
@@ -135,7 +136,6 @@ const relayTerminal = async <T>(run: () => Promise<T>): Promise<T> => {
   }
 };
 
-/** Append a freshly minted access token to a tunnel URL. */
 const buildTunnelOpenUrl = async (
   url: string,
   ctx: { userId: string; workspaceId?: string },
@@ -1832,7 +1832,7 @@ export const deviceRouter = router({
    * page use this.
    */
   mintWorkspaceConnectToken: wsWritableProcedure.mutation(async ({ ctx }) => {
-    const token = await signWorkspaceDeviceToken(ctx.workspaceId);
+    const token = await signWorkspaceDeviceToken(ctx.workspaceId, requireGatewaySource(ctx.userId));
     return { token, workspaceId: ctx.workspaceId };
   }),
 
@@ -1919,7 +1919,10 @@ export const deviceRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Personal device not found.' });
       }
 
-      const token = await signWorkspaceDeviceToken(ctx.workspaceId);
+      const token = await signWorkspaceDeviceToken(
+        ctx.workspaceId,
+        requireGatewaySource(ctx.userId),
+      );
       // Identity-only probe: learn the machine's workspace deviceId WITHOUT the
       // device opening or persisting a share connection, so backing out of the
       // overwrite confirmation leaves the device untouched. Older clients
@@ -2116,7 +2119,6 @@ export const deviceRouter = router({
   /**
    * Remove a WORKSPACE device. Scoped by `workspace_id` and gated by
    * {@link canEditWorkspaceDevice}: owners may remove any device in the pool;
-   * members may remove only devices they enrolled themselves.
    */
   removeWorkspaceDevice: wsWritableProcedure
     .use(serverDatabase)
@@ -2167,8 +2169,6 @@ export const deviceRouter = router({
 
   /**
    * Auto-register the calling device (desktop after OIDC login / CLI on first
-   * `lh connect`). Upserts on (userId, deviceId); user-owned fields are
-   * preserved on conflict.
    */
   register: deviceProcedure
     .input(

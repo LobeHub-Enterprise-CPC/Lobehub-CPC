@@ -1,5 +1,7 @@
 import { getServerConfigStoreState } from '@/store/serverConfig';
 
+import tenancyProtocol from '../../contracts/gateway-tenancy/v1/protocol.json';
+
 /**
  * `serverConfig` / `featureFlags`, read the same way the gateway transport does:
  * the global store first (the SPA and the desktop shell publish it on `window`
@@ -26,8 +28,16 @@ const getConfigState = () =>
  * Read non-reactively: a run keeps the protocol it started with even if either
  * half changes underneath it.
  */
+/** The frozen tenancy capability matrix closes mux at the application entry. */
+export const isGatewayMuxSupported = (): boolean =>
+  !('mux' in tenancyProtocol.capabilities.disabled);
+
 export const canUseGatewayProtocolV2 = (): boolean => {
   const state = getConfigState();
 
-  return state?.serverConfig?.agentGatewayProtocol === 2 && !!state.featureFlags?.enableGatewayMux;
+  return (
+    isGatewayMuxSupported() &&
+    state?.serverConfig?.agentGatewayProtocol === 2 &&
+    !!state.featureFlags?.enableGatewayMux
+  );
 };

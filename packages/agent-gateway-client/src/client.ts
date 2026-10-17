@@ -1,4 +1,8 @@
+import { assertGatewayIdentityContinuity, gatewayIdentityFailure } from './identity';
+import { GatewayIdentityRenewal } from './identityRenewal';
 import { MirroredTerminalEchoGuard } from './mirroredTerminalEcho';
+import type { GatewayCommandBinding } from './tenancy';
+import { gatewayIdentityHint, GatewaySocketAuthority, strictGatewayUrl } from './tenancy';
 import { isSessionTerminalEvent } from './terminalEvent';
 import type {
   AgentStreamClientEvents,
@@ -73,6 +77,12 @@ export class AgentStreamClient extends TypedEmitter {
   private intentionalDisconnect = false;
   private lastEventId = '';
   private sessionEnded = false;
+  private authority?: GatewaySocketAuthority;
+  private renewal?: GatewayIdentityRenewal;
+  private identityProvider?: AgentStreamClientOptions['identityProvider'];
+  private dialController?: AbortController;
+  private dialEpoch = 0;
+  private expiryTimer?: ReturnType<typeof setInterval>;
 
   // Resume buffering: when reconnecting with empty lastEventId, buffer events
   // until resume replay completes, then deduplicate and emit in order.
@@ -80,7 +90,6 @@ export class AgentStreamClient extends TypedEmitter {
   private resumeMode = false;
   private resumeFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
-  private readonly clientId?: string;
   private readonly gatewayUrl: string;
   private readonly operationId: string;
   private readonly autoReconnect: boolean;
@@ -90,10 +99,10 @@ export class AgentStreamClient extends TypedEmitter {
 
   constructor(options: AgentStreamClientOptions) {
     super();
-    this.clientId = options.clientId;
     this.gatewayUrl = options.gatewayUrl;
     this.operationId = options.operationId;
     this.token = options.token;
+    this.identityProvider = options.identityProvider;
     this.autoReconnect = options.autoReconnect ?? true;
     this.resumeOnConnect = options.resumeOnConnect ?? false;
     this.lastEventId = options.lastEventId ?? '';
@@ -153,7 +162,18 @@ export class AgentStreamClient extends TypedEmitter {
    * is available (caller should fall back to server-side BLPOP timeout).
    */
   sendToolResult(result: Omit<ToolResultMessage, 'type'>): boolean {
-    return this.sendMessage({ ...result, type: 'tool_result' });
+    const binding = this.authority?.response(result.toolCallId, result.attemptId);
+    if (!binding) return false;
+    return this.sendMessage({ ...result, ...binding, type: 'tool_result' });
+  }
+
+  sendToolConfirmation(toolCallId: string, attemptId: string, approved: boolean): boolean {
+    const binding = this.authority?.response(toolCallId, attemptId);
+    return !!binding && this.sendMessage({ ...binding, type: 'tool_confirmation', approved });
+  }
+  sendUserInput(requestId: string, attemptId: string, content: string): boolean {
+    const binding = this.authority?.response(requestId, attemptId);
+    return !!binding && this.sendMessage({ ...binding, type: 'user_input', content });
   }
 
   /**
@@ -179,39 +199,93 @@ export class AgentStreamClient extends TypedEmitter {
 
   // ─── Connection Logic ───
 
-  private doConnect(): void {
+  private async doConnect(): Promise<void> {
     this.clearReconnectTimer();
     this.setStatus('connecting');
+    this.renewal?.dispose();
+    this.authority?.invalidate();
+    this.dialController?.abort();
+    const controller = new AbortController();
+    this.dialController = controller;
+    const epoch = ++this.dialEpoch;
 
     try {
+      const identity = this.identityProvider
+        ? await this.identityProvider({
+            signal: controller.signal,
+            renewAuthorizationId: this.authority?.identity.authorizationId,
+          })
+        : gatewayIdentityHint(this.token, 'urn:lobehub:gateway:agent', this.operationId);
+      if (controller.signal.aborted || epoch !== this.dialEpoch) return;
+      assertGatewayIdentityContinuity(this.authority?.identity, identity);
+      this.token = identity.gatewayTicket;
+      this.authority = new GatewaySocketAuthority(
+        identity,
+        'urn:lobehub:gateway:agent',
+        this.operationId,
+      );
       const wsUrl = this.buildWsUrl();
       const ws = new WebSocket(wsUrl);
 
-      ws.onopen = this.handleOpen;
-      ws.onmessage = this.handleMessage;
-      ws.onclose = this.handleClose;
-      ws.onerror = this.handleError;
+      ws.onopen = () => {
+        if (this.ws === ws) this.handleOpen();
+      };
+      ws.onmessage = (event) => {
+        if (this.ws === ws) this.handleMessage(event);
+      };
+      ws.onclose = () => {
+        if (this.ws === ws) this.handleClose();
+      };
+      ws.onerror = () => {
+        if (this.ws === ws) this.handleError();
+      };
 
       this.ws = ws;
+      this.renewal = new GatewayIdentityRenewal({
+        authority: this.authority,
+        provider: this.identityProvider,
+        isCurrent: () => this.ws === ws && epoch === this.dialEpoch && !controller.signal.aborted,
+        sendAuth: (next) =>
+          this.sendMessage({
+            type: 'auth',
+            tenancyProtocol: 1,
+            tokenType: 'jwt',
+            token: next.gatewayTicket,
+          }),
+        onFailed: (code) => {
+          this.disconnect();
+          this.emit('auth_failed', code);
+        },
+        onTemporary: (code) => {
+          this.emit('error', new Error(code));
+        },
+        onExpired: () => {
+          this.cleanup();
+          this.setStatus('authenticating');
+          this.emit('auth_expired');
+        },
+      });
     } catch (error) {
-      console.error('[AgentStreamClient] Failed to create WebSocket:', error);
-      this.setStatus('disconnected');
-      if (this.autoReconnect && !this.sessionEnded) {
-        this.scheduleReconnect();
+      if (controller.signal.aborted || epoch !== this.dialEpoch) return;
+      const failure = gatewayIdentityFailure(error);
+      console.error('[AgentStreamClient] Gateway identity connection failed:', failure.code);
+      if (!failure.retryable) {
+        this.disconnect();
+        this.emit('auth_failed', failure.code);
+        return;
       }
+      this.setStatus('disconnected');
+      this.emit('error', new Error(failure.code));
+      if (this.autoReconnect && !this.sessionEnded) this.scheduleReconnect();
+      else this.emit('disconnected');
     }
   }
 
   private buildWsUrl(): string {
-    // If the URL already has a ws/wss protocol, use it directly
-    if (this.gatewayUrl.startsWith('ws://') || this.gatewayUrl.startsWith('wss://')) {
-      const base = this.gatewayUrl.replace(/\/+$/, '');
-      return `${base}/ws?operationId=${encodeURIComponent(this.operationId)}`;
-    }
-    // Otherwise convert http(s) to ws(s)
-    const wsProtocol = this.gatewayUrl.startsWith('https') ? 'wss' : 'ws';
-    const host = this.gatewayUrl.replace(/^https?:\/\//, '');
-    return `${wsProtocol}://${host}/ws?operationId=${encodeURIComponent(this.operationId)}`;
+    const url = strictGatewayUrl(this.gatewayUrl, 'ws');
+    url.protocol = ['https:', 'wss:'].includes(url.protocol) ? 'wss:' : 'ws:';
+    url.searchParams.set('operationId', this.operationId);
+    return url.toString();
   }
 
   // ─── WebSocket Event Handlers ───
@@ -220,19 +294,73 @@ export class AgentStreamClient extends TypedEmitter {
     this.reconnectDelay = INITIAL_RECONNECT_DELAY;
     this.setStatus('authenticating');
     this.sendMessage({
-      ...(this.clientId && { clientId: this.clientId }),
       token: this.token,
+      tenancyProtocol: 1,
+      tokenType: 'jwt',
       type: 'auth',
     });
   };
 
   private handleMessage = (event: MessageEvent): void => {
     try {
-      const message = JSON.parse(event.data as string) as ServerMessage;
+      let message = JSON.parse(event.data as string) as ServerMessage;
+      const directTool = message.type === 'tool_execute';
+      if (directTool) {
+        const frame = message as GatewayCommandBinding & { data: unknown };
+        if (this._status !== 'connected') return;
+        const business = frame.data as Record<string, unknown>;
+        if (
+          !business ||
+          typeof business.identifier !== 'string' ||
+          typeof business.apiName !== 'string' ||
+          typeof business.arguments !== 'string' ||
+          typeof business.executionTimeoutMs !== 'number'
+        )
+          throw new Error('INVALID_GATEWAY_MESSAGE');
+        message = {
+          type: 'agent_event',
+          event: {
+            type: 'tool_execute',
+            operationId: frame.operationId!,
+            timestamp: Date.now(),
+            stepIndex: 0,
+            data: { ...business, ...frame, data: undefined },
+          },
+        };
+      }
+      if (message.type === 'tool_confirmation_request' || message.type === 'input_request') {
+        if (this._status !== 'connected') return;
+        this.authority!.admit(message, message.toolCallId ?? message.requestId!, 'agent:respond');
+        this.emit(message.type, message);
+        return;
+      }
+      if (['tenant_unavailable', 'capability_failed'].includes(message.type))
+        throw new Error((message as { code?: string }).code ?? 'GATEWAY_AUTHORITY_UNAVAILABLE');
+      if (message.type === 'lease_update') {
+        this.authority!.confirm(message);
+        return;
+      }
+      if (
+        !['auth_success', 'auth_failed', 'auth_expired'].includes(message.type) &&
+        (this._status !== 'connected' || !this.authority?.alive())
+      )
+        return;
 
       switch (message.type) {
         case 'auth_success': {
+          const renewed = this.renewal!.confirm(message);
+          this.authority = this.renewal!.authority;
+          this.token = this.authority.identity.gatewayTicket;
+          if (renewed) return;
           this.setStatus('connected');
+          if (this.expiryTimer) clearInterval(this.expiryTimer);
+          this.expiryTimer = setInterval(() => {
+            if (!this.authority?.alive()) {
+              this.cleanup();
+              this.setStatus('authenticating');
+              this.emit('auth_expired');
+            }
+          }, 250);
           this.startHeartbeat();
 
           // Enter resume mode only for explicit reconnect scenarios (page reload).
@@ -267,12 +395,19 @@ export class AgentStreamClient extends TypedEmitter {
         }
 
         case 'auth_failed': {
-          this.emit('auth_failed', message.reason);
+          this.emit(
+            'auth_failed',
+            message.reason ??
+              (message as { code?: string; message?: string }).code ??
+              'UNAUTHORIZED',
+          );
           this.disconnect();
           break;
         }
 
         case 'auth_expired': {
+          this.cleanup();
+          this.setStatus('authenticating');
           // Token expired but the server kept the socket open. Don't disconnect —
           // the listener will refresh the token and call `reconnect()`.
           this.emit('auth_expired');
@@ -286,6 +421,23 @@ export class AgentStreamClient extends TypedEmitter {
 
         case 'agent_event': {
           const agentEvent: AgentStreamEvent = message.event;
+          if (agentEvent.type === 'llm_execute' || agentEvent.type === 'llm_cancel')
+            throw new Error('LLM_RELAY_UNSUPPORTED');
+          if (agentEvent.type === 'tool_execute') {
+            if (!directTool) throw new Error('INVALID_GATEWAY_MESSAGE');
+            const frame = {
+              ...(agentEvent.data as object),
+              operationId: agentEvent.operationId,
+              type: 'tool_execute',
+            } as unknown as GatewayCommandBinding;
+            this.authority!.admit(frame, frame.toolCallId!, 'agent:execute');
+            const authority = this.authority!;
+            Object.assign(agentEvent.data as object, {
+              executionSignal: authority.signal,
+              isExecutionCurrent: () =>
+                this.authority === authority && authority.alive('agent:execute'),
+            });
+          }
           if (message.id) this.lastEventId = message.id;
           this.terminalEchoGuard.observe(agentEvent);
 
@@ -378,10 +530,16 @@ export class AgentStreamClient extends TypedEmitter {
       }
     } catch (error) {
       console.error('[AgentStreamClient] Failed to parse message:', error);
+      this.authority?.invalidate();
+      this.emit('auth_failed', error instanceof Error ? error.message : 'INVALID_GATEWAY_MESSAGE');
+      this.disconnect();
     }
   };
 
   private handleClose = (): void => {
+    this.renewal?.dispose();
+    if (this.expiryTimer) clearInterval(this.expiryTimer);
+    this.authority?.invalidate();
     this.stopHeartbeat();
     this.ws = null;
 
@@ -513,6 +671,8 @@ export class AgentStreamClient extends TypedEmitter {
   // ─── Helpers ───
 
   private sendMessage(data: ClientMessage): boolean {
+    if (data.type !== 'auth' && (this._status !== 'connected' || !this.authority?.alive()))
+      return false;
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
       return true;
@@ -521,6 +681,8 @@ export class AgentStreamClient extends TypedEmitter {
   }
 
   private closeWebSocket(): void {
+    this.renewal?.dispose();
+    if (this.expiryTimer) clearInterval(this.expiryTimer);
     if (this.ws) {
       // Remove handlers to prevent handleClose from firing after manual close
       this.ws.onopen = null;
@@ -536,6 +698,11 @@ export class AgentStreamClient extends TypedEmitter {
   }
 
   private cleanup(): void {
+    this.renewal?.dispose();
+    this.dialEpoch++;
+    this.dialController?.abort();
+    this.authority?.invalidate();
+    if (this.expiryTimer) clearInterval(this.expiryTimer);
     this.stopHeartbeat();
     this.clearReconnectTimer();
     this.closeWebSocket();

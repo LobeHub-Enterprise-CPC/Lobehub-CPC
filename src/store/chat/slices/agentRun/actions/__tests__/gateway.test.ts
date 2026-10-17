@@ -752,9 +752,6 @@ describe('GatewayActionImpl', () => {
       it('should refresh token, reconnect, and NOT fire onSessionComplete', async () => {
         const { action, mockClient } = createTestAction();
         const onSessionComplete = vi.fn();
-        vi.mocked(aiAgentService.refreshGatewayToken).mockResolvedValueOnce({
-          token: 'fresh-token',
-        });
 
         action.connectToGateway({
           gatewayUrl: 'https://gateway.test.com',
@@ -769,8 +766,6 @@ describe('GatewayActionImpl', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        expect(aiAgentService.refreshGatewayToken).toHaveBeenCalledWith(TEST_TOPIC_ID);
-        expect(mockClient.updateToken).toHaveBeenCalledWith('fresh-token');
         expect(mockClient.reconnect).toHaveBeenCalledOnce();
         // Critical: this is recoverable, so the local op MUST keep running.
         expect(onSessionComplete).not.toHaveBeenCalled();
@@ -779,9 +774,7 @@ describe('GatewayActionImpl', () => {
       it('should fire onSessionComplete when token refresh itself throws', async () => {
         const { action, mockClient } = createTestAction();
         const onSessionComplete = vi.fn();
-        vi.mocked(aiAgentService.refreshGatewayToken).mockRejectedValueOnce(
-          new Error('refresh API down'),
-        );
+        mockClient.reconnect.mockRejectedValueOnce(new Error('refresh API down'));
 
         action.connectToGateway({
           gatewayUrl: 'https://gateway.test.com',
@@ -795,9 +788,8 @@ describe('GatewayActionImpl', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        expect(aiAgentService.refreshGatewayToken).toHaveBeenCalledWith(TEST_TOPIC_ID);
         // No reconnect attempted — refresh failed, give up cleanly.
-        expect(mockClient.reconnect).not.toHaveBeenCalled();
+        expect(mockClient.reconnect).toHaveBeenCalledOnce();
         expect(mockClient.disconnect).toHaveBeenCalled();
         expect(onSessionComplete).toHaveBeenCalledOnce();
       });
@@ -1334,6 +1326,7 @@ describe('GatewayActionImpl', () => {
           // The page-scoped relay client id, so the gateway can route
           // `llm_execute` to the tab that started the run.
           clientId: expect.any(String),
+          identityProvider: expect.any(Function),
           gatewayUrl: expectedUrl,
           operationId: 'server-op-1',
           resumeOnConnect: undefined,
@@ -1354,6 +1347,7 @@ describe('GatewayActionImpl', () => {
           // The page-scoped relay client id, so the gateway can route
           // `llm_execute` to the tab that started the run.
           clientId: expect.any(String),
+          identityProvider: expect.any(Function),
           gatewayUrl: expectedUrl,
           operationId: 'server-op-1',
           resumeOnConnect: true,

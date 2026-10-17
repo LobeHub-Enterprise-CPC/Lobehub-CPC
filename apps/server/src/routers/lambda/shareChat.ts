@@ -41,7 +41,6 @@ import { UserModel } from '@/database/models/user';
 import type { LobeChatDatabase } from '@/database/type';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
-import { signUserJWT } from '@/libs/trpc/utils/internalJwt';
 import { FileS3 } from '@/server/modules/S3';
 import { AiAgentService } from '@/server/services/aiAgent';
 import type { AgentShareGate } from '@/server/services/aiAgent/shareGate';
@@ -1339,12 +1338,8 @@ export const shareChatRouter = router({
    */
   issueGatewayUserToken: shareChatProcedure
     .input(z.object({ shareId: z.string() }))
-    .query(async ({ input, ctx }) => {
-      await resolveLinkShareOrThrow(ctx.serverDB, input.shareId, ctx.userId);
-
-      const token = await signUserJWT(ctx.userId);
-
-      return { token };
+    .query(async (): Promise<{ token: string }> => {
+      throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'SHARE_GATEWAY_UNSUPPORTED' });
     }),
 
   /**
@@ -1357,41 +1352,8 @@ export const shareChatRouter = router({
    */
   refreshGatewayToken: shareChatProcedure
     .input(ShareTopicScopeSchema)
-    .query(async ({ input, ctx }) => {
-      const share = await resolveLinkShareOrThrow(ctx.serverDB, input.shareId, ctx.userId);
-
-      const topicModel = new TopicModel(
-        ctx.serverDB,
-        share.ownerId,
-        share.workspaceId ?? undefined,
-        undefined,
-        { includeShareVisitor: true },
-      );
-      const topic = await findVisitorTopicOrThrow(topicModel, {
-        agentId: share.agentId,
-        topicId: input.topicId,
-        visitorUserId: ctx.userId,
-      });
-
-      // A present marker is not proof of a live run: it is cleared best-effort
-      // at finish, so a stale one would send the visitor's browser to reconnect
-      // to a finished operation, register it as "running" locally, and drop the
-      // topic's fetched history as in-flight noise (a frozen skeleton list).
-      // NOT_FOUND is what the client already treats as "stale marker, clear it".
-      const runningOperation = topic.metadata?.runningOperation;
-      if (
-        !runningOperation ||
-        !(await topicModel.isRunningOperationAlive(ctx.serverDB, runningOperation))
-      ) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'No running operation found on this topic',
-        });
-      }
-
-      const token = await signUserJWT(ctx.userId);
-
-      return { token };
+    .query(async (): Promise<{ token: string }> => {
+      throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'SHARE_GATEWAY_UNSUPPORTED' });
     }),
 
   /**

@@ -4,6 +4,7 @@ import {
   type AgentState,
   normalizeAgentState,
 } from '@lobechat/agent-runtime';
+import { currentTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 import { type Redis } from 'ioredis';
 
@@ -73,6 +74,7 @@ export interface AgentOperationMetadata {
    */
   mirrorToOperationId?: string;
   modelRuntimeConfig?: any;
+  sourceAcceptedVersion?: number;
   status: AgentState['status'];
   /**
    * Gateway WS channel owner when it differs from the executing user. For
@@ -81,6 +83,7 @@ export interface AgentOperationMetadata {
    * gateway registers the channel under this id and rejects other subs.
    */
   streamOwnerUserId?: string;
+  tenantId?: string;
   totalCost: number;
   totalSteps: number;
   userId?: string;
@@ -331,6 +334,10 @@ export class AgentStateManager {
           ? JSON.parse(metadata.modelRuntimeConfig)
           : undefined,
         mirrorToOperationId: metadata.mirrorToOperationId || undefined,
+        tenantId: metadata.tenantId || undefined,
+        sourceAcceptedVersion: metadata.sourceAcceptedVersion
+          ? Number(metadata.sourceAcceptedVersion)
+          : undefined,
         status: metadata.status as AgentState['status'],
         streamOwnerUserId: metadata.streamOwnerUserId || undefined,
         totalCost: parseFloat(metadata.totalCost) || 0,
@@ -363,7 +370,10 @@ export class AgentStateManager {
     const metaKey = `${this.METADATA_PREFIX}:${operationId}`;
 
     try {
+      const scope = currentTenantScope();
       const metadata: AgentOperationMetadata = {
+        tenantId: scope?.tenantId,
+        sourceAcceptedVersion: scope?.acceptedVersion,
         acceptsMemberRuntimeEnd: data.acceptsMemberRuntimeEnd,
         agentConfig: data.agentConfig,
         visitorRedaction: data.visitorRedaction,
@@ -388,6 +398,9 @@ export class AgentStateManager {
         totalSteps: metadata.totalSteps.toString(),
       };
 
+      if (metadata.tenantId) redisData.tenantId = metadata.tenantId;
+      if (metadata.sourceAcceptedVersion)
+        redisData.sourceAcceptedVersion = String(metadata.sourceAcceptedVersion);
       if (metadata.userId) redisData.userId = metadata.userId;
       if (metadata.streamOwnerUserId) redisData.streamOwnerUserId = metadata.streamOwnerUserId;
       if (metadata.workspaceId) redisData.workspaceId = metadata.workspaceId;

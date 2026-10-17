@@ -1,6 +1,7 @@
 import { TenantGateError, tenantGateErrorOf } from '@/server/modules/Tenant/errors';
 import type { TenantLiveResources } from '@/server/modules/Tenant/liveResources';
 import type { TenantRuntime } from '@/server/modules/Tenant/runtime';
+import { closeGatewayRealtime } from '@/server/services/gatewayAuthorization/lifecycle';
 import type { LifecycleHooks } from '@/server/services/tenantControlPlane/service';
 
 export interface LifecycleHookDeps {
@@ -36,8 +37,8 @@ export const createLifecycleHooks = ({
   };
 
   return {
-    closeRealtime: async (tenantId) => {
-      await suspendLocal(tenantId);
+    closeRealtime: async (tenantId, context) => {
+      await Promise.all([suspendLocal(tenantId), closeGatewayRealtime(context)]);
     },
     drainTransactions: async (tenantId) => {
       await waitForClaims(tenantId);

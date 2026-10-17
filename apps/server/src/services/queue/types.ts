@@ -6,6 +6,7 @@ export interface QueueMessage {
   deduplicationId?: string;
   delay?: number;
   endpoint: string;
+  execution?: { tenantId: string; sourceAcceptedVersion: number };
   operationId: string;
   payload?: any;
   priority?: 'high' | 'normal' | 'low';

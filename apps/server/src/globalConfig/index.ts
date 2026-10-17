@@ -14,7 +14,6 @@ import { langfuseEnv } from '@/envs/langfuse';
 import { sandboxEnv } from '@/envs/sandbox';
 import { toolsEnv } from '@/envs/tools';
 import { OIDC_ISSUER_PATH } from '@/libs/oidc-provider/routes';
-import { isLlmRelayDeploymentReady } from '@/server/modules/AgentRuntime/llmRelay/deployment';
 import { type GlobalServerConfig } from '@/types/serverConfig';
 import { cleanObject } from '@/utils/object';
 
@@ -39,12 +38,7 @@ import { getServerSystemModels } from './systemModels';
  * overrides both guesses, which is what an on-prem business deployment sitting
  * in front of a v1 gateway needs.
  */
-const resolveAgentGatewayProtocol = (): 1 | 2 => {
-  if (appEnv.AGENT_GATEWAY_PROTOCOL === 2) return 2;
-  if (appEnv.AGENT_GATEWAY_PROTOCOL === 1) return 1;
-
-  return ENABLE_BUSINESS_FEATURES ? 2 : 1;
-};
+const resolveAgentGatewayProtocol = (): 1 => 1;
 
 const getAiProviderSpecificConfig = () => {
   const aiProviderSpecificConfig: Record<string, ProviderSpecificConfig> = {
@@ -182,7 +176,7 @@ export const getServerGlobalConfig = async () => {
     agentGatewayProtocol: resolveAgentGatewayProtocol(),
     // Whether the server can relay an LLM call to a tab (gateway + Redis): only
     // then does the browser drop its own provider fallback for the one-shot relay.
-    llmRelayAvailable: isLlmRelayDeploymentReady(),
+    llmRelayAvailable: false,
 
     // Where this deployment serves its own installers. Omitted entirely when
     // none are configured, so the client can tell "we publish builds" from

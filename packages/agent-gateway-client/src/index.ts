@@ -1,4 +1,6 @@
+export type { GatewayIdentityProvider, GatewayIdentityResponse } from '../../types/src/gateway';
 export { AgentStreamClient } from './client';
+export { assertGatewayIdentityContinuity } from './identity';
 export { sanitizeAgentInterventionRequestForReview } from './intervention';
 export {
   MirroredTerminalEchoGuard,
@@ -57,6 +59,8 @@ export {
   LLM_RELAY_LEASE_HEADER,
   llmRelayChannelScope,
 } from './protocol';
+export type { GatewayCommandBinding, GatewayConfirmation } from './tenancy';
+export { gatewayIdentityHint, strictGatewayUrl } from './tenancy';
 export { isSessionTerminalEvent } from './terminalEvent';
 export type {
   AgentInterventionInteractionKind,

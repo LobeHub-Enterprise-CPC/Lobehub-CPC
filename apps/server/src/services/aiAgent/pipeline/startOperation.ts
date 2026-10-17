@@ -3,14 +3,13 @@ import debug from 'debug';
 
 import type { MessageModel } from '@/database/models/message';
 import type { TopicModel } from '@/database/models/topic';
-import { signUserJWT } from '@/libs/trpc/utils/internalJwt';
 import type { AgentRuntimeService } from '@/server/services/agentRuntime';
 import { isAbortError } from '@/server/services/agentRuntime/abort';
+import { mintOperationGatewayTicket } from '@/server/services/gatewayAuthorization';
 
 import type { ExecRunContext, InternalExecAgentParams } from '../types';
 import type { ApprovalClaimState } from './approvalResume';
 import type { OperationPrepResult } from './operationPrep';
-import { traceStartStage } from './sendTracing';
 import type { ToolDiscoveryResult } from './toolDiscovery';
 
 const log = debug('lobe-server:ai-agent-service');
@@ -414,16 +413,9 @@ export const startOperation = async (
     // browser would be creator account access. The gateway channel is
     // registered under the visitor's id (`streamOwnerUserId`), so the
     // visitor's own `sub` matches.
-    let gatewayToken: string | undefined;
-    if (!deps.withholdGatewayToken) {
-      try {
-        gatewayToken = await traceStartStage('sign_gateway_token', () =>
-          signUserJWT(shareGate?.visitorUserId ?? deps.userId),
-        );
-      } catch {
-        log('execAgent: failed to sign gateway JWT, gateway auth will be unavailable');
-      }
-    }
+    const gatewayToken = deps.withholdGatewayToken
+      ? undefined
+      : await mintOperationGatewayTicket(deps.userId, operationId, deps.workspaceId);
 
     return {
       agentId: resolvedAgentId,

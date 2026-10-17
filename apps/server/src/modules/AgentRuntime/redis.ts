@@ -106,10 +106,8 @@ export const createAgentRuntimeRedisClient = (
 const TENANT_KEY_SEGMENT = 't';
 
 export const agentRuntimeTenantKeyPrefix = (tenantId: string) => {
-  if (!tenantId || tenantId.includes(':') || tenantId.includes('*')) {
-    throw new Error('TENANT_REDIS_KEY_INVALID');
-  }
-  return `${TENANT_KEY_SEGMENT}:${tenantId}:`;
+  if (!/^[A-Z0-9][\w.:-]{0,127}$/i.test(tenantId)) throw new Error('TENANT_REDIS_KEY_INVALID');
+  return `${TENANT_KEY_SEGMENT}:${encodeURIComponent(tenantId)}:`;
 };
 
 const tenantClients = new Map<string, Redis>();

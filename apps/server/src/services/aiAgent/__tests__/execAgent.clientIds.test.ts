@@ -5,6 +5,13 @@ import * as modelHints from '@/server/modules/AgentRuntime/adapters/serverCallLl
 
 import { AiAgentService } from '../index';
 
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite', () => ({
+  assertGatewayProviderCapability: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('@/server/services/gatewayAuthorization', () => ({
+  mintOperationGatewayTicket: vi.fn().mockResolvedValue('TEST-ONLY-GATEWAY-TICKET'),
+}));
+
 // Use vi.hoisted to ensure mock functions are available before vi.mock runs
 const { mockMessageCreate, mockTopicCreate } = vi.hoisted(() => ({
   mockMessageCreate: vi.fn(),

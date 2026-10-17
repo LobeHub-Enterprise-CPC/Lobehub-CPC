@@ -11,6 +11,7 @@ import { OIDC_ISSUER_PATH, OIDC_ROUTES } from '@/libs/oidc-provider/routes';
 import { TENANT_ID_CLAIM } from '@/libs/trpc/utils/tenantBinding';
 import { normalizeLocale } from '@/locales/resources';
 import { findSlugEndpoint } from '@/server/modules/Tenant/endpoints';
+import { projectGatewayOIDCAccess } from '@/server/services/gatewayAuthorization/oidcProjection';
 import { hasOtherOrganizations } from '@/server/services/tenantDiscovery/otherOrganizations';
 
 import { accessTokenTTL, isAcceptanceReviewClient, reviewResourceServer } from './acceptanceReview';
@@ -196,6 +197,7 @@ export const createOIDCProvider = async (
     // which tenant issued it; `validateOIDCJWT` rejects any other tenant. The id
     // is fixed when this tenant's provider is created, not read per request.
     extraTokenClaims: async () => ({ [TENANT_ID_CLAIM]: tenantId }),
+    formats: { customizers: { jwt: projectGatewayOIDCAccess } },
 
     // Added: ensure ID Token includes claims for all scopes, not just openid scope
     conformIdTokenClaims: false,

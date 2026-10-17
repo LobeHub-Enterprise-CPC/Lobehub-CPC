@@ -1,0 +1,1873 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lobehub:gateway-tenancy:1",
+  "title": "Gateway tenancy protocol 1 wire DTOs",
+  "$defs": {
+    "principal": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "user",
+            "workspace"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "jwtHeader": {
+      "type": "object",
+      "properties": {
+        "alg": {
+          "const": "RS256"
+        },
+        "kid": {
+          "type": "string",
+          "minLength": 1
+        },
+        "typ": {
+          "const": "JWT"
+        }
+      },
+      "required": [
+        "alg",
+        "kid"
+      ],
+      "additionalProperties": false
+    },
+    "tokenClaims": {
+      "type": "object",
+      "properties": {
+        "iss": {
+          "const": "urn:lobehub:gateway-session"
+        },
+        "aud": {
+          "type": "string",
+          "enum": [
+            "urn:lobehub:gateway:agent",
+            "urn:lobehub:gateway:device"
+          ]
+        },
+        "purpose": {
+          "const": "gateway-connect"
+        },
+        "tid": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "sub": {
+          "type": "string",
+          "minLength": 1
+        },
+        "principal": {
+          "$ref": "#/$defs/principal"
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "agent:observe",
+              "agent:respond",
+              "agent:execute",
+              "device:connect",
+              "device:respond"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "authorization_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "accepted_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "jti": {
+          "type": "string",
+          "minLength": 1
+        },
+        "iat": {
+          "type": "number"
+        },
+        "exp": {
+          "type": "number"
+        },
+        "nbf": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "iss",
+        "aud",
+        "purpose",
+        "tid",
+        "sub",
+        "principal",
+        "capabilities",
+        "authorization_id",
+        "accepted_version",
+        "jti",
+        "iat",
+        "exp"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "aud": {
+                "const": "urn:lobehub:gateway:agent"
+              }
+            },
+            "required": [
+              "aud"
+            ]
+          },
+          "then": {
+            "required": [
+              "operation_id"
+            ]
+          }
+        }
+      ]
+    },
+    "identityResponse": {
+      "type": "object",
+      "properties": {
+        "tenancyProtocol": {
+          "const": 1
+        },
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "principal": {
+          "$ref": "#/$defs/principal"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "agent:observe",
+              "agent:respond",
+              "agent:execute",
+              "device:connect",
+              "device:respond"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "authorizationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "acceptedVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "gatewayTicket": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ticketExpiresAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "authRecordExpiresAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "tenancyProtocol",
+        "tenantId",
+        "userId",
+        "principal",
+        "capabilities",
+        "authorizationId",
+        "acceptedVersion",
+        "gatewayTicket",
+        "ticketExpiresAt",
+        "authRecordExpiresAt"
+      ],
+      "additionalProperties": false
+    },
+    "authFrame": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "auth"
+        },
+        "tenancyProtocol": {
+          "const": 1
+        },
+        "tokenType": {
+          "type": "string",
+          "enum": [
+            "jwt",
+            "apiKey"
+          ]
+        },
+        "token": {
+          "type": "string",
+          "minLength": 1
+        },
+        "serverUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "type",
+        "tenancyProtocol",
+        "tokenType",
+        "token"
+      ],
+      "additionalProperties": false
+    },
+    "authSuccess": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "auth_success"
+        },
+        "tenancyProtocol": {
+          "const": 1
+        },
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "principal": {
+          "$ref": "#/$defs/principal"
+        },
+        "audience": {
+          "type": "string",
+          "enum": [
+            "urn:lobehub:gateway:agent",
+            "urn:lobehub:gateway:device"
+          ]
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "agent:observe",
+              "agent:respond",
+              "agent:execute",
+              "device:connect",
+              "device:respond"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "acceptedVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "connectionGeneration": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "ticketExpiresAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "authRecordExpiresAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "leaseExpiresAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "type",
+        "tenancyProtocol",
+        "tenantId",
+        "principal",
+        "audience",
+        "roles",
+        "acceptedVersion",
+        "connectionGeneration",
+        "ticketExpiresAt",
+        "authRecordExpiresAt",
+        "leaseExpiresAt"
+      ],
+      "additionalProperties": false
+    },
+    "dispatchBinding": {
+      "type": "object",
+      "properties": {
+        "connectionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "connectionGeneration": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "authorizationId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "connectionId",
+        "connectionGeneration",
+        "authorizationId"
+      ],
+      "additionalProperties": false
+    },
+    "admissionRequest": {
+      "type": "object",
+      "properties": {
+        "tenancyProtocol": {
+          "const": 1
+        },
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        }
+      },
+      "required": [
+        "tenancyProtocol",
+        "tenantId"
+      ],
+      "additionalProperties": false
+    },
+    "admissionResponse": {
+      "type": "object",
+      "properties": {
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "acceptedVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "effectiveState": {
+          "type": "string",
+          "enum": [
+            "active",
+            "frozen",
+            "offline",
+            "expired",
+            "unavailable"
+          ]
+        },
+        "checkedAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "leaseExpiresAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "tenantId",
+        "acceptedVersion",
+        "effectiveState",
+        "checkedAt",
+        "leaseExpiresAt"
+      ],
+      "additionalProperties": false
+    },
+    "authorizeRequest": {
+      "type": "object",
+      "properties": {
+        "tenancyProtocol": {
+          "const": 1
+        },
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "authorizationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ticket": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedPrincipal": {
+          "$ref": "#/$defs/principal"
+        },
+        "audience": {
+          "type": "string",
+          "enum": [
+            "urn:lobehub:gateway:agent",
+            "urn:lobehub:gateway:device"
+          ]
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "connect",
+            "renew",
+            "dispatch",
+            "result"
+          ]
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceAcceptedVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dispatchBinding": {
+          "$ref": "#/$defs/dispatchBinding"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "requestSeq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "tenancyProtocol",
+        "tenantId",
+        "authorizationId",
+        "expectedPrincipal",
+        "audience",
+        "action",
+        "generation",
+        "requestSeq"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "audience": {
+                "const": "urn:lobehub:gateway:agent"
+              }
+            },
+            "required": [
+              "audience"
+            ]
+          },
+          "then": {
+            "required": [
+              "operationId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "connect"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "ticket"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "renew"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "ticket"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "dispatch"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "sourceAcceptedVersion",
+              "attemptId",
+              "dispatchBinding"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "result"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "sourceAcceptedVersion",
+              "attemptId",
+              "dispatchBinding"
+            ]
+          }
+        }
+      ]
+    },
+    "authorizeResponse": {
+      "type": "object",
+      "properties": {
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "authorizationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "principal": {
+          "$ref": "#/$defs/principal"
+        },
+        "audience": {
+          "type": "string",
+          "enum": [
+            "urn:lobehub:gateway:agent",
+            "urn:lobehub:gateway:device"
+          ]
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "connect",
+            "renew",
+            "dispatch",
+            "result"
+          ]
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "acceptedVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "ticketExpiresAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "authRecordExpiresAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "leaseExpiresAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "checkedAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "requestSeq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "sourceAcceptedVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dispatchBinding": {
+          "$ref": "#/$defs/dispatchBinding"
+        }
+      },
+      "required": [
+        "tenantId",
+        "authorizationId",
+        "principal",
+        "audience",
+        "action",
+        "acceptedVersion",
+        "ticketExpiresAt",
+        "authRecordExpiresAt",
+        "leaseExpiresAt",
+        "checkedAt",
+        "requestSeq",
+        "generation"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "audience": {
+                "const": "urn:lobehub:gateway:agent"
+              }
+            },
+            "required": [
+              "audience"
+            ]
+          },
+          "then": {
+            "required": [
+              "operationId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "dispatch"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "sourceAcceptedVersion",
+              "attemptId",
+              "dispatchBinding"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "result"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "sourceAcceptedVersion",
+              "attemptId",
+              "dispatchBinding"
+            ]
+          }
+        }
+      ]
+    },
+    "executionIntent": {
+      "type": "object",
+      "properties": {
+        "tenancyProtocol": {
+          "const": 1
+        },
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "sourceAcceptedVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "actor": {
+          "type": "object",
+          "properties": {
+            "subject": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sourceRef": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "subject",
+            "sourceRef"
+          ],
+          "additionalProperties": false
+        },
+        "targetPrincipal": {
+          "$ref": "#/$defs/principal"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "operations.init",
+            "operations.push-event",
+            "operations.push-events",
+            "operations.update-status",
+            "operations.request-confirmation",
+            "operations.request-input",
+            "operations.tool-execute",
+            "device.tool-call",
+            "device.system-info",
+            "device.rpc",
+            "device.message-api",
+            "device.agent/run"
+          ]
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "toolCallId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resourceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attemptExpiresAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "tenancyProtocol",
+        "tenantId",
+        "sourceAcceptedVersion",
+        "actor",
+        "targetPrincipal",
+        "action",
+        "resourceId",
+        "attemptId",
+        "attemptExpiresAt"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "operations.init"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "operationId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "operations.push-event"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "operationId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "operations.push-events"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "operationId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "operations.update-status"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "operationId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "operations.request-confirmation"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "operationId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "operations.request-input"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "operationId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "operations.tool-execute"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "operationId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "operations.tool-execute"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "operationId",
+              "toolCallId"
+            ]
+          }
+        }
+      ]
+    },
+    "callback": {
+      "type": "object",
+      "properties": {
+        "tenancyProtocol": {
+          "const": 1
+        },
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "sourceAcceptedVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "toolCallId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "cancelledBeforeDispatch",
+            "interrupted",
+            "executionUnknown",
+            "completed"
+          ]
+        },
+        "dispatchBinding": {
+          "$ref": "#/$defs/dispatchBinding"
+        },
+        "result": {}
+      },
+      "required": [
+        "tenancyProtocol",
+        "tenantId",
+        "sourceAcceptedVersion",
+        "operationId",
+        "toolCallId",
+        "attemptId",
+        "outcome",
+        "dispatchBinding"
+      ],
+      "additionalProperties": false
+    },
+    "callbackAck": {
+      "type": "object",
+      "properties": {
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "sourceAcceptedVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "cancelledBeforeDispatch",
+            "interrupted",
+            "executionUnknown",
+            "completed",
+            "finalized",
+            "already_terminal",
+            "still_running",
+            "rejected"
+          ]
+        }
+      },
+      "required": [
+        "tenantId",
+        "sourceAcceptedVersion",
+        "operationId",
+        "outcome"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "enum": [
+                  "cancelledBeforeDispatch",
+                  "interrupted",
+                  "executionUnknown",
+                  "completed"
+                ]
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          },
+          "then": {
+            "required": [
+              "attemptId"
+            ]
+          }
+        }
+      ]
+    },
+    "finalizeRequest": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "tenancyProtocol": {
+              "const": 1
+            },
+            "tenantId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+            },
+            "sourceAcceptedVersion": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "operationId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "attemptId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "dispatchBinding": {
+              "$ref": "#/$defs/dispatchBinding"
+            },
+            "kind": {
+              "const": "executor-attempt"
+            }
+          },
+          "required": [
+            "tenancyProtocol",
+            "tenantId",
+            "sourceAcceptedVersion",
+            "operationId",
+            "attemptId",
+            "dispatchBinding",
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tenancyProtocol": {
+              "const": 1
+            },
+            "tenantId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+            },
+            "sourceAcceptedVersion": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "operationId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kind": {
+              "const": "operation-watchdog"
+            },
+            "ownerPrincipal": {
+              "$ref": "#/$defs/principal"
+            },
+            "watchdog": {
+              "type": "object",
+              "properties": {
+                "lastEventAt": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "firedAt": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "lastEventAt",
+                "firedAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "kind",
+            "tenancyProtocol",
+            "tenantId",
+            "operationId",
+            "ownerPrincipal",
+            "sourceAcceptedVersion",
+            "watchdog"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "tenantSuspend": {
+      "type": "object",
+      "properties": {
+        "tenancyProtocol": {
+          "const": 1
+        },
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "eventId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "acceptedVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        }
+      },
+      "required": [
+        "tenancyProtocol",
+        "tenantId",
+        "eventId",
+        "acceptedVersion"
+      ],
+      "additionalProperties": false
+    },
+    "suspendAck": {
+      "type": "object",
+      "properties": {
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "acceptedVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "outcome": {
+          "const": "fenced-and-closed"
+        },
+        "cancelledBeforeDispatch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "executionUnknown": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "tenantId",
+        "acceptedVersion",
+        "outcome",
+        "cancelledBeforeDispatch",
+        "executionUnknown"
+      ],
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "tenancyProtocol": {
+          "const": 1
+        },
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "enum": [
+                "GATEWAY_TENANCY_REQUIRED",
+                "GATEWAY_TENANCY_UNSUPPORTED",
+                "INVALID_GATEWAY_MESSAGE",
+                "UNAUTHORIZED",
+                "SOURCE_UNVERIFIABLE",
+                "GATEWAY_AUTHORITY_UNAVAILABLE",
+                "TENANT_REQUIRED",
+                "TENANT_INVALID",
+                "TENANT_MISMATCH",
+                "TENANT_NOT_FOUND",
+                "TENANT_NOT_READY",
+                "TENANT_UNAVAILABLE",
+                "TENANT_FROZEN",
+                "TENANT_OFFLINE",
+                "TENANT_EXPIRED",
+                "FORBIDDEN",
+                "RESOURCE_NOT_FOUND",
+                "OPERATION_OWNER_CONFLICT",
+                "TENANT_EXECUTION_VERSION_REQUIRED",
+                "TENANT_EXECUTION_VERSION_STALE",
+                "LEASE_EXPIRED",
+                "ATTEMPT_CONFLICT",
+                "EXECUTION_UNKNOWN",
+                "DEVICE_EXECUTOR_UNAVAILABLE",
+                "LIFECYCLE_STOP_FAILED",
+                "GATEWAY_CAPABILITY_UNSUPPORTED",
+                "MUX_UNSUPPORTED",
+                "LLM_RELAY_UNSUPPORTED",
+                "TUNNEL_UNSUPPORTED",
+                "DEVICE_METRICS_UNSUPPORTED",
+                "ADMIN_OBSERVER_UNSUPPORTED",
+                "DEVICE_KICK_UNSUPPORTED",
+                "SHARE_GATEWAY_UNSUPPORTED"
+              ]
+            },
+            "message": {
+              "type": "string",
+              "maxLength": 256
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "tenancyProtocol",
+        "error"
+      ],
+      "additionalProperties": false
+    },
+    "capabilityResponse": {
+      "type": "object",
+      "properties": {
+        "tenancyProtocol": {
+          "const": 1
+        },
+        "enabled": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "personal-device",
+              "workspace-device",
+              "device-tools-mcp-rpc-system-info",
+              "device-agent-run",
+              "single-operation-stream-replay",
+              "agent-confirmation-input-client-tool",
+              "desktop-message-api",
+              "tenant-admin-history"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "disabled": {
+          "type": "object",
+          "properties": {
+            "mux": {
+              "const": "MUX_UNSUPPORTED"
+            },
+            "llm-relay": {
+              "const": "LLM_RELAY_UNSUPPORTED"
+            },
+            "tunnel": {
+              "const": "TUNNEL_UNSUPPORTED"
+            },
+            "device-metrics": {
+              "const": "DEVICE_METRICS_UNSUPPORTED"
+            },
+            "admin-observer": {
+              "const": "ADMIN_OBSERVER_UNSUPPORTED"
+            },
+            "device-kick": {
+              "const": "DEVICE_KICK_UNSUPPORTED"
+            },
+            "share-visitor-gateway": {
+              "const": "SHARE_GATEWAY_UNSUPPORTED"
+            }
+          },
+          "required": [
+            "mux",
+            "llm-relay",
+            "tunnel",
+            "device-metrics",
+            "admin-observer",
+            "device-kick",
+            "share-visitor-gateway"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "tenancyProtocol",
+        "enabled",
+        "disabled"
+      ],
+      "additionalProperties": false
+    },
+    "leaseUpdate": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "lease_update"
+        },
+        "tenancyProtocol": {
+          "const": 1
+        },
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "principal": {
+          "$ref": "#/$defs/principal"
+        },
+        "audience": {
+          "type": "string",
+          "enum": [
+            "urn:lobehub:gateway:agent",
+            "urn:lobehub:gateway:device"
+          ]
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "agent:observe",
+              "agent:respond",
+              "agent:execute",
+              "device:connect",
+              "device:respond"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "acceptedVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "connectionGeneration": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "ticketExpiresAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "authRecordExpiresAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "leaseExpiresAt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "type",
+        "tenancyProtocol",
+        "tenantId",
+        "principal",
+        "audience",
+        "roles",
+        "acceptedVersion",
+        "connectionGeneration",
+        "ticketExpiresAt",
+        "authRecordExpiresAt",
+        "leaseExpiresAt"
+      ],
+      "additionalProperties": false
+    },
+    "identityRequest": {
+      "type": "object",
+      "properties": {
+        "tenancyProtocol": {
+          "const": 1
+        },
+        "audience": {
+          "type": "string",
+          "enum": [
+            "urn:lobehub:gateway:agent",
+            "urn:lobehub:gateway:device"
+          ]
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "renewAuthorizationId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "tenancyProtocol",
+        "audience"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "audience": {
+                "const": "urn:lobehub:gateway:agent"
+              }
+            },
+            "required": [
+              "audience"
+            ]
+          },
+          "then": {
+            "required": [
+              "operationId"
+            ]
+          }
+        }
+      ]
+    },
+    "dispatchCommand": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "tool_execute",
+            "tool_confirmation_request",
+            "input_request",
+            "tool_call_request",
+            "system_info_request",
+            "rpc_request",
+            "message_api_request",
+            "agent_run_request"
+          ]
+        },
+        "tenancyProtocol": {
+          "const": 1
+        },
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "sourceAcceptedVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "connectionGeneration": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "toolCallId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "tenancyProtocol",
+        "tenantId",
+        "sourceAcceptedVersion",
+        "attemptId",
+        "connectionGeneration"
+      ],
+      "additionalProperties": true,
+      "description": "Existing service-specific typed business fields stay at their original positions and must also be validated. Additional business fields never supply authority.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "tool_execute"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "operationId",
+              "toolCallId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "tool_confirmation_request"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "operationId",
+              "toolCallId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "input_request"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "operationId",
+              "requestId"
+            ]
+          }
+        }
+      ]
+    },
+    "dispatchResponse": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "tool_result",
+            "tool_confirmation",
+            "user_input",
+            "tool_call_response",
+            "system_info_response",
+            "rpc_response",
+            "message_api_response",
+            "agent_run_ack"
+          ]
+        },
+        "tenancyProtocol": {
+          "const": 1
+        },
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "sourceAcceptedVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "connectionGeneration": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "toolCallId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "tenancyProtocol",
+        "tenantId",
+        "sourceAcceptedVersion",
+        "attemptId",
+        "connectionGeneration"
+      ],
+      "additionalProperties": true,
+      "description": "Existing service-specific typed business fields stay at their original positions and must also be validated. Additional business fields never supply authority.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "tool_result"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "operationId",
+              "toolCallId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "tool_confirmation"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "operationId",
+              "toolCallId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "user_input"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "operationId",
+              "requestId"
+            ]
+          }
+        }
+      ]
+    },
+    "dispatchResult": {
+      "type": "object",
+      "properties": {
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "sourceAcceptedVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "toolCallId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dispatchBinding": {
+          "$ref": "#/$defs/dispatchBinding"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "cancelledBeforeDispatch",
+            "interrupted",
+            "executionUnknown",
+            "completed"
+          ]
+        },
+        "result": {}
+      },
+      "required": [
+        "tenantId",
+        "sourceAcceptedVersion",
+        "attemptId",
+        "dispatchBinding",
+        "outcome"
+      ],
+      "additionalProperties": false
+    },
+    "wsError": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "auth_failed",
+            "auth_expired",
+            "tenant_unavailable",
+            "capability_failed"
+          ]
+        },
+        "tenancyProtocol": {
+          "const": 1
+        },
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "connectionGeneration": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "code": {
+          "type": "string",
+          "enum": [
+            "GATEWAY_TENANCY_REQUIRED",
+            "GATEWAY_TENANCY_UNSUPPORTED",
+            "INVALID_GATEWAY_MESSAGE",
+            "UNAUTHORIZED",
+            "SOURCE_UNVERIFIABLE",
+            "GATEWAY_AUTHORITY_UNAVAILABLE",
+            "TENANT_REQUIRED",
+            "TENANT_INVALID",
+            "TENANT_MISMATCH",
+            "TENANT_NOT_FOUND",
+            "TENANT_NOT_READY",
+            "TENANT_UNAVAILABLE",
+            "TENANT_FROZEN",
+            "TENANT_OFFLINE",
+            "TENANT_EXPIRED",
+            "FORBIDDEN",
+            "RESOURCE_NOT_FOUND",
+            "OPERATION_OWNER_CONFLICT",
+            "TENANT_EXECUTION_VERSION_REQUIRED",
+            "TENANT_EXECUTION_VERSION_STALE",
+            "LEASE_EXPIRED",
+            "ATTEMPT_CONFLICT",
+            "EXECUTION_UNKNOWN",
+            "DEVICE_EXECUTOR_UNAVAILABLE",
+            "LIFECYCLE_STOP_FAILED",
+            "GATEWAY_CAPABILITY_UNSUPPORTED",
+            "MUX_UNSUPPORTED",
+            "LLM_RELAY_UNSUPPORTED",
+            "TUNNEL_UNSUPPORTED",
+            "DEVICE_METRICS_UNSUPPORTED",
+            "ADMIN_OBSERVER_UNSUPPORTED",
+            "DEVICE_KICK_UNSUPPORTED",
+            "SHARE_GATEWAY_UNSUPPORTED"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "type",
+        "tenancyProtocol",
+        "code",
+        "message"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

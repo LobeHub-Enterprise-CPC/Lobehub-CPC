@@ -5,6 +5,7 @@ import ApiKeysRoutes from './api-keys.route';
 import ChatRoutes from './chat.route';
 import EvalRoutes from './eval.route';
 import FileRoutes from './files.route';
+import { GatewayRoutes } from './gateway.route';
 import GoalsRoutes from './goals.route';
 import ImRoutes from './im.route';
 import KnowledgeBasesRoutes from './knowledge-bases.route';
@@ -28,6 +29,7 @@ import UsageRoutes from './usage.route';
 import UsersRoutes from './users.route';
 
 export default {
+  'gateway': GatewayRoutes,
   'agent-groups': AgentGroupsRoutes,
   'agents': AgentsRoutes,
   'anthropic': AnthropicRoutes,

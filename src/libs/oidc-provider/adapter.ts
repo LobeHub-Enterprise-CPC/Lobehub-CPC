@@ -686,6 +686,9 @@ class OIDCAdapter {
       // Use transaction to delete all records containing grantId, ensuring atomicity
       await this.db.transaction(async (tx) => {
         // All tables that may contain grantId
+        // JWT-format access tokens have no AccessToken row: removing the grant
+        // also revokes the exact issuance projection checked by gateway authority.
+        await tx.delete(oidcGrants).where(eq(oidcGrants.id, grantId));
         const tables = [
           oidcAccessTokens,
           oidcAuthorizationCodes,

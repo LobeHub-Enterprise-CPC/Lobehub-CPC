@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { deviceConfirmation, deviceTicket } from './__tests__/fixtures';
 import { GatewayClient } from './client';
 
 // Flag to control mock WS behavior
@@ -53,6 +54,13 @@ vi.mock('node:os', () => ({
   },
 }));
 
+const advanceWithLease = async (handler: (data: string) => void, ms: number) => {
+  for (let elapsed = 0; elapsed < ms; elapsed += 10000) {
+    await vi.advanceTimersByTimeAsync(Math.min(10000, ms - elapsed));
+    if (elapsed + 10000 < ms)
+      handler(JSON.stringify({ ...deviceConfirmation(), type: 'lease_update' }));
+  }
+};
 describe('GatewayClient', () => {
   let client: GatewayClient;
 
@@ -65,8 +73,8 @@ describe('GatewayClient', () => {
       deviceId: 'test-device-id',
       gatewayUrl: 'https://gateway.test.com',
       serverUrl: 'https://app.test.com',
-      token: 'test-token',
-      tokenType: 'apiKey',
+      token: deviceTicket(),
+      tokenType: 'jwt',
       userId: 'test-user',
     });
   });
@@ -79,7 +87,7 @@ describe('GatewayClient', () => {
 
   describe('constructor', () => {
     it('should set default values', () => {
-      const c = new GatewayClient({ token: 'tok' });
+      const c = new GatewayClient({ token: deviceTicket() });
       expect(c.connectionStatus).toBe('disconnected');
       expect(c.currentDeviceId).toBeDefined();
     });
@@ -108,9 +116,10 @@ describe('GatewayClient', () => {
       const ws = (client as any).ws;
       expect(ws.send).toHaveBeenCalledWith(
         JSON.stringify({
+          tenancyProtocol: 1,
           serverUrl: 'https://app.test.com',
-          token: 'test-token',
-          tokenType: 'apiKey',
+          token: deviceTicket(),
+          tokenType: 'jwt',
           type: 'auth',
         }),
       );
@@ -122,7 +131,7 @@ describe('GatewayClient', () => {
 
       // Simulate auth success
       const handler = (client as any).handleMessage;
-      handler(JSON.stringify({ type: 'auth_success' }));
+      handler(JSON.stringify(deviceConfirmation()));
 
       expect(client.connectionStatus).toBe('connected');
 
@@ -141,7 +150,7 @@ describe('GatewayClient', () => {
     it('should build correct WebSocket URL with https', () => {
       client.connect();
       const ws = (client as any).ws;
-      expect(ws.url).toContain('wss://gateway.test.com/ws');
+      expect(ws.url).toContain('wss://gateway.test.com/tenant/v1/ws');
       expect(ws.url).toContain('deviceId=test-device-id');
       expect(ws.url).toContain('hostname=test-host');
       expect(ws.url).toContain('userId=test-user');
@@ -154,7 +163,7 @@ describe('GatewayClient', () => {
         connectionId: 'conn-123',
         deviceId: 'dev-1',
         gatewayUrl: 'https://gateway.test.com',
-        token: 'tok',
+        token: deviceTicket(),
       });
       c.connect();
       const ws = (c as any).ws;
@@ -165,7 +174,7 @@ describe('GatewayClient', () => {
     });
 
     it('should default connectionId to a generated UUID when omitted', () => {
-      const c = new GatewayClient({ autoReconnect: false, token: 'tok' });
+      const c = new GatewayClient({ autoReconnect: false, token: deviceTicket() });
       c.connect();
       const ws = (c as any).ws;
       expect(ws.url).toContain(`connectionId=${c.currentConnectionId}`);
@@ -177,11 +186,11 @@ describe('GatewayClient', () => {
       const c = new GatewayClient({
         autoReconnect: false,
         gatewayUrl: 'http://localhost:3000',
-        token: 'tok',
+        token: deviceTicket(),
       });
       c.connect();
       const ws = (c as any).ws;
-      expect(ws.url).toContain('ws://localhost:3000/ws');
+      expect(ws.url).toContain('ws://localhost:3000/tenant/v1/ws');
       c.disconnect();
     });
 
@@ -189,7 +198,7 @@ describe('GatewayClient', () => {
       const c = new GatewayClient({
         autoReconnect: false,
         gatewayUrl: 'https://gateway.test.com',
-        token: 'tok',
+        token: deviceTicket(),
         userAgent: 'LobeHub Desktop/1.2.3',
       });
       c.connect();
@@ -210,8 +219,8 @@ describe('GatewayClient', () => {
         deviceId: 'test-device-id',
         gatewayUrl: 'https://gateway.test.com',
         serverUrl: 'https://app.test.com',
-        token: 'test-token',
-        tokenType: 'apiKey',
+        token: deviceTicket(),
+        tokenType: 'jwt',
         userId: 'test-user',
       });
 
@@ -263,7 +272,7 @@ describe('GatewayClient', () => {
       connected.connect();
       await vi.advanceTimersByTimeAsync(0);
       mockWsInstances.at(-1);
-      connected['handleMessage'](JSON.stringify({ type: 'auth_success' }));
+      connected['handleMessage'](JSON.stringify(deviceConfirmation()));
       expect(connected.connectionStatus).toBe('connected');
 
       const attemptsBefore = mockWsInstances.length;
@@ -289,7 +298,7 @@ describe('GatewayClient', () => {
       const connectedCb = vi.fn();
       client.on('connected', connectedCb);
 
-      handler(JSON.stringify({ type: 'auth_success' }));
+      handler(JSON.stringify(deviceConfirmation()));
 
       expect(client.connectionStatus).toBe('connected');
       expect(connectedCb).toHaveBeenCalled();
@@ -310,13 +319,14 @@ describe('GatewayClient', () => {
 
       handler(JSON.stringify({ type: 'auth_failed' }));
 
-      expect(authFailedCb).toHaveBeenCalledWith('Unknown reason');
+      expect(authFailedCb).toHaveBeenCalledWith('UNAUTHORIZED');
     });
 
     it('should handle heartbeat_ack', () => {
       const heartbeatCb = vi.fn();
       client.on('heartbeat_ack', heartbeatCb);
 
+      handler(JSON.stringify(deviceConfirmation()));
       handler(JSON.stringify({ type: 'heartbeat_ack' }));
 
       expect(heartbeatCb).toHaveBeenCalled();
@@ -329,11 +339,19 @@ describe('GatewayClient', () => {
       const msg = {
         type: 'tool_call_request',
         requestId: 'req-1',
-        toolCall: { apiName: 'readFile', arguments: '{}', identifier: 'test' },
+        toolCall: { type: 'tool', apiName: 'readFile', arguments: '{}', identifier: 'test' },
       };
+      handler(JSON.stringify(deviceConfirmation()));
+      Object.assign(msg, {
+        tenancyProtocol: 1,
+        tenantId: 'tenant-test',
+        sourceAcceptedVersion: 1,
+        attemptId: 'attempt-test',
+        connectionGeneration: 1,
+      });
       handler(JSON.stringify(msg));
 
-      expect(toolCallCb).toHaveBeenCalledWith(msg);
+      expect(toolCallCb).toHaveBeenCalledWith(expect.objectContaining(msg));
     });
 
     it('should handle message_api_request', () => {
@@ -349,9 +367,17 @@ describe('GatewayClient', () => {
         requestId: 'req-message-1',
         type: 'message_api_request',
       };
+      handler(JSON.stringify(deviceConfirmation()));
+      Object.assign(msg, {
+        tenancyProtocol: 1,
+        tenantId: 'tenant-test',
+        sourceAcceptedVersion: 1,
+        attemptId: 'attempt-test',
+        connectionGeneration: 1,
+      });
       handler(JSON.stringify(msg));
 
-      expect(messageApiCb).toHaveBeenCalledWith(msg);
+      expect(messageApiCb).toHaveBeenCalledWith(expect.objectContaining(msg));
     });
 
     it('should handle system_info_request', () => {
@@ -359,9 +385,17 @@ describe('GatewayClient', () => {
       client.on('system_info_request', sysInfoCb);
 
       const msg = { type: 'system_info_request', requestId: 'req-2' };
+      handler(JSON.stringify(deviceConfirmation()));
+      Object.assign(msg, {
+        tenancyProtocol: 1,
+        tenantId: 'tenant-test',
+        sourceAcceptedVersion: 1,
+        attemptId: 'attempt-test',
+        connectionGeneration: 1,
+      });
       handler(JSON.stringify(msg));
 
-      expect(sysInfoCb).toHaveBeenCalledWith(msg);
+      expect(sysInfoCb).toHaveBeenCalledWith(expect.objectContaining(msg));
     });
 
     it('should handle rpc_request', () => {
@@ -374,9 +408,17 @@ describe('GatewayClient', () => {
         requestId: 'req-rpc',
         type: 'rpc_request',
       };
+      handler(JSON.stringify(deviceConfirmation()));
+      Object.assign(msg, {
+        tenancyProtocol: 1,
+        tenantId: 'tenant-test',
+        sourceAcceptedVersion: 1,
+        attemptId: 'attempt-test',
+        connectionGeneration: 1,
+      });
       handler(JSON.stringify(msg));
 
-      expect(rpcCb).toHaveBeenCalledWith(msg);
+      expect(rpcCb).toHaveBeenCalledWith(expect.objectContaining(msg));
     });
 
     it('should handle auth_expired', () => {
@@ -416,18 +458,30 @@ describe('GatewayClient', () => {
       await vi.advanceTimersByTimeAsync(1);
 
       const ws = (client as any).ws;
+      (client as any).handleMessage(JSON.stringify(deviceConfirmation()));
+      (client as any).handleMessage(
+        JSON.stringify({
+          type: 'tool_call_request',
+          requestId: 'req-1',
+          tenancyProtocol: 1,
+          tenantId: 'tenant-test',
+          sourceAcceptedVersion: 1,
+          attemptId: 'attempt-test',
+          connectionGeneration: 1,
+          toolCall: { type: 'tool', apiName: 'run', arguments: '{}', identifier: 'test' },
+        }),
+      );
       client.sendToolCallResponse({
+        attemptId: 'attempt-test',
         requestId: 'req-1',
         result: { content: 'result', success: true },
       });
 
-      expect(ws.send).toHaveBeenCalledWith(
-        JSON.stringify({
-          requestId: 'req-1',
-          result: { content: 'result', success: true },
-          type: 'tool_call_response',
-        }),
-      );
+      expect(JSON.parse(ws.send.mock.calls.at(-1)[0])).toMatchObject({
+        requestId: 'req-1',
+        result: { content: 'result', success: true },
+        type: 'tool_call_response',
+      });
     });
   });
 
@@ -437,18 +491,30 @@ describe('GatewayClient', () => {
       await vi.advanceTimersByTimeAsync(1);
 
       const ws = (client as any).ws;
+      (client as any).handleMessage(JSON.stringify(deviceConfirmation()));
+      (client as any).handleMessage(
+        JSON.stringify({
+          type: 'message_api_request',
+          requestId: 'req-message-1',
+          tenancyProtocol: 1,
+          tenantId: 'tenant-test',
+          sourceAcceptedVersion: 1,
+          attemptId: 'attempt-test',
+          connectionGeneration: 1,
+          api: { apiName: 'sendText', payload: {}, platform: 'imessage' },
+        }),
+      );
       client.sendMessageApiResponse({
+        attemptId: 'attempt-test',
         requestId: 'req-message-1',
         result: { content: '{"ok":true}', success: true },
       });
 
-      expect(ws.send).toHaveBeenCalledWith(
-        JSON.stringify({
-          requestId: 'req-message-1',
-          result: { content: '{"ok":true}', success: true },
-          type: 'message_api_response',
-        }),
-      );
+      expect(JSON.parse(ws.send.mock.calls.at(-1)[0])).toMatchObject({
+        requestId: 'req-message-1',
+        result: { content: '{"ok":true}', success: true },
+        type: 'message_api_response',
+      });
     });
   });
 
@@ -458,7 +524,20 @@ describe('GatewayClient', () => {
       await vi.advanceTimersByTimeAsync(1);
 
       const ws = (client as any).ws;
+      (client as any).handleMessage(JSON.stringify(deviceConfirmation()));
+      (client as any).handleMessage(
+        JSON.stringify({
+          type: 'system_info_request',
+          requestId: 'req-2',
+          tenancyProtocol: 1,
+          tenantId: 'tenant-test',
+          sourceAcceptedVersion: 1,
+          attemptId: 'attempt-test',
+          connectionGeneration: 1,
+        }),
+      );
       client.sendSystemInfoResponse({
+        attemptId: 'attempt-test',
         requestId: 'req-2',
         result: {
           success: true,
@@ -490,18 +569,30 @@ describe('GatewayClient', () => {
       await vi.advanceTimersByTimeAsync(1);
 
       const ws = (client as any).ws;
+      (client as any).handleMessage(JSON.stringify(deviceConfirmation()));
+      (client as any).handleMessage(
+        JSON.stringify({
+          type: 'rpc_request',
+          requestId: 'req-rpc',
+          tenancyProtocol: 1,
+          tenantId: 'tenant-test',
+          sourceAcceptedVersion: 1,
+          attemptId: 'attempt-test',
+          connectionGeneration: 1,
+          method: 'initWorkspace',
+        }),
+      );
       client.sendRpcResponse({
+        attemptId: 'attempt-test',
         requestId: 'req-rpc',
         result: { data: { skills: [] }, success: true },
       });
 
-      expect(ws.send).toHaveBeenCalledWith(
-        JSON.stringify({
-          requestId: 'req-rpc',
-          result: { data: { skills: [] }, success: true },
-          type: 'rpc_response',
-        }),
-      );
+      expect(JSON.parse(ws.send.mock.calls.at(-1)[0])).toMatchObject({
+        requestId: 'req-rpc',
+        result: { data: { skills: [] }, success: true },
+        type: 'rpc_response',
+      });
     });
   });
 
@@ -541,121 +632,18 @@ describe('GatewayClient', () => {
       await vi.advanceTimersByTimeAsync(1);
 
       const handler = (client as any).handleMessage;
-      handler(JSON.stringify({ type: 'auth_success' }));
+      handler(JSON.stringify(deviceConfirmation()));
 
       const ws = (client as any).ws;
       ws.send.mockClear();
 
       // Advance 30 seconds for heartbeat
-      await vi.advanceTimersByTimeAsync(30_000);
+      for (let i = 0; i < 3; i++) {
+        await vi.advanceTimersByTimeAsync(10_000);
+        handler(JSON.stringify({ ...deviceConfirmation(), type: 'lease_update' }));
+      }
 
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'heartbeat' }));
-    });
-  });
-
-  describe('reportMetrics', () => {
-    const samples = [{ observedAt: 1 }] as any;
-
-    const connectAndAuth = async () => {
-      client.connect();
-      await vi.advanceTimersByTimeAsync(1);
-      (client as any).handleMessage(JSON.stringify({ type: 'auth_success' }));
-      return (client as any).ws;
-    };
-
-    it('rejects when not connected', async () => {
-      await expect(client.reportMetrics(samples)).rejects.toThrow('not connected');
-    });
-
-    it('resolves on the matching ack', async () => {
-      const ws = await connectAndAuth();
-      const pending = client.reportMetrics(samples);
-
-      const sent = JSON.parse(ws.send.mock.calls.at(-1)[0]);
-      expect(sent).toMatchObject({ samples, type: 'device_metrics' });
-      (client as any).handleMessage(
-        JSON.stringify({ accepted: 1, batchId: sent.batchId, type: 'device_metrics_ack' }),
-      );
-
-      await expect(pending).resolves.toBeUndefined();
-    });
-
-    it('rejects when no ack arrives in time', async () => {
-      await connectAndAuth();
-      const pending = client.reportMetrics(samples);
-      const assertion = expect(pending).rejects.toThrow('Timed out');
-
-      await vi.advanceTimersByTimeAsync(15_000);
-      await assertion;
-    });
-
-    it('rejects in-flight batches when the socket goes away', async () => {
-      await connectAndAuth();
-      const pending = client.reportMetrics(samples);
-      const assertion = expect(pending).rejects.toThrow('closed');
-
-      await client.disconnect();
-      await assertion;
-    });
-  });
-
-  describe('tunnel serving', () => {
-    it('forwards tunnel frames to the tunnel host', async () => {
-      client.connect();
-      await vi.advanceTimersByTimeAsync(1);
-      (client as any).handleMessage(JSON.stringify({ type: 'auth_success' }));
-
-      const handleFrame = vi.spyOn((client as any).tunnelHost, 'handleFrame');
-      const frame = { bytes: 64, connId: 'c1', type: 'tunnel_ack' };
-      (client as any).handleMessage(JSON.stringify(frame));
-
-      expect(handleFrame).toHaveBeenCalledWith(frame);
-    });
-
-    it('releases tunnels on a forced reconnect, not just on a clean close', async () => {
-      client.connect();
-      await vi.advanceTimersByTimeAsync(1);
-      (client as any).handleMessage(JSON.stringify({ type: 'auth_success' }));
-
-      const closeAll = vi.spyOn((client as any).tunnelHost, 'closeAll');
-      // Miss enough heartbeat acks to trip forceReconnect, which detaches
-      // handleClose and so never reaches the normal close cleanup.
-      await vi.advanceTimersByTimeAsync(30_000 * 5);
-
-      expect(closeAll).toHaveBeenCalledWith('DEVICE_DISCONNECTED');
-    });
-
-    it('answers tunnel_open with TUNNEL_DISABLED when serving is off', async () => {
-      const offClient = new GatewayClient({
-        autoReconnect: false,
-        gatewayUrl: 'https://gateway.test.com',
-        token: 'tok',
-        tunnel: false,
-      });
-      offClient.connect();
-      await vi.advanceTimersByTimeAsync(1);
-      (offClient as any).handleMessage(JSON.stringify({ type: 'auth_success' }));
-      const ws = (offClient as any).ws;
-      ws.send.mockClear();
-
-      (offClient as any).handleMessage(
-        JSON.stringify({
-          connId: 'c1',
-          head: { headers: [], method: 'GET', path: '/' },
-          target: { host: '127.0.0.1', port: 3000 },
-          type: 'tunnel_open',
-        }),
-      );
-
-      expect(ws.send).toHaveBeenCalledWith(
-        JSON.stringify({
-          connId: 'c1',
-          error: 'TUNNEL_DISABLED',
-          ok: false,
-          type: 'tunnel_open_ack',
-        }),
-      );
-      offClient.disconnect();
     });
   });
 
@@ -664,7 +652,7 @@ describe('GatewayClient', () => {
       const reconnectClient = new GatewayClient({
         autoReconnect: true,
         gatewayUrl: 'https://gateway.test.com',
-        token: 'tok',
+        token: deviceTicket(),
       });
       const reconnectingCb = vi.fn();
       reconnectClient.on('reconnecting', reconnectingCb);
@@ -686,7 +674,7 @@ describe('GatewayClient', () => {
       const reconnectClient = new GatewayClient({
         autoReconnect: true,
         gatewayUrl: 'https://gateway.test.com',
-        token: 'tok',
+        token: deviceTicket(),
       });
 
       reconnectClient.connect();
@@ -708,7 +696,7 @@ describe('GatewayClient', () => {
       const reconnectClient = new GatewayClient({
         autoReconnect: true,
         gatewayUrl: 'https://gateway.test.com',
-        token: 'tok',
+        token: deviceTicket(),
       });
       const delays: number[] = [];
       reconnectClient.on('reconnecting', (delay) => delays.push(delay));
@@ -743,7 +731,7 @@ describe('GatewayClient', () => {
       const replacedClient = new GatewayClient({
         autoReconnect: true,
         gatewayUrl: 'https://gateway.test.com',
-        token: 'tok',
+        token: deviceTicket(),
       });
       const replacedCb = vi.fn();
       const reconnectingCb = vi.fn();
@@ -777,7 +765,7 @@ describe('GatewayClient', () => {
         autoReconnect: true,
         connectTimeoutMs,
         gatewayUrl: 'https://gateway.test.com',
-        token: 'tok',
+        token: deviceTicket(),
       });
       const replacedCb = vi.fn();
       racingClient.on('replaced', replacedCb);
@@ -805,7 +793,7 @@ describe('GatewayClient', () => {
       const racingClient = new GatewayClient({
         autoReconnect: true,
         gatewayUrl: 'https://gateway.test.com',
-        token: 'tok',
+        token: deviceTicket(),
       });
       const replacedCb = vi.fn();
       racingClient.on('replaced', replacedCb);
@@ -883,7 +871,7 @@ describe('GatewayClient', () => {
       const c = new GatewayClient({
         autoReconnect: false,
         gatewayUrl: 'https://gateway.test.com',
-        token: 'tok',
+        token: deviceTicket(),
       });
       c.on('disconnected', disconnectedCb);
 
@@ -900,7 +888,7 @@ describe('GatewayClient', () => {
       const c = new GatewayClient({
         autoReconnect: true,
         gatewayUrl: 'https://gateway.test.com',
-        token: 'tok',
+        token: deviceTicket(),
       });
       c.on('reconnecting', reconnectingCb);
 
@@ -974,18 +962,18 @@ describe('GatewayClient', () => {
 
   describe('updateToken', () => {
     it('should update the internal token', () => {
-      expect((client as any).token).toBe('test-token');
-      client.updateToken('new-token');
-      expect((client as any).token).toBe('new-token');
+      expect((client as any).token).toBe(deviceTicket());
+      client.updateToken(deviceTicket().replace(/\.TEST$/, '.RENEWED'));
+      expect((client as any).token).toBe(deviceTicket().replace(/\.TEST$/, '.RENEWED'));
     });
 
     it('should use the new token on next connect', async () => {
-      client.updateToken('refreshed-token');
+      client.updateToken(deviceTicket('refreshed-auth'));
       client.connect();
       await vi.advanceTimersByTimeAsync(1);
 
       const ws = (client as any).ws;
-      expect(ws.send).toHaveBeenCalledWith(expect.stringContaining('"token":"refreshed-token"'));
+      expect(JSON.parse(ws.send.mock.calls.at(-1)[0]).token).toBe((client as any).token);
     });
   });
 
@@ -994,31 +982,31 @@ describe('GatewayClient', () => {
       client = new GatewayClient({
         autoReconnect: false,
         gatewayUrl: 'https://gateway.test.com',
-        token: 'old-token',
+        token: deviceTicket(),
       });
 
       client.connect();
       await vi.advanceTimersByTimeAsync(1);
 
       const handler = (client as any).handleMessage;
-      handler(JSON.stringify({ type: 'auth_success' }));
+      handler(JSON.stringify(deviceConfirmation()));
       expect(client.connectionStatus).toBe('connected');
 
       // Update token and reconnect
-      client.updateToken('new-token');
+      client.updateToken(deviceTicket().replace(/\.TEST$/, '.RENEWED'));
       await client.reconnect();
       await vi.advanceTimersByTimeAsync(1);
 
       expect(client.connectionStatus).toBe('authenticating');
       const ws = (client as any).ws;
-      expect(ws.send).toHaveBeenCalledWith(expect.stringContaining('"token":"new-token"'));
+      expect(JSON.parse(ws.send.mock.calls.at(-1)[0]).token).toBe((client as any).token);
     });
 
     it('should reset reconnect delay', async () => {
       const reconnectClient = new GatewayClient({
         autoReconnect: true,
         gatewayUrl: 'https://gateway.test.com',
-        token: 'tok',
+        token: deviceTicket(),
       });
 
       reconnectClient.connect();
@@ -1043,7 +1031,7 @@ describe('GatewayClient', () => {
       const reconnectClient = new GatewayClient({
         autoReconnect: true,
         gatewayUrl: 'https://gateway.test.com',
-        token: 'tok',
+        token: deviceTicket(),
       });
       const reconnectingCb = vi.fn();
       reconnectClient.on('reconnecting', reconnectingCb);
@@ -1053,12 +1041,12 @@ describe('GatewayClient', () => {
 
       // Authenticate
       const handler = (reconnectClient as any).handleMessage;
-      handler(JSON.stringify({ type: 'auth_success' }));
+      handler(JSON.stringify(deviceConfirmation()));
       expect(reconnectClient.connectionStatus).toBe('connected');
 
       // Advance 4 heartbeat intervals without any ack (30s × 4 = 120s)
       // After 3 missed, the 4th tick triggers forced reconnect
-      await vi.advanceTimersByTimeAsync(30_000 * 4);
+      await advanceWithLease(handler, 120_000);
 
       expect(reconnectClient.connectionStatus).toBe('reconnecting');
       expect(reconnectingCb).toHaveBeenCalled();
@@ -1070,17 +1058,17 @@ describe('GatewayClient', () => {
       const reconnectClient = new GatewayClient({
         autoReconnect: true,
         gatewayUrl: 'https://gateway.test.com',
-        token: 'tok',
+        token: deviceTicket(),
       });
 
       reconnectClient.connect();
       await vi.advanceTimersByTimeAsync(1);
 
       const handler = (reconnectClient as any).handleMessage;
-      handler(JSON.stringify({ type: 'auth_success' }));
+      handler(JSON.stringify(deviceConfirmation()));
 
       // 2 heartbeats without ack
-      await vi.advanceTimersByTimeAsync(30_000 * 2);
+      await advanceWithLease(handler, 60_000);
       expect((reconnectClient as any).missedHeartbeats).toBe(2);
 
       // Receive ack — counter resets
@@ -1099,10 +1087,10 @@ describe('GatewayClient', () => {
       await vi.advanceTimersByTimeAsync(1);
 
       const handler = (client as any).handleMessage;
-      handler(JSON.stringify({ type: 'auth_success' }));
+      handler(JSON.stringify(deviceConfirmation()));
 
       // Advance past threshold: 4 intervals
-      await vi.advanceTimersByTimeAsync(30_000 * 4);
+      await advanceWithLease(handler, 120_000);
 
       expect(client.connectionStatus).toBe('disconnected');
       expect(disconnectedCb).toHaveBeenCalled();

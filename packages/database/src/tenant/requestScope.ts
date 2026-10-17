@@ -13,6 +13,8 @@ import type { TenantDatabaseSession } from './session';
  * later, spec A17): auth, sessions and business code only see this scope.
  */
 export interface TenantScope {
+  /** Lifecycle version captured once at trusted request/job admission. */
+  readonly acceptedVersion: number;
   readonly endpoint: {
     readonly basePath: string;
     readonly publicUrl: string;

@@ -1,0 +1,870 @@
+{
+  "contractVersion": 1,
+  "cases": [
+    {
+      "id": "intent-valid",
+      "schema": "executionIntent",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "actor": {
+          "subject": "actor-A",
+          "sourceRef": "source-session-A"
+        },
+        "targetPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "action": "device.tool-call",
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "resourceId": "device-shared",
+        "attemptId": "attempt-A-1",
+        "attemptExpiresAt": 1900000020000
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "intent-missing-version",
+      "schema": "executionIntent",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "actor": {
+          "subject": "actor-A",
+          "sourceRef": "source-session-A"
+        },
+        "targetPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "action": "device.tool-call",
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "resourceId": "device-shared",
+        "attemptId": "attempt-A-1",
+        "attemptExpiresAt": 1900000020000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TENANT_EXECUTION_VERSION_REQUIRED"
+      }
+    },
+    {
+      "id": "callback-valid",
+      "schema": "callback",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "attemptId": "attempt-A-1",
+        "outcome": "completed",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "result": {
+          "text": "synthetic harmless result"
+        }
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "callback-ack-valid",
+      "schema": "callbackAck",
+      "validation": "wire",
+      "input": {
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "operationId": "operation-shared",
+        "attemptId": "attempt-A-1",
+        "outcome": "completed"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "finalize-valid",
+      "schema": "finalizeRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "operationId": "operation-shared",
+        "attemptId": "attempt-A-1",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "kind": "executor-attempt"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "callback-wrong-tenantId",
+      "schema": "callback",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-B",
+        "sourceAcceptedVersion": 7,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "attemptId": "attempt-A-1",
+        "outcome": "completed",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "result": {
+          "text": "synthetic harmless result"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "RESOURCE_NOT_FOUND"
+      },
+      "context": {
+        "originalPending": {
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "sourceAcceptedVersion": 7,
+          "operationId": "operation-shared",
+          "toolCallId": "tool-shared",
+          "attemptId": "attempt-A-1",
+          "outcome": "completed",
+          "dispatchBinding": {
+            "connectionId": "connection-shared",
+            "connectionGeneration": 3,
+            "authorizationId": "auth-device-A"
+          },
+          "result": {
+            "text": "synthetic harmless result"
+          }
+        },
+        "actualSocketBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "wakeReplacementWaiter": false
+      }
+    },
+    {
+      "id": "callback-wrong-operationId",
+      "schema": "callback",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "operationId": "other-operation",
+        "toolCallId": "tool-shared",
+        "attemptId": "attempt-A-1",
+        "outcome": "completed",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "result": {
+          "text": "synthetic harmless result"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "RESOURCE_NOT_FOUND"
+      },
+      "context": {
+        "originalPending": {
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "sourceAcceptedVersion": 7,
+          "operationId": "operation-shared",
+          "toolCallId": "tool-shared",
+          "attemptId": "attempt-A-1",
+          "outcome": "completed",
+          "dispatchBinding": {
+            "connectionId": "connection-shared",
+            "connectionGeneration": 3,
+            "authorizationId": "auth-device-A"
+          },
+          "result": {
+            "text": "synthetic harmless result"
+          }
+        },
+        "actualSocketBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "wakeReplacementWaiter": false
+      }
+    },
+    {
+      "id": "callback-wrong-toolCallId",
+      "schema": "callback",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "operationId": "operation-shared",
+        "toolCallId": "other-tool",
+        "attemptId": "attempt-A-1",
+        "outcome": "completed",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "result": {
+          "text": "synthetic harmless result"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "RESOURCE_NOT_FOUND"
+      },
+      "context": {
+        "originalPending": {
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "sourceAcceptedVersion": 7,
+          "operationId": "operation-shared",
+          "toolCallId": "tool-shared",
+          "attemptId": "attempt-A-1",
+          "outcome": "completed",
+          "dispatchBinding": {
+            "connectionId": "connection-shared",
+            "connectionGeneration": 3,
+            "authorizationId": "auth-device-A"
+          },
+          "result": {
+            "text": "synthetic harmless result"
+          }
+        },
+        "actualSocketBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "wakeReplacementWaiter": false
+      }
+    },
+    {
+      "id": "callback-wrong-attemptId",
+      "schema": "callback",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "attemptId": "attempt-A-0",
+        "outcome": "completed",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "result": {
+          "text": "synthetic harmless result"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "ATTEMPT_CONFLICT"
+      },
+      "context": {
+        "originalPending": {
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "sourceAcceptedVersion": 7,
+          "operationId": "operation-shared",
+          "toolCallId": "tool-shared",
+          "attemptId": "attempt-A-1",
+          "outcome": "completed",
+          "dispatchBinding": {
+            "connectionId": "connection-shared",
+            "connectionGeneration": 3,
+            "authorizationId": "auth-device-A"
+          },
+          "result": {
+            "text": "synthetic harmless result"
+          }
+        },
+        "actualSocketBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "wakeReplacementWaiter": false
+      }
+    },
+    {
+      "id": "callback-wrong-sourceAcceptedVersion",
+      "schema": "callback",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 6,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "attemptId": "attempt-A-1",
+        "outcome": "completed",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "result": {
+          "text": "synthetic harmless result"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TENANT_EXECUTION_VERSION_STALE"
+      },
+      "context": {
+        "originalPending": {
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "sourceAcceptedVersion": 7,
+          "operationId": "operation-shared",
+          "toolCallId": "tool-shared",
+          "attemptId": "attempt-A-1",
+          "outcome": "completed",
+          "dispatchBinding": {
+            "connectionId": "connection-shared",
+            "connectionGeneration": 3,
+            "authorizationId": "auth-device-A"
+          },
+          "result": {
+            "text": "synthetic harmless result"
+          }
+        },
+        "actualSocketBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "wakeReplacementWaiter": false
+      }
+    },
+    {
+      "id": "callback-wrong-dispatchBinding",
+      "schema": "callback",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "attemptId": "attempt-A-1",
+        "outcome": "completed",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 2,
+          "authorizationId": "auth-device-A"
+        },
+        "result": {
+          "text": "synthetic harmless result"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "ATTEMPT_CONFLICT"
+      },
+      "context": {
+        "originalPending": {
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "sourceAcceptedVersion": 7,
+          "operationId": "operation-shared",
+          "toolCallId": "tool-shared",
+          "attemptId": "attempt-A-1",
+          "outcome": "completed",
+          "dispatchBinding": {
+            "connectionId": "connection-shared",
+            "connectionGeneration": 3,
+            "authorizationId": "auth-device-A"
+          },
+          "result": {
+            "text": "synthetic harmless result"
+          }
+        },
+        "actualSocketBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "wakeReplacementWaiter": false
+      }
+    },
+    {
+      "id": "callback-self-reported-socket",
+      "schema": "callback",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "attemptId": "attempt-A-1",
+        "outcome": "completed",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "result": {
+          "text": "synthetic harmless result"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "ATTEMPT_CONFLICT"
+      },
+      "context": {
+        "actualSocketBinding": {
+          "connectionId": "other-socket",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "messageBindingTrusted": false
+      }
+    },
+    {
+      "id": "dispatch-fence-wins",
+      "schema": "executionIntent",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "actor": {
+          "subject": "actor-A",
+          "sourceRef": "source-session-A"
+        },
+        "targetPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "action": "device.tool-call",
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "resourceId": "device-shared",
+        "attemptId": "attempt-A-1",
+        "attemptExpiresAt": 1900000020000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TENANT_EXECUTION_VERSION_STALE"
+      },
+      "context": {
+        "gateOrder": [
+          "suspend-v8",
+          "dispatch-v7"
+        ],
+        "currentVersion": 8
+      }
+    },
+    {
+      "id": "dispatch-original-version-after-resume",
+      "schema": "executionIntent",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "actor": {
+          "subject": "actor-A",
+          "sourceRef": "source-session-A"
+        },
+        "targetPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "action": "device.tool-call",
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "resourceId": "device-shared",
+        "attemptId": "attempt-A-1",
+        "attemptExpiresAt": 1900000020000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TENANT_EXECUTION_VERSION_STALE"
+      },
+      "context": {
+        "currentVersion": 9,
+        "effectiveState": "active",
+        "mustNotRestampVersion": true
+      }
+    },
+    {
+      "id": "dispatch-claimed-retry",
+      "schema": "executionIntent",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "actor": {
+          "subject": "actor-A",
+          "sourceRef": "source-session-A"
+        },
+        "targetPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "action": "device.tool-call",
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "resourceId": "device-shared",
+        "attemptId": "attempt-A-1",
+        "attemptExpiresAt": 1900000020000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "ATTEMPT_CONFLICT"
+      },
+      "context": {
+        "workClaimState": "claimed",
+        "secondSendCount": 0
+      }
+    },
+    {
+      "id": "dispatch-expired-attempt",
+      "schema": "executionIntent",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "actor": {
+          "subject": "actor-A",
+          "sourceRef": "source-session-A"
+        },
+        "targetPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "action": "device.tool-call",
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "resourceId": "device-shared",
+        "attemptId": "attempt-A-1",
+        "attemptExpiresAt": 1900000020000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "ATTEMPT_CONFLICT"
+      },
+      "context": {
+        "now": 1900000020000
+      }
+    },
+    {
+      "id": "dispatch-business-actor-revoked",
+      "schema": "executionIntent",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "actor": {
+          "subject": "actor-A",
+          "sourceRef": "source-session-A"
+        },
+        "targetPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "action": "device.tool-call",
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "resourceId": "device-shared",
+        "attemptId": "attempt-A-1",
+        "attemptExpiresAt": 1900000020000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "FORBIDDEN"
+      },
+      "context": {
+        "targetEnrollerValid": true,
+        "actorSourceValid": false
+      }
+    },
+    {
+      "id": "claimed-crash-before-write",
+      "schema": "executionIntent",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "actor": {
+          "subject": "actor-A",
+          "sourceRef": "source-session-A"
+        },
+        "targetPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "action": "device.tool-call",
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "resourceId": "device-shared",
+        "attemptId": "attempt-A-1",
+        "attemptExpiresAt": 1900000020000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "EXECUTION_UNKNOWN",
+        "outcome": "executionUnknown"
+      },
+      "context": {
+        "workClaimState": "claimed",
+        "gatewayPendingLost": true,
+        "automaticallyReplay": false
+      }
+    },
+    {
+      "id": "same-identifiers-other-tenant",
+      "schema": "executionIntent",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-B",
+        "sourceAcceptedVersion": 7,
+        "actor": {
+          "subject": "actor-A",
+          "sourceRef": "source-session-A"
+        },
+        "targetPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "action": "device.tool-call",
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "resourceId": "device-shared",
+        "attemptId": "attempt-B-1",
+        "attemptExpiresAt": 1900000020000
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "isolatedFromTenantA": true,
+        "authorizedActorSource": true
+      }
+    },
+    {
+      "id": "old-generation-original-result-only",
+      "schema": "callback",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "attemptId": "attempt-A-1",
+        "outcome": "completed",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "result": {
+          "text": "synthetic harmless result"
+        }
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "currentConnectionGeneration": 4,
+        "originalPendingBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "originalSourceRevalidated": true,
+        "originalResourcePermissionValid": true,
+        "newWaiterMayBeSettled": false
+      }
+    },
+    {
+      "id": "fresh-source-cannot-replace-old-result-source",
+      "schema": "callback",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "attemptId": "attempt-A-1",
+        "outcome": "completed",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "result": {
+          "text": "synthetic harmless result"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "EXECUTION_UNKNOWN",
+        "outcome": "executionUnknown"
+      },
+      "context": {
+        "currentConnectionGeneration": 4,
+        "originalSourceRevalidated": false,
+        "newSourceValid": true
+      }
+    },
+    {
+      "id": "ws-command-valid",
+      "schema": "dispatchCommand",
+      "validation": "wire",
+      "input": {
+        "type": "tool_execute",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "attemptId": "attempt-A-1",
+        "connectionGeneration": 3,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "tool": {
+          "name": "synthetic-noop"
+        }
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "ws-result-valid",
+      "schema": "dispatchResponse",
+      "validation": "wire",
+      "input": {
+        "type": "tool_result",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "attemptId": "attempt-A-1",
+        "connectionGeneration": 3,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "result": {
+          "text": "synthetic result"
+        }
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "ws-command-missing-attempt",
+      "schema": "dispatchCommand",
+      "validation": "wire",
+      "input": {
+        "type": "tool_execute",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "connectionGeneration": 3,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "tool": {
+          "name": "synthetic-noop"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "ws-command-expired-local-lease",
+      "schema": "dispatchCommand",
+      "validation": "lease",
+      "input": {
+        "type": "tool_execute",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "attemptId": "attempt-A-1",
+        "connectionGeneration": 3,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "tool": {
+          "name": "synthetic-noop"
+        }
+      },
+      "context": {
+        "executionMonoMs": 45000,
+        "currentDeadlineMonoMs": 30000,
+        "localQueueExecuteCount": 0
+      },
+      "expected": {
+        "accepted": false,
+        "code": "LEASE_EXPIRED"
+      }
+    },
+    {
+      "id": "synchronous-dispatch-result-valid",
+      "schema": "dispatchResult",
+      "validation": "wire",
+      "input": {
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "attemptId": "attempt-A-1",
+        "outcome": "completed",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "result": {
+          "text": "synthetic harmless result"
+        }
+      },
+      "expected": {
+        "accepted": true
+      }
+    }
+  ]
+}

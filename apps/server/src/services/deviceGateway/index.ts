@@ -72,6 +72,7 @@ import type {
   WorkspaceInitResult,
 } from '@lobechat/types';
 import { isValidDirectoryName } from '@lobechat/utils/directoryName';
+import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 import { isAbsolute, relative, resolve } from 'pathe';
 
@@ -79,6 +80,7 @@ import { gatewayEnv } from '@/envs/gateway';
 import { redisService } from '@/server/services/redis';
 
 import { resolveDeviceClientKinds } from './clientKinds';
+import { deviceGatewayTenancy } from './tenancy';
 
 const log = debug('lobe-server:device-gateway');
 
@@ -184,8 +186,6 @@ type TerminalRpcMethod =
   'closeTerminal' | 'createTerminalSession' | 'readTerminal' | 'resizeTerminal' | 'writeTerminal';
 
 export class DeviceGateway {
-  private client: GatewayHttpClient | null = null;
-
   /**
    * Run a device READ, retrying once and reporting the fallback out loud.
    *
@@ -367,28 +367,13 @@ export class DeviceGateway {
    * and surfacing a gateway blip as a 500 only turns each poll (and its SWR
    * retries) into an error log. The next poll picks the history back up.
    */
-  async queryDeviceMetrics(params: {
+  async queryDeviceMetrics(_params: {
     deviceId: string;
     since: number;
     userId: string;
     workspaceId?: string;
   }): Promise<DeviceMetricSample[]> {
-    const client = this.getClient();
-    if (!client) return [];
-    try {
-      return await client.getDeviceMetrics(params.userId, params.deviceId, {
-        since: params.since,
-        workspaceId: params.workspaceId,
-      });
-    } catch (error) {
-      console.warn('[DeviceGateway] device metrics read failed; returning no samples', {
-        deviceId: params.deviceId,
-        error: error instanceof Error ? error.message : String(error),
-        userId: params.userId,
-        workspaceId: params.workspaceId,
-      });
-      return [];
-    }
+    throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'DEVICE_METRICS_UNSUPPORTED' });
   }
 
   /**
@@ -2383,14 +2368,12 @@ export class DeviceGateway {
     const token = gatewayEnv.DEVICE_GATEWAY_SERVICE_TOKEN;
     if (!url || !token) return null;
 
-    if (!this.client) {
-      this.client = new GatewayHttpClient({
-        gatewayUrl: url,
-        resolveClientKinds: resolveDeviceClientKinds,
-        serviceToken: token,
-      });
-    }
-    return this.client;
+    return new GatewayHttpClient({
+      ...deviceGatewayTenancy(),
+      gatewayUrl: url,
+      resolveClientKinds: resolveDeviceClientKinds,
+      serviceToken: token,
+    });
   }
 }
 

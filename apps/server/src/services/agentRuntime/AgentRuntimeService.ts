@@ -94,6 +94,11 @@ import { emitAgentSignalSourceEvent } from '@/server/services/agentSignal';
 import { toAgentSignalTraceEvents } from '@/server/services/agentSignal/observability/traceEvents';
 import { traceStartStage } from '@/server/services/aiAgent/pipeline/sendTracing';
 import { FileService } from '@/server/services/file';
+import {
+  assertGatewayStateExecution,
+  captureGatewayInitialState,
+  isGatewayStateExecutionCurrent,
+} from '@/server/services/gatewayAuthorization/operationAuthority';
 import { mcpService } from '@/server/services/mcp';
 import { MessageService } from '@/server/services/message';
 import { QueueService } from '@/server/services/queue';
@@ -1563,9 +1568,11 @@ export class AgentRuntimeService {
       );
       operationCreated = true;
 
-      // Save initial state
       await traceStartStage('save_state', () =>
-        this.coordinator.saveAgentState(operationId, initialState as any),
+        this.coordinator.saveAgentState(
+          operationId,
+          captureGatewayInitialState(initialState) as any,
+        ),
       );
 
       // Register external hooks
@@ -2114,6 +2121,7 @@ export class AgentRuntimeService {
         if (!agentState) {
           throw new Error(`Agent state not found for operation ${operationId}`);
         }
+        await assertGatewayStateExecution(operationId, agentState.execution);
 
         // A parked approval step is already durable before its generic Review
         // is published. When that final Review write fails, the request returns
@@ -2370,6 +2378,10 @@ export class AgentRuntimeService {
             // that large blob at a much lower cadence until all writers have
             // sentinel support.
             let interrupted = await this.coordinator.isInterrupted(operationId);
+            if (!(await isGatewayStateExecutionCurrent(operationId, agentState.execution))) {
+              await this.coordinator.markInterrupted(operationId);
+              interrupted = true;
+            }
             const now = Date.now();
             if (
               !interrupted &&
@@ -5460,22 +5472,16 @@ export class AgentRuntimeService {
 
   /**
    * Synchronously execute Agent operation until completion
-   *
    * Used in test scenarios, doesn't depend on QueueService, executes all steps directly in the current process.
-   *
    * @param operationId Operation ID
    * @param options Execution options
    * @returns Final state
-   *
    * @example
    * ```ts
    * // Create operation (without auto-starting queue)
    * const result = await service.createOperation({ ...params, autoStart: false });
-   *
    * // Synchronously execute to completion
    * const finalState = await service.executeSync(result.operationId);
-   * expect(finalState.status).toBe('done');
-   * ```
    */
   async executeSync(
     operationId: string,
@@ -5486,9 +5492,6 @@ export class AgentRuntimeService {
       maxSteps?: number;
       /**
        * Awaited after each step is persisted and before the next one starts.
-       * A host that enforces its own limits can inspect `state.usage` here and
-       * call {@link interruptOperation}; the loop then observes the interrupt
-       * on its next step instead of racing it.
        */
       onStepComplete?: (stepIndex: number, state: AgentState) => void | Promise<void>;
     },
@@ -5576,9 +5579,6 @@ export class AgentRuntimeService {
     return state;
   }
 
-  /**
-   * Get Coordinator instance (for testing)
-   */
   getCoordinator(): AgentRuntimeCoordinator {
     return this.coordinator;
   }

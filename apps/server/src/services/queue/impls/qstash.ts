@@ -105,6 +105,7 @@ export class QStashQueueServiceImpl implements QueueServiceImpl {
       const qstashDelay = toQStashDelaySeconds(delay);
       const request = {
         body: {
+          execution: message.execution,
           context,
           operationId,
           payload,

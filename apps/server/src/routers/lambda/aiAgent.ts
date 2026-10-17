@@ -67,7 +67,7 @@ import { notShareVisitorTopicRef } from '@/database/utils/shareVisitor';
 import { notTrashed } from '@/database/utils/softDelete';
 import { heteroAuthedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
-import { signHeteroOperationJWT, signUserJWT } from '@/libs/trpc/utils/internalJwt';
+import { signHeteroOperationJWT } from '@/libs/trpc/utils/internalJwt';
 import { createStreamEventManager } from '@/server/modules/AgentRuntime/factory';
 import { unwrapPgError } from '@/server/modules/AgentRuntime/pgError';
 import {
@@ -98,6 +98,7 @@ import { AiAgentService } from '@/server/services/aiAgent';
 import type { AgentShareGate } from '@/server/services/aiAgent/shareGate';
 import { AiChatService } from '@/server/services/aiChat';
 import { getFileProxyUrl } from '@/server/services/file';
+import { mintOperationGatewayTicket } from '@/server/services/gatewayAuthorization';
 import { HeterogeneousAgentService } from '@/server/services/heterogeneousAgent';
 import {
   HeteroOperationPrincipalError,
@@ -4196,23 +4197,17 @@ export const aiAgentRouter = router({
    * against the op's registered owner, so the token only has to carry the
    * caller's identity. Short-lived (5m) like the v1 token; the client re-mints
    * before every connect attempt.
-   *
    * Blocked for restricted API keys (`TRPC_BLOCKED_PATH_PREFIXES`), like
-   * `refreshGatewayToken`: the JWT it returns passes `oidcAuth` as ordinary
-   * non-API-key auth, so a scoped key must never be able to mint one.
    */
-  issueGatewayUserToken: aiAgentProcedure.query(async ({ ctx }) => {
-    const token = await signUserJWT(ctx.userId);
-
-    return { token };
+  issueGatewayUserToken: aiAgentProcedure.query(async (): Promise<{ token: string }> => {
+    throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'MUX_UNSUPPORTED' });
   }),
 
   /**
    * Refresh Gateway JWT token for an existing operation.
-   * Used when reconnecting after page reload (original token expired).
    */
   refreshGatewayToken: aiAgentProcedure
-    .input(z.object({ topicId: z.string() }))
+    .input(z.object({ topicId: z.string(), authorizationId: z.string().optional() }))
     .query(async ({ input, ctx }) => {
       // Verify the topic belongs to this user and has a running operation.
       // Use the creator-facing finder: a creator must not mint a token
@@ -4234,7 +4229,12 @@ export const aiAgentRouter = router({
         });
       }
 
-      const token = await signUserJWT(ctx.userId);
+      const token = await mintOperationGatewayTicket(
+        ctx.userId,
+        runningOperation.operationId,
+        ctx.workspaceId,
+        input.authorizationId,
+      );
 
       return { token };
     }),

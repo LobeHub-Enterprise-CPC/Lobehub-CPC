@@ -3,6 +3,8 @@ import debug from 'debug';
 
 import { tenantGateErrorOf } from '@/server/modules/Tenant/errors';
 import { runInTenant } from '@/server/modules/Tenant/gate';
+import { assertGatewayVersion } from '@/server/services/gatewayAuthorization';
+import { GatewayAuthorizationError } from '@/server/services/gatewayAuthorization/wire';
 
 import { type HealthCheckResult, type QueueMessage, type QueueStats } from '../types';
 import { type QueueServiceImpl } from './type';
@@ -51,6 +53,13 @@ export class LocalQueueServiceImpl implements QueueServiceImpl {
   async scheduleMessage(message: QueueMessage): Promise<string> {
     const { operationId, stepIndex, context, payload, delay = 50, deduplicationId } = message;
 
+    // Only the tenant id is kept: the scope captured here may be stale by the
+    // time the step runs (credentials rotated while the tenant was frozen).
+    const tenantId = currentTenantScope()?.tenantId;
+    const execution = message.execution;
+    if (!tenantId || !execution || execution.tenantId !== tenantId)
+      throw new GatewayAuthorizationError('TENANT_EXECUTION_VERSION_REQUIRED', 400);
+
     if (deduplicationId) {
       const existingTaskId = this.deduplicatedExecutions.get(deduplicationId);
       if (existingTaskId) return existingTaskId;
@@ -65,10 +74,6 @@ export class LocalQueueServiceImpl implements QueueServiceImpl {
       operationId,
       delay,
     );
-
-    // Only the tenant id is kept: the scope captured here may be stale by the
-    // time the step runs (credentials rotated while the tenant was frozen).
-    const tenantId = currentTenantScope()?.tenantId;
 
     const execute = async () => {
       if (!this.executionCallback) {
@@ -100,10 +105,16 @@ export class LocalQueueServiceImpl implements QueueServiceImpl {
     // discarded. Nothing has run yet, so a deferred step replays no side effect.
     // `execute` handles its own failures, so a rejection here is the admission.
     const run = async () => {
-      if (!tenantId) return execute();
       try {
-        await runInTenant(tenantId, execute);
+        await runInTenant(tenantId, async () => {
+          await assertGatewayVersion(tenantId, execution.sourceAcceptedVersion);
+          await execute();
+        });
       } catch (error) {
+        if (error instanceof GatewayAuthorizationError) {
+          console.error('Queued gateway operation refused', operationId, error.code);
+          return;
+        }
         const code = tenantGateErrorOf(error)?.code ?? 'TENANT_UNAVAILABLE';
         if (DISCARDING_TENANT_CODES.has(code)) {
           log('Dropping step %d of operation %s: %s', stepIndex, operationId, code);

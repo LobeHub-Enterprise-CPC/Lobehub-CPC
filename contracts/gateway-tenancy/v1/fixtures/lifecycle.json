@@ -1,0 +1,590 @@
+{
+  "contractVersion": 1,
+  "cases": [
+    {
+      "id": "suspend-request-valid",
+      "schema": "tenantSuspend",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "eventId": "freeze-8",
+        "acceptedVersion": 8
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "suspend-ack-valid",
+      "schema": "suspendAck",
+      "validation": "wire",
+      "input": {
+        "tenantId": "tenant-A",
+        "acceptedVersion": 8,
+        "outcome": "fenced-and-closed",
+        "cancelledBeforeDispatch": 2,
+        "executionUnknown": 1
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "ack-invalid-cancelledBeforeDispatch",
+      "schema": "suspendAck",
+      "validation": "wire",
+      "input": {
+        "tenantId": "tenant-A",
+        "acceptedVersion": 8,
+        "outcome": "fenced-and-closed",
+        "cancelledBeforeDispatch": -1,
+        "executionUnknown": 1
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "ack-invalid-executionUnknown",
+      "schema": "suspendAck",
+      "validation": "wire",
+      "input": {
+        "tenantId": "tenant-A",
+        "acceptedVersion": 8,
+        "outcome": "fenced-and-closed",
+        "cancelledBeforeDispatch": 2,
+        "executionUnknown": "1"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "ack-invalid-outcome",
+      "schema": "suspendAck",
+      "validation": "wire",
+      "input": {
+        "tenantId": "tenant-A",
+        "acceptedVersion": 8,
+        "outcome": "remote-side-effects-undone",
+        "cancelledBeforeDispatch": 2,
+        "executionUnknown": 1
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "ack-wrong-tenantId",
+      "schema": "suspendAck",
+      "validation": "binding",
+      "input": {
+        "tenantId": "tenant-B",
+        "acceptedVersion": 8,
+        "outcome": "fenced-and-closed",
+        "cancelledBeforeDispatch": 2,
+        "executionUnknown": 1
+      },
+      "expected": {
+        "accepted": false,
+        "code": "LIFECYCLE_STOP_FAILED"
+      },
+      "context": {
+        "claimedEvent": {
+          "tenantId": "tenant-A",
+          "eventId": "freeze-8",
+          "acceptedVersion": 8
+        },
+        "stage2Complete": false
+      }
+    },
+    {
+      "id": "ack-wrong-acceptedVersion",
+      "schema": "suspendAck",
+      "validation": "binding",
+      "input": {
+        "tenantId": "tenant-A",
+        "acceptedVersion": 9,
+        "outcome": "fenced-and-closed",
+        "cancelledBeforeDispatch": 2,
+        "executionUnknown": 1
+      },
+      "expected": {
+        "accepted": false,
+        "code": "LIFECYCLE_STOP_FAILED"
+      },
+      "context": {
+        "claimedEvent": {
+          "tenantId": "tenant-A",
+          "eventId": "freeze-8",
+          "acceptedVersion": 8
+        },
+        "stage2Complete": false
+      }
+    },
+    {
+      "id": "old-event-cannot-close-new-connections",
+      "schema": "tenantSuspend",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "eventId": "freeze-8",
+        "acceptedVersion": 8
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TENANT_EXECUTION_VERSION_STALE"
+      },
+      "context": {
+        "currentVersion": 9,
+        "currentState": "active",
+        "currentConnectionGeneration": 5
+      }
+    },
+    {
+      "id": "frozen-callback-no-bypass",
+      "schema": "callback",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "attemptId": "attempt-A-1",
+        "outcome": "completed",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        },
+        "result": {
+          "text": "synthetic harmless result"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TENANT_FROZEN"
+      },
+      "context": {
+        "effectiveState": "frozen",
+        "serviceAuthenticated": true,
+        "runInTenantRequired": true
+      }
+    },
+    {
+      "id": "web-freeze-independent-worker-drains",
+      "schema": "suspendAck",
+      "validation": "gate",
+      "input": {
+        "tenantId": "tenant-A",
+        "acceptedVersion": 8,
+        "outcome": "fenced-and-closed",
+        "cancelledBeforeDispatch": 2,
+        "executionUnknown": 1
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "webReceivedFreeze": true,
+        "independentWorkerOwnsWaiterAndClaim": true,
+        "ordinaryCallbackResult": "TENANT_FROZEN",
+        "workerCancellationPropagated": true,
+        "workerWaiterSettledWithoutCallback": true,
+        "workerClaimReleased": true,
+        "stopBoundMs": 60000,
+        "drainBoundMs": 30000,
+        "configuredGatewayAcks": [
+          "agent",
+          "device"
+        ],
+        "assertBoundedCompletion": true
+      }
+    },
+    {
+      "id": "configured-gateway-unreachable",
+      "schema": "tenantSuspend",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "eventId": "freeze-8",
+        "acceptedVersion": 8
+      },
+      "expected": {
+        "accepted": false,
+        "code": "LIFECYCLE_STOP_FAILED"
+      },
+      "context": {
+        "deviceGatewayConfigured": true,
+        "deviceGatewayReachable": false,
+        "stage2Complete": false
+      }
+    },
+    {
+      "id": "a1-server-only-watchdog-valid",
+      "schema": "finalizeRequest",
+      "validation": "gate",
+      "input": {
+        "kind": "operation-watchdog",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "operationId": "server-only-operation",
+        "ownerPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "sourceAcceptedVersion": 7,
+        "watchdog": {
+          "lastEventAt": 1900000000000,
+          "firedAt": 1900000030000
+        }
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "trustedInit": true,
+        "operationNonterminal": true,
+        "noExecutorEverConnected": true,
+        "currentAcceptedVersion": 7,
+        "ownerAndSourceVersionMatch": true
+      }
+    },
+    {
+      "id": "a1-watchdog-binding-forbidden",
+      "schema": "finalizeRequest",
+      "validation": "wire",
+      "input": {
+        "kind": "operation-watchdog",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "operationId": "server-only-operation",
+        "ownerPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "sourceAcceptedVersion": 7,
+        "watchdog": {
+          "lastEventAt": 1900000000000,
+          "firedAt": 1900000030000
+        },
+        "dispatchBinding": {
+          "connectionId": "executor-A",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-agent-A"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "a1-watchdog-attempt-forbidden",
+      "schema": "finalizeRequest",
+      "validation": "wire",
+      "input": {
+        "kind": "operation-watchdog",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "operationId": "server-only-operation",
+        "ownerPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "sourceAcceptedVersion": 7,
+        "watchdog": {
+          "lastEventAt": 1900000000000,
+          "firedAt": 1900000030000
+        },
+        "attemptId": "attempt-A"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "a1-executor-missing-binding",
+      "schema": "finalizeRequest",
+      "validation": "wire",
+      "input": {
+        "kind": "executor-attempt",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "operationId": "server-only-operation",
+        "sourceAcceptedVersion": 7,
+        "attemptId": "attempt-A"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "a1-owner-mismatch",
+      "schema": "finalizeRequest",
+      "validation": "gate",
+      "input": {
+        "kind": "operation-watchdog",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "operationId": "server-only-operation",
+        "ownerPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "sourceAcceptedVersion": 7,
+        "watchdog": {
+          "lastEventAt": 1900000000000,
+          "firedAt": 1900000030000
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "RESOURCE_NOT_FOUND"
+      },
+      "context": {
+        "persistedOwner": {
+          "kind": "user",
+          "id": "other-user"
+        }
+      }
+    },
+    {
+      "id": "a1-source-version-mismatch",
+      "schema": "finalizeRequest",
+      "validation": "gate",
+      "input": {
+        "kind": "operation-watchdog",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "operationId": "server-only-operation",
+        "ownerPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "sourceAcceptedVersion": 7,
+        "watchdog": {
+          "lastEventAt": 1900000000000,
+          "firedAt": 1900000030000
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "RESOURCE_NOT_FOUND"
+      },
+      "context": {
+        "persistedSourceAcceptedVersion": 6
+      }
+    },
+    {
+      "id": "a1-cross-tenant-operation",
+      "schema": "finalizeRequest",
+      "validation": "gate",
+      "input": {
+        "kind": "operation-watchdog",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "operationId": "server-only-operation",
+        "ownerPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "sourceAcceptedVersion": 7,
+        "watchdog": {
+          "lastEventAt": 1900000000000,
+          "firedAt": 1900000030000
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "RESOURCE_NOT_FOUND"
+      },
+      "context": {
+        "operationExistsOnlyInTenant": "tenant-B"
+      }
+    },
+    {
+      "id": "a1-frozen-refuses-business-finalize",
+      "schema": "finalizeRequest",
+      "validation": "gate",
+      "input": {
+        "kind": "operation-watchdog",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "operationId": "server-only-operation",
+        "ownerPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "sourceAcceptedVersion": 7,
+        "watchdog": {
+          "lastEventAt": 1900000000000,
+          "firedAt": 1900000030000
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TENANT_FROZEN"
+      },
+      "context": {
+        "effectiveState": "frozen",
+        "businessDatabaseOpened": false
+      }
+    },
+    {
+      "id": "a1-advanced-version-cleans-without-resume",
+      "schema": "finalizeRequest",
+      "validation": "gate",
+      "input": {
+        "kind": "operation-watchdog",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "operationId": "server-only-operation",
+        "ownerPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "sourceAcceptedVersion": 7,
+        "watchdog": {
+          "lastEventAt": 1900000000000,
+          "firedAt": 1900000030000
+        }
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "currentAcceptedVersion": 9,
+        "persistedSourceAcceptedVersion": 7,
+        "parentPresent": true,
+        "parentResumeAllowed": false,
+        "parentOutcome": "EXECUTION_UNKNOWN",
+        "cleanupAllowedAcrossVersion": true
+      }
+    },
+    {
+      "id": "a1-unsettled-claims-become-unknown",
+      "schema": "finalizeRequest",
+      "validation": "gate",
+      "input": {
+        "kind": "operation-watchdog",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "operationId": "server-only-operation",
+        "ownerPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "sourceAcceptedVersion": 7,
+        "watchdog": {
+          "lastEventAt": 1900000000000,
+          "firedAt": 1900000030000
+        }
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "claimedAttemptIds": [
+          "pending-A"
+        ],
+        "claimedAttemptsOutcome": "executionUnknown",
+        "claimedAttemptsSuccess": false
+      }
+    },
+    {
+      "id": "a1-client-observer-cannot-trigger-watchdog",
+      "schema": "finalizeRequest",
+      "validation": "gate",
+      "input": {
+        "kind": "operation-watchdog",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "operationId": "server-only-operation",
+        "ownerPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "sourceAcceptedVersion": 7,
+        "watchdog": {
+          "lastEventAt": 1900000000000,
+          "firedAt": 1900000030000
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "FORBIDDEN"
+      },
+      "context": {
+        "origin": "observer-client-frame",
+        "trustedInit": true,
+        "serverWatchdogFired": false
+      }
+    },
+    {
+      "id": "a1-watchdog-ack-finalized",
+      "schema": "callbackAck",
+      "validation": "wire",
+      "input": {
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "operationId": "server-only-operation",
+        "outcome": "finalized"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "a1-watchdog-ack-already_terminal",
+      "schema": "callbackAck",
+      "validation": "wire",
+      "input": {
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "operationId": "server-only-operation",
+        "outcome": "already_terminal"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "a1-watchdog-ack-still_running",
+      "schema": "callbackAck",
+      "validation": "wire",
+      "input": {
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "operationId": "server-only-operation",
+        "outcome": "still_running"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "a1-watchdog-ack-rejected",
+      "schema": "callbackAck",
+      "validation": "wire",
+      "input": {
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "operationId": "server-only-operation",
+        "outcome": "rejected"
+      },
+      "expected": {
+        "accepted": true
+      }
+    }
+  ]
+}

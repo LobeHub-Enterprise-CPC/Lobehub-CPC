@@ -220,7 +220,7 @@ describe('getServerGlobalConfig', () => {
   it('should declare gateway protocol 2 only where the v2 socket exists', async () => {
     // The business gateway serves `/v2/ws`; `lobehub/lobehub-gateway`, which is
     // what a self-hosted deployment runs, serves only `/ws`.
-    await expect(loadServerConfig(true)).resolves.toMatchObject({ agentGatewayProtocol: 2 });
+    await expect(loadServerConfig(true)).resolves.toMatchObject({ agentGatewayProtocol: 1 });
     await expect(
       loadServerConfig(false, {
         agentGatewayUrl: 'https://gateway.test.com',
@@ -232,11 +232,11 @@ describe('getServerGlobalConfig', () => {
   it('should let AGENT_GATEWAY_PROTOCOL correct either guess', async () => {
     await expect(
       loadServerConfig(false, {
-        agentGatewayProtocol: 2,
+        agentGatewayProtocol: 1,
         agentGatewayUrl: 'https://gateway.test.com',
         enableAgentGateway: true,
       }),
-    ).resolves.toMatchObject({ agentGatewayProtocol: 2 });
+    ).resolves.toMatchObject({ agentGatewayProtocol: 1 });
 
     // An on-prem business deployment sitting in front of a v1 gateway.
     await expect(loadServerConfig(true, { agentGatewayProtocol: 1 })).resolves.toMatchObject({

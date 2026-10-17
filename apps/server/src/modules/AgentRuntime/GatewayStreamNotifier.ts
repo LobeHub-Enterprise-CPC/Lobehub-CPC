@@ -6,11 +6,13 @@ import type {
 import { projectToolEndResult } from '@lobechat/tool-view-model';
 import type { ChatMessageError } from '@lobechat/types';
 import debug from 'debug';
-import urlJoin from 'url-join';
 
 import { sanitizeVisitorError } from '@/database/models/message';
+import type { GatewayExecutionIntent } from '@/server/services/gatewayAuthorization/types';
+import { GatewayAuthorizationError } from '@/server/services/gatewayAuthorization/wire';
 
 import { shouldRecordGatewayError } from './gatewayErrorRecord';
+import { gatewayOperationPost } from './gatewayHttp';
 import {
   buildPublicEndEventData,
   buildPublicInitEventData,
@@ -369,11 +371,11 @@ export class GatewayStreamNotifier implements IStreamEventManager {
       const meta = pickGatewayInitMeta(initialState);
       await this.httpPostAwait('/api/operations/init', {
         operationId,
-        userId: initialState?.streamOwnerUserId || initialState?.userId || 'unknown',
         ...(meta ? { meta } : {}),
       });
     } catch (error) {
       log('Gateway /api/operations/init failed: %O', error);
+      throw error;
     }
 
     void this.issuePush(
@@ -493,14 +495,20 @@ export class GatewayStreamNotifier implements IStreamEventManager {
   }
 
   /**
-   * Request the client to execute a tool via Agent Gateway → WebSocket.
-   * Unlike the other push methods this is NOT fire-and-forget: callers rely
-   * on the promise outcome to decide whether to block-await a result or
-   * fall back to the interrupt-resume path. Rejects on HTTP error / timeout.
+   * Execute the original Work attempt via the gateway; callers await dispatch success.
    */
-  async sendToolExecute(operationId: string, data: ToolExecuteData): Promise<void> {
+  async sendToolExecute(
+    operationId: string,
+    data: ToolExecuteData & { intent?: GatewayExecutionIntent },
+  ): Promise<void> {
     log('sendToolExecute operation=%s toolCallId=%s', operationId, data.toolCallId);
-    await this.httpPostAwait('/api/operations/tool-execute', { data, operationId });
+    if (!data.intent) throw new GatewayAuthorizationError('ATTEMPT_CONFLICT', 409);
+    const { intent, ...payload } = data;
+    await this.httpPostAwait('/api/operations/tool-execute', {
+      data: payload,
+      operationId,
+      intent,
+    });
   }
 
   /**
@@ -895,20 +903,13 @@ export class GatewayStreamNotifier implements IStreamEventManager {
     const timer = setTimeout(() => controller.abort(), POST_TIMEOUT);
 
     try {
-      const res = await fetch(urlJoin(this.gatewayUrl, path), {
-        body: JSON.stringify(body),
-        headers: {
-          'Authorization': `Bearer ${this.serviceToken}`,
-          'Content-Type': 'application/json',
-        },
-        method: 'POST',
-        signal: controller.signal,
-      });
-      const text = await res.text().catch((error) => {
-        if (controller.signal.aborted) throw error;
-        return '';
-      });
-      return { body: text, ok: res.ok, status: res.status };
+      return await gatewayOperationPost(
+        this.gatewayUrl,
+        this.serviceToken,
+        path,
+        body,
+        controller.signal,
+      );
     } finally {
       clearTimeout(timer);
     }
@@ -925,18 +926,16 @@ export class GatewayStreamNotifier implements IStreamEventManager {
     const timer = setTimeout(() => controller.abort(), POST_TIMEOUT);
 
     try {
-      const res = await fetch(urlJoin(this.gatewayUrl, path), {
-        body: JSON.stringify(body),
-        headers: {
-          'Authorization': `Bearer ${this.serviceToken}`,
-          'Content-Type': 'application/json',
-        },
-        method: 'POST',
-        signal: controller.signal,
-      });
+      const res = await gatewayOperationPost(
+        this.gatewayUrl,
+        this.serviceToken,
+        path,
+        body,
+        controller.signal,
+      );
 
       if (!res.ok) {
-        log('Gateway %s returned %d: %s', path, res.status, await res.text());
+        log('Gateway %s returned %d: %s', path, res.status, res.body);
       }
     } catch (error) {
       log('Gateway %s failed: %O', path, error);

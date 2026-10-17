@@ -126,6 +126,13 @@ export const validateOIDCJWT = async (token: string) => {
       algorithms: ['RS256'],
     });
 
+    if (payload.purpose === 'gateway-connect' || payload.iss === 'urn:lobehub:gateway-session') {
+      throw new TRPCError({
+        code: 'UNAUTHORIZED',
+        message: 'Gateway tickets are not business credentials',
+      });
+    }
+
     // Claims (jti, email, scope) are not logged.
     log('JWT validation successful');
 

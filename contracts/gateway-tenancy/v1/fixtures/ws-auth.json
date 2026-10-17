@@ -1,0 +1,492 @@
+{
+  "contractVersion": 1,
+  "cases": [
+    {
+      "id": "auth-success-valid",
+      "schema": "authSuccess",
+      "validation": "wire",
+      "input": {
+        "type": "auth_success",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "auth-frame-valid",
+      "schema": "authFrame",
+      "validation": "wire",
+      "input": {
+        "type": "auth",
+        "tenancyProtocol": 1,
+        "tokenType": "jwt",
+        "token": "TEST-ONLY-NOT-A-SIGNED-JWT"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "auth-success-missing-audience",
+      "schema": "authSuccess",
+      "validation": "wire",
+      "input": {
+        "type": "auth_success",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "auth-success-missing-tenantId",
+      "schema": "authSuccess",
+      "validation": "wire",
+      "input": {
+        "type": "auth_success",
+        "tenancyProtocol": 1,
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "auth-success-missing-leaseExpiresAt",
+      "schema": "authSuccess",
+      "validation": "wire",
+      "input": {
+        "type": "auth_success",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "auth-success-missing-tenancyProtocol",
+      "schema": "authSuccess",
+      "validation": "wire",
+      "input": {
+        "type": "auth_success",
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "auth-success-wrong-tenantId",
+      "schema": "authSuccess",
+      "validation": "binding",
+      "input": {
+        "type": "auth_success",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-B",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TENANT_MISMATCH"
+      },
+      "context": {
+        "expectedTenantId": "tenant-A",
+        "expectedPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "expectedAudience": "urn:lobehub:gateway:agent",
+        "acceptedVersion": 7,
+        "currentGeneration": 3,
+        "socketIsCurrent": true
+      }
+    },
+    {
+      "id": "auth-success-wrong-principal",
+      "schema": "authSuccess",
+      "validation": "binding",
+      "input": {
+        "type": "auth_success",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "workspace",
+          "id": "workspace-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      },
+      "context": {
+        "expectedTenantId": "tenant-A",
+        "expectedPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "expectedAudience": "urn:lobehub:gateway:agent",
+        "acceptedVersion": 7,
+        "currentGeneration": 3,
+        "socketIsCurrent": true
+      }
+    },
+    {
+      "id": "auth-success-wrong-audience",
+      "schema": "authSuccess",
+      "validation": "binding",
+      "input": {
+        "type": "auth_success",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:device",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      },
+      "context": {
+        "expectedTenantId": "tenant-A",
+        "expectedPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "expectedAudience": "urn:lobehub:gateway:agent",
+        "acceptedVersion": 7,
+        "currentGeneration": 3,
+        "socketIsCurrent": true
+      }
+    },
+    {
+      "id": "auth-success-wrong-acceptedVersion",
+      "schema": "authSuccess",
+      "validation": "binding",
+      "input": {
+        "type": "auth_success",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 6,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TENANT_EXECUTION_VERSION_STALE"
+      },
+      "context": {
+        "expectedTenantId": "tenant-A",
+        "expectedPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "expectedAudience": "urn:lobehub:gateway:agent",
+        "acceptedVersion": 7,
+        "currentGeneration": 3,
+        "socketIsCurrent": true
+      }
+    },
+    {
+      "id": "auth-success-wrong-connectionGeneration",
+      "schema": "authSuccess",
+      "validation": "binding",
+      "input": {
+        "type": "auth_success",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 2,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      },
+      "context": {
+        "expectedTenantId": "tenant-A",
+        "expectedPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "expectedAudience": "urn:lobehub:gateway:agent",
+        "acceptedVersion": 7,
+        "currentGeneration": 3,
+        "socketIsCurrent": true
+      }
+    },
+    {
+      "id": "old-socket-late-success",
+      "schema": "authSuccess",
+      "validation": "binding",
+      "input": {
+        "type": "auth_success",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      },
+      "context": {
+        "socketIsCurrent": false,
+        "mustNotConnectExecuteOrCache": true
+      }
+    },
+    {
+      "id": "pre-auth-executable-frame",
+      "schema": "executionIntent",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "actor": {
+          "subject": "actor-A",
+          "sourceRef": "source-session-A"
+        },
+        "targetPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "action": "device.tool-call",
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "resourceId": "device-shared",
+        "attemptId": "attempt-A-1",
+        "attemptExpiresAt": 1900000020000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      },
+      "context": {
+        "authSuccessValidated": false,
+        "executeCount": 0
+      }
+    },
+    {
+      "id": "observer-cannot-execute",
+      "schema": "executionIntent",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "actor": {
+          "subject": "actor-A",
+          "sourceRef": "source-session-A"
+        },
+        "targetPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "action": "device.tool-call",
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "resourceId": "device-shared",
+        "attemptId": "attempt-A-1",
+        "attemptExpiresAt": 1900000020000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "FORBIDDEN"
+      },
+      "context": {
+        "roles": [
+          "agent:observe"
+        ],
+        "executeCount": 0
+      }
+    },
+    {
+      "id": "auth-api-key-approved-entry",
+      "schema": "authFrame",
+      "validation": "binding",
+      "input": {
+        "type": "auth",
+        "tenancyProtocol": 1,
+        "tokenType": "apiKey",
+        "token": "TEST-ONLY-NOT-A-REAL-KEY",
+        "serverUrl": "https://work.example.invalid/t/acme"
+      },
+      "context": {
+        "allowedOrigins": [
+          "https://work.example.invalid"
+        ],
+        "fixedExchangeSuffix": "/api/v1/gateway/identity",
+        "expectedTenantId": "tenant-A",
+        "followRedirects": false
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "auth-api-key-redirect-forbidden",
+      "schema": "authFrame",
+      "validation": "binding",
+      "input": {
+        "type": "auth",
+        "tenancyProtocol": 1,
+        "tokenType": "apiKey",
+        "token": "TEST-ONLY-NOT-A-REAL-KEY",
+        "serverUrl": "https://work.example.invalid/t/acme"
+      },
+      "context": {
+        "exchangeStatus": 302,
+        "redirectTarget": "http://127.0.0.1/private",
+        "followRedirects": false,
+        "redirectTargetContacted": false
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      }
+    }
+  ]
+}

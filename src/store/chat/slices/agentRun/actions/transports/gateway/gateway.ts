@@ -37,7 +37,7 @@ import {
   resolveExecutionTarget,
   resolveWorkspaceScoped,
 } from '@/helpers/executionTarget';
-import { canUseGatewayProtocolV2 } from '@/helpers/gatewayProtocol';
+import { canUseGatewayProtocolV2, isGatewayMuxSupported } from '@/helpers/gatewayProtocol';
 import { trackProductUsageEvent } from '@/libs/analytics/productUsageEvent';
 import {
   aiAgentService,
@@ -88,6 +88,7 @@ import { createGatewayEventBuffer } from './gatewayEventBuffer';
 import { createGatewayEventHandler, isCompletedRuntimeEnd } from './gatewayEventHandler';
 import { createGatewayEventRouter } from './gatewayEventRouter';
 import { createGatewayMemberStreamHandler, mergeGroupSnapshot } from './gatewayMemberStreamHandler';
+import { createBrowserGatewayIdentityProvider } from './identityProvider';
 import {
   type GatewayMuxIdentity,
   getGatewayMux,
@@ -625,9 +626,11 @@ export class GatewayActionImpl {
     // the rollout to reach them.
     const muxIdentity: GatewayMuxIdentity = { agentShareId, gatewayUrl };
     const useGatewayMux =
+      isGatewayMuxSupported() &&
       (agentShareId
         ? getGatewayServerConfig()?.agentGatewayProtocol === 2
-        : canUseGatewayProtocolV2()) && !isGatewayMuxUnavailable(muxIdentity);
+        : canUseGatewayProtocolV2()) &&
+      !isGatewayMuxUnavailable(muxIdentity);
     let muxClient: OperationClient | undefined;
     if (useGatewayMux) {
       const mux = this.resolveGatewayMux(muxIdentity);
@@ -667,6 +670,7 @@ export class GatewayActionImpl {
         operationId,
         resumeOnConnect,
         token,
+        identityProvider: createBrowserGatewayIdentityProvider({ token, topicId, operationId }),
       });
 
     // Track connection in store
@@ -923,11 +927,6 @@ export class GatewayActionImpl {
     client.on('auth_expired', async () => {
       if (superseded) return;
       try {
-        const { token: fresh } = agentShareId
-          ? await shareChatService.refreshGatewayToken(agentShareId, topicId)
-          : await aiAgentService.refreshGatewayToken(topicId);
-        if (superseded) return;
-        client.updateToken(fresh);
         await client.reconnect();
       } catch (error) {
         console.error(`[Gateway] Token refresh failed for operation ${operationId}:`, error);

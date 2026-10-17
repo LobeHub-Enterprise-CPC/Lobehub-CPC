@@ -1,4 +1,5 @@
 # Prettierignore for LobeHub
+contracts/gateway-tenancy/
 ################################################################
 
 # general

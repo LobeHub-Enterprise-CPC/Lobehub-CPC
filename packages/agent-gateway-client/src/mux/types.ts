@@ -239,7 +239,10 @@ export interface OperationSubscribeOptions {
  * Per-operation events. A superset of the v1 `AgentStreamClientEvents` so a
  * subscription can stand in for an `AgentStreamClient` in the store.
  */
-export interface OperationSubscriptionEvents extends AgentStreamClientEvents {
+export interface OperationSubscriptionEvents extends Omit<
+  AgentStreamClientEvents,
+  'input_request' | 'tool_confirmation_request'
+> {
   input_request: (request: MuxInputRequestMessage) => void;
   resume_complete: (info: ResumeCompleteInfo) => void;
   status_change: (status: SessionStatus) => void;

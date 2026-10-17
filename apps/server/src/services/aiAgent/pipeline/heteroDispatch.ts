@@ -41,6 +41,7 @@ import { hookDispatcher } from '@/server/services/agentRuntime/hooks';
 import type { AgentHook } from '@/server/services/agentRuntime/hooks/types';
 import { deviceGateway } from '@/server/services/deviceGateway';
 import { resolveDeviceDispatchAuthorizationFailure } from '@/server/services/deviceGateway/dispatchAuthorization';
+import { mintOperationGatewayTicket } from '@/server/services/gatewayAuthorization';
 import { HeterogeneousAgentService } from '@/server/services/heterogeneousAgent';
 import type { ConversationHistoryEntry } from '@/server/services/heterogeneousAgent/cloudHeteroContext';
 import { buildCloudHeteroContext } from '@/server/services/heterogeneousAgent/cloudHeteroContext';
@@ -1235,14 +1236,9 @@ export const dispatchHeteroAgent = async (
     }
   }
 
-  let gatewayToken: string | undefined;
-  if (!deps.withholdGatewayToken) {
-    try {
-      gatewayToken = await signUserJWT(deps.userId);
-    } catch {
-      // non-critical
-    }
-  }
+  const gatewayToken = deps.withholdGatewayToken
+    ? undefined
+    : await mintOperationGatewayTicket(deps.userId, operationId, deps.workspaceId);
 
   return {
     agentId: resolvedAgentId,

@@ -88,8 +88,9 @@ async function withTenantReadScope<T>(
       client.release();
     }
     const endpoint = await loadTenantPublicEndpoint(tenantId);
-    return await runWithTenantScope({ endpoint, session, tenantId, slug: directory.slug }, () =>
-      run(session),
+    return await runWithTenantScope(
+      { endpoint, session, tenantId, slug: directory.slug, acceptedVersion: 0 },
+      () => run(session),
     );
   } finally {
     await pool.end();

@@ -101,7 +101,13 @@ export class TenantRuntime {
     if (!this.claims) throw new TenantGateError('TENANT_UNAVAILABLE');
     const release = await this.claims.enter(entry.directory.tenantId);
     try {
-      return { release, scope: await this.openScope(entry.directory) };
+      return {
+        release,
+        scope: {
+          ...(await this.openScope(entry.directory)),
+          acceptedVersion: entry.lifecycle!.acceptedVersion,
+        },
+      };
     } catch (error) {
       await release();
       throw error;
@@ -120,6 +126,35 @@ export class TenantRuntime {
     const entry = await this.admissionEntry(tenantId, maxAgeMs);
     if (!entry) throw new TenantGateError('TENANT_NOT_FOUND');
     this.assertAvailable(entry);
+  }
+
+  /** Platform-only fresh authority, including denied lifecycle states; never opens the business DB. */
+  async gatewayAdmission(tenantId: string) {
+    const checkedAt = this.now().getTime();
+    const entry = await this.admissionEntry(tenantId, 0);
+    if (!entry) throw new TenantGateError('TENANT_NOT_FOUND');
+    const lifecycle = entry.lifecycle;
+    if (entry.directory.status !== 'active' || !lifecycle?.acceptedVersion)
+      throw new TenantGateError('TENANT_NOT_READY');
+    const effective = effectiveTenantState(
+      {
+        desiredState: lifecycle.desiredState,
+        expiresAt: lifecycle.expiresAt?.toISOString() ?? null,
+        freezeReasons: lifecycle.freezeReasons,
+      },
+      this.now(),
+    );
+    const effectiveState =
+      effective.reasons.length === 1 && effective.reasons[0] === 'expired'
+        ? 'expired'
+        : effective.state;
+    return {
+      tenantId,
+      acceptedVersion: lifecycle.acceptedVersion,
+      effectiveState,
+      checkedAt,
+      leaseExpiresAt: checkedAt + 30_000,
+    };
   }
 
   /** Admission facts at most `maxAgeMs` old (see {@link assertAdmitted}). */
@@ -330,7 +365,7 @@ export class TenantRuntime {
   }
 
   /** Verify real connection identity, permissions, schema and release history before use. */
-  private async openScope(directory: DirectoryRow): Promise<TenantScope> {
+  private async openScope(directory: DirectoryRow): Promise<Omit<TenantScope, 'acceptedVersion'>> {
     const session = this.sessionFor(directory);
     const verifiedKey = `${directory.tenantId}|${directory.connectionVersion}|${directory.credentialBundleVersion}|${directory.schemaVersion}`;
     const checkedAt = this.verified.get(verifiedKey);
