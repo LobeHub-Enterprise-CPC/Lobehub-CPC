@@ -28,7 +28,7 @@ import { getTopicDeviceId, TopicModel } from '@/database/models/topic';
 import { UserModel } from '@/database/models/user';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
-import { signTunnelAccessToken, signWorkspaceDeviceToken } from '@/libs/trpc/utils/internalJwt';
+import { signTunnelAccessToken } from '@/libs/trpc/utils/internalJwt';
 import {
   type DeviceAttachment,
   deviceGateway,
@@ -36,10 +36,10 @@ import {
 } from '@/server/services/deviceGateway';
 import { filterAuthorizedDevicePresence } from '@/server/services/deviceGateway/scopedDevicePresence';
 import { deviceTunnels, TUNNEL_MAX_TTL_SECONDS } from '@/server/services/deviceGateway/tunnels';
-import { requireGatewaySource } from '@/server/services/gatewayAuthorization/context';
 
 import { loadDeviceBoundAgents } from './deviceBoundAgents';
 import { preserveWorkspaceCache } from './deviceWorkingDirs';
+import { mintWorkspaceDeviceConnectToken } from './deviceWorkspaceConnectToken';
 import {
   assertWorkspaceDeviceEditable,
   assertWorkspaceDeviceVisible,
@@ -1823,16 +1823,13 @@ export const deviceRouter = router({
 
   /**
    * Mint a short-lived connect token for enrolling a WORKSPACE-owned device.
-   * Workspace members (and owners) can call — enrolling a machine into the
-   * shared pool is self-service so members don't have to chase an owner to
-   * join their dev box. Viewers are blocked: writing a row to the workspace
-   * device pool is a mutation, not a read. The signed token carries the
-   * `workspace_id` claim the device gateway trusts to route the device to the
-   * `workspace:<id>` principal. The CLI (`lh connect --workspace`) / settings
-   * page use this.
+   * The outer write gate accepts member+, but gateway device enrollment
+   * requires a verified workspace owner/admin. The signed token binds the
+   * device to the workspace principal. The CLI (`lh connect --workspace`)
+   * and settings page use this.
    */
   mintWorkspaceConnectToken: wsWritableProcedure.mutation(async ({ ctx }) => {
-    const token = await signWorkspaceDeviceToken(ctx.workspaceId, requireGatewaySource(ctx.userId));
+    const token = await mintWorkspaceDeviceConnectToken(ctx.workspaceId, ctx.userId);
     return { token, workspaceId: ctx.workspaceId };
   }),
 
@@ -1889,9 +1886,9 @@ export const deviceRouter = router({
    * share. Requires the device to be ONLINE; an offline device fails with
    * PRECONDITION_FAILED and the UI keeps its share action disabled.
    *
-   * Same write gate as enrolling on the machine (`wsWritableProcedure`:
-   * member+, viewers blocked). Visibility defaults to 'private' — see
-   * `DeviceModel.registerWorkspaceDevice`.
+   * The outer write gate accepts member+; minting the enrollment token still
+   * requires a verified workspace owner/admin before any device probe.
+   * Visibility defaults to 'private' — see `DeviceModel.registerWorkspaceDevice`.
    *
    * The machine may ALREADY be enrolled in this workspace (e.g. via
    * `lh connect --workspace`, which the personal share map can't link to).
@@ -1919,10 +1916,7 @@ export const deviceRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Personal device not found.' });
       }
 
-      const token = await signWorkspaceDeviceToken(
-        ctx.workspaceId,
-        requireGatewaySource(ctx.userId),
-      );
+      const token = await mintWorkspaceDeviceConnectToken(ctx.workspaceId, ctx.userId);
       // Identity-only probe: learn the machine's workspace deviceId WITHOUT the
       // device opening or persisting a share connection, so backing out of the
       // overwrite confirmation leaves the device untouched. Older clients
