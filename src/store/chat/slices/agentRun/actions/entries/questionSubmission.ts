@@ -105,6 +105,15 @@ export class QuestionSubmissionActionImpl {
       if (await this.checkQuestionSubmission(id, context)) return;
       throw error;
     }
+    const message = dbMessageSelectors.getDbMessageById(id)(this.#get());
+    if (
+      this.#get().questionSubmissions[id] === 'submitting' &&
+      (!message?.pluginIntervention || message.pluginIntervention.status === 'pending')
+    ) {
+      // Legacy resume can succeed without a claim ACK or a pushed message snapshot.
+      // Read only this question in its captured context before reopening the form.
+      await this.checkQuestionSubmission(id, context);
+    }
     const resultPhase = this.#get().questionSubmissions[id];
     if (resultPhase === 'failed' || resultPhase === 'uncertain') {
       throw new Error('Question submission could not be confirmed');
