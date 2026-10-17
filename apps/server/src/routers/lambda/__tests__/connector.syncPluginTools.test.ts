@@ -5,6 +5,7 @@ import { AgentModel } from '@/database/models/agent';
 import { ConnectorModel } from '@/database/models/connector';
 import { ConnectorToolModel } from '@/database/models/connectorTool';
 import { PluginModel } from '@/database/models/plugin';
+import { syncConnectorToolsById } from '@/server/services/connector/sync';
 
 import { connectorRouter } from '../connector';
 
@@ -16,6 +17,8 @@ const mocks = vi.hoisted(() => ({
 // so the relative import order doesn't matter functionally — the mocks below
 // are still active when the router module is evaluated. They live below the
 // imports to satisfy `import-x/first` without disabling the rule.
+vi.mock('@/server/services/connector/sync', () => ({ syncConnectorToolsById: vi.fn() }));
+
 vi.mock('@/database/models/agent', () => ({ AgentModel: vi.fn() }));
 vi.mock('@/database/models/connector', () => ({ ConnectorModel: vi.fn() }));
 vi.mock('@/database/models/connectorTool', () => ({ ConnectorToolModel: vi.fn() }));
@@ -40,6 +43,7 @@ vi.mock('@/business/server/trpc-middlewares/workspaceAuth', async () => {
 vi.mock('@/libs/trpc/lambda/middleware', () => ({
   serverDatabase: async (opts: any) =>
     opts.next({ ctx: { ...opts.ctx, serverDB: opts.ctx.serverDB ?? {} } }),
+  telemetry: async (opts: any) => opts.next(),
 }));
 
 describe('connectorRouter.syncPluginTools — customPlugin guard', () => {
@@ -51,6 +55,8 @@ describe('connectorRouter.syncPluginTools — customPlugin guard', () => {
     vi.clearAllMocks();
 
     connectorModelMock = {
+      findById: vi.fn(),
+      findScopedByIdentifier: vi.fn(),
       create: vi.fn().mockResolvedValue({ id: 'conn-new' }),
       queryByIdentifiers: vi.fn().mockResolvedValue([]),
       update: vi.fn(),
@@ -75,6 +81,106 @@ describe('connectorRouter.syncPluginTools — customPlugin guard', () => {
       userId: 'user_test',
       workspaceId: workspaceId ?? null,
     } as any);
+
+  it('preserves resolved DCR registration while updating scopes and headers on retry', async () => {
+    connectorModelMock.findScopedByIdentifier.mockResolvedValue({
+      id: 'oauth-conn',
+      sourceType: 'marketplace',
+      userId: 'user_test',
+      mcpServerUrl: 'https://docs.example.test/mcp',
+      metadata: { marketplaceOAuth: true, existingField: 'keep' },
+      oidcConfig: {
+        scheme: 'dcr',
+        clientId: 'registered',
+        clientSecret: 'server-owned-secret',
+        scopes: ['old'],
+      },
+    });
+    const result = await callerFor().create({
+      identifier: 'docs',
+      name: 'Docs',
+      sourceType: 'marketplace',
+      mcpConnectionType: 'http',
+      mcpServerUrl: 'https://docs.example.test/mcp',
+      metadata: { marketplaceOAuth: true, customHeaders: { 'X-Account': 'new' } },
+      oidcConfig: { scheme: 'dcr', scopes: ['docs:read'] },
+    });
+    expect(result).toEqual({ id: 'oauth-conn', isNew: false });
+    expect(connectorModelMock.update).toHaveBeenCalledWith(
+      'oauth-conn',
+      expect.objectContaining({
+        oidcConfig: {
+          scheme: 'dcr',
+          clientId: 'registered',
+          clientSecret: 'server-owned-secret',
+          scopes: ['docs:read'],
+        },
+        metadata: {
+          marketplaceOAuth: true,
+          existingField: 'keep',
+          customHeaders: { 'X-Account': 'new' },
+        },
+      }),
+    );
+    expect(connectorModelMock.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps a required DCR scheme when a managed retry omits both stored and input OIDC config', async () => {
+    connectorModelMock.findScopedByIdentifier.mockResolvedValue({
+      id: 'oauth-conn',
+      sourceType: 'marketplace',
+      userId: 'user_test',
+      mcpServerUrl: 'https://docs.example.test/mcp',
+      metadata: { marketplaceOAuth: true },
+      oidcConfig: null,
+    });
+    await callerFor().create({
+      identifier: 'docs',
+      name: 'Docs',
+      sourceType: 'marketplace',
+      mcpConnectionType: 'http',
+      mcpServerUrl: 'https://docs.example.test/mcp',
+      metadata: { marketplaceOAuth: true },
+    });
+    expect(connectorModelMock.update).toHaveBeenCalledWith(
+      'oauth-conn',
+      expect.objectContaining({
+        oidcConfig: { scheme: 'dcr' },
+      }),
+    );
+  });
+
+  it('syncs managed OAuth tools remotely instead of projecting the empty installation marker', async () => {
+    pluginModelMock.findById.mockResolvedValue({
+      customParams: { oauthConnectorId: 'oauth-conn' },
+    });
+    connectorModelMock.findById.mockResolvedValue({
+      id: 'oauth-conn',
+      identifier: 'docs',
+      sourceType: 'marketplace',
+      userId: 'user_test',
+      metadata: { marketplaceOAuth: true },
+    });
+    vi.mocked(syncConnectorToolsById).mockResolvedValue({ toolCount: 12 });
+    expect(await callerFor().syncPluginTools({ identifier: 'docs' })).toEqual({
+      connectorId: 'oauth-conn',
+      toolCount: 12,
+    });
+    expect(syncConnectorToolsById).toHaveBeenCalledWith('oauth-conn', expect.anything());
+    expect(connectorToolModelMock.upsertMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects a managed marker pointing at another connector identifier', async () => {
+    pluginModelMock.findById.mockResolvedValue({ customParams: { oauthConnectorId: 'other' } });
+    connectorModelMock.findById.mockResolvedValue({
+      id: 'other',
+      identifier: 'another',
+      sourceType: 'marketplace',
+      metadata: { marketplaceOAuth: true },
+    });
+    await expect(callerFor().syncPluginTools({ identifier: 'docs' })).rejects.toThrow('not found');
+    expect(syncConnectorToolsById).not.toHaveBeenCalled();
+  });
 
   it('returns { connectorId: null } early for customPlugin rows that own an MCP endpoint', async () => {
     // This is the load-bearing guard: legacy custom MCP plugins MUST go through

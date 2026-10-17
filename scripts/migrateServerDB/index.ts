@@ -7,6 +7,8 @@ import { migrate as nodeMigrate } from 'drizzle-orm/node-postgres/migrator';
 
 // @ts-ignore tsgo handle esm import cjs and compatibility issues
 import { DB_FAIL_INIT_HINT, DUPLICATE_EMAIL_HINT, PGVECTOR_HINT } from './errorHint';
+// @ts-ignore tsgo handle esm import cjs and compatibility issues
+import { assertPgSearchReady, PgSearchNotReadyError } from './pgSearchGuard';
 import { runWithLockRetry } from './retry';
 
 // Load environment variables in priority order:
@@ -61,6 +63,26 @@ const runMigrations = async () => {
   const { getPlatformDB } = await import('../../packages/database/src/platform');
   const { upgradeTenantSchemas } =
     await import('../../apps/server/src/services/tenantControlPlane/upgrade');
+  const { PostgresTenantDatabaseExecutor } =
+    await import('../../apps/server/src/services/tenantControlPlane/postgresExecutor');
+
+  /**
+   * The pg_search guard checks the tables `search_path` resolves to, and the BM25 indexes live
+   * in each tenant schema (the platform `public` schema has none), so it runs per tenant, after
+   * that tenant's chains and runtime checks pass.
+   */
+  let pgSearchError: Error | undefined;
+  class GuardedTenantExecutor extends PostgresTenantDatabaseExecutor {
+    async verifyDiscovery(args: Parameters<PostgresTenantDatabaseExecutor['verifyDiscovery']>[0]) {
+      await super.verifyDiscovery(args);
+      try {
+        await this.withTenantCatalog(args.bundle, (query) => assertPgSearchReady(query));
+      } catch (error) {
+        if (error instanceof PgSearchNotReadyError) pgSearchError ??= error;
+        throw error;
+      }
+    }
+  }
 
   const time = Date.now();
   const platformDB = getPlatformDB();
@@ -71,9 +93,11 @@ const runMigrations = async () => {
 
   const tenantIds = tenantArgs();
   const { failed, migrated } = await upgradeTenantSchemas(platformDB, {
+    executor: new GuardedTenantExecutor(),
     tenantIds: tenantIds.length > 0 ? tenantIds : undefined,
   });
   console.log('✅ tenant schemas migrated: %d', migrated.length);
+  if (pgSearchError) console.error(pgSearchError.message);
   if (failed.length > 0) {
     for (const { reason, tenantId } of failed)
       console.error('❌ tenant %s migration failed: %s', tenantId, reason);
@@ -88,6 +112,11 @@ const connectionString = process.env.DATABASE_URL;
 // only migrate database if the connection string is available
 if (connectionString) {
   runMigrations().catch((err) => {
+    if (err instanceof PgSearchNotReadyError) {
+      console.error(err.message);
+      process.exit(1);
+    }
+
     console.error('❌ Database migrate failed:', err);
 
     const errMsg = err.message as string;

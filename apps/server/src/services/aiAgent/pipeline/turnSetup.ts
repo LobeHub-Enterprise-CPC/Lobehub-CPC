@@ -10,12 +10,12 @@ import type {
   FileAccessScope,
   HeterogeneousProviderConfig,
   HeterogeneousTopicPin,
+  RequestTrigger,
 } from '@lobechat/types';
 import {
   agentShareFileAccessScope,
   ChatErrorType,
   ordinaryFileAccessScope,
-  RequestTrigger,
   resolveHeterogeneousProviderTopicModel,
 } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
@@ -41,7 +41,9 @@ import { ingestAttachment } from '../ingestAttachment';
 import type { AgentShareGate } from '../shareGate';
 import { reserveShareVisitorTopic, reserveShareVisitorTurn } from '../shareVisitorAbuseGuards';
 import type { ExecAgentTranscript, InternalExecAgentParams } from '../types';
+import { createUserTurnAnchor } from './resolveUserMessageParentId';
 import { createStageTracer, openStageMark } from './sendTracing';
+import { buildUserTurnMetadata } from './userTurnMetadata';
 
 const log = debug('lobe-server:ai-agent-service');
 
@@ -350,6 +352,8 @@ export interface TurnSetupInput {
   /** Raw resume flag — a resume run must land on an existing topic. */
   resume?: boolean;
   runFromHistory: boolean;
+  /** Skills the user selected for this turn; see `ExecAgentParams.selectedSkillIds`. */
+  selectedSkillIds?: string[];
   /** Shared-agent visitor gate — set only by the shareChat router. */
   shareGate?: AgentShareGate;
   /** The prompt was queued behind a running turn; see `ExecAgentParams.steer`. */
@@ -448,6 +452,7 @@ export const setupTurn = async (
     resolvedAgentId,
     resume,
     runFromHistory,
+    selectedSkillIds,
     shareGate,
     steer,
     throwIfExecutionAborted,
@@ -498,6 +503,41 @@ export const setupTurn = async (
     });
   }
 
+  const assertProjectDirectoryAccess = () => {
+    if (shareGate || (botContext && !resolveDeviceAccessPolicy({ botContext }).canUseDevice))
+      throw new Error('Project directory access denied');
+  };
+  /** Pin the run to the device a project directory lives on — only it can honour the run. */
+  const routeToProjectDirectory = async (directory: { deviceId: string | null }) => {
+    if (
+      agentConfig.agencyConfig?.executionTargetSelectionPolicy === 'fixed' &&
+      agentConfig.agencyConfig.boundDeviceId !== directory.deviceId
+    )
+      throw new Error('Agent is fixed to another execution target');
+    // Reject an unavailable device *here*, before the user/assistant rows are
+    // persisted: the client treats a rejected send as never accepted, keeps the
+    // draft and rolls back its optimistic pair, so a later rejection would leave
+    // a failed turn durable server-side that the client disagrees with.
+    // Liveness comes from the gateway's device listing — not a device round
+    // trip — so the send path keeps the latency fix, and the dispatch remains
+    // the authority on whether the directory still exists on the device.
+    const { canUseDevice: canUseProjectDevice } = resolveDeviceAccessPolicy({ botContext });
+    const projectDevices = canUseProjectDevice
+      ? await getScopedOnlineDevices(deps.db, deps.userId, deps.workspaceId)
+      : [];
+    if (!projectDevices.some((device) => device.deviceId === directory.deviceId && device.online))
+      throw new Error('Device is offline or working directory is unavailable');
+    const deviceId = directory.deviceId ?? undefined;
+    resolvedRequestedDeviceId = deviceId;
+    effectiveRequestedDeviceId = deviceId;
+    topicBoundDeviceId = deviceId;
+    agentConfig.agencyConfig = {
+      ...agentConfig.agencyConfig,
+      boundDeviceId: deviceId,
+      executionTarget: 'device',
+    };
+  };
+
   // Topic resolution assigns the turn's narrowed bindings (topic id, pinned
   // model, device targets), so it is a marked block rather than a callback:
   // every exit, including a throw, records the error and closes the span.
@@ -517,9 +557,29 @@ export const setupTurn = async (
         throw new Error('Resume mode requires the parent message to belong to a topic');
       }
 
+      // A blank conversation opened from a project group's "+" is born inside
+      // that directory: bound to it, and run on the device it lives on.
+      let projectDirectory:
+        Awaited<ReturnType<ProjectWorkingDirectoryModel['resolve']>> | undefined;
+      if (appContext?.projectWorkingDirectoryId) {
+        assertProjectDirectoryAccess();
+        projectDirectory = await new ProjectWorkingDirectoryModel(
+          deps.db,
+          deps.userId,
+          deps.workspaceId,
+        ).resolve(appContext.projectWorkingDirectoryId);
+        await routeToProjectDirectory(projectDirectory);
+      }
+
       // Prepare metadata with cronJobId, taskId, botContext, bound device, and any
       // client-supplied initial metadata (e.g. repos selected before first message).
-      const initialTopicMeta = appContext?.initialTopicMetadata;
+      const initialTopicMeta = projectDirectory
+        ? {
+            ...appContext?.initialTopicMetadata,
+            workingDirectory: projectDirectory.path,
+            workingDirectoryConfig: { path: projectDirectory.path },
+          }
+        : appContext?.initialTopicMetadata;
       // Builder conversations are owned by a builtin builder agent and get no
       // `groupId` / `sessionId` (those columns mark the target's own chat), so
       // without this the row keeps no trace of what it was configuring. The
@@ -573,6 +633,10 @@ export const setupTurn = async (
         // must carry the groupId through too (group topic sidebar + ownership fix).
         groupId: appContext?.groupId,
         metadata: metadataWithSnapshot,
+        ...(projectDirectory && {
+          projectId: projectDirectory.projectId,
+          projectWorkingDirectoryId: projectDirectory.id,
+        }),
         // Snapshot the effective model as the topic's pinned model (config).
         model: snapshot.model,
         provider: snapshot.provider,
@@ -628,44 +692,14 @@ export const setupTurn = async (
       // A project conversation without a directory follows the plain
       // topic-pinned device path below, like any other conversation.
       if (existingTopic?.projectWorkingDirectoryId) {
-        if (shareGate || (botContext && !resolveDeviceAccessPolicy({ botContext }).canUseDevice))
-          throw new Error('Project directory access denied');
+        assertProjectDirectoryAccess();
         const directory = await new ProjectWorkingDirectoryModel(
           deps.db,
           deps.userId,
           deps.workspaceId,
         ).resolveForTopic(topicId);
         if (!directory) throw new Error('Project directory binding no longer exists');
-        if (
-          agentConfig.agencyConfig?.executionTargetSelectionPolicy === 'fixed' &&
-          agentConfig.agencyConfig.boundDeviceId !== directory.deviceId
-        )
-          throw new Error('Agent is fixed to another execution target');
-        // The directory lives on one device, so only that device can honour the
-        // run. Reject an unavailable device *here*, before the user/assistant
-        // rows are persisted: the client treats a rejected send as never
-        // accepted, keeps the draft and rolls back its optimistic pair, so a
-        // later rejection would leave a failed turn durable server-side that the
-        // client disagrees with. Liveness comes from the gateway's device
-        // listing — not a device round trip — so the send path keeps the latency
-        // fix, and the dispatch remains the authority on whether the directory
-        // still exists on the device.
-        const { canUseDevice: canUseProjectDevice } = resolveDeviceAccessPolicy({ botContext });
-        const projectDevices = canUseProjectDevice
-          ? await getScopedOnlineDevices(deps.db, deps.userId, deps.workspaceId)
-          : [];
-        if (
-          !projectDevices.some((device) => device.deviceId === directory.deviceId && device.online)
-        )
-          throw new Error('Device is offline or working directory is unavailable');
-        resolvedRequestedDeviceId = directory.deviceId;
-        effectiveRequestedDeviceId = directory.deviceId;
-        topicBoundDeviceId = directory.deviceId;
-        agentConfig.agencyConfig = {
-          ...agentConfig.agencyConfig,
-          boundDeviceId: directory.deviceId,
-          executionTarget: 'device',
-        };
+        await routeToProjectDirectory(directory);
       }
 
       // Fail-closed guard: a non-share run must never operate on a share-visitor
@@ -796,22 +830,14 @@ export const setupTurn = async (
   }
 
   // ── Shared turn setup (runs for BOTH hetero and normal agents) ──────────
-  const requestTriggerMetadata = {
-    ...(trigger && Object.values(RequestTrigger).includes(trigger as RequestTrigger)
-      ? { trigger: trigger as RequestTrigger }
-      : undefined),
-    ...(appContext?.conversationAgentId && appContext.scope === 'sub_agent'
-      ? { agentDispatch: { kind: 'callAgent' as const, visibility: 'internal' as const } }
-      : undefined),
-    // Bot-channel turns are inserted under the OWNER's userId; keep the real
-    // platform author alongside so the UI can attribute the bubble correctly.
-    ...(botSender ? { botSender } : undefined),
-    // A provider event that injected this turn keeps its source on the row.
-    ...(externalOrigin ? { externalOrigin } : undefined),
-    // A follow-up queued behind a running turn renders as that turn's
-    // continuation; the client's optimistic row is replaced by this one.
-    ...(steer ? { steer: true as const } : undefined),
-  };
+  const requestTriggerMetadata = buildUserTurnMetadata({
+    appContext,
+    botSender,
+    externalOrigin,
+    selectedSkillIds,
+    steer,
+    trigger,
+  });
 
   // Attachment ingestion: raw bot/IM `files` → S3, pre-uploaded
   // `attachedFileIds` → signed URLs + classification.
@@ -862,16 +888,17 @@ export const setupTurn = async (
     'messages',
     async () => {
       const selfMessageIds = new Set<string>();
-      // Anchor the new user turn on the conversation tail. Never leave it
-      // undefined for a topic that already has messages: `parentId: undefined`
-      // persists a second ROOT, and the renderer walks the parentId forest
-      // depth-first — an earlier root's still-growing subtree is emitted before a
-      // later root, so the newest reply lands ABOVE older messages.
-      //
-      // `getLatestSpineMessageId` skips tool rows and toolless signal turns, so it
-      // can come back empty on a topic built entirely from signal callbacks; fall
-      // back to the latest non-tool row rather than orphaning the turn.
-      const resolveUserMessageParentId = async () => {
+      // Anchor the new user turn on the selected branch's tail (see
+      // `createUserTurnAnchor` for why it is never left undefined).
+      const anchor = createUserTurnAnchor(deps.messageModel, {
+        allowShareVisitor: !!shareGate,
+        clientParentId: clientIds?.userMessageParentId,
+        groupId: appContext?.groupId ?? undefined,
+        sessionId: appContext?.sessionId,
+        threadId: appContext?.threadId ?? null,
+        topicId,
+      });
+      const resolveParentId = async () => {
         if (runFromHistory) return undefined;
         if (parentMessageId) return parentMessageId;
         // A thread created for THIS turn is empty, so there is no spine head to
@@ -881,21 +908,9 @@ export const setupTurn = async (
         // of order.
         if (createdThreadId) return appContext?.newThread?.sourceMessageId;
 
-        const threadId = appContext?.threadId ?? null;
-        const spineId = await deps.messageModel.getLatestSpineMessageId({ threadId, topicId });
-        if (spineId) return spineId;
-
-        const fallbackId = await deps.messageModel.getLatestNonToolMessageId({ threadId, topicId });
-        if (fallbackId) {
-          log(
-            'execAgent: no spine head for topic %s, anchoring user turn on latest non-tool message %s',
-            topicId,
-            fallbackId,
-          );
-        }
-        return fallbackId;
+        return anchor.resolveParentId();
       };
-      const userMessageParentId = await resolveUserMessageParentId();
+      const userMessageParentId = await resolveParentId();
       const userMessageParams = {
         agentId: conversationAgentId,
         content: prompt,
@@ -940,6 +955,7 @@ export const setupTurn = async (
       if (userMessageRecord) {
         selfMessageIds.add(userMessageRecord.id);
         log('execAgent: created user message %s', userMessageRecord.id);
+        await anchor.selectBranchOf(userMessageRecord);
       }
 
       // Snapshot the author's group orchestration role onto the assistant message
@@ -1027,6 +1043,9 @@ export const setupTurn = async (
   // the creator's memory through the visible memory tool, so this gate must
   // never be conditional on it: any share configuration would otherwise let a
   // link visitor mutate the creator's account via this out-of-band channel.
+  //
+  // There is no per-agent gate: every agent feeds this channel, and the user's
+  // Labs → Self-evolving switch is checked inside the enqueue.
   if (
     userMessageRecord &&
     !isHeteroAgent &&
@@ -1038,6 +1057,11 @@ export const setupTurn = async (
         {
           payload: {
             agentId: resolvedAgentId,
+            // Lets the feedback classifier skip a first message: nothing came before
+            // it in the topic, so it cannot be feedback on an earlier reply.
+            ...(!userMessageRecord.parentId && !appContext?.threadId
+              ? { isConversationRoot: true }
+              : {}),
             message: prompt,
             messageId: userMessageRecord.id,
             threadId: appContext?.threadId ?? undefined,

@@ -4,7 +4,11 @@ import {
   getErrorCodeSpec,
   refineErrorCode,
 } from '@lobechat/model-runtime/errors';
-import { AgentRuntimeErrorType, RequestTrigger } from '@lobechat/types';
+import {
+  AgentRuntimeErrorType,
+  RequestTrigger,
+  SERVER_DEFAULT_HETEROGENEOUS_MODEL_ALIAS,
+} from '@lobechat/types';
 import { isRecord } from '@lobechat/utils/object';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 
@@ -16,13 +20,14 @@ import {
 
 import { prepareServerDefaultChatPayload } from './heterogeneous-model-payload';
 
+export const SERVER_DEFAULT_MODEL_ALIAS = SERVER_DEFAULT_HETEROGENEOUS_MODEL_ALIAS;
+
 export {
-  encodeAnthropicStream,
-  encodeResponsesStream,
   normalizeAnthropicRequest,
   normalizeResponsesRequest,
-  SERVER_DEFAULT_MODEL_ALIAS,
-} from './heterogeneous-direct.protocol';
+} from './heterogeneous-direct.request';
+export { encodeResponsesStream } from './heterogeneous-direct.responses';
+export { encodeAnthropicStream } from './heterogeneous-direct.stream';
 
 export const invokeServerDefaultModel = async (params: {
   agentType: ServerDefaultHeterogeneousAgentType;

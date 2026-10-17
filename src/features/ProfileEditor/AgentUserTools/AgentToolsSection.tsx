@@ -73,12 +73,17 @@ const AgentToolsSection = memo<{ agentId: string; onStartCopy: () => void }>(
 
     return (
       <Flexbox gap={8}>
-        <Text style={{ fontSize: 12, fontWeight: 500 }} type={'secondary'}>
+        <Text
+          data-brand-slot={'agent-config-label'}
+          style={{ fontSize: 12, fontWeight: 500 }}
+          type={'secondary'}
+        >
           {t('settingAgent.agentTools.tabAgent')} · {agentConnectors.length}
         </Text>
         <Flexbox horizontal align={'center'} gap={8} wrap={'wrap'}>
           <DropdownMenu items={addMenuItems} placement={'bottomLeft'}>
             <Button
+              data-brand-slot={'agent-tools-add'}
               disabled={!canEdit}
               icon={<Icon icon={PlusIcon} />}
               size={'small'}

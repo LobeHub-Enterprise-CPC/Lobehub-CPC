@@ -110,6 +110,17 @@ const getPublishConfig = () => {
       {
         provider: 'generic',
         url: fullUrl,
+        // electron-builder names the emitted manifest `${publishConfig.channel}.yml`
+        // (app-builder-lib/out/publish/updateInfoBuilder.js: `publishConfig.channel || "latest"`),
+        // while electron-updater fetches `${autoUpdater.channel}.yml` — our shipped
+        // client runs with channel `stable`, so it asks for stable.yml. Without this
+        // the build ships a perfectly valid latest.yml that no client of ours ever
+        // requests, and updates fail with ERR_UPDATER_CHANNEL_FILE_NOT_FOUND while
+        // every artifact looks correct.
+        //
+        // It has to live on the provider: a top-level `channel` is rejected by the
+        // schema ("configuration has an unknown property 'channel'").
+        channel: channelPath,
       },
     ];
   }
@@ -292,6 +303,31 @@ const config = {
       console.info('📦 Building CLI for embedding...');
       execSync('npm run build:cli', { stdio: 'inherit', cwd: __dirname });
     }
+
+    // The shell window has no React/i18next runtime. Bundle only its translated strings.
+    const updateStrings = {};
+    for (const locale of ['en-US', 'zh-CN']) {
+      const messages = JSON.parse(
+        await fs.readFile(path.join(__dirname, '../../locales', locale, 'electron.json'), 'utf8'),
+      );
+      updateStrings[locale] = Object.fromEntries(
+        Object.entries(messages)
+          .filter(([key]) => key.startsWith('startupUpdate.'))
+          .map(([key, value]) => [
+            key.slice('startupUpdate.'.length),
+            // The shell window has no React/i18next runtime, so the brand
+            // post-processor that rewrites locale strings never sees these:
+            // substitute the product name here. It defaults to the upstream
+            // name, so an unbranded build ships the strings unchanged.
+            typeof value === 'string' ? value.replaceAll('LobeHub', productName) : value,
+          ]),
+      );
+    }
+    await fs.writeFile(
+      path.join(__dirname, 'shell/update/strings.json'),
+      JSON.stringify(updateStrings, null, 2) + '\n',
+    );
+
     execSync('node scripts/shellAbi.mjs --write', { stdio: 'inherit', cwd: __dirname });
     const { shellAbi } = JSON.parse(
       await fs.readFile(path.join(__dirname, 'shell/abi.json'), 'utf8'),

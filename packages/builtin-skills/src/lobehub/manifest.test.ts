@@ -17,7 +17,9 @@ describe('LobeHubManifest branding', () => {
     expect(LobeHubManifest.avatar).toBe('data:image/svg+xml,%3Csvg%2F%3E');
     expect(LobeHubManifest.identifier).toBe('lobehub');
     expect(LobeHubManifest.name).toBe('Acme Workspace');
-    expect(LobeHubManifest.description).toContain('Manage the Acme Workspace platform');
+    // The description is canary's current wording with the slot name substituted;
+    // see the sync report for why the branch keeps upstream's text here.
+    expect(LobeHubManifest.description).toContain('Read and change Acme Workspace platform data');
   });
 
   it.each([undefined, ''])('keeps the embedded upstream icon for %s', async (icon) => {

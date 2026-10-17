@@ -90,6 +90,11 @@ export function TopicBackgroundActivity({ topicId }: { topicId?: string }) {
   if (!isDesktop || !topicId || !state.loaded) return null;
   const activities = state.activities.filter((row) => row.topicId === topicId);
   if (activities.length === 0 && !state.error) return null;
+  const unavailable = t(
+    state.error === 'slow'
+      ? 'backgroundActivity.unavailableSlow'
+      : 'backgroundActivity.unavailable',
+  );
   return (
     <Flexbox className={sectionStyles.section}>
       <Flexbox
@@ -116,8 +121,8 @@ export function TopicBackgroundActivity({ topicId }: { topicId?: string }) {
           danger
           icon={TriangleAlertIcon}
           iconColor={cssVar.colorError}
-          title={t('backgroundActivity.unavailable')}
-          value={t('backgroundActivity.unavailable')}
+          title={unavailable}
+          value={unavailable}
           trailing={
             <Button
               icon={<Icon icon={RefreshCwIcon} size={12} />}

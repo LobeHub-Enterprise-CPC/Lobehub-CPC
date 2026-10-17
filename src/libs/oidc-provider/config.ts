@@ -1,4 +1,5 @@
 import { BRANDING_LOGO_URL, BRANDING_NAME } from '@lobechat/business-const';
+import { ACCEPTANCE_REVIEW_CLIENT_ID, ACCEPTANCE_REVIEW_SCOPE } from '@lobechat/const';
 import { type ClientMetadata } from 'oidc-provider';
 import urlJoin from 'url-join';
 
@@ -101,6 +102,15 @@ export const defaultClients: ClientMetadata[] = [
     token_endpoint_auth_method: 'none',
   },
   {
+    application_type: 'native',
+    client_id: ACCEPTANCE_REVIEW_CLIENT_ID,
+    ...clientDisplay('Review', 'https://hub-apac-1.lobeobjects.space/lobehub-desktop-icon.png'),
+    grant_types: ['urn:ietf:params:oauth:grant-type:device_code'],
+    scope: ACCEPTANCE_REVIEW_SCOPE,
+    response_types: [],
+    token_endpoint_auth_method: 'none',
+  },
+  {
     application_type: 'web',
     client_id: 'lobehub-market',
     ...clientDisplay(
@@ -129,6 +139,7 @@ export const defaultScopes = [
   'profile',
   'email',
   'offline_access', // Allows obtaining refresh_token
+  ACCEPTANCE_REVIEW_SCOPE,
 ];
 
 /**

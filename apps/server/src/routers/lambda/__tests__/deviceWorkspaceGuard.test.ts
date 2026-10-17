@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { DeviceModel } from '@/database/models/device';
 
 import {
+  assertWorkspaceDeviceEditable,
   assertWorkspaceDeviceVisible,
   assertWorkspaceRootApproved,
   registerDeviceSkillRoots,
@@ -135,5 +136,18 @@ describe('device skill roots', () => {
         assertWorkspaceRootApproved(model, 'shared-device', '/home/a/.skills/x'),
       ),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+});
+
+describe('assertWorkspaceDeviceEditable', () => {
+  it.each([
+    ['owner', 'owner'],
+    ['member', 'enroller'],
+  ] as const)('lets the %s edit the registration', (role, userId) => {
+    expect(() => assertWorkspaceDeviceEditable(role, userId, 'enroller')).not.toThrow();
+  });
+
+  it('rejects any other member', () => {
+    expect(() => assertWorkspaceDeviceEditable('member', 'member', 'enroller')).toThrow(TRPCError);
   });
 });

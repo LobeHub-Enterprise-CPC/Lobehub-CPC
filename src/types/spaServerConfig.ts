@@ -21,6 +21,7 @@ export interface AnalyticsConfig {
 
 export interface SPAClientEnv {
   marketBaseUrl?: string;
+  marketSkillInstallBaseUrl?: string;
   pyodideIndexUrl?: string;
   pyodidePipIndexUrl?: string;
   s3FilePath?: string;

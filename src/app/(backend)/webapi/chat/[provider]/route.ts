@@ -7,7 +7,9 @@ import { ChatErrorType, RequestTrigger } from '@lobechat/types';
 
 import { checkAuth } from '@/app/(backend)/middleware/auth';
 import { UserModel } from '@/database/models/user';
-import { createTraceOptions, initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { initModelRuntimeForRequest } from '@/server/modules/AgentRuntime/llmRelay/oneShot';
+import { runRouteWithLlmRelayRequest } from '@/server/modules/AgentRuntime/llmRelay/requestScope';
+import { createTraceOptions } from '@/server/modules/ModelRuntime';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { type ChatStreamPayload } from '@/types/openai/chat';
 import { createErrorResponse } from '@/utils/errorResponse';
@@ -25,51 +27,58 @@ const handlePost = checkAuth(async (req: Request, { params, userId, serverDB }) 
   try {
     const workspaceId = await resolveValidWorkspaceIdFromRequest({ req, serverDB, userId });
 
-    // ============  1. init chat model   ============ //
-    const modelRuntime = await initModelRuntimeFromDB(serverDB, userId, provider, workspaceId);
-
-    // ============  2. create chat completion   ============ //
-
-    const data = (await req.json()) as ChatStreamPayload;
-
-    // Same gate createImage/createVideo already apply for beta-gated LobeHub
-    // models (see isLobeHubModelAvailable) — text chat was the one invocation
-    // path that never checked it, so a model hidden from the picker could still
-    // be reached by sending its id directly.
-    if (
-      provider === BRANDING_PROVIDER &&
-      !(await isLobeHubModelAvailable(data.model, 'chat', {
-        getUserEmail: async () => (await UserModel.findById(serverDB, userId))?.email,
-      }))
-    ) {
-      return createErrorResponse(ChatErrorType.LobeHubModelDeprecated, {
-        error: { modelType: 'chat', requestedModel: data.model },
-        provider,
+    // A provider only the user's device reaches is relayed back to the
+    // requesting tab (one-shot relay); the channel stays open while the
+    // response streams.
+    return await runRouteWithLlmRelayRequest(req, userId, async () => {
+      // ============  1. init chat model   ============ //
+      const modelRuntime = await initModelRuntimeForRequest(serverDB, userId, provider, {
+        workspaceId,
       });
-    }
 
-    const tracePayload = getTracePayload(req);
+      // ============  2. create chat completion   ============ //
 
-    let traceOptions = {};
-    // If user enable trace
-    if (tracePayload?.enabled) {
-      traceOptions = createTraceOptions(data, { provider, trace: tracePayload });
-    }
+      const data = (await req.json()) as ChatStreamPayload;
 
-    return await modelRuntime.chat(data, {
-      user: userId,
-      ...traceOptions,
-      // Route-attempt context for business runtimes (router metrics, spend
-      // accounting) — mirrors the cloud chat route's metadata contract.
-      // topicId comes from the request header, which is set on every chat
-      // request; `tracePayload` only carries one when tracing is enabled.
-      metadata: {
-        provider,
-        sessionId: tracePayload?.sessionId,
-        topicId: req.headers.get(REQUEST_TOPIC_ID_HEADER) ?? tracePayload?.topicId,
-        trigger: RequestTrigger.Chat,
-      },
-      signal: req.signal,
+      // Same gate createImage/createVideo already apply for beta-gated LobeHub
+      // models (see isLobeHubModelAvailable) — text chat was the one invocation
+      // path that never checked it, so a model hidden from the picker could still
+      // be reached by sending its id directly.
+      if (
+        provider === BRANDING_PROVIDER &&
+        !(await isLobeHubModelAvailable(data.model, 'chat', {
+          getUserEmail: async () => (await UserModel.findById(serverDB, userId))?.email,
+        }))
+      ) {
+        return createErrorResponse(ChatErrorType.LobeHubModelDeprecated, {
+          error: { modelType: 'chat', requestedModel: data.model },
+          provider,
+        });
+      }
+
+      const tracePayload = getTracePayload(req);
+
+      let traceOptions = {};
+      // If user enable trace
+      if (tracePayload?.enabled) {
+        traceOptions = createTraceOptions(data, { provider, trace: tracePayload });
+      }
+
+      return await modelRuntime.chat(data, {
+        user: userId,
+        ...traceOptions,
+        // Route-attempt context for business runtimes (router metrics, spend
+        // accounting) — mirrors the cloud chat route's metadata contract.
+        // topicId comes from the request header, which is set on every chat
+        // request; `tracePayload` only carries one when tracing is enabled.
+        metadata: {
+          provider,
+          sessionId: tracePayload?.sessionId,
+          topicId: req.headers.get(REQUEST_TOPIC_ID_HEADER) ?? tracePayload?.topicId,
+          trigger: RequestTrigger.Chat,
+        },
+        signal: req.signal,
+      });
     });
   } catch (e) {
     const {

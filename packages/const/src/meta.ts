@@ -29,5 +29,8 @@ export const DEFAULT_USER_AVATAR_URL = BRANDING_LOGO_URL || '/app-icons/icon-192
  * Upstream is unaffected: BRANDING_LOGO_URL is empty there, so the fallback
  * keeps each agent's own artwork.
  */
-export const DEFAULT_AGENT_BUILDER_AVATAR = BRANDING_LOGO_URL || '/avatars/agent-builder.png';
+export const DEFAULT_AGENT_BUILDER_AVATAR =
+  AGENT_AVATAR_GALLERY?.builtinAvatars?.agentBuilder ||
+  BRANDING_LOGO_URL ||
+  '/avatars/agent-builder.png';
 export const DEFAULT_PAGE_AGENT_AVATAR = BRANDING_LOGO_URL || '/avatars/doc-copilot.png';

@@ -9,7 +9,10 @@ const storageMode = (s: ElectronState) => s.dataSyncConfig.storageMode;
 
 /**
  * Returns the effective remote server URL based on storage mode:
- * - Cloud mode: returns the cloud this build talks to
+ * - Cloud mode: returns the gateway entrypoint this build talks to — the same
+ *   host the main process resolves as `OFFICIAL_CLOUD_SERVER`. Not
+ *   `OFFICIAL_CLOUD_URL`: that constant is hardcoded to the upstream domain, so
+ *   it would hand this deployment’s users links to lobehub.com.
  * - SelfHost mode: returns the configured remoteServerUrl
  *
  * This is what every "copy link" action renders, so it has to name the same

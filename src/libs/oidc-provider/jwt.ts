@@ -1,9 +1,11 @@
+import { acceptanceIdFromReviewResource } from '@lobechat/const';
 import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 
 import { authEnv } from '@/envs/auth';
 import { isBoundToCurrentTenant } from '@/libs/trpc/utils/tenantBinding';
 
+import { isAcceptanceReviewClient, isAcceptanceReviewIssued } from './acceptanceReview';
 import { describeError } from './safe-log';
 
 const log = debug('oidc-jwt');
@@ -145,6 +147,14 @@ export const validateOIDCJWT = async (token: string) => {
       });
     }
 
+    // Review tokens live on third-party preview pages; they only open the review API.
+    if (isAcceptanceReviewIssued(payload)) {
+      throw new TRPCError({
+        code: 'UNAUTHORIZED',
+        message: 'Acceptance review tokens are not accepted here',
+      });
+    }
+
     return {
       clientId,
       payload,
@@ -175,4 +185,17 @@ export const validateOIDCJWT = async (token: string) => {
       message: `JWT token validation failed: ${(error as Error).message}`,
     });
   }
+};
+
+export const verifyAcceptanceReviewJWT = async (token: string) => {
+  const publicKey = await getVerificationKey();
+  const { jwtVerify } = await import('jose');
+  const { payload } = await jwtVerify(token, publicKey, { algorithms: ['RS256'] });
+  // Same `tid` binding as access tokens: all tenants share the signing keys.
+  if (!isBoundToCurrentTenant(payload))
+    throw new Error('Review token was not issued for this tenant');
+  const acceptanceId = acceptanceIdFromReviewResource(payload.aud);
+  if (!isAcceptanceReviewClient(payload.client_id as string) || !acceptanceId || !payload.sub)
+    throw new Error('Not an acceptance review token');
+  return { acceptanceId, expiresAt: payload.exp, userId: payload.sub };
 };

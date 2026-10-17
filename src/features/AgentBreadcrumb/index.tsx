@@ -56,6 +56,7 @@ const AgentBreadcrumb = memo<AgentBreadcrumbProps>(({ agentId, extraItems, title
   return (
     <Breadcrumb
       className={styles.breadcrumb}
+      data-brand-slot={'agent-breadcrumb'}
       separator={<Icon icon={ChevronRight} size={14} />}
       items={[
         {

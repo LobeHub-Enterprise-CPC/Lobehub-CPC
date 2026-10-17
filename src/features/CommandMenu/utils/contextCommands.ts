@@ -1,3 +1,4 @@
+import { SETTINGS_HIDDEN_TABS } from '@lobechat/business-const';
 import { isDesktop } from '@lobechat/const';
 import { type LucideIcon } from 'lucide-react';
 import {
@@ -197,15 +198,31 @@ interface BuildContextCommandsOptions {
 }
 
 /**
+ * Settings tabs this distribution does not ship.
+ *
+ * The sidebar reads the same deny-list through `useCategory`, but this module
+ * holds a second, hardcoded copy of the settings entries. Without this filter a
+ * hidden tab stays reachable from the command palette: the entry is searchable
+ * and its target page renders nothing, so the user lands on a blank screen.
+ * Values are `SettingsTabs` enum values, which is also what `subPath` holds.
+ */
+const hiddenTabs = new Set<string>(SETTINGS_HIDDEN_TABS);
+
+const withoutHiddenTabs = (commands: ContextCommand[]) =>
+  hiddenTabs.size > 0 ? commands.filter((cmd) => !hiddenTabs.has(cmd.subPath)) : commands;
+
+/**
  * Build the full command map, optionally appending business-only entries.
  */
 export const buildContextCommands = ({
   enableBusinessFeatures,
 }: BuildContextCommandsOptions): Record<ContextType, ContextCommand[]> => ({
   ...CONTEXT_COMMANDS,
-  settings: enableBusinessFeatures
-    ? [...CONTEXT_COMMANDS.settings, ...BUSINESS_SETTINGS_COMMANDS]
-    : CONTEXT_COMMANDS.settings,
+  settings: withoutHiddenTabs(
+    enableBusinessFeatures
+      ? [...CONTEXT_COMMANDS.settings, ...BUSINESS_SETTINGS_COMMANDS]
+      : CONTEXT_COMMANDS.settings,
+  ),
 });
 
 /**

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCP OAuth 本地验证</title>
+<style>
+:root { color-scheme: light dark; font-family: system-ui,sans-serif; }
+body { margin: 0 auto; max-width: 850px; padding: 32px 20px; line-height: 1.65; }
+h1 { font-size: 26px; margin: 0 0 12px; }
+section { border: 1px solid GrayText; border-radius: 10px; padding: 20px; margin: 20px 0; }
+button { font: inherit; padding: 8px 14px; cursor: pointer; margin: 4px 8px 4px 0; }
+button:disabled { cursor: wait; opacity: .6; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+#error { color: light-dark(#a52121,#ffaaaa); }
+.muted { color: GrayText; }
+</style>
+<h1>MCP OAuth 本地验证</h1>
+<p>真实 Market Manifest → 认证配置解析 → DCR → 用户授权 → Token 换取 → 工具发现。</p>
+<p class="muted">复用当前 LobeHub 分支的认证解析和 OAuth 函数；不启动整个应用、不使用数据库或 Redis。此页验证协议链路，不代表商店界面及数据库生命周期已验收。</p>
+<section>
+  <h2>腾讯文档</h2>
+  <button id="connect">登录腾讯文档并授权</button>
+  <button id="sync" disabled>重新获取工具</button>
+  <button id="check" disabled>验证一次只读调用</button>
+  <button id="refresh" disabled>验证 Token 刷新</button>
+  <button id="clear">清除本地测试凭据</button>
+  <p id="status" role="status" aria-live="polite"></p>
+  <p id="error" role="alert"></p>
+  <details><summary>查看真实 Market 配置与本地回调</summary><pre id="config">正在读取 Market 配置…</pre></details>
+  <p class="muted">仅申请 docs:read。Token 仅保存在本地服务进程内存，不显示、不写入文件。清除本地凭据不等于撤销腾讯侧授权。</p>
+</section>
+<section>
+  <h2>验证记录</h2>
+  <pre id="events">尚未开始授权。</pre>
+</section>
+<section>
+  <h2>工具列表 <span id="count">0</span></h2>
+  <pre id="tools">授权后展示工具名称，不读取你的文档内容。</pre>
+</section>
+<script>
+const $ = id => document.getElementById(id);
+let busy = false;
+async function status() {
+  const response = await fetch('/api/status');
+  if (!response.ok) throw Error('无法读取本地验证状态');
+  const data = await response.json();
+  $('config').textContent = JSON.stringify({ identifier:data.identifier, endpoint:data.resource, auth:data.auth, callback:data.callback }, null, 2);
+  const phases = {ready:'准备就绪',authorizing:'等待腾讯文档授权',connected:'已授权，工具发现成功',error:'验证未完成，请查看错误后重试'};
+  $('status').textContent = (phases[data.phase] || data.phase) + '；工具数：' + data.toolCount;
+  $('error').textContent = data.error || '';
+  $('count').textContent = data.toolCount;
+  $('events').textContent = data.events.map(e => `${e.ok?'✓':'×'} ${e.time} ${e.step}`).join('\n') || '尚未开始授权。';
+  $('tools').textContent = data.tools.join('\n') || '尚未获取工具。';
+  $('sync').disabled = busy || !data.tokenExchangeComplete;
+  $('refresh').disabled = busy || !data.hasRefreshToken;
+  $('check').disabled = busy || !data.tools.includes('check_skill_update');
+}
+async function action(path) {
+  if (busy) return;
+  busy = true;
+  document.querySelectorAll('button').forEach(b => b.disabled = true);
+  $('status').textContent = '正在处理，请稍候…';
+  $('error').textContent = '';
+  try {
+    const response = await fetch(path, {method:'POST'});
+    const result = await response.json();
+    if (!response.ok) throw Error(result.error || '请求失败');
+    if (result.authorizationUrl) { location.assign(result.authorizationUrl); return; }
+  } catch (error) { $('error').textContent = error.message; }
+  finally {
+    busy = false;
+    $('connect').disabled = false; $('clear').disabled = false;
+    await status().catch(error => $('error').textContent = error.message);
+  }
+}
+for (const [id,path] of [['connect','start'],['sync','sync'],['check','check'],['refresh','refresh'],['clear','clear']]) $(id).addEventListener('click', () => action('/api/'+path));
+status().catch(error => $('error').textContent = error.message);
+</script>
+</html>

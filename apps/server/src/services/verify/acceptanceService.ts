@@ -44,6 +44,7 @@ import type {
 } from '@/database/schemas/verify';
 import type { LobeChatDatabase } from '@/database/type';
 import { notTrashed } from '@/database/utils/softDelete';
+import { notifyAcceptance } from '@/server/services/acceptanceReview/events';
 import { ExpertiseRejectionWorkflow } from '@/server/workflows/expertiseRejection';
 
 import {
@@ -827,6 +828,7 @@ export class AcceptanceService {
     // Rounds inherit the aggregate's visibility so a private acceptance's new
     // round never leaks through its own report URL.
     const run = await this.runModel.attachToAcceptance(runId, acceptanceId, acceptance.visibility);
+    notifyAcceptance(acceptanceId, 'session');
     await this.recomputeStatus(acceptanceId);
     log('run %s attached to acceptance %s as round %d', runId, acceptanceId, run.roundIndex);
 
@@ -939,6 +941,7 @@ export class AcceptanceService {
     const status = statusFromRound(current, Boolean(report));
     if (status !== acceptance.status) {
       await this.acceptanceModel.updatePolicyStatus(acceptanceId, status);
+      notifyAcceptance(acceptanceId, 'session');
       log('acceptance %s → %s (from round %d)', acceptanceId, status, current.roundIndex);
     }
 
@@ -1031,6 +1034,7 @@ export class AcceptanceService {
 
     const settled = await this.stampDecision(acceptanceId, 'accept', comment);
     await this.acceptanceModel.updateStatus(acceptanceId, 'accepted');
+    notifyAcceptance(acceptanceId, 'session', this.actorUserId);
 
     // A terminal decision settles the current round as surely as a new round landing does — and it
     // is the ONLY thing that settles the last one, which no later round will ever follow. Without
@@ -1076,6 +1080,7 @@ export class AcceptanceService {
     }
 
     await this.acceptanceModel.updateStatus(acceptanceId, 'accepted');
+    notifyAcceptance(acceptanceId, 'session', this.actorUserId);
     if (current) this.distilSettledRound(acceptanceId, current.id);
     if (acceptance.subjectType === 'task') await this.completeTaskSubject(acceptance.subjectId);
 
@@ -1105,6 +1110,7 @@ export class AcceptanceService {
 
     const settled = await this.stampDecision(acceptanceId, 'reject', comment);
     await this.acceptanceModel.updateStatus(acceptanceId, 'rejected');
+    notifyAcceptance(acceptanceId, 'session', this.actorUserId);
 
     this.distilSettledRound(acceptanceId, settled);
 

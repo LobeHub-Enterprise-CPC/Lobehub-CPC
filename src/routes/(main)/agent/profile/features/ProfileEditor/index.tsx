@@ -267,9 +267,11 @@ const ProfileEditor = memo(() => {
               </WorkspaceAgentPolicyCard>
             </>
           ) : (
-            <Flexbox className={styles.configPanel} gap={10}>
+            <Flexbox className={styles.configPanel} data-brand-slot={'agent-config-panel'} gap={10}>
               <Flexbox horizontal align={'center'} gap={12} justify={'space-between'}>
-                <div className={styles.configLabel}>{t('settingAgent.runtimeConfig.title')}</div>
+                <div className={styles.configLabel} data-brand-slot={'agent-config-label'}>
+                  {t('settingAgent.runtimeConfig.title')}
+                </div>
                 <RunPriorityHint agentId={agentId} />
               </Flexbox>
               <Flexbox horizontal align={'center'} gap={12} justify={'flex-start'} wrap={'wrap'}>
@@ -296,7 +298,7 @@ const ProfileEditor = memo(() => {
                     if (canEdit) await updateAgentConfigById(agentId, value);
                   }}
                 >
-                  <Button disabled={!canEdit}>
+                  <Button data-brand-slot={'agent-model-select'} disabled={!canEdit}>
                     <ModelIcon model={config?.model} size={20} />
                     {selectedModel?.displayName || config?.model}
                     <ChevronDown size={14} />

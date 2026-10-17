@@ -4,6 +4,7 @@
 import { BRANDING_NAME } from '@lobechat/business-const';
 import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { getModelPropertyWithFallback } from '@lobechat/model-runtime';
+import type * as SsrfSafeFetch from '@lobechat/ssrf-safe-fetch';
 import type { UIChatMessage } from '@lobechat/types';
 import type * as ModelBankModule from 'model-bank';
 import type { MockInstance } from 'vitest';
@@ -45,7 +46,10 @@ vi.mock('@lobechat/model-runtime', () => ({
 }));
 
 const { ssrfSafeFetch: mockSsrfSafeFetch } = vi.hoisted(() => ({ ssrfSafeFetch: vi.fn() }));
-vi.mock('@lobechat/ssrf-safe-fetch', () => ({ ssrfSafeFetch: mockSsrfSafeFetch }));
+vi.mock('@lobechat/ssrf-safe-fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof SsrfSafeFetch>()),
+  ssrfSafeFetch: mockSsrfSafeFetch,
+}));
 
 // Mock trusted client to avoid server-side env access
 vi.mock('@/libs/trusted-client', () => ({
@@ -580,6 +584,11 @@ describe('AgentRuntimeService', () => {
 
     describe('relay executor (host.llmExecutor)', () => {
       const executor = { capabilities: ['llm_relay@1'], clientId: 'tab-a', providers: ['ollama'] };
+      // A parent run of the caller's own.
+      const ownParent = (host: Record<string, unknown>) => ({
+        host,
+        origin: { userId: mockUserId },
+      });
 
       it('stores the executor the client declared', async () => {
         await service.createOperation({ ...mockParams, autoStart: false, llmExecutor: executor });
@@ -588,7 +597,7 @@ describe('AgentRuntimeService', () => {
       });
 
       it("lets a group member, mirrored onto its parent's channel, inherit the parent's executor", async () => {
-        await mockCoordinator.saveAgentState('parent-op', { host: { llmExecutor: executor } });
+        await mockCoordinator.saveAgentState('parent-op', ownParent({ llmExecutor: executor }));
         mockCoordinator.saveAgentState.mockClear();
 
         await service.createOperation({
@@ -598,11 +607,14 @@ describe('AgentRuntimeService', () => {
           parentOperationId: 'parent-op',
         });
         const savedState = mockCoordinator.saveAgentState.mock.calls[0][1];
-        expect(savedState.host.llmExecutor).toEqual(executor);
+        expect(savedState.host.llmExecutor).toEqual({
+          ...executor,
+          channelOperationId: 'parent-op',
+        });
       });
 
-      it("keeps a genuine sub-agent, streaming on its own channel, off the parent's executor", async () => {
-        await mockCoordinator.saveAgentState('parent-op', { host: { llmExecutor: executor } });
+      it("lets an independent sub-agent inherit the parent's executor, relaying on the parent's channel", async () => {
+        await mockCoordinator.saveAgentState('parent-op', ownParent({ llmExecutor: executor }));
         mockCoordinator.saveAgentState.mockClear();
 
         await service.createOperation({
@@ -610,6 +622,84 @@ describe('AgentRuntimeService', () => {
           appContext: { ...mockParams.appContext, isSubAgent: true },
           autoStart: false,
           parentOperationId: 'parent-op',
+        });
+        const savedState = mockCoordinator.saveAgentState.mock.calls[0][1];
+        // The tab only subscribes to the parked parent's channel, so the
+        // child's `llm_execute` has to ride that one.
+        expect(savedState.host.llmExecutor).toEqual({
+          ...executor,
+          channelOperationId: 'parent-op',
+        });
+      });
+
+      it("keeps a nested child on the channel the executor's tab subscribed to", async () => {
+        await mockCoordinator.saveAgentState(
+          'parent-op',
+          ownParent({ llmExecutor: { ...executor, channelOperationId: 'root-op' } }),
+        );
+        mockCoordinator.saveAgentState.mockClear();
+
+        await service.createOperation({
+          ...mockParams,
+          appContext: { ...mockParams.appContext, isSubAgent: true },
+          autoStart: false,
+          parentOperationId: 'parent-op',
+        });
+        const savedState = mockCoordinator.saveAgentState.mock.calls[0][1];
+        expect(savedState.host.llmExecutor).toEqual({
+          ...executor,
+          channelOperationId: 'root-op',
+        });
+      });
+
+      it('relays on its own channel when the client declared the executor itself', async () => {
+        await mockCoordinator.saveAgentState('parent-op', ownParent({ llmExecutor: executor }));
+        mockCoordinator.saveAgentState.mockClear();
+
+        const own = { ...executor, clientId: 'tab-b' };
+        await service.createOperation({
+          ...mockParams,
+          appContext: { ...mockParams.appContext, isSubAgent: true },
+          autoStart: false,
+          llmExecutor: own,
+          parentOperationId: 'parent-op',
+        });
+        const savedState = mockCoordinator.saveAgentState.mock.calls[0][1];
+        expect(savedState.host.llmExecutor).toEqual(own);
+      });
+
+      it("does not inherit the executor of another user's run", async () => {
+        // A client names `parentOperationId`; a foreign run's executor would
+        // hand this child's LLM payload to that user's tab.
+        await mockCoordinator.saveAgentState('foreign-op', {
+          host: { llmExecutor: executor },
+          origin: { userId: 'someone-else' },
+        });
+        mockCoordinator.saveAgentState.mockClear();
+
+        await service.createOperation({
+          ...mockParams,
+          appContext: { ...mockParams.appContext, isSubAgent: true },
+          autoStart: false,
+          parentOperationId: 'foreign-op',
+        });
+        const savedState = mockCoordinator.saveAgentState.mock.calls[0][1];
+        expect(savedState.host).not.toHaveProperty('llmExecutor');
+      });
+
+      it("does not inherit the executor of the user's run in another workspace", async () => {
+        // The same user's run elsewhere relays with that workspace's providers.
+        await mockCoordinator.saveAgentState('other-workspace-op', {
+          host: { llmExecutor: executor },
+          origin: { userId: mockUserId, workspaceId: 'ws-other' },
+        });
+        mockCoordinator.saveAgentState.mockClear();
+
+        await service.createOperation({
+          ...mockParams,
+          appContext: { ...mockParams.appContext, isSubAgent: true },
+          autoStart: false,
+          parentOperationId: 'other-workspace-op',
         });
         const savedState = mockCoordinator.saveAgentState.mock.calls[0][1];
         expect(savedState.host).not.toHaveProperty('llmExecutor');

@@ -29,9 +29,14 @@ const tokenMocks = vi.hoisted(() => ({
   useTokenBreakdown: vi.fn(),
 }));
 
-// Store boundary: the real `useEffectiveModel` and `aiModelSelectors` run against these states.
+// Store boundary: the real `aiModelSelectors` run against these states. `useEffectiveModel` reads
+// the composer's own store (covered by its own test); here it resolves the topic pin over the agent default.
 vi.mock('../hooks/useAgentId', () => ({
   useAgentId: () => tokenMocks.agentId,
+}));
+
+vi.mock('../hooks/useEffectiveModel', () => ({
+  useEffectiveModel: () => tokenMocks.topicModel ?? tokenMocks.agentModel,
 }));
 
 vi.mock('@/store/agent', () => ({

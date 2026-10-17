@@ -65,7 +65,7 @@ allowBuilds:
 overrides:
   '@ant-design/icons': 6.3.2
   # Keep clean installs on the React 19 ref patch's verified UI version.
-  '@lobehub/ui': 5.57.3
+  '@lobehub/ui': 5.64.4
   '@react-pdf/image': 3.0.4
   '@types/react': 19.2.13
   '@vitest/coverage-v8': 5.0.0
@@ -84,11 +84,13 @@ overrides:
   's3rver>fast-xml-parser': 3.21.1
   stylelint-config-clean-order: 7.0.0
   typescript: 6.0.3
+  # 5.1 changes leading/trailing slash handling and breaks provider URL contracts.
+  url-join: 5.0.0
   vitest: 5.0.0
   'zod@^4': 4.6.5
 
 patchedDependencies:
-  '@lobehub/ui@5.56.0 || 5.57.3': patches/@lobehub__ui@5.56.0-5.57.3.patch
+  '@lobehub/ui@5.64.4': patches/@lobehub__ui@5.64.4.patch
   '@chat-adapter/discord@4.38.1': patches/@chat-adapter__discord@4.38.1.patch
   '@upstash/qstash': patches/@upstash__qstash.patch
   micromark@4.0.3: patches/micromark@4.0.3.patch

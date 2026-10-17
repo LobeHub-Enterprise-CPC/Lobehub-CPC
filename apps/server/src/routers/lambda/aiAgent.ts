@@ -15,10 +15,9 @@ import type {
 } from '@lobechat/types';
 import {
   CreateThreadWithMessageSchema,
-  entityIdPattern,
   initialTopicMetadataSchema,
   isServerDefaultHeterogeneousRelayInvocation,
-  LocalHeterogeneousAgentTypeSchema,
+  LocalExecutionHeterogeneousAgentTypeSchema,
   RequestTrigger,
   ThreadStatus,
   ThreadType,
@@ -84,6 +83,7 @@ import {
   assertCanUseTopicTargets,
   assertCanViewMessageTargets,
 } from '@/server/routers/lambda/_helpers/conversationResourceGuard';
+import { execAgentClientIdsSchema } from '@/server/routers/lambda/_helpers/execAgentClientIds';
 import { toClientExecAgentResult } from '@/server/routers/lambda/_helpers/groupMemberContinuationResult';
 import { assertCanUseWorkspaceAgent } from '@/server/routers/lambda/_helpers/workspaceAgentGuard';
 import {
@@ -1236,6 +1236,8 @@ const ExecAgentSchema = z
          * identity survives the gateway step_start snapshot / refetch.
          */
         orchestrationRole: z.enum(['supervisor', 'member']).optional(),
+        /** Bind a NEW topic to this project working directory (ignored with topicId). */
+        projectWorkingDirectoryId: z.string().optional(),
         scope: z.string().nullish(),
         sessionId: z.string().optional(),
         taskId: z.string().nullish(),
@@ -1245,20 +1247,8 @@ const ExecAgentSchema = z
       .optional(),
     /** Whether to auto-start execution after creating operation */
     autoStart: z.boolean().optional().default(true),
-    /**
-     * Client-minted ids for the rows this run creates, honoured verbatim —
-     * the gateway counterpart of `sendMessageInServer`'s `newTopic.id` /
-     * `newUserMessage.id` / `newAssistantMessage.id`. Validated per namespace:
-     * an unvalidated client primary key would let a caller submit look-alike
-     * ids, wrong namespaces, or strings that leak into logs and URLs.
-     */
-    clientIds: z
-      .object({
-        assistantMessageId: z.string().regex(entityIdPattern('messages')).optional(),
-        topicId: z.string().regex(entityIdPattern('topics')).optional(),
-        userMessageId: z.string().regex(entityIdPattern('messages')).optional(),
-      })
-      .optional(),
+    /** Client-minted row ids, honoured verbatim (see `execAgentClientIdsSchema`). */
+    clientIds: execAgentClientIdsSchema,
     /** Explicit device ID to bind to the topic and activate for this run */
     deviceId: z.string().optional(),
     /** Current desktop device hint, honored only for an effective local target */
@@ -1325,6 +1315,13 @@ const ExecAgentSchema = z
      * by the user-scoped lookups downstream, so it can't enable others' tools.
      */
     selectedToolIds: z.array(z.string()).optional(),
+    /**
+     * Skill identifiers the user selected for this message. Their bodies are
+     * injected directly for this turn and every later turn of the topic, the
+     * same way a pinned skill is, instead of waiting for `activateSkill`.
+     * Persisted on the user message as `metadata.selectedSkillIds`.
+     */
+    selectedSkillIds: z.array(z.string()).optional(),
     /**
      * Agents the user @-mentioned in this message (multi-mention). When present
      * (and non-group), the run enables the callAgent tool and injects the
@@ -1606,6 +1603,13 @@ const ExecSubAgentTaskSchema = z.object({
   groupId: z.string().optional(),
   /** Task instruction/prompt for the SubAgent */
   instruction: z.string(),
+  /**
+   * The dispatching tab runs the sub-agent's device-only LLM calls: its
+   * executor declaration and the one-shot relay channel it subscribed to for
+   * them. Both or neither.
+   */
+  llmExecutor: LlmExecutorSchema.optional(),
+  llmRelayChannel: z.string().min(1).max(256).optional(),
   /** The parent message ID (Supervisor's tool call message or task message) */
   parentMessageId: z.string(),
   /** Parent operation ID for dispatching callAgent hooks */
@@ -1752,7 +1756,7 @@ const AgentStreamEventSchema = z.object({
  * → topic reverse-lookup is unreliable per design decision).
  */
 const HeteroIngestSchema = z.object({
-  agentType: LocalHeterogeneousAgentTypeSchema,
+  agentType: LocalExecutionHeterogeneousAgentTypeSchema,
   /** Initial assistant placeholder message id forwarded from the sandbox env var.
    * When present, `loadOrCreateState` uses it directly and skips the DB read of
    * topic.metadata.runningOperation, eliminating the replica-lag race condition. */
@@ -1769,7 +1773,7 @@ const HeteroIngestSchema = z.object({
  * (CC's per-cwd id), kept here so the server can resume next time.
  */
 const HeteroFinishSchema = z.object({
-  agentType: LocalHeterogeneousAgentTypeSchema,
+  agentType: LocalExecutionHeterogeneousAgentTypeSchema,
   /** Initial assistant placeholder forwarded by the producer. Unlike the live
    * ingest path, finish may arrive after gateway session completion has already
    * cleared topic.metadata.runningOperation, so this is the durable fallback
@@ -1950,8 +1954,8 @@ const aiAgentProcedure = aiAgentBaseProcedure.use(async (opts) => {
 });
 
 // Dedicated procedure for hetero-agent callbacks. Narrow operation tokens are
-// re-authorized against durable operation state; pre-deploy operation tokens and
-// normal user OIDC tokens go through the legacy ownership guards.
+// re-authorized against durable operation state; normal user OIDC tokens go
+// through the ownership guards.
 const heteroAgentProcedure = heteroAuthedProcedure.use(serverDatabase);
 const aiAgentWriteProcedure = aiAgentProcedure.use(withScopedPermission('message:create'));
 
@@ -2525,6 +2529,7 @@ export const aiAgentRouter = router({
       resumeApproval,
       resumeApprovals,
       resumeToolResult,
+      selectedSkillIds,
       selectedToolIds,
       steer,
       trigger,
@@ -2656,6 +2661,7 @@ export const aiAgentRouter = router({
         resumeApproval,
         resumeApprovals,
         resumeToolResult,
+        selectedSkillIds,
         selectedToolIds,
         slug,
         steer,
@@ -2833,6 +2839,10 @@ export const aiAgentRouter = router({
           prompt,
           // When parentMessageId is provided, this is a regeneration/continue — skip user message creation
           resume: !!parentMessageId,
+          // NOTICE: the batch route forwards only a subset of `ExecAgentSchema`;
+          // other per-turn picks (`selectedToolIds`, `mentionedAgents`, `fileIds`)
+          // are still dropped here, as before this field was added.
+          selectedSkillIds: task.selectedSkillIds,
           slug,
           trigger: trigger ?? RequestTrigger.Chat,
         });
@@ -2960,6 +2970,8 @@ export const aiAgentRouter = router({
         agentId,
         groupId,
         instruction,
+        llmExecutor,
+        llmRelayChannel,
         parentMessageId,
         parentOperationId,
         title,
@@ -2986,16 +2998,24 @@ export const aiAgentRouter = router({
         });
 
         // External procedure name stays `execSubAgentTask`; the service method is `execSubAgent`.
-        return await ctx.aiAgentService.execSubAgent({
-          agentId,
-          groupId,
-          instruction,
-          parentMessageId,
-          ...(parentOperationId && { parentOperationId }),
-          timeout,
-          title,
-          topicId,
-        });
+        return await ctx.aiAgentService.execSubAgent(
+          {
+            agentId,
+            groupId,
+            instruction,
+            parentMessageId,
+            ...(parentOperationId && { parentOperationId }),
+            timeout,
+            title,
+            topicId,
+          },
+          {
+            llmRelay:
+              llmExecutor && llmRelayChannel
+                ? { channel: llmRelayChannel, executor: llmExecutor }
+                : undefined,
+          },
+        );
       } catch (error: any) {
         log('execSubAgentTask failed: %O', error);
 
@@ -3432,6 +3452,16 @@ export const aiAgentRouter = router({
       return ctx.aiAgentService.resumeFromClientLlmWait(input);
     }),
 
+  /**
+   * The tab stopped standing by on the relay channel it named in
+   * `execSubAgentTask` (the sub-agent finished or was given up): end it.
+   */
+  releaseSubAgentLlmRelay: aiAgentWriteProcedure
+    .input(z.object({ channel: z.string().min(1).max(256) }))
+    .mutation(async ({ input, ctx }) => {
+      return ctx.aiAgentService.releaseSubAgentLlmRelay(input.channel);
+    }),
+
   interruptTask: aiAgentWriteProcedure
     .input(InterruptTaskSchema)
     .mutation(async ({ input, ctx }) => {
@@ -3650,9 +3680,9 @@ export const aiAgentRouter = router({
       // — otherwise any signed-in user could long-poll another run's
       // `agent_intervention_response` payloads by id. Bind the guard to the
       // operation row directly (tighter than the topic-level guard the write
-      // paths use, since the read has no topicId to key on). Strict operation-token
-      // callers already passed the durable principal check above; user tokens and
-      // pre-deploy operation tokens use the legacy ownership lookup.
+      // paths use, since the read has no topicId to key on). Operation-token callers
+      // already passed the durable principal check above; user tokens use the
+      // ownership lookup.
       if (ctx.heteroAuthKind !== 'operation') {
         const [operationRow] = await ctx.serverDB
           .select({ userId: agentOperations.userId })

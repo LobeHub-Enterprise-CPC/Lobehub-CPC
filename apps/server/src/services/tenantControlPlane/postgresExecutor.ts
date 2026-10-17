@@ -7,6 +7,7 @@ import {
   tenantDbNames,
   type TenantMigrator,
   TenantReadinessError,
+  tenantSearchPathSql,
   verifyTenantRuntime,
 } from '@lobechat/database/tenant';
 import { Client, type ClientConfig } from 'pg';
@@ -274,6 +275,25 @@ export class PostgresTenantDatabaseExecutor implements TenantDatabaseExecutor {
     await withClient(bundle, 'runtime', (client) =>
       verifyTenantRuntime(client, { schemaName: bundle.schemaName, tenantId }, this.migrators()),
     );
+  }
+
+  /**
+   * Read-only catalog queries as the tenant owner with the tenant `search_path`
+   * (deploy-time checks that depend on which tables the tenant schema resolves to).
+   */
+  async withTenantCatalog<T>(
+    bundle: DatasourceBundle,
+    fn: (query: (text: string) => Promise<{ rows: Record<string, unknown>[] }>) => Promise<T>,
+  ): Promise<T> {
+    return withClient(bundle, 'owner', async (client) => {
+      await client.query('BEGIN READ ONLY');
+      try {
+        await client.query(tenantSearchPathSql(bundle.schemaName));
+        return await fn((text) => client.query(text));
+      } finally {
+        await client.query('ROLLBACK').catch(() => undefined);
+      }
+    });
   }
 
   /** Provision/upgrade/recovery only: lookup readiness must never gate runtime credentials. */

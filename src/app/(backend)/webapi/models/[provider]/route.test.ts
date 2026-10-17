@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
 
-import { GET } from './route';
+import { maxDuration as pullMaxDuration } from './pull/route';
+import { GET, maxDuration } from './route';
 
 // Better Auth changes the result shape when returnHeaders is true.
 const mockGetSession = vi.hoisted(() =>
@@ -31,6 +32,18 @@ vi.mock('@/server/modules/ModelRuntime', () => ({
   initModelRuntimeFromDB: vi.fn(),
 }));
 
+const resolveProviderRelay = vi.hoisted(() => vi.fn());
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite', () => ({
+  resolveProviderRelay,
+}));
+// A deployment that can relay (Agent Gateway + Redis); one that cannot keeps
+// calling the provider from the server.
+vi.mock('@/server/modules/AgentRuntime/redis', () => ({ getAgentRuntimeRedisClient: () => ({}) }));
+vi.mock('@/server/modules/AgentRuntime/factory', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  createStreamEventManager: () => ({ openLlmRelayChannel: vi.fn(), sendLlmExecute: vi.fn() }),
+}));
+
 let request: Request;
 
 beforeEach(() => {
@@ -53,6 +66,22 @@ afterEach(() => {
 });
 
 describe('GET handler', () => {
+  describe('one-shot relay', () => {
+    // The server cannot reach a device-only provider (Ollama on the user's
+    // machine): without a tab standing by to list its models, it says so.
+    it('answers ClientLlmExecutorUnavailable for a device-only provider with no tab attached', async () => {
+      resolveProviderRelay.mockResolvedValueOnce({ runtimeProvider: 'ollama' });
+
+      const response = await GET(request, { params: Promise.resolve({ provider: 'ollama' }) });
+
+      expect(initModelRuntimeFromDB).not.toHaveBeenCalled();
+      expect(await response.json()).toMatchObject({
+        body: { error: { reason: 'no_executor' }, provider: 'ollama' },
+        errorType: 'ClientLlmExecutorUnavailable',
+      });
+    });
+  });
+
   describe('error handling', () => {
     it('rejects an expired session and forwards its cookie cleanup', async () => {
       mockGetSession.mockResolvedValueOnce({
@@ -280,5 +309,14 @@ describe('GET handler', () => {
       expect(responseBody).toEqual(mockModelList);
       expect(response.headers.getSetCookie()).toEqual(['session=refreshed; Path=/; HttpOnly']);
     });
+  });
+});
+
+// Relayed through the requesting tab, these requests stay open for the whole
+// one-shot relay window (240 s): the platform default would cut them short.
+describe('route duration', () => {
+  it('covers the one-shot relay window for the model list and the download', () => {
+    expect(maxDuration).toBeGreaterThanOrEqual(240);
+    expect(pullMaxDuration).toBeGreaterThanOrEqual(240);
   });
 });

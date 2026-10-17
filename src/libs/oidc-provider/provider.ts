@@ -13,6 +13,7 @@ import { normalizeLocale } from '@/locales/resources';
 import { findSlugEndpoint } from '@/server/modules/Tenant/endpoints';
 import { hasOtherOrganizations } from '@/server/services/tenantDiscovery/otherOrganizations';
 
+import { accessTokenTTL, isAcceptanceReviewClient, reviewResourceServer } from './acceptanceReview';
 import { isOIDCUserBanned } from './access-control';
 import { DrizzleAdapter } from './adapter';
 import { defaultClaims, defaultClients, defaultScopes } from './config';
@@ -140,6 +141,10 @@ export const createOIDCProvider = async (
 
     // Added: client-based CORS control logic
     clientBasedCORS(ctx, origin, client) {
+      // The review toolbar runs on whatever origin the delivered product is
+      // previewed on; its token is scoped to one acceptance by audience.
+      if (isAcceptanceReviewClient(client?.clientId)) return true;
+
       // Check if the client allows this origin
       // A common strategy is to allow origins of all registered redirect_uris
       if (!client || !client.redirectUris) {
@@ -241,6 +246,14 @@ export const createOIDCProvider = async (
 
         getResourceServerInfo: (ctx, resourceIndicator) => {
           logProvider('getResourceServerInfo called with indicator: %s', resourceIndicator); // <-- Add this log line
+          const review = reviewResourceServer(
+            ctx.oidc.client?.clientId,
+            resourceIndicator,
+            ctx.oidc.params?.resource,
+          );
+          if (review === 'reject') throw new errors.InvalidTarget();
+          if (review) return review;
+
           if (resourceIndicator === API_AUDIENCE) {
             logProvider('Indicator matches API_AUDIENCE, returning JWT config.'); // <-- Add this log line
             return {
@@ -431,7 +444,10 @@ export const createOIDCProvider = async (
     scopes: defaultScopes,
 
     // 8. Token TTL
-    ttl: oidcArtifactTTL,
+    ttl: {
+      ...oidcArtifactTTL,
+      AccessToken: (ctx, token) => accessTokenTTL(token, oidcArtifactTTL.AccessToken),
+    },
   };
 
   // Create provider instance
