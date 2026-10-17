@@ -29,7 +29,7 @@ describe('strict device HTTP request and original result', () => {
     });
     expect(await client.queryDeviceStatus('user')).toEqual({ online: true, deviceCount: 1 });
     expect(fetch).toHaveBeenCalledWith(
-      'https://gw.invalid/tenant/v1/api/device/status',
+      'https://gw.invalid/tenant/v1/api/device/status?userId=user',
       expect.objectContaining({ redirect: 'error', headers: expect.objectContaining(headers) }),
     );
     vi.mocked(fetch).mockResolvedValue(

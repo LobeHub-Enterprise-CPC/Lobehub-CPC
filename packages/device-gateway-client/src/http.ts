@@ -30,6 +30,7 @@ const DEFAULT_GATEWAY_TOOL_CALL_TIMEOUT_MS = 30_000;
  * long as the socket stays open.
  */
 const DEVICE_QUERY_TIMEOUT_MS = 10_000;
+const TENANT_ID_PATTERN = /^[\w.:-]{1,128}$/;
 const HTTP_CALL_TIMEOUT_PADDING_MS = 30_000;
 /**
  * The gateway holds an undelivered tool call for `timeout` plus a recovery
@@ -133,11 +134,7 @@ export class GatewayHttpClient {
   }
 
   async queryDeviceStatus(userId: string, workspaceId?: string): Promise<DeviceStatusResult> {
-    const res = await this.post(
-      '/api/device/status',
-      { userId, workspaceId },
-      { timeout: DEVICE_QUERY_TIMEOUT_MS },
-    );
+    const res = await this.request('/api/device/status', 'GET', { userId, workspaceId });
     // A gateway that answered with an error did not tell us "nothing is
     // online" — it told us nothing. Reporting the two as the same value is how
     // a transient 5xx became an authoritative "all devices offline" downstream.
@@ -151,11 +148,7 @@ export class GatewayHttpClient {
   }
 
   async queryDeviceList(userId: string, workspaceId?: string): Promise<GatewayDevice[]> {
-    const res = await this.post(
-      '/api/device/devices',
-      { userId, workspaceId },
-      { timeout: DEVICE_QUERY_TIMEOUT_MS },
-    );
+    const res = await this.request('/api/device/devices', 'GET', { userId, workspaceId });
     // See `queryDeviceStatus`: an errored read is an UNKNOWN online set, and
     // only the caller can decide what to do about that.
     if (!res.ok) throw new Error(`Device gateway /api/device/devices responded ${res.status}`);
@@ -520,7 +513,7 @@ export class GatewayHttpClient {
     options?: { timeout?: number },
   ): Promise<Response> {
     const tenantId = this.options.tenantId;
-    if (!tenantId || !/^[\w.:-]{1,128}$/.test(tenantId)) throw new Error('TENANT_HEADER_INVALID');
+    if (!tenantId || !TENANT_ID_PATTERN.test(tenantId)) throw new Error('TENANT_HEADER_INVALID');
     const data = body as Record<string, unknown>;
     const action = (
       {
@@ -609,13 +602,19 @@ export class GatewayHttpClient {
   private async request(
     path: string,
     method: 'DELETE' | 'GET' | 'POST',
-    body?: unknown,
+    data?: unknown,
     timeout = DEVICE_QUERY_TIMEOUT_MS,
     version?: number,
   ): Promise<Response> {
     const tenantId = this.options.tenantId;
-    if (!tenantId) throw new Error('TENANT_HEADER_INVALID');
-    const response = await fetch(strictGatewayUrl(this.gatewayUrl, path).toString(), {
+    if (!tenantId || !TENANT_ID_PATTERN.test(tenantId)) throw new Error('TENANT_HEADER_INVALID');
+    const url = strictGatewayUrl(this.gatewayUrl, path);
+    // Frozen device reads use GET/query. Adding a query to `path` would encode it as pathname.
+    if (method === 'GET') {
+      for (const [key, value] of Object.entries((data ?? {}) as Record<string, string | undefined>))
+        if (value !== undefined) url.searchParams.set(key, value);
+    }
+    const response = await fetch(url.toString(), {
       method,
       redirect: 'error',
       signal: AbortSignal.timeout(timeout),
@@ -626,7 +625,7 @@ export class GatewayHttpClient {
         'X-LobeHub-Tenant-Id': tenantId,
         ...(version ? { 'X-LobeHub-Tenant-Version': String(version) } : {}),
       },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      ...(data === undefined || method === 'GET' ? {} : { body: JSON.stringify(data) }),
     });
     if (
       (response.status === 404 && response.headers.get('X-LobeHub-Gateway-Tenancy') !== '1') ||

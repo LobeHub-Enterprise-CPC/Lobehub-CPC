@@ -96,14 +96,13 @@ describe('GatewayHttpClient', () => {
 
       expect(result).toEqual({ deviceCount: 2, online: true });
       expect(fetch).toHaveBeenCalledWith(
-        'https://gateway.test.com/tenant/v1/api/device/status',
+        'https://gateway.test.com/tenant/v1/api/device/status?userId=user-1',
         expect.objectContaining({
-          body: businessBody({ userId: 'user-1' }),
           headers: expect.objectContaining({
             'Authorization': 'Bearer test-service-token',
             'Content-Type': 'application/json',
           }),
-          method: 'POST',
+          method: 'GET',
         }),
       );
     });
@@ -158,8 +157,7 @@ describe('GatewayHttpClient', () => {
 
       await client.queryDeviceList('user-1');
 
-      // `post` applies no deadline unless asked, so an unanswered read would
-      // otherwise hang for as long as the socket stays open.
+      // Every device read must keep its request deadline.
       expect(vi.mocked(fetch).mock.calls[0][1]).toMatchObject({ signal: expect.anything() });
     });
 
