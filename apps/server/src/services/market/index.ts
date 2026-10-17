@@ -15,6 +15,7 @@ import {
   createSandboxStorageClient,
   type SandboxStorageClient,
 } from '@/server/services/sandbox/storageFiles';
+import { SkillImportError } from '@/server/services/skill/errors';
 import { getToolAccessDeniedError } from '@/server/services/toolExecution/errorClassification';
 
 import { marketFetchCache } from './fetchCache';
@@ -701,20 +702,19 @@ export class MarketService {
     return this.market.marketSkills.getRatingDistribution(identifier);
   }
 
-  /**
-   * Get skill download URL from market
-   */
   getSkillDownloadUrl(identifier: string, version?: string): string {
     return this.market.marketSkills.getDownloadUrl(identifier, version);
   }
 
-  /**
-   * Download skill ZIP directly
-   */
   async downloadSkill(identifier: string, version?: string) {
-    log('downloadSkill: %s, version: %s', identifier, version);
-
-    return this.market.marketSkills.downloadSkill(identifier, version);
+    try {
+      return await this.market.marketSkills.downloadSkill(identifier, version, {
+        redirect: 'error',
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch {
+      throw new SkillImportError('Failed to download skill from Market', 'DOWNLOAD_FAILED');
+    }
   }
 
   /**

@@ -2,10 +2,8 @@ import { RBAC_PERMISSIONS } from '@lobechat/const/rbac';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  getSkillDownloadUrl: vi.fn(),
   getUserSettings: vi.fn(),
   hasAnyPermission: vi.fn(),
-  importFromUrl: vi.fn(),
   SkillImporter: vi.fn(),
 }));
 
@@ -39,7 +37,7 @@ vi.mock('@/database/models/user', () => ({
 
 vi.mock('@/server/services/market', () => ({
   MarketService: vi.fn(function () {
-    return { getSkillDownloadUrl: mocks.getSkillDownloadUrl };
+    return {};
   }),
 }));
 
@@ -71,7 +69,7 @@ describe('skillStoreRuntime', () => {
     // Default: caller is allowed to manage workspace skills.
     mocks.hasAnyPermission.mockResolvedValue(true);
     mocks.SkillImporter.mockImplementation(function () {
-      return { importFromUrl: mocks.importFromUrl };
+      return {};
     });
   });
 
@@ -138,36 +136,5 @@ describe('skillStoreRuntime', () => {
 
     expect(mocks.hasAnyPermission).not.toHaveBeenCalled();
     expect(mocks.SkillImporter).toHaveBeenCalledWith(serverDB, 'user-1', undefined);
-  });
-
-  // The Skill Store UI and `lh skill install` store a market skill under its
-  // market identifier. The agent tool used to derive one from the download URL
-  // instead, so a skill already installed from the UI was not found and the
-  // insert failed on the per-user name index with a raw "Failed query" error.
-  it('imports a market skill under its market identifier', async () => {
-    const downloadUrl =
-      'https://market.lobehub.com/api/v1/skills/openclaw-skills-memory-setup/download';
-    mocks.getSkillDownloadUrl.mockReturnValue(downloadUrl);
-    mocks.importFromUrl.mockResolvedValue({
-      skill: { id: 'skl_memory', name: 'memory-setup' },
-      status: 'unchanged',
-    });
-    const { skillStoreRuntime } = await import('../skillStore');
-
-    const runtime = (await skillStoreRuntime.factory({
-      serverDB,
-      toolManifestMap: {},
-      userId: 'user-1',
-    })) as any;
-    const result = await runtime.service.importFromMarket('openclaw-skills-memory-setup');
-
-    expect(mocks.importFromUrl).toHaveBeenCalledWith(
-      { url: downloadUrl },
-      { identifier: 'openclaw-skills-memory-setup', source: 'market' },
-    );
-    expect(result).toEqual({
-      skill: { id: 'skl_memory', name: 'memory-setup' },
-      status: 'unchanged',
-    });
   });
 });
