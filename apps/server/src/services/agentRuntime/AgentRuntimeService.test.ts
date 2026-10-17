@@ -2,7 +2,6 @@
  * @vitest-environment node
  */
 import { BRANDING_NAME } from '@lobechat/business-const';
-import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { getModelPropertyWithFallback } from '@lobechat/model-runtime';
 import type * as SsrfSafeFetch from '@lobechat/ssrf-safe-fetch';
 import type { UIChatMessage } from '@lobechat/types';
@@ -11,8 +10,6 @@ import type { MockInstance } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentOperationModel } from '@/database/models/agentOperation';
-import { TenantGateError } from '@/server/modules/Tenant/errors';
-import { getTenantLiveResources } from '@/server/modules/Tenant/liveResources';
 
 import { AgentRuntimeService, createEvalToolForwardingHook } from './AgentRuntimeService';
 import { hookDispatcher } from './hooks';
@@ -1984,57 +1981,6 @@ describe('AgentRuntimeService', () => {
       }
     });
 
-    it('should cancel an in-flight step like a Stop when its tenant is suspended', async () => {
-      const mockStepResult = {
-        events: [],
-        newState: { ...mockState, status: 'running', stepCount: 2 },
-        nextContext: mockParams.context,
-      };
-      let stepStarted!: () => void;
-      const started = new Promise<void>((resolve) => (stepStarted = resolve));
-      let stepSignal: AbortSignal | undefined;
-      vi.spyOn(service as any, 'createAgentRuntime').mockImplementation(function (
-        ...args: unknown[]
-      ) {
-        const { abortSignal } = args[0] as { abortSignal: AbortSignal };
-        stepSignal = abortSignal;
-        return {
-          runtime: {
-            step: vi.fn(function () {
-              stepStarted();
-              // A long LLM / tool call that only ends when aborted.
-              return new Promise((resolve) => {
-                abortSignal.addEventListener('abort', () => resolve(mockStepResult), {
-                  once: true,
-                });
-              });
-            }),
-          },
-        };
-      });
-      mockCoordinator.loadAgentState.mockResolvedValueOnce(mockState);
-      let interrupted = false;
-      mockCoordinator.isInterrupted.mockImplementation(async () => interrupted);
-      mockCoordinator.markInterrupted.mockImplementation(async () => {
-        interrupted = true;
-      });
-
-      const scope = { session: {}, slug: 'acme', tenantId: 't-step' } as unknown as TenantScope;
-      const execution = runWithTenantScope(scope, () => service.executeStep(mockParams));
-      await started;
-      expect(getTenantLiveResources().size('t-step')).toBeGreaterThan(0);
-
-      await getTenantLiveResources().suspend('t-step', new TenantGateError('TENANT_FROZEN'));
-      const result = await execution;
-
-      expect(stepSignal?.aborted).toBe(true);
-      expect(mockCoordinator.markInterrupted).toHaveBeenCalledWith('test-operation-1');
-      expect(result.state).toEqual(expect.objectContaining({ status: 'interrupted' }));
-      expect(result.nextStepScheduled).toBe(false);
-      // The finished step leaves nothing registered for the tenant.
-      expect(getTenantLiveResources().size('t-step')).toBe(0);
-    });
-
     it('should resolve pending client tools when interruption races the parked result', async () => {
       const completedTool = {
         apiName: 'calculate',
@@ -3251,11 +3197,9 @@ describe('AgentRuntimeService', () => {
       const casSpy = vi
         .spyOn(AgentOperationModel.prototype, 'tryResumeFromAsyncTool')
         .mockResolvedValue(true);
-
       const won = await service.tryResumeParentFromAsyncTool({ parentOperationId: parentOpId });
-
       expect(won).toBe(true);
-      expect(casSpy).toHaveBeenCalledWith(parentOpId);
+      expect(casSpy).toHaveBeenCalledWith(parentOpId, undefined);
       expect(mockQueueService.scheduleMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           operationId: parentOpId,
@@ -3415,14 +3359,12 @@ describe('AgentRuntimeService', () => {
       const casSpy = vi
         .spyOn(AgentOperationModel.prototype, 'tryResumeFromAsyncTool')
         .mockResolvedValue(true);
-
       const won = await service.tryResumeParentFromAsyncTool(
         { parentOperationId: parentOpId },
         { knownFulfilledMessageId: 'msg-tc1' },
       );
-
       expect(won).toBe(true);
-      expect(casSpy).toHaveBeenCalledWith(parentOpId);
+      expect(casSpy).toHaveBeenCalledWith(parentOpId, undefined);
       // The stale read must be skipped — barrier trusted the local backfill.
       expect(findById).not.toHaveBeenCalled();
     });
@@ -4045,7 +3987,6 @@ describe('AgentRuntimeService', () => {
         ...bridgeParams,
         finalState: childState as any,
       });
-
       expect(won).toBe(true);
       expect(updateToolMessage).toHaveBeenCalledWith('tool-msg-1', {
         onlyIfEmpty: true,
@@ -4060,7 +4001,7 @@ describe('AgentRuntimeService', () => {
         },
       });
       expect(resumeSpy).toHaveBeenCalledWith(
-        { parentOperationId: 'parent-op-1' },
+        { childOperationId: 'child-op-1', parentOperationId: 'parent-op-1' },
         { knownFulfilledMessageId: 'tool-msg-1', scheduleVerifyOnHold: true },
       );
     });

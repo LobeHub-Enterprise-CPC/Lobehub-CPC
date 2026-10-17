@@ -2,7 +2,7 @@
   "contractVersion": 1,
   "hashAlgorithm": "sha256",
   "files": {
-    "README.md": "f92ee05aa1611698262e2fdedb8d61810f1e51c03aef65b0d1455c0f7ec3f9aa",
+    "README.md": "ec65a99943d34f2f319de08539459f6bbfadad0fcb8e7b7b583ad79e1e822bd6",
     "fixtures/authorize.json": "a0be2989349a17f2b81e884c24facc3414300628047a5523226a48b3d28d3e87",
     "fixtures/capabilities.json": "071ea8fd25705292c5d647591d47985c72c7046c5365f9f861dcbe2d12c587d1",
     "fixtures/dispatch.json": "b9096da52cc957f44d0567d1db0229d665eed1924d6fc6324afbbda851d95efa",

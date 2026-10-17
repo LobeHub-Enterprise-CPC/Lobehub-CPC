@@ -78,7 +78,7 @@ export const gatewayAuthorization = {
       )) === 1
     );
   },
-  async interruptOperation(operationId: string) {
+  async interruptOperation(operationId: string, sourceAcceptedVersion: number) {
     const redis = await client();
     let cursor = '0';
     do {
@@ -96,6 +96,7 @@ export const gatewayAuthorization = {
         const record = JSON.parse(raw) as GatewayAttemptRecord;
         if (
           record.intent.operationId !== operationId ||
+          record.intent.sourceAcceptedVersion !== sourceAcceptedVersion ||
           !['prepared', 'claimed'].includes(record.state)
         )
           continue;

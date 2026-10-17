@@ -646,6 +646,14 @@ describe('A2 owning identity renewal with real source records and Redis', () => 
           renewAuthorizationId: original.authorizationId,
         });
         expect(renewed.status).toBe(200);
+        const current = await renewed.json();
+        await expect(
+          authorizeGateway({
+            ...periodic,
+            action: 'connect',
+            ticket: current.gatewayTicket,
+          }),
+        ).resolves.toMatchObject({ authorizationId: original.authorizationId });
         const lease = await authorizeGateway(periodic);
         expect(lease.ticketExpiresAt).toBe(original.ticketExpiresAt);
         await expect(authorizeGateway({ ...periodic, action: 'connect' })).rejects.toMatchObject({

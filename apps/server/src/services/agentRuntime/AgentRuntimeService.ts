@@ -99,6 +99,7 @@ import {
   captureGatewayInitialState,
   isGatewayStateExecutionCurrent,
 } from '@/server/services/gatewayAuthorization/operationAuthority';
+import { gatewayParentMayResume } from '@/server/services/gatewayAuthorization/parentExecution';
 import { mcpService } from '@/server/services/mcp';
 import { MessageService } from '@/server/services/message';
 import { QueueService } from '@/server/services/queue';
@@ -3682,7 +3683,7 @@ export class AgentRuntimeService {
    * never re-arms, so retries stay bounded.
    */
   async tryResumeParentFromAsyncTool(
-    params: { parentOperationId: string },
+    params: { parentOperationId: string; childOperationId?: string },
     options?: {
       /**
        * Message id of a tool placeholder the caller just backfilled to a
@@ -3761,9 +3762,11 @@ export class AgentRuntimeService {
     const onComplete: GroupActionOnComplete =
       options?.onComplete ?? (await this.resolveAsyncToolOnComplete(pending));
 
-    // Single-fire guard: only one concurrent completion flips the op.
+    // Version and child linkage are rechecked in the final resume CAS.
+    await assertGatewayStateExecution(parentOperationId, state.execution);
     const won = await new AgentOperationModel(this.serverDB, this.userId).tryResumeFromAsyncTool(
       parentOperationId,
+      params.childOperationId,
     );
     if (!won) {
       log('[%s] lost async-tool resume CAS, no-op', parentOperationId);
@@ -3785,6 +3788,7 @@ export class AgentRuntimeService {
         context: undefined,
         delay: 100,
         endpoint: `${this.baseURL}/run`,
+        execution: state.execution,
         operationId: parentOperationId,
         payload:
           onComplete === 'finish' ? { finishAfterAsyncTool: true } : { resumeAsyncTool: true },
@@ -4377,11 +4381,8 @@ export class AgentRuntimeService {
   }
 
   /**
-   * Sub-agent completion bridge for the server `callSubAgent` deferred-tool
-   * path. Runs when a child sub-agent op reaches a terminal state — invoked
-   * in-process by the child's `onComplete` hook handler (local mode) or via
-   * the QStash-delivered `/webhooks/subagent-callback` endpoint (queue mode,
-   * where in-memory handler hooks don't survive cross-process steps).
+   * Bridge a completed sub-agent to its parent's tool result, then CAS-resume.
+   * Runs inline or through the signed QStash subagent callback.
    *
    *   1. Backfill the parent's placeholder tool message with the sub-agent's
    *      final answer (success) or an error note (failure), plus pluginState
@@ -4390,16 +4391,13 @@ export class AgentRuntimeService {
    *      `tryResumeParentFromAsyncTool`, arming the delayed verify when the
    *      parent isn't resumable yet.
    *
-   * THROWS on infrastructure failure of either half (state load, backfill,
-   * resume) so the queue-mode callback returns non-2xx and QStash redelivers
-   * the whole bridge — the delayed verify alone cannot recover a failed
-   * backfill, it only re-reads the barrier. Redelivery is safe: the backfill
-   * rewrites the same content and the resume is CAS-guarded.
-   *
-   * Returns true when this call won the resume CAS.
+   * Infrastructure failures propagate for queue redelivery; backfill is idempotent
+   * and only the execution/link-aware resume CAS winner returns true.
    */
   async completeSubAgentBridge(params: SubAgentBridgeParams): Promise<boolean> {
     const { operationId, parentOperationId, reason, threadId, toolMessageId } = params;
+    if (!(await gatewayParentMayResume(this.serverDB, operationId, parentOperationId, this.userId)))
+      return false;
     const failed = reason === 'error' || reason === 'interrupted';
 
     // Infra errors propagate; a null state (expired) degrades to a stub note.
@@ -4523,7 +4521,7 @@ export class AgentRuntimeService {
     // Pass the just-backfilled message id so the barrier trusts this write
     // instead of re-reading a possibly-stale replica.
     return this.tryResumeParentFromAsyncTool(
-      { parentOperationId },
+      { parentOperationId, childOperationId: operationId },
       { knownFulfilledMessageId: toolMessageId, scheduleVerifyOnHold: true },
     );
   }

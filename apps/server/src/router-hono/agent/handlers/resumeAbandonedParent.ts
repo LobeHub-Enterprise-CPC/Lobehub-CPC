@@ -4,6 +4,7 @@ import type { LobeChatDatabase } from '@/database/type';
 import type { AbandonedSubAgentResume } from '@/server/services/agentRuntime';
 import { deliverWebhook } from '@/server/services/agentRuntime/hooks/HookDispatcher';
 import { AiAgentService } from '@/server/services/aiAgent';
+import { gatewayParentMayResume } from '@/server/services/gatewayAuthorization/parentExecution';
 
 const log = debug('lobe-server:agent:resume-abandoned-parent');
 
@@ -40,6 +41,7 @@ export async function resumeAbandonedParent(
     userId,
     workspaceId,
   } = resume;
+  if (!(await gatewayParentMayResume(serverDB, operationId, parentOperationId, userId))) return;
   // Child reached a terminal failure → the bridge backfills the parent's tool
   // slot with an error note rather than a stub answer.
   const bridgeBody = {

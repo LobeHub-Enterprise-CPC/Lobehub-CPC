@@ -1,5 +1,7 @@
 import { requireTenantScope } from '@lobechat/database/tenant';
-import { and, eq, inArray } from 'drizzle-orm';
+import { isAgentOperationInFlight } from '@lobechat/types';
+import { and, eq, exists, inArray, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 
 import { getServerDB } from '@/database/core/db-adaptor';
 import { agentOperations } from '@/database/schemas';
@@ -40,24 +42,40 @@ export const finalizeGatewayOperation = async (input: GatewayFinalizeRequest) =>
     ...(input.kind === 'executor-attempt' ? { attemptId: input.attemptId } : {}),
     outcome,
   });
-  if (
-    !['running', 'waiting_for_human', 'waiting_for_async_tool', 'waiting_for_client'].includes(
-      row.status,
-    )
-  )
-    return ack('already_terminal');
+  if (!isAgentOperationInFlight(row.status)) return ack('already_terminal');
   const db = await getServerDB();
   const canResume = requireTenantScope().acceptedVersion === input.sourceAcceptedVersion;
   const result = await new AbandonOperationService(db).finalizeAbandoned(
     input.operationId,
     'inactivity_watchdog',
-    { cleanupOnly: !canResume },
+    {
+      cleanupOnly: !canResume,
+      expectedExecution: {
+        tenantId: input.tenantId,
+        sourceAcceptedVersion: input.sourceAcceptedVersion,
+        parentOperationId: row.parentOperationId,
+      },
+    },
   );
-  await redisService.gatewayAuthorization.interruptOperation(input.operationId);
+  const settled = await loadGatewayOperation(input.operationId);
+  if (
+    settled.metadata?.sourceAcceptedVersion !== input.sourceAcceptedVersion ||
+    !['done', 'error', 'interrupted', 'abandoned'].includes(settled.status)
+  )
+    return ack('still_running');
+  await redisService.gatewayAuthorization.interruptOperation(
+    input.operationId,
+    input.sourceAcceptedVersion,
+  );
   if (result.subAgentResume && canResume)
     await resumeAbandonedParent(db, input.operationId, result.subAgentResume);
   if (!canResume && row.parentOperationId) {
-    await db
+    const child = alias(agentOperations, 'gateway_finalized_child');
+    const execution = JSON.stringify({
+      tenantId: input.tenantId,
+      sourceAcceptedVersion: input.sourceAcceptedVersion,
+    });
+    const updated = await db
       .update(agentOperations)
       .set({
         status: 'interrupted',
@@ -68,6 +86,21 @@ export const finalizeGatewayOperation = async (input: GatewayFinalizeRequest) =>
         and(
           eq(agentOperations.id, row.parentOperationId),
           eq(agentOperations.userId, row.userId),
+          sql`${agentOperations.metadata} @> ${execution}::jsonb`,
+          exists(
+            db
+              .select({ id: child.id })
+              .from(child)
+              .where(
+                and(
+                  eq(child.id, input.operationId),
+                  eq(child.parentOperationId, agentOperations.id),
+                  eq(child.userId, agentOperations.userId),
+                  sql`${child.metadata} @> ${execution}::jsonb`,
+                  inArray(child.status, ['done', 'error', 'interrupted', 'abandoned']),
+                ),
+              ),
+          ),
           inArray(agentOperations.status, [
             'running',
             'waiting_for_human',
@@ -75,8 +108,13 @@ export const finalizeGatewayOperation = async (input: GatewayFinalizeRequest) =>
             'waiting_for_client',
           ]),
         ),
+      )
+      .returning({ id: agentOperations.id });
+    if (updated.length === 1)
+      await redisService.gatewayAuthorization.interruptOperation(
+        row.parentOperationId,
+        input.sourceAcceptedVersion,
       );
-    await redisService.gatewayAuthorization.interruptOperation(row.parentOperationId);
   }
-  return ack(result.finalized || result.abandoned || result.found ? 'finalized' : 'still_running');
+  return ack('finalized');
 };

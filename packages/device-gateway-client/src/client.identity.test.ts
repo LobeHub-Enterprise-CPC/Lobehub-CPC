@@ -184,6 +184,12 @@ describe('owning device identity provider lifecycle', () => {
       tenancyProtocol: 1,
     });
     confirm(socket, {
+      type: 'lease_update',
+      ticketExpiresAt: first.ticketExpiresAt,
+      authRecordExpiresAt: first.authRecordExpiresAt,
+    });
+    expect(client.connectionStatus).toBe('connected');
+    confirm(socket, {
       connectionGeneration: 2,
       ticketExpiresAt: next.ticketExpiresAt,
       authRecordExpiresAt: next.authRecordExpiresAt,

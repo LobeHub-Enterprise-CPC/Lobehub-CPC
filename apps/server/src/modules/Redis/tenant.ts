@@ -34,7 +34,7 @@ export const tenantRedisPrefix = (tenantId: string) => {
 /** The current tenant's key prefix; fails closed outside a tenant. */
 export const currentTenantRedisPrefix = () => tenantRedisPrefix(requireTenantScope().tenantId);
 
-export const sharedRedisPrefix = () => tenantRedisPrefix(SHARED_REDIS_TENANT);
+export const sharedRedisPrefix = () => `${TENANT_REDIS_SEGMENT}:${SHARED_REDIS_TENANT}:`;
 
 /**
  * A client whose keys are confined to one prefix, resolved on every command

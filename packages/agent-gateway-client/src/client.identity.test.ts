@@ -113,6 +113,15 @@ describe('owning agent provider lifecycle', () => {
       type: 'auth',
       token: next.gatewayTicket,
     });
+    // A periodic reply for the old authority can arrive while auth renew is pending.
+    socket.receive({
+      ...testConfirmation(),
+      type: 'lease_update',
+      ticketExpiresAt: first.ticketExpiresAt,
+      authRecordExpiresAt: first.authRecordExpiresAt,
+    });
+    expect(client.connectionStatus).toBe('connected');
+    expect(connected).toHaveBeenCalledOnce();
     socket.receive({
       ...testConfirmation(),
       connectionGeneration: 2,

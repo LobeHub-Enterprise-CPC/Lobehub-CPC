@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 
+import { sql } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { finalizeGatewayOperation } from './finalize';
@@ -20,10 +21,16 @@ vi.mock('@lobechat/database/tenant', () => ({
 }));
 vi.mock('@/database/core/db-adaptor', () => ({
   getServerDB: async () => ({
+    select: () => ({ from: () => ({ where: () => sql`SELECT 1` }) }),
     update: () => ({
       set: (patch: Record<string, unknown>) => {
         deps.changes = patch;
-        return { where: deps.update };
+        return {
+          where: (condition: unknown) => {
+            deps.update(condition);
+            return { returning: async () => [{ id: 'parent' }] };
+          },
+        };
       },
     }),
   }),
@@ -64,9 +71,12 @@ beforeEach(() => {
     metadata: { sourceAcceptedVersion: 7 },
     parentOperationId: 'parent',
   };
-  deps.abandon.mockResolvedValue({
-    abandoned: true,
-    subAgentResume: { parentOperationId: 'parent' },
+  deps.abandon.mockImplementation(async () => {
+    deps.row.status = 'error';
+    return {
+      abandoned: true,
+      subAgentResume: { parentOperationId: 'parent' },
+    };
   });
 });
 describe('A1 real watchdog finalization authority', () => {
@@ -78,7 +88,7 @@ describe('A1 real watchdog finalization authority', () => {
       operationId: input.operationId,
       outcome: 'finalized',
     });
-    expect(deps.interrupt).toHaveBeenCalledWith(input.operationId);
+    expect(deps.interrupt).toHaveBeenCalledWith(input.operationId, 7);
     expect(deps.resume).toHaveBeenCalledOnce();
   });
   it('cleans across versions but interrupts the parent instead of executing it', async () => {
@@ -86,6 +96,11 @@ describe('A1 real watchdog finalization authority', () => {
     await finalizeGatewayOperation(input);
     expect(deps.abandon).toHaveBeenCalledWith(input.operationId, 'inactivity_watchdog', {
       cleanupOnly: true,
+      expectedExecution: {
+        tenantId: 'tenant-A',
+        sourceAcceptedVersion: 7,
+        parentOperationId: 'parent',
+      },
     });
     expect(deps.resume).not.toHaveBeenCalled();
     expect(deps.changes).toMatchObject({
