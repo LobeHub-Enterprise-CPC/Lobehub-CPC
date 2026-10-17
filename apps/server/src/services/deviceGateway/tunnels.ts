@@ -1,5 +1,6 @@
 import type { GatewayHttpClient } from '@lobechat/device-gateway-client';
 import { devicePrincipal } from '@lobechat/device-gateway-client';
+import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 
 const log = debug('lobe-server:device-tunnels');
@@ -112,7 +113,7 @@ export class DeviceTunnelRegistry {
   }
 
   private getClient(): GatewayHttpClient {
-    throw new Error('TUNNEL_UNSUPPORTED');
+    throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'TUNNEL_UNSUPPORTED' });
   }
 }
 

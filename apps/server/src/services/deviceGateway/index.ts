@@ -2143,39 +2143,17 @@ export class DeviceGateway {
   }
 
   /**
-   * TCP ports the device is listening on that a tunnel can reach, with the
-   * project's own ports marked. Resolves undefined when the device is
-   * offline or predates the RPC — the UI then says it can't read the ports.
+   * Port discovery is disabled with tunnels. Reject before creating a gateway
+   * client or dispatching a device scan, regardless of device availability.
    */
-  async listListeningPorts(params: {
+  async listListeningPorts(_params: {
     cwd?: string;
     deviceId: string;
     timeout?: number;
     userId: string;
     workspaceId?: string;
   }): Promise<DeviceListeningPortsResult | undefined> {
-    const { cwd, deviceId, timeout = 10_000, userId, workspaceId } = params;
-    const client = this.getClient();
-    if (!client) return undefined;
-
-    try {
-      const result = await client.invokeRpc<DeviceListeningPortsResult>(
-        { deviceId, timeout, userId, workspaceId },
-        { method: 'listListeningPorts', params: { cwd } },
-      );
-      if (!result.success || !result.data) {
-        log('listListeningPorts: failed for deviceId=%s', deviceId);
-        return undefined;
-      }
-      return result.data;
-    } catch (error) {
-      log(
-        'listListeningPorts: error for deviceId=%s (%s)',
-        deviceId,
-        error instanceof Error ? error.name : typeof error,
-      );
-      return undefined;
-    }
+    throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'TUNNEL_UNSUPPORTED' });
   }
 
   /** Where the device's desktop app update stands; never checks on its own. */
