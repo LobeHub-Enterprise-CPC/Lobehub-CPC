@@ -8,6 +8,8 @@ import type { ClientBase } from 'pg';
 
 import * as businessSchema from '../schemas';
 import { TenantDatabaseError } from './errors';
+import { assertTenantMigrationStatementSafe } from './migrationSafety';
+import { matchesReviewedTenantMigration, withoutMigrationHeader } from './migrationSql';
 import { isTenantSchemaName, tenantDbNames, tenantSearchPathSql } from './names';
 import * as tenantSchema from './schemas';
 
@@ -17,12 +19,16 @@ const BARE_PUBLIC = /(?<![\w"$.])public\.(?=["A-Z_a-z])/g;
 const CREATE_EXTENSION = /^create extension if not exists "?(\w+)"?\s*;?$/i;
 const TRANSACTION_CONTROL = /^(?:begin|commit)\s*;?$/i;
 
-const withoutComments = (statement: string) =>
-  statement
-    .split('\n')
-    .filter((line) => !line.trim().startsWith('--'))
-    .join('\n')
-    .trim();
+// Only this reviewed upstream wrapper is supported. Unknown wrappers remain
+// unchanged and are rejected by the execution preflight, never guessed at.
+const OPTIONAL_PG_SEARCH = `DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search') THEN
+    CREATE EXTENSION IF NOT EXISTS pg_search;
+  ELSE
+    RAISE NOTICE 'pg_search is not available on this database; skipping BM25 search setup';
+  END IF;
+END $$;`;
 
 /**
  * One statement of a chain written for `public`, as it runs in a tenant
@@ -33,12 +39,22 @@ const withoutComments = (statement: string) =>
  *   database baseline installs extensions once in their shared schemas
  *   (`TENANT_EXTENSION_SCHEMAS`) and the schema owner may not create them;
  * - `BEGIN` / `COMMIT` are dropped: the whole chain runs in one transaction.
+ * The reviewed optional pg_search wrapper checks installation only when the
+ * extension is available; unknown wrappers are rejected before execution.
  * Everything else is unqualified and lands in the tenant through the
  * `search_path` the migrator pins.
  */
 export const materializeTenantStatement = (statement: string, schemaName: string) => {
-  const body = withoutComments(statement);
+  const body = withoutMigrationHeader(statement).trim();
   if (!body || TRANSACTION_CONTROL.test(body)) return null;
+  if (matchesReviewedTenantMigration(statement, OPTIONAL_PG_SEARCH)) {
+    return `DO $ext$ BEGIN
+      IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search')
+        AND NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_search') THEN
+        RAISE EXCEPTION 'extension pg_search is not installed';
+      END IF;
+    END $ext$`;
+  }
   const extension = CREATE_EXTENSION.exec(body)?.[1];
   if (extension)
     return `DO $ext$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = '${extension}') THEN RAISE EXCEPTION 'extension ${extension} is not installed'; END IF; END $ext$`;
@@ -48,7 +64,8 @@ export const materializeTenantStatement = (statement: string, schemaName: string
 
 /**
  * The chain as it runs in `schemaName`. Hashes and timestamps are kept, so the
- * journal in the tenant schema reads like Drizzle's own.
+ * journal in the tenant schema reads like Drizzle's own. Preflight all
+ * statements before the runner opens a transaction or sends migration SQL.
  */
 export const materializeTenantMigrations = (
   migrations: MigrationMeta[],
@@ -60,7 +77,9 @@ export const materializeTenantMigrations = (
     ...migration,
     sql: migration.sql.flatMap((statement) => {
       const materialized = materializeTenantStatement(statement, schemaName);
-      return materialized === null ? [] : [materialized];
+      if (materialized === null) return [];
+      assertTenantMigrationStatementSafe(materialized);
+      return [materialized];
     }),
   }));
 };

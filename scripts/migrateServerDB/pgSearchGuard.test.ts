@@ -21,6 +21,25 @@ const fakeCatalog =
       : { rows: state.indexes.map((index_name) => ({ index_name })) };
 
 describe('pgSearchGuard', () => {
+  it.each(['pg_like', 'elasticsearch'])('does not query readiness for %s', async (provider) => {
+    const query = vi.fn();
+    await expect(
+      assertPgSearchReady(query, { FTS_SEARCH_PROVIDER: provider }),
+    ).resolves.toBeUndefined();
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('propagates catalog failures instead of accepting readiness', async () => {
+    const error = new Error('catalog unavailable');
+    await expect(
+      assertPgSearchReady(
+        async () => {
+          throw error;
+        },
+        { FTS_SEARCH_PROVIDER: 'pg_search' },
+      ),
+    ).rejects.toBe(error);
+  });
   it('uses the same default provider as the application env', () => {
     vi.stubEnv('FTS_SEARCH_PROVIDER', undefined);
     expect(getFtsSearchConfig().FTS_SEARCH_PROVIDER).toBe(DEFAULT_FTS_SEARCH_PROVIDER);
@@ -35,7 +54,14 @@ describe('pgSearchGuard', () => {
 
   it('passes a pg_search database with every BM25 index', async () => {
     const query = fakeCatalog({ extension: true, indexes: PG_SEARCH_BM25_INDEX_NAMES });
-    await expect(assertPgSearchReady(query, {})).resolves.toBeUndefined();
+    await expect(
+      assertPgSearchReady(query, { FTS_SEARCH_PROVIDER: 'pg_search' }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('requires pg_search readiness when the provider is unset', async () => {
+    const query = fakeCatalog({ extension: false, indexes: [] });
+    await expect(assertPgSearchReady(query, {})).rejects.toBeInstanceOf(PgSearchNotReadyError);
   });
 
   it('names the missing BM25 indexes when the extension was installed afterwards', async () => {

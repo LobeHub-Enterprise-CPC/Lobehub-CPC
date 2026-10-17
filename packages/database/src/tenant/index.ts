@@ -4,6 +4,7 @@
 // re-export the lexer cannot read, which drops every name from the import.
 export type { TenantDatabaseErrorCode, TenantDatabaseErrorReason } from './errors';
 export { TenantDatabaseError } from './errors';
+export { assertTenantMigrationStatementSafe } from './migrationSafety';
 export type {
   RunTenantMigrationsOptions,
   TenantMigrationContext,

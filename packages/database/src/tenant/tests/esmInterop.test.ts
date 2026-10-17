@@ -24,10 +24,10 @@ describe('database barrels imported from an ES module', () => {
       writeFileSync(
         entry,
         [
-          `import { LOBEHUB_TENANT_SCHEMA_VERSION, registerTenantMigrator, tenantDB } from '${barrel('tenant')}';`,
+          `import { assertTenantMigrationStatementSafe, LOBEHUB_TENANT_SCHEMA_VERSION, registerTenantMigrator, tenantDB } from '${barrel('tenant')}';`,
           `import { getPlatformDB, tenantDirectory } from '${barrel('platform')}';`,
           `import { channels, commandGovernanceRules } from '${barrel('privateSchemas')}';`,
-          `const names = [LOBEHUB_TENANT_SCHEMA_VERSION, registerTenantMigrator, tenantDB, getPlatformDB, tenantDirectory, channels, commandGovernanceRules];`,
+          `const names = [assertTenantMigrationStatementSafe, LOBEHUB_TENANT_SCHEMA_VERSION, registerTenantMigrator, tenantDB, getPlatformDB, tenantDirectory, channels, commandGovernanceRules];`,
           `process.stdout.write(String(names.every((value) => value !== undefined)));`,
         ].join('\n'),
       );
