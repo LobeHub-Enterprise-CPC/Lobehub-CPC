@@ -29,6 +29,7 @@ import { managedProcessEnvironment, spawnManagedFor } from '@lobechat/utils/mana
 import { binNames } from '@/modules/cliEmbedding/generateCliWrapper';
 import { callLambdaMutation } from '@/modules/heterogeneousAgent/fileStorePort';
 import type { ExecutionCommandMode } from '@/types/store';
+import { withExecutionSignal } from '@/utils/executionSignal';
 import { createLogger } from '@/utils/logger';
 
 import CliCtr from './CliCtr';
@@ -371,13 +372,17 @@ export default class ShellCommandCtr extends ControllerModule {
   }
 
   @IpcMethod()
-  async handleRunCommand(params: RunCommandParams): Promise<RunCommandResult> {
+  async handleRunCommand(
+    params: RunCommandParams,
+    executionSignal?: AbortSignal,
+  ): Promise<RunCommandResult> {
+    executionSignal?.throwIfAborted();
     const processOwner = {
       topicId: params.topicId,
       agentId: params.agentId,
       label: params.description || 'Shell',
     };
-    const spawnProcess = spawnManagedFor(processOwner);
+    const spawnProcess = withExecutionSignal(spawnManagedFor(processOwner), executionSignal);
     params = {
       ...params,
       env: {

@@ -17,6 +17,7 @@ export interface SpawnHeteroAgentRunParams {
   args?: string[];
   assistantMessageId?: string;
   cwd?: string;
+  executionSignal?: AbortSignal;
   /** Image attachments (signed URLs) appended as image content blocks. */
   imageList?: HeteroExecImageRef[];
   jwt: string;
@@ -61,6 +62,7 @@ export function spawnHeteroAgentRun(
   params: SpawnHeteroAgentRunParams,
   logger?: SpawnHeteroAgentRunLogger,
 ): Promise<AgentRunAckResult> {
+  params.executionSignal?.throwIfAborted();
   const {
     agentType,
     assistantMessageId,
@@ -157,7 +159,22 @@ export function spawnHeteroAgentRun(
       windowsHide: true,
     });
 
+    const cancel = () => {
+      try {
+        if (child.pid && process.platform !== 'win32') process.kill(-child.pid, 'SIGKILL');
+        else child.kill('SIGKILL');
+      } catch {
+        child.kill('SIGKILL');
+      }
+    };
+    params.executionSignal?.addEventListener('abort', cancel, { once: true });
+    child.once('exit', () => params.executionSignal?.removeEventListener('abort', cancel));
     child.once('spawn', () => {
+      if (params.executionSignal?.aborted) {
+        cancel();
+        settle({ status: 'rejected', reason: 'GATEWAY_EXECUTION_STALE' });
+        return;
+      }
       registerAgentRun(operationId, child);
       // Register the child into the task registry so `cancelHeteroTask`
       // dispatched from the server can resolve it by operationId and signal

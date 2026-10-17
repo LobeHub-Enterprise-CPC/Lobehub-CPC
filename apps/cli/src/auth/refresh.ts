@@ -26,7 +26,8 @@ export type TokenLookup =
    */
   | { detail: string; status: 'refused' }
   /** No usable answer came back. The stored credentials are untouched, so retrying is the fix. */
-  | { detail: string; status: 'unavailable' };
+  | { detail: string; status: 'unavailable' }
+  | { status: 'superseded' };
 
 /** HTTP statuses that say "ask again later" rather than "this token is dead". */
 const TRANSIENT_STATUSES = new Set([408, 425, 429]);
@@ -56,6 +57,14 @@ export async function getValidToken(bufferSeconds = 60): Promise<TokenLookup> {
 
   const serverUrl = resolveServerUrl();
   const refreshed = await refreshAccessToken(serverUrl, credentials.refreshToken);
+  const current = loadCredentials();
+  if (
+    resolveServerUrl() !== serverUrl ||
+    !current ||
+    current.accessToken !== credentials.accessToken ||
+    current.refreshToken !== credentials.refreshToken
+  )
+    return { status: 'superseded' };
   if (refreshed.status !== 'ok') return refreshed;
 
   const updated: StoredCredentials = {
@@ -90,6 +99,12 @@ export interface TokenLookupReport {
  */
 export function describeTokenLookup(lookup: TokenLookup): TokenLookupReport | undefined {
   switch (lookup.status) {
+    case 'superseded': {
+      return {
+        detail: 'The active login changed while this request was refreshing its token.',
+        fix: 'Run the command again to use the current login.',
+      };
+    }
     case 'spent': {
       return {
         detail: `The stored login is no longer valid (${lookup.detail}).`,
@@ -132,6 +147,8 @@ async function refreshAccessToken(serverUrl: string, refreshToken: string): Prom
 
   try {
     res = await fetch(`${serverUrl}/oidc/token`, {
+      redirect: 'error',
+      signal: AbortSignal.timeout(15_000),
       body: new URLSearchParams({
         client_id: CLIENT_ID,
         grant_type: 'refresh_token',

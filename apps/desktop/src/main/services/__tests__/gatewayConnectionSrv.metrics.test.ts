@@ -70,7 +70,7 @@ describe('GatewayConnectionService device metrics', () => {
     expect(shareReport).toHaveBeenCalledWith(samples);
   });
 
-  it('keeps one sampler across reconnects and flushes the backlog when connected', async () => {
+  it('keeps the sampler implementation available while automatic upload is disabled', async () => {
     await (service as any).startMetricsSampler('dev-1');
     await (service as any).startMetricsSampler('dev-1');
     expect(samplers).toHaveLength(1);
@@ -79,13 +79,13 @@ describe('GatewayConnectionService device metrics', () => {
     expect(sampler.options.isConnected()).toBe(false);
     (service as any).setStatus('connected');
     expect(sampler.options.isConnected()).toBe(true);
-    expect(sampler.flush).toHaveBeenCalled();
+    expect(sampler.flush).not.toHaveBeenCalled();
   });
 
   it('stops sampling on an explicit disconnect', async () => {
     await (service as any).startMetricsSampler('dev-1');
     await service.disconnect();
 
-    expect(samplers[0].stop).toHaveBeenCalledWith({ flushTimeoutMs: 3000 });
+    expect(samplers[0].stop).toHaveBeenCalledOnce();
   });
 });

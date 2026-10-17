@@ -403,6 +403,7 @@ export default class McpCtr extends ControllerModule {
    */
   async runStdioMcpTool(
     input: CallToolInput,
+    executionSignal?: AbortSignal,
   ): Promise<{ content: string; state: unknown; success: boolean }> {
     return this.runMcpTool(
       {
@@ -414,6 +415,7 @@ export default class McpCtr extends ControllerModule {
       },
       input.toolName,
       input.args,
+      executionSignal,
     );
   }
 
@@ -431,6 +433,7 @@ export default class McpCtr extends ControllerModule {
     },
     toolName: string,
     rawArgs: unknown,
+    executionSignal?: AbortSignal,
   ): Promise<{ content: string; state: unknown; success: boolean }> {
     return this.runMcpTool(
       {
@@ -442,6 +445,7 @@ export default class McpCtr extends ControllerModule {
       },
       toolName,
       rawArgs,
+      executionSignal,
     );
   }
 
@@ -449,10 +453,13 @@ export default class McpCtr extends ControllerModule {
     params: MCPClientParams,
     toolName: string,
     rawArgs: unknown,
+    executionSignal?: AbortSignal,
   ): Promise<{ content: string; state: unknown; success: boolean }> {
     let client: MCPClient | undefined;
     try {
+      executionSignal?.throwIfAborted();
       client = await this.createClient(params);
+      executionSignal?.throwIfAborted();
       const args = safeParseToRecord(rawArgs);
 
       const raw = (await client.callTool(toolName, args)) as ToolCallResult;

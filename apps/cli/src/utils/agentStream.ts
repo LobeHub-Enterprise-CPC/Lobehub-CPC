@@ -1,7 +1,11 @@
 import type { AgentStreamEvent } from '@lobechat/agent-gateway-client';
+import { AgentStreamClient } from '@lobechat/agent-gateway-client';
 import pc from 'picocolors';
-import urlJoin from 'url-join';
 
+import { getUserIdFromApiKey } from '../auth/apiKey';
+import { createGatewayIdentityProvider } from '../auth/gatewayIdentity';
+import { parseJwtSub } from '../auth/resolveToken';
+import { resolveServerUrl } from '../settings';
 import type { AgentRunOutcome } from './agentRunOutcome';
 import { classifyRunStatus, describeOutcome } from './agentRunOutcome';
 import { log } from './logger';
@@ -278,8 +282,6 @@ export function replayAgentEvents(
   return undefined;
 }
 
-const HEARTBEAT_INTERVAL = 30_000;
-
 /**
  * Connect to the Agent Gateway via WebSocket and render events to the terminal.
  * Resolves with the run outcome once a terminal event arrives, `undefined` when
@@ -299,29 +301,34 @@ export async function streamAgentEventsViaWebSocket(
     tokenType = 'jwt',
     ...streamOpts
   } = options;
-  const wsUrl = urlJoin(
-    gatewayUrl.replace(/^http/, 'ws'),
-    `/ws?operationId=${encodeURIComponent(operationId)}`,
+  const entry = serverUrl ?? resolveServerUrl();
+  const userId =
+    tokenType === 'apiKey' ? await getUserIdFromApiKey(token, entry) : parseJwtSub(token);
+  if (!userId) throw new Error('SOURCE_UNVERIFIABLE');
+  const identityProvider = createGatewayIdentityProvider(
+    { serverUrl: entry, token, tokenType, userId },
+    {
+      audience: 'urn:lobehub:gateway:agent',
+      operationId,
+    },
   );
-
-  log.debug(`Connecting to gateway: ${wsUrl} (auth: ${tokenType})`);
-
   return new Promise<AgentRunOutcome | undefined>((resolve, reject) => {
-    const ws = new WebSocket(wsUrl);
+    const client = new AgentStreamClient({
+      gatewayUrl,
+      operationId,
+      token,
+      identityProvider,
+      autoReconnect: false,
+    });
     const jsonEvents: AgentStreamEvent[] = [];
     const ctx = createRenderContext();
-    let lastEventId = '';
-    let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
     let stallTimer: ReturnType<typeof setTimeout> | undefined;
     let isSettled = false;
     let jsonPrinted = false;
 
     const cleanup = () => {
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (stallTimer) clearTimeout(stallTimer);
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        ws.close();
-      }
+      client.disconnect();
     };
 
     // Same `--json` contract as SSE: exactly one array per run, `[]` included.
@@ -376,85 +383,53 @@ export async function streamAgentEventsViaWebSocket(
       }, stallTimeoutMs);
     };
 
-    ws.onopen = () => {
-      // `serverUrl` is required so the gateway can call back to verify an
-      // apiKey token. Harmless (but unused) for JWT, so we always include it
-      // when available to match the device-gateway-client contract.
-      ws.send(JSON.stringify({ serverUrl, token, tokenType, type: 'auth' }));
+    client.on('connected', () => {
+      log.debug('Gateway authenticated');
       armStallTimer();
-    };
+    });
+    client.on('auth_failed', (reason) => fail(new Error(`Gateway auth failed: ${reason}`)));
+    client.on('auth_expired', () => {
+      if (!isSettled) void client.reconnect();
+    });
+    client.on('agent_event', (agentEvent) => {
+      armStallTimer();
 
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data as string);
-      if (msg.type !== 'heartbeat_ack') armStallTimer();
-
-      if (msg.type === 'auth_success') {
-        log.debug('Gateway authenticated');
-        // Request all buffered events (covers events pushed before WS connected)
-        ws.send(JSON.stringify({ lastEventId: '', type: 'resume' }));
-        heartbeatTimer = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'heartbeat' }));
-          }
-        }, HEARTBEAT_INTERVAL);
-        // The heartbeat alone must never keep the process alive.
-        heartbeatTimer.unref?.();
-        return;
+      if (streamOpts.json) {
+        jsonEvents.push(agentEvent);
+      } else {
+        renderEvent(agentEvent, ctx, streamOpts);
       }
 
-      if (msg.type === 'auth_failed') {
-        fail(new Error(`Gateway auth failed: ${msg.reason}`));
-        return;
-      }
-
-      if (msg.type === 'heartbeat_ack') return;
-
-      if (msg.type === 'agent_event') {
-        const agentEvent: AgentStreamEvent = msg.event;
-        if (msg.id) lastEventId = msg.id;
-
-        if (streamOpts.json) {
-          jsonEvents.push(agentEvent);
-        } else {
-          renderEvent(agentEvent, ctx, streamOpts);
-        }
-
-        if (agentEvent.type === 'agent_runtime_end') {
-          if (isSettled) return;
-          const outcome = outcomeFromEndEvent(agentEvent);
-          if (!streamOpts.json) renderEnd(agentEvent, outcome);
-          printJsonOnce();
-          settle(outcome);
-          return;
-        }
-
-        if (agentEvent.type === 'error') {
-          if (isSettled) return;
-          const outcome = outcomeFromErrorEvent(agentEvent);
-          printJsonOnce();
-          log.error(`Agent error: ${outcome.error}`);
-          settle(outcome);
-          return;
-        }
-      }
-
-      if (msg.type === 'session_complete') {
+      if (agentEvent.type === 'agent_runtime_end') {
+        if (isSettled) return;
+        const outcome = outcomeFromEndEvent(agentEvent);
+        if (!streamOpts.json) renderEnd(agentEvent, outcome);
         printJsonOnce();
-        settle(undefined);
+        settle(outcome);
+        return;
       }
-    };
 
-    ws.onerror = (err) => {
-      fail(new Error(`Agent gateway WebSocket failed: ${String(err)}`));
-    };
-
-    ws.onclose = (event) => {
-      // Surface the close code + reason — `String(event)` is just "[object CloseEvent]".
-      const reason = event.reason ? `: ${event.reason}` : '';
-      fail(
-        new Error(`Agent gateway WebSocket closed before completion (code ${event.code}${reason})`),
-      );
-    };
+      if (agentEvent.type === 'error') {
+        if (isSettled) return;
+        const outcome = outcomeFromErrorEvent(agentEvent);
+        printJsonOnce();
+        log.error(`Agent error: ${outcome.error}`);
+        settle(outcome);
+        return;
+      }
+    });
+    client.on('session_complete', () => {
+      printJsonOnce();
+      settle(undefined);
+    });
+    client.on('error', (error) =>
+      fail(new Error(`Agent gateway WebSocket failed: ${error.message}`)),
+    );
+    client.on('disconnected', () =>
+      fail(new Error('Agent gateway WebSocket closed before completion')),
+    );
+    armStallTimer();
+    client.connect();
   });
 }
 

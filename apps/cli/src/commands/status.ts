@@ -1,6 +1,7 @@
 import { GatewayClient } from '@lobechat/device-gateway-client';
 import type { Command } from 'commander';
 
+import { createGatewayIdentityProvider } from '../auth/gatewayIdentity';
 import { resolveToken } from '../auth/resolveToken';
 import { CLI_PRIMARY_BIN } from '../constants/identity';
 import { OFFICIAL_GATEWAY_URL } from '../constants/urls';
@@ -56,6 +57,7 @@ export function registerStatusCommand(program: Command) {
 
       const client = new GatewayClient({
         autoReconnect: false,
+        identityProvider: createGatewayIdentityProvider(auth),
         gatewayUrl: gatewayUrl || OFFICIAL_GATEWAY_URL,
         logger: log,
         serverUrl: auth.serverUrl,

@@ -3,6 +3,8 @@ import { GatewayClient } from '@lobechat/device-gateway-client';
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as GatewayIdentityModule from '../auth/gatewayIdentity';
+import { createGatewayIdentityProvider } from '../auth/gatewayIdentity';
 import type * as RefreshModule from '../auth/refresh';
 import { resolveToken } from '../auth/resolveToken';
 import { CLI_DISPLAY_NAME } from '../constants/identity';
@@ -28,6 +30,22 @@ vi.mock('../device/register', async (importOriginal) => {
   };
 });
 
+vi.mock('../auth/gatewayIdentity', async (importOriginal) => ({
+  ...(await importOriginal<typeof GatewayIdentityModule>()),
+  isGatewayIdentityRetryable: (error: Error) => error.message === 'GATEWAY_AUTHORITY_UNAVAILABLE',
+  createGatewayIdentityProvider: vi.fn(() => async () => ({
+    tenancyProtocol: 1,
+    tenantId: 'tenant-A',
+    userId: 'test-user',
+    authorizationId: 'source-A',
+    acceptedVersion: 7,
+    principal: { kind: 'user', id: 'test-user' },
+    capabilities: ['device:connect', 'device:respond'],
+    gatewayTicket: 'dedicated-ticket',
+    ticketExpiresAt: Date.now() + 300_000,
+    authRecordExpiresAt: Date.now() + 300_000,
+  })),
+}));
 vi.mock('../auth/refresh', async (importOriginal) => ({
   ...(await importOriginal<typeof RefreshModule>()),
   getValidToken: vi.fn().mockResolvedValue({
@@ -54,8 +72,13 @@ vi.mock('../settings', () => ({
   // Default: this device has no opinion on fencing, so connect's readiness
   // check is a no-op and every scenario below is unaffected by it.
   resolveCommandMode: vi.fn().mockReturnValue('auto'),
+  resolveServerUrl: () => 'https://app.lobehub.com',
   resolveDeviceMetricsBacklogPath: vi.fn((id: string) => `/tmp/device-metrics/${id}.json`),
   saveSettings: vi.fn(),
+}));
+
+vi.mock('../auth/source', () => ({
+  pickAuthSource: () => ({ kind: 'stored', token: 'test-token' }),
 }));
 
 vi.mock('../tools/shell', () => ({
@@ -210,28 +233,15 @@ describe('connect command', () => {
     );
   });
 
-  it('samples machine health and pushes the backlog to the gateway on connect', async () => {
-    const program = createProgram();
-    await program.parseAsync(['node', 'test', 'connect']);
-
-    expect(metricsSampler.start).toHaveBeenCalled();
-    const deviceId = clientOptions.deviceId;
-    expect(metricsSampler.options.storagePath).toBe(`/tmp/device-metrics/${deviceId}.json`);
-
-    clientEventHandlers.connected?.();
-    expect(metricsSampler.flush).toHaveBeenCalled();
-
-    const samples = [{ observedAt: 1 }] as any;
-    await metricsSampler.options.upload(samples);
-    expect(clientReportMetrics).toHaveBeenCalledWith(samples);
-  });
-
   it('records the request on arrival and retains its timestamp across connection updates', async () => {
     const pending = Promise.withResolvers<{ content: string; success: boolean }>();
     vi.mocked(executeToolCall).mockImplementationOnce(() => pending.promise);
     await createProgram().parseAsync(['node', 'test', 'connect', '--daemon-child']);
 
     const running = clientEventHandlers.tool_call_request?.({
+      attemptId: 'attempt-1',
+      executionSignal: new AbortController().signal,
+      isExecutionCurrent: () => true,
       requestId: 'req-1',
       toolCall: { apiName: 'readLocalFile', arguments: '{}', identifier: 'test' },
       type: 'tool_call_request',
@@ -299,58 +309,6 @@ describe('connect command', () => {
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
-  it('exits with a retryable code when the workspace token mint fails transiently', async () => {
-    mintWorkspaceConnectTokenMock.mockRejectedValueOnce(new Error('fetch failed'));
-
-    const program = createProgram();
-    await expect(
-      program.parseAsync(['node', 'test', 'connect', '--workspace', 'ws_1']),
-    ).rejects.toThrow('process.exit');
-    expect(exitSpy).toHaveBeenCalledWith(75);
-  });
-
-  it('exits without retry when the server refuses the workspace token mint', async () => {
-    mintWorkspaceConnectTokenMock.mockRejectedValueOnce(
-      Object.assign(new Error('forbidden'), { data: { code: 'FORBIDDEN' } }),
-    );
-
-    const program = createProgram();
-    await expect(
-      program.parseAsync(['node', 'test', 'connect', '--workspace', 'ws_1']),
-    ).rejects.toThrow('process.exit');
-    expect(exitSpy).toHaveBeenCalledWith(1);
-  });
-
-  it.each([
-    { error: new Error('fetch failed'), exitCode: 75, reason: 'fails transiently' },
-    {
-      error: Object.assign(new Error('forbidden'), { data: { code: 'FORBIDDEN' } }),
-      exitCode: 1,
-      reason: 'is refused by the server',
-    },
-  ])('exits with $exitCode when workspace registration $reason', async ({ error, exitCode }) => {
-    mintWorkspaceConnectTokenMock.mockResolvedValueOnce({ token: 'workspace-token' });
-    registerWorkspaceDeviceMock.mockRejectedValueOnce(error);
-    exitSpy.mockImplementation(() => {
-      throw new Error('process.exit');
-    });
-
-    await expect(
-      createProgram().parseAsync([
-        'node',
-        'test',
-        'connect',
-        '--service-child',
-        '--workspace',
-        'ws_1',
-      ]),
-    ).rejects.toThrow('process.exit');
-
-    expect(registerWorkspaceDeviceMock).toHaveBeenCalledOnce();
-    expect(exitSpy).toHaveBeenCalledWith(exitCode);
-    expect(connectCalled).toBe(false);
-  });
-
   it('should use explicit gateway for custom login server', async () => {
     vi.mocked(loadSettings).mockReturnValueOnce({ serverUrl: 'https://self-hosted.example.com' });
 
@@ -382,6 +340,9 @@ describe('connect command', () => {
 
     // Trigger tool call
     await clientEventHandlers['tool_call_request']?.({
+      attemptId: 'attempt-1',
+      executionSignal: new AbortController().signal,
+      isExecutionCurrent: () => true,
       requestId: 'req-1',
       toolCall: { apiName: 'readLocalFile', arguments: '{"path":"/test"}', identifier: 'test' },
       type: 'tool_call_request',
@@ -393,8 +354,10 @@ describe('connect command', () => {
       '{"path":"/test"}',
       undefined,
       expect.objectContaining({ token: 'test-token' }),
+      expect.any(AbortSignal),
     );
     expect(lastSentToolResponse).toEqual({
+      attemptId: 'attempt-1',
       requestId: 'req-1',
       result: {
         content: 'tool result',
@@ -415,7 +378,10 @@ describe('connect command', () => {
     const program = createProgram();
     await program.parseAsync(['node', 'test', 'connect']);
 
-    clientEventHandlers['system_info_request']?.({
+    await clientEventHandlers['system_info_request']?.({
+      attemptId: 'attempt-2',
+      executionSignal: new AbortController().signal,
+      isExecutionCurrent: () => true,
       requestId: 'req-2',
       type: 'system_info_request',
     });
@@ -425,6 +391,7 @@ describe('connect command', () => {
     expect(lastSentSystemInfoResponse.result.success).toBe(true);
     expect(lastSentSystemInfoResponse.result.systemInfo).toHaveProperty('homePath');
     expect(lastSentSystemInfoResponse.result.systemInfo).toHaveProperty('arch');
+    expect(lastSentSystemInfoResponse.result.systemInfo.defaultShell).toEqual(expect.any(String));
   });
 
   it('should handle auth_failed', async () => {
@@ -433,7 +400,7 @@ describe('connect command', () => {
 
     await clientEventHandlers['auth_failed']?.('invalid token');
 
-    expect(log.error).toHaveBeenCalledWith(expect.stringContaining('Authentication failed'));
+    expect(log.error).toHaveBeenCalledWith(expect.stringContaining('authentication stopped'));
     expect(cleanupAllProcesses).toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
@@ -449,96 +416,31 @@ describe('connect command', () => {
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
-  it('should retry auth_failed with token refresh when new token available', async () => {
-    const program = createProgram();
-    await program.parseAsync(['node', 'test', 'connect']);
-
-    vi.mocked(resolveToken).mockResolvedValueOnce({
-      serverUrl: 'https://app.lobehub.com',
-      token: 'refreshed-token',
-      tokenType: 'jwt',
-      userId: 'test-user',
-    });
-
-    const mockClient = vi.mocked(GatewayClient).mock.results[0].value;
-
-    await clientEventHandlers['auth_failed']?.('token expired');
-
-    expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Token refreshed'));
-    expect(mockClient.updateToken).toHaveBeenCalledWith('refreshed-token');
-    expect(exitSpy).not.toHaveBeenCalled();
+  it('renews expiration on the existing provider without resolving another credential', async () => {
+    await createProgram().parseAsync(['node', 'test', 'connect']);
+    const client = vi.mocked(GatewayClient).mock.results.at(-1)!.value;
+    await clientEventHandlers.auth_expired();
+    expect(client.reconnect).toHaveBeenCalledOnce();
+    expect(resolveToken).toHaveBeenCalledOnce();
   });
 
-  it('should refresh token on auth_expired', async () => {
-    const program = createProgram();
-    await program.parseAsync(['node', 'test', 'connect']);
-
-    vi.mocked(resolveToken).mockResolvedValueOnce({
-      serverUrl: 'https://app.lobehub.com',
-      token: 'new-token',
-      tokenType: 'jwt',
-      userId: 'user',
+  it('explains the workspace administrator requirement and treats refusal as permanent', async () => {
+    vi.mocked(createGatewayIdentityProvider).mockReturnValueOnce(async () => {
+      throw Object.assign(new Error('FORBIDDEN'), { code: 'FORBIDDEN', status: 403 });
     });
-
-    const mockClient = vi.mocked(GatewayClient).mock.results[0].value;
-
-    await clientEventHandlers['auth_expired']?.();
-
-    expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Token refreshed'));
-    expect(mockClient.updateToken).toHaveBeenCalledWith('new-token');
-    expect(mockClient.reconnect).toHaveBeenCalled();
-    expect(cleanupAllProcesses).not.toHaveBeenCalled();
-    expect(exitSpy).not.toHaveBeenCalled();
+    await createProgram().parseAsync(['node', 'test', 'connect', '--workspace', 'workspace']);
+    expect(log.error).toHaveBeenCalledWith(expect.stringContaining('workspace administrator'));
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(GatewayClient).not.toHaveBeenCalled();
   });
 
-  describe.each(['auth_failed', 'auth_expired'] as const)('%s workspace refresh', (event) => {
-    it.each([
-      { error: new Error('fetch failed'), exitCode: 75, reason: 'a transient outage' },
-      {
-        error: Object.assign(new Error('forbidden'), { data: { code: 'FORBIDDEN' } }),
-        exitCode: 1,
-        reason: 'a server refusal',
-      },
-    ])('exits with $exitCode after $reason', async ({ error, exitCode }) => {
-      mintWorkspaceConnectTokenMock.mockResolvedValueOnce({ token: 'workspace-token' });
-      registerWorkspaceDeviceMock.mockResolvedValueOnce(undefined);
-      await createProgram().parseAsync([
-        'node',
-        'test',
-        'connect',
-        '--service-child',
-        '--workspace',
-        'ws_1',
-      ]);
-      expect(connectCalled).toBe(true);
-      mintWorkspaceConnectTokenMock.mockRejectedValueOnce(error);
-
-      await clientEventHandlers[event]?.('token expired');
-
-      expect(exitSpy).toHaveBeenCalledWith(exitCode);
-      expect(cleanupAllProcesses).toHaveBeenCalledOnce();
-      const client = vi.mocked(GatewayClient).mock.results[0].value;
-      expect(client.disconnect).toHaveBeenCalledOnce();
-      expect(client.reconnect).not.toHaveBeenCalled();
+  it('reports identity refusal before connecting and exits with failure', async () => {
+    vi.mocked(createGatewayIdentityProvider).mockReturnValueOnce(async () => {
+      throw new Error('SOURCE_UNVERIFIABLE');
     });
-  });
-
-  it('should ignore auth_expired for api key auth', async () => {
-    vi.mocked(resolveToken).mockResolvedValueOnce({
-      serverUrl: 'https://self-hosted.example.com',
-      token: 'test-api-key',
-      tokenType: 'apiKey',
-      userId: 'user',
-    });
-
-    const program = createProgram();
-    await program.parseAsync(['node', 'test', 'connect']);
-
-    await clientEventHandlers['auth_expired']?.();
-
-    expect(log.error).not.toHaveBeenCalled();
-    expect(cleanupAllProcesses).not.toHaveBeenCalled();
-    expect(exitSpy).not.toHaveBeenCalled();
+    await createProgram().parseAsync(['node', 'test', 'connect']);
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(GatewayClient).not.toHaveBeenCalled();
   });
 
   it('should handle error event', async () => {
@@ -573,25 +475,8 @@ describe('connect command', () => {
       await handler();
     }
 
-    expect(metricsSampler.stop).toHaveBeenCalledWith({ flushTimeoutMs: 3000 });
-    expect(metricsSampler.stop.mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(cleanupAllProcesses).mock.invocationCallOrder[0],
-    );
     expect(cleanupAllProcesses).toHaveBeenCalled();
     expect(removeStatus).toHaveBeenCalled();
-  });
-
-  it('should handle auth_expired when refresh fails', async () => {
-    const program = createProgram();
-    await program.parseAsync(['node', 'test', 'connect']);
-
-    // After initial connect, mock resolveToken to return falsy for the refresh attempt
-    vi.mocked(resolveToken).mockResolvedValueOnce(undefined as any);
-
-    await clientEventHandlers['auth_expired']?.();
-
-    expect(log.error).toHaveBeenCalledWith(expect.stringContaining('Could not refresh'));
-    expect(cleanupAllProcesses).toHaveBeenCalled();
   });
 
   it('should handle SIGTERM', async () => {
@@ -616,7 +501,10 @@ describe('connect command', () => {
     const program = createProgram();
     await program.parseAsync(['node', 'test', 'connect']);
 
-    clientEventHandlers['system_info_request']?.({
+    await clientEventHandlers['system_info_request']?.({
+      attemptId: 'attempt-3',
+      executionSignal: new AbortController().signal,
+      isExecutionCurrent: () => true,
       requestId: 'req-3',
       type: 'system_info_request',
     });

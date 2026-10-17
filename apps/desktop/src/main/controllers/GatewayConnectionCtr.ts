@@ -20,6 +20,7 @@ import { managedProcessEnvironment, spawnManaged } from '@lobechat/utils/managed
 import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import { app as electronApp } from 'electron';
 
+import { createDesktopGatewayIdentityProvider } from '@/modules/tenantAuth/gatewayIdentity';
 import { updaterConfig } from '@/modules/updater/configs';
 import { createRemoteAppUpdateDeps } from '@/modules/updater/remoteUpdate';
 import AuvService, { type AuvRunCommandParams } from '@/services/auvSrv';
@@ -224,37 +225,38 @@ export default class GatewayConnectionCtr extends ControllerModule {
 
     srv.loadOrCreateDeviceId();
 
-    // Wire up token provider and refresher
+    srv.setIdentityProviderFactory((workspaceId, initialTicket) =>
+      createDesktopGatewayIdentityProvider(
+        {
+          getAccessToken: () => this.remoteServerConfigCtr.getAccessToken(),
+          getConfig: () => this.remoteServerConfigCtr.getRemoteServerConfig(),
+          isPaused: () => this.remoteServerConfigCtr.isRemoteActivityPaused(),
+        },
+        workspaceId,
+        initialTicket,
+      ),
+    );
     srv.setTokenProvider(() => this.remoteServerConfigCtr.getAccessToken());
-    srv.setTokenRefresher(() => this.remoteServerConfigCtr.refreshAccessToken());
 
     // Wire up tool call handler
-    srv.setToolCallHandler((identifier, apiName, args) =>
-      this.executeToolCall(identifier, apiName, args),
+    srv.setToolCallHandler((identifier, apiName, args, signal) =>
+      this.executeToolCall(identifier, apiName, args, signal),
     );
 
-    // Wire up MCP call handler (tunneled stdio MCP calls from the cloud server)
-    srv.setMcpCallHandler((mcpCall) => this.executeMcpCall(mcpCall));
+    srv.setMcpCallHandler((mcpCall, signal) => this.executeMcpCall(mcpCall, signal));
 
     // Wire up message API handler
-    srv.setMessageApiHandler((platform, apiName, payload) =>
-      this.executeMessageApi(platform, apiName, payload),
+    srv.setMessageApiHandler((platform, apiName, payload, signal) =>
+      this.executeMessageApi(platform, apiName, payload, signal),
     );
 
     // Wire up agent run handler
     srv.setAgentRunHandler((request) => this.executeAgentRun(request));
 
-    // Wire up generic device RPC handler (server-internal method forwarding,
-    // e.g. workspace-init scans — never surfaced to the agent)
-    srv.setRpcHandler((method, params) => this.executeDeviceRpc(method, params));
+    srv.setRpcHandler((method, params, signal) => this.executeDeviceRpc(method, params, signal));
 
-    // Wire up device registrar (persists this device to the server registry)
     srv.setDeviceRegistrar((info) => this.registerDevice(info));
 
-    // Wire up the workspace-share hooks: connect-token minting (startup restore
-    // + token expiry) and the "row still registered?" probe that keeps a share
-    // revoked while offline from resurrecting as a ghost device.
-    srv.setWorkspaceTokenProvider((workspaceId) => this.mintWorkspaceConnectToken(workspaceId));
     srv.setWorkspaceDeviceChecker((workspaceId, deviceId) =>
       this.checkWorkspaceDeviceRegistered(workspaceId, deviceId),
     );
@@ -367,25 +369,15 @@ export default class GatewayConnectionCtr extends ControllerModule {
         return { reason: 'Remote server URL not configured', status: 'rejected' };
       }
 
-      // Reuse this device's own logged-in session as the run identity. The
-      // access token is a full user OIDC token (7-day TTL, longer than any run),
-      // which heteroIngest/heteroFinish now accept (ownership-gated), AND which
-      // gives the spawned Claude Code's nested `lh` calls a real login state —
-      // unlike the narrow `hetero-operation` token, which only works for the
-      // ingest endpoints. We deliberately do NOT pass the refresh token to the
-      // CLI: the device stays the single refresher (refresh tokens rotate), and
-      // the 7-day access token outlives the run so no mid-run refresh is needed.
-      //
-      // Fall back to the dispatched `request.jwt` when the device has no access
-      // token (e.g. not logged in), preserving the prior behavior gracefully.
-      const accessToken = await this.remoteServerConfigCtr.getAccessToken();
-      const jwt = accessToken || request.jwt;
+      request.executionSignal?.throwIfAborted();
+      const jwt = request.jwt;
 
       // The embedded CLI handles spawn -> adapt -> BatchIngester ->
       // heteroIngest/heteroFinish -> server -> Gateway -> clients. Wait until
       // the process has actually spawned (or emitted an early error) before
       // acknowledging the server request.
       return await this.heterogeneousAgentCtr.spawnLhHeteroExec({
+        executionSignal: request.executionSignal,
         agentId: request.agentId,
         agentType: request.agentType,
         assistantMessageId: request.assistantMessageId,
@@ -434,17 +426,8 @@ export default class GatewayConnectionCtr extends ControllerModule {
 
   // ─── Tool Call Routing ───
 
-  /**
-   * Lazy-construct the LocalSystemExecutionRuntime backed by a thin service
-   * adapter over the existing controllers. The runtime is the same one the
-   * renderer uses, so remote tool calls produce identical
-   * `{ content, state, success }` envelopes — `content` is the LLM-facing
-   * prompt text, `state` is the structured payload, both flow downstream
-   * intact (the gateway / DeviceGateway / RuntimeExecutors paths preserve them
-   * and write `state` to the tool message's `pluginState`).
-   */
-  private getLocalSystemRuntime(): LocalSystemExecutionRuntime {
-    if (!this.localSystemRuntime) {
+  private getLocalSystemRuntime(executionSignal?: AbortSignal): LocalSystemExecutionRuntime {
+    if (!this.localSystemRuntime || executionSignal) {
       const local = this.localFileCtr;
       const shell = this.shellCommandCtr;
       const service: ILocalSystemService = {
@@ -458,11 +441,24 @@ export default class GatewayConnectionCtr extends ControllerModule {
         readLocalFile: (p) => local.readFile(p),
         readLocalFiles: (p) => local.readFiles(p),
         renameLocalFile: (p) => local.handleRenameFile(p),
-        runCommand: (p) => shell.handleRunCommand(p),
+        runCommand: (p) => shell.handleRunCommand(p, executionSignal),
         searchLocalFiles: (p) => local.handleLocalFilesSearch(p),
         writeFile: (p) => local.handleWriteFile(p),
       };
-      this.localSystemRuntime = new LocalSystemExecutionRuntime(service);
+      const guarded = executionSignal
+        ? (Object.fromEntries(
+            Object.entries(service).map(([key, fn]) => [
+              key,
+              (...args: unknown[]) => {
+                executionSignal.throwIfAborted();
+                return Reflect.apply(fn, service, args);
+              },
+            ]),
+          ) as unknown as ILocalSystemService)
+        : service;
+      const runtime = new LocalSystemExecutionRuntime(guarded);
+      if (executionSignal) return runtime;
+      this.localSystemRuntime = runtime;
     }
     return this.localSystemRuntime;
   }
@@ -513,32 +509,23 @@ export default class GatewayConnectionCtr extends ControllerModule {
    * method name. The dispatch logic lives in `@lobechat/device-control` so the
    * desktop main process and the CLI daemon share one device RPC surface.
    */
-  private async executeDeviceRpc(method: string, params: unknown): Promise<unknown> {
+  private async executeDeviceRpc(
+    method: string,
+    params: unknown,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     const { executeDeviceRpc: runDeviceRpc } = await import('@lobechat/device-control');
+    signal?.throwIfAborted();
     return runDeviceRpc(method, params, this.deviceControlDeps);
   }
 
-  /**
-   * Dispatches a device-gateway tool call to its desktop-owned runtime.
-   *
-   * Triggering workflow:
-   *
-   * {@link GatewayConnectionService.setToolCallHandler}
-   *   -> `tool_call_request`
-   *     -> {@link GatewayConnectionCtr.executeToolCall}
-   *
-   * Upstream:
-   * - {@link GatewayConnectionService.setToolCallHandler}
-   *
-   * Downstream:
-   * - {@link GatewayConnectionCtr.executeAuvToolCall}
-   * - {@link LocalSystemExecutionRuntime.executeToolCall}
-   */
   private async executeToolCall(
     identifier: string | undefined,
     apiName: string,
     args: unknown,
+    signal?: AbortSignal,
   ): Promise<BuiltinServerRuntimeOutput> {
+    signal?.throwIfAborted();
     if (identifier === AuvIdentifier) return this.executeAuvToolCall(apiName, args);
 
     // Browser is a renderer-resident tool: forward to the client executor via
@@ -561,12 +548,13 @@ export default class GatewayConnectionCtr extends ControllerModule {
     // `cwd`/`scope` into `args` (see its `WORKING_DIR_ARG` map), so the values
     // here are server-controlled — `trustArgsCwd` lets them ride through to the
     // IPC layer instead of being dropped like the previous per-tool switch did.
-    const localSystemOutput = await this.getLocalSystemRuntime().executeToolCall(
+    const localSystemOutput = await this.getLocalSystemRuntime(signal).executeToolCall(
       apiName,
       (args ?? {}) as Record<string, unknown>,
       { trustArgsCwd: true },
     );
     if (localSystemOutput) return localSystemOutput;
+    signal?.throwIfAborted();
 
     if (['channelProbe', 'channelStart', 'channelInspect', 'channelStop'].includes(apiName))
       logger.debug('Channel device operation', { apiName });
@@ -696,12 +684,16 @@ export default class GatewayConnectionCtr extends ControllerModule {
    * can't reach them). The connection params ride along; we run the call
    * through the local MCP client.
    */
-  private async executeMcpCall(mcpCall: {
-    apiName: string;
-    arguments: string;
-    identifier: string;
-    params: GatewayMcpParams;
-  }): Promise<BuiltinServerRuntimeOutput> {
+  private async executeMcpCall(
+    mcpCall: {
+      apiName: string;
+      arguments: string;
+      identifier: string;
+      params: GatewayMcpParams;
+    },
+    signal?: AbortSignal,
+  ): Promise<BuiltinServerRuntimeOutput> {
+    signal?.throwIfAborted();
     const { apiName, arguments: args, params } = mcpCall;
 
     if (params.type === 'http') {
@@ -709,26 +701,32 @@ export default class GatewayConnectionCtr extends ControllerModule {
         { auth: params.auth, headers: params.headers, name: params.name, url: params.url },
         apiName,
         args,
+        signal,
       );
     }
 
-    return this.mcpCtr.runStdioMcpTool({
-      args,
-      env: params.env,
-      params: {
-        args: params.args,
-        command: params.command,
-        name: params.name,
+    return this.mcpCtr.runStdioMcpTool(
+      {
+        args,
+        env: params.env,
+        params: {
+          args: params.args,
+          command: params.command,
+          name: params.name,
+        },
+        toolName: apiName,
       },
-      toolName: apiName,
-    });
+      signal,
+    );
   }
 
   private async executeMessageApi(
     platform: string,
     apiName: string,
     payload: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<unknown> {
+    signal?.throwIfAborted();
     if (platform === 'imessage') {
       return this.imessageBridgeSrv.handleGatewayMessageApi(apiName, payload);
     }

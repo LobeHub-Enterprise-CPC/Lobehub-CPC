@@ -26,6 +26,8 @@ export async function getUserIdFromApiKey(apiKey: string, serverUrl?: string): P
   let response: Response;
   try {
     response = await fetch(`${normalizedServerUrl}/api/v1/users/me?includeCount=0`, {
+      redirect: 'error',
+      signal: AbortSignal.timeout(15_000),
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },

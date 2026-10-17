@@ -169,6 +169,7 @@ import type {
   HeterogeneousAgentImageAttachment,
 } from '@/modules/heterogeneousAgent/types';
 import { buildProxyEnv } from '@/modules/networkProxy/envBuilder';
+import { withExecutionSignal } from '@/utils/executionSignal';
 import {
   commandLineLooksLikeHeteroCli,
   describeHeteroCliProcess,
@@ -4038,6 +4039,7 @@ export default class HeterogeneousAgentCtr {
    * eager accepted ack would strand the server operation without a producer.
    */
   spawnLhHeteroExec(params: {
+    executionSignal?: AbortSignal;
     agentId?: string;
     agentType: string;
     assistantMessageId?: string;
@@ -4163,27 +4165,25 @@ export default class HeterogeneousAgentCtr {
 
     logger.info('spawnLhHeteroExec: type=%s op=%s topic=%s', agentType, operationId, topicId);
 
-    // Execute the CLI shipped with this desktop build. A bare `lh` would prefer
-    // an older global install earlier on PATH, letting model discovery report a
-    // capability that the actual execution runtime does not support.
-    // `detached: true` puts the CLI in its own process group so
-    // `killPlatformProcessTree(-pid, signal)` reaches the CLI and its children;
-    // the inherited-group env contract prevents the inner agent from detaching
-    // into a second, unreachable group.
-    const child = spawnManaged(process.execPath, [cliScript, ...args], {
-      cwd: spawnCwd,
-      detached: true,
-      env: {
-        ...env,
-        ...managedProcessEnvironment({
-          topicId,
-          agentId: params.agentId,
-          label: agentType,
-        }),
+    // Use the embedded CLI and fence its actual spawn after lazy initialization.
+    const child = withExecutionSignal(spawnManaged, params.executionSignal)(
+      process.execPath,
+      [cliScript, ...args],
+      {
+        cwd: spawnCwd,
+        detached: true,
+        env: {
+          ...env,
+          ...managedProcessEnvironment({
+            topicId,
+            agentId: params.agentId,
+            label: agentType,
+          }),
+        },
+        stdio: ['pipe', 'inherit', 'inherit'],
+        windowsHide: true,
       },
-      stdio: ['pipe', 'inherit', 'inherit'],
-      windowsHide: true,
-    });
+    );
 
     // Keep the wrapper reachable by the gateway cancellation tool. Its pid is
     // also the inherited process-group id shared by the native agent and tool

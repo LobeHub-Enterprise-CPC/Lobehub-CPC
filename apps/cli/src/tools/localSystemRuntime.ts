@@ -73,15 +73,31 @@ const localSystemService: ILocalSystemService = {
   writeFile: writeLocalFile,
 };
 
-const createRuntime = (uploadImage?: ImageUploader) =>
-  new LocalSystemExecutionRuntime({
+const createRuntime = (uploadImage?: ImageUploader, executionSignal?: AbortSignal) => {
+  const service = {
     ...localSystemService,
-    readLocalFile: (params) => readLocalFile(params, uploadImage),
-  });
+    runCommand: (params: Parameters<typeof runCommand>[0]) => runCommand(params, executionSignal),
+    readLocalFile: (params: Parameters<ILocalSystemService['readLocalFile']>[0]) =>
+      readLocalFile(params, uploadImage),
+  };
+  const guarded = executionSignal
+    ? (Object.fromEntries(
+        Object.entries(service).map(([key, fn]) => [
+          key,
+          (...args: unknown[]) => {
+            executionSignal.throwIfAborted();
+            return Reflect.apply(fn, service, args);
+          },
+        ]),
+      ) as unknown as ILocalSystemService)
+    : service;
+  return new LocalSystemExecutionRuntime(guarded);
+};
 
 const defaultRuntime = createRuntime();
 
 export interface LocalSystemToolContext {
+  executionSignal?: AbortSignal;
   /** Uploads images `readFile` returns, so vision models can see them. */
   uploadImage?: ImageUploader;
 }
@@ -102,10 +118,12 @@ export interface LocalSystemToolContext {
 export async function runLocalSystemTool(
   apiName: string,
   args: Record<string, any>,
-  { uploadImage }: LocalSystemToolContext = {},
+  { uploadImage, executionSignal }: LocalSystemToolContext = {},
 ): Promise<LocalSystemToolOutput | null> {
   // The uploader carries per-call credentials, so it gets its own runtime.
-  const runtime = uploadImage ? createRuntime(uploadImage) : defaultRuntime;
+  executionSignal?.throwIfAborted();
+  const runtime =
+    uploadImage || executionSignal ? createRuntime(uploadImage, executionSignal) : defaultRuntime;
 
   // `trustArgsCwd` — args reach the CLI only after the server runtime has
   // stripped any inbound `cwd` and re-injected the device-bound one, so the

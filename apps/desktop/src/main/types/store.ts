@@ -50,6 +50,7 @@ export interface ElectronMainStore {
    * re-open the workspace share connections without re-sharing from the web UI.
    */
   gatewayWorkspaceEnrollments: string[];
+  gatewayWorkspaceEnrollmentsByIdentity?: Record<string, string[]>;
   /**
    * Developer toggle: when true, hetero-agent (CC / Codex) CLI raw streams are
    * traced to disk even in packaged production builds. Dev builds always trace
