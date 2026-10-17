@@ -42,6 +42,47 @@ const entryRoute = (url: string, documentNavigation: boolean, method = 'GET') =>
   }).then((result) => ({ onDefaultTenantPage, result }));
 };
 describe('trusted host routing', () => {
+  it.each(['admission', 'authorize', 'tool-result', 'finalize-abandoned'])(
+    'admits only the exact gateway root %s on deployment authorities without tenant lookup',
+    async (endpoint) => {
+      const findHost = vi.fn(deps.findHost);
+      const findSlug = vi.fn(deps.findSlug);
+      for (const authority of [deps.appUrl, deps.internalUrl]) {
+        for (const suffix of ['', '/']) {
+          const url = new URL(`${authority}/api/internal/gateway/${endpoint}${suffix}`);
+          expect(resolveTenantRoute(url)).toEqual({ kind: 'tenantless-backend' });
+          expect(
+            await resolveHostTenantRoute(url, 'POST', { ...deps, findHost, findSlug }),
+          ).toEqual({ kind: 'tenantless-backend' });
+        }
+      }
+      expect(findHost).not.toHaveBeenCalled();
+      expect(findSlug).not.toHaveBeenCalled();
+      for (const authority of [
+        'https://chat.example.com',
+        'https://old.example.com',
+        'https://unknown.example.com',
+        'https://app.example.com:444',
+        'http://internal:3011',
+      ])
+        expect(await route(`${authority}/api/internal/gateway/${endpoint}`, 'POST')).toMatchObject({
+          kind: 'reject',
+          status: 404,
+        });
+      for (const authority of [deps.appUrl, deps.internalUrl]) {
+        for (const path of [
+          `/t/beta/api/internal/gateway/${endpoint}`,
+          `/api/internal/gateway/${endpoint}/extra`,
+          `/api/internal/gateway/${endpoint}-extra`,
+          `/api/internal/gateway/extra-${endpoint}`,
+          '/api/internal/gateway/unknown',
+        ]) {
+          expect(resolveTenantRoute(new URL(`${authority}${path}`)).kind).toBe('reject');
+          expect(await route(`${authority}${path}`, 'POST')).toMatchObject({ kind: 'reject' });
+        }
+      }
+    },
+  );
   it('carries documented navigation queries but drops secrets and unknown fields on both inactive authorities', async () => {
     for (const prefix of ['https://app.example.com/t/acme', 'https://old.example.com']) {
       const result = await route(
@@ -102,8 +143,8 @@ describe('trusted host routing', () => {
       kind: 'tenant-backend',
       slug: 'acme',
     });
-    expect(await route('http://internal:3010/t/acme/signin')).toMatchObject({ kind: 'reject' });
-    expect(await route('http://internal:3010/t/acme/api/auth')).toMatchObject({ kind: 'reject' });
+    for (const path of ['/signin', '/api/auth', '/agent', '/t/acme/signin', '/t/acme/api/auth'])
+      expect(await route(`http://internal:3010${path}`)).toMatchObject({ kind: 'reject' });
   });
   it('keeps queued authenticated callbacks when internal and platform hosts coincide', async () => {
     const sameHost = { ...deps, internalUrl: deps.appUrl };
@@ -131,18 +172,12 @@ describe('trusted host routing', () => {
     ).toMatchObject({ kind: 'endpoint-changed' });
   });
   it('keeps internal root interfaces off custom hosts and tenant mirrors', async () => {
-    expect(
-      await route('https://app.example.com/api/internal/control-plane/tenant-endpoints', 'POST'),
-    ).toEqual({ kind: 'tenantless-backend' });
-    expect(
-      await route('https://chat.example.com/api/internal/control-plane/tenant-endpoints', 'POST'),
-    ).toMatchObject({ kind: 'reject' });
-    expect(
-      await route(
-        'https://app.example.com/t/beta/api/internal/control-plane/tenant-endpoints',
-        'POST',
-      ),
-    ).toMatchObject({ kind: 'reject' });
+    for (const path of ['/api/internal/control-plane/tenant-endpoints', '/api/cron/daily']) {
+      for (const authority of [deps.appUrl, deps.internalUrl])
+        expect(await route(`${authority}${path}`, 'POST')).toEqual({ kind: 'tenantless-backend' });
+      for (const prefix of ['https://chat.example.com', 'https://app.example.com/t/beta'])
+        expect(await route(`${prefix}${path}`, 'POST')).toMatchObject({ kind: 'reject' });
+    }
   });
   it('answers an unknown slug with what the same path gets without a tenant', async () => {
     for (const path of [

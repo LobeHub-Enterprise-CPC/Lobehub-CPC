@@ -18,13 +18,17 @@ const BACKEND_PREFIXES = [
   '/market/',
 ];
 
+/** Exact service-authenticated gateway roots, shared with the early Host routing decision. */
+export const GATEWAY_ROOT_INTERNAL =
+  /^\/api\/internal\/gateway\/(?:admission|authorize|tool-result|finalize-abandoned)\/?$/;
+
 /**
- * The only backend paths served without a tenant: Console's control plane,
- * the deployment-wide schedules (which fan out to every tenant, FR-AS-02) and
+ * The only backend paths served without a tenant: authenticated gateway roots,
+ * Console's control plane, deployment-wide schedules (FR-AS-02), discovery and
  * the version probe. New endpoints need a tenant by default (FR-RT-04).
  */
 const TENANTLESS_BACKEND = [
-  /^\/api\/internal\/gateway\/(?:admission|authorize|tool-result|finalize-abandoned)\/?$/,
+  GATEWAY_ROOT_INTERNAL,
   /^\/api\/internal\/control-plane(?:\/|$)/,
   /^\/api\/cron(?:\/|$)/,
   /^\/api\/tenant-discovery(?:\/|$)/,

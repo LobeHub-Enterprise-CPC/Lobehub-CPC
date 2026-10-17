@@ -1,6 +1,7 @@
 import { parseTenantPath } from '@lobechat/business-tenant/routing';
 
 import {
+  GATEWAY_ROOT_INTERNAL,
   isBackendPath,
   resolveTenantlessRoute,
   resolveTenantRoute,
@@ -70,7 +71,7 @@ export const resolveHostTenantRoute = async (
   const internal = new URL(deps.internalUrl);
   const defaultHost = url.host.toLowerCase() === platform.host.toLowerCase();
   const internalHost = url.host.toLowerCase() === internal.host.toLowerCase();
-  if (ROOT_INTERNAL.test(url.pathname))
+  if (ROOT_INTERNAL.test(url.pathname) || GATEWAY_ROOT_INTERNAL.test(url.pathname))
     return defaultHost || internalHost ? { kind: 'tenantless-backend' } : reject();
   const parsed = parseTenantPath(url.pathname);
   // Deployment discovery is never a tenant endpoint, including inactive custom authorities
