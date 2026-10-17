@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { getTableColumns, getTableName, is } from 'drizzle-orm';
@@ -11,6 +11,7 @@ import { TenantDatabaseError } from './errors';
 import { assertTenantMigrationStatementSafe } from './migrationSafety';
 import { matchesReviewedTenantMigration, withoutMigrationHeader } from './migrationSql';
 import { isTenantSchemaName, tenantDbNames, tenantSearchPathSql } from './names';
+import { matchesReviewedSharedOssReissue } from './reissuedMigrations';
 import * as tenantSchema from './schemas';
 
 // `"public".users`, `public.users`, `'public.t'::regclass`; not `is_public.` or `"t"."public".`.
@@ -97,23 +98,36 @@ export interface RunTenantMigrationsOptions {
   tenantId: string;
 }
 
-/** Verify the entire applied prefix, never just the most recent timestamp. */
-export const verifyTenantMigrationHistory = async (
+interface VerifyMigrationHistoryOptions {
+  allowPending?: boolean;
+  migrationsTable?: string;
+  schemaName: string;
+}
+
+// Internal authority: only OSS_TENANT_MIGRATOR selects shared-oss. Public
+// callers (including Enterprise), arbitrary folders and custom tables remain
+// strict. No env/CLI flag or caller-supplied hash set grants this authority.
+type HistoryChain = 'strict' | 'shared-oss';
+
+const verifyMigrationHistory = async (
   client: Pick<ClientBase, 'query'>,
   migrationsFolder: string,
   {
     schemaName,
     migrationsTable = TENANT_MIGRATIONS_TABLE,
     allowPending = false,
-  }: {
-    allowPending?: boolean;
-    migrationsTable?: string;
-    schemaName: string;
-  },
+  }: VerifyMigrationHistoryOptions,
+  chain: HistoryChain,
 ): Promise<number> => {
   if (!isTenantSchemaName(schemaName) || !/^[_a-z][\d_a-z]*$/.test(migrationsTable))
     throw new TenantDatabaseError('TENANT_NOT_READY', 'schema-name-invalid');
   const migrations = readMigrationFiles({ migrationsFolder });
+  // readMigrationFiles does not expose tags. Read the same authoritative
+  // journal; never guess the tag from a filename, position or timestamp.
+  const entries: unknown[] =
+    chain === 'shared-oss'
+      ? JSON.parse(readFileSync(path.join(migrationsFolder, 'meta/_journal.json'), 'utf8')).entries
+      : [];
   const journal = `"${schemaName}"."${migrationsTable}"`;
   const exists = await client.query<{ table: string | null }>('SELECT to_regclass($1) AS table', [
     journal,
@@ -130,7 +144,11 @@ export const verifyTenantMigrationHistory = async (
     (!allowPending && applied.rows.length !== migrations.length) ||
     applied.rows.some(
       (row, index) =>
-        row.hash !== migrations[index]?.hash ||
+        (row.hash !== migrations[index]?.hash &&
+          !(
+            chain === 'shared-oss' &&
+            matchesReviewedSharedOssReissue(row.hash, migrations[index], entries[index], index)
+          )) ||
         row.created_at === null ||
         String(row.created_at) !== String(migrations[index]?.folderMillis),
     )
@@ -138,6 +156,13 @@ export const verifyTenantMigrationHistory = async (
     throw new TenantDatabaseError('TENANT_NOT_READY', 'migration-history-mismatch');
   return applied.rows.length;
 };
+
+/** Verify an exact full prefix. Distribution chains never inherit OSS aliases. */
+export const verifyTenantMigrationHistory = (
+  client: Pick<ClientBase, 'query'>,
+  migrationsFolder: string,
+  options: VerifyMigrationHistoryOptions,
+): Promise<number> => verifyMigrationHistory(client, migrationsFolder, options, 'strict');
 
 /**
  * Runs a tenant migration chain as the schema owner, in one transaction:
@@ -147,10 +172,11 @@ export const verifyTenantMigrationHistory = async (
  * schema is never used). A failure rolls back the tenant's structure and
  * journal together (FR-MD-01).
  */
-export const runTenantMigrations = async (
+const runMigrationChain = async (
   client: ClientBase,
   migrationsFolder: string,
   { schemaName, tenantId, migrationsTable = TENANT_MIGRATIONS_TABLE }: RunTenantMigrationsOptions,
+  chain: HistoryChain,
 ): Promise<number> => {
   const migrations = materializeTenantMigrations(
     readMigrationFiles({ migrationsFolder }),
@@ -176,11 +202,12 @@ export const runTenantMigrations = async (
     await client.query(
       `CREATE TABLE IF NOT EXISTS ${journal} (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`,
     );
-    const appliedCount = await verifyTenantMigrationHistory(client, migrationsFolder, {
-      allowPending: true,
-      migrationsTable,
-      schemaName,
-    });
+    const appliedCount = await verifyMigrationHistory(
+      client,
+      migrationsFolder,
+      { allowPending: true, migrationsTable, schemaName },
+      chain,
+    );
 
     let applied = 0;
     for (const migration of migrations.slice(appliedCount)) {
@@ -201,6 +228,13 @@ export const runTenantMigrations = async (
     throw new TenantDatabaseError('TENANT_NOT_READY', 'migration-failed', { cause: error });
   }
 };
+
+/** Generic/distribution runner: the exact history policy is always strict. */
+export const runTenantMigrations = (
+  client: ClientBase,
+  migrationsFolder: string,
+  options: RunTenantMigrationsOptions,
+): Promise<number> => runMigrationChain(client, migrationsFolder, options, 'strict');
 
 /**
  * The shared chain (`packages/database/migrations`, the one `db:generate`
@@ -271,7 +305,7 @@ const OSS_TENANT_MIGRATOR: TenantMigrator = {
   name: 'lobehub',
   verify: async (client, { schemaName }, allowPending = false) => {
     const folder = resolveTenantMigrationsFolder();
-    await verifyTenantMigrationHistory(client, folder, { schemaName, allowPending });
+    await verifyMigrationHistory(client, folder, { schemaName, allowPending }, 'shared-oss');
     await verifyTenantMigrationHistory(client, path.join(folder, 'tenant'), {
       migrationsTable: TENANT_ONLY_MIGRATIONS_TABLE,
       schemaName,
@@ -305,7 +339,7 @@ const OSS_TENANT_MIGRATOR: TenantMigrator = {
   run: async (client, { schemaName, tenantId }) => {
     await OSS_TENANT_MIGRATOR.verify(client, { schemaName, tenantId }, true);
     const folder = resolveTenantMigrationsFolder();
-    await runTenantMigrations(client, folder, { schemaName, tenantId });
+    await runMigrationChain(client, folder, { schemaName, tenantId }, 'shared-oss');
     await runTenantMigrations(client, path.join(folder, 'tenant'), {
       migrationsTable: TENANT_ONLY_MIGRATIONS_TABLE,
       schemaName,
