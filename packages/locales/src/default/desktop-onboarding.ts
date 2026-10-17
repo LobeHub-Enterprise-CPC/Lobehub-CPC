@@ -79,6 +79,7 @@ export default {
   'screen4.privacy.items.2': 'No usage analytics',
   'screen4.privacy.items.3': 'All processing stays local',
   'screen4.privacy.title': 'Privacy Mode',
+  'screen4.saveError': 'Could not save your data preference. Please try again.',
   'screen4.share.description':
     'Share anonymized usage data to help us improve LobeHub. This helps us understand how Agents are used and make them better.',
   'screen4.share.items.1': 'Performance metrics',

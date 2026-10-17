@@ -1,11 +1,37 @@
 import { isOfficialCloudServer, OFFICIAL_URL } from '@lobechat/const';
-import { normalizeRemoteBaseUrl } from '@lobechat/utils/remoteUrl';
+import { buildRemoteUrl, normalizeRemoteBaseUrl } from '@lobechat/utils/remoteUrl';
 
 import { type ElectronState } from '../initialState';
 
 const isSyncActive = (s: ElectronState) => s.dataSyncConfig.active ?? false;
 
 const storageMode = (s: ElectronState) => s.dataSyncConfig.storageMode;
+
+/** Consume main's usable session: a committed binding or restored legacy selfHost. */
+const serverConfigScope = (s: ElectronState): string | null => {
+  const { cloudTenant, active, storageMode, remoteServerUrl } = s.dataSyncConfig;
+  if (!s.isInitRemoteServerConfig || !active || s.tenantEndpointChanged) return null;
+  // Main still restores selfHost sessions from before tenant-bound logins.
+  // A present but unusable binding must never fall back to this older shape.
+  if (cloudTenant === undefined && storageMode === 'selfHost') {
+    try {
+      return JSON.stringify(['selfHost', buildRemoteUrl('', remoteServerUrl || '').href]);
+    } catch {
+      return null;
+    }
+  }
+  if (!cloudTenant) return null;
+  const { entryUrl, generation, identity } = cloudTenant;
+  if (!entryUrl || !generation || !identity?.tenantId || !identity.subject || !identity.issuer)
+    return null;
+  return JSON.stringify([
+    entryUrl,
+    generation,
+    identity.tenantId,
+    identity.subject,
+    identity.issuer,
+  ]);
+};
 
 /**
  * Returns the effective remote server URL based on storage mode:
@@ -52,5 +78,6 @@ export const electronSyncSelectors = {
   isSyncActive,
   rawRemoteServerUrl,
   remoteServerUrl,
+  serverConfigScope,
   storageMode,
 };

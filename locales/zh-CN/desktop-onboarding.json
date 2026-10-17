@@ -64,6 +64,7 @@
   "screen4.privacy.items.2": "不做使用分析",
   "screen4.privacy.items.3": "处理尽量在本地完成",
   "screen4.privacy.title": "隐私模式",
+  "screen4.saveError": "未能保存数据偏好，请重试。",
   "screen4.share.description": "共享匿名使用数据，帮助我们改进 LobeHub。这有助于我们了解代理的使用方式并加以优化。",
   "screen4.share.items.1": "性能指标",
   "screen4.share.items.2": "模型使用情况",

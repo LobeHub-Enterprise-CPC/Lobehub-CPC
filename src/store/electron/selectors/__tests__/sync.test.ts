@@ -105,3 +105,154 @@ describe('electronSyncSelectors.isOfficialServer', () => {
     ).toBe(false);
   });
 });
+
+describe('electronSyncSelectors.serverConfigScope', () => {
+  const committed: ElectronState = {
+    ...initialState,
+    isInitRemoteServerConfig: true,
+    dataSyncConfig: {
+      active: true,
+      storageMode: 'cloud',
+      cloudTenant: {
+        entryUrl: 'https://example.test/t/A',
+        generation: 'login-A',
+        identity: { tenantId: 'A', subject: 'same-sub', issuer: 'https://example.test/t/A/oidc' },
+        display: { account: 'same-sub' },
+      },
+    },
+  };
+  const scope = electronSyncSelectors.serverConfigScope;
+  const legacy: ElectronState = {
+    ...initialState,
+    isInitRemoteServerConfig: true,
+    dataSyncConfig: {
+      active: true,
+      storageMode: 'selfHost',
+      remoteServerUrl: 'https://example.test/t/A',
+    },
+  };
+
+  it('accepts main-supported legacy selfHost restoration with a normalized HTTP(S) address', () => {
+    expect(scope(legacy)).not.toBeNull();
+    expect(
+      scope({
+        ...legacy,
+        dataSyncConfig: {
+          ...legacy.dataSyncConfig,
+          remoteServerUrl: ' HTTPS://EXAMPLE.TEST/t/A/ ',
+        },
+      }),
+    ).toBe(scope(legacy));
+    expect(
+      scope({
+        ...legacy,
+        dataSyncConfig: { ...legacy.dataSyncConfig, remoteServerUrl: 'http://localhost:3010/t/A' },
+      }),
+    ).not.toBeNull();
+    expect(
+      scope({
+        ...legacy,
+        dataSyncConfig: { ...legacy.dataSyncConfig, remoteServerUrl: 'https://example.test/t/B' },
+      }),
+    ).not.toBe(scope(legacy));
+  });
+
+  it.each([
+    undefined,
+    '',
+    '  ',
+    'not a URL',
+    '//example.test',
+    'ftp://example.test',
+    'javascript:alert(1)',
+  ])('rejects invalid legacy selfHost address %s', (remoteServerUrl) => {
+    expect(
+      scope({ ...legacy, dataSyncConfig: { ...legacy.dataSyncConfig, remoteServerUrl } }),
+    ).toBeNull();
+  });
+
+  it('keeps legacy restoration disabled until hydration, activation and endpoint availability', () => {
+    expect(scope({ ...legacy, isInitRemoteServerConfig: false })).toBeNull();
+    expect(
+      scope({ ...legacy, dataSyncConfig: { ...legacy.dataSyncConfig, active: false } }),
+    ).toBeNull();
+    expect(scope({ ...legacy, tenantEndpointChanged: 'update_address_required' })).toBeNull();
+  });
+
+  it('never substitutes the legacy address for an existing invalid binding', () => {
+    expect(
+      scope({
+        ...legacy,
+        dataSyncConfig: {
+          ...legacy.dataSyncConfig,
+          cloudTenant: { ...committed.dataSyncConfig.cloudTenant!, generation: '' },
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it('keeps confirmed selfHost on the committed binding scope', () => {
+    expect(
+      scope({
+        ...committed,
+        dataSyncConfig: {
+          ...committed.dataSyncConfig,
+          storageMode: 'selfHost',
+          remoteServerUrl: 'https://example.test/t/A',
+        },
+      }),
+    ).toBe(scope(committed));
+  });
+
+  it('requires hydration and an active committed binding, rather than a platform URL', () => {
+    expect(scope({ ...committed, isInitRemoteServerConfig: false })).toBeNull();
+    expect(
+      scope({
+        ...withConfig({
+          active: true,
+          storageMode: 'cloud',
+          remoteServerUrl: 'https://example.test',
+        }),
+        isInitRemoteServerConfig: true,
+      }),
+    ).toBeNull();
+    expect(
+      scope({ ...committed, dataSyncConfig: { ...committed.dataSyncConfig, active: false } }),
+    ).toBeNull();
+    expect(scope({ ...committed, tenantEndpointChanged: 'relogin_required' })).toBeNull();
+    expect(scope(committed)).not.toBeNull();
+  });
+
+  it('separates a new generation or another tenant with the same subject', () => {
+    const tenant = committed.dataSyncConfig.cloudTenant!;
+    for (const changed of [
+      { ...tenant, generation: 'login-A-2' },
+      { ...tenant, entryUrl: 'https://example.test/t/B' },
+      { ...tenant, identity: { ...tenant.identity, tenantId: 'B' } },
+      { ...tenant, identity: { ...tenant.identity, subject: 'other-sub' } },
+      { ...tenant, identity: { ...tenant.identity, issuer: 'https://example.test/t/B/oidc' } },
+    ]) {
+      expect(
+        scope({
+          ...committed,
+          dataSyncConfig: { ...committed.dataSyncConfig, cloudTenant: changed },
+        }),
+      ).not.toBe(scope(committed));
+    }
+  });
+
+  it('retains the committed scope while another login awaits confirmation', () => {
+    expect(
+      scope({
+        ...committed,
+        pendingAuthorizationConfirmation: {
+          account: 'same-sub',
+          confirmationId: 'B',
+          entryUrl: 'https://example.test/t/B',
+          expiresAt: 9999999999999,
+          generation: 'login-B',
+        },
+      }),
+    ).toBe(scope(committed));
+  });
+});
