@@ -1,6 +1,7 @@
 import type {
   GatewayAudience,
   GatewayDispatchBinding,
+  GatewayDispatchResult,
   GatewayExecutionContext,
   GatewayExecutionIntent,
   GatewayIdentityResponse,
@@ -16,6 +17,7 @@ export type {
   GatewayAudience,
   GatewayCapability,
   GatewayDispatchBinding,
+  GatewayDispatchResult,
   GatewayExecutionAction,
   GatewayExecutionContext,
   GatewayExecutionIntent,
@@ -50,6 +52,7 @@ export type GatewayAttemptOutcome =
   'cancelledBeforeDispatch' | 'interrupted' | 'executionUnknown' | 'completed';
 export interface GatewayAttemptRecord {
   dispatchBinding?: GatewayDispatchBinding;
+  dispatchResult?: GatewayDispatchResult;
   intent: GatewayExecutionIntent;
   result?: GatewayCallback;
   source: GatewayAuthorizationSource;

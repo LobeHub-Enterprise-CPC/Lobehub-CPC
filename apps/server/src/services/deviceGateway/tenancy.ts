@@ -1,6 +1,9 @@
 import type { GatewayHttpClientOptions } from '@lobechat/device-gateway-client';
 
-import { createGatewayAttempt } from '@/server/services/gatewayAuthorization/attempts';
+import {
+  createGatewayAttempt,
+  settleDeviceGatewayDispatch,
+} from '@/server/services/gatewayAuthorization/attempts';
 import {
   currentGatewaySource,
   gatewayExecutionContext,
@@ -16,12 +19,13 @@ import { gatewayDeviceTarget } from './access';
 
 export const deviceGatewayTenancy = (): Pick<
   GatewayHttpClientOptions,
-  'tenantId' | 'execution' | 'prepareDispatch'
+  'tenantId' | 'execution' | 'prepareDispatch' | 'settleDispatch'
 > => {
   const execution = gatewayExecutionContext();
   return {
     tenantId: execution.tenantId,
     execution,
+    settleDispatch: settleDeviceGatewayDispatch,
     prepareDispatch: async (input) => {
       const original = input.operationId
         ? await operationExecutionContext(input.operationId)

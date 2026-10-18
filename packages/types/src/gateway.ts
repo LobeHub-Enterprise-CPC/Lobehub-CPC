@@ -42,6 +42,15 @@ export interface GatewayExecutionIntent extends GatewayExecutionContext {
 export interface GatewayDispatchEnvelope extends GatewayExecutionEnvelope {
   intent: GatewayExecutionIntent;
 }
+/** Existing synchronous Device dispatch-result wire envelope. */
+export interface GatewayDispatchResult extends GatewayExecutionContext {
+  attemptId: string;
+  dispatchBinding: GatewayDispatchBinding;
+  operationId?: string;
+  outcome: 'cancelledBeforeDispatch' | 'interrupted' | 'executionUnknown' | 'completed';
+  result?: unknown;
+  toolCallId?: string;
+}
 export interface GatewayIdentityResponse {
   acceptedVersion: number;
   authorizationId: string;

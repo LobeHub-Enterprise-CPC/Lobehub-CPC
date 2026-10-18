@@ -2,6 +2,7 @@ import type {
   DeviceClient,
   DeviceMetricSample,
   GatewayDispatchEnvelope,
+  GatewayDispatchResult,
   GatewayExecutionAction,
   GatewayExecutionEnvelope,
   GatewayPrincipal,
@@ -12,6 +13,7 @@ import { strictGatewayUrl } from '../../agent-gateway-client/src/tenancy';
 import {
   describeGatewayRequestFailure,
   describeGatewayResponseFailure,
+  DeviceDispatchSettlementError,
   type DeviceTransportFailure,
   type DeviceUnavailableErrorData,
 } from './deviceTransportError';
@@ -91,6 +93,7 @@ const toFailedToolCallResult = (failure: DeviceTransportFailure): DeviceToolCall
   content: failure.content,
   error: failure.error,
   ...(failure.data ? { errorData: failure.data } : {}),
+  ...(failure.executionUnknown ? { executionUnknown: true } : {}),
   success: false,
 });
 
@@ -117,6 +120,11 @@ export interface GatewayHttpClientOptions {
    */
   resolveClientKinds?: (target: GatewayDispatchTarget) => DeviceClient[] | undefined;
   serviceToken: string;
+  /** Trusted Work settlement must finish before the business result is exposed. */
+  settleDispatch?: (input: {
+    envelope: GatewayDispatchEnvelope;
+    reply: GatewayDispatchResult;
+  }) => Promise<void>;
   tenantId?: string;
 }
 
@@ -526,7 +534,7 @@ export class GatewayHttpClient {
     )[path as '/api/device/rpc'];
     let envelope: GatewayDispatchEnvelope | undefined;
     if (action) {
-      if (!this.options.execution || !this.options.prepareDispatch)
+      if (!this.options.execution || !this.options.prepareDispatch || !this.options.settleDispatch)
         throw new Error('TENANT_EXECUTION_VERSION_REQUIRED');
       envelope = await this.options.prepareDispatch({
         action,
@@ -593,6 +601,29 @@ export class GatewayHttpClient {
       throw new Error('ATTEMPT_CONFLICT');
     if (wire.outcome !== 'completed') throw new Error('EXECUTION_UNKNOWN');
     if (!isRecord(wire.result)) throw new Error('INVALID_GATEWAY_MESSAGE');
+    try {
+      await this.options.settleDispatch!({
+        envelope,
+        reply: {
+          ...wire,
+          tenantId,
+          sourceAcceptedVersion: envelope.sourceAcceptedVersion,
+          attemptId: envelope.intent.attemptId,
+          ...(envelope.intent.operationId ? { operationId: envelope.intent.operationId } : {}),
+          ...(envelope.intent.toolCallId ? { toolCallId: envelope.intent.toolCallId } : {}),
+          dispatchBinding: {
+            ...binding,
+            authorizationId: binding.authorizationId,
+            connectionId: binding.connectionId,
+            connectionGeneration: binding.connectionGeneration,
+          },
+          outcome: wire.outcome,
+          result: wire.result,
+        },
+      });
+    } catch (cause) {
+      throw new DeviceDispatchSettlementError(cause);
+    }
     return new Response(JSON.stringify(wire.result), {
       status: response.status,
       headers: response.headers,

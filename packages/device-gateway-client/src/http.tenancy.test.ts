@@ -69,6 +69,7 @@ describe('strict device HTTP request and original result', () => {
       serviceToken: 'TEST',
       tenantId: 'tenant-A',
       execution,
+      settleDispatch: async () => {},
       prepareDispatch: async () => ({ ...execution, intent }),
     });
     expect(await client.invokeRpc({ userId: 'user' }, { method: 'exec' })).toEqual({
@@ -98,6 +99,7 @@ describe('strict device HTTP request and original result', () => {
         serviceToken: 'TEST',
         ...execution,
         execution,
+        settleDispatch: async () => {},
         prepareDispatch: async () => ({ ...execution, intent }),
       });
       await expect(client.invokeRpc({ userId: 'user' }, { method: 'exec' })).rejects.toThrow(
@@ -130,6 +132,7 @@ describe('strict device HTTP request and original result', () => {
       serviceToken: 'TEST',
       ...execution,
       execution,
+      settleDispatch: async () => {},
       prepareDispatch: async () => ({ ...execution, intent }),
     });
     await expect(client.invokeRpc({ userId: 'user' }, { method: 'exec' })).rejects.toThrow(

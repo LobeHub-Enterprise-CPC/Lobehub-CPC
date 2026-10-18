@@ -1,30 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { businessBody, transport } from './__tests__/httpFixtures';
 import { GatewayHttpClient } from './http';
 
 const headers = { 'X-LobeHub-Gateway-Tenancy': '1', 'X-LobeHub-Tenant-Id': 'tenant-test' };
-const transport = {
-  tenantId: 'tenant-test',
-  execution: { tenantId: 'tenant-test', sourceAcceptedVersion: 7 },
-  prepareDispatch: async (input: any) => ({
-    tenantId: 'tenant-test',
-    sourceAcceptedVersion: 7,
-    intent: {
-      ...input,
-      tenancyProtocol: 1,
-      tenantId: 'tenant-test',
-      sourceAcceptedVersion: 7,
-      actor: { subject: 'user-1', sourceRef: 'source-test' },
-      resourceId: input.resourceId || 'auto-device',
-      attemptId: 'attempt-test',
-      attemptExpiresAt: Date.now() + 30000,
-    },
-  }),
-};
-const businessBody = (expected: unknown) => ({
-  asymmetricMatch: (actual: string) =>
-    expect.objectContaining(expected as object).asymmetricMatch(JSON.parse(actual)),
-});
 
 describe('GatewayHttpClient', () => {
   let client: GatewayHttpClient;

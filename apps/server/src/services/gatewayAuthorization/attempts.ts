@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 import { requireTenantScope } from '@lobechat/database/tenant';
+import type { GatewayDispatchEnvelope } from '@lobechat/types';
+import { isEqual } from 'es-toolkit';
 import { z } from 'zod';
 
 import { gatewayDeviceTarget } from '@/server/services/deviceGateway/access';
@@ -13,6 +15,7 @@ import type {
   GatewayAuthorizationSource,
   GatewayCallback,
   GatewayDispatchBinding,
+  GatewayDispatchResult,
   GatewayExecutionAction,
   GatewayExecutionContext,
   GatewayExecutionIntent,
@@ -163,20 +166,12 @@ export const acceptGatewayCallback = async (input: GatewayCallback) => {
     input.dispatchBinding,
     input.operationId,
   );
-  if (
-    record.intent.toolCallId !== input.toolCallId ||
-    !sameBinding(record.dispatchBinding, input.dispatchBinding)
-  )
+  if (record.intent.toolCallId !== input.toolCallId)
     throw new GatewayAuthorizationError('ATTEMPT_CONFLICT', 409);
-  if (record.state !== 'claimed') throw new GatewayAuthorizationError('ATTEMPT_CONFLICT', 409);
-  if (
-    !(await redisService.gatewayAuthorization.compareAttempt(record, {
-      ...record,
-      state: input.outcome,
-      result: input,
-    }))
-  )
-    throw new GatewayAuthorizationError('ATTEMPT_CONFLICT', 409);
+  await settleClaimedAttempt(record, input.dispatchBinding, {
+    state: input.outcome,
+    result: input,
+  });
   return {
     tenantId: input.tenantId,
     sourceAcceptedVersion: input.sourceAcceptedVersion,
@@ -184,4 +179,55 @@ export const acceptGatewayCallback = async (input: GatewayCallback) => {
     attemptId: input.attemptId,
     outcome: input.outcome,
   };
+};
+
+/** Shared terminal CAS; callers retain their protocol-specific validation and result shape. */
+const settleClaimedAttempt = async (
+  record: GatewayAttemptRecord,
+  binding: GatewayDispatchBinding,
+  terminal: {
+    state: GatewayDispatchResult['outcome'];
+    result?: GatewayCallback;
+    dispatchResult?: GatewayDispatchResult;
+  },
+) => {
+  if (record.state !== 'claimed' || !sameBinding(record.dispatchBinding, binding))
+    throw new GatewayAuthorizationError('ATTEMPT_CONFLICT', 409);
+  if (!(await redisService.gatewayAuthorization.compareAttempt(record, { ...record, ...terminal })))
+    throw new GatewayAuthorizationError('ATTEMPT_CONFLICT', 409);
+};
+
+/** Consume only the exact Device reply corresponding to this Work-prepared dispatch. */
+export const settleDeviceGatewayDispatch = async (input: {
+  envelope: GatewayDispatchEnvelope;
+  reply: GatewayDispatchResult;
+}) => {
+  const reply = parseGatewayWire<GatewayDispatchResult>('dispatchResult', input.reply);
+  const { envelope } = input;
+  const intent = parseGatewayWire<GatewayExecutionIntent>('executionIntent', envelope.intent);
+  if (
+    !intent.action.startsWith('device.') ||
+    envelope.tenantId !== requireTenantScope().tenantId ||
+    envelope.tenantId !== intent.tenantId ||
+    envelope.sourceAcceptedVersion !== intent.sourceAcceptedVersion ||
+    reply.tenantId !== intent.tenantId ||
+    reply.sourceAcceptedVersion !== intent.sourceAcceptedVersion ||
+    reply.attemptId !== intent.attemptId ||
+    reply.operationId !== intent.operationId ||
+    reply.toolCallId !== intent.toolCallId ||
+    (reply.outcome === 'completed' &&
+      (typeof reply.result !== 'object' || !reply.result || Array.isArray(reply.result)))
+  )
+    throw new GatewayAuthorizationError('ATTEMPT_CONFLICT', 409);
+  const record = await loadGatewayAttempt(
+    reply.attemptId,
+    envelope,
+    reply.dispatchBinding,
+    intent.operationId,
+  );
+  if (!isEqual(record.intent, intent)) throw new GatewayAuthorizationError('ATTEMPT_CONFLICT', 409);
+  await settleClaimedAttempt(record, reply.dispatchBinding, {
+    state: reply.outcome,
+    dispatchResult: reply,
+  });
 };
