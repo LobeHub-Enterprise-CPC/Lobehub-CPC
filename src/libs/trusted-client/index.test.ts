@@ -3,8 +3,12 @@ import { buildTrustedClientPayload, createTrustedClientToken } from '@lobehub/ma
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  generateTrustedClientHeaders as signHeaders,
   generateTrustedClientToken as signToken,
   isSyntheticTrustedClientUserId,
+  TRUST_CLIENT_ID_HEADER,
+  TRUST_TOKEN_HEADER,
+  trustedClientHeaders,
   TrustedClientIdentityError,
   type TrustedClientUserInfo,
 } from './index';
@@ -261,5 +265,54 @@ describe('generateTrustedClientToken fails closed in tenant mode', () => {
     appEnv.MARKET_TRUSTED_CLIENT_SECRET = undefined;
 
     expect(signToken({ userId: 'user_real' })).toBeUndefined();
+  });
+});
+
+// Market finds the signing secret from the claimed client id instead of trying every tenant's
+// secrets (cost grows with the tenant count otherwise), so the id has to ride along with the token
+// on every trust request. The id is only a lookup hint; the token still has to decrypt under it.
+describe('trust request headers', () => {
+  it('names the headers Market reads', () => {
+    expect(TRUST_TOKEN_HEADER).toBe('x-lobe-trust-token');
+    expect(TRUST_CLIENT_ID_HEADER).toBe('x-lobe-trust-client-id');
+  });
+
+  it('pairs a token with the client id it was signed for', () => {
+    expect(trustedClientHeaders('signed-token')).toEqual({
+      'x-lobe-trust-client-id': 'client-id',
+      'x-lobe-trust-token': 'signed-token',
+    });
+  });
+
+  it('cannot build the pair without a client id, so the hint is never silently dropped', () => {
+    appEnv.MARKET_TRUSTED_CLIENT_ID = undefined;
+
+    expect(() => trustedClientHeaders('signed-token')).toThrowError(
+      expect.objectContaining({ code: 'TRUST_NOT_CONFIGURED' }),
+    );
+  });
+
+  it('signs and pairs in one step for a tenant identity', () => {
+    const headers = inTenant('tenant-a', () =>
+      signHeaders({ email: 'a@b.com', userId: 'user_real' }),
+    );
+
+    expect(headers).toEqual({
+      'x-lobe-trust-client-id': 'client-id',
+      'x-lobe-trust-token': 'signed-token',
+    });
+  });
+
+  it('returns undefined where the token itself is undefined (synthetic user, trust off)', () => {
+    expect(signHeaders({ userId: 'eval_xyz' })).toBeUndefined();
+
+    appEnv.MARKET_TRUSTED_CLIENT_SECRET = undefined;
+    expect(signHeaders({ userId: 'user_real' })).toBeUndefined();
+  });
+
+  it('keeps the fail-closed errors of the token signer', () => {
+    expect(() => signHeaders({ userId: 'user_real' })).toThrowError(
+      expect.objectContaining({ code: 'TENANT_REQUIRED' }),
+    );
   });
 });

@@ -8,7 +8,12 @@ import {
 
 import { appEnv } from '@/envs/app';
 
-import { isSyntheticTrustedClientUserId, isTenantMarketMode } from './config';
+import {
+  isSyntheticTrustedClientUserId,
+  isTenantMarketMode,
+  TRUST_CLIENT_ID_HEADER,
+  TRUST_TOKEN_HEADER,
+} from './config';
 import { TrustedClientIdentityError } from './errors';
 
 export interface TrustedClientUserInfo {
@@ -57,6 +62,8 @@ export {
   isSyntheticTrustedClientUserId,
   isTenantMarketMode,
   isTrustedClientEnabled,
+  TRUST_CLIENT_ID_HEADER,
+  TRUST_TOKEN_HEADER,
 } from './config';
 export { TrustedClientIdentityError, type TrustedClientIdentityErrorCode } from './errors';
 export { getSessionUser } from './getSessionUser';
@@ -189,4 +196,39 @@ export const getTrustedClientTokenForSession = async (): Promise<string | undefi
   }
 
   return generateTrustedClientToken(userInfo);
+};
+
+/**
+ * The headers a Market request carries to authenticate with `token`: the token and the id of the
+ * client that signed it. Every request that sets the trust token must go out with this pair
+ * (spread it into the request headers) so Market resolves the secret by client instead of scanning
+ * all tenants.
+ *
+ * @throws {TrustedClientIdentityError} `TRUST_NOT_CONFIGURED` when there is no client id: a token
+ *   cannot have been signed without one, so this is a caller mixing tokens from elsewhere.
+ */
+export const trustedClientHeaders = (token: string): Record<string, string> => {
+  const clientId = appEnv.MARKET_TRUSTED_CLIENT_ID;
+  if (!clientId) throw new TrustedClientIdentityError('TRUST_NOT_CONFIGURED');
+
+  return { [TRUST_CLIENT_ID_HEADER]: clientId, [TRUST_TOKEN_HEADER]: token };
+};
+
+/**
+ * {@link generateTrustedClientToken} for callers that build request headers: the signed token with
+ * its client id, or `undefined` exactly when no token is produced. Throws what the token signer throws.
+ */
+export const generateTrustedClientHeaders = (
+  userInfo: TrustedClientUserInfo,
+): Record<string, string> | undefined => {
+  const token = generateTrustedClientToken(userInfo);
+  return token ? trustedClientHeaders(token) : undefined;
+};
+
+/** {@link getTrustedClientTokenForSession} for callers that build request headers. */
+export const getTrustedClientHeadersForSession = async (): Promise<
+  Record<string, string> | undefined
+> => {
+  const token = await getTrustedClientTokenForSession();
+  return token ? trustedClientHeaders(token) : undefined;
 };

@@ -2,6 +2,16 @@ import { currentTenantScope } from '@lobechat/database/tenant';
 
 import { appEnv } from '@/envs/app';
 
+/** Header Market reads the signed trust token from. */
+export const TRUST_TOKEN_HEADER = 'x-lobe-trust-token';
+
+/**
+ * Header naming the trusted client that signed the token. Market uses it to read that one client's
+ * secrets instead of trying every tenant's; it is a lookup hint only, the token must still decrypt
+ * under that client's secret and carry the same `clientId`.
+ */
+export const TRUST_CLIENT_ID_HEADER = 'x-lobe-trust-client-id';
+
 /**
  * Synthetic user ids used by local agent-evals / smoke scripts (e.g. `eval_*`,
  * `qstash_smoke_*`). These are never real platform accounts — no real userId
