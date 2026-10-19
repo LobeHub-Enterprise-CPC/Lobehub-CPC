@@ -44,7 +44,7 @@ vi.mock('@/server/services/agentRuntime/AbandonOperationService', () => ({
     finalizeAbandoned = deps.abandon;
   },
 }));
-vi.mock('@/server/router-hono/agent/handlers/resumeAbandonedParent', () => ({
+vi.mock('@/server/services/agentRuntime/resumeAbandonedParent', () => ({
   resumeAbandonedParent: deps.resume,
 }));
 vi.mock('./attempts', () => ({ loadGatewayAttempt: vi.fn(), sameBinding: vi.fn() }));

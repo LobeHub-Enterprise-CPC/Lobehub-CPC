@@ -5,8 +5,8 @@ import { alias } from 'drizzle-orm/pg-core';
 
 import { getServerDB } from '@/database/core/db-adaptor';
 import { agentOperations } from '@/database/schemas';
-import { resumeAbandonedParent } from '@/server/router-hono/agent/handlers/resumeAbandonedParent';
 import { AbandonOperationService } from '@/server/services/agentRuntime/AbandonOperationService';
+import { resumeAbandonedParent } from '@/server/services/agentRuntime/resumeAbandonedParent';
 import { redisService } from '@/server/services/redis';
 
 import { loadGatewayAttempt, sameBinding } from './attempts';

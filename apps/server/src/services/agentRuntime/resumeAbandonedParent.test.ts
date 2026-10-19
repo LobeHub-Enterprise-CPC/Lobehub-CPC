@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { resumeAbandonedParent } from '../resumeAbandonedParent';
+import { resumeAbandonedParent } from './resumeAbandonedParent';
 
 const mockDeliverWebhook = vi.hoisted(() => vi.fn());
 const mockCompleteSubAgentBridge = vi.hoisted(() => vi.fn());

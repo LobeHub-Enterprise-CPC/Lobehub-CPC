@@ -13,6 +13,7 @@ import {
   type AgentStepContinuation,
   scheduleOpportunisticStaleSweep,
 } from '@/server/services/agentRuntime';
+import { resumeAbandonedParent } from '@/server/services/agentRuntime/resumeAbandonedParent';
 import { AiAgentService } from '@/server/services/aiAgent';
 import { assertGatewayVersion } from '@/server/services/gatewayAuthorization';
 import { runWithInvocationDeadline } from '@/server/utils/invocationDeadline';
@@ -20,8 +21,6 @@ import {
   flushScheduledWork,
   runWithScheduledWorkScope,
 } from '@/server/utils/scheduleAfterResponse';
-
-import { resumeAbandonedParent } from './resumeAbandonedParent';
 
 const log = debug('lobe-server:agent:run-step');
 

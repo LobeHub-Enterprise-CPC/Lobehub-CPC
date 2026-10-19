@@ -72,7 +72,7 @@ vi.mock('@/database/models/agentOperation', () => ({
   }),
 }));
 
-vi.mock('../resumeAbandonedParent', () => ({
+vi.mock('@/server/services/agentRuntime/resumeAbandonedParent', () => ({
   resumeAbandonedParent: mockResumeAbandonedParent,
 }));
 
