@@ -13,8 +13,13 @@ vi.mock('../rulesRepository', () => ({
   listEnabledRulesForTarget: mocks.listEnabledRulesForTarget,
 }));
 
-const { checkCommand, COMMAND_BLOCKED_MESSAGE, isGovernanceEnabled } =
-  await import('../policyGate');
+const {
+  checkCommand,
+  COMMAND_BLOCKED_MESSAGE,
+  GovernanceUnavailableError,
+  isGovernanceEnabled,
+  isGovernanceEnabledBestEffort,
+} = await import('../policyGate');
 
 const baseCtx = {
   apiName: 'runCommand',
@@ -49,11 +54,44 @@ describe('policyGate', () => {
       expect(await isGovernanceEnabled('user-2')).toBe(false);
     });
 
-    it('fails open to disabled when the flags cannot be read', async () => {
+    it('fails closed when the flags cannot be read: the state is unknown, not off', async () => {
       mocks.getServerFeatureFlagsFromRuntimeConfig.mockRejectedValueOnce(new Error('Redis down'));
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      expect(await isGovernanceEnabled('user-1')).toBe(false);
+      await expect(isGovernanceEnabled('user-1')).rejects.toBeInstanceOf(
+        GovernanceUnavailableError,
+      );
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('does not leak the underlying error message into the thrown error', async () => {
+      mocks.getServerFeatureFlagsFromRuntimeConfig.mockRejectedValueOnce(
+        new Error('connect ECONNREFUSED postgres://user:secret@db/runtime'),
+      );
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const error = await isGovernanceEnabled('user-1').catch((e) => e);
+
+      expect(error.code).toBe('GOVERNANCE_UNAVAILABLE');
+      expect(error.message).not.toContain('secret');
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('isGovernanceEnabledBestEffort', () => {
+    it('follows the flag when it can be read', async () => {
+      mocks.flags = { command_governance: true };
+      expect(await isGovernanceEnabledBestEffort('user-1')).toBe(true);
+      mocks.flags = { command_governance: false };
+      expect(await isGovernanceEnabledBestEffort('user-1')).toBe(false);
+    });
+
+    it('counts an unreadable flag as off, for callers that must not fail the user own work', async () => {
+      mocks.getServerFeatureFlagsFromRuntimeConfig.mockRejectedValueOnce(new Error('Redis down'));
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      expect(await isGovernanceEnabledBestEffort('user-1')).toBe(false);
 
       consoleErrorSpy.mockRestore();
     });
@@ -65,6 +103,18 @@ describe('policyGate', () => {
 
       expect(decision).toEqual({ allowed: true });
       expect(mocks.listEnabledRulesForTarget).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('checkCommand — flag unreadable', () => {
+    it('rejects instead of allowing, and never queries the rules', async () => {
+      mocks.getServerFeatureFlagsFromRuntimeConfig.mockRejectedValueOnce(new Error('Redis down'));
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(checkCommand(baseCtx, db)).rejects.toBeInstanceOf(GovernanceUnavailableError);
+      expect(mocks.listEnabledRulesForTarget).not.toHaveBeenCalled();
+
+      consoleErrorSpy.mockRestore();
     });
   });
 

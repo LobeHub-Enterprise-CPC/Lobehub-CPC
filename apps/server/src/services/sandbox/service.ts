@@ -12,6 +12,8 @@ import {
   checkCommand,
   COMMAND_BLOCKED_MESSAGE,
   type CommandGovernanceContext,
+  GOVERNANCE_UNAVAILABLE_MESSAGE,
+  GovernanceUnavailableError,
   logCommandExecution,
 } from '@/server/services/governance';
 
@@ -65,8 +67,8 @@ export class SandboxMiddlewareService implements SandboxService {
    * new sandbox shell tool is covered automatically.
    *
    * `checkCommand`/`logCommandExecution` no-op without touching governance
-   * rules or logs when the `command_governance` flag is off for the user, and
-   * fail open on any internal error
+   * rules or logs when the `command_governance` flag is off for the user. An unreadable flag does
+   * not run the command (`GOVERNANCE_UNAVAILABLE`); a rule-lookup error with the flag on fails open
    * — see `services/governance/policyGate.ts`.
    */
   async callTool(
@@ -90,7 +92,20 @@ export class SandboxMiddlewareService implements SandboxService {
       userId,
     } satisfies CommandGovernanceContext;
 
-    const decision = await checkCommand(ctx, serverDB);
+    let decision;
+    try {
+      decision = await checkCommand(ctx, serverDB);
+    } catch (error) {
+      // The governance flag could not be read: nothing runs, and it is not reported as a rule
+      // denial (COMMAND_BLOCKED tells the model never to retry).
+      if (!(error instanceof GovernanceUnavailableError)) throw error;
+      log('Command governance unavailable for %s', toolName);
+      return {
+        error: { message: GOVERNANCE_UNAVAILABLE_MESSAGE, name: 'GOVERNANCE_UNAVAILABLE' },
+        result: null,
+        success: false,
+      };
+    }
 
     if (!decision.allowed) {
       try {

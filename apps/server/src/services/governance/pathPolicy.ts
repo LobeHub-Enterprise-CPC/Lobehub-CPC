@@ -1,7 +1,7 @@
 import type { LobeChatDatabase } from '@lobechat/database';
 
 import { getUserExecutionPolicy } from './executionPolicy';
-import { isGovernanceEnabled } from './policyGate';
+import { isGovernanceEnabledBestEffort } from './policyGate';
 import type { CommandExecutionLogPolicyField, CommandGovernanceContext } from './types';
 
 /**
@@ -69,15 +69,16 @@ export const pathMatchesRoot = (targetPath: string, root: string): boolean => {
  * Evaluate whether `ctx.path` is allowed for `ctx.apiName`, against the
  * calling user's `user_execution_policies` row.
  *
- * FAIL-OPEN BY DESIGN, same posture as `checkCommand`: feature disabled, no
- * policy configured, or an internal error all resolve to `{ allowed: true }`.
+ * FAIL-OPEN BY DESIGN: feature disabled, flag unreadable (`isGovernanceEnabledBestEffort`; the
+ * command check rejects instead), no policy configured, or an internal error all resolve to
+ * `{ allowed: true }`.
  * File-path governance is defense-in-depth, not the user's only safety net.
  */
 export const checkPath = async (
   ctx: PathGovernanceContext,
   db: LobeChatDatabase,
 ): Promise<PathGovernanceDecision> => {
-  if (!(await isGovernanceEnabled(ctx.userId))) return { allowed: true };
+  if (!(await isGovernanceEnabledBestEffort(ctx.userId))) return { allowed: true };
 
   try {
     const policy = await getUserExecutionPolicy(ctx.userId, db);

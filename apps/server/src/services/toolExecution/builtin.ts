@@ -23,6 +23,8 @@ import {
   type CommandExecutionTarget,
   type CommandGovernanceContext,
   FILE_BLOCKED_MESSAGE,
+  GOVERNANCE_UNAVAILABLE_MESSAGE,
+  GovernanceUnavailableError,
   logCommandExecution,
   type PathGovernanceContext,
 } from '@/server/services/governance';
@@ -490,7 +492,20 @@ export class BuiltinToolsExecutor implements IToolExecutor {
     );
 
     if (commandGovernance) {
-      const decision = await checkCommand(commandGovernance, this.db);
+      let decision;
+      try {
+        decision = await checkCommand(commandGovernance, this.db);
+      } catch (error) {
+        // The governance flag could not be read: the command is not run, and it is not reported as
+        // blocked by a rule (that message tells the model never to retry).
+        if (!(error instanceof GovernanceUnavailableError)) throw error;
+        log('Command governance unavailable for %s:%s', identifier, apiName);
+        return {
+          content: GOVERNANCE_UNAVAILABLE_MESSAGE,
+          error: { code: 'GOVERNANCE_UNAVAILABLE', message: GOVERNANCE_UNAVAILABLE_MESSAGE },
+          success: false,
+        };
+      }
 
       if (!decision.allowed) {
         log(

@@ -33,6 +33,31 @@ export const COMMAND_BLOCKED_MESSAGE =
   "and tell the user the command was blocked by their administrator's policy.";
 
 /**
+ * The `command_governance` flag could not be read, so whether governance applies to this user is
+ * unknown. Raised instead of treating the flag as off: an enforcement point that cannot tell must
+ * not run the command. It is a governance outage, not a policy decision, so callers report it as an
+ * error ({@link GOVERNANCE_UNAVAILABLE_MESSAGE}, HTTP 503) and never as a denial by a rule.
+ */
+export class GovernanceUnavailableError extends Error {
+  readonly code = 'GOVERNANCE_UNAVAILABLE';
+
+  constructor(options?: ErrorOptions) {
+    super('Command governance is unavailable', options);
+    this.name = 'GovernanceUnavailableError';
+  }
+}
+
+/**
+ * The tool-result message shown to the model when governance could not be evaluated. Unlike
+ * {@link COMMAND_BLOCKED_MESSAGE} this is a transient system condition: it must not tell the model
+ * the action is forbidden.
+ */
+export const GOVERNANCE_UNAVAILABLE_MESSAGE =
+  'Command governance could not be evaluated right now, so this command was not run. This is a ' +
+  'temporary system condition, not a policy decision about the command. You may try again later; ' +
+  'if it keeps failing, tell the user that command execution is unavailable.';
+
+/**
  * Master switch: the `command_governance` feature flag, evaluated for the user
  * whose call is governed. Every governance code path (the `builtin.ts`
  * chokepoint AND the `/api/governance/check` + `/api/governance/log` HTTP
@@ -40,7 +65,8 @@ export const COMMAND_BLOCKED_MESSAGE =
  * requirement is that no governance rule, policy or log is touched when the
  * feature is off; the flag lookup itself is cached.
  *
- * Fails open like the checks it guards: flags that cannot be read count as off.
+ * Explicitly off is `false`. Flags that cannot be read reject with
+ * {@link GovernanceUnavailableError}: enforcement fails closed on an unknown state.
  */
 export const isGovernanceEnabled = async (userId: string): Promise<boolean> => {
   try {
@@ -48,7 +74,21 @@ export const isGovernanceEnabled = async (userId: string): Promise<boolean> => {
 
     return evaluateFeatureFlag(flags.command_governance, userId) === true;
   } catch (error) {
-    console.error('[governance] feature flag lookup failed, governance off: %O', error);
+    // The cause may quote connection details: it is chained, not copied into the message.
+    console.error('[governance] feature flag lookup failed, governance state unknown: %O', error);
+    throw new GovernanceUnavailableError({ cause: error });
+  }
+};
+
+/**
+ * {@link isGovernanceEnabled} for the paths that must not fail on an unreadable flag: file-path and
+ * execution policy (policies enforced on the user's own machine, where "deny" cannot be expressed
+ * and a lookup failure must not lock the user out) and audit writes. Unreadable counts as off.
+ */
+export const isGovernanceEnabledBestEffort = async (userId: string): Promise<boolean> => {
+  try {
+    return await isGovernanceEnabled(userId);
+  } catch {
     return false;
   }
 };
@@ -82,8 +122,11 @@ const matchesRule = (
 /**
  * Evaluate whether `ctx.commandText` is allowed to run.
  *
- * FAIL-OPEN BY DESIGN: any internal error (DB unreachable, malformed row,
- * etc.) is logged and treated as `{ allowed: true }`. Command governance is a
+ * Rejects with {@link GovernanceUnavailableError} when the feature flag cannot be read: the
+ * enforcement point must not run a command whose governance state is unknown.
+ *
+ * FAIL-OPEN BY DESIGN once the flag is known to be on: any internal error in the rule lookup (DB
+ * unreachable, malformed row, etc.) is logged and treated as `{ allowed: true }`. Command governance is a
  * defense-in-depth control, not the user's only safety net, and the product
  * decision here is that a governance-system outage must never itself take
  * down command execution. Revisit this if the threat model changes (e.g. if

@@ -2,7 +2,13 @@ import type { Context } from 'hono';
 import { z } from 'zod';
 
 import { getServerDB } from '@/database/core/db-adaptor';
-import { checkCommand, isGovernanceEnabled } from '@/server/services/governance';
+import {
+  checkCommand,
+  GovernanceUnavailableError,
+  isGovernanceEnabled,
+} from '@/server/services/governance';
+
+import { governanceUnavailable } from './unavailable';
 
 const CheckBodySchema = z.object({
   apiName: z.string().min(1),
@@ -19,11 +25,13 @@ const CheckBodySchema = z.object({
  * so a governance rule applies uniformly regardless of which process actually
  * spawns the shell.
  *
- * Response: `{ allowed: boolean, ruleId?: string }`.
+ * Response: `{ allowed: boolean, ruleId?: string }`, or 503 `{ error: 'GOVERNANCE_UNAVAILABLE' }`
+ * when the `command_governance` flag cannot be read. `allowed:true` is only ever the answer for a
+ * flag that is explicitly off or a command no rule denies; a caller treats every non-2xx as a
+ * refusal. The outage is not reported as `{ allowed: false }`: that is a policy verdict the model is
+ * told never to retry.
  *
- * Delegates entirely to `checkCommand`, which already short-circuits to
- * `{ allowed: true }` when governance is disabled and fails open on any
- * internal error — this handler adds no additional logic on top.
+ * The rule evaluation itself (`checkCommand`) keeps its fail-open behavior for lookup errors.
  */
 export async function check(c: Context): Promise<Response> {
   let parsed;
@@ -40,12 +48,17 @@ export async function check(c: Context): Promise<Response> {
   // Mirror the in-process chokepoint's short-circuit: no DB connection is
   // opened here when the feature is off for the user, even though a caller may
   // hit this endpoint unconditionally for every command it dispatches.
-  if (!(await isGovernanceEnabled(parsed.data.userId))) {
-    return c.json({ allowed: true }, 200);
+  try {
+    if (!(await isGovernanceEnabled(parsed.data.userId))) {
+      return c.json({ allowed: true }, 200);
+    }
+
+    const serverDB = await getServerDB();
+    const decision = await checkCommand(parsed.data, serverDB);
+
+    return c.json(decision, 200);
+  } catch (error) {
+    if (error instanceof GovernanceUnavailableError) return governanceUnavailable(c);
+    throw error;
   }
-
-  const serverDB = await getServerDB();
-  const decision = await checkCommand(parsed.data, serverDB);
-
-  return c.json(decision, 200);
 }
