@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 
+import { withExecutionSignal } from '@lobechat/device-gateway-client';
 import {
   type GetCommandOutputParams,
   type KillCommandParams,
@@ -15,7 +16,6 @@ import {
   resolveExecutionPolicyOverlay,
   resolvePushedCommandMode,
 } from '../settings/executionPolicy';
-import { withExecutionSignal } from '../utils/executionSignal';
 import { log } from '../utils/logger';
 import { ensureSandboxWorkspace } from './sandboxWorkspace';
 import { applySandboxHostPaths } from './srtWin';

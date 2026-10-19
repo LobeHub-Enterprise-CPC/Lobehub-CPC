@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { withExecutionSignal } from '@lobechat/device-gateway-client';
 import type { LocalSandboxPolicyOverlay, SandboxCapability } from '@lobechat/device-sandbox';
 import type {
   DesktopShellSettings,
@@ -29,7 +30,6 @@ import { managedProcessEnvironment, spawnManagedFor } from '@lobechat/utils/mana
 import { binNames } from '@/modules/cliEmbedding/generateCliWrapper';
 import { callLambdaMutation } from '@/modules/heterogeneousAgent/fileStorePort';
 import type { ExecutionCommandMode } from '@/types/store';
-import { withExecutionSignal } from '@/utils/executionSignal';
 import { createLogger } from '@/utils/logger';
 
 import CliCtr from './CliCtr';

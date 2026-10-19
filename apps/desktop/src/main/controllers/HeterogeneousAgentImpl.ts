@@ -8,6 +8,7 @@ import type { Readable, Writable } from 'node:stream';
 import { finished as streamFinished } from 'node:stream/promises';
 
 import { BRANDING_NAME } from '@lobechat/business-const';
+import { withExecutionSignal } from '@lobechat/device-gateway-client';
 import type {
   ClaudeCodeQuotaSnapshot,
   CodexQuotaSnapshot,
@@ -169,7 +170,6 @@ import type {
   HeterogeneousAgentImageAttachment,
 } from '@/modules/heterogeneousAgent/types';
 import { buildProxyEnv } from '@/modules/networkProxy/envBuilder';
-import { withExecutionSignal } from '@/utils/executionSignal';
 import {
   commandLineLooksLikeHeteroCli,
   describeHeteroCliProcess,

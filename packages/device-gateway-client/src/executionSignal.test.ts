@@ -3,17 +3,13 @@ import { once } from 'node:events';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { withExecutionSignal as desktopSpawn } from '../../../desktop/src/main/utils/executionSignal';
-import { withExecutionSignal as cliSpawn } from './executionSignal';
+import { withExecutionSignal } from './executionSignal';
 
-describe.each([
-  ['CLI', cliSpawn],
-  ['desktop', desktopSpawn],
-] as const)('%s process execution authority', (_host, withSignal) => {
+describe('process execution authority', () => {
   it('checks authority at the actual spawn boundary', () => {
     const signal = new AbortController();
     const nativeSpawn = vi.fn();
-    const guarded = withSignal(nativeSpawn as unknown as typeof spawn, signal.signal);
+    const guarded = withExecutionSignal(nativeSpawn as unknown as typeof spawn, signal.signal);
     signal.abort();
     expect(() => guarded(process.execPath, ['-e', 'process.exit(0)'])).toThrow();
     expect(nativeSpawn).not.toHaveBeenCalled();
@@ -21,7 +17,7 @@ describe.each([
 
   it('cancels its own spawned process when authority is revoked', async () => {
     const signal = new AbortController();
-    const child = withSignal(spawn, signal.signal)(
+    const child = withExecutionSignal(spawn, signal.signal)(
       process.execPath,
       ['-e', 'setInterval(() => {}, 1000)'],
       { stdio: 'ignore' },
