@@ -1,6 +1,8 @@
 export type { GatewayIdentityProvider, GatewayIdentityResponse } from '../../types/src/gateway';
 export { AgentStreamClient } from './client';
 export { assertGatewayIdentityContinuity } from './identity';
+export type { GatewayIdentityMinterOptions } from './identityMint';
+export { createGatewayIdentityMinter } from './identityMint';
 export { sanitizeAgentInterventionRequestForReview } from './intervention';
 export {
   MirroredTerminalEchoGuard,
