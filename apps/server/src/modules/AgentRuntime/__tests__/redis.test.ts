@@ -33,6 +33,17 @@ vi.mock('ioredis', () => {
     }
     quit = vi.fn(async () => {});
     disconnect = vi.fn();
+    // ioredis queues commands client side until exec: creating one touches no socket.
+    pipelineLike = () => ({
+      exec: vi.fn(async () => [[null, 'OK']]),
+      set: vi.fn().mockReturnThis(),
+    });
+    pipeline() {
+      return this.pipelineLike();
+    }
+    multi() {
+      return this.pipelineLike();
+    }
   }
   return { default: FakeRedis };
 });
@@ -110,6 +121,69 @@ describe('agent runtime Redis client', () => {
     expect(instances[1].disconnect).toHaveBeenCalledOnce();
     pending.resolve('value');
     await expect(reading).resolves.toBe('value');
+  });
+
+  describe('pipelines and transactions', () => {
+    const IDLE = 60_000;
+    // A pipeline holds the connection from its creation, for a bounded time: a transaction that is
+    // built and then abandoned (a throw before exec) must not pin the connection for good.
+    const HOLD = 30_000;
+
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it.each(['pipeline', 'multi'] as const)('runs %s() through to exec', async (method) => {
+      const { getAgentRuntimeRedisClient } = await import('../redis');
+      const held = inTenant('tenant-tx', () => getAgentRuntimeRedisClient())!;
+
+      const result = await inTenant('tenant-tx', () => held[method]().set('k', 'v').exec());
+
+      expect(result).toEqual([[null, 'OK']]);
+    });
+
+    it.each(['pipeline', 'multi'] as const)(
+      'does not pin the connection forever when a %s() is never executed',
+      async (method) => {
+        const { getAgentRuntimeRedisClient } = await import('../redis');
+        const held = inTenant('tenant-abandoned', () => getAgentRuntimeRedisClient())!;
+        inTenant('tenant-abandoned', () => held[method]());
+
+        await vi.advanceTimersByTimeAsync(IDLE * 2);
+
+        expect(instances[0].disconnect).toHaveBeenCalledOnce();
+      },
+    );
+
+    it('keeps the connection while a fresh pipeline is still to be executed, then lets go of it', async () => {
+      const { getAgentRuntimeRedisClient } = await import('../redis');
+      const held = inTenant('tenant-0', () => getAgentRuntimeRedisClient())!;
+      inTenant('tenant-0', () => held.multi());
+      for (let n = 1; n < 129; n++) await inTenant(`tenant-${n}`, () => held.set('key', 'value'));
+      // Capacity made room by evicting another tenant, not the one holding a pipeline.
+      expect(instances[0].disconnect).not.toHaveBeenCalled();
+      expect(instances[1].disconnect).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(HOLD + 1);
+      await inTenant('tenant-129', () => held.set('key', 'value'));
+      expect(instances[0].disconnect).toHaveBeenCalledOnce();
+    });
+
+    it('does not retire a connection while its exec is running', async () => {
+      const { getAgentRuntimeRedisClient } = await import('../redis');
+      const held = inTenant('tenant-running', () => getAgentRuntimeRedisClient())!;
+      await inTenant('tenant-running', () => held.set('key', 'value'));
+      const running = Promise.withResolvers<unknown[]>();
+      instances[0].pipelineLike = () => ({ exec: () => running.promise });
+      const executing = inTenant('tenant-running', () => held.multi().exec());
+
+      await vi.advanceTimersByTimeAsync(IDLE * 3);
+      expect(instances[0].disconnect).not.toHaveBeenCalled();
+
+      running.resolve([]);
+      await executing;
+      await vi.advanceTimersByTimeAsync(IDLE);
+      expect(instances[0].disconnect).toHaveBeenCalledOnce();
+    });
   });
 
   it('fails closed outside a tenant', async () => {

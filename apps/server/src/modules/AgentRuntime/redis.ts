@@ -112,13 +112,25 @@ export const agentRuntimeTenantKeyPrefix = (tenantId: string) => {
 
 interface TenantRedisClient {
   client: Redis;
+  /** A pipeline or transaction created on this client may still be executed until then. */
+  holdUntil: number;
   lastUsed: number;
   pending: number;
 }
 const tenantClients = new Map<string, TenantRedisClient>();
 const MAX_TENANT_CLIENTS = 128;
 const IDLE_CLIENT_MS = 60_000;
+/**
+ * How long a created, not yet executed pipeline/transaction keeps its connection from being retired.
+ * Creating one sends nothing; the commands go out at `exec`. A caller that builds one and never
+ * executes it (a throw in between) must not pin the connection, so the hold is bounded instead of
+ * lasting until an `exec` that never comes.
+ */
+const PIPELINE_HOLD_MS = 30_000;
 let idleSweep: ReturnType<typeof setInterval> | undefined;
+/** Commands are running on the connection, or a pipeline created on it may still be executed. */
+const isBusy = (entry: TenantRedisClient, now = Date.now()) =>
+  entry.pending > 0 || now < entry.holdUntil;
 const retireClient = (tenantId: string, entry: TenantRedisClient) => {
   tenantClients.delete(tenantId);
   // There are no pending business commands. Disconnect immediately so a stalled
@@ -128,7 +140,7 @@ const retireClient = (tenantId: string, entry: TenantRedisClient) => {
 const sweepIdle = () => {
   const now = Date.now();
   for (const [id, entry] of tenantClients)
-    if (!entry.pending && now - entry.lastUsed >= IDLE_CLIENT_MS) retireClient(id, entry);
+    if (!isBusy(entry, now) && now - entry.lastUsed >= IDLE_CLIENT_MS) retireClient(id, entry);
   if (!tenantClients.size) {
     clearInterval(idleSweep);
     idleSweep = undefined;
@@ -145,7 +157,7 @@ const tenantClient = (tenantId: string): TenantRedisClient | null => {
     return existing;
   }
   if (tenantClients.size >= MAX_TENANT_CLIENTS) {
-    const idle = [...tenantClients].find(([, entry]) => !entry.pending);
+    const idle = [...tenantClients].find(([, entry]) => !isBusy(entry));
     if (!idle) throw new Error('TENANT_REDIS_CAPACITY');
     retireClient(...idle);
   }
@@ -162,7 +174,7 @@ const tenantClient = (tenantId: string): TenantRedisClient | null => {
     return found.map((key) => (key.startsWith(keyPrefix) ? key.slice(keyPrefix.length) : key));
   }) as Redis['keys'];
 
-  const entry = { client, lastUsed: Date.now(), pending: 0 };
+  const entry = { client, holdUntil: 0, lastUsed: Date.now(), pending: 0 };
   tenantClients.set(tenantId, entry);
   if (!idleSweep) {
     idleSweep = setInterval(sweepIdle, IDLE_CLIENT_MS);
@@ -205,27 +217,22 @@ export function getAgentRuntimeRedisClient(): Redis | null {
         };
         try {
           const result = value.apply(client, args);
-          if (prop === 'pipeline' || prop === 'multi') {
-            // An unexecuted transaction retains its socket until exec.
-            let released = false;
-            const finish = () => {
-              if (!released) {
-                released = true;
+          if ((prop === 'pipeline' || prop === 'multi') && typeof result?.exec === 'function') {
+            // Creating a pipeline/transaction sends nothing (`multi({ pipeline: false })`, which
+            // returns a promise, takes the command path below). Its commands go out at `exec`, which
+            // is the running work; until then the connection is only held for a bounded time.
+            release();
+            entry.holdUntil = Math.max(entry.holdUntil, Date.now() + PIPELINE_HOLD_MS);
+            const invoke = result.exec;
+            result.exec = (...input: unknown[]) => {
+              entry.pending += 1;
+              try {
+                return Promise.resolve(invoke.apply(result, input)).finally(release);
+              } catch (error) {
                 release();
+                throw error;
               }
             };
-            for (const method of ['exec']) {
-              const invoke = result[method];
-              if (typeof invoke !== 'function') continue;
-              result[method] = (...input: unknown[]) => {
-                try {
-                  return Promise.resolve(invoke.apply(result, input)).finally(finish);
-                } catch (error) {
-                  finish();
-                  throw error;
-                }
-              };
-            }
             return result;
           }
           if (result && typeof result.then === 'function') return result.finally(release);
