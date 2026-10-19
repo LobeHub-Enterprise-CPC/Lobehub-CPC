@@ -1,4 +1,8 @@
-import { assertGatewayIdentityContinuity, gatewayIdentityFailure } from './identity';
+import {
+  assertGatewayIdentityContinuity,
+  gatewayCloseFailure,
+  gatewayIdentityFailure,
+} from './identity';
 import { GatewayIdentityRenewal } from './identityRenewal';
 import { MirroredTerminalEchoGuard } from './mirroredTerminalEcho';
 import type { GatewayCommandBinding } from './tenancy';
@@ -235,8 +239,8 @@ export class AgentStreamClient extends TypedEmitter {
       ws.onmessage = (event) => {
         if (this.ws === ws) this.handleMessage(event);
       };
-      ws.onclose = () => {
-        if (this.ws === ws) this.handleClose();
+      ws.onclose = (event) => {
+        if (this.ws === ws) this.handleClose(event);
       };
       ws.onerror = () => {
         if (this.ws === ws) this.handleError();
@@ -261,11 +265,7 @@ export class AgentStreamClient extends TypedEmitter {
         onTemporary: (code) => {
           this.emit('error', new Error(code));
         },
-        onExpired: () => {
-          this.cleanup();
-          this.setStatus('authenticating');
-          this.emit('auth_expired');
-        },
+        onExpired: this.handleAuthExpired,
       });
     } catch (error) {
       if (controller.signal.aborted || epoch !== this.dialEpoch) return;
@@ -367,9 +367,7 @@ export class AgentStreamClient extends TypedEmitter {
           if (this.expiryTimer) clearInterval(this.expiryTimer);
           this.expiryTimer = setInterval(() => {
             if (!this.authority?.alive()) {
-              this.cleanup();
-              this.setStatus('authenticating');
-              this.emit('auth_expired');
+              this.handleAuthExpired();
             }
           }, 250);
           this.startHeartbeat();
@@ -406,11 +404,7 @@ export class AgentStreamClient extends TypedEmitter {
         }
 
         case 'auth_expired': {
-          this.cleanup();
-          this.setStatus('authenticating');
-          // Token expired but the server kept the socket open. Don't disconnect —
-          // the listener will refresh the token and call `reconnect()`.
-          this.emit('auth_expired');
+          this.handleAuthExpired();
           break;
         }
 
@@ -553,7 +547,30 @@ export class AgentStreamClient extends TypedEmitter {
     this.emit('error', new Error(code));
   }
 
-  private handleClose = (): void => {
+  private handleAuthExpired = (): void => {
+    this.cleanup();
+    this.setStatus('authenticating');
+    this.emit('auth_expired');
+    // A listener may already have disconnected or started its own refresh.
+    if (
+      this.identityProvider &&
+      this.autoReconnect &&
+      !this.intentionalDisconnect &&
+      !this.sessionEnded &&
+      this.connectionStatus === 'authenticating'
+    ) {
+      this.setStatus('reconnecting');
+      this.scheduleReconnect();
+    }
+  };
+
+  private handleClose = (event?: CloseEvent): void => {
+    const failure = gatewayCloseFailure(event?.code, event?.reason);
+    if (failure) {
+      this.disconnect();
+      this.emit('auth_failed', failure);
+      return;
+    }
     this.renewal?.dispose();
     if (this.expiryTimer) clearInterval(this.expiryTimer);
     this.authority?.invalidate();
@@ -612,8 +629,8 @@ export class AgentStreamClient extends TypedEmitter {
   private scheduleReconnect(): void {
     this.clearReconnectTimer();
 
-    const delay = this.reconnectDelay;
-    this.emit('reconnecting', delay);
+    // Equal jitter keeps retries spread out even after the 30s cap is reached.
+    const delay = Math.round(this.reconnectDelay * (0.5 + Math.random() * 0.5));
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -622,6 +639,7 @@ export class AgentStreamClient extends TypedEmitter {
 
     // Exponential backoff: 1s → 2s → 4s → ... → 30s
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, MAX_RECONNECT_DELAY);
+    this.emit('reconnecting', delay);
   }
 
   private clearReconnectTimer(): void {

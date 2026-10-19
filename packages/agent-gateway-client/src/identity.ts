@@ -71,3 +71,10 @@ export const assertGatewayIdentityContinuity = (
   )
     throw new Error('UNAUTHORIZED');
 };
+
+/** A policy/protocol close is terminal even if its preceding error frame was lost. */
+export const gatewayCloseFailure = (code?: number, reason = ''): string | undefined => {
+  if (![1002, 1003, 1007, 1008].includes(code ?? 0)) return;
+  const entry = Object.entries(protocol.errors).find(([key]) => key === reason);
+  return entry && !entry[1].retryable ? entry[0] : 'UNAUTHORIZED';
+};

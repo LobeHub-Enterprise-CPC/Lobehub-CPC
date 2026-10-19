@@ -3,6 +3,7 @@ import type { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import protocol from '../../../contracts/gateway-tenancy/v1/protocol.json';
+import { gatewayIdentityHint } from '../../agent-gateway-client/src/tenancy';
 import { deviceConfirmation, deviceTicket } from './__tests__/fixtures';
 import { GatewayClient } from './client';
 
@@ -35,14 +36,89 @@ const create = (autoReconnect = true) => {
 };
 beforeEach(() => {
   vi.useFakeTimers();
+  vi.spyOn(Math, 'random').mockReturnValue(1);
   sockets.length = 0;
 });
 afterEach(async () => {
   await client?.disconnect();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('device gateway rejection recovery', () => {
+  it('honors disconnect from a reconnecting listener', async () => {
+    create();
+    client.on('reconnecting', () => void client.disconnect());
+    await client.connect();
+    latest().emit('close', 1006, Buffer.from(''));
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(sockets).toHaveLength(1);
+    expect(client.connectionStatus).toBe('disconnected');
+  });
+
+  it('jitters transient reconnects within the capped exponential budget', async () => {
+    vi.mocked(Math.random).mockReturnValue(0.25);
+    create();
+    const retry = vi.fn();
+    client.on('reconnecting', retry);
+    await client.connect();
+    for (const budget of [1000, 2000, 4000, 8000, 16000, 30000, 30000]) {
+      latest().emit('close', 1006, Buffer.from(''));
+      const delay = retry.mock.calls.at(-1)![0];
+      expect(delay).toBe(budget * 0.625);
+      await vi.advanceTimersByTimeAsync(delay);
+    }
+  });
+
+  it('re-mints on expiry with the same connectionId', async () => {
+    const identity = gatewayIdentityHint(deviceTicket(), 'urn:lobehub:gateway:device');
+    const provider = vi
+      .fn()
+      .mockResolvedValueOnce(identity)
+      .mockResolvedValue({ ...identity, gatewayTicket: 'fresh-ticket' });
+    client = new GatewayClient({ token: deviceTicket(), identityProvider: provider });
+    await client.connect();
+    const id = new URL(latest().url).searchParams.get('connectionId');
+    receive({ type: 'auth_expired' });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(provider).toHaveBeenCalledTimes(2);
+    expect(provider.mock.calls[1][0]).toMatchObject({
+      connectionId: id,
+      renewAuthorizationId: identity.authorizationId,
+    });
+    expect(new URL(latest().url).searchParams.get('connectionId')).toBe(id);
+  });
+
+  it('stops on a policy close without an error frame', async () => {
+    create();
+    const failed = vi.fn();
+    client.on('auth_failed', failed);
+    await client.connect();
+    latest().emit('close', 1008, Buffer.from('TENANT_FROZEN'));
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(sockets).toHaveLength(1);
+    expect(failed).toHaveBeenCalledWith('TENANT_FROZEN');
+  });
+
+  it('re-mints after local expiry and aborts a stalled renewal', async () => {
+    const identity = gatewayIdentityHint(deviceTicket(), 'urn:lobehub:gateway:device');
+    const first = { ...identity, ticketExpiresAt: Date.now() + 2000 };
+    const provider = vi
+      .fn()
+      .mockResolvedValueOnce(first)
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockResolvedValue(identity);
+    client = new GatewayClient({ token: deviceTicket(), identityProvider: provider });
+    await client.connect();
+    latest().emit('open');
+    receive({ ...deviceConfirmation(), ticketExpiresAt: first.ticketExpiresAt });
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(provider).toHaveBeenCalledTimes(3);
+    expect(provider.mock.calls[1][0].signal.aborted).toBe(true);
+    expect(sockets).toHaveLength(2);
+    expect(provider.mock.calls[2][0].connectionId).toBe(provider.mock.calls[0][0].connectionId);
+  });
+
   it.each(Object.entries(protocol.errors))(
     '%s follows the frozen retry policy',
     async (code, entry) => {
@@ -51,7 +127,12 @@ describe('device gateway rejection recovery', () => {
       client.on('auth_failed', failed);
       await client.connect();
       latest().emit('open');
-      receive({ type: entry.wsEvent, code, reason: 'human-readable detail' });
+      receive({
+        type: entry.wsEvent,
+        code,
+        retryable: entry.retryable,
+        reason: 'human-readable detail',
+      });
       await vi.advanceTimersByTimeAsync(1000);
       expect(sockets).toHaveLength(entry.retryable ? 2 : 1);
       if (entry.retryable) {

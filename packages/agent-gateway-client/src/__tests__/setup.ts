@@ -73,10 +73,12 @@ beforeEach(() => {
     ),
   );
   vi.useFakeTimers();
+  vi.spyOn(Math, 'random').mockReturnValue(1);
 });
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 

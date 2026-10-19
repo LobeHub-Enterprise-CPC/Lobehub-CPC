@@ -7,6 +7,7 @@ import WebSocket from 'ws';
 
 import {
   assertGatewayIdentityContinuity,
+  gatewayCloseFailure,
   gatewayIdentityFailure,
 } from '../../agent-gateway-client/src/identity';
 import { GatewayIdentityRenewal } from '../../agent-gateway-client/src/identityRenewal';
@@ -38,8 +39,6 @@ import type {
   ToolCallResponseMessage,
 } from './types';
 
-// ─── Constants ───
-
 const DEFAULT_GATEWAY_URL = 'https://device-gateway.lobehub.com';
 const HEARTBEAT_INTERVAL = 30_000; // 30s
 const INITIAL_RECONNECT_DELAY = 1000; // 1s
@@ -59,8 +58,6 @@ const CONNECT_TIMEOUT = 15_000; // 15s
  * home) shows up.
  */
 const REPLACED_CLOSE_REASON = 'Replaced by new connection';
-
-// ─── Logger Interface ───
 
 export interface GatewayClientLogger {
   debug: (msg: string, ...args: unknown[]) => void;
@@ -185,8 +182,6 @@ export class GatewayClient extends EventEmitter {
     this.connectTimeoutMs = options.connectTimeoutMs ?? CONNECT_TIMEOUT;
   }
 
-  // ─── Public API ───
-
   get connectionStatus(): ConnectionStatus {
     return this.status;
   }
@@ -295,8 +290,6 @@ export class GatewayClient extends EventEmitter {
     });
   }
 
-  // ─── Connection Logic ───
-
   private async doConnect() {
     this.clearReconnectTimer();
 
@@ -367,11 +360,7 @@ export class GatewayClient extends EventEmitter {
         onTemporary: (code) => {
           if (this.listenerCount('error')) this.emit('error', new Error(code));
         },
-        onExpired: () => {
-          this.cleanup();
-          this.setStatus('authenticating');
-          this.emit('auth_expired');
-        },
+        onExpired: this.handleAuthExpired,
       });
       this.startConnectWatchdog();
     } catch (error) {
@@ -425,8 +414,6 @@ export class GatewayClient extends EventEmitter {
     url.search = params.toString();
     return url.toString();
   }
-
-  // ─── WebSocket Event Handlers ───
 
   private handleOpen = () => {
     this.logger.info(
@@ -497,9 +484,7 @@ export class GatewayClient extends EventEmitter {
           if (this.expiryTimer) clearInterval(this.expiryTimer);
           this.expiryTimer = setInterval(() => {
             if (!this.authority?.alive()) {
-              this.cleanup();
-              this.setStatus('authenticating');
-              this.emit('auth_expired');
+              this.handleAuthExpired();
             }
           }, 250);
           this.logger.info('Authentication successful');
@@ -542,10 +527,8 @@ export class GatewayClient extends EventEmitter {
         }
 
         case 'auth_expired': {
-          this.cleanup();
-          this.setStatus('authenticating');
           this.logger.warn('Received auth_expired from gateway');
-          this.emit('auth_expired');
+          this.handleAuthExpired();
           break;
         }
 
@@ -561,7 +544,29 @@ export class GatewayClient extends EventEmitter {
     }
   };
 
+  private handleAuthExpired = (): void => {
+    this.cleanup();
+    this.setStatus('authenticating');
+    this.emit('auth_expired');
+    // A listener may already have disconnected or started its own refresh.
+    if (
+      this.identityProvider &&
+      this.autoReconnect &&
+      !this.intentionalDisconnect &&
+      this.connectionStatus === 'authenticating'
+    ) {
+      this.setStatus('reconnecting');
+      this.scheduleReconnect();
+    }
+  };
+
   private handleClose = (code: number, reason: Buffer) => {
+    const failure = gatewayCloseFailure(code, reason.toString());
+    if (failure) {
+      void this.disconnect();
+      this.emit('auth_failed', failure);
+      return;
+    }
     this.renewal?.dispose();
     if (this.expiryTimer) clearInterval(this.expiryTimer);
     this.logger.info(`WebSocket closed: code=${code} reason=${reason.toString()}`);
@@ -622,8 +627,6 @@ export class GatewayClient extends EventEmitter {
     if (this.listenerCount('error')) this.emit('error', error);
   };
 
-  // ─── Heartbeat ───
-
   private startHeartbeat() {
     this.stopHeartbeat();
     this.missedHeartbeats = 0;
@@ -643,8 +646,6 @@ export class GatewayClient extends EventEmitter {
       this.heartbeatTimer = null;
     }
   }
-
-  // ─── Connect watchdog ───
 
   private startConnectWatchdog() {
     this.clearConnectWatchdog();
@@ -683,14 +684,12 @@ export class GatewayClient extends EventEmitter {
     }
   }
 
-  // ─── Reconnection (exponential backoff) ───
-
   private scheduleReconnect() {
     this.clearReconnectTimer();
 
-    const delay = this.reconnectDelay;
+    // Equal jitter keeps retries spread out even after the 30s cap is reached.
+    const delay = Math.round(this.reconnectDelay * (0.5 + Math.random() * 0.5));
     this.logger.info(`Scheduling reconnect in ${delay}ms`);
-    this.emit('reconnecting', delay);
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -700,6 +699,7 @@ export class GatewayClient extends EventEmitter {
 
     // Exponential backoff: 1s → 2s → 4s → 8s → ... → 30s
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, MAX_RECONNECT_DELAY);
+    this.emit('reconnecting', delay);
   }
 
   private clearReconnectTimer() {
@@ -709,16 +709,12 @@ export class GatewayClient extends EventEmitter {
     }
   }
 
-  // ─── Status ───
-
   private setStatus(status: ConnectionStatus) {
     if (this.status === status) return;
 
     this.status = status;
     this.emit('status_changed', status);
   }
-
-  // ─── Helpers ───
 
   private sendMessage(data: ClientMessage) {
     if (data.type !== 'auth') {

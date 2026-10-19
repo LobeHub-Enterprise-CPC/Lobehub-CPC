@@ -63,9 +63,9 @@ const advanceWithLease = async (handler: (data: string) => void, ms: number) => 
 };
 describe('GatewayClient', () => {
   let client: GatewayClient;
-
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(1);
     mockWsShouldHang = false;
     mockWsInstances.length = 0;
     client = new GatewayClient({
