@@ -267,7 +267,9 @@ const runServer = async () => {
     try {
       await fs.access(DB_MIGRATION_SCRIPT_PATH);
 
-      await runScript(DB_MIGRATION_SCRIPT_PATH);
+      // Boot tolerates tenants whose chain failed (they answer 503 until the migration Job reruns);
+      // the standalone `docker.cjs` / `migrate.cjs` run is strict.
+      await runScript(DB_MIGRATION_SCRIPT_PATH, false, ['--tolerate-tenant-failures']);
     } catch (err) {
       if (err.code === 'ENOENT' && !migrateElasticsearch) {
         console.log(

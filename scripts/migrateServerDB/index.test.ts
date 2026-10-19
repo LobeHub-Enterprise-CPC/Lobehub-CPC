@@ -37,8 +37,9 @@ afterEach(() => {
 });
 
 describe('migration CLI exit status', () => {
-  const run = async () => {
+  const run = async (...args: string[]) => {
     vi.resetModules();
+    vi.spyOn(process, 'argv', 'get').mockReturnValue(['node', 'migrate', ...args]);
     vi.stubEnv('DATABASE_URL', 'postgresql://test:test@127.0.0.1:1/unused');
     const exit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -48,13 +49,16 @@ describe('migration CLI exit status', () => {
     return exit;
   };
 
-  it('exits successfully without writing tenantDirectory when a tenant migration fails', async () => {
+  const failingTenant = () =>
     mocks.upgrade.mockResolvedValueOnce({
       failed: [{ reason: '42P01', tenantId: 'broken' }],
       migrated: ['healthy'],
     });
+
+  it('exits non-zero when a tenant migration fails, after reporting every tenant', async () => {
+    failingTenant();
     const exit = await run();
-    expect(exit).toHaveBeenCalledExactlyOnceWith(0);
+    expect(exit).toHaveBeenCalledExactlyOnceWith(1);
     expect(mocks.updateDirectory).not.toHaveBeenCalled();
     expect(console.log).toHaveBeenCalledWith(
       JSON.stringify({
@@ -67,6 +71,29 @@ describe('migration CLI exit status', () => {
       JSON.stringify({ event: 'tenant_migration_summary', ready: 1, unavailable: 1 }),
     );
     expect(mocks.end).toHaveBeenCalledOnce();
+  });
+
+  it('names the unavailable tenants on stderr so the failure is visible without the JSON log', async () => {
+    failingTenant();
+    await run();
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('broken'));
+  });
+
+  it('boot mode tolerates failed tenants: exits 0, still reports them, writes no directory state', async () => {
+    failingTenant();
+    const exit = await run('--tolerate-tenant-failures');
+    expect(exit).toHaveBeenCalledExactlyOnceWith(0);
+    expect(mocks.updateDirectory).not.toHaveBeenCalled();
+    expect(console.log).toHaveBeenCalledWith(
+      JSON.stringify({ event: 'tenant_migration_summary', ready: 1, unavailable: 1 }),
+    );
+    expect(mocks.end).toHaveBeenCalledOnce();
+  });
+
+  it('exits successfully when every tenant migrates', async () => {
+    mocks.upgrade.mockResolvedValueOnce({ failed: [], migrated: ['healthy'] });
+    const exit = await run();
+    expect(exit).toHaveBeenCalledExactlyOnceWith(0);
   });
 
   it('exits with failure when the platform migration fails', async () => {

@@ -54,6 +54,14 @@ const tenantArgs = () => {
 };
 
 /**
+ * Boot callers (the image launchers) pass `--tolerate-tenant-failures`: a tenant whose chain
+ * failed answers 503 until a rerun succeeds, and must not keep the other tenants' replicas from
+ * starting. Without it this is the standalone migration CLI (release Jobs, `db:migrate`), which
+ * exits non-zero when any tenant was left unavailable so the orchestrator cannot go on.
+ */
+const toleratesTenantFailures = () => process.argv.slice(2).includes('--tolerate-tenant-failures');
+
+/**
  * 1. The platform chain on `DATABASE_URL` (`public`: tenant routing metadata only).
  * 2. Every tenant chain on each active tenant, as that tenant's schema owner
  *    (spec FR-MD-02): the OSS chain, then the chains distributions register
@@ -101,6 +109,7 @@ const runMigrations = async () => {
     console.error('❌ Platform migration connection lost:', error.code ?? 'CONNECTION_LOST');
     process.exit(1);
   });
+  let unavailable: string[];
   try {
     await client.connect();
     // A follower may wait longer than the request statement timeout while the
@@ -109,7 +118,7 @@ const runMigrations = async () => {
     // The same pinned session owns the advisory lock and platform queries.
     const platformDB = drizzle(client, { schema: platformSchema });
     const tenantIds = tenantArgs();
-    await runStartupMigrations({
+    const result = await runStartupMigrations({
       client,
       migratePlatform: async () => {
         await runWithLockRetry(() =>
@@ -124,11 +133,18 @@ const runMigrations = async () => {
           tenantIds: tenantIds.length > 0 ? tenantIds : undefined,
         }),
     });
+    unavailable = result.failed.map(({ tenantId }) => tenantId);
   } finally {
     await client.end();
   }
 
-  process.exit(0);
+  const strictFailure = unavailable.length > 0 && !toleratesTenantFailures();
+  if (strictFailure) {
+    console.error(
+      `❌ ${unavailable.length} tenant(s) left unavailable after migration (fix the cause and rerun): ${unavailable.join(', ')}`,
+    );
+  }
+  process.exit(strictFailure ? 1 : 0);
 };
 
 const connectionString = process.env.DATABASE_URL;
