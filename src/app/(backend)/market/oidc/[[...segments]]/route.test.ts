@@ -2,11 +2,11 @@
 import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getTrustedClientHeadersForSession } = vi.hoisted(() => ({
-  getTrustedClientHeadersForSession: vi.fn(),
+const { getTrustedClientTokenForSession } = vi.hoisted(() => ({
+  getTrustedClientTokenForSession: vi.fn(),
 }));
 
-vi.mock('@/libs/trusted-client', () => ({ getTrustedClientHeadersForSession }));
+vi.mock('@/libs/trusted-client', () => ({ getTrustedClientTokenForSession }));
 vi.mock('@/server/modules/Tenant/gate', () => ({
   withTenantRequest: (handler: unknown) => handler,
 }));
@@ -32,28 +32,25 @@ const fetchMock = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('fetch', fetchMock);
-  getTrustedClientHeadersForSession.mockResolvedValue({
-    'x-lobe-trust-client-id': 'client-id',
-    'x-lobe-trust-token': 'signed-token',
-  });
+  getTrustedClientTokenForSession.mockResolvedValue('client-id.signed-token');
 });
 
 describe('market oidc userinfo proxy with the trusted client', () => {
-  it('sends the trust token together with the client id Market looks the secret up by', async () => {
+  it('sends the trust token, which already names the signing client, and no other trust header', async () => {
     fetchMock.mockResolvedValue(Response.json({ sub: 'user_1' }));
 
     const response = await userinfo();
 
     expect(response.status).toBe(200);
     const [, init] = fetchMock.mock.calls[0];
-    expect(init.headers).toMatchObject({
-      'x-lobe-trust-client-id': 'client-id',
-      'x-lobe-trust-token': 'signed-token',
+    expect(init.headers).toEqual({
+      'Content-Type': 'application/json',
+      'x-lobe-trust-token': 'client-id.signed-token',
     });
   });
 
   it('asks for a token before it calls Market, and answers 400 when there is none', async () => {
-    getTrustedClientHeadersForSession.mockResolvedValue(undefined);
+    getTrustedClientTokenForSession.mockResolvedValue(undefined);
 
     const response = await userinfo();
 

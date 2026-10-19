@@ -58,7 +58,7 @@ describe('GET /market/user/[username]', () => {
 
     expect(response.status).toBe(200);
     expect(marketSdkConstructor).toHaveBeenCalledWith(
-      expect.objectContaining({ trustedClientToken: 'signed-token' }),
+      expect.objectContaining({ trustedClientToken: 'client-id.signed-token' }),
     );
   });
 

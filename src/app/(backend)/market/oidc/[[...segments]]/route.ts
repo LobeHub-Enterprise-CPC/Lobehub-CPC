@@ -1,7 +1,7 @@
 import { type NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
-import { getTrustedClientHeadersForSession } from '@/libs/trusted-client';
+import { getTrustedClientTokenForSession } from '@/libs/trusted-client';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { MarketService } from '@/server/services/market';
 
@@ -168,11 +168,11 @@ const handleProxy = async (req: NextRequest, context: RouteContext) => {
       try {
         const { token } = (await req.json()) as { token?: string };
 
-        // If no token is provided, attempt to use the trusted client (token + client id)
+        // If no token is provided, attempt to use trustedClientToken
         if (!token) {
-          const trustedClientHeaders = await getTrustedClientHeadersForSession();
+          const trustedClientToken = await getTrustedClientTokenForSession();
 
-          if (!trustedClientHeaders) {
+          if (!trustedClientToken) {
             return NextResponse.json(
               {
                 error: 'missing_token',
@@ -183,12 +183,15 @@ const handleProxy = async (req: NextRequest, context: RouteContext) => {
             );
           }
 
-          // Use the trusted client to directly call the Market userinfo endpoint
+          // Use trustedClientToken to directly call the Market userinfo endpoint
           const userInfoUrl = `${MARKET_BASE_URL}/lobehub-oidc/userinfo`;
           let response: Response;
           try {
             response = await fetch(userInfoUrl, {
-              headers: { 'Content-Type': 'application/json', ...trustedClientHeaders },
+              headers: {
+                'Content-Type': 'application/json',
+                'x-lobe-trust-token': trustedClientToken,
+              },
               method: 'GET',
               signal: AbortSignal.timeout(MARKET_TIMEOUT_MS),
             });

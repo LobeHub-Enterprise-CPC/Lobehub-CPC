@@ -3,12 +3,8 @@ import { buildTrustedClientPayload, createTrustedClientToken } from '@lobehub/ma
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  generateTrustedClientHeaders as signHeaders,
   generateTrustedClientToken as signToken,
   isSyntheticTrustedClientUserId,
-  TRUST_CLIENT_ID_HEADER,
-  TRUST_TOKEN_HEADER,
-  trustedClientHeaders,
   TrustedClientIdentityError,
   type TrustedClientUserInfo,
 } from './index';
@@ -67,7 +63,7 @@ describe('generateTrustedClientToken', () => {
   it('signs a token for a real userId', () => {
     const token = generateTrustedClientToken({ email: 'a@b.com', userId: 'user_real' });
 
-    expect(token).toBe('signed-token');
+    expect(token).toBe('client-id.signed-token');
     expect(buildTrustedClientPayload).toHaveBeenCalledWith(
       expect.objectContaining({ clientId: 'client-id', userId: 'user_real' }),
     );
@@ -84,7 +80,7 @@ describe('generateTrustedClientToken', () => {
       workspaceId: 'wsp_1',
     });
 
-    expect(token).toBe('signed-token');
+    expect(token).toBe('client-id.signed-token');
     expect(buildTrustedClientPayload).toHaveBeenCalledWith(
       expect.not.objectContaining({ workspaceId: expect.anything() }),
     );
@@ -268,51 +264,41 @@ describe('generateTrustedClientToken fails closed in tenant mode', () => {
   });
 });
 
-// Market finds the signing secret from the claimed client id instead of trying every tenant's
-// secrets (cost grows with the tenant count otherwise), so the id has to ride along with the token
-// on every trust request. The id is only a lookup hint; the token still has to decrypt under it.
-describe('trust request headers', () => {
-  it('names the headers Market reads', () => {
-    expect(TRUST_TOKEN_HEADER).toBe('x-lobe-trust-token');
-    expect(TRUST_CLIENT_ID_HEADER).toBe('x-lobe-trust-client-id');
+// Market finds the signing secret from the plaintext kid in front of the ciphertext instead of
+// trying every tenant's secrets (cost grows with the tenant count otherwise). The kid is only a
+// lookup key: the signed payload has to carry the same `clientId` and decrypt under that
+// client's secret. SDK 0.42 cannot add a request header, so the kid rides inside the token.
+describe('trust token kid', () => {
+  it('puts the client id in plaintext in front of the SDK ciphertext', () => {
+    const token = generateTrustedClientToken({ email: 'a@b.com', userId: 'user_real' });
+
+    expect(token).toBe('client-id.signed-token');
   });
 
-  it('pairs a token with the client id it was signed for', () => {
-    expect(trustedClientHeaders('signed-token')).toEqual({
-      'x-lobe-trust-client-id': 'client-id',
-      'x-lobe-trust-token': 'signed-token',
+  it('signs the same client id into the payload, so Market can bind kid and payload', () => {
+    generateTrustedClientToken({ email: 'a@b.com', userId: 'user_real' });
+
+    expect(vi.mocked(createTrustedClientToken).mock.calls[0][0]).toMatchObject({
+      clientId: 'client-id',
     });
   });
 
-  it('cannot build the pair without a client id, so the hint is never silently dropped', () => {
-    appEnv.MARKET_TRUSTED_CLIENT_ID = undefined;
-
-    expect(() => trustedClientHeaders('signed-token')).toThrowError(
-      expect.objectContaining({ code: 'TRUST_NOT_CONFIGURED' }),
-    );
+  it('fails closed with TRUST_SIGNING_FAILED when the client id cannot be a kid', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    for (const unusable of ['has space', 'ünïcode', 'x'.repeat(101)]) {
+      appEnv.MARKET_TRUSTED_CLIENT_ID = unusable;
+      expect(() => generateTrustedClientToken({ userId: 'user_real' })).toThrowError(
+        expect.objectContaining({ code: 'TRUST_SIGNING_FAILED' }),
+      );
+    }
+    expect(createTrustedClientToken).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 
-  it('signs and pairs in one step for a tenant identity', () => {
-    const headers = inTenant('tenant-a', () =>
-      signHeaders({ email: 'a@b.com', userId: 'user_real' }),
-    );
-
-    expect(headers).toEqual({
-      'x-lobe-trust-client-id': 'client-id',
-      'x-lobe-trust-token': 'signed-token',
-    });
-  });
-
-  it('returns undefined where the token itself is undefined (synthetic user, trust off)', () => {
-    expect(signHeaders({ userId: 'eval_xyz' })).toBeUndefined();
+  it('still returns undefined where no token is produced (synthetic user, trust off)', () => {
+    expect(signToken({ userId: 'eval_xyz' })).toBeUndefined();
 
     appEnv.MARKET_TRUSTED_CLIENT_SECRET = undefined;
-    expect(signHeaders({ userId: 'user_real' })).toBeUndefined();
-  });
-
-  it('keeps the fail-closed errors of the token signer', () => {
-    expect(() => signHeaders({ userId: 'user_real' })).toThrowError(
-      expect.objectContaining({ code: 'TENANT_REQUIRED' }),
-    );
+    expect(signToken({ userId: 'user_real' })).toBeUndefined();
   });
 });

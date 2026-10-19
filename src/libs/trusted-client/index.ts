@@ -8,12 +8,7 @@ import {
 
 import { appEnv } from '@/envs/app';
 
-import {
-  isSyntheticTrustedClientUserId,
-  isTenantMarketMode,
-  TRUST_CLIENT_ID_HEADER,
-  TRUST_TOKEN_HEADER,
-} from './config';
+import { isSyntheticTrustedClientUserId, isTenantMarketMode } from './config';
 import { TrustedClientIdentityError } from './errors';
 
 export interface TrustedClientUserInfo {
@@ -62,8 +57,6 @@ export {
   isSyntheticTrustedClientUserId,
   isTenantMarketMode,
   isTrustedClientEnabled,
-  TRUST_CLIENT_ID_HEADER,
-  TRUST_TOKEN_HEADER,
 } from './config';
 export { TrustedClientIdentityError, type TrustedClientIdentityErrorCode } from './errors';
 export { getSessionUser } from './getSessionUser';
@@ -80,6 +73,13 @@ export {
  * SDK package is not touched.
  */
 export type TenantTrustedClientPayload = TrustedClientPayload & { tenantId?: string };
+
+/**
+ * The kid in front of the ciphertext is the client id in plaintext, so Market opens the token with
+ * that one client's secret. Printable ASCII (it travels in a header), at most the length of the
+ * `clientId` claim Market accepts.
+ */
+const MARKET_KID_PATTERN = /^[\u0021-\u007E]{1,100}$/;
 
 /** Market's `tenantId` claim: same character set as a path segment, at most 64 characters. */
 const MARKET_TENANT_ID_PATTERN = /^[\w.-]{1,64}$/;
@@ -107,10 +107,11 @@ const resolveTokenTenantId = (userInfo: TrustedClientUserInfo): string => {
 
 /**
  * Generate trusted client token for a specific user
- * This token includes encrypted user info and is used for Market API authentication
+ * This token includes encrypted user info and is used for Market API authentication. Its format is
+ * `<kid>.<base64 ciphertext>` with the client id as kid (see `__fixtures__/trust-token-kid.contract.json`).
  *
  * @param userInfo - User information (userId, email, name, tenantId)
- * @returns Encrypted token string, or undefined when no tenant is involved and
+ * @returns Token `<clientId>.<ciphertext>`, or undefined when no tenant is involved and
  *   trusted client is not configured (community / single-tenant deployments), or
  *   for a synthetic eval user
  * @throws {TrustedClientIdentityError} in tenant mode (a tenant scope is running,
@@ -172,7 +173,12 @@ export const generateTrustedClientToken = (userInfo: TrustedClientUserInfo): str
       tenantId,
     };
 
-    return createTrustedClientToken(signedPayload, MARKET_TRUSTED_CLIENT_SECRET);
+    if (!MARKET_KID_PATTERN.test(MARKET_TRUSTED_CLIENT_ID)) throw new Error('unusable client id');
+
+    // `<kid>.<ciphertext>`: the SDK (0.42) returns the bare ciphertext, so the kid is put in front
+    // here. Market requires the signed payload to carry the same `clientId`, which is what binds the
+    // plaintext kid to the token. TODO: drop the prefix once the SDK emits it.
+    return `${MARKET_TRUSTED_CLIENT_ID}.${createTrustedClientToken(signedPayload, MARKET_TRUSTED_CLIENT_SECRET)}`;
   } catch {
     // Neither the error nor its message is logged or chained: the signer's
     // messages can quote the secret or the payload.
@@ -196,39 +202,4 @@ export const getTrustedClientTokenForSession = async (): Promise<string | undefi
   }
 
   return generateTrustedClientToken(userInfo);
-};
-
-/**
- * The headers a Market request carries to authenticate with `token`: the token and the id of the
- * client that signed it. Every request that sets the trust token must go out with this pair
- * (spread it into the request headers) so Market resolves the secret by client instead of scanning
- * all tenants.
- *
- * @throws {TrustedClientIdentityError} `TRUST_NOT_CONFIGURED` when there is no client id: a token
- *   cannot have been signed without one, so this is a caller mixing tokens from elsewhere.
- */
-export const trustedClientHeaders = (token: string): Record<string, string> => {
-  const clientId = appEnv.MARKET_TRUSTED_CLIENT_ID;
-  if (!clientId) throw new TrustedClientIdentityError('TRUST_NOT_CONFIGURED');
-
-  return { [TRUST_CLIENT_ID_HEADER]: clientId, [TRUST_TOKEN_HEADER]: token };
-};
-
-/**
- * {@link generateTrustedClientToken} for callers that build request headers: the signed token with
- * its client id, or `undefined` exactly when no token is produced. Throws what the token signer throws.
- */
-export const generateTrustedClientHeaders = (
-  userInfo: TrustedClientUserInfo,
-): Record<string, string> | undefined => {
-  const token = generateTrustedClientToken(userInfo);
-  return token ? trustedClientHeaders(token) : undefined;
-};
-
-/** {@link getTrustedClientTokenForSession} for callers that build request headers. */
-export const getTrustedClientHeadersForSession = async (): Promise<
-  Record<string, string> | undefined
-> => {
-  const token = await getTrustedClientTokenForSession();
-  return token ? trustedClientHeaders(token) : undefined;
 };

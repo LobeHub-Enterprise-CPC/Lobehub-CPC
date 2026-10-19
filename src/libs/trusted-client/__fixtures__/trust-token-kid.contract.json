@@ -1,0 +1,16 @@
+{
+  "description": "Cross-repo contract fixture for the kid-prefixed trust token. Format: \"<kid>.<base64(IV[12]+AES-256-GCM ciphertext+tag[16])>\". kid is the plaintext clientId, must equal payload.clientId, and the AES key is sha256(secret) for the \"lobehub-market_tcs_\" secret format. The same file lives in market (src/libs/trusted-client/__tests__/fixtures) and lobehub-cpc (src/libs/trusted-client/__fixtures__). The secret is a public test value, not a credential.",
+  "issuedAt": 1792400000000,
+  "kid": "contract-fixture-biz",
+  "payload": {
+    "clientId": "contract-fixture-biz",
+    "email": "member@example.test",
+    "name": "Contract Member",
+    "nonce": "fixture0",
+    "tenantId": "0f8b1c52-6a3e-4c7d-9a41-2d5e7b9c3a10",
+    "timestamp": 1792400000000,
+    "userId": "user-0001"
+  },
+  "secret": "lobehub-market_tcs_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "token": "contract-fixture-biz.AAECAwQFBgcICQoLsASvWMEftxB/BxS5go+5RQIM4ZqSBaEuLEkV/RMpTM1V7TIkfMzDqS8hpxihrh3oIKUTVP4+Ul1X0UyYW605X7l1gk7/NImg6ikP5PSejMD6ZHPFdgktO5zwjxMMlwJD4DJax3yDTJ+wADbDy3/2sTzGmzIpli44WNEzEzqTsrmFNuws9z3u7LVeDE5RmmFWwfU9S2vo26IZw0iZp6gAJKJrxLt8BgsPHTX/WYUWuKJfNSom+VjX4JKty5i1o0IkQCV5yhoLPlxNgi2pYNVvy960mrN+Qb2RTvV/lvI8"
+}
