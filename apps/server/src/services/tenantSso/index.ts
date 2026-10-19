@@ -95,8 +95,8 @@ export const toTenantSsoProvider = (tenantId: string, row: Row): TenantSsoProvid
   if (protocol !== 'oidc' && protocol !== 'oauth2') return null;
   try {
     const config = protocol === 'oidc' ? row.oidcConfig : row.oauth2Config;
-    if (protocol === 'oauth2' && config?.preset !== 'custom') return null;
     if (!isPlainRecord(config)) return null;
+    if (protocol === 'oauth2' && config.preset !== 'custom') return null;
     const secrets = row.secretConfigEncrypted
       ? openTenantSsoSecrets(tenantId, {
           providerId: row.providerId,
