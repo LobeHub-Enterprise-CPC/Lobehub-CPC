@@ -34,36 +34,24 @@ const serverConfigScope = (s: ElectronState): string | null => {
 };
 
 /**
- * Returns the effective remote server URL based on storage mode:
- * - Cloud mode: returns the gateway entrypoint this build talks to — the same
- *   host the main process resolves as `OFFICIAL_CLOUD_SERVER`. Not
- *   `OFFICIAL_CLOUD_URL`: that constant is hardcoded to the upstream domain, so
- *   it would hand this deployment’s users links to lobehub.com.
- * - SelfHost mode: returns the configured remoteServerUrl
+ * The address this renderer builds every absolute link, asset URL and business request on.
+ * It follows the main process (`RemoteServerConfigCtr.getRemoteServerUrl`): the committed tenant
+ * entry (`https://host/t/acme`, or a custom-domain root), else the legacy self-hosted address.
+ * A cloud login without a committed tenant has none (`''`); the platform origin is never a
+ * fallback, because every business path on it fails with TENANT_REQUIRED.
  *
- * This is what every "copy link" action renders, so it has to name the same
- * host the app is actually signed in to. The main process resolves cloud mode
- * through `OFFICIAL_CLOUD_SERVER` (RemoteServerConfigCtr.getRemoteServerUrl),
- * and pinning `OFFICIAL_URL` here instead meant a build configured for another
- * deployment fetched its data from one host and handed the user links to
- * another — links that 404 for anyone who opens them.
+ * It is normalized (no trailing slash, query or hash) so callers can append an app path to it;
+ * mount a server-returned path with `resolveRemoteUrl` / `buildRemoteUrl` from
+ * `@lobechat/utils/remoteUrl` rather than `new URL(path, address)`, which drops the tenant path.
  *
- * Undefined outside the desktop renderer, where the fallback is the right
- * answer anyway: the web app reads `window.location.origin` and never gets here.
- *
- * This is the remote server's *address*, not its origin: a tenant address keeps
- * its `/t/{slug}` path (`https://host/t/acme`), a custom-domain root has none.
- * It is normalized (no trailing slash, query or hash) so callers can append an
- * app path to it; mount a server-returned path with `resolveRemoteUrl` /
- * `buildRemoteUrl` from `@lobechat/utils/remoteUrl` rather than `new URL(path,
- * address)`, which would drop the tenant path.
+ * Undefined outside the desktop renderer: the web app reads its own address from the tenant
+ * package and never gets here.
  */
-const remoteServerUrl = (s: ElectronState) =>
-  normalizeRemoteBaseUrl(
-    s.dataSyncConfig.storageMode === 'cloud'
-      ? process.env.OFFICIAL_CLOUD_SERVER || OFFICIAL_URL
-      : s.dataSyncConfig.remoteServerUrl || '',
-  );
+const remoteServerUrl = (s: ElectronState) => {
+  const { cloudTenant, remoteServerUrl, storageMode } = s.dataSyncConfig;
+  if (cloudTenant?.entryUrl) return normalizeRemoteBaseUrl(cloudTenant.entryUrl);
+  return storageMode === 'selfHost' ? normalizeRemoteBaseUrl(remoteServerUrl || '') : '';
+};
 
 /**
  * Returns the raw remoteServerUrl from config without transformation.
@@ -71,7 +59,13 @@ const remoteServerUrl = (s: ElectronState) =>
  */
 const rawRemoteServerUrl = (s: ElectronState) => s.dataSyncConfig.remoteServerUrl || '';
 
-const isOfficialServer = (s: ElectronState) => isOfficialCloudServer(remoteServerUrl(s));
+// Cloud mode is the build's official cloud, whatever tenant entry the login committed.
+const isOfficialServer = (s: ElectronState) =>
+  isOfficialCloudServer(
+    storageMode(s) === 'cloud'
+      ? process.env.OFFICIAL_CLOUD_SERVER || OFFICIAL_URL
+      : remoteServerUrl(s),
+  );
 
 export const electronSyncSelectors = {
   isOfficialServer,

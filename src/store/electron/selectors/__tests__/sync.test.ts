@@ -1,4 +1,3 @@
-import { OFFICIAL_URL } from '@lobechat/const';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { type ElectronState, initialState } from '../../initialState';
@@ -20,29 +19,52 @@ afterEach(() => {
 });
 
 describe('electronSyncSelectors.remoteServerUrl', () => {
-  // Regression: this is the origin every "copy link" action renders. It used to
-  // hardcode OFFICIAL_URL for cloud mode while the main process resolved the same
-  // mode through OFFICIAL_CLOUD_SERVER, so a build configured for another
-  // deployment pulled its data from one host and handed out links to another.
-  it('names the cloud this build actually talks to', () => {
-    process.env.OFFICIAL_CLOUD_SERVER = 'https://example.invalid';
-
-    expect(electronSyncSelectors.remoteServerUrl(stateWith({ storageMode: 'cloud' }))).toBe(
-      'https://example.invalid',
-    );
+  const cloudTenant = (
+    entryUrl: string,
+  ): NonNullable<ElectronState['dataSyncConfig']['cloudTenant']> => ({
+    display: { account: 'sub' },
+    entryUrl,
+    generation: 'login-A',
+    identity: { issuer: `${entryUrl}/oidc`, subject: 'sub', tenantId: 'A' },
   });
 
-  it('falls back to the official cloud when the build configures none', () => {
-    delete process.env.OFFICIAL_CLOUD_SERVER;
+  // Regression: the renderer used to return the platform root for every cloud login, while the
+  // main process talks to the committed tenant entry. Links, avatars and OAuth redirect URIs built
+  // from the platform root lose `/t/{slug}` and fail with TENANT_REQUIRED.
+  it('names the committed tenant entry in cloud mode, not the platform origin', () => {
+    process.env.OFFICIAL_CLOUD_SERVER = 'https://host';
 
-    expect(electronSyncSelectors.remoteServerUrl(stateWith({ storageMode: 'cloud' }))).toBe(
-      OFFICIAL_URL,
-    );
+    expect(
+      electronSyncSelectors.remoteServerUrl(
+        stateWith({ cloudTenant: cloudTenant('https://host/t/acme/'), storageMode: 'cloud' }),
+      ),
+    ).toBe('https://host/t/acme');
   });
 
-  it('prefers the self-hosted url over both', () => {
-    process.env.OFFICIAL_CLOUD_SERVER = 'https://example.invalid';
+  it('has no business address in cloud mode before a tenant is committed', () => {
+    process.env.OFFICIAL_CLOUD_SERVER = 'https://host';
 
+    expect(electronSyncSelectors.remoteServerUrl(stateWith({ storageMode: 'cloud' }))).toBe('');
+    expect(
+      electronSyncSelectors.remoteServerUrl(
+        stateWith({ remoteServerUrl: 'https://host', storageMode: 'cloud' }),
+      ),
+    ).toBe('');
+  });
+
+  it('prefers the committed tenant entry over a self-hosted platform address', () => {
+    expect(
+      electronSyncSelectors.remoteServerUrl(
+        stateWith({
+          cloudTenant: cloudTenant('https://host/t/acme'),
+          remoteServerUrl: 'https://host',
+          storageMode: 'selfHost',
+        }),
+      ),
+    ).toBe('https://host/t/acme');
+  });
+
+  it('uses the configured address for a legacy self-hosted login', () => {
     expect(
       electronSyncSelectors.remoteServerUrl(
         stateWith({ remoteServerUrl: 'https://self.hosted', storageMode: 'selfHost' }),
@@ -69,14 +91,6 @@ describe('electronSyncSelectors.remoteServerUrl', () => {
         stateWith({ remoteServerUrl: configured, storageMode: 'selfHost' }),
       ),
     ).toBe(expected);
-  });
-
-  it('keeps the tenant path of the cloud this build talks to', () => {
-    process.env.OFFICIAL_CLOUD_SERVER = 'https://cloud.example/t/acme/';
-
-    expect(electronSyncSelectors.remoteServerUrl(stateWith({ storageMode: 'cloud' }))).toBe(
-      'https://cloud.example/t/acme',
-    );
   });
 });
 
