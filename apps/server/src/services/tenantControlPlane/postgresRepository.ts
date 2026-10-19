@@ -1,11 +1,12 @@
 import type { PlatformDatabase } from '@lobechat/database/platform';
 import {
   tenantDirectory,
+  tenantLeaseBlocker,
   tenantLifecycle,
   tenantLifecycleInbox,
   tenantProvisionOperation,
-  tenantRuntimeClaim,
   tenantRuntimeExternalWork,
+  tenantRuntimeProcess,
 } from '@lobechat/database/platform';
 import { isSafeReadinessDiagnosticCode } from '@lobechat/database/tenant';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
@@ -140,9 +141,9 @@ const toLifecycle = (row: LifecycleRow): TenantLifecycleRecord => ({
 const createTx = (tx: Tx): ControlPlaneTx => ({
   tenantStopBlocker: async (tenantId) => {
     const claims = await tx
-      .select({ id: tenantRuntimeClaim.processId })
-      .from(tenantRuntimeClaim)
-      .where(eq(tenantRuntimeClaim.tenantId, tenantId))
+      .select({ id: tenantRuntimeProcess.processId })
+      .from(tenantRuntimeProcess)
+      .where(tenantLeaseBlocker(tenantId))
       .limit(1);
     const remote = await tx
       .select({ id: tenantRuntimeExternalWork.workId })

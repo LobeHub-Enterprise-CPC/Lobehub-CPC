@@ -54,6 +54,23 @@ const setup = () => {
 };
 
 describe('TenantRuntime.assertAdmitted', () => {
+  it('does not let a lookup started before lifecycle invalidation repopulate admission', async () => {
+    const { platform, runtime } = setup();
+    const old = runtime.assertAdmitted('t-1');
+    const refusal = expect(old).rejects.toMatchObject({ code: 'TENANT_UNAVAILABLE' });
+    await vi.waitFor(() => expect(platform.pending).toHaveLength(1));
+    runtime.invalidate('t-1');
+    platform.answer([activeRow]);
+    await refusal;
+    const next = runtime.assertAdmitted('t-1');
+    const frozen = expect(next).rejects.toMatchObject({ code: 'TENANT_FROZEN' });
+    await vi.waitFor(() => expect(platform.pending).toHaveLength(1));
+    platform.answer([
+      { ...activeRow, lifecycle: { ...activeRow.lifecycle, desiredState: 'frozen' } },
+    ]);
+    await frozen;
+  });
+
   it('admits on a read that answered within the admission TTL', async () => {
     const { platform, runtime } = setup();
     const admitted = runtime.assertAdmitted('t-1');

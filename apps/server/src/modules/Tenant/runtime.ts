@@ -49,6 +49,7 @@ type RouteEntry = TenantDirectoryEntry;
  */
 export class TenantRuntime {
   private readonly directory: TenantDirectoryRepository;
+  private readonly cacheGenerations = new Map<string, number>();
   /** Admission facts for re-checks of already admitted work, by tenant id. */
   private readonly byId = new Map<string, { entry: RouteEntry | null; fetchedAt: number }>();
   private readonly loadingById = new Map<
@@ -76,6 +77,8 @@ export class TenantRuntime {
 
   /** Drops cached routing facts and sessions for a tenant (lifecycle stage 1, rotation). */
   invalidate(tenantId: string) {
+    this.cacheGenerations.set(tenantId, (this.cacheGenerations.get(tenantId) ?? 0) + 1);
+    this.loadingById.delete(tenantId);
     this.directory.invalidate();
     this.byId.delete(tenantId);
     this.sessions.delete(tenantId);
@@ -101,11 +104,16 @@ export class TenantRuntime {
     if (!this.claims) throw new TenantGateError('TENANT_UNAVAILABLE');
     const release = await this.claims.enter(entry.directory.tenantId);
     try {
+      // Pin first, then read admission: a heartbeat cannot publish a drained generation
+      // while an older directory lookup is still waiting to register this request.
+      const admitted = await this.admissionEntry(entry.directory.tenantId, TENANT_ADMISSION_TTL_MS);
+      if (!admitted) throw new TenantGateError('TENANT_NOT_FOUND');
+      this.assertAvailable(admitted);
       return {
         release,
         scope: {
-          ...(await this.openScope(entry.directory)),
-          acceptedVersion: entry.lifecycle!.acceptedVersion,
+          ...(await this.openScope(admitted.directory)),
+          acceptedVersion: admitted.lifecycle!.acceptedVersion,
         },
       };
     } catch (error) {
@@ -179,7 +187,10 @@ export class TenantRuntime {
   /** One platform read of a tenant's admission facts; newer facts are never overwritten by older ones. */
   private loadEntry(tenantId: string) {
     const startedAt = this.now().getTime();
+    const generation = this.cacheGenerations.get(tenantId);
     const promise = this.directory.findById(tenantId).then((loaded) => {
+      if (generation !== this.cacheGenerations.get(tenantId))
+        throw new TenantGateError('TENANT_UNAVAILABLE');
       const current = this.byId.get(tenantId);
       if (!current || current.fetchedAt <= startedAt)
         this.byId.set(tenantId, { entry: loaded, fetchedAt: startedAt });
@@ -311,14 +322,13 @@ export class TenantRuntime {
     const { tenantId } = directory;
     const session = new TenantDatabaseSession({
       acquire: this.acquireFor(directory),
-      // Before connecting, facts within the admission TTL are enough to refuse
-      // early. After the drain lock is held they must be read afresh: a
-      // transaction that waited behind a drain must see the state the drain
-      // was started for, whatever this process cached before.
-      admit: async (stage) => {
+      // Live request pins prevent a stop receipt until work settles. Console
+      // events and heartbeat generations invalidate these bounded snapshots.
+      admit: async () => {
+        await this.claims?.assertValid();
         if (this.claims && !this.claims.isHeld(tenantId))
           throw new TenantGateError('TENANT_UNAVAILABLE');
-        await this.assertAdmitted(tenantId, stage === 'locked' ? 0 : TENANT_ADMISSION_TTL_MS);
+        await this.assertAdmitted(tenantId, TENANT_ADMISSION_TTL_MS);
       },
       schemaName: directory.schemaName,
       tenantId,

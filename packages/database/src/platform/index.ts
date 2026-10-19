@@ -1,6 +1,7 @@
 // Named re-exports for the CJS lexer (see `../tenant/index.ts`).
 export type { PlatformDatabase } from './db';
 export { getPlatformDB } from './db';
+export { tenantLeaseBlocker } from './processLease';
 export {
   tenantDirectory,
   tenantEndpointEvents,
@@ -9,7 +10,6 @@ export {
   tenantLifecycle,
   tenantLifecycleInbox,
   tenantProvisionOperation,
-  tenantRuntimeClaim,
   tenantRuntimeExternalWork,
   tenantRuntimeProcess,
 } from './schemas';

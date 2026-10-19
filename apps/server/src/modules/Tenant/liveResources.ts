@@ -79,8 +79,8 @@ const withTimeout = async <T>(run: () => T | Promise<T>, ms: number, label: stri
  * watching: while a tenant has resources here it is re-checked every
  * `intervalMs`, and a refusal, an error or a check slower than
  * `checkTimeoutMs` closes them;
- * the durable claim stays present until the actual work settles. A stalled
- * or unreachable process therefore prevents lifecycle completion.
+ * the in-memory pin stays present until the actual work settles. Its process
+ * reports a drained generation only then; crashed processes expire by lease.
  */
 export class TenantLiveResources {
   private readonly tenants = new Map<string, TenantEntry>();
@@ -143,7 +143,7 @@ export class TenantLiveResources {
     const done = this.completions.get(resource);
     if (!done) return;
     this.completions.delete(resource);
-    void done().catch((error) => log('claim release failed, durable claim retained: %O', error));
+    void done().catch((error) => log('in-flight completion failed: %O', error));
   }
 
   private entry(tenantId: string) {
@@ -212,6 +212,14 @@ export class TenantLiveResources {
       try {
         if (this.claims && !this.completions.has(resource))
           this.completions.set(resource, await this.claims.enter(tenantId));
+        // Pin before checking: a delayed watcher/resume must not reopen work
+        // after a heartbeat has acknowledged the stopped generation.
+        try {
+          await withTimeout(() => this.check(tenantId), this.checkTimeoutMs, 'tenant check');
+        } catch (error) {
+          this.complete(resource);
+          throw error;
+        }
         await withTimeout(() => resource.reopen?.(), this.actionTimeoutMs, 'reopen');
         if (entry.resources.has(resource)) entry.resources.set(resource, 'open');
       } catch (error) {

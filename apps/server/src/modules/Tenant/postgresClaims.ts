@@ -1,11 +1,7 @@
-import { randomUUID } from 'node:crypto';
-import { hostname } from 'node:os';
-
 import {
   getPlatformDB,
-  tenantDirectory,
+  tenantLeaseBlocker,
   tenantLifecycle,
-  tenantRuntimeClaim,
   tenantRuntimeExternalWork,
   tenantRuntimeProcess,
 } from '@lobechat/database/platform';
@@ -14,88 +10,71 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { LifecycleFailure } from '@/server/services/tenantControlPlane/contracts';
 
 import { TenantClaims } from './claims';
-import { TenantGateError } from './errors';
-import { readProcessIdentity } from './processIdentity';
+import { TENANT_PROCESS_LEASE_MS, TenantProcessLease } from './processLease';
+import { getTenantRuntime } from './runtime';
 
-const processId = randomUUID();
-const register = () =>
-  getPlatformDB()
-    .insert(tenantRuntimeProcess)
-    .values({
-      processId,
-      host: hostname(),
-      pid: process.pid,
-      ...readProcessIdentity(),
-    })
-    .onConflictDoNothing()
-    .then(() => undefined);
+let observedGenerations = new Map<string, string>();
 
-export const tenantClaims = new TenantClaims({
-  async acquire(tenantId, claimToken) {
-    await register();
-    await getPlatformDB().transaction(async (tx) => {
-      await tx.execute(
-        sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`lobehub:tenant-control:${tenantId}`}, 0))`,
-      );
-      const [owner] = await tx
-        .select()
-        .from(tenantRuntimeProcess)
-        .where(eq(tenantRuntimeProcess.processId, processId));
-      if (owner?.state !== 'running') throw new TenantGateError('TENANT_UNAVAILABLE');
-      const [row] = await tx
-        .select({ directory: tenantDirectory, lifecycle: tenantLifecycle })
-        .from(tenantDirectory)
-        .leftJoin(tenantLifecycle, eq(tenantDirectory.tenantId, tenantLifecycle.tenantId))
-        .where(eq(tenantDirectory.tenantId, tenantId));
-      if (!row) throw new TenantGateError('TENANT_NOT_READY');
-      // Read inside the claim transaction: an entry that is no longer active, or whose Console
-      // never activated, is an admission refusal exactly as the runtime's own check reports it.
-      if (row.directory.status !== 'active' || !row.lifecycle?.acceptedVersion)
-        throw new TenantGateError('TENANT_NOT_READY', undefined, { source: 'admission' });
-      const lifecycle = row.lifecycle;
-      if (lifecycle.desiredState === 'offline') throw new TenantGateError('TENANT_OFFLINE');
-      if (
-        lifecycle.desiredState === 'frozen' ||
-        lifecycle.freezeReasons.some((reason) => reason !== 'expired')
-      )
-        throw new TenantGateError('TENANT_FROZEN');
-      if (lifecycle.expiresAt && lifecycle.expiresAt.getTime() <= Date.now())
-        throw new TenantGateError('TENANT_EXPIRED');
+/** Each heartbeat observes Console's generations before invalidating local admission snapshots. */
+export const tenantProcessLease = new TenantProcessLease({
+  async renew(processId) {
+    const db = getPlatformDB();
+    await db.transaction(async (tx) => {
+      const lifecycles = await tx.select().from(tenantLifecycle);
+      const drainedGenerations: Record<string, number> = {};
+      const observed = new Map<string, string>();
+      for (const lifecycle of lifecycles) {
+        const fingerprint = JSON.stringify(lifecycle);
+        observed.set(lifecycle.tenantId, fingerprint);
+        if (observedGenerations.get(lifecycle.tenantId) !== fingerprint)
+          getTenantRuntime().invalidate(lifecycle.tenantId);
+        const stopped =
+          lifecycle.desiredState !== 'active' ||
+          lifecycle.freezeReasons.length > 0 ||
+          (lifecycle.expiresAt !== null && lifecycle.expiresAt.getTime() <= Date.now());
+        if (stopped && !tenantClaims.isHeld(lifecycle.tenantId))
+          drainedGenerations[lifecycle.tenantId] = lifecycle.acceptedVersion;
+      }
+      observedGenerations = observed;
       await tx
-        .insert(tenantRuntimeClaim)
-        .values({ tenantId, processId, claimToken, claimedVersion: lifecycle.acceptedVersion })
+        .insert(tenantRuntimeProcess)
+        .values({
+          processId,
+          drainedGenerations,
+          heartbeatAt: sql`statement_timestamp()`,
+          leaseExpiresAt: sql`statement_timestamp() + ${TENANT_PROCESS_LEASE_MS} * interval '1 millisecond'`,
+        })
         .onConflictDoUpdate({
-          target: [tenantRuntimeClaim.tenantId, tenantRuntimeClaim.processId],
-          set: { claimToken, claimedVersion: lifecycle.acceptedVersion, claimedAt: sql`now()` },
+          target: tenantRuntimeProcess.processId,
+          set: {
+            drainedGenerations,
+            heartbeatAt: sql`statement_timestamp()`,
+            leaseExpiresAt: sql`statement_timestamp() + ${TENANT_PROCESS_LEASE_MS} * interval '1 millisecond'`,
+          },
         });
+      await tx
+        .delete(tenantRuntimeProcess)
+        .where(sql`${tenantRuntimeProcess.leaseExpiresAt} <= statement_timestamp()`);
     });
   },
-  async release(tenantId, claimToken) {
+  async remove(processId) {
     await getPlatformDB()
-      .delete(tenantRuntimeClaim)
-      .where(
-        and(
-          eq(tenantRuntimeClaim.tenantId, tenantId),
-          eq(tenantRuntimeClaim.processId, processId),
-          eq(tenantRuntimeClaim.claimToken, claimToken),
-        ),
-      );
+      .delete(tenantRuntimeProcess)
+      .where(eq(tenantRuntimeProcess.processId, processId));
   },
 });
 
+export const tenantClaims = new TenantClaims(
+  () => tenantProcessLease.ensure(),
+  () => tenantProcessLease.assertValid(),
+);
+
+/** Resource watchers check local lease authority; the timer alone renews it. */
 export const heartbeatTenantProcess = async () => {
-  await register();
-  const rows = await getPlatformDB()
-    .update(tenantRuntimeProcess)
-    .set({ heartbeatAt: sql`now()` })
-    .where(
-      and(eq(tenantRuntimeProcess.processId, processId), eq(tenantRuntimeProcess.state, 'running')),
-    )
-    .returning();
-  if (rows.length !== 1) throw new TenantGateError('TENANT_UNAVAILABLE');
+  await tenantProcessLease.ensure();
 };
 
-/** No TTL can turn absence of acknowledgement into success. */
+/** Expired processes cannot block confirmation; every live process must acknowledge this generation. */
 export const waitForTenantClaims = async (
   tenantId: string,
   timeoutMs = 60_000,
@@ -104,9 +83,9 @@ export const waitForTenantClaims = async (
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const remaining = await db
-      .select({ processId: tenantRuntimeClaim.processId })
-      .from(tenantRuntimeClaim)
-      .where(eq(tenantRuntimeClaim.tenantId, tenantId))
+      .select({ processId: tenantRuntimeProcess.processId })
+      .from(tenantRuntimeProcess)
+      .where(tenantLeaseBlocker(tenantId))
       .limit(1);
     const remote = await db
       .select({ id: tenantRuntimeExternalWork.workId })

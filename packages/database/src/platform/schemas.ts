@@ -144,42 +144,17 @@ export const tenantProvisionOperation = pgTable(
   ],
 );
 
-/** Durable stop receipts. Missing heartbeats never discharge a tenant claim. */
+/** One expiring lease per process. A missing generation report is never a drain receipt. */
 export const tenantRuntimeProcess = pgTable('tenant_runtime_process', {
   processId: text('process_id').primaryKey(),
-  host: text('host').notNull(),
-  hostId: text('host_id'),
-  bootId: text('boot_id'),
-  pidNs: text('pid_ns'),
-  pidStartTicks: text('pid_start_ticks'),
-  pid: integer('pid').notNull(),
   startedAt: timestamptz('started_at').notNull().defaultNow(),
   heartbeatAt: timestamptz('heartbeat_at').notNull().defaultNow(),
-  state: text('state').$type<'running' | 'stopped' | 'retired'>().notNull().default('running'),
-  retiredAt: timestamptz('retired_at'),
-  retiredEvidence: jsonb('retired_evidence').$type<Record<string, unknown>>(),
+  leaseExpiresAt: timestamptz('lease_expires_at').notNull().defaultNow(),
+  drainedGenerations: jsonb('drained_generations')
+    .$type<Record<string, number>>()
+    .notNull()
+    .default({}),
 });
-
-export const tenantRuntimeClaim = pgTable(
-  'tenant_runtime_claim',
-  {
-    tenantId: text('tenant_id').notNull(),
-    processId: text('process_id')
-      .notNull()
-      .references(() => tenantRuntimeProcess.processId, { onDelete: 'restrict' }),
-    claimToken: text('claim_token').notNull(),
-    claimedVersion: integer('claimed_version').notNull(),
-    claimedAt: timestamptz('claimed_at').notNull().defaultNow(),
-    stopVersion: integer('stop_version'),
-    stopError: text('stop_error'),
-    stopErrorAt: timestamptz('stop_error_at'),
-    openCount: integer('open_count').notNull().default(0),
-  },
-  (t) => [
-    primaryKey({ columns: [t.tenantId, t.processId] }),
-    check('tenant_runtime_claim_count_nonnegative', sql`${t.openCount} >= 0`),
-  ],
-);
 
 /** Remote jobs outlive their originating process; retirement must never erase them. */
 export const tenantRuntimeExternalWork = pgTable(
