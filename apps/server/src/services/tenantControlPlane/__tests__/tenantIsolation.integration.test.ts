@@ -553,20 +553,19 @@ suite('tenant isolation on PostgreSQL', () => {
     await expect(verify()).resolves.toBeUndefined();
   });
 
-  it('expires readiness verification after five seconds', async () => {
+  it('keeps readiness evidence per version and re-verifies after invalidation', async () => {
     const tenant = TENANTS[0];
     const { schemaName } = tenantDbNames(tenant.id);
     let now = Date.now();
-    const freshRuntime = testRuntime(
-      () => platformDB,
-      new TenantPoolManager({ maxPools: 2 }),
-      () => new Date(now),
-    );
-    await admitScope(freshRuntime, tenant.slug);
+    const clock = () => new Date(now);
+    const fresh = testRuntime(() => platformDB, new TenantPoolManager({ maxPools: 2 }), clock);
+    await admitScope(fresh, tenant.slug);
     await admin.query(`ALTER TABLE "${schemaName}".users RENAME TO users_saved`);
-    now += TENANT_ADMISSION_TTL_MS + 1;
     try {
-      await expect(admitScope(freshRuntime, tenant.slug)).rejects.toMatchObject({
+      now += TENANT_ADMISSION_TTL_MS + 1; // evidence is per version, never clock-based
+      await expect(admitScope(fresh, tenant.slug)).resolves.toBeDefined();
+      fresh.invalidate(tenant.id);
+      await expect(admitScope(fresh, tenant.slug)).rejects.toMatchObject({
         code: 'TENANT_NOT_READY',
       });
     } finally {

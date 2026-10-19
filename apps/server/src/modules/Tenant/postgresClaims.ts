@@ -7,9 +7,8 @@ import {
 } from '@lobechat/database/platform';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 
-import { LifecycleFailure } from '@/server/services/tenantControlPlane/contracts';
-
 import { TenantClaims } from './claims';
+import { LifecycleFailure } from './lifecycleFailure';
 import { TENANT_PROCESS_LEASE_MS, TenantProcessLease } from './processLease';
 import { getTenantRuntime } from './runtime';
 

@@ -19,10 +19,14 @@ the same database verification:
 - Check expected business tables and columns exist, their objects belong to the owner,
   and the runtime role has the required business DML and sequence privileges.
 
-Request admission caches successful verification for at most five seconds, keyed by tenant,
-connection version, credential bundle version and schema version. The control-plane readiness
-endpoint always verifies the current connection. Maintenance uses the same verification
-without imposing active-tenant admission, so frozen tenants can still be reconciled.
+Request admission keeps a successful verification, keyed by tenant, connection version,
+credential bundle version and schema version, until one of those changes or a lifecycle event or
+rotation invalidates the tenant. It is not re-run on a timer, so a request never repeats the
+catalog scan; a first verification that takes longer than the five-second admission bound is
+refused. Lifecycle admission facts (state, expiry) are still re-read at most every five seconds.
+The control-plane readiness endpoint always verifies the current connection, which is also the way
+to check for grants or objects changed outside the control plane. Maintenance uses the same
+verification without imposing active-tenant admission, so frozen tenants can still be reconciled.
 
 ## Console orchestration contract
 

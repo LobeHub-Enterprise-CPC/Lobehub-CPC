@@ -11,19 +11,20 @@ import {
 } from '@lobechat/database/tenant';
 import debug from 'debug';
 import { sql } from 'drizzle-orm';
+import { LRUCache } from 'lru-cache';
 
 import { observeBorrowedClientErrors } from '@/database/tenant/session';
-import { openDirectoryData } from '@/server/crypto/tenantKeys';
-import { verifyRuntimeTenantDatabase } from '@/server/services/tenantControlPlane/postgresExecutor';
-import { directorySecretAad } from '@/server/services/tenantControlPlane/postgresRepository';
-import { effectiveTenantState } from '@/server/services/tenantControlPlane/service';
 
 import type { TenantClaims } from './claims';
+import { connectionFromDirectory } from './directoryConnection';
 import type { TenantDirectoryEntry } from './directoryRepository';
 import { TenantDirectoryRepository } from './directoryRepository';
 import { loadTenantPublicEndpoint } from './endpoints';
 import { TenantGateError } from './errors';
+import { effectiveTenantState } from './lifecycleState';
 import { tenantClaims } from './postgresClaims';
+import { SnapshotCache } from './snapshotCache';
+import { verifyRuntimeTenantDatabase } from './verifyDatabase';
 
 const log = debug('lobe-server:tenant');
 
@@ -49,21 +50,11 @@ type RouteEntry = TenantDirectoryEntry;
  */
 export class TenantRuntime {
   private readonly directory: TenantDirectoryRepository;
-  private readonly cacheGenerations = new Map<string, number>();
-  /** Admission facts for re-checks of already admitted work, by tenant id. */
-  private readonly byId = new Map<string, { entry: RouteEntry | null; fetchedAt: number }>();
-  private readonly loadingById = new Map<
-    string,
-    { promise: Promise<RouteEntry | null>; startedAt: number }
-  >();
-  /** Strict (maxAge 0) reads in flight, and the one read queued behind each. */
-  private readonly strictReads = new Map<
-    string,
-    { queued: Promise<RouteEntry | null> | null; running: Promise<RouteEntry | null> | null }
-  >();
-  private readonly sessions = new Map<string, { key: string; session: TenantDatabaseSession }>();
-  /** Database verification expires with the same bound as admission facts. */
-  private readonly verified = new Map<string, number>();
+  private readonly byId: SnapshotCache<RouteEntry>;
+  private readonly sessions = new LRUCache<string, { key: string; session: TenantDatabaseSession }>(
+    { max: 1000 },
+  );
+  private readonly verified = new LRUCache<string, Promise<void>>({ max: 1000 });
 
   constructor(
     private readonly platform: () => PlatformDatabase,
@@ -73,14 +64,16 @@ export class TenantRuntime {
     private readonly verifyDatabase = verifyRuntimeTenantDatabase,
   ) {
     this.directory = new TenantDirectoryRepository(platform, () => this.now().getTime());
+    this.byId = new SnapshotCache(
+      (id) => this.directory.findById(id),
+      () => this.now().getTime(),
+    );
   }
 
   /** Drops cached routing facts and sessions for a tenant (lifecycle stage 1, rotation). */
   invalidate(tenantId: string) {
-    this.cacheGenerations.set(tenantId, (this.cacheGenerations.get(tenantId) ?? 0) + 1);
-    this.loadingById.delete(tenantId);
     this.directory.invalidate();
-    this.byId.delete(tenantId);
+    this.byId.invalidateKey(tenantId);
     this.sessions.delete(tenantId);
     for (const key of this.verified.keys())
       if (key.startsWith(`${tenantId}|`)) this.verified.delete(key);
@@ -167,76 +160,11 @@ export class TenantRuntime {
 
   /** Admission facts at most `maxAgeMs` old (see {@link assertAdmitted}). */
   private async admissionEntry(tenantId: string, maxAgeMs: number): Promise<RouteEntry | null> {
-    if (maxAgeMs <= 0) return this.readStrict(tenantId);
-    const cached = this.byId.get(tenantId);
-    if (cached && this.isFresh(cached.fetchedAt, maxAgeMs)) return cached.entry;
-    let loading = this.loadingById.get(tenantId);
-    if (!loading || !this.isFresh(loading.startedAt, maxAgeMs)) {
-      const current = this.loadEntry(tenantId);
-      void current.promise
-        .catch(() => undefined)
-        .finally(() => {
-          if (this.loadingById.get(tenantId) === current) this.loadingById.delete(tenantId);
-        });
-      this.loadingById.set(tenantId, current);
-      loading = current;
+    try {
+      return await (maxAgeMs <= 0 ? this.byId.getStrict(tenantId) : this.byId.get(tenantId));
+    } catch (cause) {
+      throw new TenantGateError('TENANT_UNAVAILABLE', undefined, { cause });
     }
-    return loading.promise;
-  }
-
-  /** One platform read of a tenant's admission facts; newer facts are never overwritten by older ones. */
-  private loadEntry(tenantId: string) {
-    const startedAt = this.now().getTime();
-    const generation = this.cacheGenerations.get(tenantId);
-    const promise = this.directory.findById(tenantId).then((loaded) => {
-      if (generation !== this.cacheGenerations.get(tenantId))
-        throw new TenantGateError('TENANT_UNAVAILABLE');
-      const current = this.byId.get(tenantId);
-      if (!current || current.fetchedAt <= startedAt)
-        this.byId.set(tenantId, { entry: loaded, fetchedAt: startedAt });
-      return loaded;
-    });
-    return { promise, startedAt };
-  }
-
-  /**
-   * A read that starts after this call, shared among the callers that arrive
-   * while another is running: they wait for it, then all use one next read.
-   * Strictness is kept (nobody gets an answer from a read that began before
-   * their call) while a burst of transactions costs two platform reads at most
-   * instead of one each.
-   */
-  private readStrict(tenantId: string): Promise<RouteEntry | null> {
-    let slot = this.strictReads.get(tenantId);
-    if (!slot) {
-      slot = { queued: null, running: null };
-      this.strictReads.set(tenantId, slot);
-    }
-    if (slot.queued) return slot.queued;
-    if (!slot.running) return this.startStrictRead(tenantId, slot);
-
-    const settled = () => undefined;
-    const queued = slot.running.then(settled, settled).then(() => {
-      slot.queued = null;
-      return this.startStrictRead(tenantId, slot);
-    });
-    slot.queued = queued;
-    return queued;
-  }
-
-  private startStrictRead(
-    tenantId: string,
-    slot: { queued: Promise<RouteEntry | null> | null; running: Promise<RouteEntry | null> | null },
-  ) {
-    const { promise } = this.loadEntry(tenantId);
-    slot.running = promise;
-    const clear = () => {
-      if (slot.running === promise) slot.running = null;
-      if (!slot.running && !slot.queued && this.strictReads.get(tenantId) === slot)
-        this.strictReads.delete(tenantId);
-    };
-    promise.then(clear, clear);
-    return promise;
   }
 
   /** Tenants a cron should visit (FR-AS-02): registered and currently admitted. */
@@ -297,10 +225,6 @@ export class TenantRuntime {
     }
   }
 
-  private isFresh(fetchedAt: number, maxAgeMs: number) {
-    return this.now().getTime() - fetchedAt < maxAgeMs;
-  }
-
   private sessionFor(directory: DirectoryRow): TenantDatabaseSession {
     const names = tenantDbNames(directory.tenantId);
     if (
@@ -315,7 +239,7 @@ export class TenantRuntime {
         cause: new TenantDatabaseError('TENANT_NOT_READY', 'schema-version-incompatible'),
       });
 
-    const key = `${directory.connectionVersion}|${directory.credentialBundleVersion}`;
+    const key = `${directory.connectionVersion}|${directory.credentialBundleVersion}|${directory.schemaVersion}`;
     const cached = this.sessions.get(directory.tenantId);
     if (cached?.key === key) return cached.session;
 
@@ -339,31 +263,15 @@ export class TenantRuntime {
 
   /** Pool lease factory over the tenant's runtime credential. */
   private acquireFor(directory: DirectoryRow) {
-    let password: string;
+    let connection: ReturnType<typeof connectionFromDirectory>;
     try {
-      password = openDirectoryData(
-        directory.runtimeSecret,
-        directorySecretAad(directory.tenantId, directory.credentialBundleVersion, 'runtime'),
-      );
+      connection = connectionFromDirectory(directory);
     } catch (cause) {
       throw new TenantGateError('TENANT_NOT_READY', undefined, {
         cause: new TenantDatabaseError('TENANT_NOT_READY', 'decrypt-failed', { cause }),
       });
     }
 
-    const connection = {
-      database: directory.database,
-      host: directory.host,
-      password,
-      port: directory.port,
-      ssl: directory.tls.enabled
-        ? {
-            rejectUnauthorized: directory.tls.rejectUnauthorized,
-            ...(directory.tls.ca && { ca: directory.tls.ca }),
-          }
-        : false,
-      user: directory.runtimeUsername,
-    };
     return () =>
       this.pools.acquire({
         connection,
@@ -378,30 +286,40 @@ export class TenantRuntime {
   private async openScope(directory: DirectoryRow): Promise<Omit<TenantScope, 'acceptedVersion'>> {
     const session = this.sessionFor(directory);
     const verifiedKey = `${directory.tenantId}|${directory.connectionVersion}|${directory.credentialBundleVersion}|${directory.schemaVersion}`;
-    const checkedAt = this.verified.get(verifiedKey);
-    if (checkedAt === undefined || !this.isFresh(checkedAt, TENANT_ADMISSION_TTL_MS)) {
-      const startedAt = this.now().getTime();
-      const lease = this.acquireFor(directory)();
-      try {
-        const client = await lease.pool.connect();
-        const observation = observeBorrowedClientErrors(client);
+    let verification = this.verified.get(verifiedKey);
+    if (!verification) {
+      verification = (async () => {
+        const startedAt = this.now().getTime();
+        const lease = this.acquireFor(directory)();
         try {
-          await this.verifyDatabase(client, {
-            schemaName: directory.schemaName,
-            tenantId: directory.tenantId,
-          });
+          const client = await lease.pool.connect();
+          const observation = observeBorrowedClientErrors(client);
+          try {
+            await this.verifyDatabase(client, {
+              schemaName: directory.schemaName,
+              tenantId: directory.tenantId,
+            });
+          } finally {
+            observation.release();
+          }
+        } catch (cause) {
+          log('tenant database verification failed for %s', directory.tenantId);
+          throw new TenantGateError('TENANT_NOT_READY', undefined, { cause });
         } finally {
-          observation.release();
+          lease.release();
         }
-      } catch (cause) {
-        log('tenant database verification failed for %s', directory.tenantId);
-        throw new TenantGateError('TENANT_NOT_READY', undefined, { cause });
-      } finally {
-        lease.release();
-      }
-      if (!this.isFresh(startedAt, TENANT_ADMISSION_TTL_MS))
-        throw new TenantGateError('TENANT_UNAVAILABLE');
-      this.verified.set(verifiedKey, startedAt);
+        // A first verification must not let its original admission outlive the
+        // lifecycle propagation bound. Successful evidence itself is versioned.
+        if (this.now().getTime() - startedAt >= TENANT_ADMISSION_TTL_MS)
+          throw new TenantGateError('TENANT_UNAVAILABLE');
+      })();
+      this.verified.set(verifiedKey, verification);
+    }
+    try {
+      await verification;
+    } catch (error) {
+      if (this.verified.get(verifiedKey) === verification) this.verified.delete(verifiedKey);
+      throw error;
     }
     const endpoint = await loadTenantPublicEndpoint(directory.tenantId, this.platform()).catch(
       (cause) => {

@@ -7,6 +7,8 @@ import {
   TenantReadinessError,
 } from '@lobechat/database/tenant';
 
+import { effectiveTenantState } from '@/server/modules/Tenant/lifecycleState';
+
 import {
   ControlPlaneError,
   type DatasourceBundle,
@@ -14,7 +16,6 @@ import {
   type DatasourceReadinessResult,
   type DatasourceRequest,
   type DatasourceResult,
-  type FreezeReason,
   LifecycleFailure,
   type LifecycleFailureCode,
   type LifecycleRequest,
@@ -23,7 +24,6 @@ import {
   type ProvisionResult,
   type SafeErrorCode,
   type TenantOverview,
-  type TenantState,
 } from './contracts';
 import { redactDatasourceBundle, validateDatasourceBundle } from './datasource';
 import {
@@ -35,6 +35,8 @@ import {
   type ProvisionStep,
   type TenantLifecycleRecord,
 } from './repository';
+
+export { effectiveTenantState } from '@/server/modules/Tenant/lifecycleState';
 
 /**
  * Receipt and query semantics of the LobeHub control-plane endpoints
@@ -64,23 +66,6 @@ export const hashInput = (value: unknown): string => {
   return createHash('sha256')
     .update(JSON.stringify(canonical(value)))
     .digest('hex');
-};
-
-/**
- * offline > frozen > active. Expiry is evaluated against `now` on every call,
- * so a tenant locks at `expiresAt` even if Console's `expired` event is late.
- */
-export const effectiveTenantState = (
-  lifecycle: Pick<TenantLifecycleRecord, 'desiredState' | 'expiresAt' | 'freezeReasons'>,
-  now: Date,
-): { reasons: FreezeReason[]; state: TenantState } => {
-  const reasons: FreezeReason[] = lifecycle.freezeReasons.filter((reason) => reason !== 'expired');
-  if (lifecycle.expiresAt && Date.parse(lifecycle.expiresAt) <= now.getTime())
-    reasons.push('expired');
-  if (lifecycle.desiredState === 'offline') return { reasons, state: 'offline' };
-  if (lifecycle.desiredState === 'frozen' || reasons.length > 0)
-    return { reasons, state: 'frozen' };
-  return { reasons, state: 'active' };
 };
 
 /** The side effects a lifecycle change needs, in order (FR-CP-06 execution). */

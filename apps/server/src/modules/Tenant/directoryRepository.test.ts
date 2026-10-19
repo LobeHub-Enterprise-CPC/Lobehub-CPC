@@ -18,6 +18,22 @@ const setup = () => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('tenant directory snapshots', () => {
+  it('caches unregistered slugs briefly and invalidates negative entries', async () => {
+    let now = performance.now();
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const { read, repository } = setup();
+    read.mockResolvedValue([]);
+    expect(await repository.findBySlug('missing')).toBeNull();
+    expect(await repository.findBySlug('missing')).toBeNull();
+    expect(read).toHaveBeenCalledTimes(1);
+    now += 5001;
+    expect(await repository.findBySlug('missing')).toBeNull();
+    expect(read).toHaveBeenCalledTimes(2);
+    repository.invalidate();
+    read.mockResolvedValue([active]);
+    expect((await repository.findBySlug('missing'))?.directory.tenantId).toBe('tenant-acme');
+  });
+
   it('shares concurrent lookups while keeping different tenant slugs separate', async () => {
     const { read, repository } = setup();
     const other = {

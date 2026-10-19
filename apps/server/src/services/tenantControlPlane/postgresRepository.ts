@@ -12,6 +12,7 @@ import { isSafeReadinessDiagnosticCode } from '@lobechat/database/tenant';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { openDirectoryData, sealDirectoryData } from '@/server/crypto/tenantKeys';
+import { directorySecretAad } from '@/server/modules/Tenant/directorySecrets';
 
 import {
   ControlPlaneError,
@@ -29,6 +30,8 @@ import type {
   TenantLifecycleRecord,
 } from './repository';
 
+export { directorySecretAad } from '@/server/modules/Tenant/directorySecrets';
+
 /**
  * The control plane's state in the platform database (spec FR-CP-09).
  *
@@ -39,12 +42,6 @@ import type {
  */
 
 type Tx = Parameters<Parameters<PlatformDatabase['transaction']>[0]>[0];
-
-export const directorySecretAad = (
-  tenantId: string,
-  credentialBundleVersion: number,
-  role: 'owner' | 'runtime',
-) => `${tenantId}|lobehub|${credentialBundleVersion}|${role}`;
 
 const pendingBundleAad = (tenantId: string, operationId: string) =>
   `${tenantId}|lobehub|operation|${operationId}`;

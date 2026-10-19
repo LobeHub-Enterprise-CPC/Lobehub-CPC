@@ -71,6 +71,25 @@ describe('TenantRuntime.assertAdmitted', () => {
     await frozen;
   });
 
+  it("keeps other tenants' admission snapshots when one tenant is invalidated", async () => {
+    const { platform, runtime } = setup();
+    for (const id of ['t-1', 't-2']) {
+      const admitted = runtime.assertAdmitted(id);
+      await vi.waitFor(() => expect(platform.pending).toHaveLength(1));
+      platform.answer([{ ...activeRow, directory: { ...activeRow.directory, tenantId: id } }]);
+      await admitted;
+    }
+    expect(platform.select).toHaveBeenCalledTimes(2);
+    runtime.invalidate('t-1');
+    await expect(runtime.assertAdmitted('t-2')).resolves.toBeUndefined();
+    expect(platform.select).toHaveBeenCalledTimes(2);
+    const reloaded = runtime.assertAdmitted('t-1');
+    await vi.waitFor(() => expect(platform.pending).toHaveLength(1));
+    platform.answer([activeRow]);
+    await reloaded;
+    expect(platform.select).toHaveBeenCalledTimes(3);
+  });
+
   it('admits on a read that answered within the admission TTL', async () => {
     const { platform, runtime } = setup();
     const admitted = runtime.assertAdmitted('t-1');

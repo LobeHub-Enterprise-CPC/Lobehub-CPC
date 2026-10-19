@@ -1,4 +1,5 @@
 import { requireTenantScope } from '@lobechat/database/tenant';
+import { LRUCache } from 'lru-cache';
 
 import { serverDB } from '@/database/core/db-adaptor';
 import { authEnv } from '@/envs/auth';
@@ -6,7 +7,7 @@ import { createOIDCProvider, type OIDCProvider } from '@/libs/oidc-provider/prov
 
 // Issuers, route paths and cookies are tenant-specific. The database proxy
 // resolves each operation from the request's tenant scope.
-const providers = new Map<string, Promise<OIDCProvider>>();
+const providers = new LRUCache<string, Promise<OIDCProvider>>({ max: 1000 });
 
 export const getOIDCProvider = async (): Promise<OIDCProvider> => {
   if (!authEnv.ENABLE_OIDC) throw new Error('OIDC is not enabled. Set ENABLE_OIDC=1 to enable it.');
@@ -17,7 +18,7 @@ export const getOIDCProvider = async (): Promise<OIDCProvider> => {
     provider = createOIDCProvider(serverDB, { endpoint, slug, tenantId });
     providers.set(key, provider);
     void provider.catch((error) => {
-      providers.delete(key);
+      if (providers.get(key) === provider) providers.delete(key);
       console.error('[OIDC] Provider initialization failed:', error);
     });
   }

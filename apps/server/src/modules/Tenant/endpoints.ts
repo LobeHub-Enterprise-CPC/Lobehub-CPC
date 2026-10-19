@@ -7,9 +7,9 @@ import {
 import { eq } from 'drizzle-orm';
 
 import { appEnv } from '@/envs/app';
-import { TenantEndpointsService } from '@/server/services/tenantControlPlane/endpoints';
 
 import { EndpointRoutingCache } from './endpointCache';
+import { TenantEndpointsService } from './endpointService';
 import { TenantGateError } from './errors';
 
 export const getTenantEndpoints = () => new TenantEndpointsService(getPlatformDB());

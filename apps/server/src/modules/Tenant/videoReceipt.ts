@@ -10,9 +10,8 @@ import {
 import { ModelRuntime } from '@lobechat/model-runtime';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 
-import { effectiveTenantState } from '@/server/services/tenantControlPlane/service';
-
 import { routedTenantSlug } from './gate';
+import { effectiveTenantState } from './lifecycleState';
 
 /** Authenticated receipt ingress only. Never opens the tenant database or resumes business work. */
 export const receiveVideoReceipt = async (request: Request): Promise<Response | undefined> => {

@@ -12,6 +12,8 @@ import {
 } from '@lobechat/database/tenant';
 import { Client, type ClientConfig } from 'pg';
 
+import { tenantPgConnection } from '@/server/modules/Tenant/directoryConnection';
+
 import {
   ACCOUNT_LOOKUP_ROLE,
   requireLookupRole,
@@ -44,17 +46,7 @@ export const bundleClientConfig = (
   const credential = role === 'owner' ? bundle.schemaOwner : bundle.runtimeCredential;
   return {
     connectionTimeoutMillis: 10_000,
-    database: bundle.database,
-    host: bundle.host,
-    password: credential.password,
-    port: bundle.port,
-    ssl: bundle.tls.enabled
-      ? {
-          rejectUnauthorized: bundle.tls.rejectUnauthorized,
-          ...(bundle.tls.ca && { ca: bundle.tls.ca }),
-        }
-      : false,
-    user: credential.username,
+    ...tenantPgConnection(bundle, credential),
   };
 };
 
@@ -303,6 +295,3 @@ export class PostgresTenantDatabaseExecutor implements TenantDatabaseExecutor {
     );
   }
 }
-
-/** Uses the same registered distribution chains as provisioning. */
-export const verifyRuntimeTenantDatabase = verifyTenantRuntime;

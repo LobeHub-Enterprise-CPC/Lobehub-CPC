@@ -23,10 +23,10 @@ import { MarketService } from '@/server/services/market';
 import { MarketSandboxProvider } from '@/server/services/sandbox/providers/market';
 import { OnlyboxesSandboxProvider } from '@/server/services/sandbox/providers/onlyboxes';
 import type { SandboxProvider, SandboxServiceOptions } from '@/server/services/sandbox/types';
-import { verifyRuntimeTenantDatabase } from '@/server/services/tenantControlPlane/postgresExecutor';
-import { directorySecretAad } from '@/server/services/tenantControlPlane/postgresRepository';
 
+import { connectionFromDirectory } from './directoryConnection';
 import { loadTenantPublicEndpoint } from './endpoints';
+import { verifyRuntimeTenantDatabase } from './verifyDatabase';
 
 type Work = typeof tenantRuntimeExternalWork.$inferSelect;
 
@@ -53,20 +53,7 @@ async function withTenantReadScope<T>(
   )
     throw new Error('TENANT_DIRECTORY_MISMATCH');
   const pool = new Pool({
-    host: directory.host,
-    port: directory.port,
-    database: directory.database,
-    user: directory.runtimeUsername,
-    password: openDirectoryData(
-      directory.runtimeSecret,
-      directorySecretAad(tenantId, directory.credentialBundleVersion, 'runtime'),
-    ),
-    ssl: directory.tls.enabled
-      ? {
-          rejectUnauthorized: directory.tls.rejectUnauthorized,
-          ...(directory.tls.ca && { ca: directory.tls.ca }),
-        }
-      : false,
+    ...connectionFromDirectory(directory),
     options: '-c default_transaction_read_only=on',
     max: 1,
     connectionTimeoutMillis: 5000,

@@ -33,7 +33,7 @@ vi.mock('pg', () => ({
     end = async () => {};
   },
 }));
-vi.mock('@/server/services/tenantControlPlane/postgresExecutor', () => ({
+vi.mock('@/server/modules/Tenant/verifyDatabase', () => ({
   verifyRuntimeTenantDatabase: async () => {},
 }));
 vi.mock('../endpoints', () => ({ loadTenantPublicEndpoint: async () => ({}) }));
