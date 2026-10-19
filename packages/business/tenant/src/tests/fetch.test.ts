@@ -13,16 +13,23 @@ describe('tenantRequestUrl', () => {
     ['/api/auth/get-session', '/t/acme/api/auth/get-session'],
     ['/webapi/chat/openai', '/t/acme/webapi/chat/openai'],
     ['https://app.example.com/api/auth/sign-in', 'https://app.example.com/t/acme/api/auth/sign-in'],
+    ['/f/file-1', '/t/acme/f/file-1'],
+    ['/market/agent/x', '/t/acme/market/agent/x'],
+    ['/api', '/t/acme/api'],
   ])('prefixes backend call %s', (input, expected) => {
     expect(tenantRequestUrl(input, 'acme', location)).toBe(expected);
   });
 
-  it.each([['/t/acme/trpc/x'], ['/agent/123'], ['/apiary'], ['https://cdn.example.com/api/x']])(
-    'leaves %s unchanged',
-    (input) => {
-      expect(tenantRequestUrl(input, 'acme', location)).toBeNull();
-    },
-  );
+  it.each([
+    ['/t/acme/trpc/x'],
+    ['/agent/123'],
+    ['/apiary'],
+    ['/market-auth-callback'],
+    ['/fonts/a.woff'],
+    ['https://cdn.example.com/api/x'],
+  ])('leaves %s unchanged', (input) => {
+    expect(tenantRequestUrl(input, 'acme', location)).toBeNull();
+  });
 
   it('does nothing without a tenant', () => {
     expect(tenantRequestUrl('/trpc/x', null, location)).toBeNull();

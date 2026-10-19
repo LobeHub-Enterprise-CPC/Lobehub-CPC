@@ -1,4 +1,10 @@
-import { resolveTenant, stripTenantPath, TENANT_PREFIX } from '@lobechat/business-tenant/routing';
+import {
+  isBackendPath,
+  resolveTenant,
+  startsWithSegment,
+  stripTenantPath,
+  TENANT_PREFIX,
+} from '@lobechat/business-tenant/routing';
 
 /**
  * Where a request goes once its tenant is read from the URL (spec A16, A17,
@@ -7,16 +13,9 @@ import { resolveTenant, stripTenantPath, TENANT_PREFIX } from '@lobechat/busines
  * later without anything downstream changing.
  */
 
-/** Backend surfaces: every one of them needs a tenant unless exempt below. */
-const BACKEND_PREFIXES = [
-  '/api',
-  '/trpc',
-  '/webapi',
-  '/oidc',
-  '/oauth/connector',
-  '/f/',
-  '/market/',
-];
+// apps/server/src/modules/Tenant/hostRouting.ts still imports it from here; drop once it imports
+// `@lobechat/business-tenant/routing` directly.
+export { isBackendPath };
 
 /** Exact service-authenticated gateway roots, shared with the early Host routing decision. */
 export const GATEWAY_ROOT_INTERNAL =
@@ -37,14 +36,6 @@ const TENANTLESS_BACKEND = [
 
 /** Deployment-level surfaces that never exist under a tenant prefix. */
 const ROOT_ONLY_BACKEND = ['/api/internal', '/api/cron', '/api/tenant-discovery'];
-
-const startsWithSegment = (pathname: string, prefix: string) =>
-  prefix.endsWith('/')
-    ? pathname.startsWith(prefix)
-    : pathname === prefix || pathname.startsWith(`${prefix}/`);
-
-export const isBackendPath = (pathname: string) =>
-  BACKEND_PREFIXES.some((prefix) => startsWithSegment(pathname, prefix));
 
 export type TenantRoute =
   /** Backend request for a tenant: rewrite to `path` and hand the slug over. */

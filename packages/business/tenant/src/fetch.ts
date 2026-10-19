@@ -1,24 +1,6 @@
 import { getTenant } from './client';
 import { withTenantPath } from './path';
-
-/**
- * Backend surfaces the request proxy only serves under `/t/{slug}` (spec A16,
- * FR-RT-04). The SPA already runs under the tenant basename; this puts the same
- * prefix on its own backend calls, so services, tRPC, SWR fetchers and the
- * better-auth client keep using plain `/api/...` paths.
- */
-const BACKEND_PREFIXES = [
-  '/api/',
-  '/trpc/',
-  '/webapi/',
-  '/oidc/',
-  '/oauth/connector/',
-  '/f/',
-  '/market/',
-];
-
-const isBackendPath = (pathname: string) =>
-  BACKEND_PREFIXES.some((prefix) => pathname.startsWith(prefix) || `${pathname}/` === prefix);
+import { isBackendPath } from './routing';
 
 /**
  * The URL to send for `input` from a page of tenant `slug`, or `null` when it
