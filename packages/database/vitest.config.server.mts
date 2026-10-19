@@ -47,6 +47,9 @@ export default defineConfig({
       reporter: ['text', 'json', 'lcov', 'text-summary'],
     },
     env: {
+      // Tenant key derivation (OIDC adapter secrets) needs a master key; a fixed test value keeps the
+      // real-PG run independent of any local .env.
+      KEY_VAULTS_SECRET: 'database-server-test-master-secret',
       TEST_DB_EXTRA_MIGRATIONS_FOLDER: '',
       TEST_SERVER_DB: '1',
     },

@@ -8,9 +8,7 @@ import { AiAgentService } from '../index';
 vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite', () => ({
   assertGatewayProviderCapability: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('@/server/services/gatewayAuthorization', () => ({
-  mintOperationGatewayTicket: vi.fn().mockResolvedValue('TEST-ONLY-GATEWAY-TICKET'),
-}));
+vi.mock('@/server/services/gatewayAuthorization');
 
 const {
   mockIsResourceAuthorOrAdmin,

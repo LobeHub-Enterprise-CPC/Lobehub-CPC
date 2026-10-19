@@ -10,11 +10,13 @@ import { agents, chatGroups, messages, threads, topics } from '@lobechat/databas
 import { getTestDB } from '@lobechat/database/test-utils';
 import { and, eq } from 'drizzle-orm';
 import OpenAI from 'openai';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, vi } from 'vitest';
 
 import { inMemoryAgentStateManager } from '@/server/modules/AgentRuntime/InMemoryAgentStateManager';
 import { inMemoryStreamEventManager } from '@/server/modules/AgentRuntime/InMemoryStreamEventManager';
+import type * as GatewayAuthorizationModule from '@/server/services/gatewayAuthorization';
 import { ToolExecutionService } from '@/server/services/toolExecution';
+import { tenantTest } from '@/server/test-utils/tenantHarness';
 
 import { aiAgentRouter } from '../../../aiAgent';
 import { cleanupTestUser, createTestUser } from '../setup';
@@ -93,20 +95,19 @@ afterEach(async () => {
   inMemoryStreamEventManager.clear();
 });
 
+const it = tenantTest(() => serverDB);
+
 describe('execAgent', () => {
   describe('Basic execAgent Flow', () => {
     it('should create operation successfully with prompt', async () => {
       const caller = aiAgentRouter.createCaller(createTestContext());
       const prompt = "What's the weather of Hangzhou?";
-
       const result = await caller.execAgent({ agentId: testAgentId, prompt });
-
       expect(result.success).toBe(true);
       expect(result.operationId).toBeDefined();
       expect(result.operationId).toMatch(
         /^op_\d+_agt_.+_tpc_.(?:[^\n\r_\u2028\u2029]*_[^\w\n\r\u2028\u2029])*[^\n\r_\u2028\u2029]*_\w+(?:[^\w\n\r\u2028\u2029](?:[^\n\r_\u2028\u2029]*_[^\w\n\r\u2028\u2029])*[^\n\r_\u2028\u2029]*_\w+)*$/,
       );
-
       // Verify topic was created
       const createdTopics = await serverDB
         .select()
@@ -114,65 +115,50 @@ describe('execAgent', () => {
         .where(eq(topics.agentId, testAgentId));
       expect(createdTopics).toHaveLength(1);
       expect(createdTopics[0].title).toBe(prompt);
-
       // Verify user message and assistant message placeholder were created
       const createdMessages = await serverDB
         .select()
         .from(messages)
         .where(and(eq(messages.agentId, testAgentId), eq(messages.topicId, createdTopics[0].id)));
-
       expect(createdMessages).toHaveLength(2);
-
       const userMessage = createdMessages.find((m) => m.role === 'user');
       expect(userMessage).toBeDefined();
       expect(userMessage?.content).toBe(prompt);
-
       const assistantMessage = createdMessages.find((m) => m.role === 'assistant');
       expect(assistantMessage).toBeDefined();
       expect(assistantMessage?.parentId).toBe(userMessage?.id);
     });
-
     it('should create a new topic when topicId is not provided', async () => {
       const caller = aiAgentRouter.createCaller(createTestContext());
-
       const result = await caller.execAgent({
         agentId: testAgentId,
         prompt: 'Hello, how are you?',
       });
-
       expect(result.success).toBe(true);
-
       const createdTopics = await serverDB
         .select()
         .from(topics)
         .where(eq(topics.agentId, testAgentId));
-
       expect(createdTopics).toHaveLength(1);
       expect(createdTopics[0].title).toBe('Hello, how are you?');
     });
-
     it('should truncate long prompt for topic title', async () => {
       const caller = aiAgentRouter.createCaller(createTestContext());
       const longPrompt =
         'This is a very long prompt that exceeds fifty characters and should be truncated for the topic title';
-
       await caller.execAgent({
         agentId: testAgentId,
         prompt: longPrompt,
       });
-
       const createdTopics = await serverDB
         .select()
         .from(topics)
         .where(eq(topics.agentId, testAgentId));
-
       expect(createdTopics).toHaveLength(1);
       expect(createdTopics[0].title).toBe(longPrompt.slice(0, 50) + '...');
     });
-
     it('should reuse existing topic when topicId is provided', async () => {
       const caller = aiAgentRouter.createCaller(createTestContext());
-
       const [existingTopic] = await serverDB
         .insert(topics)
         .values({ agentId: testAgentId, title: 'Existing Topic', userId })
@@ -799,3 +785,17 @@ describe('execAgent', () => {
     });
   });
 });
+
+vi.mock('@/server/modules/Tenant/runtime', async () => {
+  const { testTenantRuntime } = await import('@/server/test-utils/tenantHarness');
+  return { getTenantRuntime: () => testTenantRuntime };
+});
+vi.mock('@/server/modules/Tenant/postgresClaims', async () => ({
+  tenantClaims: (await import('@/server/test-utils/tenantHarness')).testTenantClaims,
+  heartbeatTenantProcess: async () => {},
+}));
+vi.mock('@/server/modules/Tenant/gate', async (importOriginal) => importOriginal());
+vi.mock('@/server/services/gatewayAuthorization', async (importOriginal) => ({
+  ...(await importOriginal<typeof GatewayAuthorizationModule>()),
+  mintOperationGatewayTicket: async () => ({ token: 'test-operation-ticket' }),
+}));

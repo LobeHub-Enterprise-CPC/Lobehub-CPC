@@ -230,3 +230,7 @@ describe('AiAgentService.execAgent - disableTools', () => {
     expect(mockCreateServerAgentToolsEngine).toHaveBeenCalledTimes(1);
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

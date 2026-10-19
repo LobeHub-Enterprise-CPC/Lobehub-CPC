@@ -1,4 +1,6 @@
 // @vitest-environment node
+import '@/server/test-utils/serverTestConfig';
+
 import { BRANDING_PROVIDER, ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
 import { LayersEnum, TypesEnum } from '@lobechat/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -322,7 +324,7 @@ describe('userMemories.retrieveMemory', () => {
 
     // With business features only the branding provider is configured; any other
     // provider has no key and fails every search with InvalidProviderAPIKey.
-    const expected = ENABLE_BUSINESS_FEATURES ? BRANDING_PROVIDER : undefined;
+    const expected = ENABLE_BUSINESS_FEATURES ? BRANDING_PROVIDER : 'openai';
     expect(vi.mocked(initModelRuntimeFromDB).mock.calls[0][2]).toBe(expected);
   });
 

@@ -312,3 +312,7 @@ describe('AiAgentService private transcript execution', () => {
     expect(mocks.messageQuery).not.toHaveBeenCalled();
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

@@ -227,7 +227,6 @@ vi.mock('model-bank', async (importOriginal) => {
 
 describe('AiAgentService.execAgent - resumeApproval', () => {
   let service: AiAgentService;
-
   // `messages` row — `findById` returns this. Note plugin metadata (apiName,
   // identifier, etc.) lives in a separate `message_plugins` table.
   const pendingToolMessage = {
@@ -248,7 +247,6 @@ describe('AiAgentService.execAgent - resumeApproval', () => {
     toolCallId: 'call_xyz',
     type: 'builtin',
   };
-
   beforeEach(() => {
     vi.clearAllMocks();
     mockCreateOperation.mockResolvedValue({
@@ -278,14 +276,12 @@ describe('AiAgentService.execAgent - resumeApproval', () => {
     // `LobeChatDatabase` parameter type without dragging the real schema.
     service = new AiAgentService({} as unknown as LobeChatDatabase, 'user-1');
   });
-
   const baseParams = {
     agentId: 'agent-1',
     appContext: { sessionId: 'session-1', threadId: 'thread-1', topicId: 'topic-1' },
     parentMessageId: 'tool-msg-1',
     prompt: '',
   };
-
   describe('decision=approved', () => {
     it('persists intervention=approved and seeds initialContext for human_approved_tool', async () => {
       await service.execAgent({
@@ -1302,3 +1298,7 @@ describe('AiAgentService.stopPendingApproval', () => {
     expect(mockInterruptOperation).not.toHaveBeenCalled();
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

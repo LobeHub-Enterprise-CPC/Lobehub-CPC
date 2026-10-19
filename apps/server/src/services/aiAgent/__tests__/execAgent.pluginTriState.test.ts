@@ -336,3 +336,7 @@ describe('AiAgentService.execAgent - three-state plugin config (pinned/auto/disa
     expect(toolManifestMapArg()).not.toHaveProperty('lobe-agent');
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

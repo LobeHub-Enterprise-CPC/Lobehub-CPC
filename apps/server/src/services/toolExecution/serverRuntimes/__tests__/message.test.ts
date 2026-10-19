@@ -2,6 +2,8 @@ import { MessageToolIdentifier } from '@lobechat/builtin-tool-message';
 import { BRANDING_NAME } from '@lobechat/business-const';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as DatabaseSchemas from '@/database/schemas';
+
 import type { ToolExecutionContext } from '../../types';
 
 // ==================== Mocks ====================
@@ -119,7 +121,8 @@ vi.mock('@/server/modules/AgentRuntime/redis', () => ({
 
 // Stub the agents schema as an opaque token — the runtime only uses it for
 // `select.from(agents)` reference equality, so any object works.
-vi.mock('@/database/schemas', () => ({
+vi.mock('@/database/schemas', async (importOriginal) => ({
+  ...(await importOriginal<typeof DatabaseSchemas>()),
   agents: { id: 'agents.id', userId: 'agents.userId' },
 }));
 
@@ -329,19 +332,16 @@ describe('messageRuntime', () => {
   it('should have correct identifier', () => {
     expect(messageRuntime.identifier).toBe(MessageToolIdentifier);
   });
-
   describe('factory', () => {
     it('should throw when serverDB is missing', async () => {
       const context: ToolExecutionContext = {
         toolManifestMap: {},
         userId: 'user-1',
       };
-
       await expect(messageRuntime.factory(context)).rejects.toThrow(
         'serverDB is required for Message tool execution',
       );
     });
-
     it('should throw when userId is missing', async () => {
       const context: ToolExecutionContext = {
         serverDB: {} as any,

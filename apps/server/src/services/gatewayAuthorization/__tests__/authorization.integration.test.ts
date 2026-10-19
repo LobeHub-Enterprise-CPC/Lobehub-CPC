@@ -39,6 +39,8 @@ import type {
 import { waitForGatewayResult } from '../waiter';
 import { seedGatewaySourceRows } from './testUtils';
 
+const redisSuite = describe.skipIf(!process.env.GATEWAY_TEST_REDIS_URL);
+
 const state = vi.hoisted(() => ({
   jwks: '',
   version: 7,
@@ -199,7 +201,7 @@ afterAll(async () => {
   await resetRedisClient();
 });
 
-describe('real source rows and immutable authorization ledger', () => {
+redisSuite('real source rows and immutable authorization ledger', () => {
   it('rejects a mux ticket before creating an authorization', async () =>
     run(async () => {
       await expect(
@@ -445,7 +447,7 @@ describe('real source rows and immutable authorization ledger', () => {
   });
 });
 
-describe('A2 owning identity renewal with real source records and Redis', () => {
+redisSuite('A2 owning identity renewal with real source records and Redis', () => {
   const device = (kind: string) =>
     mintGatewayTicket({
       audience: 'urn:lobehub:gateway:device',
@@ -695,7 +697,7 @@ describe('A2 owning identity renewal with real source records and Redis', () => 
     }));
 });
 
-describe('atomic Work claim and original attempt result binding', () => {
+redisSuite('atomic Work claim and original attempt result binding', () => {
   const prepare = async () => {
     const identity = await mint();
     const intent = await createGatewayAttempt({

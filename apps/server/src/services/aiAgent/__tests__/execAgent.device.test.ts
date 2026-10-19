@@ -185,7 +185,6 @@ describe('AiAgentService.execAgent - device auto-activation', () => {
   let service: AiAgentService;
   const mockDb = {} as any;
   const userId = 'test-user-id';
-
   beforeEach(() => {
     vi.clearAllMocks();
     topicMock.create.mockResolvedValue({ id: 'topic-1', metadata: undefined });
@@ -202,14 +201,11 @@ describe('AiAgentService.execAgent - device auto-activation', () => {
     // Reset device proxy state
     mockDeviceProxy.isConfigured = false;
     mockDeviceProxy.queryDeviceList.mockResolvedValue([]);
-
     service = new AiAgentService(mockDb, userId);
   });
-
   afterEach(() => {
     vi.clearAllMocks();
   });
-
   const onlineDevice = {
     deviceId: 'device-001',
     hostname: 'my-laptop',
@@ -1089,3 +1085,7 @@ describe('AiAgentService.execAgent - device auto-activation', () => {
     });
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

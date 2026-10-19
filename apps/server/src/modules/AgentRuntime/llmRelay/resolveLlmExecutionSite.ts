@@ -3,7 +3,10 @@ import { BRANDING_PROVIDER } from '@lobechat/business-const';
 import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 import { ModelProvider } from 'model-bank';
-import { isProviderFetchOnClient } from 'model-bank/modelProviders';
+import {
+  isProviderDisableBrowserRequest,
+  isProviderFetchOnClient,
+} from 'model-bank/modelProviders';
 
 import { AiProviderModel } from '@/database/models/aiProvider';
 import type { LobeChatDatabase } from '@/database/type';
@@ -57,7 +60,14 @@ const resolveDeviceProvider = async ({
   userId,
   workspaceId,
 }: ResolveProviderRelayParams): Promise<{ runtimeProvider: string } | undefined> => {
-  if (provider === BRANDING_PROVIDER || provider === ModelProvider.LobeHub) return;
+  // Server-only provider cards cannot relay, regardless of the saved user configuration.
+  // Other providers (including hosted providers with a custom endpoint) still need the row.
+  if (
+    provider === BRANDING_PROVIDER ||
+    provider === ModelProvider.LobeHub ||
+    isProviderDisableBrowserRequest(provider)
+  )
+    return;
 
   const config = await new AiProviderModel(db, userId, workspaceId).getAiProviderById(
     provider,

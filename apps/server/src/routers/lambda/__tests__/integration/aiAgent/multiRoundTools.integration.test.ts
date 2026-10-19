@@ -11,11 +11,13 @@ import { agents, messages } from '@lobechat/database/schemas';
 import { getTestDB } from '@lobechat/database/test-utils';
 import { eq } from 'drizzle-orm';
 import OpenAI from 'openai';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, vi } from 'vitest';
 
 import { inMemoryAgentStateManager } from '@/server/modules/AgentRuntime/InMemoryAgentStateManager';
 import { inMemoryStreamEventManager } from '@/server/modules/AgentRuntime/InMemoryStreamEventManager';
+import type * as GatewayAuthorizationModule from '@/server/services/gatewayAuthorization';
 import { ToolExecutionService } from '@/server/services/toolExecution';
+import { tenantTest } from '@/server/test-utils/tenantHarness';
 
 import { aiAgentRouter } from '../../../aiAgent';
 import { cleanupTestUser, createTestUser } from '../setup';
@@ -251,6 +253,8 @@ afterEach(async () => {
   inMemoryStreamEventManager.clear();
 });
 
+const it = tenantTest(() => serverDB);
+
 describe('Multi-Round Tool Execution', () => {
   /**
    * This test verifies the fix:
@@ -426,3 +430,17 @@ describe('Multi-Round Tool Execution', () => {
     MULTI_ROUND_AGENT_TEST_TIMEOUT,
   );
 });
+
+vi.mock('@/server/modules/Tenant/runtime', async () => {
+  const { testTenantRuntime } = await import('@/server/test-utils/tenantHarness');
+  return { getTenantRuntime: () => testTenantRuntime };
+});
+vi.mock('@/server/modules/Tenant/postgresClaims', async () => ({
+  tenantClaims: (await import('@/server/test-utils/tenantHarness')).testTenantClaims,
+  heartbeatTenantProcess: async () => {},
+}));
+vi.mock('@/server/modules/Tenant/gate', async (importOriginal) => importOriginal());
+vi.mock('@/server/services/gatewayAuthorization', async (importOriginal) => ({
+  ...(await importOriginal<typeof GatewayAuthorizationModule>()),
+  mintOperationGatewayTicket: async () => ({ token: 'test-operation-ticket' }),
+}));

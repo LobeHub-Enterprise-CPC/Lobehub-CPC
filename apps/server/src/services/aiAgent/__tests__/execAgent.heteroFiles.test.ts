@@ -257,7 +257,6 @@ describe('AiAgentService.execAgent - hetero early-exit file attachments', () => 
   let recordStartSpy: MockInstance<CompletionLifecycle['recordStart']>;
   const mockDb = {} as any;
   const userId = 'test-user-id';
-
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(AgentOperationModel.prototype, 'settleRunning').mockResolvedValue(true);
@@ -290,15 +289,12 @@ describe('AiAgentService.execAgent - hetero early-exit file attachments', () => 
     delete (heteroAgentConfig as any).userId;
     delete (heteroAgentConfig as any).visibility;
     delete (heteroAgentConfig as any).workspaceId;
-
     service = new AiAgentService(mockDb, userId);
   });
-
   afterEach(() => {
     recordStartSpy.mockRestore();
     vi.clearAllMocks();
   });
-
   const findUserMessageCreate = () =>
     mockMessageCreate.mock.calls.find((call) => call[0].role === 'user');
 
@@ -2138,3 +2134,7 @@ describe('AiAgentService.execAgent - hetero early-exit file attachments', () => 
     });
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

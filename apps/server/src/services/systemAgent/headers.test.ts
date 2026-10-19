@@ -65,3 +65,7 @@ describe('SystemAgentService.generateTopicTitle', () => {
     expect(sessions).toEqual(['topic-1', 'topic-1', 'topic-2']);
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite', () => ({
+  resolveProviderRelay: vi.fn().mockResolvedValue(undefined),
+}));

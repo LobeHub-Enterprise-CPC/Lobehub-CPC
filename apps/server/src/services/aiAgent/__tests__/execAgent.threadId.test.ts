@@ -449,3 +449,7 @@ describe('AiAgentService.execAgent - threadId handling', () => {
     }, 10_000);
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

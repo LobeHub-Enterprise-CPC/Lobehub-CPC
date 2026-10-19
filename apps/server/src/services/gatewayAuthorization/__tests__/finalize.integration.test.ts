@@ -15,6 +15,8 @@ import { redisService } from '@/server/services/redis';
 import { finalizeGatewayOperation } from '../finalize';
 import type { GatewayAttemptRecord, GatewayFinalizeRequest } from '../types';
 
+const redisSuite = describe.skipIf(!process.env.GATEWAY_TEST_REDIS_URL);
+
 const state = vi.hoisted(() => ({ db: null as unknown, version: 12, bridge: vi.fn() }));
 vi.mock('@/database/core/db-adaptor', () => ({ getServerDB: async () => state.db }));
 vi.mock('@/envs/redis', () => ({
@@ -114,7 +116,7 @@ afterAll(async () => {
   await resetRedisClient();
 });
 
-describe('A1 guarded cleanup with real operation rows and Redis attempts', () => {
+redisSuite('A1 guarded cleanup with real operation rows and Redis attempts', () => {
   it.each([
     { version: 12, status: 'running' as const },
     { version: 12, status: 'done' as const },
@@ -162,7 +164,7 @@ describe('A1 guarded cleanup with real operation rows and Redis attempts', () =>
           .where(eq(agentOperations.id, 'parent-E2'));
         const original = AbandonOperationService.prototype.finalizeAbandoned;
         vi.spyOn(AbandonOperationService.prototype, 'finalizeAbandoned').mockImplementation(
-          async function (...args) {
+          async function (this: AbandonOperationService, ...args) {
             const result = await original.apply(this, args);
             await db
               .update(agentOperations)
@@ -202,7 +204,7 @@ describe('A1 guarded cleanup with real operation rows and Redis attempts', () =>
     run(async () => {
       const original = AbandonOperationService.prototype.finalizeAbandoned;
       vi.spyOn(AbandonOperationService.prototype, 'finalizeAbandoned').mockImplementation(
-        async function (...args) {
+        async function (this: AbandonOperationService, ...args) {
           await db
             .update(agentOperations)
             .set({ metadata: metadata(12) })

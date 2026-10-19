@@ -612,3 +612,7 @@ describe('AiAgentService.execAgent - selected skill content injection', () => {
     expect(skillById('db-skill-pinned')).toBeUndefined();
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

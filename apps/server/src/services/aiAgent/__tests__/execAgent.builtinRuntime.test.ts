@@ -248,7 +248,6 @@ describe('AiAgentService.execAgent - builtin agent runtime config', () => {
     nodes: { answer: { type: 'llm' } },
     terminal: 'answer',
   };
-
   beforeEach(() => {
     vi.clearAllMocks();
     mockMessageCreate.mockResolvedValue({ id: 'msg-1' });
@@ -271,14 +270,11 @@ describe('AiAgentService.execAgent - builtin agent runtime config', () => {
     mockGetBuiltinAgent.mockResolvedValue(null);
     service = new AiAgentService(mockDb, userId);
   });
-
   describe('graph runtime factory', () => {
     const getLatestAgentFactory = () => {
       const options = vi.mocked(AgentRuntimeService).mock.calls.at(-1)?.[2] as any;
       const agentFactory = options?.agentFactory;
-
       expect(agentFactory).toEqual(expect.any(Function));
-
       return agentFactory as (config: any) => unknown;
     };
 
@@ -1026,3 +1022,7 @@ describe('AiAgentService.execAgent - builtin agent runtime config', () => {
     expect(callArgs.modelAbilities).toMatchObject({ imageOutput: true });
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

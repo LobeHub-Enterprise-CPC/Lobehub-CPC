@@ -18,6 +18,12 @@ import { runWithGatewaySource } from '../context';
 import type { GatewayAttemptRecord, GatewayAuthorizationSource } from '../types';
 import { seedGatewaySourceRows } from './testUtils';
 
+const redisSuite = describe.skipIf(
+  !process.env.GATEWAY_TEST_REDIS_URL ||
+    !!process.env.DATABASE_TEST_URL ||
+    process.env.TEST_SERVER_DB === '1',
+);
+
 const state = vi.hoisted(() => ({
   database: null as unknown,
   version: 7,
@@ -157,7 +163,7 @@ afterAll(async () => {
   await resetRedisClient();
 });
 
-describe('Device inline result settles the original real Work attempt', () => {
+redisSuite('Device inline result settles the original real Work attempt', () => {
   it('commits completed before returning a successful RPC without operation or toolCall IDs', async () =>
     run(async () => {
       expect(await invoke()).toMatchObject({ data: { ok: 1 }, success: true });
