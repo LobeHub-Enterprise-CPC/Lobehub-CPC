@@ -13,10 +13,6 @@ import {
  * later without anything downstream changing.
  */
 
-// apps/server/src/modules/Tenant/hostRouting.ts still imports it from here; drop once it imports
-// `@lobechat/business-tenant/routing` directly.
-export { isBackendPath };
-
 /** Exact service-authenticated gateway roots, shared with the early Host routing decision. */
 export const GATEWAY_ROOT_INTERNAL =
   /^\/api\/internal\/gateway\/(?:admission|authorize|tool-result|finalize-abandoned)\/?$/;

@@ -1,3 +1,4 @@
+import { isRegistrableSlug } from '@lobechat/business-tenant/routing';
 import { getPlatformDB } from '@lobechat/database/platform';
 import debug from 'debug';
 import type { Context } from 'hono';
@@ -6,7 +7,6 @@ import type { z } from 'zod';
 
 import { invalidateTenantAuth } from '@/auth';
 import { appEnv } from '@/envs/app';
-import { isRegistrableSlug } from '@/features/Tenant/reservedSlugs';
 import { getTenantLiveResources } from '@/server/modules/Tenant/liveResources';
 import { waitForTenantClaims } from '@/server/modules/Tenant/postgresClaims';
 import { getTenantRuntime } from '@/server/modules/Tenant/runtime';

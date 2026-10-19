@@ -1,8 +1,7 @@
-import { parseTenantPath } from '@lobechat/business-tenant/routing';
+import { isBackendPath, parseTenantPath } from '@lobechat/business-tenant/routing';
 
 import {
   GATEWAY_ROOT_INTERNAL,
-  isBackendPath,
   resolveTenantlessRoute,
   resolveTenantRoute,
   type TenantRoute,
