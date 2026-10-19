@@ -110,12 +110,45 @@ export const agentRuntimeTenantKeyPrefix = (tenantId: string) => {
   return `${TENANT_KEY_SEGMENT}:${encodeURIComponent(tenantId)}:`;
 };
 
-const tenantClients = new Map<string, Redis>();
+interface TenantRedisClient {
+  client: Redis;
+  lastUsed: number;
+  pending: number;
+}
+const tenantClients = new Map<string, TenantRedisClient>();
+const MAX_TENANT_CLIENTS = 128;
+const IDLE_CLIENT_MS = 60_000;
+let idleSweep: ReturnType<typeof setInterval> | undefined;
+const retireClient = (tenantId: string, entry: TenantRedisClient) => {
+  tenantClients.delete(tenantId);
+  // There are no pending business commands. Disconnect immediately so a stalled
+  // Redis server cannot accumulate unbounded sockets waiting for QUIT replies.
+  entry.client.disconnect();
+};
+const sweepIdle = () => {
+  const now = Date.now();
+  for (const [id, entry] of tenantClients)
+    if (!entry.pending && now - entry.lastUsed >= IDLE_CLIENT_MS) retireClient(id, entry);
+  if (!tenantClients.size) {
+    clearInterval(idleSweep);
+    idleSweep = undefined;
+  }
+};
 let redisEnabled: boolean | undefined;
 
-const tenantClient = (tenantId: string): Redis | null => {
+const tenantClient = (tenantId: string): TenantRedisClient | null => {
   const existing = tenantClients.get(tenantId);
-  if (existing) return existing;
+  if (existing) {
+    existing.lastUsed = Date.now();
+    tenantClients.delete(tenantId);
+    tenantClients.set(tenantId, existing);
+    return existing;
+  }
+  if (tenantClients.size >= MAX_TENANT_CLIENTS) {
+    const idle = [...tenantClients].find(([, entry]) => !entry.pending);
+    if (!idle) throw new Error('TENANT_REDIS_CAPACITY');
+    retireClient(...idle);
+  }
 
   const keyPrefix = agentRuntimeTenantKeyPrefix(tenantId);
   const client = createAgentRuntimeRedisClient(undefined, { keyPrefix });
@@ -129,8 +162,13 @@ const tenantClient = (tenantId: string): Redis | null => {
     return found.map((key) => (key.startsWith(keyPrefix) ? key.slice(keyPrefix.length) : key));
   }) as Redis['keys'];
 
-  tenantClients.set(tenantId, client);
-  return client;
+  const entry = { client, lastUsed: Date.now(), pending: 0 };
+  tenantClients.set(tenantId, entry);
+  if (!idleSweep) {
+    idleSweep = setInterval(sweepIdle, IDLE_CLIENT_MS);
+    idleSweep.unref();
+  }
+  return entry;
 };
 
 /**
@@ -154,10 +192,50 @@ export function getAgentRuntimeRedisClient(): Redis | null {
 
   return new Proxy({} as Redis, {
     get(_target, prop) {
-      const client = tenantClient(requireTenantScope().tenantId);
-      if (!client) return undefined;
+      const entry = tenantClient(requireTenantScope().tenantId);
+      if (!entry) return undefined;
+      const { client } = entry;
       const value = Reflect.get(client, prop, client);
-      return typeof value === 'function' ? value.bind(client) : value;
+      if (typeof value !== 'function') return value;
+      return (...args: unknown[]) => {
+        entry.pending += 1;
+        const release = () => {
+          entry.pending -= 1;
+          entry.lastUsed = Date.now();
+        };
+        try {
+          const result = value.apply(client, args);
+          if (prop === 'pipeline' || prop === 'multi') {
+            // An unexecuted transaction retains its socket until exec.
+            let released = false;
+            const finish = () => {
+              if (!released) {
+                released = true;
+                release();
+              }
+            };
+            for (const method of ['exec']) {
+              const invoke = result[method];
+              if (typeof invoke !== 'function') continue;
+              result[method] = (...input: unknown[]) => {
+                try {
+                  return Promise.resolve(invoke.apply(result, input)).finally(finish);
+                } catch (error) {
+                  finish();
+                  throw error;
+                }
+              };
+            }
+            return result;
+          }
+          if (result && typeof result.then === 'function') return result.finally(release);
+          release();
+          return result;
+        } catch (error) {
+          release();
+          throw error;
+        }
+      };
     },
   });
 }
@@ -169,5 +247,7 @@ export async function closeAgentRuntimeRedisClient(): Promise<void> {
   const clients = [...tenantClients.values()];
   tenantClients.clear();
   redisEnabled = undefined;
-  await Promise.all(clients.map((client) => client.quit()));
+  clearInterval(idleSweep);
+  idleSweep = undefined;
+  await Promise.all(clients.map(({ client }) => client.quit()));
 }

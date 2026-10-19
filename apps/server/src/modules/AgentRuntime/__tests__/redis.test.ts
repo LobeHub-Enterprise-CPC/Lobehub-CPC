@@ -31,7 +31,8 @@ vi.mock('ioredis', () => {
       const prefix = pattern.replace(/\*$/, '');
       return [...this.store.keys()].filter((key) => key.startsWith(prefix));
     }
-    async quit() {}
+    quit = vi.fn(async () => {});
+    disconnect = vi.fn();
   }
   return { default: FakeRedis };
 });
@@ -70,6 +71,45 @@ describe('agent runtime Redis client', () => {
     await expect(inTenant('tenant-1', () => held.keys('agent_runtime_state:*'))).resolves.toEqual([
       'agent_runtime_state:op-1',
     ]);
+  });
+
+  it('bounds idle tenant sockets and resolves held clients again after eviction', async () => {
+    const { getAgentRuntimeRedisClient } = await import('../redis');
+    const held = inTenant('tenant-0', () => getAgentRuntimeRedisClient())!;
+    for (let n = 0; n < 129; n++) {
+      await inTenant(`tenant-${n}`, () => held.set('key', 'value'));
+    }
+    expect(instances[0].disconnect).toHaveBeenCalledOnce();
+    await inTenant('tenant-0', () => held.set('key', 'new'));
+    expect(instances).toHaveLength(130);
+    expect(instances[129].options.keyPrefix).toBe('t:tenant-0:');
+  });
+
+  it('reclaims idle tenant sockets without requiring another tenant request', async () => {
+    vi.useFakeTimers();
+    try {
+      const { getAgentRuntimeRedisClient } = await import('../redis');
+      const held = inTenant('tenant-idle', () => getAgentRuntimeRedisClient())!;
+      await inTenant('tenant-idle', () => held.set('key', 'value'));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(instances[0].disconnect).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not evict a connection while its command is running', async () => {
+    const { getAgentRuntimeRedisClient } = await import('../redis');
+    const held = inTenant('tenant-0', () => getAgentRuntimeRedisClient())!;
+    await inTenant('tenant-0', () => held.set('key', 'value'));
+    const pending = Promise.withResolvers<string>();
+    instances[0].get = () => pending.promise;
+    const reading = inTenant('tenant-0', () => held.get('key'));
+    for (let n = 1; n < 129; n++) await inTenant(`tenant-${n}`, () => held.set('key', 'value'));
+    expect(instances[0].disconnect).not.toHaveBeenCalled();
+    expect(instances[1].disconnect).toHaveBeenCalledOnce();
+    pending.resolve('value');
+    await expect(reading).resolves.toBe('value');
   });
 
   it('fails closed outside a tenant', async () => {
