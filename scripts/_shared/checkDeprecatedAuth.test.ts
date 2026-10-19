@@ -86,65 +86,39 @@ describe('checkDeprecatedAuth', () => {
     expect(mockExit).not.toHaveBeenCalled();
   });
 
-  describe('webhook warnings (non-blocking)', () => {
-    it('should warn but not exit when Casdoor webhook is missing', async () => {
-      process.env.AUTH_SSO_PROVIDERS = 'casdoor';
-      // CASDOOR_WEBHOOK_SECRET is not set
+  describe('retired deployment-wide SSO variables', () => {
+    // SSO is configured per tenant in Admin (OIDC or generic OAuth 2.0); AUTH_SSO_PROVIDERS and the
+    // preset variables are read by nothing, so they must neither warn nor block the start.
+    it.each(['casdoor', 'logto', 'google'])(
+      'ignores AUTH_SSO_PROVIDERS=%s: no webhook warning, no exit',
+      async (providers) => {
+        process.env.AUTH_SSO_PROVIDERS = providers;
+
+        const { checkDeprecatedAuth } = await import('./checkDeprecatedAuth.js');
+        checkDeprecatedAuth();
+
+        expect(mockExit).not.toHaveBeenCalled();
+        expect(mockConsoleWarn).not.toHaveBeenCalled();
+      },
+    );
+
+    it('points renamed provider variables at per-tenant SSO instead of at variables that are not read', async () => {
+      process.env.AZURE_AD_CLIENT_ID = 'old-id';
 
       const { checkDeprecatedAuth } = await import('./checkDeprecatedAuth.js');
       checkDeprecatedAuth();
 
-      expect(mockExit).not.toHaveBeenCalled();
-      expect(mockConsoleWarn).toHaveBeenCalled();
-    });
-
-    it('should warn but not exit when Logto webhook is missing', async () => {
-      process.env.AUTH_SSO_PROVIDERS = 'logto';
-      // LOGTO_WEBHOOK_SIGNING_KEY is not set
-
-      const { checkDeprecatedAuth } = await import('./checkDeprecatedAuth.js');
-      checkDeprecatedAuth();
-
-      expect(mockExit).not.toHaveBeenCalled();
-      expect(mockConsoleWarn).toHaveBeenCalled();
-    });
-
-    it('should not warn when Casdoor webhook is configured', async () => {
-      process.env.AUTH_SSO_PROVIDERS = 'casdoor';
-      process.env.CASDOOR_WEBHOOK_SECRET = 'test-secret';
-
-      const { checkDeprecatedAuth } = await import('./checkDeprecatedAuth.js');
-      checkDeprecatedAuth();
-
-      expect(mockExit).not.toHaveBeenCalled();
-      expect(mockConsoleWarn).not.toHaveBeenCalled();
-    });
-
-    it('should not warn when Logto webhook is configured', async () => {
-      process.env.AUTH_SSO_PROVIDERS = 'logto';
-      process.env.LOGTO_WEBHOOK_SIGNING_KEY = 'test-key';
-
-      const { checkDeprecatedAuth } = await import('./checkDeprecatedAuth.js');
-      checkDeprecatedAuth();
-
-      expect(mockExit).not.toHaveBeenCalled();
-      expect(mockConsoleWarn).not.toHaveBeenCalled();
-    });
-
-    it('should not warn when provider is not casdoor or logto', async () => {
-      process.env.AUTH_SSO_PROVIDERS = 'google';
-
-      const { checkDeprecatedAuth } = await import('./checkDeprecatedAuth.js');
-      checkDeprecatedAuth();
-
-      expect(mockExit).not.toHaveBeenCalled();
-      expect(mockConsoleWarn).not.toHaveBeenCalled();
+      const output = mockConsoleError.mock.calls.flat().join(' ');
+      expect(mockExit).toHaveBeenCalledWith(1);
+      expect(output).toContain('AZURE_AD_CLIENT_ID');
+      expect(output).not.toContain('AUTH_MICROSOFT_ID');
+      expect(output).toContain('Admin');
     });
   });
 
   describe('mixed errors and warnings', () => {
     it('should exit when there are errors even if there are also warnings', async () => {
-      process.env.AUTH_SSO_PROVIDERS = 'logto'; // warning
+      process.env.SMTP_HOST = 'smtp.example.com'; // warning: email verification is off
       process.env.ACCESS_CODE = 'test-code'; // error
 
       const { checkDeprecatedAuth } = await import('./checkDeprecatedAuth.js');

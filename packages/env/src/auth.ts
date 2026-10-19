@@ -86,70 +86,10 @@ export const getAuthConfig = () => {
   });
 };
 
-/**
- * Deployment-wide SSO variables that no longer exist: each tenant configures
- * its SSO in Admin (`sso_providers`). The built-in presets under
- * `src/libs/better-auth/sso` keep their upstream `checkEnvs`, which name these
- * variables; nothing calls it (`src/libs/better-auth/tenant-sso.ts` hands each
- * preset the tenant's credentials), and they are typed as never set, so no
- * value can come from the environment.
- */
-type RetiredSsoEnvName =
-  | 'AUTH_SSO_PROVIDERS'
-  | 'AUTH_APPLE_APP_BUNDLE_IDENTIFIER'
-  | 'AUTH_APPLE_CLIENT_ID'
-  | 'AUTH_APPLE_CLIENT_SECRET'
-  | 'AUTH_AUTH0_ID'
-  | 'AUTH_AUTH0_ISSUER'
-  | 'AUTH_AUTH0_SECRET'
-  | 'AUTH_AUTHELIA_ID'
-  | 'AUTH_AUTHELIA_ISSUER'
-  | 'AUTH_AUTHELIA_SECRET'
-  | 'AUTH_AUTHENTIK_ID'
-  | 'AUTH_AUTHENTIK_ISSUER'
-  | 'AUTH_AUTHENTIK_SECRET'
-  | 'AUTH_CASDOOR_ID'
-  | 'AUTH_CASDOOR_ISSUER'
-  | 'AUTH_CASDOOR_SECRET'
-  | 'AUTH_CLOUDFLARE_ZERO_TRUST_ID'
-  | 'AUTH_CLOUDFLARE_ZERO_TRUST_ISSUER'
-  | 'AUTH_CLOUDFLARE_ZERO_TRUST_SECRET'
-  | 'AUTH_COGNITO_DOMAIN'
-  | 'AUTH_COGNITO_ID'
-  | 'AUTH_COGNITO_REGION'
-  | 'AUTH_COGNITO_SECRET'
-  | 'AUTH_COGNITO_USERPOOL_ID'
-  | 'AUTH_FEISHU_APP_ID'
-  | 'AUTH_FEISHU_APP_SECRET'
-  | 'AUTH_GENERIC_OIDC_ID'
-  | 'AUTH_GENERIC_OIDC_ISSUER'
-  | 'AUTH_GENERIC_OIDC_SECRET'
-  | 'AUTH_GITHUB_ID'
-  | 'AUTH_GITHUB_SECRET'
-  | 'AUTH_GOOGLE_ID'
-  | 'AUTH_GOOGLE_SECRET'
-  | 'AUTH_KEYCLOAK_ID'
-  | 'AUTH_KEYCLOAK_ISSUER'
-  | 'AUTH_KEYCLOAK_SECRET'
-  | 'AUTH_LOGTO_ID'
-  | 'AUTH_LOGTO_ISSUER'
-  | 'AUTH_LOGTO_SECRET'
-  | 'AUTH_MICROSOFT_AUTHORITY_URL'
-  | 'AUTH_MICROSOFT_ID'
-  | 'AUTH_MICROSOFT_SECRET'
-  | 'AUTH_MICROSOFT_TENANT_ID'
-  | 'AUTH_OKTA_ID'
-  | 'AUTH_OKTA_ISSUER'
-  | 'AUTH_OKTA_SECRET'
-  | 'AUTH_WECHAT_ID'
-  | 'AUTH_WECHAT_SECRET'
-  | 'AUTH_ZITADEL_ID'
-  | 'AUTH_ZITADEL_ISSUER'
-  | 'AUTH_ZITADEL_SECRET';
-
-export const authEnv = getAuthConfig() as ReturnType<typeof getAuthConfig> & {
-  readonly [K in RetiredSsoEnvName]?: undefined;
-};
+// There are no deployment-wide SSO variables (`AUTH_SSO_PROVIDERS`, `AUTH_<PROVIDER>_*`): each
+// tenant configures its SSO in Admin (`sso_providers`, OIDC or generic OAuth 2.0) and nothing reads
+// them from the environment.
+export const authEnv = getAuthConfig();
 
 // Auth headers and constants
 export const LOBE_CHAT_OIDC_AUTH_HEADER = 'Oidc-Auth';
