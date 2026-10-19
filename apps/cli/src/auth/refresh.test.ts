@@ -17,6 +17,7 @@ const expiredCredentials = (refreshToken?: string): StoredCredentials => ({
   accessToken: 'expired-token',
   expiresAt: Math.floor(Date.now() / 1000) - 100,
   refreshToken,
+  serverUrl: 'https://app.lobehub.com',
 });
 
 describe('getValidToken', () => {
@@ -43,6 +44,7 @@ describe('getValidToken', () => {
       accessToken: 'valid-token',
       expiresAt: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
       refreshToken: 'refresh-tok',
+      serverUrl: 'https://app.lobehub.com',
     };
     vi.mocked(loadCredentials).mockReturnValue(creds);
 
@@ -53,7 +55,10 @@ describe('getValidToken', () => {
   });
 
   it('should report no login when no expiresAt and nothing to refresh with', async () => {
-    vi.mocked(loadCredentials).mockReturnValue({ accessToken: 'valid-token' });
+    vi.mocked(loadCredentials).mockReturnValue({
+      accessToken: 'valid-token',
+      serverUrl: 'https://app.lobehub.com',
+    });
 
     // expiresAt is undefined, so the validity check cannot pass and a refresh is attempted,
     // but there is no refresh token to attempt it with.
@@ -231,8 +236,11 @@ describe('getValidToken', () => {
   });
 
   it('should refresh against the tenant path of the server', async () => {
-    vi.mocked(loadCredentials).mockReturnValue(expiredCredentials('my-refresh-token'));
-    vi.mocked(resolveServerUrl).mockReturnValueOnce('https://host/t/acme');
+    vi.mocked(loadCredentials).mockReturnValue({
+      ...expiredCredentials('my-refresh-token'),
+      serverUrl: 'https://host/t/acme',
+    });
+    vi.mocked(resolveServerUrl).mockReturnValue('https://host/t/acme');
     vi.mocked(fetch).mockResolvedValue({
       json: vi.fn().mockResolvedValue({ access_token: 'new-token', token_type: 'Bearer' }),
       ok: true,
@@ -244,8 +252,11 @@ describe('getValidToken', () => {
   });
 
   it('should send correct request to refresh endpoint', async () => {
-    vi.mocked(loadCredentials).mockReturnValue(expiredCredentials('my-refresh-token'));
-    vi.mocked(resolveServerUrl).mockReturnValueOnce('https://my-server.com');
+    vi.mocked(loadCredentials).mockReturnValue({
+      ...expiredCredentials('my-refresh-token'),
+      serverUrl: 'https://my-server.com',
+    });
+    vi.mocked(resolveServerUrl).mockReturnValue('https://my-server.com');
 
     vi.mocked(fetch).mockResolvedValue({
       json: vi.fn().mockResolvedValue({
@@ -269,6 +280,99 @@ describe('getValidToken', () => {
     expect(body.get('grant_type')).toBe('refresh_token');
     expect(body.get('refresh_token')).toBe('my-refresh-token');
     expect(body.get('client_id')).toBe('lobehub-cli');
+  });
+});
+
+describe('credentials are only used at the server that issued them', () => {
+  beforeEach(() => {
+    vi.mocked(saveCredentials).mockClear();
+    vi.mocked(resolveServerUrl).mockReturnValue('https://host/t/b');
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('never sends the refresh token to another tenant of the same host', async () => {
+    vi.mocked(loadCredentials).mockReturnValue({
+      ...expiredCredentials('tenant-a-refresh'),
+      serverUrl: 'https://host/t/a',
+    });
+
+    await expect(getValidToken()).resolves.toEqual({
+      issuer: 'https://host/t/a',
+      serverUrl: 'https://host/t/b',
+      status: 'foreign-server',
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(saveCredentials).not.toHaveBeenCalled();
+  });
+
+  it('does not hand out a still-valid access token to another server', async () => {
+    vi.mocked(loadCredentials).mockReturnValue({
+      accessToken: 'tenant-a-access',
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      refreshToken: 'tenant-a-refresh',
+      serverUrl: 'https://host/t/a',
+    });
+
+    await expect(getValidToken()).resolves.toMatchObject({ status: 'foreign-server' });
+  });
+
+  it('refuses a login that does not record its issuer', async () => {
+    vi.mocked(loadCredentials).mockReturnValue({
+      accessToken: 'legacy',
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    });
+
+    await expect(getValidToken()).resolves.toMatchObject({
+      issuer: undefined,
+      status: 'foreign-server',
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(['https://HOST/t/b/', 'https://host/t/b'])(
+    'accepts the same server as %s',
+    async (issuer) => {
+      vi.mocked(loadCredentials).mockReturnValue({
+        accessToken: 'ok',
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        serverUrl: issuer,
+      });
+
+      await expect(getValidToken()).resolves.toMatchObject({ status: 'ok' });
+    },
+  );
+
+  it('keeps the issuer when a refreshed login is saved', async () => {
+    vi.mocked(loadCredentials).mockReturnValue({
+      ...expiredCredentials('r'),
+      serverUrl: 'https://host/t/b',
+    });
+    vi.mocked(fetch).mockResolvedValue({
+      json: vi.fn().mockResolvedValue({ access_token: 'new', token_type: 'Bearer' }),
+      ok: true,
+    } as any);
+
+    await getValidToken();
+
+    expect(saveCredentials).toHaveBeenCalledWith(
+      expect.objectContaining({ accessToken: 'new', serverUrl: 'https://host/t/b' }),
+    );
+  });
+
+  it('tells the user which server issued the login and how to sign in to this one', () => {
+    const report = describeTokenLookup({
+      issuer: 'https://host/t/a',
+      serverUrl: 'https://host/t/b',
+      status: 'foreign-server',
+    });
+
+    expect(report?.detail).toContain('https://host/t/a');
+    expect(report?.detail).toContain('https://host/t/b');
+    expect(report?.fix).toContain('login --server https://host/t/b');
   });
 });
 

@@ -9,7 +9,12 @@ import { getValidToken } from '../refresh';
 
 const state = vi.hoisted(() => ({ entry: '' }));
 vi.mock('../credentials', () => ({
-  loadCredentials: () => ({ accessToken: 'TEST-OLD', refreshToken: 'TEST-ONLY', expiresAt: 0 }),
+  loadCredentials: () => ({
+    accessToken: 'TEST-OLD',
+    refreshToken: 'TEST-ONLY',
+    expiresAt: 0,
+    serverUrl: state.entry,
+  }),
   saveCredentials: vi.fn(),
 }));
 vi.mock('../../settings', () => ({

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { loadCredentials } from '../auth/credentials';
+import { sameServerUrl } from '../auth/issuer';
 import { CLI_API_KEY_ENV, readCliApiKeyEnv } from '../constants/auth';
 import {
   CLI_CONNECT_SERVICE_NAME,
@@ -12,6 +13,7 @@ import {
   resolveCliDirName,
 } from '../constants/identity';
 import { getRunningDaemonPid } from '../daemon/manager';
+import { resolveServerUrl } from '../settings';
 
 const SERVICE_NAME = CLI_CONNECT_SERVICE_NAME;
 const ENV_NAME_PATTERN = /^[A-Z_]\w*$/i;
@@ -201,7 +203,16 @@ function assertNoConnectDaemonRunning(): void {
 }
 
 function assertConnectServiceAuthAvailable(): void {
-  if (process.env.LOBEHUB_JWT || readCliApiKeyEnv() || loadCredentials()) return;
+  if (process.env.LOBEHUB_JWT || readCliApiKeyEnv()) return;
+
+  const stored = loadCredentials();
+  if (stored) {
+    // The unit would otherwise start, fail every attempt, and keep restarting.
+    if (sameServerUrl(resolveServerUrl(), stored.serverUrl)) return;
+    throw new Error(
+      `The stored login was not issued by ${resolveServerUrl()}. Run '${CLI_PRIMARY_BIN} login --server ${resolveServerUrl()}' first, or set ${CLI_API_KEY_ENV} before starting the connect service.`,
+    );
+  }
 
   throw new Error(
     `No authentication found. Run '${CLI_PRIMARY_BIN} login' first, or set ${CLI_API_KEY_ENV} before starting the connect service.`,

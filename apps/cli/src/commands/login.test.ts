@@ -148,6 +148,8 @@ describe('login command', () => {
       expect.objectContaining({
         accessToken: 'new-token',
         refreshToken: 'refresh-tok',
+        // The tokens are only ever sent back to the server that issued them.
+        serverUrl: 'https://app.lobehub.com',
       }),
     );
     expect(saveSettings).toHaveBeenCalledWith({ serverUrl: 'https://app.lobehub.com' });

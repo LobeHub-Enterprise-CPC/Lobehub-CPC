@@ -1,6 +1,7 @@
 import { CLI_PRIMARY_BIN } from '../constants/identity';
 import { resolveServerUrl } from '../settings';
 import { loadCredentials, saveCredentials, type StoredCredentials } from './credentials';
+import { sameServerUrl } from './issuer';
 
 const CLIENT_ID = 'lobehub-cli';
 
@@ -27,7 +28,12 @@ export type TokenLookup =
   | { detail: string; status: 'refused' }
   /** No usable answer came back. The stored credentials are untouched, so retrying is the fix. */
   | { detail: string; status: 'unavailable' }
-  | { status: 'superseded' };
+  | { status: 'superseded' }
+  /**
+   * The login on disk was issued by another server (or does not say which). Neither its access
+   * token nor its refresh token may be sent to this one; signing in to this server is the fix.
+   */
+  | { issuer: string | undefined; serverUrl: string; status: 'foreign-server' };
 
 /** HTTP statuses that say "ask again later" rather than "this token is dead". */
 const TRANSIENT_STATUSES = new Set([408, 425, 429]);
@@ -47,6 +53,12 @@ export async function getValidToken(bufferSeconds = 60): Promise<TokenLookup> {
   const credentials = loadCredentials();
   if (!credentials) return { status: 'no-login' };
 
+  // Decided before anything is returned or sent: a still-valid access token is as much a secret
+  // for its own tenant as the refresh token is.
+  const serverUrl = resolveServerUrl();
+  if (!sameServerUrl(serverUrl, credentials.serverUrl))
+    return { issuer: credentials.serverUrl, serverUrl, status: 'foreign-server' };
+
   // Check if token is still valid (with configurable buffer)
   if (credentials.expiresAt && Date.now() / 1000 < credentials.expiresAt - bufferSeconds) {
     return { credentials, status: 'ok' };
@@ -55,7 +67,6 @@ export async function getValidToken(bufferSeconds = 60): Promise<TokenLookup> {
   // Token expired — try refresh
   if (!credentials.refreshToken) return { status: 'no-login' };
 
-  const serverUrl = resolveServerUrl();
   const refreshed = await refreshAccessToken(serverUrl, credentials.refreshToken);
   const current = loadCredentials();
   if (
@@ -73,6 +84,7 @@ export async function getValidToken(bufferSeconds = 60): Promise<TokenLookup> {
       ? Math.floor(Date.now() / 1000) + refreshed.token.expires_in
       : undefined,
     refreshToken: refreshed.token.refresh_token || credentials.refreshToken,
+    serverUrl: credentials.serverUrl,
   };
 
   saveCredentials(updated);
@@ -103,6 +115,14 @@ export function describeTokenLookup(lookup: TokenLookup): TokenLookupReport | un
       return {
         detail: 'The active login changed while this request was refreshing its token.',
         fix: 'Run the command again to use the current login.',
+      };
+    }
+    case 'foreign-server': {
+      return {
+        detail: lookup.issuer
+          ? `The stored login was issued by ${lookup.issuer}, but this command targets ${lookup.serverUrl}.`
+          : `The stored login does not record which server issued it, so it cannot be used with ${lookup.serverUrl}.`,
+        fix: `Run '${CLI_PRIMARY_BIN} login --server ${lookup.serverUrl}' to sign in to this server${lookup.issuer ? `, or point the server setting back at ${lookup.issuer}` : ''}.`,
       };
     }
     case 'spent': {
