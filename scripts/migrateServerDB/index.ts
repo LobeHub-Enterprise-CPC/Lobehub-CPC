@@ -3,13 +3,17 @@ import path from 'node:path';
 
 import * as dotenv from 'dotenv';
 import dotenvExpand from 'dotenv-expand';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate as nodeMigrate } from 'drizzle-orm/node-postgres/migrator';
+import { Client } from 'pg';
 
+import * as platformSchema from '../../packages/database/src/platform/schemas';
 // @ts-ignore tsgo handle esm import cjs and compatibility issues
 import { DB_FAIL_INIT_HINT, DUPLICATE_EMAIL_HINT, PGVECTOR_HINT } from './errorHint';
 // @ts-ignore tsgo handle esm import cjs and compatibility issues
 import { assertPgSearchReady, PgSearchNotReadyError } from './pgSearchGuard';
 import { runWithLockRetry } from './retry';
+import { migrateUnlessReady, runStartupMigrations } from './startup';
 
 // Load environment variables in priority order:
 // 1. .env (lowest priority)
@@ -60,7 +64,6 @@ const tenantArgs = () => {
  * bundled by esbuild as `/app/docker.cjs` on every start.
  */
 const runMigrations = async () => {
-  const { getPlatformDB } = await import('../../packages/database/src/platform');
   const { upgradeTenantSchemas } =
     await import('../../apps/server/src/services/tenantControlPlane/upgrade');
   const { PostgresTenantDatabaseExecutor } =
@@ -71,37 +74,58 @@ const runMigrations = async () => {
    * in each tenant schema (the platform `public` schema has none), so it runs per tenant, after
    * that tenant's chains and runtime checks pass.
    */
-  let pgSearchError: Error | undefined;
   class GuardedTenantExecutor extends PostgresTenantDatabaseExecutor {
+    async migrate(ctx: Parameters<PostgresTenantDatabaseExecutor['migrate']>[0]) {
+      // After waiting for the startup lock, followers verify the journals and
+      // runtime permissions without rerunning any completed migration chain.
+      await migrateUnlessReady(
+        () => this.verify({ bundle: ctx.bundle, tenantId: ctx.tenantId }),
+        () => super.migrate(ctx),
+      );
+    }
+
     async verifyDiscovery(args: Parameters<PostgresTenantDatabaseExecutor['verifyDiscovery']>[0]) {
       await super.verifyDiscovery(args);
-      try {
-        await this.withTenantCatalog(args.bundle, (query) => assertPgSearchReady(query));
-      } catch (error) {
-        if (error instanceof PgSearchNotReadyError) pgSearchError ??= error;
-        throw error;
-      }
+      await this.withTenantCatalog(args.bundle, (query) => assertPgSearchReady(query));
     }
   }
 
   const time = Date.now();
-  const platformDB = getPlatformDB();
-  await runWithLockRetry(() =>
-    nodeMigrate(platformDB, { migrationsFolder: platformMigrationsFolder() }),
-  );
-  console.log('✅ platform database migration pass. use: %s ms', Date.now() - time);
-
-  const tenantIds = tenantArgs();
-  const { failed, migrated } = await upgradeTenantSchemas(platformDB, {
-    executor: new GuardedTenantExecutor(),
-    tenantIds: tenantIds.length > 0 ? tenantIds : undefined,
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+    connectionTimeoutMillis: 10_000,
   });
-  console.log('✅ tenant schemas migrated: %d', migrated.length);
-  if (pgSearchError) console.error(pgSearchError.message);
-  if (failed.length > 0) {
-    for (const { reason, tenantId } of failed)
-      console.error('❌ tenant %s migration failed: %s', tenantId, reason);
+  // Losing this session also loses the advisory lock. Stop immediately, even
+  // while tenant SQL is executing on its own connections.
+  client.on('error', (error: NodeJS.ErrnoException) => {
+    console.error('❌ Platform migration connection lost:', error.code ?? 'CONNECTION_LOST');
     process.exit(1);
+  });
+  try {
+    await client.connect();
+    // A follower may wait longer than the request statement timeout while the
+    // leader upgrades tenants. This session is reserved for startup only.
+    await client.query('SET statement_timeout = 0');
+    // The same pinned session owns the advisory lock and platform queries.
+    const platformDB = drizzle(client, { schema: platformSchema });
+    const tenantIds = tenantArgs();
+    await runStartupMigrations({
+      client,
+      migratePlatform: async () => {
+        await runWithLockRetry(() =>
+          nodeMigrate(platformDB, { migrationsFolder: platformMigrationsFolder() }),
+        );
+        console.log('✅ platform database migration pass. use: %s ms', Date.now() - time);
+      },
+      report: (event) => console.log(JSON.stringify(event)),
+      upgradeTenants: () =>
+        upgradeTenantSchemas(platformDB, {
+          executor: new GuardedTenantExecutor(),
+          tenantIds: tenantIds.length > 0 ? tenantIds : undefined,
+        }),
+    });
+  } finally {
+    await client.end();
   }
 
   process.exit(0);

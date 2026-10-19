@@ -36,6 +36,7 @@ class PgSearchNotReadyError extends Error {
   constructor(message) {
     super(message);
     this.name = 'PgSearchNotReadyError';
+    this.code = 'PG_SEARCH_NOT_READY';
   }
 }
 
