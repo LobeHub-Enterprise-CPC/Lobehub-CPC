@@ -37,16 +37,8 @@ vi.mock('./config', () => ({
   defaultClients: [
     {
       client_id: 'lobehub-desktop',
-      redirect_uris: [
-        'https://app.lobehub.com/oidc/callback/desktop',
-        'https://lobehub.com/oidc/callback/desktop',
-        'http://localhost:3210/oidc/callback/desktop',
-      ],
-      post_logout_redirect_uris: [
-        'https://app.lobehub.com/oauth/logout',
-        'https://lobehub.com/oauth/logout',
-        'http://localhost:3210/oauth/logout',
-      ],
+      redirect_uris: [],
+      post_logout_redirect_uris: [],
     },
     { client_id: 'lobehub-mobile', redirect_uris: ['com.lobehub.app://auth/callback'] },
   ],
@@ -126,15 +118,9 @@ it.each([
   expect(state.config.cookies.short.path).toBe(endpoint.cookiePath);
   expect(state.config.routes.authorization).toBe(`${endpoint.basePath}/oidc/auth`);
   expect(state.config.clients[0].redirect_uris).toEqual([
-    'https://app.lobehub.com/oidc/callback/desktop',
-    'https://lobehub.com/oidc/callback/desktop',
-    'http://localhost:3210/oidc/callback/desktop',
     `${endpoint.publicUrl}/oidc/callback/desktop`,
   ]);
   expect(state.config.clients[0].post_logout_redirect_uris).toEqual([
-    'https://app.lobehub.com/oauth/logout',
-    'https://lobehub.com/oauth/logout',
-    'http://localhost:3210/oauth/logout',
     `${endpoint.publicUrl}/oauth/logout`,
   ]);
   expect(state.config.clients[1].redirect_uris).toEqual(['com.lobehub.app://auth/callback']);
@@ -143,15 +129,12 @@ it.each([
   );
 });
 
-it('deduplicates canonical desktop callbacks without mutating another tenant provider', async () => {
+it('registers only the organization own desktop callbacks, without mutating another tenant provider', async () => {
   const endpoint = { basePath: '', publicUrl: 'https://lobehub.com', version: 1 };
   await createOIDCProvider({} as never, { endpoint, slug: 'acme', tenantId: 'tenant-acme' });
-  expect(state.config.clients[0].redirect_uris).toHaveLength(3);
+  expect(state.config.clients[0].redirect_uris).toHaveLength(1);
   await createOIDCProvider({} as never, acme);
   expect(state.config.clients[0].redirect_uris).toEqual([
-    'https://app.lobehub.com/oidc/callback/desktop',
-    'https://lobehub.com/oidc/callback/desktop',
-    'http://localhost:3210/oidc/callback/desktop',
     'http://localhost:3000/t/acme/oidc/callback/desktop',
   ]);
 });
