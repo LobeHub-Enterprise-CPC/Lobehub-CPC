@@ -22,6 +22,7 @@ import {
   materializeTenantMigrations,
   materializeTenantStatement,
   resolveTenantMigrationsFolder,
+  runTenantMigrations,
   TENANT_MIGRATIONS_TABLE,
   TENANT_ONLY_MIGRATIONS_TABLE,
   verifyTenantMigrationHistory,
@@ -110,6 +111,55 @@ describe('materializeTenantStatement', () => {
 });
 
 describe('the shared and tenant-only chains', () => {
+  it.each(['fresh', 'existing-oidc-prefix'])(
+    'runs both chains and reruns without changes for %s',
+    async (installation) => {
+      const tenantId = `tenant-chain-${installation}`;
+      const { schemaName, ownerUsername } = tenantDbNames(tenantId);
+      const db = new PGlite({ extensions: { vector } });
+      const client = db as unknown as Client;
+      const options = { schemaName, tenantId };
+      const tenantOptions = { ...options, migrationsTable: TENANT_ONLY_MIGRATIONS_TABLE };
+      const shared = readMigrationFiles({ migrationsFolder });
+      const tenant = readMigrationFiles({ migrationsFolder: chains[1] });
+      const journal = `"${schemaName}"."${TENANT_ONLY_MIGRATIONS_TABLE}"`;
+      try {
+        await db.exec(`CREATE SCHEMA extensions; CREATE EXTENSION vector WITH SCHEMA extensions;
+          CREATE ROLE "${ownerUsername}";
+          CREATE SCHEMA "${schemaName}" AUTHORIZATION "${ownerUsername}";
+          GRANT USAGE ON SCHEMA extensions TO "${ownerUsername}";
+          SET ROLE "${ownerUsername}"`);
+        expect(await runTenantMigrations(client, migrationsFolder, options)).toBe(shared.length);
+
+        if (installation === 'existing-oidc-prefix') {
+          // Replay the immutable pre-retirement prefix and its persisted identities.
+          await db.exec(`BEGIN; SET LOCAL search_path TO "${schemaName}", extensions;
+            CREATE TABLE ${journal} (id serial primary key, hash text not null, created_at bigint)`);
+          for (const migration of materializeTenantMigrations(tenant.slice(0, 2), schemaName)) {
+            for (const statement of migration.sql) await db.exec(statement);
+            await db.query(`INSERT INTO ${journal} (hash, created_at) VALUES ($1, $2)`, [
+              migration.hash,
+              migration.folderMillis,
+            ]);
+          }
+          await db.exec('COMMIT');
+        }
+
+        expect(await runTenantMigrations(client, chains[1], tenantOptions)).toBe(
+          tenant.length - (installation === 'existing-oidc-prefix' ? 2 : 0),
+        );
+        const before = await db.query(`SELECT * FROM ${journal} ORDER BY id`);
+        expect(await runTenantMigrations(client, migrationsFolder, options)).toBe(0);
+        expect(await runTenantMigrations(client, chains[1], tenantOptions)).toBe(0);
+        expect(await db.query(`SELECT * FROM ${journal} ORDER BY id`)).toEqual(before);
+        expect(await verifyTenantMigrationHistory(client, chains[1], tenantOptions)).toBe(4);
+      } finally {
+        await db.close();
+      }
+    },
+    30_000,
+  );
+
   it('keep their Drizzle hashes and timestamps', () => {
     const original = readMigrationFiles({ migrationsFolder });
     const materialized = materializeTenantMigrations(original, SCHEMA);
@@ -255,6 +305,33 @@ describe.skipIf(!ADMIN_URL)('tenant migrator on PostgreSQL', () => {
 });
 
 describe('migration history verification', () => {
+  it('accepts the tenant-only prefix already applied before SSO retirement', async () => {
+    const db = new PGlite();
+    const [baseline] = readMigrationFiles({ migrationsFolder: chains[1] });
+    try {
+      await db.exec(
+        `CREATE SCHEMA "${SCHEMA}"; CREATE TABLE "${SCHEMA}"."${TENANT_ONLY_MIGRATIONS_TABLE}" (id serial primary key, hash text not null, created_at bigint)`,
+      );
+      for (const [hash, when] of [
+        [baseline.hash, baseline.folderMillis],
+        ['695c0b02bb5e6334ce62cf9e7115f7e25ab0bd0b54def189b6b3eed5de39e882', 1791947960048],
+      ])
+        await db.query(
+          `INSERT INTO "${SCHEMA}"."${TENANT_ONLY_MIGRATIONS_TABLE}" (hash, created_at) VALUES ($1, $2)`,
+          [hash, when],
+        );
+      await expect(
+        verifyTenantMigrationHistory(db as unknown as Client, chains[1], {
+          schemaName: SCHEMA,
+          migrationsTable: TENANT_ONLY_MIGRATIONS_TABLE,
+          allowPending: true,
+        }),
+      ).resolves.toBe(2);
+    } finally {
+      await db.close();
+    }
+  });
+
   it.each(['changed-hash', 'future-time', 'null-time', 'missing-prefix', 'duplicate', 'reordered'])(
     'rejects %s without altering the journal',
     async (mutation) => {

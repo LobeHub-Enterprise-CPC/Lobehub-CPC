@@ -1,6 +1,6 @@
 {
-  "id": "fe21c737-b06f-4b5f-990f-945873917043",
-  "prevId": "4fba2730-6732-4773-abb1-c37e4e426625",
+  "id": "ee19c0ab-f9b9-4701-9dd4-cd139a873b67",
+  "prevId": "efec96d0-f996-427a-adc3-cc5c59b227fc",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -96,6 +96,12 @@
           "notNull": true,
           "default": 1
         },
+        "saml_config": {
+          "name": "saml_config",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "secret_config_encrypted": {
           "name": "secret_config_encrypted",
           "type": "text",
@@ -122,9 +128,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "sso_providers_enabled_idx": {
           "name": "sso_providers_enabled_idx",
@@ -137,9 +143,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {},
@@ -154,6 +160,10 @@
         "sso_providers_oidc_config_object": {
           "name": "sso_providers_oidc_config_object",
           "value": "jsonb_typeof(\"sso_providers\".\"oidc_config\") = 'object'"
+        },
+        "sso_providers_saml_config_object": {
+          "name": "sso_providers_saml_config_object",
+          "value": "jsonb_typeof(\"sso_providers\".\"saml_config\") = 'object'"
         }
       },
       "isRLSEnabled": false
@@ -161,10 +171,10 @@
   },
   "enums": {},
   "schemas": {},
+  "views": {},
   "sequences": {},
   "roles": {},
   "policies": {},
-  "views": {},
   "_meta": {
     "columns": {},
     "schemas": {},

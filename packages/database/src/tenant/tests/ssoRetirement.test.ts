@@ -2,6 +2,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
+import { vector } from '@electric-sql/pglite/vector';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { describe, expect, it } from 'vitest';
 
@@ -16,6 +17,21 @@ const chain = () =>
 const apply = async (db: PGlite, migrations: ReturnType<typeof chain>) => {
   for (const migration of migrations)
     for (const statement of migration.sql) await db.exec(statement);
+};
+
+const createDatabase = async () => {
+  const db = new PGlite({ extensions: { vector } });
+  await db.exec('CREATE EXTENSION IF NOT EXISTS vector');
+  await db.exec(`CREATE SCHEMA "${SCHEMA}"; SET search_path TO "${SCHEMA}", public`);
+  // Tenant-only OIDC changes depend on the application tables from the shared chain.
+  const shared = materializeTenantMigrations(
+    readMigrationFiles({ migrationsFolder: path.dirname(tenantFolder) }),
+    SCHEMA,
+  );
+  for (const migration of shared)
+    for (const statement of migration.sql)
+      if (!/pg_search|bm25/i.test(statement)) await db.exec(statement);
+  return db;
 };
 
 const insert = (
@@ -33,8 +49,7 @@ const insert = (
 
 describe('SAML and named OAuth2 preset retirement (tenant chain)', () => {
   it('soft-deletes retired providers, keeps supported ones, and drops saml_config', async () => {
-    const db = new PGlite();
-    await db.exec(`CREATE SCHEMA "${SCHEMA}"; SET search_path TO "${SCHEMA}"`);
+    const db = await createDatabase();
     const migrations = chain();
     expect(migrations.length).toBeGreaterThanOrEqual(3);
 
@@ -86,8 +101,7 @@ describe('SAML and named OAuth2 preset retirement (tenant chain)', () => {
   });
 
   it('installs from an empty schema', async () => {
-    const db = new PGlite();
-    await db.exec(`CREATE SCHEMA "${SCHEMA}"; SET search_path TO "${SCHEMA}"`);
+    const db = await createDatabase();
     await apply(db, chain());
     const { rows } = await db.query<{ count: number }>(
       `SELECT count(*)::int AS count FROM "sso_providers"`,
