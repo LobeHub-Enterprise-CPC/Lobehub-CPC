@@ -31,6 +31,7 @@ export const tenantCookiePrefix = (tenantId: string) => `lh_${tenantHash(tenantI
 const SSO_SNAPSHOT_TTL_MS = 30_000;
 const MAX_INSTANCES = 64;
 
+// Bounded like `instances`: a deployment with many organizations must not grow without limit.
 const ssoSnapshots = new Map<string, { at: number; providers: TenantSsoProvider[] }>();
 /**
  * One instance per tenant. It is bound to the tenant's database session, which
@@ -43,7 +44,9 @@ const loadSsoSnapshot = async (scope: TenantScope) => {
   const cached = ssoSnapshots.get(scope.tenantId);
   if (cached && Date.now() - cached.at < SSO_SNAPSHOT_TTL_MS) return cached.providers;
   const providers = await loadTenantSsoProviders(scope.session.database, scope.tenantId);
+  ssoSnapshots.delete(scope.tenantId);
   ssoSnapshots.set(scope.tenantId, { at: Date.now(), providers });
+  while (ssoSnapshots.size > MAX_INSTANCES) ssoSnapshots.delete(ssoSnapshots.keys().next().value!);
   return providers;
 };
 

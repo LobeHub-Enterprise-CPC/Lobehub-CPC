@@ -149,4 +149,28 @@ describe('auth', () => {
     expect(await getTenantAuth()).toBe(b);
     expect(mocks.defineConfig).toHaveBeenCalledTimes(3);
   });
+
+  it('bounds the cached SSO snapshots like the instances', async () => {
+    const database = {};
+    const scopeOf = (n: number) => ({
+      endpoint: { basePath: `/t/t${n}`, publicUrl: `https://app.example/t/t${n}`, version: 1 },
+      session: { database },
+      slug: `t${n}`,
+      tenantId: `bounded-${n}`,
+    });
+    for (let n = 0; n < 70; n++) {
+      mocks.scope = scopeOf(n);
+      await getTenantAuth();
+    }
+    expect(mocks.loadTenantSsoProviders).toHaveBeenCalledTimes(70);
+
+    // The newest tenants are still cached; the oldest was evicted and is read again.
+    mocks.scope = scopeOf(69);
+    await getTenantAuth();
+    expect(mocks.loadTenantSsoProviders).toHaveBeenCalledTimes(70);
+    mocks.scope = scopeOf(0);
+    await getTenantAuth();
+    expect(mocks.loadTenantSsoProviders).toHaveBeenCalledTimes(71);
+    for (let n = 0; n < 70; n++) invalidateTenantAuth(`bounded-${n}`);
+  });
 });
