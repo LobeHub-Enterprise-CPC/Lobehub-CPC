@@ -34,6 +34,9 @@ export interface GatewayAuthorizationRecord extends Omit<
   'gatewayTicket' | 'tenancyProtocol'
 > {
   audience: GatewayAudience;
+  /** Signed into the ticket for the device audience (and optionally for agents); see `mintGatewayTicket`. */
+  connectionId?: string;
+  deviceId?: string;
   jti: string;
   operationId?: string;
   source: GatewayAuthorizationSource;

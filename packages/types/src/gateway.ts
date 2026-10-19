@@ -72,5 +72,12 @@ export interface GatewayIdentityRequest {
 }
 export type GatewayIdentityProvider = (input: {
   signal: AbortSignal;
+  /**
+   * The socket the identity is for. Work signs it into the ticket (device: required,
+   * agent: optional); the gateway uses that value, never what the URL says.
+   */
+  connectionId?: string;
+  /** The device the client claims to host. Device audience only; Work decides whether it may. */
+  deviceId?: string;
   renewAuthorizationId?: string;
 }) => Promise<GatewayIdentityResponse>;

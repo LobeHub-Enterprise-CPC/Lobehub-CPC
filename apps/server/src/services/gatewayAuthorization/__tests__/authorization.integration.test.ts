@@ -300,6 +300,8 @@ describe('real source rows and immutable authorization ledger', () => {
         source: source('session'),
         principal: { kind: 'workspace', id: 'workspace-test' },
         capabilities: ['device:connect', 'device:respond'],
+        deviceId: 'device-shared',
+        connectionId: 'connection-shared',
       });
       const request = {
         ...connectionRequest(identity),
@@ -428,6 +430,8 @@ describe('real source rows and immutable authorization ledger', () => {
           source: source('apiKey'),
           principal,
           capabilities: ['device:connect'],
+          deviceId: 'device-shared',
+          connectionId: 'connection-shared',
         }),
       ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     }));
@@ -448,6 +452,8 @@ describe('A2 owning identity renewal with real source records and Redis', () => 
       source: source(kind),
       principal,
       capabilities: ['device:connect', 'device:respond'],
+      deviceId: 'device-shared',
+      connectionId: 'connection-shared',
     });
   const fixture = async (id: string) => {
     const data = JSON.parse(
@@ -533,6 +539,8 @@ describe('A2 owning identity renewal with real source records and Redis', () => 
       if (kind === 'different-audience') {
         input.audience = 'urn:lobehub:gateway:agent';
         input.operationId = operationId;
+        delete input.deviceId;
+        delete input.connectionId;
       }
       if (kind === 'different-operation') input.operationId = operationId;
       if (kind === 'revoked-source') await db.delete(session);
@@ -643,6 +651,8 @@ describe('A2 owning identity renewal with real source records and Redis', () => 
         const renewed = await request({
           tenancyProtocol: 1,
           audience: periodic.audience,
+          deviceId: 'device-shared',
+          connectionId: 'connection-shared',
           renewAuthorizationId: original.authorizationId,
         });
         expect(renewed.status).toBe(200);

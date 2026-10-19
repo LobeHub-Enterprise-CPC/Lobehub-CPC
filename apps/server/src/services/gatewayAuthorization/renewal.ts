@@ -17,6 +17,8 @@ export const requireOriginalGatewayAuthorization = async (input: {
   audience: GatewayAudience;
   operationId?: string;
   capabilities: GatewayCapability[];
+  connectionId?: string;
+  deviceId?: string;
 }) => {
   const scope = requireTenantScope();
   const record = await redisService.gatewayAuthorization.getAuthorization(
@@ -39,6 +41,8 @@ export const requireOriginalGatewayAuthorization = async (input: {
     record.acceptedVersion !== scope.acceptedVersion ||
     record.audience !== input.audience ||
     record.operationId !== input.operationId ||
+    record.deviceId !== input.deviceId ||
+    record.connectionId !== input.connectionId ||
     !samePrincipal(record.principal, input.principal) ||
     Math.min(record.authRecordExpiresAt, record.ticketExpiresAt) <= Date.now() ||
     record.capabilities.length !== input.capabilities.length ||

@@ -230,24 +230,18 @@ export const validateHeteroOperationJWT = async (
 };
 
 /**
- * Sign a connection token for a WORKSPACE-owned device. The device gateway reads
- * the `workspace_id` claim and routes the socket to the `workspace:<id>`
- * principal (so every workspace member can reach the device), instead of the
- * signer's personal principal. Minted ONLY after the server has verified the
- * requester is a workspace admin — the gateway trusts this signed claim.
+ * Attest that the requester may enroll devices into a WORKSPACE. Minted ONLY
+ * after the server has verified the requester is a workspace owner/admin. It is
+ * not a connection ticket: the device exchanges its own credential for a ticket
+ * naming its device and connection (`/api/v1/gateway/identity`), and only uses
+ * this to pin the tenant and workspace that exchange must return.
  */
 export const signWorkspaceDeviceToken = async (
   workspaceId: string,
   source: GatewayAuthorizationSource,
 ): Promise<string> => {
-  const { mintGatewayTicket } = await import('@/server/services/gatewayAuthorization');
-  const identity = await mintGatewayTicket({
-    source,
-    audience: 'urn:lobehub:gateway:device',
-    principal: { kind: 'workspace', id: workspaceId },
-    capabilities: ['device:connect', 'device:respond'],
-  });
-  return identity.gatewayTicket;
+  const { mintGatewayEnrollment } = await import('@/server/services/gatewayAuthorization');
+  return mintGatewayEnrollment({ source, principal: { kind: 'workspace', id: workspaceId } });
 };
 
 /**

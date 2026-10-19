@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto';
 
 import { requireTenantScope } from '@lobechat/database/tenant';
 
-import { signGatewayJWT } from '@/libs/trpc/utils/gatewayJwt';
+import { signGatewayEnrollmentJWT, signGatewayJWT } from '@/libs/trpc/utils/gatewayJwt';
 import { getTenantRuntime } from '@/server/modules/Tenant/runtime';
+import { assertGatewayDeviceClaim } from '@/server/services/deviceGateway/access';
 import { redisService } from '@/server/services/redis';
 
 import { operationGatewaySource } from './context';
@@ -16,7 +17,12 @@ import type {
   GatewayIdentityResponse,
   GatewayPrincipal,
 } from './types';
-import { GatewayAuthorizationError } from './wire';
+import {
+  GatewayAuthorizationError,
+  isGatewayIdentifier,
+  MAX_GATEWAY_CONNECTION_ID_BYTES,
+  MAX_GATEWAY_DEVICE_ID_BYTES,
+} from './wire';
 
 export const assertGatewayVersion = async (tenantId: string, version: number) => {
   if (!Number.isInteger(version) || version < 1)
@@ -37,6 +43,14 @@ export const mintGatewayTicket = async (input: {
   principal: GatewayPrincipal;
   operationId?: string;
   capabilities: GatewayCapability[];
+  /**
+   * The socket the ticket is for. Required for the device audience, optional for
+   * agents (a stable id lets a client's reconnect replace its own executor).
+   * Signed into the ticket; the gateway never takes it from the URL.
+   */
+  connectionId?: string;
+  /** The device the caller claims to host (device audience only); Work decides whether it may. */
+  deviceId?: string;
   renewAuthorizationId?: string;
 }): Promise<GatewayIdentityResponse> => {
   const scope = requireTenantScope();
@@ -47,6 +61,14 @@ export const mintGatewayTicket = async (input: {
   const allowed: GatewayCapability[] = agent
     ? ['agent:observe', 'agent:respond', 'agent:execute']
     : ['device:connect', 'device:respond'];
+  const { connectionId, deviceId } = input;
+  const invalid = agent
+    ? deviceId !== undefined ||
+      (connectionId !== undefined &&
+        !isGatewayIdentifier(connectionId, MAX_GATEWAY_CONNECTION_ID_BYTES))
+    : !isGatewayIdentifier(deviceId, MAX_GATEWAY_DEVICE_ID_BYTES) ||
+      !isGatewayIdentifier(connectionId, MAX_GATEWAY_CONNECTION_ID_BYTES);
+  if (invalid) throw new GatewayAuthorizationError('INVALID_GATEWAY_MESSAGE', 400);
   const capabilities = [...new Set(input.capabilities)];
   if (!capabilities.length || !capabilities.every((capability) => allowed.includes(capability)))
     throw new GatewayAuthorizationError('FORBIDDEN', 403);
@@ -71,6 +93,7 @@ export const mintGatewayTicket = async (input: {
       throw new GatewayAuthorizationError('SOURCE_UNVERIFIABLE');
     throw error;
   }
+  if (deviceId) await assertGatewayDeviceClaim(input.source.subject, input.principal, deviceId);
   const now = Math.floor(startedAt / 1000);
   const ticketExpiresAt = Math.min(now + 300, Math.floor(sourceExpiresAt / 1000)) * 1000;
   if (ticketExpiresAt <= Date.now())
@@ -89,6 +112,8 @@ export const mintGatewayTicket = async (input: {
     authRecordExpiresAt: ticketExpiresAt,
     source: input.source,
     operationId: input.operationId,
+    ...(deviceId ? { deviceId } : {}),
+    ...(connectionId ? { connectionId } : {}),
     jti,
   };
   const gatewayTicket = await signGatewayJWT({
@@ -105,6 +130,8 @@ export const mintGatewayTicket = async (input: {
     iat: now,
     exp: ticketExpiresAt / 1000,
     ...(input.operationId ? { operation_id: input.operationId } : {}),
+    ...(deviceId ? { device_id: deviceId } : {}),
+    ...(connectionId ? { connection_id: connectionId } : {}),
   });
   if (previous) await redisService.gatewayAuthorization.renewAuthorization(previous, record);
   else await redisService.gatewayAuthorization.putAuthorization(authorizationId, record);
@@ -138,4 +165,37 @@ export const mintOperationGatewayTicket = async (
     renewAuthorizationId: originalAuthorizationId,
   });
   return identity.gatewayTicket;
+};
+
+/**
+ * Attest that `source` may enroll devices into the workspace `principal`, for a
+ * client that is about to ask for its own device tickets there. The attestation
+ * is not a gateway ticket (see `signGatewayEnrollmentJWT`): it names no device,
+ * has no authorization record and cannot connect.
+ */
+export const mintGatewayEnrollment = async (input: {
+  source: GatewayAuthorizationSource;
+  principal: GatewayPrincipal;
+}): Promise<string> => {
+  const scope = requireTenantScope();
+  await assertGatewayVersion(scope.tenantId, scope.acceptedVersion);
+  const sourceExpiresAt = await assertGatewaySource(input.source, {
+    principal: input.principal,
+    enroller: true,
+  });
+  const now = Math.floor(Date.now() / 1000);
+  const exp = Math.min(now + 300, Math.floor(sourceExpiresAt / 1000));
+  if (exp <= now) throw new GatewayAuthorizationError('UNAUTHORIZED');
+  return signGatewayEnrollmentJWT({
+    iss: 'urn:lobehub:gateway-session',
+    aud: 'urn:lobehub:gateway:device',
+    purpose: 'gateway-enrollment',
+    tid: scope.tenantId,
+    sub: input.source.subject,
+    principal: input.principal,
+    accepted_version: scope.acceptedVersion,
+    jti: randomUUID(),
+    iat: now,
+    exp,
+  });
 };

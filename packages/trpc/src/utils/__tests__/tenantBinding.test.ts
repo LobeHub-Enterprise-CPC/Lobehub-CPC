@@ -194,11 +194,9 @@ describe('token signing requires a tenant', () => {
 });
 
 describe('tokens verified by external services carry the tenant', () => {
-  it('stamps the signing tenant on device and tunnel tokens', async () => {
-    const device = await inTenant('tenant-a', () => signWorkspaceDeviceToken('ws-1'));
+  it('stamps the signing tenant on tunnel tokens', async () => {
     const tunnel = await inTenant('tenant-b', () => signTunnelAccessToken({ userId: 'user-1' }));
 
-    expect(decodeJwt(device)).toMatchObject({ tid: 'tenant-a', workspace_id: 'ws-1' });
     expect(decodeJwt(tunnel)).toMatchObject({ tid: 'tenant-b', sub: 'user-1' });
   });
 });

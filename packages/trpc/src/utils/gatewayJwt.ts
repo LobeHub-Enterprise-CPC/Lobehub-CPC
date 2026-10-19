@@ -13,13 +13,26 @@ const keys = () => {
   if (!available?.length) throw new GatewayAuthorizationError('GATEWAY_AUTHORITY_UNAVAILABLE', 503);
   return available;
 };
-export const signGatewayJWT = async (claims: Record<string, unknown>) => {
-  parseGatewayWire('tokenClaims', claims);
+const sign = async (claims: Record<string, unknown>) => {
   const jwk = keys().find((key) => key.d);
   if (!jwk) throw new GatewayAuthorizationError('GATEWAY_AUTHORITY_UNAVAILABLE', 503);
   return new SignJWT(claims)
     .setProtectedHeader({ alg: 'RS256', kid: jwk.kid })
     .sign(await importJWK(jwk, 'RS256'));
+};
+export const signGatewayJWT = async (claims: Record<string, unknown>) => {
+  parseGatewayWire('tokenClaims', claims);
+  return sign(claims);
+};
+/**
+ * A workspace-enrollment attestation is signed with the gateway key but is not a
+ * ticket: its purpose is `gateway-enrollment`, so the gateway refuses it. Clients
+ * read it only to pin the tenant and workspace a later identity exchange must match.
+ */
+export const signGatewayEnrollmentJWT = async (claims: Record<string, unknown>) => {
+  if (claims.purpose !== 'gateway-enrollment' || 'device_id' in claims)
+    throw new GatewayAuthorizationError('INVALID_GATEWAY_MESSAGE', 400);
+  return sign(claims);
 };
 export const verifyGatewayJWT = async (
   token: string,

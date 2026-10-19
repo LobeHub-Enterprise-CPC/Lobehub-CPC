@@ -19,6 +19,8 @@ GatewayRoutes.post('/identity', requireAuth, async (c: Context) => {
   try {
     const input = parseGatewayWire<{
       audience: GatewayAudience;
+      connectionId?: string;
+      deviceId?: string;
       operationId?: string;
       workspaceId?: string;
       renewAuthorizationId?: string;
@@ -47,6 +49,9 @@ GatewayRoutes.post('/identity', requireAuth, async (c: Context) => {
           ? { kind: 'workspace', id: workspaceId }
           : { kind: 'user', id: source.subject },
       capabilities: [...capabilities],
+      // The caller's claim: Work validates it (and the caller's right to it) and signs it.
+      connectionId: input.connectionId,
+      deviceId: input.deviceId,
       renewAuthorizationId: input.renewAuthorizationId,
     });
     c.header('Cache-Control', 'private, no-store');

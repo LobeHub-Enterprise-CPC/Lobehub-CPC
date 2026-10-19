@@ -5,7 +5,10 @@ import type { GatewayDispatchEnvelope } from '@lobechat/types';
 import { isEqual } from 'es-toolkit';
 import { z } from 'zod';
 
-import { gatewayDeviceTarget } from '@/server/services/deviceGateway/access';
+import {
+  assertGatewayDeviceClaim,
+  gatewayDeviceTarget,
+} from '@/server/services/deviceGateway/access';
 import { redisService } from '@/server/services/redis';
 
 import { assertGatewayVersion } from './index';
@@ -128,6 +131,18 @@ export const loadGatewayAttempt = async (
     enroller: target.audience === 'urn:lobehub:gateway:device',
     execute: true,
   });
+  if (audience.endsWith(':device')) {
+    // The command goes to the socket the gateway names, so that socket's
+    // authorization must have been signed for exactly this device and
+    // connection, and its registrant must still be allowed to host it.
+    if (
+      !target.deviceId ||
+      target.deviceId !== record.intent.resourceId ||
+      target.connectionId !== binding.connectionId
+    )
+      throw new GatewayAuthorizationError('UNAUTHORIZED');
+    await assertGatewayDeviceClaim(target.userId, target.principal, target.deviceId);
+  }
   return record;
 };
 

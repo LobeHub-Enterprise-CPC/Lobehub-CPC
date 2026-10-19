@@ -1,6 +1,7 @@
 import { requireTenantScope } from '@lobechat/database/tenant';
 
 import { verifyGatewayJWT } from '@/libs/trpc/utils/gatewayJwt';
+import { assertGatewayDeviceClaim } from '@/server/services/deviceGateway/access';
 import { redisService } from '@/server/services/redis';
 
 import { claimGatewayAttempt, loadGatewayAttempt, sameBinding } from './attempts';
@@ -44,6 +45,8 @@ export const authorizeGateway = async (input: GatewayAuthorizeRequest) => {
       claims.sub !== record.userId ||
       claims.accepted_version !== record.acceptedVersion ||
       claims.operation_id !== record.operationId ||
+      claims.device_id !== record.deviceId ||
+      claims.connection_id !== record.connectionId ||
       JSON.stringify(claims.capabilities) !== JSON.stringify(record.capabilities) ||
       !samePrincipal(claims.principal as typeof record.principal, record.principal)
     )
@@ -52,6 +55,11 @@ export const authorizeGateway = async (input: GatewayAuthorizeRequest) => {
     // in flight. Its signed old ticket retains only its own original expiry.
     ticketExpiresAt = Number(claims.exp) * 1000;
     if (ticketExpiresAt <= checkedAt) throw new GatewayAuthorizationError('LEASE_EXPIRED');
+    // Whether this registrant may host the device is re-decided on every check, so
+    // a claim that was open when it was signed (the device was not enrolled yet)
+    // ends once the device turns out to belong to someone else.
+    if (record.deviceId)
+      await assertGatewayDeviceClaim(record.userId, record.principal, record.deviceId);
   } else {
     if (
       !input.attemptId ||
@@ -61,6 +69,13 @@ export const authorizeGateway = async (input: GatewayAuthorizeRequest) => {
       input.generation !== input.dispatchBinding.connectionGeneration
     )
       throw new GatewayAuthorizationError('ATTEMPT_CONFLICT', 409);
+    // The binding names the socket the command goes to; it must be the one this
+    // authorization was signed for, not another socket presenting the same id.
+    if (
+      record.connectionId !== undefined &&
+      input.dispatchBinding.connectionId !== record.connectionId
+    )
+      throw new GatewayAuthorizationError('UNAUTHORIZED');
     const attempt = await loadGatewayAttempt(
       input.attemptId,
       { tenantId: input.tenantId, sourceAcceptedVersion: input.sourceAcceptedVersion },

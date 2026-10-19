@@ -55,3 +55,35 @@ export const gatewayDeviceTarget = async (
   if (!row) throw new GatewayAuthorizationError('RESOURCE_NOT_FOUND', 404);
   return row.deviceId;
 };
+
+/**
+ * Whether `subject` may speak for the workspace device `deviceId` on the
+ * gateway, which is decided here, by Work, and signed into the ticket: the
+ * client's report of its own device is never the authority.
+ *
+ * A device that is not enrolled yet may be claimed (that is the first
+ * connection of an enrollment). One that is enrolled may be claimed by its
+ * enroller, by an owner, and, once public, by any non-viewer member: another
+ * member's private device never. A personal principal has a pool of its own, so
+ * there is nothing to take over.
+ */
+export const assertGatewayDeviceClaim = async (
+  subject: string,
+  principal: GatewayPrincipal,
+  deviceId: string,
+) => {
+  if (principal.kind !== 'workspace') return;
+  const db = await getServerDB();
+  const role = await getActiveWorkspaceMembershipRole(db, {
+    userId: subject,
+    workspaceId: principal.id,
+  });
+  if (!role) throw new GatewayAuthorizationError('FORBIDDEN', 403);
+  const [row] = await db
+    .select()
+    .from(devices)
+    .where(and(eq(devices.workspaceId, principal.id), eq(devices.deviceId, deviceId)))
+    .limit(1);
+  if (row && !canOperateWorkspaceDevice(role ?? undefined, subject, row))
+    throw new GatewayAuthorizationError('FORBIDDEN', 403);
+};

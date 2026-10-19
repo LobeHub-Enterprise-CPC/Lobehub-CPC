@@ -115,6 +115,8 @@ beforeEach(async () => {
       principal,
       capabilities: ['device:connect', 'device:respond'],
       audience: 'urn:lobehub:gateway:device',
+      deviceId: 'device-b12',
+      connectionId: binding.connectionId,
       jti: randomUUID(),
       source,
       ticketExpiresAt: Date.now() + 300_000,

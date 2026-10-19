@@ -25,3 +25,14 @@ export const parseGatewayWire = <T>(definition: keyof typeof schema.$defs, input
 };
 export const samePrincipal = (a: { kind: string; id: string }, b: { kind: string; id: string }) =>
   a.kind === b.kind && a.id === b.id;
+
+/** Longest device and connection identifiers a gateway ticket carries, in UTF-8 bytes (contract: Device identity). */
+export const MAX_GATEWAY_DEVICE_ID_BYTES = 64;
+export const MAX_GATEWAY_CONNECTION_ID_BYTES = 128;
+/** A usable identifier: non-blank, bounded, no control characters. The schema bounds characters, this bounds bytes. */
+export const isGatewayIdentifier = (value: unknown, maxBytes: number): value is string =>
+  typeof value === 'string' &&
+  value.trim() !== '' &&
+  Buffer.byteLength(value) <= maxBytes &&
+  // eslint-disable-next-line no-control-regex
+  !/[\u0000-\u001F\u007F-\u009F]/.test(value);
