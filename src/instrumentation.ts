@@ -52,6 +52,21 @@ export async function register() {
     });
   }
 
+  // Warn at startup about tenants whose Market trusted client is not usable (not bound to the
+  // tenant's instance, wrong secret, instance frozen), instead of letting the first user request
+  // fail as an anonymous 401. Background and warn-only: Market never gates a tenant or the process.
+  if (
+    process.env.NEXT_RUNTIME === 'nodejs' &&
+    process.env.DATABASE_URL &&
+    !process.env.VERCEL_ENV
+  ) {
+    void import('@/server/services/market/bindingProbe')
+      .then(({ probeMarketBindingForAllTenants }) => probeMarketBindingForAllTenants())
+      .catch((err) => {
+        console.error('[Instrumentation] Failed to check Market trusted-client bindings:', err);
+      });
+  }
+
   // Note: messenger system bot connections (Discord/Telegram) are managed
   // entirely from dc-center's System Bots admin — save / enable / forceReconnect
   // mutations call MessageGateway directly. The main app's only role here is
