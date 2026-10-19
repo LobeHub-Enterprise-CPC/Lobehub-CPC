@@ -30,5 +30,11 @@ export {
 } from './path';
 export type { TenantPublicEntry } from './publicUrl';
 export { buildTenantEntryUrl, tenantAppPath } from './publicUrl';
+export {
+  isRegistrableSlug,
+  isReservedSlug,
+  RESERVED_SLUGS,
+  WORKSPACE_MIRRORED_FIRST_SEGMENTS,
+} from './reservedSlugs';
 export type { TenantContext } from './resolve';
 export { resolveTenant } from './resolve';

@@ -1,4 +1,7 @@
-import { mapTenantAppPath } from '@lobechat/business-tenant/routing';
+import {
+  mapTenantAppPath,
+  WORKSPACE_MIRRORED_FIRST_SEGMENTS,
+} from '@lobechat/business-tenant/routing';
 import type { NavigateOptions } from 'react-router';
 
 export interface WorkspaceAwareNavigateOptions extends NavigateOptions {
@@ -77,31 +80,6 @@ export const WORKSPACE_SETTINGS_TABS: ReadonlySet<string> = new Set([
 
 const SETTINGS_PREFIX_REGEX = /^\/settings\/([^/?#]+)/;
 const FIRST_SEGMENT_REGEX = /^\/([^/?#]+)/;
-
-/**
- * First segments mirrored under `/:workspaceSlug`. Exported because the tenant
- * reserved-slug list is derived from it — a slug equal to one of these shadows
- * the real route, so the two must never drift apart.
- */
-export const WORKSPACE_MIRRORED_FIRST_SEGMENTS: ReadonlySet<string> = new Set([
-  'agent',
-  'agents',
-  'community',
-  'eval',
-  // Top-level goal detail lives beside task/tasks in the shared main area.
-  'goal',
-  'group',
-  'image',
-  'memory',
-  'page',
-  'project',
-  'projects',
-  'resource',
-  'settings',
-  'task',
-  'tasks',
-  'video',
-]);
 
 const parseFirstSegment = (pathname: string): string | null => {
   const match = pathname.match(FIRST_SEGMENT_REGEX);
