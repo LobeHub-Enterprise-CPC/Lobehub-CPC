@@ -81,7 +81,9 @@ afterEach(() => {
 describe('strict actual agent socket authority', () => {
   it('uses the strict prefix once and includes the tenancy handshake', () => {
     const { socket } = connect();
-    expect(socket.url).toBe('wss://gw.invalid/tenant/v1/ws?operationId=op');
+    expect(socket.url).toMatch(
+      /^wss:\/\/gw\.invalid\/tenant\/v1\/ws\?operationId=op&connectionId=[\da-f-]{36}$/i,
+    );
     expect(JSON.parse(socket.sent[0])).toMatchObject({ tenancyProtocol: 1, tokenType: 'jwt' });
   });
   it.each([

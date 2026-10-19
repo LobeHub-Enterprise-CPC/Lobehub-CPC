@@ -423,7 +423,6 @@ export class GatewayClient extends EventEmitter {
     this.logger.info(
       `WebSocket connected, sending auth... (${describeGatewayTokenExpiry(this.token)})`,
     );
-    this.reconnectDelay = INITIAL_RECONNECT_DELAY;
     this.setStatus('authenticating');
 
     // Send token as first message instead of in URL
@@ -439,8 +438,17 @@ export class GatewayClient extends EventEmitter {
   private handleMessage = (data: WebSocket.Data) => {
     try {
       const message = JSON.parse(String(data)) as ServerMessage;
-      if (['tenant_unavailable', 'capability_failed'].includes(message.type))
-        throw new Error((message as { code?: string }).code ?? 'GATEWAY_AUTHORITY_UNAVAILABLE');
+      if (['auth_failed', 'tenant_unavailable', 'capability_failed'].includes(message.type)) {
+        const failure = message as { code?: string; reason?: string };
+        const code = failure.code ?? failure.reason ?? 'UNAUTHORIZED';
+        if (gatewayIdentityFailure({ code }).retryable) this.forceReconnect(code);
+        else {
+          this.logger.error(`Authentication failed: ${code}`);
+          void this.disconnect();
+          this.emit('auth_failed', code);
+        }
+        return;
+      }
       if (message.type === 'lease_update') {
         this.authority!.confirm(message);
         return;
@@ -476,6 +484,7 @@ export class GatewayClient extends EventEmitter {
           this.authority = this.renewal!.authority;
           this.token = this.authority.identity.gatewayTicket;
           if (renewed) return;
+          this.reconnectDelay = INITIAL_RECONNECT_DELAY;
           if (this.expiryTimer) clearInterval(this.expiryTimer);
           this.expiryTimer = setInterval(() => {
             if (!this.authority?.alive()) {
@@ -489,14 +498,6 @@ export class GatewayClient extends EventEmitter {
           this.setStatus('connected');
           this.startHeartbeat();
           this.emit('connected');
-          break;
-        }
-
-        case 'auth_failed': {
-          const reason = (message as any).code || (message as any).reason || 'UNAUTHORIZED';
-          this.logger.error(`Authentication failed: ${reason}`);
-          this.emit('auth_failed', reason);
-          this.disconnect();
           break;
         }
 

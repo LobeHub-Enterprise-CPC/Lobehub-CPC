@@ -91,6 +91,7 @@ export class AgentStreamClient extends TypedEmitter {
   private resumeFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly gatewayUrl: string;
+  private readonly connectionId: string;
   private readonly operationId: string;
   private readonly autoReconnect: boolean;
   private readonly resumeOnConnect: boolean;
@@ -100,6 +101,7 @@ export class AgentStreamClient extends TypedEmitter {
   constructor(options: AgentStreamClientOptions) {
     super();
     this.gatewayUrl = options.gatewayUrl;
+    this.connectionId = options.connectionId || crypto.randomUUID();
     this.operationId = options.operationId;
     this.token = options.token;
     this.identityProvider = options.identityProvider;
@@ -285,13 +287,13 @@ export class AgentStreamClient extends TypedEmitter {
     const url = strictGatewayUrl(this.gatewayUrl, 'ws');
     url.protocol = ['https:', 'wss:'].includes(url.protocol) ? 'wss:' : 'ws:';
     url.searchParams.set('operationId', this.operationId);
+    url.searchParams.set('connectionId', this.connectionId);
     return url.toString();
   }
 
   // ─── WebSocket Event Handlers ───
 
   private handleOpen = (): void => {
-    this.reconnectDelay = INITIAL_RECONNECT_DELAY;
     this.setStatus('authenticating');
     this.sendMessage({
       token: this.token,
@@ -304,6 +306,11 @@ export class AgentStreamClient extends TypedEmitter {
   private handleMessage = (event: MessageEvent): void => {
     try {
       let message = JSON.parse(event.data as string) as ServerMessage;
+      if (['auth_failed', 'tenant_unavailable', 'capability_failed'].includes(message.type)) {
+        const failure = message as { code?: string; reason?: string };
+        this.handleGatewayFailure(failure.code ?? failure.reason ?? 'UNAUTHORIZED');
+        return;
+      }
       const directTool = message.type === 'tool_execute';
       if (directTool) {
         const frame = message as GatewayCommandBinding & { data: unknown };
@@ -334,8 +341,6 @@ export class AgentStreamClient extends TypedEmitter {
         this.emit(message.type, message);
         return;
       }
-      if (['tenant_unavailable', 'capability_failed'].includes(message.type))
-        throw new Error((message as { code?: string }).code ?? 'GATEWAY_AUTHORITY_UNAVAILABLE');
       if (message.type === 'lease_update') {
         this.authority!.confirm(message);
         return;
@@ -352,6 +357,7 @@ export class AgentStreamClient extends TypedEmitter {
           this.authority = this.renewal!.authority;
           this.token = this.authority.identity.gatewayTicket;
           if (renewed) return;
+          this.reconnectDelay = INITIAL_RECONNECT_DELAY;
           this.setStatus('connected');
           if (this.expiryTimer) clearInterval(this.expiryTimer);
           this.expiryTimer = setInterval(() => {
@@ -391,17 +397,6 @@ export class AgentStreamClient extends TypedEmitter {
           this.terminalEchoGuard.beginReplay();
           this.sendMessage({ lastEventId: this.lastEventId, type: 'resume', wantStatus: true });
           this.emit('connected');
-          break;
-        }
-
-        case 'auth_failed': {
-          this.emit(
-            'auth_failed',
-            message.reason ??
-              (message as { code?: string; message?: string }).code ??
-              'UNAUTHORIZED',
-          );
-          this.disconnect();
           break;
         }
 
@@ -535,6 +530,23 @@ export class AgentStreamClient extends TypedEmitter {
       this.disconnect();
     }
   };
+
+  private handleGatewayFailure(code: string): void {
+    if (!gatewayIdentityFailure({ code }).retryable) {
+      this.disconnect();
+      this.emit('auth_failed', code);
+      return;
+    }
+    this.cleanup();
+    if (!this.intentionalDisconnect && this.autoReconnect && !this.sessionEnded) {
+      this.setStatus('reconnecting');
+      this.scheduleReconnect();
+    } else {
+      this.setStatus('disconnected');
+      this.emit('disconnected');
+    }
+    this.emit('error', new Error(code));
+  }
 
   private handleClose = (): void => {
     this.renewal?.dispose();

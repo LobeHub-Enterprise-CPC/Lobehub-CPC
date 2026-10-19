@@ -13,7 +13,9 @@ describe('AgentStreamClient', () => {
       client.connect();
       vi.advanceTimersByTime(1);
 
-      expect(getLatestWs().url).toBe('wss://gateway.test.com/tenant/v1/ws?operationId=op-123');
+      expect(getLatestWs().url).toMatch(
+        /^wss:\/\/gateway\.test\.com\/tenant\/v1\/ws\?operationId=op-123&connectionId=[\da-f-]{36}$/i,
+      );
     });
 
     it('should use ws:// for http gateway URL', () => {
@@ -21,7 +23,9 @@ describe('AgentStreamClient', () => {
       client.connect();
       vi.advanceTimersByTime(1);
 
-      expect(getLatestWs().url).toBe('ws://localhost:8787/tenant/v1/ws?operationId=op-123');
+      expect(getLatestWs().url).toMatch(
+        /^ws:\/\/localhost:8787\/tenant\/v1\/ws\?operationId=op-123&connectionId=[\da-f-]{36}$/i,
+      );
     });
 
     it('should send auth message on open', async () => {
@@ -703,23 +707,17 @@ describe('AgentStreamClient', () => {
       ws.simulateClose();
       expect(delays[0]).toBe(1000);
 
-      // Advance past reconnect delay → new WS created, onopen fires + resets delay,
-      // but we close before auth succeeds → triggers reconnect again with 1s (reset by onopen)
+      // Opening the transport without authenticating must keep the backoff.
       await vi.advanceTimersByTimeAsync(1000);
       await vi.advanceTimersByTimeAsync(1);
       getLatestWs().simulateClose();
 
-      // Third reconnect: previous close scheduled another with 1s,
-      // advance past it, onopen fires, close again to see 2s
+      // The next unauthenticated close increases the delay again.
       await vi.advanceTimersByTimeAsync(delays[1]);
       await vi.advanceTimersByTimeAsync(1);
       getLatestWs().simulateClose();
 
-      // Verify escalating pattern: 1s, 1s (reset by open), 1s (reset by open)
-      // This is correct: onopen resets delay, so each connect cycle restarts at 1s
-      // The backoff only accumulates when connection *fails to open*
-      expect(delays[0]).toBe(1000);
-      expect(delays[1]).toBe(1000); // Reset by successful WebSocket open
+      expect(delays).toEqual([1000, 2000, 4000]);
     });
 
     it('should not reconnect when autoReconnect is false', async () => {

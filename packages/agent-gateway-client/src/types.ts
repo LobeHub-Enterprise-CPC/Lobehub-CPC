@@ -651,6 +651,8 @@ export interface AgentStreamClientOptions {
    * client-targeted events (`llm_execute`) to it. Absent ⇒ not sent.
    */
   clientId?: string;
+  /** Socket deduplication hint, stable across reconnects. Defaults to a UUID per client instance. */
+  connectionId?: string;
   /** Gateway WebSocket URL base (e.g. https://gateway.lobehub.com) */
   gatewayUrl: string;
   identityProvider?: GatewayIdentityProvider;
