@@ -1,4 +1,4 @@
-/** CPC models migrated by Enterprise, outside the upstream migration chain. */
+/** CPC models migrated by the tenant-only chain (`migrations/tenant`), outside the upstream chain. */
 // Named exports also work when ESM consumers load this CommonJS package via tsx.
 export {
   channelApprovals,

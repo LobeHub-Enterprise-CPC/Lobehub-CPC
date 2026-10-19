@@ -1,11 +1,11 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 
 import { CHANNEL_HISTORY } from '@lobechat/types';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { channelMigrationSql } from '../../../tests/channelMigrations';
 import { getTestDB } from '../../core/getTestDB';
 import {
   channelJobs,
@@ -237,18 +237,7 @@ describe('Channel bounded presentation reads', () => {
     const channel = await create();
     await messages(channel.id, 3);
     const before = await model.page(channel.id);
-    // Migration ownership moved to the enterprise chain (see
-    // src/privateSchemas/channel.ts) after this test was written; the file
-    // this test replays moved with it.
-    const migration = readFileSync(
-      new URL(
-        '../../../../../../packages/enterprise/src/database/migrations/0009_channel_mvp.sql',
-        import.meta.url,
-      ),
-      'utf8',
-    );
-    for (const statement of migration.split('--> statement-breakpoint'))
-      await db.execute(sql.raw(statement));
+    await db.execute(sql.raw(channelMigrationSql()));
     expect(await model.page(channel.id)).toEqual(before);
   });
 });

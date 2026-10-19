@@ -29,34 +29,33 @@ import {
  *
  * ## Why this lives here and not in `packages/database/src/schemas`
  *
- * These tables are ours (CPC-only), not upstream's. They were first added
- * straight into the submodule's own schema barrel, which put their migrations
- * in the submodule's drizzle chain — the same namespace canary's own
- * migrations use. That collides on every canary merge (the exact failure mode
- * `command_governance`'s tables hit twice, `0158`/`0159` renumbered to
- * `0161`/`0162`, each time costing a hand-rebuilt snapshot chain).
+ * These tables are ours (CPC-only), not upstream's. Declared in the shared
+ * schema barrel, their migrations would land in the shared drizzle chain — the
+ * same namespace canary's own migrations use. That collides on every canary
+ * merge (the exact failure mode `command_governance`'s tables hit twice,
+ * `0158`/`0159` renumbered to `0161`/`0162`, each time costing a hand-rebuilt
+ * snapshot chain).
  *
- * Ownership sits with the shell repo's enterprise chain
- * (`packages/enterprise/src/database/migrations`, bookkeeping in
- * `__drizzle_enterprise_migrations`), which has its own journal and snapshot
- * chain and therefore cannot collide with canary's. This file is the single
- * definition of the tables: the shell's `packages/enterprise/drizzle.config.ts`
- * lists it alongside its own schemas, so `drizzle-kit generate` picks it up
- * from here. `packages/database/migrations` is once again byte-identical to
- * canary.
+ * Ownership sits with the tenant-only chain (`migrations/tenant`, bookkeeping
+ * in `__lobehub_tenant_migrations`), which canary does not have and therefore
+ * cannot collide with. `src/tenant/schemas.ts` re-exports this file as the
+ * entry of that chain's drizzle config, so `drizzle-kit generate` with
+ * `DRIZZLE_TARGET=tenant` picks it up from here, and `packages/database/migrations`
+ * stays byte-identical to canary (outside `tenant` and `platform`).
  *
  * Two consequences worth knowing before editing:
  *
  * 1. **Self-contained on purpose.** No `./_helpers` import, and no path alias
- *    of any kind: `drizzle-kit` reads this file from the shell root, where the
- *    submodule's tsconfig aliases do not resolve. The timestamp column is
- *    spelled out below instead of importing `createdAt`/`timestamptz`.
- * 2. **No `.references(() => users.id)`.** `users` belongs to the submodule's
- *    chain; importing it would pull it into the enterprise config's schema
- *    graph and `drizzle-kit generate` would try to create `users` there too.
+ *    of any kind: the models are kept free of the shared schema graph. The
+ *    timestamp column is spelled out below instead of importing
+ *    `createdAt`/`timestamptz`.
+ * 2. **No `.references(() => users.id)`.** `users` belongs to the shared
+ *    chain; importing it would pull it into the tenant chain's schema graph and
+ *    `drizzle-kit generate` would try to create `users` there too.
  *    `channels.owner_id`'s foreign key to `users` still exists in the
- *    database — it is written by hand in `0009_channel_mvp.sql`. Keep it in
- *    sync if this column changes.
+ *    database — it is written by hand in `0004_governance_channel_tables.sql`,
+ *    together with the revision triggers. Keep it in sync if this column
+ *    changes.
  */
 
 const createdAtColumn = () =>

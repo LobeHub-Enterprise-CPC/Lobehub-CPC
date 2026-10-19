@@ -10,10 +10,11 @@ import {
 } from 'drizzle-orm/pg-core';
 
 /**
- * CPC-only governance tables. Enterprise owns their migration chain; keep
- * these models out of the shared `schemas` barrel so canary migrations do
- * not pick them up. Cross-chain foreign keys to `users` live in Enterprise's
- * custom migration because importing `users` would also generate its table.
+ * CPC-only governance tables. The tenant-only chain (`migrations/tenant`) owns
+ * their migrations; keep these models out of the shared `schemas` barrel so
+ * canary migrations do not pick them up. Cross-chain foreign keys to `users`
+ * live in that chain's `0004_governance_channel_tables.sql` because importing
+ * `users` would also generate its table.
  */
 
 const createdAtColumn = () =>

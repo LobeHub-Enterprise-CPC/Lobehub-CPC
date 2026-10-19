@@ -34,9 +34,11 @@ const migrationsFolder = join(__dirname, '../../migrations');
  */
 const extraMigrationsFolder = process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER;
 
+// A distribution chain written before the tenant-only chain took over the governance and
+// Channel tables still creates them. It runs first, so the tenant-only chain finds those tables
+// and only verifies them, as it does on an installation that already holds them.
 const chains = [
   { folder: migrationsFolder, journal: TENANT_MIGRATIONS_TABLE },
-  { folder: join(migrationsFolder, 'tenant'), journal: TENANT_ONLY_MIGRATIONS_TABLE },
   ...(extraMigrationsFolder
     ? [
         {
@@ -46,11 +48,12 @@ const chains = [
         },
       ]
     : []),
+  { folder: join(migrationsFolder, 'tenant'), journal: TENANT_ONLY_MIGRATIONS_TABLE },
 ];
 
 /**
- * The shared chain, the tenant-only chain and a distribution's extra chain, as the tenant migrator runs
- * them (for `public` the rewrite is a no-op), each followed by its journal
+ * The shared chain, a distribution's extra chain and the tenant-only chain, as the tenant migrator
+ * runs them (for `public` the rewrite is a no-op), each followed by its journal
  * rows; pg_search (bm25) is skipped where absent.
  */
 const testMigrationStatements = (skipSearchIndexes: boolean) =>

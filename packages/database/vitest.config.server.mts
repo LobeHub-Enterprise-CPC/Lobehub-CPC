@@ -2,8 +2,6 @@ import { resolve } from 'node:path';
 
 import { configDefaults, defineConfig } from 'vitest/config';
 
-import { enterpriseTestFiles } from './tests/enterprise-test-files.mjs';
-
 export default defineConfig({
   plugins: [
     {
@@ -53,7 +51,7 @@ export default defineConfig({
       TEST_SERVER_DB: '1',
     },
     environment: 'node',
-    exclude: [...configDefaults.exclude, ...enterpriseTestFiles],
+    exclude: configDefaults.exclude,
     isolate: false,
     maxWorkers: 1,
     setupFiles: './tests/setup-db.ts',

@@ -1,17 +1,14 @@
 import { readFileSync } from 'node:fs';
 
-import { enterpriseChannelMigrations } from './enterprise-test-files.mjs';
-
 /**
- * Channel tables are migrated by the enclosing enterprise chain (see
- * src/privateSchemas/channel.ts). PGlite suites apply exactly these files, in order.
+ * Governance and Channel tables are created by `migrations/tenant/0004_governance_channel_tables.sql`
+ * (see src/privateSchemas). PGlite suites that only need those tables apply this file to a
+ * database whose `public` schema stands in for the tenant and already has `users`.
  */
-export const readChannelMigration = (tag: string) =>
-  readFileSync(
-    new URL(`../../../../packages/enterprise/src/database/migrations/${tag}.sql`, import.meta.url),
-    'utf8',
-  ).replaceAll('--> statement-breakpoint', '');
+export const channelMigrationFile = new URL(
+  '../migrations/tenant/0004_governance_channel_tables.sql',
+  import.meta.url,
+);
 
-/** All Channel migrations as one script for `PGlite.exec`. */
 export const channelMigrationSql = () =>
-  enterpriseChannelMigrations.map((tag) => readChannelMigration(tag)).join('\n;\n');
+  readFileSync(channelMigrationFile, 'utf8').replaceAll('--> statement-breakpoint', '');

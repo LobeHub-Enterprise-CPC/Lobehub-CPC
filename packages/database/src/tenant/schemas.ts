@@ -17,6 +17,13 @@ import type { SsoOAuth2Config, SsoOidcConfig } from './ssoTypes';
  * Tables only a tenant schema has. They stay out of `../schemas` so the shared
  * drizzle chain never generates them; their DDL is the tenant-only chain in
  * `migrations/tenant`, which runs after the shared one (`./migrator.ts`).
+ *
+ * That includes the fork's private models in `../privateSchemas` (command
+ * governance and Channel), re-exported below: this file is the entry of the
+ * tenant chain's drizzle config, and the chain is the only place their DDL lives.
+ * The re-export serves that entry and the readiness check (`import * as`); import
+ * the models by name from `@lobechat/database/privateSchemas`, whose explicit
+ * exports ES modules can see (an `export *` hides every name from them).
  */
 
 /**
@@ -62,3 +69,5 @@ export const ssoProviders = pgTable(
 );
 
 export type SsoProviderItem = typeof ssoProviders.$inferSelect;
+
+export * from '../privateSchemas';

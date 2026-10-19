@@ -29,6 +29,13 @@
       "when": 1792408723429,
       "tag": "0003_drop_sso_saml_config",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792418916127,
+      "tag": "0004_governance_channel_tables",
+      "breakpoints": true
     }
   ]
 }

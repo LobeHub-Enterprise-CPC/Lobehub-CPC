@@ -330,7 +330,7 @@ const OSS_TENANT_MIGRATOR: TenantMigrator = {
           ) LIMIT 1`,
         [schemaName, expected.map((item) => item.table), expected.map((item) => item.column)],
       );
-      if (missing.rowCount)
+      if (missing.rows.length)
         throw new TenantDatabaseError('TENANT_NOT_READY', 'schema-not-provisioned');
     }
   },

@@ -145,7 +145,7 @@ WHERE name = 'public.users';`);
 });
 
 describe('the shared and tenant-only chains', () => {
-  it.each(['fresh', 'existing-oidc-prefix'])(
+  it.each(['fresh', 'existing-oidc-prefix', 'governance-channel-tables-created-outside'])(
     'runs both chains and reruns without changes for %s',
     async (installation) => {
       const tenantId = `tenant-chain-${installation}`;
@@ -165,7 +165,7 @@ describe('the shared and tenant-only chains', () => {
           SET ROLE "${ownerUsername}"`);
         expect(await runTenantMigrations(client, migrationsFolder, options)).toBe(shared.length);
 
-        if (installation === 'existing-oidc-prefix') {
+        if (installation !== 'fresh') {
           // Replay the immutable pre-retirement prefix and its persisted identities.
           await db.exec(`BEGIN; SET LOCAL search_path TO "${schemaName}", extensions;
             CREATE TABLE ${journal} (id serial primary key, hash text not null, created_at bigint)`);
@@ -178,15 +178,41 @@ describe('the shared and tenant-only chains', () => {
           }
           await db.exec('COMMIT');
         }
+        if (installation === 'governance-channel-tables-created-outside') {
+          // What an installation that ran a distribution chain holds before this chain owns the tables:
+          // the tables exist, the journal entry of their migration does not.
+          const creating = tenant.findIndex((migration) =>
+            migration.sql.some((statement) => statement.includes('"channel_approvals"')),
+          );
+          await db.exec(`SET search_path TO "${schemaName}", extensions`);
+          for (const migration of materializeTenantMigrations(
+            tenant.slice(creating, creating + 1),
+            schemaName,
+          ))
+            for (const statement of migration.sql) await db.exec(statement);
+        }
 
         expect(await runTenantMigrations(client, chains[1], tenantOptions)).toBe(
-          tenant.length - (installation === 'existing-oidc-prefix' ? 2 : 0),
+          tenant.length - (installation === 'fresh' ? 0 : 2),
         );
         const before = await db.query(`SELECT * FROM ${journal} ORDER BY id`);
         expect(await runTenantMigrations(client, migrationsFolder, options)).toBe(0);
         expect(await runTenantMigrations(client, chains[1], tenantOptions)).toBe(0);
         expect(await db.query(`SELECT * FROM ${journal} ORDER BY id`)).toEqual(before);
-        expect(await verifyTenantMigrationHistory(client, chains[1], tenantOptions)).toBe(4);
+        expect(await verifyTenantMigrationHistory(client, chains[1], tenantOptions)).toBe(
+          tenant.length,
+        );
+
+        // Readiness covers the governance and Channel tables, whoever created them.
+        const [lobehub] = getTenantMigrators();
+        const context = { schemaName, tenantId };
+        await lobehub.verify(client, context);
+        await db.exec(
+          `ALTER TABLE "${schemaName}"."command_governance_rules" DROP COLUMN "pattern"`,
+        );
+        await expect(lobehub.verify(client, context)).rejects.toMatchObject({
+          reason: 'schema-not-provisioned',
+        });
       } finally {
         await db.close();
       }
