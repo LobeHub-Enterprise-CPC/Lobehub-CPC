@@ -55,6 +55,55 @@ describe('gateway root authentication and tenant admission', () => {
     serviceTokens: () => ['TEST-ONLY-SERVICE'],
     run: boundaries.run,
   });
+  it.each(['authorize', 'tool-result', 'finalize-abandoned'])(
+    'rejects device credentials for agent-only work on %s before executing it',
+    async (path) => {
+      const isolated = createGatewayInternalApp({
+        serviceTokens: () => ['agent-secret', 'device-secret'],
+        run: boundaries.run,
+      });
+      boundaries.run.mockClear();
+      const response = await isolated.fetch(
+        request(path, {
+          auth: 'device-secret',
+          body: { tenancyProtocol: 1, tenantId: 'tenant-A', audience: 'urn:lobehub:gateway:agent' },
+        }),
+      );
+      expect(response.status).toBe(403);
+      expect(boundaries.run).not.toHaveBeenCalled();
+    },
+  );
+  it('allows device authorization only with the device token and matching audience', async () => {
+    const isolated = createGatewayInternalApp({
+      serviceTokens: () => ['agent-secret', 'device-secret'],
+      run: boundaries.run,
+    });
+    const body = {
+      tenancyProtocol: 1,
+      tenantId: 'tenant-A',
+      authorizationId: 'auth-device',
+      expectedPrincipal: { kind: 'user', id: 'user' },
+      audience: 'urn:lobehub:gateway:device',
+      action: 'connect',
+      ticket: 'test-only',
+      generation: 1,
+      requestSeq: 1,
+    };
+    boundaries.authorize.mockResolvedValue({ allowed: true });
+    const authorized = await isolated.fetch(request('authorize', { auth: 'device-secret', body }));
+    expect(authorized.status).toBe(200);
+    boundaries.run.mockClear();
+    const denied = await isolated.fetch(request('authorize', { auth: 'agent-secret', body }));
+    expect(denied.status).toBe(403);
+    expect(boundaries.run).not.toHaveBeenCalled();
+  });
+
+  it('fails closed if the two service audiences use the same credential', async () => {
+    const isolated = createGatewayInternalApp({ serviceTokens: () => ['shared', 'shared'] });
+    const response = await isolated.fetch(request('admission', { auth: 'shared' }));
+    expect(response.status).toBe(503);
+  });
+
   it('rejects a forged tid before consulting platform or tenant business state', async () => {
     boundaries.run.mockClear();
     boundaries.admission.mockClear();

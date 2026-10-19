@@ -1,3 +1,4 @@
+import type { GatewayAudience } from '@lobechat/types';
 import { type Context, Hono } from 'hono';
 
 import { appEnv } from '@/envs/app';
@@ -43,7 +44,9 @@ export const createGatewayInternalApp = (overrides: Partial<GatewayInternalDeps>
     finalize: finalizeGatewayOperation,
     ...overrides,
   };
-  const app = new Hono().basePath('/api/internal/gateway');
+  const app = new Hono<{ Variables: { gatewayAudience: GatewayAudience } }>().basePath(
+    '/api/internal/gateway',
+  );
   app.onError((error, c) => {
     const gate = tenantGateErrorOf(error);
     const code =
@@ -64,10 +67,22 @@ export const createGatewayInternalApp = (overrides: Partial<GatewayInternalDeps>
     );
   });
   app.use('*', async (c, next) => {
-    const tokens = deps.serviceTokens().filter((token): token is string => !!token);
-    if (!tokens.length) throw new GatewayAuthorizationError('GATEWAY_AUTHORITY_UNAVAILABLE', 503);
-    if (!tokens.some((token) => isBearerSecret(c.req.header('authorization'), token)))
-      throw new GatewayAuthorizationError('UNAUTHORIZED');
+    const [agent, device] = deps.serviceTokens();
+    if (!agent && !device)
+      throw new GatewayAuthorizationError('GATEWAY_AUTHORITY_UNAVAILABLE', 503);
+    // A shared credential cannot establish an audience boundary; fail closed.
+    if (agent && agent === device)
+      throw new GatewayAuthorizationError('GATEWAY_AUTHORITY_UNAVAILABLE', 503);
+    const audience =
+      agent && isBearerSecret(c.req.header('authorization'), agent)
+        ? 'urn:lobehub:gateway:agent'
+        : device && isBearerSecret(c.req.header('authorization'), device)
+          ? 'urn:lobehub:gateway:device'
+          : null;
+    if (!audience) throw new GatewayAuthorizationError('UNAUTHORIZED');
+    c.set('gatewayAudience', audience);
+    if (c.req.path.endsWith('/finalize-abandoned') && audience !== 'urn:lobehub:gateway:agent')
+      throw new GatewayAuthorizationError('AUDIENCE_MISMATCH', 403);
     const tenantId = c.req.header('X-LobeHub-Tenant-Id');
     if (!tenantId) throw new GatewayAuthorizationError('TENANT_REQUIRED', 400);
     if (!/^[\w.:-]{1,128}$/.test(tenantId))
@@ -94,6 +109,14 @@ export const createGatewayInternalApp = (overrides: Partial<GatewayInternalDeps>
     } catch {
       throw new GatewayAuthorizationError('INVALID_GATEWAY_MESSAGE', 400);
     }
+    if (
+      definition !== 'admissionRequest' &&
+      body &&
+      typeof body === 'object' &&
+      'audience' in body &&
+      body.audience !== c.get('gatewayAudience')
+    )
+      throw new GatewayAuthorizationError('AUDIENCE_MISMATCH', 403);
     const input = parseGatewayWire<T>(definition, body);
     if (input.tenantId !== c.req.header('X-LobeHub-Tenant-Id'))
       throw new GatewayAuthorizationError('TENANT_MISMATCH', 403);

@@ -20,7 +20,9 @@ const boundary = vi.hoisted(() => ({
 }));
 
 vi.mock('@/envs/app', () => ({ appEnv: { AGENT_GATEWAY_SERVICE_TOKEN: 'TEST-ONLY-SERVICE' } }));
-vi.mock('@/envs/gateway', () => ({ gatewayEnv: {} }));
+vi.mock('@/envs/gateway', () => ({
+  gatewayEnv: { DEVICE_GATEWAY_SERVICE_TOKEN: 'TEST-ONLY-DEVICE-SERVICE' },
+}));
 vi.mock('@/envs/auth', () => ({ authEnv: {} }));
 vi.mock('@/server/modules/Tenant/endpoints', () => ({
   endpointHosts: () => ({ appUrl: 'http://localhost:3010', internalUrl: 'http://internal:3210' }),
@@ -53,6 +55,8 @@ vi.mock('@/server/services/gatewayAuthorization/finalize', () => ({
 }));
 
 const admissionBody = { tenancyProtocol: 1, tenantId: 'tenant-A' };
+// The body names the device audience, so it must be sent with the device service token.
+const deviceAuthorization = { authorization: 'Bearer TEST-ONLY-DEVICE-SERVICE' };
 const authorizeBody = {
   ...admissionBody,
   action: 'renew',
@@ -184,7 +188,7 @@ describe('gateway root through the Next Host proxy and formal route handler', ()
     expect(await mismatch.json()).toMatchObject({ error: { code: 'TENANT_MISMATCH' } });
     const stale = await throughProxy(
       'authorize',
-      { 'x-lobehub-tenant-version': '7' },
+      { ...deviceAuthorization, 'x-lobehub-tenant-version': '7' },
       authorizeBody,
     );
     expect(stale.status).toBe(409);
@@ -193,16 +197,27 @@ describe('gateway root through the Next Host proxy and formal route handler', ()
   });
 
   it('enters and releases the tenant gate for business requests and honors its frozen refusal', async () => {
-    const accepted = await throughProxy('authorize', {}, authorizeBody);
+    const accepted = await throughProxy('authorize', deviceAuthorization, authorizeBody);
     expect(accepted.status).toBe(200);
     expect(boundary.enterTenantId).toHaveBeenCalledWith('tenant-A');
     expect(boundary.authorize).toHaveBeenCalledOnce();
     expect(boundary.release).toHaveBeenCalledOnce();
     boundary.authorize.mockClear();
     boundary.enterTenantId.mockRejectedValueOnce(new TenantGateError('TENANT_FROZEN'));
-    const frozen = await throughProxy('authorize', {}, authorizeBody);
+    const frozen = await throughProxy('authorize', deviceAuthorization, authorizeBody);
     expect(frozen.status).toBe(403);
+    expect(await frozen.json()).toMatchObject({ error: { code: 'TENANT_FROZEN' } });
     expect(boundary.authorize).not.toHaveBeenCalled();
+  });
+
+  it('keeps the agent and device service tokens to their own audience', async () => {
+    const crossed = await throughProxy('authorize', {}, authorizeBody);
+    expect(crossed.status).toBe(403);
+    expect(await crossed.json()).toMatchObject({ error: { code: 'AUDIENCE_MISMATCH' } });
+    const agentOnly = await throughProxy('finalize-abandoned', deviceAuthorization, {});
+    expect(agentOnly.status).toBe(403);
+    expect(await agentOnly.json()).toMatchObject({ error: { code: 'AUDIENCE_MISMATCH' } });
+    expectNoBusinessAccess();
   });
 
   it.each(['unknown.example.com', 'chat.example.com', 'internal:3211'])(
