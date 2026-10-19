@@ -11,7 +11,7 @@ const run = async () => {
   if (oldUrl.host !== nextUrl.host || oldUrl.pathname !== nextUrl.pathname) {
     throw new Error('Disconnect fixture must use one isolated database');
   }
-  const schemaName = 'tenant_f1f1014f1f1014f1f1014f1f1';
+  const schemaName = 'tenant_f1f1014f1f1014f1f1014f1f';
   const tenantId = 'client-disconnect-fixture';
   const extra = process.argv[2] === 'idle' ? { idle_in_transaction_session_timeout: 300 } : {};
   const configFor = (url: URL, connectionVersion: number): TenantPoolConfig => ({

@@ -46,6 +46,12 @@ describe('tenantDbNames', () => {
 });
 
 describe('validateDatasourceBundle', () => {
+  it('has no way to be handed an Admin bundle: the wire schema takes the LobeHub kind only', () => {
+    const admin = { ...makeBundle(TENANT), datasourceKind: 'admin' };
+    expect(datasourceBundleSchema.safeParse(admin).success).toBe(false);
+    expect(datasourceBundleSchema.safeParse(makeBundle(TENANT)).success).toBe(true);
+  });
+
   it('accepts a bundle Console derived for this tenant', () => {
     expect(validateDatasourceBundle(TENANT, makeBundle(TENANT))).toBeNull();
   });
@@ -58,7 +64,6 @@ describe('validateDatasourceBundle', () => {
 
   it.each<[string, Partial<DatasourceBundle>]>([
     ['another tenant', { tenantId: 'other' }],
-    ['an Admin bundle', { datasourceKind: 'admin' }],
     ['a slug-derived schema', { schemaName: 'tenant_acme' }],
     ['an unsupported schema version', { schemaVersion: 2 }],
     [
@@ -72,6 +77,10 @@ describe('validateDatasourceBundle', () => {
 });
 
 describe('datasourceBundleSchema', () => {
+  it('takes the LobeHub kind only, so an Admin bundle never reaches the derivation check', () => {
+    const admin = { ...makeBundle(TENANT), datasourceKind: 'admin' };
+    expect(datasourceBundleSchema.safeParse(admin).success).toBe(false);
+  });
   it('mirrors Console: the runtime user may not be the owner', () => {
     const names = tenantDbNames(TENANT);
     const bundle = makeBundle(TENANT, {

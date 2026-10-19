@@ -1,11 +1,14 @@
 import type { SafeReadinessDiagnosticCode } from '@lobechat/database/tenant';
+import { isTenantId, isTenantSchemaName } from '@lobechat/database/tenant';
 import { z } from 'zod';
 
 /**
  * Wire contract for `/api/internal/control-plane/*` (spec FR-CP-01..07).
  *
- * Console `src/server/controlPlane/contracts.ts` is the caller and the source of
- * truth: field names, limits and enums here must match it field by field.
+ * Console `src/shared/controlPlane` is the caller and the source of truth. It publishes the
+ * contract as JSON Schema and fixtures in contracts/tenant-control-plane (byte-identical copy
+ * here, checked by Console's `contracts:check`); `contractFixtures.test.ts` holds these receiving
+ * schemas and this application's answers to those files.
  */
 
 const id = z
@@ -13,6 +16,8 @@ const id = z
   .min(1)
   .max(128)
   .regex(/^[\w.:-]+$/);
+/** Console generates tenant ids as lower-case UUIDs (tenant-naming.json). */
+const tenantId = z.string().refine(isTenantId, 'TENANT_ID_INVALID');
 const version = z.number().int().positive().max(2_147_483_647);
 const date = z.string().datetime({ offset: true });
 
@@ -45,23 +50,23 @@ export {
   LifecycleFailure,
 } from '@/server/modules/Tenant/lifecycleFailure';
 
-const roleName = z
-  .string()
-  .max(63)
-  .regex(/^[_a-z][\d_a-z]*$/);
+/** `lh_<h24>_owner` and `lh_<h24>_run`: the LobeHub rows of tenant-naming.json `rolePatterns`. */
+const ownerRole = z.string().regex(/^lh_[\da-f]{24}_owner$/);
+const runtimeRole = z.string().regex(/^lh_[\da-f]{24}_run$/);
 
 /**
  * The credential bundle Console builds after creating the tenant's schema and
- * roles (spec FR-CP-05). Mirrors Console `bundleSchema` field by field,
- * including its refine; the derivation and host checks live in `datasource.ts`
- * so a bad bundle becomes a recorded `DATASOURCE_INVALID`, not a 400.
+ * roles (spec FR-CP-05). TITU Work migrates as the schema owner, so unlike the
+ * LobeHub bundle Admin receives, this one carries the owner password. Strict, as
+ * in the contract; the derivation and host checks live in `datasource.ts` so a
+ * bundle for another tenant becomes a recorded `DATASOURCE_INVALID`, not a 400.
  */
 export const datasourceBundleSchema = z
   .object({
     connectionVersion: version,
     credentialBundleVersion: version,
     database: z.string().min(1).max(63),
-    datasourceKind: z.enum(['admin', 'lobehub']),
+    datasourceKind: z.literal('lobehub'),
     deploymentRef: id,
     host: z
       .string()
@@ -70,47 +75,42 @@ export const datasourceBundleSchema = z
       .regex(/^[\d.:a-z-]+$/i),
     mode: z.enum(['shared_schema', 'dedicated_database']),
     port: z.number().int().min(1).max(65_535),
-    runtimeCredential: z.object({
-      password: z.string().min(1).max(4096),
-      username: roleName,
-    }),
-    schemaName: z
-      .string()
-      .max(63)
-      .regex(/^tenant_[\d_a-z]+$/),
-    schemaOwner: z.object({
-      password: z.string().min(1).max(4096),
-      role: roleName,
-      username: roleName,
-    }),
+    runtimeCredential: z
+      .object({ password: z.string().min(1).max(4096), username: runtimeRole })
+      .strict(),
+    schemaName: z.string().refine(isTenantSchemaName, 'SCHEMA_NAME_INVALID'),
+    schemaOwner: z
+      .object({
+        password: z.string().min(1).max(4096),
+        role: ownerRole,
+        username: ownerRole,
+      })
+      .strict(),
     schemaVersion: version,
-    tenantId: id,
-    tls: z.object({
-      ca: z.string().max(32_768).optional(),
-      enabled: z.boolean(),
-      rejectUnauthorized: z.boolean(),
-    }),
+    tenantId,
+    tls: z
+      .object({
+        ca: z.string().max(32_768).optional(),
+        enabled: z.boolean(),
+        rejectUnauthorized: z.boolean(),
+      })
+      .strict(),
   })
-  .refine(
-    (v) =>
-      v.schemaOwner.username !== v.runtimeCredential.username &&
-      v.schemaOwner.role !== v.runtimeCredential.username,
-    'RUNTIME_OWNER_CONFLICT',
-  );
+  .strict();
 export type DatasourceBundle = z.infer<typeof datasourceBundleSchema>;
 
 /** Readiness binds the current datasource without transmitting either password. */
 export const datasourceBindingSchema = z
   .object({
     ...datasourceBundleSchema.shape,
-    runtimeCredential: z.object({ username: roleName }).strict(),
-    schemaOwner: z.object({ role: roleName, username: roleName }).strict(),
+    runtimeCredential: z.object({ username: runtimeRole }).strict(),
+    schemaOwner: z.object({ role: ownerRole, username: ownerRole }).strict(),
   })
   .strict();
 export const datasourceReadinessRequestSchema = z
   .object({
     datasource: datasourceBindingSchema,
-    tenantId: id,
+    tenantId,
   })
   .strict();
 export type DatasourceReadinessRequest = z.infer<typeof datasourceReadinessRequestSchema>;
@@ -135,12 +135,12 @@ export const provisionRequestSchema = z
     // Slug rules are checked by the service so a bad slug becomes a recorded
     // `failed` result (FR-CP-04 §4), not a 400 Console would retry forever.
     slug: z.string().min(1).max(63),
-    tenantId: id,
+    tenantId,
   })
   .strict();
 export type ProvisionRequest = z.infer<typeof provisionRequestSchema>;
 
-export const provisionQuerySchema = z.object({ operationId: id, tenantId: id }).strict();
+export const provisionQuerySchema = z.object({ operationId: id, tenantId }).strict();
 
 export type ProvisionStatus = 'received' | 'applying' | 'applied' | 'failed';
 
@@ -158,7 +158,7 @@ export interface ProvisionResult {
 
 /** Credential rotation / connection move pushed by Console (FR-CP-05). */
 export const datasourceRequestSchema = z
-  .object({ datasource: datasourceBundleSchema, operationId: id, tenantId: id })
+  .object({ datasource: datasourceBundleSchema, operationId: id, tenantId })
   .strict();
 export type DatasourceRequest = z.infer<typeof datasourceRequestSchema>;
 
@@ -185,7 +185,7 @@ export const lifecycleRequestSchema = z
     expiresAt: date.nullable(),
     freezeReasons: z.array(freezeReasonSchema).max(3),
     occurredAt: date,
-    tenantId: id,
+    tenantId,
     version,
   })
   .strict()
@@ -198,8 +198,8 @@ export const lifecycleRequestSchema = z
   );
 export type LifecycleRequest = z.infer<typeof lifecycleRequestSchema>;
 
-export const lifecycleQuerySchema = z.object({ eventId: id, tenantId: id }).strict();
-export const overviewQuerySchema = z.object({ tenantId: id }).strict();
+export const lifecycleQuerySchema = z.object({ eventId: id, tenantId }).strict();
+export const overviewQuerySchema = z.object({ tenantId }).strict();
 
 export type LifecycleStatus = 'received' | 'applying' | 'applied' | 'failed' | 'superseded';
 

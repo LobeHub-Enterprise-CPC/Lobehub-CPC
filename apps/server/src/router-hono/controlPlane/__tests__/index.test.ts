@@ -1,3 +1,4 @@
+import { LOBEHUB_TENANT_SCHEMA_VERSION } from '@lobechat/database/tenant';
 import { describe, expect, it, vi } from 'vitest';
 
 import { parseControlPlaneToken } from '@/server/services/tenantControlPlane/auth';
@@ -13,7 +14,7 @@ import { createControlPlaneApp } from '../index';
 vi.mock('@/envs/app', () => ({ appEnv: {} }));
 
 const TOKEN = 't'.repeat(32);
-const TENANT = 'tenant-a';
+const TENANT = '3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a';
 const BASE = 'http://lobehub.internal/api/internal/control-plane';
 const endpoints = [
   { method: 'POST', path: '/tenant-provision' },
@@ -90,6 +91,22 @@ const provisionBody = {
 };
 
 describe('control-plane router', () => {
+  it('serves the schema version it provisions to a caller that names no tenant', async () => {
+    const { call } = setup();
+    const res = await call('/tenant-manifest');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    expect(await res.json()).toEqual({ schemaVersion: LOBEHUB_TENANT_SCHEMA_VERSION });
+  });
+
+  it('refuses the manifest to a wrong token and disables it without one', async () => {
+    const { call } = setup();
+    expect(
+      (await call('/tenant-manifest', { headers: { authorization: 'Bearer nope' } })).status,
+    ).toBe(401);
+    expect((await setup(false).call('/tenant-manifest')).status).toBe(503);
+  });
+
   it('answers 202 for a received provision, with no-store and the request id', async () => {
     const { call } = setup();
     const res = await call('/tenant-provision', {
@@ -167,14 +184,14 @@ describe('control-plane router', () => {
 
   it('answers 404 for an operation it never received, so Console posts it', async () => {
     const { call } = setup();
-    const res = await call('/tenant-provision?tenantId=tenant-a&operationId=missing');
+    const res = await call(`/tenant-provision?tenantId=${TENANT}&operationId=missing`);
     expect(res.status).toBe(404);
   });
 
   it('no longer serves credentials back to Console', async () => {
     const { call } = setup();
     const res = await call(
-      '/tenant-provision/credentials?tenantId=tenant-a&operationId=x&credentialBundleVersion=1',
+      `/tenant-provision/credentials?tenantId=${TENANT}&operationId=x&credentialBundleVersion=1`,
     );
     expect(res.status).toBe(404);
     expect(res.headers.get('cache-control')).toBe('private, no-store');

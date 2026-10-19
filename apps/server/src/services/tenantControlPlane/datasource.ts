@@ -11,9 +11,8 @@ import type { DatasourceBundle, SafeErrorCode } from './contracts';
 export { SUPPORTED_TENANT_SCHEMA_VERSIONS, tenantDbNames } from '@lobechat/database/tenant';
 
 /**
- * The `validate` step: the bundle names this tenant, is a LobeHub bundle, uses
- * the names derived from the tenant id, targets a schema version this build
- * supports. The host is Console's call and is trusted as sent. Returns the
+ * The `validate` step: the bundle names this tenant, uses the names derived from
+ * the tenant id, targets a schema version this build supports. The host is Console's call and is trusted as sent. Returns the
  * failure code or null.
  */
 export const validateDatasourceBundle = (
@@ -23,7 +22,6 @@ export const validateDatasourceBundle = (
   const names = tenantDbNames(tenantId);
   const ok =
     bundle.tenantId === tenantId &&
-    bundle.datasourceKind === 'lobehub' &&
     bundle.schemaName === names.schemaName &&
     bundle.schemaOwner.username === names.ownerUsername &&
     bundle.schemaOwner.role === names.ownerUsername &&

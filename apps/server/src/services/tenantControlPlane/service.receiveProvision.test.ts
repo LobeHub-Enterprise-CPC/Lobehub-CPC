@@ -65,7 +65,6 @@ describe('receiveProvision', () => {
   it.each<[string, Partial<DatasourceBundle>]>([
     ['a schema not derived from the tenant id', { schemaName: 'tenant_acme' }],
     ['an unsupported schema version', { schemaVersion: 99 }],
-    ['an Admin bundle', { datasourceKind: 'admin' }],
   ])('fails %s with DATASOURCE_INVALID before any DB work', async (_, over) => {
     const result = await service.receiveProvision(provision({ datasource: bundle(TENANT, over) }));
     expect(result).toMatchObject({ errorCode: 'DATASOURCE_INVALID', status: 'failed' });

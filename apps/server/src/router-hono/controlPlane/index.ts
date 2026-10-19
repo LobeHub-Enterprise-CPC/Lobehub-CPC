@@ -28,6 +28,7 @@ import {
   endpointRequestSchema,
   TenantEndpointError,
 } from '@/server/services/tenantControlPlane/endpointsContract';
+import { tenantManifest } from '@/server/services/tenantControlPlane/manifest';
 import { PostgresTenantDatabaseExecutor } from '@/server/services/tenantControlPlane/postgresExecutor';
 import { PostgresControlPlaneRepository } from '@/server/services/tenantControlPlane/postgresRepository';
 import type { ControlPlaneRepository } from '@/server/services/tenantControlPlane/repository';
@@ -148,6 +149,14 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
     }
     return c.json(result, result.status === 'received' || result.status === 'applying' ? 202 : 200);
   };
+
+  /** Not about any tenant: authorised like the others, answered without a service or a tenant id. */
+  app.get('/tenant-manifest', (c) => {
+    if (!deps.tokenDigest) throw new ControlPlaneError(503, 'INTERNAL');
+    if (!isAuthorized(deps.tokenDigest, c.req.header('authorization')))
+      throw new ControlPlaneError(401, 'TOKEN_INVALID');
+    return c.json(tenantManifest());
+  });
 
   app.post('/tenant-endpoints', async (c) => {
     const { input } = await prepare(c, endpointRequestSchema, 'body', 'ENDPOINTS_INVALID');
