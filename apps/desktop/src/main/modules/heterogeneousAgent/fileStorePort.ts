@@ -58,6 +58,7 @@ export const callLambdaMutation = async <T>(
       'Oidc-Auth': accessToken,
     },
     method: 'POST',
+    redirect: 'error',
   });
 
   const payload = (await response.json().catch(() => undefined)) as

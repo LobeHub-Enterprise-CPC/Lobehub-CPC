@@ -55,6 +55,18 @@ describe('backfillDeviceArchitecture', () => {
     ]);
   });
 
+  it('never follows a redirect with the credential header', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ result: { data: { json: [localDevice] } } }))
+      .mockResolvedValueOnce(Response.json({ result: { data: { json: {} } } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await backfillDeviceArchitecture(options);
+
+    expect(fetchMock.mock.calls.map(([, init]) => init.redirect)).toEqual(['error', 'error']);
+  });
+
   it.each([
     { devices: [{ ...localDevice, architecture: 'x64' }] },
     { devices: [{ ...localDevice, deviceId: 'remote-device' }] },

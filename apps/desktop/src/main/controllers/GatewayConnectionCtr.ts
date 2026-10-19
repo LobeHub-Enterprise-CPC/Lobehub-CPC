@@ -305,18 +305,15 @@ export default class GatewayConnectionCtr extends ControllerModule {
   }> {
     const info = this.service.getDeviceInfo();
     try {
-      const [serverUrl, token] = await Promise.all([
-        this.remoteServerConfigCtr.getRemoteServerUrl(),
-        this.remoteServerConfigCtr.getAccessToken(),
-      ]);
-      if (serverUrl && token && info.deviceId !== 'unknown') {
-        const headers = { 'Content-Type': 'application/json', 'Oidc-Auth': token };
+      const credentials = await this.remoteServerConfigCtr.getRemoteCredentials();
+      if (credentials && info.deviceId !== 'unknown') {
+        const headers = { 'Content-Type': 'application/json', 'Oidc-Auth': credentials.token };
         setDesktopUserAgentHeader(headers);
         await backfillDeviceArchitecture({
           architecture: os.arch(),
           deviceId: info.deviceId,
           headers,
-          serverUrl,
+          serverUrl: credentials.serverUrl,
         });
       }
     } catch (error) {
@@ -917,10 +914,9 @@ export default class GatewayConnectionCtr extends ControllerModule {
     } = args;
     const workDir = cwd || process.cwd();
 
-    const [serverUrl, accessToken] = await Promise.all([
-      this.remoteServerConfigCtr.getRemoteServerUrl(),
-      this.remoteServerConfigCtr.getAccessToken(),
-    ]);
+    const credentials = await this.remoteServerConfigCtr.getRemoteCredentials();
+    const serverUrl = credentials?.serverUrl;
+    const accessToken = credentials?.token;
 
     // Never inherit the launcher's conversation identity for a dispatched run.
     const inheritedEnv = { ...process.env };
@@ -1359,25 +1355,26 @@ export default class GatewayConnectionCtr extends ControllerModule {
     workspaceId?: string;
   }): Promise<void> {
     try {
-      const [serverUrl, token] = await Promise.all([
-        this.remoteServerConfigCtr.getRemoteServerUrl(),
-        this.remoteServerConfigCtr.getAccessToken(),
-      ]);
-      if (!serverUrl || !token) return;
+      const credentials = await this.remoteServerConfigCtr.getRemoteCredentials();
+      if (!credentials) return;
 
       const { workspaceId, ...body } = params;
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        'Oidc-Auth': token,
+        'Oidc-Auth': credentials.token,
       };
       if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
       setDesktopUserAgentHeader(headers);
 
-      await fetch(buildRemoteUrl('/trpc/lambda/agentNotify.notify', serverUrl).toString(), {
-        body: JSON.stringify({ json: body }),
-        headers,
-        method: 'POST',
-      });
+      await fetch(
+        buildRemoteUrl('/trpc/lambda/agentNotify.notify', credentials.serverUrl).toString(),
+        {
+          body: JSON.stringify({ json: body }),
+          headers,
+          method: 'POST',
+          redirect: 'error',
+        },
+      );
     } catch {
       // Fire-and-forget: openclaw's own `lh notify` calls are the primary channel.
     }
@@ -1395,22 +1392,20 @@ export default class GatewayConnectionCtr extends ControllerModule {
     identitySource: string;
     platform: string;
   }): Promise<void> {
-    const [serverUrl, token] = await Promise.all([
-      this.remoteServerConfigCtr.getRemoteServerUrl(),
-      this.remoteServerConfigCtr.getAccessToken(),
-    ]);
-    if (!serverUrl || !token) return;
+    const credentials = await this.remoteServerConfigCtr.getRemoteCredentials();
+    if (!credentials) return;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'Oidc-Auth': token,
+      'Oidc-Auth': credentials.token,
     };
     setDesktopUserAgentHeader(headers);
 
-    await fetch(buildRemoteUrl('/trpc/lambda/device.register', serverUrl).toString(), {
+    await fetch(buildRemoteUrl('/trpc/lambda/device.register', credentials.serverUrl).toString(), {
       body: JSON.stringify({ json: info }),
       headers,
       method: 'POST',
+      redirect: 'error',
     });
   }
 
@@ -1422,19 +1417,16 @@ export default class GatewayConnectionCtr extends ControllerModule {
   private async buildWorkspaceHeaders(
     workspaceId: string,
   ): Promise<{ headers: Record<string, string>; serverUrl: string } | null> {
-    const [serverUrl, token] = await Promise.all([
-      this.remoteServerConfigCtr.getRemoteServerUrl(),
-      this.remoteServerConfigCtr.getAccessToken(),
-    ]);
-    if (!serverUrl || !token) return null;
+    const credentials = await this.remoteServerConfigCtr.getRemoteCredentials();
+    if (!credentials) return null;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'Oidc-Auth': token,
+      'Oidc-Auth': credentials.token,
       'X-Workspace-Id': workspaceId,
     };
     setDesktopUserAgentHeader(headers);
-    return { headers, serverUrl };
+    return { headers, serverUrl: credentials.serverUrl };
   }
 
   /**
@@ -1455,6 +1447,7 @@ export default class GatewayConnectionCtr extends ControllerModule {
         body: JSON.stringify({ json: null }),
         headers: auth.headers,
         method: 'POST',
+        redirect: 'error',
       },
     );
     if (!res.ok) throw new Error(`mintWorkspaceConnectToken failed: HTTP ${res.status}`);
@@ -1482,6 +1475,7 @@ export default class GatewayConnectionCtr extends ControllerModule {
         buildRemoteUrl('/trpc/lambda/device.listDevices', auth.serverUrl).toString(),
         {
           headers: auth.headers,
+          redirect: 'error',
         },
       );
       if (!res.ok) return undefined;

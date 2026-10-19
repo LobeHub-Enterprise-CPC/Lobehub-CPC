@@ -17,6 +17,7 @@ export const backfillDeviceArchitecture = async ({
     buildRemoteUrl('/trpc/lambda/device.listDevices', serverUrl).toString(),
     {
       headers,
+      redirect: 'error',
       signal: AbortSignal.timeout(5000),
     },
   );
@@ -39,6 +40,7 @@ export const backfillDeviceArchitecture = async ({
       }),
       headers,
       method: 'POST',
+      redirect: 'error',
       signal: AbortSignal.timeout(5000),
     },
   );

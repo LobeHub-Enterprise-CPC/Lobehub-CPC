@@ -332,6 +332,9 @@ const mockMcpCtr = {
 
 const mockRemoteServerConfigCtr = {
   getAccessToken: vi.fn().mockResolvedValue('mock-access-token'),
+  getRemoteCredentials: vi
+    .fn()
+    .mockResolvedValue({ serverUrl: 'https://server.example.com', token: 'mock-access-token' }),
   getRemoteServerUrl: vi.fn().mockResolvedValue('https://server.example.com'),
   isRemoteServerConfigured: vi.fn().mockResolvedValue(true),
   refreshAccessToken: vi.fn().mockResolvedValue({ success: true }),
