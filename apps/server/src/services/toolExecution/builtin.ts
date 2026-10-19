@@ -496,7 +496,7 @@ export class BuiltinToolsExecutor implements IToolExecutor {
       try {
         decision = await checkCommand(commandGovernance, this.db);
       } catch (error) {
-        // The governance flag could not be read: the command is not run, and it is not reported as
+        // Governance could not be evaluated: the command is not run, and it is not reported as
         // blocked by a rule (that message tells the model never to retry).
         if (!(error instanceof GovernanceUnavailableError)) throw error;
         log('Command governance unavailable for %s:%s', identifier, apiName);
@@ -517,7 +517,7 @@ export class BuiltinToolsExecutor implements IToolExecutor {
         );
 
         // logCommandExecution never throws by design (it fails open and only
-        // debug-logs internally) — wrapped anyway so a future change to that
+        // reports errors internally) — wrapped anyway so a future change to that
         // contract can never turn an audit-log bug into a masked tool result.
         try {
           await logCommandExecution(
@@ -526,7 +526,7 @@ export class BuiltinToolsExecutor implements IToolExecutor {
             this.db,
           );
         } catch (auditError) {
-          log('Failed to record blocked-command audit log: %O', auditError);
+          console.error('[governance] Failed to record blocked-command audit log: %O', auditError);
         }
 
         return {
@@ -546,7 +546,17 @@ export class BuiltinToolsExecutor implements IToolExecutor {
     );
 
     for (const candidate of fileGovernanceContexts) {
-      const decision = await checkPath(candidate, this.db);
+      let decision;
+      try {
+        decision = await checkPath(candidate, this.db);
+      } catch (error) {
+        if (!(error instanceof GovernanceUnavailableError)) throw error;
+        return {
+          content: GOVERNANCE_UNAVAILABLE_MESSAGE,
+          error: { code: 'GOVERNANCE_UNAVAILABLE', message: GOVERNANCE_UNAVAILABLE_MESSAGE },
+          success: false,
+        };
+      }
 
       if (!decision.allowed) {
         log(
@@ -564,7 +574,10 @@ export class BuiltinToolsExecutor implements IToolExecutor {
             this.db,
           );
         } catch (auditError) {
-          log('Failed to record blocked-file-access audit log: %O', auditError);
+          console.error(
+            '[governance] Failed to record blocked-file-access audit log: %O',
+            auditError,
+          );
         }
 
         return {
@@ -603,7 +616,10 @@ export class BuiltinToolsExecutor implements IToolExecutor {
             this.db,
           );
         } catch (auditError) {
-          log('Failed to record command execution audit log: %O', auditError);
+          console.error(
+            '[governance] Failed to record command execution audit log: %O',
+            auditError,
+          );
         }
       }
 
@@ -619,7 +635,7 @@ export class BuiltinToolsExecutor implements IToolExecutor {
             this.db,
           );
         } catch (auditError) {
-          log('Failed to record file access audit log: %O', auditError);
+          console.error('[governance] Failed to record file access audit log: %O', auditError);
         }
       }
 
@@ -665,7 +681,10 @@ export class BuiltinToolsExecutor implements IToolExecutor {
             this.db,
           );
         } catch (auditError) {
-          log('Failed to record command execution audit log: %O', auditError);
+          console.error(
+            '[governance] Failed to record command execution audit log: %O',
+            auditError,
+          );
         }
       }
 
@@ -682,7 +701,7 @@ export class BuiltinToolsExecutor implements IToolExecutor {
             this.db,
           );
         } catch (auditError) {
-          log('Failed to record file access audit log: %O', auditError);
+          console.error('[governance] Failed to record file access audit log: %O', auditError);
         }
       }
 

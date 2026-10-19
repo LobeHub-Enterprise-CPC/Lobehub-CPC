@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   flags: { command_governance: false } as Record<string, boolean | string[]>,
@@ -13,13 +13,8 @@ vi.mock('../rulesRepository', () => ({
   listEnabledRulesForTarget: mocks.listEnabledRulesForTarget,
 }));
 
-const {
-  checkCommand,
-  COMMAND_BLOCKED_MESSAGE,
-  GovernanceUnavailableError,
-  isGovernanceEnabled,
-  isGovernanceEnabledBestEffort,
-} = await import('../policyGate');
+const { checkCommand, COMMAND_BLOCKED_MESSAGE, GovernanceUnavailableError, isGovernanceEnabled } =
+  await import('../policyGate');
 
 const baseCtx = {
   apiName: 'runCommand',
@@ -31,6 +26,8 @@ const baseCtx = {
 
 const db = {} as any;
 
+afterEach(() => vi.restoreAllMocks());
+
 describe('policyGate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -39,6 +36,16 @@ describe('policyGate', () => {
   });
 
   describe('isGovernanceEnabled', () => {
+    it.each([{}, { command_governance: null }, { command_governance: 'false' }])(
+      'rejects missing or invalid switch configuration %j',
+      async (flags) => {
+        mocks.getServerFeatureFlagsFromRuntimeConfig.mockResolvedValueOnce(flags);
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        await expect(isGovernanceEnabled('user-1')).rejects.toBeInstanceOf(
+          GovernanceUnavailableError,
+        );
+      },
+    );
     it('is false when the command_governance flag is off', async () => {
       expect(await isGovernanceEnabled('user-1')).toBe(false);
     });
@@ -75,24 +82,6 @@ describe('policyGate', () => {
 
       expect(error.code).toBe('GOVERNANCE_UNAVAILABLE');
       expect(error.message).not.toContain('secret');
-      consoleErrorSpy.mockRestore();
-    });
-  });
-
-  describe('isGovernanceEnabledBestEffort', () => {
-    it('follows the flag when it can be read', async () => {
-      mocks.flags = { command_governance: true };
-      expect(await isGovernanceEnabledBestEffort('user-1')).toBe(true);
-      mocks.flags = { command_governance: false };
-      expect(await isGovernanceEnabledBestEffort('user-1')).toBe(false);
-    });
-
-    it('counts an unreadable flag as off, for callers that must not fail the user own work', async () => {
-      mocks.getServerFeatureFlagsFromRuntimeConfig.mockRejectedValueOnce(new Error('Redis down'));
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      expect(await isGovernanceEnabledBestEffort('user-1')).toBe(false);
-
       consoleErrorSpy.mockRestore();
     });
   });
@@ -173,14 +162,12 @@ describe('policyGate', () => {
       expect(decision).toEqual({ allowed: false, ruleId: 'rule-3' });
     });
 
-    it('treats an invalid regex as a non-match instead of throwing', async () => {
+    it('rejects when a configured regex cannot be evaluated', async () => {
       mocks.listEnabledRulesForTarget.mockResolvedValueOnce([
         { id: 'rule-bad', pattern: '(unterminated', patternType: 'regex' },
       ]);
 
-      const decision = await checkCommand(baseCtx, db);
-
-      expect(decision).toEqual({ allowed: true });
+      await expect(checkCommand(baseCtx, db)).rejects.toBeInstanceOf(GovernanceUnavailableError);
     });
 
     it('evaluates rules in order and denies on the first match', async () => {
@@ -195,18 +182,16 @@ describe('policyGate', () => {
     });
   });
 
-  describe('checkCommand — fail open', () => {
+  describe('checkCommand — fail closed', () => {
     beforeEach(() => {
       mocks.flags = { command_governance: true };
     });
 
-    it('returns allowed=true when the rules lookup throws', async () => {
+    it('rejects when the rules lookup throws', async () => {
       mocks.listEnabledRulesForTarget.mockRejectedValueOnce(new Error('DB is down'));
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const decision = await checkCommand(baseCtx, db);
-
-      expect(decision).toEqual({ allowed: true });
+      await expect(checkCommand(baseCtx, db)).rejects.toBeInstanceOf(GovernanceUnavailableError);
       expect(consoleErrorSpy).toHaveBeenCalled();
 
       consoleErrorSpy.mockRestore();

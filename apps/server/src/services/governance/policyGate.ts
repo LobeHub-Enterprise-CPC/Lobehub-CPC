@@ -1,7 +1,7 @@
 import type { LobeChatDatabase } from '@lobechat/database';
 import debug from 'debug';
 
-import { evaluateFeatureFlag } from '@/config/featureFlags';
+import { evaluateFeatureFlag, FeatureFlagsSchema } from '@/config/featureFlags';
 import { getServerFeatureFlagsFromRuntimeConfig } from '@/server/featureFlags';
 
 import { listEnabledRulesForTarget } from './rulesRepository';
@@ -33,8 +33,7 @@ export const COMMAND_BLOCKED_MESSAGE =
   "and tell the user the command was blocked by their administrator's policy.";
 
 /**
- * The `command_governance` flag could not be read, so whether governance applies to this user is
- * unknown. Raised instead of treating the flag as off: an enforcement point that cannot tell must
+ * Governance configuration could not be loaded or evaluated. An enforcement point must
  * not run the command. It is a governance outage, not a policy decision, so callers report it as an
  * error ({@link GOVERNANCE_UNAVAILABLE_MESSAGE}, HTTP 503) and never as a denial by a rule.
  */
@@ -72,24 +71,14 @@ export const isGovernanceEnabled = async (userId: string): Promise<boolean> => {
   try {
     const flags = await getServerFeatureFlagsFromRuntimeConfig(userId);
 
-    return evaluateFeatureFlag(flags.command_governance, userId) === true;
+    const switchValue = FeatureFlagsSchema.shape.command_governance
+      .unwrap()
+      .parse(flags.command_governance);
+    return evaluateFeatureFlag(switchValue, userId) === true;
   } catch (error) {
     // The cause may quote connection details: it is chained, not copied into the message.
     console.error('[governance] feature flag lookup failed, governance state unknown: %O', error);
     throw new GovernanceUnavailableError({ cause: error });
-  }
-};
-
-/**
- * {@link isGovernanceEnabled} for the paths that must not fail on an unreadable flag: file-path and
- * execution policy (policies enforced on the user's own machine, where "deny" cannot be expressed
- * and a lookup failure must not lock the user out) and audit writes. Unreadable counts as off.
- */
-export const isGovernanceEnabledBestEffort = async (userId: string): Promise<boolean> => {
-  try {
-    return await isGovernanceEnabled(userId);
-  } catch {
-    return false;
   }
 };
 
@@ -106,15 +95,10 @@ const matchesRule = (
       return commandText.startsWith(pattern);
     }
     case 'regex': {
-      try {
-        return new RegExp(pattern).test(commandText);
-      } catch (error) {
-        // A malformed regex authored by an admin must not brick command
-        // execution for the user it targets — skip it (and let the fail-open
-        // path below cover any other unexpected error).
-        log('Invalid regex pattern %o for rule evaluation: %O', pattern, error);
-        return false;
-      }
+      return new RegExp(pattern).test(commandText);
+    }
+    default: {
+      throw new Error('Unsupported command governance pattern type');
     }
   }
 };
@@ -125,13 +109,8 @@ const matchesRule = (
  * Rejects with {@link GovernanceUnavailableError} when the feature flag cannot be read: the
  * enforcement point must not run a command whose governance state is unknown.
  *
- * FAIL-OPEN BY DESIGN once the flag is known to be on: any internal error in the rule lookup (DB
- * unreachable, malformed row, etc.) is logged and treated as `{ allowed: true }`. Command governance is a
- * defense-in-depth control, not the user's only safety net, and the product
- * decision here is that a governance-system outage must never itself take
- * down command execution. Revisit this if the threat model changes (e.g. if
- * governance becomes the *sole* enforcement point for a compliance
- * requirement, this should fail CLOSED instead).
+ * Rule lookup and evaluation failures also reject: no enforcement point may execute without
+ * successfully evaluating the applicable governance configuration.
  */
 export const checkCommand = async (
   ctx: CommandGovernanceContext & { commandText: string },
@@ -159,7 +138,7 @@ export const checkCommand = async (
 
     return { allowed: true };
   } catch (error) {
-    console.error('[governance] checkCommand failed, failing open (allowed=true): %O', error);
-    return { allowed: true };
+    console.error('[governance] command evaluation unavailable: %O', error);
+    throw new GovernanceUnavailableError({ cause: error });
   }
 };

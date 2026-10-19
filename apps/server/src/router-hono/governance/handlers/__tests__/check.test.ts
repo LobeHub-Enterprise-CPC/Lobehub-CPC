@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   flags: { command_governance: false } as Record<string, boolean | string[]>,
@@ -46,6 +46,8 @@ beforeEach(() => {
   mocks.listEnabledRulesForTarget.mockResolvedValue([]);
 });
 
+afterEach(() => vi.restoreAllMocks());
+
 describe('POST /api/governance/check', () => {
   it('allows without opening a database connection when the flag is explicitly off', async () => {
     const response = await post('/check');
@@ -89,6 +91,16 @@ describe('POST /api/governance/check', () => {
     expect(json).toEqual({ error: 'GOVERNANCE_UNAVAILABLE' });
     expect(json).not.toHaveProperty('allowed');
     expect(mocks.listEnabledRulesForTarget).not.toHaveBeenCalled();
+  });
+
+  it.each(['rules', 'connection'])('returns 503 when the %s lookup fails', async (failure) => {
+    mocks.flags = { command_governance: true };
+    const dependency = failure === 'rules' ? mocks.listEnabledRulesForTarget : mocks.getServerDB;
+    dependency.mockRejectedValueOnce(new Error('unavailable'));
+    const response = await post('/check');
+    expect(response.status).toBe(503);
+    expect(response.headers.get('retry-after')).toBe('1');
+    expect(await response.json()).toEqual({ error: 'GOVERNANCE_UNAVAILABLE' });
   });
 
   it('still rejects an invalid body with 400 before reading the flag', async () => {

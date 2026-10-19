@@ -14,6 +14,7 @@ import {
   type CommandGovernanceContext,
   GOVERNANCE_UNAVAILABLE_MESSAGE,
   GovernanceUnavailableError,
+  isGovernanceEnabled,
   logCommandExecution,
 } from '@/server/services/governance';
 
@@ -68,7 +69,7 @@ export class SandboxMiddlewareService implements SandboxService {
    *
    * `checkCommand`/`logCommandExecution` no-op without touching governance
    * rules or logs when the `command_governance` flag is off for the user. An unreadable flag does
-   * not run the command (`GOVERNANCE_UNAVAILABLE`); a rule-lookup error with the flag on fails open
+   * not run the command (`GOVERNANCE_UNAVAILABLE`); rule-lookup errors also prevent execution
    * — see `services/governance/policyGate.ts`.
    */
   async callTool(
@@ -79,7 +80,7 @@ export class SandboxMiddlewareService implements SandboxService {
 
     const { serverDB, userId } = this.options;
 
-    if (!GOVERNED_SHELL_TOOL_NAMES.has(toolName) || !serverDB || !userId) {
+    if (!GOVERNED_SHELL_TOOL_NAMES.has(toolName)) {
       return callTenantSandboxTool(this.provider, toolName, params, this.options);
     }
 
@@ -94,9 +95,14 @@ export class SandboxMiddlewareService implements SandboxService {
 
     let decision;
     try {
+      if (!userId) throw new GovernanceUnavailableError();
+      if (!serverDB) {
+        if (await isGovernanceEnabled(userId)) throw new GovernanceUnavailableError();
+        return callTenantSandboxTool(this.provider, toolName, params, this.options);
+      }
       decision = await checkCommand(ctx, serverDB);
     } catch (error) {
-      // The governance flag could not be read: nothing runs, and it is not reported as a rule
+      // Governance could not be evaluated: nothing runs, and it is not reported as a rule
       // denial (COMMAND_BLOCKED tells the model never to retry).
       if (!(error instanceof GovernanceUnavailableError)) throw error;
       log('Command governance unavailable for %s', toolName);
@@ -111,7 +117,7 @@ export class SandboxMiddlewareService implements SandboxService {
       try {
         await logCommandExecution(ctx, { blocked: true, matchedRuleId: decision.ruleId }, serverDB);
       } catch (auditError) {
-        log('Failed to record blocked-command audit log: %O', auditError);
+        console.error('[governance] Failed to record blocked-command audit log: %O', auditError);
       }
 
       return {
@@ -139,7 +145,7 @@ export class SandboxMiddlewareService implements SandboxService {
         serverDB,
       );
     } catch (auditError) {
-      log('Failed to record command execution audit log: %O', auditError);
+      console.error('[governance] Failed to record command execution audit log: %O', auditError);
     }
 
     return result;

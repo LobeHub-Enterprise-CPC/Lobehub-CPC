@@ -26,12 +26,11 @@ const CheckBodySchema = z.object({
  * spawns the shell.
  *
  * Response: `{ allowed: boolean, ruleId?: string }`, or 503 `{ error: 'GOVERNANCE_UNAVAILABLE' }`
- * when the `command_governance` flag cannot be read. `allowed:true` is only ever the answer for a
+ * when the switch, rules, or database cannot be read. `allowed:true` is only ever the answer for a
  * flag that is explicitly off or a command no rule denies; a caller treats every non-2xx as a
  * refusal. The outage is not reported as `{ allowed: false }`: that is a policy verdict the model is
  * told never to retry.
  *
- * The rule evaluation itself (`checkCommand`) keeps its fail-open behavior for lookup errors.
  */
 export async function check(c: Context): Promise<Response> {
   let parsed;
@@ -59,6 +58,7 @@ export async function check(c: Context): Promise<Response> {
     return c.json(decision, 200);
   } catch (error) {
     if (error instanceof GovernanceUnavailableError) return governanceUnavailable(c);
-    throw error;
+    console.error('[governance] check endpoint unavailable: %O', error);
+    return governanceUnavailable(c);
   }
 }

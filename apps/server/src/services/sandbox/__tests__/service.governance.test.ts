@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SandboxProvider } from '../types';
 
@@ -8,12 +8,14 @@ const mocks = vi.hoisted(() => ({
   },
   callTenantSandboxTool: vi.fn(),
   checkCommand: vi.fn(),
+  isGovernanceEnabled: vi.fn(),
   logCommandExecution: vi.fn(),
 }));
 
 vi.mock('../tenantWork', () => ({ callTenantSandboxTool: mocks.callTenantSandboxTool }));
 vi.mock('@/server/services/governance', () => ({
   checkCommand: mocks.checkCommand,
+  isGovernanceEnabled: mocks.isGovernanceEnabled,
   COMMAND_BLOCKED_MESSAGE: 'blocked by an administrator rule; never retry',
   GOVERNANCE_UNAVAILABLE_MESSAGE: 'governance unavailable; temporary',
   GovernanceUnavailableError: mocks.GovernanceUnavailableError,
@@ -31,9 +33,12 @@ const provider = {
 const service = () =>
   new SandboxMiddlewareService(provider, { serverDB: {} as never, userId: 'user-1' });
 
+afterEach(() => vi.restoreAllMocks());
+
 describe('SandboxMiddlewareService command governance', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.isGovernanceEnabled.mockResolvedValue(true);
     mocks.checkCommand.mockResolvedValue({ allowed: true });
     mocks.callTenantSandboxTool.mockResolvedValue({ result: { exitCode: 0 }, success: true });
   });
@@ -78,6 +83,36 @@ describe('SandboxMiddlewareService command governance', () => {
 
     await expect(service().callTool('runCommand', { command: 'ls' })).rejects.toThrow('boom');
     expect(mocks.callTenantSandboxTool).not.toHaveBeenCalled();
+  });
+
+  it('denies shell execution when the database context is missing', async () => {
+    const withoutDB = new SandboxMiddlewareService(provider, { userId: 'user-1' });
+    const result = await withoutDB.callTool('runCommand', { command: 'ls' });
+    expect(result).toMatchObject({ success: false, error: { name: 'GOVERNANCE_UNAVAILABLE' } });
+    expect(mocks.callTenantSandboxTool).not.toHaveBeenCalled();
+  });
+
+  it('denies shell execution when the switch cannot be read without database context', async () => {
+    mocks.isGovernanceEnabled.mockRejectedValueOnce(new mocks.GovernanceUnavailableError());
+    const withoutDB = new SandboxMiddlewareService(provider, { userId: 'user-1' });
+    const result = await withoutDB.callTool('runCommand', { command: 'ls' });
+    expect(result).toMatchObject({ success: false, error: { name: 'GOVERNANCE_UNAVAILABLE' } });
+    expect(mocks.callTenantSandboxTool).not.toHaveBeenCalled();
+  });
+
+  it('reports an audit failure while preserving successful execution', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.logCommandExecution.mockRejectedValueOnce(new Error('audit unavailable'));
+    const result = await service().callTool('runCommand', { command: 'ls' });
+    expect(result.success).toBe(true);
+    expect(console.error).toHaveBeenCalled();
+  });
+
+  it('allows shell execution without database context when explicitly off', async () => {
+    mocks.isGovernanceEnabled.mockResolvedValue(false);
+    const withoutDB = new SandboxMiddlewareService(provider, { userId: 'user-1' });
+    const result = await withoutDB.callTool('runCommand', { command: 'ls' });
+    expect(result.success).toBe(true);
   });
 
   it('does not govern tools that are not shell commands', async () => {
