@@ -1,3 +1,4 @@
+import { setRemoteTenantId } from '@lobechat/business-tenant/client';
 import type { DesktopBootstrapIdentity } from '@lobechat/electron-client-ipc';
 
 import { useUserStore } from '@/store/user';
@@ -8,6 +9,9 @@ export const applyDesktopBootstrapIdentity = (
     DesktopBootstrapIdentity | undefined = window.electronAPI?.getDesktopBootstrapIdentity?.(),
 ): void => {
   if (!identity) return;
+
+  // The organization of the stored token partitions local state from the first render on.
+  if (identity.isIdentityResolved) setRemoteTenantId(identity.tenantId);
 
   const state = useUserStore.getState();
   const nextUser = identity.userId

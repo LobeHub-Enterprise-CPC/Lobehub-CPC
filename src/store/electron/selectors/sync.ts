@@ -59,6 +59,10 @@ const remoteServerUrl = (s: ElectronState) => {
  */
 const rawRemoteServerUrl = (s: ElectronState) => s.dataSyncConfig.remoteServerUrl || '';
 
+/** The organization of the committed login, which partitions this renderer's local state. */
+const committedTenantId = (s: ElectronState) =>
+  s.dataSyncConfig.cloudTenant?.identity?.tenantId || undefined;
+
 // Cloud mode is the build's official cloud, whatever tenant entry the login committed.
 const isOfficialServer = (s: ElectronState) =>
   isOfficialCloudServer(
@@ -68,6 +72,7 @@ const isOfficialServer = (s: ElectronState) =>
   );
 
 export const electronSyncSelectors = {
+  committedTenantId,
   isOfficialServer,
   isSyncActive,
   rawRemoteServerUrl,

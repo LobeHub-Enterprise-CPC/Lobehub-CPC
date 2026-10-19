@@ -3,13 +3,18 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   currentTenantRelativePath,
   getTenant,
+  getTenantScopeId,
   initializeTenant,
+  setRemoteTenantId,
   tenantStorageKey,
   withCurrentTenantPath,
 } from '../client';
 import { resolveTenant } from '../resolve';
 
-afterEach(() => initializeTenant(new URL('https://app.test/')));
+afterEach(() => {
+  setRemoteTenantId(undefined);
+  initializeTenant(new URL('https://app.test/'));
+});
 
 describe('document tenant context', () => {
   it('keeps the entry tenant until a new document is initialized', () => {
@@ -62,6 +67,33 @@ describe('current tenant helpers', () => {
   it('leaves paths and keys untouched without a tenant', () => {
     expect(withCurrentTenantPath('/signin')).toBe('/signin');
     expect(tenantStorageKey('draft:agent-1')).toBe('draft:agent-1');
+  });
+});
+
+describe('desktop renderer tenant partition', () => {
+  // The desktop renderer is not served under /t/{slug}: browser-local state (drafts, tabs, caches)
+  // is partitioned by the committed tenant id instead, or an organization switch would keep
+  // showing the previous organization's local state.
+  it('partitions storage keys by the committed tenant id', () => {
+    setRemoteTenantId('tenant-a');
+    expect(getTenantScopeId()).toBe('tenant-a');
+    expect(tenantStorageKey('draft:agent-1')).toBe('t:tenant-a:draft:agent-1');
+
+    setRemoteTenantId('tenant-b');
+    expect(tenantStorageKey('draft:agent-1')).toBe('t:tenant-b:draft:agent-1');
+  });
+
+  it('leaves keys unscoped until a tenant is committed', () => {
+    setRemoteTenantId(undefined);
+
+    expect(getTenantScopeId()).toBeUndefined();
+    expect(tenantStorageKey('draft:agent-1')).toBe('draft:agent-1');
+  });
+
+  it('uses the page tenant slug on a served page', () => {
+    initializeTenant(new URL('https://app.test/t/acme/agent'));
+
+    expect(getTenantScopeId()).toBe('acme');
   });
 });
 

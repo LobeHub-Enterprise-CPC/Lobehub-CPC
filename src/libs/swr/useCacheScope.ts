@@ -1,4 +1,4 @@
-import { getTenant, tenantStorageKey } from '@lobechat/business-tenant/client';
+import { getTenantScopeId, tenantStorageKey } from '@lobechat/business-tenant/client';
 import { isDesktop } from '@lobechat/const';
 import { useEffect, useLayoutEffect, useState } from 'react';
 
@@ -74,15 +74,16 @@ export const clearActiveScopeKey = (): void => {
  * Personal mode (no active workspace) collapses to `${userId}:personal`;
  * logged-out / SSR / first-ever boot collapses to `anon:personal`.
  *
- * Tenants share one browser origin, so a tenant document appends `@${slug}`:
- * the same partition name in two tenants must never address one cache.
+ * Tenants share one browser origin, so a tenant document appends `@${slug}` (the desktop
+ * renderer, its committed tenant id): the same partition name in two tenants must never address
+ * one cache.
  */
 export const buildCacheScope = (
   userId: string | null | undefined,
   workspaceId: string | null | undefined,
 ): string => {
-  const tenantSlug = getTenant()?.slug;
-  return `${userId || ANON}:${workspaceId || PERSONAL}${tenantSlug ? `@${tenantSlug}` : ''}`;
+  const tenantScope = getTenantScopeId();
+  return `${userId || ANON}:${workspaceId || PERSONAL}${tenantScope ? `@${tenantScope}` : ''}`;
 };
 
 /**

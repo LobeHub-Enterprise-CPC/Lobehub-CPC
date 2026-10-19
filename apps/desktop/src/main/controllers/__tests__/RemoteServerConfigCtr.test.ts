@@ -243,8 +243,22 @@ describe('RemoteServerConfigCtr', () => {
   });
 
   describe('getDesktopBootstrapIdentity', () => {
-    const createAccessToken = (sub: string) =>
-      ['header', Buffer.from(JSON.stringify({ sub })).toString('base64url'), 'signature'].join('.');
+    const createAccessToken = (sub: string, tid?: string) =>
+      [
+        'header',
+        Buffer.from(JSON.stringify({ sub, ...(tid ? { tid } : {}) })).toString('base64url'),
+        'signature',
+      ].join('.');
+
+    it('returns the tenant of the committed token so the renderer can partition local state', async () => {
+      await controller.saveTokens(createAccessToken('user-bootstrap', 'tenant-a'), 'refresh-token');
+
+      expect(controller.getDesktopBootstrapIdentity()).toEqual({
+        isIdentityResolved: true,
+        tenantId: 'tenant-a',
+        userId: 'user-bootstrap',
+      });
+    });
 
     it('returns the OIDC subject without requesting full user state', async () => {
       await controller.saveTokens(createAccessToken('user-bootstrap'), 'refresh-token');
@@ -263,6 +277,56 @@ describe('RemoteServerConfigCtr', () => {
       await controller.saveTokens('not-a-jwt', 'refresh-token');
 
       expect(controller.getDesktopBootstrapIdentity()).toEqual({ isIdentityResolved: false });
+    });
+  });
+
+  describe('getRemoteCredentials', () => {
+    const login = (entryUrl: string, accessToken: string, generation: string) => ({
+      display: { account: 'alice@example.com' },
+      entryUrl,
+      generation,
+      identity: { issuer: `${entryUrl}/oidc`, subject: 'user-1', tenantId: `tenant-${generation}` },
+      storageMode: 'cloud' as const,
+      tokens: { accessToken, refreshToken: `refresh-${generation}` },
+    });
+
+    it('returns the committed entry together with its own token', async () => {
+      useStore({ dataSyncConfig: { active: false, storageMode: 'cloud' } });
+      await controller.commitAuthorization(login(ENTRY, 'access-a', 'a'));
+
+      await expect(controller.getRemoteCredentials()).resolves.toEqual({
+        serverUrl: ENTRY,
+        token: 'access-a',
+      });
+    });
+
+    it('has no credentials when signed out', async () => {
+      useStore({ dataSyncConfig: { active: false, storageMode: 'cloud' } });
+
+      await expect(controller.getRemoteCredentials()).resolves.toBeNull();
+    });
+
+    it('has no credentials while remote activity is paused for a changed endpoint', async () => {
+      useStore({ dataSyncConfig: { active: false, storageMode: 'cloud' } });
+      await controller.commitAuthorization(login(ENTRY, 'access-a', 'a'));
+      controller.handleEndpointChanged();
+
+      await expect(controller.getRemoteCredentials()).resolves.toBeNull();
+    });
+
+    it('never pairs the old entry with the token of a login committed between the reads', async () => {
+      useStore({ dataSyncConfig: { active: false, storageMode: 'cloud' } });
+      await controller.commitAuthorization(login(ENTRY, 'access-a', 'a'));
+      const original = controller.getAccessToken.bind(controller);
+      vi.spyOn(controller, 'getAccessToken').mockImplementation(async () => {
+        const token = await original();
+        await controller.commitAuthorization(
+          login('https://platform.example/t/other', 'access-b', 'b'),
+        );
+        return token;
+      });
+
+      await expect(controller.getRemoteCredentials()).resolves.toBeNull();
     });
   });
 

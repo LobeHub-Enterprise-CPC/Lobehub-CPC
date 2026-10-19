@@ -283,12 +283,18 @@ export default class RemoteServerConfigCtr extends ControllerModule {
 
       const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as {
         sub?: unknown;
+        tid?: unknown;
       };
       if (typeof payload.sub !== 'string' || payload.sub.length === 0) {
         return { isIdentityResolved: false };
       }
 
-      return { isIdentityResolved: true, userId: payload.sub };
+      return {
+        isIdentityResolved: true,
+        // Verified at commit; the renderer only uses it to partition local state per tenant.
+        ...(typeof payload.tid === 'string' && payload.tid ? { tenantId: payload.tid } : {}),
+        userId: payload.sub,
+      };
     } catch (error) {
       logger.warn('Failed to resolve Desktop bootstrap identity from access token:', error);
       return { isIdentityResolved: false };
@@ -867,6 +873,23 @@ export default class RemoteServerConfigCtr extends ControllerModule {
     if (dataConfig.cloudTenant?.entryUrl) return dataConfig.cloudTenant.entryUrl;
 
     return dataConfig.storageMode === 'selfHost' ? dataConfig.remoteServerUrl : undefined;
+  }
+
+  /**
+   * The confirmed tenant entry and the access token that was issued for it, read as one pair.
+   * A login committed (or a logout) between the two reads would otherwise send the previous
+   * organization's token to the new entry, or the new token to the old one; that, a paused
+   * endpoint and a signed-out state all yield `null`.
+   */
+  async getRemoteCredentials(): Promise<{ serverUrl: string; token: string } | null> {
+    if (this.endpointChangedPaused) return null;
+    const epoch = this.sessionEpoch;
+    const [serverUrl, token] = await Promise.all([
+      this.getRemoteServerUrl(),
+      this.getAccessToken(),
+    ]);
+    if (epoch !== this.sessionEpoch || this.endpointChangedPaused) return null;
+    return serverUrl && token ? { serverUrl, token } : null;
   }
 
   /**

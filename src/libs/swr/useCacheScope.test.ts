@@ -1,4 +1,4 @@
-import { initializeTenant } from '@lobechat/business-tenant/client';
+import { initializeTenant, setRemoteTenantId } from '@lobechat/business-tenant/client';
 import { cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -68,6 +68,19 @@ describe('buildCacheScope', () => {
     expect(acme).toBe('u1:w1@acme');
     expect(other).not.toBe(acme);
     expect(buildCacheScope('u1', 'w1')).toBe('u1:w1');
+  });
+
+  // The desktop renderer is not served under /t/{slug}; a subject id that repeats across
+  // organizations must not address one cache.
+  it('isolates the same user across the desktop renderer tenants', () => {
+    setRemoteTenantId('tenant-a');
+    const a = buildCacheScope('u1', 'w1');
+    setRemoteTenantId('tenant-b');
+    const b = buildCacheScope('u1', 'w1');
+    setRemoteTenantId(undefined);
+
+    expect(a).toBe('u1:w1@tenant-a');
+    expect(b).toBe('u1:w1@tenant-b');
   });
 });
 

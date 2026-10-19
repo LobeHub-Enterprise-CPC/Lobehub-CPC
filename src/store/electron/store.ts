@@ -24,6 +24,7 @@ import { createTabPagesSlice } from './actions/tabPages';
 import { type ElectronState } from './initialState';
 import { initialState } from './initialState';
 import { electronSyncSelectors } from './selectors';
+import { syncTenantPartition } from './tenantPartition';
 
 //  ===============  Aggregate createStoreFn ============ //
 
@@ -76,8 +77,10 @@ expose('electron', useElectronStore);
 
 // The desktop renderer is not served by the app server: the tenant package builds
 // every app link and asset URL on the configured remote (tenant) address.
-const syncRemoteAppAddress = (state: ElectronStore) =>
+const syncRemoteAppAddress = (state: ElectronStore) => {
   setRemoteAppAddress(isDesktop ? electronSyncSelectors.remoteServerUrl(state) : undefined);
+  if (isDesktop) syncTenantPartition(state);
+};
 syncRemoteAppAddress(useElectronStore.getState());
 useElectronStore.subscribe(syncRemoteAppAddress);
 

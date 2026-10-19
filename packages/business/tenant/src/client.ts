@@ -18,12 +18,18 @@ interface TenantState {
    * while the remote address is not configured yet.
    */
   remoteAddress: string | undefined;
+  /** The committed tenant id of a client the app server does not serve (the desktop renderer). */
+  remoteTenantId: string | undefined;
   tenant: TenantContext | null;
 }
 
 // Document-local identity comes only from the URL and trusted same-origin bootstrap.
 // The last-organization cookie is a navigation preference and never selects this context.
-const tenantStore = createStore<TenantState>(() => ({ remoteAddress: undefined, tenant: null }));
+const tenantStore = createStore<TenantState>(() => ({
+  remoteAddress: undefined,
+  remoteTenantId: undefined,
+  tenant: null,
+}));
 
 /** Called by each browser entry before routing or issuing requests. */
 export const initializeTenant = (url: URL, bootstrap?: TenantContext | null): void => {
@@ -46,14 +52,30 @@ export const withCurrentTenantPath = (path: string): string => {
 };
 
 /**
+ * What partitions this client's browser-local state per tenant: the slug of the page the server
+ * served, or the committed tenant id in the desktop renderer (which is not served under
+ * `/t/{slug}`); `undefined` for an unscoped document.
+ */
+export const getTenantScopeId = (): string | undefined => {
+  const { remoteTenantId, tenant } = tenantStore.getState();
+  return remoteTenantId ?? tenant?.slug;
+};
+
+/** Called by the desktop renderer with the tenant id of its committed login; `undefined` to unset. */
+export const setRemoteTenantId = (tenantId: string | undefined): void => {
+  if (tenantStore.getState().remoteTenantId !== tenantId)
+    tenantStore.setState({ remoteTenantId: tenantId });
+};
+
+/**
  * Namespace a `localStorage` key that holds tenant business data (drafts, input
  * history, cached transcripts). Every tenant shares one origin, hence one
  * `localStorage`; an unscoped key would show tenant A's draft to tenant B in the
  * same browser. Pure UI preferences (theme, playback rate) stay unscoped.
  */
 export const tenantStorageKey = (key: string): string => {
-  const slug = getTenant()?.slug;
-  return slug ? `${TENANT_PREFIX}:${slug}:${key}` : key;
+  const scopeId = getTenantScopeId();
+  return scopeId ? `${TENANT_PREFIX}:${scopeId}:${key}` : key;
 };
 
 /**
