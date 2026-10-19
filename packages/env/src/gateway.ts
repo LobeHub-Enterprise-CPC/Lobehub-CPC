@@ -72,3 +72,22 @@ export const getGatewayConfig = () => {
 };
 
 export const gatewayEnv = getGatewayConfig();
+
+/**
+ * The internal gateway interface derives the caller's audience (agent or device) from which service
+ * token the gateway presented, so one value for both cannot establish an audience boundary and every
+ * call answers 503 `GATEWAY_AUTHORITY_UNAVAILABLE`. Fail at startup with the cause instead.
+ */
+export const assertDistinctGatewayServiceTokens = (
+  env: Record<string, string | undefined> = process.env,
+) => {
+  const agent = env.AGENT_GATEWAY_SERVICE_TOKEN;
+  if (agent && agent === env.DEVICE_GATEWAY_SERVICE_TOKEN) {
+    throw new Error(
+      'AGENT_GATEWAY_SERVICE_TOKEN and DEVICE_GATEWAY_SERVICE_TOKEN are the same value. They must be different: ' +
+        'the internal gateway interface (/api/internal/gateway/*) identifies the calling gateway service by its token ' +
+        'and answers 503 GATEWAY_AUTHORITY_UNAVAILABLE to every request while they are equal. ' +
+        'Give each the SERVICE_TOKEN of its own gateway service.',
+    );
+  }
+};

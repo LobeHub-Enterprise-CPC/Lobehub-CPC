@@ -1,4 +1,9 @@
 export async function register() {
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { assertDistinctGatewayServiceTokens } = await import('@lobechat/env/gateway');
+    assertDistinctGatewayServiceTokens();
+  }
+
   // In local development, write debug logs to logs/server.log
   if (process.env.NODE_ENV !== 'production' && process.env.NEXT_RUNTIME === 'nodejs') {
     await import('./libs/debug-file-logger');
