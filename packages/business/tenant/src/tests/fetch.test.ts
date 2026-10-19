@@ -70,3 +70,102 @@ describe('installTenantFetch', () => {
     expect(window.fetch).toBe(fetchMock);
   });
 });
+
+describe('installTenantFetch endpoint change', () => {
+  const origin = 'https://app.example.com';
+  const changed = () =>
+    new Response(
+      JSON.stringify({ code: 'TENANT_ENDPOINT_CHANGED', activeUrl: 'https://evil.test' }),
+      {
+        headers: { 'Content-Type': 'application/json' },
+        status: 409,
+      },
+    );
+
+  const setup = (
+    pathname: string,
+    respond: () => Response,
+    bootstrap?: Parameters<typeof initializeTenant>[1],
+  ) => {
+    const store = new Map<string, string>();
+    const win = {
+      fetch: vi.fn(async () => respond()),
+      location: {
+        assign: vi.fn(),
+        href: `${origin}${pathname}`,
+        origin,
+        pathname,
+      },
+      sessionStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => void store.set(key, value),
+      },
+    };
+    const original = win.fetch;
+    initializeTenant(new URL(win.location.href), bootstrap);
+    installTenantFetch(win as unknown as Window & typeof globalThis);
+    return Object.assign(win, { original });
+  };
+
+  afterEach(() => initializeTenant(new URL('https://app.example.com/')));
+
+  it('re-resolves the tenant root once when a backend call reports the endpoint changed', async () => {
+    const win = setup('/t/acme/agent', changed);
+
+    const [first, second] = await Promise.all([
+      win.fetch('/trpc/lambda/a'),
+      win.fetch('/trpc/lambda/b'),
+    ]);
+
+    expect(win.location.assign).toHaveBeenCalledTimes(1);
+    // Never the address the response names: the server re-resolves the tenant itself.
+    expect(win.location.assign).toHaveBeenCalledWith(`${origin}/t/acme`);
+    // The caller still reads the response it got.
+    expect(first.status).toBe(409);
+    expect((await second.json()).code).toBe('TENANT_ENDPOINT_CHANGED');
+  });
+
+  it('does not loop when the root keeps answering that the endpoint changed', async () => {
+    const win = setup('/t/acme/agent', changed);
+    await win.fetch('/trpc/lambda/a');
+    await win.fetch('/trpc/lambda/b');
+    expect(win.location.assign).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves other 409 responses alone', async () => {
+    const win = setup(
+      '/t/acme/agent',
+      () => new Response(JSON.stringify({ code: 'CONFLICT' }), { status: 409 }),
+    );
+    await win.fetch('/trpc/lambda/a');
+    expect(win.location.assign).not.toHaveBeenCalled();
+  });
+
+  it('also watches a custom authority, which needs no path prefix', async () => {
+    const win = setup('/agent', changed, { basePath: '', slug: 'acme' });
+    await win.fetch('/trpc/lambda/a');
+    expect(win.original).toHaveBeenCalledWith('/trpc/lambda/a', undefined);
+    expect(win.location.assign).toHaveBeenCalledWith(`${origin}/`);
+  });
+
+  it('watches XMLHttpRequest answers too', () => {
+    class FakeXhr {
+      status = 409;
+      responseType = '';
+      responseText = JSON.stringify({ code: 'TENANT_ENDPOINT_CHANGED' });
+      listeners: Array<() => void> = [];
+      addEventListener(_: string, listener: () => void) {
+        this.listeners.push(listener);
+      }
+      open() {}
+    }
+    const win = setup('/t/acme/agent', changed);
+    Object.assign(win, { XMLHttpRequest: FakeXhr });
+    installTenantFetch(win as unknown as Window & typeof globalThis);
+    const xhr = new FakeXhr();
+    // The patched `open` registers the listener on the instance it opens.
+    (xhr.open as (method: string, url: string) => void)('GET', '/trpc/x');
+    xhr.listeners.forEach((listener) => listener());
+    expect(win.location.assign).toHaveBeenCalledWith(`${origin}/t/acme`);
+  });
+});
