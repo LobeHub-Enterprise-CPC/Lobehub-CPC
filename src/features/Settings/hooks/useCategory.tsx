@@ -1,4 +1,5 @@
 import { ENABLE_TOOL_CHANNEL_SETTINGS, SETTINGS_HIDDEN_TABS } from '@lobechat/business-const';
+import { useAppAssetUrl } from '@lobechat/business-tenant/client';
 import { isDesktop } from '@lobechat/const';
 import { Avatar } from '@lobehub/ui/base-ui';
 import { SkillsIcon } from '@lobehub/ui/icons';
@@ -35,7 +36,6 @@ import {
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { useRemoteAssetUrl } from '@/hooks/useRemoteAssetUrl';
 import { SettingsTabs } from '@/store/global/initialState';
 import {
   featureFlagsSelectors,
@@ -100,7 +100,7 @@ export const useCategory = () => {
   const enablePersistentSandbox = useUserStore(labPreferSelectors.enablePersistentSandbox);
 
   // On desktop a server-relative avatar is mounted under the remote server address
-  const avatarUrl = useRemoteAssetUrl(avatar || undefined);
+  const avatarUrl = useAppAssetUrl(avatar || undefined);
   const enableBusinessFeatures = useServerConfigStore(serverConfigSelectors.enableBusinessFeatures);
   const categoryGroups: CategoryGroup[] = useMemo(() => {
     const groups: CategoryGroup[] = [];

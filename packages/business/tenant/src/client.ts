@@ -117,6 +117,17 @@ export const buildAppUrl = (path: string): string =>
 export const resolveAppUrl = (value: string): string => resolveRemoteUrl(value, getAppBaseUrl());
 
 /**
+ * React binding of {@link resolveAppUrl} for a server-returned asset reference (avatar, file
+ * URL). Only a client the app server does not serve (the desktop renderer) mounts a
+ * server-relative path under its remote address; on a served page the path stays relative to the
+ * serving origin and `installTenantAssets` prefixes it at the DOM boundary.
+ */
+export const useAppAssetUrl = <T extends string | undefined>(value: T): T =>
+  useStore(tenantStore, ({ remoteAddress }) =>
+    remoteAddress && value ? (resolveRemoteUrl(value, remoteAddress) as T) : value,
+  );
+
+/**
  * The app path of a URL pathname under the app address (`/t/acme/f/x` ->
  * `/f/x`), or `null` when it belongs to another tenant or no address is known.
  */

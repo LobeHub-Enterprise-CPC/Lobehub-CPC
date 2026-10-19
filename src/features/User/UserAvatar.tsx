@@ -1,12 +1,12 @@
 'use client';
 
 import { BRANDING_NAME } from '@lobechat/business-const';
+import { useAppAssetUrl } from '@lobechat/business-tenant/client';
 import { Avatar, type AvatarProps } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { useMemo } from 'react';
 
 import { DEFAULT_USER_AVATAR_URL } from '@/const/meta';
-import { useRemoteAssetUrl } from '@/hooks/useRemoteAssetUrl';
 import { useUserStore } from '@/store/user';
 import { authSelectors, userProfileSelectors } from '@/store/user/selectors';
 
@@ -73,7 +73,7 @@ const UserAvatar = ({
 
   const isSignedIn = useUserStore(authSelectors.isLogin);
   // On desktop a server-relative avatar is mounted under the remote server address
-  const remoteAvatar = useRemoteAssetUrl(avatar || undefined);
+  const remoteAvatar = useAppAssetUrl(avatar || undefined);
 
   const userAvatarUrl = useMemo(() => {
     if (!isSignedIn) return DEFAULT_USER_AVATAR_URL;

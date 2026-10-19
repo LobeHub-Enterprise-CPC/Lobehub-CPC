@@ -8,6 +8,7 @@ import {
   initializeTenant,
   resolveAppUrl,
   setRemoteAppAddress,
+  useAppAssetUrl,
   useAppBaseUrl,
 } from '../client';
 
@@ -101,5 +102,33 @@ describe('useAppBaseUrl', () => {
     const { result } = renderHook(() => useAppBaseUrl());
 
     expect(`${result.current}/agent/a1`).toBe(`${origin()}/t/acme/agent/a1`);
+  });
+});
+
+describe('useAppAssetUrl', () => {
+  it('mounts a server-relative asset under the remote address once it is configured', () => {
+    setRemoteAppAddress('');
+    const { result, rerender } = renderHook(() => useAppAssetUrl('/webapi/user/avatar/u1'));
+    expect(result.current).toBe('/webapi/user/avatar/u1');
+
+    setRemoteAppAddress('https://host.example/t/acme');
+    rerender();
+
+    expect(result.current).toBe('https://host.example/t/acme/webapi/user/avatar/u1');
+  });
+
+  it('keeps an absolute or missing value as it is', () => {
+    setRemoteAppAddress('https://host.example/t/acme');
+
+    expect(renderHook(() => useAppAssetUrl('https://cdn.example/a.png')).result.current).toBe(
+      'https://cdn.example/a.png',
+    );
+    expect(renderHook(() => useAppAssetUrl(undefined)).result.current).toBeUndefined();
+  });
+
+  it('leaves the path to the DOM-level rewrite on a page the server served', () => {
+    initializeTenant(new URL(`${origin()}/t/acme/agent`));
+
+    expect(renderHook(() => useAppAssetUrl('/f/file_1')).result.current).toBe('/f/file_1');
   });
 });

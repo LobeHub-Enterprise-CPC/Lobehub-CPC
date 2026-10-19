@@ -1,3 +1,4 @@
+import { useAppAssetUrl } from '@lobechat/business-tenant/client';
 import { Avatar } from '@lobehub/ui/base-ui';
 import { SkillsIcon } from '@lobehub/ui/icons';
 import {
@@ -33,7 +34,6 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { usePermission } from '@/hooks/usePermission';
-import { useRemoteAssetUrl } from '@/hooks/useRemoteAssetUrl';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useUserStore } from '@/store/user';
 import { labPreferSelectors, userProfileSelectors } from '@/store/user/selectors';
@@ -85,7 +85,7 @@ export const useWorkspaceSettingCategory = (): WorkspaceSettingCategoryGroup[] =
   ]);
 
   // On desktop a server-relative avatar is mounted under the remote server address
-  const avatarUrl = useRemoteAssetUrl(avatar || undefined);
+  const avatarUrl = useAppAssetUrl(avatar || undefined);
 
   return useMemo(
     () =>

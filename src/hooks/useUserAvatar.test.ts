@@ -110,7 +110,36 @@ describe('useUserAvatar', () => {
     expect(result.current).toBe(mockAvatar);
   });
 
-  it('should use OFFICIAL_URL when storageMode is cloud in desktop environment', () => {
+  it('should mount a server-relative avatar under the committed tenant entry in cloud mode', () => {
+    mockConstEnv.isDesktop = true;
+    const mockAvatar = '/api/avatar.png';
+
+    act(() => {
+      useUserStore.setState({ user: { avatar: mockAvatar } });
+      useElectronStore.setState({
+        dataSyncConfig: {
+          cloudTenant: {
+            display: { account: 'sub' },
+            entryUrl: 'https://app.lobehub.com/t/acme',
+            generation: 'login-A',
+            identity: {
+              issuer: 'https://app.lobehub.com/t/acme/oidc',
+              subject: 'sub',
+              tenantId: 'A',
+            },
+          },
+          remoteServerUrl: '',
+          storageMode: 'cloud',
+        },
+      });
+    });
+
+    const { result } = renderHook(() => useUserAvatar());
+
+    expect(result.current).toBe('https://app.lobehub.com/t/acme/api/avatar.png');
+  });
+
+  it('should leave the avatar untouched in cloud mode before a tenant is committed', () => {
     mockConstEnv.isDesktop = true;
     const mockAvatar = '/api/avatar.png';
 
@@ -123,8 +152,7 @@ describe('useUserAvatar', () => {
 
     const { result } = renderHook(() => useUserAvatar());
 
-    // In cloud mode, selector returns OFFICIAL_URL regardless of remoteServerUrl config
-    expect(result.current).toBe('https://app.lobehub.com/api/avatar.png');
+    expect(result.current).toBe(mockAvatar);
   });
 
   it('should return original avatar when storageMode is selfHost but no URL configured', () => {
