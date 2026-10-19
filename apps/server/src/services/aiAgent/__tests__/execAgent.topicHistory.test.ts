@@ -87,20 +87,6 @@ vi.mock('@/database/models/topic', () => ({
   }),
 }));
 
-// Real implementation wraps the create in a `db.transaction(...)` for
-// per-visitor cap enforcement — irrelevant to the read-side guard under test
-// here, and `mockDb = {}` has no `transaction`. Delegate straight to the
-// underlying model methods so a share-gated run in these tests exercises the
-// same message-creation call the non-share path does.
-vi.mock('../shareVisitorAbuseGuards', () => ({
-  // Not exercised by these tests (they all target an existing topic), but
-  // stubbed so an accidental new-topic share run doesn't hit `db.transaction`.
-  reserveShareVisitorTopic: vi.fn().mockResolvedValue({ id: 'topic-shared-new' }),
-  reserveShareVisitorTurn: vi.fn(function (_params, createParams, id) {
-    return mockMessageCreate(createParams, id);
-  }),
-}));
-
 vi.mock('@/database/models/thread', () => ({
   ThreadModel: vi.fn().mockImplementation(function () {
     return {
@@ -287,30 +273,9 @@ describe('AiAgentService.execAgent - topic history loading', () => {
       expect(mockMessageQuery).not.toHaveBeenCalled();
       expect(mockCreateOperation).not.toHaveBeenCalled();
     });
-
-    it("still allows the visitor's own authorized share run to load the same topic", async () => {
-      mockTopicFindById.mockResolvedValue(visitorTopic);
-      mockMessageQuery.mockResolvedValue([]);
-
-      await service.execAgent({
-        agentId: 'agent-1',
-        appContext: { topicId: 'topic-visitor' },
-        prompt: 'hi',
-        shareGate: {
-          agentId: 'agent-1',
-          shareConfig: { toolGrants: [] },
-          shareId: 'share-1',
-          visitorUserId: 'visitor-1',
-        },
-      });
-
-      expect(mockCreateOperation).toHaveBeenCalled();
-      // Authorized share run must opt into `allowShareVisitor` so it keeps
-      // seeing its own transcript.
-      expect(mockMessageQuery).toHaveBeenCalledWith(
-        expect.objectContaining({ topicId: 'topic-visitor' }),
-        expect.objectContaining({ allowShareVisitor: true }),
-      );
-    });
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

@@ -25,7 +25,6 @@ import { afterUnscoped } from '@/server/utils/scheduleAfterResponse';
 
 import { pruneRegeneratedBranch } from '../pruneRegeneratedBranch';
 import { resolveDeviceWorkingDirectoryConfig } from '../resolveDeviceWorkingDirectory';
-import { applyShareGateToToolSet } from '../shareGate';
 import type {
   BindTopicWorkingDirectoryParams,
   ExecAgentTranscript,
@@ -74,7 +73,6 @@ export const createTranscriptHistoryLoader = (
 export const createHistoryMessagesLoader = (
   deps: {
     db: LobeChatDatabase;
-    isShareVisitorRun: boolean;
     messageModel: MessageModel;
     userId: string;
     workspaceId?: string;
@@ -95,17 +93,7 @@ export const createHistoryMessagesLoader = (
   const postProcessUrl = (path: string | null, file: { id?: string | null }) =>
     fileService.getFileAccessUrl({ id: file.id, url: path });
   let historyMessagesCache: any[] | undefined;
-  // The run's own topic was resolved and authorized upstream (a share visitor
-  // run reaches here through `findVisitorTopicOrThrow`), and it executes under
-  // the CREATOR's identity — so an AUTHORIZED share run must opt out of
-  // `query()`'s creator-facing agent-share exclusion or the agent loses its
-  // history. A non-share run must NOT get this opt-out: `turnSetup`'s
-  // visitor-topic guard rejects a non-share run whose `appContext.topicId`
-  // resolves to a visitor topic, but this loader is cheap defense-in-depth in
-  // case that guard is ever bypassed or a future call site skips it — without
-  // it, a non-share run pointed at a leaked visitor topicId would still load
-  // the visitor's transcript into the owner's model context.
-  const historyQueryOptions = { allowShareVisitor: deps.isShareVisitorRun, postProcessUrl };
+  const historyQueryOptions = { allowShareVisitor: false, postProcessUrl };
   // Group runs must scope the query by `groupId`: without it `query()` falls
   // into its standard branch (`groupId IS NULL`) and returns none of the group
   // conversation, so a group supervisor's run starts with no history and loses
@@ -438,7 +426,7 @@ export const prepareOperation = async (
     prompt,
     provider,
     resolvedAgentId,
-    shareGate,
+
     topicId,
     userMessageId,
   } = ctx;
@@ -460,14 +448,9 @@ export const prepareOperation = async (
     activeDeviceId,
     activeDeviceScope,
     agentPlugins,
-    builtinModels,
-    composioManifests,
-    connectorManifests,
     executionPlan,
-    lobehubSkillManifests,
     onlineDevices,
     toolsEngine,
-    toolsResult,
     tools,
   } = discovery;
 
@@ -615,31 +598,6 @@ export const prepareOperation = async (
           toolIds: historicalActivatedToolIds,
         }).enabledToolIds
       : [];
-
-  // Final share-gate allowlist enforcement — run once here, after every
-  // manifest/default/dynamic-activation source (installed plugins, LobeHub
-  // Skills, Composio, real-MCP connectors, always-on builtin defaults) has
-  // been merged into `toolManifestMap` / `toolsResult.enabledToolIds` /
-  // `tools` / `activatableToolIds` by `toolDiscovery` and the historical
-  // re-activation pass above. `filterPluginsByShareGate` in `toolDiscovery`
-  // only trimmed the initial candidate id list — it does not stop
-  // `lobe-activator` from dynamically activating (and `ToolExecutionService`
-  // from executing, with the CREATOR's credentials) a creator-connected tool
-  // that was never in `shareConfig.toolGrants`. Mutates the discovery maps
-  // in place, so the `toolSet` handed to `createOperation` is the pruned one.
-  if (shareGate) {
-    applyShareGateToToolSet(
-      {
-        activatableToolIds,
-        enabledToolIds: toolsResult.enabledToolIds,
-        executorMap: discovery.toolExecutorMap,
-        manifestMap: discovery.toolManifestMap,
-        sourceMap: discovery.toolSourceMap,
-        tools,
-      },
-      shareGate,
-    );
-  }
 
   log('execAgent: prepared evalContext for executor');
 
@@ -818,7 +776,7 @@ export const prepareOperation = async (
     prompt,
     resolvedAgentId,
     selectedSkillIds: collectSelectedSkillIds(historyMessages, input.selectedSkillIds),
-    shareGate,
+
     taskId: input.taskId,
     workspaceInit,
   });

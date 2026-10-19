@@ -12,8 +12,6 @@ import { shouldEnableBuiltinSkill } from '@/helpers/skillFilters';
 import type { AgentConfigWithId } from '@/server/services/agent';
 import type { AgentDocumentsService } from '@/server/services/agentDocuments';
 
-import { type AgentShareGate, filterPluginsByShareGate } from '../shareGate';
-
 const log = debug('lobe-server:ai-agent-service');
 
 /** Shared skill candidates, pinned content and disabled entries. */
@@ -30,18 +28,11 @@ export async function prepareOperationSkills(
     disabledPluginIds: string[];
     executionPlan?: ExecutionPlan;
     resolvedAgentId: string;
-    shareGate?: AgentShareGate;
+
     workspace?: WorkspaceInitResult;
   },
 ) {
-  const {
-    agentConfig,
-    agentPlugins,
-    disabledPluginIds,
-    executionPlan,
-    resolvedAgentId,
-    shareGate,
-  } = input;
+  const { agentConfig, agentPlugins, disabledPluginIds, executionPlan, resolvedAgentId } = input;
   const activeDeviceId = executionPlan?.kind === 'device' ? executionPlan.deviceId : undefined;
   const workspaceInit = { workspace: input.workspace ?? { instructions: [], skills: [] } };
   try {
@@ -133,27 +124,10 @@ export async function prepareOperationSkills(
     // activatable — mirrors the tool-manifest treatment above (installedPlugins/
     // additionalManifests), which this array had never received.
     //
-    // Shared runs only see skills allowed by the share configuration. The
-    // candidate pool must be trimmed here rather than left to
-    // `SkillEngine.generate`, which annotates activation state on its input
-    // rather than shrinking it. Reuse `filterPluginsByShareGate` (id-list
-    // intersection, not tool-specific) to keep this pool the single
-    // enforcement point — an empty/missing allowlist collapses it to nothing.
-    const shareAllowedSkillIds = shareGate
-      ? new Set(
-          filterPluginsByShareGate(
-            [...projectMetas, ...dbMetas, ...agentSkillMetas, ...builtinMetas].map(
-              (skill) => skill.identifier,
-            ),
-            shareGate,
-          ),
-        )
-      : undefined;
     const seenNames = new Set<string>();
     const skills = [...projectMetas, ...dbMetas, ...agentSkillMetas, ...builtinMetas].filter(
       (skill) => {
         if (disabledPluginIds.includes(skill.identifier)) return false;
-        if (shareAllowedSkillIds && !shareAllowedSkillIds.has(skill.identifier)) return false;
         if (seenNames.has(skill.name)) return false;
         seenNames.add(skill.name);
         return true;

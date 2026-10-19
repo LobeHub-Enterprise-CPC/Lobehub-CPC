@@ -37,7 +37,6 @@ import {
 import {
   type AgentInterventionReviewStatus,
   type AgentInterventionRuntimeAction,
-  type AgentInterventionShareVisitorScope,
   type AgentInterventionSourceAction,
   getAgentInterventionReview,
   getAgentInterventionReviewBySource,
@@ -95,7 +94,6 @@ import {
 import { AgentRuntimeService } from '@/server/services/agentRuntime';
 import { MAX_CLIENT_OPERATION_SNAPSHOT } from '@/server/services/agentRuntime/foregroundOperation';
 import { AiAgentService } from '@/server/services/aiAgent';
-import type { AgentShareGate } from '@/server/services/aiAgent/shareGate';
 import { AiChatService } from '@/server/services/aiChat';
 import { getFileProxyUrl } from '@/server/services/file';
 import { mintOperationGatewayTicket } from '@/server/services/gatewayAuthorization';
@@ -121,14 +119,7 @@ export interface AgentInterventionDispatchContext {
    */
   aiAgentService: AiAgentService;
   serverDB: LobeChatDatabase;
-  /**
-   * Present when a share VISITOR resolved an intervention on their own share
-   * run (`shareChat.resolveInterventionBySource`). Rebuilt from the live share row by
-   * the caller — never from the parked run's state — so the continuation is
-   * gated by the share's CURRENT config exactly like a fresh visitor turn.
-   */
-  shareGate?: AgentShareGate;
-  /** The resolving actor: the owner/member, or the share visitor. */
+  /** The resolving actor. */
   userId: string;
   workspaceId?: string | null;
 }
@@ -526,7 +517,6 @@ const resolveContinuationUserInterventionConfig = async (
   const persistedAllowList = intervention?.allowList ?? [];
 
   const inherited = sourceState ? selectUserInterventionConfig(sourceState) : undefined;
-  if (ctx.shareGate) return inherited ?? { approvalMode: 'manual' };
   if (inherited) {
     const inheritedAllowList = inherited.allowList ?? [];
     const remembered = persistedAllowList.filter((key) => !inheritedAllowList.includes(key));
@@ -609,7 +599,7 @@ export const dispatchClaimedAgentIntervention = async (
        * run's trigger. Without an explicit trigger every LLM call in the
        * continuation lands in route attempt logs with an unknown source.
        */
-      const continuationTrigger = ctx.shareGate ? RequestTrigger.AgentShare : RequestTrigger.Chat;
+      const continuationTrigger = RequestTrigger.Chat;
       const continuation = continuationRuntimeAction(runtimeAction);
       const userInterventionConfig = continuation
         ? await resolveContinuationUserInterventionConfig(resolution, continuation.operationId, ctx)
@@ -658,7 +648,6 @@ export const dispatchClaimedAgentIntervention = async (
                 pluginState: customResult.pluginState,
                 toolCallId: runtimeAction.toolCallId,
               },
-              shareGate: ctx.shareGate,
               topicStartReservationId: deterministicContinuationOperationId,
               trigger: continuationTrigger,
               userInterventionConfig,
@@ -691,7 +680,6 @@ export const dispatchClaimedAgentIntervention = async (
             ...(runtimeAction.decisions.length === 1
               ? { resumeApproval: singleDecision }
               : { resumeApprovals: runtimeAction.decisions }),
-            shareGate: ctx.shareGate,
             topicStartReservationId: deterministicContinuationOperationId,
             trigger: continuationTrigger,
             userInterventionConfig,
@@ -719,7 +707,6 @@ export const dispatchClaimedAgentIntervention = async (
               rejectionReason: runtimeAction.rejectionReason,
               toolCallId: runtimeAction.toolCallId,
             },
-            shareGate: ctx.shareGate,
             topicStartReservationId: deterministicContinuationOperationId,
             trigger: continuationTrigger,
             userInterventionConfig,
@@ -900,11 +887,6 @@ const assertOperationVisibleToCaller = async (params: {
 }) => {
   const { db, operationId, userId, workspaceId } = params;
 
-  // Share-visitor runs are ALSO excluded (`notShareVisitorTopicRef`): they
-  // execute under the creator's userId, so the owner shortcut below would
-  // otherwise hand the creator the visitor's run metadata, history and
-  // stream events — the same exclusion `findOwnOperationById` applies to
-  // the trace reads.
   const [row] = await db
     .select({
       agentId: agentOperations.agentId,
@@ -1371,8 +1353,6 @@ type ExecAgentInput = z.infer<typeof ExecAgentSchema>;
  * authoritative operation/batch from the tool rows and claim the same generic
  * intervention before the legacy message CAS can run.
  *
- * Shared by the owner `execAgent` and the share-visitor `shareChat.execAgent`
- * resume paths; `shareVisitor` scopes the claim to the visitor's own share run.
  * Resolves `undefined` when no durable generic row exists (OSS, or a pre-v2
  * row), so the caller continues with the legacy message-row resume.
  */
@@ -1383,20 +1363,13 @@ export const bridgeLegacyResumeToSourceIntervention = async (
     resumeApproval?: ExecAgentInput['resumeApproval'];
     resumeApprovals?: ExecAgentInput['resumeApprovals'];
     resumeToolResult?: ExecAgentInput['resumeToolResult'];
-    shareVisitor?: AgentInterventionShareVisitorScope;
   },
   ctx: AgentInterventionDispatchContext,
   /** Forwarded to {@link dispatchClaimedAgentIntervention}; see its `options`. */
   options: { acceptsFileWorks?: boolean; acceptsMemberRuntimeEnd?: boolean } = {},
 ): Promise<ExecAgentResult | undefined> => {
-  const {
-    messageModel,
-    parentMessageId,
-    resumeApproval,
-    resumeApprovals,
-    resumeToolResult,
-    shareVisitor,
-  } = params;
+  const { messageModel, parentMessageId, resumeApproval, resumeApprovals, resumeToolResult } =
+    params;
 
   const legacyResumeTargets = [
     ...(resumeApprovals ?? []),
@@ -1512,7 +1485,6 @@ export const bridgeLegacyResumeToSourceIntervention = async (
           toolCallId,
           toolMessageId: parentMessageId,
         })),
-        ...(shareVisitor && { shareVisitor }),
         workspaceId: ctx.workspaceId ?? undefined,
       });
       if (sourceResolution.handled) {

@@ -18,15 +18,6 @@ vi.mock('@/services/aiAgent', () => ({
   },
 }));
 
-vi.mock('@/services/shareChat', () => ({
-  shareChatService: {
-    execAgentTask: vi.fn(),
-    interruptTask: vi.fn(),
-    issueGatewayUserToken: vi.fn(),
-    refreshGatewayToken: vi.fn(),
-  },
-}));
-
 vi.mock('@/services/message', () => ({
   messageService: { getMessages: vi.fn().mockResolvedValue([]) },
 }));
@@ -228,7 +219,6 @@ describe('GatewayActionImpl (multiplexed gateway transport)', () => {
       const { action, mux, muxClient, state, v1Client } = createTestAction();
 
       action.connectToGateway({
-        agentShareId: 'share-1',
         executor: true,
         gatewayUrl: GATEWAY_URL,
         operationId: 'op-1',
@@ -237,10 +227,7 @@ describe('GatewayActionImpl (multiplexed gateway transport)', () => {
         topicId: 'topic-1',
       });
 
-      expect(action.resolveGatewayMux).toHaveBeenCalledWith({
-        agentShareId: 'share-1',
-        gatewayUrl: GATEWAY_URL,
-      });
+      expect(action.resolveGatewayMux).toHaveBeenCalledWith({ gatewayUrl: GATEWAY_URL });
       expect(action.createMuxClient).toHaveBeenCalledWith(mux, 'op-1', {
         executor: true,
         resumeOnConnect: true,
@@ -278,36 +265,6 @@ describe('GatewayActionImpl (multiplexed gateway transport)', () => {
       expect(action.createMuxClient).not.toHaveBeenCalled();
       expect(v1Client.connect).toHaveBeenCalled();
       expect(state.gatewayConnections['op-1'].client).toBe(v1Client);
-    });
-
-    it('uses the share-scoped mux even outside the rollout', () => {
-      mockServer.enableGatewayMux = false;
-      const { action, mux, muxClient, state, v1Client } = createTestAction();
-
-      action.connectToGateway({
-        agentShareId: 'share-1',
-        executor: true,
-        gatewayUrl: GATEWAY_URL,
-        operationId: 'op-1',
-        token: 'unused-in-mux',
-        topicId: 'topic-1',
-      });
-
-      expect(action.resolveGatewayMux).toHaveBeenCalledWith({
-        agentShareId: 'share-1',
-        gatewayUrl: GATEWAY_URL,
-      });
-      expect(action.createMuxClient).toHaveBeenCalledWith(mux, 'op-1', {
-        executor: true,
-        resumeOnConnect: undefined,
-      });
-      expect(action.createClient).not.toHaveBeenCalled();
-      expect(muxClient.connect).toHaveBeenCalled();
-      expect(v1Client.connect).not.toHaveBeenCalled();
-      expect(state.gatewayConnections['op-1']).toMatchObject({
-        client: muxClient,
-        status: 'connecting',
-      });
     });
 
     it('resolves the page-wide registry mux by default', () => {

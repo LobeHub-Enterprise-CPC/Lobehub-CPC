@@ -1873,10 +1873,9 @@ describe('MessageModel Query Tests', () => {
     });
 
     it('keeps countByTopic working for the visitor turn cap when the runtime opts in', async () => {
-      // The per-topic turn cap depends on counting visitor messages, and after
-      // the ownership() flip the default scope excludes visitor rows. The
-      // share runtime (`reserveShareVisitorTurn` in
-      // `shareVisitorAbuseGuards.ts`) constructs `MessageModel` with
+      // Counting visitor messages per topic is needed for turn caps, and after
+      // the ownership() flip the default scope excludes visitor rows. A caller
+      // that counts them constructs `MessageModel` with
       // `includeShareVisitor: true`; mirror that opt-in here.
       const defaultCount = await messageModel.countByTopic({
         role: 'user',

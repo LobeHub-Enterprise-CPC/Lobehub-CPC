@@ -13,15 +13,6 @@ vi.mock('@/services/aiAgent', () => ({
   },
 }));
 
-vi.mock('@/services/shareChat', () => ({
-  shareChatService: {
-    execAgentTask: vi.fn(),
-    interruptTask: vi.fn(),
-    issueGatewayUserToken: vi.fn(),
-    refreshGatewayToken: vi.fn(),
-  },
-}));
-
 vi.mock('@/services/message', () => ({
   messageService: { getMessages: vi.fn().mockResolvedValue([]) },
 }));
@@ -132,23 +123,19 @@ describe('tenancy gateway capability entries', () => {
     action.warmupGatewayMux();
     expect(action.resolveGatewayMux).not.toHaveBeenCalled();
   });
-  it.each([undefined, 'share-visitor'])(
-    'does not select mux for operation connection (share=%s)',
-    (agentShareId) => {
-      const { action, client } = createAction();
-      action.connectToGateway({
-        agentShareId,
-        gatewayUrl: 'https://gw.invalid',
-        operationId: 'operation',
-        token: 'TEST-ONLY',
-        topicId: 'topic',
-      });
-      expect(action.resolveGatewayMux).not.toHaveBeenCalled();
-      expect(action.createMuxClient).not.toHaveBeenCalled();
-      expect(action.createClient).toHaveBeenCalledWith(
-        expect.objectContaining({ identityProvider: expect.any(Function) }),
-      );
-      expect(client.connect).toHaveBeenCalledOnce();
-    },
-  );
+  it('does not select mux for operation connection', () => {
+    const { action, client } = createAction();
+    action.connectToGateway({
+      gatewayUrl: 'https://gw.invalid',
+      operationId: 'operation',
+      token: 'TEST-ONLY',
+      topicId: 'topic',
+    });
+    expect(action.resolveGatewayMux).not.toHaveBeenCalled();
+    expect(action.createMuxClient).not.toHaveBeenCalled();
+    expect(action.createClient).toHaveBeenCalledWith(
+      expect.objectContaining({ identityProvider: expect.any(Function) }),
+    );
+    expect(client.connect).toHaveBeenCalledOnce();
+  });
 });

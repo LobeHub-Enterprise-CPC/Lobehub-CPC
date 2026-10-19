@@ -223,11 +223,7 @@ const slowProcedures = new Set(['market.getAssistantList', 'message.getMessages'
 // time and the stop button — so a topic switch shows a live run as idle for as
 // long as the slowest procedure sharing its batch. It is a cheap read; give it
 // its own request instead of the shared queue.
-const latencyCriticalProcedures = new Set([
-  'aiAgent.refreshGatewayToken',
-  // The share-visitor mirror of the same reconnect handshake.
-  'shareChat.refreshGatewayToken',
-]);
+const latencyCriticalProcedures = new Set(['aiAgent.refreshGatewayToken']);
 const SKIP_BATCH_PROCEDURES = new Set([
   ...initialLoadProcedures,
   ...slowProcedures,

@@ -193,13 +193,6 @@ vi.mock('@/server/services/connector/refresh', () => ({
   scheduleStaleConnectorToolsRefresh: mockScheduleStaleConnectorToolsRefresh,
 }));
 
-// The share path's atomic cap reservations open real DB transactions — stub
-// them so this test can drive execAgent with a bare mock db.
-vi.mock('../../shareVisitorAbuseGuards', () => ({
-  reserveShareVisitorTopic: vi.fn().mockResolvedValue({ id: 'topic-1' }),
-  reserveShareVisitorTurn: vi.fn().mockResolvedValue({ id: 'msg-1' }),
-}));
-
 vi.mock('model-bank', async (importOriginal) => {
   const actual = await importOriginal<typeof ModelBankModule>();
   return {
@@ -255,3 +248,7 @@ describe('discoverTools - feature-flagged builtin tools', () => {
     expect(disabledIds()).not.toContain(DashboardIdentifier);
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

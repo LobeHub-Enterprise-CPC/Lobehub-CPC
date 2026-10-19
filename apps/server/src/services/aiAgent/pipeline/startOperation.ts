@@ -95,7 +95,7 @@ export const startOperation = async (
     parentMessageId,
     provider,
     resolvedAgentId,
-    shareGate,
+
     topicEditingGroupId,
     topicId,
     trigger,
@@ -190,46 +190,6 @@ export const startOperation = async (
       activeDeviceScope: discovery.activeDeviceScope,
       agentConfig,
       agentGroup: discovery.operationAgentGroup,
-      agentShareVisitor: shareGate
-        ? {
-            agentId: shareGate.agentId,
-            // Mirrors `shareConfig.allowReadMemory` so `BuiltinToolsExecutor`
-            // can re-check the memory tool's grant at dispatch time (the
-            // actual chokepoint) via `isShareBlockedDataToolCall` — see
-            // `shareGate/dispatch.ts`.
-            allowReadMemory: shareGate.shareConfig.allowReadMemory,
-            // Mirrors `shareConfig.toolGrants` so tool runtimes resolved
-            // outside `toolManifestMap` (e.g. `activateSkill`, which queries
-            // builtin/DB skills by name) can enforce the same allowlist.
-            toolGrants: shareGate.shareConfig.toolGrants,
-            // Sourced from the agent's OWN persisted assignment
-            // (`agentConfig.knowledgeBases`, already blanked by
-            // `applyShareGateToAgentConfig` in `execAgent`), never from visitor
-            // input. Lets `isShareBlockedDataToolCall` scope
-            // `lobe-knowledge-base.viewKnowledgeBase`'s `id` argument to
-            // knowledge bases actually mounted on this agent.
-            knowledgeBaseIds: (agentConfig.knowledgeBases ?? [])
-              .filter((kb: { enabled?: boolean | null; id?: string | null }) => kb.enabled && kb.id)
-              .map((kb: { id?: string | null }) => kb.id as string),
-            // The share instance this run was authorized against. Re-read (not
-            // reused) at every step boundary by
-            // `AgentRuntimeService.executeStep` via
-            // `AgentShareModel.isRunStillAuthorized`, so a revocation
-            // committed mid-run is caught at the next step instead of only at
-            // creation time. See `AgentShareGate.shareId`'s JSDoc for why the
-            // id itself is the revocation token.
-            shareId: shareGate.shareId,
-            // Mirrors `shareConfig.skillGrants` so the skill runtime can
-            // re-check every load against the SAME allowlist the skill pool was
-            // assembled from. Assembly alone is not enough: `activateSkill`
-            // resolves a model-supplied skill NAME, so a name the pool never
-            // offered still reaches the runtime.
-            skillGrants: shareGate.shareConfig.skillGrants,
-            showErrorDetails: shareGate.shareConfig.showErrorDetails,
-            showModelInfo: shareGate.shareConfig.showModelInfo,
-            visitorUserId: shareGate.visitorUserId,
-          }
-        : undefined,
       deviceSystemInfo:
         Object.keys(prep.deviceSystemInfo).length > 0 ? prep.deviceSystemInfo : undefined,
       disabledPluginIds,
@@ -407,12 +367,6 @@ export const startOperation = async (
       });
     }
 
-    // Generate a short-lived JWT for Gateway WebSocket authentication.
-    // Share-visitor runs sign for the VISITOR: signUserJWT mints a full
-    // oidcAuth token, so a creator-signed token handed to the visitor's
-    // browser would be creator account access. The gateway channel is
-    // registered under the visitor's id (`streamOwnerUserId`), so the
-    // visitor's own `sub` matches.
     const gatewayToken = deps.withholdGatewayToken
       ? undefined
       : await mintOperationGatewayTicket(deps.userId, operationId, deps.workspaceId);

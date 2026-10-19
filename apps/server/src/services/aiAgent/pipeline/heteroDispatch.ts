@@ -457,10 +457,6 @@ export const dispatchHeteroAgent = async (
   let conversationHistory: ConversationHistoryEntry[] | undefined;
   if (heteroType !== 'amp') {
     try {
-      // `allowShareVisitor`: this is the RUN's own topic, already resolved
-      // and authorized upstream. An agent-share visitor run executes under
-      // the creator's identity, so without the opt-in `query()`'s
-      // creator-facing default would hand the agent an empty history.
       const recentMsgs = await deps.messageModel.query(
         { topicId, pageSize: 200 },
         { allowShareVisitor: true },
@@ -492,7 +488,7 @@ export const dispatchHeteroAgent = async (
   // read it. Never throws — a failed lookup is the ephemeral sandbox.
   const sandbox = supportsCloudHeterogeneousSandbox(heteroType)
     ? await resolveSandboxSessionConfig({
-        isShareVisitorRun: !!ctx.shareGate,
+        isShareVisitorRun: false,
         serverDB: deps.db,
         topicId,
         userId: deps.userId,

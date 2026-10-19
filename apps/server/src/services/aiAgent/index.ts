@@ -88,7 +88,6 @@ import { traceSendStage } from './pipeline/sendTracing';
 import { startOperation } from './pipeline/startOperation';
 import { resolveNewTopicSnapshot, setupTurn } from './pipeline/turnSetup';
 import { createRunFacts, type RunFacts } from './runFacts';
-import { applyShareGateToAgentConfig } from './shareGate';
 import type { SubAgentLlmRelayRequest } from './subAgentLlmRelay';
 import { closeSubAgentLlmRelay, openSubAgentLlmRelay } from './subAgentLlmRelay';
 import type { SubAgentRunDeps } from './subAgentRuns';
@@ -593,8 +592,6 @@ export class AiAgentService {
    *   → AgentRuntimeService.createOperation(...)
    */
   async execAgent(inputParams: InternalExecAgentParams): Promise<ExecAgentResult> {
-    if (inputParams.shareGate)
-      throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'SHARE_GATEWAY_UNSUPPORTED' });
     if (
       inputParams.transcript &&
       (inputParams.appContext?.topicId ||
@@ -1008,7 +1005,7 @@ export class AiAgentService {
       approvalSourceOperationId: providedApprovalSourceOperationId,
       selectedSkillIds,
       selectedToolIds,
-      shareGate,
+
       mentionedAgents,
       suppressUserMessage,
       ephemeralUserMessage,
@@ -1017,18 +1014,7 @@ export class AiAgentService {
       transcript,
     } = params;
 
-    // Agent Share visitor runs execute under the CREATOR's credentials but are
-    // approved by the VISITOR: granting a tool grants its normal approval
-    // flow, so the run honors the visitor's own approval mode (sent by the
-    // share client, see `shareChat.execAgent`) and parks intervention-gated
-    // calls for the visitor to resolve on the share page.
-    //
-    // A share caller that sends no config falls back to `manual`, never to
-    // this method's `headless` default: `headless` auto-runs `'required'`
-    // calls, which would grant a consent nobody gave.
-    const userInterventionConfig: UserInterventionConfig = shareGate
-      ? (params.userInterventionConfig ?? { approvalMode: 'manual' })
-      : requestedUserInterventionConfig;
+    const userInterventionConfig: UserInterventionConfig = requestedUserInterventionConfig;
 
     // Honour client-minted row ids on a FRESH send only. Resume / regeneration
     // replays reach this method too (resumeApproval, resumeToolResult,
@@ -1125,17 +1111,11 @@ export class AiAgentService {
           instructions,
           modelOverride,
           providerOverride,
-          shareVisitorUserId: shareGate?.visitorUserId,
           throwIfExecutionAborted,
           toolModeOverride,
         },
       ),
     );
-
-    // Share-visitor runs must never see the creator's files/knowledge bases.
-    // Applied to the resolved config before anything downstream (knowledge
-    // flags, tools engine, context snapshot) reads it.
-    if (shareGate) applyShareGateToAgentConfig(agentConfig);
 
     let resumeParentMessage: Awaited<ReturnType<MessageModel['findById']>>;
 
@@ -1306,7 +1286,7 @@ export class AiAgentService {
           resume,
           runFromHistory,
           selectedSkillIds,
-          shareGate,
+
           steer,
           throwIfExecutionAborted,
           title,
@@ -1359,7 +1339,7 @@ export class AiAgentService {
       provider,
       resolvedAgentId,
       runFacts,
-      shareGate,
+
       topicEditingGroupId: turn.topicEditingGroupId,
       topicId,
       trigger,
@@ -1425,21 +1405,8 @@ export class AiAgentService {
 
         globalMemoryEnabled = agentMemoryEnabled ?? memorySettings?.enabled !== false;
 
-        // Timezone drives the session-date placeholder rendered back to whoever
-        // is actually conversing. In a share-visitor run that is the VISITOR,
-        // not the creator whose settings this block otherwise reads — memory /
-        // expertise intentionally stay creator-scoped below (gated by
-        // `allowReadMemory`), but the timezone has no such gate and must not
-        // leak the creator's own setting into a visitor's turn.
-        if (shareGate) {
-          const visitorSettings = await runFacts.userSettings(shareGate.visitorUserId);
-          const visitorGeneralSettings = visitorSettings?.general as
-            { timezone?: string } | undefined;
-          userTimezone = visitorGeneralSettings?.timezone;
-        } else {
-          const generalSettings = settings?.general as { timezone?: string } | undefined;
-          userTimezone = generalSettings?.timezone;
-        }
+        const generalSettings = settings?.general as { timezone?: string } | undefined;
+        userTimezone = generalSettings?.timezone;
       } catch (error) {
         log('execAgent: failed to fetch user settings: %O', error);
       }
@@ -1448,13 +1415,6 @@ export class AiAgentService {
         enableExpertise = preference?.lab?.enableSelfLearning === true;
       } catch (error) {
         console.error('Failed to resolve expertise injection Lab preference:', error);
-      }
-      // Share visitors only get the creator's memory (persona + learned
-      // expertise) when the share explicitly allows it — both surfaces would
-      // otherwise leak the creator's personal context into visitor turns.
-      if (shareGate && !shareGate.shareConfig.allowReadMemory) {
-        globalMemoryEnabled = false;
-        enableExpertise = false;
       }
     });
     log(
@@ -1471,7 +1431,6 @@ export class AiAgentService {
       : createHistoryMessagesLoader(
           {
             db: this.db,
-            isShareVisitorRun: !!shareGate,
             messageModel: this.messageModel,
             userId: this.userId,
             workspaceId: this.workspaceId,

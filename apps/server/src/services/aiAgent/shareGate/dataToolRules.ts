@@ -57,20 +57,6 @@ interface DataToolAccessRule {
   writeApiNames: string[];
 }
 
-/**
- * Registry of data-bearing builtin tools a share visitor can be whitelisted
- * into (`shareConfig.toolGrants`) without the whitelist itself implying
- * read OR write access to the underlying store. `filterPluginsByShareGate` /
- * `applyShareGateToToolSet`'s allowlist intersection only answers "is this
- * tool id enabled for the share" — it says nothing about `allowReadMemory`,
- * which is why a whitelisted memory/knowledge-base/agent-documents tool would
- * otherwise execute read-write under the creator's own permissions no matter
- * what the share granted.
- *
- * Adding a new write API to one of these packages must add it here too —
- * `dispatch.test.ts` asserts against the REAL exported manifests, so a rename
- * or omission fails that test instead of silently reopening the hole.
- */
 export const DATA_TOOL_ACCESS_RULES: Record<string, DataToolAccessRule> = {
   [AgentDocumentsIdentifier]: {
     // The tool grant opts into a separately scoped authoring store. It never
@@ -131,12 +117,6 @@ export const DATA_TOOL_ACCESS_RULES: Record<string, DataToolAccessRule> = {
     writeApiNames: [...MEMORY_WRITE_API_NAMES],
   },
   [SkillsIdentifier]: {
-    // The grant is the creator's skill list, not a tool-picker entry — see
-    // `hasShareSkillAuthorization`. `'read'` is the widest a share can reach:
-    // the two surviving APIs only read skill content, and WHICH skills they may
-    // read is enforced separately (`filterSkillsByShareGate` at assembly, the
-    // skill runtime's own check at load time — the latter is the real gate,
-    // since `activateSkill` resolves a model-supplied name).
     grant: (permissions) => (hasShareSkillAuthorization(permissions) ? 'read' : 'none'),
     // Derived as "everything outside the visitor-safe set" rather than listed,
     // so a skill API added later is denied by default. Today that resolves to

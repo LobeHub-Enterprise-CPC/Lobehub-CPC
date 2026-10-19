@@ -1,5 +1,4 @@
 import { aiAgentService } from '@/services/aiAgent';
-import { shareChatService } from '@/services/shareChat';
 import type { ChatStore } from '@/store/chat/store';
 
 interface FlagWrite {
@@ -79,14 +78,8 @@ export const syncQueuedMessagesFlag = (get: () => ChatStore, contextKey: string)
       : undefined;
     if (parent?.type === 'execServerAgentRuntime') continue;
 
-    const { agentShareId, topicId } = operation.context;
-    // Share visitors have no access to the owner-scoped endpoint.
-    if (agentShareId && !topicId) continue;
-
     writeFlag(serverOperationId, pending, (value) =>
-      agentShareId
-        ? shareChatService.setQueuedMessages(agentShareId, topicId!, serverOperationId, value)
-        : aiAgentService.setQueuedMessages({ operationId: serverOperationId, pending: value }),
+      aiAgentService.setQueuedMessages({ operationId: serverOperationId, pending: value }),
     );
   }
 };

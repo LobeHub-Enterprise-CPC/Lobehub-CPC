@@ -69,28 +69,6 @@ describe('resolveRunAgentConfig', () => {
     expect(agentConfig.agencyConfig?.executionTarget).toBe('none');
   });
 
-  it('reads the reply language for the share visitor, not the owner, on a shared-agent run', async () => {
-    getInfoForAIGeneration.mockImplementation(async (_db: unknown, userId: string) => ({
-      responseLanguage: userId === 'visitor-1' ? 'ja-JP' : 'en-US',
-    }));
-
-    const { agentConfig } = await resolveRunAgentConfig(
-      {
-        ...deps,
-        resolveAgentConfigOrThrow: async () =>
-          ({ ...(webOnboardingRow() as object), id: 'agent-regular', slug: null }) as never,
-      },
-      {
-        identifier: 'agent-regular',
-        shareVisitorUserId: 'visitor-1',
-        throwIfExecutionAborted: async () => {},
-      },
-    );
-
-    expect(getInfoForAIGeneration).toHaveBeenCalledWith(expect.anything(), 'visitor-1');
-    expect(agentConfig.systemRole).toContain('Preferred reply language: ja-JP');
-  });
-
   it('reads the reply language for the caller on an ordinary run', async () => {
     await resolveRunAgentConfig(
       {
