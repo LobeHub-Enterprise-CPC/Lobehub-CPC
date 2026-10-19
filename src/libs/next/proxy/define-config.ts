@@ -43,11 +43,7 @@ import { authSpaRoutes, nextjsOnlyRoutes } from '../nextjsOnlyRoutes';
 import { isShareSpaRoute } from '../shareRoutes';
 import { isAlwaysWorkbenchSpaRoute, isWorkbenchSpaRoute } from '../workbenchRoutes';
 import { createRouteMatcher } from './createRouteMatcher';
-import {
-  NAVIGATION_REDIRECT_HEADER,
-  NAVIGATION_REDIRECT_PATH,
-  navigationRedirect,
-} from './navigationRedirect';
+import { navigationRedirect } from './navigationRedirect';
 
 // Create debug logger instances
 const PUBLIC_ACCEPTANCE_GUIDE = '/acceptance/skill.md';
@@ -362,7 +358,7 @@ export function defineConfig() {
       // The shared service owns select rate limits and its deadline. An existing immutable
       // snapshot is replayed there before any fresh endpoint lookup, including after a move.
       const { url } = await selectDesktopTenant({ headers, flow, tenantId, signal: req.signal });
-      return navigationRedirect(req, headers, `${url}#`);
+      return navigationRedirect(`${url}#`);
     } catch (error) {
       const code = (error as { code?: string } | null)?.code;
       const status =
@@ -383,7 +379,7 @@ export function defineConfig() {
   ) => {
     // A trailing empty `#` makes the browser drop the fragment it would otherwise inherit.
     const redirect = (path: string) =>
-      navigationRedirect(req, headers, `${new URL(endpointHosts().appUrl).origin}${path}`);
+      navigationRedirect(`${new URL(endpointHosts().appUrl).origin}${path}`);
     if (!isDocumentNavigation(req))
       return ['GET', 'HEAD'].includes(req.method) && req.nextUrl.pathname === '/'
         ? discoveryPage(req, headers)
@@ -414,7 +410,7 @@ export function defineConfig() {
       // and lifecycle admission: stopped tenants still have a usable switch-organisation page.
       const state = await getTenantEndpoints().get(remembered);
       // The organization decides whether the browser has a session there (the session entry).
-      return navigationRedirect(req, headers, `${state.activeUrl}${SESSION_ENTRY_PATH}#`);
+      return navigationRedirect(`${state.activeUrl}${SESSION_ENTRY_PATH}#`);
     } catch (error) {
       if ((error as { code?: string } | null)?.code === 'TENANT_NOT_FOUND') return clear();
       console.warn('TENANT_MEMORY_UNAVAILABLE', { reason: routingUnavailableReasonOf(error) });
@@ -458,12 +454,11 @@ export function defineConfig() {
       if ((error as { code?: string } | null)?.code === 'TENANT_NOT_FOUND') {
         console.warn('TENANT_NOT_FOUND', { slug: route.slug });
         onDefaultTenantPage(undefined);
-        return navigationRedirect(req, headers, finder);
+        return navigationRedirect(finder);
       }
       // Only an explicit admission refusal is shown as the organization's own page; a runtime or
       // database failure while opening the scope, or anything unrecognized, is retryable.
-      if (tenantGateErrorOf(error)?.source === 'admission')
-        return navigationRedirect(req, headers, root);
+      if (tenantGateErrorOf(error)?.source === 'admission') return navigationRedirect(root);
       return unavailable(routingUnavailableReasonOf(error));
     }
 
@@ -483,7 +478,7 @@ export function defineConfig() {
       await release().catch(() => console.warn('TENANT_SESSION_ENTRY_RELEASE_FAILED'));
     }
 
-    const response = navigationRedirect(req, headers, lookup.hasSession ? root : finder);
+    const response = navigationRedirect(lookup.hasSession ? root : finder);
     for (const cookie of lookup.setCookies) response.headers.append('set-cookie', cookie);
     return response;
   };
@@ -510,7 +505,6 @@ export function defineConfig() {
     const headers = new Headers(req.headers);
     headers.delete(TENANT_ROUTE_HEADER);
     headers.delete(DESKTOP_FLOW_HEADER);
-    headers.delete(NAVIGATION_REDIRECT_HEADER);
     if (
       pathname === dangerousLocalDevProxyRoute ||
       pathname.startsWith(`${dangerousLocalDevProxyRoute}/`)
@@ -573,7 +567,7 @@ export function defineConfig() {
     }
     if (route.kind === 'session-entry')
       return sessionEntry(req, headers, route, onDefaultTenantPage);
-    if (route.kind === 'navigation-redirect') return navigationRedirect(req, headers, route.url);
+    if (route.kind === 'navigation-redirect') return navigationRedirect(route.url);
     if (route.kind === 'redirect')
       return new Response(null, {
         status: route.status ?? 302,
@@ -692,9 +686,7 @@ export function defineConfig() {
       const rewrite = response.headers.get('x-middleware-rewrite');
       if (
         response.headers.has('location') ||
-        (rewrite &&
-          (new URL(rewrite).pathname.startsWith('/spa-auth/') ||
-            new URL(rewrite).pathname === NAVIGATION_REDIRECT_PATH))
+        (rewrite && new URL(rewrite).pathname.startsWith('/spa-auth/'))
       ) {
         response.headers.set('Cache-Control', 'private, no-store');
         response.headers.set('Referrer-Policy', 'no-referrer');

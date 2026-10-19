@@ -15,11 +15,6 @@ import { TENANT_ROUTE_HEADER, verifyTenantRoute } from '@/server/modules/Tenant/
 import { TenantRoutingUnavailableError } from '@/server/modules/Tenant/routingErrors';
 
 import { defineConfig } from './define-config';
-import {
-  handleNavigationRedirect,
-  NAVIGATION_REDIRECT_HEADER,
-  NAVIGATION_REDIRECT_PATH,
-} from './navigationRedirect';
 
 // Next's node server installs this global before it loads any proxy code; the adapter's
 // work-store module captures it once at first import, so it must exist before any import.
@@ -169,28 +164,14 @@ it.each([
 const { middleware } = defineConfig();
 
 /**
- * Next rebuilds every middleware `Location` through URL objects that drop an empty fragment, so
- * the proxy hands these redirects to a route handler instead. Follow that hand-off the way Next
- * does (internal rewrite carrying the overridden request header) and return the final response.
+ * Next rebuilds every middleware `Location` and drops its empty fragment, so these navigations are
+ * answered as a page whose meta refresh carries the target (see `navigationRedirect.ts`).
  */
-const followNavigationRedirect = (proxied: Response) => {
-  const rewrite = new URL(proxied.headers.get('x-middleware-rewrite')!);
-  expect(rewrite.pathname).toBe(NAVIGATION_REDIRECT_PATH);
-  expect(proxied.headers.get('location')).toBeNull();
-  return handleNavigationRedirect(
-    new Request(rewrite, {
-      headers: {
-        [NAVIGATION_REDIRECT_HEADER]: proxied.headers.get(
-          `x-middleware-request-${NAVIGATION_REDIRECT_HEADER}`,
-        )!,
-      },
-    }),
-  );
-};
-const expectFragmentRedirect = (proxied: Response, location: string) => {
-  const final = followNavigationRedirect(proxied);
-  expect(final.status).toBe(302);
-  expect(final.headers.get('location')).toBe(location);
+const expectFragmentRedirect = async (response: Response, location: string) => {
+  expect(response.status).toBe(200);
+  expect(response.headers.get('location')).toBeNull();
+  expect(response.headers.get('x-middleware-rewrite')).toBeNull();
+  expect(await response.text()).toContain(`content="0;url=${location.replaceAll('&', '&amp;')}"`);
   expect(location.endsWith('#')).toBe(true);
 };
 
@@ -681,7 +662,7 @@ describe('document-only tenant navigation memory', () => {
     const response = await middleware(
       documentNavigation(path, { cookie: 'lobe-last-tenant=tenant-1' }),
     );
-    expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
+    await expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
     expect(mocks.remembered).not.toHaveBeenCalled();
   });
   it('sends an ordinary deep link through the root and drops its path, query and fragment', async () => {
@@ -690,7 +671,7 @@ describe('document-only tenant navigation memory', () => {
         cookie: 'lobe-last-tenant=tenant-1',
       }),
     );
-    expectFragmentRedirect(response, 'http://localhost:3010/#');
+    await expectFragmentRedirect(response, 'http://localhost:3010/#');
     expect(mocks.remembered).not.toHaveBeenCalled();
   });
   it('reads the remembered tenant id live and redirects to the session entry of its current endpoint', async () => {
@@ -701,7 +682,7 @@ describe('document-only tenant navigation memory', () => {
     const response = await middleware(
       documentNavigation('/?other=secret', { cookie: 'lobe-last-tenant=tenant-1' }),
     );
-    expectFragmentRedirect(response, 'https://chat.example.com/__entry#');
+    await expectFragmentRedirect(response, 'https://chat.example.com/__entry#');
     expect(mocks.remembered).toHaveBeenCalledWith('tenant-1');
     expect(response.headers.get('cache-control')).toBe('private, no-store');
   });
@@ -768,7 +749,7 @@ describe('navigation failure and protocol boundaries', () => {
     const response = await middleware(
       documentNavigation('/', { cookie: 'lobe-last-tenant=tenant-1' }),
     );
-    expectFragmentRedirect(response, 'http://localhost:3010/t/acme/__entry#');
+    await expectFragmentRedirect(response, 'http://localhost:3010/t/acme/__entry#');
     expect(response.headers.getSetCookie()).toEqual([]);
   });
   it('clears malformed memory without accessing the directory', async () => {
@@ -823,7 +804,7 @@ describe('dedicated desktop document navigation', () => {
         'x-real-ip': '192.0.2.1',
       }),
     );
-    expectFragmentRedirect(response, 'https://chat.example.com/oidc/auth?state=authorized#');
+    await expectFragmentRedirect(response, 'https://chat.example.com/oidc/auth?state=authorized#');
     expect(mocks.desktopSelection).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: 'tenant-1',
@@ -967,7 +948,7 @@ describe('ordinary navigation recovery', () => {
       Object.assign(new Error('gone'), { code: 'TENANT_NOT_FOUND' }),
     );
     const response = await middleware(documentNavigation('/t/acme/agent'));
-    expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
+    await expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
     expect(response.headers.getSetCookie()).toEqual([]);
   });
   it('shows a localized retry page during a remembered-directory outage and preserves the cookie', async () => {
@@ -998,19 +979,7 @@ it('preserves routed headers when a tenant page reaches the local dev proxy bypa
   ).toBe('acme');
 });
 
-describe('fragment-clearing redirect hand-off', () => {
-  it('drops a client-supplied hand-off value before the request reaches any route', async () => {
-    const response = await middleware(
-      new NextRequest('http://localhost:3010/api/internal/navigation-redirect', {
-        headers: { [NAVIGATION_REDIRECT_HEADER]: 'forged.value' },
-      }),
-    );
-    expect(response.headers.get(`x-middleware-request-${NAVIGATION_REDIRECT_HEADER}`)).toBeNull();
-    expect(response.headers.get('x-middleware-override-headers') ?? '').not.toContain(
-      NAVIGATION_REDIRECT_HEADER,
-    );
-  });
-
+describe('fragment-clearing redirect', () => {
   it('survives Next’s proxy adapter, which rebuilds any middleware Location without its `#`', async () => {
     const { adapter } = await import('next/dist/server/web/adapter');
     const { response } = await adapter({
@@ -1027,10 +996,7 @@ describe('fragment-clearing redirect hand-off', () => {
         url: 'http://localhost:3010/signin?email=private@example.com',
       },
     } as never);
-    expect(response.headers.get('location')).toBeNull();
-    expect(followNavigationRedirect(response).headers.get('location')).toBe(
-      'http://localhost:3010/?switch=1#',
-    );
+    await expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
   });
 });
 
@@ -1082,7 +1048,7 @@ describe('session entry (/__entry)', () => {
   it('enters the organization root when the organization session is valid', async () => {
     const release = releases();
     const response = await middleware(documentNavigation(entryPath, { cookie: 'lh_x=1' }));
-    expectFragmentRedirect(response, `${ACTIVE}/#`);
+    await expectFragmentRedirect(response, `${ACTIVE}/#`);
     expect(mocks.enterSlug).toHaveBeenCalledWith('acme');
     expect(release).toHaveBeenCalledTimes(1);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
@@ -1109,7 +1075,7 @@ describe('session entry (/__entry)', () => {
         `${entryPath}?token=secret&callbackUrl=https://evil.example&hl=en-US#frag`,
       ),
     );
-    expectFragmentRedirect(response, `${ACTIVE}/#`);
+    await expectFragmentRedirect(response, `${ACTIVE}/#`);
   });
 
   it.each([
@@ -1119,7 +1085,7 @@ describe('session entry (/__entry)', () => {
     const release = releases();
     mocks.getSession.mockResolvedValue(result);
     const response = await middleware(documentNavigation(entryPath));
-    expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
+    await expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
     expect(release).toHaveBeenCalledTimes(1);
     expect(memoryCookie(response)).toEqual([]);
   });
@@ -1130,7 +1096,7 @@ describe('session entry (/__entry)', () => {
     headers.append('set-cookie', 'lh_x.session_data.0=; Max-Age=0; Path=/t/acme; HttpOnly');
     mocks.getSession.mockResolvedValue({ headers, response: null });
     const response = await middleware(documentNavigation(entryPath, { cookie: 'lh_x=1' }));
-    expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
+    await expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
     expect(response.headers.getSetCookie()).toEqual(headers.getSetCookie());
   });
 
@@ -1139,7 +1105,7 @@ describe('session entry (/__entry)', () => {
     headers.append('set-cookie', 'lh_x.session_data=abc; Path=/t/acme; HttpOnly');
     mocks.getSession.mockResolvedValue({ headers, response: { user: { id: 'user-1' } } });
     const response = await middleware(documentNavigation(entryPath));
-    expectFragmentRedirect(response, `${ACTIVE}/#`);
+    await expectFragmentRedirect(response, `${ACTIVE}/#`);
     expect(response.headers.getSetCookie()).toEqual(headers.getSetCookie());
   });
 
@@ -1166,7 +1132,7 @@ describe('session entry (/__entry)', () => {
     for (const [cookie, forwarded] of cases) {
       mocks.getSession.mockClear();
       const response = await middleware(documentNavigation(entryPath, { cookie }));
-      expectFragmentRedirect(response, `${ACTIVE}/#`);
+      await expectFragmentRedirect(response, `${ACTIVE}/#`);
       expect(new Headers(mocks.getSession.mock.calls[0][0].headers).get('cookie')).toBe(forwarded);
     }
   });
@@ -1218,7 +1184,7 @@ describe('session entry (/__entry)', () => {
             'lh_x.session_token=t; lh_x.session_data.0=AAAA; lh_x.session_data.1=BBBB; lh_y.session_data.0=other',
         }),
       );
-      expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
+      await expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
       expect(response.headers.getSetCookie()).toEqual([
         ...headers.getSetCookie(),
         'lh_x.session_data.0=; Max-Age=0; Path=/t/acme; HttpOnly; SameSite=Lax',
@@ -1232,7 +1198,7 @@ describe('session entry (/__entry)', () => {
           cookie: 'lh_x.session_token=t; lh_x.session_data.0=%%%; lh_x.session_data.1=%%%',
         }),
       );
-      expectFragmentRedirect(response, `${ACTIVE}/#`);
+      await expectFragmentRedirect(response, `${ACTIVE}/#`);
       expect(setCookieNames(response)).toEqual(['lh_x.session_data.0', 'lh_x.session_data.1']);
     });
 
@@ -1284,12 +1250,12 @@ describe('session entry (/__entry)', () => {
       const cookie = `${token}; lh_x.session_data.0=AAAA; lh_x.session_data.1=%%%`;
 
       const valid = await middleware(documentNavigation(entryPath, { cookie }));
-      expectFragmentRedirect(valid, `${ACTIVE}/#`);
+      await expectFragmentRedirect(valid, `${ACTIVE}/#`);
       expect(setCookieNames(valid)).toEqual(['lh_x.session_data.0', 'lh_x.session_data.1']);
 
       db.session.length = 0;
       const revoked = await middleware(documentNavigation(entryPath, { cookie }));
-      expectFragmentRedirect(revoked, 'http://localhost:3010/?switch=1#');
+      await expectFragmentRedirect(revoked, 'http://localhost:3010/?switch=1#');
       expect(setCookieNames(revoked)).toEqual(
         expect.arrayContaining([
           'lh_x.session_data',
@@ -1319,7 +1285,7 @@ describe('session entry (/__entry)', () => {
     async (_name, error) => {
       mocks.enterSlug.mockRejectedValue(error);
       const response = await middleware(documentNavigation(entryPath, { cookie: 'lh_x=1' }));
-      expectFragmentRedirect(response, `${ACTIVE}/#`);
+      await expectFragmentRedirect(response, `${ACTIVE}/#`);
       expect(mocks.getSession).not.toHaveBeenCalled();
       expect(mocks.getTenantAuth).not.toHaveBeenCalled();
       expect(memoryCookie(response)).toEqual([]);
@@ -1331,7 +1297,7 @@ describe('session entry (/__entry)', () => {
       Object.assign(new Error('gone'), { code: 'TENANT_NOT_FOUND' }),
     );
     const response = await middleware(documentNavigation(entryPath));
-    expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
+    await expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
     expect(memoryCookie(response)).toEqual([]);
     expect(mocks.getSession).not.toHaveBeenCalled();
   });
@@ -1413,7 +1379,7 @@ describe('session entry (/__entry)', () => {
     const release = releases();
     release.mockRejectedValue(new Error('release failed'));
     const response = await middleware(documentNavigation(entryPath));
-    expectFragmentRedirect(response, `${ACTIVE}/#`);
+    await expectFragmentRedirect(response, `${ACTIVE}/#`);
     expect(release).toHaveBeenCalledTimes(1);
   });
 
@@ -1471,7 +1437,7 @@ describe('session entry (/__entry)', () => {
         },
       ),
     );
-    expectFragmentRedirect(response, 'https://chat.example.com/__entry#');
+    await expectFragmentRedirect(response, 'https://chat.example.com/__entry#');
     expect(response.headers.getSetCookie()).toEqual([]);
     expect(mocks.enterSlug).not.toHaveBeenCalled();
     expect(mocks.getSession).not.toHaveBeenCalled();
@@ -1490,7 +1456,7 @@ describe('session entry (/__entry)', () => {
         headers: { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' },
       }),
     );
-    expectFragmentRedirect(response, 'https://new.example.com/__entry#');
+    await expectFragmentRedirect(response, 'https://new.example.com/__entry#');
     expect(mocks.getSession).not.toHaveBeenCalled();
   });
 
@@ -1510,7 +1476,7 @@ describe('session entry (/__entry)', () => {
   it('sends a trailing-slash spelling on a deactivated endpoint to the active entry with the fragment cleared', async () => {
     inactiveDefault();
     const response = await middleware(documentNavigation(`${entryPath}/?token=secret`));
-    expectFragmentRedirect(response, 'https://chat.example.com/__entry#');
+    await expectFragmentRedirect(response, 'https://chat.example.com/__entry#');
     expect(response.headers.getSetCookie()).toEqual([]);
     expect(mocks.enterSlug).not.toHaveBeenCalled();
     expect(mocks.getSession).not.toHaveBeenCalled();
@@ -1531,7 +1497,7 @@ describe('session entry (/__entry)', () => {
         headers: { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' },
       }),
     );
-    expectFragmentRedirect(response, 'https://chat.example.com/#');
+    await expectFragmentRedirect(response, 'https://chat.example.com/#');
     expect(response.headers.getSetCookie()).toEqual([]);
   });
 
@@ -1554,7 +1520,7 @@ describe('session entry (/__entry)', () => {
 
   it('sends an unknown slug to the organization finder without writing memory', async () => {
     const response = await middleware(documentNavigation('/t/nope/__entry'));
-    expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
+    await expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
     expect(response.headers.getSetCookie()).toEqual([]);
     expect(mocks.getSession).not.toHaveBeenCalled();
     expect((await middleware(new NextRequest('http://localhost:3010/t/nope/__entry'))).status).toBe(
