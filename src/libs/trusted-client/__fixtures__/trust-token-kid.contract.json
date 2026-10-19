@@ -1,5 +1,5 @@
 {
-  "description": "Cross-repo contract fixture for the kid-prefixed trust token. Format: \"<kid>.<base64(IV[12]+AES-256-GCM ciphertext+tag[16])>\". kid is the plaintext clientId, must equal payload.clientId, and the AES key is sha256(secret) for the \"lobehub-market_tcs_\" secret format. The same file lives in market (src/libs/trusted-client/__tests__/fixtures) and lobehub-cpc (src/libs/trusted-client/__fixtures__). The secret is a public test value, not a credential.",
+  "description": "Cross-repo contract fixture for the kid-prefixed trust token. Format: \"<kid>.<base64(IV[12]+AES-256-GCM ciphertext+tag[16])>\". kid is the plaintext clientId, must equal payload.clientId, and the AES key is sha256(secret) for the \"lobehub-market_tcs_\" secret format. The same file lives in market (src/libs/trusted-client/__tests__/fixtures) and lobehub-cpc (src/libs/trusted-client/__fixtures__). tenantId must be a lowercase canonical UUID (8-4-4-4-12, version 1-8, variant 8-b) on both sides; see tenantId. The secret is a public test value, not a credential.",
   "issuedAt": 1792400000000,
   "kid": "contract-fixture-biz",
   "payload": {
@@ -12,5 +12,23 @@
     "userId": "user-0001"
   },
   "secret": "lobehub-market_tcs_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "tenantId": {
+    "format": "uuid",
+    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    "accepted": ["0f8b1c52-6a3e-4c7d-9a41-2d5e7b9c3a10", "018f3c2e-7b1a-7c4e-8a52-3f9d1e6b4a07"],
+    "rejected": [
+      "",
+      "tenant-a",
+      "acme",
+      "0F8B1C52-6A3E-4C7D-9A41-2D5E7B9C3A10",
+      "0f8b1c52-6a3e-4c7d-9a41-2d5e7b9c3a1",
+      "0f8b1c52-6a3e-0c7d-9a41-2d5e7b9c3a10",
+      "0f8b1c52-6a3e-4c7d-1a41-2d5e7b9c3a10",
+      "0f8b1c526a3e4c7d9a412d5e7b9c3a10",
+      "{0f8b1c52-6a3e-4c7d-9a41-2d5e7b9c3a10}",
+      " 0f8b1c52-6a3e-4c7d-9a41-2d5e7b9c3a10",
+      "0f8b1c52-6a3e-4c7d-9a41-2d5e7b9c3a10\n"
+    ]
+  },
   "token": "contract-fixture-biz.AAECAwQFBgcICQoLsASvWMEftxB/BxS5go+5RQIM4ZqSBaEuLEkV/RMpTM1V7TIkfMzDqS8hpxihrh3oIKUTVP4+Ul1X0UyYW605X7l1gk7/NImg6ikP5PSejMD6ZHPFdgktO5zwjxMMlwJD4DJax3yDTJ+wADbDy3/2sTzGmzIpli44WNEzEzqTsrmFNuws9z3u7LVeDE5RmmFWwfU9S2vo26IZw0iZp6gAJKJrxLt8BgsPHTX/WYUWuKJfNSom+VjX4JKty5i1o0IkQCV5yhoLPlxNgi2pYNVvy960mrN+Qb2RTvV/lvI8"
 }

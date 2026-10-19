@@ -21,7 +21,11 @@ describe('generateTrustedClientToken with the real SDK signer', () => {
 
     const attempt = () =>
       runWithTenantScope(
-        { session: {}, slug: 'a', tenantId: 'tenant-a' } as unknown as TenantScope,
+        {
+          session: {},
+          slug: 'a',
+          tenantId: '0f8b1c52-6a3e-4c7d-9a41-2d5e7b9c3a10',
+        } as unknown as TenantScope,
         () => generateTrustedClientToken({ email: 'a@b.com', userId: 'user_real' }),
       );
 

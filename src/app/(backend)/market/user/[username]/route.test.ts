@@ -23,7 +23,11 @@ vi.mock('@/server/modules/Tenant/gate', () => ({
     <Args extends unknown[]>(handler: (...args: Args) => Promise<Response>) =>
     (...args: Args) =>
       runWithTenantScope(
-        { session: {}, slug: 'a', tenantId: 'tenant-a' } as unknown as TenantScope,
+        {
+          session: {},
+          slug: 'a',
+          tenantId: '0f8b1c52-6a3e-4c7d-9a41-2d5e7b9c3a10',
+        } as unknown as TenantScope,
         () => handler(...args),
       ),
 }));

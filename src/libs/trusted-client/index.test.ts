@@ -9,13 +9,17 @@ import {
   type TrustedClientUserInfo,
 } from './index';
 
+// Market takes a UUID as the tenant; the other one exists to tell two tenants apart.
+const TENANT_A = '0f8b1c52-6a3e-4c7d-9a41-2d5e7b9c3a10';
+const TENANT_B = '3b9f2a64-1c7e-4d58-8e0a-6f4d2c1b7a95';
+
 const inTenant = <T>(tenantId: string, fn: () => T) =>
   runWithTenantScope({ session: {}, slug: tenantId, tenantId } as unknown as TenantScope, fn);
 
 // Every real token is signed for a tenant; the cases below that are not about
 // the tenant run inside one.
 const generateTrustedClientToken = (userInfo: TrustedClientUserInfo) =>
-  inTenant('tenant-a', () => signToken(userInfo));
+  inTenant(TENANT_A, () => signToken(userInfo));
 
 const { appEnv } = vi.hoisted(() => ({
   appEnv: {
@@ -86,7 +90,7 @@ describe('generateTrustedClientToken', () => {
     );
     const [payload] = vi.mocked(createTrustedClientToken).mock.calls[0];
     expect(payload).not.toHaveProperty('workspaceId');
-    expect(payload).toMatchObject({ tenantId: 'tenant-a', userId: 'user_real' });
+    expect(payload).toMatchObject({ tenantId: TENANT_A, userId: 'user_real' });
   });
 
   // The claim is what the execution plane routes a persistent sandbox on, so it
@@ -132,16 +136,16 @@ describe('generateTrustedClientToken tenant claim', () => {
   const signedPayload = () => vi.mocked(createTrustedClientToken).mock.calls[0][0] as any;
 
   it('signs the tenant of the current scope into the token', () => {
-    inTenant('tenant-a', () => signToken({ email: 'a@b.com', userId: 'user_real' }));
+    inTenant(TENANT_A, () => signToken({ email: 'a@b.com', userId: 'user_real' }));
 
-    expect(signedPayload()).toMatchObject({ tenantId: 'tenant-a', userId: 'user_real' });
+    expect(signedPayload()).toMatchObject({ tenantId: TENANT_A, userId: 'user_real' });
   });
 
   // Operator reconciliation replays a receipt's identity outside any request.
   it('signs the tenant an identity carries when there is no scope', () => {
-    signToken({ email: 'a@b.com', tenantId: 'tenant-a', userId: 'user_real' });
+    signToken({ email: 'a@b.com', tenantId: TENANT_A, userId: 'user_real' });
 
-    expect(signedPayload()).toMatchObject({ tenantId: 'tenant-a' });
+    expect(signedPayload()).toMatchObject({ tenantId: TENANT_A });
   });
 
   it('refuses to sign without a tenant, and says so instead of returning no token', () => {
@@ -153,16 +157,16 @@ describe('generateTrustedClientToken tenant claim', () => {
 
   it('refuses an identity assembled under another tenant', () => {
     expect(() =>
-      inTenant('tenant-b', () =>
-        signToken({ email: 'a@b.com', tenantId: 'tenant-a', userId: 'user_real' }),
+      inTenant(TENANT_B, () =>
+        signToken({ email: 'a@b.com', tenantId: TENANT_A, userId: 'user_real' }),
       ),
     ).toThrowError(expect.objectContaining({ code: 'TENANT_MISMATCH' }));
     expect(createTrustedClientToken).not.toHaveBeenCalled();
   });
 
-  // Market accepts [A-Za-z0-9_.-]{1,64}; a tenant id outside it would be a
-  // guaranteed 401 from Market, so fail here with a name for it.
-  it.each(['tenant:a', 'tenant a', 'x'.repeat(65), 'té'])(
+  // Market takes the tenant as a UUID (the shared fixture lists what it accepts and rejects); any
+  // other id would be a guaranteed 401 from Market, so fail here with a name for it.
+  it.each(['tenant:a', 'tenant a', 'x'.repeat(65), 'té', 'tenant-a', TENANT_A.toUpperCase()])(
     'refuses a tenant id Market cannot take: %s',
     (tenantId) => {
       expect(() => inTenant(tenantId, () => signToken({ userId: 'user_real' }))).toThrowError(
@@ -215,7 +219,7 @@ describe('generateTrustedClientToken fails closed in tenant mode', () => {
     appEnv.MARKET_TRUSTED_CLIENT_SECRET = undefined;
 
     expect(() =>
-      signToken({ email: 'a@b.com', tenantId: 'tenant-a', userId: 'user_real' }),
+      signToken({ email: 'a@b.com', tenantId: TENANT_A, userId: 'user_real' }),
     ).toThrowError(expect.objectContaining({ code: 'TRUST_NOT_CONFIGURED' }));
   });
 

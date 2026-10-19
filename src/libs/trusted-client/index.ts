@@ -81,8 +81,12 @@ export type TenantTrustedClientPayload = TrustedClientPayload & { tenantId?: str
  */
 const MARKET_KID_PATTERN = /^[\u0021-\u007E]{1,100}$/;
 
-/** Market's `tenantId` claim: same character set as a path segment, at most 64 characters. */
-const MARKET_TENANT_ID_PATTERN = /^[\w.-]{1,64}$/;
+/**
+ * Market's `tenantId` claim is the lowercase canonical UUID Console generates for the tenant (RFC 4122
+ * shape, version 1-8). Market enforces the same pattern; both are pinned by the shared fixture.
+ */
+const MARKET_TENANT_ID_PATTERN =
+  /^[\da-f]{8}-[\da-f]{4}-[1-8][\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/;
 
 /**
  * The tenant a token is signed for. An identity that carries its tenant keeps

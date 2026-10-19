@@ -79,3 +79,26 @@ describe('trust token contract fixture', () => {
     expect(token!.slice(0, token!.lastIndexOf('.'))).toBe(contract.token.split('.')[0]);
   });
 });
+
+describe('trust token tenantId contract', () => {
+  beforeEach(() => {
+    appEnv.MARKET_TRUSTED_CLIENT_ID = contract.kid;
+    appEnv.MARKET_TRUSTED_CLIENT_SECRET = contract.secret;
+  });
+  const sign = (tenantId: string) =>
+    runWithTenantScope({ session: {}, slug: 'x', tenantId } as unknown as TenantScope, () =>
+      generateTrustedClientToken({ email: 'a@example.test', userId: 'user-1' }),
+    );
+
+  it.each(contract.tenantId.accepted)('signs for the UUID tenant %s', (tenantId) => {
+    expect(openToken(sign(tenantId)!, contract.secret).payload.tenantId).toBe(tenantId);
+  });
+
+  it.each(contract.tenantId.rejected)('refuses to sign for the non-UUID tenant %j', (tenantId) => {
+    expect(() => sign(tenantId)).toThrowError(
+      expect.objectContaining({
+        code: expect.stringMatching(/^TENANT_(ID_UNSUPPORTED|REQUIRED)$/),
+      }),
+    );
+  });
+});
