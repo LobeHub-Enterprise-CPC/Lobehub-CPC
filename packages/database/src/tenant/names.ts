@@ -31,11 +31,32 @@ export const TENANT_EXTENSION_SCHEMAS = ['extensions', 'paradedb'] as const;
  */
 export const TENANT_EXTENSION_OWNED_SCHEMAS = ['pdb'] as const;
 
-const RESERVED_SCHEMAS = new Set(['information_schema', 'pg_catalog', 'public']);
-const TENANT_SCHEMA_PATTERN = /^tenant_[\da-z][\d_a-z]{1,55}$/;
+/**
+ * The tenant id: a lower-case UUID, which Console generates. Schema and role names hash its exact
+ * text, so one canonical form is the contract (contracts/tenant-control-plane/tenant-naming.json,
+ * tests in `names.test.ts`).
+ */
+const TENANT_ID_PATTERN = /^[\da-f]{8}-[\da-f]{4}-[1-8][\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/;
+export const isTenantId = (value: unknown): value is string =>
+  typeof value === 'string' && TENANT_ID_PATTERN.test(value);
 
-export const isTenantSchemaName = (schemaName: string) =>
-  !RESERVED_SCHEMAS.has(schemaName) && TENANT_SCHEMA_PATTERN.test(schemaName);
+/** The only shape a tenant schema takes: `tenant_` + the 24 hex characters of `tenantHash`. */
+const TENANT_SCHEMA_PATTERN = /^tenant_[\da-f]{24}$/;
+
+export const isTenantSchemaName = (schemaName: string) => TENANT_SCHEMA_PATTERN.test(schemaName);
+
+export const assertTenantSchemaName = (schemaName: string): string => {
+  if (!isTenantSchemaName(schemaName)) throw new Error('TENANT_SCHEMA_NAME_INVALID');
+  return schemaName;
+};
+
+/**
+ * The owner role of a tenant schema, from the schema name alone (`tenant_<h24>` is owned by
+ * `lh_<h24>_owner`). For callers that know the schema but not the tenant id, such as the
+ * Enterprise migration runner.
+ */
+export const tenantOwnerRoleForSchema = (schemaName: string): string =>
+  `lh_${assertTenantSchemaName(schemaName).slice('tenant_'.length)}_owner`;
 
 /** `SET LOCAL search_path` for a tenant transaction. Throws on an unsafe name. */
 export const tenantSearchPathSql = (schemaName: string) => {

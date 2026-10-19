@@ -1,8 +1,55 @@
 import { describe, expect, it } from 'vitest';
 
-import { isRegistrableSlug, isReservedSlug, RESERVED_SLUGS } from '../reservedSlugs';
+import reservedSlugs from '../../../../../contracts/tenant-control-plane/reserved-slugs.json';
+import { TENANT_PREFIX } from '../path';
+import {
+  isRegistrableSlug,
+  isReservedSlug,
+  RESERVED_SLUGS,
+  WORKSPACE_MIRRORED_FIRST_SEGMENTS,
+} from '../reservedSlugs';
+
+// First path segments this application serves itself besides the workspace-mirrored ones:
+// the personal-only surfaces of PERSONAL_PATH_REGEX and the top-level routes of the proxy
+// matcher. A slug equal to one of them shadows a real page.
+const OWN_TOP_LEVEL_ROUTES = [
+  'a',
+  'acceptance',
+  'apps',
+  'auth-error',
+  'changelog',
+  'desktop-onboarding',
+  'devtools',
+  'downloads',
+  'goal',
+  'goals',
+  'invite',
+  'labs',
+  'market-auth-callback',
+  'me',
+  'oauth',
+  'oidc',
+  'onboarding',
+  'profile',
+  'reset-password',
+  'share',
+  'signin',
+  'signup',
+  'verify',
+  'verify-email',
+  'verify-im',
+];
 
 describe('reserved slugs', () => {
+  it('is the contract list Console enforces at registration, nothing added and nothing missing', () => {
+    expect([...RESERVED_SLUGS].sort()).toEqual([...reservedSlugs.slugs].sort());
+  });
+
+  it('covers every first segment this application serves', () => {
+    const served = [TENANT_PREFIX, ...WORKSPACE_MIRRORED_FIRST_SEGMENTS, ...OWN_TOP_LEVEL_ROUTES];
+    expect(served.filter((segment) => !RESERVED_SLUGS.has(segment))).toEqual([]);
+  });
+
   it('reserves the tenant prefix itself', () => {
     // Without this, `/t/t/...` and a workspace literally named `t` both become
     // ambiguous with the prefix.

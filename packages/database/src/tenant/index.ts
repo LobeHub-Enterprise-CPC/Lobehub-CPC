@@ -23,6 +23,8 @@ export {
   verifyTenantMigrationHistory,
 } from './migrator';
 export {
+  assertTenantSchemaName,
+  isTenantId,
   isTenantSchemaName,
   LOBEHUB_TENANT_SCHEMA_VERSION,
   SUPPORTED_TENANT_SCHEMA_VERSIONS,
@@ -32,6 +34,7 @@ export {
   tenantDrainLockKey,
   tenantFtsSearchNamespace,
   tenantHash,
+  tenantOwnerRoleForSchema,
   tenantSearchPathSql,
   tenantTransactionPreludeSql,
 } from './names';

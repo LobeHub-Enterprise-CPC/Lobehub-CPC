@@ -1,0 +1,1438 @@
+{
+  "cases": [
+    {
+      "accepts": true,
+      "id": "app-manifest",
+      "note": "tenant-manifest of TITU Work and Admin: the schema version Console binds a new tenant to",
+      "schema": "appManifest",
+      "value": {
+        "schemaVersion": 1
+      }
+    },
+    {
+      "accepts": false,
+      "id": "app-manifest-zero",
+      "note": "versions are positive",
+      "schema": "appManifest",
+      "value": {
+        "schemaVersion": 0
+      }
+    },
+    {
+      "accepts": false,
+      "id": "app-manifest-string",
+      "note": "versions are numbers",
+      "schema": "appManifest",
+      "value": {
+        "schemaVersion": "1"
+      }
+    },
+    {
+      "accepts": true,
+      "id": "lobehub-provision",
+      "note": "TITU Work migrates as the schema owner, so its bundle carries the owner password",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-provision-tenant-not-uuid",
+      "note": "tenantId is a lower-case UUID",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "tenant-a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "tenant-a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-provision-tenant-upper-case",
+      "note": "tenantId is canonical lower case",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3F1C9A52-7B4E-4C1D-9E1A-0C2B8D7F6E5A",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3F1C9A52-7B4E-4C1D-9E1A-0C2B8D7F6E5A",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-provision-schema-name",
+      "note": "schemaName is tenant_ + 24 hex characters",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_acme",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-provision-schema-public",
+      "note": "never a shared schema",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "public",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-provision-kind-admin",
+      "note": "an Admin bundle in the TITU Work slot",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "admin",
+          "datasourceKind": "admin",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "adm_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "adm_e0bab8abe103e646d8c0907b_owner",
+            "username": "adm_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-provision-owner-role-prefix",
+      "note": "role names carry the application prefix",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "adm_e0bab8abe103e646d8c0907b_owner",
+            "username": "adm_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-provision-owner-is-runtime",
+      "note": "owner and runtime roles are separate",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-provision-no-owner-password",
+      "note": "TITU Work needs the owner password to migrate",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-provision-extra-field",
+      "note": "requests are strict",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "extra": true
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-provision-missing-runtime",
+      "note": "required fields",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "accepts": true,
+      "id": "admin-provision",
+      "note": "Admin gets its own bundle with the owner password and the TITU Work bundle without it",
+      "schema": "adminProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "admin",
+          "datasourceKind": "admin",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "adm_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "adm_e0bab8abe103e646d8c0907b_owner",
+            "username": "adm_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "lobehubDatasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "accepts": true,
+      "id": "admin-provision-owner",
+      "note": "bootstrap Owner is created in Admin only",
+      "schema": "adminProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "admin",
+          "datasourceKind": "admin",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "adm_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "adm_e0bab8abe103e646d8c0907b_owner",
+            "username": "adm_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "lobehubDatasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "bootstrapOwner": {
+          "email": "owner@acme.example",
+          "name": "Acme Owner",
+          "password": "Fixture-Pass-1!"
+        }
+      }
+    },
+    {
+      "accepts": false,
+      "id": "admin-provision-lobehub-owner-password",
+      "note": "Admin reads TITU Work data with the runtime role; the owner password is never sent",
+      "schema": "adminProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "admin",
+          "datasourceKind": "admin",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "adm_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "adm_e0bab8abe103e646d8c0907b_owner",
+            "username": "adm_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "lobehubDatasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "admin-provision-lobehub-slot-admin-bundle",
+      "note": "the TITU Work slot takes a lobehub bundle",
+      "schema": "adminProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "admin",
+          "datasourceKind": "admin",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "adm_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "adm_e0bab8abe103e646d8c0907b_owner",
+            "username": "adm_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "lobehubDatasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "admin",
+          "datasourceKind": "admin",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "adm_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "adm_e0bab8abe103e646d8c0907b_owner",
+            "username": "adm_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "admin-provision-own-bundle-no-password",
+      "note": "Admin migrates as its owner and needs the password",
+      "schema": "adminProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "admin",
+          "datasourceKind": "admin",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "adm_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "role": "adm_e0bab8abe103e646d8c0907b_owner",
+            "username": "adm_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "lobehubDatasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "admin-provision-own-bundle-lobehub",
+      "note": "Admin's own slot takes an admin bundle",
+      "schema": "adminProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "lobehubDatasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "admin-provision-owner-weak-password",
+      "note": "Owner passwords are strong",
+      "schema": "adminProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "admin",
+          "datasourceKind": "admin",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "adm_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "adm_e0bab8abe103e646d8c0907b_owner",
+            "username": "adm_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "lobehubDatasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "bootstrapOwner": {
+          "email": "owner@acme.example",
+          "name": "Acme Owner",
+          "password": "weak"
+        }
+      }
+    },
+    {
+      "accepts": true,
+      "id": "lobehub-datasource",
+      "note": "credential rotation for TITU Work",
+      "schema": "lobehubDatasourceRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-datasource-identity-bundle",
+      "note": "TITU Work needs the owner password",
+      "schema": "lobehubDatasourceRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-datasource-tenant-mismatch",
+      "note": "request tenant equals bundle tenant",
+      "schema": "lobehubDatasourceRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "tenantId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+      }
+    },
+    {
+      "accepts": true,
+      "id": "admin-datasource",
+      "note": "rotation of Admin's own credentials",
+      "schema": "adminDatasourceRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "admin",
+          "datasourceKind": "admin",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "adm_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "adm_e0bab8abe103e646d8c0907b_owner",
+            "username": "adm_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": true,
+      "id": "admin-datasource-lobehub",
+      "note": "rotation of the TITU Work credentials Admin reads with, owner identity only",
+      "schema": "adminDatasourceRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "admin-datasource-lobehub-owner-password",
+      "note": "the TITU Work owner password never reaches Admin",
+      "schema": "adminDatasourceRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "admin-datasource-tenant-mismatch",
+      "note": "request tenant equals bundle tenant",
+      "schema": "adminDatasourceRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "admin",
+          "datasourceKind": "admin",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "adm_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "adm_e0bab8abe103e646d8c0907b_owner",
+            "username": "adm_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "tenantId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+      }
+    },
+    {
+      "accepts": true,
+      "id": "lifecycle-frozen",
+      "note": "freeze",
+      "schema": "lifecycleRequest",
+      "value": {
+        "desiredState": "frozen",
+        "eventId": "a1b2c3d4-0000-4000-8000-000000000003",
+        "expiresAt": null,
+        "freezeReasons": ["manual"],
+        "occurredAt": "2026-10-13T00:00:00.000Z",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2
+      }
+    },
+    {
+      "accepts": true,
+      "id": "lifecycle-active",
+      "note": "resume",
+      "schema": "lifecycleRequest",
+      "value": {
+        "desiredState": "active",
+        "eventId": "a1b2c3d4-0000-4000-8000-000000000003",
+        "expiresAt": null,
+        "freezeReasons": [],
+        "occurredAt": "2026-10-13T00:00:00.000Z",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 3
+      }
+    },
+    {
+      "accepts": true,
+      "id": "lifecycle-active-expired-reason",
+      "note": "expiry is evaluated by the application, so active may still list it",
+      "schema": "lifecycleRequest",
+      "value": {
+        "desiredState": "active",
+        "eventId": "a1b2c3d4-0000-4000-8000-000000000003",
+        "expiresAt": null,
+        "freezeReasons": ["expired"],
+        "occurredAt": "2026-10-13T00:00:00.000Z",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 3
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lifecycle-active-manual",
+      "note": "active cannot carry a manual or security freeze",
+      "schema": "lifecycleRequest",
+      "value": {
+        "desiredState": "active",
+        "eventId": "a1b2c3d4-0000-4000-8000-000000000003",
+        "expiresAt": null,
+        "freezeReasons": ["manual"],
+        "occurredAt": "2026-10-13T00:00:00.000Z",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lifecycle-duplicate-reason",
+      "note": "reasons are a set",
+      "schema": "lifecycleRequest",
+      "value": {
+        "desiredState": "frozen",
+        "eventId": "a1b2c3d4-0000-4000-8000-000000000003",
+        "expiresAt": null,
+        "freezeReasons": ["manual", "manual"],
+        "occurredAt": "2026-10-13T00:00:00.000Z",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lifecycle-tenant-not-uuid",
+      "note": "tenantId is a UUID",
+      "schema": "lifecycleRequest",
+      "value": {
+        "desiredState": "frozen",
+        "eventId": "a1b2c3d4-0000-4000-8000-000000000003",
+        "expiresAt": null,
+        "freezeReasons": ["manual"],
+        "occurredAt": "2026-10-13T00:00:00.000Z",
+        "tenantId": "tenant-a",
+        "version": 2
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lifecycle-version-zero",
+      "note": "versions are positive",
+      "schema": "lifecycleRequest",
+      "value": {
+        "desiredState": "frozen",
+        "eventId": "a1b2c3d4-0000-4000-8000-000000000003",
+        "expiresAt": null,
+        "freezeReasons": ["manual"],
+        "occurredAt": "2026-10-13T00:00:00.000Z",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 0
+      }
+    },
+    {
+      "accepts": true,
+      "id": "provision-result",
+      "note": "TITU Work result",
+      "schema": "provisionResult",
+      "value": {
+        "credentialBundleVersion": 1,
+        "datasourceReady": true,
+        "diagnosticCode": null,
+        "errorCode": null,
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+        "schemaVersion": 1,
+        "status": "applied",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": true,
+      "id": "provision-result-failed",
+      "note": "a failure carries a code and no versions",
+      "schema": "provisionResult",
+      "value": {
+        "credentialBundleVersion": null,
+        "datasourceReady": false,
+        "errorCode": "DATASOURCE_INVALID",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "schemaName": null,
+        "schemaVersion": null,
+        "status": "failed",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "provision-result-status",
+      "note": "awaiting_owner is Admin-only",
+      "schema": "provisionResult",
+      "value": {
+        "credentialBundleVersion": 1,
+        "datasourceReady": true,
+        "errorCode": null,
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+        "schemaVersion": 1,
+        "status": "awaiting_owner",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": true,
+      "id": "admin-provision-result",
+      "note": "Admin result",
+      "schema": "adminProvisionResult",
+      "value": {
+        "adminDatasourceReady": true,
+        "bootstrapOwnerReady": false,
+        "credentialBundleVersion": 1,
+        "errorCode": null,
+        "lobehubConnectionValidated": true,
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+        "schemaVersion": 1,
+        "status": "awaiting_owner",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": true,
+      "id": "lifecycle-result",
+      "note": "applied",
+      "schema": "lifecycleResult",
+      "value": {
+        "acceptedVersion": 2,
+        "appliedVersion": 2,
+        "errorCode": null,
+        "eventId": "a1b2c3d4-0000-4000-8000-000000000003",
+        "observedAt": "2026-10-13T00:00:01.000Z",
+        "status": "applied",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2
+      }
+    },
+    {
+      "accepts": true,
+      "id": "overview",
+      "note": "tenant-overview",
+      "schema": "overview",
+      "value": {
+        "acceptedVersion": 2,
+        "appliedVersion": 2,
+        "desiredState": "frozen",
+        "effectiveState": "frozen",
+        "expiresAt": null,
+        "freezeReasons": ["manual"],
+        "observedAt": "2026-10-13T00:00:01.000Z",
+        "readiness": "ready",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "overview-tenant-not-uuid",
+      "note": "tenantId is a UUID",
+      "schema": "overview",
+      "value": {
+        "acceptedVersion": 2,
+        "appliedVersion": 2,
+        "desiredState": "frozen",
+        "effectiveState": "frozen",
+        "expiresAt": null,
+        "freezeReasons": ["manual"],
+        "observedAt": "2026-10-13T00:00:01.000Z",
+        "readiness": "ready",
+        "slug": "acme",
+        "tenantId": "tenant-a"
+      }
+    },
+    {
+      "accepts": true,
+      "id": "datasource-result",
+      "note": "TITU Work",
+      "schema": "datasourceResult",
+      "value": {
+        "connectionVersion": 1,
+        "credentialBundleVersion": 1,
+        "datasourceKind": "lobehub",
+        "errorCode": null,
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "status": "applied",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": true,
+      "id": "admin-datasource-result",
+      "note": "Admin",
+      "schema": "adminDatasourceResult",
+      "value": {
+        "connectionValidated": true,
+        "connectionVersion": 1,
+        "credentialBundleVersion": 1,
+        "datasourceKind": "admin",
+        "errorCode": null,
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "status": "applied",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "admin-datasource-result-unvalidated",
+      "note": "Admin applies only after the connection validated",
+      "schema": "adminDatasourceResult",
+      "value": {
+        "connectionValidated": false,
+        "connectionVersion": 1,
+        "credentialBundleVersion": 1,
+        "datasourceKind": "admin",
+        "errorCode": null,
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "status": "applied",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    }
+  ],
+  "contract": "tenant-control-plane-fixtures",
+  "description": "Messages of the tenant control plane. `accepts: true` cases are valid for the named schema in schemas.json; `accepts: false` cases must be rejected. Console's zod schemas are the source; TITU Work and Admin run their receiving schemas over the same cases.",
+  "version": 1
+}

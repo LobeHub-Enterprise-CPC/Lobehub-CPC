@@ -1,4 +1,5 @@
-import { isWellFormedTenantSlug, TENANT_PREFIX } from './path';
+import reservedSlugs from '../../../../contracts/tenant-control-plane/reserved-slugs.json';
+import { isWellFormedTenantSlug } from './path';
 
 /**
  * First segments mirrored under `/:workspaceSlug`. Exported because the tenant
@@ -37,55 +38,13 @@ export const WORKSPACE_MIRRORED_FIRST_SEGMENTS: ReadonlySet<string> = new Set([
  *
  * Blocking registration is the only point at which the shadowing can be
  * prevented rather than merely detected after someone reports a missing page.
+ *
+ * The list is Console's `reserved-slugs.json` (the union of what TITU Work, Admin and Console
+ * serve at the first path segment): Console is the only registrar, so one file is the whole
+ * truth. `tests/reservedSlugs.test.ts` fails when a route this application serves is missing
+ * from it.
  */
-export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
-  TENANT_PREFIX,
-  // Everything the workspace subtree mirrors.
-  ...WORKSPACE_MIRRORED_FIRST_SEGMENTS,
-  // The personal-only surfaces from PERSONAL_PATH_REGEX.
-  'apps',
-  'desktop-onboarding',
-  'devtools',
-  'invite',
-  'me',
-  'onboarding',
-  'share',
-  // Top-level routes in the proxy matcher that are neither of the above. A slug
-  // matching one of these shadows a real page.
-  'a',
-  'acceptance',
-  'auth-error',
-  'changelog',
-  'downloads',
-  'goal',
-  'goals',
-  'labs',
-  'market-auth-callback',
-  'oauth',
-  'oidc',
-  'profile',
-  'reset-password',
-  'signin',
-  'signup',
-  'verify',
-  'verify-email',
-  'verify-im',
-  // Reserved by Console (the slug registrar) or Admin for their own routes. A
-  // slug any of the three apps reserves must be unregistrable everywhere, or
-  // Console can register a tenant one of the apps cannot serve (spec A10).
-  // Console's contracts.ts and Admin's wire.ts carry copies of this union.
-  'admin',
-  'api',
-  'applications',
-  'auth',
-  'bootstrap',
-  'console',
-  'login',
-  'logout',
-  'register',
-  'tenants',
-  'users',
-]);
+export const RESERVED_SLUGS: ReadonlySet<string> = new Set(reservedSlugs.slugs);
 
 export const isReservedSlug = (slug: string): boolean => RESERVED_SLUGS.has(slug.toLowerCase());
 
