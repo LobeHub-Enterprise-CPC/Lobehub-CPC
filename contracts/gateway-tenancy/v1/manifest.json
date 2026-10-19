@@ -2,17 +2,17 @@
   "contractVersion": 1,
   "hashAlgorithm": "sha256",
   "files": {
-    "README.md": "ec65a99943d34f2f319de08539459f6bbfadad0fcb8e7b7b583ad79e1e822bd6",
-    "fixtures/authorize.json": "a0be2989349a17f2b81e884c24facc3414300628047a5523226a48b3d28d3e87",
+    "README.md": "ffb1f6e58fa22135fe6aef00c625e98114692c8d2f8decf2c22aac1a78a4bdc1",
+    "fixtures/authorize.json": "284716e250e52f773c4c81050fcd96601788cbf9bd75472d44e1253a51382d1d",
     "fixtures/capabilities.json": "071ea8fd25705292c5d647591d47985c72c7046c5365f9f861dcbe2d12c587d1",
     "fixtures/dispatch.json": "b9096da52cc957f44d0567d1db0229d665eed1924d6fc6324afbbda851d95efa",
     "fixtures/errors.json": "895913c6183f98ae4e0bfff3cf6e07eeece9e098abdb6129da0b0311c8062905",
     "fixtures/lease.json": "6d166c513408377e200576acd7a7bbd1d1771f25d3ce5aa831b40e5a1b9366f5",
     "fixtures/lifecycle.json": "1a739acac31d52f66e64322c1d0885add42fe9c0951bf0466ea0ceb936891300",
     "fixtures/sources.json": "2abb0570c3d0d7fbb7e9bafd72d284f7cd1ee2b35cdc39f9d244525fd07848a6",
-    "fixtures/token-claims.json": "36b6137ad1010a8861526546e0243406529de3bd17159836775ad3eff2135ac8",
+    "fixtures/token-claims.json": "a72fe5ec261660b05d09ed86cd6e5195ff11b6e3e3bf73c9e66c7e744669e7b8",
     "fixtures/ws-auth.json": "5e60f1cdbe0baefb52c6a85a1a77ea9981a303bca215e35b5159e8f73e5203ae",
     "protocol.json": "4c7fa1081b2a5a5418198bc19b94dbe0732bd7ad8ca31a9837527564c860f3a1",
-    "schema.json": "2700b02586fb5e579e6346d939cb5ca97d3f722cfbde580876286d453c939e8d"
+    "schema.json": "6451e757bfce0b4056e951ef5bf06937ed78b144b200ffc1bdc9e61f9c8014b3"
   }
 }

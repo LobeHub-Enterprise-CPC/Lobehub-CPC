@@ -111,6 +111,16 @@
         },
         "nbf": {
           "type": "number"
+        },
+        "device_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "connection_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
         }
       },
       "required": [
@@ -144,6 +154,43 @@
             "required": [
               "operation_id"
             ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "aud": {
+                "const": "urn:lobehub:gateway:device"
+              }
+            },
+            "required": [
+              "aud"
+            ]
+          },
+          "then": {
+            "required": [
+              "device_id",
+              "connection_id"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "aud": {
+                "const": "urn:lobehub:gateway:agent"
+              }
+            },
+            "required": [
+              "aud"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "device_id"
+              ]
+            }
           }
         }
       ]
@@ -1486,6 +1533,16 @@
         "renewAuthorizationId": {
           "type": "string",
           "minLength": 1
+        },
+        "deviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
         }
       },
       "required": [
@@ -1509,6 +1566,43 @@
             "required": [
               "operationId"
             ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "audience": {
+                "const": "urn:lobehub:gateway:device"
+              }
+            },
+            "required": [
+              "audience"
+            ]
+          },
+          "then": {
+            "required": [
+              "deviceId",
+              "connectionId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "audience": {
+                "const": "urn:lobehub:gateway:agent"
+              }
+            },
+            "required": [
+              "audience"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "deviceId"
+              ]
+            }
           }
         }
       ]

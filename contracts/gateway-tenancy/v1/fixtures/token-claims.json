@@ -52,7 +52,251 @@
         "accepted_version": 7,
         "jti": "ticket-A",
         "iat": 1900000000,
-        "exp": 1900000300
+        "exp": 1900000300,
+        "device_id": "device-shared",
+        "connection_id": "connection-shared"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "token-device-valid",
+      "schema": "tokenClaims",
+      "validation": "wire",
+      "input": {
+        "iss": "urn:lobehub:gateway-session",
+        "aud": "urn:lobehub:gateway:device",
+        "purpose": "gateway-connect",
+        "tid": "tenant-A",
+        "sub": "user-shared",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "capabilities": [
+          "device:connect",
+          "device:respond"
+        ],
+        "authorization_id": "auth-agent-A",
+        "accepted_version": 7,
+        "jti": "ticket-A",
+        "iat": 1900000000,
+        "exp": 1900000300,
+        "device_id": "device-shared",
+        "connection_id": "connection-shared"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "token-device-missing-device_id",
+      "schema": "tokenClaims",
+      "validation": "wire",
+      "input": {
+        "iss": "urn:lobehub:gateway-session",
+        "aud": "urn:lobehub:gateway:device",
+        "purpose": "gateway-connect",
+        "tid": "tenant-A",
+        "sub": "user-shared",
+        "principal": {
+          "kind": "workspace",
+          "id": "workspace-shared"
+        },
+        "capabilities": [
+          "device:connect",
+          "device:respond"
+        ],
+        "authorization_id": "auth-agent-A",
+        "accepted_version": 7,
+        "jti": "ticket-A",
+        "iat": 1900000000,
+        "exp": 1900000300,
+        "connection_id": "connection-shared"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      }
+    },
+    {
+      "id": "token-device-missing-connection_id",
+      "schema": "tokenClaims",
+      "validation": "wire",
+      "input": {
+        "iss": "urn:lobehub:gateway-session",
+        "aud": "urn:lobehub:gateway:device",
+        "purpose": "gateway-connect",
+        "tid": "tenant-A",
+        "sub": "user-shared",
+        "principal": {
+          "kind": "workspace",
+          "id": "workspace-shared"
+        },
+        "capabilities": [
+          "device:connect",
+          "device:respond"
+        ],
+        "authorization_id": "auth-agent-A",
+        "accepted_version": 7,
+        "jti": "ticket-A",
+        "iat": 1900000000,
+        "exp": 1900000300,
+        "device_id": "device-shared"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      }
+    },
+    {
+      "id": "token-device-overlong-device_id",
+      "schema": "tokenClaims",
+      "validation": "wire",
+      "input": {
+        "iss": "urn:lobehub:gateway-session",
+        "aud": "urn:lobehub:gateway:device",
+        "purpose": "gateway-connect",
+        "tid": "tenant-A",
+        "sub": "user-shared",
+        "principal": {
+          "kind": "workspace",
+          "id": "workspace-shared"
+        },
+        "capabilities": [
+          "device:connect",
+          "device:respond"
+        ],
+        "authorization_id": "auth-agent-A",
+        "accepted_version": 7,
+        "jti": "ticket-A",
+        "iat": 1900000000,
+        "exp": 1900000300,
+        "device_id": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "connection_id": "connection-shared"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      }
+    },
+    {
+      "id": "token-device-overlong-connection_id",
+      "schema": "tokenClaims",
+      "validation": "wire",
+      "input": {
+        "iss": "urn:lobehub:gateway-session",
+        "aud": "urn:lobehub:gateway:device",
+        "purpose": "gateway-connect",
+        "tid": "tenant-A",
+        "sub": "user-shared",
+        "principal": {
+          "kind": "workspace",
+          "id": "workspace-shared"
+        },
+        "capabilities": [
+          "device:connect",
+          "device:respond"
+        ],
+        "authorization_id": "auth-agent-A",
+        "accepted_version": 7,
+        "jti": "ticket-A",
+        "iat": 1900000000,
+        "exp": 1900000300,
+        "device_id": "device-shared",
+        "connection_id": "ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      }
+    },
+    {
+      "id": "token-device-empty-device_id",
+      "schema": "tokenClaims",
+      "validation": "wire",
+      "input": {
+        "iss": "urn:lobehub:gateway-session",
+        "aud": "urn:lobehub:gateway:device",
+        "purpose": "gateway-connect",
+        "tid": "tenant-A",
+        "sub": "user-shared",
+        "principal": {
+          "kind": "workspace",
+          "id": "workspace-shared"
+        },
+        "capabilities": [
+          "device:connect",
+          "device:respond"
+        ],
+        "authorization_id": "auth-agent-A",
+        "accepted_version": 7,
+        "jti": "ticket-A",
+        "iat": 1900000000,
+        "exp": 1900000300,
+        "device_id": "",
+        "connection_id": "connection-shared"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      }
+    },
+    {
+      "id": "token-agent-with-device_id",
+      "schema": "tokenClaims",
+      "validation": "wire",
+      "input": {
+        "iss": "urn:lobehub:gateway-session",
+        "aud": "urn:lobehub:gateway:agent",
+        "purpose": "gateway-connect",
+        "tid": "tenant-A",
+        "sub": "user-shared",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "operation_id": "operation-shared",
+        "capabilities": [
+          "agent:observe"
+        ],
+        "authorization_id": "auth-agent-A",
+        "accepted_version": 7,
+        "jti": "ticket-A",
+        "iat": 1900000000,
+        "exp": 1900000300,
+        "device_id": "device-shared"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      }
+    },
+    {
+      "id": "token-agent-with-connection_id",
+      "schema": "tokenClaims",
+      "validation": "wire",
+      "input": {
+        "iss": "urn:lobehub:gateway-session",
+        "aud": "urn:lobehub:gateway:agent",
+        "purpose": "gateway-connect",
+        "tid": "tenant-A",
+        "sub": "user-shared",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "operation_id": "operation-shared",
+        "capabilities": [
+          "agent:observe"
+        ],
+        "authorization_id": "auth-agent-A",
+        "accepted_version": 7,
+        "jti": "ticket-A",
+        "iat": 1900000000,
+        "exp": 1900000300,
+        "connection_id": "tab-1"
       },
       "expected": {
         "accepted": true

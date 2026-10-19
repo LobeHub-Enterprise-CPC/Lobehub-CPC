@@ -672,7 +672,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "workspaceId": "workspace-shared"
+        "workspaceId": "workspace-shared",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "expected": {
         "accepted": true
@@ -702,6 +704,78 @@
       "expected": {
         "accepted": false,
         "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "identity-request-device-missing-device",
+      "schema": "identityRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "connectionId": "connection-shared"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "identity-request-device-missing-connection",
+      "schema": "identityRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "deviceId": "device-shared"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "identity-request-device-overlong-device",
+      "schema": "identityRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "deviceId": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "connectionId": "connection-shared"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "identity-request-agent-with-device",
+      "schema": "identityRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:agent",
+        "operationId": "operation-shared",
+        "deviceId": "device-shared"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "identity-request-agent-with-connection",
+      "schema": "identityRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:agent",
+        "operationId": "operation-shared",
+        "connectionId": "tab-1"
+      },
+      "expected": {
+        "accepted": true
       }
     },
     {
@@ -739,7 +813,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "sourceKind": "session",
@@ -759,7 +835,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "sourceKind": "apiKey",
@@ -779,7 +857,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "sourceKind": "oidc",
@@ -799,7 +879,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "sourceKind": "session",
@@ -817,7 +899,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "sourceKind": "apiKey",
@@ -835,7 +919,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "authenticatedTenantId": "tenant-B",
@@ -853,7 +939,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "persistedPrincipal": {
@@ -873,7 +961,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "persistedPrincipal": {
@@ -893,7 +983,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "authorizationRevoked": true
@@ -910,7 +1002,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "authRecordExpired": true
@@ -927,7 +1021,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "sourceRowOrProjectionValid": false
@@ -944,7 +1040,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "authorizationExists": false
@@ -961,7 +1059,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "persistedAudience": "urn:lobehub:gateway:agent"
@@ -978,7 +1078,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "persistedOperationId": "other-operation"
@@ -995,7 +1097,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "returnedAuthorizationId": "replacement-authorization"
@@ -1012,7 +1116,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "sameSourceValidUntil": 1900000600000,
@@ -1035,7 +1141,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "sourceExpiresAt": 1900000600000,
@@ -1053,7 +1161,9 @@
       "input": {
         "tenancyProtocol": 1,
         "audience": "urn:lobehub:gateway:device",
-        "renewAuthorizationId": "auth-device-A"
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
       },
       "context": {
         "sourceExpiresAt": 1900000600000,
