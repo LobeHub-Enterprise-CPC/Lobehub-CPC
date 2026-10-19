@@ -45,6 +45,9 @@ export const getTenant = (): TenantContext | null => tenantStore.getState().tena
  * (`location.href = …`, `window.open`) bypasses it and a bare `/agent` returns to
  * the deployment root to select an organization. Without a tenant (desktop, unscoped
  * document) the path is returned unchanged.
+ *
+ * Use it for page navigation only. Same-origin backend calls (`fetch`, XHR, `EventSource`) keep
+ * their plain `/api/...` path: `installTenantFetch` prefixes them.
  */
 export const withCurrentTenantPath = (path: string): string => {
   const tenant = getTenant();

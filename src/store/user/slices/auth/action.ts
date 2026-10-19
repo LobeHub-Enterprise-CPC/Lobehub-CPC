@@ -83,7 +83,7 @@ export class UserAuthActionImpl {
       // from silently issuing tokens for the old account after the user signs
       // in as someone else.
       try {
-        await fetch(withCurrentTenantPath('/oidc/clear-session'), { method: 'POST' });
+        await fetch('/oidc/clear-session', { method: 'POST' });
       } catch {
         // Best-effort: don't block sign-out if the cleanup request fails
       }
