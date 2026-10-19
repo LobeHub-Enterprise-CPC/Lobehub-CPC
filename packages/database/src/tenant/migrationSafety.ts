@@ -1,11 +1,11 @@
 import { TenantDatabaseError } from './errors';
-import { tenantMigrationSqlWithoutComments } from './migrationSql';
+import { tenantMigrationSqlWithoutComments, tenantMigrationSqlWithoutData } from './migrationSql';
 
 /** Shared by every tenant-chain runner, after schema materialization and before execution. */
 export const assertTenantMigrationStatementSafe = (statement: string): void => {
   const sql = tenantMigrationSqlWithoutComments(statement);
   if (
-    /"public"|(?<![\w"$.])public\s*\./i.test(sql) ||
+    /"public"|(?<![\w"$.])public\s*\./i.test(tenantMigrationSqlWithoutData(statement)) ||
     /\bcreate\s+(?:schema|extension)\b/i.test(sql) ||
     /\bset\s+(?:local\s+|session\s+)?(?:search_path|role|session\s+authorization)\b/i.test(sql) ||
     /\bset_config\s*\(\s*'search_path'/i.test(sql) ||

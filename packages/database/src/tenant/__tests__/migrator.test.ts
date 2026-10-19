@@ -68,6 +68,40 @@ const objectsOutside = async (
 ) => new Set((await query(OBJECTS_OUTSIDE_SQL(schema))).rows.map((row) => row.object));
 
 describe('materializeTenantStatement', () => {
+  it('preserves data literals and comments containing schema-like text', () => {
+    const statement = `UPDATE public.users SET name = 'hello public.Foo', avatar = '"public".photo' -- public.comment
+WHERE name = 'public.users';`;
+    expect(materializeTenantStatement(statement, SCHEMA))
+      .toBe(`UPDATE "${SCHEMA}".users SET name = 'hello public.Foo', avatar = '"public".photo' -- public.comment
+WHERE name = 'public.users';`);
+  });
+
+  it('preserves dollar-quoted data and rewrites SQL inside DO bodies', () => {
+    expect(
+      materializeTenantStatement(
+        'INSERT INTO public.users (name) VALUES ($data$public.Foo$data$)',
+        SCHEMA,
+      ),
+    ).toBe(`INSERT INTO "${SCHEMA}".users (name) VALUES ($data$public.Foo$data$)`);
+    expect(
+      materializeTenantStatement(
+        'DO $$ BEGIN ALTER TABLE public.users ADD COLUMN x text; END $$',
+        SCHEMA,
+      ),
+    ).toBe(`DO $$ BEGIN ALTER TABLE "${SCHEMA}".users ADD COLUMN x text; END $$`);
+  });
+
+  it('rewrites a bulk data migration in linear time', () => {
+    const rows = Array.from({ length: 20_000 }, (_, i) => `('row ${i} public.x')`).join(',');
+    const started = performance.now();
+    const rewritten = materializeTenantStatement(`INSERT INTO public.t (v) VALUES ${rows}`, SCHEMA);
+    expect(performance.now() - started).toBeLessThan(2000);
+    expect(rewritten.startsWith(`INSERT INTO "${SCHEMA}".t (v) VALUES ('row 0 public.x')`)).toBe(
+      true,
+    );
+    expect(rewritten.endsWith("('row 19999 public.x')")).toBe(true);
+  });
+
   it('points "public" and bare public. qualifiers at the tenant schema', () => {
     expect(
       materializeTenantStatement(

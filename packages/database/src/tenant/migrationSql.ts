@@ -17,7 +17,7 @@ const lineEnd = (sql: string, start: number) => {
 };
 
 /** Keep quoted values intact; dollar bodies are recursively inspected as SQL. */
-const lexSql = (sql: string, depth = 0): SqlToken[] => {
+const lexSql = (sql: string, depth = 0, preserveDollarData = false): SqlToken[] => {
   if (depth > 32) return rejectSql();
   const tokens: SqlToken[] = [];
   let index = 0;
@@ -90,9 +90,13 @@ const lexSql = (sql: string, depth = 0): SqlToken[] => {
       // when that text occurs inside a body-language string or comment.
       const end = sql.indexOf(delimiter, bodyStart);
       if (end < 0) return rejectSql();
-      tokens.push({ kind: 'code', text: delimiter });
-      tokens.push(...lexSql(sql.slice(bodyStart, end), depth + 1));
-      tokens.push({ kind: 'code', text: delimiter });
+      if (preserveDollarData && !/\b(?:DO|AS)\s*$/i.test(sql.slice(0, start))) {
+        tokens.push({ kind: 'quoted', text: sql.slice(start, end + delimiter.length) });
+      } else {
+        tokens.push({ kind: 'code', text: delimiter });
+        tokens.push(...lexSql(sql.slice(bodyStart, end), depth + 1, preserveDollarData));
+        tokens.push({ kind: 'code', text: delimiter });
+      }
       index = end + delimiter.length;
       codeStart = index;
     }
@@ -129,3 +133,65 @@ export const matchesReviewedTenantMigration = (sql: string, reviewed: string): b
       .trim();
   return normalize(withoutMigrationHeader(sql)) === normalize(reviewed);
 };
+
+/** The only context a qualifier decision looks at; bounded so a large statement stays linear. */
+const CONTEXT_CHARS = 1024;
+
+/** Rewrite schema qualifiers without changing data strings, comments or unrelated identifiers. */
+export const rewriteTenantSchemaQualifiers = (statement: string, schemaName: string) => {
+  const tokens = lexSql(statement, 0, true);
+  const target = `"${schemaName}"`;
+  const lookahead = (from: number) => {
+    let text = '';
+    for (let index = from; index < tokens.length && text.length < CONTEXT_CHARS; index += 1)
+      text += tokens[index].text;
+    return text;
+  };
+  let before = '';
+  const rewritten: string[] = [];
+  tokens.forEach((token, index) => {
+    rewritten.push(rewriteToken(token, before, index, lookahead, target));
+    before = (before + token.text).slice(-CONTEXT_CHARS);
+  });
+  return rewritten.join('');
+};
+
+const rewriteToken = (
+  token: SqlToken,
+  before: string,
+  index: number,
+  lookahead: (from: number) => string,
+  target: string,
+) => {
+  if (token.kind === 'comment') return token.text;
+  if (token.kind === 'quoted') {
+    if (
+      token.text === '"public"' &&
+      lookahead(index + 1).startsWith('.') &&
+      !/[\w".]$/.test(before)
+    )
+      return target;
+    // Only SQL relation-name contexts interpret these strings as identifiers.
+    if (
+      token.text.startsWith("'") &&
+      (/^\s*::\s*(?:pg_catalog\.)?regclass\b/i.test(lookahead(index + 1)) ||
+        /\bto_regclass\s*\(\s*$/i.test(before))
+    )
+      return token.text.replace(/^'(?:"public"|public)\./, `'${target}.`);
+    return token.text;
+  }
+  return token.text.replaceAll(/(?<![\w"$.])public\.(?=["A-Z_a-z])/g, (match, offset: number) =>
+    offset === 0 && /[\w"$.]$/.test(before) ? match : `${target}.`,
+  );
+};
+
+/** Schema safety checks ignore ordinary data literals, whose contents are never SQL identifiers. */
+export const tenantMigrationSqlWithoutData = (statement: string) =>
+  lexSql(statement, 0, true)
+    .map((token) =>
+      token.kind === 'comment' ||
+      (token.kind === 'quoted' && (token.text.startsWith("'") || token.text.startsWith('$')))
+        ? ' '
+        : token.text,
+    )
+    .join('');

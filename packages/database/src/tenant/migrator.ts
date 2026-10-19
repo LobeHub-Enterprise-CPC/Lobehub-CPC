@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { getTableColumns, getTableName, is } from 'drizzle-orm';
@@ -9,14 +9,16 @@ import type { ClientBase } from 'pg';
 import * as businessSchema from '../schemas';
 import { TenantDatabaseError } from './errors';
 import { assertTenantMigrationStatementSafe } from './migrationSafety';
-import { matchesReviewedTenantMigration, withoutMigrationHeader } from './migrationSql';
+import { readMigrationSnapshot } from './migrationSnapshot';
+import {
+  matchesReviewedTenantMigration,
+  rewriteTenantSchemaQualifiers,
+  withoutMigrationHeader,
+} from './migrationSql';
 import { isTenantSchemaName, tenantDbNames, tenantSearchPathSql } from './names';
 import { matchesReviewedSharedOssReissue } from './reissuedMigrations';
 import * as tenantSchema from './schemas';
 
-// `"public".users`, `public.users`, `'public.t'::regclass`; not `is_public.` or `"t"."public".`.
-const QUOTED_PUBLIC = /(?<![\w".])"public"\./g;
-const BARE_PUBLIC = /(?<![\w"$.])public\.(?=["A-Z_a-z])/g;
 const CREATE_EXTENSION = /^create extension if not exists "?(\w+)"?\s*;?$/i;
 const TRANSACTION_CONTROL = /^(?:begin|commit)\s*;?$/i;
 
@@ -34,8 +36,8 @@ END $$;`;
 /**
  * One statement of a chain written for `public`, as it runs in a tenant
  * schema, or `null` when it must not run there:
- * - `"public".x` and `public.x` (also inside literals such as
- *   `'public.t'::regclass`) name the tenant schema instead;
+ * - `"public".x` and `public.x` name the tenant schema instead; relation
+ *   literals in `to_regclass` and `::regclass` are the only string exceptions;
  * - `CREATE EXTENSION IF NOT EXISTS x` only checks that `x` is installed: the
  *   database baseline installs extensions once in their shared schemas
  *   (`TENANT_EXTENSION_SCHEMAS`) and the schema owner may not create them;
@@ -59,8 +61,7 @@ export const materializeTenantStatement = (statement: string, schemaName: string
   const extension = CREATE_EXTENSION.exec(body)?.[1];
   if (extension)
     return `DO $ext$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = '${extension}') THEN RAISE EXCEPTION 'extension ${extension} is not installed'; END IF; END $ext$`;
-  const target = `"${schemaName}".`;
-  return statement.replaceAll(QUOTED_PUBLIC, target).replaceAll(BARE_PUBLIC, target);
+  return rewriteTenantSchemaQualifiers(statement, schemaName);
 };
 
 /**
@@ -121,13 +122,10 @@ const verifyMigrationHistory = async (
 ): Promise<number> => {
   if (!isTenantSchemaName(schemaName) || !/^[_a-z][\d_a-z]*$/.test(migrationsTable))
     throw new TenantDatabaseError('TENANT_NOT_READY', 'schema-name-invalid');
-  const migrations = readMigrationFiles({ migrationsFolder });
+  const { migrations, entries: journalEntries } = await readMigrationSnapshot(migrationsFolder);
   // readMigrationFiles does not expose tags. Read the same authoritative
   // journal; never guess the tag from a filename, position or timestamp.
-  const entries: unknown[] =
-    chain === 'shared-oss'
-      ? JSON.parse(readFileSync(path.join(migrationsFolder, 'meta/_journal.json'), 'utf8')).entries
-      : [];
+  const entries: unknown[] = chain === 'shared-oss' ? journalEntries : [];
   const journal = `"${schemaName}"."${migrationsTable}"`;
   const exists = await client.query<{ table: string | null }>('SELECT to_regclass($1) AS table', [
     journal,
@@ -179,7 +177,7 @@ const runMigrationChain = async (
   chain: HistoryChain,
 ): Promise<number> => {
   const migrations = materializeTenantMigrations(
-    readMigrationFiles({ migrationsFolder }),
+    (await readMigrationSnapshot(migrationsFolder)).migrations,
     schemaName,
   );
   if (!/^[_a-z][\d_a-z]*$/.test(migrationsTable)) throw new Error('INVALID_MIGRATIONS_TABLE');
