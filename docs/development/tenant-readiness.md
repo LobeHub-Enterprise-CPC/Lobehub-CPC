@@ -106,7 +106,7 @@ freezes, explicit frozen state and offline state continue to block admission.
 
 ## Migration maintenance
 
-SSO public configuration (`oauth2_config`, `oidc_config`, `saml_config`) uses typed JSONB
+SSO public configuration (`oauth2_config`, `oidc_config`) uses typed JSONB
 objects; SQL NULL represents an absent protocol configuration. Database checks reject
 arrays, scalars and JSON null. `secret_config_encrypted` remains a text ciphertext envelope.
 Admin writes objects and CPC reads objects, without a second JSON serialization layer.
@@ -136,3 +136,20 @@ the earlier draft are rejected with `migration-history-mismatch`; their data and
 are preserved. Do not clear a database, delete journal rows, or automatically rewrite old
 hashes to bypass this refusal. A separately audited data-preserving transition is required
 for any such persistent installation.
+
+## SSO scope
+
+Tenant SSO supports OIDC and generic OAuth 2.0 only (`protocol = 'oauth2'` with
+`preset = 'custom'`; the stored `preset` key is kept). SAML and the named OAuth2 vendors
+(DingTalk, WeCom, Discord, Feishu, GitHub) are retired. The tenant chain soft-deletes the
+stored rows of those kinds (`0001_retire_saml_and_named_oauth2_presets`, `revision` is
+untouched because it is part of the secret AAD) and then drops `saml_config` and its check
+(`0002_drop_sso_saml_config`). The runtime loader also skips any remaining row whose
+protocol is not `oidc` / `oauth2`, or whose OAuth2 preset is not `custom`.
+
+The `user_id` of `oidc_sessions` / `oidc_authorization_codes` is nullable because the OIDC
+provider persists anonymous sessions and PAR artifacts before login. That is a change of the
+shared schema, so it lives in the shared chain (`0181_oidc_pre_auth_artifacts`) and reaches
+every tenant through the normal replay; the tenant chain holds tenant-only tables only.
+Databases that ran the earlier draft tenant chain (whose `0001` carried that `ALTER`) are
+rejected with `migration-history-mismatch`, like the draft above.

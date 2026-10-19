@@ -11,7 +11,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
-import type { SsoOAuth2Config, SsoOidcConfig, SsoSamlConfig } from './ssoTypes';
+import type { SsoOAuth2Config, SsoOidcConfig } from './ssoTypes';
 
 /**
  * Tables only a tenant schema has. They stay out of `../schemas` so the shared
@@ -27,8 +27,8 @@ import type { SsoOAuth2Config, SsoOidcConfig, SsoSamlConfig } from './ssoTypes';
  * Columns match Admin's `tenantSsoProviders` and its LobeHub mirror
  * (`instance/lobehub/schemas/sso.ts`) exactly. `secret_config_encrypted` is a
  * `v1.<iv>.<ciphertext>.<tag>` envelope sealed with the tenant data key
- * (spec A18), AAD `tenantId|providerId|revision`. `saml_config` carries no
- * `callbackUrl` / `spMetadata`; LobeHub derives its own ACS and SP entity ID.
+ * (spec A18), AAD `tenantId|providerId|revision`. Only OIDC and generic OAuth 2.0
+ * (`preset: 'custom'`) are supported; SAML and named OAuth2 vendors are retired.
  */
 export const ssoProviders = pgTable(
   'sso_providers',
@@ -47,7 +47,6 @@ export const ssoProviders = pgTable(
     protocol: text('protocol').notNull(),
     providerId: text('provider_id').notNull(),
     revision: integer('revision').default(1).notNull(),
-    samlConfig: jsonb('saml_config').$type<SsoSamlConfig>(),
     secretConfigEncrypted: text('secret_config_encrypted'),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -59,7 +58,6 @@ export const ssoProviders = pgTable(
       sql`jsonb_typeof(${table.oauth2Config}) = 'object'`,
     ),
     check('sso_providers_oidc_config_object', sql`jsonb_typeof(${table.oidcConfig}) = 'object'`),
-    check('sso_providers_saml_config_object', sql`jsonb_typeof(${table.samlConfig}) = 'object'`),
   ],
 );
 

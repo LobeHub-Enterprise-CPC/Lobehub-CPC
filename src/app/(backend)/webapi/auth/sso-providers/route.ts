@@ -18,9 +18,7 @@ const listProviders = async () => {
   // A distribution that manages sign-in itself owns the whole list.
   if (managedBusinessSSO) return distribution;
 
-  const tenant = (await getTenantSsoProviders())
-    .filter((provider) => provider.protocol !== 'saml')
-    .map(toPublicSsoProvider);
+  const tenant = (await getTenantSsoProviders()).map(toPublicSsoProvider);
   const taken = new Set(tenant.map((provider) => provider.id));
   return [...tenant, ...distribution.filter((provider) => !taken.has(provider.id))];
 };

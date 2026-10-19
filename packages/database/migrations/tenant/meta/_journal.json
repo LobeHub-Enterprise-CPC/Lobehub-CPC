@@ -12,8 +12,15 @@
     {
       "idx": 1,
       "version": "7",
-      "when": 1791947960048,
-      "tag": "0001_oidc_pre_auth_artifacts",
+      "when": 1792402386455,
+      "tag": "0001_retire_saml_and_named_oauth2_presets",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792402394965,
+      "tag": "0002_drop_sso_saml_config",
       "breakpoints": true
     }
   ]

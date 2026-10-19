@@ -30,7 +30,6 @@ const row = (overrides: Partial<SsoProviderItem> = {}): SsoProviderItem => ({
   protocol: 'oidc',
   providerId: 'okta',
   revision: 3,
-  samlConfig: null,
   secretConfigEncrypted: sealTenantData(
     TENANT,
     JSON.stringify({ clientSecret: 's3cret' }),
@@ -70,22 +69,43 @@ describe('tenant SSO reader', () => {
     expect(toTenantSsoProvider(TENANT, row({ revision: 4 }))).toBeNull();
   });
 
-  it('drops disabled, deleted and unsupported providers', () => {
+  it('drops disabled and deleted providers', () => {
     expect(toTenantSsoProvider(TENANT, row({ enabled: false }))).toBeNull();
     expect(toTenantSsoProvider(TENANT, row({ deletedAt: new Date() }))).toBeNull();
-    const saml = toTenantSsoProvider(
-      TENANT,
-      row({
-        protocol: 'saml',
-        samlConfig: {
-          cert: 'certificate',
-          entryPoint: 'https://idp.example.com/saml',
-          idpMetadata: { metadata: '<xml />' },
-          mapping: { emailVerified: 'email_verified' },
-        },
-      }),
+  });
+
+  // SAML and the named OAuth2 vendors were retired: only OIDC and custom OAuth2 run.
+  // Rows already stored by an older build are skipped, never half-loaded.
+  describe('retired and unknown protocols', () => {
+    const customOAuth2 = {
+      authorizationEndpoint: 'https://idp.example.com/authorize',
+      clientId: 'client-1',
+      preset: 'custom' as const,
+      tokenEndpoint: 'https://idp.example.com/token',
+      userInfoEndpoint: 'https://idp.example.com/userinfo',
+    };
+    const oauth2 = (config: unknown) =>
+      row({ oauth2Config: config as never, oidcConfig: null, protocol: 'oauth2' });
+
+    it('skips legacy SAML rows', () => {
+      expect(toTenantSsoProvider(TENANT, row({ protocol: 'saml' }))).toBeNull();
+    });
+
+    it.each(['dingtalk', 'discord', 'feishu', 'github', 'wecom', 'okta', undefined])(
+      'skips OAuth2 rows with the %s preset',
+      (preset) => {
+        expect(toTenantSsoProvider(TENANT, oauth2({ ...customOAuth2, preset }))).toBeNull();
+      },
     );
-    expect(saml && toGenericOAuthConfig(saml, 'https://x')).toBeNull();
+
+    it.each(['bridge', 'ldap', ''])('skips rows with the %j protocol', (protocol) => {
+      expect(toTenantSsoProvider(TENANT, row({ protocol }))).toBeNull();
+    });
+
+    it('keeps OIDC and custom OAuth2 rows', () => {
+      expect(toTenantSsoProvider(TENANT, row())?.protocol).toBe('oidc');
+      expect(toTenantSsoProvider(TENANT, oauth2(customOAuth2))?.protocol).toBe('oauth2');
+    });
   });
 
   describe('display name fallback', () => {

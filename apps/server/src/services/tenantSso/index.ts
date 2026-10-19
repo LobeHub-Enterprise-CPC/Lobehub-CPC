@@ -55,7 +55,7 @@ export const openTenantSsoSecrets = (
   };
 };
 
-export type TenantSsoProtocol = 'oauth2' | 'oidc' | 'saml';
+export type TenantSsoProtocol = 'oauth2' | 'oidc';
 
 /** The endpoints of an OIDC discovery document that sign-in uses. */
 export interface OidcDiscoveryDocument {
@@ -66,7 +66,7 @@ export interface OidcDiscoveryDocument {
 
 export interface TenantSsoProvider {
   admissionPolicy: string;
-  /** Parsed protocol configuration (`oidc_config` / `oauth2_config` / `saml_config`). */
+  /** Parsed protocol configuration (`oidc_config` / `oauth2_config`). */
   config: Record<string, unknown>;
   /**
    * Discovery documents fetched through the SSRF-safe transport, keyed by
@@ -85,17 +85,17 @@ export interface TenantSsoProvider {
 
 type Row = typeof ssoProviders.$inferSelect;
 
+/**
+ * Only OIDC and generic OAuth 2.0 (`preset: 'custom'`) run here. Rows an older
+ * build stored for SAML or a named OAuth2 vendor are skipped, not guessed at.
+ */
 export const toTenantSsoProvider = (tenantId: string, row: Row): TenantSsoProvider | null => {
   if (!row.enabled || row.deletedAt) return null;
-  const protocol = row.protocol as TenantSsoProtocol;
-  if (protocol !== 'oidc' && protocol !== 'oauth2' && protocol !== 'saml') return null;
+  const protocol = row.protocol;
+  if (protocol !== 'oidc' && protocol !== 'oauth2') return null;
   try {
-    const config =
-      protocol === 'oidc'
-        ? row.oidcConfig
-        : protocol === 'oauth2'
-          ? row.oauth2Config
-          : row.samlConfig;
+    const config = protocol === 'oidc' ? row.oidcConfig : row.oauth2Config;
+    if (protocol === 'oauth2' && config?.preset !== 'custom') return null;
     if (!isPlainRecord(config)) return null;
     const secrets = row.secretConfigEncrypted
       ? openTenantSsoSecrets(tenantId, {
@@ -251,7 +251,7 @@ export const fetchOidcDiscovery = async (
   }
 };
 
-/** Same URL the generic OIDC presets derive from an issuer. */
+/** The well-known discovery URL of an OIDC issuer. */
 const issuerDiscoveryUrl = (issuer: string) => {
   const normalized = issuer.replace(/\/+$/, '');
   return normalized.includes('/.well-known/')
@@ -267,16 +267,10 @@ const discoveryUrlsOf = (provider: TenantSsoProvider) => {
   )
     return [];
 
+  if (provider.protocol !== 'oidc') return [];
   const explicit = optionalString(provider.config.discoveryEndpoint);
   const issuer = provider.issuer.trim();
-  if (provider.protocol === 'oidc') {
-    return explicit ? [explicit] : issuer ? [issuerDiscoveryUrl(issuer)] : [];
-  }
-  // A named OAuth2 preset (okta, keycloak, ...) builds its own discovery URL from the issuer.
-  if (provider.protocol === 'oauth2' && provider.config.preset !== 'custom' && issuer) {
-    return [explicit ?? issuerDiscoveryUrl(issuer)];
-  }
-  return [];
+  return explicit ? [explicit] : issuer ? [issuerDiscoveryUrl(issuer)] : [];
 };
 
 const withDiscovery = async (provider: TenantSsoProvider): Promise<TenantSsoProvider> => {
@@ -386,8 +380,7 @@ const fetchUserInfo =
  * are chosen by the tenant admin, so none of them may be left to it: discovery
  * is taken from the SSRF-safe prefetch (`provider.discovery`), `discoveryUrl` is
  * dropped, and token / user info requests use `getToken` / `getUserInfo` over
- * the SSRF-safe transport. Presets that bring their own `getToken` /
- * `getUserInfo` (fixed vendor hosts) keep them.
+ * the SSRF-safe transport.
  */
 export const secureGenericOAuthConfig = (
   config: GenericOAuthConfig,
@@ -454,8 +447,7 @@ const string = (value: unknown) => (typeof value === 'string' && value ? value :
 
 /**
  * better-auth `genericOAuth` configuration for an OIDC or custom OAuth2
- * provider. `null` for a provider this build cannot run yet (named OAuth2
- * presets, SAML) or one missing its client secret.
+ * provider. `null` for a provider missing its client secret or endpoints.
  */
 export const toGenericOAuthConfig = (
   provider: TenantSsoProvider,

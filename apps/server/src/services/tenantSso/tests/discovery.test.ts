@@ -37,7 +37,6 @@ const database = (overrides: Partial<SsoProviderItem> = {}) => {
     protocol: 'oidc',
     providerId: 'custom-oidc',
     revision: 1,
-    samlConfig: null,
     secretConfigEncrypted: null,
     updatedAt: new Date(),
     ...overrides,
@@ -67,7 +66,7 @@ describe('tenant SSO discovery', () => {
     async (protocol) => {
       const providers = await loadTenantSsoProviders(
         database({
-          oauth2Config: { clientId: 'client-1', preset: 'okta', ...savedEndpoints },
+          oauth2Config: { clientId: 'client-1', preset: 'custom', ...savedEndpoints },
           protocol,
         }),
         'tenant-a',
