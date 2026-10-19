@@ -116,7 +116,6 @@ const tenantOptions = () => ({
   loginMethods: { emailPassword: true, magicLink: false, requireEmailVerification: false },
   plugins: [],
   secondaryStorageNamespace: 'tenant-1',
-  socialProviders: {},
   tenant: {
     endpoint: { basePath: '/t/acme', publicUrl: 'https://example.com/t/acme', version: 1 },
     id: 'tenant-1',
@@ -201,7 +200,7 @@ describe('defineConfig', () => {
       },
     });
     const [options] = mocks.betterAuth.mock.lastCall!;
-    expect(options.socialProviders).toEqual({});
+    expect(options.socialProviders).toBeUndefined();
     expect(options.account.accountLinking.enabled).toBe(false);
     expect(options.disabledPaths).toContain('/sign-in/social');
     expect(options.disabledPaths).toContain('/get-access-token');
@@ -454,16 +453,15 @@ describe('defineConfig', () => {
     expect(drizzleAdapter).toHaveBeenCalledWith(tenantDatabase, expect.anything());
   });
 
-  it("should pass the tenant's built-in providers to Better Auth and trust their origins", async () => {
+  it('should register no built-in social providers: tenant SSO is generic OAuth only', async () => {
     const { defineConfig } = await import('./define-config');
     const { getTrustedOrigins } = await import('@/libs/better-auth/utils/config');
 
-    const apple = { clientId: 'apple-id', clientSecret: 'apple-secret' };
-    defineConfig({ ...tenantOptions(), socialProviders: { apple } });
+    defineConfig(tenantOptions());
 
     const [options] = mocks.betterAuth.mock.lastCall!;
-    expect(options.socialProviders).toEqual({ apple });
-    expect(getTrustedOrigins).toHaveBeenLastCalledWith(['apple'], 'https://example.com');
+    expect(options.socialProviders).toBeUndefined();
+    expect(getTrustedOrigins).toHaveBeenLastCalledWith('https://example.com');
   });
 
   it('should only enable generic OAuth when the tenant has SSO providers', async () => {

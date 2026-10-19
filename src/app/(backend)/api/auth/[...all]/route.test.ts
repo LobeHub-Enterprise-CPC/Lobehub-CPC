@@ -109,7 +109,7 @@ describe('/api/auth/[...all] route', () => {
   });
 
   it('recognizes tenant-prefixed provider discovery and generic SSO callbacks', async () => {
-    mocks.providers = [{ generic: true, providerId: 'okta', protocol: 'oidc' }];
+    mocks.providers = [{ providerId: 'okta', protocol: 'oidc' }];
     const response = await GET(new Request('https://localhost/t/acme/api/auth/providers'));
     expect(await response.json()).toMatchObject({ providers: [{ providerId: 'okta' }] });
     expect(mocks.handler).not.toHaveBeenCalled();
@@ -134,19 +134,19 @@ describe('/api/auth/[...all] route', () => {
   });
 
   it('serves a tenant SSO callback from the generic OAuth callback', async () => {
-    mocks.providers = [{ generic: true, providerId: 'okta' }];
+    mocks.providers = [{ providerId: 'okta' }];
 
     await GET(new Request('https://localhost/api/auth/callback/okta?code=c'));
 
     expect(forwardedPath()).toBe('/t/acme/api/auth/oauth2/callback/okta');
   });
 
-  it('leaves built-in social callbacks alone', async () => {
-    mocks.providers = [{ generic: false, providerId: 'google' }];
+  it('serves a provider named after a former built-in preset from the generic OAuth callback', async () => {
+    mocks.providers = [{ providerId: 'google', protocol: 'oidc' }];
 
     await GET(new Request('https://localhost/api/auth/callback/google?code=c'));
 
-    expect(forwardedPath()).toBe('/t/acme/api/auth/callback/google');
+    expect(forwardedPath()).toBe('/t/acme/api/auth/oauth2/callback/google');
   });
 
   it('lists enabled providers without their configuration', async () => {
@@ -273,7 +273,7 @@ describe('canonical auth mount', () => {
     { basePath: '', publicUrl: 'https://chat.example.com', version: 2 },
   ])('restores the active auth origin and basePath', async (endpoint) => {
     mocks.endpoint = endpoint;
-    mocks.providers = [{ generic: true, providerId: 'okta' }];
+    mocks.providers = [{ providerId: 'okta' }];
     mocks.handler.mockResolvedValue(new Response(null, { status: 200 }));
     await GET(new Request('http://internal/api/auth/callback/okta?code=secret&state=s'));
     expect(mocks.handler.mock.lastCall![0].url).toBe(

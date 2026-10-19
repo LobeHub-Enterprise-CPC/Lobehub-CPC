@@ -33,17 +33,16 @@ describe('getTrustedOrigins', () => {
     process.env = originalEnv;
   });
 
-  it('should append normalized origins to provider-aware defaults', async () => {
+  it('should append normalized origins to the defaults', async () => {
     mocks.authEnv.AUTH_ADDITIONAL_TRUSTED_ORIGINS = [
       'https://gateway.example.com/signin',
       'gateway.example.com/another-path',
     ].join(',');
     const { getTrustedOrigins } = await import('./config');
 
-    expect(getTrustedOrigins(['apple'])).toEqual([
+    expect(getTrustedOrigins()).toEqual([
       'https://app.example.com',
       'com.lobehub.app://',
-      'https://appleid.apple.com',
       'https://gateway.example.com',
     ]);
   });
@@ -53,7 +52,7 @@ describe('getTrustedOrigins', () => {
     mocks.authEnv.AUTH_ADDITIONAL_TRUSTED_ORIGINS = 'https://gateway.example.com/signin';
     const { getTrustedOrigins } = await import('./config');
 
-    expect(getTrustedOrigins(['apple'])).toEqual([
+    expect(getTrustedOrigins()).toEqual([
       'https://app.example.com',
       'https://override.example.com',
       'https://gateway.example.com',

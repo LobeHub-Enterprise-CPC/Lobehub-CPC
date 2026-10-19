@@ -25,7 +25,6 @@ const tenantProvider = (overrides: Record<string, unknown> = {}) => ({
   admissionPolicy: 'allowlist',
   config: { clientId: 'client-1' },
   displayName: 'Clerk',
-  generic: true,
   issuer: 'https://idp.example.com',
   logoUrl: 'https://img.clerk.com/logo.png',
   protocol: 'oidc',

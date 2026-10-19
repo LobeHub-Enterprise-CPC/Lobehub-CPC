@@ -9,7 +9,6 @@ import { useTranslation } from 'react-i18next';
 
 import AuthIcons from '@/components/AuthIcons';
 import SsoProviderIcon from '@/features/Auth/SsoProviderIcon';
-import { isBuiltinProvider, normalizeProviderId } from '@/libs/better-auth/utils/client';
 import { useServerConfigStore } from '@/store/serverConfig';
 import { serverConfigSelectors } from '@/store/serverConfig/selectors';
 import { useUserStore } from '@/store/user';
@@ -51,11 +50,8 @@ export const SSOProvidersList = memo(() => {
   }, [providers]);
 
   // Get available providers for linking (filter out already linked)
-  // Normalize provider IDs when comparing to handle aliases (e.g. microsoft-entra-id → microsoft)
   const availableProviders = useMemo(() => {
-    return (oAuthSSOProviders || []).filter(
-      (provider) => !linkedProviderIds.has(normalizeProviderId(provider)),
-    );
+    return (oAuthSSOProviders || []).filter((provider) => !linkedProviderIds.has(provider));
   }, [oAuthSSOProviders, linkedProviderIds]);
 
   const handleUnlinkSSO = async (provider: string) => {
@@ -86,21 +82,11 @@ export const SSOProvidersList = memo(() => {
   const handleLinkSSO = async (provider: string) => {
     if (!enableAuthActions) return;
 
-    const normalizedProvider = normalizeProviderId(provider);
-    const { linkSocial, oauth2 } = await import('@/libs/better-auth/auth-client');
-
-    if (isBuiltinProvider(normalizedProvider)) {
-      // Use better-auth native linkSocial API for built-in providers
-      await linkSocial({
-        callbackURL: '/profile',
-        provider: normalizedProvider as any,
-      });
-      return;
-    }
+    const { oauth2 } = await import('@/libs/better-auth/auth-client');
 
     await oauth2.link({
       callbackURL: '/profile',
-      providerId: normalizedProvider,
+      providerId: provider,
     });
   };
 

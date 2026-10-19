@@ -18,7 +18,6 @@ import {
   type GenericOAuthConfig,
   magicLink,
 } from 'better-auth/plugins';
-import { type SocialProviders } from 'better-auth/social-providers';
 import { type BetterAuthPlugin } from 'better-auth/types';
 import { EnvHttpProxyAgent, setGlobalDispatcher } from 'undici';
 
@@ -111,13 +110,11 @@ interface CustomBetterAuthOptions {
   plugins: BetterAuthPlugin[];
   /** Redis namespace for cached sessions; includes the tenant id. */
   secondaryStorageNamespace: string;
-  /** The tenant's SSO providers that are better-auth built-ins (Google, GitHub, …). */
-  socialProviders: SocialProviders;
   tenant: TenantAuthTarget;
 }
 
 export function defineConfig(customOptions: CustomBetterAuthOptions) {
-  const { database, genericOAuthProviders, loginMethods, socialProviders, tenant } = customOptions;
+  const { database, genericOAuthProviders, loginMethods, tenant } = customOptions;
 
   const publicOrigin = new URL(tenant.endpoint.publicUrl).origin;
   const tenantBase = tenant.endpoint.basePath;
@@ -137,7 +134,7 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
     basePath: `${tenantBase}/api/auth`,
     // Per-tenant: a shared secret lets one tenant's cookies and tokens be replayed on another.
     secret: deriveTenantAuthSecret(tenant.id),
-    trustedOrigins: getTrustedOrigins(Object.keys(socialProviders), publicOrigin),
+    trustedOrigins: getTrustedOrigins(publicOrigin),
 
     emailAndPassword: {
       autoSignIn: true,
@@ -293,7 +290,6 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
       modelName: 'users',
     },
 
-    socialProviders,
     advanced: {
       // Host-only cookies scoped to the tenant path (spec A17, FR-ID-10): the
       // browser never sends tenant A's session to tenant B's routes.

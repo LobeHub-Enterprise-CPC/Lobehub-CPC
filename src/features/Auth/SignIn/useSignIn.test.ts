@@ -8,7 +8,6 @@ const mockNavigate = vi.hoisted(() => vi.fn());
 const mockSearchParamsGet = vi.hoisted(() => vi.fn().mockReturnValue(null));
 const mockMessageError = vi.hoisted(() => vi.fn());
 const mockMessageSuccess = vi.hoisted(() => vi.fn());
-const mockSignInSocial = vi.hoisted(() => vi.fn());
 const mockSignInOauth2 = vi.hoisted(() => vi.fn());
 const mockSignInSSO = vi.hoisted(() => vi.fn());
 const mockSignInEmail = vi.hoisted(() => vi.fn());
@@ -54,14 +53,8 @@ vi.mock('@/libs/better-auth/auth-client', () => ({
     email: mockSignInEmail,
     magicLink: mockSignInMagicLink,
     oauth2: mockSignInOauth2,
-    social: mockSignInSocial,
     sso: mockSignInSSO,
   },
-}));
-
-vi.mock('@/libs/better-auth/utils/client', () => ({
-  isBuiltinProvider: (p: string) => ['google', 'github', 'apple'].includes(p),
-  normalizeProviderId: (p: string) => p,
 }));
 
 vi.mock('@/business/client/hooks/useBusinessSignin', () => ({
@@ -673,7 +666,7 @@ describe('useSignIn', () => {
       mockSearchParamsGet.mockImplementation((key: string) =>
         key === 'callbackUrl' ? '/workspace?tab=members' : null,
       );
-      mockSignInSocial.mockResolvedValue({ url: 'https://google.com/auth' });
+      mockSignInOauth2.mockResolvedValue({ url: 'https://google.com/auth' });
 
       const { result } = renderHook(() => useSignIn());
 
@@ -681,7 +674,7 @@ describe('useSignIn', () => {
         await result.current.handleSocialSignIn('google');
       });
 
-      expect(mockSignInSocial).toHaveBeenCalledWith(
+      expect(mockSignInOauth2).toHaveBeenCalledWith(
         expect.objectContaining({
           callbackURL: `${authOrigin}/workspace?tab=members`,
           newUserCallbackURL: `${authOrigin}/onboarding?callbackUrl=%2Fworkspace%3Ftab%3Dmembers`,
@@ -689,23 +682,26 @@ describe('useSignIn', () => {
       );
     });
 
-    it('should call signIn.social for builtin providers', async () => {
-      mockSignInSocial.mockResolvedValue({ url: 'https://google.com/auth' });
+    it.each(['google', 'github', 'apple', 'microsoft', 'microsoft-entra-id', 'cognito'])(
+      'should sign in a tenant provider named %s through signIn.oauth2, never signIn.social',
+      async (providerId) => {
+        mockSignInOauth2.mockResolvedValue({ url: 'https://google.com/auth' });
 
-      const { result } = renderHook(() => useSignIn());
+        const { result } = renderHook(() => useSignIn());
 
-      await act(async () => {
-        await result.current.handleSocialSignIn('google');
-      });
+        await act(async () => {
+          await result.current.handleSocialSignIn(providerId);
+        });
 
-      expect(mockSignInSocial).toHaveBeenCalledWith(
-        expect.objectContaining({
-          newUserCallbackURL: `${originalLocation.origin}/onboarding`,
-          provider: 'google',
-        }),
-      );
-      expect(mockMessageError).not.toHaveBeenCalled();
-    });
+        expect(mockSignInOauth2).toHaveBeenCalledWith(
+          expect.objectContaining({
+            newUserCallbackURL: `${originalLocation.origin}/onboarding`,
+            providerId,
+          }),
+        );
+        expect(mockMessageError).not.toHaveBeenCalled();
+      },
+    );
 
     it('should call signIn.oauth2 for custom providers', async () => {
       mockSignInOauth2.mockResolvedValue({ url: 'https://custom.com/auth' });
@@ -729,7 +725,7 @@ describe('useSignIn', () => {
       mockSearchParamsGet.mockImplementation((key: string) =>
         key === 'callbackUrl' ? mobileCallbackUrl : null,
       );
-      mockSignInSocial.mockResolvedValue({ url: 'https://google.com/auth' });
+      mockSignInOauth2.mockResolvedValue({ url: 'https://google.com/auth' });
 
       const { result } = renderHook(() => useSignIn());
 
@@ -737,13 +733,13 @@ describe('useSignIn', () => {
         await result.current.handleSocialSignIn('google');
       });
 
-      expect(mockSignInSocial).toHaveBeenCalledWith(
+      expect(mockSignInOauth2).toHaveBeenCalledWith(
         expect.objectContaining({ callbackURL: mobileCallbackUrl }),
       );
     });
 
     it('should NOT throw when result has error: null (redirect case)', async () => {
-      mockSignInSocial.mockResolvedValue({
+      mockSignInOauth2.mockResolvedValue({
         error: null,
         redirect: true,
         url: 'https://google.com/auth',
@@ -760,7 +756,7 @@ describe('useSignIn', () => {
     });
 
     it('should show error when result has a real error', async () => {
-      mockSignInSocial.mockResolvedValue({
+      mockSignInOauth2.mockResolvedValue({
         error: { message: 'OAuth failed', status: 500 },
       });
 
@@ -774,7 +770,7 @@ describe('useSignIn', () => {
     });
 
     it('should not retry social sign in when captcha is returned unexpectedly', async () => {
-      mockSignInSocial.mockResolvedValue({
+      mockSignInOauth2.mockResolvedValue({
         error: { code: 'CAPTCHA_REQUIRED', message: 'Missing CAPTCHA response', status: 400 },
       });
 
@@ -784,12 +780,12 @@ describe('useSignIn', () => {
         await result.current.handleSocialSignIn('google');
       });
 
-      expect(mockSignInSocial).toHaveBeenCalledTimes(1);
+      expect(mockSignInOauth2).toHaveBeenCalledTimes(1);
       expect(mockMessageError).toHaveBeenCalled();
     });
 
     it('should save last auth provider to localStorage', async () => {
-      mockSignInSocial.mockResolvedValue({ url: 'https://google.com/auth' });
+      mockSignInOauth2.mockResolvedValue({ url: 'https://google.com/auth' });
 
       const { result } = renderHook(() => useSignIn());
 
@@ -811,7 +807,7 @@ describe('useSignIn', () => {
       });
 
       expect(mockBusinessSignin.preSocialSigninCheck).toHaveBeenCalled();
-      expect(mockSignInSocial).not.toHaveBeenCalled();
+      expect(mockSignInOauth2).not.toHaveBeenCalled();
     });
   });
 
@@ -1195,7 +1191,6 @@ describe('useSignIn', () => {
             providerId: 'managed-id',
           }),
         );
-        expect(mockSignInSocial).not.toHaveBeenCalled();
       },
     );
   });

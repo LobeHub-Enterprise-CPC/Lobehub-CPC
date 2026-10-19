@@ -61,19 +61,10 @@ const tenantSsoProviderSet = (scope: TenantScope, providers: TenantSsoProvider[]
     buildTenantPublicUrl(tenantSsoCallbackPath(providerId)),
   );
 
-/**
- * The tenant's enabled SSO providers that this build can run, and which of
- * them better-auth serves through generic OAuth (the rest are built-in
- * social providers).
- */
+/** The tenant's enabled SSO providers that this build can run (OIDC and custom OAuth 2.0). */
 export const getTenantSsoProviders = async () => {
   const scope = requireTenantScope();
-  const { genericProviderIds, providers } = tenantSsoProviderSet(
-    scope,
-    await loadSsoSnapshot(scope),
-  );
-  const generic = new Set(genericProviderIds);
-  return providers.map((provider) => ({ ...provider, generic: generic.has(provider.providerId) }));
+  return tenantSsoProviderSet(scope, await loadSsoSnapshot(scope)).providers;
 };
 
 /** Changes whenever the tenant's login methods do, so a saved change rebuilds the instance. */
@@ -86,7 +77,7 @@ const buildTenantAuth = (
   loginMethods: LoginMethods,
   overrides?: BetterAuthOptions,
 ) => {
-  const { genericOAuthProviders, socialProviders } = tenantSsoProviderSet(scope, providers);
+  const { genericOAuthProviders } = tenantSsoProviderSet(scope, providers);
   return defineConfig({
     cookiePrefix: tenantCookiePrefix(scope.tenantId),
     database: scope.session.database,
@@ -95,7 +86,6 @@ const buildTenantAuth = (
     overrides,
     plugins: [...businessAuthPlugins],
     secondaryStorageNamespace: `t:${scope.tenantId}`,
-    socialProviders,
     tenant: { id: scope.tenantId, slug: scope.slug, endpoint: scope.endpoint },
   });
 };

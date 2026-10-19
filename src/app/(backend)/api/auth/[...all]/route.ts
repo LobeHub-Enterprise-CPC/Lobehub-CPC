@@ -36,21 +36,16 @@ const CALLBACK_PATH = /^\/callback\/([^/]+)$/;
  * either form before mounting the endpoint once under the tenant's
  * better-auth is mounted at `/t/{slug}/api/auth`, so the request goes back to
  * its tenant path. A tenant SSO callback arrives at `/callback/{providerId}`
- * (the URL registered with the identity provider, spec FR-ID-09): built-in
- * providers are served there, generic OAuth ones by `/oauth2/callback/{id}`.
+ * (the URL registered with the identity provider, spec FR-ID-09); every tenant
+ * provider is generic OAuth, which better-auth serves at `/oauth2/callback/{id}`.
  */
-const toTenantAuthRequest = async (request: Request): Promise<Request> => {
+const toTenantAuthRequest = (request: Request): Request => {
   const { endpoint } = requireTenantScope();
   const url = new URL(request.url);
   let rest = stripTenantPath(url.pathname).replace(/^\/api\/auth/, '') || '/';
 
   const callback = CALLBACK_PATH.exec(rest);
-  if (callback) {
-    const providerId = decodeURIComponent(callback[1]);
-    const providers = await getTenantSsoProviders();
-    if (providers.some((provider) => provider.generic && provider.providerId === providerId))
-      rest = `/oauth2/callback/${encodeURIComponent(providerId)}`;
-  }
+  if (callback) rest = `/oauth2/callback/${encodeURIComponent(decodeURIComponent(callback[1]))}`;
 
   const canonical = new URL(`${endpoint.publicUrl}/api/auth${rest}${url.search}`);
   return new Request(canonical, request);
@@ -81,7 +76,7 @@ const dispatch = async (request: Request) => {
   const errorPath = `${scope.endpoint.basePath}/auth-error`;
   try {
     const auth = await getAuthForRequest(request);
-    const response = await auth.handler(await toTenantAuthRequest(request));
+    const response = await auth.handler(toTenantAuthRequest(request));
     return await redirectCallbackError(request, response, errorPath);
   } catch (error) {
     // A closed workspace keeps the gate's `{ code }` whether it was found on entry

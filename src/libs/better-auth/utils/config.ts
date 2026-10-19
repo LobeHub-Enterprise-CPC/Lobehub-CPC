@@ -5,7 +5,6 @@ import { getRedisConfig } from '@/envs/redis';
 import { initializeRedis, isRedisEnabled } from '@/server/modules/Redis';
 import { isDev } from '@/utils/env';
 
-const APPLE_TRUSTED_ORIGIN = 'https://appleid.apple.com';
 const ANDROID_APP_NAMESPACE = 'android_app';
 const ANDROID_PASSKEY_RELATION = 'delegate_permission/common.get_login_creds';
 const MOBILE_APP_SCHEME = 'com.lobehub.app://';
@@ -85,7 +84,7 @@ export const getPasskeyOrigins = (publicOrigin = appEnv.APP_URL) => {
  * The canonical tenant origin is always trusted. AUTH_TRUSTED_ORIGINS replaces optional defaults, while
  * AUTH_ADDITIONAL_TRUSTED_ORIGINS is merged into either the override or the defaults.
  */
-export const getTrustedOrigins = (enabledSSOProviders: string[], publicOrigin = appEnv.APP_URL) => {
+export const getTrustedOrigins = (publicOrigin = appEnv.APP_URL) => {
   const additionalOrigins = parseTrustedOrigins(authEnv.AUTH_ADDITIONAL_TRUSTED_ORIGINS);
   const originsFromEnv = parseTrustedOrigins(authEnv.AUTH_TRUSTED_ORIGINS);
 
@@ -102,11 +101,7 @@ export const getTrustedOrigins = (enabledSSOProviders: string[], publicOrigin = 
     ...(isDev ? [EXPO_DEV_SCHEME] : []),
   ].filter(Boolean) as string[];
 
-  const providerOrigins = enabledSSOProviders.includes('apple')
-    ? [APPLE_TRUSTED_ORIGIN]
-    : undefined;
-
-  return mergeOrigins(defaults, providerOrigins, additionalOrigins);
+  return mergeOrigins(defaults, additionalOrigins);
 };
 
 /**

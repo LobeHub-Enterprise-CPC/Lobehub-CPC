@@ -17,7 +17,6 @@ import { useAuthServerConfigStore } from '@/features/AuthShell/AuthServerConfigP
 import { trackLoginOrSignupClicked } from '@/features/User/UserLoginOrSignup/trackLoginOrSignupClicked';
 import { requestPasswordReset, signIn } from '@/libs/better-auth/auth-client';
 import { beginBridgeLogin } from '@/libs/better-auth/bridge';
-import { isBuiltinProvider, normalizeProviderId } from '@/libs/better-auth/utils/client';
 import {
   buildOnboardingRedirectUrl,
   sanitizeRedirectPath,
@@ -345,9 +344,8 @@ export const useSignIn = () => {
       }
       return;
     }
-    const normalizedProvider = normalizeProviderId(provider);
     await trackLoginOrSignupClicked({
-      provider: normalizedProvider,
+      provider,
       spm: 'signin.social.click',
     });
 
@@ -389,25 +387,19 @@ export const useSignIn = () => {
                 newUserCallbackURL,
                 providerId: managedProvider.id,
               })
-            : isBuiltinProvider(normalizedProvider)
-              ? await signIn.social({
-                  additionalData,
-                  callbackURL,
-                  newUserCallbackURL,
-                  provider: normalizedProvider,
-                })
-              : await signIn.oauth2({
-                  additionalData,
-                  callbackURL,
-                  newUserCallbackURL,
-                  providerId: normalizedProvider,
-                });
+            : // Tenant SSO is generic OAuth only: the id is the administrator's, never a built-in preset.
+              await signIn.oauth2({
+                additionalData,
+                callbackURL,
+                newUserCallbackURL,
+                providerId: provider,
+              });
 
       const result = await signInWithAdditionalData();
 
       if (result && 'error' in result && result.error) throw result.error;
     } catch (error) {
-      console.error(`${normalizedProvider} sign in error:`, error);
+      console.error(`${provider} sign in error:`, error);
       toast.error(t('betterAuth.signin.socialError'));
     } finally {
       setSocialLoading(null);

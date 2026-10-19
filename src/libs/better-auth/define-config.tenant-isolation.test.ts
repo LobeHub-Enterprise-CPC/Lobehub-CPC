@@ -58,7 +58,6 @@ const tenantAuth = async (id: string) =>
     loginMethods: { emailPassword: true, magicLink: false, requireEmailVerification: false },
     plugins: [],
     secondaryStorageNamespace: `t:${id}`,
-    socialProviders: {},
     tenant: { endpoint: entryOf(id), id, slug: id },
   });
 
