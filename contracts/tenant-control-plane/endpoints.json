@@ -1,22 +1,18 @@
 {
-  "contract": "tenant-endpoints",
-  "version": 1,
-  "path": "/api/internal/control-plane/tenant-endpoints",
-  "request": {
-    "tenantId": "tenant-fixture",
+  "appliedResponse": {
+    "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
     "eventId": "endpoints-fixture-1",
     "version": 1,
-    "endpoints": [
-      {
-        "id": "default",
-        "kind": "default",
-        "host": null,
-        "active": true
-      }
-    ]
+    "acceptedVersion": 1,
+    "appliedVersion": 1,
+    "status": "applied",
+    "errorCode": null,
+    "activeUrl": "https://app.example.com/t/acme",
+    "observedAt": "2026-10-13T00:00:00.000Z"
   },
+  "contract": "tenant-endpoints",
   "customRequest": {
-    "tenantId": "tenant-fixture",
+    "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
     "eventId": "endpoints-fixture-2",
     "version": 2,
     "endpoints": [
@@ -40,21 +36,25 @@
       }
     ]
   },
-  "appliedResponse": {
-    "tenantId": "tenant-fixture",
-    "eventId": "endpoints-fixture-1",
-    "version": 1,
-    "acceptedVersion": 1,
-    "appliedVersion": 1,
-    "status": "applied",
-    "errorCode": null,
-    "activeUrl": "https://app.example.com/t/acme",
-    "observedAt": "2026-10-13T00:00:00.000Z"
-  },
   "errors": [
     "ENDPOINTS_INVALID",
     "ENDPOINT_VERSION_CONFLICT",
     "ENDPOINT_HOST_CONFLICT",
     "ENDPOINTS_NOT_READY"
-  ]
+  ],
+  "path": "/api/internal/control-plane/tenant-endpoints",
+  "request": {
+    "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+    "eventId": "endpoints-fixture-1",
+    "version": 1,
+    "endpoints": [
+      {
+        "id": "default",
+        "kind": "default",
+        "host": null,
+        "active": true
+      }
+    ]
+  },
+  "version": 1
 }

@@ -121,7 +121,7 @@ describe('endpoint routing snapshots', () => {
     };
     const service = new TenantEndpointsService(db as never);
     const input = {
-      tenantId: 'a',
+      tenantId: '3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a',
       eventId: 'event-1',
       version: 1,
       endpoints: [{ id: 'default' as const, kind: 'default' as const, host: null, active: true }],

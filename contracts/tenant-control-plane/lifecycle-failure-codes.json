@@ -1,14 +1,38 @@
 {
-  "$comment": "Canonical lifecycle failure codes of the tenant control plane. Owned by Console; Admin and LobeHub (CPC) keep byte-identical copies at the same path. Edit here, copy to both, then run `bun run contracts:check` in Console. A failed tenant-lifecycle POST answers action_required with 409 and retryable with 503 + Retry-After.",
+  "$comment": "Canonical lifecycle failure codes of the tenant control plane. Owned by Console; Admin and LobeHub (CPC) keep byte-identical copies at the same path. Edit here, copy to both, then run `bun run contracts:check` in Console. A failed tenant-lifecycle POST answers action_required with 409 and retryable with 503 + Retry-After. Market produces the codes whose producers list it, under its own contract (market-control-plane.json) and holds no copy of this file.",
   "codes": {
-    "LIFECYCLE_DATASOURCE_MISSING": { "disposition": "action_required", "producers": ["admin"] },
-    "LIFECYCLE_DRAIN_FAILED": { "disposition": "retryable", "producers": ["admin", "lobehub"] },
-    "LIFECYCLE_FAILED": { "disposition": "retryable", "producers": ["admin", "lobehub"] },
-    "LIFECYCLE_RESUME_FAILED": { "disposition": "retryable", "producers": ["lobehub"] },
-    "LIFECYCLE_STATE_CHANGED": { "disposition": "retryable", "producers": ["admin"] },
-    "LIFECYCLE_STOP_FAILED": { "disposition": "retryable", "producers": ["lobehub"] },
-    "LIFECYCLE_STOP_UNCONFIRMED": { "disposition": "retryable", "producers": ["admin", "lobehub"] },
-    "TENANT_NOT_READY": { "disposition": "retryable", "producers": ["admin", "lobehub"] }
+    "LIFECYCLE_DATASOURCE_MISSING": {
+      "disposition": "action_required",
+      "producers": ["admin"]
+    },
+    "LIFECYCLE_DRAIN_FAILED": {
+      "disposition": "retryable",
+      "producers": ["admin", "lobehub"]
+    },
+    "LIFECYCLE_FAILED": {
+      "disposition": "retryable",
+      "producers": ["admin", "lobehub", "market"]
+    },
+    "LIFECYCLE_RESUME_FAILED": {
+      "disposition": "retryable",
+      "producers": ["lobehub"]
+    },
+    "LIFECYCLE_STATE_CHANGED": {
+      "disposition": "retryable",
+      "producers": ["admin", "market"]
+    },
+    "LIFECYCLE_STOP_FAILED": {
+      "disposition": "retryable",
+      "producers": ["lobehub"]
+    },
+    "LIFECYCLE_STOP_UNCONFIRMED": {
+      "disposition": "retryable",
+      "producers": ["admin", "lobehub", "market"]
+    },
+    "TENANT_NOT_READY": {
+      "disposition": "retryable",
+      "producers": ["admin", "lobehub", "market"]
+    }
   },
   "version": 1
 }

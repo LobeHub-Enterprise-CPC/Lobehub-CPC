@@ -1,6 +1,7 @@
 import { isIP } from 'node:net';
 import { domainToASCII } from 'node:url';
 
+import { isTenantId } from '@lobechat/database/tenant';
 import { z } from 'zod';
 
 const identifier = z
@@ -8,6 +9,8 @@ const identifier = z
   .min(1)
   .max(128)
   .regex(/^[\w.:-]+$/);
+/** Console generates tenant ids as lower-case UUIDs (contracts/tenant-control-plane/tenant-naming.json). */
+const tenantId = z.string().refine(isTenantId, 'TENANT_ID_INVALID');
 const hostname = z
   .string()
   .max(253)
@@ -39,7 +42,7 @@ export const endpointSchema = z.discriminatedUnion('kind', [
 ]);
 export const endpointRequestSchema = z
   .object({
-    tenantId: identifier,
+    tenantId,
     eventId: identifier,
     version: z.number().int().positive().max(2147483647),
     endpoints: z.array(endpointSchema).min(1).max(100),

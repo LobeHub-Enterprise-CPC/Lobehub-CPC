@@ -22,6 +22,11 @@ import { TenantEndpointsService } from '../endpoints';
 import type { EndpointRequest } from '../endpointsContract';
 
 const maintenance = process.env.ENDPOINTS_TEST_MAINTENANCE_URL;
+// Console-generated ids are lower-case UUIDs; FIXTURE_TENANT is the id in contracts/tenant-control-plane/endpoints.json.
+const FIXTURE_TENANT = '3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a';
+const OTHER_TENANT = '8a6d2f40-1c3b-4e7a-b5d9-6f0e2a4c8b13';
+const DAMAGED_TENANT = '0b7e41d8-52a9-4f63-8c1e-9d2a7b6f3e10';
+const HISTORICAL_TENANT = '9c4d1e72-a6b3-4d58-b0f7-1e3c5a8d2f64';
 const suite = maintenance ? describe : describe.skip;
 const databases: string[] = [];
 const pools: Pool[] = [];
@@ -75,7 +80,7 @@ suite('PostgreSQL endpoint projection and migration', () => {
     await migrate(db, { migrationsFolder: migrateFolder });
     await db
       .insert(schema.tenantDirectory)
-      .values([directory('tenant-fixture', 'acme'), directory('tenant-other', 'beta')]);
+      .values([directory(FIXTURE_TENANT, 'acme'), directory(OTHER_TENANT, 'beta')]);
     service = new TenantEndpointsService(db, 'https://app.example.com');
   }, 20000);
   afterAll(async () => {
@@ -116,7 +121,7 @@ suite('PostgreSQL endpoint projection and migration', () => {
     }
   });
   it('returns a read-only default v0 before the first Console snapshot', async () => {
-    expect(await service.get('tenant-fixture')).toMatchObject({
+    expect(await service.get(FIXTURE_TENANT)).toMatchObject({
       appliedVersion: 0,
       acceptedVersion: 0,
       activeUrl: 'https://app.example.com/t/acme',
@@ -124,7 +129,7 @@ suite('PostgreSQL endpoint projection and migration', () => {
     });
     expect(await platform.select().from(schema.tenantEndpointState)).toEqual([]);
     expect(await platform.select().from(schema.tenantEndpoints)).toEqual([]);
-    expect(await loadTenantPublicEndpoint('tenant-fixture', platform)).toMatchObject({
+    expect(await loadTenantPublicEndpoint(FIXTURE_TENANT, platform)).toMatchObject({
       version: 0,
     });
     const reads = vi.spyOn(platform, 'select');
@@ -147,7 +152,7 @@ suite('PostgreSQL endpoint projection and migration', () => {
       activeUrl: 'https://app.example.com/t/acme',
     });
     expect(await service.receive(request())).toEqual(first);
-    expect(await loadTenantPublicEndpoint('tenant-fixture', platform)).toMatchObject({
+    expect(await loadTenantPublicEndpoint(FIXTURE_TENANT, platform)).toMatchObject({
       version: 1,
     });
   });
@@ -161,7 +166,7 @@ suite('PostgreSQL endpoint projection and migration', () => {
   });
   it('applies custom entry, rejects global host collisions and leaves older snapshots superseded', async () => {
     await service.receive(fixture.customRequest as EndpointRequest);
-    expect(await loadTenantPublicEndpoint('tenant-fixture', platform)).toMatchObject({
+    expect(await loadTenantPublicEndpoint(FIXTURE_TENANT, platform)).toMatchObject({
       version: 2,
       publicUrl: 'https://chat.example.com',
       basePath: '',
@@ -178,7 +183,7 @@ suite('PostgreSQL endpoint projection and migration', () => {
     await expect(
       service.receive({
         ...fixture.customRequest,
-        tenantId: 'tenant-other',
+        tenantId: OTHER_TENANT,
         eventId: 'other-event',
       } as EndpointRequest),
     ).rejects.toMatchObject({ code: 'ENDPOINT_HOST_CONFLICT', status: 409 });
@@ -187,14 +192,14 @@ suite('PostgreSQL endpoint projection and migration', () => {
       appliedVersion: 2,
       activeUrl: 'https://chat.example.com',
     });
-    expect((await service.get('tenant-fixture')).endpoints).toHaveLength(3);
-    expect(await service.get('tenant-other')).toMatchObject({ appliedVersion: 0 });
+    expect((await service.get(FIXTURE_TENANT)).endpoints).toHaveLength(3);
+    expect(await service.get(OTHER_TENANT)).toMatchObject({ appliedVersion: 0 });
   });
   it('rejects takeover of the platform host', async () => {
     await expect(
       service.receive({
         ...fixture.customRequest,
-        tenantId: 'tenant-other',
+        tenantId: OTHER_TENANT,
         eventId: 'reserved-host',
         endpoints: fixture.customRequest.endpoints.map((e) =>
           e.kind === 'custom'
@@ -211,7 +216,7 @@ suite('PostgreSQL endpoint projection and migration', () => {
       ),
     );
     expect(result.every((r) => r.status === 'fulfilled')).toBe(true);
-    expect(await service.get('tenant-fixture')).toMatchObject({
+    expect(await service.get(FIXTURE_TENANT)).toMatchObject({
       appliedVersion: 4,
       activeUrl: 'https://app.example.com/t/acme',
     });
@@ -222,40 +227,40 @@ suite('PostgreSQL endpoint projection and migration', () => {
     });
   });
   it('refuses missing projection when a prior custom event survives', async () => {
-    await platform.insert(schema.tenantDirectory).values(directory('damaged-history', 'damaged'));
+    await platform.insert(schema.tenantDirectory).values(directory(DAMAGED_TENANT, 'damaged'));
     await service.receive({
       ...fixture.customRequest,
-      tenantId: 'damaged-history',
+      tenantId: DAMAGED_TENANT,
       eventId: 'damaged-custom',
     } as EndpointRequest);
     await platform
       .delete(schema.tenantEndpoints)
-      .where(eq(schema.tenantEndpoints.tenantId, 'damaged-history'));
+      .where(eq(schema.tenantEndpoints.tenantId, DAMAGED_TENANT));
     await platform
       .delete(schema.tenantEndpointState)
-      .where(eq(schema.tenantEndpointState.tenantId, 'damaged-history'));
-    await expect(service.get('damaged-history')).rejects.toMatchObject({
+      .where(eq(schema.tenantEndpointState.tenantId, DAMAGED_TENANT));
+    await expect(service.get(DAMAGED_TENANT)).rejects.toMatchObject({
       code: 'ENDPOINTS_NOT_READY',
     });
   });
   it('refuses orphan endpoint rows and damaged state without default fallback', async () => {
     await platform.insert(schema.tenantEndpoints).values({
-      tenantId: 'tenant-other',
+      tenantId: OTHER_TENANT,
       id: 'default',
       kind: 'default',
       host: null,
       active: true,
     });
-    await expect(service.get('tenant-other')).rejects.toMatchObject({
+    await expect(service.get(OTHER_TENANT)).rejects.toMatchObject({
       code: 'ENDPOINTS_NOT_READY',
     });
     await platform
       .delete(schema.tenantEndpoints)
-      .where(eq(schema.tenantEndpoints.tenantId, 'tenant-other'));
+      .where(eq(schema.tenantEndpoints.tenantId, OTHER_TENANT));
     await platform
       .insert(schema.tenantEndpointState)
-      .values({ tenantId: 'tenant-other', acceptedVersion: 1, appliedVersion: 1 });
-    await expect(service.get('tenant-other')).rejects.toMatchObject({
+      .values({ tenantId: OTHER_TENANT, acceptedVersion: 1, appliedVersion: 1 });
+    await expect(service.get(OTHER_TENANT)).rejects.toMatchObject({
       code: 'ENDPOINTS_NOT_READY',
     });
   });
@@ -266,21 +271,21 @@ suite('PostgreSQL endpoint projection and migration', () => {
       db._.session,
       { migrationsFolder: migrateFolder },
     );
-    await db.insert(schema.tenantDirectory).values(directory('historical-tenant', 'history'));
+    await db.insert(schema.tenantDirectory).values(directory(HISTORICAL_TENANT, 'history'));
     await migrate(db, { migrationsFolder: migrateFolder });
     await new TenantEndpointsService(db, 'https://app.example.com').receive(
-      request({ tenantId: 'historical-tenant', eventId: 'historical-endpoint' }),
+      request({ tenantId: HISTORICAL_TENANT, eventId: 'historical-endpoint' }),
     );
     await migrate(db, { migrationsFolder: migrateFolder });
     expect(
-      await new TenantEndpointsService(db, 'https://app.example.com').get('historical-tenant'),
+      await new TenantEndpointsService(db, 'https://app.example.com').get(HISTORICAL_TENANT),
     ).toMatchObject({ appliedVersion: 1, activeUrl: 'https://app.example.com/t/history' });
-    await db.insert(schema.tenantDirectory).values(directory('tenant-fixture', 'isolated'));
-    expect(await loadTenantPublicEndpoint('tenant-fixture', db)).toMatchObject({
+    await db.insert(schema.tenantDirectory).values(directory(FIXTURE_TENANT, 'isolated'));
+    expect(await loadTenantPublicEndpoint(FIXTURE_TENANT, db)).toMatchObject({
       version: 0,
       slug: 'isolated',
     });
-    expect(await loadTenantPublicEndpoint('tenant-fixture', platform)).toMatchObject({
+    expect(await loadTenantPublicEndpoint(FIXTURE_TENANT, platform)).toMatchObject({
       version: 4,
       slug: 'acme',
     });
