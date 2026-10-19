@@ -49,7 +49,6 @@ const published = read('schemas.json') as {
  * the wire schema (a 400), then the derivation against the tenant (a recorded DATASOURCE_INVALID).
  */
 const takes: Record<string, (value: any) => boolean> = {
-  appManifest: () => true,
   lifecycleRequest: (value) => lifecycleRequestSchema.safeParse(value).success,
   lobehubDatasourceRequest: (value) => {
     const parsed = datasourceRequestSchema.safeParse(value);
@@ -113,7 +112,7 @@ describe('what TITU Work answers is what Console parses', () => {
   });
 
   it('answers tenant-manifest with the schema version it provisions', () => {
-    conforms('appManifest', tenantManifest());
+    conforms('lobehubManifest', tenantManifest());
     expect(tenantManifest().schemaVersion).toBe(LOBEHUB_TENANT_SCHEMA_VERSION);
   });
 

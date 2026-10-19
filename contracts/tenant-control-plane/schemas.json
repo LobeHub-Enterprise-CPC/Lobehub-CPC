@@ -342,6 +342,27 @@
         ]
       }
     },
+    "adminManifest": {
+      "apps": ["admin"],
+      "direction": "response",
+      "jsonSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "lobehubSchemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647
+          }
+        },
+        "required": ["lobehubSchemaVersion", "schemaVersion"]
+      }
+    },
     "adminProvisionRequest": {
       "apps": ["admin"],
       "direction": "request",
@@ -755,22 +776,6 @@
         ]
       }
     },
-    "appManifest": {
-      "apps": ["admin", "lobehub"],
-      "direction": "response",
-      "jsonSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "properties": {
-          "schemaVersion": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 2147483647
-          }
-        },
-        "required": ["schemaVersion"]
-      }
-    },
     "datasourceResult": {
       "apps": ["lobehub"],
       "direction": "response",
@@ -1107,6 +1112,22 @@
         },
         "required": ["datasource", "operationId", "tenantId"],
         "additionalProperties": false
+      }
+    },
+    "lobehubManifest": {
+      "apps": ["lobehub"],
+      "direction": "response",
+      "jsonSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647
+          }
+        },
+        "required": ["schemaVersion"]
       }
     },
     "lobehubProvisionRequest": {

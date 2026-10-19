@@ -2,29 +2,58 @@
   "cases": [
     {
       "accepts": true,
-      "id": "app-manifest",
-      "note": "tenant-manifest of TITU Work and Admin: the schema version Console binds a new tenant to",
-      "schema": "appManifest",
+      "id": "lobehub-manifest",
+      "note": "tenant-manifest of TITU Work: the schema version Console binds a new tenant to",
+      "schema": "lobehubManifest",
       "value": {
         "schemaVersion": 1
       }
     },
     {
       "accepts": false,
-      "id": "app-manifest-zero",
+      "id": "lobehub-manifest-zero",
       "note": "versions are positive",
-      "schema": "appManifest",
+      "schema": "lobehubManifest",
       "value": {
         "schemaVersion": 0
       }
     },
     {
       "accepts": false,
-      "id": "app-manifest-string",
+      "id": "lobehub-manifest-string",
       "note": "versions are numbers",
-      "schema": "appManifest",
+      "schema": "lobehubManifest",
       "value": {
         "schemaVersion": "1"
+      }
+    },
+    {
+      "accepts": true,
+      "id": "admin-manifest",
+      "note": "tenant-manifest of Admin: its own schema version and the TITU Work schema version it can read",
+      "schema": "adminManifest",
+      "value": {
+        "lobehubSchemaVersion": 1,
+        "schemaVersion": 1
+      }
+    },
+    {
+      "accepts": false,
+      "id": "admin-manifest-no-lobehub-version",
+      "note": "Console refuses to provision Admin without knowing which TITU Work schema it reads",
+      "schema": "adminManifest",
+      "value": {
+        "schemaVersion": 1
+      }
+    },
+    {
+      "accepts": false,
+      "id": "admin-manifest-zero",
+      "note": "versions are positive",
+      "schema": "adminManifest",
+      "value": {
+        "lobehubSchemaVersion": 0,
+        "schemaVersion": 1
       }
     },
     {
