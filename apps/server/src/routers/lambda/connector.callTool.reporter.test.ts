@@ -65,7 +65,11 @@ vi.mock('@/server/utils/scheduleAfterResponse', () => ({
 
 const inTenant = <T>(fn: () => T) =>
   runWithTenantScope(
-    { session: {}, slug: 'a', tenantId: 'tenant-a' } as unknown as TenantScope,
+    {
+      session: {},
+      slug: 'a',
+      tenantId: '00000000-0000-4000-8000-000000000001',
+    } as unknown as TenantScope,
     fn,
   );
 
@@ -119,7 +123,7 @@ describe('connector.callTool telemetry delivery', () => {
     await settle();
 
     expect(sent()).toHaveLength(1);
-    expect(sent()[0].headers['x-lobe-trust-token']).toBe('signed-trust-token');
+    expect(sent()[0].headers['x-lobe-trust-token']).toBe('client-id.signed-trust-token');
     expect(sent()[0].headers).not.toHaveProperty('Authorization');
   });
 });

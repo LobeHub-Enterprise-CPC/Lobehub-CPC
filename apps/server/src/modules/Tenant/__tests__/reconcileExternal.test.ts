@@ -90,6 +90,10 @@ vi.mock('@lobechat/database/platform', async (original) => ({
     };
   },
 }));
+// Market only accepts a canonical UUID as the signed tenant id (the id Console generates).
+const BETA = '00000000-0000-4000-8000-0000000000b1';
+const ALPHA = '00000000-0000-4000-8000-0000000000a1';
+
 describe('operator reconciliation against a local HTTP provider', () => {
   let server: Server;
   let status: string | undefined;
@@ -106,17 +110,17 @@ describe('operator reconciliation against a local HTTP provider', () => {
       host: 'localhost',
       port: 5432,
       runtimeSecret: 'sealed',
-      runtimeUsername: tenantDbNames('beta').runtimeUsername,
-      schemaName: tenantDbNames('beta').schemaName,
+      runtimeUsername: tenantDbNames(BETA).runtimeUsername,
+      schemaName: tenantDbNames(BETA).schemaName,
       schemaVersion: [...SUPPORTED_TENANT_SCHEMA_VERSIONS][0],
       slug: 'beta',
       tls: { enabled: false },
     };
     state.work = {
       workId: 'sandbox:fixture',
-      tenantId: 'beta',
+      tenantId: BETA,
       kind: 'sandbox',
-      handle: JSON.stringify(['beta', 'onlyboxes', 'user', 'topic', null, 'remote-command']),
+      handle: JSON.stringify([BETA, 'onlyboxes', 'user', 'topic', null, 'remote-command']),
     };
     server = createServer((req, res) => {
       expect(req.method).toBe('GET');
@@ -166,14 +170,14 @@ describe('operator reconciliation against a local HTTP provider', () => {
   // tenant scope, so a receipt that does not name this work's tenant must not
   // be replayed as one.
   it.each([
-    ['another tenant', { tenantId: 'alpha', userId: 'user' }],
+    ['another tenant', { tenantId: ALPHA, userId: 'user' }],
     ['no tenant (a receipt from before identities carried it)', { userId: 'user' }],
   ])('refuses a market receipt whose identity names %s', async (_label, identity) => {
     state.work = {
       workId: 'sandbox:fixture',
-      tenantId: 'beta',
+      tenantId: BETA,
       kind: 'sandbox',
-      handle: JSON.stringify(['beta', 'market', 'user', 'topic', null, 'remote-command']),
+      handle: JSON.stringify([BETA, 'market', 'user', 'topic', null, 'remote-command']),
       context: { identity, sealedSpecification: 'sealed' },
     };
 
@@ -188,12 +192,12 @@ describe('operator reconciliation against a local HTTP provider', () => {
   // so the user is looked up again, in the work's own tenant, before signing.
   describe('re-signing a market receipt', () => {
     const marketWork = (
-      identity: Record<string, unknown> = { tenantId: 'beta', userId: 'user' },
+      identity: Record<string, unknown> = { tenantId: BETA, userId: 'user' },
     ) => ({
       context: { identity, sealedSpecification: 'sealed' },
-      handle: JSON.stringify(['beta', 'market', 'user', 'topic', null, 'remote-command']),
+      handle: JSON.stringify([BETA, 'market', 'user', 'topic', null, 'remote-command']),
       kind: 'sandbox',
-      tenantId: 'beta',
+      tenantId: BETA,
       workId: 'sandbox:fixture',
     });
 
@@ -215,7 +219,7 @@ describe('operator reconciliation against a local HTTP provider', () => {
       expect(state.market.payloads).toHaveLength(1);
       expect(state.market.payloads[0]).toMatchObject({
         email: 'owner@example.com',
-        tenantId: 'beta',
+        tenantId: BETA,
         userId: 'user',
       });
       expect(state.runBuildInTool).toHaveBeenCalledWith(
@@ -240,7 +244,7 @@ describe('operator reconciliation against a local HTTP provider', () => {
     it('never writes the email back into the receipt', async () => {
       await reconcileExternalWork('sandbox:fixture');
 
-      expect(state.work.context.identity).toEqual({ tenantId: 'beta', userId: 'user' });
+      expect(state.work.context.identity).toEqual({ tenantId: BETA, userId: 'user' });
       expect(JSON.stringify(state.write.mock.calls)).not.toContain('owner@example.com');
     });
 

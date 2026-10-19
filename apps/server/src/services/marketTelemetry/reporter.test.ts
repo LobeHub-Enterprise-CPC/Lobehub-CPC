@@ -43,6 +43,9 @@ vi.mock('@lobehub/market-sdk', () => ({
   createTrustedClientToken: vi.fn(() => `signed-token-${++tokenCounter}`),
 }));
 
+/** Market only accepts a canonical UUID as the signed tenant id. */
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
+
 const inTenant = <T>(tenantId: string, fn: () => T) =>
   runWithTenantScope({ session: {}, slug: tenantId, tenantId } as unknown as TenantScope, fn);
 
@@ -110,7 +113,7 @@ describe('reportMarketTelemetry: whether to report at all', () => {
     appEnv.TELEMETRY_DISABLED = true;
     const { deps, fetchMock } = makeDeps();
 
-    const result = await inTenant('acme', () =>
+    const result = await inTenant(TENANT_ID, () =>
       reportMarketTelemetry(report, { serverDB, telemetryEnabled: true, userId: 'u1' }, deps),
     );
 
@@ -122,7 +125,7 @@ describe('reportMarketTelemetry: whether to report at all', () => {
     userSettings.current = { general: { telemetry: false } };
     const { deps, fetchMock } = makeDeps();
 
-    const result = await inTenant('acme', () =>
+    const result = await inTenant(TENANT_ID, () =>
       reportMarketTelemetry(report, { serverDB, userId: 'u1' }, deps),
     );
 
@@ -134,7 +137,7 @@ describe('reportMarketTelemetry: whether to report at all', () => {
   it('does not report when the caller already knows the user opted out', async () => {
     const { deps, fetchMock } = makeDeps();
 
-    const result = await inTenant('acme', () =>
+    const result = await inTenant(TENANT_ID, () =>
       reportMarketTelemetry(report, { serverDB, telemetryEnabled: false, userId: 'u1' }, deps),
     );
 
@@ -147,7 +150,7 @@ describe('reportMarketTelemetry: whether to report at all', () => {
     userSettings.throws = true;
     const { deps, fetchMock } = makeDeps();
 
-    const result = await inTenant('acme', () =>
+    const result = await inTenant(TENANT_ID, () =>
       reportMarketTelemetry(report, { serverDB, userId: 'u1' }, deps),
     );
 
@@ -158,7 +161,9 @@ describe('reportMarketTelemetry: whether to report at all', () => {
   it('does not report for nobody', async () => {
     const { deps, fetchMock } = makeDeps();
 
-    const result = await inTenant('acme', () => reportMarketTelemetry(report, { serverDB }, deps));
+    const result = await inTenant(TENANT_ID, () =>
+      reportMarketTelemetry(report, { serverDB }, deps),
+    );
 
     expect(result).toMatchObject({ reason: 'no-user', status: 'skipped' });
     expect(fetchMock).not.toHaveBeenCalled();
@@ -169,18 +174,18 @@ describe('reportMarketTelemetry: in a tenant', () => {
   it('signs the tenant into a trust token and reports to the endpoint the report names', async () => {
     const { deps, fetchMock } = makeDeps(response(201));
 
-    const result = await inTenant('acme', () =>
+    const result = await inTenant(TENANT_ID, () =>
       reportMarketTelemetry(report, { serverDB, userId: 'u1' }, deps),
     );
 
     expect(result).toMatchObject({ duplicate: false, status: 'delivered' });
     expect(sentUrl(fetchMock)).toBe('https://market.test/api/v1/plugins/report/call');
-    expect(sentHeaders(fetchMock)['x-lobe-trust-token']).toBe('signed-token-1');
+    expect(sentHeaders(fetchMock)['x-lobe-trust-token']).toBe('client-id.signed-token-1');
     expect(sentHeaders(fetchMock)).not.toHaveProperty('Authorization');
     expect(JSON.parse(sentBody(fetchMock))).toEqual(report.body);
     expect(vi.mocked(createTrustedClientToken).mock.calls[0][0]).toMatchObject({
       email: 'ada@example.com',
-      tenantId: 'acme',
+      tenantId: TENANT_ID,
       userId: 'u1',
     });
   });
@@ -192,7 +197,7 @@ describe('reportMarketTelemetry: in a tenant', () => {
       { identifier: 'agent', resourceType: 'agent' },
     );
 
-    await inTenant('acme', () => reportMarketTelemetry(event, { serverDB, userId: 'u1' }, deps));
+    await inTenant(TENANT_ID, () => reportMarketTelemetry(event, { serverDB, userId: 'u1' }, deps));
 
     expect(sentUrl(fetchMock)).toBe('https://market.test/api/v1/telemetry/events');
   });
@@ -200,7 +205,7 @@ describe('reportMarketTelemetry: in a tenant', () => {
   it('never reports a tenant user under a bearer token, even when one is at hand', async () => {
     const { deps, fetchMock } = makeDeps();
 
-    await inTenant('acme', () =>
+    await inTenant(TENANT_ID, () =>
       reportMarketTelemetry(
         report,
         { marketAccessToken: 'oidc-user-token', serverDB, userId: 'u1' },
@@ -217,7 +222,7 @@ describe('reportMarketTelemetry: in a tenant', () => {
       userRow.current = undefined;
       const { deps, fetchMock } = makeDeps();
 
-      const result = await inTenant('acme', () =>
+      const result = await inTenant(TENANT_ID, () =>
         reportMarketTelemetry(
           report,
           { marketAccessToken: 'oidc-user-token', serverDB, userId: 'u1' },
@@ -246,7 +251,7 @@ describe('reportMarketTelemetry: in a tenant', () => {
       appEnv.MARKET_TRUSTED_CLIENT_SECRET = undefined;
       const { deps, fetchMock } = makeDeps();
 
-      const result = await inTenant('acme', () =>
+      const result = await inTenant(TENANT_ID, () =>
         reportMarketTelemetry(
           report,
           { marketAccessToken: 'm2m-token', serverDB, userId: 'u1' },
@@ -261,7 +266,7 @@ describe('reportMarketTelemetry: in a tenant', () => {
     it('does not report for a synthetic eval user', async () => {
       const { deps, fetchMock } = makeDeps();
 
-      const result = await inTenant('acme', () =>
+      const result = await inTenant(TENANT_ID, () =>
         reportMarketTelemetry(report, { serverDB, userId: 'eval_abc' }, deps),
       );
 
@@ -305,7 +310,7 @@ describe('reportMarketTelemetry: delivery', () => {
   it('retries a network failure with the very same event', async () => {
     const { deps, fetchMock } = makeDeps(new TypeError('fetch failed'), response(201));
 
-    const result = await inTenant('acme', () =>
+    const result = await inTenant(TENANT_ID, () =>
       reportMarketTelemetry(report, { serverDB, userId: 'u1' }, deps),
     );
 
@@ -318,10 +323,12 @@ describe('reportMarketTelemetry: delivery', () => {
   it('issues a fresh token for every send, and the token is not part of the event', async () => {
     const { deps, fetchMock } = makeDeps(response(503), response(201));
 
-    await inTenant('acme', () => reportMarketTelemetry(report, { serverDB, userId: 'u1' }, deps));
+    await inTenant(TENANT_ID, () =>
+      reportMarketTelemetry(report, { serverDB, userId: 'u1' }, deps),
+    );
 
-    expect(sentHeaders(fetchMock, 0)['x-lobe-trust-token']).toBe('signed-token-1');
-    expect(sentHeaders(fetchMock, 1)['x-lobe-trust-token']).toBe('signed-token-2');
+    expect(sentHeaders(fetchMock, 0)['x-lobe-trust-token']).toBe('client-id.signed-token-1');
+    expect(sentHeaders(fetchMock, 1)['x-lobe-trust-token']).toBe('client-id.signed-token-2');
     expect(sentBody(fetchMock, 0)).not.toContain('signed-token');
     expect(JSON.stringify(report)).not.toContain('signed-token');
   });
@@ -329,7 +336,7 @@ describe('reportMarketTelemetry: delivery', () => {
   it.each([429, 500, 502, 503])('retries on %s', async (status) => {
     const { deps, fetchMock } = makeDeps(response(status, {}), response(200, { duplicate: true }));
 
-    const result = await inTenant('acme', () =>
+    const result = await inTenant(TENANT_ID, () =>
       reportMarketTelemetry(report, { serverDB, userId: 'u1' }, deps),
     );
 
@@ -346,7 +353,7 @@ describe('reportMarketTelemetry: delivery', () => {
   ])('does not retry %s', async (status, code) => {
     const { deps, fetchMock } = makeDeps(response(status, { error: { code, message: 'no' } }));
 
-    const result = await inTenant('acme', () =>
+    const result = await inTenant(TENANT_ID, () =>
       reportMarketTelemetry(report, { serverDB, userId: 'u1' }, deps),
     );
 
@@ -362,7 +369,7 @@ describe('reportMarketTelemetry: delivery', () => {
       response(503),
     );
 
-    const result = await inTenant('acme', () =>
+    const result = await inTenant(TENANT_ID, () =>
       reportMarketTelemetry(report, { serverDB, userId: 'u1' }, deps),
     );
 
@@ -373,7 +380,7 @@ describe('reportMarketTelemetry: delivery', () => {
   it('reports a duplicate acknowledgement as delivered', async () => {
     const { deps } = makeDeps(response(200, { duplicate: true, success: true }));
 
-    const result = await inTenant('acme', () =>
+    const result = await inTenant(TENANT_ID, () =>
       reportMarketTelemetry(report, { serverDB, userId: 'u1' }, deps),
     );
 
@@ -386,7 +393,7 @@ describe('reportMarketTelemetry: delivery', () => {
     });
     const { deps, fetchMock } = makeDeps();
 
-    const result = await inTenant('acme', () =>
+    const result = await inTenant(TENANT_ID, () =>
       reportMarketTelemetry(report, { serverDB, userId: 'u1' }, deps),
     );
 
@@ -402,7 +409,7 @@ describe('reportMarketTelemetry: delivery', () => {
     });
     const { deps, fetchMock } = makeDeps();
 
-    const result = await inTenant('acme', () =>
+    const result = await inTenant(TENANT_ID, () =>
       reportMarketTelemetry(
         report,
         { marketAccessToken: 'oidc-user-token', serverDB, userId: 'u1' },
@@ -418,7 +425,7 @@ describe('reportMarketTelemetry: delivery', () => {
     appEnv.MARKET_TRUSTED_CLIENT_ID = undefined;
     const { deps, fetchMock } = makeDeps();
 
-    const result = await inTenant('acme', () =>
+    const result = await inTenant(TENANT_ID, () =>
       reportMarketTelemetry(report, { serverDB, userId: 'u1' }, deps),
     );
 
