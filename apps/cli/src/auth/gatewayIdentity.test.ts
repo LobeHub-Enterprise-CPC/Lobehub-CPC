@@ -31,6 +31,8 @@ const identity = (overrides: Partial<GatewayIdentityResponse> = {}): GatewayIden
     accepted_version: response.acceptedVersion,
     authorization_id: response.authorizationId,
     exp: Math.floor(response.ticketExpiresAt / 1000),
+    connection_id: 'connection-1',
+    device_id: 'device-1',
   };
   return {
     ...response,
@@ -41,13 +43,31 @@ const reply = (data = identity()) =>
   Response.json(data, {
     headers: { 'X-LobeHub-Gateway-Tenancy': '1', 'X-LobeHub-Tenant-Id': data.tenantId },
   });
+/** What Work signs to attest enrollment rights: not a ticket, it only pins tenant and principal. */
+const attestation = (principal: { kind: 'user' | 'workspace'; id: string }) =>
+  `TEST.${Buffer.from(
+    JSON.stringify({
+      iss: 'urn:lobehub:gateway-session',
+      purpose: 'gateway-enrollment',
+      aud: 'urn:lobehub:gateway:device',
+      tid: 'tenant-A',
+      sub: 'same-sub',
+      principal,
+      accepted_version: 7,
+      exp: Math.floor(Date.now() / 1000) + 300,
+    }),
+  ).toString('base64url')}.TEST`;
 const auth = {
   serverUrl: 'https://example.test/t/a',
   token: 'original-api-key',
   tokenType: 'apiKey' as const,
   userId: 'same-sub',
 };
-const input = () => ({ signal: new AbortController().signal });
+const input = () => ({
+  connectionId: 'connection-1',
+  deviceId: 'device-1',
+  signal: new AbortController().signal,
+});
 afterEach(() => vi.restoreAllMocks());
 
 describe('CLI original-source gateway identity', () => {
@@ -148,8 +168,7 @@ describe('CLI original-source gateway identity', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => reply(workspace));
     const provider = createGatewayIdentityProvider(auth, {
       workspaceId: 'ws-same',
-      initialTicket: identity({ ...workspace, authorizationId: 'browser-session-source' })
-        .gatewayTicket,
+      initialTicket: attestation({ kind: 'workspace', id: 'ws-same' }),
     });
     await provider(input());
     await provider(input());
@@ -162,7 +181,9 @@ describe('CLI original-source gateway identity', () => {
       renewAuthorizationId: 'workspace-source',
     });
     await expect(
-      createGatewayIdentityProvider(auth, { initialTicket: workspace.gatewayTicket })(input()),
+      createGatewayIdentityProvider(auth, {
+        initialTicket: attestation({ kind: 'workspace', id: 'ws-same' }),
+      })(input()),
     ).rejects.toThrow('GATEWAY_IDENTITY_CHANGED');
   });
 });

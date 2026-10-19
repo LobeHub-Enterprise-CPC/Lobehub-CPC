@@ -44,6 +44,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('owning agent provider lifecycle', () => {
+  it('asks the provider for the connection id it connects with and never for a device', async () => {
+    const provider = vi.fn().mockRejectedValue(new Error('SOURCE_UNVERIFIABLE'));
+    const client = create(provider);
+    client.on('auth_failed', vi.fn());
+    client.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    const input = provider.mock.calls[0][0];
+    expect(input.connectionId).toMatch(/^[\da-f-]{36}$/i);
+    expect(input).not.toHaveProperty('deviceId');
+  });
   it('terminates an unverifiable provider without retry', async () => {
     const provider = vi.fn().mockRejectedValue(new Error('SOURCE_UNVERIFIABLE'));
     const client = create(provider);

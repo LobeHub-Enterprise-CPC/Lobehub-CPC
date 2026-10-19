@@ -213,7 +213,7 @@ export class AgentStreamClient extends TypedEmitter {
 
     try {
       const identity = this.identityProvider
-        ? await this.identityProvider({
+        ? await this.askIdentity({
             signal: controller.signal,
             renewAuthorizationId: this.authority?.identity.authorizationId,
           })
@@ -245,7 +245,7 @@ export class AgentStreamClient extends TypedEmitter {
       this.ws = ws;
       this.renewal = new GatewayIdentityRenewal({
         authority: this.authority,
-        provider: this.identityProvider,
+        provider: this.identityProvider && ((input) => this.askIdentity(input)),
         isCurrent: () => this.ws === ws && epoch === this.dialEpoch && !controller.signal.aborted,
         sendAuth: (next) =>
           this.sendMessage({
@@ -281,6 +281,11 @@ export class AgentStreamClient extends TypedEmitter {
       if (this.autoReconnect && !this.sessionEnded) this.scheduleReconnect();
       else this.emit('disconnected');
     }
+  }
+
+  /** Offer Work this client's own connection id to sign into the ticket (the URL repeats it as a hint). */
+  private askIdentity(input: Parameters<NonNullable<typeof this.identityProvider>>[0]) {
+    return this.identityProvider!({ ...input, connectionId: this.connectionId });
   }
 
   private buildWsUrl(): string {

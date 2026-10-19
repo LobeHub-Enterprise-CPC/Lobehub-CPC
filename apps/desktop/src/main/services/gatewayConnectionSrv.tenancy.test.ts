@@ -67,7 +67,10 @@ describe('desktop workspace sharing rejection', () => {
     const set = vi.fn();
     const message = zhCnCommon['gateway.workspaceAdminRequired'];
     const service = new GatewayConnectionService({
-      storeManager: { get: vi.fn(), set },
+      storeManager: {
+        get: vi.fn((key: string) => (key === 'gatewayDeviceId' ? 'install' : undefined)),
+        set,
+      },
       i18n: { ns: () => () => message },
     } as unknown as App);
     (service as any).client = {};
@@ -95,7 +98,9 @@ describe('desktop pending connection generation', () => {
           release = resolve;
         }),
     );
-    service.setIdentityProviderFactory(async () => provider as any);
+    service.setIdentityProviderFactory(
+      async () => Object.assign(provider, { subject: 'same-sub' }) as any,
+    );
     const pending = service.connect();
     await vi.waitFor(() => expect(release).toBeDefined());
     await service.disconnect();
@@ -131,5 +136,55 @@ describe('desktop pending workspace device identity', () => {
     await expect(pending).rejects.toThrow();
     expect(socketState.constructs).toBe(0);
     expect((service as any).workspaceClients.size).toBe(0);
+  });
+});
+
+describe('desktop gateway identity names the device', () => {
+  const connectService = () => {
+    const service = new GatewayConnectionService({
+      browserManager: { broadcastToAllWindows: vi.fn() },
+      storeManager: { get: vi.fn(), set: vi.fn() },
+    } as unknown as App);
+    vi.spyOn(service as any, 'resolveDeviceIdentity').mockResolvedValue({
+      deviceId: 'device-derived',
+      identitySource: 'machine-id',
+    });
+    vi.spyOn(service as any, 'resolveWorkspaceDeviceIdentity').mockResolvedValue({
+      deviceId: 'workspace-device-derived',
+      identitySource: 'machine-id',
+    });
+    vi.spyOn(service as any, 'getConnectionId').mockReturnValue('connection-of-this-install');
+    vi.spyOn(service as any, 'getGatewayUrl').mockReturnValue('https://gateway.invalid');
+    return service;
+  };
+  const identity = {
+    gatewayTicket: 'TEST-TICKET',
+    userId: 'same-sub',
+  };
+
+  it('derives the personal device before the first ticket and asks for exactly that pair', async () => {
+    const service = connectService();
+    const provider = Object.assign(
+      vi.fn(async () => identity),
+      { subject: 'same-sub' },
+    );
+    service.setIdentityProviderFactory(async () => provider as never);
+    await expect(service.connect()).resolves.toMatchObject({ success: true });
+    expect((service as any).resolveDeviceIdentity).toHaveBeenCalledWith('same-sub');
+    expect(provider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: 'connection-of-this-install',
+        deviceId: 'device-derived',
+      }),
+    );
+  });
+
+  it('refuses a login whose provider cannot say whose account it is', async () => {
+    const service = connectService();
+    service.setIdentityProviderFactory(async () => vi.fn() as never);
+    await expect(service.connect()).resolves.toMatchObject({
+      error: 'GATEWAY_LOGIN_CONFIRMATION_REQUIRED',
+      success: false,
+    });
   });
 });

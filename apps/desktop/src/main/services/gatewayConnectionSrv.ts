@@ -77,7 +77,7 @@ export default class GatewayConnectionService extends ServiceModule {
   private identityProviderFactory?: (
     workspaceId?: string,
     initialTicket?: string,
-  ) => Promise<GatewayIdentityProvider>;
+  ) => Promise<GatewayIdentityProvider & { subject?: string }>;
 
   setIdentityProviderFactory(
     factory: NonNullable<GatewayConnectionService['identityProviderFactory']>,
@@ -306,7 +306,16 @@ export default class GatewayConnectionService extends ServiceModule {
       }
       if (!this.identityProviderFactory) throw new Error('GATEWAY_LOGIN_CONFIRMATION_REQUIRED');
       const provider = await this.identityProviderFactory();
-      let first = await provider({ signal });
+      // The ticket names the device, so the device identity is settled first;
+      // the provider's owner is the account the committed login belongs to.
+      if (!provider.subject) throw new Error('GATEWAY_LOGIN_CONFIRMATION_REQUIRED');
+      const identity = await this.resolveDeviceIdentity(provider.subject);
+      if (!current()) return { error: 'GATEWAY_IDENTITY_CHANGED', success: false };
+      let first = await provider({
+        connectionId: this.getConnectionId(),
+        deviceId: identity.deviceId,
+        signal,
+      });
       if (!current()) return { error: 'GATEWAY_IDENTITY_CHANGED', success: false };
       const identityProvider: GatewayIdentityProvider = async (input) => {
         if (!current()) throw new Error('GATEWAY_IDENTITY_CHANGED');
@@ -327,8 +336,6 @@ export default class GatewayConnectionService extends ServiceModule {
       // registry before opening the WS, so the device row exists by the time the
       // gateway reports it online.
       if (userId) {
-        const identity = await this.resolveDeviceIdentity(userId);
-        if (!current()) return { success: false };
         await this.deviceRegistrar?.({
           architecture: os.arch(),
           deviceId: identity.deviceId,
@@ -535,10 +542,17 @@ export default class GatewayConnectionService extends ServiceModule {
     };
     let provider: GatewayIdentityProvider;
     let first: Awaited<ReturnType<GatewayIdentityProvider>> | undefined;
+    // The ticket names the device, so the workspace device identity comes first.
+    const identity = await this.resolveWorkspaceDeviceIdentity(workspaceId);
+    assertCurrent();
     try {
       provider = await this.identityProviderFactory(workspaceId, token);
       assertCurrent();
-      first = await provider({ signal });
+      first = await provider({
+        connectionId: this.getConnectionId(),
+        deviceId: identity.deviceId,
+        signal,
+      });
       assertCurrent();
     } catch (error) {
       if (this.workspaceDials.get(workspaceId) === dial) this.workspaceDials.delete(workspaceId);
@@ -558,9 +572,6 @@ export default class GatewayConnectionService extends ServiceModule {
       }
       return provider(input);
     };
-
-    const identity = await this.resolveWorkspaceDeviceIdentity(workspaceId);
-    assertCurrent();
 
     const { GatewayClient } = await import('@lobechat/device-gateway-client');
     assertCurrent();

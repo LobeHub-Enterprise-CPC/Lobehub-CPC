@@ -75,13 +75,25 @@ describe('CLI gateway transport through local execution', () => {
       }
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(chunk);
-      receivedIdentityBodies.push(JSON.parse(Buffer.concat(chunks).toString()));
+      const asked = JSON.parse(Buffer.concat(chunks).toString());
+      receivedIdentityBodies.push(asked);
+      // As Work does: sign the device and connection the client asked for.
+      const signed = {
+        ...claims,
+        connection_id: asked.connectionId,
+        device_id: asked.deviceId,
+      };
       res.writeHead(200, {
         'Content-Type': 'application/json',
         'X-LobeHub-Gateway-Tenancy': '1',
         'X-LobeHub-Tenant-Id': identity.tenantId,
       });
-      res.end(JSON.stringify(identity));
+      res.end(
+        JSON.stringify({
+          ...identity,
+          gatewayTicket: `TEST.${Buffer.from(JSON.stringify(signed)).toString('base64url')}.TEST`,
+        }),
+      );
     });
     gateway = new WebSocketServer({ server, path: '/tenant/v1/ws' });
     server.listen(0, '127.0.0.1');

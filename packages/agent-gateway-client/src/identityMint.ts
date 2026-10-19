@@ -2,7 +2,7 @@ import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 
 import protocol from '../../../contracts/gateway-tenancy/v1/protocol.json';
 import type { GatewayIdentityProvider, GatewayIdentityResponse } from '../../types/src/gateway';
-import { gatewayIdentityHint } from './tenancy';
+import { gatewayEnrollmentHint, gatewayIdentityHint, gatewayTicketClaims } from './tenancy';
 
 const IDENTITY_BODY_LIMIT = 64 * 1024;
 const IDENTITY_TIMEOUT_MS = 15_000;
@@ -88,18 +88,26 @@ export function createGatewayIdentityMinter(
   const readJson = options.readJson ?? readJsonLimited;
   let original: GatewayIdentityResponse | undefined;
   const enrollment = options.initialTicket
-    ? gatewayIdentityHint(options.initialTicket, audience, options.operationId)
+    ? gatewayEnrollmentHint(options.initialTicket, audience)
     : undefined;
   let inFlight: Promise<GatewayIdentityResponse> | undefined;
 
-  const validate = (identity: GatewayIdentityResponse) => {
+  const validate = (
+    identity: GatewayIdentityResponse,
+    asked: { connectionId?: string; deviceId?: string },
+  ) => {
     const hint = gatewayIdentityHint(identity.gatewayTicket, audience, options.operationId);
+    // Work signs the device and connection it was asked for; a ticket naming
+    // anything else is not the one requested.
+    const signed = gatewayTicketClaims(identity.gatewayTicket);
     const principal =
       options.workspaceId && audience.endsWith(':device')
         ? { kind: 'workspace', id: options.workspaceId }
         : { kind: 'user', id: userId };
     if (
       identity.tenancyProtocol !== 1 ||
+      signed.deviceId !== asked.deviceId ||
+      signed.connectionId !== asked.connectionId ||
       identity.userId !== userId ||
       (options.tenantId !== undefined && identity.tenantId !== options.tenantId) ||
       (enrollment &&
@@ -130,7 +138,7 @@ export function createGatewayIdentityMinter(
     return identity;
   };
 
-  const mint = async (signal: AbortSignal) => {
+  const mint = async (signal: AbortSignal, asked: { connectionId?: string; deviceId?: string }) => {
     // A synchronous host check must not defer the request by a microtask.
     const current = assertCurrent(signal);
     if (current) await current;
@@ -140,6 +148,8 @@ export function createGatewayIdentityMinter(
         audience,
         ...(options.operationId ? { operationId: options.operationId } : {}),
         ...(options.workspaceId ? { workspaceId: options.workspaceId } : {}),
+        ...(asked.deviceId ? { deviceId: asked.deviceId } : {}),
+        ...(asked.connectionId ? { connectionId: asked.connectionId } : {}),
         ...(original ? { renewAuthorizationId: original.authorizationId } : {}),
       }),
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -170,10 +180,15 @@ export function createGatewayIdentityMinter(
       response.headers.get('X-LobeHub-Tenant-Id') !== identity.tenantId
     )
       throw new Error('GATEWAY_TENANCY_UNSUPPORTED');
-    return validate(identity);
+    return validate(identity, asked);
   };
 
-  return async ({ signal }) => {
+  return async ({ connectionId, deviceId, signal }) => {
+    // A device ticket names the device and the socket; an agent ticket names no
+    // device and a socket only when the client has one to offer.
+    const device = audience.endsWith(':device');
+    if (device && (!deviceId || !connectionId)) throw new Error('INVALID_GATEWAY_MESSAGE');
+    const asked = { connectionId, ...(device ? { deviceId } : {}) };
     // Concurrent renewals must not overwrite this provider's original binding.
     const before = assertCurrent(signal);
     if (before) await before;
@@ -181,7 +196,7 @@ export function createGatewayIdentityMinter(
       await inFlight.catch(() => undefined);
       await assertCurrent(signal);
     }
-    const request = mint(signal);
+    const request = mint(signal, asked);
     inFlight = request;
     try {
       return await request;

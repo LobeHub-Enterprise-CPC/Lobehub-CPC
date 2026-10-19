@@ -35,6 +35,8 @@ const identity = (tenantId = 'tenant-A', authorizationId = 'source-A'): GatewayI
     capabilities: ['device:connect', 'device:respond'] as GatewayIdentityResponse['capabilities'],
     accepted_version: 7,
     authorization_id: authorizationId,
+    connection_id: 'connection-1',
+    device_id: 'device-1',
     exp: Math.floor(Date.now() / 1000) + 300,
   };
   return {
@@ -54,7 +56,11 @@ const reply = (data = identity()) =>
   Response.json(data, {
     headers: { 'X-LobeHub-Gateway-Tenancy': '1', 'X-LobeHub-Tenant-Id': data.tenantId },
   });
-const input = () => ({ signal: new AbortController().signal });
+const input = () => ({
+  connectionId: 'connection-1',
+  deviceId: 'device-1',
+  signal: new AbortController().signal,
+});
 afterEach(() => vi.restoreAllMocks());
 
 describe('desktop committed login identity provider', () => {
@@ -75,6 +81,27 @@ describe('desktop committed login identity provider', () => {
       }),
     ).rejects.toThrow('GATEWAY_LOGIN_CONFIRMATION_REQUIRED');
     expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('names the account of the committed login so the device can be derived before the ticket', async () => {
+    const provider = await createDesktopGatewayIdentityProvider({
+      getConfig: async () => config(),
+      getAccessToken: async () => 'oidc',
+      isPaused: () => false,
+    });
+    expect(provider.subject).toBe('same-sub');
+  });
+  it('asks Work to sign the device and connection of this install', async () => {
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => reply());
+    const provider = await createDesktopGatewayIdentityProvider({
+      getConfig: async () => config(),
+      getAccessToken: async () => 'oidc',
+      isPaused: () => false,
+    });
+    await provider(input());
+    expect(JSON.parse(fetcher.mock.calls[0][1]!.body as string)).toMatchObject({
+      connectionId: 'connection-1',
+      deviceId: 'device-1',
+    });
   });
   it('captures original OIDC credential and sends renewAuthorizationId on renewal', async () => {
     const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => reply());

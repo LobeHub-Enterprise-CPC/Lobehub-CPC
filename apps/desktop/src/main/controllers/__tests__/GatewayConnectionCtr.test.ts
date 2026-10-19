@@ -29,14 +29,17 @@ vi.mock('@/modules/tenantAuth/gatewayIdentity', () => ({
     } catch {
       userId = '';
     }
-    return async () => ({
-      tenancyProtocol: 1,
-      userId,
-      tenantId: 'tenant-A',
-      gatewayTicket: 'dedicated-ticket',
-      authorizationId: 'source-A',
-      acceptedVersion: 7,
-    });
+    return Object.assign(
+      async () => ({
+        tenancyProtocol: 1,
+        userId,
+        tenantId: 'tenant-A',
+        gatewayTicket: 'dedicated-ticket',
+        authorizationId: 'source-A',
+        acceptedVersion: 7,
+      }),
+      { subject: 'mock-user' },
+    );
   },
 }));
 
@@ -428,7 +431,8 @@ describe('GatewayConnectionCtr', () => {
       const options = MockGatewayClient.lastOptions;
       expect(options).not.toBeNull();
       expect(options.token).toBe('dedicated-ticket');
-      expect(options.deviceId).toBe('stored-device-id');
+      expect(options.deviceId).toBeTruthy(); // derived from the account, before the ticket
+      expect(options.connectionId).toBe('stored-device-id');
       expect(options.gatewayUrl).toBe('https://device-gateway.lobehub.com');
       expect(options.logger).toBeDefined();
       expect(options.userAgent).toBe('LobeHub Desktop/1.2.3');

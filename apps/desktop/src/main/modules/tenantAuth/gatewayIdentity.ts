@@ -15,7 +15,7 @@ export async function createDesktopGatewayIdentityProvider(
   host: IdentityHost,
   workspaceId?: string,
   initialTicket?: string,
-): Promise<GatewayIdentityProvider> {
+): Promise<GatewayIdentityProvider & { subject: string }> {
   const config = await host.getConfig();
   const tenant = config.cloudTenant;
   const token = await host.getAccessToken();
@@ -36,7 +36,7 @@ export async function createDesktopGatewayIdentityProvider(
     )
       throw new Error('GATEWAY_IDENTITY_CHANGED');
   };
-  return createGatewayIdentityMinter({
+  const minter = createGatewayIdentityMinter({
     assertCurrent,
     entryUrl: originalTenant.entryUrl,
     fetch: fetchNoRedirect,
@@ -47,4 +47,7 @@ export async function createDesktopGatewayIdentityProvider(
     userId: originalTenant.identity.subject,
     workspaceId,
   });
+  // The account this login belongs to: the device identity is derived from it
+  // before the first ticket, which has to name that device.
+  return Object.assign(minter, { subject: originalTenant.identity.subject });
 }

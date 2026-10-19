@@ -50,6 +50,23 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 describe('owning device identity provider lifecycle', () => {
+  it('tells the identity provider which device and connection it is asking for', async () => {
+    const provider = vi.fn(async () => identity());
+    const client = new GatewayClient({
+      connectionId: 'connection-persisted',
+      deviceId: 'device-derived',
+      gatewayUrl: 'https://gw.invalid',
+      identityProvider: provider,
+      token: 'TEST-ONLY',
+      userId: 'test-user',
+    });
+    clients.push(client);
+    await client.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(provider).toHaveBeenCalledWith(
+      expect.objectContaining({ connectionId: 'connection-persisted', deviceId: 'device-derived' }),
+    );
+  });
   it.each([
     'SOURCE_UNVERIFIABLE',
     'UNAUTHORIZED',
@@ -177,6 +194,10 @@ describe('owning device identity provider lifecycle', () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(provider).toHaveBeenCalledTimes(2);
     expect(provider.mock.calls[1][0].renewAuthorizationId).toBe(first.authorizationId);
+    expect(provider.mock.calls[1][0]).toMatchObject({
+      connectionId: client.currentConnectionId,
+      deviceId: client.currentDeviceId,
+    });
     expect(sockets).toHaveLength(1);
     expect(JSON.parse(socket.send.mock.calls.at(-1)[0])).toMatchObject({
       type: 'auth',

@@ -62,7 +62,12 @@ export {
   llmRelayChannelScope,
 } from './protocol';
 export type { GatewayCommandBinding, GatewayConfirmation } from './tenancy';
-export { gatewayIdentityHint, strictGatewayUrl } from './tenancy';
+export {
+  gatewayEnrollmentHint,
+  gatewayIdentityHint,
+  gatewayTicketClaims,
+  strictGatewayUrl,
+} from './tenancy';
 export { isSessionTerminalEvent } from './terminalEvent';
 export type {
   AgentInterventionInteractionKind,

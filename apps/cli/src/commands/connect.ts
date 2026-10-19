@@ -1,7 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 
-import type { GatewayIdentityResponse } from '@lobechat/agent-gateway-client';
+import type {
+  GatewayIdentityProvider,
+  GatewayIdentityResponse,
+} from '@lobechat/agent-gateway-client';
 import {
   defaultGetLocalFilePreview,
   defaultGetProjectFileIndex,
@@ -388,9 +392,13 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
     pickAuthSource(options).kind === source.kind &&
     pickAuthSource(options).token === source.token;
   const provider = createGatewayIdentityProvider(auth, { workspaceId, isCurrent });
+  // The device and connection the ticket will name: Work signs exactly these,
+  // and the client below connects as the same pair.
+  const deviceId = identity?.deviceId ?? options.deviceId ?? randomUUID();
+  const connectionId = loadOrCreateConnectionId();
   let initial: GatewayIdentityResponse | undefined;
   try {
-    initial = await provider({ signal: new AbortController().signal });
+    initial = await provider({ connectionId, deviceId, signal: new AbortController().signal });
   } catch (err) {
     log.error(
       workspaceId && (err as { code?: string }).code === 'FORBIDDEN'
@@ -401,7 +409,7 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
     return;
   }
   const enrollmentScope = JSON.stringify([auth.serverUrl, initial.tenantId, initial.userId]);
-  const identityProvider = async (input: { signal: AbortSignal }) => {
+  const identityProvider = async (input: Parameters<GatewayIdentityProvider>[0]) => {
     input.signal.throwIfAborted();
     if (!isCurrent()) throw new Error('GATEWAY_IDENTITY_CHANGED');
     if (initial) {
@@ -418,8 +426,8 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
 
   const client = new GatewayClient({
     channel,
-    connectionId: loadOrCreateConnectionId(),
-    deviceId: identity?.deviceId ?? options.deviceId,
+    connectionId,
+    deviceId,
     gatewayUrl: resolvedGatewayUrl,
     identityProvider,
     tunnel: false,
@@ -619,9 +627,16 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
       initialTicket: initialToken,
       isCurrent,
     });
+    // Same derivation as `lh connect --workspace` so the enroll RPC and a manual
+    // workspace enrollment on this machine resolve to one workspace device.
+    const wsIdentity = resolveWorkspaceDeviceIdentity(wsId, undefined, loadOrCreateConnectionId());
     let first: GatewayIdentityResponse | undefined;
     try {
-      first = await provider({ signal: dial.signal });
+      first = await provider({
+        connectionId: loadOrCreateConnectionId(),
+        deviceId: wsIdentity.deviceId,
+        signal: dial.signal,
+      });
     } catch (err) {
       if (workspaceDials.get(wsId) === dial) workspaceDials.delete(wsId);
       dial.abort();
@@ -630,7 +645,7 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
       throw err;
     }
     if (!isCurrent() || dial.signal.aborted) throw new Error('GATEWAY_IDENTITY_CHANGED');
-    const shareProvider = async (input: { signal: AbortSignal }) => {
+    const shareProvider = async (input: Parameters<GatewayIdentityProvider>[0]) => {
       input.signal.throwIfAborted();
       dial.signal.throwIfAborted();
       if (!isCurrent()) throw new Error('GATEWAY_IDENTITY_CHANGED');
@@ -641,10 +656,6 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
       }
       return provider(input);
     };
-
-    // Same derivation as `lh connect --workspace` so the enroll RPC and a manual
-    // workspace enrollment on this machine resolve to one workspace device.
-    const wsIdentity = resolveWorkspaceDeviceIdentity(wsId, undefined, loadOrCreateConnectionId());
 
     const wsClient = new GatewayClient({
       channel,

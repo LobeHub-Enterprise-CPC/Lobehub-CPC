@@ -311,7 +311,7 @@ export class GatewayClient extends EventEmitter {
       if (this.tokenType && this.tokenType !== 'jwt' && !this.identityProvider)
         throw new Error('SOURCE_UNVERIFIABLE');
       const identity = this.identityProvider
-        ? await this.identityProvider({
+        ? await this.askIdentity({
             signal: controller.signal,
             renewAuthorizationId: this.authority?.identity.authorizationId,
           })
@@ -350,7 +350,7 @@ export class GatewayClient extends EventEmitter {
       this.ws = ws;
       this.renewal = new GatewayIdentityRenewal({
         authority: this.authority,
-        provider: this.identityProvider,
+        provider: this.identityProvider && ((input) => this.askIdentity(input)),
         isCurrent: () => this.ws === ws && epoch === this.dialEpoch && !controller.signal.aborted,
         sendAuth: (next) =>
           this.sendMessage({
@@ -388,6 +388,15 @@ export class GatewayClient extends EventEmitter {
       if (this.autoReconnect) this.scheduleReconnect();
       else this.emit('disconnected');
     }
+  }
+
+  /** Work signs this client's own device and connection into the ticket; the URL values are only hints. */
+  private askIdentity(input: Parameters<GatewayIdentityProvider>[0]) {
+    return this.identityProvider!({
+      ...input,
+      connectionId: this.connectionId,
+      deviceId: this.deviceId,
+    });
   }
 
   private buildWsUrl(): string {

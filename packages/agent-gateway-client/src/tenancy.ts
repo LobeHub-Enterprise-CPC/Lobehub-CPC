@@ -49,6 +49,54 @@ export const strictGatewayUrl = (base: string, path: string) => {
   return url;
 };
 
+const decodeClaims = (ticket: string): Record<string, any> => {
+  const encoded = ticket.split('.')[1]?.replaceAll('-', '+').replaceAll('_', '/');
+  return JSON.parse(atob(encoded));
+};
+
+/** What the signed ticket says about the device and connection; a hint to compare, never an authority. */
+export const gatewayTicketClaims = (
+  ticket: string,
+): { connectionId?: string; deviceId?: string } => {
+  try {
+    const claims = decodeClaims(ticket);
+    return {
+      ...(typeof claims.device_id === 'string' ? { deviceId: claims.device_id } : {}),
+      ...(typeof claims.connection_id === 'string' ? { connectionId: claims.connection_id } : {}),
+    };
+  } catch {
+    return fail('GATEWAY_TENANCY_UNSUPPORTED');
+  }
+};
+
+/**
+ * What a workspace-enrollment attestation pins: the tenant and workspace the
+ * following identity exchange has to return. It is not a ticket (its purpose is
+ * `gateway-enrollment`) and nothing here is verified, as with every hint.
+ */
+export const gatewayEnrollmentHint = (
+  attestation: string,
+  audience: GatewayAudience,
+): { principal: GatewayIdentityResponse['principal']; tenantId: string; userId: string } => {
+  try {
+    const claims = decodeClaims(attestation);
+    if (
+      claims.iss !== 'urn:lobehub:gateway-session' ||
+      claims.purpose !== 'gateway-enrollment' ||
+      claims.aud !== audience ||
+      !text(claims.tid) ||
+      !text(claims.sub) ||
+      !['user', 'workspace'].includes(claims.principal?.kind) ||
+      !text(claims.principal?.id) ||
+      !positive(claims.exp)
+    )
+      return fail();
+    return { principal: claims.principal, tenantId: claims.tid, userId: claims.sub };
+  } catch {
+    return fail('GATEWAY_TENANCY_UNSUPPORTED');
+  }
+};
+
 /** Claims here are connection hints only. Work and the gateway verify the actual signed ticket. */
 export const gatewayIdentityHint = (
   ticket: string,
@@ -56,8 +104,7 @@ export const gatewayIdentityHint = (
   operationId?: string,
 ): GatewayIdentityResponse => {
   try {
-    const encoded = ticket.split('.')[1]?.replaceAll('-', '+').replaceAll('_', '/');
-    const claims = JSON.parse(atob(encoded));
+    const claims = decodeClaims(ticket);
     if (
       claims.iss !== 'urn:lobehub:gateway-session' ||
       claims.purpose !== 'gateway-connect' ||
