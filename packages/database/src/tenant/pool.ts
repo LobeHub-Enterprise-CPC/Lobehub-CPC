@@ -141,7 +141,11 @@ export class TenantPoolManager {
       throw new TenantDatabaseError('TENANT_UNAVAILABLE', 'stale-connection-version');
     if (!entry) {
       this.evictIdlePools();
-      if (this.entries.size >= this.maxPools)
+      // Pools being evicted or drained still hold sockets until they close, but they are not
+      // usable capacity: counting them as active made the first request of a cold tenant fail
+      // while an idle pool was being closed. They get their own bound of the same size.
+      const active = this.activeCount();
+      if (active >= this.maxPools || this.entries.size - active > this.maxPools)
         throw new TenantDatabaseError('TENANT_UNAVAILABLE', 'capacity');
       const { connection } = config;
       const pool = this.createPool({
@@ -236,13 +240,17 @@ export class TenantPoolManager {
     }
   }
 
+  private activeCount() {
+    return [...this.entries.values()].filter((entry) => !entry.retired).length;
+  }
+
   private evictIdlePools(makeRoom = true) {
     const idle = [...this.entries.entries()]
       .filter(([, entry]) => !entry.retired && entry.leases === 0)
       .sort(([, a], [, b]) => a.lastUsedAt - b.lastUsedAt);
     for (const [key, entry] of idle)
       if (Date.now() - entry.lastUsedAt >= this.idleTimeoutMs) this.retire(key, entry);
-    if (makeRoom && this.entries.size >= this.maxPools) {
+    if (makeRoom && idle.length > 0 && this.activeCount() >= this.maxPools) {
       const oldest = idle.find(([, entry]) => !entry.retired);
       if (oldest) this.retire(...oldest);
     }
