@@ -8,6 +8,17 @@ const config = vi.hoisted(() => ({
   enableQueueAgentRuntime: false,
 }));
 vi.mock('@/envs/app', () => ({ appEnv: config }));
+vi.mock('@/server/modules/Tenant/callbackUrl');
+vi.mock('@/server/modules/Tenant/gate', async () => {
+  const { runWithTenantScope } = await import('@lobechat/database/tenant');
+  return {
+    runInTenant: (tenantId: string, run: () => Promise<unknown>) =>
+      runWithTenantScope({ acceptedVersion: 7, tenantId } as any, run),
+  };
+});
+// A deferred replay is not an agent operation: nothing in `agent_operations` backs its id, so
+// the queue must not look it up (operationAuthority is deliberately left unmocked).
+vi.mock('@/server/services/gatewayAuthorization', () => ({ assertGatewayVersion: async () => {} }));
 vi.mock('../BotMessageRouter', () => ({
   getBotMessageRouter: () => ({ replayDeferredMessages: mockRunBot }),
 }));
@@ -20,7 +31,11 @@ vi.mock('@/libs/qstash', () => ({
   },
 }));
 
-const { scheduleDeferredReplay } = await import('../deferredReplay');
+const { runWithTenantScope } = await import('@lobechat/database/tenant');
+const { scheduleDeferredReplay: schedule } = await import('../deferredReplay');
+const inTenant = <T>(run: () => Promise<T>) =>
+  runWithTenantScope({ acceptedVersion: 7, tenantId: 'tenant-test' } as any, run);
+const scheduleDeferredReplay: typeof schedule = (...args) => inTenant(() => schedule(...args));
 const target = { applicationId: 'app', platform: 'wechat', platformThreadId: 'wechat:single:user' };
 
 beforeEach(() => {
@@ -61,11 +76,15 @@ describe('independent deferred replay retries', () => {
     await scheduleDeferredReplay(target, 'op-1');
     expect(mockPublish).toHaveBeenCalledWith(
       expect.objectContaining({
-        body: expect.objectContaining({ operationId: 'op-1', payload: target }),
+        body: expect.objectContaining({
+          execution: { sourceAcceptedVersion: 7, tenantId: 'tenant-test' },
+          operationId: 'op-1',
+          payload: target,
+        }),
         deduplicationId: expect.stringMatching(/^[a-f\d]{64}$/),
         retries: 8,
         retryDelay: '60000',
-        url: 'https://example.com/api/agent/webhooks/bot-replay',
+        url: 'https://example.com/t/acme/api/agent/webhooks/bot-replay',
       }),
     );
     expect(mockPublish.mock.calls[0][0].body.payload).not.toHaveProperty('lastAssistantContent');

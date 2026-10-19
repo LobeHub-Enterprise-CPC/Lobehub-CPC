@@ -12,6 +12,7 @@ const { appEnv, ingestAcceptanceRound, workflowClient } = vi.hoisted(() => ({
 vi.mock('@/database/server', () => ({ getServerDB: vi.fn().mockResolvedValue({}) }));
 vi.mock('@/envs/app', () => ({ appEnv }));
 vi.mock('@/libs/qstash', () => ({ workflowClient }));
+vi.mock('@/server/modules/Tenant/callbackUrl');
 vi.mock('@/server/services/expertise/ingestion', () => ({
   ExpertiseIngestionService: class {
     ingestAcceptanceRound = ingestAcceptanceRound;
@@ -118,6 +119,20 @@ describe('ExpertiseRejectionWorkflow.trigger without a queue', () => {
     expect(workflowClient.trigger).toHaveBeenCalledWith(
       expect.objectContaining({
         flowControl: { key: 'expertise-rejection.user.user-1', parallelism: 1 },
+      }),
+    );
+  });
+
+  it('delivers the queued run to the tenant that settled it', async () => {
+    appEnv.enableQueueAgentRuntime = true;
+
+    await settle('run-1');
+    await drain();
+
+    // Without the tenant prefix the delivery is refused with TENANT_REQUIRED.
+    expect(workflowClient.trigger).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://app.test/t/acme/api/workflows/expertise-rejection/run',
       }),
     );
   });

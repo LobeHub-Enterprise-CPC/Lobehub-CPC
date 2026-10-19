@@ -25,6 +25,7 @@ const app = new Hono().basePath('/api/cron');
 const TENANT_SCHEDULES: Record<string, string> = {
   'goal-sweep': '/api/workflows/goal/sweep',
   'task-schedule-dispatch': '/api/workflows/task/schedule-dispatch',
+  'widget-tick': '/api/workflows/widget/tick',
 };
 
 const fanOutSchedule = async (c: Context) => {

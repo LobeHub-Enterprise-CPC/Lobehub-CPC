@@ -1,3 +1,5 @@
+import { requireTenantScope } from '@lobechat/database/tenant';
+
 import { assertGatewayVersion } from '@/server/services/gatewayAuthorization';
 import { operationExecutionContext } from '@/server/services/gatewayAuthorization/operationAuthority';
 import { GatewayAuthorizationError } from '@/server/services/gatewayAuthorization/wire';
@@ -5,6 +7,11 @@ import { GatewayAuthorizationError } from '@/server/services/gatewayAuthorizatio
 import { type QueueServiceImpl } from './impls';
 import { createQueueServiceModule, LocalQueueServiceImpl } from './impls';
 import { type HealthCheckResult, type QueueMessage, type QueueStats } from './types';
+
+const tenantJobExecution = () => {
+  const { acceptedVersion, tenantId } = requireTenantScope();
+  return { sourceAcceptedVersion: acceptedVersion, tenantId };
+};
 
 /**
  * Queue Service
@@ -40,7 +47,10 @@ export class QueueService {
    * Schedule a message to the queue
    */
   async scheduleMessage(message: QueueMessage): Promise<string> {
-    const execution = await operationExecutionContext(message.operationId);
+    const execution =
+      message.kind === 'tenant-job'
+        ? tenantJobExecution()
+        : await operationExecutionContext(message.operationId);
     if (
       message.execution &&
       (message.execution.tenantId !== execution.tenantId ||

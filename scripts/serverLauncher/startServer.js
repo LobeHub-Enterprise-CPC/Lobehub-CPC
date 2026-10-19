@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports, regexp/no-unused-capturing-group -- standalone CommonJS launcher */
 const dns = require('node:dns').promises;
 const fs = require('node:fs').promises;
 const path = require('node:path');
@@ -193,7 +194,7 @@ const QSTASH_SCHEDULES = [
   {
     cron: '* * * * *',
     id: 'lobe-widget-tick',
-    path: '/api/workflows/widget/tick',
+    path: '/api/cron/widget-tick',
   },
 ];
 

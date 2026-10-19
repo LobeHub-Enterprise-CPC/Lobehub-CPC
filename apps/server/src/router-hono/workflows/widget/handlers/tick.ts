@@ -4,6 +4,7 @@ import { getServerDB } from '@/database/server';
 import { appEnv } from '@/envs/app';
 import { qstashClient } from '@/libs/qstash';
 import { toQStashDeduplicationId } from '@/libs/qstash/deduplicationId';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { createWidgetSandboxRunner } from '@/server/services/widget/sandbox';
 import {
   isWidgetResumeTarget,
@@ -52,7 +53,7 @@ export async function tick(c: Context) {
           if (!process.env.APP_URL) {
             throw new Error('APP_URL is required to fan out widget runs via QStash');
           }
-          const url = `${process.env.APP_URL.replace(/\/$/, '')}${RUN_WIDGET_PATH}`;
+          const url = buildTenantCallbackUrl(RUN_WIDGET_PATH, process.env.APP_URL);
 
           if (isWidgetResumeTarget(target)) {
             const leaseStartedAt = target.leaseStartedAt.toISOString();

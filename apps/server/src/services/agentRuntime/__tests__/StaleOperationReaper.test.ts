@@ -6,6 +6,7 @@ import { StaleOperationReaper } from '../StaleOperationReaper';
 const claimStaleRedriveMock = vi.fn();
 const settleStaleRunningMock = vi.fn();
 const releaseStaleRedriveMock = vi.fn();
+vi.mock('@/server/modules/Tenant/callbackUrl');
 vi.mock('@/database/models/agentOperation', () => ({
   AgentOperationModel: vi.fn().mockImplementation(function () {
     return {
@@ -104,7 +105,7 @@ describe('StaleOperationReaper', () => {
         context: { phase: 'tool_result' },
         // stepCount is the count of COMPLETED steps, so it is also the index
         // of the one that never finished.
-        endpoint: 'https://app.lobehub.test/api/agent/run',
+        endpoint: 'https://app.lobehub.test/t/acme/api/agent/run',
         operationId: 'op_x',
         stepIndex: 7,
       }),

@@ -7,6 +7,7 @@ import { AgentOperationModel } from '@/database/models/agentOperation';
 import { agentOperations } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
 import { AgentRuntimeCoordinator } from '@/server/modules/AgentRuntime/AgentRuntimeCoordinator';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { QueueService } from '@/server/services/queue';
 
 import { AbandonOperationService } from './AbandonOperationService';
@@ -115,7 +116,8 @@ export class StaleOperationReaper {
   private get baseURL() {
     const baseUrl = process.env.AGENT_RUNTIME_BASE_URL || process.env.APP_URL;
 
-    return urlJoin(baseUrl || 'http://localhost:3010', '/api/agent');
+    // A redriven step runs in the tenant that owns the operation.
+    return buildTenantCallbackUrl('/api/agent', baseUrl || 'http://localhost:3010');
   }
 
   async sweep(params?: ReapStaleOperationsParams): Promise<ReapStaleOperationsResult> {

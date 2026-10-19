@@ -105,6 +105,46 @@ describe('QueueService', () => {
       });
     });
 
+    it('schedules a tenant job without an agent operation row, under the tenant execution version', async () => {
+      return tenantRun(async () => {
+        const { QueueService } = await import('../QueueService');
+        const service = new QueueService();
+        const impl = service.getImpl();
+        const scheduled = vi.spyOn(impl, 'scheduleMessage');
+        const lookup = vi.fn();
+        // The operation lookup is mocked to a fixed answer above; a tenant job must not use it.
+        const authority = await import('@/server/services/gatewayAuthorization/operationAuthority');
+        const spy = vi.spyOn(authority, 'operationExecutionContext').mockImplementation(lookup);
+
+        await service.scheduleMessage({
+          endpoint: 'http://test.com',
+          kind: 'tenant-job',
+          operationId: 'defer:message-1',
+          stepIndex: 0,
+        });
+
+        spy.mockRestore();
+        expect(lookup).not.toHaveBeenCalled();
+        expect(scheduled).toHaveBeenCalledWith(
+          expect.objectContaining({
+            execution: { sourceAcceptedVersion: 7, tenantId: 'tenant-test' },
+          }),
+        );
+      });
+    });
+
+    it('refuses a tenant job outside a tenant scope', async () => {
+      const { QueueService } = await import('../QueueService');
+      await expect(
+        new QueueService().scheduleMessage({
+          endpoint: 'http://test.com',
+          kind: 'tenant-job',
+          operationId: 'defer:message-1',
+          stepIndex: 0,
+        }),
+      ).rejects.toMatchObject({ code: 'TENANT_REQUIRED' });
+    });
+
     it('should schedule batch messages in local mode', async () => {
       return tenantRun(async () => {
         const { QueueService } = await import('../QueueService');
