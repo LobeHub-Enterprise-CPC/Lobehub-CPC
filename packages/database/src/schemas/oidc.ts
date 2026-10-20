@@ -17,6 +17,8 @@ export const oidcAuthorizationCodes = pgTable(
     expiresAt: timestamptz('expires_at').notNull(),
     consumedAt: timestamptz('consumed_at'),
     // PAR shares this store and precedes user authentication.
+    // The nullable user_id DDL is carried by the tenant chain (0001_oidc_pre_auth_artifacts);
+    // the shared migration chain intentionally stays upstream-identical.
     userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
     clientId: varchar('client_id', { length: 255 }).notNull(),
     grantId: varchar('grant_id', { length: 255 }),
@@ -173,6 +175,8 @@ export const oidcSessions = pgTable(
     data: jsonb('data').notNull(),
     expiresAt: timestamptz('expires_at').notNull(),
     // The provider persists anonymous sessions before login and during logout.
+    // The nullable user_id DDL is carried by the tenant chain (0001_oidc_pre_auth_artifacts);
+    // the shared migration chain intentionally stays upstream-identical.
     userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
     ...timestamps,
   },
