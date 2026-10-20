@@ -23,6 +23,12 @@ describe('tenant migration execution boundary', () => {
     'SET /* nested /* c */ comment */ LOCAL -- c\nROLE other',
     'SELECT * FROM public /* c */ . users',
     "SELECT set_config(/* c */'search_path', 'other', true)",
+    'CREATE INDEX CONCURRENTLY idx_a ON users (name)',
+    'create unique index concurrently if not exists idx_a on users (name)',
+    'DROP INDEX CONCURRENTLY idx_a',
+    'REINDEX INDEX CONCURRENTLY idx_a',
+    'REINDEX (VERBOSE, CONCURRENTLY) TABLE users',
+    'CREATE INDEX /* c */ CONCURRENTLY idx_a ON users (name)',
   ])('refuses %s', (statement) => {
     expect(() => assertTenantMigrationStatementSafe(statement)).toThrow(
       expect.objectContaining({ code: 'TENANT_NOT_READY', reason: 'migration-failed' }),
@@ -55,6 +61,16 @@ describe('tenant migration execution boundary', () => {
     expect(() => assertTenantMigrationStatementSafe("SELECT 'CREATE EXTENSION pg_search'")).toThrow(
       expect.objectContaining({ code: 'TENANT_NOT_READY', reason: 'migration-failed' }),
     );
+  });
+
+  it('ignores CONCURRENTLY in comments and data literals', () => {
+    expect(() =>
+      assertTenantMigrationStatementSafe(
+        `-- CREATE INDEX CONCURRENTLY idx_a ON users (name)
+        /* DROP INDEX CONCURRENTLY idx_a */
+        INSERT INTO notes (body) VALUES ('REINDEX TABLE CONCURRENTLY users')`,
+      ),
+    ).not.toThrow();
   });
 
   it('allows ordinary tenant DDL and read-only extension checks', () => {
