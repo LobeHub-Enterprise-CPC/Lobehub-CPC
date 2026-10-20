@@ -144,6 +144,120 @@ WHERE name = 'public.users';`);
   });
 });
 
+describe('a chain authored against a declared placeholder schema', () => {
+  const PLACEHOLDER = 'tenant_template';
+  const rewrite = (statement: string) => materializeTenantStatement(statement, SCHEMA, PLACEHOLDER);
+
+  it('applies the public rules to the placeholder instead of public', () => {
+    expect(
+      rewrite(
+        `CREATE TABLE "${PLACEHOLDER}"."a" ("id" text);\n-- "${PLACEHOLDER}"."comment"\nALTER TABLE ${PLACEHOLDER}.a ADD COLUMN note text DEFAULT 'tenant_template.x';`,
+      ),
+    ).toBe(
+      `CREATE TABLE "${SCHEMA}"."a" ("id" text);\n-- "${PLACEHOLDER}"."comment"\nALTER TABLE "${SCHEMA}".a ADD COLUMN note text DEFAULT 'tenant_template.x';`,
+    );
+    expect(rewrite(`SELECT to_regclass('"${PLACEHOLDER}".a'), '${PLACEHOLDER}.b'::regclass`)).toBe(
+      `SELECT to_regclass('"${SCHEMA}".a'), '"${SCHEMA}".b'::regclass`,
+    );
+  });
+
+  it('turns the quoted placeholder literal into the schema name in any context', () => {
+    expect(
+      rewrite(
+        `DO $h$ BEGIN PERFORM to_regclass(format('%I.%I', 'tenant_template', 'a')); RAISE NOTICE 'tenant_template.x'; END $h$`,
+      ),
+    ).toBe(
+      `DO $h$ BEGIN PERFORM to_regclass(format('%I.%I', '${SCHEMA}', 'a')); RAISE NOTICE 'tenant_template.x'; END $h$`,
+    );
+  });
+
+  it('keeps the same extension, pg_search and transaction rules', () => {
+    expect(rewrite('BEGIN;')).toBeNull();
+    expect(rewrite('CREATE EXTENSION IF NOT EXISTS vector;')).toContain("extname = 'vector'");
+    expect(rewrite('CREATE EXTENSION IF NOT EXISTS vector;')).not.toMatch(/create extension/i);
+  });
+
+  it('leaves public alone: a public qualifier in a placeholder chain is rejected, not rewritten', () => {
+    const chain = (sql: string) => [{ bps: true, folderMillis: 1, hash: 'h', sql: [sql] }];
+    expect(() =>
+      materializeTenantMigrations(
+        chain('CREATE TABLE "public"."a" (id text)'),
+        SCHEMA,
+        PLACEHOLDER,
+      ),
+    ).toThrow(TenantDatabaseError);
+    expect(() =>
+      materializeTenantMigrations(chain('DROP TABLE public.a'), SCHEMA, PLACEHOLDER),
+    ).toThrow(TenantDatabaseError);
+  });
+
+  it('rejects unsafe statements before returning anything', () => {
+    const unsafe = [
+      `CREATE SCHEMA "${PLACEHOLDER}"`,
+      `SET search_path TO "${PLACEHOLDER}"`,
+      `DROP SCHEMA "${PLACEHOLDER}" CASCADE`,
+    ];
+    for (const statement of unsafe)
+      expect(
+        () =>
+          materializeTenantMigrations(
+            [{ bps: true, folderMillis: 1, hash: 'h', sql: [statement] }],
+            SCHEMA,
+            PLACEHOLDER,
+          ),
+        statement,
+      ).toThrow(TenantDatabaseError);
+  });
+
+  it('refuses a placeholder that survives the rewrite as a bare identifier', () => {
+    expect(() =>
+      materializeTenantMigrations(
+        [
+          {
+            bps: true,
+            folderMillis: 1,
+            hash: 'h',
+            sql: [`ALTER TABLE "a" SET SCHEMA "${PLACEHOLDER}"`],
+          },
+        ],
+        SCHEMA,
+        PLACEHOLDER,
+      ),
+    ).toThrow(TenantDatabaseError);
+  });
+
+  it('keeps hashes and timestamps and does not mutate its input', () => {
+    const source = [
+      {
+        bps: true,
+        folderMillis: 7,
+        hash: 'abc',
+        sql: [`CREATE TABLE "${PLACEHOLDER}"."a" (id text)`],
+      },
+    ];
+    const [result] = materializeTenantMigrations(source, SCHEMA, PLACEHOLDER);
+    expect(result).toMatchObject({ folderMillis: 7, hash: 'abc' });
+    expect(result.sql).toEqual([`CREATE TABLE "${SCHEMA}"."a" (id text)`]);
+    expect(source[0].sql).toEqual([`CREATE TABLE "${PLACEHOLDER}"."a" (id text)`]);
+  });
+
+  it('only accepts a plain identifier that is not itself a tenant schema', () => {
+    for (const source of ['Bad-Name', 'a"b', 'tenant_fedcba9876543210fedcba98', ''])
+      expect(() => materializeTenantMigrations([], SCHEMA, source), source).toThrow(
+        TenantDatabaseError,
+      );
+  });
+
+  it('is the identity change for the default: public chains behave as before', () => {
+    const statement =
+      'ALTER TABLE "t" ADD CONSTRAINT "f" FOREIGN KEY ("u") REFERENCES "public"."users"("id")';
+    expect(materializeTenantStatement(statement, SCHEMA)).toBe(
+      materializeTenantStatement(statement, SCHEMA, 'public'),
+    );
+    expect(rewrite(statement)).toBe(statement);
+  });
+});
+
 describe('the shared and tenant-only chains', () => {
   it.each(['fresh', 'existing-oidc-prefix', 'governance-channel-tables-created-outside'])(
     'runs both chains and reruns without changes for %s',

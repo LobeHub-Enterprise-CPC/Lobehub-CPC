@@ -11,8 +11,10 @@ import { TenantDatabaseError } from './errors';
 import { assertTenantMigrationStatementSafe } from './migrationSafety';
 import { readMigrationSnapshot } from './migrationSnapshot';
 import {
+  DEFAULT_SOURCE_SCHEMA,
   matchesReviewedTenantMigration,
   rewriteTenantSchemaQualifiers,
+  tenantMigrationSqlWithoutData,
   withoutMigrationHeader,
 } from './migrationSql';
 import { isTenantSchemaName, tenantDbNames, tenantSearchPathSql } from './names';
@@ -46,8 +48,15 @@ END $$;`;
  * extension is available; unknown wrappers are rejected before execution.
  * Everything else is unqualified and lands in the tenant through the
  * `search_path` the migrator pins.
+ * `sourceSchema` is the schema the chain was authored against: `public`, or the
+ * placeholder a distribution generates its chain under (Enterprise: `tenant_template`).
+ * It is the only thing that differs between chains; the rules above are the same.
  */
-export const materializeTenantStatement = (statement: string, schemaName: string) => {
+export const materializeTenantStatement = (
+  statement: string,
+  schemaName: string,
+  sourceSchema: string = DEFAULT_SOURCE_SCHEMA,
+) => {
   const body = withoutMigrationHeader(statement).trim();
   if (!body || TRANSACTION_CONTROL.test(body)) return null;
   if (matchesReviewedTenantMigration(statement, OPTIONAL_PG_SEARCH)) {
@@ -61,26 +70,43 @@ export const materializeTenantStatement = (statement: string, schemaName: string
   const extension = CREATE_EXTENSION.exec(body)?.[1];
   if (extension)
     return `DO $ext$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = '${extension}') THEN RAISE EXCEPTION 'extension ${extension} is not installed'; END IF; END $ext$`;
-  return rewriteTenantSchemaQualifiers(statement, schemaName);
+  return rewriteTenantSchemaQualifiers(statement, schemaName, sourceSchema);
 };
 
 /**
  * The chain as it runs in `schemaName`. Hashes and timestamps are kept, so the
  * journal in the tenant schema reads like Drizzle's own. Preflight all
  * statements before the runner opens a transaction or sends migration SQL.
+ * A chain authored against a placeholder (`sourceSchema`) must not keep naming it
+ * after the rewrite, and neither it nor a `public` chain may name `public`.
  */
 export const materializeTenantMigrations = (
   migrations: MigrationMeta[],
   schemaName: string,
+  sourceSchema: string = DEFAULT_SOURCE_SCHEMA,
 ): MigrationMeta[] => {
-  if (!isTenantSchemaName(schemaName))
+  if (
+    !isTenantSchemaName(schemaName) ||
+    isTenantSchemaName(sourceSchema) ||
+    !/^[_a-z][\d_a-z]*$/.test(sourceSchema)
+  )
     throw new TenantDatabaseError('TENANT_NOT_READY', 'schema-name-invalid');
+  const leftoverPlaceholder = new RegExp(
+    `"${sourceSchema}"|(?<![\\w"$.])${sourceSchema}\\s*\\.`,
+    'i',
+  );
   return migrations.map((migration) => ({
     ...migration,
     sql: migration.sql.flatMap((statement) => {
-      const materialized = materializeTenantStatement(statement, schemaName);
+      const materialized = materializeTenantStatement(statement, schemaName, sourceSchema);
       if (materialized === null) return [];
       assertTenantMigrationStatementSafe(materialized);
+      if (
+        sourceSchema !== DEFAULT_SOURCE_SCHEMA &&
+        leftoverPlaceholder.test(tenantMigrationSqlWithoutData(materialized))
+      )
+        // The same public error as every unsafe statement: never echo the SQL.
+        throw new TenantDatabaseError('TENANT_NOT_READY', 'migration-failed');
       return [materialized];
     }),
   }));

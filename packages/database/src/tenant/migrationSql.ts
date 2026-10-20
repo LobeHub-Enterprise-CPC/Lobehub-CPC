@@ -137,10 +137,40 @@ export const matchesReviewedTenantMigration = (sql: string, reviewed: string): b
 /** The only context a qualifier decision looks at; bounded so a large statement stays linear. */
 const CONTEXT_CHARS = 1024;
 
-/** Rewrite schema qualifiers without changing data strings, comments or unrelated identifiers. */
-export const rewriteTenantSchemaQualifiers = (statement: string, schemaName: string) => {
+/** The schema a chain is authored against, unless it declares a placeholder. */
+export const DEFAULT_SOURCE_SCHEMA = 'public';
+
+interface RewriteTarget {
+  /** `public.` as an unquoted qualifier. */
+  qualifier: RegExp;
+  /** Quoted target schema, e.g. `"tenant_x"`. */
+  quoted: string;
+  /** `'public.` / `'"public".` at the start of a relation-name literal. */
+  relationLiteral: RegExp;
+  /** The authored schema's name: `public`, or a declared placeholder. */
+  source: string;
+}
+
+/**
+ * Rewrite schema qualifiers without changing data strings, comments or unrelated identifiers.
+ * `sourceSchema` is `public` for a chain authored against it. A chain generated against a
+ * declared placeholder (Enterprise's `tenant_template`) names that instead; nothing else
+ * changes, except that the placeholder, unlike `public`, is never real data: its quoted
+ * literal is the schema name in any context (`format('%I.%I', 'tenant_template', t)`).
+ */
+export const rewriteTenantSchemaQualifiers = (
+  statement: string,
+  schemaName: string,
+  sourceSchema: string = DEFAULT_SOURCE_SCHEMA,
+) => {
+  if (!/^[_a-z][\d_a-z]*$/.test(sourceSchema)) return rejectSql();
   const tokens = lexSql(statement, 0, true);
-  const target = `"${schemaName}"`;
+  const target: RewriteTarget = {
+    qualifier: new RegExp(`(?<![\\w"$.])${sourceSchema}\\.(?=["A-Z_a-z])`, 'g'),
+    quoted: `"${schemaName}"`,
+    relationLiteral: new RegExp(`^'(?:"${sourceSchema}"|${sourceSchema})\\.`),
+    source: sourceSchema,
+  };
   const lookahead = (from: number) => {
     let text = '';
     for (let index = from; index < tokens.length && text.length < CONTEXT_CHARS; index += 1)
@@ -161,27 +191,30 @@ const rewriteToken = (
   before: string,
   index: number,
   lookahead: (from: number) => string,
-  target: string,
+  { qualifier, quoted, relationLiteral, source }: RewriteTarget,
 ) => {
   if (token.kind === 'comment') return token.text;
   if (token.kind === 'quoted') {
     if (
-      token.text === '"public"' &&
+      token.text === `"${source}"` &&
       lookahead(index + 1).startsWith('.') &&
       !/[\w".]$/.test(before)
     )
-      return target;
-    // Only SQL relation-name contexts interpret these strings as identifiers.
-    if (
-      token.text.startsWith("'") &&
-      (/^\s*::\s*(?:pg_catalog\.)?regclass\b/i.test(lookahead(index + 1)) ||
-        /\bto_regclass\s*\(\s*$/i.test(before))
-    )
-      return token.text.replace(/^'(?:"public"|public)\./, `'${target}.`);
+      return quoted;
+    if (token.text.startsWith("'")) {
+      if (source !== DEFAULT_SOURCE_SCHEMA && token.text === `'${source}'`)
+        return `'${quoted.slice(1, -1)}'`;
+      // Only SQL relation-name contexts interpret these strings as identifiers.
+      if (
+        /^\s*::\s*(?:pg_catalog\.)?regclass\b/i.test(lookahead(index + 1)) ||
+        /\bto_regclass\s*\(\s*$/i.test(before)
+      )
+        return token.text.replace(relationLiteral, `'${quoted}.`);
+    }
     return token.text;
   }
-  return token.text.replaceAll(/(?<![\w"$.])public\.(?=["A-Z_a-z])/g, (match, offset: number) =>
-    offset === 0 && /[\w"$.]$/.test(before) ? match : `${target}.`,
+  return token.text.replaceAll(qualifier, (match, offset: number) =>
+    offset === 0 && /[\w"$.]$/.test(before) ? match : `${quoted}.`,
   );
 };
 
