@@ -75,8 +75,16 @@ export default {
   'device.success.title': 'Authorization Successful',
   'error.backToHome': 'Back to Home',
   'error.desc': 'OAuth authorization failed, reason: {{reason}}',
+  'error.reason.access_denied':
+    'Authorization was denied. Please go back to the desktop app and start again.',
+  'error.reason.consent_required':
+    'You need to confirm the authorization in the browser. Please go back to the desktop app and start again.',
+  'error.reason.interaction_required':
+    'An action is required in the browser. Please go back to the desktop app and start again.',
   'error.reason.internal_error': 'Internal Server Error',
   'error.reason.invalid_request': 'Invalid Request Parameters',
+  'error.reason.login_required':
+    'You need to sign in again, which is not supported here. Please go back to the desktop app and start again.',
   'error.title': 'Authorization Failed',
   'handoff.desc.processing':
     'The application is processing the authorization and will redirect to the next page soon...',

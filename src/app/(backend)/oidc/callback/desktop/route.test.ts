@@ -82,4 +82,48 @@ describe('GET /oidc/callback/desktop', () => {
     );
     expect(mocks.create).not.toHaveBeenCalled();
   });
+
+  it.each(['access_denied', 'consent_required', 'login_required', 'interaction_required'])(
+    'forwards the allow-listed OAuth error %s as the error page reason',
+    async (error) => {
+      const response = await GET(createRequest(`?error=${error}&state=handoff-1`));
+
+      expect(response.status).toBe(307);
+      expect(response.headers.get('location')).toBe(`/t/acme/oauth/callback/error?reason=${error}`);
+      expect(mocks.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps invalid_request for an OAuth error outside the allow-list', async () => {
+    const response = await GET(createRequest('?error=server_error&state=handoff-1'));
+
+    expect(response.headers.get('location')).toBe(
+      '/t/acme/oauth/callback/error?reason=invalid_request',
+    );
+  });
+
+  it('never echoes error_description or an unknown error value', async () => {
+    const response = await GET(
+      createRequest('?error=SENTINEL_ERROR&error_description=SENTINEL_DESCRIPTION&state=handoff-1'),
+    );
+    const accessDenied = await GET(
+      createRequest('?error=access_denied&error_description=SENTINEL_DESCRIPTION&state=handoff-1'),
+    );
+
+    expect(response.headers.get('location')).toBe(
+      '/t/acme/oauth/callback/error?reason=invalid_request',
+    );
+    expect(accessDenied.headers.get('location')).toBe(
+      '/t/acme/oauth/callback/error?reason=access_denied',
+    );
+    expect(accessDenied.headers.get('location')).not.toContain('SENTINEL');
+  });
+
+  it('keeps invalid_request when a code is missing and there is no OAuth error', async () => {
+    const response = await GET(createRequest('?state=handoff-1'));
+
+    expect(response.headers.get('location')).toBe(
+      '/t/acme/oauth/callback/error?reason=invalid_request',
+    );
+  });
 });

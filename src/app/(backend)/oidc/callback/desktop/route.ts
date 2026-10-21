@@ -13,6 +13,15 @@ const log = debug('lobe-oidc:callback:desktop');
 
 const errorPathname = '/oauth/callback/error';
 
+// RFC 6749 / OIDC codes the provider (or the consent card's "deny") sends back without a `code`.
+// Only these literals are forwarded: error_description and any other value are never echoed.
+const OAUTH_ERROR_REASONS = new Set([
+  'access_denied',
+  'consent_required',
+  'interaction_required',
+  'login_required',
+]);
+
 const redirectTo = (pathname: string, params?: Record<string, string>) => {
   // The result pages are SPA routes under the tenant's active entry, like the redirect_uri itself.
   const location = tenantPublicPath(
@@ -32,7 +41,10 @@ const handleGet = async (req: NextRequest) => {
     if (!code || !state || typeof code !== 'string' || typeof state !== 'string') {
       log('Missing code or state in form data');
 
-      return redirectTo(errorPathname, { reason: 'invalid_request' });
+      const oauthError = searchParams.get('error');
+      const reason = oauthError && OAUTH_ERROR_REASONS.has(oauthError) ? oauthError : undefined;
+
+      return redirectTo(errorPathname, { reason: reason ?? 'invalid_request' });
     }
 
     log('Received OIDC callback');
