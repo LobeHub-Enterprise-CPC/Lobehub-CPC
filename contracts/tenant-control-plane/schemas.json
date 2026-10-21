@@ -261,6 +261,129 @@
                   "tls"
                 ],
                 "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "connectionVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 2147483647
+                  },
+                  "credentialBundleVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 2147483647
+                  },
+                  "database": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 63
+                  },
+                  "datasourceKind": {
+                    "type": "string",
+                    "const": "market"
+                  },
+                  "deploymentRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[\\w.:-]+$"
+                  },
+                  "host": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 253,
+                    "pattern": "^[\\d.:A-Za-z-]+$"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": ["shared_schema", "dedicated_database"]
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "runtimeCredential": {
+                    "type": "object",
+                    "properties": {
+                      "password": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      },
+                      "username": {
+                        "type": "string",
+                        "pattern": "^mk_[0-9a-f]{24}_run$"
+                      }
+                    },
+                    "required": ["password", "username"],
+                    "additionalProperties": false
+                  },
+                  "schemaName": {
+                    "type": "string",
+                    "pattern": "^tenant_[0-9a-f]{24}$"
+                  },
+                  "schemaOwner": {
+                    "type": "object",
+                    "properties": {
+                      "role": {
+                        "type": "string",
+                        "pattern": "^mk_[0-9a-f]{24}_owner$"
+                      },
+                      "username": {
+                        "type": "string",
+                        "pattern": "^mk_[0-9a-f]{24}_owner$"
+                      }
+                    },
+                    "required": ["role", "username"],
+                    "additionalProperties": false
+                  },
+                  "schemaVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 2147483647
+                  },
+                  "tenantId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                  },
+                  "tls": {
+                    "type": "object",
+                    "properties": {
+                      "ca": {
+                        "type": "string",
+                        "maxLength": 32768
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "rejectUnauthorized": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["enabled", "rejectUnauthorized"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "connectionVersion",
+                  "credentialBundleVersion",
+                  "database",
+                  "datasourceKind",
+                  "deploymentRef",
+                  "host",
+                  "mode",
+                  "port",
+                  "runtimeCredential",
+                  "schemaName",
+                  "schemaOwner",
+                  "schemaVersion",
+                  "tenantId",
+                  "tls"
+                ],
+                "additionalProperties": false
               }
             ]
           },
