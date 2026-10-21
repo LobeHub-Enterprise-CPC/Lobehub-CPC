@@ -1,9 +1,10 @@
 /**
  * Tenant gate refusals that mean the workspace itself is closed (frozen, expired,
- * offline, not provisioned). Auth pages explain the workspace state for these rather
+ * offline, not provisioned, destroyed). Auth pages explain the workspace state for these rather
  * than treating them as an unknown account, an unverified email or a generic failure.
  */
 const TENANT_UNAVAILABLE_CODES = new Set([
+  'TENANT_DESTROYED',
   'TENANT_EXPIRED',
   'TENANT_FROZEN',
   'TENANT_NOT_FOUND',

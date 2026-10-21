@@ -1,13 +1,14 @@
 import { isWellFormedTenantSlug } from '@lobechat/business-tenant/routing';
 import type { PlatformDatabase } from '@lobechat/database/platform';
 import {
+  tenantDestruction,
   tenantDirectory,
   tenantEndpoints,
   tenantEndpointState,
   tenantLifecycle,
 } from '@lobechat/database/platform';
 import { tenantDbNames } from '@lobechat/database/tenant';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 
 import { appEnv } from '@/envs/app';
@@ -68,9 +69,13 @@ export const loadDiscoveryCandidates = async (
         })
         .from(tenantDirectory)
         .leftJoin(tenantLifecycle, eq(tenantDirectory.tenantId, tenantLifecycle.tenantId))
+        .leftJoin(tenantDestruction, eq(tenantDirectory.tenantId, tenantDestruction.tenantId))
         .where(
           and(
             eq(tenantDirectory.status, 'active'),
+            // A destruction terminal (barrier established, not yet unregistered, or completed) is
+            // permanent: the tenant is no longer a candidate even while its directory row remains.
+            isNull(tenantDestruction.tenantId),
             tenantId ? eq(tenantDirectory.tenantId, tenantId) : undefined,
           ),
         );

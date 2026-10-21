@@ -14,8 +14,11 @@ const log = debug('queue:local');
 /** How long a step of an unavailable (frozen, expired, unreachable) tenant waits before it is tried again. */
 export const TENANT_DEFERRED_STEP_RETRY_MS = 30_000;
 
-/** Tenant states in which a queued step is discarded rather than deferred (FR-AS-01). */
-const DISCARDING_TENANT_CODES = new Set(['TENANT_NOT_FOUND', 'TENANT_OFFLINE']);
+/**
+ * Tenant states in which a queued step is discarded rather than deferred (FR-AS-01). A tenant
+ * under destruction or destroyed never comes back under its UUID, so retrying cannot succeed.
+ */
+const DISCARDING_TENANT_CODES = new Set(['TENANT_DESTROYED', 'TENANT_NOT_FOUND', 'TENANT_OFFLINE']);
 
 /**
  * Callback type for local execution

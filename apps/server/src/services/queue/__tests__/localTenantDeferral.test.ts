@@ -93,6 +93,20 @@ describe('LocalQueueServiceImpl tenant admission', () => {
     expect(admission.enterTenantId).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['TENANT_DESTROYED', 'TENANT_NOT_FOUND'] as const)(
+    'drops a step of a tenant refused with %s without a deferred retry',
+    async (code) => {
+      const { executed, queue } = setup();
+      admission.enterTenantId.mockRejectedValue(new TenantGateError(code));
+      await runWithTenantScope(scopeOf('c'), () => queue.scheduleMessage(message));
+
+      await vi.advanceTimersByTimeAsync(10 + TENANT_DEFERRED_STEP_RETRY_MS * 3);
+      expect(executed).not.toHaveBeenCalled();
+      expect(admission.enterTenantId).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
   it('runs an admitted tenant step right away in the scope admitted for it', async () => {
     const { executed, queue, seenScopes } = setup();
     const admitted = scopeOf('current');

@@ -400,12 +400,27 @@ describe.skipIf(!enabled)(
       await root.query(`CREATE TABLE public.tenant_directory (tenant_id text PRIMARY KEY, name text, slug text, schema_name text, mode text, host text, port int, database text, status text);
       CREATE TABLE public.tenant_lifecycle (tenant_id text PRIMARY KEY,accepted_version int,applied_version int,desired_state text,expires_at timestamptz,freeze_reasons jsonb,updated_at timestamptz DEFAULT now());
       CREATE TABLE public.tenant_endpoint_state (tenant_id text PRIMARY KEY,accepted_version int,applied_version int,observed_at timestamptz DEFAULT now());
-      CREATE TABLE public.tenant_endpoints (tenant_id text,id text,kind text,host text,active boolean);`);
+      CREATE TABLE public.tenant_endpoints (tenant_id text,id text,kind text,host text,active boolean);
+      CREATE TABLE public.tenant_destruction (tenant_id text PRIMARY KEY,destroy_operation_id text NOT NULL,drain_result text,terminal_established_at timestamptz NOT NULL,completed_at timestamptz);`);
       const db = drizzle(root) as PlatformDatabase;
-      const ids = ['eligible', 'frozen', 'offline', 'expired', 'unactivated', 'disabled', 'broken'];
-      for (const id of ids) {
+      // Tenant ids are lower-case UUIDs (endpoint contract); the label only names the scenario.
+      const labels = [
+        'eligible',
+        'frozen',
+        'offline',
+        'expired',
+        'unactivated',
+        'disabled',
+        'destroying',
+        'destroyed',
+        'broken',
+      ];
+      const uuids = Object.fromEntries(labels.map((label) => [label, randomUUID()]));
+      const ids = labels.map((label) => uuids[label]);
+      for (const label of labels) {
+        const id = uuids[label];
         await root.query(
-          "INSERT INTO public.tenant_directory VALUES($1,$2,$1,$3,'shared_schema',$4,$5,$6,$7)",
+          "INSERT INTO public.tenant_directory VALUES($1,$2,$8,$3,'shared_schema',$4,$5,$6,$7)",
           [
             id,
             'Acme',
@@ -413,20 +428,21 @@ describe.skipIf(!enabled)(
             base().hostname,
             Number(base().port || 5432),
             database,
-            id === 'disabled' ? 'disabled' : 'active',
+            label === 'disabled' ? 'disabled' : 'active',
+            label,
           ],
         );
         await root.query(
           'INSERT INTO public.tenant_lifecycle (tenant_id,accepted_version,applied_version,desired_state,expires_at,freeze_reasons) VALUES($1,$2,0,$3,$4,$5)',
           [
             id,
-            id === 'unactivated' ? 0 : 1,
-            id === 'offline' ? 'offline' : id === 'frozen' ? 'frozen' : 'active',
-            id === 'expired' ? new Date(0) : null,
-            JSON.stringify(id === 'frozen' ? ['manual'] : []),
+            label === 'unactivated' ? 0 : 1,
+            label === 'offline' ? 'offline' : label === 'frozen' ? 'frozen' : 'active',
+            label === 'expired' ? new Date(0) : null,
+            JSON.stringify(label === 'frozen' ? ['manual'] : []),
           ],
         );
-        if (id !== 'broken') {
+        if (label !== 'broken') {
           await root.query(
             'INSERT INTO public.tenant_endpoint_state (tenant_id,accepted_version,applied_version) VALUES($1,1,1)',
             [id],
@@ -437,24 +453,33 @@ describe.skipIf(!enabled)(
           );
         }
       }
+      // Otherwise fully eligible, but the destruction terminal is established: barrier only
+      // (not yet drained) and fully completed. Neither is ever a discovery candidate.
+      await root.query(
+        `INSERT INTO public.tenant_destruction (tenant_id,destroy_operation_id,drain_result,terminal_established_at,completed_at)
+        VALUES ($1,'op-1',null,now(),null),($2,'op-2','drained',now(),now())`,
+        [uuids.destroying, uuids.destroyed],
+      );
       const signal = new AbortController().signal;
       await expect(loadDiscoveryCandidates(signal, undefined, db)).rejects.toMatchObject({
         status: 503,
       });
-      expect((await loadDiscoveryCandidates(signal, 'eligible', db)).map((c) => c.id)).toEqual([
-        'eligible',
+      expect((await loadDiscoveryCandidates(signal, uuids.eligible, db)).map((c) => c.id)).toEqual([
+        uuids.eligible,
       ]);
       await root.query(
-        "UPDATE public.tenant_endpoint_state SET accepted_version=2 WHERE tenant_id='eligible'",
+        `UPDATE public.tenant_endpoint_state SET accepted_version=2 WHERE tenant_id='${uuids.eligible}'`,
       );
-      expect((await loadDiscoveryCandidates(signal, 'eligible', db))[0].endpointVersion).toBe(1);
+      expect((await loadDiscoveryCandidates(signal, uuids.eligible, db))[0].endpointVersion).toBe(
+        1,
+      );
       for (const id of ids.slice(1, -1))
         expect(await loadDiscoveryCandidates(signal, id, db)).toEqual([]);
       await root.query(
-        "UPDATE public.tenant_directory SET status='disabled' WHERE tenant_id='broken'",
+        `UPDATE public.tenant_directory SET status='disabled' WHERE tenant_id='${uuids.broken}'`,
       );
       expect((await loadDiscoveryCandidates(signal, undefined, db)).map((c) => c.id)).toEqual([
-        'eligible',
+        uuids.eligible,
       ]);
       // The real directory connection is aborted while waiting for this table lock.
       const blocker = new Client({ connectionString: base().toString() });
