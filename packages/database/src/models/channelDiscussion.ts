@@ -114,7 +114,7 @@ export async function gateDiscussionCandidate(tx: Transaction, run: Run, discuss
   const task = run.manifest.discussion!;
   const summarizing = task.kind === 'summarize';
   const live = discussion.status === (summarizing ? 'summarizing' : 'active');
-  const [newer] = await tx
+  const unseen = await tx
     .select({ id: channelMessages.id })
     .from(channelMessages)
     .where(
@@ -126,7 +126,32 @@ export async function gateDiscussionCandidate(tx: Transaction, run: Run, discuss
           : isNull(channelMessages.threadId),
       ),
     )
-    .limit(1);
+    .orderBy(asc(channelMessages.sequence));
+  // Turns in a round are parallel: a peer's reply in this same round is read in the next round
+  // and never holds this candidate. Any other unseen message still does.
+  const sameRound = new Set(
+    !summarizing && unseen.length
+      ? (
+          await tx
+            .select({ messageId: channelRuns.publishedMessageId, task: channelJobs.task })
+            .from(channelRuns)
+            .innerJoin(channelJobs, eq(channelJobs.id, channelRuns.jobId))
+            .where(
+              and(
+                eq(channelRuns.channelId, run.channelId),
+                eq(channelJobs.discussionId, discussion.id),
+                inArray(
+                  channelRuns.publishedMessageId,
+                  unseen.map((message) => message.id),
+                ),
+              ),
+            )
+        )
+          .filter((peer) => peer.task?.round === task.round)
+          .map((peer) => peer.messageId)
+      : [],
+  );
+  const newer = unseen.find((message) => !sameRound.has(message.id));
   const yielded = !summarizing && run.draft?.trim() === '[[CHANNEL_YIELD]]';
   // A candidate may only publish in the round it was claimed for. The round cannot advance
   // while its writer is live, so this only catches publication after release.
@@ -160,8 +185,8 @@ export async function recordDiscussionPublication(
     return;
   }
   // Peers are not woken here: they answer in the next round, which advanceDiscussions opens once
-  // every turn of this round has settled. Slower peers still drafting in this round are held and
-  // revise against this message.
+  // every turn of this round has settled. Slower peers still drafting in this round publish their
+  // own turn and read this message in the next round.
   await tx
     .update(channelDiscussions)
     .set({ turnsPublished: discussion.turnsPublished + 1 })
@@ -171,9 +196,9 @@ export async function recordDiscussionPublication(
 /**
  * Called after reconciliation, also after a restart. No in-memory timers or wake counters.
  *
- * A round is one turn for every participant, running concurrently with no speaking order. It is
- * over once no job in the discussion is queued or running and every run has released its writer
- * or been isolated.
+ * A round is one turn for every participant, running concurrently with no speaking order; a
+ * peer's reply in the same round does not hold another turn. The round is over once no job in
+ * the discussion is queued or running and every run has released its writer or been isolated.
  * A round with at least one publication opens the next one for all participants, including those
  * who yielded; a silent round or the last round ends the discussion with a summary.
  */
