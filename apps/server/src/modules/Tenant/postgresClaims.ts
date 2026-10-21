@@ -1,5 +1,7 @@
 import {
   getPlatformDB,
+  TENANT_DESTROYED_GENERATION,
+  tenantDestruction,
   tenantLeaseBlocker,
   tenantLifecycle,
   tenantRuntimeExternalWork,
@@ -20,19 +22,34 @@ export const tenantProcessLease = new TenantProcessLease({
     const db = getPlatformDB();
     await db.transaction(async (tx) => {
       const lifecycles = await tx.select().from(tenantLifecycle);
+      const destroyed = new Set(
+        (await tx.select({ id: tenantDestruction.tenantId }).from(tenantDestruction)).map(
+          (row) => row.id,
+        ),
+      );
       const drainedGenerations: Record<string, number> = {};
       const observed = new Map<string, string>();
+      /** A changed fact drops local routing facts; a destroyed tenant's pools are retired too. */
+      const observe = (tenantId: string, fingerprint: string) => {
+        observed.set(tenantId, fingerprint);
+        if (observedGenerations.get(tenantId) === fingerprint) return;
+        if (destroyed.has(tenantId)) getTenantRuntime().retire(tenantId);
+        else getTenantRuntime().invalidate(tenantId);
+      };
       for (const lifecycle of lifecycles) {
-        const fingerprint = JSON.stringify(lifecycle);
-        observed.set(lifecycle.tenantId, fingerprint);
-        if (observedGenerations.get(lifecycle.tenantId) !== fingerprint)
-          getTenantRuntime().invalidate(lifecycle.tenantId);
+        observe(lifecycle.tenantId, JSON.stringify([lifecycle, destroyed.has(lifecycle.tenantId)]));
         const stopped =
           lifecycle.desiredState !== 'active' ||
           lifecycle.freezeReasons.length > 0 ||
           (lifecycle.expiresAt !== null && lifecycle.expiresAt.getTime() <= Date.now());
         if (stopped && !tenantClaims.isHeld(lifecycle.tenantId))
           drainedGenerations[lifecycle.tenantId] = lifecycle.acceptedVersion;
+      }
+      // A destroyed UUID is stopped whatever its lifecycle says, with or without a lifecycle row.
+      for (const tenantId of destroyed) {
+        if (!observed.has(tenantId)) observe(tenantId, 'destroyed');
+        if (!tenantClaims.isHeld(tenantId))
+          drainedGenerations[tenantId] = TENANT_DESTROYED_GENERATION;
       }
       observedGenerations = observed;
       await tx

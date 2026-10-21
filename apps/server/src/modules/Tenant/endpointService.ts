@@ -12,6 +12,7 @@ import { and, eq, or, sql } from 'drizzle-orm';
 import { appEnv } from '@/envs/app';
 import { invalidateEndpointRouting } from '@/server/modules/Tenant/endpointCache';
 
+import { lockDestructionFenceShared, readDestruction } from './destruction';
 import {
   canonicalEndpointUrl,
   type EndpointRequest,
@@ -25,11 +26,20 @@ export class TenantEndpointsService {
     private readonly appUrl: string = appEnv.APP_URL,
   ) {}
 
-  async get(tenantId: string) {
-    return this.db.transaction((tx) => this.read(tx, tenantId), {
-      isolationLevel: 'repeatable read',
-      accessMode: 'read only',
-    });
+  /**
+   * `control` marks Console's status query: a tenant under destruction is refused with
+   * TENANT_DESTROYED instead of reading as a directory that is still there or already gone. The
+   * runtime's own routing reads stay unguarded; admission refuses a destroyed tenant separately.
+   */
+  async get(tenantId: string, { control = false }: { control?: boolean } = {}) {
+    return this.db.transaction(
+      async (tx) => {
+        if (control && (await readDestruction(tx, tenantId)))
+          throw new TenantEndpointError('TENANT_DESTROYED', 409);
+        return this.read(tx, tenantId);
+      },
+      { isolationLevel: 'repeatable read', accessMode: 'read only' },
+    );
   }
 
   private async read(db: Pick<PlatformDatabase, 'select'>, tenantId: string) {
@@ -121,6 +131,11 @@ export class TenantEndpointsService {
         await tx.execute(
           sql`SELECT pg_advisory_xact_lock(hashtextextended(${`tenant-endpoints:${input.tenantId}`}, 0))`,
         );
+        // The barrier holds the exclusive side of this fence while it commits: a revision either
+        // finished before it or is refused here, and can never recreate a deleted endpoint record.
+        await lockDestructionFenceShared(tx, input.tenantId);
+        if (await readDestruction(tx, input.tenantId))
+          throw new TenantEndpointError('TENANT_DESTROYED', 409);
         const [directory] = await tx
           .select({ slug: tenantDirectory.slug })
           .from(tenantDirectory)

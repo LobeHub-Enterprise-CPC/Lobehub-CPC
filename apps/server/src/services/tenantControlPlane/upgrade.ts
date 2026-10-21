@@ -1,7 +1,7 @@
 import type { PlatformDatabase } from '@lobechat/database/platform';
-import { tenantDirectory } from '@lobechat/database/platform';
+import { tenantDestruction, tenantDirectory } from '@lobechat/database/platform';
 import { LOBEHUB_TENANT_SCHEMA_VERSION } from '@lobechat/database/tenant';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, notExists } from 'drizzle-orm';
 
 import { PostgresTenantDatabaseExecutor } from './postgresExecutor';
 import { bundleFromDirectoryRow } from './postgresRepository';
@@ -34,9 +34,18 @@ export const upgradeTenantSchemas = async (
     .select()
     .from(tenantDirectory)
     .where(
-      tenantIds?.length
-        ? inArray(tenantDirectory.tenantId, tenantIds)
-        : eq(tenantDirectory.status, 'active'),
+      and(
+        tenantIds?.length
+          ? inArray(tenantDirectory.tenantId, tenantIds)
+          : eq(tenantDirectory.status, 'active'),
+        // A tenant under destruction is neither upgraded nor handed to an operator job.
+        notExists(
+          platformDB
+            .select({ id: tenantDestruction.tenantId })
+            .from(tenantDestruction)
+            .where(eq(tenantDestruction.tenantId, tenantDirectory.tenantId)),
+        ),
+      ),
     )
     .orderBy(asc(tenantDirectory.tenantId));
 

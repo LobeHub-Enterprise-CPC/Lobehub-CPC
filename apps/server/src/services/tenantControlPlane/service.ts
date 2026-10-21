@@ -1,4 +1,4 @@
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 
 import {
   isSafeReadinessDiagnosticCode,
@@ -16,6 +16,7 @@ import {
   type DatasourceReadinessResult,
   type DatasourceRequest,
   type DatasourceResult,
+  isDestroyedRefusal,
   LifecycleFailure,
   type LifecycleFailureCode,
   type LifecycleRequest,
@@ -26,6 +27,7 @@ import {
   type TenantOverview,
 } from './contracts';
 import { redactDatasourceBundle, validateDatasourceBundle } from './datasource';
+import { type TenantDestructionOptions, TenantDestructionService } from './destruction';
 import {
   type ControlPlaneRepository,
   type ControlPlaneTx,
@@ -35,6 +37,12 @@ import {
   type ProvisionStep,
   type TenantLifecycleRecord,
 } from './repository';
+import {
+  hashInput,
+  type LifecycleHooks,
+  type ProvisionStepContext,
+  type TenantDatabaseExecutor,
+} from './serviceSupport';
 
 export { effectiveTenantState } from '@/server/modules/Tenant/lifecycleState';
 
@@ -51,74 +59,12 @@ export { effectiveTenantState } from '@/server/modules/Tenant/lifecycleState';
  * Bundles carry passwords: nothing here logs a bundle or puts one in an error.
  */
 
-/** Stable digest of a request, so a retry with the same input is recognised. */
-export const hashInput = (value: unknown): string => {
-  const canonical = (v: unknown): unknown =>
-    Array.isArray(v)
-      ? v.map(canonical)
-      : v && typeof v === 'object'
-        ? Object.fromEntries(
-            Object.keys(v)
-              .sort()
-              .map((k) => [k, canonical((v as Record<string, unknown>)[k])]),
-          )
-        : v;
-  return createHash('sha256')
-    .update(JSON.stringify(canonical(value)))
-    .digest('hex');
-};
-
-/** The side effects a lifecycle change needs, in order (FR-CP-06 execution). */
-export interface LifecycleHooks {
-  /** Close, or force re-validation of, the tenant's SSE / WebSocket connections. */
-  closeRealtime: (
-    tenantId: string,
-    context: { tenantId: string; eventId: string; acceptedVersion: number },
-  ) => Promise<void>;
-  /** Wait for in-flight business transactions; reject on timeout. */
-  drainTransactions: (tenantId: string) => Promise<void>;
-  /** Broadcast invalidation of the tenant's admission, authz and config caches. */
-  invalidateCaches: (tenantId: string) => Promise<void>;
-  /** Resume claiming the tenant's queued jobs. */
-  resumeQueue: (tenantId: string) => Promise<void>;
-  /** Stop claiming the tenant's queued jobs and wait for running ones. */
-  stopQueue: (tenantId: string) => Promise<void>;
-}
-
-export interface ProvisionStepContext {
-  bundle: DatasourceBundle;
-  name: string;
-  operationId: string;
-  slug: string;
-  tenantId: string;
-}
-
-/**
- * Database work of the provision steps (FR-CP-04) and of `tenant-datasource`
- * verification (FR-CP-05), implemented by the Postgres executor. Each method
- * must be idempotent: a failed or interrupted provision resumes at the step
- * that did not finish. A rejection fails the step with that step's code; the
- * rejection itself is never logged or returned, since it may quote a DSN.
- */
-export interface TenantDatabaseExecutor {
-  /**
-   * As the schema owner: the schema exists and is owned by the owner role, the
-   * owner has no SUPERUSER / CREATEROLE / CREATEDB / BYPASSRLS, and the schema
-   * is empty or has a valid migration history.
-   */
-  checkOwnership: (ctx: ProvisionStepContext) => Promise<void>;
-  /** As the owner, `search_path = tenant, extensions, paradedb`: the tenant migration chain plus owner-only grants. */
-  migrate: (ctx: ProvisionStepContext) => Promise<void>;
-  /** Copies the default config templates (`runtime_configs`, …) into the tenant. */
-  seed: (ctx: ProvisionStepContext) => Promise<void>;
-  /**
-   * As the runtime user: verifies schema/history and asserts no cross-schema USAGE
-   * beyond the extension schemas, no public table access, DML but no CREATE.
-   */
-  verify: (ctx: { bundle: DatasourceBundle; tenantId: string }) => Promise<void>;
-  /** Lookup readiness is certified only at provision, upgrade and actual recovery. */
-  verifyDiscovery: (ctx: { bundle: DatasourceBundle; tenantId: string }) => Promise<void>;
-}
+export type {
+  LifecycleHooks,
+  ProvisionStepContext,
+  TenantDatabaseExecutor,
+} from './serviceSupport';
+export { hashInput } from './serviceSupport';
 
 /** The code a failed step reports (FR-CP-04 step table). */
 const STEP_ERROR: Record<ProvisionStep, SafeErrorCode> = {
@@ -139,6 +85,8 @@ const sameBundle = (a: DatasourceBundle, b: DatasourceBundle) =>
 export interface TenantControlPlaneServiceOptions {
   /** Database side of provisioning and rotation. */
   database: TenantDatabaseExecutor;
+  /** Clock, pool and wait settings of the destruction phases. */
+  destruction?: Omit<TenantDestructionOptions, 'now' | 'repository'>;
   isRegistrableSlug: (slug: string) => boolean;
   now?: () => Date;
   repository: ControlPlaneRepository;
@@ -173,12 +121,19 @@ const initialLifecycle = (tenantId: string): TenantLifecycleRecord => ({
 export class TenantControlPlaneService {
   private readonly repository: ControlPlaneRepository;
   private readonly now: () => Date;
+  /** barrier / drain / unregister and status of a tenant UUID's destruction. */
+  readonly destruction: TenantDestructionService;
 
   private leaseUntil = () => new Date(this.now().getTime() + 5 * 60_000).toISOString();
 
   constructor(private readonly options: TenantControlPlaneServiceOptions) {
     this.repository = options.repository;
     this.now = options.now ?? (() => new Date());
+    this.destruction = new TenantDestructionService({
+      ...options.destruction,
+      now: this.now,
+      repository: this.repository,
+    });
   }
 
   // ─── provision ───────────────────────────────────────────────────────────
@@ -333,6 +288,7 @@ export class TenantControlPlaneService {
       try {
         await this.runProvisionStep(step, ctx, token);
       } catch (error) {
+        if (isDestroyedRefusal(error)) throw error;
         const diagnosticCode = this.logReadinessFailure(
           tenantId,
           operationId,
@@ -516,6 +472,7 @@ export class TenantControlPlaneService {
         }
       }
     } catch (error) {
+      if (isDestroyedRefusal(error)) throw error;
       errorCode = 'DATASOURCE_INVALID';
       diagnosticCode = this.logReadinessFailure(tenantId, null, 'readiness', errorCode, error);
     }

@@ -24,8 +24,10 @@ import { MarketSandboxProvider } from '@/server/services/sandbox/providers/marke
 import { OnlyboxesSandboxProvider } from '@/server/services/sandbox/providers/onlyboxes';
 import type { SandboxProvider, SandboxServiceOptions } from '@/server/services/sandbox/types';
 
+import { withDestructionFence } from './destruction';
 import { connectionFromDirectory } from './directoryConnection';
 import { loadTenantPublicEndpoint } from './endpoints';
+import { TenantGateError } from './errors';
 import { verifyRuntimeTenantDatabase } from './verifyDatabase';
 
 type Work = typeof tenantRuntimeExternalWork.$inferSelect;
@@ -214,16 +216,22 @@ export const reconcileExternalWork = async (workId: string) => {
     if (status.result?.running !== false) return { workId, terminal: false };
     result = { running: false, provider: kind, commandId };
   } else throw new Error('EXTERNAL_PROVIDER_RECONCILIATION_UNSUPPORTED');
-  await db
-    .update(tenantRuntimeExternalWork)
-    .set({ completedAt: new Date(), receipt: { source: 'operator-provider-query', result } })
-    .where(
-      and(
-        eq(tenantRuntimeExternalWork.workId, workId),
-        eq(tenantRuntimeExternalWork.tenantId, work.tenantId),
-        isNull(tenantRuntimeExternalWork.completedAt),
-      ),
-    );
+  await withDestructionFence(
+    db,
+    work.tenantId,
+    () => new TenantGateError('TENANT_DESTROYED'),
+    (tx) =>
+      tx
+        .update(tenantRuntimeExternalWork)
+        .set({ completedAt: new Date(), receipt: { source: 'operator-provider-query', result } })
+        .where(
+          and(
+            eq(tenantRuntimeExternalWork.workId, workId),
+            eq(tenantRuntimeExternalWork.tenantId, work.tenantId),
+            isNull(tenantRuntimeExternalWork.completedAt),
+          ),
+        ),
+  );
   return { workId, terminal: true };
 };
 

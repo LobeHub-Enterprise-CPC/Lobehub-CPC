@@ -6,6 +6,7 @@ import { TenantDatabaseError } from '@lobechat/database/tenant';
  * frozen tenant) and never names a schema, host or credential.
  */
 export type TenantGateCode =
+  | 'TENANT_DESTROYED'
   | 'TENANT_EXPIRED'
   | 'TENANT_FROZEN'
   | 'TENANT_INVALID'
@@ -17,6 +18,8 @@ export type TenantGateCode =
   | 'TENANT_UNAVAILABLE';
 
 export const TENANT_GATE_STATUS: Record<TenantGateCode, number> = {
+  // The tenant UUID is under destruction (barrier established) or destroyed: no retry can succeed.
+  TENANT_DESTROYED: 409,
   TENANT_EXPIRED: 403,
   TENANT_FROZEN: 403,
   TENANT_INVALID: 400,

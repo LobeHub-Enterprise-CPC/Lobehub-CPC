@@ -79,6 +79,17 @@ export class TenantRuntime {
       if (key.startsWith(`${tenantId}|`)) this.verified.delete(key);
   }
 
+  /**
+   * Destruction unregister and heartbeat: forgets the tenant's routing facts and sessions and retires
+   * its connection pools in this process. Returns whether this process held a live connection route.
+   */
+  retire(tenantId: string): boolean {
+    const held = this.sessions.has(tenantId);
+    this.invalidate(tenantId);
+    this.pools.invalidateTenant(tenantId);
+    return held;
+  }
+
   async enterSlug(slug: string) {
     const entry = await this.directory.findBySlug(slug);
     if (!entry) throw new TenantGateError('TENANT_NOT_FOUND');
@@ -134,6 +145,7 @@ export class TenantRuntime {
     const checkedAt = this.now().getTime();
     const entry = await this.admissionEntry(tenantId, 0);
     if (!entry) throw new TenantGateError('TENANT_NOT_FOUND');
+    if (entry.destroyed) throw new TenantGateError('TENANT_DESTROYED');
     const lifecycle = entry.lifecycle;
     if (entry.directory.status !== 'active' || !lifecycle?.acceptedVersion)
       throw new TenantGateError('TENANT_NOT_READY');
@@ -171,9 +183,9 @@ export class TenantRuntime {
   async listAvailableTenantIds(): Promise<string[]> {
     const rows = await this.directory.list();
     return rows
-      .filter(({ directory, lifecycle }) => {
+      .filter((entry) => {
         try {
-          this.assertAvailable({ directory, lifecycle });
+          this.assertAvailable(entry);
           return true;
         } catch {
           return false;
@@ -204,6 +216,8 @@ export class TenantRuntime {
 
   private assertAvailable(entry: RouteEntry) {
     const { directory, lifecycle } = entry;
+    // From the destruction barrier on, whatever the lifecycle says: a destroyed tenant is never admitted.
+    if (entry.destroyed) throw new TenantGateError('TENANT_DESTROYED');
     if (directory.status !== 'active')
       throw new TenantGateError('TENANT_NOT_READY', undefined, { source: 'admission' });
     // A tenant Console has never activated is not ready rather than offline.

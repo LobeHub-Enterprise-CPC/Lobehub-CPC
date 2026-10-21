@@ -90,6 +90,22 @@ describe('TenantRuntime.assertAdmitted', () => {
     expect(platform.select).toHaveBeenCalledTimes(3);
   });
 
+  it('refuses a tenant with a destruction terminal from the barrier on, whatever its lifecycle says', async () => {
+    const { platform, runtime } = setup();
+    const refused = expect(runtime.assertAdmitted('t-1')).rejects.toMatchObject({
+      code: 'TENANT_DESTROYED',
+    });
+    await vi.waitFor(() => expect(platform.pending).toHaveLength(1));
+    platform.answer([{ ...activeRow, destruction: 't-1' }]);
+    await refused;
+    const gateway = expect(runtime.gatewayAdmission('t-1')).rejects.toMatchObject({
+      code: 'TENANT_DESTROYED',
+    });
+    await vi.waitFor(() => expect(platform.pending).toHaveLength(1));
+    platform.answer([{ ...activeRow, destruction: 't-1' }]);
+    await gateway;
+  });
+
   it('admits on a read that answered within the admission TTL', async () => {
     const { platform, runtime } = setup();
     const admitted = runtime.assertAdmitted('t-1');

@@ -10,7 +10,9 @@ const setup = () => {
   const read = vi.fn(async () => [active]);
   const query = { limit: read };
   const platform = {
-    select: () => ({ from: () => ({ leftJoin: () => ({ where: () => query }) }) }),
+    select: () => ({
+      from: () => ({ leftJoin: () => ({ leftJoin: () => ({ where: () => query }) }) }),
+    }),
   } as unknown as PlatformDatabase;
   return { read, repository: new TenantDirectoryRepository(() => platform) };
 };

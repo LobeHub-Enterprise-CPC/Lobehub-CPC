@@ -2,7 +2,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { tenantDirectory } from '@lobechat/database/platform';
+import { tenantDestruction, tenantDirectory } from '@lobechat/database/platform';
 import { SUPPORTED_TENANT_SCHEMA_VERSIONS, tenantDbNames } from '@lobechat/database/tenant';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,6 +10,7 @@ import { reconcileExternalWork } from '../reconcileExternal';
 
 const state = vi.hoisted(() => ({
   baseURL: '',
+  destroyed: false,
   directory: undefined as any,
   /** What the Market SDK received: the signed payloads and the tokens sent. */
   market: { payloads: [] as any[], tokens: [] as string[] },
@@ -82,12 +83,30 @@ vi.mock('@lobechat/database/platform', async (original) => ({
       },
       where: () => query,
       limit: async () =>
-        table === tenantDirectory ? [state.directory] : state.work ? [state.work] : [],
+        table === tenantDestruction
+          ? state.destroyed
+            ? [
+                {
+                  destroyOperationId: 'c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f',
+                  drainResult: null,
+                  tenantId: state.work?.tenantId,
+                  terminalEstablishedAt: new Date(0),
+                },
+              ]
+            : []
+          : table === tenantDirectory
+            ? [state.directory]
+            : state.work
+              ? [state.work]
+              : [],
     };
-    return {
+    const db: any = {
+      execute: async () => {},
       select: () => query,
+      transaction: async (run: (tx: unknown) => Promise<unknown>) => run(db),
       update: () => ({ set: (value: unknown) => ({ where: async () => state.write(value) }) }),
     };
+    return db;
   },
 }));
 // Market only accepts a canonical UUID as the signed tenant id (the id Console generates).
@@ -100,6 +119,7 @@ describe('operator reconciliation against a local HTTP provider', () => {
   let httpStatus: number;
   beforeEach(async () => {
     vi.clearAllMocks();
+    state.destroyed = false;
     status = 'running';
     httpStatus = 200;
     state.market.payloads = [];
@@ -161,6 +181,14 @@ describe('operator reconciliation against a local HTTP provider', () => {
       );
     },
   );
+  it('writes no terminal evidence for a tenant under destruction', async () => {
+    status = 'succeeded';
+    state.destroyed = true;
+    await expect(reconcileExternalWork('sandbox:fixture')).rejects.toMatchObject({
+      code: 'TENANT_DESTROYED',
+    });
+    expect(state.write).not.toHaveBeenCalled();
+  });
   it('retains lost submissions without a provider lookup handle', async () => {
     state.work.handle = null;
     await expect(reconcileExternalWork('sandbox:fixture')).rejects.toThrow('HANDLE_UNKNOWN');

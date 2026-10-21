@@ -40,6 +40,11 @@ export const SAFE_ERROR_CODES = [
   'LIFECYCLE_RESUME_FAILED',
   'LIFECYCLE_EVENT_CONFLICT',
   'LIFECYCLE_VERSION_CONFLICT',
+  // tenant-destruction.json errors.codes: the ones Console reads from this application.
+  'TENANT_DESTROYED',
+  'DESTROY_PHASE_ORDER',
+  'OPERATION_CONFLICT',
+  'TENANT_DESTRUCTION_FAILED',
 ] as const;
 export type SafeErrorCode = (typeof SAFE_ERROR_CODES)[number];
 
@@ -231,6 +236,48 @@ export interface TenantOverview {
  * A refusal the router turns into `{ code }` with `status`. `code` is either a
  * safe code or one of the transport-level codes FR-CP-03 lists.
  */
+/** tenant-destruction.json: the three phases of one destruction, each repeatable. */
+export const DESTRUCTION_PHASES = ['barrier', 'drain', 'unregister'] as const;
+export type DestructionPhase = (typeof DESTRUCTION_PHASES)[number];
+
+/** UUID chosen by Console for one destruction of a tenant UUID; compared lower-cased. */
+const destroyOperationId = z
+  .string()
+  .regex(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i)
+  .transform((value) => value.toLowerCase());
+
+export const destructionRequestSchema = z
+  .object({ destroyOperationId, phase: z.enum(DESTRUCTION_PHASES), tenantId })
+  .strict();
+export type DestructionRequest = z.output<typeof destructionRequestSchema>;
+
+export const destructionQuerySchema = z
+  .object({ destroyOperationId: destroyOperationId.optional(), tenantId })
+  .strict();
+
+export type DestructionStatus = 'applied' | 'applying' | 'absent';
+export type UnregisterItemResult = 'deleted' | 'absent' | 'detached' | 'retained';
+
+export interface DestructionResult {
+  completedAt: string | null;
+  destroyOperationId: string;
+  drainResult: 'drained' | 'fenced' | null;
+  items?: { item: string; result: UnregisterItemResult }[];
+  phase: DestructionPhase;
+  status: DestructionStatus;
+  tenantId: string;
+  terminalEstablishedAt: string;
+}
+
+export interface DestructionStatusResult {
+  completedAt: string | null;
+  destroyOperationId: string | null;
+  drainResult: 'drained' | 'fenced' | null;
+  reached: DestructionPhase | null;
+  tenantId: string;
+  terminalEstablishedAt: string | null;
+}
+
 export class ControlPlaneError extends Error {
   constructor(
     readonly status: 400 | 401 | 403 | 404 | 409 | 413 | 500 | 503,
@@ -240,3 +287,7 @@ export class ControlPlaneError extends Error {
     this.name = 'ControlPlaneError';
   }
 }
+
+/** A refusal because the tenant UUID is under destruction: never a failed step, never retried. */
+export const isDestroyedRefusal = (error: unknown): error is ControlPlaneError =>
+  error instanceof ControlPlaneError && error.code === 'TENANT_DESTROYED';

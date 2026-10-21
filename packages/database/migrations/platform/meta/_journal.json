@@ -36,6 +36,13 @@
       "when": 1792408890873,
       "tag": "0004_tenant_process_lease",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792585535354,
+      "tag": "0005_tenant_destruction_terminal",
+      "breakpoints": true
     }
   ]
 }

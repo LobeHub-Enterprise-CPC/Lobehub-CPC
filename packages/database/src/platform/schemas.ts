@@ -227,3 +227,34 @@ export const tenantEndpointEvents = pgTable(
   },
   (t) => [uniqueIndex('tenant_endpoint_events_version_idx').on(t.tenantId, t.version)],
 );
+
+/**
+ * The durable destruction terminal, one row per tenant UUID (contracts/tenant-control-plane/
+ * tenant-destruction.json `terminalRecord`). Deliberately standalone: no foreign key and no cascade, so
+ * it survives deleting the directory entry, the connection, the credentials and every operation of
+ * the tenant. It holds no slug, name, credential or actor, so it never reserves a slug: a new tenant
+ * with the same slug gets a new UUID and is unaffected. Nothing removes a row in this release.
+ *
+ * `completedAt` is the only proof that the destruction is complete; a row without it means the
+ * destruction is in progress and every phase of the same `destroyOperationId` can still be asked for.
+ */
+export const tenantDestruction = pgTable(
+  'tenant_destruction',
+  {
+    completedAt: timestamptz('completed_at'),
+    destroyOperationId: text('destroy_operation_id').notNull(),
+    drainResult: text('drain_result').$type<'drained' | 'fenced'>(),
+    tenantId: text('tenant_id').primaryKey(),
+    terminalEstablishedAt: timestamptz('terminal_established_at').notNull(),
+  },
+  (t) => [
+    check(
+      'tenant_destruction_drain_result_valid',
+      sql`${t.drainResult} IS NULL OR ${t.drainResult} IN ('drained', 'fenced')`,
+    ),
+    check(
+      'tenant_destruction_completed_after_drain',
+      sql`${t.completedAt} IS NULL OR ${t.drainResult} IS NOT NULL`,
+    ),
+  ],
+);

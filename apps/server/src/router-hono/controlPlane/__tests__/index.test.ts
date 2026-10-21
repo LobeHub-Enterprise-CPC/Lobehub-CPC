@@ -24,6 +24,8 @@ const endpoints = [
   { method: 'POST', path: '/tenant-lifecycle' },
   { method: 'GET', path: '/tenant-lifecycle' },
   { method: 'GET', path: '/tenant-overview' },
+  { method: 'POST', path: '/tenant-destruction' },
+  { method: 'GET', path: '/tenant-destruction' },
 ];
 
 const setup = (configured = true) => {

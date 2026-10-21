@@ -7,9 +7,21 @@ const state = vi.hoisted(() => ({
   result: undefined as any,
   write: vi.fn(),
   slug: 'beta' as string | null,
+  destroyed: false,
   parse: vi.fn(),
 }));
 vi.mock('./gate', () => ({ routedTenantSlug: () => state.slug }));
+vi.mock('./destruction', () => ({
+  withDestructionFence: async (
+    db: unknown,
+    _tenantId: string,
+    refuse: () => Error,
+    write: (tx: unknown) => Promise<unknown>,
+  ) => {
+    if (state.destroyed) throw refuse();
+    return write(db);
+  },
+}));
 vi.mock('@lobechat/model-runtime', () => ({
   ModelRuntime: { initializeWithProvider: () => ({ handleCreateVideoWebhook: state.parse }) },
 }));
@@ -33,6 +45,7 @@ const request = (path = '/api/webhooks/video/volcengine?token=valid') =>
 beforeEach(() => {
   vi.clearAllMocks();
   state.slug = 'beta';
+  state.destroyed = false;
   state.rows = [
     {
       work: {
@@ -65,6 +78,13 @@ describe('video receipt ingress', () => {
         receipt: { source: 'authenticated-webhook', result: state.result },
       }),
     );
+  });
+  it('refuses a receipt for a tenant under destruction and writes nothing', async () => {
+    state.destroyed = true;
+    const response = (await receiveVideoReceipt(request()))!;
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ code: 'TENANT_DESTROYED' });
+    expect(state.write).not.toHaveBeenCalled();
   });
   it.each(['pending', 'completed'])('does not mark %s as terminal', async (status) => {
     state.result = { status, inferenceId: 'remote-1' };

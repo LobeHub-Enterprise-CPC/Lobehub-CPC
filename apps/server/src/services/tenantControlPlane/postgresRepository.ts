@@ -1,6 +1,11 @@
 import type { PlatformDatabase } from '@lobechat/database/platform';
 import {
+  tenantDestroyBlocker,
+  tenantDestruction,
   tenantDirectory,
+  tenantEndpointEvents,
+  tenantEndpoints,
+  tenantEndpointState,
   tenantLeaseBlocker,
   tenantLifecycle,
   tenantLifecycleInbox,
@@ -9,9 +14,14 @@ import {
   tenantRuntimeProcess,
 } from '@lobechat/database/platform';
 import { isSafeReadinessDiagnosticCode } from '@lobechat/database/tenant';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, count, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 
 import { openDirectoryData, sealDirectoryData } from '@/server/crypto/tenantKeys';
+import {
+  lockDestructionFenceExclusive,
+  readDestruction,
+  toDestructionRecord,
+} from '@/server/modules/Tenant/destruction';
 import { directorySecretAad } from '@/server/modules/Tenant/directorySecrets';
 
 import {
@@ -28,6 +38,7 @@ import type {
   ProvisionStep,
   TenantDirectoryRecord,
   TenantLifecycleRecord,
+  TransactionOptions,
 } from './repository';
 
 export { directorySecretAad } from '@/server/modules/Tenant/directorySecrets';
@@ -136,6 +147,181 @@ const toLifecycle = (row: LifecycleRow): TenantLifecycleRecord => ({
 });
 
 const createTx = (tx: Tx): ControlPlaneTx => ({
+  createDestruction: async (tenantId, destroyOperationId, terminalEstablishedAt) => {
+    await tx
+      .insert(tenantDestruction)
+      .values({
+        destroyOperationId,
+        tenantId,
+        terminalEstablishedAt: new Date(terminalEstablishedAt),
+      })
+      .onConflictDoNothing();
+    const [row] = await tx
+      .select()
+      .from(tenantDestruction)
+      .where(eq(tenantDestruction.tenantId, tenantId));
+    return toDestructionRecord(row);
+  },
+
+  fenceInFlight: async (tenantId) => {
+    await tx
+      .update(tenantProvisionOperation)
+      .set({ leaseToken: null, leaseUntil: null })
+      .where(
+        and(
+          eq(tenantProvisionOperation.tenantId, tenantId),
+          eq(tenantProvisionOperation.status, 'applying'),
+        ),
+      );
+    await tx
+      .update(tenantLifecycleInbox)
+      .set({ leaseToken: null, leaseUntil: null })
+      .where(
+        and(
+          eq(tenantLifecycleInbox.tenantId, tenantId),
+          eq(tenantLifecycleInbox.status, 'applying'),
+        ),
+      );
+  },
+
+  finishDrain: async (tenantId, result) => {
+    await tx
+      .update(tenantDestruction)
+      .set({ drainResult: result })
+      .where(and(eq(tenantDestruction.tenantId, tenantId), isNull(tenantDestruction.drainResult)));
+    const [row] = await tx
+      .select()
+      .from(tenantDestruction)
+      .where(eq(tenantDestruction.tenantId, tenantId));
+    return toDestructionRecord(row);
+  },
+
+  getDestruction: (tenantId) => readDestruction(tx, tenantId),
+
+  observeDrain: async (tenantId, now) => {
+    const processes = await tx
+      .select({ id: tenantRuntimeProcess.processId })
+      .from(tenantRuntimeProcess)
+      .where(tenantDestroyBlocker(tenantId))
+      .limit(1);
+    const external = await tx
+      .select({ id: tenantRuntimeExternalWork.workId })
+      .from(tenantRuntimeExternalWork)
+      .where(
+        and(
+          eq(tenantRuntimeExternalWork.tenantId, tenantId),
+          isNull(tenantRuntimeExternalWork.completedAt),
+        ),
+      )
+      .limit(1);
+    const [operations] = await tx
+      .select({ total: count() })
+      .from(tenantProvisionOperation)
+      .where(
+        and(
+          eq(tenantProvisionOperation.tenantId, tenantId),
+          eq(tenantProvisionOperation.status, 'applying'),
+          gt(tenantProvisionOperation.leaseUntil, now),
+        ),
+      );
+    const [events] = await tx
+      .select({ total: count() })
+      .from(tenantLifecycleInbox)
+      .where(
+        and(
+          eq(tenantLifecycleInbox.tenantId, tenantId),
+          eq(tenantLifecycleInbox.status, 'applying'),
+          gt(tenantLifecycleInbox.leaseUntil, now),
+        ),
+      );
+    return {
+      externalWork: external.length > 0,
+      liveOperations: Number(operations.total) + Number(events.total),
+      processes: processes.length > 0,
+    };
+  },
+
+  unregisterTenant: async (tenantId, completedAt, pool) => {
+    const removed = async (statement: PromiseLike<unknown[]>) => (await statement).length > 0;
+    // Records that reference the directory row go first; the directory row goes last.
+    const endpointRecords = [
+      await removed(
+        tx
+          .delete(tenantEndpointEvents)
+          .where(eq(tenantEndpointEvents.tenantId, tenantId))
+          .returning({ id: tenantEndpointEvents.eventId }),
+      ),
+      await removed(
+        tx
+          .delete(tenantEndpointState)
+          .where(eq(tenantEndpointState.tenantId, tenantId))
+          .returning({ id: tenantEndpointState.tenantId }),
+      ),
+      await removed(
+        tx
+          .delete(tenantEndpoints)
+          .where(eq(tenantEndpoints.tenantId, tenantId))
+          .returning({ id: tenantEndpoints.id }),
+      ),
+    ].some(Boolean);
+    const [pending] = await tx
+      .select({ total: count() })
+      .from(tenantProvisionOperation)
+      .where(
+        and(
+          eq(tenantProvisionOperation.tenantId, tenantId),
+          isNotNull(tenantProvisionOperation.pendingBundle),
+        ),
+      );
+    const operations = [
+      await removed(
+        tx
+          .delete(tenantLifecycleInbox)
+          .where(eq(tenantLifecycleInbox.tenantId, tenantId))
+          .returning({ id: tenantLifecycleInbox.eventId }),
+      ),
+      await removed(
+        tx
+          .delete(tenantLifecycle)
+          .where(eq(tenantLifecycle.tenantId, tenantId))
+          .returning({ id: tenantLifecycle.tenantId }),
+      ),
+      await removed(
+        tx
+          .delete(tenantProvisionOperation)
+          .where(eq(tenantProvisionOperation.tenantId, tenantId))
+          .returning({ id: tenantProvisionOperation.operationId }),
+      ),
+      await removed(
+        tx
+          .delete(tenantRuntimeExternalWork)
+          .where(eq(tenantRuntimeExternalWork.tenantId, tenantId))
+          .returning({ id: tenantRuntimeExternalWork.workId }),
+      ),
+    ].some(Boolean);
+    const directory = await removed(
+      tx
+        .delete(tenantDirectory)
+        .where(eq(tenantDirectory.tenantId, tenantId))
+        .returning({ id: tenantDirectory.tenantId }),
+    );
+    await tx
+      .update(tenantDestruction)
+      .set({ completedAt: new Date(completedAt) })
+      .where(and(eq(tenantDestruction.tenantId, tenantId), isNull(tenantDestruction.completedAt)));
+    const result = (done: boolean) => (done ? ('deleted' as const) : ('absent' as const));
+    // The directory row carries the identity, the connection coordinates and both sealed passwords,
+    // so those three items leave with it; an operation's pending bundle is a second credential copy.
+    return [
+      { item: 'tenant_directory', result: result(directory) },
+      { item: 'active_connection', result: result(directory) },
+      { item: 'credential_bundle', result: result(directory || Number(pending.total) > 0) },
+      { item: 'control_plane_operations', result: result(operations) },
+      { item: 'endpoint_records', result: result(endpointRecords) },
+      { item: 'connection_pool', result: pool },
+    ];
+  },
+
   tenantStopBlocker: async (tenantId) => {
     const claims = await tx
       .select({ id: tenantRuntimeProcess.processId })
@@ -409,12 +595,28 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
 export class PostgresControlPlaneRepository implements ControlPlaneRepository {
   constructor(private readonly db: PlatformDatabase) {}
 
-  transaction<T>(tenantId: string, fn: (tx: ControlPlaneTx) => Promise<T>): Promise<T> {
+  readDestruction(tenantId: string) {
+    return readDestruction(this.db, tenantId);
+  }
+
+  transaction<T>(
+    tenantId: string,
+    fn: (tx: ControlPlaneTx) => Promise<T>,
+    options: TransactionOptions = {},
+  ): Promise<T> {
     return this.db.transaction(async (tx) => {
       // Serialises every transaction that touches this tenant's control state.
       await tx.execute(
         sql`SELECT pg_advisory_xact_lock(hashtextextended(${`lobehub:tenant-control:${tenantId}`}, 0))`,
       );
+      if (options.destruction) {
+        // The phases wait for writers that run outside the control lock (endpoint revisions, external work).
+        await lockDestructionFenceExclusive(tx, tenantId);
+      } else if (await readDestruction(tx, tenantId)) {
+        // Read after the lock the barrier also holds: a request that passed its entry check before the
+        // barrier meets the terminal here, in the transaction that would write.
+        throw new ControlPlaneError(409, 'TENANT_DESTROYED');
+      }
       return fn(createTx(tx));
     });
   }

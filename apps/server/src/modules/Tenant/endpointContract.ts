@@ -71,6 +71,7 @@ export class TenantEndpointError extends Error {
       | 'ENDPOINT_VERSION_CONFLICT'
       | 'ENDPOINT_HOST_CONFLICT'
       | 'ENDPOINTS_NOT_READY'
+      | 'TENANT_DESTROYED'
       | 'TENANT_NOT_FOUND',
     public readonly status: 400 | 404 | 409 | 503,
   ) {

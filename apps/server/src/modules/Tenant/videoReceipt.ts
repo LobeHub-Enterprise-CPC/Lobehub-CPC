@@ -10,6 +10,8 @@ import {
 import { ModelRuntime } from '@lobechat/model-runtime';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 
+import { withDestructionFence } from './destruction';
+import { TenantGateError, tenantRefusalResponse } from './errors';
 import { routedTenantSlug } from './gate';
 import { effectiveTenantState } from './lifecycleState';
 
@@ -69,16 +71,29 @@ export const receiveVideoReceipt = async (request: Request): Promise<Response | 
   if (!result || !work.handle || result.inferenceId !== work.handle)
     return Response.json({ error: 'Receipt does not match submitted work' }, { status: 409 });
   if (result.status === 'success' || result.status === 'error') {
-    await db
-      .update(tenantRuntimeExternalWork)
-      .set({ completedAt: new Date(), receipt: { source: 'authenticated-webhook', result } })
-      .where(
-        and(
-          eq(tenantRuntimeExternalWork.workId, work.workId),
-          eq(tenantRuntimeExternalWork.tenantId, work.tenantId),
-          isNull(tenantRuntimeExternalWork.completedAt),
-        ),
+    // A receipt for a tenant under destruction is refused as a gate refusal, like any other write.
+    try {
+      await withDestructionFence(
+        db,
+        work.tenantId,
+        () => new TenantGateError('TENANT_DESTROYED'),
+        (tx) =>
+          tx
+            .update(tenantRuntimeExternalWork)
+            .set({ completedAt: new Date(), receipt: { source: 'authenticated-webhook', result } })
+            .where(
+              and(
+                eq(tenantRuntimeExternalWork.workId, work.workId),
+                eq(tenantRuntimeExternalWork.tenantId, work.tenantId),
+                isNull(tenantRuntimeExternalWork.completedAt),
+              ),
+            ),
       );
+    } catch (error) {
+      const refusal = tenantRefusalResponse(error);
+      if (refusal) return refusal;
+      throw error;
+    }
     if (frozen) return Response.json({ received: true, businessCompletion: 'deferred' });
   } else if (frozen) {
     // 'completed' without an artifact still needs provider polling. Never count it as terminal.

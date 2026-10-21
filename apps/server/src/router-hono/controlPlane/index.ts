@@ -7,6 +7,7 @@ import type { z } from 'zod';
 
 import { invalidateTenantAuth } from '@/auth';
 import { appEnv } from '@/envs/app';
+import { invalidateEndpointRouting } from '@/server/modules/Tenant/endpointCache';
 import { getTenantLiveResources } from '@/server/modules/Tenant/liveResources';
 import { waitForTenantClaims } from '@/server/modules/Tenant/postgresClaims';
 import { getTenantRuntime } from '@/server/modules/Tenant/runtime';
@@ -15,6 +16,8 @@ import {
   ControlPlaneError,
   datasourceReadinessRequestSchema,
   datasourceRequestSchema,
+  destructionQuerySchema,
+  destructionRequestSchema,
   isActionRequired,
   lifecycleQuerySchema,
   lifecycleRequestSchema,
@@ -87,7 +90,11 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
 
   app.onError((error, c) => {
     if (error instanceof TenantEndpointError) return errorBody(c, error.status, error.code);
-    if (error instanceof ControlPlaneError) return errorBody(c, error.status, error.code);
+    if (error instanceof ControlPlaneError) {
+      // A transient failure inside a destruction phase: the phase is resumable, so Console retries it.
+      if (error.code === 'TENANT_DESTRUCTION_FAILED') c.header('Retry-After', '5');
+      return errorBody(c, error.status, error.code);
+    }
     log('unexpected control-plane error: %s', (error as Error)?.name);
     return errorBody(c, 500, 'INTERNAL');
   });
@@ -170,8 +177,39 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
   app.get('/tenant-endpoints', async (c) => {
     const { input } = await prepare(c, endpointQuerySchema, 'query', 'ENDPOINTS_INVALID');
     return c.json(
-      await (deps.endpoints?.() ?? new TenantEndpointsService(getPlatformDB())).get(input.tenantId),
+      await (deps.endpoints?.() ?? new TenantEndpointsService(getPlatformDB())).get(
+        input.tenantId,
+        {
+          control: true,
+        },
+      ),
     );
+  });
+
+  /**
+   * Destruction of a tenant UUID (tenant-destruction.json): barrier, drain, unregister, and its
+   * read-only status. Every other route above is refused with TENANT_DESTROYED from the barrier on,
+   * in the transaction that would write.
+   */
+  app.post('/tenant-destruction', async (c) => {
+    const { input, service } = await prepare(c, destructionRequestSchema, 'body');
+    const result = await service.destruction.apply(input);
+    if (input.phase !== 'drain') {
+      // This process stops admitting the tenant at once; the others do within the admission TTL.
+      invalidateTenantAuth(input.tenantId);
+      getTenantRuntime().invalidate(input.tenantId);
+      invalidateEndpointRouting();
+    }
+    if (result.status === 'applying') {
+      c.header('Retry-After', '5');
+      return c.json(result, 202);
+    }
+    return c.json(result);
+  });
+
+  app.get('/tenant-destruction', async (c) => {
+    const { input, service } = await prepare(c, destructionQuerySchema, 'query');
+    return c.json(await service.destruction.status(input.tenantId, input.destroyOperationId));
   });
 
   app.post('/tenant-provision', async (c) => {
@@ -261,6 +299,8 @@ const getService = () => {
   if (!current) return null;
   service ??= new TenantControlPlaneService({
     database: current.database,
+    // Unregister retires this process's pools for the tenant; the other processes do it on their heartbeat.
+    destruction: { retirePool: (tenantId) => getTenantRuntime().retire(tenantId) },
     isRegistrableSlug,
     repository: current.repository,
   });

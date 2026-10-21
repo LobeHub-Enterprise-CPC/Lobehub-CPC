@@ -1,5 +1,5 @@
 import type { PlatformDatabase } from '@lobechat/database/platform';
-import { tenantDirectory, tenantLifecycle } from '@lobechat/database/platform';
+import { tenantDestruction, tenantDirectory, tenantLifecycle } from '@lobechat/database/platform';
 import { eq, getTableColumns } from 'drizzle-orm';
 
 import { TenantGateError } from './errors';
@@ -13,9 +13,20 @@ const {
 } = getTableColumns(tenantDirectory);
 
 export interface TenantDirectoryEntry {
+  /** The tenant UUID has a destruction terminal: admission refuses it from the barrier on. */
+  destroyed?: boolean;
   directory: Omit<typeof tenantDirectory.$inferSelect, 'ownerSecret' | 'ownerUsername'>;
   lifecycle: typeof tenantLifecycle.$inferSelect | null;
 }
+
+const toEntry = ({
+  destruction,
+  ...entry
+}: {
+  destruction?: string | null;
+  directory: TenantDirectoryEntry['directory'];
+  lifecycle: TenantDirectoryEntry['lifecycle'];
+}): TenantDirectoryEntry => ({ ...entry, destroyed: !!destruction });
 
 /** PostgreSQL is authoritative; this process only holds bounded, short-lived routing snapshots. */
 export class TenantDirectoryRepository {
@@ -46,14 +57,19 @@ export class TenantDirectoryRepository {
   }
 
   async list(): Promise<TenantDirectoryEntry[]> {
-    return this.query();
+    return (await this.query()).map(toEntry);
   }
 
   private query() {
     return this.platform()
-      .select({ directory: runtimeColumns, lifecycle: tenantLifecycle })
+      .select({
+        destruction: tenantDestruction.tenantId,
+        directory: runtimeColumns,
+        lifecycle: tenantLifecycle,
+      })
       .from(tenantDirectory)
-      .leftJoin(tenantLifecycle, eq(tenantLifecycle.tenantId, tenantDirectory.tenantId));
+      .leftJoin(tenantLifecycle, eq(tenantLifecycle.tenantId, tenantDirectory.tenantId))
+      .leftJoin(tenantDestruction, eq(tenantDestruction.tenantId, tenantDirectory.tenantId));
   }
 
   private async find(where: ReturnType<typeof eq>): Promise<TenantDirectoryEntry | null> {
@@ -62,7 +78,7 @@ export class TenantDirectoryRepository {
       const [entry] = await this.query().where(where).limit(1);
       // A slow read may predate a lifecycle change already enforced elsewhere.
       if (this.now() - startedAt >= 5000) throw new TenantGateError('TENANT_UNAVAILABLE');
-      return entry ?? null;
+      return entry ? toEntry(entry) : null;
     } catch (cause) {
       console.error('[TenantDirectory] lookup failed:', (cause as Error).name);
       throw new TenantGateError('TENANT_UNAVAILABLE', undefined, { cause });
