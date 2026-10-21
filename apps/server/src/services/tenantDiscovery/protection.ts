@@ -1,10 +1,15 @@
 import { createHmac, hkdfSync } from 'node:crypto';
 import { isIP } from 'node:net';
 
+import { z } from 'zod';
+
 import { unavailable } from './errors';
 
-export const discoveryIpBucket = (headers: Headers): string => {
-  const ip = headers.get('x-real-ip')?.trim() ?? '';
+/** Shared mailbox rule for every discovery entry point: trimmed, lower-cased, <=254, email-shaped. */
+export const discoveryEmailSchema = z.string().trim().toLowerCase().max(254).email();
+
+/** Maps a raw client address to its rate-limit bucket (IPv6 collapses to /64, mapped IPv4 to IPv4). */
+export const ipBucket = (ip: string): string => {
   const version = isIP(ip);
   if (version === 4) return ip;
   if (version === 6 && !ip.includes('%')) {
@@ -40,6 +45,9 @@ export const discoveryIpBucket = (headers: Headers): string => {
   console.warn('TENANT_DISCOVERY_UNKNOWN_IP');
   return 'unknown';
 };
+
+export const discoveryIpBucket = (headers: Headers): string =>
+  ipBucket(headers.get('x-real-ip')?.trim() ?? '');
 
 const fingerprint = (value: string, info: string) => {
   const secret = process.env.KEY_VAULTS_SECRET;

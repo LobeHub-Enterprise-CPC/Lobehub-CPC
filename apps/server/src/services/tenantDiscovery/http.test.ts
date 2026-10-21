@@ -95,6 +95,32 @@ describe('discovery HTTP boundary', () => {
     expect(deps.candidates).not.toHaveBeenCalled();
     expect(deps.admit).not.toHaveBeenCalled();
   });
+  it('still rejects with 400 when cancelling the oversize stream fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const stream = new ReadableStream({
+      cancel() {
+        throw new Error('cancel failed');
+      },
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('x'.repeat(2048)));
+      },
+    });
+    const response = await handleTenantDiscovery(
+      new Request('https://app.example.com/api/tenant-discovery', {
+        body: stream,
+        // @ts-expect-error Node fetch streaming bodies require duplex.
+        duplex: 'half',
+        headers: { 'Content-Type': 'application/json', 'Origin': 'https://app.example.com' },
+        method: 'POST',
+      }),
+      'discovery',
+    );
+    expect(response.status).toBe(400);
+    expect(warn).toHaveBeenCalledWith('TENANT_DISCOVERY_BODY_CANCEL_FAILED');
+    expect(deps.candidates).not.toHaveBeenCalled();
+    expect(deps.admit).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
   it('normalizes email but returns only organization identifiers and display labels', async () => {
     const response = await handleTenantDiscovery(
       request({ email: ' A@EXAMPLE.COM ' }),

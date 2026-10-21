@@ -4,18 +4,19 @@ import { appEnv } from '@/envs/app';
 import { redisService } from '@/server/services/redis';
 
 import { discoveryAdmission, withDiscoveryDeadline } from './admission';
+import { readDiscoveryJsonBody } from './body';
 import { loadDiscoveryCandidates } from './candidates';
 import { withLookupClient } from './connection';
 import { readDesktopHandoff, selectDesktopTenant } from './desktop';
 import { desktopFlowSchema } from './desktopFlow';
 import { DiscoveryError } from './errors';
 import { serializeTenantCookie } from './navigation';
-import { discoveryIpBucket, emailFingerprint } from './protection';
+import { discoveryEmailSchema, discoveryIpBucket, emailFingerprint } from './protection';
 import { discoveryResults, queryTenantMembership, verifyCandidateObjects } from './query';
 
 export { discoveryIpBucket, emailFingerprint } from './protection';
 
-const emailSchema = z.string().trim().toLowerCase().max(254).email();
+const emailSchema = discoveryEmailSchema;
 const discoveryBody = z.object({ email: emailSchema }).strict();
 const selectBody = z
   .object({
@@ -29,42 +30,8 @@ const selectBody = z
   })
   .strict();
 
-const readBody = async (request: Request, signal: AbortSignal) => {
-  if (
-    request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json'
-  )
-    throw new DiscoveryError('INVALID_REQUEST', 400);
-  const reader = request.body?.getReader();
-  if (!reader) throw new DiscoveryError('INVALID_REQUEST', 400);
-  const abort = () => {
-    void reader.cancel().catch(() => console.warn('TENANT_DISCOVERY_BODY_CANCEL_FAILED'));
-  };
-  signal.addEventListener('abort', abort, { once: true });
-  try {
-    let length = 0;
-    const chunks: Uint8Array[] = [];
-    while (true) {
-      signal.throwIfAborted();
-      const { done, value } = await reader.read();
-      if (done) break;
-      length += value.byteLength;
-      if (length > 1024) {
-        await reader.cancel();
-        throw new DiscoveryError('INVALID_REQUEST', 400);
-      }
-      chunks.push(value);
-    }
-    signal.throwIfAborted();
-    try {
-      return JSON.parse(Buffer.concat(chunks).toString('utf8'));
-    } catch {
-      throw new DiscoveryError('INVALID_REQUEST', 400);
-    }
-  } finally {
-    signal.removeEventListener('abort', abort);
-    reader.releaseLock();
-  }
-};
+const readBody = (request: Request, signal: AbortSignal) =>
+  readDiscoveryJsonBody(request, signal, () => new DiscoveryError('INVALID_REQUEST', 400));
 const response = (body: unknown, status = 200, extra?: Record<string, string>) =>
   Response.json(body, {
     status,

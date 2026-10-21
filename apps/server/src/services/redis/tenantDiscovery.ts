@@ -4,6 +4,9 @@ const WINDOW_SECONDS = 60;
 export const DISCOVERY_LIMITS = {
   discovery: { global: 300, ip: 10, unknown: 30, email: 5 },
   select: { global: 600, ip: 30, unknown: 30 },
+  // Trusted-backend lookups (/api/internal/tenant-discovery/lookup): same buckets as public discovery,
+  // separate key prefix so integration traffic cannot exhaust the public budget.
+  integration: { global: 600, ip: 10, unknown: 30, email: 5 },
   handoff: { ip: 120, unknown: 120 },
 } as const;
 
@@ -44,7 +47,15 @@ const requireClient = async () => {
   return redis;
 };
 export const tenantDiscovery = {
-  async admit(kind: 'discovery' | 'select' | 'handoff', ip: string, emailHash?: string) {
+  /**
+   * Every kind counts the IP bucket; `discovery` and `integration` also count the mailbox bucket,
+   * and all but `handoff` count the global bucket.
+   */
+  async admit(
+    kind: 'discovery' | 'select' | 'handoff' | 'integration',
+    ip: string,
+    emailHash?: string,
+  ) {
     const redis = await requireClient();
     const now = Date.now();
     const window = Math.floor(now / (WINDOW_SECONDS * 1000));
@@ -61,9 +72,9 @@ export const tenantDiscovery = {
       return retryAfter;
     if (kind === 'handoff') return null;
     if (
-      kind === 'discovery' &&
+      (kind === 'discovery' || kind === 'integration') &&
       emailHash &&
-      (await count(`email:${emailHash}`)) > DISCOVERY_LIMITS.discovery.email
+      (await count(`email:${emailHash}`)) > DISCOVERY_LIMITS[kind].email
     )
       return retryAfter;
     if ((await count('global')) > DISCOVERY_LIMITS[kind].global) return retryAfter;

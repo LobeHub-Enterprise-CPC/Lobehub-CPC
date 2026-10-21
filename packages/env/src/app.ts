@@ -96,6 +96,12 @@ export const getAppConfig = () => {
       COMMAND_GOVERNANCE_SERVICE_TOKEN: z.string().optional(),
       /** Shared Bearer token for Console to call /api/internal/control-plane/*. */
       LOBEHUB_CONTROL_PLANE_TOKEN: z.string().optional(),
+      /**
+       * Bearer token for trusted backends (e.g. the landing site) to call
+       * /api/internal/tenant-discovery/*. Must be >= 32 chars and differ from
+       * LOBEHUB_CONTROL_PLANE_TOKEN; otherwise the endpoint answers 503.
+       */
+      LOBEHUB_TENANT_DISCOVERY_TOKEN: z.string().optional(),
 
       /**
        * Where this deployment serves its own desktop installers.
@@ -178,6 +184,7 @@ export const getAppConfig = () => {
       AGENT_GATEWAY_INTERNAL_URL: process.env.AGENT_GATEWAY_INTERNAL_URL || undefined,
       COMMAND_GOVERNANCE_SERVICE_TOKEN: process.env.COMMAND_GOVERNANCE_SERVICE_TOKEN,
       LOBEHUB_CONTROL_PLANE_TOKEN: process.env.LOBEHUB_CONTROL_PLANE_TOKEN,
+      LOBEHUB_TENANT_DISCOVERY_TOKEN: process.env.LOBEHUB_TENANT_DISCOVERY_TOKEN,
       DESKTOP_DOWNLOAD_URL_MACOS: process.env.DESKTOP_DOWNLOAD_URL_MACOS,
       DESKTOP_DOWNLOAD_URL_WINDOWS: process.env.DESKTOP_DOWNLOAD_URL_WINDOWS,
       enableQueueAgentRuntime: process.env.AGENT_RUNTIME_MODE === 'queue',

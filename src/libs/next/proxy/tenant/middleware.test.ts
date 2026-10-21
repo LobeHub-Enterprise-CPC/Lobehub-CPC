@@ -11,6 +11,7 @@ import { TenantRoutingUnavailableError } from '@/server/modules/Tenant/routingEr
 import { RouteVariants } from '@/utils/server/routeVariants';
 
 import { defineConfig } from '../define-config';
+import { resolveTenantlessRoute } from '../tenantRouting';
 import { mocks, useTenantMocks } from './testKit';
 
 // Next's node server installs this global before it loads any proxy code; the adapter's
@@ -139,6 +140,45 @@ describe('tenant routing', () => {
       new NextRequest('http://localhost:3010/t/acme/api/internal/control-plane/v1/tenants/x'),
     );
     expect(response?.status).toBe(404);
+  });
+
+  it('keeps the landing tenant lookup reachable without a tenant', async () => {
+    const response = await middleware(
+      new NextRequest('http://localhost:3010/api/internal/tenant-discovery/lookup', {
+        method: 'POST',
+      }),
+    );
+    expect(response?.headers.get('x-middleware-next')).toBe('1');
+  });
+
+  it('refuses the landing tenant lookup under a tenant prefix', async () => {
+    const response = await middleware(
+      new NextRequest('http://localhost:3010/t/acme/api/internal/tenant-discovery/lookup', {
+        method: 'POST',
+      }),
+    );
+    expect(response?.status).toBe(404);
+  });
+
+  it.each([
+    ['/api/internal/tenant-discovery/lookup', { kind: 'tenantless-backend' }],
+    ['/api/internal/tenant-discovery/lookup/', { kind: 'tenantless-backend' }],
+    ['/api/internal/tenant-discovery', { code: 'TENANT_REQUIRED', kind: 'reject', status: 400 }],
+    ['/api/internal/tenant-discovery/', { code: 'TENANT_REQUIRED', kind: 'reject', status: 400 }],
+    [
+      '/api/internal/tenant-discovery/other',
+      { code: 'TENANT_REQUIRED', kind: 'reject', status: 400 },
+    ],
+    [
+      '/api/internal/tenant-discovery/lookup/extra',
+      { code: 'TENANT_REQUIRED', kind: 'reject', status: 400 },
+    ],
+    [
+      '/api/internal/tenant-discovery/lookups',
+      { code: 'TENANT_REQUIRED', kind: 'reject', status: 400 },
+    ],
+  ])('resolves tenantless %s exactly', (pathname, expected) => {
+    expect(resolveTenantlessRoute(pathname)).toEqual(expected);
   });
 
   it('keeps the deployment-wide schedules reachable without a tenant', async () => {

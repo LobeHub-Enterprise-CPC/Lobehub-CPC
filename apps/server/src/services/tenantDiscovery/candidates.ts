@@ -30,6 +30,7 @@ export interface DiscoveryCandidate {
   name: string;
   port: number;
   schemaName: string;
+  slug: string;
 }
 const invalid = (id: string, reason: string): never => {
   console.error('TENANT_DISCOVERY_CANDIDATE_INVALID', { tenantId: id, reason });

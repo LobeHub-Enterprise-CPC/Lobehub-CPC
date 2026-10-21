@@ -19,12 +19,14 @@ export const GATEWAY_ROOT_INTERNAL =
 
 /**
  * The only backend paths served without a tenant: authenticated gateway roots,
- * Console's control plane, deployment-wide schedules (FR-AS-02), discovery and
- * the version probe. New endpoints need a tenant by default (FR-RT-04).
+ * Console's control plane, the exact landing lookup endpoint (service-token
+ * authenticated, root-only), deployment-wide schedules (FR-AS-02), discovery
+ * and the version probe. New endpoints need a tenant by default (FR-RT-04).
  */
 const TENANTLESS_BACKEND = [
   GATEWAY_ROOT_INTERNAL,
   /^\/api\/internal\/control-plane(?:\/|$)/,
+  /^\/api\/internal\/tenant-discovery\/lookup\/?$/,
   /^\/api\/cron(?:\/|$)/,
   /^\/api\/tenant-discovery(?:\/|$)/,
   /^\/api\/version\/?$/,
