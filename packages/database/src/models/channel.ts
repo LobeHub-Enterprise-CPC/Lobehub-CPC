@@ -26,6 +26,7 @@ import { buildWorkspaceWhere } from '../utils/workspace';
 import { advanceDiscussions, queueDiscussionTurn, stopDiscussions } from './channelDiscussion';
 import type { ChannelPageOptions } from './channelRead';
 import { listChannelThreads, readChannelPage, readChannelRevision } from './channelRead';
+import { isolateWriter, rotateSession } from './channelWriter';
 
 type DB = LobeChatDatabase | Transaction;
 const id = (kind: string) => `chn_${kind}_${randomUUID()}`;
@@ -218,6 +219,7 @@ export class ChannelModel {
           writerReleased: channelRuns.writerReleased,
           executionConfig: channelRuns.executionConfig,
           physicalStopped: channelRuns.physicalStopped,
+          isolatedAt: channelRuns.isolatedAt,
           environmentError: channelRuns.environmentError,
           manifest: channelRuns.manifest,
           publishedMessageId: channelRuns.publishedMessageId,
@@ -804,7 +806,7 @@ export class ChannelModel {
           and(
             eq(channelRuns.memberId, member.id),
             or(
-              eq(channelRuns.writerReleased, false),
+              and(eq(channelRuns.writerReleased, false), isNull(channelRuns.isolatedAt)),
               and(eq(channelRuns.cleanupRequested, true), eq(channelRuns.physicalStopped, false)),
             ),
           ),
@@ -1049,19 +1051,8 @@ export class ChannelModel {
         .select()
         .from(channelSessions)
         .where(eq(channelSessions.memberId, memberId));
-      for (const session of sessions.filter((s) => !s.scope.startsWith('archived:'))) {
-        await tx
-          .update(channelSessions)
-          .set({ scope: `archived:${session.id}` })
-          .where(eq(channelSessions.id, session.id));
-        await tx.insert(channelSessions).values({
-          id: id('session'),
-          channelId,
-          memberId,
-          scope: session.scope,
-          generation: session.generation + 1,
-        });
-      }
+      for (const session of sessions.filter((s) => !s.scope.startsWith('archived:')))
+        await rotateSession(tx, session);
       await tx
         .update(channelMembers)
         .set({
@@ -1111,7 +1102,13 @@ export class ChannelModel {
       const [active] = await tx
         .select()
         .from(channelRuns)
-        .where(and(eq(channelRuns.memberId, memberId), eq(channelRuns.writerReleased, false)));
+        .where(
+          and(
+            eq(channelRuns.memberId, memberId),
+            eq(channelRuns.writerReleased, false),
+            isNull(channelRuns.isolatedAt),
+          ),
+        );
       if (active)
         throw new ChannelError(
           'CONFLICT',
@@ -1123,22 +1120,19 @@ export class ChannelModel {
         .from(channelSessions)
         .where(and(eq(channelSessions.memberId, memberId), eq(channelSessions.scope, scope)));
       if (!current) return;
-      await tx
-        .update(channelSessions)
-        .set({ scope: `archived:${current.id}` })
-        .where(eq(channelSessions.id, current.id));
-      await tx.insert(channelSessions).values({
-        id: id('session'),
-        channelId,
-        memberId,
-        scope,
-        generation: current.generation + 1,
-      });
+      await rotateSession(tx, current);
       await this.audit(tx, channelId, 'session_rebuilt', memberId, {
         scope,
         generation: current.generation + 1,
       });
     });
+  }
+
+  /** Logical isolation of a writer whose termination stayed unconfirmed; see {@link isolateWriter}. */
+  async isolate(channelId: string, runId: string, fence: number, reason: string) {
+    return this.db.transaction(async (tx) =>
+      isolateWriter(tx, await this.fenced(tx, channelId, runId, fence, true), reason),
+    );
   }
 
   async setActivity(channelId: string, runId: string, fence: number, state: 'running' | 'typing') {

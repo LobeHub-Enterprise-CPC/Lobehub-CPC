@@ -2,14 +2,23 @@
 import { PGlite } from '@electric-sql/pglite';
 import { getTableColumns, getTableName, is } from 'drizzle-orm';
 import { PgTable } from 'drizzle-orm/pg-core';
+import { drizzle } from 'drizzle-orm/pglite';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { channelMigrationSql } from '../../tests/channelMigrations';
+import {
+  channelBaselineMigrationSql,
+  channelMigrationSql,
+  channelUpgradeMigrationSql,
+} from '../../tests/channelMigrations';
 import * as privateSchemas from '../privateSchemas';
+import type { LobeChatDatabase } from '../type';
+import { ChannelModel } from './channel';
 
 // The governance and Channel tables are created by the tenant-only chain's
-// 0004_governance_channel_tables.sql (see src/privateSchemas). `public` stands in for the tenant
-// schema, and `users` belongs to the shared chain that runs before it.
+// 0004_governance_channel_tables.sql and changed by the migrations after it (see
+// src/privateSchemas). `public` stands in for the tenant schema, and `users` belongs to the shared
+// chain that runs before it. Replays exercise 0004 alone: it is the one written for both starting
+// points, and a chain never re-runs it after a later migration.
 const open: PGlite[] = [];
 afterEach(async () => {
   await Promise.all(open.splice(0).map((db) => db.close()));
@@ -27,7 +36,7 @@ const modelTables = Object.values(privateSchemas).filter((value) => is(value, Pg
 describe('governance and Channel migration', () => {
   it('replays idempotently without losing data', async () => {
     const db = await createDatabase();
-    await db.exec(channelMigrationSql());
+    await db.exec(channelBaselineMigrationSql());
     await db.exec(`
       INSERT INTO channels (id, owner_id, title) VALUES ('channel', 'owner', 'Preserved');
       INSERT INTO channel_members (id, channel_id, name, config) VALUES ('member', 'channel', 'Agent', '{}');
@@ -37,7 +46,7 @@ describe('governance and Channel migration', () => {
       INSERT INTO command_governance_rules (user_id, pattern, pattern_type)
       VALUES ('owner', 'rm', 'prefix');
     `);
-    await db.exec(channelMigrationSql());
+    await db.exec(channelBaselineMigrationSql());
 
     expect((await db.query('SELECT title FROM channels')).rows).toEqual([{ title: 'Preserved' }]);
     expect((await db.query('SELECT content FROM channel_messages')).rows).toEqual([
@@ -118,8 +127,8 @@ describe('governance and Channel migration', () => {
     const revision = async () =>
       (await db.query<{ revision: number }>("SELECT revision FROM channels WHERE id = 'channel'"))
         .rows[0].revision;
-    await db.exec(channelMigrationSql());
-    await db.exec(channelMigrationSql());
+    await db.exec(channelBaselineMigrationSql());
+    await db.exec(channelBaselineMigrationSql());
     await db.exec("INSERT INTO channels (id, owner_id, title) VALUES ('channel', 'owner', 'One')");
     expect(await revision()).toBe(0);
 
@@ -144,12 +153,70 @@ describe('governance and Channel migration', () => {
     expect(await revision()).toBe(4);
   }, 30_000);
 
+  it('replays 0004 and upgrades its tables without modifying messages', async () => {
+    const db = await createDatabase();
+    await db.exec(channelBaselineMigrationSql());
+    await db.exec(`
+      INSERT INTO channels (id, owner_id, title, sequence) VALUES ('channel', 'owner', 'History', 2);
+      INSERT INTO channel_messages (id, channel_id, sequence, content, request_key, routing_status)
+      VALUES ('first', 'channel', 1, 'First', 'first', 'assigned'),
+             ('second', 'channel', 2, 'Second', 'second', 'assigned');
+    `);
+    const rows = async () =>
+      (await db.query('SELECT * FROM channel_messages ORDER BY sequence')).rows;
+    const before = await rows();
+    await db.exec(channelBaselineMigrationSql());
+    await db.exec(channelUpgradeMigrationSql());
+    expect(await rows()).toEqual(before);
+    const model = new ChannelModel(
+      drizzle(db, { schema: privateSchemas }) as unknown as LobeChatDatabase,
+      'owner',
+    );
+    expect((await model.page('channel')).messages.map((message) => message.content)).toEqual([
+      'First',
+      'Second',
+    ]);
+  }, 30_000);
+
+  it('lets only an isolated writer coexist with the next run of its member', async () => {
+    const db = await createDatabase();
+    await db.exec(channelMigrationSql());
+    await db.exec(`
+      INSERT INTO channels (id, owner_id, title) VALUES ('channel', 'owner', 'Writers');
+      INSERT INTO channel_members (id, channel_id, name, config) VALUES ('member', 'channel', 'Agent', '{}');
+      INSERT INTO channel_messages (id, channel_id, sequence, content, request_key, routing_status)
+        VALUES ('message', 'channel', 1, 'Work', 'request', 'assigned');
+      INSERT INTO channel_jobs (id, channel_id, member_id, message_id, delivery_key)
+        VALUES ('old', 'channel', 'member', 'message', 'old'), ('new', 'channel', 'member', 'message', 'new');
+      INSERT INTO channel_sessions (id, channel_id, member_id, scope) VALUES ('session', 'channel', 'member', 'main');
+      INSERT INTO channel_runs (id, channel_id, job_id, member_id, session_id, manifest)
+        VALUES ('old-run', 'channel', 'old', 'member', 'session', '{}');
+    `);
+    const next =
+      "INSERT INTO channel_runs (id, channel_id, job_id, member_id, session_id, manifest) VALUES ('new-run', 'channel', 'new', 'member', 'session', '{}')";
+    // An unconfirmed writer still holds the member: no second writer while it is not isolated.
+    await expect(db.exec(next)).rejects.toThrow(/channel_runs_active_member_idx/);
+    await db.exec("UPDATE channel_runs SET isolated_at = now() WHERE id = 'old-run'");
+    await db.exec(next);
+    // Isolation does not pretend the writer stopped: both remain unconfirmed.
+    expect(
+      (await db.query('SELECT id, writer_released, physical_stopped FROM channel_runs ORDER BY id'))
+        .rows,
+    ).toEqual([
+      { id: 'new-run', writer_released: false, physical_stopped: false },
+      { id: 'old-run', writer_released: false, physical_stopped: false },
+    ]);
+    await expect(
+      db.exec("UPDATE channel_runs SET isolated_at = NULL WHERE id = 'old-run'"),
+    ).rejects.toThrow(/channel_runs_active_member_idx/);
+  }, 30_000);
+
   describe('on tables that already exist, whoever created them', () => {
     const replayAfter = async (damage: string) => {
       const db = await createDatabase();
-      await db.exec(channelMigrationSql());
+      await db.exec(channelBaselineMigrationSql());
       await db.exec(damage);
-      return db.exec(channelMigrationSql());
+      return db.exec(channelBaselineMigrationSql());
     };
 
     it.each([

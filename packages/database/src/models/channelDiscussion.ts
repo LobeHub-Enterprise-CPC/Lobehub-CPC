@@ -108,7 +108,8 @@ export async function stopDiscussions(
  * Called after reconciliation, also after a restart. No in-memory timers or wake counters.
  *
  * A round is one turn for every participant, running concurrently with no speaking order. It is
- * over once no job in the discussion is queued or running and every run has released its writer.
+ * over once no job in the discussion is queued or running and every run has released its writer
+ * or been isolated.
  * A round with at least one publication opens the next one for all participants, including those
  * who yielded; a silent round or the last round ends the discussion with a summary.
  */
@@ -141,7 +142,7 @@ export async function advanceDiscussions(tx: Transaction, channelId: string) {
       : [];
     if (
       jobs.some((job) => ['queued', 'running'].includes(job.status)) ||
-      runs.some((run) => !run.writerReleased)
+      runs.some((run) => !run.writerReleased && !run.isolatedAt)
     )
       continue;
     if (discussion.status === 'summarizing') {
