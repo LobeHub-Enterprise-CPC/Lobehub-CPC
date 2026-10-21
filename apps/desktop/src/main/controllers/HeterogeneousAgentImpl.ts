@@ -8,7 +8,7 @@ import type { Readable, Writable } from 'node:stream';
 import { finished as streamFinished } from 'node:stream/promises';
 
 import { BRANDING_NAME } from '@lobechat/business-const';
-import { withExecutionSignal } from '@lobechat/device-gateway-client';
+import { withExecutionSignal } from '@lobechat/device-gateway-client/executionSignal';
 import type {
   ClaudeCodeQuotaSnapshot,
   CodexQuotaSnapshot,

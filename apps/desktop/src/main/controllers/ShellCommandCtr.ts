@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { withExecutionSignal } from '@lobechat/device-gateway-client';
+import { withExecutionSignal } from '@lobechat/device-gateway-client/executionSignal';
 import type { LocalSandboxPolicyOverlay, SandboxCapability } from '@lobechat/device-sandbox';
 import type {
   DesktopShellSettings,
