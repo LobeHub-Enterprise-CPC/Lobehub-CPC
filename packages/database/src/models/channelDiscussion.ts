@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { ChannelDiscussionTask } from '@lobechat/types';
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm';
 
 import {
   channelDiscussions,
@@ -14,6 +14,7 @@ import {
 import type { Transaction } from '../type';
 
 type Discussion = typeof channelDiscussions.$inferSelect;
+type Run = typeof channelRuns.$inferSelect;
 
 /** Internal transaction helpers. The caller must hold the owner-scoped Channel row lock. */
 export async function queueDiscussionTurn(
@@ -102,6 +103,69 @@ export async function stopDiscussions(
           eq(channelJobs.status, 'queued'),
         ),
       );
+}
+
+/**
+ * Settles a discussion candidate that may not be published now and reports how, or returns null
+ * when it may be. Checking freshness and inserting the candidate share the caller's Channel lock;
+ * input dedup cursors never confer authority on an older immutable candidate.
+ */
+export async function gateDiscussionCandidate(tx: Transaction, run: Run, discussion: Discussion) {
+  const task = run.manifest.discussion!;
+  const summarizing = task.kind === 'summarize';
+  const live = discussion.status === (summarizing ? 'summarizing' : 'active');
+  const [newer] = await tx
+    .select({ id: channelMessages.id })
+    .from(channelMessages)
+    .where(
+      and(
+        eq(channelMessages.channelId, run.channelId),
+        gt(channelMessages.sequence, run.manifest.cutoffSequence),
+        run.manifest.threadId
+          ? eq(channelMessages.threadId, run.manifest.threadId)
+          : isNull(channelMessages.threadId),
+      ),
+    )
+    .limit(1);
+  const yielded = !summarizing && run.draft?.trim() === '[[CHANNEL_YIELD]]';
+  // A candidate may only publish in the round it was claimed for. The round cannot advance
+  // while its writer is live, so this only catches publication after release.
+  const stale = !summarizing && task.round !== discussion.round;
+  if (live && !newer && !yielded && !stale) return null;
+  const publicationStatus: 'held' | 'yielded' = !live || newer || stale ? 'held' : 'yielded';
+  await tx.update(channelRuns).set({ publicationStatus }).where(eq(channelRuns.id, run.id));
+  await tx.update(channelJobs).set({ status: 'completed' }).where(eq(channelJobs.id, run.jobId));
+  // A revision keeps this member's turn open within the same round.
+  if (live && newer && !summarizing && !stale)
+    await queueDiscussionTurn(tx, discussion, run.memberId, `held:${run.id}`, {
+      kind: 'revise',
+      previousRunId: run.id,
+      round: discussion.round,
+    });
+  return { publicationStatus, newerMessageId: newer?.id };
+}
+
+/** Records a published candidate: a summary completes the discussion, a turn counts toward it. */
+export async function recordDiscussionPublication(
+  tx: Transaction,
+  discussion: Discussion,
+  run: Run,
+  messageId: string,
+) {
+  if (run.manifest.discussion!.kind === 'summarize') {
+    await tx
+      .update(channelDiscussions)
+      .set({ status: 'completed', summaryMessageId: messageId })
+      .where(eq(channelDiscussions.id, discussion.id));
+    return;
+  }
+  // Peers are not woken here: they answer in the next round, which advanceDiscussions opens once
+  // every turn of this round has settled. Slower peers still drafting in this round are held and
+  // revise against this message.
+  await tx
+    .update(channelDiscussions)
+    .set({ turnsPublished: discussion.turnsPublished + 1 })
+    .where(eq(channelDiscussions.id, discussion.id));
 }
 
 /**

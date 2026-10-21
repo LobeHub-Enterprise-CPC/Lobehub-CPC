@@ -7,7 +7,7 @@ import type {
   ChannelMode,
 } from '@lobechat/types';
 import { CHANNEL_LIMITS } from '@lobechat/types';
-import { and, asc, desc, eq, gt, inArray, isNull, lte, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
 
 import {
   channelAudit,
@@ -23,7 +23,12 @@ import {
 import { files } from '../schemas/file';
 import type { LobeChatDatabase, Transaction } from '../type';
 import { buildWorkspaceWhere } from '../utils/workspace';
-import { advanceDiscussions, queueDiscussionTurn, stopDiscussions } from './channelDiscussion';
+import {
+  advanceDiscussions,
+  gateDiscussionCandidate,
+  recordDiscussionPublication,
+  stopDiscussions,
+} from './channelDiscussion';
 import type { ChannelPageOptions } from './channelRead';
 import { listChannelThreads, readChannelPage, readChannelRevision } from './channelRead';
 import { isolateWriter, rotateSession } from './channelWriter';
@@ -1269,44 +1274,11 @@ export class ChannelModel {
             .where(eq(channelDiscussions.id, run.manifest.discussion.id))
         : [];
       if (discussion) {
-        const summarizing = run.manifest.discussion!.kind === 'summarize';
-        const live = discussion.status === (summarizing ? 'summarizing' : 'active');
-        // Checking freshness and inserting the candidate share this Channel lock.
-        // Input dedup cursors never confer authority on an older immutable candidate.
-        const [newer] = await tx
-          .select({ id: channelMessages.id })
-          .from(channelMessages)
-          .where(
-            and(
-              eq(channelMessages.channelId, channelId),
-              gt(channelMessages.sequence, run.manifest.cutoffSequence),
-              run.manifest.threadId
-                ? eq(channelMessages.threadId, run.manifest.threadId)
-                : isNull(channelMessages.threadId),
-            ),
-          )
-          .limit(1);
-        const yielded = !summarizing && run.draft.trim() === '[[CHANNEL_YIELD]]';
-        // A candidate may only publish in the round it was claimed for. The round cannot advance
-        // while its writer is live, so this only catches publication after release.
-        const stale = !summarizing && run.manifest.discussion!.round !== discussion.round;
-        if (!live || newer || yielded || stale) {
-          const publicationStatus = !live || newer || stale ? 'held' : 'yielded';
-          await tx.update(channelRuns).set({ publicationStatus }).where(eq(channelRuns.id, run.id));
-          await tx
-            .update(channelJobs)
-            .set({ status: 'completed' })
-            .where(eq(channelJobs.id, run.jobId));
-          // A revision keeps this member's turn open within the same round.
-          if (live && newer && !summarizing && !stale)
-            await queueDiscussionTurn(tx, discussion, run.memberId, `held:${run.id}`, {
-              kind: 'revise',
-              previousRunId: run.id,
-              round: discussion.round,
-            });
-          await this.audit(tx, channelId, `draft_${publicationStatus}`, run.id, {
+        const settled = await gateDiscussionCandidate(tx, run, discussion);
+        if (settled) {
+          await this.audit(tx, channelId, `draft_${settled.publicationStatus}`, run.id, {
             cutoff: run.manifest.cutoffSequence,
-            newerMessageId: newer?.id,
+            newerMessageId: settled.newerMessageId,
           });
           return null;
         }
@@ -1339,22 +1311,7 @@ export class ChannelModel {
       // back to the author once, too: native output alone cannot confirm which draft was published.
       // Only accepted() advances the input receipt, so later deltas still avoid replaying history.
       await this.audit(tx, channelId, 'draft_published', runId, { messageId });
-      if (discussion) {
-        if (run.manifest.discussion!.kind === 'summarize') {
-          await tx
-            .update(channelDiscussions)
-            .set({ status: 'completed', summaryMessageId: messageId })
-            .where(eq(channelDiscussions.id, discussion.id));
-        } else {
-          // Peers are not woken here: they answer in the next round, which advanceDiscussions
-          // opens once every turn of this round has settled. Slower peers still drafting in
-          // this round are held and revise against this message.
-          await tx
-            .update(channelDiscussions)
-            .set({ turnsPublished: discussion.turnsPublished + 1 })
-            .where(eq(channelDiscussions.id, discussion.id));
-        }
-      }
+      if (discussion) await recordDiscussionPublication(tx, discussion, run, messageId);
       return messageId;
     });
   }
