@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   getConsentClientMetadata: vi.fn(),
   getInteractionDetails: vi.fn(),
   getInteractionResult: vi.fn(),
+  getSession: vi.fn(),
   getUserAuth: vi.fn(),
   middleware: vi.fn(),
 }));
@@ -57,7 +58,11 @@ vi.mock('@/database/models/oauthHandoff', () => ({
   },
 }));
 
+vi.mock('@/auth', () => ({
+  getTenantAuth: async () => ({ api: { getSession: mocks.getSession } }),
+}));
 vi.mock('@/server/modules/Tenant/callbackUrl', () => ({
+  buildTenantPublicUrl: (path: string) => `https://app.example.com${path}`,
   tenantPublicBaseUrl: () => 'https://app.example.com',
   tenantPublicPath: (path: string) => path,
   withTenantPublicRequestUrl: (request: unknown) => request,
@@ -95,6 +100,10 @@ describe('OIDC logs never carry credentials', () => {
     vi.clearAllMocks();
     startLogCapture();
     mocks.getUserAuth.mockResolvedValue({ userId: 'user-1' });
+    mocks.getSession.mockResolvedValue({
+      headers: new Headers(),
+      response: { session: { createdAt: new Date(1_700_000_000_000) }, user: { id: 'user-1' } },
+    });
   });
 
   afterEach(() => {
@@ -219,6 +228,7 @@ describe('OIDC logs never carry credentials', () => {
       return POST(
         new Request('https://app.example.com/oidc/consent', {
           body,
+          headers: { origin: 'https://app.example.com' },
           method: 'POST',
         }) as unknown as NextRequest,
       );
@@ -237,7 +247,8 @@ describe('OIDC logs never carry credentials', () => {
           code_challenge: SENTINELS.challenge,
           state: SENTINELS.state,
         },
-        prompt: { details: {}, name: 'login' },
+        prompt: { details: {}, name: 'login', reasons: ['no_session'] },
+        uid: SENTINELS.uid,
       });
 
       const response = await post();
@@ -254,6 +265,8 @@ describe('OIDC logs never carry credentials', () => {
           state: SENTINELS.state,
         },
         prompt: { details: { missingOIDCScope: ['openid'] }, name: 'consent' },
+        session: { accountId: 'user-1' },
+        uid: SENTINELS.uid,
       });
       mocks.findOrCreateGrants.mockResolvedValue({
         addOIDCClaims: vi.fn(),
@@ -310,6 +323,8 @@ describe('OIDC logs never carry credentials', () => {
           state: SENTINELS.state,
         },
         prompt: { name: 'consent' },
+        session: { accountId: 'user-1' },
+        uid: SENTINELS.uid,
       });
       mocks.getConsentClientMetadata.mockResolvedValue({});
 
@@ -325,6 +340,49 @@ describe('OIDC logs never carry credentials', () => {
       const response = await get();
 
       expect(response.status).toBe(500);
+      expectNoSecretsLogged();
+    });
+  });
+
+  describe('GET /oidc/interaction/[uid]/login', () => {
+    const get = async () => {
+      const { GET } = await import('./interaction/[uid]/login/route');
+      return GET(
+        new Request(
+          `https://app.example.com/oidc/interaction/${SENTINELS.uid}/login?hl=en`,
+        ) as NextRequest,
+        { params: Promise.resolve({ uid: SENTINELS.uid }) },
+      );
+    };
+
+    beforeEach(() => {
+      mocks.getInteractionDetails.mockResolvedValue({
+        params: { client_id: 'lobehub-desktop', state: SENTINELS.state },
+        prompt: { name: 'login', reasons: ['no_session'] },
+        uid: SENTINELS.uid,
+      });
+      mocks.getInteractionResult.mockResolvedValue(
+        `https://app.example.com/oidc/auth/${SENTINELS.uid}?resume=${SENTINELS.resume}&state=${SENTINELS.state}`,
+      );
+    });
+
+    it('does not log the interaction id, params or resume redirect', async () => {
+      const response = await get();
+
+      expect(response.status).toBe(303);
+      expectNoSecretsLogged();
+    });
+
+    it('does not log the failure of an unreadable interaction, session or result', async () => {
+      mocks.getInteractionDetails.mockRejectedValueOnce(new Error(`boom ${SENTINELS.uid}`));
+      await get();
+      mocks.getSession.mockRejectedValueOnce(new Error(`boom ${SENTINELS.cookie}`));
+      await get();
+      mocks.getInteractionResult.mockRejectedValueOnce(
+        new Error(`boom ${SENTINELS.uid} ${SENTINELS.state}`),
+      );
+      await get();
+
       expectNoSecretsLogged();
     });
   });

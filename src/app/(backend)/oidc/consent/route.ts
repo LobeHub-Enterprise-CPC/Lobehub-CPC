@@ -1,12 +1,17 @@
 import { acceptanceIdFromReviewResource } from '@lobechat/const';
-import { getUserAuth } from '@lobechat/utils/server';
 import debug from 'debug';
 import { type NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
 import { getServerDB } from '@/database/core/db-adaptor';
 import { isAcceptanceReviewClient } from '@/libs/oidc-provider/acceptanceReview';
+import {
+  loginInteractionResult,
+  readTenantSession,
+  setCookiesOfReadError,
+} from '@/libs/oidc-provider/interactionLogin';
 import { describeError } from '@/libs/oidc-provider/safe-log';
+import { buildTenantPublicUrl } from '@/server/modules/Tenant/callbackUrl';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { resolveReviewAccess } from '@/server/services/acceptanceReview/access';
 import { OIDCService } from '@/server/services/oidc';
@@ -21,8 +26,40 @@ const canReview = async (userId: string | null | undefined, resource: unknown) =
   return Boolean(await resolveReviewAccess(await getServerDB(), userId, acceptanceId));
 };
 
+/**
+ * A form posted from our own page. The consent page is served with `Referrer-Policy: no-referrer`,
+ * so its POST carries `Origin: null`; that value is only trusted together with
+ * `Sec-Fetch-Site: same-origin`. Any other `Sec-Fetch-Site` is refused even when Origin matches.
+ */
+const isSameOriginSubmission = (headers: Headers, expectedOrigin: string) => {
+  const site = headers.get('sec-fetch-site');
+  if (site !== null && site !== 'same-origin') return false;
+
+  const origin = headers.get('origin');
+  if (origin === null || origin === 'null') return site === 'same-origin';
+  return origin === expectedOrigin;
+};
+
+const rejectJson = (status: number, body: Record<string, string>) =>
+  NextResponse.json(body, { status });
+
 async function handlePost(request: NextRequest) {
   log('Received POST request for /oidc/consent');
+
+  // The decision is made with the browser's cookies, so only the organization's own pages may
+  // submit it. Checked before anything is read or written.
+  if (!isSameOriginSubmission(request.headers, new URL(buildTenantPublicUrl('/')).origin)) {
+    return rejectJson(403, { error: 'forbidden', error_description: 'Cross-origin request' });
+  }
+
+  // Cookies Better Auth sets while reading the session ride on whichever response follows,
+  // including a failure after they were obtained.
+  let sessionCookies: string[] = [];
+  const withSessionCookies = (response: NextResponse) => {
+    for (const cookie of sessionCookies) response.headers.append('set-cookie', cookie);
+    return response;
+  };
+
   try {
     const formData = await request.formData();
     const consent = formData.get('consent') as string;
@@ -42,6 +79,11 @@ async function handlePost(request: NextRequest) {
       );
     } catch (error) {
       log('Error: Interaction details not found - %s', describeError(error));
+      // The provider session behind this interaction ended or was replaced (signed out, or another
+      // account signed in); oidc-provider raises SessionNotFound for it.
+      if (error instanceof Error && error.name === 'SessionNotFound') {
+        return withSessionCookies(rejectJson(400, { error: 'session_changed' }));
+      }
       if (error instanceof Error && error.message.includes('interaction session not found')) {
         return NextResponse.json(
           {
@@ -55,19 +97,57 @@ async function handlePost(request: NextRequest) {
       throw error;
     }
 
-    const { prompt } = details;
-    let result;
-    if (consent === 'accept') {
-      log(`User accepted the request, Handling 'login' prompt`);
-      const { userId } = await getUserAuth();
-      log('Obtained userId: %s', userId);
+    if (details.uid !== uid) {
+      return rejectJson(400, {
+        error: 'invalid_request',
+        error_description:
+          'Authorization session expired or invalid, please restart the authorization flow',
+      });
+    }
 
-      if (details.prompt.name === 'login') {
-        result = {
-          login: { accountId: userId, remember: true },
-        };
-      } else {
+    const { prompt } = details;
+    // Only the two prompts this endpoint knows how to answer; anything else changes nothing.
+    const unsupported = () =>
+      rejectJson(400, {
+        error: 'unsupported_interaction',
+        error_description: 'This interaction cannot be answered here',
+      });
+    if (prompt.name !== 'login' && prompt.name !== 'consent') return unsupported();
+
+    let result;
+
+    if (consent === 'accept') {
+      log(`User accepted the request`);
+      let read;
+      try {
+        read = await readTenantSession(request.headers);
+      } catch (error) {
+        sessionCookies = setCookiesOfReadError(error);
+        throw error;
+      }
+      sessionCookies = read.setCookies;
+      const { session } = read;
+
+      if (prompt.name === 'login') {
+        log(`Handling 'login' prompt`);
+        if (!session) {
+          return withSessionCookies(
+            rejectJson(401, {
+              error: 'login_required',
+              error_description: 'No signed-in session',
+            }),
+          );
+        }
+        result = loginInteractionResult(details.prompt.reasons, session);
+      } else if (prompt.name === 'consent') {
         log(`Handling 'consent' prompt`);
+
+        // The consent card was shown for the account the provider session holds; a grant is
+        // never written for any other account, and no existing grant is touched on a mismatch.
+        if (!session || session.userId !== details.session?.accountId) {
+          return withSessionCookies(rejectJson(400, { error: 'session_changed' }));
+        }
+        const { userId } = session;
 
         // 1. Get necessary IDs
         const clientId = details.params.client_id as string;
@@ -81,14 +161,16 @@ async function handlePost(request: NextRequest) {
             error_description: 'No access to this acceptance',
           });
           const { pathname, search, hash } = new URL(denied);
-          return new NextResponse(null, {
-            headers: { location: `${pathname}${search}${hash}` },
-            status: 303,
-          });
+          return withSessionCookies(
+            new NextResponse(null, {
+              headers: { location: `${pathname}${search}${hash}` },
+              status: 303,
+            }),
+          );
         }
 
         // 2. Find or create Grant object
-        const grant = await oidcService.findOrCreateGrants(userId!, clientId, details.grantId);
+        const grant = await oidcService.findOrCreateGrants(userId, clientId, details.grantId);
 
         // 3. Add user-consented scopes and claims to Grant object
         //    This information is typically in details.prompt.details
@@ -124,6 +206,8 @@ async function handlePost(request: NextRequest) {
         result = { consent: { grantId: newGrantId } };
 
         log('Consent result prepared with grantId');
+      } else {
+        return unsupported();
       }
       log('User %s the authorization', consent);
     } else {
@@ -144,15 +228,17 @@ async function handlePost(request: NextRequest) {
     const location = `${pathname}${search}${hash}`;
 
     log('Redirecting to the provider resume path');
-    return new NextResponse(null, { headers: { location }, status: 303 });
+    return withSessionCookies(new NextResponse(null, { headers: { location }, status: 303 }));
   } catch (error) {
     console.error('Error processing consent: %s', describeError(error));
-    return NextResponse.json(
-      {
-        error: 'server_error',
-        error_description: 'Error processing consent',
-      },
-      { status: 500 },
+    return withSessionCookies(
+      NextResponse.json(
+        {
+          error: 'server_error',
+          error_description: 'Error processing consent',
+        },
+        { status: 500 },
+      ),
     );
   }
 }

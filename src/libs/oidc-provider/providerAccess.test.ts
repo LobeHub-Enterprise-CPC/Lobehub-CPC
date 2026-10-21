@@ -93,9 +93,13 @@ it('keeps the issuer, device endpoints, cookies and redirects within a tenant', 
   const redirect = vi.fn();
   await state.config.features.deviceFlow.successSource({ redirect });
   expect(redirect).toHaveBeenCalledWith('/t/acme/oauth/device/success');
-  expect(state.config.interactions.url({ oidc: {} }, { uid: 'consent-1' })).toBe(
+  const consent = { prompt: { name: 'consent' }, uid: 'consent-1' };
+  expect(state.config.interactions.url({ oidc: {} }, consent)).toBe(
     '/t/acme/oauth/consent/consent-1',
   );
+  expect(
+    state.config.interactions.url({ oidc: {} }, { prompt: { name: 'login' }, uid: 'login-1' }),
+  ).toBe('/t/acme/oidc/interaction/login-1/login');
 });
 
 it('stamps the owning tenant id on every access token its provider issues', async () => {
@@ -124,9 +128,15 @@ it.each([
     `${endpoint.publicUrl}/oauth/logout`,
   ]);
   expect(state.config.clients[1].redirect_uris).toEqual(['com.lobehub.app://auth/callback']);
-  expect(state.config.interactions.url({ oidc: {} }, { uid: 'consent-1' })).toBe(
-    `${endpoint.basePath}/oauth/consent/consent-1`,
-  );
+  expect(
+    state.config.interactions.url({ oidc: {} }, { prompt: { name: 'consent' }, uid: 'consent-1' }),
+  ).toBe(`${endpoint.basePath}/oauth/consent/consent-1`);
+  expect(
+    state.config.interactions.url(
+      { oidc: {} },
+      { params: { ui_locales: 'zh-CN' }, prompt: { name: 'login' }, uid: 'login-1' },
+    ),
+  ).toBe(`${endpoint.basePath}/oidc/interaction/login-1/login?hl=zh-CN`);
 });
 
 it('registers only the organization own desktop callbacks, without mutating another tenant provider', async () => {

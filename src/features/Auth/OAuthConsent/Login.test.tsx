@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -6,12 +6,26 @@ import Login from './Login';
 
 const mocks = vi.hoisted(() => ({
   redirectToSignIn: vi.fn(),
-  session: { data: null as unknown, isPending: false },
+  refetch: vi.fn(),
+  session: {
+    data: null as unknown,
+    error: null as unknown,
+    isPending: false,
+    refetch: undefined as unknown as VoidFunction,
+  },
 }));
 
 vi.mock('@/libs/better-auth/auth-client', () => ({ useSession: () => mocks.session }));
 vi.mock('./signInRedirect', () => ({ redirectToSignIn: mocks.redirectToSignIn }));
-vi.mock('@/features/AuthCard', () => ({ default: ({ footer }: any) => <div>{footer}</div> }));
+// The session state (account block / error) renders inside the card body.
+vi.mock('@/features/AuthCard', () => ({
+  default: ({ children, footer }: any) => (
+    <div>
+      {children}
+      {footer}
+    </div>
+  ),
+}));
 vi.mock('./OAuthApplicationLogo', () => ({ default: () => null }));
 
 const renderLogin = () =>
@@ -24,10 +38,11 @@ const renderLogin = () =>
 describe('OAuth login confirmation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.session = { data: null, error: null, isPending: false, refetch: mocks.refetch };
   });
 
   it('sends a visitor without a session to sign in instead of a dead-end button', () => {
-    mocks.session = { data: null, isPending: false };
+    mocks.session = { data: null, error: null, isPending: false, refetch: mocks.refetch };
 
     renderLogin();
 
@@ -35,15 +50,50 @@ describe('OAuth login confirmation', () => {
   });
 
   it('waits while the session is still loading', () => {
-    mocks.session = { data: null, isPending: true };
+    mocks.session = { data: null, error: null, isPending: true, refetch: mocks.refetch };
 
     renderLogin();
 
     expect(mocks.redirectToSignIn).not.toHaveBeenCalled();
   });
 
+  it('stays on the page with a retryable error when the session lookup fails', () => {
+    mocks.session = {
+      data: null,
+      error: new Error('network'),
+      isPending: false,
+      refetch: mocks.refetch,
+    };
+
+    renderLogin();
+
+    expect(mocks.redirectToSignIn).not.toHaveBeenCalled();
+    expect(screen.getByText('login.error.message')).toBeTruthy();
+  });
+
+  it('retries the session lookup from the error message', () => {
+    mocks.session = {
+      data: null,
+      error: new Error('network'),
+      isPending: false,
+      refetch: mocks.refetch,
+    };
+
+    renderLogin();
+
+    fireEvent.click(screen.getByRole('button', { name: 'common:retry' }));
+
+    expect(mocks.refetch).toHaveBeenCalledTimes(1);
+    expect(mocks.redirectToSignIn).not.toHaveBeenCalled();
+  });
+
   it('lets a signed-in user confirm', () => {
-    mocks.session = { data: { user: { name: 'Owner' } }, isPending: false };
+    mocks.session = {
+      data: { user: { name: 'Owner' } },
+      error: null,
+      isPending: false,
+      refetch: mocks.refetch,
+    };
 
     const { getByTestId } = renderLogin();
 

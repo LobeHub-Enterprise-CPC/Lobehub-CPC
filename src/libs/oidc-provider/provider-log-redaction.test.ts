@@ -71,12 +71,16 @@ describe('OIDC provider logs never carry credentials', () => {
   it('does not log interaction params or the interaction id', () => {
     const interaction = {
       params: { code_challenge: SENTINELS.challenge, state: SENTINELS.state, ui_locales: 'en-US' },
+      prompt: { name: 'consent' },
       uid: SENTINELS.uid,
     };
 
     expect(state.config.interactions.url({ oidc: {} }, interaction)).toBe(
       `/t/acme/oauth/consent/${SENTINELS.uid}?hl=en-US`,
     );
+    expect(
+      state.config.interactions.url({ oidc: {} }, { ...interaction, prompt: { name: 'login' } }),
+    ).toBe(`/t/acme/oidc/interaction/${SENTINELS.uid}/login?hl=en-US`);
 
     expect(capturedLogs()).not.toBe('');
     expectNoSecretsLogged();

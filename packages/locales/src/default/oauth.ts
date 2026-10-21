@@ -20,9 +20,15 @@ export default {
     'Continue only if you just started this sign-in from your own desktop app.',
   'consent.description':
     'The application {{clientName}} is requesting authorization for your account',
+  'consent.error.sessionChanged.message':
+    'The signed-in account has changed. Please go back to the client and start the authorization again.',
+  'consent.error.sessionChanged.title': 'Sign-in Account Changed',
   'consent.error.sessionInvalid.message':
     'The authorization session has expired or is invalid. Please restart the authorization process.',
   'consent.error.sessionInvalid.title': 'Invalid Authorization Session',
+  'consent.error.sessionUnavailable.message':
+    'We could not check your sign-in status right now. Please try again.',
+  'consent.error.sessionUnavailable.title': 'Unable to Verify Sign-in',
   'consent.error.title': 'An Error Occurred',
   'consent.error.unknown.message': 'An unknown error occurred while loading authorization details.',
   'consent.error.unsupportedInteraction.message': 'Unsupported interaction type: {{promptName}}',
@@ -30,6 +36,8 @@ export default {
   'consent.acceptanceReview.denied':
     'You do not have access to this acceptance, so it cannot be reviewed from this page.',
   'consent.acceptanceReview.target': 'Review the acceptance: {{title}}',
+  'consent.account.label': 'Authorized Account',
+  'consent.account.unavailable': 'Unable to show the authorizing account right now. Please retry.',
   'consent.permissionsTitle': 'Requesting the following permissions:',
   'consent.redirectUri': 'You will be redirected to after successful authorization',
   'consent.redirecting': 'Authorization successful, redirecting...',
@@ -79,6 +87,7 @@ export default {
   'login.button': 'Confirm Sign In',
   'login.description':
     'The application {{clientName}} is requesting to use your account for sign-in',
+  'login.error.message': "Couldn't check your sign-in status. Please try again.",
   'login.title': 'Sign in to {{clientName}}',
   'login.userWelcome': 'Welcome back, ',
   'success.subTitle':

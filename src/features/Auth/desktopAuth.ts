@@ -27,13 +27,26 @@ export const isDesktopAuthorizeCallback = (callbackUrl: string | null | undefine
   return isDesktopClientId(url.searchParams.get('client_id'));
 };
 
-const INTERACTION_PATH = /\/oauth\/consent\/([^/?#]+)\/?$/;
+/**
+ * Interaction pages the provider can send the browser to, each capturing the uid:
+ * the consent page and the login-prompt page (which carries an optional tenant
+ * prefix and may end with a slash).
+ */
+const INTERACTION_PATHS = [
+  /\/oauth\/consent\/([^/?#]+)\/?$/,
+  /\/oidc\/interaction\/([^/?#]+)\/login\/?$/,
+];
 
 /** `callbackUrl` is the OIDC interaction page the provider sent the browser to. */
 export const interactionUidOf = (callbackUrl: string | null | undefined): string | null => {
   const url = parseCallback(callbackUrl);
-  const uid = url ? INTERACTION_PATH.exec(url.pathname)?.[1] : undefined;
-  return uid ? decodeURIComponent(uid) : null;
+  if (!url) return null;
+
+  for (const path of INTERACTION_PATHS) {
+    const uid = path.exec(url.pathname)?.[1];
+    if (uid) return decodeURIComponent(uid);
+  }
+  return null;
 };
 
 /**

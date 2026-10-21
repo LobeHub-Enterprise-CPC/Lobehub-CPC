@@ -128,7 +128,7 @@ export function defineConfig() {
     // Auth SPA routes: rewrite to /spa-auth/[locale]/[[...path]] catch-all
     if (isAuthSpaRoute) {
       const authSpaPath = `/spa-auth/${safeLocale}${url.pathname}`;
-      logDefault('Auth SPA route, rewriting to: %s', authSpaPath);
+      logDefault('Auth SPA route, rewriting to: %s', redactUrlEmail(authSpaPath));
       url.pathname = authSpaPath;
 
       const response = NextResponse.rewrite(url, routedInit);

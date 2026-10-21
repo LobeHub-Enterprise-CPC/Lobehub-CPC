@@ -60,8 +60,20 @@ describe('interactionUidOf', () => {
     expect(interactionUidOf('/oauth/consent/abc123')).toBe('abc123');
   });
 
+  it('extracts the interaction id of a login-prompt page address, with any tenant prefix', () => {
+    expect(interactionUidOf('/oidc/interaction/abc123/login')).toBe('abc123');
+    expect(interactionUidOf('/t/acme/oidc/interaction/abc123/login')).toBe('abc123');
+    expect(
+      interactionUidOf('https://app.example.com/t/acme/oidc/interaction/abc123/login?hl=zh-CN'),
+    ).toBe('abc123');
+    expect(interactionUidOf('/t/acme/oidc/interaction/abc123/login/')).toBe('abc123');
+  });
+
   it('is null for anything else', () => {
     expect(interactionUidOf('/agent')).toBeNull();
+    expect(interactionUidOf('/oidc/interaction/abc123')).toBeNull();
+    expect(interactionUidOf('/oidc/interaction/abc123/other')).toBeNull();
+    expect(interactionUidOf('/oauth/consent/abc123/other')).toBeNull();
     expect(interactionUidOf(null)).toBeNull();
   });
 });
@@ -84,6 +96,17 @@ describe('useDesktopAuthContext', () => {
 
     const { result } = renderHook(() =>
       useDesktopAuthContext('https://app.example.com/t/acme/oauth/consent/abc123'),
+    );
+
+    expect(interaction.uid).toBe('abc123');
+    expect(result.current).toBe(true);
+  });
+
+  it('resolves the interaction behind a login-prompt page via the read-only details lookup', () => {
+    interaction.data = { clientId: 'lobehub-desktop' };
+
+    const { result } = renderHook(() =>
+      useDesktopAuthContext('/t/acme/oidc/interaction/abc123/login'),
     );
 
     expect(interaction.uid).toBe('abc123');

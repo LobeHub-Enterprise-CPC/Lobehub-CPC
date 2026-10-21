@@ -19,15 +19,13 @@ import { isOIDCUserBanned } from './access-control';
 import { DrizzleAdapter } from './adapter';
 import { defaultClaims, defaultClients, defaultScopes } from './config';
 import { getOIDCCookieKeys } from './cookies';
+import { DESKTOP_CLIENT_ID } from './desktopClient';
 import { createInteractionPolicy } from './interaction-policy';
 import { describeError } from './safe-log';
 
 const logProvider = debug('lobe-oidc:provider');
 
 export const API_AUDIENCE = 'urn:lobehub:chat';
-
-// Only the desktop client shows the organization-switch affordance this claim drives.
-const DESKTOP_CLIENT_ID = 'lobehub-desktop';
 
 // One deadline for every optional display claim of an id_token.
 const DISPLAY_CLAIMS_BUDGET_MS = 1000;
@@ -174,7 +172,7 @@ export const createOIDCProvider = async (
 
     // 1. Client configuration
     clients: defaultClients.map((client) =>
-      client.client_id === 'lobehub-desktop'
+      client.client_id === DESKTOP_CLIENT_ID
         ? {
             ...client,
             redirect_uris: [
@@ -349,7 +347,8 @@ export const createOIDCProvider = async (
             // Display text for the desktop confirmation card; the id_token is the only carrier,
             // so neither userinfo nor access tokens expose the organization.
             if (use === 'id_token') {
-              // The client is read from the live request: claims() is not handed one.
+              // Only the desktop client shows the organization-switch affordance this claim
+              // drives. The client is read from the live request: claims() is not handed one.
               const desktop = ctx.oidc?.client?.clientId === DESKTOP_CLIENT_ID;
               Object.assign(
                 claims,
@@ -402,7 +401,13 @@ export const createOIDCProvider = async (
           logProvider('No ui_locales provided in authorization request');
         }
 
-        const interactionUrl = tenantPath(`/oauth/consent/${interaction.uid}${query}`);
+        // A login prompt is bridged on the server (sign-in redirect, or the existing tenant
+        // session); every other prompt still opens the consent page.
+        const interactionUrl = tenantPath(
+          interaction.prompt.name === 'login'
+            ? `/oidc/interaction/${interaction.uid}/login${query}`
+            : `/oauth/consent/${interaction.uid}${query}`,
+        );
         logProvider('Generated interaction URL');
         // ---> End of added logs <---
         return interactionUrl;
