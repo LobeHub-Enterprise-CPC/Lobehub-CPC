@@ -169,7 +169,7 @@ export class ChannelWorker {
               }
             } else if (run.draft && !stopped) {
               await model.publish(channel.id, run.id, run.fence);
-            } else if (!this.active.has(run.id) && !run.writerReleased) {
+            } else if (!this.active.has(run.id) && !run.writerReleased && !run.isolatedAt) {
               // The operation ran headless inside a worker that is gone. Its tools
               // cannot be replayed or declared terminated by this one.
               await model.executionUnknown(
@@ -179,6 +179,27 @@ export class ChannelWorker {
                 'Native worker disconnected; execution requires inspection',
               );
             }
+            // Termination still unconfirmed well past the execution limit (an unreachable device,
+            // or a native executor that is gone) would hold the member forever. Isolate the writer
+            // logically so the member can run again; stop attempts above continue, and only a
+            // physical confirmation ever releases it.
+            const limit =
+              config.runtime === 'native'
+                ? CHANNEL_LIMITS.executionMs
+                : CHANNEL_LIMITS.deviceExecutionMs;
+            if (
+              !run.writerReleased &&
+              !run.isolatedAt &&
+              !this.active.has(run.id) &&
+              Date.now() - new Date(run.createdAt).getTime() >
+                limit + CHANNEL_LIMITS.terminationGraceMs
+            )
+              await model.isolate(
+                channel.id,
+                run.id,
+                run.fence,
+                `Termination was not confirmed ${CHANNEL_LIMITS.terminationGraceMs / 60_000} minutes after the ${limit / 60_000}-minute execution limit`,
+              );
           } catch (error) {
             log('Run reconciliation deferred: run=%s error=%s', entry.run.id, error);
           }

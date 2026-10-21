@@ -331,6 +331,12 @@ export const channelRuns = pgTable(
     publicationRevoked: boolean('publication_revoked').notNull().default(false),
     /** Only physical confirmation releases this; leases/idle/interrupt do not. */
     writerReleased: boolean('writer_released').notNull().default(false),
+    /**
+     * Logical isolation of a writer whose termination could not be confirmed in time. Its
+     * publication is revoked and its native session retired, so the member may run again;
+     * `writerReleased`/`physicalStopped` still record only physical confirmation.
+     */
+    isolatedAt: timestamptzColumn('isolated_at'),
     draft: text('draft'),
     publicationStatus: text('publication_status')
       .$type<ChannelPublicationStatus>()
@@ -348,7 +354,7 @@ export const channelRuns = pgTable(
       .where(sql`${t.writerReleased} = false OR ${t.physicalStopped} = false`),
     uniqueIndex('channel_runs_active_member_idx')
       .on(t.memberId)
-      .where(sql`${t.writerReleased} = false`),
+      .where(sql`${t.writerReleased} = false AND ${t.isolatedAt} IS NULL`),
     foreignKey({
       columns: [t.channelId, t.jobId],
       foreignColumns: [channelJobs.channelId, channelJobs.id],

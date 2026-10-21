@@ -48,11 +48,11 @@ export function buildChannelReceipts(data: ChannelDetail): ChannelReceipts {
     for (const [memberId, jobs] of group) {
       const member = members.get(memberId)!;
       jobs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      // An isolated writer keeps its unconfirmed outcome on this request, but it no longer
+      // occupies the member, so it is neither the current job nor pending work.
+      const holdsWriter = (run?: Run) => !!run && !run.writerReleased && !run.isolatedAt;
       const current =
-        jobs.find((job) => {
-          const run = runs.get(job.id);
-          return run && !run.writerReleased;
-        }) ||
+        jobs.find((job) => holdsWriter(runs.get(job.id))) ||
         jobs.find((job) => ['queued', 'running'].includes(job.status)) ||
         jobs[0];
       const run = runs.get(current.id);
@@ -68,8 +68,9 @@ export function buildChannelReceipts(data: ChannelDetail): ChannelReceipts {
         member,
         pending:
           ['queued', 'running'].includes(current.status) ||
-          !!(run && !run.writerReleased) ||
-          ['stop_requested', 'execution_unknown', 'publishing'].includes(state),
+          holdsWriter(run) ||
+          (!run?.isolatedAt &&
+            ['stop_requested', 'execution_unknown', 'publishing'].includes(state)),
         request,
         state,
       };

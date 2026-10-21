@@ -113,4 +113,26 @@ describe('Channel activity', () => {
     expect(channelActivity(present(data), null)[0].state).toBe('paused');
     expect(channelActivity(present(data), 'thread')[0].state).toBe('stop_requested');
   });
+  it('shows the next run instead of an isolated writer that still awaits confirmation', () => {
+    const data = fixture({
+      jobs: [
+        { id: 'old', memberId: 'a', messageId: 'earlier', threadId: null, status: 'failed' },
+        { id: 'j1', memberId: 'a', messageId: 'request', threadId: null, status: 'running' },
+      ],
+      runs: [
+        {
+          jobId: 'old',
+          status: 'execution_unknown',
+          writerReleased: false,
+          physicalStopped: false,
+          publicationRevoked: true,
+          isolatedAt: '2026-10-21T00:00:00Z',
+        },
+        { jobId: 'j1', status: 'running', activity: 'running', writerReleased: false },
+      ],
+    });
+    expect(channelActivity(present(data), null)).toEqual([
+      { memberId: 'a', name: 'Codex', state: 'running' },
+    ]);
+  });
 });

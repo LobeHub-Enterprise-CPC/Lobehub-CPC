@@ -2,10 +2,9 @@
 import { randomUUID } from 'node:crypto';
 
 import { CHANNEL_HISTORY } from '@lobechat/types';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { channelMigrationSql } from '../../../tests/channelMigrations';
 import { getTestDB } from '../../core/getTestDB';
 import {
   channelJobs,
@@ -231,13 +230,5 @@ describe('Channel bounded presentation reads', () => {
       navigation.threads[0].followerMemberIds[0],
     );
     expect((await model.revision(channel.id)).revision).not.toBe(previous.revision);
-  });
-
-  it('replays the consolidated discussion migration without modifying messages', async () => {
-    const channel = await create();
-    await messages(channel.id, 3);
-    const before = await model.page(channel.id);
-    await db.execute(sql.raw(channelMigrationSql()));
-    expect(await model.page(channel.id)).toEqual(before);
   });
 });

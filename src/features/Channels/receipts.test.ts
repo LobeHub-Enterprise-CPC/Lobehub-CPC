@@ -270,4 +270,33 @@ describe('Channel request receipts', () => {
       memberCurrentReceipt(buildChannelReceipts(present(data)).byMember.get('amp')!),
     ).toBeUndefined();
   });
+
+  it('lets an isolated unconfirmed writer stay on its request without hiding newer work', () => {
+    const data = fixture();
+    data.jobs[0].status = 'failed';
+    Object.assign(data.runs[0], {
+      status: 'execution_unknown',
+      writerReleased: false,
+      physicalStopped: false,
+      publicationRevoked: true,
+      publishedMessageId: null,
+      publicationStatus: 'pending',
+      isolatedAt: '2026-10-21T00:00:00Z',
+    });
+    data.jobs.push({
+      ...data.jobs[0],
+      id: 'thread-job',
+      messageId: 'thread-request',
+      threadId: 'thread',
+      status: 'running',
+      createdAt: '2026-10-21T00:01:00Z',
+    });
+    data.runs.push({ ...data.runs[0], jobId: 'thread-job', status: 'running', isolatedAt: null });
+    // The old request keeps its unconfirmed outcome, but no longer occupies the member.
+    expect(receipt(data)).toMatchObject({ pending: false, state: 'execution_unknown' });
+    expect(isQuietReceipt(receipt(data))).toBe(false);
+    expect(
+      memberCurrentReceipt(buildChannelReceipts(present(data)).byMember.get('amp')!),
+    ).toMatchObject({ state: 'running', request: { id: 'thread-request' } });
+  });
 });

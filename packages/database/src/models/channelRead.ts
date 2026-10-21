@@ -51,6 +51,7 @@ const runSummary = {
   writerReleased: channelRuns.writerReleased,
   executionConfig: channelRuns.executionConfig,
   physicalStopped: channelRuns.physicalStopped,
+  isolatedAt: channelRuns.isolatedAt,
   environmentError: channelRuns.environmentError,
   manifest: {
     threadId: channelJobs.threadId,

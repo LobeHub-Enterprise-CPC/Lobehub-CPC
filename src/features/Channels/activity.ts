@@ -44,9 +44,10 @@ export function channelActivity(data: Detail, threadId: string | null) {
       const jobs = data.jobs.filter(
         (job) => job.memberId === member.id && job.threadId === threadId,
       );
+      // An isolated writer may still be unconfirmed, but it no longer occupies the member.
       const job =
         jobs.find((item) =>
-          data.runs.some((run) => run.jobId === item.id && !run.writerReleased),
+          data.runs.some((run) => run.jobId === item.id && !run.writerReleased && !run.isolatedAt),
         ) ||
         jobs.find((item) => item.status === 'running') ||
         jobs.find((item) => item.status === 'queued') ||
