@@ -75,7 +75,17 @@ overrides:
   '@types/react': 19.2.13
   '@vitest/coverage-v8': 5.0.0
   baseline-browser-mapping: 2.10.31
-  drizzle-orm: ^0.45.2
+  # Without a lockfile pnpm resolves optional peers per importer, and drizzle-orm
+  # ended up as several peer variants (otel 1.9.0 at the root, 1.10.0 in
+  # packages/database). `SQL`/`PgColumn` are nominal across copies, which turns
+  # every cross-package query into TS2345/TS2769. Pin the version so every
+  # importer resolves the same copy.
+  drizzle-orm: 0.45.4
+  # Same drift: better-auth's `@better-auth/core` peer and drizzle-orm's peer
+  # resolved to 1.9.0 at the root and 1.10.0 in the workspace packages, so
+  # `BetterAuthPlugin`/`BetterAuthOptions` no longer matched. 1.10.0 is what
+  # packages/observability-otel (`^1.9.1`) and the SDK packages already use.
+  '@opentelemetry/api': 1.10.0
   fast-xml-parser: 5.4.2
   lexical: 0.42.0
   # Keep the coupled core/autolink patches applied without a root lockfile.
