@@ -104,8 +104,8 @@ async function handleGet(request: NextRequest, props: { params: Promise<{ uid: s
 
 export const GET = withTenantRequest(handleGet);
 
-export const HEAD = () => {
+export const HEAD = withTenantRequest(() => {
   const response = respond(405);
   response.headers.set('allow', 'GET');
   return response;
-};
+});

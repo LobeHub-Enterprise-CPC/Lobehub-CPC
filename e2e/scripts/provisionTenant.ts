@@ -11,6 +11,7 @@ import type { DatasourceBundle } from '../../apps/server/src/services/tenantCont
 import { PostgresTenantDatabaseExecutor } from '../../apps/server/src/services/tenantControlPlane/postgresExecutor';
 import { PostgresControlPlaneRepository } from '../../apps/server/src/services/tenantControlPlane/postgresRepository';
 import { TenantControlPlaneService } from '../../apps/server/src/services/tenantControlPlane/service';
+import { ensureAccountLookupRole } from '../src/support/accountLookupRole';
 import { E2E_TENANT } from '../src/support/tenant';
 
 async function provisionTenant() {
@@ -61,6 +62,7 @@ async function provisionTenant() {
       );
       await admin.query(`GRANT USAGE ON SCHEMA extensions, paradedb TO ${escapeIdentifier(role)}`);
     }
+    await ensureAccountLookupRole(admin, database);
     await admin.query(
       `CREATE SCHEMA IF NOT EXISTS ${escapeIdentifier(names.schemaName)} AUTHORIZATION ${escapeIdentifier(names.ownerUsername)}`,
     );
