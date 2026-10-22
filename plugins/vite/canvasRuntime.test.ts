@@ -7,7 +7,14 @@ import type { CanvasRuntimeManifest } from '@lobechat/canvas/runtime';
 import { build, createServer } from 'vite';
 import { expect, it } from 'vitest';
 
-import { canvasRuntime } from './canvasRuntime';
+import { canvasRuntime, canvasRuntimeEntries, canvasRuntimeInitialEntries } from './canvasRuntime';
+
+it('registers canvas chunks only for renderers whose graph loads the runtime', () => {
+  expect(canvasRuntimeInitialEntries('web')).toBe(canvasRuntimeEntries);
+  expect(canvasRuntimeInitialEntries('desktop')).toBe(canvasRuntimeEntries);
+  expect(canvasRuntimeInitialEntries('mobile')).toEqual({});
+  expect(canvasRuntimeInitialEntries('auth')).toEqual({});
+});
 
 it('reuses App dependencies for injected runtime and excludes the publication bundle', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'canvas-chunks-'));
