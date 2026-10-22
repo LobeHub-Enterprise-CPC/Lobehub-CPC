@@ -13,12 +13,17 @@ export const desensitizeUrl = (url: string) => {
         hostnameParts[secondLevelDomainIndex] = '***';
       } else {
         // Slice rather than match: a lazy prefix next to `\w+` is a
-        // super-linear backtracking shape, and the shape here is fixed.
+        // super-linear backtracking shape. The prefix is everything up to the
+        // last non-word character, so `api-example` keeps `api-` and
+        // `example` keeps nothing.
         const label = hostnameParts[secondLevelDomainIndex];
-        const tail = label.slice(-4);
-        if (/^\w{4}$/.test(tail)) {
+        let lastNonWord = -1;
+        for (let i = 0; i < label.length; i++) if (!/\w/.test(label[i])) lastNonWord = i;
+
+        const tail = label.slice(lastNonWord + 1);
+        if (tail.length >= 5) {
           hostnameParts[secondLevelDomainIndex] =
-            `${label.slice(0, -4)}${tail.slice(0, 2)}****${tail.slice(2)}`;
+            `${label.slice(0, lastNonWord + 1)}${tail.slice(0, 2)}****${tail.slice(-2)}`;
         }
       }
     }
