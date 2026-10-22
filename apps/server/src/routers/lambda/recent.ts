@@ -3,6 +3,7 @@ import type { ChatTopicMetadata, RecentItem } from '@lobechat/types';
 import { z } from 'zod';
 
 import { wsCompatProcedure } from '@/business/server/trpc-middlewares/workspaceAuth';
+import type { RecentDbItem } from '@/database/models/recent';
 import { RecentModel } from '@/database/models/recent';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
@@ -15,6 +16,47 @@ const recentProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) =
     },
   });
 });
+
+const toRecentItem = (item: RecentDbItem): RecentItem => {
+  let routePath: string;
+
+  switch (item.type) {
+    case 'topic': {
+      if (item.routeGroupId) {
+        routePath = GROUP_CHAT_TOPIC_URL(item.routeGroupId, item.id);
+      } else if (item.routeId) {
+        routePath = AGENT_CHAT_TOPIC_URL(item.routeId, item.id);
+      } else {
+        routePath = '/';
+      }
+      break;
+    }
+    case 'document': {
+      routePath = `/page/${item.id}`;
+      break;
+    }
+    case 'task': {
+      routePath = item.routeId ? `/agent/${item.routeId}/task/${item.id}` : `/task/${item.id}`;
+      break;
+    }
+  }
+
+  return {
+    agentId: item.routeId,
+    description: item.description,
+    icon: item.type,
+    id: item.id,
+    lastAssistantMessage: item.lastAssistantMessage,
+    metadata: item.metadata as ChatTopicMetadata | undefined,
+    routePath,
+    slugTitle: item.slugTitle,
+    status: item.status,
+    title: item.title,
+    type: item.type,
+    updatedAt: item.updatedAt,
+    userId: item.userId,
+  };
+};
 
 export const recentRouter = router({
   getAll: recentProcedure
@@ -46,48 +88,19 @@ export const recentRouter = router({
         input?.sharedOnly,
       );
 
-      return items.map((item) => {
-        let routePath: string;
+      return items.map(toRecentItem);
+    }),
 
-        switch (item.type) {
-          case 'topic': {
-            if (item.routeGroupId) {
-              routePath = GROUP_CHAT_TOPIC_URL(item.routeGroupId, item.id);
-            } else if (item.routeId) {
-              routePath = AGENT_CHAT_TOPIC_URL(item.routeId, item.id);
-            } else {
-              routePath = '/';
-            }
-            break;
-          }
-          case 'document': {
-            routePath = `/page/${item.id}`;
-            break;
-          }
-          case 'task': {
-            routePath = item.routeId
-              ? `/agent/${item.routeId}/task/${item.id}`
-              : `/task/${item.id}`;
-            break;
-          }
-        }
+  /**
+   * The viewer's conversations that are not filed under a project, newest
+   * first — the project-first sidebar's "Recent" group.
+   */
+  getRecentTopics: recentProcedure
+    .input(z.object({ limit: z.number().int().positive().max(100).optional() }).optional())
+    .query(async ({ ctx, input }): Promise<RecentItem[]> => {
+      const items = await ctx.recentModel.queryRecentTopics(input?.limit ?? 10);
 
-        return {
-          agentId: item.routeId,
-          description: item.description,
-          icon: item.type,
-          id: item.id,
-          lastAssistantMessage: item.lastAssistantMessage,
-          metadata: item.metadata as ChatTopicMetadata | undefined,
-          routePath,
-          slugTitle: item.slugTitle,
-          status: item.status,
-          title: item.title,
-          type: item.type,
-          updatedAt: item.updatedAt,
-          userId: item.userId,
-        };
-      });
+      return items.map(toRecentItem);
     }),
 });
 

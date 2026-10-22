@@ -10,7 +10,7 @@ import {
 } from './components/SideBarSkeleton';
 import { NAV_PANEL_RIGHT_DRAWER_ID } from './constants';
 import { getNavPanelRegistrySnapshot, subscribeNavPanelRegistry } from './registry';
-import { useActiveNavKey } from './useActiveNavKey';
+import { useActiveNavKey, useExitNavAdvancedMode } from './useActiveNavKey';
 
 const NavPanelFallback = memo<{ navKey: string }>(({ navKey }) => (
   <NavSideBarSkeleton {...(NAV_SKELETON_SHAPES[navKey] ?? DEFAULT_NAV_SKELETON_SHAPE)} />
@@ -18,6 +18,7 @@ const NavPanelFallback = memo<{ navKey: string }>(({ navKey }) => (
 
 const NavPanel = memo(() => {
   const activeNavKey = useActiveNavKey();
+  useExitNavAdvancedMode();
   const getActiveContent = () => getNavPanelRegistrySnapshot().get(activeNavKey);
   const registeredContent = useSyncExternalStore(
     subscribeNavPanelRegistry,

@@ -248,6 +248,17 @@ export const NAV_PANEL_DEFAULT_WIDTH = 280;
 export const PROJECT_FIRST_NAVIGATION = false;
 
 /**
+ * The Home panel as the only everyday navigation. When on, the Home panel's
+ * agent group is a row of avatars; an avatar opens the agent's (or group's)
+ * profile, whose chat button starts a home conversation with that agent; a
+ * conversation with any agent or group keeps the Home panel; and "Recent" lists
+ * the viewer's conversations outside projects. The agent's own workspace
+ * sidebar (topics, tasks, profile) opens only in "advanced mode", toggled from
+ * the profile's "..." menu. Off keeps the agent and group sidebars.
+ */
+export const AGENT_PROFILE_NAVIGATION = false;
+
+/**
  * Home sections hidden for a viewer who has not customized Home yet. Listing
  * every widget key (see `HOME_WIDGET_KEYS`) together with
  * `HOME_PORTRAIT_ENABLED = false` makes the centered greeting-and-composer

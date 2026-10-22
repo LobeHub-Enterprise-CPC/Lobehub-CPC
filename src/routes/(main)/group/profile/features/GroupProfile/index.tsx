@@ -14,6 +14,7 @@ import { useAgentGroupTransferToMemberMenuItem } from '@/business/client/hooks/u
 import { useHasActiveWorkspace } from '@/business/client/hooks/useHasActiveWorkspace';
 import { EditingIndicator, type EditLockClient, useEditLock } from '@/features/EditLock';
 import { EditorCanvas } from '@/features/EditorCanvas';
+import { useAdvancedModeMenuItem } from '@/features/NavPanel/useAdvancedModeMenuItem';
 import AccessLevelTag from '@/features/ResourcePermission/AccessLevelTag';
 import { useResourceAccess } from '@/features/ResourcePermission/useResourceAccess';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
@@ -67,6 +68,7 @@ const GroupProfile = memo(() => {
   // page, matching the agent profile header. Shown for private groups too: the
   // creator sets there what members get the moment the group is published.
   const showPermissionPageEntry = hasActiveWorkspace && !!groupId;
+  const advancedModeMenuItem = useAdvancedModeMenuItem('group');
   const moreMenuItems = useMemo(() => {
     const permissionMenuItem = showPermissionPageEntry
       ? {
@@ -86,6 +88,11 @@ const GroupProfile = memo(() => {
       : null;
 
     return [
+      advancedModeMenuItem,
+      advancedModeMenuItem &&
+      (permissionMenuItem || transferMenuItems?.length || transferToMemberItem)
+        ? ({ type: 'divider' } as const)
+        : null,
       permissionMenuItem,
       permissionMenuItem && (transferMenuItems?.length || transferToMemberItem)
         ? ({ type: 'divider' } as const)
@@ -94,6 +101,7 @@ const GroupProfile = memo(() => {
       transferToMemberItem,
     ].filter(Boolean);
   }, [
+    advancedModeMenuItem,
     canEdit,
     groupId,
     navigate,

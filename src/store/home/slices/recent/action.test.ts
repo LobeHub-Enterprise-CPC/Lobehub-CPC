@@ -22,6 +22,15 @@ import { createRecentQueryKey, initialRecentState } from '@/store/home/slices/re
 import { recentListResource } from '@/store/home/slices/recent/projection';
 import { homeRecentSelectors } from '@/store/home/slices/recent/selectors';
 
+// Tests read the distribution's flags; pin the stock (off) value per test.
+let mockAgentProfileNavigation = false;
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  get AGENT_PROFILE_NAVIGATION() {
+    return mockAgentProfileNavigation;
+  },
+}));
+
 const item = (id: string, title: string, type: RecentItem['type'] = 'task'): RecentItem => ({
   icon: type,
   id,
@@ -95,6 +104,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  mockAgentProfileNavigation = false;
   vi.restoreAllMocks();
   localStorage.clear();
 });
@@ -113,6 +123,20 @@ describe('recents replica', () => {
 
     await waitFor(() => expect(titleOf(SIDEBAR, 'task:a')).toBe('Cached'));
     expect(result.current.isValidating).toBe(true);
+  });
+
+  it('lists conversations outside projects when the Home panel is the only navigation', async () => {
+    mockAgentProfileNavigation = true;
+    const getAll = vi.spyOn(recentService, 'getAll');
+    const getRecentTopics = vi
+      .spyOn(recentService, 'getRecentTopics')
+      .mockResolvedValue([item('t', 'Chat', 'topic')]);
+
+    renderHook(() => useHomeStore((s) => s.useFetchRecents)(true, 10), { wrapper });
+
+    await waitFor(() => expect(titleOf(SIDEBAR, 'topic:t')).toBe('Chat'));
+    expect(getRecentTopics).toHaveBeenCalledWith(11);
+    expect(getAll).not.toHaveBeenCalled();
   });
 
   it('does not fetch while logged out', () => {

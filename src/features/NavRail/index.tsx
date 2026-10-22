@@ -7,10 +7,12 @@ import { memo, Suspense, useMemo } from 'react';
 
 import Footer from '@/features/HomeSidebar/Footer';
 import User from '@/features/HomeSidebar/Header/components/User';
+import { useActiveNavKey } from '@/features/NavPanel/useActiveNavKey';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 import { useActiveTabKey } from '@/hooks/useActiveTabKey';
 import { useNavLayout } from '@/hooks/useNavLayout';
+import { SidebarTabKey } from '@/store/global/initialState';
 import { isModifierClick } from '@/utils/navigation';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
@@ -62,13 +64,19 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
   `,
 }));
 
+const HOME_PANEL_ROUTE_TABS = new Set<string>(['agent', 'group', 'project']);
+
 /**
  * Outer level of the two-level navigation (`NAV_RAIL_ENABLED`): page links on
  * top, help and account at the bottom. The entries come from `useNavLayout`, so
  * the rail and the single-panel layout can never disagree about what exists.
  */
 const NavRail = memo(() => {
-  const tab = useActiveTabKey();
+  const routeTab = useActiveTabKey();
+  // An agent, group or project page shown beside the Home panel belongs to Home.
+  const navKey = useActiveNavKey();
+  const tab =
+    navKey === 'home' && HOME_PANEL_ROUTE_TABS.has(routeTab) ? SidebarTabKey.Home : routeTab;
   const navigate = useWorkspaceAwareNavigate();
   const { bottomMenuItems, topNavItems } = useNavLayout();
 
