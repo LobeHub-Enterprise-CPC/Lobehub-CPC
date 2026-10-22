@@ -1,5 +1,6 @@
 'use client';
 
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import type { AgentArtworkComposition, AgentArtworkStyle } from '@lobechat/prompts';
 import type { AgentProfile } from '@lobechat/types';
 import { toast } from '@lobehub/ui/base-ui';
@@ -7,7 +8,6 @@ import { memo, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ArtworkStudioContent, styleReferencesForArtworkStyle } from '@/features/ArtworkStudio';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { cutOutFullBodyArtwork, resolveArtworkReferenceSource } from '@/services/artworkGeneration';
 import { useAgentStore } from '@/store/agent';
 import { agentArtworkSelectors, agentSelectors } from '@/store/agent/selectors';
@@ -51,7 +51,7 @@ const useTransparentFullBody = () => {
 
 const AgentArtworkStudioContent = memo<AgentArtworkStudioContentProps>(({ agentId }) => {
   const { t } = useTranslation('setting');
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
   const meta = useAgentStore(agentSelectors.getAgentMetaById(agentId));
   const fullBody = useAgentStore(agentSelectors.getAgentFullBodyArtworkById(agentId));
   const profile = useAgentStore(agentSelectors.getAgentProfileById(agentId));

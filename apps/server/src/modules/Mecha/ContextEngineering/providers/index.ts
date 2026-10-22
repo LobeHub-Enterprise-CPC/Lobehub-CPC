@@ -23,9 +23,12 @@ import { UserModel } from '@/database/models/user';
 import { UserPersonaModel } from '@/database/models/userMemory/persona';
 import { WorkspaceModel } from '@/database/models/workspace';
 import { appEnv } from '@/envs/app';
+import { isTenantMarketMode } from '@/libs/trusted-client/config';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { loadConnectedComposioIds } from '@/server/modules/AgentRuntime/adapters/composioConnectedIds';
 import type { RuntimeContextBuilderContext } from '@/server/modules/AgentRuntime/context';
 import { buildPostProcessUrl, log } from '@/server/modules/AgentRuntime/executorHelpers';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 import { AgentDocumentsService } from '@/server/services/agentDocuments';
 import { MarketService } from '@/server/services/market';
 import { OnboardingService } from '@/server/services/onboarding';
@@ -46,13 +49,7 @@ export const resolveServerConnectorFeatures = (): ContextFactRequest['features']
 const toIsoString = (value: Date | string | null | undefined): string =>
   value instanceof Date ? value.toISOString() : (value ?? '');
 
-const getAppUrl = (): string | undefined => {
-  try {
-    return appEnv.APP_URL;
-  } catch {
-    return process.env.APP_URL;
-  }
-};
+const getAppUrl = (): string => tenantPublicBaseUrl();
 
 /**
  * How the server fetches the facts the shared context rules ask for. Every
@@ -219,6 +216,12 @@ export const createServerContextFactProviders = ({
       const frozen = state.operationCredentials;
       if (frozen && frozen.workspaceId === scopeWorkspaceId) return frozen.credentials;
 
+      // A tenant has no workspace organization (acting-as-organization is
+      // closed, R13): inside a workspace there are no shared credentials, and
+      // the personal ones are not shown there either. An empty list, not a
+      // failed run.
+      if (scopeWorkspaceId && isTenantMarketMode()) return [];
+
       // Read market accessToken from DB so the server-side runtime can
       // authenticate with the Market API instead of falling back to an
       // anonymous trustedClientToken (which 401s on creds endpoints).
@@ -231,7 +234,7 @@ export const createServerContextFactProviders = ({
       }
       const marketService = new MarketService({
         accessToken: marketAccessToken,
-        userInfo: { userId },
+        userInfo: await resolveMarketServiceIdentity({ serverDB: db, userId }),
       });
       // Inside a workspace, the agent must only see the workspace's shared
       // organization credentials — personal creds are not visible there.

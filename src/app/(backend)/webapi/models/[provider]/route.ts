@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import { checkAuth } from '@/app/(backend)/middleware/auth';
 import { initModelRuntimeForRequest } from '@/server/modules/AgentRuntime/llmRelay/oneShot';
 import { runRouteWithLlmRelayRequest } from '@/server/modules/AgentRuntime/llmRelay/requestScope';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { createErrorResponse } from '@/utils/errorResponse';
 
 import { resolveValidWorkspaceIdFromRequest } from '../../_utils/workspace';
@@ -55,7 +56,7 @@ const createModelListErrorResponse = (provider: string, e: unknown) => {
 // the whole one-shot relay window (240 s).
 export const maxDuration = 300;
 
-export const GET = checkAuth(async (req, { params, userId, serverDB }) => {
+const handleGet = checkAuth(async (req, { params, userId, serverDB }) => {
   const provider = (await params)!.provider!;
 
   try {
@@ -77,3 +78,5 @@ export const GET = checkAuth(async (req, { params, userId, serverDB }) => {
     return createModelListErrorResponse(provider, e);
   }
 });
+
+export const GET = withTenantRequest(handleGet);

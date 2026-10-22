@@ -1,3 +1,4 @@
+import { currentTenantScope } from '@lobechat/database/tenant';
 import { AgentRuntimeError } from '@lobechat/model-runtime';
 import { AgentRuntimeErrorType } from '@lobechat/types';
 import debug from 'debug';
@@ -206,7 +207,9 @@ export const ensureFreshOAuthToken = async (
 
   if (!isExpiring(keyVaults)) return keyVaults;
 
-  const flightKey = `${userId}:${workspaceId ?? ''}:${providerId}`;
+  // The flight resolves to the refreshed OAuth tokens of a tenant's user, so a
+  // caller in another tenant must never join it.
+  const flightKey = `${currentTenantScope()?.tenantId ?? ''}:${userId}:${workspaceId ?? ''}:${providerId}`;
 
   let flight = inflight.get(flightKey);
   if (!flight) {

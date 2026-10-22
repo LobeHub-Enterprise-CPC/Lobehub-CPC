@@ -58,7 +58,6 @@ interface RunOptions {
   plugins?: string[];
   /** This turn's @-mention picks. */
   selectedToolIds?: string[];
-  shareGate?: unknown;
 }
 
 const run = (options: RunOptions = {}) => {
@@ -98,7 +97,6 @@ const run = (options: RunOptions = {}) => {
         deviceSystemInfo: vi.fn().mockResolvedValue(undefined),
         userPreference: vi.fn().mockResolvedValue(undefined),
       },
-      shareGate: options.shareGate,
     } as never,
     {
       disabledPluginIds: [],
@@ -187,19 +185,6 @@ describe('discoverTools — unpinned custom MCP connectors', () => {
     // offering the old list until someone re-syncs it by hand.
     expect(scheduleStaleConnectorToolsRefresh).toHaveBeenCalledTimes(1);
     const [connectors] = vi.mocked(scheduleStaleConnectorToolsRefresh).mock.calls[0];
-    expect(connectors.map((c) => c.identifier)).toContain(YINGMI);
-  });
-
-  it('does not decrypt unpinned connectors for a share visitor run', async () => {
-    const result = await run({
-      shareGate: {
-        agentId: 'agent-1',
-        shareConfig: { toolGrants: [] },
-        shareId: 'share-1',
-        visitorUserId: 'visitor-1',
-      },
-    });
-
-    expect(result.toolManifestMap[YINGMI]).toBeUndefined();
+    expect(connectors.map((c) => c.id)).toContain(customConnector.id);
   });
 });

@@ -11,8 +11,12 @@ import {
 } from '@lobechat/database/schemas';
 import debug from 'debug';
 import { eq, sql } from 'drizzle-orm';
+import { decodeJwt } from 'jose';
+import { errors } from 'oidc-provider';
 
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+
+import { describeError } from './safe-log';
 
 // Create adapter logging namespace
 const log = debug('lobe-oidc:adapter');
@@ -67,9 +71,45 @@ const decryptClientSecret = async (clientId: string, stored: string | null) => {
 
     return plaintext;
   } catch (error) {
-    log('[Client] Error while decrypting the client secret of %s: %O', clientId, error);
+    log(
+      '[Client] Error while decrypting the client secret of %s: %s',
+      clientId,
+      describeError(error),
+    );
     return null;
   }
+};
+
+const pushedAuthorizationClientId = (payload: {
+  clientId?: unknown;
+  request?: unknown;
+}): string => {
+  // oidc-provider supplies this Request Object after its client authentication.
+  // Decode only the database index metadata; this is not signature validation
+  // or an authorization decision, and the protocol payload stays untouched.
+  let clientId: unknown;
+  let issuer: unknown;
+  try {
+    if (typeof payload.request !== 'string') throw new Error('Missing Request Object');
+    const claims = decodeJwt(payload.request);
+    clientId = claims.client_id;
+    issuer = claims.iss;
+  } catch {
+    throw new errors.InvalidRequest('PAR Request Object must contain valid client metadata');
+  }
+
+  if (
+    typeof issuer !== 'string' ||
+    !issuer.trim() ||
+    (clientId !== undefined &&
+      (typeof clientId !== 'string' || !clientId.trim() || clientId !== issuer)) ||
+    (payload.clientId !== undefined && payload.clientId !== issuer)
+  ) {
+    throw new errors.InvalidRequest(
+      'PAR Request Object client_id and iss must identify the same client',
+    );
+  }
+  return issuer;
 };
 
 class OIDCAdapter {
@@ -141,8 +181,8 @@ class OIDCAdapter {
    * Create or update model instance
    */
   async upsert(id: string, payload: any, expiresIn: number): Promise<void> {
-    log('[%s] upsert called - id: %s, expiresIn: %d', this.name, id, `${expiresIn}s`);
-    log('[%s] payload: %O', this.name, payload);
+    // Ids are the codes and tokens themselves and payloads hold their claims and PKCE values.
+    log('[%s] upsert called - expiresIn: %ds', this.name, expiresIn);
 
     const table = this.getTable();
     if (!table) {
@@ -202,11 +242,16 @@ class OIDCAdapter {
           });
         log('[Client] Successfully upserted client: %s', id);
       } catch (error) {
-        log('[Client] ERROR upserting client: %O', error);
+        log('[Client] ERROR upserting client: %s', describeError(error));
         throw error;
       }
       return;
     }
+
+    const clientId =
+      this.name === 'PushedAuthorizationRequest'
+        ? pushedAuthorizationClientId(payload)
+        : payload.clientId;
 
     // For other models, save complete data and metadata
     const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000) : undefined;
@@ -221,8 +266,8 @@ class OIDCAdapter {
     // Add specific fields
     if (payload.accountId) {
       record.userId = payload.accountId;
-      log('[%s] Setting userId: %s', this.name, payload.accountId);
-    } else {
+      log('[%s] Setting userId', this.name);
+    } else if (this.name !== 'PushedAuthorizationRequest') {
       try {
         const { getUserAuth } = await import('@lobechat/utils/server');
         try {
@@ -237,31 +282,35 @@ class OIDCAdapter {
               payload.accountId = userId;
             }
             record.userId = userId;
-            log('[%s] Setting userId from auth context: %s', this.name, userId);
+            log('[%s] Setting userId from auth context', this.name);
           }
         } catch (authError) {
-          log('[%s] Error getting userId from auth context: %O', this.name, authError);
+          log(
+            '[%s] Error getting userId from auth context: %s',
+            this.name,
+            describeError(authError),
+          );
           // If getting userId fails, continue processing without throwing error
         }
       } catch (importError) {
-        log('[%s] Error importing auth module: %O', this.name, importError);
+        log('[%s] Error importing auth module: %s', this.name, describeError(importError));
         // If importing module fails, continue processing without throwing error
       }
     }
 
-    if (payload.clientId) {
-      record.clientId = payload.clientId;
-      log('[%s] Setting clientId: %s', this.name, payload.clientId);
+    if (clientId) {
+      record.clientId = clientId;
+      log('[%s] Setting clientId: %s', this.name, clientId);
     }
 
     if (payload.grantId) {
       record.grantId = payload.grantId;
-      log('[%s] Setting grantId: %s', this.name, payload.grantId);
+      log('[%s] Setting grantId', this.name);
     }
 
     if (this.name === 'DeviceCode' && payload.userCode) {
       record.userCode = payload.userCode;
-      log('[DeviceCode] Setting userCode: %s', payload.userCode);
+      log('[DeviceCode] Setting userCode');
     }
 
     try {
@@ -275,7 +324,7 @@ class OIDCAdapter {
             data: payload,
             expiresAt,
             ...(payload.accountId ? { userId: payload.accountId } : {}),
-            ...(payload.clientId ? { clientId: payload.clientId } : {}),
+            ...(clientId ? { clientId } : {}),
             ...(payload.grantId ? { grantId: payload.grantId } : {}),
             ...(this.name === 'DeviceCode' && payload.userCode
               ? { userCode: payload.userCode }
@@ -283,14 +332,14 @@ class OIDCAdapter {
           } as any,
           target: (table as any).id,
         });
-      log('[%s] Successfully upserted record: %s', this.name, id);
+      log('[%s] Successfully upserted record', this.name);
 
       if (this.name === 'AccessToken' || this.name === 'DeviceCode') {
         this.stampClientLastUsed(payload.clientId);
       }
     } catch (error) {
-      log('[%s] ERROR upserting record: %O', this.name, error);
-      console.error(`[OIDC Adapter] Error upserting ${this.name}:`, error);
+      log('[%s] ERROR upserting record: %s', this.name, describeError(error));
+      console.error(`[OIDC Adapter] Error upserting ${this.name}: ${describeError(error)}`);
       throw error;
     }
   }
@@ -305,7 +354,12 @@ class OIDCAdapter {
       .set({ lastUsedAt: new Date() })
       .where(eq(oidcClients.id, clientId))
       .then(undefined, (error: unknown) => {
-        log('[%s] Failed to stamp last_used_at for client %s: %O', this.name, clientId, error);
+        log(
+          '[%s] Failed to stamp last_used_at for client %s: %s',
+          this.name,
+          clientId,
+          describeError(error),
+        );
       });
   }
 
@@ -313,7 +367,7 @@ class OIDCAdapter {
    * Find model instance
    */
   async find(id: string): Promise<any> {
-    log('[%s] find called - id: %s', this.name, id);
+    log('[%s] find called', this.name);
 
     const table = this.getTable();
     if (!table) {
@@ -329,10 +383,10 @@ class OIDCAdapter {
         .where(eq((table as any).id, id))
         .limit(1);
 
-      log('[%s] Find query results: %O', this.name, result);
+      log('[%s] Find query returned %d rows', this.name, result?.length ?? 0);
 
       if (!result || result.length === 0) {
-        log('[%s] No record found for id: %s', this.name, id);
+        log('[%s] No record found', this.name);
         return undefined;
       }
 
@@ -424,8 +478,8 @@ class OIDCAdapter {
       log('[%s] Successfully found and returning record data', this.name);
       return model.data;
     } catch (error) {
-      log('[%s] ERROR finding record: %O', this.name, error);
-      console.error(`[OIDC Adapter] Error finding ${this.name}:`, error);
+      log('[%s] ERROR finding record: %s', this.name, describeError(error));
+      console.error(`[OIDC Adapter] Error finding ${this.name}: ${describeError(error)}`);
       return undefined;
     }
   }
@@ -434,7 +488,7 @@ class OIDCAdapter {
    * Find model instance by userCode (only for device flow)
    */
   async findByUserCode(userCode: string): Promise<any> {
-    log('[DeviceCode] findByUserCode called - userCode: %s', userCode);
+    log('[DeviceCode] findByUserCode called');
 
     if (this.name !== 'DeviceCode') {
       const error = 'findByUserCode can only be used for DeviceCode model';
@@ -450,10 +504,10 @@ class OIDCAdapter {
         .where(eq(oidcDeviceCodes.userCode, userCode))
         .limit(1);
 
-      log('[DeviceCode] findByUserCode query results: %O', result);
+      log('[DeviceCode] findByUserCode query returned %d rows', result?.length ?? 0);
 
       if (!result || result.length === 0) {
-        log('[DeviceCode] No record found for userCode: %s', userCode);
+        log('[DeviceCode] No record found for userCode');
         return undefined;
       }
 
@@ -476,8 +530,8 @@ class OIDCAdapter {
       log('[DeviceCode] Successfully found and returning record data by userCode');
       return model.data;
     } catch (error) {
-      log('[DeviceCode] ERROR finding record by userCode: %O', error);
-      console.error('[OIDC Adapter] Error finding DeviceCode by userCode:', error);
+      log('[DeviceCode] ERROR finding record by userCode: %s', describeError(error));
+      console.error(`[OIDC Adapter] Error finding DeviceCode by userCode: ${describeError(error)}`);
       return undefined;
     }
   }
@@ -486,33 +540,33 @@ class OIDCAdapter {
    * Find interaction instance by uid
    */
   async findByUid(uid: string): Promise<any> {
-    log('[Interaction] findByUid called - uid: %s', uid);
+    log('[Interaction] findByUid called');
     const table = this.getTable();
     if (this.name === 'Session') {
       try {
         const jsonbUidEq = sql`${(table as any).data}->>'uid' = ${uid}`;
         // @ts-ignore
         const results = await this.db.select().from(table).where(jsonbUidEq).limit(1);
-        log('[Session] Find by data.uid query results: %O', results);
+        log('[Session] Find by data.uid query returned %d rows', results?.length ?? 0);
 
         if (!results || results.length === 0) {
-          log('[Session] No record found by data.uid: %s', uid);
+          log('[Session] No record found by data.uid');
           return undefined;
         }
 
         const model = results[0] as any;
         // Check expiration
         if (model.expiresAt && model.expiresAt < new Date()) {
-          log('[Session] Record found by data.uid but expired: %s', uid);
+          log('[Session] Record found by data.uid but expired');
           await this.destroy(model.id); // Still use primary key id for deletion
           return undefined;
         }
 
-        log('[Session] Successfully found by data.uid and returning record data for uid %s', uid);
+        log('[Session] Successfully found by data.uid and returning record data');
         return model.data;
       } catch (error) {
-        log('[Session] ERROR during findSessionByUid operation for %s: %O', uid, error);
-        console.error(`[OIDC Adapter] Error finding Session by uid:`, error);
+        log('[Session] ERROR during findSessionByUid operation: %s', describeError(error));
+        console.error(`[OIDC Adapter] Error finding Session by uid: ${describeError(error)}`);
       }
     }
     // Reuse find method implementation
@@ -525,7 +579,7 @@ class OIDCAdapter {
    * Used for session pre-synchronization
    */
   async findSessionByUserId(userId: string): Promise<any> {
-    log('[%s] findSessionByUserId called - userId: %s', this.name, userId);
+    log('[%s] findSessionByUserId called', this.name);
 
     if (this.name !== 'Session') {
       log('[%s] findSessionByUserId - Not a Session model, returning undefined', this.name);
@@ -546,17 +600,17 @@ class OIDCAdapter {
         .where(eq((table as any).userId, userId))
         .limit(1);
 
-      log('[%s] findSessionByUserId query results: %O', this.name, result);
+      log('[%s] findSessionByUserId query returned %d rows', this.name, result?.length ?? 0);
 
       if (!result || result.length === 0) {
-        log('[%s] No session found for userId: %s', this.name, userId);
+        log('[%s] No session found for userId', this.name);
         return undefined;
       }
 
       return (result[0] as { data: any }).data;
     } catch (error) {
-      log('[%s] ERROR finding session by userId: %O', this.name, error);
-      console.error(`[OIDC Adapter] Error finding session by userId:`, error);
+      log('[%s] ERROR finding session by userId: %s', this.name, describeError(error));
+      console.error(`[OIDC Adapter] Error finding session by userId: ${describeError(error)}`);
       return undefined;
     }
   }
@@ -565,7 +619,7 @@ class OIDCAdapter {
    * Destroy model instance
    */
   async destroy(id: string): Promise<void> {
-    log('[%s] destroy called - id: %s', this.name, id);
+    log('[%s] destroy called', this.name);
 
     const table = this.getTable();
     if (!table) {
@@ -576,10 +630,10 @@ class OIDCAdapter {
     try {
       log('[%s] Executing destroy DB operation', this.name);
       await this.db.delete(table).where(eq((table as any).id, id));
-      log('[%s] Successfully destroyed record: %s', this.name, id);
+      log('[%s] Successfully destroyed record', this.name);
     } catch (error) {
-      log('[%s] ERROR destroying record: %O', this.name, error);
-      console.error(`[OIDC Adapter] Error destroying ${this.name}:`, error);
+      log('[%s] ERROR destroying record: %s', this.name, describeError(error));
+      console.error(`[OIDC Adapter] Error destroying ${this.name}: ${describeError(error)}`);
       throw error;
     }
   }
@@ -588,7 +642,7 @@ class OIDCAdapter {
    * Mark model instance as consumed
    */
   async consume(id: string): Promise<void> {
-    log('[%s] consume called - id: %s', this.name, id);
+    log('[%s] consume called', this.name);
 
     const table = this.getTable();
     if (!table) {
@@ -603,10 +657,10 @@ class OIDCAdapter {
         // @ts-ignore
         .set({ consumedAt: new Date() })
         .where(eq((table as any).id, id));
-      log('[%s] Successfully consumed record: %s', this.name, id);
+      log('[%s] Successfully consumed record', this.name);
     } catch (error) {
-      log('[%s] ERROR consuming record: %O', this.name, error);
-      console.error(`[OIDC Adapter] Error consuming ${this.name}:`, error);
+      log('[%s] ERROR consuming record: %s', this.name, describeError(error));
+      console.error(`[OIDC Adapter] Error consuming ${this.name}: ${describeError(error)}`);
       throw error;
     }
   }
@@ -615,7 +669,7 @@ class OIDCAdapter {
    * Revoke all related model instances by grantId
    */
   async revokeByGrantId(grantId: string): Promise<void> {
-    log('[%s] revokeByGrantId called - grantId: %s', this.name, grantId);
+    log('[%s] revokeByGrantId called', this.name);
 
     // Grants themselves don't need to be revoked by grantId
     if (this.name === 'Grant') {
@@ -632,6 +686,9 @@ class OIDCAdapter {
       // Use transaction to delete all records containing grantId, ensuring atomicity
       await this.db.transaction(async (tx) => {
         // All tables that may contain grantId
+        // JWT-format access tokens have no AccessToken row: removing the grant
+        // also revokes the exact issuance projection checked by gateway authority.
+        await tx.delete(oidcGrants).where(eq(oidcGrants.id, grantId));
         const tables = [
           oidcAccessTokens,
           oidcAuthorizationCodes,
@@ -641,20 +698,16 @@ class OIDCAdapter {
 
         for (const table of tables) {
           if ('grantId' in table) {
-            log('[%s] Revoking %s records by grantId: %s', this.name, grantId);
+            log('[%s] Revoking records by grantId', this.name);
             await tx.delete(table).where(eq((table as any).grantId, grantId));
           }
         }
       });
 
-      log(
-        '[%s] Successfully completed transaction for revoking all records by grantId: %s',
-        this.name,
-        grantId,
-      );
+      log('[%s] Successfully completed transaction for revoking all records by grantId', this.name);
     } catch (error) {
-      log('[%s] ERROR in revokeByGrantId transaction: %O', this.name, error);
-      console.error(`[OIDC Adapter] Error in revokeByGrantId transaction:`, error);
+      log('[%s] ERROR in revokeByGrantId transaction: %s', this.name, describeError(error));
+      console.error(`[OIDC Adapter] Error in revokeByGrantId transaction: ${describeError(error)}`);
       throw error;
     }
   }

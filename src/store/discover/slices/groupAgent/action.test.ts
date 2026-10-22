@@ -206,6 +206,21 @@ describe('GroupAgentSlice (replica)', () => {
       expect(useStore.getState().groupAgentDetailMap[key]).toBeUndefined();
     });
 
+    it('evicts a hydrated detail when revalidation answers NOT_FOUND, keeps it on transient errors', async () => {
+      const { result } = renderHook(() =>
+        useStore.getState().useFetchGroupAgentDetail({ identifier: 'group-1' }),
+      );
+      const key = result.current.queryKey!;
+      useStore.setState({ groupAgentDetailMap: { [key]: { identifier: 'group-1' } as any } });
+
+      const [call] = await syncCalls('groupAgentDetail');
+      act(() => call.config.onError!({ data: { code: 'INTERNAL_SERVER_ERROR' } }));
+      expect(groupAgentSelectors.groupAgentDetail(key)(useStore.getState())).toBeDefined();
+
+      act(() => call.config.onError!({ data: { code: 'NOT_FOUND' } }));
+      expect(groupAgentSelectors.groupAgentDetail(key)(useStore.getState())).toBeUndefined();
+    });
+
     it('keys the detail by identifier and version', () => {
       const { result } = renderHook(() => [
         useStore.getState().useFetchGroupAgentDetail({ identifier: 'writing-team' }),

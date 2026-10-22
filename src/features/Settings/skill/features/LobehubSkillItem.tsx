@@ -1,5 +1,6 @@
 'use client';
 
+import { buildAppUrl } from '@lobechat/business-tenant/client';
 import { type LobehubSkillProviderType } from '@lobechat/const';
 import { Center, DropdownMenu, Flexbox, Icon, Tooltip } from '@lobehub/ui';
 import { Avatar, Button, Button as LobeButton, confirmModal } from '@lobehub/ui/base-ui';
@@ -163,7 +164,7 @@ const LobehubSkillItem = memo<LobehubSkillItemProps>(
       try {
         // Skip redirectUri on desktop (app:// protocol) since the system browser can't navigate to it
         const redirectUri = window.location.protocol.startsWith('http')
-          ? `${window.location.origin}/oauth/callback/success?provider=${encodeURIComponent(provider.id)}`
+          ? buildAppUrl(`/oauth/callback/success?provider=${encodeURIComponent(provider.id)}`)
           : undefined;
         const { authorizeUrl } = await getAuthorizeUrl(provider.id, { redirectUri });
         openOAuthWindow(authorizeUrl);

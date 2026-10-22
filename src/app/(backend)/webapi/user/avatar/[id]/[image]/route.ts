@@ -1,4 +1,5 @@
 import { serverDB } from '@/database/server';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { UserService } from '@/server/services/user';
 
 type Params = Promise<{ id: string; image: string }>;
@@ -26,7 +27,7 @@ function getContentType(filename: string): string {
   return CONTENT_TYPE_MAP[extension] || 'application/octet-stream';
 }
 
-export const GET = async (req: Request, segmentData: { params: Params }) => {
+const handleGet = async (req: Request, segmentData: { params: Params }) => {
   try {
     const params = await segmentData.params;
     const type = getContentType(params.image);
@@ -53,3 +54,5 @@ export const GET = async (req: Request, segmentData: { params: Params }) => {
     });
   }
 };
+
+export const GET = withTenantRequest(handleGet);

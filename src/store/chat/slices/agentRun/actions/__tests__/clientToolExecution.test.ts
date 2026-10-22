@@ -472,45 +472,32 @@ describe('internal_executeClientTool', () => {
   });
 
   describe('live gateway connection lookup (Bug 3)', () => {
-    it('uses the connection present at send-time, not at action-entry time', async () => {
+    it('does not send an old attempt to a reconnected client', async () => {
       hasExecutorMock.mockReturnValue(true);
-
-      let resolver: (v: any) => void = () => {};
+      let resolve!: (result: any) => void;
       invokeExecutorMock.mockImplementation(
         () =>
-          new Promise((resolve) => {
-            resolver = resolve;
+          new Promise((done) => {
+            resolve = done;
           }),
       );
-
-      const { action, state } = setup({ hasConnection: false });
-
-      // Kick off — at this moment gatewayConnections is empty.
-      const promise = action.internal_executeClientTool(makeData(), {
-        operationId: 'op-1',
-      });
-
+      const { action, state, sendToolResult } = setup();
+      let current = true;
+      const pending = action.internal_executeClientTool(
+        makeData({ attemptId: 'original-attempt', isExecutionCurrent: () => current }),
+        { operationId: 'op-1' },
+      );
       await vi.waitFor(() => expect(invokeExecutorMock).toHaveBeenCalledTimes(1));
-
-      // Simulate a reconnect landing while the executor is still running:
-      // a fresh entry appears in gatewayConnections.
-      const reconnectedSend = vi.fn(() => true);
+      current = false;
+      const replacement = vi.fn(() => true);
       state.gatewayConnections['op-1'] = {
-        client: {
-          connect: vi.fn(),
-          disconnect: vi.fn(),
-          on: vi.fn(),
-          sendToolResult: reconnectedSend,
-        },
+        client: { sendToolResult: replacement } as any,
         status: 'connected',
       };
-
-      resolver({ content: 'late ok', success: true });
-      await promise;
-
-      expect(reconnectedSend).toHaveBeenCalledWith(
-        expect.objectContaining({ content: 'late ok', success: true }),
-      );
+      resolve({ content: 'late', success: true });
+      await pending;
+      expect(replacement).not.toHaveBeenCalled();
+      expect(sendToolResult).not.toHaveBeenCalled();
     });
   });
 

@@ -1,3 +1,7 @@
+import {
+  mapTenantAppPath,
+  WORKSPACE_MIRRORED_FIRST_SEGMENTS,
+} from '@lobechat/business-tenant/routing';
 import type { NavigateOptions } from 'react-router';
 
 export interface WorkspaceAwareNavigateOptions extends NavigateOptions {
@@ -77,26 +81,6 @@ export const WORKSPACE_SETTINGS_TABS: ReadonlySet<string> = new Set([
 const SETTINGS_PREFIX_REGEX = /^\/settings\/([^/?#]+)/;
 const FIRST_SEGMENT_REGEX = /^\/([^/?#]+)/;
 
-const WORKSPACE_MIRRORED_FIRST_SEGMENTS = new Set([
-  'agent',
-  'agents',
-  'community',
-  'eval',
-  // Top-level goal detail lives beside task/tasks in the shared main area.
-  'goal',
-  'group',
-  'image',
-  'memory',
-  'page',
-  'project',
-  'projects',
-  'resource',
-  'settings',
-  'task',
-  'tasks',
-  'video',
-]);
-
 const parseFirstSegment = (pathname: string): string | null => {
   const match = pathname.match(FIRST_SEGMENT_REGEX);
   return match ? match[1] : null;
@@ -130,14 +114,23 @@ export const buildWorkspaceAwarePath = (
   options?: WorkspaceAwareNavigateOptions,
 ): string => {
   if (options?.escape) return to;
-  if (!activeSlug) return to;
   if (!to.startsWith('/')) return to;
-  if (isPersonalPath(to)) return to;
-  if (isPersonalSettingsPath(to)) return to;
-  if (to === `/${activeSlug}` || to.startsWith(`/${activeSlug}/`)) return to;
 
-  const firstSegment = parseFirstSegment(to);
-  if (firstSegment && !WORKSPACE_MIRRORED_FIRST_SEGMENTS.has(firstSegment)) return to;
+  if (!activeSlug) return to;
 
-  return `/${activeSlug}${to}`;
+  // Reason about the app path below the tenant prefix, and keep that prefix.
+  // Without this every allowlist test below reads `t` as the first segment, so
+  // nothing is ever recognised as workspace-mirrored and the workspace prefix
+  // silently stops being applied — a url that still resolves, just to the
+  // wrong scope.
+  return mapTenantAppPath(to, (rest) => {
+    if (isPersonalPath(rest)) return rest;
+    if (isPersonalSettingsPath(rest)) return rest;
+    if (rest === `/${activeSlug}` || rest.startsWith(`/${activeSlug}/`)) return rest;
+
+    const firstSegment = parseFirstSegment(rest);
+    if (firstSegment && !WORKSPACE_MIRRORED_FIRST_SEGMENTS.has(firstSegment)) return rest;
+
+    return `/${activeSlug}${rest}`;
+  });
 };

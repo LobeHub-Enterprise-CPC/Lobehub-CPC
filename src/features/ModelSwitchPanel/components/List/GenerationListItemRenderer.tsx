@@ -1,5 +1,6 @@
 'use client';
 
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import {
   DropdownMenuPopup,
   DropdownMenuPortal,
@@ -95,7 +96,10 @@ const GenerationListItemRenderer = memo<GenerationListItemRendererProps>(
                   e.stopPropagation();
                   const url = urlJoin('/settings/provider', item.provider.id || 'all');
                   if (e.ctrlKey || e.metaKey) {
-                    window.open(buildWorkspaceAwarePath(url, activeSlug), '_blank');
+                    window.open(
+                      withCurrentTenantPath(buildWorkspaceAwarePath(url, activeSlug)),
+                      '_blank',
+                    );
                   } else {
                     navigate(url);
                   }

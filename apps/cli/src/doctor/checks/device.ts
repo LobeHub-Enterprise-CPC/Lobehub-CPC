@@ -1,5 +1,6 @@
 import { GatewayClient } from '@lobechat/device-gateway-client';
 
+import { createGatewayIdentityProvider } from '../../auth/gatewayIdentity';
 import { CLI_PRIMARY_BIN } from '../../constants/identity';
 import { getRunningDaemonPid, readStatus, removePid, removeStatus } from '../../daemon/manager';
 import { readConnectServiceStatus } from '../../service/connect';
@@ -123,6 +124,12 @@ const gatewayHandshake: DoctorCheck = {
     const outcome = await new Promise<CheckOutcome>((resolve) => {
       const client = new GatewayClient({
         autoReconnect: false,
+        identityProvider: createGatewayIdentityProvider({
+          serverUrl: credential.serverUrl,
+          token: credential.token!,
+          tokenType: credential.tokenType!,
+          userId: credential.userId!,
+        }),
         gatewayUrl,
         serverUrl: credential.serverUrl,
         // A probe connection proves reachability and exits; it must never

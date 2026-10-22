@@ -40,9 +40,15 @@ describe('GatewayConnectionService system_info_request', () => {
     getShellInfoMock.mockResolvedValue({ displayName: 'zsh' });
     const client = createClient();
 
-    await (service as any).handleSystemInfoRequest(client, { requestId: 'req-1' });
+    await (service as any).handleSystemInfoRequest(client, {
+      attemptId: 'attempt-1',
+      executionSignal: new AbortController().signal,
+      isExecutionCurrent: () => true,
+      requestId: 'req-1',
+    });
 
     expect(client.sendSystemInfoResponse).toHaveBeenCalledWith({
+      attemptId: 'attempt-1',
       requestId: 'req-1',
       result: {
         success: true,
@@ -67,7 +73,12 @@ describe('GatewayConnectionService system_info_request', () => {
     const client = createClient();
 
     try {
-      await (service as any).handleSystemInfoRequest(client, { requestId: 'req-3' });
+      await (service as any).handleSystemInfoRequest(client, {
+        attemptId: 'attempt-3',
+        executionSignal: new AbortController().signal,
+        isExecutionCurrent: () => true,
+        requestId: 'req-3',
+      });
     } finally {
       getPath.mockImplementation(original!);
     }
@@ -84,10 +95,16 @@ describe('GatewayConnectionService system_info_request', () => {
     const client = createClient();
 
     await expect(
-      (service as any).handleSystemInfoRequest(client, { requestId: 'req-2' }),
+      (service as any).handleSystemInfoRequest(client, {
+        attemptId: 'attempt-2',
+        executionSignal: new AbortController().signal,
+        isExecutionCurrent: () => true,
+        requestId: 'req-2',
+      }),
     ).resolves.toBeUndefined();
 
     expect(client.sendSystemInfoResponse).toHaveBeenCalledWith({
+      attemptId: 'attempt-2',
       requestId: 'req-2',
       result: { success: false },
     });
@@ -270,122 +287,51 @@ describe('GatewayConnectionService auth recovery', () => {
     (service as any).doConnect = doConnect;
   });
 
-  describe('personal connection', () => {
-    it('refreshes the token and reconnects after auth_failed', async () => {
-      const refresher = vi.fn().mockResolvedValue({ success: true });
-      service.setTokenRefresher(refresher);
-      const client = createFakeClient();
-      (service as any).setupClientEvents(client);
-
-      client.emit('auth_failed', 'exp claim timestamp check failed');
-      await flush();
-
-      expect(refresher).toHaveBeenCalledTimes(1);
-      expect(doConnect).toHaveBeenCalledTimes(1);
-    });
-
-    it('retries only once when the refreshed token is rejected again', async () => {
-      const refresher = vi.fn().mockResolvedValue({ success: true });
-      service.setTokenRefresher(refresher);
-      const client = createFakeClient();
-      (service as any).setupClientEvents(client);
-
-      client.emit('auth_failed', 'exp claim timestamp check failed');
-      await flush();
-      client.emit('auth_failed', 'exp claim timestamp check failed');
-      await flush();
-
-      expect(refresher).toHaveBeenCalledTimes(1);
-      expect(doConnect).toHaveBeenCalledTimes(1);
-      expect(service.getStatus()).toBe('disconnected');
-    });
-
-    it('gives the retry budget back once a connection authenticates', async () => {
-      const refresher = vi.fn().mockResolvedValue({ success: true });
-      service.setTokenRefresher(refresher);
-      const client = createFakeClient();
-      (service as any).setupClientEvents(client);
-
-      client.emit('auth_failed', 'first');
-      await flush();
-      client.emit('connected');
-      client.emit('auth_failed', 'second');
-      await flush();
-
-      expect(refresher).toHaveBeenCalledTimes(2);
-      expect(doConnect).toHaveBeenCalledTimes(2);
-    });
-
-    it('stays disconnected without looping when the refresh fails', async () => {
-      const refresher = vi.fn().mockResolvedValue({ success: false, error: 'invalid_grant' });
-      service.setTokenRefresher(refresher);
-      const client = createFakeClient();
-      (service as any).setupClientEvents(client);
-
-      client.emit('auth_failed', 'exp claim timestamp check failed');
-      await flush();
-
-      expect(refresher).toHaveBeenCalledTimes(1);
-      expect(doConnect).not.toHaveBeenCalled();
-      expect(service.getStatus()).toBe('disconnected');
-    });
-
-    it('pushes a refreshed token into the live client', () => {
-      const client = createFakeClient();
-      (service as any).client = client;
-
-      service.updatePersonalToken('fresh-token');
-
-      expect(client.updateToken).toHaveBeenCalledWith('fresh-token');
-    });
+  it('stops personal authentication failures without substituting a new source', async () => {
+    const refresher = vi.fn();
+    service.setIdentityProviderFactory(refresher);
+    const client = createFakeClient();
+    (service as any).client = client;
+    (service as any).setupClientEvents(client);
+    client.emit('auth_failed', 'SOURCE_UNVERIFIABLE');
+    await flush();
+    expect(refresher).not.toHaveBeenCalled();
+    expect(doConnect).not.toHaveBeenCalled();
+    expect(client.disconnect).toHaveBeenCalledOnce();
+    expect(service.getStatus()).toBe('disconnected');
   });
-
-  describe('workspace connection', () => {
-    const setupWorkspace = (service: GatewayConnectionService, workspaceId: string) => {
-      const client = createFakeClient();
-      (service as any).workspaceClients.set(workspaceId, client);
-      (service as any).setupClientEvents(client, { workspaceId });
-      return client;
-    };
-
-    it('re-mints the connect token and reconnects after auth_failed', async () => {
-      const client = setupWorkspace(service, 'ws-1');
-      const mint = vi.fn().mockResolvedValue('ws-token');
-      service.setWorkspaceTokenProvider(mint);
-
-      client.emit('auth_failed', 'token expired');
-      await flush();
-
-      expect(mint).toHaveBeenCalledWith('ws-1');
-      expect(client.updateToken).toHaveBeenCalledWith('ws-token');
-      expect(client.reconnect).toHaveBeenCalledTimes(1);
-      expect((service as any).workspaceClients.has('ws-1')).toBe(true);
-    });
-
-    it('closes the share instead of looping when it fails again', async () => {
-      const client = setupWorkspace(service, 'ws-1');
-      const mint = vi.fn().mockResolvedValue('ws-token');
-      service.setWorkspaceTokenProvider(mint);
-
-      client.emit('auth_failed', 'token expired');
-      await flush();
-      client.emit('auth_failed', 'token expired');
-      await flush();
-
-      expect(mint).toHaveBeenCalledTimes(1);
-      expect(client.disconnect).toHaveBeenCalledTimes(1);
-      expect((service as any).workspaceClients.has('ws-1')).toBe(false);
-    });
-
-    it('closes the share when the connect token cannot be re-minted', async () => {
-      const client = setupWorkspace(service, 'ws-1');
-      service.setWorkspaceTokenProvider(vi.fn().mockResolvedValue(null));
-
-      client.emit('auth_failed', 'token expired');
-      await flush();
-
-      expect(client.reconnect).not.toHaveBeenCalled();
-      expect((service as any).workspaceClients.has('ws-1')).toBe(false);
-    });
+  it('reconnects expiration on the same provider client', async () => {
+    const client = createFakeClient();
+    (service as any).client = client;
+    (service as any).setupClientEvents(client);
+    client.emit('auth_expired');
+    await flush();
+    expect(client.reconnect).toHaveBeenCalledOnce();
+    expect(doConnect).not.toHaveBeenCalled();
+  });
+  it('ignores late authentication events from a replaced client', async () => {
+    const old = createFakeClient();
+    (service as any).setupClientEvents(old);
+    (service as any).client = createFakeClient();
+    old.emit('auth_failed', 'SOURCE_UNVERIFIABLE');
+    old.emit('auth_expired');
+    await flush();
+    expect(old.reconnect).not.toHaveBeenCalled();
+    expect(old.disconnect).not.toHaveBeenCalled();
+    expect(doConnect).not.toHaveBeenCalled();
+  });
+  it('closes only the failed workspace connection without minting another authorization', async () => {
+    const personal = createFakeClient();
+    const workspace = createFakeClient();
+    const mint = vi.fn();
+    service.setIdentityProviderFactory(mint);
+    (service as any).client = personal;
+    (service as any).workspaceClients.set('workspace', workspace);
+    (service as any).setupClientEvents(workspace, { workspaceId: 'workspace' });
+    workspace.emit('auth_failed', 'SOURCE_UNVERIFIABLE');
+    await flush();
+    expect(mint).not.toHaveBeenCalled();
+    expect(workspace.disconnect).toHaveBeenCalledOnce();
+    expect(personal.disconnect).not.toHaveBeenCalled();
   });
 });

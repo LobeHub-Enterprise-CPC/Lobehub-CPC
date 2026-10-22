@@ -1,0 +1,607 @@
+{
+  "contractVersion": 1,
+  "tenancyPrefix": "/tenant/v1",
+  "jwt": {
+    "issuer": "urn:lobehub:gateway-session",
+    "audiences": [
+      "urn:lobehub:gateway:agent",
+      "urn:lobehub:gateway:device"
+    ],
+    "purpose": "gateway-connect",
+    "algorithm": "RS256",
+    "maxLifetimeSeconds": 300
+  },
+  "time": {
+    "wireUnit": "unix-milliseconds",
+    "jwtUnit": "numeric-date-seconds",
+    "maxLeaseMs": 30000,
+    "deadlineOrigin": "request-start"
+  },
+  "capabilities": {
+    "roles": [
+      "agent:observe",
+      "agent:respond",
+      "agent:execute",
+      "device:connect",
+      "device:respond"
+    ],
+    "enabled": [
+      "personal-device",
+      "workspace-device",
+      "device-tools-mcp-rpc-system-info",
+      "device-agent-run",
+      "single-operation-stream-replay",
+      "agent-confirmation-input-client-tool",
+      "desktop-message-api",
+      "tenant-admin-history"
+    ],
+    "disabled": {
+      "mux": "MUX_UNSUPPORTED",
+      "llm-relay": "LLM_RELAY_UNSUPPORTED",
+      "tunnel": "TUNNEL_UNSUPPORTED",
+      "device-metrics": "DEVICE_METRICS_UNSUPPORTED",
+      "admin-observer": "ADMIN_OBSERVER_UNSUPPORTED",
+      "device-kick": "DEVICE_KICK_UNSUPPORTED",
+      "share-visitor-gateway": "SHARE_GATEWAY_UNSUPPORTED"
+    },
+    "defaultError": "GATEWAY_CAPABILITY_UNSUPPORTED"
+  },
+  "executionActions": [
+    "operations.init",
+    "operations.push-event",
+    "operations.push-events",
+    "operations.update-status",
+    "operations.request-confirmation",
+    "operations.request-input",
+    "operations.tool-execute",
+    "device.tool-call",
+    "device.system-info",
+    "device.rpc",
+    "device.message-api",
+    "device.agent/run"
+  ],
+  "authorizeActions": [
+    "connect",
+    "renew",
+    "dispatch",
+    "result"
+  ],
+  "attemptOutcomes": [
+    "cancelledBeforeDispatch",
+    "interrupted",
+    "executionUnknown",
+    "completed"
+  ],
+  "routes": [
+    {
+      "service": "agent",
+      "method": "WS",
+      "path": "/tenant/v1/ws",
+      "authority": "dedicated-ticket",
+      "executionVersion": false
+    },
+    {
+      "service": "device",
+      "method": "WS",
+      "path": "/tenant/v1/ws",
+      "authority": "dedicated-ticket-or-identity-exchange",
+      "executionVersion": false
+    },
+    {
+      "service": "agent",
+      "method": "GET",
+      "path": "/tenant/v1/api/operations/status",
+      "authority": "service",
+      "executionVersion": false
+    },
+    {
+      "service": "agent",
+      "method": "POST",
+      "path": "/tenant/v1/api/operations/init",
+      "authority": "service",
+      "executionVersion": true
+    },
+    {
+      "service": "agent",
+      "method": "POST",
+      "path": "/tenant/v1/api/operations/push-event",
+      "authority": "service",
+      "executionVersion": true
+    },
+    {
+      "service": "agent",
+      "method": "POST",
+      "path": "/tenant/v1/api/operations/push-events",
+      "authority": "service",
+      "executionVersion": true
+    },
+    {
+      "service": "agent",
+      "method": "POST",
+      "path": "/tenant/v1/api/operations/update-status",
+      "authority": "service",
+      "executionVersion": true
+    },
+    {
+      "service": "agent",
+      "method": "POST",
+      "path": "/tenant/v1/api/operations/request-confirmation",
+      "authority": "service",
+      "executionVersion": true
+    },
+    {
+      "service": "agent",
+      "method": "POST",
+      "path": "/tenant/v1/api/operations/request-input",
+      "authority": "service",
+      "executionVersion": true
+    },
+    {
+      "service": "agent",
+      "method": "POST",
+      "path": "/tenant/v1/api/operations/tool-execute",
+      "authority": "service",
+      "executionVersion": true
+    },
+    {
+      "service": "device",
+      "method": "GET",
+      "path": "/tenant/v1/api/device/status",
+      "authority": "service",
+      "executionVersion": false
+    },
+    {
+      "service": "device",
+      "method": "GET",
+      "path": "/tenant/v1/api/device/devices",
+      "authority": "service",
+      "executionVersion": false
+    },
+    {
+      "service": "device",
+      "method": "POST",
+      "path": "/tenant/v1/api/device/tool-call",
+      "authority": "service",
+      "executionVersion": true
+    },
+    {
+      "service": "device",
+      "method": "POST",
+      "path": "/tenant/v1/api/device/system-info",
+      "authority": "service",
+      "executionVersion": true
+    },
+    {
+      "service": "device",
+      "method": "POST",
+      "path": "/tenant/v1/api/device/rpc",
+      "authority": "service",
+      "executionVersion": true
+    },
+    {
+      "service": "device",
+      "method": "POST",
+      "path": "/tenant/v1/api/device/message-api",
+      "authority": "service",
+      "executionVersion": true
+    },
+    {
+      "service": "device",
+      "method": "POST",
+      "path": "/tenant/v1/api/device/agent/run",
+      "authority": "service",
+      "executionVersion": true
+    },
+    {
+      "service": "agent",
+      "method": "GET",
+      "path": "/tenant/v1/api/admin/stats",
+      "authority": "admin",
+      "executionVersion": false
+    },
+    {
+      "service": "agent",
+      "method": "GET",
+      "path": "/tenant/v1/api/admin/metrics",
+      "authority": "admin",
+      "executionVersion": false
+    },
+    {
+      "service": "agent",
+      "method": "GET",
+      "path": "/tenant/v1/api/admin/errors",
+      "authority": "admin",
+      "executionVersion": false
+    },
+    {
+      "service": "agent",
+      "method": "POST",
+      "path": "/tenant/v1/api/control/tenant-suspend",
+      "authority": "service",
+      "executionVersion": "control-event"
+    },
+    {
+      "service": "agent",
+      "method": "GET",
+      "path": "/tenant/v1/capabilities",
+      "authority": "metadata-only",
+      "executionVersion": false
+    },
+    {
+      "service": "device",
+      "method": "GET",
+      "path": "/tenant/v1/api/admin/stats",
+      "authority": "admin",
+      "executionVersion": false
+    },
+    {
+      "service": "device",
+      "method": "GET",
+      "path": "/tenant/v1/api/admin/metrics",
+      "authority": "admin",
+      "executionVersion": false
+    },
+    {
+      "service": "device",
+      "method": "POST",
+      "path": "/tenant/v1/api/control/tenant-suspend",
+      "authority": "service",
+      "executionVersion": "control-event"
+    },
+    {
+      "service": "device",
+      "method": "GET",
+      "path": "/tenant/v1/capabilities",
+      "authority": "metadata-only",
+      "executionVersion": false
+    },
+    {
+      "service": "agent",
+      "method": "DELETE",
+      "path": "/tenant/v1/api/admin/errors",
+      "authority": "admin",
+      "executionVersion": false
+    },
+    {
+      "service": "agent",
+      "method": "DELETE",
+      "path": "/tenant/v1/api/admin/errors/{errorId}",
+      "authority": "admin",
+      "executionVersion": false
+    },
+    {
+      "service": "agent",
+      "method": "POST",
+      "path": "/tenant/v1/api/admin/errors/delete-batch",
+      "authority": "admin",
+      "executionVersion": false
+    },
+    {
+      "service": "agent",
+      "method": "POST",
+      "path": "/tenant/v1/api/admin/reset-failure-count",
+      "authority": "admin",
+      "executionVersion": false
+    }
+  ],
+  "errors": {
+    "GATEWAY_TENANCY_REQUIRED": {
+      "httpStatus": 426,
+      "retryable": false,
+      "wsEvent": "auth_failed",
+      "wsClose": 1008
+    },
+    "GATEWAY_TENANCY_UNSUPPORTED": {
+      "httpStatus": 426,
+      "retryable": false,
+      "wsEvent": "auth_failed",
+      "wsClose": 1008
+    },
+    "INVALID_GATEWAY_MESSAGE": {
+      "httpStatus": 400,
+      "retryable": false,
+      "wsEvent": "auth_failed",
+      "wsClose": 1008
+    },
+    "UNAUTHORIZED": {
+      "httpStatus": 401,
+      "retryable": false,
+      "wsEvent": "auth_failed",
+      "wsClose": 1008
+    },
+    "SOURCE_UNVERIFIABLE": {
+      "httpStatus": 401,
+      "retryable": false,
+      "wsEvent": "auth_failed",
+      "wsClose": 1008
+    },
+    "GATEWAY_AUTHORITY_UNAVAILABLE": {
+      "httpStatus": 503,
+      "retryable": true,
+      "wsEvent": "auth_failed",
+      "wsClose": 1013
+    },
+    "TENANT_REQUIRED": {
+      "httpStatus": 400,
+      "retryable": false,
+      "wsEvent": "auth_failed",
+      "wsClose": 1008
+    },
+    "TENANT_INVALID": {
+      "httpStatus": 400,
+      "retryable": false,
+      "wsEvent": "auth_failed",
+      "wsClose": 1008
+    },
+    "TENANT_MISMATCH": {
+      "httpStatus": 403,
+      "retryable": false,
+      "wsEvent": "tenant_unavailable",
+      "wsClose": 1008
+    },
+    "TENANT_NOT_FOUND": {
+      "httpStatus": 404,
+      "retryable": false,
+      "wsEvent": "tenant_unavailable",
+      "wsClose": 1008
+    },
+    "TENANT_NOT_READY": {
+      "httpStatus": 503,
+      "retryable": true,
+      "wsEvent": "tenant_unavailable",
+      "wsClose": 1013
+    },
+    "TENANT_UNAVAILABLE": {
+      "httpStatus": 503,
+      "retryable": true,
+      "wsEvent": "tenant_unavailable",
+      "wsClose": 1013
+    },
+    "TENANT_FROZEN": {
+      "httpStatus": 403,
+      "retryable": false,
+      "wsEvent": "tenant_unavailable",
+      "wsClose": 1008
+    },
+    "TENANT_OFFLINE": {
+      "httpStatus": 403,
+      "retryable": false,
+      "wsEvent": "tenant_unavailable",
+      "wsClose": 1008
+    },
+    "TENANT_EXPIRED": {
+      "httpStatus": 403,
+      "retryable": false,
+      "wsEvent": "tenant_unavailable",
+      "wsClose": 1008
+    },
+    "FORBIDDEN": {
+      "httpStatus": 403,
+      "retryable": false,
+      "wsEvent": "auth_failed",
+      "wsClose": 1008
+    },
+    "RESOURCE_NOT_FOUND": {
+      "httpStatus": 404,
+      "retryable": false,
+      "wsEvent": "auth_failed",
+      "wsClose": 1008
+    },
+    "OPERATION_OWNER_CONFLICT": {
+      "httpStatus": 409,
+      "retryable": false,
+      "wsEvent": "auth_failed",
+      "wsClose": 1008
+    },
+    "TENANT_EXECUTION_VERSION_REQUIRED": {
+      "httpStatus": 400,
+      "retryable": false,
+      "wsEvent": "auth_failed",
+      "wsClose": 1008
+    },
+    "TENANT_EXECUTION_VERSION_STALE": {
+      "httpStatus": 409,
+      "retryable": false,
+      "wsEvent": "tenant_unavailable",
+      "wsClose": 1008
+    },
+    "LEASE_EXPIRED": {
+      "httpStatus": 401,
+      "retryable": false,
+      "wsEvent": "auth_failed",
+      "wsClose": 1008
+    },
+    "ATTEMPT_CONFLICT": {
+      "httpStatus": 409,
+      "retryable": false,
+      "wsEvent": "auth_failed",
+      "wsClose": 1008
+    },
+    "EXECUTION_UNKNOWN": {
+      "httpStatus": 409,
+      "retryable": false,
+      "wsEvent": "auth_failed",
+      "wsClose": 1008
+    },
+    "DEVICE_EXECUTOR_UNAVAILABLE": {
+      "httpStatus": 503,
+      "retryable": true,
+      "wsEvent": "auth_failed",
+      "wsClose": 1013
+    },
+    "LIFECYCLE_STOP_FAILED": {
+      "httpStatus": 503,
+      "retryable": true,
+      "wsEvent": "auth_failed",
+      "wsClose": 1013
+    },
+    "GATEWAY_CAPABILITY_UNSUPPORTED": {
+      "httpStatus": 501,
+      "retryable": false,
+      "wsEvent": "capability_failed",
+      "wsClose": 1008
+    },
+    "MUX_UNSUPPORTED": {
+      "httpStatus": 501,
+      "retryable": false,
+      "wsEvent": "capability_failed",
+      "wsClose": 1008
+    },
+    "LLM_RELAY_UNSUPPORTED": {
+      "httpStatus": 501,
+      "retryable": false,
+      "wsEvent": "capability_failed",
+      "wsClose": 1008
+    },
+    "TUNNEL_UNSUPPORTED": {
+      "httpStatus": 501,
+      "retryable": false,
+      "wsEvent": "capability_failed",
+      "wsClose": 1008
+    },
+    "DEVICE_METRICS_UNSUPPORTED": {
+      "httpStatus": 501,
+      "retryable": false,
+      "wsEvent": "capability_failed",
+      "wsClose": 1008
+    },
+    "ADMIN_OBSERVER_UNSUPPORTED": {
+      "httpStatus": 501,
+      "retryable": false,
+      "wsEvent": "capability_failed",
+      "wsClose": 1008
+    },
+    "DEVICE_KICK_UNSUPPORTED": {
+      "httpStatus": 501,
+      "retryable": false,
+      "wsEvent": "capability_failed",
+      "wsClose": 1008
+    },
+    "SHARE_GATEWAY_UNSUPPORTED": {
+      "httpStatus": 501,
+      "retryable": false,
+      "wsEvent": "capability_failed",
+      "wsClose": 1008
+    }
+  },
+  "workRoutes": [
+    {
+      "method": "POST",
+      "path": "<tenant-entry>/api/v1/gateway/identity",
+      "authority": "existing-tenant-user-auth",
+      "requestSchema": "identityRequest",
+      "responseSchema": "identityResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/api/internal/gateway/admission",
+      "authority": "service",
+      "requestSchema": "admissionRequest",
+      "responseSchema": "admissionResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/api/internal/gateway/authorize",
+      "authority": "service",
+      "requestSchema": "authorizeRequest",
+      "responseSchema": "authorizeResponse"
+    },
+    {
+      "method": "POST",
+      "path": "/api/internal/gateway/tool-result",
+      "authority": "service",
+      "requestSchema": "callback",
+      "responseSchema": "callbackAck"
+    },
+    {
+      "method": "POST",
+      "path": "/api/internal/gateway/finalize-abandoned",
+      "authority": "service",
+      "requestSchema": "finalizeRequest",
+      "responseSchema": "callbackAck"
+    }
+  ],
+  "disabledRoutes": [
+    {
+      "service": "agent",
+      "method": "WS",
+      "path": "/tenant/v1/v2/ws",
+      "code": "MUX_UNSUPPORTED"
+    },
+    {
+      "service": "agent",
+      "method": "WS",
+      "path": "/tenant/v1/admin/ws",
+      "code": "ADMIN_OBSERVER_UNSUPPORTED"
+    },
+    {
+      "service": "device",
+      "method": "DELETE",
+      "path": "/tenant/v1/api/admin/device",
+      "code": "DEVICE_KICK_UNSUPPORTED"
+    },
+    {
+      "service": "device",
+      "method": "GET",
+      "path": "/tenant/v1/api/device/metrics",
+      "code": "DEVICE_METRICS_UNSUPPORTED"
+    },
+    {
+      "service": "device",
+      "method": "POST",
+      "path": "/tenant/v1/api/device/metrics",
+      "code": "DEVICE_METRICS_UNSUPPORTED"
+    },
+    {
+      "service": "device",
+      "method": "GET|POST|DELETE",
+      "path": "/tenant/v1/api/admin/tunnels*",
+      "code": "TUNNEL_UNSUPPORTED"
+    }
+  ],
+  "messagePolicy": {
+    "enabled": [
+      "auth",
+      "auth_success",
+      "auth_failed",
+      "auth_expired",
+      "tenant_unavailable",
+      "capability_failed",
+      "lease_update",
+      "heartbeat",
+      "heartbeat_ack",
+      "resume",
+      "resume_complete",
+      "agent_event",
+      "status_change",
+      "session_complete",
+      "tool_execute",
+      "tool_confirmation_request",
+      "input_request",
+      "tool_call_request",
+      "system_info_request",
+      "rpc_request",
+      "message_api_request",
+      "agent_run_request",
+      "tool_result",
+      "tool_confirmation",
+      "user_input",
+      "tool_call_response",
+      "system_info_response",
+      "rpc_response",
+      "message_api_response",
+      "agent_run_ack"
+    ],
+    "disabled": {
+      "subscribe": "MUX_UNSUPPORTED",
+      "llm_execute": "LLM_RELAY_UNSUPPORTED",
+      "llm-execute": "LLM_RELAY_UNSUPPORTED",
+      "llm-cancel": "LLM_RELAY_UNSUPPORTED",
+      "llm-close": "LLM_RELAY_UNSUPPORTED",
+      "tunnel_*": "TUNNEL_UNSUPPORTED",
+      "device_metrics": "DEVICE_METRICS_UNSUPPORTED",
+      "device_metrics_ack": "DEVICE_METRICS_UNSUPPORTED"
+    },
+    "note": "Only listed control/executable messages are supported. Existing agent_event payload types remain governed by the pinned upstream event schema; they cannot smuggle an executable command. Dispatch fields use dispatchCommand/dispatchResponse. Unlisted executable/control messages fail closed."
+  }
+}

@@ -35,11 +35,7 @@ import type {
   FrozenModelFacts,
   RequestTrigger,
 } from '@lobechat/types';
-import {
-  agentShareFileAccessScope,
-  getActivePluginIds,
-  ordinaryFileAccessScope,
-} from '@lobechat/types';
+import { getActivePluginIds, ordinaryFileAccessScope } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 import type { AiModelConfig, ModelAbilities } from 'model-bank';
@@ -96,11 +92,6 @@ import {
   isMultimodalUnderstandingConfigured,
 } from '../helpers/mediaAvailability';
 import { resolveServerSearchDecision } from '../searchDecision';
-import {
-  filterPluginsByShareGate,
-  getShareGrantActivatedPluginIds,
-  shareGateGrantsCloudSandbox,
-} from '../shareGate';
 import type { ExecRunContext, InternalExecAgentParams } from '../types';
 import { markDegradedStage, traceDiscoveryStage } from './discoveryTracing';
 
@@ -274,7 +265,7 @@ export const discoverTools = async (
     prompt,
     provider,
     resolvedAgentId,
-    shareGate,
+
     topicId,
   } = ctx;
   const {
@@ -356,22 +347,8 @@ export const discoverTools = async (
             ...(additionalPluginIds || []),
             ...(selectedToolIds || []),
             ...(hasMentionedAgents ? ['lobe-agent-management'] : []),
-            ...(shareGate ? getShareGrantActivatedPluginIds(shareGate) : []),
           ]),
         ];
-
-  // Share allowlist runs EARLY, before connector resolution / credential
-  // decryption / stale-tool refresh scheduling — otherwise an ungranted HTTP
-  // connector pinned on the creator's agent would still be resolved and its
-  // OAuth credentials touched for a visitor turn (issuing background MCP
-  // traffic and refresh jobs on behalf of the creator). The later pass right
-  // before manifest discovery (~line 618) stays as defense in depth: internal
-  // additions like the bot message / multimodal
-  // understanding tool are appended after this point and must run through the
-  // same allowlist.
-  if (shareGate) {
-    agentPlugins = filterPluginsByShareGate(agentPlugins, shareGate);
-  }
 
   // Model metadata is needed both for tool support checks and agent-management context.
   const builtinModels = await loadModels();
@@ -466,7 +443,7 @@ export const discoverTools = async (
     tools: UserConnectorToolItem[];
   }> {
     const none = { connectorsMcp: [], manifests: [], tools: [] };
-    if (shareGate || exclusivePluginIds || isGoalTurn) return none;
+    if (exclusivePluginIds || isGoalTurn) return none;
     try {
       const candidates = new Set(candidateIds);
       const connectorsMcp = (
@@ -583,10 +560,7 @@ export const discoverTools = async (
     const fileModel = new FileModel(deps.db, deps.userId, deps.workspaceId);
     const uniqueFileIds = Array.from(new Set(attachedFileIds));
     const fileRecords = await traceDiscoveryStage('attached_files', () =>
-      fileModel.findByIds(
-        uniqueFileIds,
-        shareGate ? agentShareFileAccessScope(shareGate) : ordinaryFileAccessScope,
-      ),
+      fileModel.findByIds(uniqueFileIds, ordinaryFileAccessScope),
     );
     return fileRecords.map((file) => file.fileType || '');
   }
@@ -939,7 +913,7 @@ export const discoverTools = async (
     const inputFileTypes = [...externalFileTypes, ...(await toolReads.attachedFileTypes)];
     const inputMediaAvailability = getMediaAvailabilityFromFileTypes(inputFileTypes);
     let historyMediaAvailability = { hasAudios: false, hasImages: false, hasVideos: false };
-    const multimodalUnderstandingConfigured = isMultimodalUnderstandingConfigured();
+    const multimodalUnderstandingConfigured = await isMultimodalUnderstandingConfigured();
 
     if (
       multimodalUnderstandingConfigured &&
@@ -968,52 +942,6 @@ export const discoverTools = async (
       ...(shouldEnableMultimodalUnderstanding ? [LobeAgentManifest.identifier] : []),
     ];
 
-    // Share allowlist filters the full candidate set (pinned + mentioned +
-    // internal additions) before manifest discovery. This only trims which
-    // plugin ids get *activated*; the separate skill candidate pool built in
-    // `operationPrep` (`skills`, consumed by `SkillEngine`) needs its own pass
-    // against the same allowlist, since building the skill list is a distinct
-    // step from `SkillEngine.generate` and is not scoped by the plugin id list
-    // on its own. The operationToolSet snapshot then carries the restricted
-    // surface into every later step.
-    //
-    // Defense in depth: the same filter also runs at the top of
-    // `discoverTools` (before connector resolution) so that ungranted
-    // connectors never reach `resolveByIdentifiers` /
-    // `scheduleStaleConnectorToolsRefresh`. Keep this second pass — the
-    // internal additions above (bot message tool, multimodal understanding)
-    // are appended after the first pass and would
-    // otherwise slip through.
-    if (shareGate) {
-      agentPlugins = filterPluginsByShareGate(agentPlugins, shareGate);
-    }
-
-    // Resolve THE device decision for this run. All rules live in
-    // `resolveExecutionPlan` (gated on `canUseDevice` first, `none`/`sandbox`
-    // never route to a device, offline bindings stay unrouted, unbound runs
-    // auto-activate only with exactly one device online). Without the
-    // `canUseDevice` gate an external bot sender's turn would still populate
-    // `state.binding.device.id`, and `buildStepToolDelta` re-injects
-    // `LocalSystemManifest` whenever activeDeviceId is set, bypassing the
-    // engine's enabledToolIds exclusion — resolving the plan here closes
-    // that bypass at the source.
-    //
-    // `clientExecutionAvailable` is `gatewayConfigured` here: a server with a
-    // device gateway can tunnel a `local` target to the user's device, so the
-    // unset-target default resolves to `local` there and `none` otherwise.
-    //
-    // Chat mode is orthogonal to `executionTarget` (the UI toggle only writes
-    // `enableAgentMode`), so a default/stored `local` target would otherwise
-    // resolve a device and `buildStepToolDelta` would re-inject local-system.
-    // Pass `chatConfig` so the plan degrades to `none` in chat mode — the
-    // chat-mode derivation lives in `resolveExecutionPlan` (`resolveToolMode`),
-    // the same source of truth the tools engine uses.
-    //
-    // A share visitor never passes `canUseDevice`, so a creator agent that
-    // targets `local`/`auto` would collapse to `none` and silently drop a
-    // `lobe-cloud-sandbox` grant (the sandbox manifest only materializes when
-    // the plan resolves to `sandbox`). `sandboxFallback` keeps that decision
-    // inside the resolver instead of patching its result here.
     executionPlan = resolveExecutionPlan({
       agencyConfig: agentConfig.agencyConfig,
       canUseDevice,
@@ -1022,7 +950,7 @@ export const discoverTools = async (
       localDeviceId,
       onlineDeviceIds: onlineDevices.map((device) => device.deviceId),
       requestedDeviceId,
-      sandboxFallback: shareGate ? shareGateGrantsCloudSandbox(shareGate) : false,
+      sandboxFallback: false,
       trigger: requestTrigger,
     });
     // A fixed device target must never degrade to the cloud sandbox or a
@@ -1336,20 +1264,7 @@ export const discoverTools = async (
       composioManifests.length,
     );
 
-    // Share-visitor fail-closed gate — never expose the
-    // `declareSelfFeedbackIntent` tool to a share-visitor turn. This tool sits
-    // outside the normal `toolManifestMap` / `applyShareGateToToolSet`
-    // allowlist (it's injected directly into `tools` below), so the visitor's
-    // own model call can reach it even with an empty `enabledToolIds`. Its
-    // execution context is stamped with the share CREATOR's user id, and the
-    // resulting `agent.self_feedback_intent.declared` event dispatches a full
-    // autonomous background run under the creator's account, which can write
-    // to the creator's memory. Same root cause as the `agent.user.message`
-    // gate in `turnSetup`; `allowReadMemory` is a read-only grant so this must
-    // not be conditional on it either.
-    //
-    // There is no per-agent switch: Labs → Self-evolving covers every agent.
-    if (!shareGate && !disableSelfFeedbackIntentTool) {
+    if (!disableSelfFeedbackIntentTool) {
       // The run already reads `users.preference` for expertise injection; reuse that row.
       // A failed read leaves the tool off (fail closed).
       const featureUserEnabled = await isAgentSignalEnabledForUser(deps.db, deps.userId, {

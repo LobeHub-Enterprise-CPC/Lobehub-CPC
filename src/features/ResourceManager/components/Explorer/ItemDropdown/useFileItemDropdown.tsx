@@ -1,3 +1,4 @@
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { CUSTOM_FOLDER_FILE_TYPE, DERIVED_DOCUMENT_SOURCE_TYPE } from '@lobechat/const';
 import type { SFSymbol } from '@lobechat/electron-client-ipc';
 import type { ItemType } from '@lobehub/ui';
@@ -27,7 +28,6 @@ import { PAGE_FILE_TYPE } from '@/features/ResourceManager/constants';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { buildPagePath } from '@/features/ResourceManager/utils/resourcePath';
 import VisibilityConfirmContent from '@/features/VisibilityConfirmContent';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { usePermission } from '@/hooks/usePermission';
 import { documentService } from '@/services/document';
 import { useFileStore } from '@/store/file';
@@ -109,7 +109,7 @@ export const useFileItemDropdown = ({
 }: UseFileItemDropdownParams): UseFileItemDropdownReturn => {
   const { t } = useTranslation(['components', 'common', 'knowledgeBase', 'chat']);
 
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
   const { allowed: canEditResources } = usePermission('edit_own_content');
   const currentUserId = useUserStore(userProfileSelectors.userId);
   const activeWorkspaceId = useActiveWorkspaceId();

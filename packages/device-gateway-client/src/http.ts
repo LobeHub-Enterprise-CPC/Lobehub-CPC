@@ -1,8 +1,19 @@
-import type { DeviceClient, DeviceMetricSample } from '@lobechat/types';
+import type {
+  DeviceClient,
+  DeviceMetricSample,
+  GatewayDispatchEnvelope,
+  GatewayDispatchResult,
+  GatewayExecutionAction,
+  GatewayExecutionEnvelope,
+  GatewayPrincipal,
+} from '@lobechat/types';
+import { isRecord } from '@lobechat/utils/object';
 
+import { strictGatewayUrl } from '../../agent-gateway-client/src/tenancy';
 import {
   describeGatewayRequestFailure,
   describeGatewayResponseFailure,
+  DeviceDispatchSettlementError,
   type DeviceTransportFailure,
   type DeviceUnavailableErrorData,
 } from './deviceTransportError';
@@ -21,6 +32,7 @@ const DEFAULT_GATEWAY_TOOL_CALL_TIMEOUT_MS = 30_000;
  * long as the socket stays open.
  */
 const DEVICE_QUERY_TIMEOUT_MS = 10_000;
+const TENANT_ID_PATTERN = /^[\w.:-]{1,128}$/;
 const HTTP_CALL_TIMEOUT_PADDING_MS = 30_000;
 /**
  * The gateway holds an undelivered tool call for `timeout` plus a recovery
@@ -81,6 +93,7 @@ const toFailedToolCallResult = (failure: DeviceTransportFailure): DeviceToolCall
   content: failure.content,
   error: failure.error,
   ...(failure.data ? { errorData: failure.data } : {}),
+  ...(failure.executionUnknown ? { executionUnknown: true } : {}),
   success: false,
 });
 
@@ -91,7 +104,14 @@ export type GatewayDispatchTarget =
   | { kind: 'rpc'; method: string };
 
 export interface GatewayHttpClientOptions {
+  execution?: GatewayExecutionEnvelope;
   gatewayUrl: string;
+  prepareDispatch?: (input: {
+    action: GatewayExecutionAction;
+    operationId?: string;
+    resourceId: string;
+    targetPrincipal: GatewayPrincipal;
+  }) => Promise<GatewayDispatchEnvelope>;
   /**
    * Which device clients can serve a request, sent to the gateway as
    * `clientKinds` so it skips connections of other clients (one device can
@@ -100,25 +120,29 @@ export interface GatewayHttpClientOptions {
    */
   resolveClientKinds?: (target: GatewayDispatchTarget) => DeviceClient[] | undefined;
   serviceToken: string;
+  /** Trusted Work settlement must finish before the business result is exposed. */
+  settleDispatch?: (input: {
+    envelope: GatewayDispatchEnvelope;
+    reply: GatewayDispatchResult;
+  }) => Promise<void>;
+  tenantId?: string;
 }
 
 export class GatewayHttpClient {
+  private readonly options: GatewayHttpClientOptions;
   private gatewayUrl: string;
   private resolveClientKinds?: GatewayHttpClientOptions['resolveClientKinds'];
   private serviceToken: string;
 
   constructor(options: GatewayHttpClientOptions) {
+    this.options = options;
     this.gatewayUrl = options.gatewayUrl;
     this.resolveClientKinds = options.resolveClientKinds;
     this.serviceToken = options.serviceToken;
   }
 
   async queryDeviceStatus(userId: string, workspaceId?: string): Promise<DeviceStatusResult> {
-    const res = await this.post(
-      '/api/device/status',
-      { userId, workspaceId },
-      { timeout: DEVICE_QUERY_TIMEOUT_MS },
-    );
+    const res = await this.request('/api/device/status', 'GET', { userId, workspaceId });
     // A gateway that answered with an error did not tell us "nothing is
     // online" — it told us nothing. Reporting the two as the same value is how
     // a transient 5xx became an authoritative "all devices offline" downstream.
@@ -132,11 +156,7 @@ export class GatewayHttpClient {
   }
 
   async queryDeviceList(userId: string, workspaceId?: string): Promise<GatewayDevice[]> {
-    const res = await this.post(
-      '/api/device/devices',
-      { userId, workspaceId },
-      { timeout: DEVICE_QUERY_TIMEOUT_MS },
-    );
+    const res = await this.request('/api/device/devices', 'GET', { userId, workspaceId });
     // See `queryDeviceStatus`: an errored read is an UNKNOWN online set, and
     // only the caller can decide what to do about that.
     if (!res.ok) throw new Error(`Device gateway /api/device/devices responded ${res.status}`);
@@ -453,16 +473,9 @@ export class GatewayHttpClient {
   async getDeviceMetrics(
     userId: string,
     deviceId: string,
-    options: { since?: number; workspaceId?: string } = {},
+    _options: { since?: number; workspaceId?: string } = {},
   ): Promise<DeviceMetricSample[]> {
-    const res = await this.post(
-      '/api/device/metrics',
-      { deviceId, since: options.since, userId, workspaceId: options.workspaceId },
-      { timeout: DEVICE_QUERY_TIMEOUT_MS },
-    );
-    if (!res.ok) throw new Error(`device metrics read failed: HTTP ${res.status}`);
-    const data = (await res.json()) as { samples?: DeviceMetricSample[] };
-    return data.samples ?? [];
+    throw new Error('DEVICE_METRICS_UNSUPPORTED');
   }
 
   // ─── Tunnel registry (gateway admin API) ───
@@ -472,60 +485,29 @@ export class GatewayHttpClient {
   // here, on the server — the gateway's admin API trusts the service token.
 
   /** Register a tunnel and return it with its public hostname. */
-  async createTunnel(params: {
+  async createTunnel(_params: {
     createdBy: string;
     deviceId: string;
     port: number;
     principal: string;
     ttlSeconds?: number;
   }): Promise<GatewayTunnelRegistration> {
-    const res = await this.post('/api/admin/tunnels', params, {
-      timeout: DEVICE_QUERY_TIMEOUT_MS,
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      throw new Error(`Device gateway /api/admin/tunnels responded ${res.status} ${detail}`.trim());
-    }
-
-    const data = (await res.json()) as {
-      hostname: string;
-      registration: GatewayTunnelRegistration;
-    };
-    return { ...data.registration, hostname: data.hostname };
+    throw new Error('TUNNEL_UNSUPPORTED');
   }
 
   /** Every live tunnel owned by one principal. */
-  async listTunnels(principal: string): Promise<GatewayTunnelRegistration[]> {
-    const res = await this.request(
-      `/api/admin/tunnels?principal=${encodeURIComponent(principal)}`,
-      'GET',
-    );
-    if (!res.ok) {
-      throw new Error(`Device gateway /api/admin/tunnels responded ${res.status}`);
-    }
-
-    const data = (await res.json()) as { tunnels?: GatewayTunnelRegistration[] };
-    return data.tunnels ?? [];
+  async listTunnels(_principal: string): Promise<GatewayTunnelRegistration[]> {
+    throw new Error('TUNNEL_UNSUPPORTED');
   }
 
   /** The registration behind a slug, or undefined when it is unknown or expired. */
-  async resolveTunnel(slug: string): Promise<GatewayTunnelRegistration | undefined> {
-    const res = await this.request(`/api/admin/tunnels/resolve/${encodeURIComponent(slug)}`, 'GET');
-    if (res.status === 404) return undefined;
-    if (!res.ok) {
-      throw new Error(`Device gateway /api/admin/tunnels/resolve responded ${res.status}`);
-    }
-    return (await res.json()) as GatewayTunnelRegistration;
+  async resolveTunnel(_slug: string): Promise<GatewayTunnelRegistration | undefined> {
+    throw new Error('TUNNEL_UNSUPPORTED');
   }
 
   /** Revoke a tunnel. Returns false when the slug was already gone. */
-  async revokeTunnel(slug: string): Promise<boolean> {
-    const res = await this.request(`/api/admin/tunnels/${encodeURIComponent(slug)}`, 'DELETE');
-    if (res.status === 404) return false;
-    if (!res.ok) {
-      throw new Error(`Device gateway /api/admin/tunnels responded ${res.status}`);
-    }
-    return true;
+  async revokeTunnel(_slug: string): Promise<boolean> {
+    throw new Error('TUNNEL_UNSUPPORTED');
   }
 
   private clientKindsFor(target: GatewayDispatchTarget): DeviceClient[] | undefined {
@@ -533,24 +515,160 @@ export class GatewayHttpClient {
     return kinds && kinds.length > 0 ? kinds : undefined;
   }
 
-  private post(path: string, body: unknown, options?: { timeout?: number }): Promise<Response> {
-    return fetch(`${this.gatewayUrl}${path}`, {
-      body: JSON.stringify(body),
-      headers: {
-        'Authorization': `Bearer ${this.serviceToken}`,
-        'Content-Type': 'application/json',
+  private async post(
+    path: string,
+    body: unknown,
+    options?: { timeout?: number },
+  ): Promise<Response> {
+    const tenantId = this.options.tenantId;
+    if (!tenantId || !TENANT_ID_PATTERN.test(tenantId)) throw new Error('TENANT_HEADER_INVALID');
+    const data = body as Record<string, unknown>;
+    const action = (
+      {
+        '/api/device/tool-call': 'device.tool-call',
+        '/api/device/system-info': 'device.system-info',
+        '/api/device/rpc': 'device.rpc',
+        '/api/device/message-api': 'device.message-api',
+        '/api/device/agent/run': 'device.agent/run',
+      } as const
+    )[path as '/api/device/rpc'];
+    let envelope: GatewayDispatchEnvelope | undefined;
+    if (action) {
+      if (!this.options.execution || !this.options.prepareDispatch || !this.options.settleDispatch)
+        throw new Error('TENANT_EXECUTION_VERSION_REQUIRED');
+      envelope = await this.options.prepareDispatch({
+        action,
+        ...(typeof data.operationId === 'string' ? { operationId: data.operationId } : {}),
+        resourceId: typeof data.deviceId === 'string' ? data.deviceId : '',
+        targetPrincipal:
+          typeof data.workspaceId === 'string'
+            ? { kind: 'workspace', id: data.workspaceId }
+            : { kind: 'user', id: String(data.userId ?? '') },
+      });
+      const intent = envelope.intent;
+      if (
+        envelope.tenantId !== tenantId ||
+        intent.tenantId !== tenantId ||
+        intent.sourceAcceptedVersion !== envelope.sourceAcceptedVersion ||
+        intent.action !== action ||
+        intent.attemptExpiresAt <= Date.now() ||
+        !intent.attemptId ||
+        !Number.isSafeInteger(envelope.sourceAcceptedVersion) ||
+        envelope.sourceAcceptedVersion < 1 ||
+        (data.operationId && intent.operationId !== data.operationId) ||
+        intent.targetPrincipal.kind !== (data.workspaceId ? 'workspace' : 'user') ||
+        intent.targetPrincipal.id !== (data.workspaceId ?? data.userId)
+      )
+        throw new Error('ATTEMPT_CONFLICT');
+    }
+    const response = await this.request(
+      path,
+      'POST',
+      {
+        ...data,
+        ...(envelope
+          ? {
+              tenancyProtocol: 1,
+              tenantId,
+              sourceAcceptedVersion: envelope.sourceAcceptedVersion,
+              intent: envelope.intent,
+              deviceId: envelope.intent.resourceId,
+            }
+          : {}),
       },
-      method: 'POST',
-      ...(options?.timeout ? { signal: AbortSignal.timeout(options.timeout) } : {}),
+      options?.timeout,
+      envelope?.sourceAcceptedVersion,
+    );
+    if (!response.ok || !envelope) return response;
+    const wire: unknown = await response.json();
+    if (!isRecord(wire)) throw new Error('INVALID_GATEWAY_MESSAGE');
+    const binding = wire.dispatchBinding;
+    if (
+      wire.tenantId !== tenantId ||
+      wire.sourceAcceptedVersion !== envelope.sourceAcceptedVersion ||
+      wire.attemptId !== envelope.intent.attemptId ||
+      wire.operationId !== envelope.intent.operationId ||
+      wire.toolCallId !== envelope.intent.toolCallId ||
+      !isRecord(binding) ||
+      typeof binding.connectionId !== 'string' ||
+      !binding.connectionId ||
+      typeof binding.authorizationId !== 'string' ||
+      !binding.authorizationId ||
+      typeof binding.connectionGeneration !== 'number' ||
+      !Number.isSafeInteger(binding.connectionGeneration) ||
+      binding.connectionGeneration < 1
+    )
+      throw new Error('ATTEMPT_CONFLICT');
+    if (wire.outcome !== 'completed') throw new Error('EXECUTION_UNKNOWN');
+    if (!isRecord(wire.result)) throw new Error('INVALID_GATEWAY_MESSAGE');
+    try {
+      await this.options.settleDispatch!({
+        envelope,
+        reply: {
+          ...wire,
+          tenantId,
+          sourceAcceptedVersion: envelope.sourceAcceptedVersion,
+          attemptId: envelope.intent.attemptId,
+          ...(envelope.intent.operationId ? { operationId: envelope.intent.operationId } : {}),
+          ...(envelope.intent.toolCallId ? { toolCallId: envelope.intent.toolCallId } : {}),
+          dispatchBinding: {
+            ...binding,
+            authorizationId: binding.authorizationId,
+            connectionId: binding.connectionId,
+            connectionGeneration: binding.connectionGeneration,
+          },
+          outcome: wire.outcome,
+          result: wire.result,
+        },
+      });
+    } catch (cause) {
+      throw new DeviceDispatchSettlementError(cause);
+    }
+    return new Response(JSON.stringify(wire.result), {
+      status: response.status,
+      headers: response.headers,
     });
   }
 
-  /** Bodyless service-authenticated call, for the registry's GET/DELETE routes. */
-  private request(path: string, method: 'DELETE' | 'GET'): Promise<Response> {
-    return fetch(`${this.gatewayUrl}${path}`, {
-      headers: { Authorization: `Bearer ${this.serviceToken}` },
+  private async request(
+    path: string,
+    method: 'DELETE' | 'GET' | 'POST',
+    data?: unknown,
+    timeout = DEVICE_QUERY_TIMEOUT_MS,
+    version?: number,
+  ): Promise<Response> {
+    const tenantId = this.options.tenantId;
+    if (!tenantId || !TENANT_ID_PATTERN.test(tenantId)) throw new Error('TENANT_HEADER_INVALID');
+    const url = strictGatewayUrl(this.gatewayUrl, path);
+    // Frozen device reads use GET/query. Adding a query to `path` would encode it as pathname.
+    if (method === 'GET') {
+      for (const [key, value] of Object.entries((data ?? {}) as Record<string, string | undefined>))
+        if (value !== undefined) url.searchParams.set(key, value);
+    }
+    const response = await fetch(url.toString(), {
       method,
-      signal: AbortSignal.timeout(DEVICE_QUERY_TIMEOUT_MS),
+      redirect: 'error',
+      signal: AbortSignal.timeout(timeout),
+      headers: {
+        'Authorization': `Bearer ${this.serviceToken}`,
+        'Content-Type': 'application/json',
+        'X-LobeHub-Gateway-Tenancy': '1',
+        'X-LobeHub-Tenant-Id': tenantId,
+        ...(version ? { 'X-LobeHub-Tenant-Version': String(version) } : {}),
+      },
+      ...(data === undefined || method === 'GET' ? {} : { body: JSON.stringify(data) }),
     });
+    if (
+      (response.status === 404 && response.headers.get('X-LobeHub-Gateway-Tenancy') !== '1') ||
+      response.status === 426
+    )
+      throw new Error('GATEWAY_TENANCY_UNSUPPORTED');
+    if (
+      response.ok &&
+      (response.headers.get('X-LobeHub-Gateway-Tenancy') !== '1' ||
+        response.headers.get('X-LobeHub-Tenant-Id') !== tenantId)
+    )
+      throw new Error('TENANT_MISMATCH');
+    return response;
   }
 }

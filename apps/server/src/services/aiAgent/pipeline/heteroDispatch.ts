@@ -41,6 +41,7 @@ import { hookDispatcher } from '@/server/services/agentRuntime/hooks';
 import type { AgentHook } from '@/server/services/agentRuntime/hooks/types';
 import { deviceGateway } from '@/server/services/deviceGateway';
 import { resolveDeviceDispatchAuthorizationFailure } from '@/server/services/deviceGateway/dispatchAuthorization';
+import { mintOperationGatewayTicket } from '@/server/services/gatewayAuthorization';
 import { HeterogeneousAgentService } from '@/server/services/heterogeneousAgent';
 import type { ConversationHistoryEntry } from '@/server/services/heterogeneousAgent/cloudHeteroContext';
 import { buildCloudHeteroContext } from '@/server/services/heterogeneousAgent/cloudHeteroContext';
@@ -456,10 +457,6 @@ export const dispatchHeteroAgent = async (
   let conversationHistory: ConversationHistoryEntry[] | undefined;
   if (heteroType !== 'amp') {
     try {
-      // `allowShareVisitor`: this is the RUN's own topic, already resolved
-      // and authorized upstream. An agent-share visitor run executes under
-      // the creator's identity, so without the opt-in `query()`'s
-      // creator-facing default would hand the agent an empty history.
       const recentMsgs = await deps.messageModel.query(
         { topicId, pageSize: 200 },
         { allowShareVisitor: true },
@@ -491,7 +488,7 @@ export const dispatchHeteroAgent = async (
   // read it. Never throws — a failed lookup is the ephemeral sandbox.
   const sandbox = supportsCloudHeterogeneousSandbox(heteroType)
     ? await resolveSandboxSessionConfig({
-        isShareVisitorRun: !!ctx.shareGate,
+        isShareVisitorRun: false,
         serverDB: deps.db,
         topicId,
         userId: deps.userId,
@@ -1235,14 +1232,9 @@ export const dispatchHeteroAgent = async (
     }
   }
 
-  let gatewayToken: string | undefined;
-  if (!deps.withholdGatewayToken) {
-    try {
-      gatewayToken = await signUserJWT(deps.userId);
-    } catch {
-      // non-critical
-    }
-  }
+  const gatewayToken = deps.withholdGatewayToken
+    ? undefined
+    : await mintOperationGatewayTicket(deps.userId, operationId, deps.workspaceId);
 
   return {
     agentId: resolvedAgentId,

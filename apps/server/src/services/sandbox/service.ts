@@ -12,6 +12,9 @@ import {
   checkCommand,
   COMMAND_BLOCKED_MESSAGE,
   type CommandGovernanceContext,
+  GOVERNANCE_UNAVAILABLE_MESSAGE,
+  GovernanceUnavailableError,
+  isGovernanceEnabled,
   logCommandExecution,
 } from '@/server/services/governance';
 
@@ -20,6 +23,7 @@ import {
   SANDBOX_INIT_TIMEOUT_MS,
   type SandboxInitDownload,
 } from './bootstrap';
+import { callTenantSandboxTool } from './tenantWork';
 import type {
   SandboxCommandResult,
   SandboxProvider,
@@ -63,8 +67,9 @@ export class SandboxMiddlewareService implements SandboxService {
    * names (`runCommand`/`execScript`), are covered by one check — and so a
    * new sandbox shell tool is covered automatically.
    *
-   * `checkCommand`/`logCommandExecution` no-op with zero DB access when
-   * `COMMAND_GOVERNANCE_ENABLED` is off, and fail open on any internal error
+   * `checkCommand`/`logCommandExecution` no-op without touching governance
+   * rules or logs when the `command_governance` flag is off for the user. An unreadable flag does
+   * not run the command (`GOVERNANCE_UNAVAILABLE`); rule-lookup errors also prevent execution
    * — see `services/governance/policyGate.ts`.
    */
   async callTool(
@@ -75,8 +80,8 @@ export class SandboxMiddlewareService implements SandboxService {
 
     const { serverDB, userId } = this.options;
 
-    if (!GOVERNED_SHELL_TOOL_NAMES.has(toolName) || !serverDB || !userId) {
-      return this.provider.callTool(toolName, params);
+    if (!GOVERNED_SHELL_TOOL_NAMES.has(toolName)) {
+      return callTenantSandboxTool(this.provider, toolName, params, this.options);
     }
 
     const ctx = {
@@ -88,13 +93,31 @@ export class SandboxMiddlewareService implements SandboxService {
       userId,
     } satisfies CommandGovernanceContext;
 
-    const decision = await checkCommand(ctx, serverDB);
+    let decision;
+    try {
+      if (!userId) throw new GovernanceUnavailableError();
+      if (!serverDB) {
+        if (await isGovernanceEnabled(userId)) throw new GovernanceUnavailableError();
+        return callTenantSandboxTool(this.provider, toolName, params, this.options);
+      }
+      decision = await checkCommand(ctx, serverDB);
+    } catch (error) {
+      // Governance could not be evaluated: nothing runs, and it is not reported as a rule
+      // denial (COMMAND_BLOCKED tells the model never to retry).
+      if (!(error instanceof GovernanceUnavailableError)) throw error;
+      log('Command governance unavailable for %s', toolName);
+      return {
+        error: { message: GOVERNANCE_UNAVAILABLE_MESSAGE, name: 'GOVERNANCE_UNAVAILABLE' },
+        result: null,
+        success: false,
+      };
+    }
 
     if (!decision.allowed) {
       try {
         await logCommandExecution(ctx, { blocked: true, matchedRuleId: decision.ruleId }, serverDB);
       } catch (auditError) {
-        log('Failed to record blocked-command audit log: %O', auditError);
+        console.error('[governance] Failed to record blocked-command audit log: %O', auditError);
       }
 
       return {
@@ -108,7 +131,7 @@ export class SandboxMiddlewareService implements SandboxService {
     }
 
     const startedAt = Date.now();
-    const result = await this.provider.callTool(toolName, params);
+    const result = await callTenantSandboxTool(this.provider, toolName, params, this.options);
 
     try {
       await logCommandExecution(
@@ -122,7 +145,7 @@ export class SandboxMiddlewareService implements SandboxService {
         serverDB,
       );
     } catch (auditError) {
-      log('Failed to record command execution audit log: %O', auditError);
+      console.error('[governance] Failed to record command execution audit log: %O', auditError);
     }
 
     return result;
@@ -168,7 +191,7 @@ export class SandboxMiddlewareService implements SandboxService {
       if (downloads.length === 0) return;
 
       const command = buildSandboxFilesInitCommand(downloads);
-      const result = await this.provider.callTool('runCommand', {
+      const result = await callTenantSandboxTool(this.provider, 'runCommand', {
         command,
         timeout: SANDBOX_INIT_TIMEOUT_MS,
       });

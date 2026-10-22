@@ -2,6 +2,14 @@ import type { DeviceUnavailableErrorData } from '@lobechat/types';
 
 export type { DeviceUnavailableErrorData } from '@lobechat/types';
 
+/** The Device HTTP result arrived, but trusted Work settlement did not complete. */
+export class DeviceDispatchSettlementError extends Error {
+  constructor(cause: unknown) {
+    super('DEVICE_DISPATCH_SETTLEMENT_UNKNOWN', { cause });
+    this.name = 'DeviceDispatchSettlementError';
+  }
+}
+
 /**
  * Human- and model-readable descriptions for device-channel transport
  * failures.
@@ -60,6 +68,7 @@ export interface DeviceTransportFailure {
   data?: DeviceUnavailableErrorData;
   /** Machine-facing detail: the gateway's own body when it sent one. */
   error: string;
+  executionUnknown?: boolean;
 }
 
 /** What the failed hop was carrying, used to open the sentence. */
@@ -268,6 +277,15 @@ export const describeGatewayRequestFailure = (
   operation: DeviceTransportOperation,
 ): DeviceTransportFailure => {
   const message = error instanceof Error ? error.message : String(error);
+
+  if (error instanceof DeviceDispatchSettlementError) {
+    return {
+      code: DeviceTransportErrorCode.GatewayError,
+      content: `The device gateway returned this ${operation}'s result, but Work could not confirm its settlement. Execution is unknown: do NOT automatically repeat the call; check the current state before attempting any operation with side effects.`,
+      error: `${DeviceTransportErrorCode.GatewayError}: ${message}`,
+      executionUnknown: true,
+    };
+  }
 
   if (isTimeoutError(error)) {
     return {

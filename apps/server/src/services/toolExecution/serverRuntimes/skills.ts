@@ -34,6 +34,7 @@ import { TaskModel } from '@/database/models/task';
 import { UserModel } from '@/database/models/user';
 import type { LobeChatDatabase } from '@/database/type';
 import { filterBuiltinSkills } from '@/helpers/skillFilters';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { AgentDocumentsService } from '@/server/services/agentDocuments';
 import { deviceGateway } from '@/server/services/deviceGateway';
 import { executeAuthorizedDeviceToolCall } from '@/server/services/deviceGateway/authorizedToolCall';
@@ -905,11 +906,13 @@ export const skillsRuntime: ServerRuntimeRegistration = {
 
     const marketService = new MarketService({
       accessToken: marketAccessToken,
-      userInfo: {
+      userInfo: await resolveMarketServiceIdentity({
+        proxyExecution: Boolean(shareVisitor),
         sandboxStorage: sandbox.claim,
+        serverDB: context.serverDB,
         userId: context.userId,
         workspaceId,
-      },
+      }),
     });
     const fileService = new FileService(context.serverDB, context.userId, workspaceId);
     const fileModel = new FileModel(context.serverDB, context.userId, workspaceId);

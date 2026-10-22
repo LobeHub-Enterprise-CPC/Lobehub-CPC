@@ -1,3 +1,4 @@
+import { ssrfSafeFetch } from '@lobechat/ssrf-safe-fetch';
 import debug from 'debug';
 import mime from 'mime';
 import sharp from 'sharp';
@@ -117,7 +118,8 @@ export async function ingestAttachment(
   if (source.buffer) {
     buffer = source.buffer;
   } else if (source.url) {
-    const response = await fetch(source.url);
+    // External URLs come from chat platforms / API callers: keep them off private and metadata addresses.
+    const response = await ssrfSafeFetch(source.url);
     if (!response.ok) {
       throw new Error(`Failed to fetch attachment: ${response.status} ${response.statusText}`);
     }
@@ -176,7 +178,12 @@ export async function ingestAttachment(
   // 4. Upload + create record
   const ext = source.name?.split('.').pop() || 'bin';
   const { nanoid } = await import('@lobechat/utils');
-  const pathname = `files/${userId}/${nanoid()}/${source.name || `file.${ext}`}`;
+  // The name comes from the chat platform or API caller: keep it one plain key segment.
+  // eslint-disable-next-line no-control-regex
+  const objectName = source.name?.replaceAll(/[/\\\u0000-\u001F\u007F]/g, '_');
+  const pathname = `files/${userId}/${nanoid()}/${
+    objectName && objectName !== '.' && objectName !== '..' ? objectName : `file.${ext}`
+  }`;
 
   // `uploadFromBuffer` writes straight through `FileService`, which has no quota
   // gate of its own. Charge the post-compression length, since that is what

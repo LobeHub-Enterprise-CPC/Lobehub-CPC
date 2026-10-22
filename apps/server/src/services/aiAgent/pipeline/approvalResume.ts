@@ -7,8 +7,8 @@ import { matchesAgentInterventionContinuationProvenance } from '@/business/serve
 import type { AgentOperationModel } from '@/database/models/agentOperation';
 import type { HumanApprovalResolution, MessageModel } from '@/database/models/message';
 import { HumanApprovalAlreadyResolvedError } from '@/database/models/message';
-import { signUserJWT } from '@/libs/trpc/utils/internalJwt';
 import type { AgentRuntimeService } from '@/server/services/agentRuntime';
+import { mintOperationGatewayTicket } from '@/server/services/gatewayAuthorization';
 
 import type { InternalExecAgentParams } from '../types';
 
@@ -551,14 +551,10 @@ export const tryReuseInterventionContinuation = async (
   }
   approvalClaim.continuationStarted = true;
 
-  let gatewayToken: string | undefined;
-  if (!deps.withholdGatewayToken) {
-    try {
-      gatewayToken = await signUserJWT(deps.userId);
-    } catch {
-      log('execAgent: failed to sign gateway JWT for reused intervention continuation');
-    }
-  }
+  const gatewayToken = deps.withholdGatewayToken
+    ? undefined
+    : await mintOperationGatewayTicket(deps.userId, continuationOperationId, deps.workspaceId);
+
   const now = new Date().toISOString();
   return {
     agentId: resolvedAgentId,

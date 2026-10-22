@@ -254,7 +254,7 @@ const ForkGroupAndChat = memo<{ mobile?: boolean }>(() => {
       await loadGroups();
 
       // Step 7: Report fork event (using 'add' event type)
-      discoverService.reportAgentEvent({
+      discoverService.reportGroupAgentEvent({
         event: 'add',
         identifier: forkResult.group.identifier,
         source: location.pathname,

@@ -94,7 +94,7 @@ class AgentBotProviderService {
   };
 
   wechatPollQrStatus = async (qrcode: string) => {
-    return lambdaClient.agentBotProvider.wechatPollQrStatus.query({ qrcode });
+    return lambdaClient.agentBotProvider.wechatPollQrStatus.mutate({ qrcode });
   };
 }
 

@@ -30,7 +30,7 @@ const getConfigState = () =>
   (typeof window !== 'undefined' ? window.global_serverConfigStore?.getState() : undefined) ??
   getServerConfigStoreState();
 
-const isLlmRelayEnabled = () => !!getConfigState()?.featureFlags?.enableLlmRelay;
+const isLlmRelayEnabled = () => false;
 
 /** How long a one-shot call waits for the provider runtime state to load. */
 const PROVIDER_STATE_WAIT_MS = 5000;

@@ -148,6 +148,8 @@ describe('login command', () => {
       expect.objectContaining({
         accessToken: 'new-token',
         refreshToken: 'refresh-tok',
+        // The tokens are only ever sent back to the server that issued them.
+        serverUrl: 'https://app.lobehub.com',
       }),
     );
     expect(saveSettings).toHaveBeenCalledWith({ serverUrl: 'https://app.lobehub.com' });
@@ -272,6 +274,23 @@ describe('login command', () => {
     await runLoginAndAdvanceTimers(program, ['--server', 'https://test.com/']);
 
     expect(fetch).toHaveBeenCalledWith('https://test.com/oidc/device/auth', expect.any(Object));
+  });
+
+  it('should keep the tenant path of the server for every OIDC endpoint', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(deviceAuthResponse())
+      .mockResolvedValueOnce(tokenSuccessResponse());
+
+    const program = createProgram();
+    await runLoginAndAdvanceTimers(program, ['--server', 'https://host/t/acme/']);
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      'https://host/t/acme/oidc/device/auth',
+      expect.any(Object),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(2, 'https://host/t/acme/oidc/token', expect.any(Object));
+    expect(saveSettings).toHaveBeenCalledWith({ serverUrl: 'https://host/t/acme' });
   });
 
   it('should handle device auth failure', async () => {

@@ -1,27 +1,23 @@
-import crypto from 'node:crypto';
-import querystring from 'node:querystring';
-import { URL } from 'node:url';
-
 import type {
-  AuthorizationProgress,
+  AuthorizationConfirmParams,
+  AuthorizationConfirmRequest,
+  AuthorizationConfirmResult,
+  AuthorizationStartResult,
   DataSyncConfig,
   MarketAuthorizationParams,
 } from '@lobechat/electron-client-ipc';
 import { BrowserWindow, shell } from 'electron';
 
+import { isDev } from '@/const/env';
+import { AuthFlowManager } from '@/modules/tenantAuth/AuthFlowManager';
+import { createJwksResolver } from '@/modules/tenantAuth/tokenVerifier';
 import GatewayConnectionService from '@/services/gatewayConnectionSrv';
-import { appendVercelCookie } from '@/utils/http-headers';
 import { createLogger } from '@/utils/logger';
-import { netFetch } from '@/utils/net-fetch';
-import { setDesktopUserAgentHeader } from '@/utils/user-agent';
 
 import { ControllerModule, IpcMethod } from './index';
 import RemoteServerConfigCtr from './RemoteServerConfigCtr';
 
 const logger = createLogger('controllers:AuthCtr');
-
-const MAX_POLL_TIME = 2 * 60 * 1000; // 2 minutes (reduced from 5 minutes for better UX)
-const POLL_INTERVAL = 3000; // 3 seconds
 
 // Refresh the access token only once it is within this window of its expiry. Kept
 // small (minutes) on purpose: a buffer that is large relative to the server's
@@ -31,7 +27,9 @@ const TOKEN_REFRESH_BUFFER = 10 * 60 * 1000; // 10 minutes
 
 /**
  * Authentication Controller
- * Implements OAuth authorization flow using intermediate page + polling mechanism
+ * Implements the OAuth authorization flow: organization handoff (platform) or direct tenant
+ * OIDC (known entry), polling, token verification and the confirmation before activation.
+ * The flow itself lives in `AuthFlowManager`; this controller owns IPC, refresh and gateway.
  */
 export default class AuthCtr extends ControllerModule {
   static override readonly groupName = 'auth';
@@ -43,100 +41,88 @@ export default class AuthCtr extends ControllerModule {
   }
 
   /**
-   * Current PKCE parameters
-   */
-  private codeVerifier: string | null = null;
-  private authRequestState: string | null = null;
-
-  /**
-   * Polling related parameters
-   */
-
-  private pollingInterval: NodeJS.Timeout | null = null;
-  private cachedRemoteUrl: string | null = null;
-
-  /**
    * Auto-refresh timer
    */
 
   private autoRefreshTimer: NodeJS.Timeout | null = null;
 
-  /**
-   * Construct redirect_uri, ensuring the same URI is used for authorization and token exchange
-   * @param remoteUrl Remote server URL
-   */
-  private constructRedirectUri(remoteUrl: string): string {
-    const callbackUrl = new URL('/oidc/callback/desktop', remoteUrl);
+  private readonly jwks = createJwksResolver({ allowLoopbackHttp: isDev });
 
-    return callbackUrl.toString();
+  private _flowManager?: AuthFlowManager;
+
+  private get flowManager() {
+    this._flowManager ??= new AuthFlowManager({
+      afterCommit: () => this.onAuthorizationCommitted(),
+      allowLoopbackHttp: isDev,
+      broadcast: (channel, payload) => this.broadcast(channel, payload),
+      commit: (params) => this.remoteServerConfigCtr.commitAuthorization(params),
+      getCommittedTenant: async () =>
+        (await this.remoteServerConfigCtr.getRemoteServerConfig()).cloudTenant,
+      jwks: this.jwks,
+      openExternal: (url) => shell.openExternal(url),
+      platformOrigin: () => this.remoteServerConfigCtr.getPlatformOrigin(),
+    });
+    return this._flowManager;
   }
 
   /**
    * Request OAuth authorization
    */
   @IpcMethod()
-  async requestAuthorization(config: DataSyncConfig) {
-    // Clear any old authorization state
-    this.clearAuthorizationState();
-
-    const remoteUrl = await this.remoteServerConfigCtr.getRemoteServerUrl(config);
-
-    // Cache remote server URL for subsequent polling
-    this.cachedRemoteUrl = remoteUrl;
-
-    logger.info(
-      `Requesting OAuth authorization, storageMode:${config.storageMode} server URL: ${remoteUrl}`,
-    );
+  async requestAuthorization(config: DataSyncConfig): Promise<AuthorizationStartResult> {
     try {
-      // Generate PKCE parameters
-      logger.debug('Generating PKCE parameters');
-      const codeVerifier = this.generateCodeVerifier();
-      const codeChallenge = await this.generateCodeChallenge(codeVerifier);
-      this.codeVerifier = codeVerifier;
-
-      // Generate state parameter to prevent CSRF attacks
-      this.authRequestState = crypto.randomBytes(16).toString('hex');
-      logger.debug(`Generated state parameter: ${this.authRequestState}`);
-
-      // Construct authorization URL with new redirect_uri
-      const authUrl = new URL('/oidc/auth', remoteUrl);
-      const redirectUri = this.constructRedirectUri(remoteUrl);
-
-      logger.info('redirectUri', redirectUri);
-
-      // Add query parameters
-      authUrl.search = querystring.stringify({
-        client_id: 'lobehub-desktop',
-        code_challenge: codeChallenge,
-        code_challenge_method: 'S256',
-        prompt: 'consent',
-        redirect_uri: redirectUri,
-        // https://github.com/lobehub/lobe-chat/pull/8450
-        resource: 'urn:lobehub:chat',
-        response_type: 'code',
-        scope: 'profile email offline_access',
-        state: this.authRequestState,
+      return await this.flowManager.start(config, {
+        // After a 409 on the logged-in session the committed entry is no longer trusted.
+        forceDiscovery: this.remoteServerConfigCtr.isRemoteActivityPaused(),
       });
-
-      logger.info(`Constructed authorization URL: ${authUrl.toString()}`);
-
-      // Open authorization URL in the default browser
-      await shell.openExternal(authUrl.toString());
-      logger.debug('Opening authorization URL in default browser');
-
-      this.broadcastAuthorizationProgress({
-        elapsed: 0,
-        maxPollTime: MAX_POLL_TIME,
-        phase: 'browser_opened',
-      });
-
-      // Start polling for credentials
-      this.startPolling();
-
-      return { success: true };
     } catch (error) {
       logger.error('Authorization request failed:', error);
-      return { error: error.message, success: false };
+      return {
+        code: 'UNKNOWN',
+        error: error instanceof Error ? error.message : String(error),
+        success: false,
+      };
+    }
+  }
+
+  /**
+   * Start the organization lookup page regardless of any known entry
+   * (e.g. after a known address turned out not to be an organization address).
+   */
+  @IpcMethod()
+  async requestPlatformAuthorization(
+    options: { switchOrganization?: boolean } = {},
+  ): Promise<AuthorizationStartResult> {
+    try {
+      return await this.flowManager.startPlatform({
+        switchOrganization: options?.switchOrganization === true,
+      });
+    } catch (error) {
+      logger.error('Platform authorization request failed:', error);
+      return {
+        code: 'UNKNOWN',
+        error: error instanceof Error ? error.message : String(error),
+        success: false,
+      };
+    }
+  }
+
+  /**
+   * "Switch organization": discard any pending flow and pick again on the platform (fresh
+   * state and PKCE, `switch=1`). Nothing of the signed-in session is touched here; its
+   * tokens, refresh and gateway are replaced only if the new login is confirmed and committed.
+   */
+  @IpcMethod()
+  async switchOrganization(): Promise<AuthorizationStartResult> {
+    try {
+      return await this.flowManager.startPlatform({ switchOrganization: true });
+    } catch (error) {
+      logger.error('Switching organization failed:', error);
+      return {
+        code: 'UNKNOWN',
+        error: error instanceof Error ? error.message : String(error),
+        success: false,
+      };
     }
   }
 
@@ -145,17 +131,37 @@ export default class AuthCtr extends ControllerModule {
    */
   @IpcMethod()
   async cancelAuthorization() {
-    if (this.authRequestState) {
+    if (this.flowManager.hasActiveFlow()) {
       logger.info('User cancelled authorization');
-      this.clearAuthorizationState();
-      this.broadcastAuthorizationProgress({
-        elapsed: 0,
-        maxPollTime: MAX_POLL_TIME,
-        phase: 'cancelled',
-      });
+      this.flowManager.cancel();
       return { success: true };
     }
     return { error: 'No active authorization', success: false };
+  }
+
+  /** The confirmation card to show, for windows that mounted after the broadcast. */
+  @IpcMethod()
+  async getPendingAuthorizationConfirmation(): Promise<AuthorizationConfirmRequest | null> {
+    return this.flowManager.getPendingRequest();
+  }
+
+  @IpcMethod()
+  async confirmAuthorization(
+    params: AuthorizationConfirmParams,
+  ): Promise<AuthorizationConfirmResult> {
+    return this.flowManager.confirm(params);
+  }
+
+  @IpcMethod()
+  async cancelAuthorizationConfirmation(params: AuthorizationConfirmParams) {
+    return this.flowManager.cancelConfirmation(params);
+  }
+
+  @IpcMethod()
+  async switchAuthorizationOrganization(
+    params: AuthorizationConfirmParams,
+  ): Promise<AuthorizationStartResult> {
+    return this.flowManager.switchFromConfirmation(params);
   }
 
   /**
@@ -171,7 +177,7 @@ export default class AuthCtr extends ControllerModule {
       return { error: errorMessage, success: false };
     }
 
-    logger.info(`Requesting market authorization via: ${authUrl}`);
+    logger.info('Requesting market authorization');
     try {
       await shell.openExternal(authUrl);
       logger.debug('Opening market authorization URL in default browser');
@@ -184,106 +190,32 @@ export default class AuthCtr extends ControllerModule {
   }
 
   /**
-   * Start polling mechanism to get credentials
+   * After the confirmed login is committed: only now do refresh and the gateway start,
+   * and the gateway is reconnected from scratch so no socket keeps the previous identity.
    */
-  private startPolling() {
-    if (!this.authRequestState) {
-      logger.error('No handoff ID available for polling');
-      return;
+  private onAuthorizationCommitted() {
+    this.startAutoRefresh();
+
+    const gatewaySrv = this.app.getService(GatewayConnectionService);
+    if (gatewaySrv) {
+      logger.info('Triggering gateway connection after login');
+      void (async () => {
+        try {
+          await gatewaySrv.disconnect();
+          await gatewaySrv.connect();
+        } catch (error) {
+          logger.error('Gateway connection after login failed:', error);
+        }
+      })();
     }
+  }
 
-    logger.info('Starting credential polling');
-
-    const startTime = Date.now();
-
-    // Broadcast initial state
-    this.broadcastAuthorizationProgress({
-      elapsed: 0,
-      maxPollTime: MAX_POLL_TIME,
-      phase: 'waiting_for_auth',
-    });
-
-    this.pollingInterval = setInterval(async () => {
-      const elapsed = Date.now() - startTime;
-
-      // Broadcast progress on every tick
-      this.broadcastAuthorizationProgress({
-        elapsed,
-        maxPollTime: MAX_POLL_TIME,
-        phase: 'waiting_for_auth',
-      });
-
-      try {
-        // Check if polling has timed out
-        if (elapsed > MAX_POLL_TIME) {
-          logger.warn('Credential polling timed out');
-          this.clearAuthorizationState();
-          this.broadcastAuthorizationFailed('Authorization timed out');
-          return;
-        }
-
-        // Poll for credentials
-        const result = await this.pollForCredentials();
-
-        if (result) {
-          logger.info('Successfully received credentials from polling');
-          this.stopPolling();
-
-          // Broadcast verifying state
-          this.broadcastAuthorizationProgress({
-            elapsed,
-            maxPollTime: MAX_POLL_TIME,
-            phase: 'verifying',
-          });
-
-          // Validate state parameter
-          if (result.state !== this.authRequestState) {
-            logger.error(
-              `Invalid state parameter: expected ${this.authRequestState}, received ${result.state}`,
-            );
-            this.broadcastAuthorizationFailed('Invalid state parameter');
-            return;
-          }
-
-          // Exchange code for tokens
-          const exchangeResult = await this.exchangeCodeForToken(result.code, this.codeVerifier!);
-
-          if (exchangeResult.success) {
-            logger.info('Authorization successful');
-            this.broadcastAuthorizationSuccessful();
-          } else {
-            logger.warn(`Authorization failed: ${exchangeResult.error || 'Unknown error'}`);
-            this.broadcastAuthorizationFailed(exchangeResult.error || 'Unknown error');
-          }
-        }
-      } catch (error) {
-        logger.error('Error during credential polling:', error);
-        this.clearAuthorizationState();
-        this.broadcastAuthorizationFailed('Polling error: ' + error.message);
+  private broadcast(channel: string, payload?: unknown) {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send(channel, ...(payload === undefined ? [] : [payload]));
       }
-    }, POLL_INTERVAL);
-  }
-
-  /**
-   * Stop polling
-   */
-  private stopPolling() {
-    if (this.pollingInterval) {
-      clearInterval(this.pollingInterval);
-      this.pollingInterval = null;
     }
-  }
-
-  /**
-   * Clear authorization state
-   * Called before starting a new authorization flow or after authorization failure/timeout
-   */
-  private clearAuthorizationState() {
-    logger.debug('Clearing authorization state');
-    this.stopPolling();
-    this.codeVerifier = null;
-    this.authRequestState = null;
-    this.cachedRemoteUrl = null;
   }
 
   /**
@@ -298,6 +230,11 @@ export default class AuthCtr extends ControllerModule {
 
     this.autoRefreshTimer = setInterval(async () => {
       try {
+        if (this.remoteServerConfigCtr.isRemoteActivityPaused()) {
+          // A 409 paused this session; nothing is refreshed until the user logs in again.
+          this.stopAutoRefresh();
+          return;
+        }
         if (!this.remoteServerConfigCtr.isTokenExpiringSoon(TOKEN_REFRESH_BUFFER)) {
           return;
         }
@@ -345,66 +282,6 @@ export default class AuthCtr extends ControllerModule {
       clearInterval(this.autoRefreshTimer);
       this.autoRefreshTimer = null;
       logger.debug('Stopped auto-refresh timer');
-    }
-  }
-
-  /**
-   * Poll for credentials
-   * Sends HTTP request directly to remote server
-   */
-  private async pollForCredentials(): Promise<{ code: string; state: string } | null> {
-    if (!this.authRequestState || !this.cachedRemoteUrl) {
-      return null;
-    }
-
-    try {
-      // Use cached remote server URL
-      const remoteUrl = this.cachedRemoteUrl;
-
-      // Construct request URL
-      const url = new URL('/oidc/handoff', remoteUrl);
-      url.searchParams.set('id', this.authRequestState);
-      url.searchParams.set('client', 'desktop');
-
-      logger.debug(`Polling for credentials: ${url.toString()}`);
-
-      // Use Electron net.fetch to respect system CA store (self-signed/private CA certs)
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      appendVercelCookie(headers);
-      setDesktopUserAgentHeader(headers);
-      const response = await netFetch(url.toString(), { headers, method: 'GET' });
-
-      // Check response status
-      if (response.status === 404) {
-        // Credentials not ready yet, this is normal
-        return null;
-      }
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      // Parse response data
-      const data = (await response.json()) as {
-        data: {
-          id: string;
-          payload: { code: string; state: string };
-        };
-        success: boolean;
-      };
-
-      if (data.success && data.data?.payload) {
-        logger.debug('Successfully retrieved credentials from handoff');
-        return {
-          code: data.data.payload.code,
-          state: data.data.payload.state,
-        };
-      }
-
-      return null;
-    } catch (error) {
-      logger.debug('Polling attempt failed (this is normal):', error.message);
-      return null;
     }
   }
 
@@ -462,164 +339,11 @@ export default class AuthCtr extends ControllerModule {
   }
 
   /**
-   * Exchange authorization code for token
-   */
-  private async exchangeCodeForToken(code: string, codeVerifier: string) {
-    if (!this.cachedRemoteUrl) {
-      throw new Error('No cached remote URL available for token exchange');
-    }
-
-    const remoteUrl = this.cachedRemoteUrl;
-    logger.info('Starting to exchange authorization code for token');
-    try {
-      const tokenUrl = new URL('/oidc/token', remoteUrl);
-      logger.debug(`Constructed token exchange URL: ${tokenUrl.toString()}`);
-
-      // Construct request body
-      const body = querystring.stringify({
-        client_id: 'lobehub-desktop',
-        code,
-        code_verifier: codeVerifier,
-        grant_type: 'authorization_code',
-        redirect_uri: this.constructRedirectUri(remoteUrl),
-      });
-
-      logger.debug('Sending token exchange request');
-      // Send request to get token
-      const tokenHeaders: Record<string, string> = {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      };
-      appendVercelCookie(tokenHeaders);
-      setDesktopUserAgentHeader(tokenHeaders);
-      const response = await netFetch(tokenUrl.toString(), {
-        body,
-        headers: tokenHeaders,
-        method: 'POST',
-      });
-
-      if (!response.ok) {
-        // Try parsing the error response
-        const errorData = await response.json().catch(() => ({}));
-        const errorMessage = `Failed to get token: ${response.status} ${response.statusText} ${errorData.error_description || errorData.error || ''}`;
-        logger.error(errorMessage);
-        throw new Error(errorMessage);
-      }
-
-      let data;
-
-      // Parse response
-      try {
-        data = await response.clone().json();
-      } catch {
-        const status = response.status;
-
-        throw new Error(
-          `Parse JSON failed, please check your server, response status: ${status}, detail:\n\n ${await response.text()} `,
-        );
-      }
-
-      logger.debug('Successfully received token exchange response');
-
-      // Ensure response contains necessary fields
-      if (!data.access_token || !data.refresh_token) {
-        logger.error('Invalid token response: missing access_token or refresh_token');
-        throw new Error('Invalid token response: missing required fields');
-      }
-
-      // Save tokens
-      logger.debug('Starting to save exchanged tokens');
-      await this.remoteServerConfigCtr.saveTokens(
-        data.access_token,
-        data.refresh_token,
-        data.expires_in,
-      );
-      logger.info('Successfully saved exchanged tokens');
-
-      // Set server to active state
-      logger.debug(`Setting remote server to active state: ${remoteUrl}`);
-      await this.remoteServerConfigCtr.setRemoteServerConfig({ active: true });
-
-      // Start auto-refresh timer
-      this.startAutoRefresh();
-
-      // Connect to device gateway after successful login
-      this.connectGateway();
-
-      return { success: true };
-    } catch (error) {
-      logger.error('Exchanging authorization code failed:', error);
-      return { error: error.message, success: false };
-    }
-  }
-
-  /**
-   * Connect to device gateway (fire-and-forget)
-   */
-  private connectGateway() {
-    const gatewaySrv = this.app.getService(GatewayConnectionService);
-    if (gatewaySrv) {
-      logger.info('Triggering gateway connection after login');
-      gatewaySrv.connect().catch((error) => {
-        logger.error('Gateway connection after login failed:', error);
-      });
-    }
-  }
-
-  /**
    * Broadcast token refreshed event
    */
   private broadcastTokenRefreshed() {
     logger.debug('Broadcasting tokenRefreshed event to all windows');
-    const allWindows = BrowserWindow.getAllWindows();
-
-    for (const win of allWindows) {
-      if (!win.isDestroyed()) {
-        win.webContents.send('tokenRefreshed');
-      }
-    }
-  }
-
-  /**
-   * Broadcast authorization successful event
-   */
-  private broadcastAuthorizationSuccessful() {
-    logger.debug('Broadcasting authorizationSuccessful event to all windows');
-    const allWindows = BrowserWindow.getAllWindows();
-
-    for (const win of allWindows) {
-      if (!win.isDestroyed()) {
-        win.webContents.send('authorizationSuccessful');
-      }
-    }
-  }
-
-  /**
-   * Broadcast authorization progress event
-   */
-  private broadcastAuthorizationProgress(progress: AuthorizationProgress) {
-    // Avoid logging too frequently
-    // logger.debug('Broadcasting authorizationProgress event');
-    const allWindows = BrowserWindow.getAllWindows();
-
-    for (const win of allWindows) {
-      if (!win.isDestroyed()) {
-        win.webContents.send('authorizationProgress', progress);
-      }
-    }
-  }
-
-  /**
-   * Broadcast authorization failed event
-   */
-  private broadcastAuthorizationFailed(error: string) {
-    logger.debug(`Broadcasting authorizationFailed event to all windows, error: ${error}`);
-    const allWindows = BrowserWindow.getAllWindows();
-
-    for (const win of allWindows) {
-      if (!win.isDestroyed()) {
-        win.webContents.send('authorizationFailed', { error });
-      }
-    }
+    this.broadcast('tokenRefreshed');
   }
 
   /**
@@ -629,49 +353,7 @@ export default class AuthCtr extends ControllerModule {
    */
   private broadcastAuthorizationRequired(reason: string) {
     logger.info(`Broadcasting authorizationRequired event (reason=${reason})`);
-    const allWindows = BrowserWindow.getAllWindows();
-
-    for (const win of allWindows) {
-      if (!win.isDestroyed()) {
-        win.webContents.send('authorizationRequired', { reason });
-      }
-    }
-  }
-
-  /**
-   * Generate PKCE codeVerifier
-   */
-  private generateCodeVerifier(): string {
-    logger.debug('Generating PKCE code verifier');
-    // Generate a random string of at least 43 characters
-    const verifier = crypto
-      .randomBytes(32)
-      .toString('base64')
-      .replaceAll('+', '-')
-      .replaceAll('/', '_')
-      .replace(/=+$/, '');
-    logger.debug('Generated code verifier (partial): ' + verifier.slice(0, 10) + '...'); // Avoid logging full sensitive info
-    return verifier;
-  }
-
-  /**
-   * Generate codeChallenge from codeVerifier (S256 method)
-   */
-  private async generateCodeChallenge(codeVerifier: string): Promise<string> {
-    logger.debug('Generating PKCE code challenge (S256)');
-    // Hash codeVerifier using SHA-256
-    const encoder = new TextEncoder();
-    const data = encoder.encode(codeVerifier);
-    const digest = await crypto.subtle.digest('SHA-256', data.buffer);
-
-    // Convert hash result to base64url encoding
-    const challenge = Buffer.from(digest)
-      .toString('base64')
-      .replaceAll('+', '-')
-      .replaceAll('/', '_')
-      .replace(/=+$/, '');
-    logger.debug('Generated code challenge (partial): ' + challenge.slice(0, 10) + '...'); // Avoid logging full sensitive info
-    return challenge;
+    this.broadcast('authorizationRequired', { reason });
   }
 
   /**
@@ -679,6 +361,11 @@ export default class AuthCtr extends ControllerModule {
    */
   afterAppReady() {
     logger.debug('AuthCtr initialized, checking for existing tokens');
+    // Logging out (from any window) also ends an authorization that is still in flight.
+    this.remoteServerConfigCtr.onLogout?.(() => {
+      this.flowManager.cancel();
+      this.stopAutoRefresh();
+    });
     this.initializeAutoRefresh();
   }
 
@@ -687,7 +374,7 @@ export default class AuthCtr extends ControllerModule {
    */
   cleanup() {
     logger.debug('Cleaning up AuthCtr timers');
-    this.stopPolling();
+    this._flowManager?.dispose();
     this.stopAutoRefresh();
   }
 

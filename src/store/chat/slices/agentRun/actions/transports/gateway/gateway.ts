@@ -37,7 +37,7 @@ import {
   resolveExecutionTarget,
   resolveWorkspaceScoped,
 } from '@/helpers/executionTarget';
-import { canUseGatewayProtocolV2 } from '@/helpers/gatewayProtocol';
+import { canUseGatewayProtocolV2, isGatewayMuxSupported } from '@/helpers/gatewayProtocol';
 import { trackProductUsageEvent } from '@/libs/analytics/productUsageEvent';
 import {
   aiAgentService,
@@ -88,6 +88,7 @@ import { createGatewayEventBuffer } from './gatewayEventBuffer';
 import { createGatewayEventHandler, isCompletedRuntimeEnd } from './gatewayEventHandler';
 import { createGatewayEventRouter } from './gatewayEventRouter';
 import { createGatewayMemberStreamHandler, mergeGroupSnapshot } from './gatewayMemberStreamHandler';
+import { createBrowserGatewayIdentityProvider } from './identityProvider';
 import {
   type GatewayMuxIdentity,
   getGatewayMux,
@@ -290,9 +291,8 @@ export interface GatewayConnection {
 
 export interface ConnectGatewayParams {
   /**
-   * Present on the agent-share visitor surface. Routes the `auth_expired`
-   * token refresh through `shareChat.refreshGatewayToken` — the owner-scoped
-   * refresh cannot see the creator-owned share topic.
+   * Present on the read-only agent-share visitor surface. Shared runs cannot be started,
+   * refreshed or cancelled from a visitor: this only selects the share-authorized topic read.
    */
   agentShareId?: string;
   /**
@@ -412,12 +412,8 @@ interface ReconnectToGatewayOperationParams {
    */
   agentId?: string;
   /**
-   * Present on the agent-share visitor surface. Routes the token refresh and
-   * cancellation through the share-authorized `shareChat` procedures instead
-   * of the owner-scoped ones: a visitor has no owner-scoped access to the
-   * creator's topic/operation rows, and the Gateway channel is registered
-   * under the VISITOR's id, so only a visitor-signed token can reconnect it
-   * — see `shareChat.refreshGatewayToken`'s JSDoc.
+   * Present on the read-only agent-share visitor surface. Shared runs cannot be started,
+   * refreshed or cancelled from a visitor: this only selects the share-authorized topic read.
    */
   agentShareId?: string;
   assistantMessageId: string;
@@ -575,7 +571,6 @@ export class GatewayActionImpl {
    */
   connectToGateway = (params: ConnectGatewayParams): void => {
     const {
-      agentShareId,
       executor,
       operationId,
       gatewayUrl,
@@ -620,14 +615,9 @@ export class GatewayActionImpl {
 
     let superseded = false;
 
-    // Share visitors take protocol v2 wherever the deployment has it: the
-    // public surface has no user to carry a rollout flag. Owner runs wait for
-    // the rollout to reach them.
-    const muxIdentity: GatewayMuxIdentity = { agentShareId, gatewayUrl };
+    const muxIdentity: GatewayMuxIdentity = { gatewayUrl };
     const useGatewayMux =
-      (agentShareId
-        ? getGatewayServerConfig()?.agentGatewayProtocol === 2
-        : canUseGatewayProtocolV2()) && !isGatewayMuxUnavailable(muxIdentity);
+      isGatewayMuxSupported() && canUseGatewayProtocolV2() && !isGatewayMuxUnavailable(muxIdentity);
     let muxClient: OperationClient | undefined;
     if (useGatewayMux) {
       const mux = this.resolveGatewayMux(muxIdentity);
@@ -661,12 +651,13 @@ export class GatewayActionImpl {
     const client: GatewayConnection['client'] =
       muxClient ??
       this.createClient({
-        ...(!agentShareId && { clientId: getLlmRelayClientId() }),
+        clientId: getLlmRelayClientId(),
         gatewayUrl,
         ...(lastEventId && { lastEventId }),
         operationId,
         resumeOnConnect,
         token,
+        identityProvider: createBrowserGatewayIdentityProvider({ token, topicId, operationId }),
       });
 
     // Track connection in store
@@ -923,11 +914,6 @@ export class GatewayActionImpl {
     client.on('auth_expired', async () => {
       if (superseded) return;
       try {
-        const { token: fresh } = agentShareId
-          ? await shareChatService.refreshGatewayToken(agentShareId, topicId)
-          : await aiAgentService.refreshGatewayToken(topicId);
-        if (superseded) return;
-        client.updateToken(fresh);
         await client.reconnect();
       } catch (error) {
         console.error(`[Gateway] Token refresh failed for operation ${operationId}:`, error);
@@ -1251,116 +1237,87 @@ export class GatewayActionImpl {
       throw abortSignal.reason ?? new DOMException('Aborted', 'AbortError');
     }
 
-    // Agent-share visitor surface: dispatch through the share-authorized mirror.
-    // It accepts only the share-safe subset (prompt / topic / clientIds /
-    // the visitor's share-uploaded fileIds, plus the visitor's own approval
-    // mode and their answers to this run's pending interventions) — everything
-    // else (tools, devices, mentions) is decided server-side by the share
-    // config, never by this client.
     const agentShareId = executionContext.agentShareId;
 
     const serverResult =
       precreatedResult ??
-      (agentShareId
-        ? await awaitStartRequest(
-            shareChatService.execAgentTask({
-              clientIds,
-              fileIds,
-              parentMessageId,
-              prompt: message,
-              resumeApproval,
-              resumeApprovals,
-              resumeToolResult,
-              shareId: agentShareId,
-              steer: metadata?.steer,
-              topicId: executionContext.topicId,
-              userInterventionConfig,
+      (await awaitStartRequest(
+        aiAgentService.execAgentTask({
+          agentId: executionContext.agentId,
+          // Fresh sends only — resume flows never pass this, and the server drops
+          // it defensively on resume-like params anyway.
+          clientIds,
+          appContext: {
+            agentDocumentId: executionContext.agentDocumentId,
+            ...(messageContext.agentId !== executionContext.agentId && {
+              conversationAgentId: messageContext.agentId,
             }),
-            abortSignal,
-            (abandoned) =>
-              shareChatService.interruptTask(
-                agentShareId,
-                abandoned.topicId,
-                abandoned.operationId,
-              ),
-          )
-        : await awaitStartRequest(
-            aiAgentService.execAgentTask({
-              agentId: executionContext.agentId,
-              // Fresh sends only — resume flows never pass this, and the server drops
-              // it defensively on resume-like params anyway.
-              clientIds,
-              appContext: {
-                agentDocumentId: executionContext.agentDocumentId,
-                ...(messageContext.agentId !== executionContext.agentId && {
-                  conversationAgentId: messageContext.agentId,
-                }),
-                defaultTaskAssigneeAgentId: executionContext.defaultTaskAssigneeAgentId,
-                documentId: executionContext.documentId,
-                // When AgentBuilder runs, context.agentId is the builtin builder agent.
-                // The actual editing target is chatStore.activeAgentId (kept in sync by
-                // AgentBuilderProvider). Pass it so the server can route tool calls to
-                // the correct agent rather than the builder itself.
-                ...(executionContext.scope === 'agent_builder' && {
-                  editingAgentId: this.#get().activeAgentId ?? undefined,
-                }),
-                // Same shape as `editingAgentId`, for the Group Agent Builder panel on
-                // the group Profile page. The builder conversation is keyed by the
-                // builtin builder agent (no groupId in its ConversationContext, so the
-                // message map key and the group's own chat stay separate), which left
-                // the server runtime with no idea which group it was editing.
-                // The context value wins, and every surface that opens this scope sets
-                // it from its own route/group: it is fixed for the run, so a mid-run
-                // navigation cannot make the server stamp a different group than the
-                // panel is reading from. The `activeGroupId` fallback is a last resort
-                // for a caller that forgot — it is sampled here, AFTER the async
-                // preflight above, so it can already be stale by this point.
-                ...(executionContext.scope === 'group_agent_builder' && {
-                  editingGroupId: executionContext.editingGroupId ?? this.#get().activeGroupId,
-                }),
-                groupId: executionContext.groupId,
-                ...(initialTopicMetadata && { initialTopicMetadata }),
-                ...(newThread && { newThread }),
-                // Forward the group orchestration role so the server can stamp it onto
-                // the assistant message metadata. Without this the gateway-created
-                // supervisor turn loses its role on the step_start snapshot / refetch
-                // and renders as a generic assistant.
-                orchestrationRole: executionContext.orchestrationRole,
-                ...(isCreateNewTopic && projectWorkingDirectoryId && { projectWorkingDirectoryId }),
-                scope: executionContext.scope,
-                taskId,
-                threadId: executionContext.threadId,
-                topicId: executionContext.topicId,
-                // Goal-page side conversation: lets the server build the goal
-                // overview injection for gateway-run agents (mirrors the client
-                // streaming executor).
-                viewedGoal: executionContext.viewedGoal,
-              },
-              ...desktopDeviceHints,
-              clientOperations,
-              fileIds,
-              replacesOperationId,
-              mentionedAgents,
-              parentMessageId,
-              prompt: message,
-              resumeApproval,
-              resumeApprovals,
-              resumeToolResult,
-              selectedSkillIds,
-              selectedToolIds,
-              // A queued follow-up keeps its continuation mark on the row the
-              // server persists, which replaces the optimistic one.
-              steer: metadata?.steer,
-              trigger: metadata?.trigger,
-              userInterventionConfig,
+            defaultTaskAssigneeAgentId: executionContext.defaultTaskAssigneeAgentId,
+            documentId: executionContext.documentId,
+            // When AgentBuilder runs, context.agentId is the builtin builder agent.
+            // The actual editing target is chatStore.activeAgentId (kept in sync by
+            // AgentBuilderProvider). Pass it so the server can route tool calls to
+            // the correct agent rather than the builder itself.
+            ...(executionContext.scope === 'agent_builder' && {
+              editingAgentId: this.#get().activeAgentId ?? undefined,
             }),
-            abortSignal,
-            (abandoned) =>
-              interruptGatewayTaskOrThrow({
-                operationId: abandoned.operationId,
-                topicId: abandoned.topicId,
-              }),
-          ));
+            // Same shape as `editingAgentId`, for the Group Agent Builder panel on
+            // the group Profile page. The builder conversation is keyed by the
+            // builtin builder agent (no groupId in its ConversationContext, so the
+            // message map key and the group's own chat stay separate), which left
+            // the server runtime with no idea which group it was editing.
+            // The context value wins, and every surface that opens this scope sets
+            // it from its own route/group: it is fixed for the run, so a mid-run
+            // navigation cannot make the server stamp a different group than the
+            // panel is reading from. The `activeGroupId` fallback is a last resort
+            // for a caller that forgot — it is sampled here, AFTER the async
+            // preflight above, so it can already be stale by this point.
+            ...(executionContext.scope === 'group_agent_builder' && {
+              editingGroupId: executionContext.editingGroupId ?? this.#get().activeGroupId,
+            }),
+            groupId: executionContext.groupId,
+            ...(initialTopicMetadata && { initialTopicMetadata }),
+            ...(newThread && { newThread }),
+            // Forward the group orchestration role so the server can stamp it onto
+            // the assistant message metadata. Without this the gateway-created
+            // supervisor turn loses its role on the step_start snapshot / refetch
+            // and renders as a generic assistant.
+            orchestrationRole: executionContext.orchestrationRole,
+            ...(isCreateNewTopic && projectWorkingDirectoryId && { projectWorkingDirectoryId }),
+            scope: executionContext.scope,
+            taskId,
+            threadId: executionContext.threadId,
+            topicId: executionContext.topicId,
+            // Goal-page side conversation: lets the server build the goal
+            // overview injection for gateway-run agents (mirrors the client
+            // streaming executor).
+            viewedGoal: executionContext.viewedGoal,
+          },
+          ...desktopDeviceHints,
+          clientOperations,
+          fileIds,
+          replacesOperationId,
+          mentionedAgents,
+          parentMessageId,
+          prompt: message,
+          resumeApproval,
+          resumeApprovals,
+          resumeToolResult,
+          selectedSkillIds,
+          selectedToolIds,
+          // A queued follow-up keeps its continuation mark on the row the
+          // server persists, which replaces the optimistic one.
+          steer: metadata?.steer,
+          trigger: metadata?.trigger,
+          userInterventionConfig,
+        }),
+        abortSignal,
+        (abandoned) =>
+          interruptGatewayTaskOrThrow({
+            operationId: abandoned.operationId,
+            topicId: abandoned.topicId,
+          }),
+      ));
     // A member continuation names the supervisor's run as `operationId` (safe
     // for older clients); this run is the member's continuation.
     const result: ExecAgentResult =
@@ -1397,25 +1354,16 @@ export class GatewayActionImpl {
         hasInterruptedAfterPersistence = true;
         // Cancel arrived after execAgentTask resolved — server task exists. Interrupt generation,
         // but keep reconciling the persisted message before returning to the caller.
-        // Share visitors have no access to the owner-scoped interrupt (and no
-        // device runtimes to confirm), so they go through the share mirror.
-        if (agentShareId)
-          shareChatService
-            .interruptTask(agentShareId, result.topicId, result.operationId)
-            .catch((err) =>
-              console.error('[Gateway] share interruptTask after cancel failed:', err),
-            );
-        else
-          lateInterruptConfirmed = interruptGatewayTaskOrThrow({
-            operationId: result.operationId,
-            topicId: result.topicId,
-          }).then(
-            () => true,
-            (err) => {
-              console.error('[Gateway] interruptTask after cancel failed:', err);
-              return false;
-            },
-          );
+        lateInterruptConfirmed = interruptGatewayTaskOrThrow({
+          operationId: result.operationId,
+          topicId: result.topicId,
+        }).then(
+          () => true,
+          (err) => {
+            console.error('[Gateway] interruptTask after cancel failed:', err);
+            return false;
+          },
+        );
       }
 
       return true;
@@ -1676,13 +1624,6 @@ export class GatewayActionImpl {
     // depend on any metadata lookup. The returned promise preserves an
     // unconfirmed device shutdown so Send now can keep its queued message.
     this.#get().onOperationCancel(gatewayOpId, async () => {
-      if (agentShareId) {
-        await shareChatService
-          .interruptTask(agentShareId, result.topicId, result.operationId)
-          .catch((err) => console.error('[Gateway] share interruptTask failed:', err));
-        return;
-      }
-
       await interruptGatewayTaskOrThrow({
         operationId: result.operationId,
         topicId: result.topicId,
@@ -2002,16 +1943,6 @@ export class GatewayActionImpl {
     // Forward local-op cancellation to the server-side agent loop via tRPC.
     // See note in executeGatewayAgent for details.
     this.#get().onOperationCancel(gatewayOpId, async () => {
-      // Share visitors have no access to the owner-scoped interrupt (and no
-      // device runtimes to confirm), so they go through the share mirror —
-      // same split as executeGatewayAgent's cancel path.
-      if (agentShareId) {
-        await shareChatService
-          .interruptTask(agentShareId, topicId, operationId)
-          .catch((err) => console.error('[Gateway] share interruptTask failed:', err));
-        return;
-      }
-
       await interruptGatewayTaskOrThrow({ operationId });
 
       this.#settleLocalTopicAfterConfirmedStop({
@@ -2028,12 +1959,7 @@ export class GatewayActionImpl {
     // and does not retry the 404 forever.
     let token: string;
     try {
-      // Share visitors have no owner-scoped access to `aiAgentService.refreshGatewayToken`
-      // (its TopicModel is scoped to the caller, and share topics belong to the
-      // creator) — see the param JSDoc above for why the visitor mirror is used instead.
-      ({ token } = agentShareId
-        ? await shareChatService.refreshGatewayToken(agentShareId, topicId)
-        : await aiAgentService.refreshGatewayToken(topicId));
+      ({ token } = await aiAgentService.refreshGatewayToken(topicId));
     } catch (error) {
       // A replacement may have taken ownership while this request failed.
       // Its live marker must not be cleared by the discarded reconnect.

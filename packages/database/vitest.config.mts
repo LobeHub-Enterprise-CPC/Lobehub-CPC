@@ -2,8 +2,6 @@ import { resolve } from 'node:path';
 
 import { defineConfig } from 'vitest/config';
 
-import { enterpriseTestFiles } from './tests/enterprise-test-files.mjs';
-
 export default defineConfig({
   plugins: [
     {
@@ -31,11 +29,13 @@ export default defineConfig({
       '@/locales': resolve(__dirname, '../locales/src'),
       '@/business/server': resolve(__dirname, '../business-server/src'),
       '@/server/services': resolve(__dirname, '../../apps/server/src/services'),
+      '@/server/crypto': resolve(__dirname, '../../apps/server/src/crypto'),
       '@/server/modules': resolve(__dirname, '../../apps/server/src/modules'),
+      '@/server/globalConfig': resolve(__dirname, '../../apps/server/src/globalConfig'),
       '@': resolve(__dirname, '../../src'),
     },
-    // Standalone means the same thing inside and outside a parent checkout.
-    // The parent's explicit database config supplies the enterprise chain.
+    // Standalone means the same thing inside and outside a parent checkout: a
+    // distribution's extra chain is not picked up unless a run asks for it.
     env: { TEST_DB_EXTRA_MIGRATIONS_FOLDER: '' },
     coverage: {
       exclude: [
@@ -64,7 +64,6 @@ export default defineConfig({
       'node_modules/**/**',
       'src/server/**/**',
       'src/repositories/dataImporter/deprecated/**/**',
-      ...enterpriseTestFiles,
     ],
     server: {
       deps: {

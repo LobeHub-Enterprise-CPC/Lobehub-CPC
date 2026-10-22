@@ -2,15 +2,13 @@ import type { DocumentLoadFormat, DocumentLoadRule } from '@lobechat/agent-templ
 import { buildAgentDocumentUrl } from '@lobechat/builtin-tool-agent-documents';
 import { AgentDocumentsExecutionRuntime } from '@lobechat/builtin-tool-agent-documents/executionRuntime';
 import { AgentDocumentsExecutor } from '@lobechat/builtin-tool-agent-documents/executor';
-import { isDesktop } from '@lobechat/const';
+import { getAppBaseUrl } from '@lobechat/business-tenant/client';
 
 import { getActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import { agentDocumentService } from '@/services/agentDocument';
 import { invalidateDocumentMutation } from '@/services/document/invalidation';
 import { workService } from '@/services/work';
 import { useAgentStore } from '@/store/agent';
-import { useElectronStore } from '@/store/electron';
-import { electronSyncSelectors } from '@/store/electron/selectors';
 import { stashWorkIntent } from '@/utils/clientWorkIntentStash';
 
 interface DocumentWorkRefreshContext {
@@ -19,17 +17,11 @@ interface DocumentWorkRefreshContext {
 }
 
 /**
- * App origin for share links. Desktop points at the connected remote server so
- * the link opens the cloud app; web uses the current origin.
+ * Build the sharable document URL for the active workspace (stash intent + tool result share
+ * both use it), under the tenant's app address so the link opens the same organization.
  */
-const getAppOrigin = (): string | undefined => {
-  if (isDesktop) return electronSyncSelectors.remoteServerUrl(useElectronStore.getState());
-  return typeof window === 'undefined' ? undefined : window.location.origin;
-};
-
-/** Build the sharable document URL for the active workspace (stash intent + tool result share both use it). */
-const buildDocumentShareUrl = (agentId: string, documentId: string): string | undefined =>
-  buildAgentDocumentUrl(getAppOrigin(), agentId, documentId, {
+export const buildDocumentShareUrl = (agentId: string, documentId: string): string | undefined =>
+  buildAgentDocumentUrl(getAppBaseUrl() || undefined, agentId, documentId, {
     workspaceSlug: getActiveWorkspaceSlug(),
   });
 

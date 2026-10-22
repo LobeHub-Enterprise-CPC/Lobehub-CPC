@@ -55,13 +55,14 @@ const getToolFailureKind = (result: RetryableToolResult): RuntimeToolFailureKind
 };
 
 export const executeToolWithRetry = async <TResult extends RetryableToolResult>(
-  execute: () => Promise<TResult>,
+  /** Receives the 1-based attempt number of this execution. */
+  execute: (attempt: number) => Promise<TResult>,
   params: ExecuteToolWithRetryParams,
 ): Promise<{ attempts: number; result: TResult }> => {
   const maxAttempts = params.maxRetries + 1;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const result = await execute();
+    const result = await execute(attempt);
 
     if (result.success) return { attempts: attempt, result };
 

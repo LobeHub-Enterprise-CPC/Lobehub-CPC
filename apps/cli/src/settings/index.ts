@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -41,8 +41,12 @@ const WORKSPACE_ENROLLMENTS_FILE = path.join(SETTINGS_DIR, 'workspace-enrollment
 const ACTIVE_WORKSPACE_FILE = path.join(SETTINGS_DIR, 'active-workspace');
 const WORKSPACE_ID_PATTERN = /^[\w-]{1,64}$/;
 
+/**
+ * Drop trailing slashes. The path is kept: the server URL may be a tenant address
+ * (`https://host/t/acme`) whose prefix every request path is appended to.
+ */
 export function normalizeUrl(url: string | undefined): string | undefined {
-  return url ? url.replace(/\/$/, '') : undefined;
+  return url ? url.replace(/\/+$/, '') : undefined;
 }
 
 export function resolveServerUrl(): string {
@@ -147,9 +151,18 @@ export function loadOrCreateConnectionId(): string {
  * Missing / corrupt file degrades to "no enrollments" — the server remains the
  * source of truth, this list is only the reconnect hint.
  */
-export function loadWorkspaceEnrollments(): string[] {
+function workspaceEnrollmentsPath(scope?: string) {
+  return scope
+    ? path.join(
+        SETTINGS_DIR,
+        `workspace-enrollments-${createHash('sha256').update(scope).digest('hex')}.json`,
+      )
+    : WORKSPACE_ENROLLMENTS_FILE;
+}
+
+export function loadWorkspaceEnrollments(scope?: string): string[] {
   try {
-    const data = fs.readFileSync(WORKSPACE_ENROLLMENTS_FILE, 'utf8');
+    const data = fs.readFileSync(workspaceEnrollmentsPath(scope), 'utf8');
     const parsed: unknown = JSON.parse(data);
     if (Array.isArray(parsed)) return parsed.filter((v): v is string => typeof v === 'string');
   } catch {
@@ -158,14 +171,14 @@ export function loadWorkspaceEnrollments(): string[] {
   return [];
 }
 
-function saveWorkspaceEnrollments(workspaceIds: string[]): void {
+function saveWorkspaceEnrollments(workspaceIds: string[], scope?: string): void {
   try {
     if (workspaceIds.length === 0) {
-      fs.unlinkSync(WORKSPACE_ENROLLMENTS_FILE);
+      fs.unlinkSync(workspaceEnrollmentsPath(scope));
       return;
     }
     fs.mkdirSync(SETTINGS_DIR, { mode: 0o700, recursive: true });
-    fs.writeFileSync(WORKSPACE_ENROLLMENTS_FILE, JSON.stringify(workspaceIds, null, 2), {
+    fs.writeFileSync(workspaceEnrollmentsPath(scope), JSON.stringify(workspaceIds, null, 2), {
       mode: 0o600,
     });
   } catch {
@@ -173,16 +186,19 @@ function saveWorkspaceEnrollments(workspaceIds: string[]): void {
   }
 }
 
-export function addWorkspaceEnrollment(workspaceId: string): void {
-  const current = loadWorkspaceEnrollments();
+export function addWorkspaceEnrollment(workspaceId: string, scope?: string): void {
+  const current = loadWorkspaceEnrollments(scope);
   if (current.includes(workspaceId)) return;
-  saveWorkspaceEnrollments([...current, workspaceId]);
+  saveWorkspaceEnrollments([...current, workspaceId], scope);
 }
 
-export function removeWorkspaceEnrollment(workspaceId: string): void {
-  const current = loadWorkspaceEnrollments();
+export function removeWorkspaceEnrollment(workspaceId: string, scope?: string): void {
+  const current = loadWorkspaceEnrollments(scope);
   if (!current.includes(workspaceId)) return;
-  saveWorkspaceEnrollments(current.filter((id) => id !== workspaceId));
+  saveWorkspaceEnrollments(
+    current.filter((id) => id !== workspaceId),
+    scope,
+  );
 }
 
 /**

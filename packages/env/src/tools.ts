@@ -8,11 +8,12 @@ const optionalNumberEnv = (min: number, max: number) =>
   );
 
 const SUPPORTED_MULTIMODAL_IMAGE_FORMATS = ['image/jpeg', 'image/png', 'image/webp'] as const;
-const DEFAULT_MULTIMODAL_IMAGE_FORMATS = SUPPORTED_MULTIMODAL_IMAGE_FORMATS.slice(0, 2);
-const MULTIMODAL_IMAGE_FORMAT_ALIASES: Record<
-  string,
-  (typeof SUPPORTED_MULTIMODAL_IMAGE_FORMATS)[number]
-> = {
+
+export type MultimodalImageFormat = (typeof SUPPORTED_MULTIMODAL_IMAGE_FORMATS)[number];
+
+export const DEFAULT_MULTIMODAL_IMAGE_FORMATS: MultimodalImageFormat[] =
+  SUPPORTED_MULTIMODAL_IMAGE_FORMATS.slice(0, 2);
+const MULTIMODAL_IMAGE_FORMAT_ALIASES: Record<string, MultimodalImageFormat> = {
   'image/jpeg': 'image/jpeg',
   'image/jpg': 'image/jpeg',
   'image/png': 'image/png',
@@ -44,15 +45,6 @@ const multimodalImageFormatsEnv = z.preprocess(
 );
 
 export const getToolsConfig = () => {
-  /**
-   * Keep the visual-understanding variables as migration fallbacks while
-   * exposing only the canonical multimodal configuration to consumers.
-   */
-  const multimodalUnderstandingModel =
-    process.env.MULTIMODAL_UNDERSTANDING_MODEL ?? process.env.VISUAL_UNDERSTANDING_MODEL;
-  const multimodalUnderstandingProvider =
-    process.env.MULTIMODAL_UNDERSTANDING_PROVIDER ?? process.env.VISUAL_UNDERSTANDING_PROVIDER;
-
   return createEnv({
     runtimeEnv: {
       CRAWL_CONCURRENCY: process.env.CRAWL_CONCURRENCY,
@@ -64,8 +56,8 @@ export const getToolsConfig = () => {
       SEARXNG_URL: process.env.SEARXNG_URL,
       TOOL_NAME_MAX_LENGTH: process.env.TOOL_NAME_MAX_LENGTH,
       BUILTIN_TOOL_ID_NAMESPACE: process.env.BUILTIN_TOOL_ID_NAMESPACE,
-      MULTIMODAL_UNDERSTANDING_MODEL: multimodalUnderstandingModel,
-      MULTIMODAL_UNDERSTANDING_PROVIDER: multimodalUnderstandingProvider,
+      MULTIMODAL_UNDERSTANDING_MODEL: process.env.MULTIMODAL_UNDERSTANDING_MODEL,
+      MULTIMODAL_UNDERSTANDING_PROVIDER: process.env.MULTIMODAL_UNDERSTANDING_PROVIDER,
     },
 
     server: {

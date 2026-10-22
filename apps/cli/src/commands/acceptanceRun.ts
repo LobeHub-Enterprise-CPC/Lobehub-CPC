@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { acceptanceSubjectTypes } from '@lobechat/const/verify';
 import type { VerifyAgentPlanConfig, VerifyCheckItem } from '@lobechat/types';
+import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import type { Command } from 'commander';
 import pc from 'picocolors';
 
@@ -421,7 +422,7 @@ async function submitAction(options: SubmitOptions): Promise<void> {
     log.error('Submitted result did not resolve to a verification run');
     process.exit(1);
   }
-  const url = new URL(`/verify/${verifyRunId}`, resolveServerUrl()).toString();
+  const url = buildRemoteUrl(`/verify/${verifyRunId}`, resolveServerUrl()).toString();
   if (options.json !== undefined) {
     outputJson({ ...res, url }, typeof options.json === 'string' ? options.json : undefined);
     return;
@@ -929,7 +930,7 @@ async function ingestReportAction(reportDir: string, options: IngestReportOption
       `supersedes names no check of this acceptance, so nothing was replaced: ${unresolvedSupersedes.join(', ')}. Name it by a plan item id from an earlier round or a check id from \`lh acceptance view --json\`.`,
     );
   }
-  const acceptanceUrl = new URL(
+  const acceptanceUrl = buildRemoteUrl(
     `/acceptance/${encodeURIComponent(acceptanceId)}`,
     resolveServerUrl(),
   ).toString();

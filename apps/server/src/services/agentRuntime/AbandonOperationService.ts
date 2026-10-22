@@ -1,7 +1,7 @@
 import type { ISnapshotStore } from '@lobechat/agent-tracing';
 import { LOADING_FLAT } from '@lobechat/const';
 import { ABANDONED_OPERATION_ERROR_PREFIX } from '@lobechat/const/goal';
-import type { ChatMessageError } from '@lobechat/types';
+import type { ChatMessageError, GatewayExecutionContext } from '@lobechat/types';
 import { AgentRuntimeErrorType } from '@lobechat/types';
 import debug from 'debug';
 import { and, desc, eq, gt, gte, isNull, lte, ne, or, sql } from 'drizzle-orm';
@@ -16,6 +16,7 @@ import type { LobeChatDatabase } from '@/database/type';
 // its workspace-package transitive deps in the unit-test environment.
 import { AgentRuntimeCoordinator } from '@/server/modules/AgentRuntime/AgentRuntimeCoordinator';
 
+import { cleanupAbandonedOperation } from './cleanupAbandonedOperation';
 import { CompletionLifecycle } from './CompletionLifecycle';
 import { getServerHooks } from './hooks/serverHooks';
 import type { SerializedHook } from './hooks/types';
@@ -128,13 +129,27 @@ export class AbandonOperationService {
   async finalizeAbandoned(
     operationId: string,
     reason: string,
-    options?: { settledAsAbandoned?: boolean },
+    options?: {
+      cleanupOnly?: boolean;
+      settledAsAbandoned?: boolean;
+      expectedExecution?: GatewayExecutionContext & { parentOperationId?: string | null };
+    },
   ): Promise<FinalizeAbandonedResult> {
     const result: FinalizeAbandonedResult = {
       assistantMessageUpdated: false,
       finalized: false,
       found: false,
     };
+
+    if (options?.cleanupOnly) {
+      result.abandoned = await cleanupAbandonedOperation(
+        this.db,
+        operationId,
+        options.expectedExecution,
+      );
+      if (result.abandoned) await this.coordinator.deleteAgentOperation(operationId);
+      return result;
+    }
 
     const state = await this.coordinator.loadAgentState(operationId);
     if (!state) {

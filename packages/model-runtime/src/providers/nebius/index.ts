@@ -28,7 +28,9 @@ export const params = {
     const base = (client as any).baseURL || 'https://api.studio.nebius.com/v1';
     const url = `${base.replace(/\/+$/, '')}/models?verbose=true`;
 
-    const res = await fetch(url, {
+    // The client carries the SSRF-safe transport when the endpoint is user-provided.
+    const clientFetch = (client as any).fetch as typeof fetch | undefined;
+    const res = await (clientFetch ?? fetch)(url, {
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${client.apiKey}`,

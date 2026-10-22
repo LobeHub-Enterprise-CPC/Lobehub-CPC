@@ -432,3 +432,7 @@ describe('AiAgentService.execAgent - queued follow-up steer mark', () => {
     expect(userMessageCall()![0].metadata?.steer).toBeUndefined();
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

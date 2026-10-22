@@ -1,6 +1,7 @@
 'use client';
 
 import { SiGithub, SiX } from '@icons-pack/react-simple-icons';
+import { resolveAppUrl } from '@lobechat/business-tenant/client';
 import { Flexbox, Tooltip, TooltipGroup } from '@lobehub/ui';
 import { ActionIcon, Avatar, Tag, Text } from '@lobehub/ui/base-ui';
 import { cssVar } from 'antd-style';
@@ -16,8 +17,7 @@ import Banner from './Banner';
 
 const normalizeUrl = (input?: string | null) => {
   if (!input) return undefined;
-  if (input.startsWith('/')) return `${window.location.origin}${input}`;
-  return input;
+  return resolveAppUrl(input);
 };
 
 const OrganizationHeader = memo(() => {

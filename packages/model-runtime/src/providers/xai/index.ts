@@ -143,6 +143,7 @@ export const LobeXAI = createOpenAICompatibleRuntime({
     return pollXAIVideoStatus(inferenceId, {
       apiKey: options.apiKey,
       baseURL: options.baseURL || '',
+      fetch: options.fetch,
     });
   },
   debug: {

@@ -1,4 +1,5 @@
 import { BRANDING_NAME } from '@lobechat/business-const';
+import { createSsrfSafeFetch } from '@lobechat/ssrf-safe-fetch';
 import {
   discoverAuthorizationServerMetadata,
   discoverOAuthProtectedResourceMetadata,
@@ -19,22 +20,30 @@ import debug from 'debug';
 
 import type { OIDCConfig } from '@/database/schemas';
 import { appEnv } from '@/envs/app';
+import { buildTenantPublicUrl } from '@/server/modules/Tenant/callbackUrl';
 
 const log = debug('lobe-server:connector:oauth');
+
+/**
+ * The MCP server URL is typed in by the user and the authorization server it points
+ * to is chosen by that server, so every request here (probe, discovery, client
+ * registration, code exchange, refresh) uses the connect-time-filtered transport.
+ */
+const safeFetch = createSsrfSafeFetch();
 
 export const CONNECTOR_OAUTH_CALLBACK_PATH = '/oauth/connector/callback';
 
 /**
- * Fixed redirect URI for all custom-connector OAuth flows. Pre-registration
- * users must register this exact URI with their OAuth app; DCR sends it as a
- * redirect_uri at registration time.
+ * Redirect URI for custom-connector OAuth flows in the current tenant.
+ * Pre-registration users must register this exact URI with their OAuth app;
+ * DCR sends it as a redirect_uri at registration time.
  */
 export const getConnectorRedirectUri = (): string => {
   const base = appEnv.APP_URL;
   if (!base) {
     throw new Error('APP_URL is not configured; cannot build connector OAuth redirect URI');
   }
-  return new URL(CONNECTOR_OAUTH_CALLBACK_PATH, base).toString();
+  return buildTenantPublicUrl(CONNECTOR_OAUTH_CALLBACK_PATH);
 };
 
 export interface DiscoveredOAuth {
@@ -57,7 +66,7 @@ export interface DiscoveredOAuth {
 export const discoverConnectorOAuth = async (mcpServerUrl: string): Promise<DiscoveredOAuth> => {
   let resourceMetadataUrl: URL | undefined;
   try {
-    const res = await fetch(mcpServerUrl, {
+    const res = await safeFetch(mcpServerUrl, {
       headers: { accept: 'application/json, text/event-stream' },
       method: 'GET',
     });
@@ -68,7 +77,11 @@ export const discoverConnectorOAuth = async (mcpServerUrl: string): Promise<Disc
 
   let authorizationServerUrl: string | undefined;
   try {
-    const prm = await discoverOAuthProtectedResourceMetadata(mcpServerUrl, { resourceMetadataUrl });
+    const prm = await discoverOAuthProtectedResourceMetadata(
+      mcpServerUrl,
+      { resourceMetadataUrl },
+      safeFetch,
+    );
     authorizationServerUrl = prm?.authorization_servers?.[0]?.toString();
   } catch (err) {
     log('protected-resource-metadata discovery failed: %O', err);
@@ -77,7 +90,9 @@ export const discoverConnectorOAuth = async (mcpServerUrl: string): Promise<Disc
   // Fallback: assume the authorization server lives at the MCP server origin.
   if (!authorizationServerUrl) authorizationServerUrl = new URL(mcpServerUrl).origin;
 
-  const metadata = await discoverAuthorizationServerMetadata(authorizationServerUrl);
+  const metadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, {
+    fetchFn: safeFetch,
+  });
   if (!metadata) {
     throw new Error(`Failed to discover OAuth metadata for ${authorizationServerUrl}`);
   }
@@ -125,6 +140,7 @@ export const registerDynamicClient = async (params: {
       scope: params.scopes?.join(' '),
       token_endpoint_auth_method: selectRegistrationAuthMethod(params.metadata),
     },
+    fetchFn: safeFetch,
     metadata: params.metadata,
     scope: params.scopes?.join(' '),
   });
@@ -255,6 +271,7 @@ export const exchangeConnectorCode = async (params: {
       authorizationCode: params.authorizationCode,
       clientInformation,
       codeVerifier: params.codeVerifier,
+      fetchFn: safeFetch,
       metadata: params.metadata,
       redirectUri: params.redirectUri,
       resource: params.resource ? new URL(params.resource) : undefined,
@@ -272,6 +289,7 @@ export const refreshConnectorToken = async (params: {
   withClientAuthFallback(params.clientInformation, params.metadata, (clientInformation) =>
     refreshAuthorization(params.authorizationServerUrl, {
       clientInformation,
+      fetchFn: safeFetch,
       metadata: params.metadata,
       refreshToken: params.refreshToken,
       resource: params.resource ? new URL(params.resource) : undefined,

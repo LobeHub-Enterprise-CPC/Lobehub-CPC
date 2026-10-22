@@ -7,8 +7,12 @@ import {
 import { isLocalOrPrivateUrl, safeParseJSON } from '@lobechat/utils';
 import { deserializeMcpIpcPayload, serializeMcpIpcPayload } from '@lobechat/utils/mcpIpcPayload';
 import { type PluginManifest } from '@lobehub/market-sdk';
-import { type CallReportRequest } from '@lobehub/market-types';
 
+import {
+  inspectToolResultOutcome,
+  newClientExecutionId,
+  startTelemetryExecution,
+} from '@/libs/market-telemetry';
 import { type MCPToolCallResult } from '@/libs/mcp';
 import { toolsClient } from '@/libs/trpc/client';
 import { ensureElectronIpc } from '@/utils/electron/ipc';
@@ -57,8 +61,11 @@ class MCPService {
       (connector.mcpServerUrl || connector.mcpConnectionType === 'stdio')
     ) {
       const { lambdaClient } = await import('@/libs/trpc/client');
+      // The server runs the connector and reports it (the shared execution
+      // boundary), so the client reports nothing here; it only names this
+      // invocation, so a transport retry of the request is the same event.
       return (await lambdaClient.connector.callTool.mutate(
-        { args, identifier, toolName: apiName },
+        { args, executionId: newClientExecutionId(), identifier, toolName: apiName },
         { signal },
       )) as MCPToolCallResult;
     }
@@ -108,6 +115,12 @@ class MCPService {
     const isCloud = plugin?.customParams?.mcp?.type === 'cloud';
     const isCustomPlugin = !!customPlugin;
 
+    // One id for this invocation. The server-side paths take it in `meta` and the
+    // stdio path below reports with it, so a retry of either report is the same
+    // event while the next invocation of the same tool call is a different one.
+    const executionId = newClientExecutionId();
+    const telemetry = startTelemetryExecution({ attempt: 1, eventType: 'call', executionId });
+
     // Build meta for server-side reporting
     const meta = {
       customPluginInfo: isCustomPlugin
@@ -117,6 +130,7 @@ class MCPService {
             name: plugin.manifest?.meta.title,
           }
         : undefined,
+      executionId,
       isCustomPlugin,
       sessionId: topicId,
       version: plugin.manifest?.version || 'unknown',
@@ -132,12 +146,8 @@ class MCPService {
       toolName: apiName,
     };
 
-    // Record call start time
-    const callStartTime = Date.now();
-    let success = false;
-    let errorCode: string | undefined;
-    let errorMessage: string | undefined;
     let result: MCPToolCallResult | undefined;
+    let thrown: unknown;
 
     try {
       // For cloud type, call via cloud gateway
@@ -166,12 +176,9 @@ class MCPService {
         result = await toolsClient.mcp.callTool.mutate(data, { signal });
       }
 
-      success = true;
       return result;
     } catch (error) {
-      const err = error as Error;
-      errorCode = 'CALL_FAILED';
-      errorMessage = err.message;
+      thrown = error;
 
       // Rethrow error, maintain original error handling logic
       throw error;
@@ -180,41 +187,39 @@ class MCPService {
       // Cloud type: reporting is handled by server-side via market.callCloudMcpEndpoint
       // Only report from frontend for stdio types (desktop only)
       if (isStdio) {
-        const callEndTime = Date.now();
-        const callDurationMs = callEndTime - callStartTime;
+        // The one place this call's outcome and duration are fixed; the report
+        // (and any retry of it) carries exactly this.
+        const execution = telemetry.complete({ ...inspectToolResultOutcome(result), thrown });
 
         // Calculate request size
         const inputParams = safeParseJSON(args) || args;
         const requestSizeBytes = calculateObjectSizeBytes(inputParams);
         // Calculate response size
-        const responseSizeBytes = success && result ? calculateObjectSizeBytes(result.state) : 0;
-
-        // Construct report data
-        const reportData: CallReportRequest = {
-          callDurationMs,
-          customPluginInfo: meta.customPluginInfo,
-          errorCode,
-          errorMessage,
-          identifier,
-          isCustomPlugin,
-          metadata: {
-            appVersion: CURRENT_VERSION,
-            command: plugin.customParams?.mcp?.command,
-            mcpType: plugin.customParams?.mcp?.type,
-          },
-          methodName: apiName,
-          methodType: 'tool' as const,
-          requestSizeBytes,
-          responseSizeBytes,
-          sessionId: topicId,
-          success,
-          version: meta.version,
-        };
+        const responseSizeBytes =
+          execution.success && result ? calculateObjectSizeBytes(result.state) : 0;
 
         // Asynchronously report without affecting main flow
-        discoverService.reportPluginCall(reportData).catch((reportError) => {
-          console.warn('Failed to report MCP tool call:', reportError);
-        });
+        discoverService
+          .reportPluginCall({
+            customPluginInfo: meta.customPluginInfo,
+            execution,
+            identifier,
+            isCustomPlugin,
+            metadata: {
+              appVersion: CURRENT_VERSION,
+              command: plugin.customParams?.mcp?.command,
+              mcpType: plugin.customParams?.mcp?.type,
+            },
+            methodName: apiName,
+            methodType: 'tool' as const,
+            requestSizeBytes,
+            responseSizeBytes,
+            sessionId: topicId,
+            version: meta.version,
+          })
+          .catch((reportError) => {
+            console.warn('Failed to report MCP tool call:', reportError);
+          });
       }
     }
   }
@@ -245,7 +250,7 @@ class MCPService {
     }
 
     // Otherwise use toolsClient (via server relay)
-    return toolsClient.mcp.getStreamableMcpServerManifest.query(params, { signal });
+    return toolsClient.mcp.getStreamableMcpServerManifest.mutate(params, { signal });
   }
 
   async getStdioMcpServerManifest(

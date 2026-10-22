@@ -3,9 +3,12 @@
 import { createTRPCClient, httpLink } from '@trpc/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { signInternalJWT } from '@/libs/trpc/utils/internalJwt';
 
 import { createAsyncServerClient } from '../caller';
+
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');
 
 // Create mockable appEnv - use object property to allow mutation
 const mockAppEnv: { APP_URL?: string; INTERNAL_APP_URL?: string | null | undefined } = {
@@ -22,14 +25,10 @@ vi.mock('@trpc/client', () => ({
 }));
 
 vi.mock('@/envs/app', () => ({
+  getAppOriginUrl: () => mockAppEnv.APP_URL,
+  getInternalApiUrl: () => mockAppEnv.INTERNAL_APP_URL || mockAppEnv.APP_URL,
   get appEnv() {
     return mockAppEnv;
-  },
-}));
-
-vi.mock('@/server/modules/KeyVaultsEncrypt', () => ({
-  KeyVaultsGateKeeper: {
-    initWithEnvKey: vi.fn(),
   },
 }));
 
@@ -51,10 +50,6 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    const mockEncrypt = vi.fn().mockResolvedValue('encrypted-payload-data');
-    vi.mocked(KeyVaultsGateKeeper.initWithEnvKey).mockResolvedValue({
-      encrypt: mockEncrypt,
-    } as any);
     vi.mocked(createTRPCClient).mockReturnValue({ _mockClient: true } as any);
 
     // Reset to default values by mutating the object
@@ -72,7 +67,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const config = vi.mocked(createTRPCClient).mock.calls[0][0];
       const httpLinkOptions = config.links[0] as any;
 
-      expect(httpLinkOptions.url).toBe('http://localhost:3210/trpc/async');
+      expect(httpLinkOptions.url).toBe('http://localhost:3210/t/acme/trpc/async');
       expect(httpLinkOptions.url).not.toContain('public.example.com');
     });
 
@@ -87,7 +82,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const config = vi.mocked(createTRPCClient).mock.calls[0][0];
       const httpLinkOptions = config.links[0] as any;
 
-      expect(httpLinkOptions.url).toBe('https://fallback.example.com/trpc/async');
+      expect(httpLinkOptions.url).toBe('https://fallback.example.com/t/acme/trpc/async');
     });
 
     it('should use localhost to bypass CDN proxy', async () => {
@@ -99,7 +94,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const config = vi.mocked(createTRPCClient).mock.calls[0][0];
       const httpLinkOptions = config.links[0] as any;
 
-      expect(httpLinkOptions.url).toBe('http://127.0.0.1:3210/trpc/async');
+      expect(httpLinkOptions.url).toBe('http://127.0.0.1:3210/t/acme/trpc/async');
       expect(httpLinkOptions.url).not.toContain('cdn-proxied');
     });
 
@@ -112,7 +107,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const config = vi.mocked(createTRPCClient).mock.calls[0][0];
       const httpLinkOptions = config.links[0] as any;
 
-      expect(httpLinkOptions.url).toBe('http://lobe-service:3210/trpc/async');
+      expect(httpLinkOptions.url).toBe('http://lobe-service:3210/t/acme/trpc/async');
     });
 
     it('should handle INTERNAL_APP_URL with trailing slash', async () => {
@@ -124,7 +119,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const httpLinkOptions = config.links[0] as any;
 
       // urlJoin should normalize the trailing slash
-      expect(httpLinkOptions.url).toBe('http://localhost:3210/trpc/async');
+      expect(httpLinkOptions.url).toBe('http://localhost:3210/t/acme/trpc/async');
     });
 
     it('should handle INTERNAL_APP_URL without trailing slash', async () => {
@@ -135,7 +130,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const config = vi.mocked(createTRPCClient).mock.calls[0][0];
       const httpLinkOptions = config.links[0] as any;
 
-      expect(httpLinkOptions.url).toBe('https://example.com/trpc/async');
+      expect(httpLinkOptions.url).toBe('https://example.com/t/acme/trpc/async');
     });
   });
 
@@ -150,25 +145,18 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       expect(httpLinkOptions.headers.Authorization).toBe('mock-internal-jwt-token');
     });
 
-    it('should encrypt and include userId in x-lobe-chat-auth header', async () => {
-      const mockEncrypt = vi.fn().mockResolvedValue('test-encrypted-auth-data');
-      vi.mocked(KeyVaultsGateKeeper.initWithEnvKey).mockResolvedValueOnce({
-        encrypt: mockEncrypt,
-      } as any);
+    it('should sign the user into the internal JWT instead of sending a separate user header', async () => {
+      await createAsyncServerClient('user-signed');
 
-      await createAsyncServerClient('user-encrypt');
-
-      expect(KeyVaultsGateKeeper.initWithEnvKey).toHaveBeenCalled();
-      expect(mockEncrypt).toHaveBeenCalledWith(JSON.stringify({ userId: 'user-encrypt' }));
+      expect(signInternalJWT).toHaveBeenCalledWith('user-signed');
 
       const config = vi.mocked(createTRPCClient).mock.calls[0][0];
       const httpLinkOptions = config.links[0] as any;
 
-      // The header name is from LOBE_CHAT_AUTH_HEADER constant
-      expect(httpLinkOptions.headers).toHaveProperty('Authorization');
-      // The X-lobe-chat-auth header should be present
-      expect(Object.keys(httpLinkOptions.headers)).toContain('X-lobe-chat-auth');
-      expect(httpLinkOptions.headers['X-lobe-chat-auth']).toBe('test-encrypted-auth-data');
+      expect(httpLinkOptions.headers.Authorization).toBe('mock-internal-jwt-token');
+      expect(Object.keys(httpLinkOptions.headers).map((name) => name.toLowerCase())).not.toContain(
+        'x-lobe-chat-auth',
+      );
     });
 
     it('should include Vercel bypass secret when available', async () => {
@@ -204,15 +192,12 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
   });
 
   describe('error handling', () => {
-    it('should handle encryption failure gracefully', async () => {
-      const mockEncrypt = vi.fn().mockRejectedValueOnce(new Error('Encryption failed'));
-      vi.mocked(KeyVaultsGateKeeper.initWithEnvKey).mockResolvedValueOnce({
-        encrypt: mockEncrypt,
-      } as any);
+    it('should not create a client when the token cannot be signed', async () => {
+      vi.mocked(signInternalJWT).mockRejectedValueOnce(new Error('Signing failed'));
 
-      await expect(createAsyncServerClient('user-enc-fail')).rejects.toThrow('Encryption failed');
+      await expect(createAsyncServerClient('user-sign-fail')).rejects.toThrow('Signing failed');
 
-      expect(KeyVaultsGateKeeper.initWithEnvKey).toHaveBeenCalled();
+      expect(createTRPCClient).not.toHaveBeenCalled();
     });
 
     it('should handle missing INTERNAL_APP_URL by using APP_URL', async () => {
@@ -302,7 +287,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const httpLinkOptions = config.links[0] as any;
 
       // Should use localhost to avoid CDN timeout
-      expect(httpLinkOptions.url).toBe('http://localhost:3210/trpc/async');
+      expect(httpLinkOptions.url).toBe('http://localhost:3210/t/acme/trpc/async');
     });
 
     it('should handle Docker Compose deployment with service names', async () => {
@@ -314,7 +299,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const config = vi.mocked(createTRPCClient).mock.calls[0][0];
       const httpLinkOptions = config.links[0] as any;
 
-      expect(httpLinkOptions.url).toBe('http://lobehub:3210/trpc/async');
+      expect(httpLinkOptions.url).toBe('http://lobehub:3210/t/acme/trpc/async');
     });
 
     it('should handle deployment without CDN (INTERNAL_APP_URL not set)', async () => {
@@ -328,7 +313,7 @@ describe('createAsyncServerClient - INTERNAL_APP_URL Tests', () => {
       const httpLinkOptions = config.links[0] as any;
 
       // Should fallback to APP_URL
-      expect(httpLinkOptions.url).toBe('https://direct-access.example.com/trpc/async');
+      expect(httpLinkOptions.url).toBe('https://direct-access.example.com/t/acme/trpc/async');
     });
   });
 });

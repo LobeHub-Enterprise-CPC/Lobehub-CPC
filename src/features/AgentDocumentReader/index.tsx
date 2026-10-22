@@ -1,5 +1,6 @@
 'use client';
 
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { Button } from '@lobehub/ui/base-ui';
 import ActionIcon from '@lobehub/ui/es/ActionIcon/index';
 import { Center, Flexbox } from '@lobehub/ui/es/Flex/index';
@@ -56,7 +57,7 @@ const AgentDocumentReader = memo<AgentDocumentReaderProps>(({ agentId, documentI
     { revalidateOnFocus: false },
   );
 
-  const backToAgent = () => window.location.assign(`/agent/${agentId}`);
+  const backToAgent = () => window.location.assign(withCurrentTenantPath(`/agent/${agentId}`));
   const title = data?.title || data?.filename || '';
 
   return (

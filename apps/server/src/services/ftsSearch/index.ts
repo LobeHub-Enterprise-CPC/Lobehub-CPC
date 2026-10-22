@@ -1,4 +1,6 @@
 import type { LobeChatDatabase } from '@lobechat/database';
+import { tenantFtsSearchNamespace } from '@lobechat/database/tenant';
+import { currentTenantScope } from '@lobechat/database/tenant/requestScope';
 
 import {
   ElasticsearchFtsSearchBackend,
@@ -78,10 +80,18 @@ export class FtsSearchBackendUnavailableError extends Error {
   }
 }
 
+/**
+ * Elasticsearch configuration of the current tenant: its own index namespace
+ * (`tenantFtsSearchNamespace`), the one the per-tenant reindex writes. Outside a
+ * tenant there is nothing to search, so there is no configuration.
+ */
 export const loadElasticsearchFtsSearchConfig = (): ElasticsearchFtsSearchConfig | undefined => {
-  const indexNamespace =
+  const scope = currentTenantScope();
+  if (!scope) return;
+  const baseNamespace =
     ftsSearchEnv.ES_INDEX_NAMESPACE ??
     (process.env.NODE_ENV === 'development' ? 'lobehub-dev' : undefined);
+  const indexNamespace = baseNamespace && tenantFtsSearchNamespace(baseNamespace, scope.tenantId);
   const allowInsecureHttp = ftsSearchEnv.ES_ALLOW_INSECURE_HTTP === 'true';
   /** The Elastic Cloud path keeps requiring an API key; only the explicit insecure mode may omit it. */
   if (!ftsSearchEnv.ES_URL || !indexNamespace) return;

@@ -221,13 +221,19 @@ describe('mocked', () => {
     await provider.disconnect();
   });
 
-  it('forwards scan to ioredis', async () => {
+  it('scans its deployment namespace and returns logical keys for subsequent commands', async () => {
     const { mocks, provider } = await createMockedProvider();
-    mocks.scan.mockResolvedValue(['0', ['workflow:run-guard:global']]);
+    mocks.scan.mockResolvedValue(['0', ['mock:workflow:run-guard:global']]);
 
     const result = await provider.scan('0', 'MATCH', 'workflow:run-guard:*', 'COUNT', 100);
 
-    expect(mocks.scan).toHaveBeenCalledWith('0', 'MATCH', 'workflow:run-guard:*', 'COUNT', 100);
+    expect(mocks.scan).toHaveBeenCalledWith(
+      '0',
+      'MATCH',
+      'mock:workflow:run-guard:*',
+      'COUNT',
+      100,
+    );
     expect(result).toEqual(['0', ['workflow:run-guard:global']]);
     await provider.disconnect();
   });

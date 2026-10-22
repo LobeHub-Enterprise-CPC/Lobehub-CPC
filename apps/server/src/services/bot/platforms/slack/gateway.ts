@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto';
 
+import { currentTenantScope, trackTenantWork } from '@lobechat/database/tenant';
 import debug from 'debug';
 
 import { SLACK_API_BASE } from './api';
@@ -64,7 +65,7 @@ export class SlackSocketModeConnection {
   async connect(): Promise<void> {
     if (this.abortSignal?.aborted) return;
 
-    const url = await this.getSocketUrl();
+    const url = await trackTenantWork(() => this.getSocketUrl());
     log('Socket Mode URL obtained');
 
     return this.openConnection(url);
@@ -113,8 +114,33 @@ export class SlackSocketModeConnection {
         return;
       }
 
-      const ws = new WebSocket(url);
+      let socket: WebSocket | undefined;
+      let finish!: () => void;
+      const settled = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const unbind = currentTenantScope()?.trackWork?.({
+        close: () => socket?.close(1000, 'Tenant stopped'),
+        settled,
+      });
+      try {
+        socket = new WebSocket(url);
+      } catch (error) {
+        finish();
+        unbind?.();
+        reject(error);
+        return;
+      }
+      const ws = socket;
       this.ws = ws;
+      ws.addEventListener(
+        'close',
+        () => {
+          finish();
+          unbind?.();
+        },
+        { once: true },
+      );
 
       let resolved = false;
 
@@ -242,12 +268,14 @@ export class SlackSocketModeConnection {
   private forwardEvent(envelope: SlackSocketEnvelope): void {
     const forwardedRequest = this.buildForwardedRequest(envelope);
 
-    fetch(this.webhookUrl, {
-      body: forwardedRequest.body,
-      headers: forwardedRequest.headers,
-      method: 'POST',
-      signal: AbortSignal.timeout(30_000),
-    }).catch((err) => {
+    void trackTenantWork(() =>
+      fetch(this.webhookUrl, {
+        body: forwardedRequest.body,
+        headers: forwardedRequest.headers,
+        method: 'POST',
+        signal: AbortSignal.timeout(30_000),
+      }),
+    ).catch((err) => {
       log('Failed to forward event to webhook: %O', err);
     });
   }
@@ -333,7 +361,7 @@ export class SlackSocketModeConnection {
 
       try {
         // Get a fresh WSS URL for each reconnect
-        const url = await this.getSocketUrl();
+        const url = await trackTenantWork(() => this.getSocketUrl());
         await this.openConnection(url);
       } catch (err) {
         log('Reconnect failed: %O', err);

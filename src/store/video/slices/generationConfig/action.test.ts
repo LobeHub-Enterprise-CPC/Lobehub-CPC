@@ -286,6 +286,48 @@ describe('image input mode', () => {
     expect(result.current.imageInputMode).toBe('frames');
     expect(result.current.parameters).toMatchObject({ imageUrl: 'start.png', imageUrls: [] });
   });
+
+  it('does not throw or change state when the reused model is no longer enabled', () => {
+    const { result } = renderHook(() => useVideoStore());
+    const before = {
+      model: result.current.model,
+      parameters: result.current.parameters,
+      provider: result.current.provider,
+    };
+
+    let removedModelResult: boolean | undefined;
+    let removedProviderResult: boolean | undefined;
+    expect(() => {
+      act(() => {
+        removedModelResult = result.current.reuseVideoSettings('removed-model', 'provider-a', {
+          prompt: 'x',
+        } as RuntimeVideoGenParams);
+        removedProviderResult = result.current.reuseVideoSettings(
+          'video-model-a',
+          'removed-provider',
+        );
+      });
+    }).not.toThrow();
+
+    expect(removedModelResult).toBe(false);
+    expect(removedProviderResult).toBe(false);
+    expect({
+      model: result.current.model,
+      parameters: result.current.parameters,
+      provider: result.current.provider,
+    }).toEqual(before);
+  });
+
+  it('reports success when the reused model is enabled', () => {
+    const { result } = renderHook(() => useVideoStore());
+    let reused: boolean | undefined;
+
+    act(() => {
+      reused = result.current.reuseVideoSettings('video-model-b', 'provider-b');
+    });
+
+    expect(reused).toBe(true);
+  });
 });
 
 describe('uploading image previews', () => {

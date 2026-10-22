@@ -1,3 +1,4 @@
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { copyToClipboard } from '@lobehub/ui';
 import { toast } from '@lobehub/ui/base-ui';
 import { useCallback, useMemo } from 'react';
@@ -5,7 +6,6 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { useTaskStore } from '@/store/task';
 import { taskDetailSelectors } from '@/store/task/selectors';
 
@@ -18,7 +18,7 @@ import { taskDetailPath } from '../shared/taskDetailPath';
 export const useTaskCopyActions = () => {
   const { t } = useTranslation('chat');
 
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
   const taskId = useTaskStore(taskDetailSelectors.activeTaskId);
   const taskAgentId = useTaskStore(taskDetailSelectors.activeTaskAgentId);

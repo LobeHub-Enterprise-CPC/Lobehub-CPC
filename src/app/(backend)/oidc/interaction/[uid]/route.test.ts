@@ -2,6 +2,7 @@
  * @vitest-environment node
  */
 import type { NextRequest } from 'next/server';
+import { errors } from 'oidc-provider';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GET } from './route';
@@ -10,13 +11,16 @@ const mocks = vi.hoisted(() => ({
   authEnv: { ENABLE_OIDC: true },
   getConsentClientMetadata: vi.fn(),
   getInteractionDetails: vi.fn(),
-  getUserAuth: vi.fn(),
+  findUserById: vi.fn(),
+  getSession: vi.fn(),
   resolveReviewAccess: vi.fn(),
 }));
 
-vi.mock('@lobechat/utils/server', () => ({
-  getUserAuth: mocks.getUserAuth,
+vi.mock('@/auth', () => ({
+  getTenantAuth: async () => ({ api: { getSession: mocks.getSession } }),
 }));
+
+vi.mock('@/database/models/user', () => ({ UserModel: { findById: mocks.findUserById } }));
 
 vi.mock('@/database/core/db-adaptor', () => ({
   getServerDB: vi.fn(async () => ({})),
@@ -43,6 +47,26 @@ vi.mock('@/server/services/oidc', () => ({
   },
 }));
 
+const SESSION_CREATED_AT_MS = 1_700_000_000_999;
+
+const signedIn = (
+  userId: string,
+  { cookies = [], user = {} }: { cookies?: string[]; user?: Record<string, unknown> } = {},
+) =>
+  mocks.getSession.mockResolvedValue({
+    headers: new Headers(cookies.map((cookie) => ['set-cookie', cookie])),
+    response: {
+      session: { createdAt: new Date(SESSION_CREATED_AT_MS) },
+      user: { id: userId, ...user },
+    },
+  });
+
+const signedOut = (cookies: string[] = []) =>
+  mocks.getSession.mockResolvedValue({
+    headers: new Headers(cookies.map((cookie) => ['set-cookie', cookie])),
+    response: null,
+  });
+
 const createRequest = (uid: string) =>
   new Request(`https://example.com/oidc/interaction/${uid}`) as unknown as NextRequest;
 
@@ -50,8 +74,9 @@ const createProps = (uid: string) => ({ params: Promise.resolve({ uid }) });
 
 describe('GET /oidc/interaction/[uid]', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     mocks.authEnv.ENABLE_OIDC = true;
+    signedIn('user-1');
   });
 
   it('returns 404 when OIDC is not enabled', async () => {
@@ -71,6 +96,8 @@ describe('GET /oidc/interaction/[uid]', () => {
         scope: 'openid profile email',
       },
       prompt: { name: 'consent' },
+      session: { accountId: 'user-1' },
+      uid: 'uid-1',
     });
     mocks.getConsentClientMetadata.mockResolvedValue({
       clientName: 'LobeHub Desktop',
@@ -105,6 +132,8 @@ describe('GET /oidc/interaction/[uid]', () => {
         scope: 'openid',
       },
       prompt: { name: 'consent' },
+      session: { accountId: 'user-1' },
+      uid: 'uid-2',
     });
     mocks.getConsentClientMetadata.mockResolvedValue({
       clientName: 'Third Party App',
@@ -130,6 +159,7 @@ describe('GET /oidc/interaction/[uid]', () => {
     mocks.getInteractionDetails.mockResolvedValue({
       params: { client_id: 'lobehub-desktop' },
       prompt: { name: 'login' },
+      uid: 'uid-3',
     });
     mocks.getConsentClientMetadata.mockResolvedValue({
       clientName: 'LobeHub Desktop',
@@ -149,6 +179,7 @@ describe('GET /oidc/interaction/[uid]', () => {
     mocks.getInteractionDetails.mockResolvedValue({
       params: {},
       prompt: { name: 'select_account' },
+      uid: 'uid-4',
     });
 
     const response = await GET(createRequest('uid-4'), createProps('uid-4'));
@@ -169,6 +200,188 @@ describe('GET /oidc/interaction/[uid]', () => {
     await expect(response.json()).resolves.toEqual({ error: 'session_invalid' });
   });
 
+  it('returns 400 session_changed when the provider session behind the interaction has ended', async () => {
+    mocks.getInteractionDetails.mockRejectedValue(new errors.SessionNotFound('invalid_request'));
+
+    const response = await GET(createRequest('uid-5'), createProps('uid-5'));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'session_changed' });
+  });
+
+  it('returns 400 when the interaction behind the cookie is not the one asked for', async () => {
+    mocks.getInteractionDetails.mockResolvedValue({
+      params: { client_id: 'lobehub-desktop' },
+      prompt: { name: 'consent' },
+      session: { accountId: 'user-1' },
+      uid: 'another-uid',
+    });
+
+    const response = await GET(createRequest('uid-7'), createProps('uid-7'));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'session_invalid' });
+  });
+
+  describe('the consent card of the signed-in account', () => {
+    const cookies = ['better-auth.session_token=fresh; Path=/', 'better-auth.other=1; Path=/'];
+
+    beforeEach(() => {
+      mocks.getInteractionDetails.mockResolvedValue({
+        params: { client_id: 'lobehub-desktop', scope: 'openid' },
+        prompt: { name: 'consent' },
+        session: { accountId: 'user-1' },
+        uid: 'uid-8',
+      });
+      mocks.getConsentClientMetadata.mockResolvedValue({});
+      signedIn('user-1', {
+        cookies,
+        user: { email: 'session@example.com', image: 'https://example.com/s.png', name: 'Session' },
+      });
+      mocks.findUserById.mockResolvedValue({
+        avatar: 'https://example.com/a.png',
+        email: 'alice@example.com',
+        fullName: 'Alice A',
+        id: 'user-1',
+        username: 'alice',
+      });
+    });
+
+    it('names the account from the tenant user row and forwards every session cookie', async () => {
+      const response = await GET(createRequest('uid-8'), createProps('uid-8'));
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        account: {
+          avatar: 'https://example.com/a.png',
+          email: 'alice@example.com',
+          name: 'Alice A',
+        },
+      });
+      expect(mocks.findUserById).toHaveBeenCalledWith({}, 'user-1');
+      expect(response.headers.getSetCookie()).toEqual(cookies);
+    });
+
+    it.each([
+      ['the account row is not found', () => mocks.findUserById.mockResolvedValue(undefined)],
+      ['the lookup fails', () => mocks.findUserById.mockRejectedValue(new Error('db down'))],
+    ])('names the account from the session user when %s', async (_name, arrange) => {
+      arrange();
+
+      const response = await GET(createRequest('uid-8'), createProps('uid-8'));
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        account: {
+          avatar: 'https://example.com/s.png',
+          email: 'session@example.com',
+          name: 'Session',
+        },
+      });
+    });
+
+    it('fills what the row lacks from the session user', async () => {
+      mocks.findUserById.mockResolvedValue({ email: 'alice@example.com', id: 'user-1' });
+
+      const body = await (await GET(createRequest('uid-8'), createProps('uid-8'))).json();
+
+      expect(body.account).toEqual({
+        avatar: 'https://example.com/s.png',
+        email: 'alice@example.com',
+        name: 'Session',
+      });
+    });
+
+    it('leaves the account out when neither source has a name or an email', async () => {
+      signedIn('user-1', { cookies });
+      mocks.findUserById.mockResolvedValue({ avatar: 'https://example.com/a.png', id: 'user-1' });
+
+      const response = await GET(createRequest('uid-8'), createProps('uid-8'));
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).not.toHaveProperty('account');
+      expect(response.headers.getSetCookie()).toEqual(cookies);
+    });
+
+    it.each([
+      ['another account is signed in', () => signedIn('user-2', { cookies })],
+      ['nobody is signed in', () => signedOut(cookies)],
+    ])(
+      'answers 400 session_changed when %s, with the cookies and no account lookup',
+      async (_name, arrange) => {
+        arrange();
+
+        const response = await GET(createRequest('uid-8'), createProps('uid-8'));
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toEqual({ error: 'session_changed' });
+        expect(response.headers.getSetCookie()).toEqual(cookies);
+        expect(mocks.findUserById).not.toHaveBeenCalled();
+      },
+    );
+
+    it('answers 400 session_changed when the provider session holds no account', async () => {
+      mocks.getInteractionDetails.mockResolvedValue({
+        params: { client_id: 'lobehub-desktop', scope: 'openid' },
+        prompt: { name: 'consent' },
+        uid: 'uid-8',
+      });
+
+      const response = await GET(createRequest('uid-8'), createProps('uid-8'));
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: 'session_changed' });
+    });
+
+    it('answers 503 session_unavailable when the session cannot be read, never as a sign-out', async () => {
+      mocks.getSession.mockRejectedValue(new Error('database down'));
+
+      const response = await GET(createRequest('uid-8'), createProps('uid-8'));
+
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({ error: 'session_unavailable' });
+      expect(mocks.findUserById).not.toHaveBeenCalled();
+    });
+
+    it('answers 503 and still forwards the cookies when the session time is unusable', async () => {
+      mocks.getSession.mockResolvedValue({
+        headers: new Headers(cookies.map((cookie) => ['set-cookie', cookie])),
+        response: { session: { createdAt: 'not a date' }, user: { id: 'user-1' } },
+      });
+
+      const response = await GET(createRequest('uid-8'), createProps('uid-8'));
+
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({ error: 'session_unavailable' });
+      expect(response.headers.getSetCookie()).toEqual(cookies);
+    });
+
+    it('keeps the cookies on the 500 when something fails after the session was read', async () => {
+      mocks.getConsentClientMetadata.mockRejectedValue(new Error('x'));
+
+      const response = await GET(createRequest('uid-8'), createProps('uid-8'));
+
+      expect(response.status).toBe(500);
+      expect(response.headers.getSetCookie()).toEqual(cookies);
+    });
+
+    it('does not read the session or the account for a login prompt', async () => {
+      mocks.getInteractionDetails.mockResolvedValue({
+        params: { client_id: 'lobehub-desktop' },
+        prompt: { name: 'login' },
+        session: { accountId: 'user-1' },
+        uid: 'uid-8',
+      });
+
+      const response = await GET(createRequest('uid-8'), createProps('uid-8'));
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).not.toHaveProperty('account');
+      expect(mocks.getSession).not.toHaveBeenCalled();
+      expect(mocks.findUserById).not.toHaveBeenCalled();
+    });
+  });
+
   it('returns 500 on unexpected errors', async () => {
     mocks.getInteractionDetails.mockRejectedValue(new Error('database exploded'));
 
@@ -185,9 +398,10 @@ describe('GET /oidc/interaction/[uid]', () => {
       mocks.getInteractionDetails.mockResolvedValue({
         params: { client_id: 'lobehub-review', resource: RESOURCE, scope: 'acceptance:review' },
         prompt: { name: 'consent' },
+        session: { accountId: 'user-1' },
+        uid: 'uid-r',
       });
       mocks.getConsentClientMetadata.mockResolvedValue({ clientName: 'LobeHub Review' });
-      mocks.getUserAuth.mockResolvedValue({ userId: 'user-1' });
     });
 
     it('names the acceptance the reviewer is about to open', async () => {
@@ -221,6 +435,8 @@ describe('GET /oidc/interaction/[uid]', () => {
       mocks.getInteractionDetails.mockResolvedValue({
         params: { client_id: 'lobehub-desktop', scope: 'openid' },
         prompt: { name: 'consent' },
+        session: { accountId: 'user-1' },
+        uid: 'uid-d',
       });
 
       const response = await GET(createRequest('uid-d'), createProps('uid-d'));

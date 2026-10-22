@@ -16,11 +16,16 @@ import {
   Qoder,
   Trae,
 } from '@lobehub/icons';
-import { createElement } from 'react';
+import { type ComponentProps, type ComponentType, createElement } from 'react';
 
 import type { RecommendedAction } from './types';
 
-const avatarIcons = {
+type AgentAvatarProps = Pick<ComponentProps<typeof ClaudeCode.Avatar>, 'shape' | 'size' | 'style'>;
+
+const avatarIcons: Record<
+  HeterogeneousAgentClientConfig['type'],
+  ComponentType<AgentAvatarProps>
+> = {
   'amp': Amp.Avatar,
   'claude-code': ClaudeCode.Avatar,
   'codebuddy': CodeBuddy.Avatar,
@@ -34,7 +39,7 @@ const avatarIcons = {
   'pi': Pi.Avatar,
   'qoder': Qoder.Avatar,
   'trae': Trae.Avatar,
-} as const satisfies Record<HeterogeneousAgentClientConfig['type'], unknown>;
+};
 
 /**
  * Build a "Add <Brand> agent" recommendation card for a heterogeneous CLI agent

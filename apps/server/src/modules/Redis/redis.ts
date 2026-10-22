@@ -89,15 +89,22 @@ export class IoRedisRedisProvider implements BaseRedisProvider {
 
   async scan(cursor: string, ...args: RedisScanArgs): Promise<RedisScanResult> {
     const client = this.ensureClient();
-
-    if (args.length === 0) return client.scan(cursor);
-    if (args[0] === 'MATCH' && args.length === 2) return client.scan(cursor, 'MATCH', args[1]);
-    if (args[0] === 'COUNT' && args.length === 2) return client.scan(cursor, 'COUNT', args[1]);
-    if (args[0] === 'MATCH') {
-      return client.scan(cursor, 'MATCH', args[1], 'COUNT', args[3]);
+    // ioredis keyPrefix applies to keys, but SCAN MATCH is a pattern argument.
+    const prefix = this.config.prefix ? `${this.config.prefix}:` : '';
+    let match = '*';
+    let count: number | undefined;
+    for (let i = 0; i < args.length; i += 2) {
+      if (args[i] === 'MATCH') match = String(args[i + 1]);
+      if (args[i] === 'COUNT') count = Number(args[i + 1]);
     }
-
-    return client.scan(cursor, 'MATCH', args[3], 'COUNT', args[1]);
+    const [next, keys] =
+      count === undefined
+        ? await client.scan(cursor, 'MATCH', `${prefix}${match}`)
+        : await client.scan(cursor, 'MATCH', `${prefix}${match}`, 'COUNT', count);
+    return [
+      next,
+      keys.filter((key) => key.startsWith(prefix)).map((key) => key.slice(prefix.length)),
+    ];
   }
 
   async incr(key: RedisKey): Promise<number> {

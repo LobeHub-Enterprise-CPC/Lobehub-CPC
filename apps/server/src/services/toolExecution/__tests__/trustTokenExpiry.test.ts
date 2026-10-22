@@ -24,15 +24,24 @@ const EXPIRY_MS = 5 * 60 * 1000;
 
 vi.mock('@/envs/app', () => ({
   appEnv: {
-    MARKET_TRUSTED_CLIENT_ID: 'lobehub-cloud',
+    MARKET_TRUSTED_CLIENT_ID: 'lobehub-cloud', // CLIENT_ID below
     MARKET_TRUSTED_CLIENT_SECRET: 'lobehub-market_tcs_repro-secret',
   },
 }));
 
 vi.mock('@/database/models/user', () => ({
-  UserModel: vi.fn().mockImplementation(function () {
-    return { getUserSettings: vi.fn(async () => ({})) };
-  }),
+  UserModel: Object.assign(
+    vi.fn().mockImplementation(function () {
+      return { getUserSettings: vi.fn(async () => ({})) };
+    }),
+    { findById: vi.fn(async () => ({ email: 'repro@example.com', id: 'user_repro' })) },
+  ),
+}));
+
+// Every token is signed for a tenant; the executor runs inside one in production.
+vi.mock('@lobechat/database/tenant', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  currentTenantScope: () => ({ tenantId: '00000000-0000-4000-8000-000000000001' }),
 }));
 
 vi.mock('../serverRuntimes', () => ({
@@ -44,9 +53,17 @@ vi.mock('@/server/services/composio', () => ({
   ComposioService: vi.fn(),
 }));
 
-/** Market's validator, mirrored: aes-256-gcm(iv|ciphertext|tag), sha256(secret) key. */
+const CLIENT_ID = 'lobehub-cloud';
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
+
+/**
+ * Market's validator, mirrored: `<kid>.<base64>` split at the last dot, the kid being the signing
+ * client id; the base64 part is aes-256-gcm(iv|ciphertext|tag) with a sha256(secret) key.
+ */
 const marketValidate = (token: string) => {
-  const raw = Buffer.from(token, 'base64');
+  const dot = token.lastIndexOf('.');
+  const kid = token.slice(0, dot);
+  const raw = Buffer.from(token.slice(dot + 1), 'base64');
   const iv = raw.subarray(0, 12);
   const tag = raw.subarray(raw.length - 16);
   const ciphertext = raw.subarray(12, raw.length - 16);
@@ -56,12 +73,16 @@ const marketValidate = (token: string) => {
   const payload = JSON.parse(
     Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8'),
   );
+  if (kid !== CLIENT_ID || payload.clientId !== kid)
+    throw new Error('kid does not match the client');
   return { expired: Date.now() - payload.timestamp > EXPIRY_MS, payload };
 };
 
 const market = vi.hoisted(() => ({
   calls: [] as { expired: boolean; token: string }[],
   minted: [] as number[],
+  /** `tenantId` claim of every token the executor signed. */
+  tenants: [] as (string | undefined)[],
   /** Tokens Market rejects regardless of age (e.g. clock skew between hosts). */
   rejectAll: false,
   rejectOnce: new Set<string>(),
@@ -75,7 +96,9 @@ vi.mock('@lobehub/market-sdk', async (importOriginal) => {
 
     constructor(opts: { trustedClientToken?: string }) {
       const token = opts.trustedClientToken!;
-      market.minted.push(marketValidate(token).payload.timestamp);
+      const { payload } = marketValidate(token);
+      market.minted.push(payload.timestamp);
+      market.tenants.push(payload.tenantId);
       this.skills = {
         callTool: async () => {
           const { expired } = marketValidate(token);
@@ -111,6 +134,7 @@ describe('LobeHub Skill trust token lifetime vs executor lifetime', () => {
   beforeEach(() => {
     market.calls.length = 0;
     market.minted.length = 0;
+    market.tenants.length = 0;
     market.rejectAll = false;
     market.rejectOnce.clear();
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -135,6 +159,17 @@ describe('LobeHub Skill trust token lifetime vs executor lifetime', () => {
     expect(at301s).toMatchObject({ success: true });
     // Market never saw an expired token: it was re-minted before the deadline
     expect(market.calls.map(({ expired }) => expired)).toEqual([false, false, false]);
+  });
+
+  // Market admits a request into one tenant's instance by the token's tenantId: a
+  // background run's token has to say which tenant it runs for, as the user's own
+  // requests do.
+  it('signs the tenant the run belongs to into the token', async () => {
+    const executor = new BuiltinToolsExecutor({} as any, 'user_repro');
+
+    await executor.execute(githubRunCommand, context);
+
+    expect(market.tenants).toEqual([TENANT_ID]);
   });
 
   it('re-mints the token and retries once when Market rejects it as invalid_trust_token', async () => {

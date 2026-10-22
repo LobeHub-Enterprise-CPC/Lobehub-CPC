@@ -29,6 +29,7 @@ import {
   topics,
   users,
 } from '@/database/schemas';
+import type * as TenantBinding from '@/libs/trpc/utils/tenantBinding';
 import { goalRouter } from '@/server/routers/lambda/goal';
 import { AiAgentService } from '@/server/services/aiAgent';
 import { TopicStartReservationError } from '@/server/services/aiAgent/topicStartReservation';
@@ -39,6 +40,13 @@ import { decideFailedTurn, GoalManagerService, MAX_FAILED_MANAGER_TURNS } from '
 import * as scheduler from './scheduler';
 import { GoalStartService } from './start';
 import { GoalWaitService } from './wait';
+
+// Operation tokens are bound to the tenant of the request by their `tid` claim
+// (covered in heteroOperationAuth.test.ts); these tests run outside a tenant scope.
+vi.mock('@/libs/trpc/utils/tenantBinding', async (importOriginal) => ({
+  ...(await importOriginal<typeof TenantBinding>()),
+  isBoundToCurrentTenant: () => true,
+}));
 
 vi.mock('@/database/core/db-adaptor', () => ({ getServerDB: () => db }));
 vi.mock('@/libs/oidc-provider/access-control', () => ({ assertOIDCUserActive: async () => {} }));

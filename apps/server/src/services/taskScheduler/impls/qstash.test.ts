@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { QStashTaskScheduler } from './qstash';
 
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 const makeClient = () => {
   const publishJSON = vi.fn();
   const messagesDelete = vi.fn();
@@ -44,7 +47,7 @@ describe('QStashTaskScheduler', () => {
       expect(publishJSON).toHaveBeenCalledWith({
         body: { taskId: 'task-1', tickToken: 'generation-1', userId: 'user-1' },
         delay: 60,
-        url: 'https://app.example.com/api/workflows/task/heartbeat-tick',
+        url: 'https://app.example.com/t/acme/api/workflows/task/heartbeat-tick',
       });
     });
 
@@ -68,7 +71,7 @@ describe('QStashTaskScheduler', () => {
 
       expect(pj).toHaveBeenCalledWith(
         expect.objectContaining({
-          url: 'https://app.example.com/api/workflows/task/heartbeat-tick',
+          url: 'https://app.example.com/t/acme/api/workflows/task/heartbeat-tick',
         }),
       );
     });

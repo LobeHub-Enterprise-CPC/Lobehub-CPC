@@ -25,6 +25,7 @@ import { dynamicInterventionAudits } from '@lobechat/builtin-tools/dynamicInterv
 import { BRANDING_NAME } from '@lobechat/business-const';
 import { ABANDONED_OPERATION_ERROR_PREFIX } from '@lobechat/const/goal';
 import { parse } from '@lobechat/conversation-flow';
+import { currentTenantScope } from '@lobechat/database/tenant';
 import { getModelPropertyWithFallback } from '@lobechat/model-runtime';
 import {
   context as otelContext,
@@ -53,7 +54,6 @@ import { ChatErrorType, RequestTrigger } from '@lobechat/types';
 import { isRecord } from '@lobechat/utils/object';
 import debug from 'debug';
 import pMap from 'p-map';
-import urlJoin from 'url-join';
 
 import {
   deriveAgentInterventionQueueDeduplicationId,
@@ -88,10 +88,18 @@ import {
   type RuntimeExecutorContext,
 } from '@/server/modules/AgentRuntime/RuntimeExecutors';
 import { type IStreamEventManager } from '@/server/modules/AgentRuntime/types';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
+import { getTenantLiveResources } from '@/server/modules/Tenant/liveResources';
 import { emitAgentSignalSourceEvent } from '@/server/services/agentSignal';
 import { toAgentSignalTraceEvents } from '@/server/services/agentSignal/observability/traceEvents';
 import { traceStartStage } from '@/server/services/aiAgent/pipeline/sendTracing';
 import { FileService } from '@/server/services/file';
+import {
+  assertGatewayStateExecution,
+  captureGatewayInitialState,
+  isGatewayStateExecutionCurrent,
+} from '@/server/services/gatewayAuthorization/operationAuthority';
+import { gatewayParentMayResume } from '@/server/services/gatewayAuthorization/parentExecution';
 import { mcpService } from '@/server/services/mcp';
 import { MessageService } from '@/server/services/message';
 import { QueueService } from '@/server/services/queue';
@@ -579,7 +587,8 @@ export class AgentRuntimeService {
   private get baseURL() {
     const baseUrl = process.env.AGENT_RUNTIME_BASE_URL || appEnv.APP_URL || 'http://localhost:3010';
 
-    return urlJoin(baseUrl, '/api/agent');
+    // Step callbacks run in the tenant that scheduled them.
+    return buildTenantCallbackUrl('/api/agent', baseUrl);
   }
   private serverDB: LobeChatDatabase;
   private userId: string;
@@ -1560,9 +1569,11 @@ export class AgentRuntimeService {
       );
       operationCreated = true;
 
-      // Save initial state
       await traceStartStage('save_state', () =>
-        this.coordinator.saveAgentState(operationId, initialState as any),
+        this.coordinator.saveAgentState(
+          operationId,
+          captureGatewayInitialState(initialState) as any,
+        ),
       );
 
       // Register external hooks
@@ -1784,6 +1795,23 @@ export class AgentRuntimeService {
    * Execute Agent step
    */
   async executeStep(params: AgentExecutionParams): Promise<AgentExecutionResult> {
+    const tenantId = currentTenantScope()?.tenantId;
+    let finish!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const unbind = tenantId
+      ? getTenantLiveResources().bind(tenantId, { close: () => {}, settled })
+      : undefined;
+    try {
+      return await this.executeTrackedStep(params);
+    } finally {
+      finish();
+      unbind?.();
+    }
+  }
+
+  private async executeTrackedStep(params: AgentExecutionParams): Promise<AgentExecutionResult> {
     const {
       operationId,
       stepIndex,
@@ -2056,6 +2084,8 @@ export class AgentRuntimeService {
     // would schedule the next one after the step is gone, leaking a loop that
     // re-reads the store forever for a finished operation.
     let stepAbortPollStopped = false;
+    // Unregisters the running step from its tenant's live resources.
+    let releaseTenantStep: (() => void) | undefined;
 
     // Hoisted so the error-path snapshot finalize can record an
     // approximate startedAt for the failing step. The inner `startAt` at the
@@ -2092,6 +2122,7 @@ export class AgentRuntimeService {
         if (!agentState) {
           throw new Error(`Agent state not found for operation ${operationId}`);
         }
+        await assertGatewayStateExecution(operationId, agentState.execution);
 
         // A parked approval step is already durable before its generic Review
         // is published. When that final Review write fails, the request returns
@@ -2348,6 +2379,10 @@ export class AgentRuntimeService {
             // that large blob at a much lower cadence until all writers have
             // sentinel support.
             let interrupted = await this.coordinator.isInterrupted(operationId);
+            if (!(await isGatewayStateExecutionCurrent(operationId, agentState.execution))) {
+              await this.coordinator.markInterrupted(operationId);
+              interrupted = true;
+            }
             const now = Date.now();
             if (
               !interrupted &&
@@ -2376,6 +2411,22 @@ export class AgentRuntimeService {
           );
         };
         stepAbortPoll = setTimeout(pollForAbort, STEP_ABORT_POLL_INTERVAL_MS);
+
+        // A tenant freeze or offline (FR-CP-06 stage 3) cancels the running
+        // step exactly like a user Stop: the sentinel makes the step boundary
+        // persist `interrupted`, the abort ends the in-flight LLM / tool call.
+        // The operation ends there; nothing it already did is replayed later.
+        const stepTenantId = currentTenantScope()?.tenantId;
+        if (stepTenantId)
+          releaseTenantStep = getTenantLiveResources().bind(stepTenantId, {
+            close: async () => {
+              try {
+                await this.coordinator.markInterrupted(operationId);
+              } finally {
+                stepAbortController.abort();
+              }
+            },
+          });
 
         const { runtime } = await this.createAgentRuntime({
           abortSignal: stepAbortController.signal,
@@ -3203,6 +3254,7 @@ export class AgentRuntimeService {
       invokeAgentSpan.end();
       stepAbortPollStopped = true;
       if (stepAbortPoll) clearTimeout(stepAbortPoll);
+      releaseTenantStep?.();
       stopStepLockHeartbeat();
       // Parked runs (human input, async tools) and finished ones are read back
       // by a different invocation, so the partial cannot stay in memory only.
@@ -3631,7 +3683,7 @@ export class AgentRuntimeService {
    * never re-arms, so retries stay bounded.
    */
   async tryResumeParentFromAsyncTool(
-    params: { parentOperationId: string },
+    params: { parentOperationId: string; childOperationId?: string },
     options?: {
       /**
        * Message id of a tool placeholder the caller just backfilled to a
@@ -3710,9 +3762,11 @@ export class AgentRuntimeService {
     const onComplete: GroupActionOnComplete =
       options?.onComplete ?? (await this.resolveAsyncToolOnComplete(pending));
 
-    // Single-fire guard: only one concurrent completion flips the op.
+    // Version and child linkage are rechecked in the final resume CAS.
+    await assertGatewayStateExecution(parentOperationId, state.execution);
     const won = await new AgentOperationModel(this.serverDB, this.userId).tryResumeFromAsyncTool(
       parentOperationId,
+      params.childOperationId,
     );
     if (!won) {
       log('[%s] lost async-tool resume CAS, no-op', parentOperationId);
@@ -3734,6 +3788,7 @@ export class AgentRuntimeService {
         context: undefined,
         delay: 100,
         endpoint: `${this.baseURL}/run`,
+        execution: state.execution,
         operationId: parentOperationId,
         payload:
           onComplete === 'finish' ? { finishAfterAsyncTool: true } : { resumeAsyncTool: true },
@@ -4326,11 +4381,8 @@ export class AgentRuntimeService {
   }
 
   /**
-   * Sub-agent completion bridge for the server `callSubAgent` deferred-tool
-   * path. Runs when a child sub-agent op reaches a terminal state — invoked
-   * in-process by the child's `onComplete` hook handler (local mode) or via
-   * the QStash-delivered `/webhooks/subagent-callback` endpoint (queue mode,
-   * where in-memory handler hooks don't survive cross-process steps).
+   * Bridge a completed sub-agent to its parent's tool result, then CAS-resume.
+   * Runs inline or through the signed QStash subagent callback.
    *
    *   1. Backfill the parent's placeholder tool message with the sub-agent's
    *      final answer (success) or an error note (failure), plus pluginState
@@ -4339,16 +4391,13 @@ export class AgentRuntimeService {
    *      `tryResumeParentFromAsyncTool`, arming the delayed verify when the
    *      parent isn't resumable yet.
    *
-   * THROWS on infrastructure failure of either half (state load, backfill,
-   * resume) so the queue-mode callback returns non-2xx and QStash redelivers
-   * the whole bridge — the delayed verify alone cannot recover a failed
-   * backfill, it only re-reads the barrier. Redelivery is safe: the backfill
-   * rewrites the same content and the resume is CAS-guarded.
-   *
-   * Returns true when this call won the resume CAS.
+   * Infrastructure failures propagate for queue redelivery; backfill is idempotent
+   * and only the execution/link-aware resume CAS winner returns true.
    */
   async completeSubAgentBridge(params: SubAgentBridgeParams): Promise<boolean> {
     const { operationId, parentOperationId, reason, threadId, toolMessageId } = params;
+    if (!(await gatewayParentMayResume(this.serverDB, operationId, parentOperationId, this.userId)))
+      return false;
     const failed = reason === 'error' || reason === 'interrupted';
 
     // Infra errors propagate; a null state (expired) degrades to a stub note.
@@ -4472,7 +4521,7 @@ export class AgentRuntimeService {
     // Pass the just-backfilled message id so the barrier trusts this write
     // instead of re-reading a possibly-stale replica.
     return this.tryResumeParentFromAsyncTool(
-      { parentOperationId },
+      { parentOperationId, childOperationId: operationId },
       { knownFulfilledMessageId: toolMessageId, scheduleVerifyOnHold: true },
     );
   }
@@ -5421,22 +5470,16 @@ export class AgentRuntimeService {
 
   /**
    * Synchronously execute Agent operation until completion
-   *
    * Used in test scenarios, doesn't depend on QueueService, executes all steps directly in the current process.
-   *
    * @param operationId Operation ID
    * @param options Execution options
    * @returns Final state
-   *
    * @example
    * ```ts
    * // Create operation (without auto-starting queue)
    * const result = await service.createOperation({ ...params, autoStart: false });
-   *
    * // Synchronously execute to completion
    * const finalState = await service.executeSync(result.operationId);
-   * expect(finalState.status).toBe('done');
-   * ```
    */
   async executeSync(
     operationId: string,
@@ -5447,9 +5490,6 @@ export class AgentRuntimeService {
       maxSteps?: number;
       /**
        * Awaited after each step is persisted and before the next one starts.
-       * A host that enforces its own limits can inspect `state.usage` here and
-       * call {@link interruptOperation}; the loop then observes the interrupt
-       * on its next step instead of racing it.
        */
       onStepComplete?: (stepIndex: number, state: AgentState) => void | Promise<void>;
     },
@@ -5537,9 +5577,6 @@ export class AgentRuntimeService {
     return state;
   }
 
-  /**
-   * Get Coordinator instance (for testing)
-   */
   getCoordinator(): AgentRuntimeCoordinator {
     return this.coordinator;
   }

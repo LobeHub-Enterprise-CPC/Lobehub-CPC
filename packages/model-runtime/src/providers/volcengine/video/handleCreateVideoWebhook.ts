@@ -37,7 +37,7 @@ export async function handleVolcengineVideoWebhook(
   // Skip intermediate statuses
   if (status === 'queued' || status === 'running') {
     log('Skipping intermediate status: %s', status);
-    return { status: 'pending' };
+    return { ...(body.id && { inferenceId: body.id }), status: 'pending' };
   }
 
   const inferenceId = body.id;
@@ -68,6 +68,8 @@ export async function handleVolcengineVideoWebhook(
       videoUrl,
     };
   }
+
+  if (status !== 'failed' && status !== 'expired') return { inferenceId, status: 'pending' };
 
   // failed / expired
   const errorMessage =

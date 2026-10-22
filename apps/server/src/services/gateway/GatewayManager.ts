@@ -1,3 +1,4 @@
+import { requireTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 
 import {
@@ -9,6 +10,9 @@ import type { DecryptedBotProvider } from '@/database/models/agentBotProvider';
 import { AgentBotProviderModel } from '@/database/models/agentBotProvider';
 import { getAgentRuntimeRedisClient } from '@/server/modules/AgentRuntime/redis';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
+import { runInTenant } from '@/server/modules/Tenant/gate';
+import { getTenantLiveResources } from '@/server/modules/Tenant/liveResources';
 import {
   type BotPlatformRuntimeContext,
   buildRuntimeKey,
@@ -28,6 +32,14 @@ export interface GatewayManagerConfig {
 export class GatewayManager {
   private clients = new Map<string, PlatformClient>();
   private running = false;
+  private accepting = true;
+  private lifecycle: Promise<unknown> = Promise.resolve();
+
+  private serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.lifecycle.then(operation, operation);
+    this.lifecycle = next.catch(() => undefined);
+    return next;
+  }
   private config: GatewayManagerConfig;
 
   private definitionByPlatform: Map<string, PlatformDefinition>;
@@ -45,7 +57,12 @@ export class GatewayManager {
   // Lifecycle (call once)
   // ------------------------------------------------------------------
 
-  async start(): Promise<void> {
+  start(): Promise<void> {
+    return this.serialize(() => this.startNow());
+  }
+
+  private async startNow(): Promise<void> {
+    this.accepting = true;
     if (this.running) {
       log('GatewayManager already running, skipping');
       return;
@@ -61,26 +78,39 @@ export class GatewayManager {
     log('GatewayManager started with %d clients', this.clients.size);
   }
 
-  async stop(): Promise<void> {
-    if (!this.running) return;
-
-    log('Stopping GatewayManager');
-
-    for (const [key, client] of this.clients) {
-      log('Stopping client %s', key);
-      await client.stop();
-    }
-    this.clients.clear();
-
-    this.running = false;
-    log('GatewayManager stopped');
+  stop(): Promise<void> {
+    // Fence starts immediately, including those queued behind a slow sync.
+    this.accepting = false;
+    return this.serialize(async () => {
+      this.accepting = false;
+      const errors: unknown[] = [];
+      await Promise.all(
+        [...this.clients].map(async ([key, client]) => {
+          try {
+            await client.stop();
+            this.clients.delete(key);
+          } catch (error) {
+            errors.push(error);
+          }
+        }),
+      );
+      this.running = false;
+      if (errors.length) throw new AggregateError(errors, 'BOT_STOP_UNCONFIRMED');
+    });
   }
 
   // ------------------------------------------------------------------
   // Client operations (point-to-point)
   // ------------------------------------------------------------------
 
-  async startClient(platform: string, applicationId: string): Promise<void> {
+  startClient(platform: string, applicationId: string): Promise<void> {
+    return this.serialize(async () => {
+      if (!this.accepting) throw new Error('BOT_GATEWAY_STOPPED');
+      await this.startClientNow(platform, applicationId);
+    });
+  }
+
+  private async startClientNow(platform: string, applicationId: string): Promise<void> {
     const key = buildRuntimeKey(platform, applicationId);
 
     // Stop existing if any
@@ -126,12 +156,16 @@ export class GatewayManager {
       return;
     }
 
-    await client.start();
     this.clients.set(key, client);
+    await client.start();
     log('Started client %s', key);
   }
 
-  async stopClient(platform: string, applicationId: string): Promise<void> {
+  stopClient(platform: string, applicationId: string): Promise<void> {
+    return this.serialize(() => this.stopClientNow(platform, applicationId));
+  }
+
+  private async stopClientNow(platform: string, applicationId: string): Promise<void> {
     const key = buildRuntimeKey(platform, applicationId);
     const client = this.clients.get(key);
     if (!client) return;
@@ -217,8 +251,8 @@ export class GatewayManager {
           continue;
         }
 
-        await client.start();
         this.clients.set(key, client);
+        await client.start();
         log('Sync: started client %s', key);
       } catch (err) {
         log('Sync: failed to start client %s: %O', key, err);
@@ -250,7 +284,7 @@ export class GatewayManager {
     const { config } = resolveBotProviderConfig(def, provider);
 
     const context: BotPlatformRuntimeContext = {
-      appUrl: process.env.APP_URL,
+      appUrl: tenantPublicBaseUrl(),
       redisClient: getAgentRuntimeRedisClient() as any,
       userId: provider.userId,
     };
@@ -263,15 +297,33 @@ export class GatewayManager {
 // Singleton
 // ------------------------------------------------------------------
 
-const globalForGateway = globalThis as unknown as { gatewayManager?: GatewayManager };
+// One manager per tenant: a manager loads its bots from the tenant database
+// and its clients are started inside that tenant, so incoming messages are
+// handled in the tenant that owns the bot (spec FR-AS-01).
+const globalForGateway = globalThis as unknown as {
+  gatewayManagers?: Map<string, GatewayManager>;
+};
 
+const managers = () => (globalForGateway.gatewayManagers ??= new Map());
+
+/** The current tenant's manager. Throws `TENANT_REQUIRED` outside a tenant. */
 export function getGatewayManager(): GatewayManager | undefined {
-  return globalForGateway.gatewayManager;
+  return managers().get(requireTenantScope().tenantId);
 }
 
 export function createGatewayManager(config: GatewayManagerConfig): GatewayManager {
-  if (!globalForGateway.gatewayManager) {
-    globalForGateway.gatewayManager = new GatewayManager(config);
+  const { tenantId } = requireTenantScope();
+  let manager = managers().get(tenantId);
+  if (!manager) {
+    const created = new GatewayManager(config);
+    manager = created;
+    managers().set(tenantId, created);
+    // Bot connections are the tenant's live resources: a freeze or offline
+    // stops them on every process, reactivation starts them again.
+    getTenantLiveResources().bind(tenantId, {
+      close: () => created.stop(),
+      reopen: () => runInTenant(tenantId, () => created.start()),
+    });
   }
-  return globalForGateway.gatewayManager;
+  return manager;
 }

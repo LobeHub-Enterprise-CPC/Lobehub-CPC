@@ -1,4 +1,5 @@
 import { appEnv } from '@/envs/app';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { QueueService } from '@/server/services/queue';
 import { LocalQueueServiceImpl } from '@/server/services/queue/impls';
 import type { QueueMessage } from '@/server/services/queue/types';
@@ -35,7 +36,9 @@ export async function scheduleDeferredReplay(
   const message: QueueMessage = {
     deduplicationId: `bot-replay:${target.applicationId}:${target.platformThreadId}:${replayId}`,
     delay: 1000,
-    endpoint: new URL('/api/agent/webhooks/bot-replay', baseURL).toString(),
+    // Delivered to the tenant that deferred the message; a replay has no agent operation row.
+    endpoint: buildTenantCallbackUrl('/api/agent/webhooks/bot-replay', baseURL),
+    kind: 'tenant-job',
     operationId: replayId,
     payload: target,
     retries: 8,

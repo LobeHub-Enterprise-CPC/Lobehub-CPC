@@ -254,7 +254,7 @@ export class ServerToolTransport implements ToolTransport {
 
         log(`[${operationLogId}] Executing tool ${context.toolName} ...`);
         execution = await executeToolWithRetry(
-          () =>
+          (attempt) =>
             toolExecutionService.executeTool(chatToolPayload, {
               activatedSkills: context.activatedSkills as any,
               activeDeviceId: resolveRunActiveDeviceId(context.state),
@@ -288,6 +288,9 @@ export class ServerToolTransport implements ToolTransport {
               editingAgentId: context.state.origin?.editingAgentId,
               editingGroupId: context.state.origin?.editingGroupId,
               execSubAgent: this.ctx.execSubAgent,
+              // The retry loop's own count: it names this try in telemetry, so a
+              // retried tool is a new event and a redelivered step is the same one.
+              executionAttempt: attempt,
               executionPlan: context.state.plan?.execution,
               executionTimeoutMs: timeoutMs,
               groupId: context.state.origin?.groupId,

@@ -28,6 +28,7 @@ import {
   type RuntimeResolveOptions,
 } from '@/server/services/memory/userMemory/extract';
 import { resolveRuntimeAgentConfig } from '@/server/services/memory/userMemory/extract';
+import { resolveMemoryServiceModelConfig } from '@/server/services/memory/userMemory/systemAgent';
 import { LayersEnum } from '@/types/userMemory';
 import { trimBasedOnBatchProbe } from '@/utils/chunkers';
 
@@ -76,7 +77,9 @@ export class UserPersonaService {
     const userModel = new UserModel(this.db, userId);
     const settings = await userModel.getUserSettings();
     const userMemoryPersonaWriter = (
-      settings?.systemAgent as Partial<UserServiceModelConfig> | undefined
+      await resolveMemoryServiceModelConfig(
+        settings?.systemAgent as Partial<UserServiceModelConfig> | undefined,
+      )
     )?.userMemoryPersonaWriter;
     const provider = userMemoryPersonaWriter?.provider || this.agentConfig.provider;
     const shouldInheritCredentials =
@@ -181,7 +184,9 @@ export const buildUserPersonaJobInput = async (db: LobeChatDatabase, userId: str
   const userModel = new UserModel(db, userId);
   const settings = await userModel.getUserSettings();
   const userMemoryPersonaWriter = (
-    settings?.systemAgent as Partial<UserServiceModelConfig> | undefined
+    await resolveMemoryServiceModelConfig(
+      settings?.systemAgent as Partial<UserServiceModelConfig> | undefined,
+    )
   )?.userMemoryPersonaWriter;
   const personaContextLimit =
     resolvePositiveInteger(userMemoryPersonaWriter?.contextLimit) ??

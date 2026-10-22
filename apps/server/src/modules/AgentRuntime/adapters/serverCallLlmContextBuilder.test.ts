@@ -2,6 +2,8 @@ import type { AgentState, AgentWorldSnapshot, CallLLMPayload } from '@lobechat/a
 import type { ResolvedToolSet } from '@lobechat/context-engine';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
+
 import type { RuntimeContextBuilderContext } from '../context';
 import { buildServerCallLlmContext } from './serverCallLlmContextBuilder';
 import type { ServerCallLlmTooling } from './serverCallLlmTooling';
@@ -227,7 +229,7 @@ describe('buildServerCallLlmContext - workspace context', () => {
     expect(serverMessagesEngineMock).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceContext: {
-          appUrl: 'https://app.lobehub.com',
+          appUrl: tenantPublicBaseUrl(),
           workspace: { slug: 'lobehub' },
         },
       }),
@@ -250,7 +252,7 @@ describe('buildServerCallLlmContext - workspace context', () => {
     expect(serverMessagesEngineMock).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceContext: {
-          appUrl: 'https://app.lobehub.com',
+          appUrl: tenantPublicBaseUrl(),
           workspace: { slug: 'acme' },
         },
       }),
@@ -269,7 +271,7 @@ describe('buildServerCallLlmContext - workspace context', () => {
 
     expect(workspaceFindByIdMock).not.toHaveBeenCalled();
     expect(serverMessagesEngineMock).toHaveBeenCalledWith(
-      expect.objectContaining({ workspaceContext: { appUrl: 'https://app.lobehub.com' } }),
+      expect.objectContaining({ workspaceContext: { appUrl: tenantPublicBaseUrl() } }),
     );
   });
 

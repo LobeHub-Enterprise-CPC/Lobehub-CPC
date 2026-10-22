@@ -11,6 +11,10 @@ const mocks = vi.hoisted(() => ({
   checkPath: vi.fn().mockResolvedValue({ allowed: true }),
   executeLobehubSkill: vi.fn(),
   logCommandExecution: vi.fn().mockResolvedValue(undefined),
+  // The real class lives in policyGate; the executor only needs `instanceof` to hold.
+  GovernanceUnavailableError: class GovernanceUnavailableError extends Error {
+    readonly code = 'GOVERNANCE_UNAVAILABLE';
+  },
 }));
 const mockApiHandler = mocks.apiHandler;
 
@@ -46,6 +50,8 @@ vi.mock('@/server/services/governance', () => ({
   checkPath: mocks.checkPath,
   COMMAND_BLOCKED_MESSAGE:
     'This command was blocked by an administrator-configured command governance rule for this user. Do not attempt this action again in any form.',
+  GOVERNANCE_UNAVAILABLE_MESSAGE: 'Command governance could not be evaluated right now. Temporary.',
+  GovernanceUnavailableError: mocks.GovernanceUnavailableError,
   FILE_BLOCKED_MESSAGE:
     'This file operation was blocked by an administrator-configured execution policy for this user. Do not attempt to read or write this path again in any form.',
   logCommandExecution: mocks.logCommandExecution,
@@ -685,6 +691,22 @@ describe('BuiltinToolsExecutor command governance hook', () => {
       expect.objectContaining({ blocked: true, matchedRuleId: 'rule-1' }),
       expect.anything(),
     );
+  });
+
+  it('does not run the command, and does not call it blocked, when governance cannot be evaluated', async () => {
+    mocks.checkCommand.mockReset().mockRejectedValueOnce(new mocks.GovernanceUnavailableError());
+    const { getServerRuntime } = await import('../serverRuntimes');
+    const runCommandMock = vi.fn();
+    vi.mocked(getServerRuntime).mockResolvedValueOnce({ runCommand: runCommandMock } as any);
+
+    const result = await executor.execute(commandPayload, context);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GOVERNANCE_UNAVAILABLE');
+    expect(result.content).toBe('Command governance could not be evaluated right now. Temporary.');
+    expect(runCommandMock).not.toHaveBeenCalled();
+    // Not a rule verdict: nothing is recorded as a blocked command.
+    expect(mocks.logCommandExecution).not.toHaveBeenCalled();
   });
 
   it('still returns the real tool result when logCommandExecution rejects', async () => {

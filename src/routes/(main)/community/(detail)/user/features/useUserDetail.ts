@@ -50,6 +50,10 @@ export const useUserDetail = ({ onMutate }: UseUserDetailOptions = {}) => {
           console.error(`[useUserDetail] ${action} ${type} error:`, error);
           pendingToast.close();
           toast.error(`${errorText}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          // The refusal may be Market saying what the user may do with this item
+          // has changed (403), or that it is gone (404): read the item again so
+          // the buttons follow instead of offering the same action a second time.
+          onMutate?.();
         }
       }
 

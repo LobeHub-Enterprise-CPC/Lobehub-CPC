@@ -3,7 +3,7 @@
  */
 import { act, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ConfigAction from './ConfigAction';
 import GenerationMediaModeSegment from './GenerationMediaModeSegment';
@@ -18,6 +18,8 @@ interface SegmentedCapture {
 const componentMocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   segmented: undefined as SegmentedCapture | undefined,
+  select: undefined as SegmentedCapture | undefined,
+  showAiImage: true,
 }));
 
 vi.mock('@lobehub/ui/base-ui', async (importOriginal) => ({
@@ -35,7 +37,10 @@ vi.mock('@lobehub/ui/base-ui', async (importOriginal) => ({
       </div>
     );
   },
-  Select: () => <div data-testid="mode-select" />,
+  Select: (props: SegmentedCapture) => {
+    componentMocks.select = props;
+    return <div data-testid="mode-select" />;
+  },
 }));
 
 vi.mock('antd-style', async (importOriginal) => ({
@@ -66,11 +71,26 @@ vi.mock('@/features/ChatInput/ActionBar/components/ActionPopover', () => ({
 }));
 
 vi.mock('@/store/serverConfig', () => ({
-  useServerConfigStore: <T,>(selector: (state: { isMobile: boolean }) => T) =>
-    selector({ isMobile: false }),
+  featureFlagsSelectors: (state: { featureFlags: unknown }) => state.featureFlags,
+  useServerConfigStore: <T,>(
+    selector: (state: { isMobile: boolean; featureFlags: { showAiImage: boolean } }) => T,
+  ) => selector({ isMobile: false, featureFlags: { showAiImage: componentMocks.showAiImage } }),
 }));
 
 describe('GenerationMediaModeSegment', () => {
+  beforeEach(() => {
+    componentMocks.showAiImage = true;
+  });
+
+  it.each(['toolbar', 'hero'] as const)(
+    'keeps only video options in %s when ai_image is disabled',
+    (layout) => {
+      componentMocks.showAiImage = false;
+      render(<GenerationMediaModeSegment layout={layout} mode="video" />);
+      const captured = layout === 'hero' ? componentMocks.select : componentMocks.segmented;
+      expect(captured?.options?.map((option) => option.value)).toEqual(['video']);
+    },
+  );
   it('uses an icon-only toggle group in the composer toolbar', () => {
     render(<GenerationMediaModeSegment mode="image" />);
 

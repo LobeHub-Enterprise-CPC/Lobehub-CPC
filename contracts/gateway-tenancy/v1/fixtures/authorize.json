@@ -1,0 +1,1208 @@
+{
+  "contractVersion": 1,
+  "cases": [
+    {
+      "id": "connect-request-valid",
+      "schema": "authorizeRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-agent-A",
+        "ticket": "TEST-ONLY-NOT-A-SIGNED-JWT",
+        "expectedPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "action": "connect",
+        "operationId": "operation-shared",
+        "generation": 3,
+        "requestSeq": 4
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "connect-response-valid",
+      "schema": "authorizeResponse",
+      "validation": "wire",
+      "input": {
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-agent-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "action": "connect",
+        "operationId": "operation-shared",
+        "acceptedVersion": 7,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000,
+        "checkedAt": 1900000000000,
+        "generation": 3,
+        "requestSeq": 4
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "connect-ticket-required",
+      "schema": "authorizeRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-agent-A",
+        "expectedPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "action": "connect",
+        "operationId": "operation-shared",
+        "generation": 3,
+        "requestSeq": 4
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "renew-ticket-required",
+      "schema": "authorizeRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-agent-A",
+        "expectedPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "action": "renew",
+        "operationId": "operation-shared",
+        "generation": 3,
+        "requestSeq": 4
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "dispatch-request-valid",
+      "schema": "authorizeRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-device-A",
+        "expectedPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:device",
+        "action": "dispatch",
+        "generation": 3,
+        "requestSeq": 4,
+        "sourceAcceptedVersion": 7,
+        "attemptId": "attempt-A-1",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        }
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "dispatch-missing-attemptId",
+      "schema": "authorizeRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-device-A",
+        "expectedPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:device",
+        "action": "dispatch",
+        "generation": 3,
+        "requestSeq": 4,
+        "sourceAcceptedVersion": 7,
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "dispatch-missing-dispatchBinding",
+      "schema": "authorizeRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-device-A",
+        "expectedPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:device",
+        "action": "dispatch",
+        "generation": 3,
+        "requestSeq": 4,
+        "sourceAcceptedVersion": 7,
+        "attemptId": "attempt-A-1"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "dispatch-missing-sourceAcceptedVersion",
+      "schema": "authorizeRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-device-A",
+        "expectedPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:device",
+        "action": "dispatch",
+        "generation": 3,
+        "requestSeq": 4,
+        "attemptId": "attempt-A-1",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TENANT_EXECUTION_VERSION_REQUIRED"
+      }
+    },
+    {
+      "id": "dispatch-unknown-action",
+      "schema": "authorizeRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-device-A",
+        "expectedPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:device",
+        "action": "anything",
+        "generation": 3,
+        "requestSeq": 4,
+        "sourceAcceptedVersion": 7,
+        "attemptId": "attempt-A-1",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "dispatch-response-valid",
+      "schema": "authorizeResponse",
+      "validation": "wire",
+      "input": {
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-device-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:device",
+        "action": "dispatch",
+        "acceptedVersion": 7,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000,
+        "checkedAt": 1900000000000,
+        "generation": 3,
+        "requestSeq": 4,
+        "sourceAcceptedVersion": 7,
+        "attemptId": "attempt-A-1",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        }
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "result-revalidation-valid",
+      "schema": "authorizeRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-device-A",
+        "expectedPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:device",
+        "action": "result",
+        "generation": 3,
+        "requestSeq": 4,
+        "sourceAcceptedVersion": 7,
+        "attemptId": "attempt-A-1",
+        "dispatchBinding": {
+          "connectionId": "connection-shared",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-device-A"
+        }
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "response-wrong-requestSeq",
+      "schema": "authorizeResponse",
+      "validation": "binding",
+      "input": {
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-agent-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "action": "connect",
+        "operationId": "operation-shared",
+        "acceptedVersion": 7,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000,
+        "checkedAt": 1900000000000,
+        "generation": 3,
+        "requestSeq": 3
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      },
+      "context": {
+        "request": {
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "authorizationId": "auth-agent-A",
+          "ticket": "TEST-ONLY-NOT-A-SIGNED-JWT",
+          "expectedPrincipal": {
+            "kind": "user",
+            "id": "user-shared"
+          },
+          "audience": "urn:lobehub:gateway:agent",
+          "action": "connect",
+          "operationId": "operation-shared",
+          "generation": 3,
+          "requestSeq": 4
+        },
+        "latestRequestSeq": 4,
+        "generationLive": true
+      }
+    },
+    {
+      "id": "response-wrong-generation",
+      "schema": "authorizeResponse",
+      "validation": "binding",
+      "input": {
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-agent-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "action": "connect",
+        "operationId": "operation-shared",
+        "acceptedVersion": 7,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000,
+        "checkedAt": 1900000000000,
+        "generation": 2,
+        "requestSeq": 4
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      },
+      "context": {
+        "request": {
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "authorizationId": "auth-agent-A",
+          "ticket": "TEST-ONLY-NOT-A-SIGNED-JWT",
+          "expectedPrincipal": {
+            "kind": "user",
+            "id": "user-shared"
+          },
+          "audience": "urn:lobehub:gateway:agent",
+          "action": "connect",
+          "operationId": "operation-shared",
+          "generation": 3,
+          "requestSeq": 4
+        },
+        "latestRequestSeq": 4,
+        "generationLive": true
+      }
+    },
+    {
+      "id": "response-wrong-authorizationId",
+      "schema": "authorizeResponse",
+      "validation": "binding",
+      "input": {
+        "tenantId": "tenant-A",
+        "authorizationId": "other-source",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "action": "connect",
+        "operationId": "operation-shared",
+        "acceptedVersion": 7,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000,
+        "checkedAt": 1900000000000,
+        "generation": 3,
+        "requestSeq": 4
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      },
+      "context": {
+        "request": {
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "authorizationId": "auth-agent-A",
+          "ticket": "TEST-ONLY-NOT-A-SIGNED-JWT",
+          "expectedPrincipal": {
+            "kind": "user",
+            "id": "user-shared"
+          },
+          "audience": "urn:lobehub:gateway:agent",
+          "action": "connect",
+          "operationId": "operation-shared",
+          "generation": 3,
+          "requestSeq": 4
+        },
+        "latestRequestSeq": 4,
+        "generationLive": true
+      }
+    },
+    {
+      "id": "response-wrong-audience",
+      "schema": "authorizeResponse",
+      "validation": "binding",
+      "input": {
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-agent-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:device",
+        "action": "connect",
+        "operationId": "operation-shared",
+        "acceptedVersion": 7,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000,
+        "checkedAt": 1900000000000,
+        "generation": 3,
+        "requestSeq": 4
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      },
+      "context": {
+        "request": {
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "authorizationId": "auth-agent-A",
+          "ticket": "TEST-ONLY-NOT-A-SIGNED-JWT",
+          "expectedPrincipal": {
+            "kind": "user",
+            "id": "user-shared"
+          },
+          "audience": "urn:lobehub:gateway:agent",
+          "action": "connect",
+          "operationId": "operation-shared",
+          "generation": 3,
+          "requestSeq": 4
+        },
+        "latestRequestSeq": 4,
+        "generationLive": true
+      }
+    },
+    {
+      "id": "response-wrong-acceptedVersion",
+      "schema": "authorizeResponse",
+      "validation": "binding",
+      "input": {
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-agent-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "action": "connect",
+        "operationId": "operation-shared",
+        "acceptedVersion": 6,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000,
+        "checkedAt": 1900000000000,
+        "generation": 3,
+        "requestSeq": 4
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TENANT_EXECUTION_VERSION_STALE"
+      },
+      "context": {
+        "request": {
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "authorizationId": "auth-agent-A",
+          "ticket": "TEST-ONLY-NOT-A-SIGNED-JWT",
+          "expectedPrincipal": {
+            "kind": "user",
+            "id": "user-shared"
+          },
+          "audience": "urn:lobehub:gateway:agent",
+          "action": "connect",
+          "operationId": "operation-shared",
+          "generation": 3,
+          "requestSeq": 4
+        },
+        "latestRequestSeq": 4,
+        "generationLive": true
+      }
+    },
+    {
+      "id": "older-success-after-new-denial",
+      "schema": "authorizeResponse",
+      "validation": "binding",
+      "input": {
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-agent-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "action": "connect",
+        "operationId": "operation-shared",
+        "acceptedVersion": 7,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000,
+        "checkedAt": 1900000000000,
+        "generation": 3,
+        "requestSeq": 4
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      },
+      "context": {
+        "latestRequestSeq": 5,
+        "latestResult": "denied",
+        "generationLive": false
+      }
+    },
+    {
+      "id": "infra-outage-no-cached-success",
+      "schema": "authorizeRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-agent-A",
+        "ticket": "TEST-ONLY-NOT-A-SIGNED-JWT",
+        "expectedPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "action": "connect",
+        "operationId": "operation-shared",
+        "generation": 3,
+        "requestSeq": 4
+      },
+      "expected": {
+        "accepted": false,
+        "code": "GATEWAY_AUTHORITY_UNAVAILABLE"
+      },
+      "context": {
+        "authorityReachable": false,
+        "previousSuccessAt": 1899999999000
+      }
+    },
+    {
+      "id": "identity-response-valid",
+      "schema": "identityResponse",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "userId": "user-shared",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "capabilities": [
+          "device:connect",
+          "device:respond"
+        ],
+        "authorizationId": "auth-device-A",
+        "acceptedVersion": 7,
+        "gatewayTicket": "TEST-ONLY-NOT-A-SIGNED-JWT",
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "identity-response-missing-ticket",
+      "schema": "identityResponse",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "userId": "user-shared",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "capabilities": [
+          "device:connect",
+          "device:respond"
+        ],
+        "authorizationId": "auth-device-A",
+        "acceptedVersion": 7,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "admission-request-valid",
+      "schema": "admissionRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "admission-frozen-is-control-fact",
+      "schema": "admissionResponse",
+      "validation": "gate",
+      "input": {
+        "tenantId": "tenant-A",
+        "acceptedVersion": 8,
+        "effectiveState": "frozen",
+        "checkedAt": 1900000000000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "businessExecutionAllowed": false
+      }
+    },
+    {
+      "id": "identity-request-device-workspace",
+      "schema": "identityRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "workspaceId": "workspace-shared",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "identity-request-agent-operation",
+      "schema": "identityRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:agent",
+        "operationId": "operation-shared"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "identity-request-agent-missing-operation",
+      "schema": "identityRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:agent"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "identity-request-device-missing-device",
+      "schema": "identityRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "connectionId": "connection-shared"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "identity-request-device-missing-connection",
+      "schema": "identityRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "deviceId": "device-shared"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "identity-request-device-overlong-device",
+      "schema": "identityRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "deviceId": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "connectionId": "connection-shared"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "identity-request-agent-with-device",
+      "schema": "identityRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:agent",
+        "operationId": "operation-shared",
+        "deviceId": "device-shared"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "identity-request-agent-with-connection",
+      "schema": "identityRequest",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:agent",
+        "operationId": "operation-shared",
+        "connectionId": "tab-1"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "source-record-missing-despite-jwt",
+      "schema": "authorizeRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-agent-A",
+        "ticket": "TEST-ONLY-NOT-A-SIGNED-JWT",
+        "expectedPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "action": "connect",
+        "operationId": "operation-shared",
+        "generation": 3,
+        "requestSeq": 4
+      },
+      "context": {
+        "jwtValid": true,
+        "authorizationRecordExists": false
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      }
+    },
+    {
+      "id": "a2-same-session-renew",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "sourceKind": "session",
+        "exactSourceBound": true,
+        "sourceRowOrProjectionValid": true,
+        "originalAuthorizationId": "auth-device-A",
+        "returnedAuthorizationId": "auth-device-A"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "a2-same-apiKey-renew",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "sourceKind": "apiKey",
+        "exactSourceBound": true,
+        "sourceRowOrProjectionValid": true,
+        "originalAuthorizationId": "auth-device-A",
+        "returnedAuthorizationId": "auth-device-A"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "a2-same-oidc-renew",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "sourceKind": "oidc",
+        "exactSourceBound": true,
+        "sourceRowOrProjectionValid": true,
+        "originalAuthorizationId": "auth-device-A",
+        "returnedAuthorizationId": "auth-device-A"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "a2-different-session",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "sourceKind": "session",
+        "sameSubjectDifferentSourceReference": true
+      },
+      "expected": {
+        "accepted": false,
+        "code": "SOURCE_UNVERIFIABLE"
+      }
+    },
+    {
+      "id": "a2-different-key",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "sourceKind": "apiKey",
+        "sameSubjectDifferentSourceReference": true
+      },
+      "expected": {
+        "accepted": false,
+        "code": "SOURCE_UNVERIFIABLE"
+      }
+    },
+    {
+      "id": "a2-cross-tenant",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "authenticatedTenantId": "tenant-B",
+        "authorizationExistsOnlyInTenant": "tenant-A"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "SOURCE_UNVERIFIABLE"
+      }
+    },
+    {
+      "id": "a2-different-principal",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "persistedPrincipal": {
+          "kind": "user",
+          "id": "other-user"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "SOURCE_UNVERIFIABLE"
+      }
+    },
+    {
+      "id": "a2-different-workspace",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "persistedPrincipal": {
+          "kind": "workspace",
+          "id": "other-workspace"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "SOURCE_UNVERIFIABLE"
+      }
+    },
+    {
+      "id": "a2-revoked-record",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "authorizationRevoked": true
+      },
+      "expected": {
+        "accepted": false,
+        "code": "SOURCE_UNVERIFIABLE"
+      }
+    },
+    {
+      "id": "a2-expired-record",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "authRecordExpired": true
+      },
+      "expected": {
+        "accepted": false,
+        "code": "SOURCE_UNVERIFIABLE"
+      }
+    },
+    {
+      "id": "a2-revoked-source",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "sourceRowOrProjectionValid": false
+      },
+      "expected": {
+        "accepted": false,
+        "code": "SOURCE_UNVERIFIABLE"
+      }
+    },
+    {
+      "id": "a2-unknown-id",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "authorizationExists": false
+      },
+      "expected": {
+        "accepted": false,
+        "code": "SOURCE_UNVERIFIABLE"
+      }
+    },
+    {
+      "id": "a2-different-audience",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "persistedAudience": "urn:lobehub:gateway:agent"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "SOURCE_UNVERIFIABLE"
+      }
+    },
+    {
+      "id": "a2-different-operation",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "persistedOperationId": "other-operation"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "SOURCE_UNVERIFIABLE"
+      }
+    },
+    {
+      "id": "a2-changed-authorization-response",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "returnedAuthorizationId": "replacement-authorization"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "SOURCE_UNVERIFIABLE"
+      }
+    },
+    {
+      "id": "a2-rolling-past-initial-record",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "sameSourceValidUntil": 1900000600000,
+        "initialAuthRecordExpiresAt": 1900000300000,
+        "renewAt": [
+          1900000150000,
+          1900000300000,
+          1900000450000
+        ],
+        "sameAuthorizationId": true
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "a2-record-extension-source-bounded",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "sourceExpiresAt": 1900000600000,
+        "maximumNewAuthRecordExpiresAt": 1900000600000,
+        "maximumTicketLifetimeMs": 300000
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "a2-source-expired-refuses-extension",
+      "schema": "identityRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "audience": "urn:lobehub:gateway:device",
+        "renewAuthorizationId": "auth-device-A",
+        "deviceId": "device-shared",
+        "connectionId": "connection-shared"
+      },
+      "context": {
+        "sourceExpiresAt": 1900000600000,
+        "renewAt": 1900000600001
+      },
+      "expected": {
+        "accepted": false,
+        "code": "SOURCE_UNVERIFIABLE"
+      }
+    },
+    {
+      "id": "a2-existing-socket-ticket-handoff",
+      "schema": "authorizeRequest",
+      "validation": "source",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "authorizationId": "auth-device-A",
+        "ticket": "TEST-ONLY-NOT-A-SIGNED-JWT",
+        "expectedPrincipal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:device",
+        "action": "renew",
+        "generation": 3,
+        "requestSeq": 4
+      },
+      "context": {
+        "sameImmutableAuthorizationAndSource": true,
+        "recordHasNewGatewayJti": true,
+        "presentedOldTicketUnexpired": true,
+        "leaseCannotExceedPresentedTicketExpiry": true,
+        "newConnectWithOldJtiRejected": true,
+        "sourceRevocationStillImmediate": true
+      },
+      "expected": {
+        "accepted": true
+      }
+    }
+  ]
+}

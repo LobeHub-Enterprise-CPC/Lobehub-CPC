@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { MarketAPIError } from '@lobehub/market-sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -305,6 +306,63 @@ describe('credsRouter share/publish/unshare', () => {
     await expect(caller.share({ id: 42 })).rejects.toMatchObject({
       code: 'FORBIDDEN',
       message: 'Not a member of this organization',
+    });
+  });
+});
+
+// R13: a tenant closes acting-as-organization. The workspace organization view
+// and sharing into it are refused loudly instead of answering from the personal
+// account.
+describe('credsRouter inside a tenant', () => {
+  const inTenant = <T>(fn: () => T) =>
+    runWithTenantScope(
+      { session: {}, slug: 'a', tenantId: 'tenant-a' } as unknown as TenantScope,
+      fn,
+    );
+  const member = { isWorkspaceMember: true, userId: 'user-1', workspaceId: 'workspace-1' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('refuses to share into the workspace organization', async () => {
+    const { credsRouter } = await import('./creds');
+    const caller = credsRouter.createCaller(member as any);
+
+    await expect(inTenant(() => caller.share({ id: 2 }))).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: expect.stringContaining('MARKET_ACTING_AS_ORGANIZATION_UNAVAILABLE'),
+    });
+    expect(mockPersonalCredsShare).not.toHaveBeenCalled();
+  });
+
+  it('refuses the workspace context list instead of returning the personal one', async () => {
+    const { credsRouter } = await import('./creds');
+    const caller = credsRouter.createCaller(member as any);
+
+    await expect(inTenant(() => caller.listForContext())).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    expect(mockPersonalCredsList).not.toHaveBeenCalled();
+    expect(mockOrgCredsList).not.toHaveBeenCalled();
+  });
+
+  it('lists personal credentials without reaching the organization endpoint', async () => {
+    const { credsRouter } = await import('./creds');
+    const caller = credsRouter.createCaller(member as any);
+
+    const result = await inTenant(() => caller.list());
+
+    expect(result.data?.map((c) => c.id)).toEqual([2]);
+    expect(mockOrgCredsList).not.toHaveBeenCalled();
+  });
+
+  it('keeps a personal context list working inside a tenant', async () => {
+    const { credsRouter } = await import('./creds');
+    const caller = credsRouter.createCaller({ isWorkspaceMember: false, userId: 'user-1' } as any);
+
+    await expect(inTenant(() => caller.listForContext())).resolves.toMatchObject({
+      data: [{ key: 'PERSONAL_SECRET' }],
     });
   });
 });

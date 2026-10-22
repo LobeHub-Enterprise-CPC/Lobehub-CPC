@@ -32,6 +32,7 @@ import { type DiscoverGroupAgentItem, type GroupAgentStatus } from '@/types/disc
 import { formatIntergerNumber } from '@/utils/format';
 
 import { useUserDetailContext } from './DetailProvider';
+import { resolveItemRights } from './itemRights';
 
 const getStatusTagColor = (status?: GroupAgentStatus) => {
   switch (status) {
@@ -120,10 +121,18 @@ const UserGroupCard = memo<UserGroupCardProps>(
     memberCount,
     status,
     isValidated,
+    canEdit: marketCanEdit,
+    canUnpublish: marketCanUnpublish,
   }) => {
     const { t } = useTranslation(['discover', 'setting']);
     const navigate = useWorkspaceAwareNavigate();
-    const { isOwner, onStatusChange } = useUserDetailContext();
+    const { isOwner: isProfileOwner, onStatusChange } = useUserDetailContext();
+    // Per item: Market says what this user may do with it (see `resolveItemRights`).
+    const rights = resolveItemRights(
+      { canEdit: marketCanEdit, canUnpublish: marketCanUnpublish },
+      isProfileOwner,
+    );
+    const hasItemActions = rights.canEdit || rights.canUnpublish;
 
     const link = qs.stringifyUrl(
       {
@@ -151,26 +160,30 @@ const UserGroupCard = memo<UserGroupCardProps>(
       [identifier, onStatusChange],
     );
 
-    const menuItems = isOwner
-      ? [
-          {
-            icon: <Icon icon={Pencil} />,
-            key: 'edit',
-            label: t('setting:myAgents.actions.edit'),
-            onClick: handleEdit,
-          },
-          {
-            type: 'divider' as const,
-          },
-          {
-            danger: true,
-            icon: <Icon icon={AlertTriangle} />,
-            key: 'deprecate',
-            label: t('setting:myAgents.actions.deprecate'),
-            onClick: () => handleStatusAction('deprecate'),
-          },
-        ]
-      : [];
+    const menuItems = [
+      ...(rights.canEdit
+        ? [
+            {
+              icon: <Icon icon={Pencil} />,
+              key: 'edit',
+              label: t('setting:myAgents.actions.edit'),
+              onClick: handleEdit,
+            },
+          ]
+        : []),
+      ...(rights.canEdit && rights.canUnpublish ? [{ type: 'divider' as const }] : []),
+      ...(rights.canUnpublish
+        ? [
+            {
+              danger: true,
+              icon: <Icon icon={AlertTriangle} />,
+              key: 'deprecate',
+              label: t('setting:myAgents.actions.deprecate'),
+              onClick: () => handleStatusAction('deprecate'),
+            },
+          ]
+        : []),
+    ];
 
     return (
       <Block
@@ -186,7 +199,7 @@ const UserGroupCard = memo<UserGroupCardProps>(
         }}
         onClick={handleCardClick}
       >
-        {isOwner && !isUnderReview && (
+        {hasItemActions && !isUnderReview && (
           <div onClick={stopPropagation}>
             <DropdownMenu items={menuItems as any}>
               <div className={cx('more-button', styles.moreButton)}>
@@ -233,7 +246,7 @@ const UserGroupCard = memo<UserGroupCardProps>(
                     {t('groupAgents.underReview', { defaultValue: 'Under Review' })}
                   </AntTag>
                 ) : (
-                  isOwner &&
+                  hasItemActions &&
                   status && (
                     <AntTag color={getStatusTagColor(status)} style={{ flexShrink: 0, margin: 0 }}>
                       {t(`setting:myAgents.status.${status}`)}

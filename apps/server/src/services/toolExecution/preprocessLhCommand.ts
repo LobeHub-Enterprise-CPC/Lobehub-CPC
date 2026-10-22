@@ -1,10 +1,8 @@
 import { BRANDING_NAME } from '@lobechat/business-const';
-import { OFFICIAL_URL } from '@lobechat/const';
 import debug from 'debug';
 
-import { appEnv } from '@/envs/app';
 import { signUserJWT } from '@/libs/trpc/utils/internalJwt';
-import { isDev } from '@/utils/env';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 
 const log = debug('lobe-server:lh-command');
 
@@ -217,7 +215,9 @@ export const preprocessLhCommand = async (
   try {
     const jwt = await signUserJWT(userId);
 
-    const serverUrl = isDev ? OFFICIAL_URL : appEnv.APP_URL;
+    // Every backend call must address the tenant (`/t/{slug}`); the CLI appends
+    // `/trpc/...` to this base.
+    const serverUrl = tenantPublicBaseUrl();
 
     const envAssignments = [
       `LOBEHUB_JWT=${shellSingleQuote(jwt)}`,

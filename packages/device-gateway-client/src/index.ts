@@ -10,6 +10,7 @@ export {
   describeGatewayResponseFailure,
   DeviceTransportErrorCode,
 } from './deviceTransportError';
+export { withExecutionSignal } from './executionSignal';
 export type {
   DeviceMessageApiResult,
   DeviceRpcResult,

@@ -80,7 +80,9 @@ import { getServerGlobalConfig } from '@/server/globalConfig';
 import { type MemoryAgentConfig } from '@/server/globalConfig/parseMemoryExtractionConfig';
 import { parseMemoryExtractionConfig } from '@/server/globalConfig/parseMemoryExtractionConfig';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { createUserEndpointFetch } from '@/server/modules/ModelRuntime/userEndpoint';
 import { S3 } from '@/server/modules/S3';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { getUserScopedAiProviderRuntimeState } from '@/server/services/aiProviderAccess';
 import { createFtsSearchRepo } from '@/server/services/ftsSearch';
 import { recordUserMemoryLexicalSearchDecision } from '@/server/services/ftsSearch/observability';
@@ -99,6 +101,8 @@ import { LayersEnum, MemorySourceType, TypesEnum } from '@/types/userMemory';
 import { trimBasedOnBatchProbe } from '@/utils/chunkers';
 import { encodeAsync } from '@/utils/tokenizer';
 import { resolveEmbeddingTokenLimit, trimEmbeddingInput } from '@/utils/tokenizer/embedding';
+
+import { resolveMemoryServiceModelConfig, resolveUserMemoryAgent } from './systemAgent';
 
 const SOURCE_ALIAS_MAP: Record<string, MemorySourceType> = {
   benchmark_locomo: MemorySourceType.BenchmarkLocomo,
@@ -562,6 +566,8 @@ export const resolveRuntimeAgentConfig = (
     return ModelRuntime.initializeWithProvider(provider, {
       apiKey: userApiKey,
       baseURL: userBaseURL,
+      // The vault baseURL is typed in by the user: keep it off private/metadata targets.
+      ...(userBaseURL && { fetch: createUserEndpointFetch() }),
       userId: options?.userId,
     });
   }
@@ -732,50 +738,20 @@ export class MemoryExtractionExecutor {
     return new MemoryExtractionExecutor(serverConfig, privateConfig);
   }
 
-  private resolveUserMemoryAgent(
-    systemAgent: Partial<UserServiceModelConfig> | undefined,
-    key: keyof Pick<
-      UserServiceModelConfig,
-      'userMemoryEmbedding' | 'memoryAnalysisAgentConfig' | 'userMemoryPersonaWriter'
-    >,
-    fallback: MemoryAgentConfig,
-  ): MemoryAgentConfig {
-    const override = systemAgent?.[key];
-    const provider = override?.provider || fallback.provider;
-    const shouldInheritCredentials =
-      !override?.provider ||
-      normalizeProvider(override.provider) === normalizeProvider(fallback.provider || 'openai');
-    const contextLimit =
-      typeof override?.contextLimit === 'number' &&
-      Number.isFinite(override.contextLimit) &&
-      override.contextLimit > 0
-        ? Math.floor(override.contextLimit)
-        : fallback.contextLimit;
-
-    return {
-      apiKey: shouldInheritCredentials ? fallback.apiKey : undefined,
-      baseURL: shouldInheritCredentials ? fallback.baseURL : undefined,
-      contextLimit,
-      language: fallback.language,
-      model: override?.model || fallback.model,
-      provider,
-    };
-  }
-
   private resolveUserMemoryServiceConfig(
     systemAgent?: Partial<UserServiceModelConfig>,
   ): ResolvedMemoryServiceConfig {
-    const gatekeeper = this.resolveUserMemoryAgent(
+    const gatekeeper = resolveUserMemoryAgent(
       systemAgent,
       'memoryAnalysisAgentConfig',
       this.privateConfig.agentGateKeeper,
     );
-    const layerExtractor = this.resolveUserMemoryAgent(
+    const layerExtractor = resolveUserMemoryAgent(
       systemAgent,
       'memoryAnalysisAgentConfig',
       this.privateConfig.agentLayerExtractor,
     );
-    const embedding = this.resolveUserMemoryAgent(
+    const embedding = resolveUserMemoryAgent(
       systemAgent,
       'userMemoryEmbedding',
       this.privateConfig.embedding,
@@ -1602,7 +1578,9 @@ export class MemoryExtractionExecutor {
             this.getAiProviderRuntimeState(job.userId, job.workspaceId),
           ]);
           const memoryServiceConfig = this.resolveUserMemoryServiceConfig(
-            userState.settings?.systemAgent as Partial<UserServiceModelConfig> | undefined,
+            await resolveMemoryServiceModelConfig(
+              userState.settings?.systemAgent as Partial<UserServiceModelConfig> | undefined,
+            ),
           );
           const keyVaults = await this.resolveRuntimeKeyVaults(
             aiProviderRuntimeState,
@@ -2590,7 +2568,9 @@ export class MemoryExtractionExecutor {
             this.getAiProviderRuntimeState(params.userId),
           ]);
           const memoryServiceConfig = this.resolveUserMemoryServiceConfig(
-            userState.settings?.systemAgent as Partial<UserServiceModelConfig> | undefined,
+            await resolveMemoryServiceModelConfig(
+              userState.settings?.systemAgent as Partial<UserServiceModelConfig> | undefined,
+            ),
           );
           const keyVaults = await this.resolveRuntimeKeyVaults(
             aiProviderRuntimeState,
@@ -2780,11 +2760,9 @@ const getProcessUserTopicsFlowControl = (): FlowControl => {
 const buildHourlyChildWorkflowRunId = (entryWorkflowRunId: string) =>
   `memory-user-memory-hourly-${entryWorkflowRunId.replaceAll(/[^\w-]/g, '_')}`;
 
-const getWorkflowUrl = (path: string, baseUrl: string) => {
-  const url = new URL(path, baseUrl);
-
-  return url.toString();
-};
+// The tenant is read when the trigger runs (always inside the tenant that
+// owns the extraction), never carried in `baseUrl`.
+const getWorkflowUrl = (path: string, baseUrl: string) => buildTenantCallbackUrl(path, baseUrl);
 
 const getWorkflowClient = () => {
   const token = process.env.QSTASH_TOKEN;

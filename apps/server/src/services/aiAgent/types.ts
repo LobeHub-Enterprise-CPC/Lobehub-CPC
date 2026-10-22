@@ -22,7 +22,6 @@ import type { EvalRuntimeContext } from '@/server/services/agentRuntime/types';
 
 import type { DeviceAccessReason } from './deviceAccessPolicy';
 import type { RunFacts } from './runFacts';
-import type { AgentShareGate } from './shareGate';
 
 /**
  * Resolved run state shared by the {@link AiAgentService.execAgent} pipeline
@@ -60,13 +59,6 @@ export interface ExecRunContext {
    * shared by every stage of the send window.
    */
   runFacts: RunFacts;
-  /**
-   * Shared-agent visitor gate for this run, mirrored from
-   * {@link InternalExecAgentParams.shareGate} so every extracted pipeline stage
-   * can enforce it without threading a separate argument. Undefined for every
-   * ordinary (non-share) run.
-   */
-  shareGate?: AgentShareGate;
   /** The group a reused Group Agent Builder topic was opened on — see `TurnSetupResult`. */
   topicEditingGroupId?: string;
   /**
@@ -332,12 +324,7 @@ export interface InternalExecAgentParams extends ExecAgentParams {
    * already decided (Channel's `channel-artifact`). Internal-only.
    */
   serverToolManifests?: LobeToolManifest[];
-  /**
-   * Shared-agent visitor gate. Set ONLY by the shareChat router after the
-   * share access check — never client-passable. Restricts tools/memory/files at
-   * operation-build time, denies device access, and scopes the visitor's rows.
-   */
-  shareGate?: AgentShareGate;
+
   /** Abort startup before the agent runtime operation is created */
   signal?: AbortSignal;
   /**

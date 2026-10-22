@@ -155,6 +155,7 @@ describe('file document replica', () => {
           ...initialDocumentState,
           queryParams: undefined,
           resourceList: [],
+          resourceListEntry: undefined,
           resourceMap: new Map(),
         },
         false,
@@ -179,6 +180,64 @@ describe('file document replica', () => {
     scopes.clear();
     vi.restoreAllMocks();
     vi.clearAllMocks();
+  });
+
+  it('refreshes persisted metadata into the explorer without another write', async () => {
+    const resource = createResourceFixture();
+    act(() =>
+      useFileStore.setState({
+        queryParams: { libraryId: 'kb-1' },
+        resourceListEntry: {
+          currentPage: 0,
+          hasMore: false,
+          items: [resource],
+          nextCursor: null,
+          pageSize: 50,
+          queryParams: { libraryId: 'kb-1' },
+          total: 1,
+        },
+        resourceList: [resource],
+        resourceMap: new Map([[resource.id, resource]]),
+      }),
+    );
+    vi.mocked(documentService.getDocumentById).mockResolvedValue(
+      serverRow({ knowledgeBaseId: 'kb-1', title: 'Saved title', metadata: { emoji: '📄' } }),
+    );
+    const { result } = renderDetail(resource.id);
+    await waitFor(() => expect(result.current.data?.title).toBe('Saved title'));
+    expect(useFileStore.getState().resourceMap.get(resource.id)).toMatchObject({
+      title: 'Saved title',
+      name: 'Saved title',
+      metadata: { emoji: '📄' },
+    });
+    expect(documentService.updateDocument).not.toHaveBeenCalled();
+  });
+
+  it('removes a refreshed document from the library it no longer belongs to', async () => {
+    const resource = createResourceFixture();
+    act(() =>
+      useFileStore.setState({
+        queryParams: { libraryId: 'kb-1' },
+        resourceListEntry: {
+          currentPage: 0,
+          hasMore: false,
+          items: [resource],
+          nextCursor: null,
+          pageSize: 50,
+          queryParams: { libraryId: 'kb-1' },
+          total: 1,
+        },
+        resourceList: [resource],
+        resourceMap: new Map([[resource.id, resource]]),
+      }),
+    );
+    vi.mocked(documentService.getDocumentById).mockResolvedValue(
+      serverRow({ knowledgeBaseId: null }),
+    );
+    const { result } = renderDetail(resource.id);
+    await waitFor(() => expect(result.current.data?.id).toBe(resource.id));
+    await waitFor(() => expect(useFileStore.getState().resourceMap.has(resource.id)).toBe(false));
+    expect(useFileStore.getState().resourceList).toEqual([]);
   });
 
   describe('by-id detail', () => {

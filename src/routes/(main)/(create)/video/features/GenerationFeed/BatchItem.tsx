@@ -130,8 +130,13 @@ export const VideoGenerationBatchItem = memo<VideoGenerationBatchItemProps>(
     }, [batch.prompt, t]);
 
     const handleReuseSettings = useCallback(() => {
-      reuseVideoSettings(batch.model, batch.provider, batch.config as RuntimeVideoGenParams);
-    }, [batch.config, batch.model, batch.provider, reuseVideoSettings]);
+      const reused = reuseVideoSettings(
+        batch.model,
+        batch.provider,
+        batch.config as RuntimeVideoGenParams,
+      );
+      if (!reused) toast.error(t('generation.actions.reuseSettingsUnavailable', { ns: 'image' }));
+    }, [batch.config, batch.model, batch.provider, reuseVideoSettings, t]);
 
     const handleEdit = useCallback(() => {
       if (!generation?.asset || !('interactionId' in generation.asset)) return;

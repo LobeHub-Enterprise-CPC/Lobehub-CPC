@@ -1,4 +1,7 @@
 // @vitest-environment node
+import '@/server/test-utils/serverTestConfig';
+
+import { runWithTenantScope } from '@lobechat/database/tenant';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiAgentService } from '@/server/services/aiAgent';
@@ -6,7 +9,18 @@ import { getInvocationDeadline } from '@/server/utils/invocationDeadline';
 import type * as ScheduleAfterResponseModule from '@/server/utils/scheduleAfterResponse';
 import { after } from '@/server/utils/scheduleAfterResponse';
 
-import { runStep, runStepHealth } from '../runStep';
+import { runStep as runStepHandler, runStepHealth } from '../runStep';
+
+vi.mock('@/server/modules/Tenant/liveResources', () => ({
+  getTenantLiveResources: () => ({ bind: () => () => {} }),
+}));
+
+vi.mock('@/server/services/gatewayAuthorization', () => ({ assertGatewayVersion: vi.fn() }));
+const execution = { sourceAcceptedVersion: 1, tenantId: 'tenant-test' };
+const runStep = (c: any) =>
+  runWithTenantScope({ tenantId: 'tenant-test', acceptedVersion: 1 } as any, () =>
+    runStepHandler(c),
+  );
 
 const mockGetOperationMetadata = vi.fn();
 const mockLoadInlineResume = vi.fn();
@@ -72,7 +86,7 @@ vi.mock('@/database/models/agentOperation', () => ({
   }),
 }));
 
-vi.mock('../resumeAbandonedParent', () => ({
+vi.mock('@/server/services/agentRuntime/resumeAbandonedParent', () => ({
   resumeAbandonedParent: mockResumeAbandonedParent,
 }));
 
@@ -120,6 +134,7 @@ function buildContext(opts: {
 }
 
 const validBody = {
+  execution,
   context: { foo: 'bar' },
   operationId: 'op-1',
   stepIndex: 2,
@@ -141,11 +156,9 @@ describe('runStep handler', () => {
     mockSettleStaleRunning.mockResolvedValue(true);
     mockResumeAbandonedParent.mockReset();
   });
-
   afterEach(() => {
     vi.clearAllMocks();
   });
-
   it('returns 400 when JSON parsing throws', async () => {
     const { ctx, getCaptures } = buildContext({ jsonThrows: true });
     const res = await runStep(ctx);
@@ -153,14 +166,12 @@ describe('runStep handler', () => {
     expect(getCaptures()[0].body).toEqual({ error: 'Invalid JSON body' });
     expect(mockGetOperationMetadata).not.toHaveBeenCalled();
   });
-
   it('returns 400 when operationId is missing', async () => {
-    const { ctx } = buildContext({ body: { stepIndex: 0 } });
+    const { ctx } = buildContext({ body: { execution, stepIndex: 0 } });
     const res = await runStep(ctx);
     expect(res.status).toBe(400);
     expect(mockGetOperationMetadata).not.toHaveBeenCalled();
   });
-
   it('returns 401 when operation metadata has no userId', async () => {
     mockGetOperationMetadata.mockResolvedValue(null);
     mockGetServerDB.mockResolvedValue(
@@ -174,9 +185,7 @@ describe('runStep handler', () => {
     );
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(function () {});
     const { ctx, getCaptures } = buildContext({ body: validBody });
-
     const res = await runStep(ctx);
-
     expect(res.status).toBe(401);
     expect(getCaptures()[0].body).toEqual({ error: 'Invalid operation or unauthorized' });
     expect(mockExecuteStep).not.toHaveBeenCalled();
@@ -196,7 +205,6 @@ describe('runStep handler', () => {
     });
     warnSpy.mockRestore();
   });
-
   describe('orphaned operation settle', () => {
     const orphanRow = (overrides: Record<string, unknown> = {}) =>
       buildOperationDiagnosticDB({
@@ -210,7 +218,6 @@ describe('runStep handler', () => {
         workspaceId: 'ws-1',
         ...overrides,
       });
-
     let warnSpy: ReturnType<typeof vi.spyOn>;
     beforeEach(() => {
       mockGetOperationMetadata.mockResolvedValue(null);
@@ -219,13 +226,10 @@ describe('runStep handler', () => {
     afterEach(() => {
       warnSpy.mockRestore();
     });
-
     it('claims the expired lease, then abandons onto the claimed row', async () => {
       mockGetServerDB.mockResolvedValue(orphanRow());
       const { ctx } = buildContext({ body: validBody });
-
       const res = await runStep(ctx);
-
       expect(res.status).toBe(401);
       const staleBefore = mockSettleStaleRunning.mock.calls[0][1] as Date;
       expect(mockSettleStaleRunning).toHaveBeenCalledWith('op-1', expect.any(Date));
@@ -235,21 +239,16 @@ describe('runStep handler', () => {
       });
       expect(mockResumeAbandonedParent).not.toHaveBeenCalled();
     });
-
     it('leaves the run alone when a heartbeat wins the lease claim', async () => {
       mockGetServerDB.mockResolvedValue(orphanRow({ updatedAt: new Date() }));
       mockSettleStaleRunning.mockResolvedValue(false);
       const { ctx } = buildContext({ body: validBody });
-
       await runStep(ctx);
-
       expect(mockFinalizeAbandoned).not.toHaveBeenCalled();
     });
-
     it('does not touch an operation that already reached a terminal status', async () => {
       mockGetServerDB.mockResolvedValue(orphanRow({ status: 'error' }));
       const { ctx } = buildContext({ body: validBody });
-
       await runStep(ctx);
 
       expect(mockSettleStaleRunning).not.toHaveBeenCalled();
@@ -472,6 +471,7 @@ describe('runStep handler', () => {
     // QStash nests these under `body.payload`, not the top level.
     const { ctx } = buildContext({
       body: {
+        execution,
         context: { foo: 'bar' },
         operationId: 'op-1',
         payload: {

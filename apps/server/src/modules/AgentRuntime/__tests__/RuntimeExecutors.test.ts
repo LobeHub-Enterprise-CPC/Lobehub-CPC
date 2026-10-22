@@ -207,7 +207,6 @@ describe('RuntimeExecutors', { timeout: 60_000 }, () => {
   let mockStreamManager: any;
   let mockToolExecutionService: any;
   let ctx: RuntimeExecutorContext;
-
   beforeEach(() => {
     vi.clearAllMocks();
     mockDeleteTaskWork.mockReset();
@@ -239,7 +238,6 @@ describe('RuntimeExecutors', { timeout: 60_000 }, () => {
         return new Response('done');
       }),
     } as any);
-
     mockMessageModel = {
       create: vi.fn().mockResolvedValue({ id: 'msg-123' }),
       deleteMessage: vi.fn().mockResolvedValue({ success: true }),
@@ -7050,3 +7048,5 @@ describe('RuntimeExecutors', { timeout: 60_000 }, () => {
     });
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');

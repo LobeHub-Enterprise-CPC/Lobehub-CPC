@@ -73,6 +73,7 @@ For lists cached separately under multiple parents, see
 
 ## Mutations
 
+- Callbacks emitted after a successful save are persistence notifications. Consumers update cached state or refresh reads; replaying the same write advances the server version and can conflict with the editor's next save.
 - Call the service, then refresh affected list/detail keys and any related domain
   whose response changed. Await refresh when subsequent UI behavior depends on it.
 - Keep pending flags in store state and clear them in `finally`. Use per-id state for

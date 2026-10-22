@@ -1,7 +1,14 @@
 import type * as ModelBankModule from 'model-bank';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { assertGatewayProviderCapability } from '@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite';
+
 import { AiAgentService } from '../index';
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite', () => ({
+  assertGatewayProviderCapability: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('@/server/services/gatewayAuthorization');
 
 const {
   mockIsResourceAuthorOrAdmin,
@@ -220,6 +227,17 @@ describe('AiAgentService.execAgent - model/provider override', () => {
     mockIsResourceAuthorOrAdmin.mockResolvedValue(false);
     mockTopicFindById.mockResolvedValue(null);
     service = new AiAgentService(mockDb, userId);
+  });
+
+  it('refuses an unsupported provider before creating or queueing an operation', async () => {
+    mockGetAgentConfig.mockResolvedValue({ ...defaultAgentConfig });
+    vi.mocked(assertGatewayProviderCapability).mockRejectedValueOnce(
+      new Error('LLM_RELAY_UNSUPPORTED'),
+    );
+    await expect(service.execAgent({ agentId: 'agent-1', prompt: 'Hello' })).rejects.toThrow(
+      'LLM_RELAY_UNSUPPORTED',
+    );
+    expect(mockCreateOperation).not.toHaveBeenCalled();
   });
 
   it('should use agent default model/provider when no override is provided', async () => {

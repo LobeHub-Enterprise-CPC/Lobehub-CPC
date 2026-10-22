@@ -5,11 +5,6 @@ import urlJoin from 'url-join';
 
 import { appEnv } from '@/envs/app';
 
-const cloudAppOrigins = ['https://app.lobehub.com', 'https://lobehub.com'];
-const appUrl = appEnv.APP_URL!;
-const desktopAppOrigins = cloudAppOrigins.includes(new URL(appUrl).origin)
-  ? cloudAppOrigins
-  : [appUrl];
 const marketBaseUrl = new URL(appEnv.MARKET_BASE_URL ?? 'https://market.lobehub.com').origin;
 
 /**
@@ -57,17 +52,10 @@ export const defaultClients: ClientMetadata[] = [
     // Only supports authorization code flow
     grant_types: ['authorization_code', 'refresh_token'],
 
-    post_logout_redirect_uris: [
-      // Keep the legacy subdomain working while Cloud moves to the apex domain.
-      ...desktopAppOrigins.map((origin) => urlJoin(origin, '/oauth/logout')),
-      'http://localhost:3210/oauth/logout',
-    ],
-
-    // Desktop authorization callback - changed to web page path
-    redirect_uris: [
-      ...desktopAppOrigins.map((origin) => urlJoin(origin, '/oidc/callback/desktop')),
-      'http://localhost:3210/oidc/callback/desktop',
-    ],
+    // The desktop callback and logout pages live under each organization's own address, so the
+    // tenant provider adds them (`provider.ts`). A deployment-root address serves no tenant.
+    post_logout_redirect_uris: [],
+    redirect_uris: [],
 
     // Supports authorization code for obtaining tokens and refresh tokens
     response_types: ['code'],
@@ -104,10 +92,9 @@ export const defaultClients: ClientMetadata[] = [
   {
     application_type: 'native',
     client_id: ACCEPTANCE_REVIEW_CLIENT_ID,
-    client_name: 'LobeHub Review',
+    ...clientDisplay('Review', 'https://hub-apac-1.lobeobjects.space/lobehub-desktop-icon.png'),
     grant_types: ['urn:ietf:params:oauth:grant-type:device_code'],
     scope: ACCEPTANCE_REVIEW_SCOPE,
-    logo_uri: 'https://hub-apac-1.lobeobjects.space/lobehub-desktop-icon.png',
     response_types: [],
     token_endpoint_auth_method: 'none',
   },
@@ -148,7 +135,8 @@ export const defaultScopes = [
  */
 export const defaultClaims = {
   email: ['email', 'email_verified'],
-  openid: ['sub'],
-  // subject (unique user identifier)
+  // `sub` is the subject (unique user identifier). `tenant_name` / `tenant_slug` / `has_other_organizations` are
+  // display values for the desktop confirmation; the provider only fills them in for the id_token.
+  openid: ['sub', 'tenant_name', 'tenant_slug', 'has_other_organizations'],
   profile: ['name', 'picture'],
 };

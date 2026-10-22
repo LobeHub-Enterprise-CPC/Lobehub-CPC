@@ -468,3 +468,7 @@ describe('AiAgentService.execAgent - resume mode', () => {
     expect(call.initialMessages.map((m: any) => m.id)).toEqual(['u1', 'a1', 'tool-1', 'tool-2']);
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

@@ -153,7 +153,12 @@ export const params = {
     const suffixIndex = baseURL.indexOf('/compatible-mode/v1');
     const dashscopeURL = suffixIndex > -1 ? baseURL.slice(0, suffixIndex) : baseURL;
 
-    return pollQwenVideoStatus(inferenceId, options.apiKey || '', dashscopeURL);
+    return pollQwenVideoStatus(
+      inferenceId,
+      options.apiKey || '',
+      dashscopeURL,
+      options.fetch as typeof fetch | undefined,
+    );
   },
   models: async ({ client }) => {
     const modelsPage = (await client.models.list()) as any;

@@ -35,29 +35,30 @@ To enable Better Auth in LobeHub, set the following environment variables:
 | `AUTH_SECRET`          | Required   | Key used to encrypt session tokens. Generate using: `openssl rand -base64 32`                                                                                                                                                                                                                             |
 | `APP_URL`              | Required   | Public base URL of this LobeHub instance (e.g. `https://lobe.example.com`). Better Auth uses it as `baseURL` for OAuth callbacks and trusted origins. On Vercel it can fall back to `VERCEL_*` URLs when unset; elsewhere omitting it defaults to `http://localhost:<PORT>` and breaks public-domain SSO. |
 | `NEXT_PUBLIC_AUTH_URL` | Deprecated | Removed NextAuth/browser auth URL. Setting this variable will cause the deployment to fail — use `APP_URL` instead.                                                                                                                                                                                       |
-| `AUTH_SSO_PROVIDERS`   | Optional   | Comma-separated list of enabled SSO providers, e.g., `google,github,microsoft`                                                                                                                                                                                                                            |
 
 ## Supported SSO Providers
 
-| Provider              | Value                   | Environment Variables                                                                                              |
-| --------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Google                | `google`                | `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`                                                                             |
-| GitHub                | `github`                | `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET`                                                                             |
-| Microsoft             | `microsoft`             | `AUTH_MICROSOFT_ID`, `AUTH_MICROSOFT_SECRET`, `AUTH_MICROSOFT_AUTHORITY_URL`, `AUTH_MICROSOFT_TENANT_ID`           |
-| Apple                 | `apple`                 | `AUTH_APPLE_CLIENT_ID`, `AUTH_APPLE_CLIENT_SECRET`                                                                 |
-| AWS Cognito           | `cognito`               | `AUTH_COGNITO_ID`, `AUTH_COGNITO_SECRET`, `AUTH_COGNITO_DOMAIN`, `AUTH_COGNITO_REGION`, `AUTH_COGNITO_USERPOOL_ID` |
-| Auth0                 | `auth0`                 | `AUTH_AUTH0_ID`, `AUTH_AUTH0_SECRET`, `AUTH_AUTH0_ISSUER`                                                          |
-| Authelia              | `authelia`              | `AUTH_AUTHELIA_ID`, `AUTH_AUTHELIA_SECRET`, `AUTH_AUTHELIA_ISSUER`                                                 |
-| Authentik             | `authentik`             | `AUTH_AUTHENTIK_ID`, `AUTH_AUTHENTIK_SECRET`, `AUTH_AUTHENTIK_ISSUER`                                              |
-| Casdoor               | `casdoor`               | `AUTH_CASDOOR_ID`, `AUTH_CASDOOR_SECRET`, `AUTH_CASDOOR_ISSUER`                                                    |
-| Cloudflare Zero Trust | `cloudflare-zero-trust` | `AUTH_CLOUDFLARE_ZERO_TRUST_ID`, `AUTH_CLOUDFLARE_ZERO_TRUST_SECRET`, `AUTH_CLOUDFLARE_ZERO_TRUST_ISSUER`          |
-| Keycloak              | `keycloak`              | `AUTH_KEYCLOAK_ID`, `AUTH_KEYCLOAK_SECRET`, `AUTH_KEYCLOAK_ISSUER`                                                 |
-| Logto                 | `logto`                 | `AUTH_LOGTO_ID`, `AUTH_LOGTO_SECRET`, `AUTH_LOGTO_ISSUER`                                                          |
-| Okta                  | `okta`                  | `AUTH_OKTA_ID`, `AUTH_OKTA_SECRET`, `AUTH_OKTA_ISSUER`                                                             |
-| ZITADEL               | `zitadel`               | `AUTH_ZITADEL_ID`, `AUTH_ZITADEL_SECRET`, `AUTH_ZITADEL_ISSUER`                                                    |
-| Generic OIDC          | `generic-oidc`          | `AUTH_GENERIC_OIDC_ID`, `AUTH_GENERIC_OIDC_SECRET`, `AUTH_GENERIC_OIDC_ISSUER`                                     |
-| Feishu                | `feishu`                | `AUTH_FEISHU_APP_ID`, `AUTH_FEISHU_APP_SECRET`                                                                     |
-| WeChat                | `wechat`                | `AUTH_WECHAT_ID`, `AUTH_WECHAT_SECRET`                                                                             |
+SSO is configured per tenant in Admin (the tenant's SSO providers), not with environment variables. Each provider is added in Admin as follows; for a built-in provider (Google, GitHub, Microsoft, Apple) the provider ID must be exactly the one shown, and for the other presets the shown ID selects the preset (any other ID is plain OIDC).
+
+| Provider              | Add in Admin as          | Provider ID                                  |
+| --------------------- | ------------------------ | -------------------------------------------- |
+| Google                | OIDC                     | `google`                                     |
+| GitHub                | OAuth 2.0, preset GitHub | `github`                                     |
+| Microsoft             | OIDC                     | `microsoft`                                  |
+| Apple                 | OIDC                     | `apple`                                      |
+| AWS Cognito           | OIDC (plain)             | any ID except `cognito` (e.g. `aws-cognito`) |
+| Auth0                 | OIDC                     | `auth0`                                      |
+| Authelia              | OIDC                     | `authelia`                                   |
+| Authentik             | OIDC                     | `authentik`                                  |
+| Casdoor               | OIDC                     | `casdoor`                                    |
+| Cloudflare Zero Trust | OIDC                     | `cloudflare-zero-trust`                      |
+| Keycloak              | OIDC                     | `keycloak`                                   |
+| Logto                 | OIDC                     | `logto`                                      |
+| Okta                  | OIDC                     | `okta`                                       |
+| ZITADEL               | OIDC                     | `zitadel`                                    |
+| Generic OIDC          | OIDC                     | any ID                                       |
+| Feishu                | OAuth 2.0, preset Feishu | any ID                                       |
+| WeChat                | OIDC                     | `wechat`                                     |
 
 Click on a provider below for detailed configuration guides:
 
@@ -103,8 +104,8 @@ Click on a provider below for detailed configuration guides:
 
 When configuring OAuth providers, use the following callback URL format:
 
-- **Development**: `http://localhost:3210/api/auth/callback/{provider}`
-- **Production**: `https://yourdomain.com/api/auth/callback/{provider}`
+- **Development**: `http://localhost:3210/t/{tenant}/api/auth/callback/{provider-id}`
+- **Production**: `https://yourdomain.com/t/{tenant}/api/auth/callback/{provider-id}`
 
 ## Additional Trusted Origins
 
@@ -126,46 +127,21 @@ Set `AUTH_DISABLE_EMAIL_PASSWORD=1` to hide the email input on the login page an
 
 **Restrict registration to specific emails or domains:**
 
-Set `AUTH_ALLOWED_EMAILS` with a comma-separated list:
-
-```bash
-# Allow only @example.com emails
-AUTH_ALLOWED_EMAILS=example.com
-
-# Allow multiple domains and specific addresses
-AUTH_ALLOWED_EMAILS=example.com,company.org,admin@other.com
-```
-
-<Callout type={'info'}>
-  `AUTH_ALLOWED_EMAILS` restricts which emails can register, but does not verify email ownership.
-  Combine with `AUTH_EMAIL_VERIFICATION=1` to ensure users own the email they register with.
-</Callout>
+Which emails or domains may sign up is set per tenant in Admin (the tenant's allow list). There is no deployment-wide `AUTH_ALLOWED_EMAILS` variable.
 
 ## Quick OAuth Setup Examples
 
 **Google OAuth:**
 
 1. Create credentials at [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-2. Set authorized redirect URI: `https://yourdomain.com/api/auth/callback/google`
-3. Configure environment variables:
-
-```bash
-AUTH_SSO_PROVIDERS=google
-AUTH_GOOGLE_ID=xxxxx.apps.googleusercontent.com
-AUTH_GOOGLE_SECRET=GOCSPX-xxxxxxxxxxxxxxxxxxxx
-```
+2. Set authorized redirect URI: `https://yourdomain.com/t/{tenant}/api/auth/callback/google`
+3. In Admin, add an **OIDC** provider with provider ID `google`, the client ID and secret, and issuer `https://accounts.google.com`.
 
 **GitHub OAuth:**
 
 1. Create OAuth App at [GitHub Developer Settings](https://github.com/settings/developers)
-2. Set callback URL: `https://yourdomain.com/api/auth/callback/github`
-3. Configure environment variables:
-
-```bash
-AUTH_SSO_PROVIDERS=github
-AUTH_GITHUB_ID=Ov23xxxxxxxxxxxxx
-AUTH_GITHUB_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
+2. Set callback URL: `https://yourdomain.com/t/{tenant}/api/auth/callback/github`
+3. In Admin, add an **OAuth 2.0** provider with the **GitHub** preset, provider ID `github`, and the client ID and secret.
 
 ## Email Service Configuration
 
@@ -209,7 +185,7 @@ Better Auth supports built-in providers (Google, GitHub, Microsoft, Apple, AWS C
 
 ### How do I enable multiple SSO providers?
 
-Set the `AUTH_SSO_PROVIDERS` environment variable with a comma-separated list, e.g., `google,github,microsoft`. The order determines the display order on the login page.
+Add each provider to the tenant in Admin. The login page lists the tenant's enabled providers, ordered by provider ID.
 
 ### What if Casdoor users only have username without email?
 
@@ -234,18 +210,11 @@ Set `AUTH_DISABLE_EMAIL_PASSWORD=1` to disable email/password authentication. Wh
 - The signup page will redirect to the login page
 - Users can only log in via configured SSO providers
 
-Make sure you have at least one SSO provider configured via `AUTH_SSO_PROVIDERS` before enabling this option.
+Make sure every tenant has at least one SSO provider configured in Admin before enabling this option.
 
 ### How do I restrict registration to specific emails or domains?
 
-Set the `AUTH_ALLOWED_EMAILS` environment variable with a comma-separated list of allowed emails or domains. For example:
-
-- Allow only `example.com` domain: `AUTH_ALLOWED_EMAILS=example.com`
-- Allow multiple domains and specific emails: `AUTH_ALLOWED_EMAILS=example.com,company.org,admin@other.com`
-
-<Callout type={'info'}>
-  Note: `AUTH_ALLOWED_EMAILS` only restricts which email addresses can register, but does not verify email ownership. If you need to ensure users actually own the email address they register with, set `AUTH_EMAIL_VERIFICATION=1` to require email verification. This requires configuring an email service (SMTP).
-</Callout>
+Which emails or domains may sign up is set per tenant in Admin (the tenant's allow list). There is no deployment-wide `AUTH_ALLOWED_EMAILS` variable.
 
 ## Additional Features
 

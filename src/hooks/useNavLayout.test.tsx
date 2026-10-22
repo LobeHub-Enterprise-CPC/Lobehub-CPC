@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   activeWorkspaceSlug: null as string | null,
   enableDashboard: false,
   showMarket: true,
+  showAiImage: true,
 }));
 
 vi.mock('@/config/routes', () => ({
@@ -29,7 +30,7 @@ vi.mock('@/store/serverConfig', () => ({
   useServerConfigStore: (selector: unknown) =>
     selector === ENABLE_DASHBOARD
       ? mocks.enableDashboard
-      : { hideGitHub: false, showMarket: mocks.showMarket },
+      : { hideGitHub: false, showMarket: mocks.showMarket, showAiImage: mocks.showAiImage },
 }));
 
 vi.mock('@/business/client/hooks/useActiveWorkspaceSlug', () => ({
@@ -41,6 +42,16 @@ describe('useNavLayout', () => {
     mocks.activeWorkspaceSlug = null;
     mocks.showMarket = true;
     mocks.enableDashboard = false;
+    mocks.showAiImage = true;
+  });
+
+  it.each([true, false])('keeps generation navigation available (ai_image=%s)', async (enabled) => {
+    mocks.showAiImage = enabled;
+    const { useNavLayout } = await import('./useNavLayout');
+    const { result } = renderHook(() => useNavLayout());
+    const item = result.current.bottomMenuItems.find((item) => item.key === 'image');
+    expect(item?.hidden).not.toBe(true);
+    expect(item?.url).toBe(enabled ? '/image' : '/video');
   });
 
   const dashboardItem = async () => {

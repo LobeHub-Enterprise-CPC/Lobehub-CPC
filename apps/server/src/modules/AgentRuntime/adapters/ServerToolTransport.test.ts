@@ -74,6 +74,16 @@ describe('ServerToolTransport.run', () => {
     expect(executeTool).toHaveBeenCalledWith(payload, expect.objectContaining({ channelContext }));
   });
 
+  // The retry loop's own count names the execution in telemetry.
+  it('tells the tool execution service which attempt of the retry loop it is', async () => {
+    await run();
+
+    expect(executeTool).toHaveBeenCalledWith(
+      payload,
+      expect.objectContaining({ executionAttempt: 1, operationId: 'op-1' }),
+    );
+  });
+
   it('passes undefined channel context for an ordinary run', async () => {
     await run();
 

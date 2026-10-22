@@ -7,7 +7,11 @@ import { useCommunityWorkspaceProfile } from '@/business/client/hooks/useCommuni
 import AsyncError from '@/components/AsyncError';
 import { RouteLoading } from '@/components/Skeleton/RouteSegment';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
-import { useMarketAuth, useMarketUserProfile } from '@/layout/AuthProvider/MarketAuth';
+import {
+  getMarketProfileKey,
+  useMarketAuth,
+  useMarketUserProfile,
+} from '@/layout/AuthProvider/MarketAuth';
 import { type MarketUserProfile } from '@/layout/AuthProvider/MarketAuth/types';
 import { useDiscoverStore } from '@/store/discover';
 import { userSelectors } from '@/store/discover/selectors';
@@ -50,7 +54,7 @@ const UserDetailPage = memo<UserDetailPageProps>(({ mobile }) => {
   }, [isWorkspaceScope, location.pathname, location.search, navigate]);
 
   const currentUser = getCurrentUserInfo();
-  const { data: currentUserProfile } = useMarketUserProfile(currentUser?.sub);
+  const { data: currentUserProfile } = useMarketUserProfile(getMarketProfileKey(currentUser));
 
   const isOwner =
     !isWorkspaceScope &&
@@ -116,7 +120,9 @@ const UserDetailPage = memo<UserDetailPageProps>(({ mobile }) => {
       isOwner,
       mobile,
       onEditProfile: handleEditProfile,
-      onStatusChange: isOwner ? handleStatusChange : undefined,
+      // Whether an item can be unpublished is decided per item (`resolveItemRights`),
+      // not by whose page it is: organization content shows up on other pages too.
+      onStatusChange: handleStatusChange,
       plugins: plugins || [],
       skills: skills || [],
       totalInstalls,

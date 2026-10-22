@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791947959569,
+      "tag": "0000_tenant_sso_providers",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791947960048,
+      "tag": "0001_oidc_pre_auth_artifacts",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792408722832,
+      "tag": "0002_retire_saml_and_named_oauth2_presets",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792408723429,
+      "tag": "0003_drop_sso_saml_config",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792418916127,
+      "tag": "0004_governance_channel_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792572574764,
+      "tag": "0005_channel_run_isolation",
+      "breakpoints": true
+    }
+  ]
+}

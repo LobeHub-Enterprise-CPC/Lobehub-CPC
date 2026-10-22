@@ -1,16 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { aiAgentService } from '@/services/aiAgent';
-import { shareChatService } from '@/services/shareChat';
 
 import { getGatewayMux, resetGatewayMuxRegistry } from './muxRegistry';
 
 vi.mock('@/services/aiAgent', () => ({
   aiAgentService: { issueGatewayUserToken: vi.fn() },
-}));
-
-vi.mock('@/services/shareChat', () => ({
-  shareChatService: { issueGatewayUserToken: vi.fn() },
 }));
 
 /** Never opens: enough for `connect()` to get past `getToken`. */
@@ -38,7 +33,6 @@ describe('muxRegistry', () => {
   beforeEach(() => {
     vi.stubGlobal('WebSocket', InertWebSocket);
     vi.mocked(aiAgentService.issueGatewayUserToken).mockResolvedValue({ token: 'owner-jwt' });
-    vi.mocked(shareChatService.issueGatewayUserToken).mockResolvedValue({ token: 'share-jwt' });
   });
 
   afterEach(() => {
@@ -47,15 +41,9 @@ describe('muxRegistry', () => {
     vi.clearAllMocks();
   });
 
-  it('returns one mux per gatewayUrl + identity', () => {
+  it('returns one mux per gatewayUrl', () => {
     const owner = getGatewayMux({ gatewayUrl: GATEWAY_URL });
     expect(getGatewayMux({ gatewayUrl: GATEWAY_URL })).toBe(owner);
-    expect(getGatewayMux({ agentShareId: undefined, gatewayUrl: GATEWAY_URL })).toBe(owner);
-
-    const share = getGatewayMux({ agentShareId: 'share-1', gatewayUrl: GATEWAY_URL });
-    expect(share).not.toBe(owner);
-    expect(getGatewayMux({ agentShareId: 'share-1', gatewayUrl: GATEWAY_URL })).toBe(share);
-    expect(getGatewayMux({ agentShareId: 'share-2', gatewayUrl: GATEWAY_URL })).not.toBe(share);
     expect(getGatewayMux({ gatewayUrl: 'https://other.test.com' })).not.toBe(owner);
   });
 
@@ -65,16 +53,6 @@ describe('muxRegistry', () => {
     await flushMicrotasks();
 
     expect(aiAgentService.issueGatewayUserToken).toHaveBeenCalledTimes(1);
-    expect(shareChatService.issueGatewayUserToken).not.toHaveBeenCalled();
-  });
-
-  it('mints a share-scoped token for a share visitor mux', async () => {
-    const share = getGatewayMux({ agentShareId: 'share-1', gatewayUrl: GATEWAY_URL });
-    void share.connect().catch(() => {});
-    await flushMicrotasks();
-
-    expect(shareChatService.issueGatewayUserToken).toHaveBeenCalledWith('share-1');
-    expect(aiAgentService.issueGatewayUserToken).not.toHaveBeenCalled();
   });
 
   it('reset disconnects every mux and forgets it', () => {

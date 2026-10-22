@@ -1,5 +1,6 @@
 'use client';
 
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { AGENT_PROFILE_URL, DEFAULT_INBOX_AVATAR, INBOX_SESSION_ID } from '@lobechat/const';
 import { Flexbox } from '@lobehub/ui';
 import {
@@ -167,7 +168,9 @@ const RunCreateContent: FC<RunCreateContentProps> = ({
       e.stopPropagation();
       e.preventDefault();
       window.open(
-        buildWorkspaceAwarePath(AGENT_PROFILE_URL(agentId), activeWorkspaceSlug),
+        withCurrentTenantPath(
+          buildWorkspaceAwarePath(AGENT_PROFILE_URL(agentId), activeWorkspaceSlug),
+        ),
         `agent_${agentId}`,
         'noopener,noreferrer',
       );

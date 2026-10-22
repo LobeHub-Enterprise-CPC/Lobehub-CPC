@@ -16,9 +16,9 @@ afterEach(() => {
 });
 
 describe('canUseGatewayProtocolV2', () => {
-  it('needs both the deployment capability and the rollout', () => {
+  it('keeps tenancy on v1 even with the upstream capability and rollout', () => {
     mockConfig(2, true);
-    expect(canUseGatewayProtocolV2()).toBe(true);
+    expect(canUseGatewayProtocolV2()).toBe(false);
 
     // In the rollout, but this deployment's gateway has no `/v2/ws` at all.
     mockConfig(1, true);
@@ -45,6 +45,6 @@ describe('canUseGatewayProtocolV2', () => {
       },
     };
 
-    expect(canUseGatewayProtocolV2()).toBe(true);
+    expect(canUseGatewayProtocolV2()).toBe(false);
   });
 });

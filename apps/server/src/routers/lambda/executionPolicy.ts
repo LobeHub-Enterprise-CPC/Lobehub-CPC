@@ -1,9 +1,15 @@
 import { LocalSystemIdentifier } from '@lobechat/builtin-tool-local-system';
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
-import { getUserExecutionPolicy, logCommandExecution } from '@/server/services/governance';
+import {
+  getUserExecutionPolicy,
+  GOVERNANCE_UNAVAILABLE_MESSAGE,
+  GovernanceUnavailableError,
+  logCommandExecution,
+} from '@/server/services/governance';
 
 const executionPolicyProcedure = authedProcedure.use(serverDatabase);
 
@@ -29,7 +35,18 @@ const LogFileAccessInputSchema = z.object({
  */
 export const executionPolicyRouter = router({
   get: executionPolicyProcedure.mutation(async ({ ctx }) => {
-    return getUserExecutionPolicy(ctx.userId, ctx.serverDB);
+    try {
+      return await getUserExecutionPolicy(ctx.userId, ctx.serverDB);
+    } catch (error) {
+      // `null` means unrestricted: an unreadable policy must never be answered as one.
+      if (error instanceof GovernanceUnavailableError)
+        throw new TRPCError({
+          cause: error,
+          code: 'SERVICE_UNAVAILABLE',
+          message: GOVERNANCE_UNAVAILABLE_MESSAGE,
+        });
+      throw error;
+    }
   }),
 
   /**

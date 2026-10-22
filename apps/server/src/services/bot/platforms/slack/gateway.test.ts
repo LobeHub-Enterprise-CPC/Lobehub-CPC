@@ -1,6 +1,10 @@
 import { createHmac } from 'node:crypto';
 
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { TenantGateError } from '@/server/modules/Tenant/errors';
+import { TenantLiveResources } from '@/server/modules/Tenant/liveResources';
 
 import type { SlackSocketModeOptions } from './gateway';
 import { SlackSocketModeConnection } from './gateway';
@@ -88,6 +92,31 @@ describe('SlackSocketModeConnection', () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it('does not acknowledge socket shutdown until the actual close event arrives', async () => {
+    const live = new TenantLiveResources(async () => {}, 60000);
+    const scope = {
+      tenantId: 'socket',
+      slug: 'socket',
+      session: {},
+      trackWork: (resource: any) => live.bind('socket', resource),
+    } as unknown as TenantScope;
+    const connecting = runWithTenantScope(scope, () => createConnection().connect());
+    await vi.waitFor(() => expect(MockWebSocket.instances.length).toBe(1));
+    const ws = MockWebSocket.instances[0];
+    ws.simulateMessage({ type: 'hello' });
+    await connecting;
+    vi.spyOn(ws, 'close').mockImplementation(() => {});
+    let acknowledged = false;
+    const closing = live.suspend('socket', new TenantGateError('TENANT_FROZEN')).then(() => {
+      acknowledged = true;
+    });
+    await vi.waitFor(() => expect(ws.close).toHaveBeenCalled());
+    expect(acknowledged).toBe(false);
+    ws.emit('close', { code: 1000, reason: 'confirmed' });
+    await closing;
+    expect(live.size('socket')).toBe(0);
   });
 
   function createConnection(overrides?: Partial<SlackSocketModeOptions>) {

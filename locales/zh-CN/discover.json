@@ -108,6 +108,8 @@
   "category.plugin.tools": "实用技能",
   "category.plugin.web-search": "网络搜索",
   "cleanFilter": "清除筛选",
+  "contentSync.detached": "已脱离平台同步",
+  "contentSync.detachedDesc": "该副本已被独立修改，不再接收平台原版的更新。",
   "create": "创作",
   "createGuide.func1.desc1": "在会话窗口中通过右上角设置进入你想提交助理的设置页面；",
   "createGuide.func1.desc2": "点击右上角提交到助理社区按钮",

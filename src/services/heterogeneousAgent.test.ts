@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/libs/trpc/client', () => ({
   lambdaClient: {
     device: {
-      listHeterogeneousAgentModels: { query: mocks.remoteListModels },
+      listHeterogeneousAgentModels: { mutate: mocks.remoteListModels },
     },
   },
 }));

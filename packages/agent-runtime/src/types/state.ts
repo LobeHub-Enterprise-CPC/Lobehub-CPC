@@ -363,7 +363,6 @@ export interface AgentState {
    * business slot the host may write after creation.
    */
   binding?: AgentRunBinding;
-
   /**
    * Current calculated cost for this session.
    * Updated after each billable operation.
@@ -373,6 +372,7 @@ export interface AgentState {
    * needs the user's device and no client was there to run it.
    */
   clientLlmWait?: AgentRunClientLlmWait;
+
   cost: Cost;
   /**
    * Optional cost limits configuration.
@@ -391,6 +391,7 @@ export interface AgentState {
   /** @deprecated Use `world.enableExpertise`. */
   enableExpertise?: boolean;
   error?: any;
+  execution?: { readonly tenantId: string; readonly sourceAcceptedVersion: number };
   /** @deprecated Use `world.expertise`. */
   expertise?: ExpertiseContextSnapshot;
   /**

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as InternalJwtModule from '@/libs/trpc/utils/internalJwt';
@@ -36,8 +37,13 @@ const operationClaims = {
   operation_id: 'op-1',
   purpose: 'hetero-operation',
   sub: 'user-1',
+  tid: 'tenant-a',
   workspace_id: 'workspace-1',
 };
+
+/** The request is admitted for tenant-a, the tenant the claims were minted for. */
+const inTenant = <T>(operation: () => Promise<T>, tenantId = 'tenant-a') =>
+  runWithTenantScope({ slug: tenantId, tenantId } as TenantScope, operation);
 
 const caller = (oidcAuth: Record<string, unknown>) =>
   aiAgentRouter.createCaller({
@@ -60,7 +66,7 @@ beforeEach(() => {
 describe('aiAgentRouter.refreshHeteroOperationToken', () => {
   it('re-mints a token with the same scope for a running operation', async () => {
     await expect(
-      caller(operationClaims).refreshHeteroOperationToken({ operationId: 'op-1' }),
+      inTenant(() => caller(operationClaims).refreshHeteroOperationToken({ operationId: 'op-1' })),
     ).resolves.toEqual({ jwt: 'renewed-token' });
 
     expect(resolvePrincipal).toHaveBeenCalledWith(
@@ -82,7 +88,7 @@ describe('aiAgentRouter.refreshHeteroOperationToken', () => {
     );
 
     await expect(
-      caller(operationClaims).refreshHeteroOperationToken({ operationId: 'op-1' }),
+      inTenant(() => caller(operationClaims).refreshHeteroOperationToken({ operationId: 'op-1' })),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
     expect(signOperationToken).not.toHaveBeenCalled();
   });
@@ -93,8 +99,19 @@ describe('aiAgentRouter.refreshHeteroOperationToken', () => {
     );
 
     await expect(
-      caller(operationClaims).refreshHeteroOperationToken({ operationId: 'op-2' }),
+      inTenant(() => caller(operationClaims).refreshHeteroOperationToken({ operationId: 'op-2' })),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(signOperationToken).not.toHaveBeenCalled();
+  });
+
+  it('never renews a token that was minted for another tenant', async () => {
+    await expect(
+      inTenant(
+        () => caller(operationClaims).refreshHeteroOperationToken({ operationId: 'op-1' }),
+        'tenant-b',
+      ),
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    expect(resolvePrincipal).not.toHaveBeenCalled();
     expect(signOperationToken).not.toHaveBeenCalled();
   });
 

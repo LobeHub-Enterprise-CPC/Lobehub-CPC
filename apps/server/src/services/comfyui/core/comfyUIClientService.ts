@@ -13,6 +13,10 @@ import debug from 'debug';
 import { COMFYUI_DEFAULTS } from '@/server/services/comfyui/config/constants';
 import { ComfyUIAuthService } from '@/server/services/comfyui/core/comfyUIAuthService';
 import { ComfyUIConnectionService } from '@/server/services/comfyui/core/comfyUIConnectionService';
+import {
+  isPlatformComfyUIEndpoint,
+  SafeComfyApi,
+} from '@/server/services/comfyui/core/comfyUIEndpoint';
 import { ErrorHandlerService } from '@/server/services/comfyui/core/errorHandlerService';
 import { ServicesError } from '@/server/services/comfyui/errors';
 import { TTLCacheManager } from '@/server/services/comfyui/utils/cacheManager';
@@ -47,6 +51,7 @@ export type ProgressCallback = (info: any) => void;
 export class ComfyUIClientService {
   private client: ComfyApi;
   private baseURL: string;
+  private untrustedEndpoint = false;
 
   // Modular services for separation of concerns
   private cacheManager: TTLCacheManager;
@@ -63,14 +68,19 @@ export class ComfyUIClientService {
       // Initialize modular services
       this.authService = new ComfyUIAuthService(options);
       this.cacheManager = new TTLCacheManager(60_000); // 1 minute TTL
-      this.connectionService = new ComfyUIConnectionService();
+      // A user-provided server is only reached through connect-time-filtered transports.
+      this.untrustedEndpoint = !isPlatformComfyUIEndpoint(options.baseURL);
+      this.connectionService = this.untrustedEndpoint
+        ? new ComfyUIConnectionService()
+        : new ComfyUIConnectionService((input, init) => fetch(input, init));
 
       // Setup base URL
       this.baseURL =
         options.baseURL || process.env.COMFYUI_DEFAULT_URL || COMFYUI_DEFAULTS.BASE_URL;
 
       // Initialize client with credentials from AuthService
-      this.client = new ComfyApi(this.baseURL, undefined, {
+      const ClientImpl = this.untrustedEndpoint ? SafeComfyApi : ComfyApi;
+      this.client = new ClientImpl(this.baseURL, undefined, {
         credentials: this.authService.getCredentials(),
       });
       this.client.init();

@@ -1,4 +1,5 @@
 # Prettierignore for LobeHub
+contracts/gateway-tenancy/
 ################################################################
 
 # general
@@ -27,6 +28,9 @@ packages/database/migrations/meta/
 *.log
 *.lock
 package-lock.json
+
+# Drizzle SQL, snapshots and journals must preserve generator/history bytes.
+packages/database/migrations/
 
 # ci
 coverage

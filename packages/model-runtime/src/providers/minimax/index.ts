@@ -368,6 +368,7 @@ export const openAIParams = {
     return pollMiniMaxVideoStatus(inferenceId, {
       apiKey: options.apiKey,
       baseURL: options.baseURL || '',
+      fetch: options.fetch,
     });
   },
   provider: ModelProvider.Minimax,

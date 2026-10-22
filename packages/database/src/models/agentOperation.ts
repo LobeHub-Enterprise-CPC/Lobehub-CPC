@@ -17,6 +17,7 @@ import type {
 } from '../schemas/agentOperations';
 import { agentOperations } from '../schemas/agentOperations';
 import type { LobeChatDatabase } from '../type';
+import { gatewayExecutionCondition } from '../utils/gatewayExecution';
 import { notShareVisitorTopicRef } from '../utils/shareVisitor';
 import { buildWorkspaceWhere } from '../utils/workspace';
 
@@ -862,13 +863,8 @@ export class AgentOperationModel {
     return row?.seconds ?? 0;
   }
 
-  /**
-   * Atomically flip a parked parent op from `waiting_for_async_tool` back to
-   * `running`. Returns true only for the single winner (affected === 1) so
-   * concurrent sub-op completions that lose the race no-op instead of
-   * double-resuming the parent.
-   */
-  async tryResumeFromAsyncTool(operationId: string): Promise<boolean> {
+  /** Resume once, while this execution and its optional child link still match. */
+  async tryResumeFromAsyncTool(operationId: string, childOperationId?: string): Promise<boolean> {
     const rows = await this.db
       .update(agentOperations)
       .set({ status: 'running' })
@@ -877,6 +873,7 @@ export class AgentOperationModel {
           eq(agentOperations.id, operationId),
           eq(agentOperations.userId, this.userId),
           eq(agentOperations.status, 'waiting_for_async_tool'),
+          gatewayExecutionCondition(this.db, childOperationId),
         ),
       )
       .returning({ id: agentOperations.id });

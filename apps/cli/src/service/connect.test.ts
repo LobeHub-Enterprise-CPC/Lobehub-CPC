@@ -19,6 +19,7 @@ const entryPath = path.join(tmpDir, 'lh.js');
 const execFileSyncMock = vi.hoisted(() => vi.fn());
 const getRunningDaemonPidMock = vi.hoisted(() => vi.fn());
 const loadCredentialsMock = vi.hoisted(() => vi.fn());
+const SERVER_URL = 'https://app.test/t/a';
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<Record<string, any>>();
@@ -39,6 +40,8 @@ vi.mock('node:os', async (importOriginal) => {
 vi.mock('../auth/credentials', () => ({
   loadCredentials: loadCredentialsMock,
 }));
+
+vi.mock('../settings', () => ({ resolveServerUrl: () => SERVER_URL }));
 
 vi.mock('../daemon/manager', () => ({
   getRunningDaemonPid: getRunningDaemonPidMock,
@@ -70,7 +73,7 @@ describe('connect service', () => {
     delete process.env.AWS_SECRET_ACCESS_KEY;
 
     getRunningDaemonPidMock.mockReturnValue(null);
-    loadCredentialsMock.mockReturnValue({ accessToken: 'jwt' });
+    loadCredentialsMock.mockReturnValue({ accessToken: 'jwt', serverUrl: SERVER_URL });
     execFileSyncMock.mockImplementation((command: string, args: string[]) => {
       if (command !== 'systemctl') throw new Error(`unexpected command: ${command}`);
 
@@ -146,6 +149,16 @@ describe('connect service', () => {
     expect(() => installConnectService()).toThrow("No authentication found. Run 'lh login' first");
     expect(fs.existsSync(path.join(unitDir, 'lobehub-connect.service'))).toBe(false);
     expect(systemctlCalls).not.toContainEqual(['--user', 'enable', 'lobehub-connect.service']);
+  });
+
+  it('does not install a stored login that another server issued', () => {
+    loadCredentialsMock.mockReturnValue({
+      accessToken: 'jwt',
+      serverUrl: 'https://other.example/t/a',
+    });
+
+    expect(() => installConnectService()).toThrow(`login --server ${SERVER_URL}`);
+    expect(fs.existsSync(path.join(unitDir, 'lobehub-connect.service'))).toBe(false);
   });
 
   it('writes the current environment to a service-scoped env file', () => {

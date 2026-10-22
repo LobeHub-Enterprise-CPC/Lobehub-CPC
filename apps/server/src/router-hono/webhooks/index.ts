@@ -1,3 +1,4 @@
+import { stripTenantPath } from '@lobechat/business-tenant/routing';
 import { Hono } from 'hono';
 
 import { casdoorWebhook } from './handlers/casdoor';
@@ -12,7 +13,9 @@ import { memoryUserMemoryPersonaUpdateWriting } from './handlers/memoryUserMemor
 import { videoWebhook } from './handlers/video';
 import { memoryWebhookAuth } from './middlewares/memoryWebhookAuth';
 
-const app = new Hono().basePath('/api/webhooks');
+const app = new Hono({
+  getPath: (request) => stripTenantPath(new URL(request.url).pathname),
+}).basePath('/api/webhooks');
 
 // Identity provider webhooks — each verifies its own provider signature.
 app.post('/casdoor', casdoorWebhook);

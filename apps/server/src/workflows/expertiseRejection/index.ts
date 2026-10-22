@@ -1,8 +1,10 @@
+import { currentTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 
 import { getServerDB } from '@/database/server';
 import { appEnv } from '@/envs/app';
 import { workflowClient } from '@/libs/qstash';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { ExpertiseIngestionService } from '@/server/services/expertise/ingestion';
 
 import { runExpertiseRejectionWorkflow } from './run';
@@ -42,7 +44,8 @@ export class ExpertiseRejectionWorkflow {
   static async trigger(payload: ExpertiseRejectionWorkflowPayload) {
     try {
       if (!appEnv.enableQueueAgentRuntime) {
-        const key = catalogKey(payload);
+        // Serialization only, but the chain runs tenant-scoped work: never queue across tenants.
+        const key = `${currentTenantScope()?.tenantId ?? ''}|${catalogKey(payload)}`;
         const previous = localRuns.get(key) ?? Promise.resolve();
         // `catch` before chaining: one failed distillation must not cancel the rounds queued
         // behind it, and every branch already logs its own error.
@@ -75,7 +78,7 @@ export class ExpertiseRejectionWorkflow {
         // One distillation at a time per lesson catalog: two rounds settling together would race
         // on the same domain's `runIndex`, and the row lock would just serialize them anyway.
         flowControl: { key: `expertise-rejection.${catalogKey(payload)}`, parallelism: 1 },
-        url: new URL('/api/workflows/expertise-rejection/run', baseUrl).toString(),
+        url: buildTenantCallbackUrl('/api/workflows/expertise-rejection/run', baseUrl),
       });
     } catch (error) {
       log('failed to distil run %s: %O', payload.verifyRunId, error);

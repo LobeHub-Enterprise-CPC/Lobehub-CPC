@@ -1,18 +1,21 @@
 import type { AgentState } from '@lobechat/agent-runtime';
 import { BRANDING_PROVIDER } from '@lobechat/business-const';
+import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 import { ModelProvider } from 'model-bank';
-import { isProviderFetchOnClient } from 'model-bank/modelProviders';
+import {
+  isProviderDisableBrowserRequest,
+  isProviderFetchOnClient,
+} from 'model-bank/modelProviders';
 
 import { AiProviderModel } from '@/database/models/aiProvider';
 import type { LobeChatDatabase } from '@/database/type';
-import { getServerFeatureFlagsStateFromRuntimeConfig } from '@/server/featureFlags';
 import { getServerFetchOnClientOverride } from '@/server/globalConfig/serverFetchOnClient';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { resolveRuntimeProvider } from '@/server/modules/ModelRuntime';
+import { GatewayAuthorizationError } from '@/server/services/gatewayAuthorization/wire';
 
 import type { ClientLlmUnavailableReason } from './errors';
-import { LLM_RELAY_CAPABILITY } from './protocol';
 
 const log = debug('lobe-server:agent-runtime:llm-relay:site');
 
@@ -51,16 +54,20 @@ export interface ResolveProviderRelayParams {
  * user's config with this deployment's override (desktop, `OLLAMA_PROXY_URL`)
  * as the default — sends it to the device. `undefined` keeps it on the server.
  */
-export const resolveProviderRelay = async ({
+const resolveDeviceProvider = async ({
   db,
   provider,
   userId,
   workspaceId,
 }: ResolveProviderRelayParams): Promise<{ runtimeProvider: string } | undefined> => {
-  if (provider === BRANDING_PROVIDER || provider === ModelProvider.LobeHub) return;
-
-  const featureFlags = await getServerFeatureFlagsStateFromRuntimeConfig(userId);
-  if (!featureFlags.enableLlmRelay) return;
+  // Server-only provider cards cannot relay, regardless of the saved user configuration.
+  // Other providers (including hosted providers with a custom endpoint) still need the row.
+  if (
+    provider === BRANDING_PROVIDER ||
+    provider === ModelProvider.LobeHub ||
+    isProviderDisableBrowserRequest(provider)
+  )
+    return;
 
   const config = await new AiProviderModel(db, userId, workspaceId).getAiProviderById(
     provider,
@@ -75,6 +82,15 @@ export const resolveProviderRelay = async ({
   if (!fetchOnClient) return;
 
   return { runtimeProvider: resolveRuntimeProvider(provider, config?.settings?.sdkType) };
+};
+
+/** Request entry: reject a device-only call before allocating any upstream relay runtime. */
+export const resolveProviderRelay = async (
+  params: ResolveProviderRelayParams,
+): Promise<{ runtimeProvider: string } | undefined> => {
+  if (await resolveDeviceProvider(params))
+    throw new GatewayAuthorizationError('LLM_RELAY_UNSUPPORTED', 501);
+  return undefined;
 };
 
 /**
@@ -100,20 +116,18 @@ export const resolveLlmExecutionSite = async ({
 }: ResolveLlmExecutionSiteParams): Promise<LlmExecutionSite> => {
   if (state?.principal?.actor?.shareVisitor) return SERVER;
 
-  const relay = await resolveProviderRelay({ db, provider, userId, workspaceId });
+  const relay = await resolveDeviceProvider({ db, provider, userId, workspaceId });
   if (!relay) return SERVER;
 
-  const executor = state?.host?.llmExecutor;
-  const canExecute =
-    !!executor?.clientId &&
-    executor.capabilities.includes(LLM_RELAY_CAPABILITY) &&
-    executor.providers.includes(provider);
-  if (!canExecute) return { reason: 'no_executor', site: 'unavailable' };
+  return { reason: 'relay_unsupported', site: 'unavailable' };
+};
 
-  return {
-    ...(executor.channelOperationId && { channelOperationId: executor.channelOperationId }),
-    preferredClientId: executor.clientId,
-    runtimeProvider: relay.runtimeProvider,
-    site: 'client',
-  };
+export const assertGatewayProviderCapability = async (
+  db: LobeChatDatabase,
+  userId: string,
+  provider: string,
+  workspaceId?: string,
+) => {
+  if (await resolveDeviceProvider({ db, userId, provider, workspaceId }))
+    throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'LLM_RELAY_UNSUPPORTED' });
 };

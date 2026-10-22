@@ -49,18 +49,27 @@ describe('Docker startup migrations', () => {
   it('finishes PostgreSQL and Elasticsearch migrations before serving requests', async () => {
     const result = await launch({ DATABASE_DRIVER: 'node', FTS_SEARCH_PROVIDER: 'elasticsearch' });
     expect(result.commands).toEqual([
-      ['/bin/node', '/app/docker.cjs'],
-      ['/bin/node', '/app/fts-search-elasticsearch-reindex.cjs', '--startup', '--yes'],
+      ['/bin/node', '/app/docker.cjs', '--tolerate-tenant-failures'],
+      ['/bin/node', '/app/fts-search-elasticsearch-reindex-tenants.cjs', '--startup', '--yes'],
       ['/bin/node', '/app/server.js'],
     ]);
     expect(result.exits).toEqual([]);
+  });
+
+  it('boot migration tolerates failed tenants; they answer 503 until the migration Job reruns', async () => {
+    const result = await launch({ DATABASE_DRIVER: 'node' });
+    expect(result.commands[0]).toEqual([
+      '/bin/node',
+      '/app/docker.cjs',
+      '--tolerate-tenant-failures',
+    ]);
   });
 
   it('runs PostgreSQL first for Elasticsearch even without an explicit driver', async () => {
     const result = await launch({ FTS_SEARCH_PROVIDER: 'elasticsearch' });
     expect(result.commands.map((command) => command[1])).toEqual([
       '/app/docker.cjs',
-      '/app/fts-search-elasticsearch-reindex.cjs',
+      '/app/fts-search-elasticsearch-reindex-tenants.cjs',
       '/app/server.js',
     ]);
   });
@@ -72,10 +81,10 @@ describe('Docker startup migrations', () => {
       OTEL_EXPORTER_OTLP_ENDPOINT: 'http://collector:4318',
     });
     expect(result.commands).toEqual([
-      ['/bin/node', '/app/docker.cjs'],
+      ['/bin/node', '/app/docker.cjs', '--tolerate-tenant-failures'],
       [
         '/bin/node',
-        '/app/fts-search-elasticsearch-reindex.cjs',
+        '/app/fts-search-elasticsearch-reindex-tenants.cjs',
         '--startup',
         '--yes',
         '--telemetry-environment=production',
@@ -93,7 +102,7 @@ describe('Docker startup migrations', () => {
     ]);
   });
 
-  it.each(['/app/docker.cjs', '/app/fts-search-elasticsearch-reindex.cjs'])(
+  it.each(['/app/docker.cjs', '/app/fts-search-elasticsearch-reindex-tenants.cjs'])(
     'does not serve requests when %s fails',
     async (script) => {
       const result = await launch(

@@ -2,14 +2,17 @@ import { revalidateTag } from 'next/cache';
 import { type NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
-export const GET = async (request: NextRequest) => {
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
+import { secretsEqual } from '@/server/utils/bearerAuth';
+
+const handleGet = async (request: NextRequest) => {
   if (!process.env.REVALIDATE_SECRET) {
     return NextResponse.json('REVALIDATE_SECRET is not set', { status: 501 });
   }
 
   const authToken = request.headers.get('Authorization');
 
-  if (!authToken || authToken !== process.env.REVALIDATE_SECRET) {
+  if (!authToken || !secretsEqual(authToken, process.env.REVALIDATE_SECRET)) {
     return NextResponse.json('Unauthorized', { status: 401 });
   }
 
@@ -23,3 +26,5 @@ export const GET = async (request: NextRequest) => {
 
   return Response.json({ now: Date.now(), revalidated: true });
 };
+
+export const GET = withTenantRequest(handleGet);

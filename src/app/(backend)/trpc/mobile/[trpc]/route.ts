@@ -5,6 +5,8 @@ import { createLambdaContext } from '@/libs/trpc/lambda/context';
 import { createTRPCErrorLogger } from '@/libs/trpc/utils/errorLogger';
 import { prepareRequestForTRPC } from '@/libs/trpc/utils/request-adapter';
 import { createResponseMeta } from '@/libs/trpc/utils/responseMeta';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
+import { trpcTenantRefusal } from '@/server/modules/Tenant/trpcRefusal';
 import { mobileRouter } from '@/server/routers/mobile';
 
 const handler = (req: NextRequest) => {
@@ -28,4 +30,8 @@ const handler = (req: NextRequest) => {
   });
 };
 
-export { handler as GET, handler as POST };
+const tenantHandler = withTenantRequest(handler, {
+  refuse: trpcTenantRefusal({ endpoint: '/trpc/mobile', router: mobileRouter }),
+});
+
+export { tenantHandler as GET, tenantHandler as POST };

@@ -99,6 +99,11 @@ export const CHANNEL_LIMITS = {
   executionMs: 10 * 60 * 1000,
   /** Wall-clock budget for a device-hosted Agent turn before the worker stops it. */
   deviceExecutionMs: 30 * 60 * 1000,
+  /**
+   * How long past its execution limit a writer may stay unconfirmed before the worker isolates
+   * it logically, so its member can run again. Physical confirmation is still sought afterwards.
+   */
+  terminationGraceMs: 5 * 60 * 1000,
   members: 6,
   minMembers: 2,
   modelCalls: 32,

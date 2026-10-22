@@ -23,6 +23,15 @@ vi.mock('@/libs/qstash', () => ({
   }),
 }));
 
+vi.mock('@/server/services/gatewayAuthorization/operationAuthority', () => ({
+  operationExecutionContext: async () => ({ tenantId: 'tenant-test', sourceAcceptedVersion: 7 }),
+}));
+vi.mock('@/server/services/gatewayAuthorization', () => ({ assertGatewayVersion: async () => {} }));
+const tenantRun = async <T>(run: () => T) =>
+  (await import('@lobechat/database/tenant')).runWithTenantScope(
+    { tenantId: 'tenant-test', acceptedVersion: 7 } as any,
+    run,
+  );
 describe('QueueService', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -51,70 +60,117 @@ describe('QueueService', () => {
     });
 
     it('should schedule message and return task ID in local mode', async () => {
-      const { QueueService } = await import('../QueueService');
-      const service = new QueueService();
+      return tenantRun(async () => {
+        const { QueueService } = await import('../QueueService');
+        const service = new QueueService();
 
-      const taskId = await service.scheduleMessage({
-        context: { phase: 'user_input' } as any,
-        endpoint: 'http://test.com',
-        operationId: 'test-op',
-        priority: 'normal',
-        stepIndex: 0,
+        const taskId = await service.scheduleMessage({
+          context: { phase: 'user_input' } as any,
+          endpoint: 'http://test.com',
+          operationId: 'test-op',
+          priority: 'normal',
+          stepIndex: 0,
+        });
+
+        expect(taskId).toMatch(/^local-test-op-0-\d+$/);
       });
-
-      expect(taskId).toMatch(/^local-test-op-0-\d+$/);
     });
 
     it('deduplicates retries with the same stable execution key', async () => {
-      vi.useFakeTimers();
-      const execution = vi.fn().mockResolvedValue(undefined);
-      const { LocalQueueServiceImpl } = await import('../impls/local');
-      const impl = new LocalQueueServiceImpl();
-      impl.setExecutionCallback(execution);
-      const message = {
-        context: { phase: 'user_input' } as any,
-        deduplicationId: 'agent-intervention:op-stable:0',
-        delay: 0,
-        endpoint: 'http://test.com',
-        operationId: 'op-stable',
-        priority: 'normal' as const,
-        stepIndex: 0,
-      };
+      return tenantRun(async () => {
+        vi.useFakeTimers();
+        const execution = vi.fn().mockResolvedValue(undefined);
+        const { LocalQueueServiceImpl } = await import('../impls/local');
+        const impl = new LocalQueueServiceImpl();
+        impl.setExecutionCallback(execution);
+        const message = {
+          context: { phase: 'user_input' } as any,
+          execution: { tenantId: 'tenant-test', sourceAcceptedVersion: 7 },
+          deduplicationId: 'agent-intervention:op-stable:0',
+          delay: 0,
+          endpoint: 'http://test.com',
+          operationId: 'op-stable',
+          priority: 'normal' as const,
+          stepIndex: 0,
+        };
 
-      const [firstTaskId, retryTaskId] = await Promise.all([
-        impl.scheduleMessage(message),
-        impl.scheduleMessage(message),
-      ]);
+        const [firstTaskId, retryTaskId] = await Promise.all([
+          impl.scheduleMessage(message),
+          impl.scheduleMessage(message),
+        ]);
 
-      expect(retryTaskId).toBe(firstTaskId);
-      await vi.runAllTimersAsync();
-      expect(execution).toHaveBeenCalledTimes(1);
+        expect(retryTaskId).toBe(firstTaskId);
+        await vi.runAllTimersAsync();
+        expect(execution).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('schedules a tenant job without an agent operation row, under the tenant execution version', async () => {
+      return tenantRun(async () => {
+        const { QueueService } = await import('../QueueService');
+        const service = new QueueService();
+        const impl = service.getImpl();
+        const scheduled = vi.spyOn(impl, 'scheduleMessage');
+        const lookup = vi.fn();
+        // The operation lookup is mocked to a fixed answer above; a tenant job must not use it.
+        const authority = await import('@/server/services/gatewayAuthorization/operationAuthority');
+        const spy = vi.spyOn(authority, 'operationExecutionContext').mockImplementation(lookup);
+
+        await service.scheduleMessage({
+          endpoint: 'http://test.com',
+          kind: 'tenant-job',
+          operationId: 'defer:message-1',
+          stepIndex: 0,
+        });
+
+        spy.mockRestore();
+        expect(lookup).not.toHaveBeenCalled();
+        expect(scheduled).toHaveBeenCalledWith(
+          expect.objectContaining({
+            execution: { sourceAcceptedVersion: 7, tenantId: 'tenant-test' },
+          }),
+        );
+      });
+    });
+
+    it('refuses a tenant job outside a tenant scope', async () => {
+      const { QueueService } = await import('../QueueService');
+      await expect(
+        new QueueService().scheduleMessage({
+          endpoint: 'http://test.com',
+          kind: 'tenant-job',
+          operationId: 'defer:message-1',
+          stepIndex: 0,
+        }),
+      ).rejects.toMatchObject({ code: 'TENANT_REQUIRED' });
     });
 
     it('should schedule batch messages in local mode', async () => {
-      const { QueueService } = await import('../QueueService');
-      const service = new QueueService();
+      return tenantRun(async () => {
+        const { QueueService } = await import('../QueueService');
+        const service = new QueueService();
 
-      const taskIds = await service.scheduleBatchMessages([
-        {
-          context: { phase: 'user_input' } as any,
-          endpoint: 'http://test.com',
-          operationId: 'test-op-1',
-          priority: 'normal',
-          stepIndex: 0,
-        },
-        {
-          context: { phase: 'user_input' } as any,
-          endpoint: 'http://test.com',
-          operationId: 'test-op-2',
-          priority: 'normal',
-          stepIndex: 0,
-        },
-      ]);
+        const taskIds = await service.scheduleBatchMessages([
+          {
+            context: { phase: 'user_input' } as any,
+            endpoint: 'http://test.com',
+            operationId: 'test-op-1',
+            priority: 'normal',
+            stepIndex: 0,
+          },
+          {
+            context: { phase: 'user_input' } as any,
+            endpoint: 'http://test.com',
+            operationId: 'test-op-2',
+            priority: 'normal',
+            stepIndex: 0,
+          },
+        ]);
 
-      expect(taskIds).toHaveLength(2);
-      expect(taskIds[0]).toMatch(/^local-test-op-1-0-\d+$/);
-      expect(taskIds[1]).toMatch(/^local-test-op-2-0-\d+$/);
+        expect(taskIds).toHaveLength(2);
+        expect(taskIds[0]).toMatch(/^local-test-op-1-0-\d+$/);
+        expect(taskIds[1]).toMatch(/^local-test-op-2-0-\d+$/);
+      });
     });
 
     it('should handle cancelScheduledTask gracefully in local mode (no-op)', async () => {

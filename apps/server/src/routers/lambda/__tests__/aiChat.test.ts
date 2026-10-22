@@ -53,11 +53,9 @@ describe('aiChatRouter', () => {
           ...assistantMessage,
           parentId: userMessageItem.id,
         });
-
         return { assistantMessage: assistantMessageItem, userMessage: userMessageItem };
       },
     );
-
     vi.mocked(MessageModel).mockImplementation(function () {
       return {
         create: mockCreateMessage,
@@ -1756,3 +1754,5 @@ describe('aiChatRouter', () => {
     });
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');

@@ -27,7 +27,6 @@ import {
   aiAgentService,
   type ResolveAgentInterventionBySourceResult,
 } from '@/services/aiAgent';
-import { shareChatService } from '@/services/shareChat';
 import { getAgentStoreState } from '@/store/agent';
 import { agentByIdSelectors, agentSelectors } from '@/store/agent/selectors';
 import { displayMessageSelectors, topicSelectors } from '@/store/chat/selectors';
@@ -190,18 +189,7 @@ export class ConversationControlActionImpl {
       resolutionRequestId,
       targets: sourceTargets,
     };
-    // A share visitor answers their own share run through the share-authorized
-    // mirror; the owner-scoped endpoint would reject them.
-    const agentShareId = params.context?.agentShareId;
-    const result = agentShareId
-      ? params.context?.topicId
-        ? await shareChatService.resolveInterventionBySource(
-            agentShareId,
-            params.context.topicId,
-            sourceParams,
-          )
-        : ({ handled: false } as const)
-      : await aiAgentService.resolveAgentInterventionBySource(sourceParams);
+    const result = await aiAgentService.resolveAgentInterventionBySource(sourceParams);
     if (result.handled) {
       this.#interventionResolutionRequestIds.delete(resolutionKey);
       if (result.state === 'claimed' && params.context) {
@@ -1040,9 +1028,7 @@ export class ConversationControlActionImpl {
 
       if (!sourceResolution.handled) {
         const stopParams = { batchId, operationId, toolMessageIds: addressable, topicId };
-        await (effectiveContext.agentShareId
-          ? shareChatService.stopPendingApproval(effectiveContext.agentShareId, stopParams)
-          : aiAgentService.stopPendingApproval(stopParams));
+        await aiAgentService.stopPendingApproval(stopParams);
       }
       // Settle the cards locally. A group member's stop ends no stream this
       // client still listens on, so no refetch would ever land the aborted rows

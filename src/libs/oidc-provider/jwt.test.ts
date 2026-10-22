@@ -18,6 +18,10 @@ vi.mock('@/envs/auth', () => ({
   },
 }));
 
+// Tokens are bound to the tenant of the request by their signed `tid` claim.
+const tenantBound = vi.hoisted(() => vi.fn());
+vi.mock('@/libs/trpc/utils/tenantBinding', () => ({ isBoundToCurrentTenant: tenantBound }));
+
 const importJWKMock = vi.fn();
 const jwtVerifyMock = vi.fn();
 
@@ -30,6 +34,7 @@ describe('validateOIDCJWT', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     importJWKMock.mockResolvedValue('public-key');
+    tenantBound.mockReturnValue(true);
   });
 
   it('should preserve the original jose error as TRPCError cause', async () => {
@@ -65,6 +70,7 @@ describe('acceptance review tokens', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     importJWKMock.mockResolvedValue('public-key');
+    tenantBound.mockReturnValue(true);
   });
 
   it('are refused as an app session', async () => {
@@ -103,6 +109,15 @@ describe('acceptance review tokens', () => {
       expiresAt: 1_800_000_000,
       userId: 'user-1',
     });
+  });
+
+  it('are refused when issued for another tenant', async () => {
+    tenantBound.mockReturnValue(false);
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: { aud: REVIEW_AUD, client_id: 'lobehub-review', exp: 1_800_000_000, sub: 'user-1' },
+    });
+    const { verifyAcceptanceReviewJWT } = await import('./jwt');
+    await expect(verifyAcceptanceReviewJWT('t')).rejects.toThrow('not issued for this tenant');
   });
 
   it('reject any other token as a review token', async () => {

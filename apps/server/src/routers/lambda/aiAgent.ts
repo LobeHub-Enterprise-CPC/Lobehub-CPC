@@ -37,7 +37,6 @@ import {
 import {
   type AgentInterventionReviewStatus,
   type AgentInterventionRuntimeAction,
-  type AgentInterventionShareVisitorScope,
   type AgentInterventionSourceAction,
   getAgentInterventionReview,
   getAgentInterventionReviewBySource,
@@ -67,7 +66,7 @@ import { notShareVisitorTopicRef } from '@/database/utils/shareVisitor';
 import { notTrashed } from '@/database/utils/softDelete';
 import { heteroAuthedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
-import { signHeteroOperationJWT, signUserJWT } from '@/libs/trpc/utils/internalJwt';
+import { signHeteroOperationJWT } from '@/libs/trpc/utils/internalJwt';
 import { createStreamEventManager } from '@/server/modules/AgentRuntime/factory';
 import { unwrapPgError } from '@/server/modules/AgentRuntime/pgError';
 import {
@@ -95,9 +94,9 @@ import {
 import { AgentRuntimeService } from '@/server/services/agentRuntime';
 import { MAX_CLIENT_OPERATION_SNAPSHOT } from '@/server/services/agentRuntime/foregroundOperation';
 import { AiAgentService } from '@/server/services/aiAgent';
-import type { AgentShareGate } from '@/server/services/aiAgent/shareGate';
 import { AiChatService } from '@/server/services/aiChat';
 import { getFileProxyUrl } from '@/server/services/file';
+import { mintOperationGatewayTicket } from '@/server/services/gatewayAuthorization';
 import { HeterogeneousAgentService } from '@/server/services/heterogeneousAgent';
 import {
   HeteroOperationPrincipalError,
@@ -120,14 +119,7 @@ export interface AgentInterventionDispatchContext {
    */
   aiAgentService: AiAgentService;
   serverDB: LobeChatDatabase;
-  /**
-   * Present when a share VISITOR resolved an intervention on their own share
-   * run (`shareChat.resolveInterventionBySource`). Rebuilt from the live share row by
-   * the caller — never from the parked run's state — so the continuation is
-   * gated by the share's CURRENT config exactly like a fresh visitor turn.
-   */
-  shareGate?: AgentShareGate;
-  /** The resolving actor: the owner/member, or the share visitor. */
+  /** The resolving actor. */
   userId: string;
   workspaceId?: string | null;
 }
@@ -525,7 +517,6 @@ const resolveContinuationUserInterventionConfig = async (
   const persistedAllowList = intervention?.allowList ?? [];
 
   const inherited = sourceState ? selectUserInterventionConfig(sourceState) : undefined;
-  if (ctx.shareGate) return inherited ?? { approvalMode: 'manual' };
   if (inherited) {
     const inheritedAllowList = inherited.allowList ?? [];
     const remembered = persistedAllowList.filter((key) => !inheritedAllowList.includes(key));
@@ -608,7 +599,7 @@ export const dispatchClaimedAgentIntervention = async (
        * run's trigger. Without an explicit trigger every LLM call in the
        * continuation lands in route attempt logs with an unknown source.
        */
-      const continuationTrigger = ctx.shareGate ? RequestTrigger.AgentShare : RequestTrigger.Chat;
+      const continuationTrigger = RequestTrigger.Chat;
       const continuation = continuationRuntimeAction(runtimeAction);
       const userInterventionConfig = continuation
         ? await resolveContinuationUserInterventionConfig(resolution, continuation.operationId, ctx)
@@ -657,7 +648,6 @@ export const dispatchClaimedAgentIntervention = async (
                 pluginState: customResult.pluginState,
                 toolCallId: runtimeAction.toolCallId,
               },
-              shareGate: ctx.shareGate,
               topicStartReservationId: deterministicContinuationOperationId,
               trigger: continuationTrigger,
               userInterventionConfig,
@@ -690,7 +680,6 @@ export const dispatchClaimedAgentIntervention = async (
             ...(runtimeAction.decisions.length === 1
               ? { resumeApproval: singleDecision }
               : { resumeApprovals: runtimeAction.decisions }),
-            shareGate: ctx.shareGate,
             topicStartReservationId: deterministicContinuationOperationId,
             trigger: continuationTrigger,
             userInterventionConfig,
@@ -718,7 +707,6 @@ export const dispatchClaimedAgentIntervention = async (
               rejectionReason: runtimeAction.rejectionReason,
               toolCallId: runtimeAction.toolCallId,
             },
-            shareGate: ctx.shareGate,
             topicStartReservationId: deterministicContinuationOperationId,
             trigger: continuationTrigger,
             userInterventionConfig,
@@ -899,11 +887,6 @@ const assertOperationVisibleToCaller = async (params: {
 }) => {
   const { db, operationId, userId, workspaceId } = params;
 
-  // Share-visitor runs are ALSO excluded (`notShareVisitorTopicRef`): they
-  // execute under the creator's userId, so the owner shortcut below would
-  // otherwise hand the creator the visitor's run metadata, history and
-  // stream events — the same exclusion `findOwnOperationById` applies to
-  // the trace reads.
   const [row] = await db
     .select({
       agentId: agentOperations.agentId,
@@ -1370,8 +1353,6 @@ type ExecAgentInput = z.infer<typeof ExecAgentSchema>;
  * authoritative operation/batch from the tool rows and claim the same generic
  * intervention before the legacy message CAS can run.
  *
- * Shared by the owner `execAgent` and the share-visitor `shareChat.execAgent`
- * resume paths; `shareVisitor` scopes the claim to the visitor's own share run.
  * Resolves `undefined` when no durable generic row exists (OSS, or a pre-v2
  * row), so the caller continues with the legacy message-row resume.
  */
@@ -1382,20 +1363,13 @@ export const bridgeLegacyResumeToSourceIntervention = async (
     resumeApproval?: ExecAgentInput['resumeApproval'];
     resumeApprovals?: ExecAgentInput['resumeApprovals'];
     resumeToolResult?: ExecAgentInput['resumeToolResult'];
-    shareVisitor?: AgentInterventionShareVisitorScope;
   },
   ctx: AgentInterventionDispatchContext,
   /** Forwarded to {@link dispatchClaimedAgentIntervention}; see its `options`. */
   options: { acceptsFileWorks?: boolean; acceptsMemberRuntimeEnd?: boolean } = {},
 ): Promise<ExecAgentResult | undefined> => {
-  const {
-    messageModel,
-    parentMessageId,
-    resumeApproval,
-    resumeApprovals,
-    resumeToolResult,
-    shareVisitor,
-  } = params;
+  const { messageModel, parentMessageId, resumeApproval, resumeApprovals, resumeToolResult } =
+    params;
 
   const legacyResumeTargets = [
     ...(resumeApprovals ?? []),
@@ -1511,7 +1485,6 @@ export const bridgeLegacyResumeToSourceIntervention = async (
           toolCallId,
           toolMessageId: parentMessageId,
         })),
-        ...(shareVisitor && { shareVisitor }),
         workspaceId: ctx.workspaceId ?? undefined,
       });
       if (sourceResolution.handled) {
@@ -1954,8 +1927,8 @@ const aiAgentProcedure = aiAgentBaseProcedure.use(async (opts) => {
 });
 
 // Dedicated procedure for hetero-agent callbacks. Narrow operation tokens are
-// re-authorized against durable operation state; pre-deploy operation tokens and
-// normal user OIDC tokens go through the legacy ownership guards.
+// re-authorized against durable operation state; normal user OIDC tokens go
+// through the ownership guards.
 const heteroAgentProcedure = heteroAuthedProcedure.use(serverDatabase);
 const aiAgentWriteProcedure = aiAgentProcedure.use(withScopedPermission('message:create'));
 
@@ -3680,9 +3653,9 @@ export const aiAgentRouter = router({
       // — otherwise any signed-in user could long-poll another run's
       // `agent_intervention_response` payloads by id. Bind the guard to the
       // operation row directly (tighter than the topic-level guard the write
-      // paths use, since the read has no topicId to key on). Strict operation-token
-      // callers already passed the durable principal check above; user tokens and
-      // pre-deploy operation tokens use the legacy ownership lookup.
+      // paths use, since the read has no topicId to key on). Operation-token callers
+      // already passed the durable principal check above; user tokens use the
+      // ownership lookup.
       if (ctx.heteroAuthKind !== 'operation') {
         const [operationRow] = await ctx.serverDB
           .select({ userId: agentOperations.userId })
@@ -4196,23 +4169,17 @@ export const aiAgentRouter = router({
    * against the op's registered owner, so the token only has to carry the
    * caller's identity. Short-lived (5m) like the v1 token; the client re-mints
    * before every connect attempt.
-   *
    * Blocked for restricted API keys (`TRPC_BLOCKED_PATH_PREFIXES`), like
-   * `refreshGatewayToken`: the JWT it returns passes `oidcAuth` as ordinary
-   * non-API-key auth, so a scoped key must never be able to mint one.
    */
-  issueGatewayUserToken: aiAgentProcedure.query(async ({ ctx }) => {
-    const token = await signUserJWT(ctx.userId);
-
-    return { token };
+  issueGatewayUserToken: aiAgentProcedure.query(async (): Promise<{ token: string }> => {
+    throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'MUX_UNSUPPORTED' });
   }),
 
   /**
    * Refresh Gateway JWT token for an existing operation.
-   * Used when reconnecting after page reload (original token expired).
    */
   refreshGatewayToken: aiAgentProcedure
-    .input(z.object({ topicId: z.string() }))
+    .input(z.object({ topicId: z.string(), authorizationId: z.string().optional() }))
     .query(async ({ input, ctx }) => {
       // Verify the topic belongs to this user and has a running operation.
       // Use the creator-facing finder: a creator must not mint a token
@@ -4234,7 +4201,12 @@ export const aiAgentRouter = router({
         });
       }
 
-      const token = await signUserJWT(ctx.userId);
+      const token = await mintOperationGatewayTicket(
+        ctx.userId,
+        runningOperation.operationId,
+        ctx.workspaceId,
+        input.authorizationId,
+      );
 
       return { token };
     }),

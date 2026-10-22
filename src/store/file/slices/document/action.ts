@@ -52,7 +52,7 @@ interface ResourceDocumentSnapshot {
   editorData?: LobeDocument['editorData'] | string;
   fileType?: string;
   id: string;
-  knowledgeBaseId?: string;
+  knowledgeBaseId?: string | null;
   metadata?: LobeDocument['metadata'] | null;
   parentId?: string | null;
   slug?: string | null;
@@ -81,7 +81,10 @@ export class DocumentActionImpl {
       fetcher: async (id) => {
         const row = await documentService.getDocumentById(id);
 
-        return { document: row ? this.#toLobeDocument(row) : null };
+        return {
+          document: row ? this.#toLobeDocument(row) : null,
+          resource: row ? this.#createResourceItem(row) : undefined,
+        };
       },
       get,
       set,
@@ -96,7 +99,7 @@ export class DocumentActionImpl {
       // and `null` (not `undefined`) tells the engine to drop any previously
       // persisted projection, so a later hydrate cannot paint a document the
       // server no longer has.
-      toPersisted: (data) => (data.document ? data : null),
+      toPersisted: (data) => (data.document ? { document: data.document } : null),
       view: recordLens<FileStore, FileDocumentDetail>('documentMap'),
     });
   }
@@ -252,7 +255,10 @@ export class DocumentActionImpl {
       editorData: this.#parseEditorData(document.editorData, fallback?.editorData),
       fileType: document.fileType ?? fallback?.fileType ?? CUSTOM_DOCUMENT_FILE_TYPE,
       id: document.id,
-      knowledgeBaseId: document.knowledgeBaseId ?? fallback?.knowledgeBaseId,
+      knowledgeBaseId:
+        document.knowledgeBaseId !== undefined
+          ? (document.knowledgeBaseId ?? undefined)
+          : fallback?.knowledgeBaseId,
       metadata: document.metadata ?? fallback?.metadata,
       name:
         document.title !== undefined
@@ -273,7 +279,10 @@ export class DocumentActionImpl {
     };
   };
 
-  #syncResourceItem = (resource: ResourceItem, options?: { allowInsert?: boolean }) => {
+  #syncResourceItem = (
+    resource: ResourceItem,
+    options?: { allowInsert?: boolean; keepWhenUnknown?: boolean },
+  ) => {
     const { queryParams, removeLocalResource, replaceLocalResource, resourceList, resourceMap } =
       this.#get();
     const exists =
@@ -282,7 +291,9 @@ export class DocumentActionImpl {
     if (exists) {
       if (
         !queryParams ||
-        this.#isResourceVisibleInCurrentQuery(resource, { keepWhenUnknown: true })
+        this.#isResourceVisibleInCurrentQuery(resource, {
+          keepWhenUnknown: options?.keepWhenUnknown ?? true,
+        })
       ) {
         replaceLocalResource(resource.id, resource);
       } else {
@@ -563,6 +574,12 @@ export class DocumentActionImpl {
     const entry = useFileStore((s) => (documentId ? s.documentMap[documentId] : undefined));
 
     const sync = this.#documents.useSync(documentId, {
+      onSuccess: ({ resource }) => {
+        // The replica calls this only for an accepted response in the active identity scope.
+        if (resource) {
+          this.#syncResourceItem(resource, { allowInsert: false, keepWhenUnknown: false });
+        }
+      },
       // Keep an open page in step with other writers.
       revalidateOnFocus: true,
     });

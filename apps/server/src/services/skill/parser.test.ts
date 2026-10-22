@@ -1,13 +1,18 @@
+import '@/server/test-utils/serverTestConfig';
+
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { unzip, zip } from 'fflate';
 import { sha256 } from 'js-sha256';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { SkillManifestError, SkillParseError } from './errors';
 import { SkillParser } from './parser';
+
+beforeAll(() => vi.stubEnv('TZ', 'UTC'));
+afterAll(() => vi.unstubAllEnvs());
 
 const createZip = (files: Record<string, Uint8Array>): Promise<Uint8Array> => {
   return new Promise((resolve, reject) => {
@@ -29,7 +34,6 @@ const extractZip = (data: Uint8Array): Promise<Record<string, Uint8Array>> => {
 
 describe('SkillParser', () => {
   const parser = new SkillParser();
-
   describe('parseSkillMd', () => {
     it('should parse valid SKILL.md with frontmatter', () => {
       const content = `---
@@ -38,18 +42,14 @@ description: A test skill
 version: 1.0.0
 ---
 # Test Skill
-
 This is a test skill.`;
-
       const result = parser.parseSkillMd(content);
-
       expect(result.manifest.name).toBe('test-skill');
       expect(result.manifest.description).toBe('A test skill');
       expect(result.manifest.version).toBe('1.0.0');
       expect(result.content).toContain('# Test Skill');
       expect(result.raw).toBe(content);
     });
-
     it('should parse SKILL.md with optional author field', () => {
       const content = `---
 name: test-skill
@@ -59,15 +59,12 @@ author:
   url: https://example.com
 ---
 Content`;
-
       const result = parser.parseSkillMd(content);
-
       expect(result.manifest.author).toEqual({
         name: 'John Doe',
         url: 'https://example.com',
       });
     });
-
     it('should parse SKILL.md with permissions', () => {
       const content = `---
 name: test-skill
@@ -77,12 +74,9 @@ permissions:
   - execute_code
 ---
 Content`;
-
       const result = parser.parseSkillMd(content);
-
       expect(result.manifest.permissions).toEqual(['read_files', 'execute_code']);
     });
-
     it('should allow custom fields via passthrough', () => {
       const content = `---
 name: test-skill
@@ -90,7 +84,6 @@ description: A test skill
 customField: customValue
 ---
 Content`;
-
       const result = parser.parseSkillMd(content);
 
       expect((result.manifest as any).customField).toBe('customValue');
@@ -495,6 +488,26 @@ Nested content`;
       expect(result.resources.has('lib/helper.js')).toBe(true);
       // SKILL.md should not be in resources
       expect(result.resources.has('SKILL.md')).toBe(false);
+    });
+
+    it('drops entries that are not a plain relative path below the skill', async () => {
+      const skillMd = `---
+name: nested-skill
+description: A nested skill
+---
+Nested content`;
+
+      const zipped = await createZip({
+        'my-skill/../escape.txt': new TextEncoder().encode('x'),
+        'my-skill/SKILL.md': new TextEncoder().encode(skillMd),
+        'my-skill/a//b.txt': new TextEncoder().encode('x'),
+        'my-skill/a\\b.txt': new TextEncoder().encode('x'),
+        'my-skill/lib/./x.js': new TextEncoder().encode('x'),
+        'my-skill/lib/helper.js': new TextEncoder().encode('helper code'),
+      });
+      const result = await parser.parseZipPackage(Buffer.from(zipped));
+
+      expect([...result.resources.keys()]).toEqual(['lib/helper.js']);
     });
 
     it('should skip __MACOSX files', async () => {

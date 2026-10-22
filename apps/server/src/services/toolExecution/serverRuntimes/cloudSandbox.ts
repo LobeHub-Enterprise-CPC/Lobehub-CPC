@@ -3,6 +3,7 @@ import { CloudSandboxExecutionRuntime } from '@lobechat/builtin-tool-cloud-sandb
 import debug from 'debug';
 
 import { UserModel } from '@/database/models/user';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { FileService } from '@/server/services/file';
 import { MarketService } from '@/server/services/market';
 import { createSandboxService, resolveSandboxSessionConfig } from '@/server/services/sandbox';
@@ -150,11 +151,13 @@ export const cloudSandboxRuntime: ServerRuntimeRegistration = {
 
     const marketService = new MarketService({
       accessToken,
-      userInfo: {
+      userInfo: await resolveMarketServiceIdentity({
+        proxyExecution: Boolean(context.agentShareVisitor),
         sandboxStorage: sandbox.claim,
+        serverDB: context.serverDB,
         userId: context.userId,
         workspaceId,
-      },
+      }),
     });
     const fileService = new FileService(context.serverDB, context.userId, workspaceId);
     const sandboxService = createSandboxService({

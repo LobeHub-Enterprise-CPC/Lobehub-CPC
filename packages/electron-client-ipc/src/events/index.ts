@@ -47,9 +47,16 @@ export type {
   OpenInAppResult,
 } from './openInApp';
 export type {
+  AuthorizationConfirmDismissReason,
+  AuthorizationConfirmParams,
+  AuthorizationConfirmRequest,
+  AuthorizationConfirmResult,
+  AuthorizationErrorCode,
   AuthorizationPhase,
   AuthorizationProgress,
+  AuthorizationStartResult,
   MarketAuthorizationParams,
+  TenantEndpointChangedKind,
 } from './remoteServer';
 export type { OverlayDispatchMessagePayload } from './screenCapture';
 export type { OpenSettingsWindowOptions } from './windows';

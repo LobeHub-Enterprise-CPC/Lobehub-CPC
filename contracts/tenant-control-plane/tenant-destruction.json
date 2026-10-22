@@ -1,0 +1,677 @@
+{
+  "$comment": "Per-tenant destruction contract shared by TITU Work (lobehub), Admin and Market (spec 34 section 4.99 items 3-12; review 4 recommendations 1 and 2). Owned by Console (M0b drives it, M0c implements the application side); every application keeps a byte-identical copy at this path (Console `bun run contracts:check`). One endpoint pair with the same request and response on all three applications; Console calls it with the application's bearer token and `x-tenant-id` exactly like the other control-plane endpoints. Credentials never appear here; ids are placeholders. A tenant UUID is destroyed in three phases that are separate requests, so that every phase can be repeated after a crash: `barrier` (establish the durable destruction terminal and fence), `drain` (wait until in-flight work is finished or has lost its right to write), `unregister` (remove the application's platform catalog entries for the tenant). Console then drops the tenant schemas and roles only after all three applications have answered `unregister` successfully for this destroyOperationId. Two facts are kept apart on purpose: the terminal BARRIER being established is not the destruction being COMPLETE. A terminal record without `completedAt` means destruction is in progress and every phase of the same destroyOperationId can still be asked for; only `completedAt` set proves completion. TENANT_DESTROYED therefore must never refuse a request of the destruction itself.",
+  "applications": ["admin", "lobehub", "market"],
+  "basePath": "/api/internal/control-plane",
+  "console": {
+    "$comment": "Console (M0b) side of the same contract. It owns the order, the gate before dropping schemas, and the retained destroy receipt.",
+    "order": [
+      "1. Record the destroy operation (cp_operation action=destroy, destroyOperationId, actor, tenant UUID, slug, run kind and run id), set the tenant to `purging`, re-check the purge eligibility in the same transaction, supersede and fence its tasks (spec 4.99 items 1-2).",
+      "2. barrier on admin, lobehub and market (any order); each must answer applied.",
+      "3. drain on admin, lobehub and market, repeating on 202; all three must answer applied before step 4. Nothing is unregistered while any application is still draining.",
+      "4. unregister admin; then unregister lobehub and market (parallel allowed).",
+      "5. Gate: only when all three applications returned status applied or absent for phase unregister with the same destroyOperationId, with terminalEstablishedAt, drainResult and completedAt non-null (the responses of this run, or a fresh GET with reached \"unregister\"), drop the tenant schemas and roles (Work, Admin, Market) with drop_tenant. A missing, applying, failed or mismatching receipt of any application means no schema or role is dropped.",
+      "6. Delete the Console cp_* records of the tenant and keep the destroy receipt."
+    ],
+    "resume": "purge with the same destroyOperationId repeats the phases from the beginning; an application that already finished a phase answers with its original response, so the run converges. A different destroyOperationId for a destruction that has begun is OPERATION_CONFLICT (CLI exit 5).",
+    "receipt": {
+      "$comment": "Kept after cp_tenant is deleted, in a table without a foreign key to cp_tenant (cp_operation.tenant_id has one, so the destroy operation moves to this receipt when the records are deleted). `status --operation-id <destroyOperationId>` reads it and stays found with action destroy. It carries no credential and also goes to reports/purge-receipt.json.",
+      "sample": {
+        "actor": "script:legacyMigrationTenant",
+        "applications": {
+          "admin": {
+            "completedAt": "2026-10-21T08:00:09.000Z",
+            "drainResult": "drained",
+            "status": "applied",
+            "terminalEstablishedAt": "2026-10-21T08:00:00.000Z"
+          },
+          "lobehub": {
+            "completedAt": "2026-10-21T08:00:09.000Z",
+            "drainResult": "drained",
+            "status": "applied",
+            "terminalEstablishedAt": "2026-10-21T08:00:00.000Z"
+          },
+          "market": {
+            "completedAt": "2026-10-21T08:00:09.000Z",
+            "drainResult": "fenced",
+            "status": "absent",
+            "terminalEstablishedAt": "2026-10-21T08:00:00.000Z"
+          }
+        },
+        "completedAt": "2026-10-21T08:00:12.000Z",
+        "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+        "runId": "run-20261021-drill-01",
+        "runKind": "drill",
+        "schemasDropped": {
+          "admin": "dropped",
+          "lobehub": "dropped",
+          "market": "dropped"
+        },
+        "slug": "drill-titu",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    "existingGuard": "Console itself refuses new lifecycle, datasource, Owner and Market operations for a tenant in `purging` and for a UUID with a destroy receipt with TENANT_DESTROYED (CLI exit 6), except status queries and the same destroyOperationId."
+  },
+  "contract": "tenant-destruction",
+  "endpoints": [
+    {
+      "name": "tenant-destruction",
+      "method": "POST",
+      "path": "/tenant-destruction",
+      "tenantScoped": true,
+      "request": {
+        "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "phase": "barrier"
+      },
+      "response": {
+        "completedAt": null,
+        "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+        "drainResult": null,
+        "phase": "barrier",
+        "status": "applied",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "terminalEstablishedAt": "2026-10-21T08:00:00.000Z"
+      },
+      "phaseSemantics": {
+        "barrier": "Atomically creates the destruction terminal for tenantId with this destroyOperationId and the current time as terminalEstablishedAt, unless one exists (the same destroyOperationId: return the original terminalEstablishedAt unchanged; another one: 409 OPERATION_CONFLICT). It is created even if the application has never heard of the tenant (a late provision of that UUID must find the terminal, not an empty catalog). From the commit on, every guarded path of the application (see guard) refuses the UUID. Always 200 applied, never 202. Nothing is deleted.",
+        "drain": "Requires the barrier (else 409 DESTROY_PHASE_ORDER). Waits for the operations of this UUID that were already running when the barrier was established: transactions and background tasks that passed the terminal check earlier either finish or are fenced, which means they fail their own terminal re-check in the transaction that would write and roll back. Result `drained` (all observed work finished) or `fenced` (work remained but has provably lost the right to write); both let Console go on. If the application cannot say within its request deadline, it answers 202 `applying` with Retry-After and Console repeats the same request. The routes, bundles and pools of the tenant must still exist while draining (Admin's drain connects through them), so no application unregisters before all three have drained. Admin's drain also covers its cross-database consumers of Work and Market.",
+        "unregister": "Requires the drain (else 409 DESTROY_PHASE_ORDER). Removes the application's platform catalog entries for the UUID (see unregisterItems), in one resumable step: each item is idempotent, `completedAt` is written in the same transaction as the last deletion, and a crash in the middle leaves `completedAt` null so the same request continues. The terminal record itself is never removed. Console calls Admin first and Work and Market afterwards (Admin is the cross-database consumer); Work and Market have no order between them."
+      },
+      "statuses": {
+        "applied": "The requested phase and every earlier one are complete for this destroyOperationId. HTTP 200. A repeat of a complete phase returns the original response, with the original timestamps.",
+        "applying": "The requested phase is not complete yet. HTTP 202 with Retry-After. The caller repeats the identical request.",
+        "absent": "Replay of a COMPLETED `unregister` where the application no longer has the per-item result. HTTP 200. Valid only when terminalEstablishedAt, drainResult and completedAt are all non-null in the response; an application that cannot show a terminal and completedAt for the UUID must not answer absent (it answers 409 DESTROY_PHASE_ORDER or runs the phase). Console treats `applied` and `absent` of `unregister` alike as the application's receipt."
+      },
+      "responseFields": {
+        "completedAt": "ISO 8601 UTC or null. Set once, in the same transaction as the last deletion of `unregister`; null in every earlier state. Non-null is the only proof of completion.",
+        "destroyOperationId": "echo; always the one recorded in the terminal",
+        "drainResult": "null until the drain phase is complete, then \"drained\" or \"fenced\"; never changes afterwards",
+        "items": "unregister only (optional elsewhere): per item {item, result} with result deleted | absent | detached | retained; omitted for `absent` replays",
+        "phase": "echo of the requested phase",
+        "status": "applied | applying | absent",
+        "tenantId": "echo",
+        "terminalEstablishedAt": "ISO 8601 UTC, set by the barrier and never changed; non-null in every response of this endpoint"
+      },
+      "requestFields": {
+        "destroyOperationId": "UUID",
+        "phase": "barrier | drain | unregister",
+        "tenantId": "canonical UUID; must equal the x-tenant-id header (else 403 TENANT_MISMATCH)"
+      }
+    },
+    {
+      "name": "tenant-destruction-status",
+      "method": "GET",
+      "path": "/tenant-destruction",
+      "tenantScoped": true,
+      "query": {
+        "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      },
+      "queryRules": "tenantId is required; destroyOperationId is optional. With it, a terminal carrying another id is 409 OPERATION_CONFLICT. A UUID with no terminal answers 200 with reached null and all other fields null, never 404 (Console reads 404 as \"the application does not know the tenant\", the same condition the terminal exists to forbid).",
+      "response": {
+        "completedAt": null,
+        "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+        "drainResult": null,
+        "reached": "barrier",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "terminalEstablishedAt": "2026-10-21T08:00:00.000Z"
+      },
+      "responseFields": {
+        "reached": "highest COMPLETE phase: null (no terminal) | \"barrier\" | \"drain\" | \"unregister\". reached \"unregister\" is exactly completedAt non-null.",
+        "other": "as in tenant-destruction; terminalEstablishedAt, drainResult and completedAt are null while the phase that sets them is not complete"
+      },
+      "statusIsReadOnly": "Never writes, never establishes a terminal, never waits."
+    }
+  ],
+  "errors": {
+    "$comment": "Error bodies are `{ \"code\": <code> }` with these HTTP statuses (Console's transport maps 4xx to non-retryable and 5xx / 429 to retryable). Codes marked new must be added by M0b to Console's SAFE_CODES and consoleError map, and Market must list the ones it emits in market-control-plane.json `errors` (its contract test scans emitted codes) in the stage B change that implements them.",
+    "codes": {
+      "DESTROY_PHASE_ORDER": {
+        "http": 409,
+        "new": true,
+        "meaning": "A phase was asked for before its predecessor is complete for this UUID (drain or unregister without the barrier or the drain)."
+      },
+      "INVALID_INPUT": {
+        "http": 400,
+        "new": false,
+        "meaning": "Malformed body or query, unknown phase."
+      },
+      "OPERATION_CONFLICT": {
+        "http": 409,
+        "new": false,
+        "meaning": "The UUID is under destruction by another destroyOperationId."
+      },
+      "TENANT_DESTRUCTION_FAILED": {
+        "http": 503,
+        "new": true,
+        "meaning": "A transient failure inside a phase; retryable with Retry-After; nothing is lost because the phase is resumable."
+      },
+      "TENANT_DESTROYED": {
+        "http": 409,
+        "new": true,
+        "meaning": "See guard."
+      },
+      "TENANT_MISMATCH": {
+        "http": 403,
+        "new": false,
+        "meaning": "Body tenantId and x-tenant-id header differ."
+      },
+      "TOKEN_INVALID": {
+        "http": 401,
+        "new": false,
+        "meaning": "Bad bearer token."
+      }
+    },
+    "httpStatusByResultStatus": {
+      "absent": 200,
+      "applied": 200,
+      "applying": 202
+    }
+  },
+  "guard": {
+    "$comment": "TENANT_DESTROYED (HTTP 409, `{ \"code\": \"TENANT_DESTROYED\" }`, not retryable by Console). Applies from the moment the barrier is established, which is before the destruction completes, so a request for a tenant that is mid-destruction is refused with this code instead of falling into the \"record not found, so first provision\" branch that existed before this contract.",
+    "appliesTo": [
+      "every tenant-scoped request of the control plane other than tenant-destruction: tenant-provision (POST and GET status), tenant-datasource, tenant-datasource-readiness, tenant-lifecycle (POST and GET status), tenant-endpoints, tenant-status, and the bootstrap Owner / admin account paths",
+      "every background path that can write for the UUID: task consumers, retry and recovery sweepers, lifecycle inbox executors, datasource and Owner bootstrap workers, lease renewals",
+      "the check is made at the entry and again in the transaction that writes (a request that passed the entry check before the barrier fails when it reaches its own write); under drain this is what makes the work `fenced`"
+    ],
+    "doesNotApplyTo": [
+      "tenant-destruction POST/GET carrying the destroyOperationId of the recorded terminal (all three phases), and tenant-destruction GET without it",
+      "requests that name no tenant (tenant-manifest)",
+      "requests for any other tenant UUID, including a new UUID for the same slug"
+    ],
+    "notFoundIsNeverUsed": "After unregister the catalog rows are gone; the answer for the UUID is still TENANT_DESTROYED, never TENANT_NOT_FOUND and never a first provision.",
+    "consoleHandling": "Console treats TENANT_DESTROYED from an application as terminal for the task: the task becomes superseded, no retry. It is not an error of the destruction when it is the answer to a request that was already in flight."
+  },
+  "identifiers": {
+    "destroyOperationId": "UUID chosen by Console when it records the destroy operation (cp_operation action=destroy); one per destruction of a tenant UUID. Console passes the same value on every request of the destruction, including after a crash.",
+    "tenantId": "lower-case canonical UUID (tenant-naming.json tenantIdPattern). Destruction is addressed by UUID only; the slug is never sent, never stored by the application terminal record and never blocked by it."
+  },
+  "phases": ["barrier", "drain", "unregister"],
+  "resume": {
+    "$comment": "Same destroyOperationId = same destruction; asking again is always allowed and never starts over. The application decides from its durable terminal alone, not from whether directory rows still exist.",
+    "rules": [
+      {
+        "situation": "No terminal for the UUID",
+        "barrier": "create it (200 applied)",
+        "drain": "409 DESTROY_PHASE_ORDER",
+        "unregister": "409 DESTROY_PHASE_ORDER",
+        "status": "200, reached null"
+      },
+      {
+        "situation": "Terminal, same destroyOperationId, barrier only (crash after the barrier, before or during the drain)",
+        "barrier": "original response, 200 applied",
+        "drain": "continue the drain (200 applied | 202 applying)",
+        "unregister": "409 DESTROY_PHASE_ORDER",
+        "status": "reached \"barrier\""
+      },
+      {
+        "situation": "Terminal, same id, drained, unregister not complete (crash during unregister, partial deletion)",
+        "barrier": "original response",
+        "drain": "original response with drainResult",
+        "unregister": "continue only the items not yet removed, then write completedAt (200 applied | 202 applying)",
+        "status": "reached \"drain\"; it is NOT complete, not even if some or all directory rows are already gone"
+      },
+      {
+        "situation": "Terminal, same id, completedAt set",
+        "barrier": "original response",
+        "drain": "original response",
+        "unregister": "original response (applied) or absent; no re-drain, no deletion, no error",
+        "status": "reached \"unregister\""
+      },
+      {
+        "situation": "Terminal with a different destroyOperationId, in any state, including after completion",
+        "barrier": "409 OPERATION_CONFLICT",
+        "drain": "409 OPERATION_CONFLICT",
+        "unregister": "409 OPERATION_CONFLICT",
+        "status": "409 OPERATION_CONFLICT only when the query carries a destroyOperationId"
+      }
+    ],
+    "absentRequiresEvidence": "A response of `absent` is backed by a terminal with completedAt. The absence of the tenant's directory row, connection or credentials is never enough: that is also what a tenant that was never provisioned, or one whose unregister crashed half way, looks like.",
+    "crashPoints": [
+      "after the barrier commit, before the barrier response is sent",
+      "after the barrier, before the drain finishes (terminal present, nothing removed)",
+      "during unregister, after some items were deleted (terminal present, completedAt null)",
+      "after the last deletion and completedAt, before the response is sent"
+    ]
+  },
+  "samples": {
+    "$comment": "Requests and answers of one application per sequence. The same bodies are valid for lobehub, admin and market; only `items` differs by application.",
+    "lobehub": {
+      "barrier": {
+        "request": {
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "phase": "barrier"
+        },
+        "response": {
+          "completedAt": null,
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "drainResult": null,
+          "phase": "barrier",
+          "status": "applied",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "terminalEstablishedAt": "2026-10-21T08:00:00.000Z"
+        }
+      },
+      "drainStarted": {
+        "request": {
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "phase": "drain"
+        },
+        "httpStatus": 202,
+        "response": {
+          "completedAt": null,
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "drainResult": null,
+          "phase": "drain",
+          "status": "applying",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "terminalEstablishedAt": "2026-10-21T08:00:00.000Z"
+        }
+      },
+      "drainDone": {
+        "request": {
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "phase": "drain"
+        },
+        "response": {
+          "completedAt": null,
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "drainResult": "drained",
+          "phase": "drain",
+          "status": "applied",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "terminalEstablishedAt": "2026-10-21T08:00:00.000Z"
+        }
+      },
+      "unregister": {
+        "request": {
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "phase": "unregister"
+        },
+        "response": {
+          "completedAt": "2026-10-21T08:00:09.000Z",
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "drainResult": "drained",
+          "phase": "unregister",
+          "status": "applied",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "terminalEstablishedAt": "2026-10-21T08:00:00.000Z",
+          "items": [
+            {
+              "item": "tenant_directory",
+              "result": "deleted"
+            },
+            {
+              "item": "active_connection",
+              "result": "deleted"
+            },
+            {
+              "item": "credential_bundle",
+              "result": "deleted"
+            },
+            {
+              "item": "control_plane_operations",
+              "result": "deleted"
+            },
+            {
+              "item": "endpoint_records",
+              "result": "deleted"
+            },
+            {
+              "item": "connection_pool",
+              "result": "deleted"
+            }
+          ]
+        }
+      }
+    },
+    "admin": {
+      "unregister": {
+        "request": {
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "phase": "unregister"
+        },
+        "response": {
+          "completedAt": "2026-10-21T08:00:09.000Z",
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "drainResult": "drained",
+          "phase": "unregister",
+          "status": "applied",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "terminalEstablishedAt": "2026-10-21T08:00:00.000Z",
+          "items": [
+            {
+              "item": "tenant_directory",
+              "result": "deleted"
+            },
+            {
+              "item": "active_connections",
+              "result": "deleted"
+            },
+            {
+              "item": "credential_bundles",
+              "result": "deleted"
+            },
+            {
+              "item": "market_bundle_record",
+              "result": "deleted"
+            },
+            {
+              "item": "control_plane_operations",
+              "result": "deleted"
+            },
+            {
+              "item": "lifecycle_inbox",
+              "result": "deleted"
+            },
+            {
+              "item": "runtime_lease",
+              "result": "deleted"
+            },
+            {
+              "item": "routes_and_pools",
+              "result": "deleted"
+            }
+          ]
+        }
+      },
+      "replayAfterCompletion": {
+        "request": {
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "phase": "unregister"
+        },
+        "response": {
+          "completedAt": "2026-10-21T08:00:09.000Z",
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "drainResult": "drained",
+          "phase": "unregister",
+          "status": "absent",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "terminalEstablishedAt": "2026-10-21T08:00:00.000Z"
+        }
+      }
+    },
+    "market": {
+      "drainFenced": {
+        "request": {
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "phase": "drain"
+        },
+        "response": {
+          "completedAt": null,
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "drainResult": "fenced",
+          "phase": "drain",
+          "status": "applied",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "terminalEstablishedAt": "2026-10-21T08:00:00.000Z"
+        }
+      },
+      "unregister": {
+        "request": {
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "phase": "unregister"
+        },
+        "response": {
+          "completedAt": "2026-10-21T08:00:09.000Z",
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "drainResult": "fenced",
+          "phase": "unregister",
+          "status": "applied",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "terminalEstablishedAt": "2026-10-21T08:00:00.000Z",
+          "items": [
+            {
+              "item": "market_instances",
+              "result": "deleted"
+            },
+            {
+              "item": "market_connect_flows",
+              "result": "deleted"
+            },
+            {
+              "item": "market_instance_operations",
+              "result": "deleted"
+            },
+            {
+              "item": "market_instance_trusted_clients",
+              "result": "deleted"
+            },
+            {
+              "item": "market_lifecycle_events",
+              "result": "deleted"
+            },
+            {
+              "item": "console_admin_accounts",
+              "result": "absent"
+            },
+            {
+              "item": "content_sync_runs.source_instance_id",
+              "result": "detached"
+            },
+            {
+              "item": "content_sync_run_items.target_instance_id",
+              "result": "detached"
+            },
+            {
+              "item": "trusted_clients",
+              "result": "retained"
+            },
+            {
+              "item": "trusted_client_secrets",
+              "result": "retained"
+            }
+          ]
+        }
+      }
+    },
+    "status": {
+      "none": {
+        "query": {
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+        },
+        "response": {
+          "completedAt": null,
+          "destroyOperationId": null,
+          "drainResult": null,
+          "reached": null,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "terminalEstablishedAt": null
+        }
+      },
+      "barrierOnly": {
+        "query": {
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+        },
+        "response": {
+          "completedAt": null,
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "drainResult": null,
+          "reached": "barrier",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "terminalEstablishedAt": "2026-10-21T08:00:00.000Z"
+        }
+      },
+      "complete": {
+        "query": {
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+        },
+        "response": {
+          "completedAt": "2026-10-21T08:00:09.000Z",
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "drainResult": "drained",
+          "reached": "unregister",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "terminalEstablishedAt": "2026-10-21T08:00:00.000Z"
+        }
+      }
+    },
+    "resume": {
+      "$comment": "Crash after the barrier and the first half of unregister: reached stays \"drain\" and completedAt null, a repeat of unregister with the same id continues and then completes. Nothing about a missing directory row changes that.",
+      "statusAfterCrash": {
+        "completedAt": null,
+        "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+        "drainResult": "drained",
+        "reached": "drain",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "terminalEstablishedAt": "2026-10-21T08:00:00.000Z"
+      },
+      "repeatUnregister": {
+        "request": {
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "phase": "unregister"
+        },
+        "response": {
+          "completedAt": "2026-10-21T08:00:09.000Z",
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "drainResult": "drained",
+          "phase": "unregister",
+          "status": "applied",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "terminalEstablishedAt": "2026-10-21T08:00:00.000Z",
+          "items": [
+            {
+              "item": "tenant_directory",
+              "result": "absent"
+            },
+            {
+              "item": "active_connection",
+              "result": "deleted"
+            },
+            {
+              "item": "credential_bundle",
+              "result": "deleted"
+            },
+            {
+              "item": "control_plane_operations",
+              "result": "deleted"
+            },
+            {
+              "item": "endpoint_records",
+              "result": "deleted"
+            },
+            {
+              "item": "connection_pool",
+              "result": "deleted"
+            }
+          ]
+        }
+      }
+    },
+    "errors": {
+      "conflict": {
+        "request": {
+          "destroyOperationId": "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "phase": "barrier"
+        },
+        "httpStatus": 409,
+        "response": {
+          "code": "OPERATION_CONFLICT"
+        }
+      },
+      "destroyedProvision": {
+        "request": "POST /tenant-provision for the tenant UUID after the barrier, with any operationId",
+        "httpStatus": 409,
+        "response": {
+          "code": "TENANT_DESTROYED"
+        }
+      },
+      "phaseOrder": {
+        "request": {
+          "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "phase": "unregister"
+        },
+        "httpStatus": 409,
+        "response": {
+          "code": "DESTROY_PHASE_ORDER"
+        },
+        "note": "No terminal for the UUID, or the terminal is not drained yet."
+      }
+    }
+  },
+  "terminalRecord": {
+    "$comment": "Minimal durable record per application, one per tenant UUID, in a store that does not depend on the tenant, instance or directory rows (no foreign key, no cascade): it must survive deleting the directory entry, the connection, the credentials and Market's instance. Nothing removes it in this release (no TTL; spec 11 D17 decides a clearing tool later).",
+    "fields": {
+      "completedAt": "nullable timestamptz; the completion proof",
+      "destroyOperationId": "UUID, not null",
+      "drainResult": "nullable, \"drained\" | \"fenced\"",
+      "terminalEstablishedAt": "timestamptz, not null",
+      "tenantId": "UUID, primary key"
+    },
+    "mustNotContain": [
+      "slug",
+      "tenant name",
+      "database host, role, password or any credential or bundle",
+      "user data",
+      "actor identity"
+    ],
+    "slug": "The record neither stores nor reserves a slug. A new tenant with the same slug gets a new UUID and is unaffected; only requests for the destroyed UUID are refused.",
+    "sample": {
+      "completedAt": "2026-10-21T08:00:09.000Z",
+      "destroyOperationId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+      "drainResult": "drained",
+      "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+      "terminalEstablishedAt": "2026-10-21T08:00:00.000Z"
+    },
+    "market": "Market keeps its own terminal in a table of its own; market_instances generation and binding versions are not a substitute, because they disappear with the instance row (spec 4.99 item 11)."
+  },
+  "unregisterItems": {
+    "$comment": "What `unregister` removes per application, as stable item names used in `items`. They are logical names; the physical tables or stores are M0c's mapping and must be one-to-one with this list. Results: deleted (removed now), absent (nothing to remove, including already removed in an earlier attempt), detached (kept but no longer pointing at the destroyed tenant), retained (deliberately kept).",
+    "lobehub": [
+      "tenant_directory",
+      "active_connection",
+      "credential_bundle",
+      "control_plane_operations",
+      "endpoint_records",
+      "connection_pool"
+    ],
+    "admin": [
+      "tenant_directory",
+      "active_connections",
+      "credential_bundles",
+      "market_bundle_record",
+      "control_plane_operations",
+      "lifecycle_inbox",
+      "runtime_lease",
+      "routes_and_pools"
+    ],
+    "market": {
+      "tenantBinding": [
+        "market_instances",
+        "market_connect_flows",
+        "market_instance_operations",
+        "market_instance_trusted_clients",
+        "market_lifecycle_events",
+        "console_admin_accounts"
+      ],
+      "crossInstanceReferences": {
+        "items": [
+          "content_sync_runs.source_instance_id",
+          "content_sync_run_items.target_instance_id"
+        ],
+        "rule": "Named disposition required in the response. They reference market_instances with NO ACTION foreign keys and may point at the destroyed instance from rows that belong to other tenants' history. They are never deleted by cascade to get past the foreign key: the reference is `detached` (rows kept, the reference cleared or replaced by a tombstone marker) unless the row exists only for this instance, in which case it is `deleted`."
+      },
+      "sharedObjects": {
+        "items": ["trusted_clients", "trusted_client_secrets"],
+        "rule": "Deployment-wide, shared by all tenants. Destruction removes only this tenant's binding row (market_instance_trusted_clients) and always reports these as `retained`. Another tenant bound to the same trusted client must authenticate exactly as before."
+      }
+    },
+    "adminOnly": "Admin additionally revokes the tenant's Admin, Work and Market routes, bundles and connection pools and clears the Market bundle record it holds (market_bundle_record)."
+  },
+  "version": 1
+}

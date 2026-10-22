@@ -7,7 +7,10 @@ import { withRbacPermission } from '@/business/server/trpc-middlewares/rbacPermi
 import { cloudWorkspaceAuth } from '@/business/server/trpc-middlewares/workspaceAuth';
 import { publicProcedure, router } from '@/libs/trpc/lambda';
 import { marketUserInfo, requireMarketAuth, serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { isTenantMarketMode } from '@/libs/trusted-client/config';
 import { MarketService } from '@/server/services/market';
+
+import { assertNoOrganizationScopeInTenant } from './actingAs';
 
 const log = debug('lambda-router:market:creds');
 
@@ -306,6 +309,9 @@ export const credsRouter = router({
           message: 'Sharing a credential requires an active workspace context',
         });
       }
+      // The organization endpoints are closed inside a tenant (R13); sharing
+      // must fail visibly, not quietly stay personal.
+      assertNoOrganizationScopeInTenant(ctx.workspaceId);
       log('share input: id=%d, visibility=%s', input.id, input.visibility);
       try {
         const result = await ctx.marketService.market.creds.share(input.id, {
@@ -415,7 +421,9 @@ export const credsRouter = router({
       const result = await ctx.marketService.market.creds.list();
       log('list success: %d credentials', result.data?.length ?? 0);
 
-      if (!ctx.workspaceId) return result;
+      // No organization view inside a tenant (R13): the personal list stands
+      // on its own, without the workspace-share enrichment.
+      if (!ctx.workspaceId || isTenantMarketMode()) return result;
 
       // A personal credential carries at most one `organizationAccountId` link
       // at a time (sharing again just overwrites it) — so `organizationAccountId
@@ -469,6 +477,9 @@ export const credsRouter = router({
    * server-mode runs read the same list.
    */
   listForContext: credsProcedure.query(async ({ ctx }) => {
+    // The workspace's organization view does not exist inside a tenant (R13);
+    // answering with the personal list would show a different set of creds.
+    assertNoOrganizationScopeInTenant(ctx.workspaceId);
     const result = ctx.workspaceId
       ? await ctx.marketService.market.organizations.creds({ workspaceId: ctx.workspaceId }).list()
       : await ctx.marketService.market.creds.list();

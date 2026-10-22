@@ -1,3 +1,4 @@
+import { initializeTenant } from '@lobechat/business-tenant/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -14,6 +15,16 @@ describe('inputHistoryStorage', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    initializeTenant(new URL('https://app.test/'));
+  });
+
+  it("keeps one tenant's history out of another tenant on the same origin", () => {
+    initializeTenant(new URL('https://app.test/t/acme/agent'));
+    addInputHistory({ markdown: 'acme secret' });
+    expect(getInputHistory()).toHaveLength(1);
+
+    initializeTenant(new URL('https://app.test/t/other/agent'));
+    expect(getInputHistory()).toEqual([]);
   });
 
   it('saves and reads input history back in newest-first order', () => {

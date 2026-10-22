@@ -1,5 +1,6 @@
 'use client';
 
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { copyToClipboard, Flexbox } from '@lobehub/ui';
 import {
   ActionIcon,
@@ -23,7 +24,6 @@ import { useMenu } from '@/features/PageEditor/Header/useMenu';
 import { usePageAgentPanelControl } from '@/features/PageEditor/RightPanel/OverrideContext';
 import { usePageEditorStore } from '@/features/PageEditor/store';
 import ToggleRightPanelButton from '@/features/RightPanel/ToggleRightPanelButton';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { useDocumentStore } from '@/store/document';
 import { editorSelectors } from '@/store/document/slices/editor';
 
@@ -43,7 +43,7 @@ const DocumentModalHeader = memo(() => {
   const { t } = useTranslation(['file', 'common']);
   const { close } = useModalContext();
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
 
   const [documentId, emoji, title] = usePageEditorStore((s) => [s.documentId, s.emoji, s.title]);
   const isDocumentLoading = useDocumentStore(editorSelectors.isDocumentLoading(documentId));

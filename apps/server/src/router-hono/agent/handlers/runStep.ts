@@ -1,3 +1,4 @@
+import { requireTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 import { eq } from 'drizzle-orm';
 import type { Context } from 'hono';
@@ -12,14 +13,14 @@ import {
   type AgentStepContinuation,
   scheduleOpportunisticStaleSweep,
 } from '@/server/services/agentRuntime';
+import { resumeAbandonedParent } from '@/server/services/agentRuntime/resumeAbandonedParent';
 import { AiAgentService } from '@/server/services/aiAgent';
+import { assertGatewayVersion } from '@/server/services/gatewayAuthorization';
 import { runWithInvocationDeadline } from '@/server/utils/invocationDeadline';
 import {
   flushScheduledWork,
   runWithScheduledWorkScope,
 } from '@/server/utils/scheduleAfterResponse';
-
-import { resumeAbandonedParent } from './resumeAbandonedParent';
 
 const log = debug('lobe-server:agent:run-step');
 
@@ -197,6 +198,9 @@ export async function runStep(c: Context): Promise<Response> {
 
   try {
     // QStash nests resume/intervention fields under `body.payload` (see
+    if (body.execution?.tenantId !== requireTenantScope().tenantId)
+      return c.json({ error: 'TENANT_MISMATCH' }, 403);
+    await assertGatewayVersion(body.execution.tenantId, body.execution.sourceAcceptedVersion);
     // QStashQueueServiceImpl.scheduleMessage), while `operationId`/`stepIndex`/
     // `context` stay at the top level. Merge so both shapes work — without this
     // the QStash path reads `resumeAsyncTool`/`approvedToolCall`/… as undefined

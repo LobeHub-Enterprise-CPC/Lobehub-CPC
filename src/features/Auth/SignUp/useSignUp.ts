@@ -8,6 +8,7 @@ import type { BusinessSignupFomData } from '@/business/client/hooks/useBusinessS
 import { useBusinessSignup } from '@/business/client/hooks/useBusinessSignup';
 import type { AuthFetchOptions } from '@/features/Auth/utils/authFetchOptions';
 import { withCaptchaToken } from '@/features/Auth/utils/authFetchOptions';
+import { isTenantUnavailableCode } from '@/features/Auth/utils/tenantUnavailable';
 import { useAuthAgreement } from '@/features/AuthShell/AuthAgreement';
 import { useAuthServerConfigStore } from '@/features/AuthShell/AuthServerConfigProvider';
 import { trackLoginOrSignupClicked } from '@/features/User/UserLoginOrSignup/trackLoginOrSignupClicked';
@@ -91,6 +92,11 @@ export const useSignUp = () => {
         const isEmailDuplicate =
           signUpError.code === 'FAILED_TO_CREATE_USER' &&
           signUpError.details?.cause?.code === '23505';
+
+        if (isTenantUnavailableCode(signUpError.code)) {
+          toast.error(t('tenant.unavailable.description'));
+          return;
+        }
 
         if (isEmailDuplicate) {
           toast.error(t('betterAuth.errors.emailExists'));

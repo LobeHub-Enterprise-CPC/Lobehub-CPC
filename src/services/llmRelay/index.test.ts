@@ -35,12 +35,8 @@ describe('buildLlmExecutorDeclaration', () => {
     };
   });
 
-  it('declares the providers of the runtime state a chat page has loaded', () => {
-    expect(buildLlmExecutorDeclaration()).toEqual({
-      capabilities: ['llm_relay@1', 'llm_client_wait@1'],
-      clientId: 'tab-1',
-      providers: ['lmstudio', 'ollama'],
-    });
+  it('does not advertise relay execution even with the old rollout flag enabled', () => {
+    expect(buildLlmExecutorDeclaration()).toBeUndefined();
   });
 
   it('declares nothing outside the agent_llm_relay rollout', () => {
@@ -55,8 +51,8 @@ describe('oneShotRelay availability', () => {
     state.serverConfig = { agentGatewayUrl: 'https://gw', llmRelayAvailable: true };
   });
 
-  it('relays a device-only provider where the deployment can relay', () => {
-    expect(oneShotRelay.needsRelay('ollama')).toBe(true);
+  it('keeps relay disabled even when a stale configuration advertises availability', () => {
+    expect(oneShotRelay.needsRelay('ollama')).toBe(false);
     expect(oneShotRelay.needsRelay('openai')).toBe(false);
   });
 

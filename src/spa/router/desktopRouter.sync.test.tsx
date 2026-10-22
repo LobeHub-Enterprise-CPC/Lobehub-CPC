@@ -1,10 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { cleanup, render } from '@testing-library/react';
 import { isValidElement, type ReactElement, Suspense } from 'react';
-import { renderToString } from 'react-dom/server';
+import { renderToStaticMarkup, renderToString } from 'react-dom/server';
 import type { RouteObject } from 'react-router';
-import { matchRoutes, MemoryRouter } from 'react-router';
+import { matchRoutes, MemoryRouter, useRoutes } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
 import BrandTextLoading from '@/components/Loading/BrandTextLoading';
@@ -84,6 +85,30 @@ async function readRouterSources() {
 }
 
 describe('desktop router shared definition', () => {
+  it.each(['/', '/workspace'])(
+    'renders the Web Home leaf at %s without a missing element warning',
+    (pathname) => {
+      const leaf = matchRoutes(createMainAreaRoutes(createWebMainAreaChildren), pathname)?.at(
+        -1,
+      )?.route;
+      expect(leaf).toBeDefined();
+      const Routes = () => useRoutes([{ path: pathname, element: leaf?.element }]);
+      const warnings = vi.spyOn(console, 'warn');
+
+      try {
+        render(
+          <MemoryRouter initialEntries={[pathname]}>
+            <Routes />
+          </MemoryRouter>,
+        );
+        expect(warnings).not.toHaveBeenCalledWith(expect.stringContaining('Matched leaf route'));
+      } finally {
+        cleanup();
+        warnings.mockRestore();
+      }
+    },
+  );
+
   it.each(mainAreaVariants)(
     '%s only registers Channels in the personal route tree',
     (_, factory) => {
@@ -628,8 +653,10 @@ describe('desktop router shared definition', () => {
     const webWorkspace = webChildren.find((route) => route.path === ':workspaceSlug');
     const electronWorkspace = electronChildren.find((route) => route.path === ':workspaceSlug');
 
-    expect(webChildren.find((route) => route.index)?.element).toBeUndefined();
-    expect(webWorkspace?.children?.find((route) => route.index)?.element).toBeUndefined();
+    expect(renderToStaticMarkup(webChildren.find((route) => route.index)?.element)).toBe('');
+    expect(
+      renderToStaticMarkup(webWorkspace?.children?.find((route) => route.index)?.element),
+    ).toBe('');
     expect(electronChildren.find((route) => route.index)?.element).toBeDefined();
     expect(electronWorkspace?.children?.find((route) => route.index)?.element).toBeDefined();
   });

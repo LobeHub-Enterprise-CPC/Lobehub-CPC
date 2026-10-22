@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 import { z } from 'zod';
 
+import { describeError } from '@/libs/oidc-provider/safe-log';
 import { publicProcedure, router } from '@/libs/trpc/lambda';
 import { marketUserInfo, serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { MarketService } from '@/server/services/market';
@@ -40,13 +41,14 @@ export const oidcRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      log('exchangeAuthorizationCode input: %O', { ...input, code: '[REDACTED]' });
+      // The input carries the code, its verifier and the redirect URI (with state): not logged.
+      log('exchangeAuthorizationCode for client %s', input.clientId);
 
       try {
         const response = await ctx.marketService.exchangeAuthorizationCode(input);
         return response;
       } catch (error) {
-        log('Error exchanging authorization code: %O', error);
+        log('Error exchanging authorization code: %s', describeError(error));
         throw new TRPCError({
           cause: error,
           code: 'INTERNAL_SERVER_ERROR',
@@ -62,13 +64,13 @@ export const oidcRouter = router({
   getOAuthHandoff: oidcProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ input, ctx }) => {
-      log('getOAuthHandoff input: %O', input);
+      log('getOAuthHandoff called');
 
       try {
         const handoff = await ctx.marketService.getOAuthHandoff(input.id);
         return handoff;
       } catch (error) {
-        log('Error getting OAuth handoff: %O', error);
+        log('Error getting OAuth handoff: %s', describeError(error));
         throw new TRPCError({
           cause: error,
           code: 'INTERNAL_SERVER_ERROR',
@@ -84,7 +86,7 @@ export const oidcRouter = router({
   getUserInfo: oidcProcedure
     .input(z.object({ token: z.string().optional() }))
     .mutation(async ({ input, ctx }) => {
-      log('getUserInfo input: token=%s', input.token ? '[REDACTED]' : 'undefined');
+      log('getUserInfo called, token provided: %s', !!input.token);
 
       try {
         // If token is provided, use it
@@ -106,7 +108,7 @@ export const oidcRouter = router({
       } catch (error) {
         if (error instanceof TRPCError) throw error;
 
-        log('Error getting user info: %O', error);
+        log('Error getting user info: %s', describeError(error));
         throw new TRPCError({
           cause: error,
           code: 'INTERNAL_SERVER_ERROR',
@@ -127,7 +129,7 @@ export const oidcRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      log('refreshToken input: %O', { ...input, refreshToken: '[REDACTED]' });
+      log('refreshToken for client %s', input.clientId);
 
       try {
         const response = await ctx.marketService.refreshToken({
@@ -136,7 +138,7 @@ export const oidcRouter = router({
         });
         return response;
       } catch (error) {
-        log('Error refreshing token: %O', error);
+        log('Error refreshing token: %s', describeError(error));
         throw new TRPCError({
           cause: error,
           code: 'INTERNAL_SERVER_ERROR',

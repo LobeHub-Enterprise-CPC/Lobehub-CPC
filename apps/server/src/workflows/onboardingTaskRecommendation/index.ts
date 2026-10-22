@@ -1,6 +1,7 @@
-import { appEnv } from '@/envs/app';
+import { getInternalApiUrl } from '@/envs/app';
 import { injectActiveTraceHeaders } from '@/libs/observability/traceparent';
 import { workflowClient } from '@/libs/qstash';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 
 import {
   type ProcessOnboardingTaskRecommendationPayload,
@@ -57,7 +58,7 @@ export class OnboardingTaskRecommendationWorkflow {
     input: ProcessOnboardingTaskRecommendationPayload,
     options: TriggerOptions = {},
   ) {
-    const baseUrl = appEnv.INTERNAL_APP_URL || appEnv.APP_URL;
+    const baseUrl = getInternalApiUrl();
     if (!process.env.QSTASH_TOKEN || !baseUrl) {
       throw new Error('Onboarding task recommendation workflow is unavailable');
     }
@@ -67,7 +68,7 @@ export class OnboardingTaskRecommendationWorkflow {
     return workflowClient.trigger({
       body: payload,
       headers: Object.fromEntries(traceHeaders.entries()),
-      url: new URL(PROCESS_PATH, baseUrl).toString(),
+      url: buildTenantCallbackUrl(PROCESS_PATH, baseUrl),
       ...(options.flowControl ? { flowControl: options.flowControl } : {}),
       ...(options.workflowRunId ? { workflowRunId: options.workflowRunId } : {}),
     });

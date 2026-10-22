@@ -48,6 +48,8 @@ export default {
   'generation.actions.promptCopied': 'Prompt Copied to Clipboard',
   'generation.actions.promptCopyFailed': 'Failed to Copy Prompt',
   'generation.actions.reuseSettings': 'Reuse Settings',
+  'generation.actions.reuseSettingsUnavailable':
+    'The model used by this generation is no longer available, so its settings cannot be reused.',
   'generation.actions.seedApplied': 'Seed Applied to Configuration',
   'generation.actions.seedApplyFailed': 'Failed to Apply Seed',
   'generation.actions.seedCopied': 'Seed Copied to Clipboard',
@@ -74,6 +76,8 @@ export default {
   'notSupportGuide.title': 'Current Deployment Mode Does Not Support AI Image Generation',
   'notice.modelRemoved':
     'The current model is no longer available from {{name}}. Please switch to an available model.',
+  'notice.noModelAvailable':
+    'No image generation model is available. Contact your administrator to add one.',
   'notice.providerDisabled':
     'The provider {{name}} for the current model is disabled. Please enable it or switch to an available model.',
   'topic.createNew': 'Create New Topic',

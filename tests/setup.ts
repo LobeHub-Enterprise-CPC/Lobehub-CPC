@@ -85,6 +85,21 @@ vi.mock('@/auth', () => ({
   },
 }));
 
+// Route handlers are wrapped in the tenant gate, which needs a signed tenant
+// route header and a provisioned tenant. Route unit tests exercise the handler
+// itself, so the wrapper passes through; the gate has its own tests.
+vi.mock('@/server/modules/Tenant/gate', () => ({
+  routedTenantSlug: () => null,
+  runInTenant: <T>(_tenantId: string, operation: () => Promise<T>) => operation(),
+  withTenantRequest: <H>(handler: H) => handler,
+}));
+
+// Server code addresses callbacks (QStash, workflows, webhooks) to the current
+// tenant and fails closed without one. Unit tests rarely set up a tenant scope,
+// so callbacks go to the test tenant `acme`; callbackUrl.test.ts covers the
+// real module.
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 // Route zustand store creation through __mocks__/zustand/traditional.ts so every
 // store resets to its initial state between tests without per-file opt-in
 vi.mock('zustand/traditional');

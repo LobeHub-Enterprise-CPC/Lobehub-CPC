@@ -10,9 +10,13 @@ export default {
   'actions.home': 'Return to Home',
   'actions.retry': 'Sign in Again',
   'actions.signIn': 'Return to sign in',
+  'codes.ACCESS_DENIED':
+    'You canceled authorization with the identity provider. You can sign in again.',
   'codes.ACCOUNT_ALREADY_LINKED_TO_DIFFERENT_USER':
     'This account is already linked to another user',
   'codes.ACCOUNT_NOT_FOUND': 'Account not found',
+  'codes.ACCOUNT_NOT_LINKED':
+    'An account with this email already exists but is not linked to this sign-in method. Sign in with your original method, or contact your organization administrator.',
   'codes.CREDENTIAL_ACCOUNT_NOT_FOUND': 'Credential account does not exist',
   'codes.DELETED_ACCOUNT_EMAIL':
     'This email has been associated with a deleted account and cannot be used for registration',
@@ -35,7 +39,11 @@ export default {
   'codes.INVALID_EMAIL': 'Invalid email format',
   'codes.INVALID_EMAIL_OR_PASSWORD': 'Incorrect email or password',
   'codes.INVALID_PASSWORD': 'Invalid password format',
+  'codes.INVALID_SCOPE':
+    'Single sign-on is misconfigured (the requested authorization scope is not supported). Please contact your organization administrator.',
   'codes.INVALID_TOKEN': 'Token is invalid or has expired',
+  'codes.OAUTH_CODE_VERIFICATION_FAILED':
+    'Single sign-on is misconfigured and identity verification could not be completed. Please contact your organization administrator.',
   'codes.PASSWORD_TOO_LONG': 'Password is too long',
   'codes.PASSWORD_TOO_SHORT': 'Password is too short',
   'codes.PROVIDER_NOT_FOUND': 'Identity provider configuration not found',

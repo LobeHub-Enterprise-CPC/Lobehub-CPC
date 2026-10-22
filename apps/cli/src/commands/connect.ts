@@ -1,37 +1,32 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
-import path from 'node:path';
 
+import type {
+  GatewayIdentityProvider,
+  GatewayIdentityResponse,
+} from '@lobechat/agent-gateway-client';
 import {
   defaultGetLocalFilePreview,
   defaultGetProjectFileIndex,
   defaultSearchProjectFiles,
   type DeviceControlDeps,
   DeviceMetricsSampler,
-  executeDeviceRpc,
   pushMetrics,
 } from '@lobechat/device-control';
-import type {
-  AgentRunRequestMessage,
-  DeviceSystemInfo,
-  RpcRequestMessage,
-  SystemInfoRequestMessage,
-  ToolCallRequestMessage,
-} from '@lobechat/device-gateway-client';
 import { GatewayClient } from '@lobechat/device-gateway-client';
 import { listHeterogeneousAgentModels } from '@lobechat/heterogeneous-agents/models';
-import { getShellInfo } from '@lobechat/local-file-shell';
 import type { Command } from 'commander';
 
 import { createLambdaClient } from '../api/client';
-import { resolveToken } from '../auth/resolveToken';
-import { CLI_API_KEY_ENV } from '../constants/auth';
 import {
-  CLI_CONFIG_DIR_NAME,
-  CLI_CONNECT_SERVICE_NAME,
-  CLI_DISPLAY_NAME,
-  CLI_PRIMARY_BIN,
-} from '../constants/identity';
+  createGatewayIdentityProvider,
+  isGatewayIdentityRetryable,
+  workspaceAdminRequiredMessage,
+} from '../auth/gatewayIdentity';
+import { resolveToken } from '../auth/resolveToken';
+import { pickAuthSource } from '../auth/source';
+import { CLI_CONNECT_SERVICE_NAME, CLI_DISPLAY_NAME, CLI_PRIMARY_BIN } from '../constants/identity';
 import { OFFICIAL_GATEWAY_URL } from '../constants/urls';
 import { CliMaintenance } from '../daemon/maintenance';
 import {
@@ -48,9 +43,8 @@ import {
   writeStatus,
 } from '../daemon/manager';
 import { listTasks } from '../daemon/taskRegistry';
-import { spawnHeteroAgentRun } from '../device/agentRun';
+import { bindGatewayClientHandlers, type GatewayHandlerContext } from '../device/gatewayHandlers';
 import {
-  mintWorkspaceConnectToken,
   registerDevice,
   registerWorkspaceDevice,
   resolveDeviceIdentity,
@@ -76,9 +70,9 @@ import {
   removeWorkspaceEnrollment,
   resolveCommandMode,
   resolveDeviceMetricsBacklogPath,
+  resolveServerUrl,
   saveSettings,
 } from '../settings';
-import { executeToolCall } from '../tools';
 import { cleanupAllProcesses, getActiveShellCount, probeSandbox } from '../tools/shell';
 import { log, setVerbose } from '../utils/logger';
 import { sweepLocalTraces } from '../utils/traceMaintenance';
@@ -108,7 +102,7 @@ export function registerConnectCommand(program: Command) {
     .option('--token <jwt>', 'JWT access token')
     .option('--gateway <url>', 'Device gateway URL')
     .option('--device-id <id>', 'Device ID (auto-generated if not provided)')
-    .option('--workspace <id>', 'Enroll as a device of this workspace (workspace members)')
+    .option('--workspace <id>', 'Enroll as a device of this workspace (workspace administrators)')
     .option(
       '--public',
       'With --workspace: enroll into the shared pool visible to every member (default: private, visible only to you)',
@@ -205,7 +199,7 @@ export function registerConnectCommand(program: Command) {
   serviceCmd
     .command('install')
     .description('Install and start the Linux user systemd connect service')
-    .option('--workspace <id>', 'Enroll as a device of this workspace (workspace members)')
+    .option('--workspace <id>', 'Enroll as a device of this workspace (workspace administrators)')
     .option(
       '--public',
       'With --workspace: enroll into the shared pool visible to every member (default: private, visible only to you)',
@@ -358,7 +352,7 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
   }
 
   const unavailableExitCode = options.workspace ? CONNECT_RETRYABLE_EXIT_CODE : undefined;
-  let auth = await resolveToken({ ...options, unavailableExitCode });
+  const auth = await resolveToken({ ...options, unavailableExitCode });
   const settings = loadSettings();
   const gatewayUrl = normalizeUrl(options.gateway) || settings?.gatewayUrl;
 
@@ -390,34 +384,40 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
     ? resolveWorkspaceDeviceIdentity(workspaceId, options.deviceId, loadOrCreateConnectionId())
     : resolveDeviceIdentity(auth.userId, options.deviceId);
 
-  // The token the gateway socket authenticates with. Re-minted on refresh for
-  // workspace devices (see `refreshConnectToken`).
-  let connectToken = auth.token;
-  let connectTokenType: 'apiKey' | 'jwt' | 'serviceToken' = auth.tokenType;
-  if (workspaceId) {
-    try {
-      const minted = await mintWorkspaceConnectToken(auth, workspaceId);
-      connectToken = minted.token;
-    } catch (err) {
-      log.error(`Workspace connect token mint failed: ${(err as Error).message}`);
-      process.exit(getWorkspaceFailureExitCode(err));
-      throw new Error('process.exit', { cause: err });
-    }
-    connectTokenType = 'jwt';
+  let active = true;
+  const source = pickAuthSource(options);
+  const isCurrent = () =>
+    active &&
+    resolveServerUrl() === auth.serverUrl &&
+    pickAuthSource(options).kind === source.kind &&
+    pickAuthSource(options).token === source.token;
+  const provider = createGatewayIdentityProvider(auth, { workspaceId, isCurrent });
+  // The device and connection the ticket will name: Work signs exactly these,
+  // and the client below connects as the same pair.
+  const deviceId = identity?.deviceId ?? options.deviceId ?? randomUUID();
+  const connectionId = loadOrCreateConnectionId();
+  let initial: GatewayIdentityResponse | undefined;
+  try {
+    initial = await provider({ connectionId, deviceId, signal: new AbortController().signal });
+  } catch (err) {
+    log.error(
+      workspaceId && (err as { code?: string }).code === 'FORBIDDEN'
+        ? workspaceAdminRequiredMessage
+        : `Gateway identity failed: ${(err as Error).message}`,
+    );
+    process.exit(workspaceId && isGatewayIdentityRetryable(err) ? CONNECT_RETRYABLE_EXIT_CODE : 1);
+    return;
   }
-
-  // Re-resolve the admin auth and, for workspace mode, re-mint the connect token.
-  const refreshConnectToken = async (): Promise<string | undefined> => {
-    const refreshed = await resolveToken({ unavailableExitCode });
-    if (!refreshed) return undefined;
-    auth = refreshed;
-    if (workspaceId) {
-      const minted = await mintWorkspaceConnectToken(auth, workspaceId);
-      connectToken = minted.token;
-      return connectToken;
+  const enrollmentScope = JSON.stringify([auth.serverUrl, initial.tenantId, initial.userId]);
+  const identityProvider = async (input: Parameters<GatewayIdentityProvider>[0]) => {
+    input.signal.throwIfAborted();
+    if (!isCurrent()) throw new Error('GATEWAY_IDENTITY_CHANGED');
+    if (initial) {
+      const first = initial;
+      initial = undefined;
+      return first;
     }
-    connectToken = refreshed.token;
-    return connectToken;
+    return provider(input);
   };
 
   // Freeform channel label (`cli` by default); `LOBEHUB_CLI_CHANNEL` lets a
@@ -426,13 +426,15 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
 
   const client = new GatewayClient({
     channel,
-    connectionId: loadOrCreateConnectionId(),
-    deviceId: identity?.deviceId ?? options.deviceId,
+    connectionId,
+    deviceId,
     gatewayUrl: resolvedGatewayUrl,
+    identityProvider,
+    tunnel: false,
     logger: isDaemonChild ? createDaemonLogger() : log,
     serverUrl: auth.serverUrl,
-    token: connectToken,
-    tokenType: connectTokenType,
+    token: initial.gatewayTicket,
+    tokenType: 'jwt',
     userId: workspaceId ? undefined : auth.userId,
     workspaceId,
   });
@@ -523,7 +525,11 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
     listHeterogeneousAgentModels: (params) =>
       listHeterogeneousAgentModels({
         ...params,
-        env: { ...process.env, ...params.env },
+        env: Object.fromEntries(
+          Object.entries({ ...process.env, ...params.env }).filter(
+            (entry): entry is [string, string] => entry[1] !== undefined,
+          ),
+        ),
       }),
     readTerminal: (params) => Promise.resolve(terminals.read(params)),
     resizeTerminal: (params) => Promise.resolve(terminals.resize(params)),
@@ -553,23 +559,26 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
   // back, so the stretch around a drop is visible afterwards. Each batch is
   // mirrored to this machine's workspace-share connections so a shared
   // device's workspace row has the same history.
-  const metricsSampler = identity
-    ? new DeviceMetricsSampler({
-        isConnected: () => client.connectionStatus === 'connected',
-        logger: { warn: (msg) => info(msg) },
-        storagePath: resolveDeviceMetricsBacklogPath(identity.deviceId),
-        upload: (samples) =>
-          pushMetrics(
-            client,
-            [...workspaceConnections.values()].map((entry) => entry.client),
-            samples,
-          ),
-      })
-    : undefined;
+  const deviceMetricsSupported = false;
+  const metricsSampler =
+    deviceMetricsSupported && identity
+      ? new DeviceMetricsSampler({
+          isConnected: () => client.connectionStatus === 'connected',
+          logger: { warn: (msg) => info(msg) },
+          storagePath: resolveDeviceMetricsBacklogPath(identity.deviceId),
+          upload: (samples) =>
+            pushMetrics(
+              client,
+              [...workspaceConnections.values()].map((entry) => entry.client),
+              samples,
+            ),
+        })
+      : undefined;
 
   client.on('connected', () => {
     updateStatus('connected');
     void metricsSampler?.flush();
+    if (!workspaceId) void restoreWorkspaceEnrollments();
   });
 
   client.on('disconnected', () => {
@@ -595,8 +604,11 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
   }
 
   const workspaceConnections = new Map<string, WorkspaceShareConnection>();
+  const workspaceDials = new Map<string, AbortController>();
 
   const closeWorkspaceConnection = (wsId: string) => {
+    workspaceDials.get(wsId)?.abort();
+    workspaceDials.delete(wsId);
     const entry = workspaceConnections.get(wsId);
     if (!entry) return;
     workspaceConnections.delete(wsId);
@@ -604,22 +616,57 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
     entry.client.disconnect();
   };
 
-  const openWorkspaceConnection = async (wsId: string, initialToken: string) => {
+  const openWorkspaceConnection = async (wsId: string, initialToken?: string) => {
     // Re-enroll replaces the previous share connection instead of stacking one.
     closeWorkspaceConnection(wsId);
-
+    if (!isCurrent()) throw new Error('GATEWAY_IDENTITY_CHANGED');
+    const dial = new AbortController();
+    workspaceDials.set(wsId, dial);
+    const provider = createGatewayIdentityProvider(auth, {
+      workspaceId: wsId,
+      initialTicket: initialToken,
+      isCurrent,
+    });
     // Same derivation as `lh connect --workspace` so the enroll RPC and a manual
     // workspace enrollment on this machine resolve to one workspace device.
     const wsIdentity = resolveWorkspaceDeviceIdentity(wsId, undefined, loadOrCreateConnectionId());
+    let first: GatewayIdentityResponse | undefined;
+    try {
+      first = await provider({
+        connectionId: loadOrCreateConnectionId(),
+        deviceId: wsIdentity.deviceId,
+        signal: dial.signal,
+      });
+    } catch (err) {
+      if (workspaceDials.get(wsId) === dial) workspaceDials.delete(wsId);
+      dial.abort();
+      if ((err as { code?: string }).code === 'FORBIDDEN')
+        throw new Error(workspaceAdminRequiredMessage, { cause: err });
+      throw err;
+    }
+    if (!isCurrent() || dial.signal.aborted) throw new Error('GATEWAY_IDENTITY_CHANGED');
+    const shareProvider = async (input: Parameters<GatewayIdentityProvider>[0]) => {
+      input.signal.throwIfAborted();
+      dial.signal.throwIfAborted();
+      if (!isCurrent()) throw new Error('GATEWAY_IDENTITY_CHANGED');
+      if (first) {
+        const result = first;
+        first = undefined;
+        return result;
+      }
+      return provider(input);
+    };
 
     const wsClient = new GatewayClient({
       channel,
       connectionId: loadOrCreateConnectionId(),
       deviceId: wsIdentity.deviceId,
       gatewayUrl: resolvedGatewayUrl,
+      identityProvider: shareProvider,
+      tunnel: false,
       logger: isDaemonChild ? createDaemonLogger() : log,
       serverUrl: auth.serverUrl,
-      token: initialToken,
+      token: first.gatewayTicket,
       tokenType: 'jwt',
       userId: undefined,
       workspaceId: wsId,
@@ -629,44 +676,8 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
 
     const entry: WorkspaceShareConnection = { cancelRefresh: null, client: wsClient };
 
-    // The connect token is short-lived; the current user is the enroller, so
-    // they hold the permission to re-mint it for as long as the share exists.
-    let liveToken = initialToken;
-    const remintToken = async (): Promise<string> => {
-      const minted = await mintWorkspaceConnectToken(auth, wsId);
-      liveToken = minted.token;
-      return minted.token;
-    };
-
-    const startRefresh = (): (() => void) | null =>
-      scheduleProactiveRefresh(
-        liveToken,
-        'jwt',
-        async () => {
-          const newToken = await remintToken();
-          wsClient.updateToken(newToken);
-          entry.cancelRefresh = startRefresh();
-          return newToken;
-        },
-        info,
-        error,
-      );
-    entry.cancelRefresh = startRefresh();
-
-    wsClient.on('auth_expired', async () => {
-      info(`Workspace ${wsId} connect token expired. Re-minting...`);
-      try {
-        const newToken = await remintToken();
-        wsClient.updateToken(newToken);
-        entry.cancelRefresh?.();
-        entry.cancelRefresh = startRefresh();
-        await wsClient.reconnect();
-        return;
-      } catch {
-        // fall through — likely the share (or membership) was revoked
-      }
-      error(`Could not refresh workspace ${wsId} connect token. Closing share connection.`);
-      closeWorkspaceConnection(wsId);
+    wsClient.on('auth_expired', () => {
+      if (isCurrent() && workspaceConnections.get(wsId) === entry) void wsClient.reconnect();
     });
 
     wsClient.on('replaced', () => {
@@ -678,7 +689,11 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
 
     wsClient.on('auth_failed', (reason) => {
       // Only this share connection is affected — never exit the personal process.
-      error(`Workspace ${wsId} authentication failed: ${reason}. Closing share connection.`);
+      error(
+        reason === 'FORBIDDEN'
+          ? workspaceAdminRequiredMessage
+          : `Workspace ${wsId} authentication failed: ${reason}. Closing share connection.`,
+      );
       closeWorkspaceConnection(wsId);
     });
 
@@ -724,7 +739,7 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
       // Persist so a restart re-opens the share connection without the server
       // having to re-share. The server registers the device row itself from
       // the identity we return.
-      addWorkspaceEnrollment(wsId);
+      addWorkspaceEnrollment(wsId, enrollmentScope);
       info(`Enrolled into workspace ${wsId} as device ${wsIdentity.deviceId}`);
       return wsIdentity;
     };
@@ -733,7 +748,7 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
     // or on the personal one — both bind the same deps, so either path lands here.
     deviceControlDeps.unenrollWorkspace = async ({ workspaceId: wsId }) => {
       closeWorkspaceConnection(wsId);
-      removeWorkspaceEnrollment(wsId);
+      removeWorkspaceEnrollment(wsId, enrollmentScope);
       info(`Unenrolled from workspace ${wsId}`);
       return { success: true };
     };
@@ -746,116 +761,55 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
    * deliver `unenrollWorkspace` to a dead socket), and reconnecting anyway would
    * resurrect the device as a ghost in the workspace pool.
    */
+  let workspaceRestoreInFlight = false;
   const restoreWorkspaceEnrollments = async () => {
-    for (const wsId of loadWorkspaceEnrollments()) {
-      try {
-        const wsIdentity = resolveWorkspaceDeviceIdentity(
-          wsId,
-          undefined,
-          loadOrCreateConnectionId(),
-        );
-        const trpc = createLambdaClient(auth, wsId);
-        const devices = await trpc.device.listDevices.query();
-        const stillEnrolled = devices.some(
-          (d) => d.deviceId === wsIdentity.deviceId && d.registered,
-        );
-        if (!stillEnrolled) {
-          info(`Workspace share ${wsId} was revoked while offline. Clearing local enrollment.`);
-          removeWorkspaceEnrollment(wsId);
-          continue;
+    if (workspaceRestoreInFlight) return;
+    workspaceRestoreInFlight = true;
+    try {
+      for (const wsId of loadWorkspaceEnrollments(enrollmentScope)) {
+        if (!isCurrent()) return;
+        if (workspaceConnections.has(wsId) || workspaceDials.has(wsId)) continue;
+        try {
+          const wsIdentity = resolveWorkspaceDeviceIdentity(
+            wsId,
+            undefined,
+            loadOrCreateConnectionId(),
+          );
+          const trpc = createLambdaClient(auth, wsId);
+          const devices = await trpc.device.listDevices.query();
+          if (!isCurrent()) return;
+          const stillEnrolled = devices.some(
+            (d: { deviceId: string; registered?: boolean }) =>
+              d.deviceId === wsIdentity.deviceId && d.registered,
+          );
+          if (!stillEnrolled) {
+            info(`Workspace share ${wsId} was revoked while offline. Clearing local enrollment.`);
+            removeWorkspaceEnrollment(wsId, enrollmentScope);
+            continue;
+          }
+          if (!isCurrent()) return;
+          await openWorkspaceConnection(wsId);
+          info(`Restored workspace share connection: ${wsId}`);
+        } catch (err) {
+          // Non-fatal (e.g. transient network error): keep the record and retry on
+          // the next startup rather than silently dropping the share.
+          error(`Failed to restore workspace share ${wsId}: ${(err as Error).message}`);
         }
-        const minted = await mintWorkspaceConnectToken(auth, wsId);
-        await openWorkspaceConnection(wsId, minted.token);
-        info(`Restored workspace share connection: ${wsId}`);
-      } catch (err) {
-        // Non-fatal (e.g. transient network error): keep the record and retry on
-        // the next startup rather than silently dropping the share.
-        error(`Failed to restore workspace share ${wsId}: ${(err as Error).message}`);
       }
+    } finally {
+      workspaceRestoreInFlight = false;
     }
   };
 
-  // Proactive token refresh — schedule before the connect token expires. For a
-  // workspace device `refreshConnectToken` re-mints the workspace token; for a
-  // personal device it refreshes the user token. Scheduling watches the actual
-  // connect token, so the workspace token's shorter life is respected.
-  const startProactiveRefresh = (): (() => void) | null =>
-    scheduleProactiveRefresh(
-      connectToken,
-      connectTokenType,
-      async () => {
-        const newToken = await refreshConnectToken();
-        if (newToken) {
-          client.updateToken(newToken);
-          cancelRefreshTimer = startProactiveRefresh();
-        }
-        return newToken;
-      },
-      info,
-      error,
-    );
-  let cancelRefreshTimer = startProactiveRefresh();
-
-  // Handle auth failed — attempt token refresh once before giving up
-  // (e.g., auto-reconnect may send an expired JWT before proactive refresh fires)
-  let authFailedRefreshAttempted = false;
-  client.on('auth_failed', async (reason) => {
-    let exitCode = 1;
-    if (connectTokenType === 'jwt' && !authFailedRefreshAttempted) {
-      authFailedRefreshAttempted = true;
-      info(`Authentication failed (${reason}). Attempting token refresh...`);
-      try {
-        const prev = connectToken;
-        const newToken = await refreshConnectToken();
-        if (newToken && newToken !== prev) {
-          info('Token refreshed successfully. Reconnecting...');
-          client.updateToken(newToken);
-          authFailedRefreshAttempted = false;
-          cancelRefreshTimer = startProactiveRefresh();
-          await client.reconnect();
-          return;
-        }
-      } catch (err) {
-        error(`Token refresh failed: ${(err as Error).message}`);
-        if (workspaceId) exitCode = getWorkspaceFailureExitCode(err);
-      }
-    }
-
-    error(`Authentication failed: ${reason}`);
+  client.on('auth_failed', (reason) => {
     error(
-      `Run '${CLI_PRIMARY_BIN} login', or set ${CLI_API_KEY_ENV} and run '${CLI_PRIMARY_BIN} login --server <url>' to configure API key authentication.`,
+      `Gateway authentication stopped: ${reason}. Run '${CLI_PRIMARY_BIN} login' to reconnect.`,
     );
     cleanup();
-    process.exit(exitCode);
+    process.exit(1);
   });
-
-  // Handle auth expired — refresh token and reconnect automatically
-  client.on('auth_expired', async () => {
-    if (connectTokenType === 'apiKey') {
-      // API keys don't expire; ignore stale auth_expired signals
-      return;
-    }
-
-    info('Authentication expired. Attempting to refresh token...');
-    let exitCode = 1;
-
-    try {
-      const newToken = await refreshConnectToken();
-      if (newToken) {
-        info('Token refreshed successfully. Reconnecting...');
-        client.updateToken(newToken);
-        cancelRefreshTimer = startProactiveRefresh();
-        await client.reconnect();
-        return;
-      }
-    } catch (err) {
-      error(`Token refresh failed: ${(err as Error).message}`);
-      if (workspaceId) exitCode = getWorkspaceFailureExitCode(err);
-    }
-
-    error("Could not refresh token. Run 'lh login' to re-authenticate.");
-    cleanup();
-    process.exit(exitCode);
+  client.on('auth_expired', () => {
+    if (isCurrent()) void client.reconnect();
   });
 
   // Another `lh connect` of this install (same persisted connection id) took
@@ -877,14 +831,14 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
   // Graceful shutdown
   const cleanup = () => {
     info('Shutting down...');
-    cancelRefreshTimer?.();
+    active = false;
     cleanupAllProcesses();
     // Kill every remote-terminal shell this daemon started, so a stopping
     // `lh connect` does not leave orphaned PTYs behind on the machine.
     terminals.dispose();
     // Close share connections but keep the persisted enrollments — the next
     // startup restores them (or clears them if revoked meanwhile).
-    for (const wsId of workspaceConnections.keys()) closeWorkspaceConnection(wsId);
+    for (const wsId of workspaceDials.keys()) closeWorkspaceConnection(wsId);
     void metricsSampler?.stop();
     client.disconnect();
     removeStatus();
@@ -945,155 +899,6 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
 
   // Connect
   await client.connect();
-
-  // Personal mode: re-open any workspace share connections from a previous run.
-  // Best-effort after the main connection — a failed restore never blocks it.
-  if (!workspaceId) void restoreWorkspaceEnrollments();
-}
-
-/** Everything a gateway connection's request handlers need from the host process. */
-interface GatewayHandlerContext {
-  deps: DeviceControlDeps;
-  error: (msg: string) => void;
-  /** Read at dispatch time — the underlying auth may be refreshed mid-session. */
-  getAuth: () => Awaited<ReturnType<typeof resolveToken>>;
-  info: (msg: string) => void;
-  isDaemonChild: boolean;
-  maintenance: CliMaintenance;
-  recordRequest: () => void;
-}
-
-/**
- * Bind the request handlers shared by every gateway connection this process
- * owns — the personal connection and any workspace-share connections opened via
- * the `enrollWorkspace` RPC — so a workspace principal exposes exactly the same
- * tool / RPC / agent-run surface as the personal one.
- */
-function bindGatewayClientHandlers(
-  client: GatewayClient,
-  ctx: GatewayHandlerContext,
-  connectionWorkspaceId?: string,
-) {
-  const { deps, error, getAuth, info, isDaemonChild, maintenance, recordRequest } = ctx;
-
-  // Handle system info requests
-  client.on('system_info_request', (request: SystemInfoRequestMessage) => {
-    info(`Received system_info_request: requestId=${request.requestId}`);
-    const systemInfo = collectSystemInfo();
-    client.sendSystemInfoResponse({
-      requestId: request.requestId,
-      result: { success: true, systemInfo },
-    });
-  });
-
-  // Handle tool call requests
-  client.on('tool_call_request', async (request: ToolCallRequestMessage) => {
-    recordRequest();
-    const { operationId, requestId, timeout, toolCall } = request;
-    if (isDaemonChild) {
-      appendLog(
-        `[TOOL] ${toolCall.apiName}${operationId ? ` op=${operationId}` : ''} (${requestId})`,
-      );
-    } else {
-      log.toolCall(toolCall.apiName, requestId, toolCall.arguments, operationId);
-    }
-
-    // Timed on the DEVICE's clock. The server can only see the whole dispatch
-    // round trip, so reporting this back is what separates a slow tool from
-    // slow transport.
-    const startedAt = performance.now();
-    const result = await maintenance
-      .run(() => executeToolCall(toolCall.apiName, toolCall.arguments, timeout, getAuth()))
-      .catch((err: Error) => ({
-        content: '',
-        error: err.message,
-        state: undefined,
-        success: false,
-      }));
-    const executionTimeMs = Math.round(performance.now() - startedAt);
-
-    if (isDaemonChild) {
-      appendLog(
-        `[RESULT] ${result.success ? 'OK' : 'FAIL'} ${executionTimeMs}ms${operationId ? ` op=${operationId}` : ''} (${requestId})`,
-      );
-    } else {
-      log.toolResult(requestId, result.success, result.content, operationId);
-    }
-
-    client.sendToolCallResponse({
-      requestId,
-      result: {
-        content: result.content,
-        error: result.error,
-        executionTimeMs,
-        state: result.state,
-        success: result.success,
-      },
-    });
-  });
-
-  // Handle generic server-internal device RPCs (git / workspace / file ops).
-  // Shares the `@lobechat/device-control` dispatcher with the desktop app so the
-  // CLI exposes the same remote-device control surface.
-  client.on('rpc_request', async (request: RpcRequestMessage) => {
-    const { method, params, requestId } = request;
-    if (isDaemonChild) appendLog(`[RPC] ${method} (${requestId})`);
-    else info(`Received rpc_request: method=${method} (${requestId})`);
-
-    try {
-      const run = () => executeDeviceRpc(method, params, deps);
-      const isMaintenance = ['getCliUpdateState', 'checkCliUpdate', 'restartCli'].includes(method);
-      const data = await (isMaintenance ? run() : maintenance.run(run));
-      client.sendRpcResponse({ requestId, result: { data, success: true } });
-      if (method === 'restartCli') maintenance.afterResponse();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (isDaemonChild) appendLog(`[RPC ERROR] ${method}: ${message} (${requestId})`);
-      else error(`rpc_request method=${method} failed: ${message}`);
-      client.sendRpcResponse({ requestId, result: { error: message, success: false } });
-    }
-  });
-
-  // Handle gateway-dispatched agent runs (heterogeneous agents, e.g. Claude
-  // Code). Mirrors the desktop app: spawn `lh hetero exec`, which owns the full
-  // execution + server-ingest pipeline. Ack with the spawn outcome — `accepted`
-  // once the child starts, `rejected` if it fails to spawn (e.g. bad cwd) — so
-  // a failed dispatch surfaces as an error instead of a stuck assistant message.
-  client.on('agent_run_request', async (request: AgentRunRequestMessage) => {
-    recordRequest();
-    info(
-      `Received agent_run_request: operationId=${request.operationId} type=${request.agentType}`,
-    );
-    try {
-      const ack = await maintenance.run(() =>
-        spawnHeteroAgentRun(
-          {
-            agentId: request.agentId,
-            agentType: request.agentType,
-            assistantMessageId: request.assistantMessageId,
-            args: request.args,
-            cwd: request.cwd,
-            imageList: request.imageList,
-            jwt: request.jwt,
-            operationId: request.operationId,
-            prompt: request.prompt,
-            resumeFallbackSystemContext: request.resumeFallbackSystemContext,
-            resumeSessionId: request.resumeSessionId,
-            serverUrl: getAuth().serverUrl,
-            systemContext: request.systemContext,
-            topicId: request.topicId,
-            workspaceId: request.ingestWorkspaceId ?? request.workspaceId ?? connectionWorkspaceId,
-          },
-          { error, info },
-        ),
-      );
-      client.sendAgentRunAck({ operationId: request.operationId, ...ack });
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      error(`agent_run_request failed: ${reason}`);
-      client.sendAgentRunAck({ operationId: request.operationId, reason, status: 'rejected' });
-    }
-  });
 }
 
 function createDaemonLogger() {
@@ -1116,90 +921,4 @@ function formatUptime(startedAt: Date): string {
   if (hours > 0) return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
   if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
   return `${seconds}s`;
-}
-
-// How far before expiry to proactively refresh (1 hour)
-const PROACTIVE_REFRESH_BUFFER = 60 * 60;
-
-/**
- * Parse the `exp` claim from a JWT without verifying the signature.
- */
-function parseJwtExp(token: string): number | undefined {
-  try {
-    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
-    return typeof payload.exp === 'number' ? payload.exp : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Schedule a proactive token refresh before the (connect) token expires.
- * `refresh` performs the actual refresh — re-minting a workspace token or
- * refreshing the user token — and returns the new token. Returns a cleanup
- * function that cancels the scheduled timer.
- */
-function scheduleProactiveRefresh(
-  token: string,
-  tokenType: string,
-  refresh: () => Promise<string | undefined>,
-  info: (msg: string) => void,
-  error: (msg: string) => void,
-): (() => void) | null {
-  if (tokenType !== 'jwt') return null;
-
-  const exp = parseJwtExp(token);
-  if (!exp) return null;
-
-  const lifetimeMs = exp * 1000 - Date.now();
-  if (lifetimeMs <= 0) {
-    // Token already expired — refresh once on next tick.
-    void doRefresh();
-    return null;
-  }
-
-  // Refresh ahead of expiry, but never let the buffer meet or exceed the token's
-  // remaining lifetime: a buffer >= lifetime collapses the refresh window to <=0
-  // and busy-loops re-minting (e.g. a 1h token with a 1h buffer). Cap the buffer
-  // at half the remaining lifetime so a short-lived token refreshes about once per
-  // half-life instead of spinning.
-  const bufferMs = Math.min(PROACTIVE_REFRESH_BUFFER * 1000, lifetimeMs / 2);
-  const delay = lifetimeMs - bufferMs;
-
-  const timer = setTimeout(() => void doRefresh(), delay);
-  return () => clearTimeout(timer);
-
-  async function doRefresh() {
-    try {
-      const newToken = await refresh();
-      if (!newToken) {
-        error('Proactive token refresh failed — no valid credentials.');
-        return;
-      }
-      if (newToken !== token) info('Proactively refreshed token.');
-    } catch {
-      error('Proactive token refresh failed.');
-    }
-  }
-}
-
-function collectSystemInfo(): DeviceSystemInfo {
-  const home = os.homedir();
-  const platform = process.platform;
-  const videosDir = platform === 'linux' ? 'Videos' : 'Movies';
-
-  return {
-    arch: os.arch(),
-    // Tell the server-side prompt builder which shell runCommand spawns here.
-    defaultShell: getShellInfo().displayName,
-    desktopPath: path.join(home, 'Desktop'),
-    documentsPath: path.join(home, 'Documents'),
-    downloadsPath: path.join(home, 'Downloads'),
-    homePath: home,
-    musicPath: path.join(home, 'Music'),
-    picturesPath: path.join(home, 'Pictures'),
-    userDataPath: path.join(home, CLI_CONFIG_DIR_NAME),
-    videosPath: path.join(home, videosDir),
-    workingDirectory: process.cwd(),
-  };
 }

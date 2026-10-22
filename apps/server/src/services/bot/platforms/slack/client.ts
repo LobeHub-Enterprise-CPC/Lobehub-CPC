@@ -1,4 +1,5 @@
 import { createSlackAdapter } from '@chat-adapter/slack';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import type { Chat as ChatBot, Message } from 'chat';
 import debug from 'debug';
 
@@ -10,6 +11,7 @@ import {
 } from '@/server/services/gateway/runtimeStatus';
 
 import { warnAttachmentFailures } from '../attachmentDelivery';
+import { TrackedPlatformClient } from '../TrackedPlatformClient';
 import {
   type BotPlatformRuntimeContext,
   type BotProviderConfig,
@@ -273,6 +275,7 @@ class SlackSocketModeClient implements PlatformClient {
   private gateway: SlackSocketModeConnection | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  private readonly lifecycle = new TrackedPlatformClient();
   /** Lazy-cached SlackApi — keeps no state but avoids repeated allocs. */
   private _api?: SlackApi;
 
@@ -290,6 +293,13 @@ class SlackSocketModeClient implements PlatformClient {
   }
 
   async start(options?: GatewayListenerOptions): Promise<void> {
+    return this.lifecycle.start(
+      () => this.startNow(options),
+      () => this.stop(),
+    );
+  }
+
+  private async startNow(options?: GatewayListenerOptions): Promise<void> {
     log('Starting SlackBot (socket mode) appId=%s', this.applicationId);
 
     this.stopped = false;
@@ -307,7 +317,7 @@ class SlackSocketModeClient implements PlatformClient {
 
     try {
       if (this.bot) {
-        await this.bot.shutdown().catch(() => {});
+        await this.bot.shutdown();
         this.bot = null;
       }
 
@@ -345,7 +355,11 @@ class SlackSocketModeClient implements PlatformClient {
         webhookUrl,
       });
 
-      const waitUntil = options?.waitUntil ?? ((task: Promise<any>) => task.catch(() => {}));
+      const waitUntil = (task: Promise<any>) => {
+        const tracked = trackTenantWork(() => task);
+        if (options?.waitUntil) options.waitUntil(tracked);
+        else void tracked.catch(() => undefined);
+      };
       const gatewayTask = this.gateway.connect();
       waitUntil(gatewayTask);
       await gatewayTask;
@@ -360,7 +374,7 @@ class SlackSocketModeClient implements PlatformClient {
             durationMs / 3_600_000,
           );
           this.abort.abort();
-          this.start().catch((err) => {
+          trackTenantWork(() => this.start()).catch((err) => {
             log('Failed to refresh SlackBot appId=%s: %O', this.applicationId, err);
           });
         }, durationMs);
@@ -391,6 +405,14 @@ class SlackSocketModeClient implements PlatformClient {
   }
 
   async stop(): Promise<void> {
+    return this.lifecycle.stop(() => this.stopNow());
+  }
+
+  private async stopNow(): Promise<void> {
+    this.stopped = true;
+    this.abort.abort();
+    await this.lifecycle.waitForStart();
+
     log('Stopping SlackBot (socket mode) appId=%s', this.applicationId);
     this.stopped = true;
     if (this.refreshTimer) {
@@ -401,7 +423,7 @@ class SlackSocketModeClient implements PlatformClient {
     this.gateway?.close();
     this.gateway = null;
     if (this.bot) {
-      await this.bot.shutdown().catch(() => {});
+      await this.bot.shutdown();
       this.bot = null;
     }
     await updateBotRuntimeStatus(

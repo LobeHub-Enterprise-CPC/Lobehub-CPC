@@ -5,6 +5,7 @@ import { GoalModel } from '@/database/models/goal';
 import { getServerDB } from '@/database/server';
 import { appEnv } from '@/envs/app';
 import { qstashClient } from '@/libs/qstash';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { advanceGoal } from '@/server/services/goal/advanceGoal';
 import { GOAL_ADVANCE_PATH } from '@/server/services/goal/scheduler';
 
@@ -100,7 +101,7 @@ const publishAll = async (goals: StalledGoal[]) => {
   if (!process.env.APP_URL) {
     throw new Error('APP_URL is required to fan out goal advances via QStash');
   }
-  const url = `${process.env.APP_URL.replace(/\/$/, '')}${GOAL_ADVANCE_PATH}`;
+  const url = buildTenantCallbackUrl(GOAL_ADVANCE_PATH, process.env.APP_URL);
 
   return Promise.allSettled(goals.map((body) => qstashClient.publishJSON({ body, url })));
 };

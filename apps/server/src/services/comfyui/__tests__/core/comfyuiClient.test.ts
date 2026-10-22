@@ -83,13 +83,14 @@ describe('ComfyUIClientService', () => {
       expect(mockClient.init).toHaveBeenCalled();
     });
 
-    it('should initialize with custom options', () => {
+    it('should initialize with custom options for a platform-configured server', () => {
       const options: ComfyUIKeyVault = {
         authType: 'basic',
         baseURL: 'http://custom:8188',
         password: 'pass',
         username: 'user',
       };
+      vi.stubEnv('COMFYUI_BASE_URL', 'http://custom:8188');
 
       service = new ComfyUIClientService(options);
 
@@ -99,6 +100,17 @@ describe('ComfyUIClientService', () => {
         credentials: undefined,
       });
       expect(mockClient.init).toHaveBeenCalled();
+      vi.unstubAllEnvs();
+    });
+
+    it('should route a user-provided server through the SSRF-safe WebSocket and fetch', () => {
+      service = new ComfyUIClientService({ baseURL: 'http://custom:8188' });
+
+      expect(ComfyApi).toHaveBeenCalledWith(
+        'http://custom:8188',
+        undefined,
+        expect.objectContaining({ customWebSocketImpl: expect.any(Function) }),
+      );
     });
 
     it('should handle auth service errors during initialization', () => {

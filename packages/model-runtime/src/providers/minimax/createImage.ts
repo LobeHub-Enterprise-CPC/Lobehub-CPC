@@ -53,7 +53,7 @@ export async function createMiniMaxImage(
       }));
     }
 
-    const response = await fetch(endpoint, {
+    const response = await (options.fetch ?? fetch)(endpoint, {
       body: JSON.stringify(requestBody),
       headers: {
         'Authorization': `Bearer ${apiKey}`,

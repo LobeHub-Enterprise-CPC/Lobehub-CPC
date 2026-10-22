@@ -1,2 +1,3 @@
 # Generated from lobehub/acceptance releases; preserve the upstream bytes.
 .agents/skills/acceptance/**
+contracts/gateway-tenancy/

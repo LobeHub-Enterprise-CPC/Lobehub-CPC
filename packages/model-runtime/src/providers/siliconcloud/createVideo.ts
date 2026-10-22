@@ -29,13 +29,13 @@ interface SiliconCloudVideoStatusResponse {
  */
 export async function querySiliconCloudVideoStatus(
   requestId: string,
-  options: { apiKey: string; baseURL: string },
+  options: { apiKey: string; baseURL: string; fetch?: typeof fetch },
 ): Promise<SiliconCloudVideoStatusResponse> {
   const statusUrl = `${options.baseURL}/video/status`;
 
   log('Querying video status for: %s', requestId);
 
-  const response = await fetch(statusUrl, {
+  const response = await (options.fetch ?? fetch)(statusUrl, {
     body: JSON.stringify({ requestId }),
     headers: {
       'Authorization': `Bearer ${options.apiKey}`,
@@ -60,7 +60,7 @@ export async function querySiliconCloudVideoStatus(
  */
 export async function pollSiliconCloudVideoStatus(
   requestId: string,
-  options: { apiKey: string; baseURL: string },
+  options: { apiKey: string; baseURL: string; fetch?: typeof fetch },
 ): Promise<
   | { status: 'success'; videoUrl: string }
   | { status: 'failed'; error: string }
@@ -120,7 +120,7 @@ export async function createSiliconCloudVideo(
 
   log('SiliconCloud video API request body: %O', body);
 
-  const response = await fetch(`${baseURL}/video/submit`, {
+  const response = await (options.fetch ?? fetch)(`${baseURL}/video/submit`, {
     body: JSON.stringify(body),
     headers: {
       'Authorization': `Bearer ${options.apiKey}`,

@@ -13,6 +13,7 @@ import type {
   ImessageBridgePublicConfig,
   ImessageBridgeStatus,
 } from '@lobechat/electron-client-ipc';
+import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import { getPort } from 'get-port-please';
 
 import { createLogger } from '@/utils/logger';
@@ -366,9 +367,10 @@ export default class ImessageBridgeService extends ServiceModule {
     ]);
     if (!serverUrl) throw new Error('Remote server URL is not configured');
 
-    const target = new URL(
+    // The server URL may carry a tenant path prefix (`/t/{slug}`) the webhook route lives under.
+    const target = buildRemoteUrl(
       `/api/agent/webhooks/imessage/${encodeURIComponent(config.applicationId)}`,
-      serverUrl.endsWith('/') ? serverUrl : `${serverUrl}/`,
+      serverUrl,
     );
     target.searchParams.set('secret', config.webhookSecret);
 

@@ -1,4 +1,6 @@
 lockfile: false
+# pnpm 12 must keep dependency installation explicit, including exec/run.
+verifyDepsBeforeRun: false
 resolutionMode: highest
 dedupePeerDependents: true
 ignoreWorkspaceRootCheck: true
@@ -62,6 +64,8 @@ allowBuilds:
 
 overrides:
   '@ant-design/icons': 6.3.2
+  # Keep clean installs on the React 19 ref patch's verified UI version.
+  '@lobehub/ui': 5.64.4
   '@react-pdf/image': 3.0.4
   '@types/react': 19.2.13
   '@vitest/coverage-v8': 5.0.0
@@ -86,6 +90,8 @@ overrides:
   'zod@^4': 4.6.5
 
 patchedDependencies:
+  '@lobehub/ui@5.64.4': patches/@lobehub__ui@5.64.4.patch
+  '@chat-adapter/discord@4.38.1': patches/@chat-adapter__discord@4.38.1.patch
   '@upstash/qstash': patches/@upstash__qstash.patch
   micromark@4.0.3: patches/micromark@4.0.3.patch
   micromark-extension-gfm-autolink-literal@2.1.0: patches/micromark-extension-gfm-autolink-literal@2.1.0.patch

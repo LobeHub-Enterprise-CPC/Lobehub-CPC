@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('getServerConfig', () => {
   beforeEach(() => {
@@ -186,5 +186,33 @@ describe('video generation completion settings', () => {
     const { getAppConfig } = await import('../app');
 
     expect(getAppConfig().WEBHOOK_PROXY_URL).toBe('https://video-webhook.example.com');
+  });
+});
+
+describe('deployment base URLs', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.stubEnv('APP_URL', 'https://app.example.com/');
+    vi.stubEnv('INTERNAL_APP_URL', undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('returns the public base without a trailing slash', async () => {
+    const { getAppOriginUrl } = await import('../app');
+    expect(getAppOriginUrl()).toBe('https://app.example.com');
+  });
+
+  it('prefers the internal URL for server-to-server calls', async () => {
+    vi.stubEnv('INTERNAL_APP_URL', 'http://internal.svc/');
+    const { getInternalApiUrl } = await import('../app');
+    expect(getInternalApiUrl()).toBe('http://internal.svc');
+  });
+
+  it('falls back to the public URL when the internal URL is unset', async () => {
+    const { getInternalApiUrl } = await import('../app');
+    expect(getInternalApiUrl()).toBe('https://app.example.com');
   });
 });

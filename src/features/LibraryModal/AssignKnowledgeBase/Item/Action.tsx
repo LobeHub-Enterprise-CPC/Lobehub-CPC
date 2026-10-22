@@ -1,3 +1,4 @@
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { DropdownMenu, Flexbox, Icon } from '@lobehub/ui';
 import { ActionIcon, Button } from '@lobehub/ui/base-ui';
 import { InfoIcon, MoreVerticalIcon, Trash2 } from 'lucide-react';
@@ -67,9 +68,11 @@ const Actions = memo<ActionsProps>(({ id, type, enabled }) => {
               label: t('knowledgeBase.library.action.detail'),
               onClick: () => {
                 window.open(
-                  type === KnowledgeType.KnowledgeBase
-                    ? buildLibraryPath(id, activeWorkspaceSlug)
-                    : buildPagePath(id, activeWorkspaceSlug),
+                  withCurrentTenantPath(
+                    type === KnowledgeType.KnowledgeBase
+                      ? buildLibraryPath(id, activeWorkspaceSlug)
+                      : buildPagePath(id, activeWorkspaceSlug),
+                  ),
                 );
               },
             },

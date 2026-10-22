@@ -1,4 +1,4 @@
-import type { DataSyncConfig } from '@lobechat/electron-client-ipc';
+import type { CloudTenant, DataSyncConfig } from '@lobechat/electron-client-ipc';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { App } from '@/core/App';
@@ -31,6 +31,7 @@ vi.mock('electron', () => ({
 
 // Mock @/const/env
 vi.mock('@/const/env', () => ({
+  isDev: false,
   OFFICIAL_CLOUD_SERVER: 'https://cloud.lobehub.com',
 }));
 
@@ -39,6 +40,7 @@ const mockStoreManager = {
   delete: vi.fn(),
   get: vi.fn(),
   set: vi.fn(),
+  setMany: vi.fn(),
 };
 
 const mockBrowserManager = {
@@ -47,7 +49,6 @@ const mockBrowserManager = {
 
 const mockGatewayConnectionSrv = {
   disconnect: vi.fn().mockResolvedValue({ success: true }),
-  updatePersonalToken: vi.fn(),
 };
 
 const mockApp = {
@@ -56,6 +57,32 @@ const mockApp = {
   getService: vi.fn().mockReturnValue(mockGatewayConnectionSrv),
   storeManager: mockStoreManager,
 } as unknown as App;
+
+const ENTRY = 'https://platform.example/t/acme';
+
+const cloudTenant = (overrides: Record<string, unknown> = {}) => ({
+  display: { account: 'alice@example.com', organizationName: 'Acme' },
+  entryUrl: ENTRY,
+  generation: 'gen-1',
+  identity: { issuer: `${ENTRY}/oidc`, subject: 'user-1', tenantId: 'tenant-1' },
+  ...overrides,
+});
+
+/** A key-aware store so persisted config and tokens can be inspected independently. */
+const useStore = (initial: Record<string, unknown>) => {
+  const data: Record<string, unknown> = { ...initial };
+  mockStoreManager.get.mockImplementation((key: string) => data[key]);
+  mockStoreManager.set.mockImplementation((key: string, value: unknown) => {
+    data[key] = value;
+  });
+  mockStoreManager.setMany.mockImplementation((entries: Record<string, unknown>) => {
+    Object.assign(data, entries);
+  });
+  mockStoreManager.delete.mockImplementation((key: string) => {
+    delete data[key];
+  });
+  return data;
+};
 
 describe('RemoteServerConfigCtr', () => {
   let controller: RemoteServerConfigCtr;
@@ -107,6 +134,46 @@ describe('RemoteServerConfigCtr', () => {
         ...prevConfig,
         ...newConfig,
       });
+    });
+  });
+
+  describe('remote server URL with a tenant path prefix', () => {
+    it('keeps the path prefix and drops trailing slashes when saving', async () => {
+      mockStoreManager.get.mockReturnValue({ active: false, storageMode: 'cloud' });
+
+      await controller.setRemoteServerConfig({
+        active: true,
+        remoteServerUrl: '  https://host.example/t/acme/  ',
+        storageMode: 'selfHost',
+      });
+
+      expect(mockStoreManager.set).toHaveBeenCalledWith(
+        'dataSyncConfig',
+        expect.objectContaining({ remoteServerUrl: 'https://host.example/t/acme' }),
+      );
+    });
+
+    it('normalizes previously stored addresses on read', async () => {
+      mockStoreManager.get.mockReturnValue({
+        active: true,
+        remoteServerUrl: 'https://host.example/t/acme/',
+        storageMode: 'selfHost',
+      });
+
+      expect(await controller.getRemoteServerUrl()).toBe('https://host.example/t/acme');
+      expect((await controller.getRemoteServerConfig()).remoteServerUrl).toBe(
+        'https://host.example/t/acme',
+      );
+    });
+
+    it('accepts a tenant address as a valid self-host URL', async () => {
+      expect(
+        await controller.isRemoteServerConfigured({
+          active: true,
+          remoteServerUrl: 'https://host.example/t/acme',
+          storageMode: 'selfHost',
+        }),
+      ).toBe(true);
     });
   });
 
@@ -176,8 +243,22 @@ describe('RemoteServerConfigCtr', () => {
   });
 
   describe('getDesktopBootstrapIdentity', () => {
-    const createAccessToken = (sub: string) =>
-      ['header', Buffer.from(JSON.stringify({ sub })).toString('base64url'), 'signature'].join('.');
+    const createAccessToken = (sub: string, tid?: string) =>
+      [
+        'header',
+        Buffer.from(JSON.stringify({ sub, ...(tid ? { tid } : {}) })).toString('base64url'),
+        'signature',
+      ].join('.');
+
+    it('returns the tenant of the committed token so the renderer can partition local state', async () => {
+      await controller.saveTokens(createAccessToken('user-bootstrap', 'tenant-a'), 'refresh-token');
+
+      expect(controller.getDesktopBootstrapIdentity()).toEqual({
+        isIdentityResolved: true,
+        tenantId: 'tenant-a',
+        userId: 'user-bootstrap',
+      });
+    });
 
     it('returns the OIDC subject without requesting full user state', async () => {
       await controller.saveTokens(createAccessToken('user-bootstrap'), 'refresh-token');
@@ -196,6 +277,56 @@ describe('RemoteServerConfigCtr', () => {
       await controller.saveTokens('not-a-jwt', 'refresh-token');
 
       expect(controller.getDesktopBootstrapIdentity()).toEqual({ isIdentityResolved: false });
+    });
+  });
+
+  describe('getRemoteCredentials', () => {
+    const login = (entryUrl: string, accessToken: string, generation: string) => ({
+      display: { account: 'alice@example.com' },
+      entryUrl,
+      generation,
+      identity: { issuer: `${entryUrl}/oidc`, subject: 'user-1', tenantId: `tenant-${generation}` },
+      storageMode: 'cloud' as const,
+      tokens: { accessToken, refreshToken: `refresh-${generation}` },
+    });
+
+    it('returns the committed entry together with its own token', async () => {
+      useStore({ dataSyncConfig: { active: false, storageMode: 'cloud' } });
+      await controller.commitAuthorization(login(ENTRY, 'access-a', 'a'));
+
+      await expect(controller.getRemoteCredentials()).resolves.toEqual({
+        serverUrl: ENTRY,
+        token: 'access-a',
+      });
+    });
+
+    it('has no credentials when signed out', async () => {
+      useStore({ dataSyncConfig: { active: false, storageMode: 'cloud' } });
+
+      await expect(controller.getRemoteCredentials()).resolves.toBeNull();
+    });
+
+    it('has no credentials while remote activity is paused for a changed endpoint', async () => {
+      useStore({ dataSyncConfig: { active: false, storageMode: 'cloud' } });
+      await controller.commitAuthorization(login(ENTRY, 'access-a', 'a'));
+      controller.handleEndpointChanged();
+
+      await expect(controller.getRemoteCredentials()).resolves.toBeNull();
+    });
+
+    it('never pairs the old entry with the token of a login committed between the reads', async () => {
+      useStore({ dataSyncConfig: { active: false, storageMode: 'cloud' } });
+      await controller.commitAuthorization(login(ENTRY, 'access-a', 'a'));
+      const original = controller.getAccessToken.bind(controller);
+      vi.spyOn(controller, 'getAccessToken').mockImplementation(async () => {
+        const token = await original();
+        await controller.commitAuthorization(
+          login('https://platform.example/t/other', 'access-b', 'b'),
+        );
+        return token;
+      });
+
+      await expect(controller.getRemoteCredentials()).resolves.toBeNull();
     });
   });
 
@@ -525,6 +656,42 @@ describe('RemoteServerConfigCtr', () => {
       );
     });
 
+    it.each(['https://server.com/t/acme', 'https://server.com/t/acme/'])(
+      'should refresh the token under the tenant path prefix of %s',
+      async (remoteServerUrl) => {
+        const { safeStorage } = await import('electron');
+        vi.mocked(safeStorage.isEncryptionAvailable).mockReturnValue(true);
+        vi.mocked(safeStorage.decryptString).mockImplementation((buffer: Buffer) =>
+          buffer.toString(),
+        );
+
+        mockStoreManager.get.mockImplementation((key) => {
+          if (key === 'dataSyncConfig') {
+            return { active: true, remoteServerUrl, storageMode: 'selfHost' };
+          }
+          return null;
+        });
+
+        await controller.saveTokens('old-access', 'old-refresh');
+
+        mockFetch.mockResolvedValue({
+          json: () =>
+            Promise.resolve({
+              access_token: 'new-access-token',
+              expires_in: 3600,
+              refresh_token: 'new-refresh-token',
+            }),
+          ok: true,
+        });
+
+        const result = await controller.refreshAccessToken();
+
+        expect(result.success).toBe(true);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        expect(mockFetch.mock.calls[0][0]).toBe('https://server.com/t/acme/oidc/token');
+      },
+    );
+
     it.each([
       { error: 'invalid_grant' },
       { error: 'invalid_grant', error_description: 'grant request is invalid' },
@@ -749,16 +916,10 @@ describe('RemoteServerConfigCtr', () => {
         }),
       );
     });
-
-    it('should hand the new access token to the live gateway connection', async () => {
-      await controller.saveTokens('fresh-access', 'refresh', 3600);
-
-      expect(mockGatewayConnectionSrv.updatePersonalToken).toHaveBeenCalledWith('fresh-access');
-    });
   });
 
   describe('getRemoteServerUrl', () => {
-    it('should return official cloud server for cloud mode', async () => {
+    it('should have no server for a cloud config without a confirmed tenant (no platform fallback)', async () => {
       mockStoreManager.get.mockReturnValue({
         active: true,
         storageMode: 'cloud',
@@ -766,7 +927,17 @@ describe('RemoteServerConfigCtr', () => {
 
       const result = await controller.getRemoteServerUrl();
 
-      expect(result).toBe('https://cloud.lobehub.com');
+      expect(result).toBeUndefined();
+    });
+
+    it('should return the confirmed tenant entry for cloud mode', async () => {
+      mockStoreManager.get.mockReturnValue({
+        active: true,
+        cloudTenant: cloudTenant(),
+        storageMode: 'cloud',
+      });
+
+      expect(await controller.getRemoteServerUrl()).toBe(ENTRY);
     });
 
     it('should return custom URL for selfHost mode', async () => {
@@ -805,16 +976,22 @@ describe('RemoteServerConfigCtr', () => {
       expect(result).toBe(false);
     });
 
-    it('should return true for active cloud mode (no remoteServerUrl needed)', async () => {
+    it('should return true for active cloud mode with a confirmed tenant', async () => {
       mockStoreManager.get.mockReturnValue({
         active: true,
+        cloudTenant: cloudTenant(),
         storageMode: 'cloud',
-        // remoteServerUrl is undefined for cloud mode
       });
 
       const result = await controller.isRemoteServerConfigured();
 
       expect(result).toBe(true);
+    });
+
+    it('should return false for active cloud mode without a confirmed tenant', async () => {
+      mockStoreManager.get.mockReturnValue({ active: true, storageMode: 'cloud' });
+
+      expect(await controller.isRemoteServerConfigured()).toBe(false);
     });
 
     it('should return true for active selfHost mode with remoteServerUrl', async () => {
@@ -886,10 +1063,571 @@ describe('RemoteServerConfigCtr', () => {
       // But we provide an active config
       const result = await controller.isRemoteServerConfigured({
         active: true,
+        cloudTenant: cloudTenant(),
         storageMode: 'cloud',
       });
 
       expect(result).toBe(true);
+    });
+  });
+
+  describe('confirmed tenant state', () => {
+    const tokens = (generation?: string) => ({
+      accessToken: 'enc-access',
+      generation,
+      refreshToken: 'enc-refresh',
+    });
+
+    beforeEach(() => {
+      mockStoreManager.get.mockReset();
+      mockStoreManager.set.mockReset();
+      mockStoreManager.setMany.mockReset();
+      mockStoreManager.delete.mockReset();
+    });
+
+    describe('commitAuthorization', () => {
+      it('writes tokens, tenant record and active in one atomic store write with one generation', async () => {
+        const data = useStore({ dataSyncConfig: { active: false, storageMode: 'cloud' } });
+
+        await controller.commitAuthorization({
+          display: { account: 'alice@example.com', organizationName: 'Acme' },
+          entryUrl: ENTRY,
+          generation: 'gen-2',
+          identity: { issuer: `${ENTRY}/oidc`, subject: 'user-1', tenantId: 'tenant-1' },
+          storageMode: 'cloud',
+          tokens: { accessToken: 'access', expiresIn: 3600, refreshToken: 'refresh' },
+        });
+
+        expect(mockStoreManager.setMany).toHaveBeenCalledTimes(1);
+        expect(mockStoreManager.set).not.toHaveBeenCalled();
+        expect(data.dataSyncConfig).toMatchObject({
+          active: true,
+          cloudTenant: { entryUrl: ENTRY, generation: 'gen-2' },
+          storageMode: 'cloud',
+        });
+        expect((data.encryptedTokens as { generation: string }).generation).toBe('gen-2');
+        expect(await controller.getAccessToken()).toBe('access');
+        expect(mockBrowserManager.broadcastToAllWindows).toHaveBeenCalledWith(
+          'remoteServerConfigUpdated',
+          undefined,
+        );
+      });
+
+      it('never touches the gateway token: the caller reconnects after the commit', async () => {
+        useStore({ dataSyncConfig: { active: false, storageMode: 'cloud' } });
+
+        await controller.commitAuthorization({
+          display: { account: 'a' },
+          entryUrl: ENTRY,
+          generation: 'gen-2',
+          identity: { issuer: `${ENTRY}/oidc`, subject: 's', tenantId: 't' },
+          storageMode: 'cloud',
+          tokens: { accessToken: 'access', refreshToken: 'refresh' },
+        });
+
+        expect(mockGatewayConnectionSrv.disconnect).not.toHaveBeenCalled();
+      });
+
+      it('keeps the typed address of a self-hosted config and does not leak one into cloud mode', async () => {
+        const data = useStore({
+          dataSyncConfig: {
+            active: false,
+            remoteServerUrl: 'https://old.example',
+            storageMode: 'selfHost',
+          },
+        });
+        const base = {
+          display: { account: 'a' },
+          entryUrl: ENTRY,
+          generation: 'gen-2',
+          identity: { issuer: `${ENTRY}/oidc`, subject: 's', tenantId: 't' },
+          tokens: { accessToken: 'access', refreshToken: 'refresh' },
+        };
+
+        await controller.commitAuthorization({
+          ...base,
+          remoteServerUrl: ENTRY,
+          storageMode: 'selfHost',
+        });
+        expect(data.dataSyncConfig).toMatchObject({
+          remoteServerUrl: ENTRY,
+          storageMode: 'selfHost',
+        });
+
+        await controller.commitAuthorization({ ...base, storageMode: 'cloud' });
+        expect(data.dataSyncConfig).not.toHaveProperty('remoteServerUrl');
+      });
+    });
+
+    describe('commitAuthorization keeps the matching historical organization name', () => {
+      const previous = {
+        display: { account: 'alice@example.com', organizationName: 'Acme Inc' },
+        entryUrl: ENTRY,
+        generation: 'gen-1',
+        identity: { issuer: `${ENTRY}/oidc`, subject: 'user-1', tenantId: 'tenant-1' },
+      };
+      const relogin = (overrides: Record<string, unknown> = {}) => ({
+        display: { account: 'alice@example.com' } as { account: string; organizationName?: string },
+        entryUrl: ENTRY,
+        generation: 'gen-2',
+        identity: { ...previous.identity },
+        storageMode: 'cloud' as const,
+        tokens: { accessToken: 'access', refreshToken: 'refresh' },
+        ...overrides,
+      });
+      const committedTenant = (data: Record<string, unknown>) =>
+        (data.dataSyncConfig as { cloudTenant: { display: Record<string, unknown> } }).cloudTenant;
+
+      it('does not overwrite it with empty on a same-identity re-login without a name', async () => {
+        // Session expired earlier: tokens gone, the last confirmed record is still stored.
+        const data = useStore({
+          dataSyncConfig: { active: false, cloudTenant: previous, storageMode: 'cloud' },
+        });
+
+        await controller.commitAuthorization(relogin());
+
+        expect(committedTenant(data).display).toEqual({
+          account: 'alice@example.com',
+          organizationName: 'Acme Inc',
+        });
+      });
+
+      it('lets a name delivered by this login replace the old one', async () => {
+        const data = useStore({
+          dataSyncConfig: { active: false, cloudTenant: previous, storageMode: 'cloud' },
+        });
+
+        await controller.commitAuthorization(
+          relogin({ display: { account: 'alice@example.com', organizationName: 'Acme Renamed' } }),
+        );
+
+        expect(committedTenant(data).display.organizationName).toBe('Acme Renamed');
+      });
+
+      it.each([
+        ['another subject', { identity: { ...previous.identity, subject: 'user-2' } }],
+        ['another tenant', { identity: { ...previous.identity, tenantId: 'tenant-2' } }],
+        [
+          'another issuer',
+          { identity: { ...previous.identity, issuer: 'https://x.example/oidc' } },
+        ],
+        ['another entry', { entryUrl: 'https://platform.example/t/other' }],
+      ])('never carries the name over to %s', async (_name, overrides) => {
+        const data = useStore({
+          dataSyncConfig: { active: false, cloudTenant: previous, storageMode: 'cloud' },
+        });
+
+        await controller.commitAuthorization(relogin(overrides));
+
+        expect(committedTenant(data).display).not.toHaveProperty('organizationName');
+      });
+    });
+
+    describe('commitAuthorization display claims (slug, other organizations)', () => {
+      const previous = {
+        display: {
+          account: 'alice@example.com',
+          hasOtherOrganizations: true,
+          organizationName: 'Acme Inc',
+          organizationSlug: 'acme',
+        },
+        entryUrl: ENTRY,
+        generation: 'gen-1',
+        identity: { issuer: `${ENTRY}/oidc`, subject: 'user-1', tenantId: 'tenant-1' },
+      };
+      const relogin = (
+        display: Record<string, unknown> = {},
+        overrides: Record<string, unknown> = {},
+      ) => ({
+        display: { account: 'alice@example.com', ...display } as CloudTenant['display'],
+        entryUrl: ENTRY,
+        generation: 'gen-2',
+        identity: { ...previous.identity },
+        storageMode: 'cloud' as const,
+        tokens: { accessToken: 'access', refreshToken: 'refresh' },
+        ...overrides,
+      });
+      const committedDisplay = (data: Record<string, unknown>) =>
+        (data.dataSyncConfig as { cloudTenant: CloudTenant }).cloudTenant.display;
+      const seed = () =>
+        useStore({
+          dataSyncConfig: { active: false, cloudTenant: previous, storageMode: 'cloud' },
+        });
+
+      it('stores the values delivered by this login', async () => {
+        const data = useStore({ dataSyncConfig: { active: false, storageMode: 'cloud' } });
+
+        await controller.commitAuthorization(
+          relogin({ hasOtherOrganizations: false, organizationSlug: 'acme-2' }),
+        );
+
+        expect(committedDisplay(data)).toEqual({
+          account: 'alice@example.com',
+          hasOtherOrganizations: false,
+          organizationSlug: 'acme-2',
+        });
+      });
+
+      it('lets this login replace the old values, including flipping the flag to false', async () => {
+        const data = seed();
+
+        await controller.commitAuthorization(
+          relogin({ hasOtherOrganizations: false, organizationSlug: 'acme-renamed' }),
+        );
+
+        expect(committedDisplay(data)).toEqual({
+          account: 'alice@example.com',
+          hasOtherOrganizations: false,
+          organizationName: 'Acme Inc',
+          organizationSlug: 'acme-renamed',
+        });
+      });
+
+      it('keeps the committed values on a same-identity re-login that delivers none', async () => {
+        const data = seed();
+
+        await controller.commitAuthorization(relogin());
+
+        expect(committedDisplay(data)).toEqual(previous.display);
+      });
+
+      it('keeps a committed false flag instead of reverting to unknown', async () => {
+        const data = useStore({
+          dataSyncConfig: {
+            active: false,
+            cloudTenant: {
+              ...previous,
+              display: { ...previous.display, hasOtherOrganizations: false },
+            },
+            storageMode: 'cloud',
+          },
+        });
+
+        await controller.commitAuthorization(relogin());
+
+        expect(committedDisplay(data).hasOtherOrganizations).toBe(false);
+      });
+
+      it.each([
+        ['another subject', { identity: { ...previous.identity, subject: 'user-2' } }],
+        ['another tenant', { identity: { ...previous.identity, tenantId: 'tenant-2' } }],
+        [
+          'another issuer',
+          { identity: { ...previous.identity, issuer: 'https://x.example/oidc' } },
+        ],
+        ['another entry', { entryUrl: 'https://platform.example/t/other' }],
+      ])('leaves them unknown for %s that delivers none', async (_name, overrides) => {
+        const data = seed();
+
+        await controller.commitAuthorization(relogin({}, overrides));
+
+        const display = committedDisplay(data);
+        expect(display).not.toHaveProperty('organizationSlug');
+        expect(display).not.toHaveProperty('hasOtherOrganizations');
+      });
+
+      it('merges per field: a new slug does not drop the committed flag of the same identity', async () => {
+        const data = seed();
+
+        await controller.commitAuthorization(relogin({ organizationSlug: 'acme-3' }));
+
+        expect(committedDisplay(data)).toMatchObject({
+          hasOtherOrganizations: true,
+          organizationSlug: 'acme-3',
+        });
+      });
+
+      it('accepts the new fields in a persisted record and rejects wrongly typed ones', async () => {
+        useStore({
+          dataSyncConfig: { active: true, cloudTenant: previous, storageMode: 'cloud' },
+          encryptedTokens: tokens('gen-1'),
+        });
+        expect(await controller.isRemoteServerConfigured()).toBe(true);
+
+        for (const display of [
+          { ...previous.display, organizationSlug: 7 },
+          { ...previous.display, hasOtherOrganizations: 'false' },
+        ]) {
+          useStore({
+            dataSyncConfig: {
+              active: true,
+              cloudTenant: { ...previous, display },
+              storageMode: 'cloud',
+            },
+            encryptedTokens: tokens('gen-1'),
+          });
+          expect(await controller.isRemoteServerConfigured()).toBe(false);
+        }
+      });
+    });
+
+    describe('startup reconciliation (mismatched or half-committed state means logged out)', () => {
+      it('logs out a cloud login that predates the confirmed tenant record', async () => {
+        const data = useStore({
+          dataSyncConfig: { active: true, storageMode: 'cloud' },
+          encryptedTokens: tokens(),
+        });
+
+        const config = await controller.getRemoteServerConfig();
+
+        expect(config.active).toBe(false);
+        expect(data.encryptedTokens).toBeUndefined();
+        expect(await controller.isRemoteServerConfigured()).toBe(false);
+      });
+
+      it('clears both sides when the token generation does not match the tenant record', async () => {
+        const data = useStore({
+          dataSyncConfig: {
+            active: true,
+            cloudTenant: cloudTenant({ generation: 'gen-1' }),
+            storageMode: 'cloud',
+          },
+          encryptedTokens: tokens('gen-OTHER'),
+        });
+
+        controller.afterAppReady();
+
+        expect(data.encryptedTokens).toBeUndefined();
+        expect(data.dataSyncConfig).toEqual({ active: false, storageMode: 'cloud' });
+        expect(await controller.getAccessToken()).toBeNull();
+      });
+
+      it('treats a tenant record without tokens as logged out but remembers it for re-login', async () => {
+        const data = useStore({
+          dataSyncConfig: { active: true, cloudTenant: cloudTenant(), storageMode: 'cloud' },
+        });
+
+        const config = await controller.getRemoteServerConfig();
+
+        expect(config.active).toBe(false);
+        expect((data.dataSyncConfig as { cloudTenant: unknown }).cloudTenant).toBeDefined();
+      });
+
+      it('drops a malformed tenant record together with the tokens', async () => {
+        const data = useStore({
+          dataSyncConfig: {
+            active: true,
+            cloudTenant: cloudTenant({ identity: { issuer: 'x', subject: '', tenantId: 't' } }),
+            storageMode: 'cloud',
+          },
+          encryptedTokens: tokens('gen-1'),
+        });
+
+        const config = await controller.getRemoteServerConfig();
+
+        expect(config.active).toBe(false);
+        expect(config.cloudTenant).toBeUndefined();
+        expect(data.encryptedTokens).toBeUndefined();
+      });
+
+      it('keeps a consistent session untouched', async () => {
+        const data = useStore({
+          dataSyncConfig: { active: true, cloudTenant: cloudTenant(), storageMode: 'cloud' },
+          encryptedTokens: tokens('gen-1'),
+        });
+
+        const config = await controller.getRemoteServerConfig();
+
+        expect(config.active).toBe(true);
+        expect(data.encryptedTokens).toBeDefined();
+        expect(await controller.isRemoteServerConfigured()).toBe(true);
+      });
+    });
+
+    describe('configuration written by the renderer', () => {
+      it('cannot set or replace the confirmed tenant record', async () => {
+        const data = useStore({
+          dataSyncConfig: { active: true, cloudTenant: cloudTenant(), storageMode: 'cloud' },
+          encryptedTokens: tokens('gen-1'),
+        });
+
+        await controller.setRemoteServerConfig({
+          active: false,
+          cloudTenant: cloudTenant({ entryUrl: 'https://evil.example', generation: 'gen-evil' }),
+        });
+
+        expect(
+          (data.dataSyncConfig as { cloudTenant: { entryUrl: string } }).cloudTenant.entryUrl,
+        ).toBe(ENTRY);
+      });
+
+      it('logging out removes the tenant record, tokens and stops in-flight authorizations', async () => {
+        const data = useStore({
+          dataSyncConfig: { active: true, cloudTenant: cloudTenant(), storageMode: 'cloud' },
+          encryptedTokens: tokens('gen-1'),
+        });
+        const onLogout = vi.fn();
+        controller.onLogout(onLogout);
+
+        await controller.clearRemoteServerConfig();
+
+        expect(onLogout).toHaveBeenCalledTimes(1);
+        expect(data.dataSyncConfig).toEqual({ active: false, storageMode: 'cloud' });
+        expect(data.encryptedTokens).toBeUndefined();
+      });
+    });
+
+    describe('refresh', () => {
+      const loggedIn = () =>
+        useStore({
+          dataSyncConfig: { active: true, cloudTenant: cloudTenant(), storageMode: 'cloud' },
+          encryptedTokens: tokens('gen-1'),
+        });
+
+      it('sends the refresh token only to the confirmed entry and refuses redirects', async () => {
+        loggedIn();
+        mockFetch.mockResolvedValue(
+          new Response(
+            JSON.stringify({ access_token: 'new-a', expires_in: 60, refresh_token: 'new-r' }),
+            { status: 200 },
+          ),
+        );
+
+        const result = await controller.refreshAccessToken();
+
+        expect(result.success).toBe(true);
+        expect(mockFetch).toHaveBeenCalledWith(
+          `${ENTRY}/oidc/token`,
+          expect.objectContaining({ redirect: 'error' }),
+        );
+        // The refreshed tokens stay on the same generation.
+        expect(mockStoreManager.set).toHaveBeenCalledWith(
+          'encryptedTokens',
+          expect.objectContaining({ generation: 'gen-1' }),
+        );
+      });
+
+      it('discards a refresh response that arrives after logout', async () => {
+        loggedIn();
+        let respond!: (response: Response) => void;
+        mockFetch.mockReturnValue(new Promise<Response>((resolve) => (respond = resolve)));
+
+        const pending = controller.refreshAccessToken();
+        await vi.waitFor(() => expect(mockFetch).toHaveBeenCalled());
+        await controller.clearTokens();
+        respond(
+          new Response(JSON.stringify({ access_token: 'late', refresh_token: 'late-r' }), {
+            status: 200,
+          }),
+        );
+
+        const result = await pending;
+
+        expect(result).toMatchObject({
+          error: 'Authorization changed during refresh',
+          success: false,
+        });
+        expect(mockStoreManager.set).not.toHaveBeenCalledWith('encryptedTokens', expect.anything());
+        expect(await controller.getAccessToken()).toBeNull();
+      });
+
+      it('on 409 TENANT_ENDPOINT_CHANGED pauses the session and asks for a new login', async () => {
+        loggedIn();
+        mockFetch.mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              activeUrl: 'https://elsewhere.example/t/acme',
+              code: 'TENANT_ENDPOINT_CHANGED',
+            }),
+            { status: 409 },
+          ),
+        );
+
+        const result = await controller.refreshAccessToken();
+
+        expect(result.success).toBe(false);
+        expect(controller.isRemoteActivityPaused()).toBe(true);
+        expect(mockBrowserManager.broadcastToAllWindows).toHaveBeenCalledWith(
+          'tenantEndpointChanged',
+          {
+            kind: 'relogin_required',
+          },
+        );
+        expect(mockGatewayConnectionSrv.disconnect).toHaveBeenCalled();
+        // Only the old, bound entry ever saw the token.
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+
+        // Paused: no further refresh request is sent.
+        await controller.refreshAccessToken();
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        // The pause is not a revoked grant, so the tokens are not discarded for it.
+        expect(controller.isNonRetryableError(result.error)).toBe(false);
+      });
+
+      it('on a standalone self-hosted server asks to update the address instead of logging in again', async () => {
+        useStore({
+          dataSyncConfig: {
+            active: true,
+            cloudTenant: cloudTenant({ entryUrl: 'https://self-host.example' }),
+            remoteServerUrl: 'https://self-host.example',
+            storageMode: 'selfHost',
+          },
+          encryptedTokens: tokens('gen-1'),
+        });
+
+        controller.handleEndpointChanged();
+
+        expect(mockBrowserManager.broadcastToAllWindows).toHaveBeenCalledWith(
+          'tenantEndpointChanged',
+          {
+            kind: 'update_address_required',
+          },
+        );
+      });
+
+      it('ignores endpoint changes when nobody is logged in', () => {
+        useStore({ dataSyncConfig: { active: false, storageMode: 'cloud' } });
+
+        controller.handleEndpointChanged();
+
+        expect(controller.isRemoteActivityPaused()).toBe(false);
+        expect(mockBrowserManager.broadcastToAllWindows).not.toHaveBeenCalledWith(
+          'tenantEndpointChanged',
+          expect.anything(),
+        );
+      });
+    });
+  });
+
+  describe('official domain token injection', () => {
+    const setup = async (officialServer: string) => {
+      vi.resetModules();
+      const onBeforeSendHeaders = vi.fn();
+      vi.doMock('@/const/env', () => ({ isDev: false, OFFICIAL_CLOUD_SERVER: officialServer }));
+      vi.doMock('electron', () => ({
+        app: { getVersion: vi.fn(() => '1.2.3') },
+        ipcMain: { handle: vi.fn() },
+        safeStorage: {
+          decryptString: vi.fn((buffer: Buffer) => buffer.toString()),
+          encryptString: vi.fn((str: string) => Buffer.from(str)),
+          isEncryptionAvailable: vi.fn(() => true),
+        },
+        session: { fromPartition: vi.fn(() => ({ webRequest: { onBeforeSendHeaders } })) },
+      }));
+      const { default: Ctr } = await import('../RemoteServerConfigCtr');
+      return { ctr: new Ctr(mockApp), onBeforeSendHeaders };
+    };
+
+    it('registers the Oidc-Auth interceptor only when the official cloud is lobehub.com or a subdomain', async () => {
+      for (const server of ['https://lobehub.com', 'https://app.lobehub.com']) {
+        const { ctr, onBeforeSendHeaders } = await setup(server);
+        await ctr.setupSubscriptionWebviewSession({ partition: 'p' });
+        expect(onBeforeSendHeaders).toHaveBeenCalledTimes(1);
+      }
+    });
+
+    it.each([
+      'https://tituwork.zxaimall.cn',
+      'https://evil-lobehub.com',
+      'https://lobehub.com.evil.example',
+    ])('does not register it for %s', async (server) => {
+      const { ctr, onBeforeSendHeaders } = await setup(server);
+
+      expect(await ctr.setupSubscriptionWebviewSession({ partition: 'p' })).toEqual({
+        skipped: true,
+        success: true,
+      });
+      expect(onBeforeSendHeaders).not.toHaveBeenCalled();
     });
   });
 });

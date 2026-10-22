@@ -45,13 +45,13 @@ tags:
   4. 选择 Primary App ID
   5. 添加域名和回调 URL：
      - **Domains**: `your-domain.com`
-     - **Return URLs**: `https://your-domain.com/api/auth/callback/apple`
+     - **Return URLs**: `https://your-domain.com/t/<tenant>/api/auth/callback/apple`
   6. 点击 **Save** > **Continue** > **Save**
 
   <Callout type={'info'}>
     回调 URL 格式：
 
-    - 生产环境: `https://your-domain.com/api/auth/callback/apple`
+    - 生产环境: `https://your-domain.com/t/<tenant>/api/auth/callback/apple`
     - Apple **不支持** localhost 或 HTTP URL
   </Callout>
 
@@ -91,19 +91,22 @@ tags:
     JWT 最长有效期为 180 天。需要在过期前重新生成并更新。
   </Callout>
 
-  ### 配置环境变量
+  ### 在 Admin 中配置
 
-  | 环境变量                               | 类型 | 描述                                     |
-  | ---------------------------------- | -- | -------------------------------------- |
-  | `AUTH_SECRET`                      | 必选 | 会话加密密钥，使用 `openssl rand -base64 32` 生成 |
-  | `AUTH_SSO_PROVIDERS`               | 必选 | 填写 `apple`                             |
-  | `AUTH_APPLE_CLIENT_ID`             | 必选 | 你的 Services ID                         |
-  | `AUTH_APPLE_CLIENT_SECRET`         | 必选 | 生成的 JWT                                |
-  | `AUTH_APPLE_APP_BUNDLE_IDENTIFIER` | 可选 | App Bundle ID（用于原生应用集成）                |
+  SSO 由每个租户在 Admin 中配置，不再使用环境变量。在 Admin 中打开该租户的 SSO 提供商，新增一个提供商并填写：
 
-  <Callout type={'tip'}>
-    前往 [📘 环境变量](/zh/docs/self-hosting/environment-variables/auth#apple)
-    可查阅相关变量详情。
+  | 字段            | 值                                          |
+  | ------------- | ------------------------------------------ |
+  | 协议            | OIDC                                       |
+  | 提供商 ID        | `apple`（必须完全一致，以使用内置的 apple 登录）            |
+  | Client ID     | 身份提供商的 Client ID                           |
+  | Client Secret | 用 Apple 密钥生成的 client secret JWT；Admin 加密保存 |
+  | Issuer        | `https://appleid.apple.com`                |
+
+  需要在身份提供商处登记的回调 URL 为 `https://your-domain.com/t/<租户>/api/auth/callback/<提供商 ID>`，Admin 会为每个提供商显示该地址。
+
+  <Callout type={'info'}>
+    原生 iOS 应用的 Apple 登录（App Bundle Identifier）暂不支持配置。
   </Callout>
 </Steps>
 

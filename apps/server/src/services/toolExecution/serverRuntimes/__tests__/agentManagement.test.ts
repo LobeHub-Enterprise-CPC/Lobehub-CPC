@@ -92,6 +92,16 @@ vi.mock('@/database/models/connector', () => ({
   }),
 }));
 
+vi.mock('@/libs/trusted-client/resolveIdentity', () => ({
+  resolveMarketServiceIdentity: vi.fn(
+    async ({ userId, workspaceId }: { userId: string; workspaceId?: string }) => ({
+      tenantId: 'tenant-a',
+      userId,
+      ...(workspaceId ? { workspaceId } : {}),
+    }),
+  ),
+}));
+
 vi.mock('@/server/services/discover', () => ({
   DiscoverService: vi.fn(function () {
     return {
@@ -745,20 +755,31 @@ describe('agentManagementRuntime', () => {
   // `unauthorized` while the client-side path — which signs a trusted-client
   // token — kept working.
   describe('market identity', () => {
-    it('passes the run identity to DiscoverService', () => {
-      createRuntime();
+    const searchMarket = (runtime: ReturnType<typeof createRuntime>) => {
+      mockGetAssistantList.mockResolvedValue({ items: [], totalCount: 0 });
+      return runtime.searchAgent({ limit: 5, source: 'market' });
+    };
+
+    it('signs the market read with the run identity, tenant included', async () => {
+      await searchMarket(createRuntime());
 
       expect(DiscoverService).toHaveBeenCalledWith({
-        userInfo: { userId: 'user-1', workspaceId: undefined },
+        userInfo: { tenantId: 'tenant-a', userId: 'user-1' },
       });
     });
 
-    it('scopes the market identity to the run workspace', () => {
-      createWorkspaceRuntime();
+    it('scopes the market identity to the run workspace', async () => {
+      await searchMarket(createWorkspaceRuntime());
 
       expect(DiscoverService).toHaveBeenCalledWith({
-        userInfo: { userId: 'user-1', workspaceId: 'workspace-1' },
+        userInfo: { tenantId: 'tenant-a', userId: 'user-1', workspaceId: 'workspace-1' },
       });
+    });
+
+    it('does not build a market client for a run that never reads the market', () => {
+      createRuntime();
+
+      expect(DiscoverService).not.toHaveBeenCalled();
     });
   });
 });

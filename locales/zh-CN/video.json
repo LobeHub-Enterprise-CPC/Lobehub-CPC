@@ -51,6 +51,7 @@
   "generation.version.locateSource": "定位到原视频",
   "generation.version.sourceDeleted": "原视频已删除",
   "notice.modelRemoved": "当前模型已不在 {{name}} 的模型列表中，请先切换可用模型",
+  "notice.noModelAvailable": "当前没有可用的视频生成模型，请联系管理员添加",
   "notice.providerDisabled": "当前模型所属的服务商 {{name}} 未启用，请先启用或切换可用模型",
   "topic.createNew": "创作新主题",
   "topic.createdBy": "由 {{name}} 创建",

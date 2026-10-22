@@ -98,11 +98,12 @@ export const GenerationBatchItem = memo<GenerationBatchItemProps>(({ batch }) =>
   };
 
   const handleReuseSettings = () => {
-    reuseSettings(
+    const reused = reuseSettings(
       batch.model,
       batch.provider,
       omit(batch.config as RuntimeImageGenParams, ['seed']),
     );
+    if (!reused) toast.error(t('generation.actions.reuseSettingsUnavailable'));
   };
 
   const handleDeleteBatch = async () => {

@@ -190,3 +190,4 @@ apps/desktop/core-dist
 # Packaged builtin desktop core
 /apps/desktop/core.asar
 /apps/desktop/core.asar.unpacked/
+/.browser-harness/

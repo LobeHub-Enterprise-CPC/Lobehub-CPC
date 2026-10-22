@@ -1,4 +1,5 @@
 import type { ToolManifest } from '../tool/manifest';
+import type { MarketContentSyncState, MarketEditCapabilities } from './capabilities';
 
 export enum PluginCategory {
   All = 'all',
@@ -40,7 +41,12 @@ interface DiscoverPluginMeta {
   schemaVersion: number;
 }
 
-export interface DiscoverPluginItem extends Omit<DiscoverPluginMeta, 'meta'>, PluginMeta {
+export interface DiscoverPluginItem
+  extends
+    Omit<DiscoverPluginMeta, 'meta'>,
+    MarketContentSyncState,
+    MarketEditCapabilities,
+    PluginMeta {
   category?: PluginCategory;
 }
 

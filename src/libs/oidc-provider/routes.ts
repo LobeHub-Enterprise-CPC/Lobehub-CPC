@@ -10,10 +10,17 @@ export const OIDC_ISSUER_PATH = '/oidc';
 
 export const OIDC_ROUTES = {
   authorization: '/oidc/auth',
+  backchannel_authentication: '/oidc/backchannel',
+  challenge: '/oidc/challenge',
   code_verification: '/oidc/device',
+  credential: '/oidc/credential',
   device_authorization: '/oidc/device/auth',
   end_session: '/oidc/session/end',
+  introspection: '/oidc/token/introspection',
   jwks: '/oidc/jwks',
+  pushed_authorization_request: '/oidc/request',
+  registration: '/oidc/reg',
+  revocation: '/oidc/token/revocation',
   token: '/oidc/token',
   userinfo: '/oidc/me',
 } as const;

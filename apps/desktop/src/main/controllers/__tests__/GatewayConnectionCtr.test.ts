@@ -17,12 +17,37 @@ import McpCtr from '../McpCtr';
 import RemoteServerConfigCtr from '../RemoteServerConfigCtr';
 import ShellCommandCtr from '../ShellCommandCtr';
 
+vi.mock('@/modules/tenantAuth/gatewayIdentity', () => ({
+  createDesktopGatewayIdentityProvider: async (host: {
+    getAccessToken: () => Promise<string | null>;
+  }) => {
+    const token = await host.getAccessToken();
+    if (!token) throw new Error('GATEWAY_LOGIN_CONFIRMATION_REQUIRED');
+    let userId = '';
+    try {
+      userId = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).sub;
+    } catch {
+      userId = '';
+    }
+    return Object.assign(
+      async () => ({
+        tenancyProtocol: 1,
+        userId,
+        tenantId: 'tenant-A',
+        gatewayTicket: 'dedicated-ticket',
+        authorizationId: 'source-A',
+        acceptedVersion: 7,
+      }),
+      { subject: 'mock-user' },
+    );
+  },
+}));
+
 // ─── Mocks ───
 
 const { ipcMainHandleMock, MockGatewayClient } = vi.hoisted(() => {
   const { EventEmitter } = require('node:events');
 
-  // Must be defined inside vi.hoisted so it's available when vi.mock factories run
   class _MockGatewayClient extends EventEmitter {
     static lastInstance: _MockGatewayClient | null = null;
     static lastOptions: any = null;
@@ -34,6 +59,8 @@ const { ipcMainHandleMock, MockGatewayClient } = vi.hoisted(() => {
       this.connectionStatus = 'connecting';
       this.emit('status_changed', 'connecting');
     });
+
+    reconnect = vi.fn(async () => {});
 
     disconnect = vi.fn(async () => {
       this.connectionStatus = 'disconnected';
@@ -50,7 +77,6 @@ const { ipcMainHandleMock, MockGatewayClient } = vi.hoisted(() => {
       _MockGatewayClient.lastOptions = options;
     }
 
-    // Test helpers
     simulateConnected() {
       this.connectionStatus = 'connected';
       this.emit('status_changed', 'connected');
@@ -69,6 +95,9 @@ const { ipcMainHandleMock, MockGatewayClient } = vi.hoisted(() => {
       identifier = 'test-tool',
     ) {
       this.emit('tool_call_request', {
+        attemptId: 'attempt-original',
+        executionSignal: new AbortController().signal,
+        isExecutionCurrent: () => true,
         requestId,
         toolCall: {
           apiName,
@@ -87,6 +116,9 @@ const { ipcMainHandleMock, MockGatewayClient } = vi.hoisted(() => {
       identifier = 'kimi-datasource',
     ) {
       this.emit('tool_call_request', {
+        attemptId: 'attempt-original',
+        executionSignal: new AbortController().signal,
+        isExecutionCurrent: () => true,
         requestId,
         toolCall: {
           apiName,
@@ -106,6 +138,9 @@ const { ipcMainHandleMock, MockGatewayClient } = vi.hoisted(() => {
       requestId = 'msg-req-1',
     ) {
       this.emit('message_api_request', {
+        attemptId: 'attempt-original',
+        executionSignal: new AbortController().signal,
+        isExecutionCurrent: () => true,
         api: { apiName, payload, platform },
         requestId,
         type: 'message_api_request',
@@ -128,6 +163,9 @@ const { ipcMainHandleMock, MockGatewayClient } = vi.hoisted(() => {
       extra: Record<string, unknown> = {},
     ) {
       this.emit('agent_run_request', {
+        attemptId: 'attempt-original',
+        executionSignal: new AbortController().signal,
+        isExecutionCurrent: () => true,
         agentType,
         jwt,
         operationId,
@@ -297,6 +335,9 @@ const mockMcpCtr = {
 
 const mockRemoteServerConfigCtr = {
   getAccessToken: vi.fn().mockResolvedValue('mock-access-token'),
+  getRemoteCredentials: vi
+    .fn()
+    .mockResolvedValue({ serverUrl: 'https://server.example.com', token: 'mock-access-token' }),
   getRemoteServerUrl: vi.fn().mockResolvedValue('https://server.example.com'),
   isRemoteServerConfigured: vi.fn().mockResolvedValue(true),
   refreshAccessToken: vi.fn().mockResolvedValue({ success: true }),
@@ -325,7 +366,6 @@ const mockApp = {
   storeManager: { get: mockStoreGet, set: mockStoreSet },
 } as unknown as App;
 
-// Lazily initialized — created in beforeEach so it uses the current mockApp
 let mockGatewayConnectionSrv: GatewayConnectionService;
 
 // ─── Test Suite ───
@@ -390,8 +430,9 @@ describe('GatewayConnectionCtr', () => {
 
       const options = MockGatewayClient.lastOptions;
       expect(options).not.toBeNull();
-      expect(options.token).toBe('mock-access-token');
-      expect(options.deviceId).toBe('stored-device-id');
+      expect(options.token).toBe('dedicated-ticket');
+      expect(options.deviceId).toBeTruthy(); // derived from the account, before the ticket
+      expect(options.connectionId).toBe('stored-device-id');
       expect(options.gatewayUrl).toBe('https://device-gateway.lobehub.com');
       expect(options.logger).toBeDefined();
       expect(options.userAgent).toBe('LobeHub Desktop/1.2.3');
@@ -412,7 +453,6 @@ describe('GatewayConnectionCtr', () => {
     });
 
     it('should return success:false when no access token', async () => {
-      // Prevent auto-connect, then set up providers manually
       vi.mocked(mockRemoteServerConfigCtr.isRemoteServerConfigured).mockResolvedValueOnce(false);
       ctr.afterFirstFrame();
       await vi.advanceTimersByTimeAsync(0);
@@ -420,7 +460,7 @@ describe('GatewayConnectionCtr', () => {
       vi.mocked(mockRemoteServerConfigCtr.getAccessToken).mockResolvedValueOnce(null);
 
       const result = await ctr.connect();
-      expect(result).toEqual({ error: 'No access token available', success: false });
+      expect(result).toEqual({ error: 'GATEWAY_LOGIN_CONFIRMATION_REQUIRED', success: false });
       expect(MockGatewayClient.lastInstance).toBeNull();
     });
 
@@ -471,7 +511,7 @@ describe('GatewayConnectionCtr', () => {
       expect(mockStoreSet).not.toHaveBeenCalled();
     });
 
-    it('should reconnect a persisted workspace identity for this machine', async () => {
+    it('does not restore unscoped legacy workspace enrollments', async () => {
       const workspaceId = 'workspace-1';
       const fallbackId = 'mock-device-uuid';
       mockStoreGet.mockImplementation((key: string) => {
@@ -490,8 +530,8 @@ describe('GatewayConnectionCtr', () => {
       });
       const result = await ctr.reconnectFromProtocol({ deviceId: workspaceDevice.deviceId });
 
-      expect(result).toBe(true);
-      expect(mockStoreSet).toHaveBeenCalledWith('gatewayEnabled', true);
+      expect(result).toBe(false);
+      expect(mockStoreSet).not.toHaveBeenCalledWith('gatewayEnabled', true);
     });
 
     it('should no-op when already connected', async () => {
@@ -502,7 +542,6 @@ describe('GatewayConnectionCtr', () => {
 
       const result = await ctr.connect();
       expect(result).toEqual({ success: true });
-      // No new client created
       expect(MockGatewayClient.lastInstance).toBe(firstClient);
     });
 
@@ -557,7 +596,6 @@ describe('GatewayConnectionCtr', () => {
       await ctr.disconnect();
       mockBroadcast.mockClear();
 
-      // Advance timers — no reconnect should happen
       await vi.advanceTimersByTimeAsync(60_000);
       expect(mockBroadcast).not.toHaveBeenCalledWith('gatewayConnectionStatusChanged', {
         status: 'reconnecting',
@@ -672,8 +710,6 @@ describe('GatewayConnectionCtr', () => {
       ['runCommand', 'handleRunCommand', mockShellCommandCtr],
       ['getCommandOutput', 'handleGetCommandOutput', mockShellCommandCtr],
       ['killCommand', 'handleKillCommand', mockShellCommandCtr],
-      // Legacy aliases — older Gateway versions may still send the long form.
-      // `renameLocalFile` is kept even though the new surface drops rename.
       ['readLocalFile', 'readFile', mockLocalFileCtr],
       ['listLocalFiles', 'listLocalFiles', mockLocalFileCtr],
       ['writeLocalFile', 'handleWriteFile', mockLocalFileCtr],
@@ -681,10 +717,6 @@ describe('GatewayConnectionCtr', () => {
     ] as const)('should route %s to %s', async (apiName, methodName, controller) => {
       const client = await connectAndOpen();
 
-      // Each tool's args are domain-shaped (path, file_path, items, etc.).
-      // The runtime denormalizes them before calling the controller, so this
-      // test only asserts that the *right* controller method runs — see the
-      // envelope-shape test below for end-to-end content/state coverage.
       client.simulateToolCallRequest(apiName, { test: 'arg' });
       await vi.advanceTimersByTimeAsync(0);
 
@@ -706,6 +738,7 @@ describe('GatewayConnectionCtr', () => {
         argv: ['invoke', 'display.capture'],
       });
       expect(client.sendToolCallResponse).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         requestId: 'auv-command',
         result: expect.objectContaining({
           content: JSON.stringify({
@@ -735,6 +768,7 @@ describe('GatewayConnectionCtr', () => {
       );
       await vi.advanceTimersByTimeAsync(0);
       expect(client.sendToolCallResponse).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         requestId: 'auv-failure',
         result: expect.objectContaining({
           content: JSON.stringify(result),
@@ -762,9 +796,6 @@ describe('GatewayConnectionCtr', () => {
       client.simulateToolCallRequest('readFile', { path: '/a.txt' }, 'req-42');
       await vi.advanceTimersByTimeAsync(0);
 
-      // The runtime produces a formatted prompt string for `content` and a
-      // structured snapshot for `state`. We only assert envelope shape here
-      // — the exact prompt format is owned by the runtime/prompts packages.
       expect(client.sendToolCallResponse).toHaveBeenCalledTimes(1);
       const response = client.sendToolCallResponse.mock.calls[0][0];
       expect(response.requestId).toBe('req-42');
@@ -787,6 +818,7 @@ describe('GatewayConnectionCtr', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(client.sendToolCallResponse).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         requestId: 'req-err',
         result: {
           executionTimeMs: expect.any(Number),
@@ -806,6 +838,7 @@ describe('GatewayConnectionCtr', () => {
       const errorMsg =
         'Tool "unknownApi" is not available on this device. It may not be supported in the current desktop version. Please skip this tool and try alternative approaches.';
       expect(client.sendToolCallResponse).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         requestId: 'req-unknown',
         result: {
           executionTimeMs: expect.any(Number),
@@ -826,23 +859,24 @@ describe('GatewayConnectionCtr', () => {
       );
       await vi.advanceTimersByTimeAsync(0);
 
-      // The builtin local-system switch is keyed on apiName and would reject
-      // 'getStock'; the `type: 'mcp'` discriminator routes to the MCP client.
-      expect(mockMcpCtr.runStdioMcpTool).toHaveBeenCalledWith({
-        args: '{"symbol":"AAPL"}',
-        env: { TOKEN: 'secret' },
-        params: { args: ['stock-mcp'], command: 'npx', name: 'kimi-datasource' },
-        toolName: 'getStock',
-      });
+      expect(mockMcpCtr.runStdioMcpTool).toHaveBeenCalledWith(
+        {
+          args: '{"symbol":"AAPL"}',
+          env: { TOKEN: 'secret' },
+          params: { args: ['stock-mcp'], command: 'npx', name: 'kimi-datasource' },
+          toolName: 'getStock',
+        },
+        expect.any(AbortSignal),
+      );
     });
 
     it('should NOT route to MCP when params are present but type is not mcp', async () => {
-      // Regression: routing must follow the explicit `type` discriminator, not
-      // the mere presence of `params`. A builtin call that happens to carry a
-      // `params` field must still go to the builtin switch.
       const client = await connectAndOpen();
 
       client.emit('tool_call_request', {
+        attemptId: 'attempt-original',
+        executionSignal: new AbortController().signal,
+        isExecutionCurrent: () => true,
         requestId: 'tool-with-params',
         toolCall: {
           apiName: 'readFile',
@@ -876,6 +910,7 @@ describe('GatewayConnectionCtr', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(client.sendToolCallResponse).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         requestId: 'mcp-ok',
         result: {
           content: 'stock: 100',
@@ -896,10 +931,6 @@ describe('GatewayConnectionCtr', () => {
       client.simulateToolCallRequest('readFile', { path: '/x' }, 'req-timed');
       await vi.advanceTimersByTimeAsync(0);
 
-      // The server can only observe the whole dispatch round trip, so this
-      // number is the only way to tell a slow tool from slow transport. Desktop
-      // is where most device tool calls happen — omitting it here would bias
-      // the measurement toward calls made through `lh connect`.
       const { result } = client.sendToolCallResponse.mock.calls.at(-1)![0];
       expect(typeof result.executionTimeMs).toBe('number');
       expect(result.executionTimeMs).toBeGreaterThanOrEqual(0);
@@ -918,6 +949,7 @@ describe('GatewayConnectionCtr', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(client.sendToolCallResponse).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         requestId: 'mcp-err',
         result: {
           content: 'spawn ENOENT',
@@ -974,6 +1006,7 @@ describe('GatewayConnectionCtr', () => {
         message: 'hello',
       });
       expect(client.sendMessageApiResponse).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         requestId: 'msg-req-42',
         result: {
           content: JSON.stringify({ guid: 'sent-1' }),
@@ -991,6 +1024,7 @@ describe('GatewayConnectionCtr', () => {
       const errorMsg =
         'Message API "unsupported/sendText" is not available on this device. It may not be supported in the current desktop version.';
       expect(client.sendMessageApiResponse).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         requestId: 'msg-req-err',
         result: {
           content: errorMsg,
@@ -1004,39 +1038,16 @@ describe('GatewayConnectionCtr', () => {
   // ─── Auth Expired ───
 
   describe('auth_expired handling', () => {
-    it('should refresh token and reconnect on auth_expired', async () => {
-      ctr.afterFirstFrame();
-      await vi.advanceTimersByTimeAsync(0);
-      const client1 = MockGatewayClient.lastInstance!;
-      client1.simulateConnected();
-
-      client1.simulateAuthExpired();
-      await vi.advanceTimersByTimeAsync(0);
-
-      expect(mockRemoteServerConfigCtr.refreshAccessToken).toHaveBeenCalled();
-      // Should have created a new GatewayClient for reconnection
-      expect(MockGatewayClient.lastInstance).not.toBe(client1);
-      expect(MockGatewayClient.lastInstance!.connect).toHaveBeenCalled();
-    });
-
-    it('should set status to disconnected when token refresh fails', async () => {
-      vi.mocked(mockRemoteServerConfigCtr.refreshAccessToken).mockResolvedValueOnce({
-        error: 'invalid_grant',
-        success: false,
-      });
-
+    it('reconnects the same provider client without changing the login source', async () => {
       ctr.afterFirstFrame();
       await vi.advanceTimersByTimeAsync(0);
       const client = MockGatewayClient.lastInstance!;
       client.simulateConnected();
-      mockBroadcast.mockClear();
-
       client.simulateAuthExpired();
       await vi.advanceTimersByTimeAsync(0);
-
-      expect(mockBroadcast).toHaveBeenCalledWith('gatewayConnectionStatusChanged', {
-        status: 'disconnected',
-      });
+      expect(mockRemoteServerConfigCtr.refreshAccessToken).not.toHaveBeenCalled();
+      expect(MockGatewayClient.lastInstance).toBe(client);
+      expect(client.reconnect).toHaveBeenCalledOnce();
     });
   });
 
@@ -1137,15 +1148,14 @@ describe('GatewayConnectionCtr', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(client.sendAgentRunAck).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         operationId: 'op-xyz',
         status: 'accepted',
       });
       expect(mockHeterogeneousAgentCtr.spawnLhHeteroExec).toHaveBeenCalledWith(
         expect.objectContaining({
           agentType: 'openclaw',
-          // Reuses the device's own session token as the run identity, not the
-          // dispatched operation jwt.
-          jwt: 'mock-access-token',
+          jwt: 'mock-jwt',
           operationId: 'op-xyz',
           prompt: 'hello',
           serverUrl: 'https://server.example.com',
@@ -1154,27 +1164,9 @@ describe('GatewayConnectionCtr', () => {
       );
     });
 
-    it('reuses the device access token as the run jwt instead of request.jwt', async () => {
+    it('keeps the dispatched operation credential instead of replacing its authority', async () => {
       const client = await connectAndOpen();
       client.simulateAgentRunRequest('claude-code', 'op-auth', 'hi', 'dispatched-operation-jwt');
-      await vi.advanceTimersByTimeAsync(0);
-
-      expect(mockHeterogeneousAgentCtr.spawnLhHeteroExec).toHaveBeenCalledWith(
-        expect.objectContaining({ jwt: 'mock-access-token' }),
-      );
-    });
-
-    it('falls back to request.jwt when the device has no access token', async () => {
-      const client = await connectAndOpen();
-      // Set after connect so the auto-connect getAccessToken call isn't the one
-      // that returns null — only the executeAgentRun lookup should see no token.
-      vi.mocked(mockRemoteServerConfigCtr.getAccessToken).mockResolvedValueOnce(null);
-      client.simulateAgentRunRequest(
-        'claude-code',
-        'op-fallback',
-        'hi',
-        'dispatched-operation-jwt',
-      );
       await vi.advanceTimersByTimeAsync(0);
 
       expect(mockHeterogeneousAgentCtr.spawnLhHeteroExec).toHaveBeenCalledWith(
@@ -1190,6 +1182,7 @@ describe('GatewayConnectionCtr', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(client.sendAgentRunAck).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         operationId: 'op-fail',
         reason: 'Remote server URL not configured',
         status: 'rejected',
@@ -1207,6 +1200,7 @@ describe('GatewayConnectionCtr', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(client.sendAgentRunAck).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         operationId: 'op-fail',
         reason: 'binary not found',
         status: 'rejected',
@@ -1224,16 +1218,13 @@ describe('GatewayConnectionCtr', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(client.sendAgentRunAck).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         operationId: 'op-spawn-fail',
         reason: 'spawn EACCES',
         status: 'rejected',
       });
     });
 
-    // Regression: spawnLhHeteroExec must register its child process into
-    // platformTasks so cancelHeteroTask (sent by the server's interruptTask
-    // when the user clicks Stop) can find and kill it by operationId.
-    // Without this the CLI keeps running after the user cancels.
     describe('agent run process registration', () => {
       it('registers the spawned child in platformTasks via onChildSpawned', async () => {
         let capturedOnChildSpawned: ((child: any) => void) | undefined;
@@ -1248,13 +1239,10 @@ describe('GatewayConnectionCtr', () => {
         client.simulateAgentRunRequest('devin', 'op-register');
         await vi.advanceTimersByTimeAsync(0);
 
-        // Simulate the child process spawning — onChildSpawned is called by
-        // HeterogeneousAgentImpl once the real child emits 'spawn'.
         const mockChild = new EventEmitter() as any;
         mockChild.pid = 12345;
         capturedOnChildSpawned?.(mockChild);
 
-        // The process should now be registered under its operationId.
         const cancelResult = await ctr['cancelHeteroTask']({
           signal: 'SIGINT',
           taskId: 'op-register',
@@ -1283,12 +1271,9 @@ describe('GatewayConnectionCtr', () => {
         mockChild.pid = 67890;
         capturedOnChildSpawned?.(mockChild);
 
-        // Simulate the child exiting normally.
         mockChild.emit('exit', 0, null);
         findHeteroExecProcessesMock.mockResolvedValueOnce([]);
 
-        // After exit, the registry no longer holds the task, so cancellation
-        // falls back to the OS process table and confirms nothing is running.
         const cancelResult = await ctr['cancelHeteroTask']({
           signal: 'SIGINT',
           taskId: 'op-cleanup',
@@ -1317,8 +1302,6 @@ describe('GatewayConnectionCtr', () => {
         capturedOnChildSpawned?.(mockChild);
         await ctr['cancelHeteroTask']({ signal: 'SIGINT', taskId: 'op-orphan' });
 
-        // The wrapper honors SIGINT, while process.kill(-pid, 0) still reports
-        // that a detached descendant remains in the process group.
         mockChild.emit('exit', null, 'SIGINT');
         await vi.advanceTimersByTimeAsync(2_000);
 
@@ -1542,7 +1525,6 @@ describe('GatewayConnectionCtr', () => {
       const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
       const notifySpy = vi.spyOn(ctr as any, 'sendNotify');
 
-      // First task
       const child1 = makeMockChild(1111);
       spawnMock.mockReturnValueOnce(child1);
       const client = await connectAndOpen();
@@ -1559,7 +1541,6 @@ describe('GatewayConnectionCtr', () => {
       );
       await vi.advanceTimersByTimeAsync(0);
 
-      // Second task for same topicId — should kill task-1's pid first
       const child2 = makeMockChild(2222);
       spawnMock.mockReturnValueOnce(child2);
       client.simulateToolCallRequest(
@@ -1578,8 +1559,6 @@ describe('GatewayConnectionCtr', () => {
       expect(killSpy).toHaveBeenCalledWith(-1111, 'SIGTERM');
       expect(spawnMock).toHaveBeenCalledTimes(2);
 
-      // The replaced child may close after the new operation has started. It must
-      // neither send a terminal notify for the new operation nor remove its task.
       child1._emit('close', null, 'SIGTERM');
       expect(notifySpy).not.toHaveBeenCalled();
 
@@ -2080,6 +2059,7 @@ describe('GatewayConnectionCtr', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(client.sendToolCallResponse).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         requestId: 'req-cap',
         result: {
           executionTimeMs: expect.any(Number),
@@ -2106,6 +2086,7 @@ describe('GatewayConnectionCtr', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(client.sendToolCallResponse).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         requestId: 'req-cap-nover',
         result: {
           executionTimeMs: expect.any(Number),
@@ -2130,6 +2111,7 @@ describe('GatewayConnectionCtr', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(client.sendToolCallResponse).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         requestId: 'req-missing',
         result: {
           executionTimeMs: expect.any(Number),
@@ -2161,6 +2143,7 @@ describe('GatewayConnectionCtr', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(client.sendToolCallResponse).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         requestId: 'req-unknown-plat',
         result: {
           executionTimeMs: expect.any(Number),
@@ -2182,6 +2165,7 @@ describe('GatewayConnectionCtr', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(client.sendToolCallResponse).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         requestId: 'req-profile',
         result: {
           executionTimeMs: expect.any(Number),
@@ -2215,6 +2199,7 @@ describe('GatewayConnectionCtr', () => {
         timeout: 5000,
       });
       expect(client.sendToolCallResponse).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         requestId: 'req-openclaw',
         result: {
           executionTimeMs: expect.any(Number),
@@ -2244,6 +2229,7 @@ describe('GatewayConnectionCtr', () => {
         { timeout: 5000 },
       );
       expect(client.sendToolCallResponse).toHaveBeenCalledWith({
+        attemptId: 'attempt-original',
         requestId: 'req-hermes',
         result: {
           executionTimeMs: expect.any(Number),

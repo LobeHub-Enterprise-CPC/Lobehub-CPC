@@ -2,6 +2,7 @@ import { buildLinqDeepLink, createLinqLinkCode } from '@lobechat/agent-address-l
 import { MESSENGER_PUSH_CONTENT_MAX_LENGTH } from '@lobechat/builtin-tool-message';
 import { fetchQrCode, pollQrStatus } from '@lobechat/chat-adapter-wechat';
 import { INBOX_SESSION_ID } from '@lobechat/const';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import { TRPCError } from '@trpc/server';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
@@ -804,11 +805,13 @@ export const messengerRouter = router({
       }
 
       // Best-effort confirmation back to the IM platform.
-      void notifyLinkSuccess(payload.platform, {
-        activeAgentName: agentScope.title ?? undefined,
-        platformUserId: payload.platformUserId,
-        tenantId: payload.tenantId,
-      });
+      void trackTenantWork(() =>
+        notifyLinkSuccess(payload.platform, {
+          activeAgentName: agentScope.title ?? undefined,
+          platformUserId: payload.platformUserId,
+          tenantId: payload.tenantId,
+        }),
+      );
 
       return { data: link, success: true };
     }),

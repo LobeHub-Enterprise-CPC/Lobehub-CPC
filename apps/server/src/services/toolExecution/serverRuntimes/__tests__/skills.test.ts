@@ -1409,9 +1409,10 @@ describe('skillsRuntime', () => {
 
     expect(MarketService).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        userInfo: expect.objectContaining({ userId: 'user-1', workspaceId: undefined }),
+        userInfo: expect.objectContaining({ userId: 'user-1' }),
       }),
     );
+    expect(vi.mocked(MarketService).mock.lastCall?.[0]?.userInfo?.workspaceId).toBeUndefined();
   });
 
   // The dispatch and resume paths reach this runtime without `workspaceId`, and

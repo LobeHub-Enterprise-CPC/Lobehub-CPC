@@ -8,11 +8,13 @@ import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import AuthIcons from '@/components/AuthIcons';
-import { isBuiltinProvider, normalizeProviderId } from '@/libs/better-auth/utils/client';
+import SsoProviderIcon from '@/features/Auth/SsoProviderIcon';
 import { useServerConfigStore } from '@/store/serverConfig';
 import { serverConfigSelectors } from '@/store/serverConfig/selectors';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
+
+import { useSsoProviderDetails } from './useSsoProviderDetails';
 
 const providerNameStyle: CSSProperties = {
   textTransform: 'capitalize',
@@ -25,6 +27,18 @@ export const SSOProvidersList = memo(() => {
   const refreshAuthProviders = useUserStore((s) => s.refreshAuthProviders);
   const oAuthSSOProviders = useServerConfigStore(serverConfigSelectors.oAuthSSOProviders);
   const { t } = useTranslation('auth');
+  const providerDetails = useSsoProviderDetails();
+  const providerName = (provider: string) => providerDetails[provider]?.displayName ?? provider;
+  // A configured name is shown as written; only a bare provider id is capitalized.
+  const providerNameStyleOf = (provider: string) =>
+    providerDetails[provider] ? undefined : providerNameStyle;
+  const providerIcon = (provider: string) => (
+    <SsoProviderIcon
+      fallback={AuthIcons(provider, 16)}
+      logoUrl={providerDetails[provider]?.logoUrl}
+      size={16}
+    />
+  );
 
   // Allow unlink if user has multiple SSO providers OR has email/password login
   const allowUnlink = providers.length > 1 || hasPasswordAccount;
@@ -36,11 +50,8 @@ export const SSOProvidersList = memo(() => {
   }, [providers]);
 
   // Get available providers for linking (filter out already linked)
-  // Normalize provider IDs when comparing to handle aliases (e.g. microsoft-entra-id → microsoft)
   const availableProviders = useMemo(() => {
-    return (oAuthSSOProviders || []).filter(
-      (provider) => !linkedProviderIds.has(normalizeProviderId(provider)),
-    );
+    return (oAuthSSOProviders || []).filter((provider) => !linkedProviderIds.has(provider));
   }, [oAuthSSOProviders, linkedProviderIds]);
 
   const handleUnlinkSSO = async (provider: string) => {
@@ -51,7 +62,7 @@ export const SSOProvidersList = memo(() => {
     // guard for callers outside the rendered list and for state races.
     if (!allowUnlink) return;
     confirmModal({
-      content: t('profile.sso.unlink.description', { provider }),
+      content: t('profile.sso.unlink.description', { provider: providerName(provider) }),
       okButtonProps: {
         danger: true,
       },
@@ -60,36 +71,30 @@ export const SSOProvidersList = memo(() => {
         await unlinkAccount({ providerId: provider });
         refreshAuthProviders();
       },
-      title: <span style={providerNameStyle}>{t('profile.sso.unlink.title', { provider })}</span>,
+      title: (
+        <span style={providerNameStyleOf(provider)}>
+          {t('profile.sso.unlink.title', { provider: providerName(provider) })}
+        </span>
+      ),
     });
   };
 
   const handleLinkSSO = async (provider: string) => {
     if (!enableAuthActions) return;
 
-    const normalizedProvider = normalizeProviderId(provider);
-    const { linkSocial, oauth2 } = await import('@/libs/better-auth/auth-client');
-
-    if (isBuiltinProvider(normalizedProvider)) {
-      // Use better-auth native linkSocial API for built-in providers
-      await linkSocial({
-        callbackURL: '/profile',
-        provider: normalizedProvider as any,
-      });
-      return;
-    }
+    const { oauth2 } = await import('@/libs/better-auth/auth-client');
 
     await oauth2.link({
       callbackURL: '/profile',
-      providerId: normalizedProvider,
+      providerId: provider,
     });
   };
 
   // Dropdown menu items for linking new providers
   const linkMenuItems: MenuProps['items'] = availableProviders.map((provider) => ({
-    icon: AuthIcons(provider, 16),
+    icon: providerIcon(provider),
     key: provider,
-    label: <span style={providerNameStyle}>{provider}</span>,
+    label: <span style={providerNameStyleOf(provider)}>{providerName(provider)}</span>,
     onClick: () => handleLinkSSO(provider),
   }));
 
@@ -104,8 +109,8 @@ export const SSOProvidersList = memo(() => {
           key={[item.provider, item.providerAccountId].join('-')}
         >
           <Flexbox horizontal align={'center'} gap={6} style={{ fontSize: 12 }}>
-            {AuthIcons(item.provider, 16)}
-            <span style={providerNameStyle}>{item.provider}</span>
+            {providerIcon(item.provider)}
+            <span style={providerNameStyleOf(item.provider)}>{providerName(item.provider)}</span>
             {item.email && (
               <Text fontSize={11} type="secondary">
                 · {item.email}

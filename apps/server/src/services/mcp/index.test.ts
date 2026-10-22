@@ -266,7 +266,7 @@ describe('MCPService', () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe(mcpError);
+      expect(result.error).toMatchObject({ code: mcpError.code, message: mcpError.message });
       expect(result.state.isError).toBe(true);
       // McpError is a tool result, not a session error → must not retry
       expect(mockClient.callTool).toHaveBeenCalledTimes(1);

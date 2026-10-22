@@ -14,6 +14,7 @@
  * Services must be injected via constructor for runtime-agnostic usage
  * (e.g., server-side services vs client-side services).
  */
+import { buildAppUrl } from '@lobechat/business-tenant/client';
 import type { ComposioAppType, LobehubSkillProviderType } from '@lobechat/const';
 import { resolveConnectorCatalogItem } from '@lobechat/const';
 import {
@@ -1081,7 +1082,7 @@ export class AgentManagerRuntime {
     // Skip redirectUri on desktop (app:// protocol) since the system browser can't navigate to it
     const redirectUri =
       typeof window !== 'undefined' && window.location.protocol.startsWith('http')
-        ? `${window.location.origin}/oauth/callback/success?provider=${encodeURIComponent(identifier)}`
+        ? buildAppUrl(`/oauth/callback/success?provider=${encodeURIComponent(identifier)}`)
         : undefined;
     const authInfo = await getToolStoreState().getLobehubSkillAuthorizeUrl(identifier, {
       redirectUri,

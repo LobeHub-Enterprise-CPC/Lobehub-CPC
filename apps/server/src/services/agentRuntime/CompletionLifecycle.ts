@@ -1,4 +1,5 @@
 import { isParkedStatus } from '@lobechat/agent-runtime';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import { readHeterogeneousErrorContext } from '@lobechat/heterogeneous-agents/errors';
 import {
   type AgentOperationStatus,
@@ -32,6 +33,7 @@ import { emitAgentSignalSourceEvent } from '@/server/services/agentSignal';
 import { toAgentSignalTraceEvents } from '@/server/services/agentSignal/observability/traceEvents';
 import { parseAgentSignalMarker } from '@/server/services/agentSignal/operationMarker';
 import { extractSelfIterationCompletionPayload } from '@/server/services/agentSignal/services/selfIteration/completion';
+import { captureOperationGatewayMetadata } from '@/server/services/gatewayAuthorization/operationAuthority';
 import {
   instantiateVerifyPlanOnStart,
   runVerifyOnCompletion,
@@ -268,14 +270,15 @@ export class CompletionLifecycle {
 
   /**
    * Persist the initial `agent_operations` row when an operation is created.
-   * Returns whether the row write succeeded so security-sensitive callers can
-   * require durable state before dispatch. Other runtime paths may preserve
-   * the historical non-blocking behavior by ignoring the result.
+   * Captures gateway authority before publishing queues or init.
    */
   async recordStart(params: RecordOperationStartParams): Promise<boolean> {
     let persisted = true;
     try {
-      await this.agentOperationModel.recordStart(params);
+      await this.agentOperationModel.recordStart({
+        ...params,
+        metadata: captureOperationGatewayMetadata(params.metadata),
+      });
     } catch (error) {
       persisted = false;
       // Hook configuration may contain inline authorization headers. Never log
@@ -1202,8 +1205,10 @@ export class CompletionLifecycle {
         runOrigin.lineage?.orchestrationRole !== 'member' &&
         !shouldSuppressAgentSignal(state)
       ) {
-        void this.recallUserOnCompletion(operationId, event, runOrigin).catch((error) =>
-          log('[%s] Completion notification failed (non-fatal): %O', operationId, error),
+        void trackTenantWork(() =>
+          this.recallUserOnCompletion(operationId, event, runOrigin).catch((error) =>
+            log('[%s] Completion notification failed (non-fatal): %O', operationId, error),
+          ),
         );
       }
 
@@ -1720,9 +1725,6 @@ const extractAttachmentsFromContent = (content: unknown): OutboundAttachment[] =
  * alongside the reply. Scans the last assistant message *and* any tool
  * messages that came after the previous assistant turn — tool-generated
  * images (e.g. a drawing tool that returns an image_url result) need to be
- * delivered with the next reply.
- *
- * Deduplicates by data/fetchUrl identity.
  */
 const extractOutboundAttachments = (messages: any[]): OutboundAttachment[] => {
   if (!Array.isArray(messages) || messages.length === 0) return [];

@@ -2,6 +2,7 @@ import type { PluginItem, PluginListResponse } from '@lobehub/market-sdk';
 import type { PluginItemDetail } from '@lobehub/market-types';
 
 import type { DiscoverAssistantItem } from './assistants';
+import type { MarketContentSyncState } from './capabilities';
 
 export enum McpCategory {
   All = 'all',
@@ -49,7 +50,7 @@ export enum McpConnectionType {
   stdio = 'stdio',
 }
 
-export type DiscoverMcpItem = PluginItem;
+export type DiscoverMcpItem = MarketContentSyncState & PluginItem;
 
 export interface McpQueryParams {
   category?: string;
@@ -64,7 +65,7 @@ export interface McpQueryParams {
 
 export type McpListResponse = PluginListResponse;
 
-export interface DiscoverMcpDetail extends PluginItemDetail {
+export interface DiscoverMcpDetail extends MarketContentSyncState, PluginItemDetail {
   agents?: DiscoverAssistantItem[];
   haveCloudEndpoint?: boolean;
   isClaimed?: boolean;

@@ -48,7 +48,7 @@ it('probes only idle FIFO heads, backs off offline devices and revisits them aft
     await client.exec(channelMigrationSql());
     const db = drizzle(client, { schema }) as unknown as LobeChatDatabase;
     let recovered = false;
-    vi.mocked(isChannelEnabled).mockReturnValue(true);
+    vi.mocked(isChannelEnabled).mockResolvedValue(true);
     probe.mockImplementation(async (cwd: string) => {
       if (!recovered && cwd === '/blocked') throw new OfflineError('DEVICE_OFFLINE');
       return cwd;

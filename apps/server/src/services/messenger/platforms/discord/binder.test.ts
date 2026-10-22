@@ -107,7 +107,7 @@ describe('MessengerDiscordBinder', () => {
       expect(createMessage).toHaveBeenCalledTimes(1);
       const [channel, body] = createMessage.mock.calls[0];
       expect(channel).toBe('dm_channel_1');
-      expect(body).toContain('https://app.example.com/verify-im');
+      expect(body).toContain('https://app.example.com/t/acme/verify-im');
       expect(body).toContain('im_type=discord');
       expect(body).toContain('random_id=rand_token');
     });

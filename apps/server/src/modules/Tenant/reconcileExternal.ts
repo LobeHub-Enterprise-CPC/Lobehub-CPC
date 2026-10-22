@@ -1,0 +1,321 @@
+import {
+  getPlatformDB,
+  tenantDirectory,
+  tenantRuntimeExternalWork,
+} from '@lobechat/database/platform';
+import {
+  runWithTenantScope,
+  SUPPORTED_TENANT_SCHEMA_VERSIONS,
+  TenantDatabaseSession,
+  tenantDbNames,
+} from '@lobechat/database/tenant';
+import type { PollVideoStatusResult } from '@lobechat/model-runtime';
+import type { VideoGenerationRoute, VideoGenerationTaskMetadata } from '@lobechat/types';
+import { and, eq, isNull } from 'drizzle-orm';
+import { Pool } from 'pg';
+
+import type { TrustedClientUserInfo } from '@/libs/trusted-client';
+import { TrustedClientIdentityError } from '@/libs/trusted-client/errors';
+import { resolveTrustedClientIdentity } from '@/libs/trusted-client/resolveIdentity';
+import { openDirectoryData } from '@/server/crypto/tenantKeys';
+import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { MarketService } from '@/server/services/market';
+import { MarketSandboxProvider } from '@/server/services/sandbox/providers/market';
+import { OnlyboxesSandboxProvider } from '@/server/services/sandbox/providers/onlyboxes';
+import type { SandboxProvider, SandboxServiceOptions } from '@/server/services/sandbox/types';
+
+import { withDestructionFence } from './destruction';
+import { connectionFromDirectory } from './directoryConnection';
+import { loadTenantPublicEndpoint } from './endpoints';
+import { TenantGateError } from './errors';
+import { verifyRuntimeTenantDatabase } from './verifyDatabase';
+
+type Work = typeof tenantRuntimeExternalWork.$inferSelect;
+
+/**
+ * Opens the tenant's business database for this work, read-only (PostgreSQL
+ * enforces it), and runs `run` inside that tenant's scope. The pool is always
+ * closed.
+ */
+async function withTenantReadScope<T>(
+  tenantId: string,
+  run: (session: TenantDatabaseSession) => Promise<T>,
+): Promise<T> {
+  const [directory] = await getPlatformDB()
+    .select()
+    .from(tenantDirectory)
+    .where(eq(tenantDirectory.tenantId, tenantId))
+    .limit(1);
+  if (!directory) throw new Error('TENANT_NOT_FOUND');
+  const names = tenantDbNames(tenantId);
+  if (
+    !SUPPORTED_TENANT_SCHEMA_VERSIONS.has(directory.schemaVersion) ||
+    directory.schemaName !== names.schemaName ||
+    directory.runtimeUsername !== names.runtimeUsername
+  )
+    throw new Error('TENANT_DIRECTORY_MISMATCH');
+  const pool = new Pool({
+    ...connectionFromDirectory(directory),
+    options: '-c default_transaction_read_only=on',
+    max: 1,
+    connectionTimeoutMillis: 5000,
+    statement_timeout: 10000,
+  });
+  const session = new TenantDatabaseSession({
+    acquire: () => ({ pool, release: () => {} }),
+    schemaName: directory.schemaName,
+    tenantId,
+  });
+  try {
+    const client = await pool.connect();
+    try {
+      await verifyRuntimeTenantDatabase(client, {
+        tenantId,
+        schemaName: directory.schemaName,
+      });
+    } finally {
+      client.release();
+    }
+    const endpoint = await loadTenantPublicEndpoint(tenantId);
+    return await runWithTenantScope(
+      { endpoint, session, tenantId, slug: directory.slug, acceptedVersion: 0 },
+      () => run(session),
+    );
+  } finally {
+    await pool.end();
+  }
+}
+
+/** Maintenance uses the runtime role with PostgreSQL enforcing read-only transactions. */
+async function pollVideo(work: Work): Promise<PollVideoStatusResult | undefined> {
+  const context = work.context;
+  if (
+    !context ||
+    typeof context.userId !== 'string' ||
+    typeof context.provider !== 'string' ||
+    typeof context.model !== 'string'
+  )
+    throw new Error('EXTERNAL_WORK_CONTEXT_MISSING');
+  return withTenantReadScope(work.tenantId, async (session) => {
+    const runtime = await initModelRuntimeFromDB(
+      session.database,
+      context.userId as string,
+      context.provider as string,
+      typeof context.workspaceId === 'string' ? context.workspaceId : undefined,
+    );
+    return runtime.handlePollVideoStatus(
+      work.handle!,
+      context.model as string,
+      context.route as VideoGenerationRoute | undefined,
+    );
+  });
+}
+
+/**
+ * The identity a market receipt is re-signed with. The receipt keeps who and
+ * where (user, tenant, entitlement) but not the email: it is looked up again in
+ * the work's own tenant, so no extra PII is persisted and an email change is
+ * followed. Without a current email nothing is signed (Market refuses an empty
+ * one anyway) and the reconciliation fails with a safe code, never the user.
+ */
+async function resolveReceiptIdentity(
+  work: Work,
+  receipt: TrustedClientUserInfo,
+): Promise<TrustedClientUserInfo> {
+  try {
+    const identity = await withTenantReadScope(work.tenantId, (session) =>
+      resolveTrustedClientIdentity({
+        sandboxStorage: receipt.sandboxStorage,
+        serverDB: session.database,
+        userId: receipt.userId,
+      }),
+    );
+    if (!identity?.email || identity.tenantId !== work.tenantId) {
+      throw new TrustedClientIdentityError('USER_UNAVAILABLE');
+    }
+    return identity;
+  } catch (error) {
+    // Lookup failures are already TrustedClientIdentityErrors (resolveTrustedClientIdentity
+    // wraps them); the tenant database itself failing to open is reported as
+    // pollVideo reports it. Only the code is logged: the chain can carry a
+    // database error.
+    if (error instanceof TrustedClientIdentityError) {
+      console.error('Sandbox receipt identity unavailable: %s (work %s)', error.code, work.workId);
+    }
+    throw error;
+  }
+}
+
+/** Operator-only reconciliation: queries the provider; there is no force/TTL/manual-success path. */
+export const reconcileExternalWork = async (workId: string) => {
+  const db = getPlatformDB();
+  const [work] = await db
+    .select()
+    .from(tenantRuntimeExternalWork)
+    .where(eq(tenantRuntimeExternalWork.workId, workId))
+    .limit(1);
+  if (!work) throw new Error('EXTERNAL_WORK_NOT_FOUND');
+  if (work.completedAt) return { workId, terminal: true, alreadyRecorded: true };
+  if (!work.handle) throw new Error('EXTERNAL_WORK_HANDLE_UNKNOWN_REQUIRES_PROVIDER_LOOKUP');
+  let result: unknown;
+  if (work.kind === 'video') {
+    const status = await pollVideo(work);
+    if (!status || status.status === 'pending') return { workId, terminal: false };
+    result = status;
+  } else if (work.kind === 'sandbox') {
+    const [tenantId, kind, userId, topicId, sandboxInstanceId, commandId] = JSON.parse(work.handle);
+    if (
+      tenantId !== work.tenantId ||
+      typeof userId !== 'string' ||
+      typeof topicId !== 'string' ||
+      typeof commandId !== 'string'
+    )
+      throw new Error('EXTERNAL_WORK_CONTEXT_MISSING');
+    let provider: SandboxProvider;
+    if (kind === 'onlyboxes') {
+      provider = new OnlyboxesSandboxProvider({
+        userId,
+        topicId,
+        sandboxInstanceId,
+      } as SandboxServiceOptions);
+    } else if (kind === 'market') {
+      const identity = work.context?.identity as TrustedClientUserInfo | undefined;
+      if (
+        !identity ||
+        identity.userId !== userId ||
+        // The receipt must have been taken under this work's own tenant: the
+        // token is signed from the identity alone, outside any tenant scope.
+        identity.tenantId !== work.tenantId ||
+        typeof work.context?.sealedSpecification !== 'string'
+      )
+        throw new Error('EXTERNAL_WORK_CONTEXT_MISSING');
+      provider = new MarketSandboxProvider({
+        userId,
+        topicId,
+        sandboxInstanceId,
+        marketService: new MarketService({
+          userInfo: await resolveReceiptIdentity(work, identity),
+        }),
+        sandboxSpecification:
+          JSON.parse(
+            openDirectoryData(
+              work.context.sealedSpecification,
+              `${work.tenantId}|${work.workId}|specification`,
+            ),
+          ) ?? undefined,
+        sandboxMode: work.context?.sandboxMode as SandboxServiceOptions['sandboxMode'],
+        sandboxCwd:
+          typeof work.context?.sandboxCwd === 'string' ? work.context.sandboxCwd : undefined,
+        sandboxWorkingDir:
+          typeof work.context?.sandboxWorkingDir === 'string'
+            ? work.context.sandboxWorkingDir
+            : undefined,
+      });
+    } else throw new Error('EXTERNAL_PROVIDER_RECONCILIATION_UNSUPPORTED');
+    const status = await provider.callTool('getCommandOutput', { commandId });
+    if (status.result?.running !== false) return { workId, terminal: false };
+    result = { running: false, provider: kind, commandId };
+  } else throw new Error('EXTERNAL_PROVIDER_RECONCILIATION_UNSUPPORTED');
+  await withDestructionFence(
+    db,
+    work.tenantId,
+    () => new TenantGateError('TENANT_DESTROYED'),
+    (tx) =>
+      tx
+        .update(tenantRuntimeExternalWork)
+        .set({ completedAt: new Date(), receipt: { source: 'operator-provider-query', result } })
+        .where(
+          and(
+            eq(tenantRuntimeExternalWork.workId, workId),
+            eq(tenantRuntimeExternalWork.tenantId, work.tenantId),
+            isNull(tenantRuntimeExternalWork.completedAt),
+          ),
+        ),
+  );
+  return { workId, terminal: true };
+};
+
+/** Replays result processing only after normal tenant admission has resumed. */
+export const completeExternalVideo = async (workId: string) => {
+  const [work] = await getPlatformDB()
+    .select()
+    .from(tenantRuntimeExternalWork)
+    .where(eq(tenantRuntimeExternalWork.workId, workId))
+    .limit(1);
+  if (!work || work.kind !== 'video' || !work.completedAt || !work.handle)
+    throw new Error('VIDEO_TERMINAL_RECEIPT_REQUIRED');
+  const result = work.receipt?.result as
+    { status?: string; error?: unknown; videoUrl?: string } | undefined;
+  if (!result || !['success', 'error', 'failed'].includes(result.status || ''))
+    throw new Error('VIDEO_TERMINAL_RECEIPT_REQUIRED');
+  const terminalReceipt: Exclude<PollVideoStatusResult, { status: 'pending' }> =
+    result.status === 'success'
+      ? (result as Extract<PollVideoStatusResult, { status: 'success' }>)
+      : { status: 'failed', error: String(result.error || 'Video generation failed') };
+  const { runInTenant } = await import('./gate');
+  return runInTenant(work.tenantId, async () => {
+    const [
+      { getServerDB },
+      { processBackgroundVideoPolling },
+      { asyncTasks, generations, generationBatches },
+    ] = await Promise.all([
+      import('@/database/server'),
+      import('@/server/services/generation/videoBackgroundPolling'),
+      import('@/database/schemas'),
+    ]);
+    const db = await getServerDB();
+    const taskId = workId.slice('video:'.length);
+    const [task] = await db.select().from(asyncTasks).where(eq(asyncTasks.id, taskId)).limit(1);
+    if (
+      !task ||
+      task.userId !== work.context?.userId ||
+      (task.workspaceId ?? undefined) !== work.context?.workspaceId
+    )
+      throw new Error('VIDEO_TASK_CONTEXT_MISMATCH');
+    if (['success', 'error'].includes(task.status ?? ''))
+      return { workId, businessCompleted: true, alreadyRecorded: true };
+    const metadata = task.metadata as VideoGenerationTaskMetadata | null;
+    if (metadata?.completionClaimedAt) throw new Error('VIDEO_COMPLETION_ALREADY_CLAIMED');
+    const [generation] = await db
+      .select()
+      .from(generations)
+      .where(and(eq(generations.asyncTaskId, taskId), eq(generations.userId, task.userId)))
+      .limit(1);
+    if (!generation?.generationBatchId) throw new Error('VIDEO_GENERATION_NOT_FOUND');
+    const [batch] = await db
+      .select()
+      .from(generationBatches)
+      .where(
+        and(
+          eq(generationBatches.id, generation.generationBatchId),
+          eq(generationBatches.userId, task.userId),
+        ),
+      )
+      .limit(1);
+    if (!batch) throw new Error('VIDEO_BATCH_NOT_FOUND');
+    await processBackgroundVideoPolling(db, {
+      asyncTaskCreatedAt: task.createdAt,
+      asyncTaskId: taskId,
+      generationBatchId: batch.id,
+      generationId: generation.id,
+      generationTopicId: batch.generationTopicId!,
+      inferenceId: work.handle!,
+      model: batch.model,
+      provider: batch.provider,
+      userId: task.userId,
+      workspaceId: task.workspaceId ?? undefined,
+      terminalReceipt,
+      prechargeResult: metadata?.precharge,
+      previousGenerationId: metadata?.previousGenerationId,
+      spendOrigin: metadata?.spendOrigin,
+    });
+    const [completed] = await db
+      .select({ status: asyncTasks.status })
+      .from(asyncTasks)
+      .where(eq(asyncTasks.id, taskId))
+      .limit(1);
+    if (!completed || !['success', 'error'].includes(completed.status ?? ''))
+      throw new Error('VIDEO_BUSINESS_COMPLETION_UNCONFIRMED');
+    return { workId, businessCompleted: true };
+  });
+};

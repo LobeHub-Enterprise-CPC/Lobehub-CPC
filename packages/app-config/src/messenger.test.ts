@@ -1,6 +1,11 @@
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { getMessengerWechatConfig, invalidateMessengerConfigCache } from './messenger';
+import {
+  getMessengerTelegramConfig,
+  getMessengerWechatConfig,
+  invalidateMessengerConfigCache,
+} from './messenger';
 
 const {
   gatewayEnvState,
@@ -89,5 +94,75 @@ describe('getMessengerWechatConfig', () => {
 
     await expect(getMessengerWechatConfig()).resolves.toBeNull();
     expect(mockFindEnabledByPlatform).not.toHaveBeenCalled();
+  });
+});
+
+describe('messenger config cache tenant isolation', () => {
+  const inTenant = <T>(tenantId: string, fn: () => T) =>
+    runWithTenantScope({ session: {}, slug: tenantId, tenantId } as unknown as TenantScope, fn);
+
+  const row = (botToken: string) => ({
+    credentials: { botToken },
+    platform: 'telegram',
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    invalidateMessengerConfigCache();
+    mockGetServerDB.mockResolvedValue({});
+    mockInitWithEnvKey.mockResolvedValue({});
+    mockFindEnabledByPlatform.mockImplementation(async () => {
+      const { currentTenantScope } = await import('@lobechat/database/tenant');
+      return row(`token-of-${currentTenantScope()?.tenantId}`);
+    });
+  });
+
+  it('never serves one tenant the credentials cached for another', async () => {
+    const a = await inTenant('tenant-a', () => getMessengerTelegramConfig());
+    const b = await inTenant('tenant-b', () => getMessengerTelegramConfig());
+
+    expect(a?.botToken).toBe('token-of-tenant-a');
+    expect(b?.botToken).toBe('token-of-tenant-b');
+  });
+
+  it('still caches within one tenant', async () => {
+    await inTenant('tenant-a', () => getMessengerTelegramConfig());
+    await inTenant('tenant-a', () => getMessengerTelegramConfig());
+
+    expect(mockFindEnabledByPlatform).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates only the given tenant', async () => {
+    await inTenant('tenant-a', () => getMessengerTelegramConfig());
+    await inTenant('tenant-b', () => getMessengerTelegramConfig());
+    mockFindEnabledByPlatform.mockClear();
+
+    invalidateMessengerConfigCache('telegram', 'tenant-a');
+
+    await inTenant('tenant-b', () => getMessengerTelegramConfig());
+    expect(mockFindEnabledByPlatform).not.toHaveBeenCalled();
+    await inTenant('tenant-a', () => getMessengerTelegramConfig());
+    expect(mockFindEnabledByPlatform).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates the current tenant by default', async () => {
+    await inTenant('tenant-a', () => getMessengerTelegramConfig());
+    await inTenant('tenant-b', () => getMessengerTelegramConfig());
+    mockFindEnabledByPlatform.mockClear();
+
+    inTenant('tenant-a', () => invalidateMessengerConfigCache('telegram'));
+
+    await inTenant('tenant-b', () => getMessengerTelegramConfig());
+    expect(mockFindEnabledByPlatform).not.toHaveBeenCalled();
+    await inTenant('tenant-a', () => getMessengerTelegramConfig());
+    expect(mockFindEnabledByPlatform).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not cache outside a tenant scope', async () => {
+    mockFindEnabledByPlatform.mockResolvedValue(row('no-scope-token'));
+    await getMessengerTelegramConfig();
+    await getMessengerTelegramConfig();
+
+    expect(mockFindEnabledByPlatform).toHaveBeenCalledTimes(2);
   });
 });

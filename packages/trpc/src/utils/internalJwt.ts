@@ -4,6 +4,9 @@ import debug from 'debug';
 import { importJWK, jwtVerify, SignJWT } from 'jose';
 
 import { authEnv } from '@/envs/auth';
+import type { GatewayAuthorizationSource } from '@/server/services/gatewayAuthorization/types';
+
+import { currentTenantClaim, isBoundToCurrentTenant } from './tenantBinding';
 
 const log = debug('lobe-internal-jwt');
 
@@ -27,6 +30,8 @@ export interface HeteroOperationJwtClaims {
   provider_id?: string;
   purpose: typeof HETERO_OPERATION_JWT_PURPOSE;
   sub: string;
+  /** Tenant the operation was minted for (see `TENANT_ID_CLAIM`). */
+  tid: string;
   workspace_id?: string;
 }
 
@@ -90,13 +95,15 @@ const getVerificationKey = async () => {
 /**
  * Sign JWT for internal lambda → async calls
  * Uses JWKS private key with configurable expiration (default: 30s)
- * The JWT only proves the request is from lambda, payload is sent via LOBE_CHAT_AUTH_HEADER
+ * The token names both the tenant it is for and the user the call acts as
+ * (`sub`), so the async side trusts nothing outside the signature.
  */
-export const signInternalJWT = async (): Promise<string> => {
+export const signInternalJWT = async (userId: string): Promise<string> => {
   const { key, kid } = await getSigningKey();
 
-  return new SignJWT({ purpose: INTERNAL_JWT_PURPOSE })
+  return new SignJWT({ purpose: INTERNAL_JWT_PURPOSE, ...currentTenantClaim() })
     .setProtectedHeader({ alg: 'RS256', kid })
+    .setSubject(userId)
     .setIssuedAt()
     .setExpirationTime(authEnv.INTERNAL_JWT_EXPIRATION)
     .sign(key);
@@ -120,7 +127,7 @@ export const signUserJWT = async (
 ): Promise<string> => {
   const { key, kid } = await getSigningKey();
 
-  return new SignJWT({ purpose: 'cli-sandbox' })
+  return new SignJWT({ purpose: 'cli-sandbox', ...currentTenantClaim() })
     .setProtectedHeader({ alg: 'RS256', kid })
     .setSubject(userId)
     .setIssuedAt()
@@ -145,6 +152,7 @@ export const signHeteroOperationJWT = async (params: {
 
   return new SignJWT({
     capabilities: params.capabilities,
+    ...currentTenantClaim(),
     ...(params.model ? { model: params.model } : {}),
     operation_id: params.operationId,
     ...(params.providerId ? { provider_id: params.providerId } : {}),
@@ -179,6 +187,7 @@ export const validateHeteroOperationClaims = (
     payload.aud !== HETERO_OPERATION_JWT_AUDIENCE ||
     payload.purpose !== HETERO_OPERATION_JWT_PURPOSE ||
     typeof payload.sub !== 'string' ||
+    !isBoundToCurrentTenant(payload) ||
     typeof payload.operation_id !== 'string' ||
     typeof payload.jti !== 'string' ||
     typeof payload.iat !== 'number' ||
@@ -221,29 +230,18 @@ export const validateHeteroOperationJWT = async (
 };
 
 /**
- * Sign a connection token for a WORKSPACE-owned device. The device gateway reads
- * the `workspace_id` claim and routes the socket to the `workspace:<id>`
- * principal (so every workspace member can reach the device), instead of the
- * signer's personal principal. Minted ONLY after the server has verified the
- * requester is a workspace admin — the gateway trusts this signed claim.
+ * Attest that the requester may enroll devices into a WORKSPACE. Minted ONLY
+ * after the server has verified the requester is a workspace owner/admin. It is
+ * not a connection ticket: the device exchanges its own credential for a ticket
+ * naming its device and connection (`/api/v1/gateway/identity`), and only uses
+ * this to pin the tenant and workspace that exchange must return.
  */
-export const signWorkspaceDeviceToken = async (workspaceId: string): Promise<string> => {
-  const { key, kid } = await getSigningKey();
-
-  return (
-    new SignJWT({ purpose: 'workspace-device-connect', workspace_id: workspaceId })
-      .setProtectedHeader({ alg: 'RS256', kid })
-      .setSubject(workspaceId)
-      .setIssuedAt()
-      // This token is NOT revocable (the gateway verifies signature + purpose +
-      // principal only), so its TTL doubles as the worst-case window for a leaked
-      // token or a demoted owner's device. Keep it short — aligned with the 4h
-      // operation tokens. The CLI re-mints ahead of expiry (and re-checks owner via
-      // wsOwnerProcedure each time), so a long-lived connection rolls over without
-      // dropping; the TTL is a security bound, not a connection-lifetime limit.
-      .setExpirationTime('4h')
-      .sign(key)
-  );
+export const signWorkspaceDeviceToken = async (
+  workspaceId: string,
+  source: GatewayAuthorizationSource,
+): Promise<string> => {
+  const { mintGatewayEnrollment } = await import('@/server/services/gatewayAuthorization');
+  return mintGatewayEnrollment({ source, principal: { kind: 'workspace', id: workspaceId } });
 };
 
 /**
@@ -264,6 +262,7 @@ export const signTunnelAccessToken = async (params: {
 
   return new SignJWT({
     purpose: 'tunnel-access',
+    ...currentTenantClaim(),
     ...(params.workspaceId ? { workspace_id: params.workspaceId } : {}),
   })
     .setProtectedHeader({ alg: 'RS256', kid })
@@ -291,10 +290,11 @@ export const signWorkspaceOperationJwt = async (
   });
 
 /**
- * Validate internal JWT from lambda → async calls
- * Returns true if valid, false otherwise
+ * Validate internal JWT from lambda → async calls.
+ * Returns the user the call acts as when the token is valid and was minted for
+ * the tenant this request runs in, null otherwise.
  */
-export const validateInternalJWT = async (token: string): Promise<boolean> => {
+export const validateInternalJWT = async (token: string): Promise<{ userId: string } | null> => {
   try {
     log('Validating internal JWT token');
 
@@ -307,13 +307,23 @@ export const validateInternalJWT = async (token: string): Promise<boolean> => {
     // Verify this is an internal call token, not a user's OIDC token
     if (payload.purpose !== INTERNAL_JWT_PURPOSE) {
       log('JWT purpose mismatch: expected %s, got %s', INTERNAL_JWT_PURPOSE, payload.purpose);
-      return false;
+      return null;
+    }
+
+    if (!isBoundToCurrentTenant(payload)) {
+      log('Internal JWT is not bound to the current tenant');
+      return null;
+    }
+
+    if (typeof payload.sub !== 'string' || !payload.sub) {
+      log('Internal JWT is missing the user (sub)');
+      return null;
     }
 
     log('Internal JWT validation successful');
-    return true;
+    return { userId: payload.sub };
   } catch (error) {
     log('Internal JWT validation failed: %O', error);
-    return false;
+    return null;
   }
 };

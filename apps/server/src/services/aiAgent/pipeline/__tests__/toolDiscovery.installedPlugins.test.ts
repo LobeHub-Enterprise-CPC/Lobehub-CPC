@@ -104,7 +104,6 @@ const run = (options: RunOptions = {}) => {
         deviceSystemInfo: vi.fn().mockResolvedValue(undefined),
         userPreference: vi.fn().mockResolvedValue(undefined),
       },
-      shareGate: undefined,
     } as never,
     {
       disabledPluginIds: options.disabledPluginIds ?? [],

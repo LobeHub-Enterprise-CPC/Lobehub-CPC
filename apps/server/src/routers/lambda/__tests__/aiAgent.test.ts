@@ -142,12 +142,10 @@ describe('AI Agent Router Integration Tests', () => {
   let userId: string;
   let testAgentId: string;
   let testSessionId: string;
-
   beforeEach(async () => {
     serverDB = await getTestDB();
     testDB = serverDB;
     userId = await createTestUser(serverDB);
-
     // Create test agent
     const [agent] = await serverDB
       .insert(agents)
@@ -160,11 +158,9 @@ describe('AI Agent Router Integration Tests', () => {
       })
       .returning();
     testAgentId = agent.id;
-
     // Create test session
     const [session] = await serverDB.insert(sessions).values({ userId, type: 'agent' }).returning();
     testSessionId = session.id;
-
     // Create agent-to-session mapping
     await serverDB.insert(agentsToSessions).values({
       agentId: testAgentId,
@@ -172,7 +168,6 @@ describe('AI Agent Router Integration Tests', () => {
       userId,
     });
   });
-
   afterEach(async () => {
     await cleanupTestUser(serverDB, userId);
     vi.clearAllMocks();
@@ -652,13 +647,15 @@ describe('AI Agent Router Integration Tests', () => {
     // caller's identity only — no topic / running-operation precondition like
     // `refreshGatewayToken`, because the hub authorizes each `subscribe`
     // against the op's registered owner instead.
-    it('signs a per-user token for the caller without any operation context', async () => {
+    it('rejects user-level MUX tickets', async () => {
       mockSignUserJWT.mockResolvedValue('user-hub-jwt');
       const caller = aiAgentRouter.createCaller(createTestContext());
 
-      await expect(caller.issueGatewayUserToken()).resolves.toEqual({ token: 'user-hub-jwt' });
-      expect(mockSignUserJWT).toHaveBeenCalledTimes(1);
-      expect(mockSignUserJWT).toHaveBeenCalledWith(userId);
+      await expect(caller.issueGatewayUserToken()).rejects.toMatchObject({
+        code: 'NOT_IMPLEMENTED',
+        message: 'MUX_UNSUPPORTED',
+      });
+      expect(mockSignUserJWT).not.toHaveBeenCalled();
     });
   });
 
@@ -824,3 +821,6 @@ describe('AI Agent Router Integration Tests', () => {
     // that kind assignment is covered by heteroOperationAuth.test.ts.
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+vi.mock('@/server/services/gatewayAuthorization');

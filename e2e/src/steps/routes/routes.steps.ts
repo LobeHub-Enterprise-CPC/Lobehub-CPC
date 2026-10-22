@@ -1,6 +1,7 @@
 import { Given, Then } from '@cucumber/cucumber';
 import { expect } from '@playwright/test';
 
+import { tenantPath } from '../../support/tenant';
 import type { CustomWorld } from '../../support/world';
 
 // ============================================
@@ -11,7 +12,7 @@ Given('the application is running', async function (this: CustomWorld) {
   // This is a placeholder step to indicate that the app should be running
   // The actual server startup is handled outside the test (in CI or locally)
   // We just verify we can reach the base URL
-  const response = await this.page.goto('/');
+  const response = await this.page.goto(tenantPath('/'));
   expect(response).toBeTruthy();
   // Store the response for later assertions
   this.testContext.lastResponse = response;

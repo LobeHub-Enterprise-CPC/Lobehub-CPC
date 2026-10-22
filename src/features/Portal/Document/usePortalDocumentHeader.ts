@@ -1,12 +1,12 @@
 'use client';
 
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { toast } from '@lobehub/ui/base-ui';
 import { useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import { buildAgentDocumentPath } from '@/features/AgentDocumentPage/navigation';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { useSingleton } from '@/hooks/useSingleton';
 import { useClientDataSWR } from '@/libs/swr';
 import { portalKeys } from '@/libs/swr/keys';
@@ -147,7 +147,7 @@ export const usePortalDocumentHeaderActions = () => {
   // document may be linked through the active agent's docs route.
   const agentId = useAgentStore((s) => s.activeAgentId);
   const agentDocumentId = useResolvedAgentDocumentId();
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
 
   const path = resolvePortalDocumentPath(documentId, agentId, agentDocumentId);

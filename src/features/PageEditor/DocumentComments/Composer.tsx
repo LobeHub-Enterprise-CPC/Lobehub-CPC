@@ -1,3 +1,4 @@
+import { tenantStorageKey } from '@lobechat/business-tenant/client';
 import type { DocumentCommentJson, DocumentCommentSelectionAnchor } from '@lobechat/types';
 import { ChatInput, ChatInputActionBar, SendButton, useEditor } from '@lobehub/editor/react';
 import { Flexbox } from '@lobehub/ui';
@@ -40,7 +41,7 @@ export interface Draft {
 }
 
 const getDraftKey = (workspaceId: string | null | undefined, documentId: string, scope: string) =>
-  `document-comment-draft:${workspaceId ?? 'personal'}:${documentId}:${scope}`;
+  tenantStorageKey(`document-comment-draft:${workspaceId ?? 'personal'}:${documentId}:${scope}`);
 
 /**
  * The gutter composer only mounts once a pending anchor exists in the store,

@@ -1,3 +1,4 @@
+import { initializeTenant, setRemoteAppAddress } from '@lobechat/business-tenant/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { lambdaClient } from '@/libs/trpc/client';
@@ -35,6 +36,37 @@ afterEach(() => {
 });
 
 describe('createBrowserContextFactProviders', () => {
+  describe('getWorkspaceContext', () => {
+    afterEach(() => {
+      setRemoteAppAddress(undefined);
+      initializeTenant(new URL(window.location.href));
+    });
+
+    it('anchors links on the tenant address of the page, not the bare origin', async () => {
+      initializeTenant(new URL(`${window.location.origin}/t/acme/agent`));
+
+      await expect(createBrowserContextFactProviders().getWorkspaceContext!()).resolves.toEqual(
+        expect.objectContaining({ appUrl: `${window.location.origin}/t/acme` }),
+      );
+    });
+
+    it('anchors links on the remote tenant address in the desktop renderer', async () => {
+      setRemoteAppAddress('https://host.example/t/acme');
+
+      await expect(createBrowserContextFactProviders().getWorkspaceContext!()).resolves.toEqual(
+        expect.objectContaining({ appUrl: 'https://host.example/t/acme' }),
+      );
+    });
+
+    it('has no app url before the desktop remote address is configured', async () => {
+      setRemoteAppAddress('');
+
+      await expect(createBrowserContextFactProviders().getWorkspaceContext!()).resolves.toEqual(
+        expect.objectContaining({ appUrl: undefined }),
+      );
+    });
+  });
+
   it('reports no connector features when the server config store is not mounted', () => {
     expect(resolveBrowserConnectorFeatures()).toEqual({ composio: false, lobehubSkill: false });
   });

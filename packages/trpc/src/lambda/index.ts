@@ -14,6 +14,7 @@ import { upstreamError } from '../middleware/upstreamError';
 import { userAuth } from '../middleware/userAuth';
 import { trpc } from './init';
 import { apiKeyScopeGuard } from './middleware/apiKeyScope';
+import { gatewaySource } from './middleware/gatewaySource';
 import { heteroOperationAuth } from './middleware/heteroOperationAuth';
 import { llmRelayRequest } from './middleware/llmRelayRequest';
 import { oidcAuth } from './middleware/oidcAuth';
@@ -45,6 +46,7 @@ export const authedProcedure = baseProcedure
   .use(oidcAuth)
   .use(userAuth)
   .use(apiKeyScopeGuard)
+  .use(gatewaySource)
   .use(llmRelayRequest);
 
 // procedure for hetero-agent ingest/finish endpoints — requires a `hetero-operation` JWT

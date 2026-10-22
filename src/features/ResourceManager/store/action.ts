@@ -1,3 +1,4 @@
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { useLayoutEffect } from 'react';
 import type { StateCreator } from 'zustand/vanilla';
 
@@ -451,7 +452,7 @@ export class ResourceManagerStoreActionImpl {
         await kbStore.removeKnowledgeBase(libraryId);
 
         if (typeof window !== 'undefined') {
-          window.location.href = '/knowledge';
+          window.location.href = withCurrentTenantPath('/knowledge');
         }
       }
     }

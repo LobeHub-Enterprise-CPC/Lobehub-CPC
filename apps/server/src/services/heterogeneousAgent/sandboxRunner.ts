@@ -8,7 +8,7 @@ import {
 } from '@lobechat/heterogeneous-agents/protocol';
 import debug from 'debug';
 
-import { appEnv } from '@/envs/app';
+import { buildTenantCallbackUrl, tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 import type { MarketService } from '@/server/services/market';
 import { createSandboxService } from '@/server/services/sandbox';
 import type { SandboxSessionConfig } from '@/server/services/sandbox/session';
@@ -215,10 +215,11 @@ export async function spawnHeteroSandbox(params: SandboxRunParams): Promise<void
   });
   const base64Payload = Buffer.from(stdinPayload).toString('base64');
 
-  // LOBEHUB_HETERO_SERVER_URL overrides the server URL for local dev/testing
-  // (e.g. a cloudflare tunnel). APP_URL is NOT used here because it's tied to
-  // auth callbacks and must stay as localhost in dev.
-  const serverUrl = process.env.LOBEHUB_HETERO_SERVER_URL ?? appEnv.APP_URL;
+  // An explicit development transport retains deployment + tenant addressing.
+  // Sandbox CLI credentials otherwise use the tenant's active public entry.
+  const serverUrl = process.env.LOBEHUB_HETERO_SERVER_URL
+    ? buildTenantCallbackUrl('/', process.env.LOBEHUB_HETERO_SERVER_URL)
+    : tenantPublicBaseUrl();
   const envVars = [
     `LOBEHUB_JWT=${shellQuote(jwt)}`,
     `LOBEHUB_SERVER=${shellQuote(serverUrl)}`,

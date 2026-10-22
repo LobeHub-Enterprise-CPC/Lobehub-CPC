@@ -1,15 +1,30 @@
+import type * as LobechatConstModule from '@lobechat/const';
 import { type Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { lambdaClient } from '@/libs/trpc/client';
+import { useElectronStore } from '@/store/electron';
 import { type GlobalRuntimeConfig } from '@/types/serverConfig';
 
 import { globalService } from '../global';
 
 global.fetch = vi.fn();
 
+const mockConstEnv = vi.hoisted(() => ({ isDesktop: false }));
+
+vi.mock('@lobechat/const', async (importOriginal) => {
+  const actual = await importOriginal<typeof LobechatConstModule>();
+  return {
+    ...actual,
+    get isDesktop() {
+      return mockConstEnv.isDesktop;
+    },
+  };
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mockConstEnv.isDesktop = false;
 });
 
 vi.mock('@/libs/trpc/client', () => {
@@ -69,6 +84,51 @@ describe('GlobalService', () => {
 
       // Act & Assert
       await expect(globalService.getLatestVersion()).rejects.toThrow(SyntaxError);
+    });
+  });
+
+  describe('getServerVersion', () => {
+    const connect = (remoteServerUrl?: string) => {
+      mockConstEnv.isDesktop = true;
+      useElectronStore.setState({
+        dataSyncConfig: { remoteServerUrl, storageMode: 'selfHost' },
+      });
+      (fetch as Mock).mockResolvedValue({
+        json: () => Promise.resolve({ version: '2.1.0' }),
+        ok: true,
+        status: 200,
+      });
+    };
+
+    it.each([
+      ['https://host/t/acme', 'https://host/t/acme/api/version'],
+      ['https://host/t/acme/', 'https://host/t/acme/api/version'],
+      ['http://127.0.0.1:3210/t/acme', 'http://127.0.0.1:3210/t/acme/api/version'],
+      ['https://custom.host', 'https://custom.host/api/version'],
+      ['https://custom.host/', 'https://custom.host/api/version'],
+    ])('asks the tenant address %s, keeping its path prefix', async (remote, expectedUrl) => {
+      connect(remote);
+
+      await expect(globalService.getServerVersion()).resolves.toBe('2.1.0');
+
+      expect(fetch).toHaveBeenCalledWith(expectedUrl);
+    });
+
+    it('does not ask anyone when no remote server is configured', async () => {
+      connect(undefined);
+
+      await expect(globalService.getServerVersion()).resolves.toBeNull();
+
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('does not ask a remote server outside the desktop app', async () => {
+      connect('https://host/t/acme');
+      mockConstEnv.isDesktop = false;
+
+      await expect(globalService.getServerVersion()).resolves.toBeNull();
+
+      expect(fetch).not.toHaveBeenCalled();
     });
   });
 

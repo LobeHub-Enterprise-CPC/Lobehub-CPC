@@ -7,6 +7,8 @@
  */
 export interface DesktopBootstrapIdentity {
   isIdentityResolved: boolean;
+  /** The tenant of that token (`tid`); partitions local state per organization. */
+  tenantId?: string;
   userId?: string;
 }
 

@@ -1,3 +1,8 @@
+import {
+  initializeTenant,
+  installTenantAssets,
+  installTenantFetch,
+} from '@lobechat/business-tenant/client';
 import dayjs from 'dayjs';
 import isToday from 'dayjs/plugin/isToday';
 import isYesterday from 'dayjs/plugin/isYesterday';
@@ -5,6 +10,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import utc from 'dayjs/plugin/utc';
 import { enableMapSet, enablePatches } from 'immer';
 
+import { DEBUG_PROXY_BASE } from '@/spa/appBasename';
 import { isChunkLoadError, notifyChunkError } from '@/utils/chunkError';
 
 enablePatches();
@@ -15,6 +21,17 @@ dayjs.extend(relativeTime);
 dayjs.extend(utc);
 dayjs.extend(isToday);
 dayjs.extend(isYesterday);
+
+// Backend calls carry the tenant of the page (`/t/{slug}`), like its routes; so do the
+// backend URLs the browser loads itself (<img src>, <a href>, ...).
+if (typeof window !== 'undefined') {
+  const url = new URL(window.location.href);
+  if (url.pathname === DEBUG_PROXY_BASE || url.pathname.startsWith(`${DEBUG_PROXY_BASE}/`))
+    url.pathname = url.pathname.slice(DEBUG_PROXY_BASE.length) || '/';
+  initializeTenant(url, window.__SERVER_CONFIG__?.tenant);
+  installTenantFetch();
+  installTenantAssets();
+}
 
 // Global fallback: catch async chunk-load failures that escape Error Boundaries
 if (typeof window !== 'undefined') {

@@ -6,7 +6,7 @@ import type {
   CommandGovernanceScope,
   UserExecutionPolicyCommandMode,
   UserExecutionPolicyItem,
-} from './schema';
+} from '@lobechat/database/privateSchemas';
 
 /** Where a governed command actually executes. */
 export type CommandExecutionTarget = 'local' | 'device' | 'sandbox';

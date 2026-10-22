@@ -354,3 +354,7 @@ describe('FollowUpActionService.extract', () => {
     expect(sysContent).toContain('Phase tip:');
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite', () => ({
+  resolveProviderRelay: vi.fn().mockResolvedValue(undefined),
+}));

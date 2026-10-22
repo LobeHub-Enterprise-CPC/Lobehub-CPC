@@ -12,92 +12,84 @@ import { Given, Then, When } from '@cucumber/cucumber';
 import { expect } from '@playwright/test';
 
 import { llmMockManager } from '../../mocks/llm';
+import { focusChatInput } from '../../support/chatInput';
 import type { CustomWorld } from '../../support/world';
 
 // ============================================
 // Given Steps
 // ============================================
 
+async function sendConversationMessage(this: CustomWorld, message: string): Promise<string> {
+  const topics = this.page.getByTestId('topic-item');
+  const existingIds = await topics.evaluateAll((items) =>
+    items.map((item) => item.getAttribute('data-topic-id')),
+  );
+  const editor = await focusChatInput.call(this);
+  await editor.fill(message);
+  await expect(editor).toHaveText(message);
+  const sendButton = this.page
+    .getByTestId('chat-input')
+    .locator('button')
+    .filter({ has: this.page.locator('svg[viewBox="0 0 14 14"]') })
+    .first();
+  await expect(sendButton).toBeEnabled();
+  await expect(editor).toBeFocused();
+  await editor.press('Enter');
+
+  await expect(
+    this.page.locator('.message-wrapper').filter({ hasText: message }).first(),
+  ).toBeVisible({
+    timeout: 15_000,
+  });
+  let topicId: string | undefined;
+  await expect
+    .poll(
+      async () => {
+        const ids = await topics.evaluateAll((items) =>
+          items.map((item) => item.getAttribute('data-topic-id')),
+        );
+        topicId = ids.find((id): id is string => Boolean(id) && !existingIds.includes(id));
+        return topicId;
+      },
+      { timeout: 15_000 },
+    )
+    .toBeTruthy();
+  const topic = this.page.locator(`[data-topic-id="${topicId}"]`).first();
+  await expect(topic).toBeVisible();
+  // A list row can arrive before the send flow adopts its new topic. Do not
+  // start another conversation while that transition can still clear its draft.
+  await expect(topic.locator('[data-active="true"]')).toBeVisible();
+  return topicId!;
+}
+
 Given('用户已有一个对话', async function (this: CustomWorld) {
   console.log('   📍 Step: 创建一个对话...');
-
-  // Send a message to create a conversation
-  const chatInputs = this.page.locator('[data-testid="chat-input"]');
-  const count = await chatInputs.count();
-
-  let chatInputContainer = chatInputs.first();
-  for (let i = 0; i < count; i++) {
-    const elem = chatInputs.nth(i);
-    const box = await elem.boundingBox();
-    if (box && box.width > 0 && box.height > 0) {
-      chatInputContainer = elem;
-      break;
-    }
-  }
-
-  await chatInputContainer.click();
-  await this.page.waitForTimeout(300);
-  await this.page.keyboard.type('hello', { delay: 30 });
-  await this.page.keyboard.press('Enter');
-
-  // Wait for response
-  await this.page.waitForTimeout(2000);
-
-  // Store the current conversation title for later reference
-  const topicItems = this.page.locator('.ant-menu-item, [class*="NavItem"]');
-  const topicCount = await topicItems.count();
-  console.log(`   📍 Found ${topicCount} topic items after creating conversation`);
-
+  await sendConversationMessage.call(this, 'hello');
   console.log('   ✅ 已创建一个对话');
 });
 
 Given('用户有多个对话历史', async function (this: CustomWorld) {
   console.log('   📍 Step: 创建多个对话...');
-
-  // Keep the search fixture self-contained. Without a deterministic title,
-  // the generic mock response becomes the topic title and the search scenario
-  // only passes when another scenario happened to rename a topic on this worker.
   llmMockManager.setResponseContaining('测试对话内容', '测试对话');
+  this.testContext.firstConversation = await sendConversationMessage.call(this, '测试对话内容');
 
-  // Create first conversation
-  const chatInputs = this.page.locator('[data-testid="chat-input"]');
-  let chatInputContainer = chatInputs.first();
-  const count = await chatInputs.count();
-  for (let i = 0; i < count; i++) {
-    const elem = chatInputs.nth(i);
-    const box = await elem.boundingBox();
-    if (box && box.width > 0 && box.height > 0) {
-      chatInputContainer = elem;
-      break;
-    }
+  const addTopicButton = this.page
+    .locator('svg.lucide-message-square-plus:visible')
+    .locator('..')
+    .first();
+  await expect(addTopicButton).toBeVisible();
+  await addTopicButton.click();
+  await expect(this.page.getByTestId('topic-item').locator('[data-active="true"]')).toHaveCount(0);
+  await expect(this.page.locator('.message-wrapper')).toHaveCount(0);
+
+  this.testContext.secondConversation = await sendConversationMessage.call(this, 'hello world');
+  expect(this.testContext.secondConversation).not.toBe(this.testContext.firstConversation);
+  for (const topicId of [this.testContext.firstConversation, this.testContext.secondConversation]) {
+    await expect(
+      this.page.locator(`[data-testid="topic-item"][data-topic-id="${topicId}"]`),
+    ).toBeVisible();
   }
-
-  // First conversation - use "测试" content for search test
-  await chatInputContainer.click();
-  await this.page.waitForTimeout(300);
-  await this.page.keyboard.type('测试对话内容', { delay: 30 });
-  await this.page.keyboard.press('Enter');
-  await this.page.waitForTimeout(2000);
-
-  // Store first conversation reference
-  this.testContext.firstConversation = 'first';
-
-  // Create new topic and second conversation
-  console.log('   📍 Creating second conversation...');
-  const addTopicButton = this.page.locator('svg.lucide-message-square-plus').locator('..');
-  if ((await addTopicButton.count()) > 0) {
-    await addTopicButton.first().click();
-    await this.page.waitForTimeout(1000);
-
-    // Send message in second conversation - different content
-    await chatInputContainer.click();
-    await this.page.waitForTimeout(300);
-    await this.page.keyboard.type('hello world', { delay: 30 });
-    await this.page.keyboard.press('Enter');
-    await this.page.waitForTimeout(2000);
-  }
-
-  console.log('   ✅ 已创建多个对话');
+  console.log('   ✅ 已创建两个不同对话');
 });
 
 // ============================================
@@ -128,55 +120,9 @@ When('用户点击新建对话按钮', async function (this: CustomWorld) {
 });
 
 When('用户点击另一个对话', async function (this: CustomWorld) {
-  console.log('   📍 Step: 点击另一个对话...');
-
-  // Check if we're on the home page (has Recent Topics section)
-  const recentTopicsSection = this.page.locator('text=Recent Topics');
-  const isOnHomePage = (await recentTopicsSection.count()) > 0;
-  console.log(`   📍 Is on home page: ${isOnHomePage}`);
-
-  if (isOnHomePage) {
-    // Click the second topic card in Recent Topics section
-    // Cards are wrapped in Link components and contain "Hello! I am a mock AI" text from the mock
-    const recentTopicCards = this.page.locator('a[href*="topic="]');
-    const cardCount = await recentTopicCards.count();
-    console.log(`   📍 Found ${cardCount} recent topic cards (by href)`);
-
-    if (cardCount >= 2) {
-      // Click the second card (different from current topic)
-      await recentTopicCards.nth(1).click();
-      console.log('   ✅ 已点击首页 Recent Topics 中的另一个对话');
-      await this.page.waitForTimeout(2000);
-      return;
-    }
-
-    // Fallback: try to find by text content
-    const topicTextCards = this.page.locator('text=Hello! I am a mock AI');
-    const textCardCount = await topicTextCards.count();
-    console.log(`   📍 Found ${textCardCount} topic cards by text`);
-
-    if (textCardCount >= 2) {
-      await topicTextCards.nth(1).click();
-      console.log('   ✅ 已点击首页 Recent Topics 中的另一个对话 (by text)');
-      await this.page.waitForTimeout(2000);
-      return;
-    }
-  }
-
-  // Fallback: try to find topic items in the sidebar
-  const sidebarTopics = this.page.locator('[data-testid="topic-item"]');
-  const topicCount = await sidebarTopics.count();
-  console.log(`   📍 Found ${topicCount} topic items`);
-
-  // Click the second topic (first one is current/active)
-  if (topicCount >= 2) {
-    await sidebarTopics.nth(1).click();
-    console.log('   ✅ 已点击另一个对话');
-  } else {
-    throw new Error('Not enough topics to switch');
-  }
-
-  await this.page.waitForTimeout(500);
+  const topicId = this.testContext.firstConversation;
+  expect(topicId).toBeTruthy();
+  await this.page.locator(`[data-testid="topic-item"][data-topic-id="${topicId}"]`).click();
 });
 
 When('用户右键点击对话', async function (this: CustomWorld) {
@@ -207,6 +153,8 @@ When('用户右键点击一个对话', async function (this: CustomWorld) {
   if (topicCount > 0) {
     const topicText = await sidebarTopics.first().textContent();
     this.testContext.deletedTopicTitle = topicText?.slice(0, 30);
+    this.testContext.deletedTopicId = await sidebarTopics.first().getAttribute('data-topic-id');
+    expect(this.testContext.deletedTopicId).toBeTruthy();
     await sidebarTopics.first().click({ button: 'right' });
     console.log(`   ✅ 已右键点击对话: "${topicText?.slice(0, 30)}..."`);
   } else {
@@ -536,13 +484,9 @@ Then('页面应该显示欢迎界面', async function (this: CustomWorld) {
 });
 
 Then('应该切换到该对话', async function (this: CustomWorld) {
-  console.log('   📍 Step: 验证已切换对话...');
-
-  // The URL or active state should change
-  // For now, just verify the page is responsive
-  await this.page.waitForTimeout(500);
-
-  console.log('   ✅ 已切换到该对话');
+  await this.page.waitForURL((url) =>
+    url.pathname.endsWith(`/${this.testContext.firstConversation}`),
+  );
 });
 
 Then('显示该对话的历史消息', async function (this: CustomWorld) {
@@ -598,22 +542,11 @@ Then('该对话应该被删除', async function (this: CustomWorld) {
 });
 
 Then('对话列表中不再显示该对话', async function (this: CustomWorld) {
-  console.log('   📍 Step: 验证对话列表中不再显示该对话...');
-
-  // Wait for UI to update
-  await this.page.waitForTimeout(500);
-
-  // The deleted topic should not be in the list
-  if (this.testContext.deletedTopicTitle) {
-    const deletedTopic = this.page.locator(
-      `[class*="NavItem"]:has-text("${this.testContext.deletedTopicTitle}")`,
-    );
-    const count = await deletedTopic.count();
-    expect(count).toBe(0);
-    console.log(`   ✅ 对话 "${this.testContext.deletedTopicTitle}" 已从列表中移除`);
-  } else {
-    console.log('   ✅ 对话已从列表中移除');
-  }
+  const topicId = this.testContext.deletedTopicId;
+  expect(topicId).toBeTruthy();
+  await expect(
+    this.page.locator(`[data-testid="topic-item"][data-topic-id="${topicId}"]`),
+  ).toHaveCount(0);
 });
 
 Then('应该显示包含 {string} 的对话', async function (this: CustomWorld, searchText: string) {

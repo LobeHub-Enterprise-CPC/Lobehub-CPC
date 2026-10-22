@@ -1,3 +1,4 @@
+import { initializeTenant } from '@lobechat/business-tenant/client';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -29,9 +30,11 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
+  initializeTenant(new URL('http://localhost/'));
 
   // Reset store state
   useUserStore.setState({
+    isSigningOut: false,
     isLoadedAuthProviders: false,
     authProviders: [],
     hasPasswordAccount: false,
@@ -53,7 +56,74 @@ describe('createAuthSlice', () => {
     });
   });
 
+  it.each(['logout', 'openLogin'] as const)('keeps the tenant on %s redirects', async (action) => {
+    // The page's tenant context, as the app entry initializes it at boot.
+    initializeTenant(new URL('http://localhost/t/acme/agent'));
+    const originalLocation = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: {
+        href: '',
+        pathname: '/t/acme/agent',
+        toString: () => 'http://localhost/t/acme/agent',
+      },
+      writable: true,
+    });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null));
+    mockBetterAuthClient.signOut.mockImplementationOnce(async ({ fetchOptions }) => {
+      fetchOptions?.onSuccess?.();
+    });
+    try {
+      await act(async () => {
+        await useUserStore.getState()[action]();
+      });
+      expect(window.location.href).toMatch(/^\/t\/acme\/signin(?:\?|$)/);
+    } finally {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: originalLocation,
+        writable: true,
+      });
+      mockBetterAuthClient.signOut.mockReset().mockResolvedValue({});
+    }
+  });
+
   describe('logout', () => {
+    it('shares an in-progress sign-out and retains its original tenant redirect', async () => {
+      initializeTenant(new URL('http://localhost/t/acme/agent'));
+      let resolveCleanup!: (response: Response) => void;
+      const fetch = vi.spyOn(globalThis, 'fetch').mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveCleanup = resolve;
+          }),
+      );
+      const originalLocation = window.location;
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: { href: '', pathname: '/t/acme/agent' },
+        writable: true,
+      });
+      mockBetterAuthClient.signOut.mockImplementationOnce(async ({ fetchOptions }) => {
+        fetchOptions.onSuccess();
+      });
+      try {
+        const first = useUserStore.getState().logout();
+        const second = useUserStore
+          .getState()
+          .logout({ redirectTo: '/signin?reason=sessionExpired' });
+        const isSigningOut = useUserStore.getState().isSigningOut;
+        resolveCleanup(new Response(null));
+        await Promise.all([first, second]);
+
+        expect(isSigningOut).toBe(true);
+        expect(fetch).toHaveBeenCalledTimes(1);
+        expect(mockBetterAuthClient.signOut).toHaveBeenCalledTimes(1);
+        expect(window.location.href).toBe('/t/acme/signin');
+      } finally {
+        Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+      }
+    });
     it('clears the captured user snapshot after successful sign-out', async () => {
       writeUserDisplaySnapshot('user-a', { avatar: 'avatar-a' });
       writeUserDisplaySnapshot('user-b', { avatar: 'avatar-b' });
@@ -89,6 +159,8 @@ describe('createAuthSlice', () => {
       const logoutPromise = result.current.logout();
 
       await expect(logoutPromise).rejects.toThrow('sign-out failed');
+
+      expect(useUserStore.getState().isSigningOut).toBe(false);
 
       expect(readUserDisplaySnapshot('user-a')).toEqual({ avatar: 'avatar-a' });
       expect(localStorage.getItem('lobehub:active-scope')).toBe('user-a:personal');

@@ -1,4 +1,6 @@
+import { getMessageError } from '@lobechat/fetch-sse';
 import { ModelEmptyError } from '@lobechat/model-runtime';
+import { normalizeChatMessageError } from '@lobechat/model-runtime/errors';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { chatService } from '@/services/chat';
@@ -263,5 +265,75 @@ describe('ClientLLMTransport.retryPolicy.onError · terminal operation teardown'
 
     expect(store.failOperation).toHaveBeenCalled();
     expect(store.updateTopicStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe('ClientLLMTransport.runAttempt · classified HTTP errors', () => {
+  it.each([
+    ['NoAvailableChannel', 503, 'No available channel for the requested model'],
+    ['InvalidProviderAPIKey', 401, 'Provider credentials rejected'],
+  ])(
+    'preserves %s through fetch parsing, Error wrapping and state normalization',
+    async (errorType, status, message) => {
+      const parsed = await getMessageError(
+        Response.json(
+          {
+            body: { error: { message }, provider: 'lobehub' },
+            errorType,
+          },
+          { status },
+        ),
+      );
+      vi.mocked(chatService.getChatCompletion).mockImplementationOnce(async (_params, options) => {
+        options?.onErrorHandle?.(parsed);
+        return Response.json({ errorType }, { status });
+      });
+      const result = await createTransport().transport.runAttempt(input);
+      expect(result.ok).toBe(false);
+      if (result.ok === false) {
+        expect(result.error).toBeInstanceOf(Error);
+        const normalized = normalizeChatMessageError(result.error);
+        expect(normalized).toMatchObject({
+          body: { provider: 'lobehub' },
+          type: errorType,
+        });
+        expect((result.error as { body: unknown }).body).toEqual(parsed.body);
+        expect(normalized.body).toMatchObject(parsed.body);
+        expect(normalized.body.error.message).toBe(message);
+      }
+    },
+  );
+
+  it('keeps an explicit canonical errorType authoritative over a conflicting type', async () => {
+    vi.mocked(chatService.getChatCompletion).mockImplementationOnce(async (_params, options) => {
+      options?.onErrorHandle?.({
+        body: { provider: 'lobehub' },
+        errorType: 'InvalidProviderAPIKey',
+        message: 'Provider credentials rejected',
+        type: 'NoAvailableChannel',
+      } as any);
+      return Response.json({ errorType: 'InvalidProviderAPIKey' }, { status: 401 });
+    });
+    const result = await createTransport().transport.runAttempt(input);
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(normalizeChatMessageError(result.error)).toMatchObject({
+        type: 'InvalidProviderAPIKey',
+      });
+    }
+  });
+
+  it('retains an original Error instance and the existing unclassified fallback', async () => {
+    const error = new Error('Transport failed before classification');
+    vi.mocked(chatService.getChatCompletion).mockImplementationOnce(async (_params, options) => {
+      options?.onErrorHandle?.(error as any);
+      return new Response(null, { status: 500 });
+    });
+    const result = await createTransport().transport.runAttempt(input);
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.error).toBe(error);
+      expect(normalizeChatMessageError(result.error)).toMatchObject({ type: 500 });
+    }
   });
 });

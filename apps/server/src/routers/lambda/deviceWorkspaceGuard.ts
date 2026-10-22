@@ -1,26 +1,15 @@
+import { currentTenantScope } from '@lobechat/database/tenant';
 import { TRPCError } from '@trpc/server';
 
 import type { WorkspaceRole } from '@/business/server/trpc-middlewares/workspaceAuth';
 import type { DeviceModel } from '@/database/models/device';
 import { isPathWithinRoot } from '@/server/services/deviceGateway';
+import { canEditWorkspaceDevice } from '@/server/services/deviceGateway/access';
 
-export const canEditWorkspaceDevice = (
-  role: WorkspaceRole | undefined,
-  actorUserId: string,
-  enrollerUserId: string,
-): boolean => role === 'owner' || enrollerUserId === actorUserId;
-
-/**
- * Using a workspace device (as opposed to editing its registration) is open to
- * every member once it is public; read-only viewers never operate a machine.
- */
-export const canOperateWorkspaceDevice = (
-  role: WorkspaceRole | undefined,
-  actorUserId: string,
-  row: { userId: string; visibility: 'private' | 'public' },
-): boolean =>
-  (row.visibility === 'public' && !!role && role !== 'viewer') ||
-  canEditWorkspaceDevice(role, actorUserId, row.userId);
+export {
+  canEditWorkspaceDevice,
+  canOperateWorkspaceDevice,
+} from '@/server/services/deviceGateway/access';
 
 /** Throw unless the caller may edit this workspace device's registration. */
 export const assertWorkspaceDeviceEditable = (
@@ -43,13 +32,16 @@ export const assertWorkspaceDeviceEditable = (
  */
 const deviceSkillRoots = new Map<string, Set<string>>();
 
+/** Device ids are chosen by the client, so the grant is scoped to the tenant that registered it. */
+const skillRootsKey = (deviceId: string) => `${currentTenantScope()?.tenantId ?? ''}|${deviceId}`;
+
 export const registerDeviceSkillRoots = (deviceId: string, roots: string[]) => {
   if (roots.length === 0) return;
-  deviceSkillRoots.set(deviceId, new Set(roots));
+  deviceSkillRoots.set(skillRootsKey(deviceId), new Set(roots));
 };
 
 const isWithinSkillRoots = (deviceId: string, workingDirectory: string): boolean => {
-  const roots = deviceSkillRoots.get(deviceId);
+  const roots = deviceSkillRoots.get(skillRootsKey(deviceId));
   if (!roots) return false;
   return [...roots].some((root) => isPathWithinRoot(root, workingDirectory));
 };

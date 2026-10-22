@@ -41,14 +41,15 @@ export class LobeOllamaAI implements LobeRuntimeAI {
 
   baseURL?: string;
 
-  constructor({ baseURL }: ClientOptions = {}) {
+  constructor({ baseURL, fetch }: ClientOptions = {}) {
     try {
       if (baseURL) new URL(baseURL);
     } catch (e) {
       throw AgentRuntimeError.createError(AgentRuntimeErrorType.InvalidOllamaArgs, e);
     }
 
-    this.client = new Ollama(!baseURL ? undefined : { host: baseURL });
+    // `fetch` is injected by the server for user-provided endpoints (SSRF-safe transport).
+    this.client = new Ollama(!baseURL ? undefined : { fetch: fetch as any, host: baseURL });
 
     if (baseURL) this.baseURL = baseURL;
   }

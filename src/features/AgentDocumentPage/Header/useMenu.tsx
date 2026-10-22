@@ -1,4 +1,5 @@
 import { buildAgentDocumentUrl } from '@lobechat/builtin-tool-agent-documents';
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { isDesktop } from '@lobechat/const';
 import { useEditor } from '@lobehub/editor/react';
 import { Icon } from '@lobehub/ui';
@@ -11,7 +12,6 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import { formatPageEditorInfoTime } from '@/features/PageEditor/formatPageEditorInfoTime';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { agentDocumentService } from '@/services/agentDocument';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
@@ -44,7 +44,7 @@ export const useMenu = ({
 
   const { lg = true } = useResponsive();
   const editor = useEditor();
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
   const dateLocale = i18n.resolvedLanguage || i18n.language;
 

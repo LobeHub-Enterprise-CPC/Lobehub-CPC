@@ -23,7 +23,7 @@ describe('renderSpaHtml', () => {
     expect(html).not.toContain('SEO_META');
     expect(html).not.toContain('ANALYTICS_SCRIPTS');
     expect(res.headers.get('content-type')).toBe('text/html; charset=utf-8');
-    expect(res.headers.get('Cache-Control')).toBe('no-cache');
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
   });
 
   it('escapes script-breaking sequences in the server config', async () => {

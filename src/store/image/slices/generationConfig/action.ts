@@ -342,12 +342,24 @@ export class GenerationConfigActionImpl {
     );
   };
 
+  /**
+   * Re-apply a history batch's model and settings. Returns `false` (leaving the state
+   * untouched) when that model/provider is no longer in the enabled list, e.g. it was
+   * removed from the tenant directory after the batch was generated.
+   */
   reuseSettings = (
     model: string,
     provider: string,
     settings: Partial<RuntimeImageGenParams>,
-  ): void => {
-    const { defaultValues, parametersSchema } = getModelAndDefaults(model, provider);
+  ): boolean => {
+    let resolved: ReturnType<typeof getModelAndDefaults>;
+    try {
+      resolved = getModelAndDefaults(model, provider);
+    } catch {
+      return false;
+    }
+
+    const { defaultValues, parametersSchema } = resolved;
     const parameters = preserveReusableSettings(settings, defaultValues, parametersSchema);
 
     this.#set(
@@ -360,6 +372,8 @@ export class GenerationConfigActionImpl {
       false,
       `reuseSettings/${model}/${provider}`,
     );
+
+    return true;
   };
 
   reuseSeed = (seed: number): void => {

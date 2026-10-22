@@ -40,23 +40,27 @@ tags:
     Callback domain format:
 
     - **Callback Domain**: `your-domain.com` (without protocol or path)
-    - **Full Callback URL**: `https://your-domain.com/api/auth/callback/wechat`
+    - **Full Callback URL**: `https://your-domain.com/t/<tenant>/api/auth/callback/wechat`
   </Callout>
 
   3. Note down the **AppID** and **AppSecret**
 
-  ### Configure Environment Variables
+  ### Configure in Admin
 
-  | Environment Variable | Type     | Description                                                     |
-  | -------------------- | -------- | --------------------------------------------------------------- |
-  | `AUTH_SECRET`        | Required | Session encryption key, generate with `openssl rand -base64 32` |
-  | `AUTH_SSO_PROVIDERS` | Required | Set to `wechat`                                                 |
-  | `AUTH_WECHAT_ID`     | Required | AppID from WeChat Open Platform                                 |
-  | `AUTH_WECHAT_SECRET` | Required | AppSecret from WeChat Open Platform                             |
+  SSO is configured per tenant in Admin, not with environment variables. In Admin, open the tenant's SSO providers, add a provider and fill in:
 
-  <Callout type={'tip'}>
-    Go to [📘 Environment Variables](/docs/self-hosting/environment-variables/auth#wechat)
-    for detailed information.
+  | Field         | Value                                                                    |
+  | ------------- | ------------------------------------------------------------------------ |
+  | Protocol      | OIDC                                                                     |
+  | Provider ID   | `wechat` selects the wechat preset; any other ID is plain OIDC           |
+  | Client ID     | Client ID from the provider                                              |
+  | Client Secret | Client secret from the provider; Admin stores it encrypted               |
+  | Issuer        | `https://open.weixin.qq.com` (required by Admin, not used for discovery) |
+
+  The callback URL to register with the provider is `https://your-domain.com/t/<tenant>/api/auth/callback/<provider-id>`; Admin shows it for each provider.
+
+  <Callout type={'info'}>
+    Admin has no WeChat OAuth 2.0 preset, so WeChat is added as an OIDC entry named `wechat`; LobeHub runs its WeChat preset for that provider ID.
   </Callout>
 </Steps>
 

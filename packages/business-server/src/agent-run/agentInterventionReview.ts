@@ -257,8 +257,6 @@ export interface GetAgentInterventionReviewBySourceParams {
   actorUserId: string;
   batchId: string;
   operationId: string;
-  /** Set only by the share-visitor path; see {@link AgentInterventionShareVisitorScope}. */
-  shareVisitor?: AgentInterventionShareVisitorScope;
   targets: AgentInterventionSourceTarget[];
   workspaceId?: string;
 }
@@ -280,27 +278,12 @@ export type GetAgentInterventionReviewBySourceResult =
       sourceItemMap: Record<string, string>;
     });
 
-/**
- * A share visitor resolving an intervention on their OWN share run. The caller
- * (`shareChat.resolveInterventionBySource`) has already authenticated the visitor and
- * proved they own `topicId` under a live share of `agentId`; the business slot
- * must still bind the durable batch to exactly this owner/agent/topic and to a
- * share-run operation, and must refuse every other actor for a share run.
- */
-export interface AgentInterventionShareVisitorScope {
-  agentId: string;
-  ownerUserId: string;
-  topicId: string;
-}
-
 export interface ResolveAgentInterventionBySourceParams {
   action: AgentInterventionSourceAction;
   actorUserId: string;
   batchId: string;
   operationId: string;
   resolutionRequestId: string;
-  /** Set only by the share-visitor resolve path; see {@link AgentInterventionShareVisitorScope}. */
-  shareVisitor?: AgentInterventionShareVisitorScope;
   targets: AgentInterventionSourceTarget[];
   workspaceId?: string;
 }

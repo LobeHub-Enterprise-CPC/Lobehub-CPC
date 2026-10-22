@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 
+import type { GatewayIdentityProvider } from '@lobechat/agent-gateway-client';
 import { OFFICIAL_DEVICE_GATEWAY_URL } from '@lobechat/const/url';
 import type {
   EnrollWorkspaceParams,
@@ -11,14 +12,11 @@ import type {
 import type { DeviceMetricsSampler } from '@lobechat/device-control/metrics';
 import type {
   AgentRunRequestMessage,
-  DeviceSystemInfo,
   GatewayClient,
-  GatewayMcpParams,
   MessageApiRequestMessage,
   RpcRequestMessage,
   SystemInfoRequestMessage,
   ToolCallRequestMessage,
-  ToolCallResponseMessage,
 } from '@lobechat/device-gateway-client';
 import type { IdentitySource } from '@lobechat/device-identity';
 import type { GatewayConnectionStatus } from '@lobechat/electron-client-ipc';
@@ -30,6 +28,7 @@ import { createLogger } from '@/utils/logger';
 import { getDesktopUserAgent } from '@/utils/user-agent';
 import { safeGetPath } from '@/utils/user-path';
 
+import { GatewayExecutionHandlers } from './gatewayExecutionHandlers';
 import { ServiceModule } from './index';
 
 const logger = createLogger('services:GatewayConnectionSrv');
@@ -43,74 +42,6 @@ const DEFAULT_GATEWAY_URL = OFFICIAL_DEVICE_GATEWAY_URL;
  */
 const RECONNECT_UI_GRACE_MS = 5000;
 
-/**
- * Result envelope a tool-call handler must return. Mirrors
- * `BuiltinServerRuntimeOutput` so the renderer-side and remote-device paths
- * stay symmetric: `content` is the LLM-facing prompt text; `state` carries the
- * structured payload that downstream persists into `pluginState`.
- */
-interface ToolCallResult {
-  content: string;
-  error?: unknown;
-  state?: unknown;
-  success: boolean;
-}
-
-interface MessageApiHandler {
-  (platform: string, apiName: string, payload: Record<string, unknown>): Promise<unknown>;
-}
-
-interface ToolCallHandler {
-  (identifier: string | undefined, apiName: string, args: unknown): Promise<ToolCallResult>;
-}
-
-/**
- * Handler for tunneled stdio MCP calls. Unlike {@link ToolCallHandler} (which
- * keys on `apiName` for builtin local-system tools), this carries the MCP
- * server identity + connection params so the device can spawn the local stdio
- * server and invoke the tool on it.
- */
-interface McpCallHandler {
-  (mcpCall: {
-    apiName: string;
-    arguments: string;
-    identifier: string;
-    params: GatewayMcpParams;
-  }): Promise<ToolCallResult>;
-}
-
-/**
- * Coerce a runtime error (which may be an Error, string, or `{ message }`
- * object) into the string shape the wire protocol expects. Returns undefined
- * when there's no error to transmit.
- */
-const serializeWireError = (err: unknown): string | undefined => {
-  if (err === undefined || err === null) return undefined;
-  if (typeof err === 'string') return err;
-  if (err instanceof Error) return err.message;
-  if (typeof err === 'object' && 'message' in err && typeof err.message === 'string') {
-    return err.message;
-  }
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return String(err);
-  }
-};
-
-interface AgentRunHandler {
-  (request: AgentRunRequestMessage): Promise<{ reason?: string; status: 'accepted' | 'rejected' }>;
-}
-
-/**
- * Handler for generic server-internal device RPCs (e.g. workspace-init scans).
- * Dispatches by `method` name and returns the JSON-serializable result. Distinct
- * from {@link ToolCallHandler} — RPCs are never exposed to the agent.
- */
-interface RpcHandler {
-  (method: string, params: unknown): Promise<unknown>;
-}
-
 interface DeviceRegistrar {
   (info: {
     architecture: string;
@@ -120,17 +51,6 @@ interface DeviceRegistrar {
     metadata: Record<string, string>;
     platform: string;
   }): Promise<void>;
-}
-
-/**
- * Mint a fresh workspace-device connect token for a share connection. Injected
- * by the controller (which owns the authed server URL + user token) — used when
- * restoring persisted enrollments on startup and when a workspace connection's
- * token expires. Returns null when the desktop is not in a state to mint (e.g.
- * logged out).
- */
-interface WorkspaceTokenProvider {
-  (workspaceId: string): Promise<string | null>;
 }
 
 /**
@@ -151,6 +71,19 @@ interface WorkspaceDeviceChecker {
  */
 export default class GatewayConnectionService extends ServiceModule {
   private client: GatewayClient | null = null;
+  private connectionEpoch = 0;
+  private connectionController = new AbortController();
+  private enrollmentIdentity?: string;
+  private identityProviderFactory?: (
+    workspaceId?: string,
+    initialTicket?: string,
+  ) => Promise<GatewayIdentityProvider & { subject?: string }>;
+
+  setIdentityProviderFactory(
+    factory: NonNullable<GatewayConnectionService['identityProviderFactory']>,
+  ) {
+    this.identityProviderFactory = factory;
+  }
   private status: GatewayConnectionStatus = 'disconnected';
   private deviceId: string | null = null;
   private powerSaveBlockerId: number | null = null;
@@ -161,39 +94,17 @@ export default class GatewayConnectionService extends ServiceModule {
   private identitySource: IdentitySource | null = null;
 
   private tokenProvider: (() => Promise<string | null>) | null = null;
-  private tokenRefresher: (() => Promise<{ error?: string; success: boolean }>) | null = null;
-  private toolCallHandler: ToolCallHandler | null = null;
-  private mcpCallHandler: McpCallHandler | null = null;
-  private messageApiHandler: MessageApiHandler | null = null;
-  private agentRunHandler: AgentRunHandler | null = null;
-  private rpcHandler: RpcHandler | null = null;
+  private readonly execution = new GatewayExecutionHandlers(this.app);
   private deviceRegistrar: DeviceRegistrar | null = null;
   /** Samples CPU / memory / load for the personal device while the connection is on. */
   private metricsSampler: { deviceId: string; sampler: DeviceMetricsSampler } | null = null;
-  private workspaceTokenProvider: WorkspaceTokenProvider | null = null;
   private workspaceDeviceChecker: WorkspaceDeviceChecker | null = null;
 
   /** Live workspace-share connections, keyed by workspaceId. */
   private workspaceClients = new Map<string, GatewayClient>();
+  private workspaceDials = new Map<string, AbortController>();
   /** Serializes enrollment restores so reconnect churn can't double-open sockets. */
   private workspaceRestoreInFlight = false;
-  /**
-   * Set once an `auth_failed` has already triggered a token refresh for the
-   * current personal connection. Unlike `auth_expired`, `auth_failed` is
-   * terminal inside the gateway client (it disconnects and switches the backoff
-   * reconnect off), so the service is the only thing that can bring the socket
-   * back — and this guard is what stops a refresh that keeps yielding a
-   * rejected token from spinning forever. Cleared by a successful
-   * authentication, or by a user-initiated connect.
-   */
-  private authRecoveryAttempted = false;
-  /**
-   * Workspace clients that already spent their single `auth_failed` retry. A
-   * weak set on purpose: the retry budget is per client instance (a re-enroll
-   * builds a new one), so entries must die with their client.
-   */
-  private workspaceAuthRetried = new WeakSet<GatewayClient>();
-
   // ─── Configuration ───
 
   /**
@@ -204,43 +115,22 @@ export default class GatewayConnectionService extends ServiceModule {
   }
 
   /**
-   * Set token refresher function (for auth_expired handling)
-   */
-  setTokenRefresher(refresher: () => Promise<{ error?: string; success: boolean }>) {
-    this.tokenRefresher = refresher;
-  }
-
-  /**
-   * Push a freshly refreshed access token into the live personal connection.
-   *
-   * The gateway client captures its token at construction and replays that same
-   * value on every backoff / heartbeat reconnect, while the access token is
-   * refreshed elsewhere (AuthCtr's auto-refresh timer, not the gateway path).
-   * Without this push, a token that roams past `exp` while the socket is
-   * healthy is re-sent on the next reconnect, rejected with `auth_failed`, and
-   * the device goes offline until the user intervenes.
-   */
-  updatePersonalToken(token: string) {
-    this.client?.updateToken(token);
-  }
-
-  /**
    * Set tool call handler (to route tool calls to LocalFileCtr/ShellCommandCtr)
    */
-  setToolCallHandler(handler: ToolCallHandler) {
-    this.toolCallHandler = handler;
+  setToolCallHandler(handler: NonNullable<GatewayExecutionHandlers['toolCallHandler']>) {
+    this.execution.toolCallHandler = handler;
   }
 
   /**
    * Set the MCP call handler (routes tunneled stdio MCP calls to McpCtr, which
    * spawns the local stdio server). Distinct from the builtin tool-call handler.
    */
-  setMcpCallHandler(handler: McpCallHandler) {
-    this.mcpCallHandler = handler;
+  setMcpCallHandler(handler: NonNullable<GatewayExecutionHandlers['mcpCallHandler']>) {
+    this.execution.mcpCallHandler = handler;
   }
 
-  setMessageApiHandler(handler: MessageApiHandler) {
-    this.messageApiHandler = handler;
+  setMessageApiHandler(handler: NonNullable<GatewayExecutionHandlers['messageApiHandler']>) {
+    this.execution.messageApiHandler = handler;
   }
 
   /**
@@ -248,12 +138,12 @@ export default class GatewayConnectionService extends ServiceModule {
    * as workspace-init to the relevant controller). Distinct from the tool-call
    * handler — these are never surfaced to the agent.
    */
-  setRpcHandler(handler: RpcHandler) {
-    this.rpcHandler = handler;
+  setRpcHandler(handler: NonNullable<GatewayExecutionHandlers['rpcHandler']>) {
+    this.execution.rpcHandler = handler;
   }
 
-  setAgentRunHandler(handler: AgentRunHandler) {
-    this.agentRunHandler = handler;
+  setAgentRunHandler(handler: NonNullable<GatewayExecutionHandlers['agentRunHandler']>) {
+    this.execution.agentRunHandler = handler;
   }
 
   /**
@@ -263,15 +153,6 @@ export default class GatewayConnectionService extends ServiceModule {
    */
   setDeviceRegistrar(registrar: DeviceRegistrar) {
     this.deviceRegistrar = registrar;
-  }
-
-  /**
-   * Set the workspace connect-token minter used by share connections (startup
-   * restore + token expiry). Injected by the controller, which owns the authed
-   * server calls.
-   */
-  setWorkspaceTokenProvider(provider: WorkspaceTokenProvider) {
-    this.workspaceTokenProvider = provider;
   }
 
   /**
@@ -388,102 +269,118 @@ export default class GatewayConnectionService extends ServiceModule {
     if (this.status === 'connected' || this.status === 'connecting') {
       return { success: true };
     }
-    // A user-initiated connect always gets a fresh retry budget — only the
-    // automatic recoveries are rationed by the guard.
-    this.authRecoveryAttempted = false;
     return this.doConnect();
   }
 
   async disconnect(): Promise<{ success: boolean }> {
-    // A user-initiated disconnect turns the device off, so stop sampling too —
-    // the page then shows no data rather than "running but unreachable". The
-    // samples since the last upload are pushed first (bounded), while the
-    // socket is still open.
-    await this.stopMetricsSampler({ flushTimeoutMs: 3000 });
-    if (this.client) {
-      await this.client.disconnect();
-      this.client = null;
-    }
-    // Take the workspace share connections down with the personal one (the
-    // device goes fully offline), but keep the persisted enrollments — the next
-    // connect restores them.
-    for (const workspaceId of this.workspaceClients.keys()) {
-      await this.closeWorkspaceClient(workspaceId);
-    }
+    ++this.connectionEpoch;
+    this.connectionController.abort();
+    this.connectionController = new AbortController();
+    this.enrollmentIdentity = undefined;
+    for (const dial of this.workspaceDials.values()) dial.abort();
+    this.workspaceDials.clear();
+    // Fence every socket synchronously before waiting for any cleanup I/O.
+    const clients = [...this.workspaceClients.values(), ...(this.client ? [this.client] : [])];
+    this.client = null;
+    this.workspaceClients.clear();
+    const closing = clients.map((client) => client.disconnect());
+    this.setStatus('disconnected');
+    await Promise.all(closing);
+    await this.stopMetricsSampler();
     this.setStatus('disconnected');
     return { success: true };
   }
 
   private async doConnect(): Promise<{ error?: string; success: boolean }> {
-    // Clean up any existing client
-    if (this.client) {
-      await this.client.disconnect();
-      this.client = null;
-    }
-
-    if (!this.tokenProvider) {
-      logger.warn('Cannot connect: no token provider configured');
-      return { error: 'No token provider configured', success: false };
-    }
-
-    const token = await this.tokenProvider();
-    if (!token) {
-      logger.warn('Cannot connect: no access token');
-      return { error: 'No access token available', success: false };
-    }
-
-    const gatewayUrl = this.getGatewayUrl();
-    const userId = this.extractUserIdFromToken(token);
-    logger.info(`Connecting to device gateway: ${gatewayUrl}, userId: ${userId || 'unknown'}`);
-
-    // Resolve the stable, user-scoped device id and register with the server
-    // registry before opening the WS, so the device row exists by the time the
-    // gateway reports it online.
-    if (userId) {
-      const identity = await this.resolveDeviceIdentity(userId);
-      await this.deviceRegistrar?.({
-        architecture: os.arch(),
+    const epoch = ++this.connectionEpoch;
+    this.connectionController.abort();
+    this.connectionController = new AbortController();
+    const signal = this.connectionController.signal;
+    const current = () => epoch === this.connectionEpoch && !signal.aborted;
+    this.setStatus('connecting');
+    try {
+      if (this.client) {
+        const previous = this.client;
+        this.client = null;
+        await previous.disconnect();
+      }
+      if (!this.identityProviderFactory) throw new Error('GATEWAY_LOGIN_CONFIRMATION_REQUIRED');
+      const provider = await this.identityProviderFactory();
+      // The ticket names the device, so the device identity is settled first;
+      // the provider's owner is the account the committed login belongs to.
+      if (!provider.subject) throw new Error('GATEWAY_LOGIN_CONFIRMATION_REQUIRED');
+      const identity = await this.resolveDeviceIdentity(provider.subject);
+      if (!current()) return { error: 'GATEWAY_IDENTITY_CHANGED', success: false };
+      let first = await provider({
+        connectionId: this.getConnectionId(),
         deviceId: identity.deviceId,
-        hostname: os.hostname(),
-        identitySource: identity.identitySource,
-        metadata: {
-          appVersion: app.getVersion(),
-          electron: process.versions.electron,
-          node: process.versions.node,
-          osRelease: os.release(),
-        },
-        platform: process.platform,
-      }).catch((err) => {
-        logger.warn(`Device registration failed (non-fatal): ${(err as Error).message}`);
+        signal,
       });
-      await this.startMetricsSampler(identity.deviceId);
+      if (!current()) return { error: 'GATEWAY_IDENTITY_CHANGED', success: false };
+      const identityProvider: GatewayIdentityProvider = async (input) => {
+        if (!current()) throw new Error('GATEWAY_IDENTITY_CHANGED');
+        if (first) {
+          const initial = first;
+          first = undefined;
+          return initial;
+        }
+        return provider(input);
+      };
+      const token = first.gatewayTicket;
+      const userId = first.userId;
+      this.enrollmentIdentity = JSON.stringify([first.tenantId, first.userId]);
+      const gatewayUrl = this.getGatewayUrl();
+      logger.info(`Connecting to device gateway: ${gatewayUrl}, userId: ${userId || 'unknown'}`);
+
+      // Resolve the stable, user-scoped device id and register with the server
+      // registry before opening the WS, so the device row exists by the time the
+      // gateway reports it online.
+      if (userId) {
+        await this.deviceRegistrar?.({
+          architecture: os.arch(),
+          deviceId: identity.deviceId,
+          hostname: os.hostname(),
+          identitySource: identity.identitySource,
+          metadata: {
+            appVersion: app.getVersion(),
+            electron: process.versions.electron,
+            node: process.versions.node,
+            osRelease: os.release(),
+          },
+          platform: process.platform,
+        }).catch((err) => {
+          logger.warn(`Device registration failed (non-fatal): ${(err as Error).message}`);
+        });
+      }
+
+      const { GatewayClient } = await import('@lobechat/device-gateway-client');
+      if (!current()) return { success: false };
+      const client = new GatewayClient({
+        identityProvider,
+        channel: isDev ? 'desktop-dev' : 'desktop',
+        connectionId: this.getConnectionId(),
+        deviceId: this.getDeviceId(),
+        gatewayUrl,
+        logger,
+        tunnel: false,
+        token,
+        userAgent: getDesktopUserAgent(),
+        userId: userId || undefined,
+      });
+
+      this.setupClientEvents(client);
+      this.client = client;
+
+      await client.connect();
+
+      return { success: true };
+    } catch (error) {
+      if (current()) this.setStatus('disconnected');
+      return {
+        error: error instanceof Error ? error.message : 'GATEWAY_IDENTITY_REJECTED',
+        success: false,
+      };
     }
-
-    const { GatewayClient } = await import('@lobechat/device-gateway-client');
-    const client = new GatewayClient({
-      channel: isDev ? 'desktop-dev' : 'desktop',
-      connectionId: this.getConnectionId(),
-      deviceId: this.getDeviceId(),
-      gatewayUrl,
-      logger,
-      token,
-      userAgent: getDesktopUserAgent(),
-      userId: userId || undefined,
-    });
-
-    this.setupClientEvents(client);
-    this.client = client;
-
-    await client.connect();
-
-    // Re-open persisted workspace share connections once the personal
-    // connection is up. Fire-and-forget: restore failures must never block or
-    // fail the personal connect.
-    void this.restoreWorkspaceEnrollments().catch((err) => {
-      logger.warn('Workspace enrollment restore failed (non-fatal):', err);
-    });
-
-    return { success: true };
   }
 
   /**
@@ -494,13 +391,15 @@ export default class GatewayConnectionService extends ServiceModule {
    * re-minting a workspace connect token instead of refreshing the user token.
    */
   private setupClientEvents(client: GatewayClient, scope?: { workspaceId: string }) {
+    const current = () =>
+      scope ? this.workspaceClients.get(scope.workspaceId) === client : this.client === client;
     if (scope) {
       client.on('status_changed', (status) => {
         logger.info(`Workspace ${scope.workspaceId} connection status: ${status}`);
       });
     } else {
       client.on('status_changed', (status) => {
-        this.setStatus(status);
+        if (current()) this.setStatus(status);
       });
     }
 
@@ -525,31 +424,27 @@ export default class GatewayConnectionService extends ServiceModule {
     });
 
     client.on('auth_expired', () => {
-      if (scope) {
-        logger.warn(`Workspace ${scope.workspaceId} connect token expired, re-minting`);
-        void this.handleWorkspaceAuthExpired(scope.workspaceId);
-      } else {
-        logger.warn('Received auth_expired, will reconnect with refreshed token');
-        void this.handleAuthExpired();
-      }
+      if (current()) void client.reconnect();
     });
-
     client.on('auth_failed', (reason) => {
-      if (scope) {
-        void this.handleWorkspaceAuthFailed(scope.workspaceId, reason);
-      } else {
-        void this.handleAuthFailed(reason);
+      if (!current()) return;
+      logger.warn(
+        scope && reason === 'FORBIDDEN'
+          ? this.workspaceAdminMessage()
+          : `Gateway authentication stopped: ${reason}`,
+      );
+      if (scope) void this.closeWorkspaceClient(scope.workspaceId);
+      else {
+        for (const id of this.workspaceClients.keys()) void this.closeWorkspaceClient(id);
+        void client.disconnect();
+        this.setStatus('disconnected');
       }
     });
-
     client.on('connected', () => {
-      // A live authenticated socket is the reset point for the auth_failed
-      // retry guards: the next rejection gets a fresh single retry.
-      if (scope) {
-        this.workspaceAuthRetried.delete(client);
-      } else {
-        this.authRecoveryAttempted = false;
-      }
+      if (!current() || scope) return;
+      void this.restoreWorkspaceEnrollments().catch((error) =>
+        logger.warn('Workspace enrollment restore failed:', error),
+      );
     });
 
     client.on('replaced', () => {
@@ -627,15 +522,61 @@ export default class GatewayConnectionService extends ServiceModule {
 
   private async openWorkspaceClient(
     workspaceId: string,
-    token: string,
+    token?: string,
   ): Promise<EnrollWorkspaceResult> {
-    // Re-enroll replaces the previous share connection instead of stacking one.
+    const epoch = this.connectionEpoch;
+    if (!this.identityProviderFactory || !this.client) throw new Error('GATEWAY_IDENTITY_CHANGED');
     await this.closeWorkspaceClient(workspaceId);
-
+    if (epoch !== this.connectionEpoch || !this.client) throw new Error('GATEWAY_IDENTITY_CHANGED');
+    const dial = new AbortController();
+    this.workspaceDials.set(workspaceId, dial);
+    const signal = AbortSignal.any([dial.signal, this.connectionController.signal]);
+    const assertCurrent = () => {
+      signal.throwIfAborted();
+      if (
+        epoch !== this.connectionEpoch ||
+        this.workspaceDials.get(workspaceId) !== dial ||
+        !this.client
+      )
+        throw new Error('GATEWAY_IDENTITY_CHANGED');
+    };
+    let provider: GatewayIdentityProvider;
+    let first: Awaited<ReturnType<GatewayIdentityProvider>> | undefined;
+    // The ticket names the device, so the workspace device identity comes first.
     const identity = await this.resolveWorkspaceDeviceIdentity(workspaceId);
+    assertCurrent();
+    try {
+      provider = await this.identityProviderFactory(workspaceId, token);
+      assertCurrent();
+      first = await provider({
+        connectionId: this.getConnectionId(),
+        deviceId: identity.deviceId,
+        signal,
+      });
+      assertCurrent();
+    } catch (error) {
+      if (this.workspaceDials.get(workspaceId) === dial) this.workspaceDials.delete(workspaceId);
+      dial.abort();
+      if ((error as { code?: string }).code === 'FORBIDDEN')
+        throw new Error(this.workspaceAdminMessage(), { cause: error });
+      throw error;
+    }
+    const identityProvider: GatewayIdentityProvider = async (input) => {
+      if (epoch !== this.connectionEpoch || signal.aborted)
+        throw new Error('GATEWAY_IDENTITY_CHANGED');
+      input.signal.throwIfAborted();
+      if (first) {
+        const result = first;
+        first = undefined;
+        return result;
+      }
+      return provider(input);
+    };
 
     const { GatewayClient } = await import('@lobechat/device-gateway-client');
+    assertCurrent();
     const client = new GatewayClient({
+      identityProvider,
       channel: isDev ? 'desktop-dev' : 'desktop',
       // Reuse the install's connectionId: the gateway dedupes stale sockets per
       // principal, so the workspace connection only ever replaces its own
@@ -644,7 +585,8 @@ export default class GatewayConnectionService extends ServiceModule {
       deviceId: identity.deviceId,
       gatewayUrl: this.getGatewayUrl(),
       logger,
-      token,
+      tunnel: false,
+      token: first.gatewayTicket,
       userAgent: getDesktopUserAgent(),
       userId: undefined,
       workspaceId,
@@ -657,60 +599,17 @@ export default class GatewayConnectionService extends ServiceModule {
     return identity;
   }
 
+  private workspaceAdminMessage() {
+    return this.app.i18n.ns('common')('gateway.workspaceAdminRequired');
+  }
+
   private async closeWorkspaceClient(workspaceId: string) {
+    this.workspaceDials.get(workspaceId)?.abort();
+    this.workspaceDials.delete(workspaceId);
     const client = this.workspaceClients.get(workspaceId);
     if (!client) return;
     this.workspaceClients.delete(workspaceId);
     await client.disconnect();
-  }
-
-  /**
-   * Workspace share connections authenticate with a short-lived minted token,
-   * not the user token — on expiry, re-mint via the injected provider and
-   * reconnect in place. A failed re-mint (share/membership likely revoked)
-   * closes the socket but keeps the persisted enrollment: the next startup's
-   * restore path settles it against the server row.
-   */
-  private async handleWorkspaceAuthExpired(workspaceId: string) {
-    const client = this.workspaceClients.get(workspaceId);
-    if (!client) return;
-
-    try {
-      const token = await this.workspaceTokenProvider?.(workspaceId);
-      if (!token) throw new Error('no workspace connect token available');
-      client.updateToken(token);
-      await client.reconnect();
-    } catch (error) {
-      logger.warn(`Workspace ${workspaceId} token re-mint failed, closing share:`, error);
-      await this.closeWorkspaceClient(workspaceId);
-    }
-  }
-
-  /**
-   * A workspace share connection was rejected outright by the gateway. Recover
-   * the same way as an expired connect token — re-mint and reconnect in place —
-   * but only once per client instance, so a share that keeps being rejected
-   * (revoked membership / revoked share) is closed instead of retried forever.
-   * The persisted enrollment is kept: the next startup's restore path settles it
-   * against the server row.
-   */
-  private async handleWorkspaceAuthFailed(workspaceId: string, reason: string) {
-    const client = this.workspaceClients.get(workspaceId);
-    if (!client) return;
-
-    if (this.workspaceAuthRetried.has(client)) {
-      logger.warn(
-        `Workspace ${workspaceId} authentication failed again (${reason}), closing share connection`,
-      );
-      await this.closeWorkspaceClient(workspaceId);
-      return;
-    }
-
-    this.workspaceAuthRetried.add(client);
-    logger.warn(
-      `Workspace ${workspaceId} authentication failed (${reason}), re-minting connect token`,
-    );
-    await this.handleWorkspaceAuthExpired(workspaceId);
   }
 
   /**
@@ -723,16 +622,19 @@ export default class GatewayConnectionService extends ServiceModule {
   private async restoreWorkspaceEnrollments() {
     if (this.workspaceRestoreInFlight) return;
     this.workspaceRestoreInFlight = true;
+    const epoch = this.connectionEpoch;
 
     try {
       for (const workspaceId of this.getPersistedWorkspaceEnrollments()) {
         // Already live (e.g. personal reconnect after auth refresh) — leave it.
+        if (epoch !== this.connectionEpoch || !this.client) return;
         if (this.workspaceClients.has(workspaceId)) continue;
 
         try {
           const identity = await this.resolveWorkspaceDeviceIdentity(workspaceId);
 
           const registered = await this.workspaceDeviceChecker?.(workspaceId, identity.deviceId);
+          if (epoch !== this.connectionEpoch) return;
           if (registered === false) {
             logger.info(
               `Workspace share ${workspaceId} was revoked while offline, clearing local enrollment`,
@@ -741,13 +643,8 @@ export default class GatewayConnectionService extends ServiceModule {
             continue;
           }
 
-          const token = await this.workspaceTokenProvider?.(workspaceId);
-          if (!token) {
-            logger.warn(`No connect token for workspace ${workspaceId}, skipping restore`);
-            continue;
-          }
-
-          await this.openWorkspaceClient(workspaceId, token);
+          if (epoch !== this.connectionEpoch) return;
+          await this.openWorkspaceClient(workspaceId);
           logger.info(`Restored workspace share connection: ${workspaceId}`);
         } catch (error) {
           // Degraded by design: keep the record and retry on the next connect
@@ -763,304 +660,52 @@ export default class GatewayConnectionService extends ServiceModule {
   // ─── Workspace Enrollment Persistence ───
 
   private getPersistedWorkspaceEnrollments(): string[] {
-    const stored = this.app.storeManager.get('gatewayWorkspaceEnrollments') as string[] | undefined;
+    if (!this.enrollmentIdentity) return [];
+    const stored = this.app.storeManager.get('gatewayWorkspaceEnrollmentsByIdentity')?.[
+      this.enrollmentIdentity
+    ];
     return Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : [];
   }
 
   private persistWorkspaceEnrollment(workspaceId: string) {
     const current = this.getPersistedWorkspaceEnrollments();
     if (current.includes(workspaceId)) return;
-    this.app.storeManager.set('gatewayWorkspaceEnrollments', [...current, workspaceId]);
+    if (!this.enrollmentIdentity) return;
+    this.app.storeManager.set('gatewayWorkspaceEnrollmentsByIdentity', {
+      ...this.app.storeManager.get('gatewayWorkspaceEnrollmentsByIdentity'),
+      [this.enrollmentIdentity]: [...current, workspaceId],
+    });
   }
 
   private removePersistedWorkspaceEnrollment(workspaceId: string) {
     const current = this.getPersistedWorkspaceEnrollments();
     if (!current.includes(workspaceId)) return;
-    this.app.storeManager.set(
-      'gatewayWorkspaceEnrollments',
-      current.filter((id) => id !== workspaceId),
-    );
+    if (!this.enrollmentIdentity) return;
+    this.app.storeManager.set('gatewayWorkspaceEnrollmentsByIdentity', {
+      ...this.app.storeManager.get('gatewayWorkspaceEnrollmentsByIdentity'),
+      [this.enrollmentIdentity]: current.filter((id) => id !== workspaceId),
+    });
   }
 
-  // ─── Auth Expired / Failed Handling ───
-
-  /**
-   * Refresh the user token and rebuild the personal connection. A failed
-   * refresh settles on `disconnected` and waits for the next user action or app
-   * start — the refresher already reports the OIDC reason.
-   */
-  private async refreshTokenAndReconnect() {
-    // Disconnect the current client
-    if (this.client) {
-      await this.client.disconnect();
-      this.client = null;
-    }
-
-    if (!this.tokenRefresher) {
-      logger.error('No token refresher configured, cannot refresh the access token');
-      this.setStatus('disconnected');
-      return;
-    }
-
-    logger.info('Attempting token refresh before reconnect');
-    const result = await this.tokenRefresher();
-
-    if (result.success) {
-      logger.info('Token refreshed, reconnecting');
-      await this.doConnect();
-    } else {
-      logger.error('Token refresh failed:', result.error);
-      this.setStatus('disconnected');
-    }
+  private handleSystemInfoRequest(client: GatewayClient, request: SystemInfoRequestMessage) {
+    return this.execution.handleSystemInfoRequest(client, request);
   }
-
-  private async handleAuthExpired() {
-    await this.refreshTokenAndReconnect();
+  private handleRpcRequest(client: GatewayClient, request: RpcRequestMessage) {
+    return this.execution.handleRpcRequest(client, request);
   }
-
-  /**
-   * The gateway rejected our token outright (`auth_failed`). Unlike
-   * `auth_expired` this is terminal inside the gateway client: it emits the
-   * event and then calls `disconnect()`, which turns the backoff reconnect off.
-   * With nobody listening the socket stayed down — and because the UI switch
-   * reads the connection status, it surfaced as the switch turning itself off —
-   * until the user toggled it or restarted the app.
-   *
-   * Refresh once and reconnect. {@link authRecoveryAttempted} keeps a refresh
-   * that yields another rejected token (revoked grant, clock skew) from looping.
-   */
-  private async handleAuthFailed(reason: string) {
-    if (this.authRecoveryAttempted) {
-      logger.error(
-        `Authentication failed again after a token refresh (${reason}); staying disconnected until the next connect`,
-      );
-      this.setStatus('disconnected');
-      return;
-    }
-
-    this.authRecoveryAttempted = true;
-    logger.warn(`Authentication failed: ${reason}. Attempting token refresh before reconnect...`);
-    await this.refreshTokenAndReconnect();
-  }
-
-  // ─── System Info ───
-
-  /**
-   * Triggering workflow: gateway `system_info_request` -> handleSystemInfoRequest
-   * -> {@link GatewayClient.sendSystemInfoResponse}, including desktop tool support.
-   */
-  private async handleSystemInfoRequest(client: GatewayClient, request: SystemInfoRequestMessage) {
-    logger.info(`Received system_info_request: requestId=${request.requestId}`);
-    try {
-      client.sendSystemInfoResponse({
-        requestId: request.requestId,
-        result: { success: true, systemInfo: await this.collectSystemInfo() },
-      });
-    } catch (error) {
-      // The gateway keeps the agent run parked until a correlated reply arrives,
-      // so a failed collection must still answer instead of only logging.
-      logger.error(`system_info_request failed: requestId=${request.requestId}`, error);
-      client.sendSystemInfoResponse({ requestId: request.requestId, result: { success: false } });
-    }
-  }
-
-  private async collectSystemInfo(): Promise<DeviceSystemInfo> {
-    const { getShellInfo } = await import('@lobechat/local-file-shell/shell');
-    return {
-      supportedTools: ['lobe-computer-use'],
-      arch: os.arch(),
-      // Tell the server-side prompt builder which shell runCommand spawns here.
-      defaultShell: (await getShellInfo()).displayName,
-      desktopPath: app.getPath('desktop'),
-      documentsPath: app.getPath('documents'),
-      downloadsPath: safeGetPath('downloads'),
-      homePath: app.getPath('home'),
-      musicPath: safeGetPath('music'),
-      picturesPath: safeGetPath('pictures'),
-      userDataPath: app.getPath('userData'),
-      videosPath: safeGetPath('videos'),
-      workingDirectory: process.cwd(),
-    };
-  }
-
-  // ─── Generic Device RPC ───
-
-  private async handleRpcRequest(client: GatewayClient, request: RpcRequestMessage) {
-    const { method, params, requestId } = request;
-    logger.info(`Received rpc_request: method=${method}, requestId=${requestId}`);
-
-    if (!this.rpcHandler) {
-      client.sendRpcResponse({
-        requestId,
-        result: { error: 'No RPC handler registered', success: false },
-      });
-      return;
-    }
-
-    try {
-      const data = await this.rpcHandler(method, params);
-      client.sendRpcResponse({ requestId, result: { data, success: true } });
-    } catch (error) {
-      logger.error(`rpc_request method=${method} failed:`, serializeWireError(error));
-      client.sendRpcResponse({
-        requestId,
-        result: { error: serializeWireError(error), success: false },
-      });
-    }
-  }
-
-  // ─── Agent Run ───
-
-  private handleAgentRunRequest = async (
+  private handleAgentRunRequest(
     client: GatewayClient,
     request: AgentRunRequestMessage,
-    connectionWorkspaceId?: string,
-  ) => {
-    logger.info(
-      `Received agent_run_request: operationId=${request.operationId} type=${request.agentType}`,
-    );
-
-    if (!this.agentRunHandler) {
-      logger.warn('No agent run handler configured, rejecting request');
-      client.sendAgentRunAck({
-        operationId: request.operationId,
-        reason: 'no handler',
-        status: 'rejected',
-      });
-      return;
-    }
-
-    // Topic scope for heteroIngest/heteroFinish. Prefer the explicit ingest
-    // field, then a forwarded routing workspaceId, then the connection this
-    // request arrived on (workspace enrollments). Older gateways omit both
-    // payload fields; the workspace socket is still a reliable fallback.
-    const workspaceId = request.ingestWorkspaceId ?? request.workspaceId ?? connectionWorkspaceId;
-    const result = await this.agentRunHandler(
-      workspaceId && workspaceId !== request.workspaceId ? { ...request, workspaceId } : request,
-    );
-    client.sendAgentRunAck({ operationId: request.operationId, ...result });
-  };
-
-  // ─── Tool Call Routing ───
-
-  private handleToolCallRequest = async (
-    request: ToolCallRequestMessage,
-    client: GatewayClient,
-  ) => {
-    const { requestId, toolCall } = request;
-    const { apiName, arguments: argsStr, identifier, params, type } = toolCall;
-
-    logger.info(
-      `Received tool call: apiName=${apiName}, requestId=${requestId}, type=${type ?? 'tool'}`,
-    );
-
-    // Timed on THIS machine's clock, around both routes. The server can only
-    // observe the whole dispatch round trip, so without this number a slow tool
-    // and slow transport are indistinguishable — and desktop is where most
-    // device tool calls actually happen, so leaving it out here would bias the
-    // measurement toward the `lh connect` subset.
-    const startedAt = performance.now();
-
-    try {
-      let result: ToolCallResult;
-
-      if (type === 'mcp') {
-        // Tunneled stdio MCP call: route to the local MCP client (spawns the
-        // stdio server). Routing is driven by the explicit `type` discriminator,
-        // not by sniffing the payload — the builtin local-system tool switch
-        // keys on `apiName` and has no MCP server context.
-        if (!this.mcpCallHandler) {
-          throw new Error('No MCP call handler configured');
-        }
-        if (!params) {
-          throw new Error('MCP tool call missing connection params');
-        }
-        result = await this.mcpCallHandler({ apiName, arguments: argsStr, identifier, params });
-      } else {
-        if (!this.toolCallHandler) {
-          throw new Error('No tool call handler configured');
-        }
-        const args = JSON.parse(argsStr);
-        result = await this.toolCallHandler(identifier, apiName, args);
-      }
-
-      // Forward the typed envelope unchanged. Critically, do NOT stringify the
-      // whole result into `content` — that would bury the structured payload
-      // inside a JSON blob and lose `state`. The wire protocol carries each
-      // field separately so downstream (`DeviceGateway` → `RuntimeExecutors`)
-      // can persist `state` to `pluginState`. Optional fields are only set
-      // when present so payloads stay minimal.
-      const wireResult: ToolCallResponseMessage['result'] = {
-        content: result.content,
-        executionTimeMs: Math.round(performance.now() - startedAt),
-        success: result.success,
-      };
-      const wireError = serializeWireError(result.error);
-      if (wireError !== undefined) wireResult.error = wireError;
-      if (result.state !== undefined) wireResult.state = result.state;
-
-      client.sendToolCallResponse({ requestId, result: wireResult });
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      logger.error(`Tool call failed: apiName=${apiName}, error=${errorMsg}`);
-
-      client.sendToolCallResponse({
-        requestId,
-        result: {
-          content: errorMsg,
-          error: errorMsg,
-          // A failure is timed too: a tool that took 30s to fail is as
-          // interesting as one that took 30s to succeed.
-          executionTimeMs: Math.round(performance.now() - startedAt),
-          success: false,
-        },
-      });
-    }
-  };
-
-  // ─── Message API Routing ───
-
-  private handleMessageApiRequest = async (
-    request: MessageApiRequestMessage,
-    client: GatewayClient,
-  ) => {
-    const { requestId, api } = request;
-    const { apiName, payload, platform } = api;
-
-    logger.info(
-      `Received message API request: platform=${platform}, apiName=${apiName}, requestId=${requestId}`,
-    );
-
-    try {
-      if (!this.messageApiHandler) {
-        throw new Error('No message API handler configured');
-      }
-
-      const result = await this.messageApiHandler(platform, apiName, payload);
-
-      client.sendMessageApiResponse({
-        requestId,
-        result: {
-          content: typeof result === 'string' ? result : JSON.stringify(result),
-          success: true,
-        },
-      });
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      logger.error(
-        `Message API request failed: platform=${platform}, apiName=${apiName}, error=${errorMsg}`,
-      );
-
-      client.sendMessageApiResponse({
-        requestId,
-        result: {
-          content: errorMsg,
-          error: errorMsg,
-          success: false,
-        },
-      });
-    }
-  };
+    workspaceId?: string,
+  ) {
+    return this.execution.handleAgentRunRequest(client, request, workspaceId);
+  }
+  private handleToolCallRequest(request: ToolCallRequestMessage, client: GatewayClient) {
+    return this.execution.handleToolCallRequest(request, client);
+  }
+  private handleMessageApiRequest(request: MessageApiRequestMessage, client: GatewayClient) {
+    return this.execution.handleMessageApiRequest(request, client);
+  }
 
   // ─── Power Save Blocker ───
 
@@ -1156,7 +801,7 @@ export default class GatewayConnectionService extends ServiceModule {
     this.status = status;
 
     // Upload what accrued while offline right away, not at the next tick.
-    if (status === 'connected') void this.metricsSampler?.sampler.flush();
+
     this.syncPowerSaveBlocker();
     this.scheduleStatusBroadcast(status);
   }

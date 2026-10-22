@@ -3,8 +3,10 @@ import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 
 import { authEnv } from '@/envs/auth';
+import { isBoundToCurrentTenant } from '@/libs/trpc/utils/tenantBinding';
 
 import { isAcceptanceReviewClient, isAcceptanceReviewIssued } from './acceptanceReview';
+import { describeError } from './safe-log';
 
 const log = debug('oidc-jwt');
 
@@ -46,7 +48,7 @@ export const getJWKS = (): object => {
 
     return jwks;
   } catch (error) {
-    console.error('Failed to parse JWKS:', error);
+    console.error('Failed to parse JWKS: %s', describeError(error));
     throw new Error(`JWKS_KEY parse error: ${(error as Error).message}`, { cause: error });
   }
 };
@@ -91,7 +93,7 @@ const getVerificationKey = async () => {
     // Now, in any environment, `importJWK` will correctly identify this object as a public key.
     return await importJWK(publicKeyJwk, 'RS256');
   } catch (error) {
-    log('Failed to get JWKS public key: %O', error);
+    log('Failed to get JWKS public key: %s', describeError(error));
     throw new Error(`JWKS_KEY public key retrieval failed: ${(error as Error).message}`, {
       cause: error,
     });
@@ -100,6 +102,11 @@ const getVerificationKey = async () => {
 
 /**
  * Validate OIDC JWT Access Token
+ *
+ * All tenants sign with the same JWKS, so beyond the signature the token must
+ * carry the `tid` claim of the tenant this request runs in (set by the tenant's
+ * OIDC provider and by the server-minted CLI/operation tokens). A token minted
+ * for another tenant, or without the claim, is rejected.
  * @param token - JWT access token
  * @returns Parsed token payload and user information
  */
@@ -119,7 +126,15 @@ export const validateOIDCJWT = async (token: string) => {
       algorithms: ['RS256'],
     });
 
-    log('JWT validation successful, payload: %O', payload);
+    if (payload.purpose === 'gateway-connect' || payload.iss === 'urn:lobehub:gateway-session') {
+      throw new TRPCError({
+        code: 'UNAUTHORIZED',
+        message: 'Gateway tickets are not business credentials',
+      });
+    }
+
+    // Claims (jti, email, scope) are not logged.
+    log('JWT validation successful');
 
     const userId = payload.sub;
     const clientId = payload.client_id;
@@ -129,6 +144,13 @@ export const validateOIDCJWT = async (token: string) => {
       throw new TRPCError({
         code: 'UNAUTHORIZED',
         message: 'JWT token is missing user ID (sub)',
+      });
+    }
+
+    if (!isBoundToCurrentTenant(payload)) {
+      throw new TRPCError({
+        code: 'UNAUTHORIZED',
+        message: 'JWT token was not issued for this tenant',
       });
     }
 
@@ -160,7 +182,7 @@ export const validateOIDCJWT = async (token: string) => {
       throw error;
     }
 
-    log('JWT validation failed: %O', error);
+    log('JWT validation failed: %s', describeError(error));
 
     // Preserve the original jose error via `cause` so upstream middleware
     // can still inspect specific codes like `ERR_JWT_EXPIRED`.
@@ -176,6 +198,9 @@ export const verifyAcceptanceReviewJWT = async (token: string) => {
   const publicKey = await getVerificationKey();
   const { jwtVerify } = await import('jose');
   const { payload } = await jwtVerify(token, publicKey, { algorithms: ['RS256'] });
+  // Same `tid` binding as access tokens: all tenants share the signing keys.
+  if (!isBoundToCurrentTenant(payload))
+    throw new Error('Review token was not issued for this tenant');
   const acceptanceId = acceptanceIdFromReviewResource(payload.aud);
   if (!isAcceptanceReviewClient(payload.client_id as string) || !acceptanceId || !payload.sub)
     throw new Error('Not an acceptance review token');

@@ -220,7 +220,6 @@ describe('AiAgentService.execAgent - device tool pipeline ()', () => {
   let service: AiAgentService;
   const mockDb = {} as any;
   const userId = 'test-user-id';
-
   beforeEach(() => {
     vi.clearAllMocks();
     mockMessageCreate.mockResolvedValue({ id: 'msg-1' });
@@ -239,13 +238,10 @@ describe('AiAgentService.execAgent - device tool pipeline ()', () => {
     mockGetLobehubSkillManifests.mockResolvedValue([]);
     service = new AiAgentService(mockDb, userId);
   });
-
   describe('RemoteDevice flows through ToolsEngine pipeline', () => {
     it('should pass RemoteDevice identifier in pluginIds to ToolsEngine', async () => {
       mockGetAgentConfig.mockResolvedValue(createBaseAgentConfig());
-
       await service.execAgent({ agentId: 'agent-1', prompt: 'Hello' });
-
       // Verify generateToolsDetailed receives RemoteDevice in toolIds
       expect(mockGenerateToolsDetailed).toHaveBeenCalledTimes(1);
       const toolIds = mockGenerateToolsDetailed.mock.calls[0][0].toolIds;
@@ -892,3 +888,7 @@ describe('AiAgentService.execAgent - device tool pipeline ()', () => {
     });
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

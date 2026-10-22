@@ -582,6 +582,7 @@ const InputEditor = memo<{
           )
         }
         style={{
+          display: 'flow-root',
           fontSize: mobile ? 16 : undefined,
           minHeight: defaultRows > 1 ? defaultRows * 23 : undefined,
         }}

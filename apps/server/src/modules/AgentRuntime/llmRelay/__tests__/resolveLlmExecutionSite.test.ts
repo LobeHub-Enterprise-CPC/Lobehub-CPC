@@ -47,8 +47,10 @@ describe('resolveLlmExecutionSite', () => {
       enableLlmRelay: false,
     } as any);
 
-    expect(await resolve('ollama', executor(['ollama']))).toEqual({ site: 'server' });
-    expect(getAiProviderById).not.toHaveBeenCalled();
+    expect(await resolve('ollama', executor(['ollama']))).toEqual({
+      reason: 'relay_unsupported',
+      site: 'unavailable',
+    });
   });
 
   it('never relays the platform provider or a shared-agent visitor run', async () => {
@@ -63,9 +65,8 @@ describe('resolveLlmExecutionSite', () => {
 
   it('relays Ollama (fetchOnClient by default) to the client that declared it', async () => {
     expect(await resolve('ollama', executor(['ollama']))).toEqual({
-      preferredClientId: 'tab-a',
-      runtimeProvider: 'ollama',
-      site: 'client',
+      reason: 'relay_unsupported',
+      site: 'unavailable',
     });
   });
 
@@ -74,17 +75,15 @@ describe('resolveLlmExecutionSite', () => {
     (inherited.host.llmExecutor as any).channelOperationId = 'parent-op';
 
     expect(await resolve('ollama', inherited)).toEqual({
-      channelOperationId: 'parent-op',
-      preferredClientId: 'tab-a',
-      runtimeProvider: 'ollama',
-      site: 'client',
+      reason: 'relay_unsupported',
+      site: 'unavailable',
     });
   });
 
   it('reports unavailable when no client declared it can run the provider', async () => {
-    expect(await resolve('ollama')).toEqual({ reason: 'no_executor', site: 'unavailable' });
+    expect(await resolve('ollama')).toEqual({ reason: 'relay_unsupported', site: 'unavailable' });
     expect(await resolve('ollama', executor(['lmstudio']))).toEqual({
-      reason: 'no_executor',
+      reason: 'relay_unsupported',
       site: 'unavailable',
     });
     expect(
@@ -93,7 +92,7 @@ describe('resolveLlmExecutionSite', () => {
           llmExecutor: { capabilities: ['llm_relay@9'], clientId: 'tab-a', providers: ['ollama'] },
         },
       }),
-    ).toEqual({ reason: 'no_executor', site: 'unavailable' });
+    ).toEqual({ reason: 'relay_unsupported', site: 'unavailable' });
   });
 
   it('follows an explicit fetchOnClient: false for a provider that defaults to the client', async () => {
@@ -107,7 +106,10 @@ describe('resolveLlmExecutionSite', () => {
       expect(await resolve('ollama', executor(['ollama']))).toEqual({ site: 'server' });
 
       providerRow.current = { fetchOnClient: true, keyVaults: {} };
-      expect(await resolve('ollama', executor(['ollama']))).toMatchObject({ site: 'client' });
+      expect(await resolve('ollama', executor(['ollama']))).toMatchObject({
+        reason: 'relay_unsupported',
+        site: 'unavailable',
+      });
     } finally {
       vi.unstubAllEnvs();
     }
@@ -121,9 +123,8 @@ describe('resolveLlmExecutionSite', () => {
     };
 
     expect(await resolve('my-local-llm', executor(['my-local-llm']))).toEqual({
-      preferredClientId: 'tab-a',
-      runtimeProvider: 'openai',
-      site: 'client',
+      reason: 'relay_unsupported',
+      site: 'unavailable',
     });
   });
 
@@ -146,7 +147,8 @@ describe('resolveLlmExecutionSite', () => {
     };
 
     expect(await resolve('my-local-llm', executor(['my-local-llm']))).toMatchObject({
-      site: 'client',
+      reason: 'relay_unsupported',
+      site: 'unavailable',
     });
   });
 

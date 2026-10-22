@@ -75,6 +75,7 @@ describe('createLambdaFileStorePort', () => {
       body: JSON.stringify(superjson.serialize({ hash: 'abc' })),
       headers: { 'Content-Type': 'application/json', 'Oidc-Auth': 'token-123' },
       method: 'POST',
+      redirect: 'error',
     });
   });
 

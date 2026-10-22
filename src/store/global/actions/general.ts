@@ -1,3 +1,4 @@
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { AGENT_CHAT_TOPIC_URL, GROUP_CHAT_TOPIC_URL } from '@lobechat/const';
 import isEqual from 'fast-deep-equal';
 import { gt, parse, valid } from 'semver';
@@ -67,7 +68,9 @@ export class GlobalGeneralActionImpl {
       }
     } else {
       // Open in popup window for browser
-      const browserUrl = buildWorkspaceAwarePath(`/agent/${agentId}`, getActiveWorkspaceSlug());
+      const browserUrl = withCurrentTenantPath(
+        buildWorkspaceAwarePath(`/agent/${agentId}`, getActiveWorkspaceSlug()),
+      );
       const width = 1200;
       const height = 800;
       const left = (window.screen.width - width) / 2;
@@ -98,9 +101,8 @@ export class GlobalGeneralActionImpl {
       }
     } else {
       // Open in popup window for browser
-      const browserUrl = buildWorkspaceAwarePath(
-        AGENT_CHAT_TOPIC_URL(agentId, topicId),
-        getActiveWorkspaceSlug(),
+      const browserUrl = withCurrentTenantPath(
+        buildWorkspaceAwarePath(AGENT_CHAT_TOPIC_URL(agentId, topicId), getActiveWorkspaceSlug()),
       );
       const width = 1200;
       const height = 800;
@@ -131,9 +133,8 @@ export class GlobalGeneralActionImpl {
         console.error('Error opening group topic in new window:', error);
       }
     } else {
-      const browserUrl = buildWorkspaceAwarePath(
-        GROUP_CHAT_TOPIC_URL(groupId, topicId),
-        getActiveWorkspaceSlug(),
+      const browserUrl = withCurrentTenantPath(
+        buildWorkspaceAwarePath(GROUP_CHAT_TOPIC_URL(groupId, topicId), getActiveWorkspaceSlug()),
       );
       const width = 1200;
       const height = 800;

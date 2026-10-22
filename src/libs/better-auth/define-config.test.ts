@@ -1,3 +1,5 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
+import { type betterAuth as BetterAuthFactory } from 'better-auth/minimal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
@@ -13,7 +15,6 @@ const mocks = vi.hoisted(() => {
       return { options };
     }),
     passkey: vi.fn(() => ({ id: 'passkey' })),
-    serverDB: {},
     setGlobalDispatcher: vi.fn(),
   };
 });
@@ -36,7 +37,6 @@ vi.mock('@better-auth/passkey', () => ({
 vi.mock('@lobechat/database', () => ({
   createNanoId: vi.fn(() => vi.fn(() => 'generated-id')),
   idGenerator: vi.fn(() => 'generated-user-id'),
-  serverDB: mocks.serverDB,
 }));
 
 vi.mock('@lobechat/database/schemas', () => ({}));
@@ -77,11 +77,7 @@ vi.mock('@/envs/app', () => ({
 
 vi.mock('@/envs/auth', () => ({
   authEnv: {
-    AUTH_DISABLE_EMAIL_PASSWORD: false,
-    AUTH_EMAIL_VERIFICATION: true,
-    AUTH_ENABLE_MAGIC_LINK: false,
     AUTH_SECRET: 'test-secret',
-    AUTH_SSO_PROVIDERS: '',
   },
 }));
 
@@ -93,25 +89,10 @@ vi.mock('@/libs/better-auth/email-templates', () => ({
   getVerificationOTPEmailTemplate: vi.fn(() => ({})),
 }));
 
-vi.mock('@/libs/better-auth/plugins/email-whitelist', () => ({
-  emailWhitelist: vi.fn(() => ({ id: 'email-whitelist' })),
-}));
-
-vi.mock('@/libs/better-auth/sso', () => ({
-  initBetterAuthSSOProviders: vi.fn(() => ({
-    genericOAuthProviders: [],
-    socialProviders: {},
-  })),
-}));
-
 vi.mock('@/libs/better-auth/utils/config', () => ({
   createSecondaryStorage: vi.fn(() => ({ id: 'secondary-storage' })),
   getPasskeyOrigins: vi.fn(() => ['https://example.com']),
   getTrustedOrigins: vi.fn(() => ['https://example.com']),
-}));
-
-vi.mock('@/libs/better-auth/utils/server', () => ({
-  parseSSOProviders: vi.fn(() => []),
 }));
 
 vi.mock('@/libs/oidc-provider/session-cleanup', () => ({
@@ -126,12 +107,21 @@ vi.mock('@/server/services/user', () => ({
   UserService: vi.fn(),
 }));
 
-const createResponseWithCookie = (cookie: string) => {
-  const response = new Response(null);
-  response.headers.append('set-cookie', cookie);
+const tenantDatabase = { id: 'tenant-db' } as never;
 
-  return response;
-};
+const tenantOptions = () => ({
+  cookiePrefix: 'lh_test',
+  database: tenantDatabase,
+  genericOAuthProviders: [],
+  loginMethods: { emailPassword: true, magicLink: false, requireEmailVerification: false },
+  plugins: [],
+  secondaryStorageNamespace: 'tenant-1',
+  tenant: {
+    endpoint: { basePath: '/t/acme', publicUrl: 'https://example.com/t/acme', version: 1 },
+    id: 'tenant-1',
+    slug: 'acme',
+  },
+});
 
 describe('defineConfig', () => {
   const originalEnv = process.env;
@@ -155,26 +145,51 @@ describe('defineConfig', () => {
     process.env = originalEnv;
   });
 
+  it('lets a tenant refusal escape Better Auth so the route can answer with its code', async () => {
+    const { TenantGateError } = await import('@/server/modules/Tenant/errors');
+    const { defineConfig } = await import('./define-config');
+    const { onAPIError } = defineConfig(tenantOptions()) as any;
+    const refusal = new TenantGateError('TENANT_OFFLINE');
+    const logger = { error: vi.fn() };
+
+    expect(() =>
+      onAPIError.onError(new Error('Failed query', { cause: refusal }), { logger }),
+    ).toThrow(refusal);
+    expect(() => onAPIError.onError(new Error('boom'), { logger })).not.toThrow();
+    expect(logger.error).toHaveBeenCalledTimes(1);
+  });
+
   it('should configure passkeys with the approved origins', async () => {
     const { defineConfig } = await import('./define-config');
 
-    defineConfig({ plugins: [] });
+    defineConfig(tenantOptions());
 
     expect(mocks.passkey).toHaveBeenCalledWith(
       expect.objectContaining({
         origin: ['https://example.com'],
         rpID: 'example.com',
-        rpName: 'LobeHub',
+        rpName: BRANDING_NAME,
       }),
     );
   });
 
-  it('disables env social login in managed distributions while preserving base session configuration', async () => {
+  it('does not restrict sign-up by a deployment-wide email allow list', async () => {
+    process.env.AUTH_ALLOWED_EMAILS = 'example.com';
+    const { defineConfig } = await import('./define-config');
+
+    defineConfig(tenantOptions());
+
+    const options = mocks.betterAuth.mock.calls[0][0];
+    expect(options.plugins.map((plugin: { id: string }) => plugin.id)).not.toContain(
+      'email-whitelist',
+    );
+  });
+
+  it('disables social login in managed distributions while preserving base session configuration', async () => {
     mocks.managedBusinessSSO = true;
     const { defineConfig } = await import('./define-config');
-    const { initBetterAuthSSOProviders } = await import('@/libs/better-auth/sso');
     defineConfig({
-      cookiePrefix: 'frontend',
+      ...tenantOptions(),
       plugins: [{ id: 'business-admission' }],
       overrides: {
         plugins: [{ id: 'enterprise-sso-request' }],
@@ -185,13 +200,12 @@ describe('defineConfig', () => {
       },
     });
     const [options] = mocks.betterAuth.mock.lastCall!;
-    expect(initBetterAuthSSOProviders).not.toHaveBeenCalled();
-    expect(options.socialProviders).toEqual({});
+    expect(options.socialProviders).toBeUndefined();
     expect(options.account.accountLinking.enabled).toBe(false);
     expect(options.disabledPaths).toContain('/sign-in/social');
     expect(options.disabledPaths).toContain('/get-access-token');
     expect(options.verification.storeInDatabase).toBe(true);
-    expect(options.advanced.cookiePrefix).toBe('frontend');
+    expect(options.advanced.cookiePrefix).toBe('lh_test');
     expect(options.session.storeSessionInDatabase).toBe(true);
     expect(options.user.additionalFields.username.type).toBe('string');
     expect(options.plugins.map((plugin: { id: string }) => plugin.id)).toContain(
@@ -205,7 +219,7 @@ describe('defineConfig', () => {
   it('should revoke existing sessions after password reset by default', async () => {
     const { defineConfig } = await import('./define-config');
 
-    defineConfig({ plugins: [] });
+    defineConfig(tenantOptions());
 
     expect(mocks.betterAuth).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -216,16 +230,142 @@ describe('defineConfig', () => {
     );
   });
 
+  it("follows the tenant's login methods", async () => {
+    const { defineConfig } = await import('./define-config');
+    const pluginIds = () =>
+      mocks.betterAuth.mock.lastCall![0].plugins.map((plugin: { id: string }) => plugin.id);
+
+    defineConfig(tenantOptions());
+    expect(mocks.betterAuth.mock.lastCall![0].emailAndPassword).toMatchObject({
+      disableSignUp: false,
+      enabled: true,
+      requireEmailVerification: false,
+    });
+    expect(pluginIds()).not.toContain('magic-link');
+
+    defineConfig({
+      ...tenantOptions(),
+      loginMethods: { emailPassword: false, magicLink: true, requireEmailVerification: true },
+    });
+    expect(mocks.betterAuth.mock.lastCall![0].emailAndPassword).toMatchObject({
+      disableSignUp: true,
+      enabled: false,
+      requireEmailVerification: true,
+    });
+    expect(pluginIds()).toContain('magic-link');
+  });
+
+  it.each(['/request-password-reset', '/reset-password'])(
+    'disables %s only when tenant password login is off',
+    async (path) => {
+      const { defineConfig } = await import('./define-config');
+
+      defineConfig({
+        ...tenantOptions(),
+        loginMethods: { emailPassword: false, magicLink: true, requireEmailVerification: true },
+      });
+      expect(mocks.betterAuth.mock.lastCall![0].disabledPaths).toContain(path);
+
+      defineConfig(tenantOptions());
+      expect(mocks.betterAuth.mock.lastCall![0].disabledPaths).not.toContain(path);
+    },
+  );
+
+  it.each([false, true])(
+    'enforces password-reset POST availability through the real HTTP handler (password=%s)',
+    async (emailPassword) => {
+      const { defineConfig } = await import('./define-config');
+      const { betterAuth } = await vi.importActual<{ betterAuth: typeof BetterAuthFactory }>(
+        'better-auth/minimal',
+      );
+      const { memoryAdapter } = await import('better-auth/adapters/memory');
+      const now = new Date();
+      const token = 'fixture-reset-token';
+      const database = {
+        account: [],
+        session: [],
+        user: [
+          {
+            id: 'fixture-user',
+            name: 'Fixture',
+            email: 'fixture@example.com',
+            emailVerified: true,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        verification: [
+          {
+            id: 'fixture-verification',
+            identifier: `reset-password:${token}`,
+            value: 'fixture-user',
+            expiresAt: new Date(Date.now() + 60_000),
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      };
+      const sendResetPassword = vi.fn();
+      defineConfig({
+        ...tenantOptions(),
+        loginMethods: { emailPassword, magicLink: !emailPassword, requireEmailVerification: false },
+      });
+      const config = mocks.betterAuth.mock.lastCall![0];
+      // Run the installed router with the application's generated paths/method flag;
+      // all endpoint state and outgoing mail belong to this in-memory fixture.
+      const instance = betterAuth({
+        baseURL: config.baseURL,
+        basePath: config.basePath,
+        secret: 'isolated-auth-handler-fixture-secret-long-enough',
+        database: memoryAdapter(database),
+        disabledPaths: config.disabledPaths,
+        emailAndPassword: { enabled: config.emailAndPassword.enabled, sendResetPassword },
+        logger: { disabled: true },
+        rateLimit: { enabled: false },
+      });
+      const post = (path: string, body: unknown) =>
+        instance.handler(
+          new Request(`${config.baseURL}${config.basePath}${path}`, {
+            body: JSON.stringify(body),
+            headers: { 'Content-Type': 'application/json', 'Origin': config.baseURL },
+            method: 'POST',
+          }),
+        );
+
+      const requested = await post('/request-password-reset', {
+        email: 'fixture@example.com',
+        redirectTo: `${config.baseURL}/t/acme/reset-password`,
+      });
+      expect.soft(requested.status).toBe(emailPassword ? 200 : 404);
+      expect.soft(sendResetPassword).toHaveBeenCalledTimes(emailPassword ? 1 : 0);
+
+      const callback = await instance.handler(
+        new Request(
+          `${config.baseURL}${config.basePath}/reset-password/${token}?callbackURL=${encodeURIComponent(`${config.baseURL}/t/acme/reset-password`)}`,
+        ),
+      );
+      expect(callback.status).toBe(302);
+      expect(new URL(callback.headers.get('location')!).searchParams.get('token')).toBe(token);
+
+      const completed = await post('/reset-password', {
+        newPassword: 'fixture-new-password-123',
+        token,
+      });
+      expect.soft(completed.status).toBe(emailPassword ? 200 : 404);
+      expect.soft(database.account).toHaveLength(emailPassword ? 1 : 0);
+    },
+  );
+
   it('should clear a mismatched OIDC session before creating a Better Auth session', async () => {
     const { defineConfig } = await import('./define-config');
     const context = { getCookie: vi.fn(), setCookie: vi.fn() };
 
-    defineConfig({ plugins: [] });
+    defineConfig(tenantOptions());
     const [options] = mocks.betterAuth.mock.lastCall!;
     await options.databaseHooks.session.create.before({ userId: 'user-b' }, context);
 
     expect(mocks.clearMismatchedOIDCSession).toHaveBeenCalledWith(
-      mocks.serverDB,
+      tenantDatabase,
       'user-b',
       context,
     );
@@ -237,7 +377,7 @@ describe('defineConfig', () => {
     mocks.clearMismatchedOIDCSession.mockRejectedValueOnce(cleanupError);
     const { defineConfig } = await import('./define-config');
 
-    defineConfig({ plugins: [] });
+    defineConfig(tenantOptions());
     const [options] = mocks.betterAuth.mock.lastCall!;
 
     await expect(
@@ -280,86 +420,80 @@ describe('defineConfig', () => {
     expect(mergeLocalNoProxy('*')).toBe('*');
   });
 
-  it('should keep auth cookies host-only when no cookie domain is given', async () => {
+  it('should mount the tenant auth under its path with path-scoped, prefixed cookies', async () => {
     const { defineConfig } = await import('./define-config');
 
-    defineConfig({ plugins: [] });
+    defineConfig(tenantOptions());
     const [options] = mocks.betterAuth.mock.lastCall!;
 
+    expect(options.basePath).toBe('/t/acme/api/auth');
+    expect(options.advanced.cookiePrefix).toBe('lh_test');
+    expect(options.advanced.defaultCookieAttributes).toEqual({ path: '/t/acme' });
     expect(options.advanced.crossSubDomainCookies).toBeUndefined();
+    expect(options.onAPIError.errorURL).toBe('/t/acme/auth-error');
   });
 
-  it('should namespace every Better Auth cookie with the configured prefix', async () => {
+  it('should never link a new provider to an existing account by email', async () => {
     const { defineConfig } = await import('./define-config');
 
-    defineConfig({ cookiePrefix: 'example-app', plugins: [] });
+    defineConfig(tenantOptions());
     const [options] = mocks.betterAuth.mock.lastCall!;
 
-    expect(options.advanced.cookiePrefix).toBe('example-app');
+    expect(options.account.accountLinking.disableImplicitLinking).toBe(true);
   });
 
-  it.each([['https://app.example.com'], ['https://example.com']])(
-    'should share auth cookies across subdomains when APP_URL %s is under the cookie domain',
-    async (appUrl) => {
-      mocks.appEnv.APP_URL = appUrl;
-      const { defineConfig } = await import('./define-config');
-
-      defineConfig({ cookieDomain: '.example.com', plugins: [] });
-      const [options] = mocks.betterAuth.mock.lastCall!;
-
-      expect(options.advanced.crossSubDomainCookies).toEqual({
-        domain: '.example.com',
-        enabled: true,
-      });
-    },
-  );
-
-  it.each([['https://preview-branch.vercel.app'], ['http://localhost:3010']])(
-    'should ignore a cookie domain that APP_URL %s does not belong to',
-    async (appUrl) => {
-      mocks.appEnv.APP_URL = appUrl;
-      const { defineConfig } = await import('./define-config');
-
-      defineConfig({ cookieDomain: '.example.com', plugins: [] });
-      const [options] = mocks.betterAuth.mock.lastCall!;
-
-      expect(options.advanced.crossSubDomainCookies).toBeUndefined();
-    },
-  );
-
-  it('should expire the legacy host-only twin of every domain-scoped cookie', async () => {
-    mocks.appEnv.APP_URL = 'https://app.example.com';
-    mocks.authHandler.mockResolvedValueOnce(
-      createResponseWithCookie(
-        '__Secure-better-auth.session_token=token; Path=/; Domain=.example.com; HttpOnly; Secure; SameSite=Lax',
-      ),
-    );
+  it('should use the tenant database and session namespace', async () => {
     const { defineConfig } = await import('./define-config');
+    const { createSecondaryStorage } = await import('@/libs/better-auth/utils/config');
+    const { drizzleAdapter } = await import('better-auth/adapters/drizzle');
 
-    const auth = defineConfig({ cookieDomain: '.example.com', plugins: [] });
-    const response = await auth.handler(
-      new Request('https://app.example.com/api/auth/get-session'),
-    );
+    defineConfig(tenantOptions());
 
-    expect(response.headers.getSetCookie()).toEqual([
-      '__Secure-better-auth.session_token=token; Path=/; Domain=.example.com; HttpOnly; Secure; SameSite=Lax',
-      '__Secure-better-auth.session_token=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax; HttpOnly; Secure',
-    ]);
+    expect(createSecondaryStorage).toHaveBeenCalledWith('tenant-1');
+    expect(drizzleAdapter).toHaveBeenCalledWith(tenantDatabase, expect.anything());
   });
 
-  it('should leave cookies alone when no cookie domain is configured', async () => {
-    mocks.authHandler.mockResolvedValueOnce(
-      createResponseWithCookie('__Secure-better-auth.session_token=token; Path=/; Secure'),
-    );
+  it('should register no built-in social providers: tenant SSO is generic OAuth only', async () => {
     const { defineConfig } = await import('./define-config');
+    const { getTrustedOrigins } = await import('@/libs/better-auth/utils/config');
 
-    const auth = defineConfig({ plugins: [] });
-    const response = await auth.handler(
-      new Request('https://app.example.com/api/auth/get-session'),
-    );
+    defineConfig(tenantOptions());
 
-    expect(response.headers.getSetCookie()).toEqual([
-      '__Secure-better-auth.session_token=token; Path=/; Secure',
-    ]);
+    const [options] = mocks.betterAuth.mock.lastCall!;
+    expect(options.socialProviders).toBeUndefined();
+    expect(getTrustedOrigins).toHaveBeenLastCalledWith('https://example.com');
   });
+
+  it('should only enable generic OAuth when the tenant has SSO providers', async () => {
+    const { defineConfig } = await import('./define-config');
+    const { genericOAuth } = await import('better-auth/plugins');
+
+    defineConfig(tenantOptions());
+    expect(genericOAuth).not.toHaveBeenCalled();
+
+    const provider = { clientId: 'id', clientSecret: 'secret', providerId: 'okta' };
+    defineConfig({ ...tenantOptions(), genericOAuthProviders: [provider] });
+    expect(genericOAuth).toHaveBeenCalledWith({ config: [provider] });
+  });
+});
+
+it('mounts custom host auth at its canonical root while preserving tenant cookie namespace', async () => {
+  const { defineConfig } = await import('./define-config');
+  const options = tenantOptions();
+  defineConfig({
+    ...options,
+    tenant: {
+      ...options.tenant,
+      endpoint: { publicUrl: 'https://chat.example.com', basePath: '', version: 2 },
+    },
+  });
+  const config = mocks.betterAuth.mock.lastCall![0];
+  expect(config.baseURL).toBe('https://chat.example.com');
+  expect(config.basePath).toBe('/api/auth');
+  expect(config.advanced.cookiePrefix).toBe(options.cookiePrefix);
+  expect(config.advanced.defaultCookieAttributes).toMatchObject({ path: '/' });
+  expect(config.advanced.defaultCookieAttributes.domain).toBeUndefined();
+  expect(mocks.passkey).toHaveBeenLastCalledWith(
+    expect.objectContaining({ rpID: 'chat.example.com' }),
+  );
 });

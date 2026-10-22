@@ -1,0 +1,189 @@
+{
+  "contractVersion": 1,
+  "cases": [
+    {
+      "id": "capabilities-valid",
+      "schema": "capabilityResponse",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "enabled": [
+          "personal-device",
+          "workspace-device",
+          "device-tools-mcp-rpc-system-info",
+          "device-agent-run",
+          "single-operation-stream-replay",
+          "agent-confirmation-input-client-tool",
+          "desktop-message-api",
+          "tenant-admin-history"
+        ],
+        "disabled": {
+          "mux": "MUX_UNSUPPORTED",
+          "llm-relay": "LLM_RELAY_UNSUPPORTED",
+          "tunnel": "TUNNEL_UNSUPPORTED",
+          "device-metrics": "DEVICE_METRICS_UNSUPPORTED",
+          "admin-observer": "ADMIN_OBSERVER_UNSUPPORTED",
+          "device-kick": "DEVICE_KICK_UNSUPPORTED",
+          "share-visitor-gateway": "SHARE_GATEWAY_UNSUPPORTED"
+        }
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "disabled-mux",
+      "schema": "error",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "error": {
+          "code": "MUX_UNSUPPORTED",
+          "message": "Capability unavailable"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "MUX_UNSUPPORTED"
+      },
+      "context": {
+        "capability": "mux",
+        "beforeTicketLeaseQueueOrDispatch": true,
+        "legacyFallbackAllowed": false
+      }
+    },
+    {
+      "id": "disabled-llm-relay",
+      "schema": "error",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "error": {
+          "code": "LLM_RELAY_UNSUPPORTED",
+          "message": "Capability unavailable"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "LLM_RELAY_UNSUPPORTED"
+      },
+      "context": {
+        "capability": "llm-relay",
+        "beforeTicketLeaseQueueOrDispatch": true,
+        "legacyFallbackAllowed": false
+      }
+    },
+    {
+      "id": "disabled-tunnel",
+      "schema": "error",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "error": {
+          "code": "TUNNEL_UNSUPPORTED",
+          "message": "Capability unavailable"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TUNNEL_UNSUPPORTED"
+      },
+      "context": {
+        "capability": "tunnel",
+        "beforeTicketLeaseQueueOrDispatch": true,
+        "legacyFallbackAllowed": false
+      }
+    },
+    {
+      "id": "disabled-device-metrics",
+      "schema": "error",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "error": {
+          "code": "DEVICE_METRICS_UNSUPPORTED",
+          "message": "Capability unavailable"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "DEVICE_METRICS_UNSUPPORTED"
+      },
+      "context": {
+        "capability": "device-metrics",
+        "beforeTicketLeaseQueueOrDispatch": true,
+        "legacyFallbackAllowed": false
+      }
+    },
+    {
+      "id": "disabled-admin-observer",
+      "schema": "error",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "error": {
+          "code": "ADMIN_OBSERVER_UNSUPPORTED",
+          "message": "Capability unavailable"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "ADMIN_OBSERVER_UNSUPPORTED"
+      },
+      "context": {
+        "capability": "admin-observer",
+        "beforeTicketLeaseQueueOrDispatch": true,
+        "legacyFallbackAllowed": false
+      }
+    },
+    {
+      "id": "disabled-device-kick",
+      "schema": "error",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "error": {
+          "code": "DEVICE_KICK_UNSUPPORTED",
+          "message": "Capability unavailable"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "DEVICE_KICK_UNSUPPORTED"
+      },
+      "context": {
+        "capability": "device-kick",
+        "beforeTicketLeaseQueueOrDispatch": true,
+        "legacyFallbackAllowed": false
+      }
+    },
+    {
+      "id": "disabled-share-visitor-gateway",
+      "schema": "error",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "error": {
+          "code": "SHARE_GATEWAY_UNSUPPORTED",
+          "message": "Capability unavailable"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "SHARE_GATEWAY_UNSUPPORTED"
+      },
+      "context": {
+        "capability": "share-visitor-gateway",
+        "beforeTicketLeaseQueueOrDispatch": true,
+        "legacyFallbackAllowed": false
+      }
+    }
+  ]
+}

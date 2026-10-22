@@ -1,105 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { AgentStreamClient } from './client';
+import { testConfirmation, testTicket, testToolCommand } from './__tests__/fixtures';
+import type { MockWebSocket } from './__tests__/setup';
+import { connectAndAuth, createClient, getLatestWs, mockWsInstances } from './__tests__/setup';
+import type { AgentStreamClient } from './client';
 import type { ConnectionStatus } from './types';
-
-// ─── Mock WebSocket ───
-
-class MockWebSocket {
-  static CONNECTING = 0;
-  static OPEN = 1;
-  static CLOSING = 2;
-  static CLOSED = 3;
-
-  readyState = MockWebSocket.CONNECTING;
-  onopen: ((ev: any) => void) | null = null;
-  onmessage: ((ev: any) => void) | null = null;
-  onclose: ((ev: any) => void) | null = null;
-  onerror: ((ev: any) => void) | null = null;
-
-  sent: string[] = [];
-
-  constructor(public url: string) {
-    // Auto-connect in next tick
-    setTimeout(() => {
-      this.readyState = MockWebSocket.OPEN;
-      this.onopen?.({});
-    }, 0);
-  }
-
-  send(data: string): void {
-    this.sent.push(data);
-  }
-
-  close(_code?: number, _reason?: string): void {
-    this.readyState = MockWebSocket.CLOSED;
-    this.onclose?.({});
-  }
-
-  // Test helpers
-  simulateMessage(data: any): void {
-    this.onmessage?.({ data: JSON.stringify(data) });
-  }
-
-  simulateClose(): void {
-    this.readyState = MockWebSocket.CLOSED;
-    this.onclose?.({});
-  }
-
-  simulateError(): void {
-    this.onerror?.({});
-  }
-}
-
-let mockWsInstances: MockWebSocket[] = [];
-
-beforeEach(() => {
-  mockWsInstances = [];
-  vi.stubGlobal(
-    'WebSocket',
-    Object.assign(
-      class extends MockWebSocket {
-        constructor(url: string) {
-          super(url);
-          mockWsInstances.push(this);
-        }
-      },
-      {
-        CLOSED: MockWebSocket.CLOSED,
-        CLOSING: MockWebSocket.CLOSING,
-        CONNECTING: MockWebSocket.CONNECTING,
-        OPEN: MockWebSocket.OPEN,
-      },
-    ),
-  );
-  vi.useFakeTimers();
-});
-
-afterEach(() => {
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
-});
-
-function createClient(overrides?: Partial<ConstructorParameters<typeof AgentStreamClient>[0]>) {
-  return new AgentStreamClient({
-    gatewayUrl: 'https://gateway.test.com',
-    operationId: 'op-123',
-    token: 'test-token',
-    ...overrides,
-  });
-}
-
-function getLatestWs(): MockWebSocket {
-  return mockWsInstances.at(-1)!;
-}
-
-async function connectAndAuth(client: AgentStreamClient): Promise<MockWebSocket> {
-  client.connect();
-  await vi.advanceTimersByTimeAsync(1);
-  const ws = getLatestWs();
-  ws.simulateMessage({ type: 'auth_success' });
-  return ws;
-}
 
 describe('AgentStreamClient', () => {
   describe('connection', () => {
@@ -108,7 +13,9 @@ describe('AgentStreamClient', () => {
       client.connect();
       vi.advanceTimersByTime(1);
 
-      expect(getLatestWs().url).toBe('wss://gateway.test.com/ws?operationId=op-123');
+      expect(getLatestWs().url).toMatch(
+        /^wss:\/\/gateway\.test\.com\/tenant\/v1\/ws\?operationId=op-123&connectionId=[\da-f-]{36}$/i,
+      );
     });
 
     it('should use ws:// for http gateway URL', () => {
@@ -116,7 +23,9 @@ describe('AgentStreamClient', () => {
       client.connect();
       vi.advanceTimersByTime(1);
 
-      expect(getLatestWs().url).toBe('ws://localhost:8787/ws?operationId=op-123');
+      expect(getLatestWs().url).toMatch(
+        /^ws:\/\/localhost:8787\/tenant\/v1\/ws\?operationId=op-123&connectionId=[\da-f-]{36}$/i,
+      );
     });
 
     it('should send auth message on open', async () => {
@@ -126,17 +35,23 @@ describe('AgentStreamClient', () => {
 
       const ws = getLatestWs();
       expect(ws.sent).toHaveLength(1);
-      expect(JSON.parse(ws.sent[0])).toEqual({ token: 'test-token', type: 'auth' });
+      expect(JSON.parse(ws.sent[0])).toEqual({
+        token: testTicket(),
+        type: 'auth',
+        tenancyProtocol: 1,
+        tokenType: 'jwt',
+      });
     });
 
-    it('should send its client id with auth so the gateway can target it', async () => {
+    it('does not send legacy clientId outside the frozen auth schema', async () => {
       const client = createClient({ clientId: 'tab-1' });
       client.connect();
       await vi.advanceTimersByTimeAsync(1);
 
       expect(JSON.parse(getLatestWs().sent[0])).toEqual({
-        clientId: 'tab-1',
-        token: 'test-token',
+        tenancyProtocol: 1,
+        tokenType: 'jwt',
+        token: testTicket(),
         type: 'auth',
       });
     });
@@ -152,7 +67,7 @@ describe('AgentStreamClient', () => {
       await vi.advanceTimersByTimeAsync(1);
       expect(statuses).toContain('authenticating');
 
-      getLatestWs().simulateMessage({ type: 'auth_success' });
+      getLatestWs().simulateMessage(testConfirmation());
       expect(statuses).toContain('connected');
     });
 
@@ -235,9 +150,9 @@ describe('AgentStreamClient', () => {
       ws.simulateMessage({ type: 'auth_expired' });
 
       expect(onAuthExpired).toHaveBeenCalledOnce();
-      // Critical: socket stays connected so the listener can refresh + re-auth.
+      // Expiry revokes execution immediately while the provider prepares a new connection.
       expect(onDisconnected).not.toHaveBeenCalled();
-      expect(client.connectionStatus).toBe('connected');
+      expect(client.connectionStatus).toBe('authenticating');
     });
 
     it('reconnect() tears down current ws and dials a new one with the latest token', async () => {
@@ -247,7 +162,7 @@ describe('AgentStreamClient', () => {
       const wsCountBefore = mockWsInstances.length;
 
       // Simulate the "got auth_expired → refresh → reconnect" flow
-      client.updateToken('new-token');
+      client.updateToken(testTicket().replace(/\.TEST$/, '.RENEWED'));
       await client.reconnect();
       // Let the new MockWebSocket auto-open
       await vi.advanceTimersByTimeAsync(1);
@@ -255,7 +170,12 @@ describe('AgentStreamClient', () => {
       expect(mockWsInstances.length).toBe(wsCountBefore + 1);
       const newWs = getLatestWs();
       // First message on the new socket is auth with the refreshed token
-      expect(JSON.parse(newWs.sent[0])).toEqual({ token: 'new-token', type: 'auth' });
+      expect(JSON.parse(newWs.sent[0])).toEqual({
+        token: testTicket().replace(/\.TEST$/, '.RENEWED'),
+        type: 'auth',
+        tenancyProtocol: 1,
+        tokenType: 'jwt',
+      });
     });
   });
 
@@ -299,7 +219,7 @@ describe('AgentStreamClient', () => {
       await vi.advanceTimersByTimeAsync(1);
 
       const ws2 = getLatestWs();
-      ws2.simulateMessage({ type: 'auth_success' });
+      ws2.simulateMessage(testConfirmation());
 
       // Resume should use the tracked lastEventId
       const resumeMsg = JSON.parse(ws2.sent[1]);
@@ -477,7 +397,7 @@ describe('AgentStreamClient', () => {
         },
         type: 'agent_event',
       });
-      await vi.advanceTimersByTimeAsync(30_000); // renderer suspended
+      await vi.advanceTimersByTimeAsync(5_000); // delayed but still inside the current lease
       ws.simulateMessage({ type: 'session_complete' });
       expect(onComplete).not.toHaveBeenCalled();
 
@@ -510,7 +430,7 @@ describe('AgentStreamClient', () => {
       client.connect();
       await vi.advanceTimersByTimeAsync(1);
       const ws = getLatestWs();
-      ws.simulateMessage({ type: 'auth_success' });
+      ws.simulateMessage(testConfirmation());
       return ws;
     }
 
@@ -521,7 +441,7 @@ describe('AgentStreamClient', () => {
 
       await connectAndAuthResume(client);
       // DO is silent (hibernated buffer, slow status). Far past the old 3s window.
-      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(5_000);
 
       expect(onComplete).not.toHaveBeenCalled();
       expect(client.connectionStatus).toBe('connected');
@@ -654,7 +574,7 @@ describe('AgentStreamClient', () => {
         await vi.advanceTimersByTimeAsync(1000); // reconnect delay
         await vi.advanceTimersByTimeAsync(1);
         const ws2 = getLatestWs();
-        ws2.simulateMessage({ type: 'auth_success' });
+        ws2.simulateMessage(testConfirmation());
         // Hibernated buffer: nothing after evt-1 is replayed.
         ws2.simulateMessage({ status: 'completed', type: 'resume_complete' });
 
@@ -705,11 +625,17 @@ describe('AgentStreamClient', () => {
       const client = createClient();
       const ws = await connectAndAuth(client);
 
-      await vi.advanceTimersByTimeAsync(30_000);
+      for (let i = 0; i < 3; i++) {
+        await vi.advanceTimersByTimeAsync(10_000);
+        ws.simulateMessage({ ...testConfirmation(), type: 'lease_update' });
+      }
       const heartbeats = ws.sent.filter((s) => JSON.parse(s).type === 'heartbeat');
       expect(heartbeats).toHaveLength(1);
 
-      await vi.advanceTimersByTimeAsync(30_000);
+      for (let i = 0; i < 3; i++) {
+        await vi.advanceTimersByTimeAsync(10_000);
+        ws.simulateMessage({ ...testConfirmation(), type: 'lease_update' });
+      }
       const heartbeats2 = ws.sent.filter((s) => JSON.parse(s).type === 'heartbeat');
       expect(heartbeats2).toHaveLength(2);
     });
@@ -719,11 +645,17 @@ describe('AgentStreamClient', () => {
       const ws = await connectAndAuth(client);
 
       // First heartbeat
-      await vi.advanceTimersByTimeAsync(30_000);
+      for (let i = 0; i < 3; i++) {
+        await vi.advanceTimersByTimeAsync(10_000);
+        ws.simulateMessage({ ...testConfirmation(), type: 'lease_update' });
+      }
       ws.simulateMessage({ type: 'heartbeat_ack' });
 
       // Should not force reconnect after ack
-      await vi.advanceTimersByTimeAsync(30_000);
+      for (let i = 0; i < 3; i++) {
+        await vi.advanceTimersByTimeAsync(10_000);
+        ws.simulateMessage({ ...testConfirmation(), type: 'lease_update' });
+      }
       expect(client.connectionStatus).toBe('connected');
     });
   });
@@ -775,23 +707,17 @@ describe('AgentStreamClient', () => {
       ws.simulateClose();
       expect(delays[0]).toBe(1000);
 
-      // Advance past reconnect delay → new WS created, onopen fires + resets delay,
-      // but we close before auth succeeds → triggers reconnect again with 1s (reset by onopen)
+      // Opening the transport without authenticating must keep the backoff.
       await vi.advanceTimersByTimeAsync(1000);
       await vi.advanceTimersByTimeAsync(1);
       getLatestWs().simulateClose();
 
-      // Third reconnect: previous close scheduled another with 1s,
-      // advance past it, onopen fires, close again to see 2s
+      // The next unauthenticated close increases the delay again.
       await vi.advanceTimersByTimeAsync(delays[1]);
       await vi.advanceTimersByTimeAsync(1);
       getLatestWs().simulateClose();
 
-      // Verify escalating pattern: 1s, 1s (reset by open), 1s (reset by open)
-      // This is correct: onopen resets delay, so each connect cycle restarts at 1s
-      // The backoff only accumulates when connection *fails to open*
-      expect(delays[0]).toBe(1000);
-      expect(delays[1]).toBe(1000); // Reset by successful WebSocket open
+      expect(delays).toEqual([1000, 2000, 4000]);
     });
 
     it('should not reconnect when autoReconnect is false', async () => {
@@ -810,11 +736,14 @@ describe('AgentStreamClient', () => {
     it('should send a successful tool_result message', async () => {
       const client = createClient();
       const ws = await connectAndAuth(client);
+      ws.simulateMessage(testToolCommand('call_1'));
+      ws.simulateMessage(testToolCommand('call_2'));
 
       const ok = client.sendToolResult({
         content: '{"files":["a.txt"]}',
         success: true,
         toolCallId: 'call_1',
+        attemptId: 'attempt-test',
       });
 
       expect(ok).toBe(true);
@@ -824,19 +753,28 @@ describe('AgentStreamClient', () => {
         content: '{"files":["a.txt"]}',
         success: true,
         toolCallId: 'call_1',
+        attemptId: 'attempt-test',
         type: 'tool_result',
+        tenancyProtocol: 1,
+        tenantId: 'tenant-test',
+        sourceAcceptedVersion: 1,
+        connectionGeneration: 1,
+        operationId: 'op-123',
       });
     });
 
     it('should send an error tool_result message', async () => {
       const client = createClient();
       const ws = await connectAndAuth(client);
+      ws.simulateMessage(testToolCommand('call_1'));
+      ws.simulateMessage(testToolCommand('call_2'));
 
       client.sendToolResult({
         content: null,
         error: { message: 'ipc failed', type: 'ipc_error' },
         success: false,
         toolCallId: 'call_2',
+        attemptId: 'attempt-test',
       });
 
       const toolResult = ws.sent.find((s) => JSON.parse(s).type === 'tool_result');
@@ -845,7 +783,13 @@ describe('AgentStreamClient', () => {
         error: { message: 'ipc failed', type: 'ipc_error' },
         success: false,
         toolCallId: 'call_2',
+        attemptId: 'attempt-test',
         type: 'tool_result',
+        tenancyProtocol: 1,
+        tenantId: 'tenant-test',
+        sourceAcceptedVersion: 1,
+        connectionGeneration: 1,
+        operationId: 'op-123',
       });
     });
 
@@ -879,7 +823,8 @@ describe('AgentStreamClient', () => {
       const client = createClient();
       const ws = await connectAndAuth(client);
 
-      client.updateToken('new-token');
+      const fresh = testTicket().replace(/\.TEST$/, '.RENEWED');
+      client.updateToken(fresh);
       ws.simulateClose();
 
       // Wait for reconnect
@@ -888,7 +833,7 @@ describe('AgentStreamClient', () => {
 
       const ws2 = getLatestWs();
       const authMsg = JSON.parse(ws2.sent[0]);
-      expect(authMsg.token).toBe('new-token');
+      expect(authMsg.token).toBe(fresh);
     });
   });
 });

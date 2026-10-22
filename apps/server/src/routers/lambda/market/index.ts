@@ -1,4 +1,3 @@
-import { isDesktop } from '@lobechat/const';
 import { TRPCError } from '@trpc/server';
 import { serialize } from 'cookie';
 import debug from 'debug';
@@ -21,10 +20,12 @@ import {
 import { agentRouter } from './agent';
 import { agentGroupRouter } from './agentGroup';
 import { credsRouter } from './creds';
+import { mapMarketError } from './marketError';
 import { oidcRouter } from './oidc';
 import { skillRouter } from './skill';
 import { socialRouter } from './social';
 import { socialProfileRouter } from './socialProfile';
+import { telemetryProcedures } from './telemetry';
 import { userRouter } from './user';
 
 const log = debug('lambda-router:market');
@@ -130,10 +131,7 @@ export const marketRouter = router({
         return await ctx.discoverService.getAssistantDetail(input);
       } catch (error) {
         log('Error fetching assistants detail: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch assistants detail',
-        });
+        throw mapMarketError(error, 'Failed to fetch assistants detail');
       }
     }),
 
@@ -231,10 +229,7 @@ export const marketRouter = router({
         return await ctx.discoverService.getGroupAgentDetail(input);
       } catch (error) {
         log('Error fetching group agent detail: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch group agent detail',
-        });
+        throw mapMarketError(error, 'Failed to fetch group agent detail');
       }
     }),
 
@@ -341,10 +336,7 @@ export const marketRouter = router({
         return await ctx.discoverService.getMcpDetail(input);
       } catch (error) {
         console.error('Error fetching mcp detail: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch mcp detail',
-        });
+        throw mapMarketError(error, 'Failed to fetch mcp detail');
       }
     }),
 
@@ -393,10 +385,7 @@ export const marketRouter = router({
         return await ctx.discoverService.getMcpManifest(input);
       } catch (error) {
         log('Error fetching mcp manifest: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch mcp manifest',
-        });
+        throw mapMarketError(error, 'Failed to fetch mcp manifest');
       }
     }),
 
@@ -437,10 +426,7 @@ export const marketRouter = router({
         return await ctx.discoverService.getModelDetail(input);
       } catch (error) {
         log('Error fetching model details: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch model details',
-        });
+        throw mapMarketError(error, 'Failed to fetch model details');
       }
     }),
 
@@ -525,10 +511,7 @@ export const marketRouter = router({
         return await ctx.discoverService.getPluginDetail(input);
       } catch (error) {
         log('Error fetching plugin details: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch plugin details',
-        });
+        throw mapMarketError(error, 'Failed to fetch plugin details');
       }
     }),
 
@@ -590,10 +573,7 @@ export const marketRouter = router({
         return await ctx.discoverService.getProviderDetail(input);
       } catch (error) {
         log('Error fetching provider details: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch provider details',
-        });
+        throw mapMarketError(error, 'Failed to fetch provider details');
       }
     }),
 
@@ -653,10 +633,7 @@ export const marketRouter = router({
         return await ctx.discoverService.getUserInfo(input);
       } catch (error) {
         log('Error fetching user info: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch user info',
-        });
+        throw mapMarketError(error, 'Failed to fetch user info');
       }
     }),
 
@@ -676,7 +653,7 @@ export const marketRouter = router({
         clientSecret: z.string(),
       }),
     )
-    .query(async ({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       log('registerM2MToken input: %O', { clientId: input.clientId, clientSecret: '[HIDDEN]' });
 
       try {
@@ -734,167 +711,10 @@ export const marketRouter = router({
       }
     }),
 
-  reportAgentEvent: marketProcedure
-    .input(
-      z.object({
-        event: z.enum(['add', 'chat', 'click']),
-        identifier: z.string(),
-        source: z.string().optional(),
-      }),
-    )
-    .mutation(async ({ input, ctx }) => {
-      log('createAgentEvent input: %O', input);
-
-      try {
-        await ctx.discoverService.createAgentEvent(input);
-        return { success: true };
-      } catch (error) {
-        console.error('Error reporting Agent event: %O', error);
-        return { success: false };
-      }
-    }),
-
-  reportAgentInstall: marketProcedure
-    .input(
-      z.object({
-        identifier: z.string(),
-      }),
-    )
-    .mutation(async ({ input, ctx }) => {
-      log('reportAgentInstall input: %O', input);
-      try {
-        await ctx.discoverService.increaseAgentInstallCount(input.identifier);
-        return { success: true };
-      } catch (error) {
-        log('Error reporting agent installation: %O', error);
-        return { success: false };
-      }
-    }),
-
   // ============================== Analytics ==============================
-  reportCall: marketProcedure
-    .input(
-      z.object({
-        callDurationMs: z.number(),
-        clientId: z.string().optional(),
-        customPluginInfo: z.any().optional(),
-        errorCode: z.string().optional(),
-        errorMessage: z.string().optional(),
-        identifier: z.string(),
-        isCustomPlugin: z.boolean().optional(),
-        metadata: z.record(z.string(), z.any()).optional(),
-        methodName: z.string(),
-        methodType: z.enum(['tool', 'prompt', 'resource']),
-        platform: z.string().optional(),
-        requestSizeBytes: z.number().optional(),
-        responseSizeBytes: z.number().optional(),
-        sessionId: z.string().optional(),
-        success: z.boolean(),
-        traceId: z.string().optional(),
-        userAgent: z.string().optional(),
-        version: z.string(),
-      }),
-    )
-    .mutation(async ({ input, ctx }) => {
-      log('reportCall input: %O', input);
-      try {
-        await ctx.discoverService.reportCall({
-          ...input,
-          platform: isDesktop ? process.platform : 'web',
-          userAgent: ctx.userAgent,
-        });
-        return { success: true };
-      } catch (error) {
-        console.error('Error reporting call: %O', error);
-        // Don't throw error, as reporting failure should not affect main flow
-        return { success: false };
-      }
-    }),
-
-  reportGroupAgentEvent: marketProcedure
-    .input(
-      z.object({
-        event: z.enum(['add', 'chat', 'click']),
-        identifier: z.string(),
-        source: z.string().optional(),
-      }),
-    )
-    .mutation(async ({ input, ctx }) => {
-      log('reportGroupAgentEvent input: %O', input);
-
-      try {
-        await ctx.discoverService.createGroupAgentEvent(input);
-        return { success: true };
-      } catch (error) {
-        console.error('Error reporting Group Agent event: %O', error);
-        return { success: false };
-      }
-    }),
-
-  reportGroupAgentInstall: marketProcedure
-    .input(
-      z.object({
-        identifier: z.string(),
-      }),
-    )
-    .mutation(async ({ input, ctx }) => {
-      log('reportGroupAgentInstall input: %O', input);
-      try {
-        await ctx.discoverService.increaseGroupAgentInstallCount(input.identifier);
-        return { success: true };
-      } catch (error) {
-        log('Error reporting group agent installation: %O', error);
-        return { success: false };
-      }
-    }),
-
-  reportMcpEvent: marketProcedure
-    .input(
-      z.object({
-        event: z.enum(['click', 'install', 'activate', 'uninstall']),
-        identifier: z.string(),
-        source: z.string().optional(),
-      }),
-    )
-    .mutation(async ({ input, ctx }) => {
-      log('createMcpEvent input: %O', input);
-
-      try {
-        await ctx.discoverService.createPluginEvent(input);
-        return { success: true };
-      } catch (error) {
-        console.error('Error reporting MCP event: %O', error);
-        return { success: false };
-      }
-    }),
-
-  reportMcpInstallResult: marketProcedure
-    .input(
-      z.object({
-        errorCode: z.any().optional(),
-        errorMessage: z.any().optional(),
-        identifier: z.string(),
-        installDurationMs: z.number().optional(),
-        installParams: z.any().optional(),
-        manifest: z.any().optional(),
-        metadata: z.any().optional(),
-        platform: z.string().optional(),
-        success: z.boolean(),
-        userAgent: z.string().optional(),
-        version: z.string(),
-      }),
-    )
-    .mutation(async ({ input, ctx }) => {
-      log('reportMcpInstallResult input: %O', input);
-      try {
-        await ctx.discoverService.reportPluginInstallation(input);
-        return { success: true };
-      } catch (error) {
-        log('Error reporting MCP installation result: %O', error);
-        // Don't throw error, as reporting failure should not affect main flow
-        return { success: false };
-      }
-    }),
+  // Client-reported events: the shared execution boundary fixed their identity and
+  // outcome; see ./telemetry.
+  ...telemetryProcedures,
 
   // ============================== Social Features ==============================
   social: socialRouter,

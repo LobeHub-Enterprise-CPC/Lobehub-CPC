@@ -1,7 +1,7 @@
 import { AUTH_FAILURE_HEADER } from '@lobechat/desktop-bridge';
 import { API_KEY_PREFIX } from '@lobechat/utils/apiKey';
 import { NextRequest } from 'next/server';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiKeyModel } from '@/database/models/apiKey';
 
@@ -58,7 +58,6 @@ vi.mock('@/database/models/apiKey', () => ({
 }));
 
 vi.mock('@/envs/auth', () => ({
-  LOBE_CHAT_AUTH_HEADER: 'X-lobe-chat-auth',
   LOBE_CHAT_OIDC_AUTH_HEADER: 'Oidc-Auth',
   authEnv: {
     ENABLE_OIDC: true,
@@ -106,6 +105,9 @@ const mockHasActiveWorkspaceMembership = vi.hoisted(() => vi.fn(async () => true
 vi.mock('@/database/models/workspace', () => ({
   hasActiveWorkspaceMembership: mockHasActiveWorkspaceMembership,
 }));
+
+beforeEach(() => vi.stubEnv('KEY_VAULTS_SECRET', 'TEST-ONLY-CONTEXT-HASH-SECRET'));
+afterEach(() => vi.unstubAllEnvs());
 
 describe('createContextInner', () => {
   it('should create context with default values when no params provided', async () => {

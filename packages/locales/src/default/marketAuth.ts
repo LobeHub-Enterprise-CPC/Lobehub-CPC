@@ -45,6 +45,8 @@ export default {
   'errors.codeVerifierMissing':
     'Invalid authorization session. Please restart the sign-in process.',
   'errors.general': 'An error occurred during authorization. Please try again.',
+  'errors.identityUnavailable':
+    'Could not confirm your identity in this organization, so the community is unavailable. Reload the page, or contact your administrator if it keeps happening.',
   'errors.handoffFailed': 'Failed to retrieve authorization result. Please try again.',
   'errors.handoffTimeout':
     'Authorization timed out. Please complete the process in your browser and try again.',

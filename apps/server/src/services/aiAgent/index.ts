@@ -34,7 +34,9 @@ import { TaskModel } from '@/database/models/task';
 import { ThreadModel } from '@/database/models/thread';
 import { TopicModel } from '@/database/models/topic';
 import { UserModel } from '@/database/models/user';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { createStreamEventManager } from '@/server/modules/AgentRuntime/factory';
+import { assertGatewayProviderCapability } from '@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite';
 import { AgentService } from '@/server/services/agent';
 import { AgentDocumentsService } from '@/server/services/agentDocuments';
 import type {
@@ -86,7 +88,6 @@ import { traceSendStage } from './pipeline/sendTracing';
 import { startOperation } from './pipeline/startOperation';
 import { resolveNewTopicSnapshot, setupTurn } from './pipeline/turnSetup';
 import { createRunFacts, type RunFacts } from './runFacts';
-import { applyShareGateToAgentConfig } from './shareGate';
 import type { SubAgentLlmRelayRequest } from './subAgentLlmRelay';
 import { closeSubAgentLlmRelay, openSubAgentLlmRelay } from './subAgentLlmRelay';
 import type { SubAgentRunDeps } from './subAgentRuns';
@@ -125,15 +126,17 @@ export class AiAgentService {
   private readonly agentRuntimeService: AgentRuntimeService;
   private readonly interventionController: InterventionController;
   private _marketService?: MarketService;
+  /** Caller-supplied Market token; wins over the one stored in the user's settings. */
+  private readonly marketAccessToken?: string;
+  /**
+   * Share-visitor entry points drive the run under the creator's identity, so
+   * the Market identity this service signs must not publish Market content.
+   */
+  private readonly proxyExecution: boolean;
   private readonly composioService: ComposioService;
 
   private readonly workspaceId?: string;
-  /**
-   * When the caller authenticated with a restricted API key, the unrestricted
-   * user JWT minted for gateway WebSocket auth must not be handed back — it
-   * passes `oidcAuth` as non-API-key auth and would bypass the scope guard
-   * entirely.
-   */
+  /** Restricted API keys do not receive executable gateway tickets. */
   private readonly withholdGatewayToken: boolean;
 
   constructor(
@@ -157,6 +160,8 @@ export class AiAgentService {
     this.userId = userId;
     this.db = db;
     this.workspaceId = options?.workspaceId;
+    this.marketAccessToken = options?.marketAccessToken;
+    this.proxyExecution = options?.includeShareVisitor ?? false;
     this.withholdGatewayToken = options?.withholdGatewayToken ?? false;
     const wsId = this.workspaceId;
     const includeShareVisitor = options?.includeShareVisitor ?? false;
@@ -194,14 +199,8 @@ export class AiAgentService {
       workspaceId: wsId,
     });
 
-    // marketService is used for creds, sandbox, skills etc.
-    // Read accessToken from DB; if options.marketAccessToken is provided, use it as override.
-    if (options?.marketAccessToken) {
-      this._marketService = new MarketService({
-        accessToken: options.marketAccessToken,
-        userInfo: { userId },
-      });
-    }
+    // marketService is used for creds, sandbox, skills etc. — built lazily by
+    // `getMarketService`: its Market identity is assembled asynchronously.
     this.composioService = new ComposioService({ db, userId, workspaceId: wsId });
     this.interventionController = new InterventionController({
       agentOperationModel: this.agentOperationModel,
@@ -237,29 +236,38 @@ export class AiAgentService {
     // (`execAgent` asks it for the memory / timezone settings too); callers
     // outside a run read it themselves.
     // Non-fatal either way — MarketService falls back to trustedClientToken.
-    const settings = await (
-      runFacts ? runFacts.userSettings() : new UserModel(this.db, this.userId).getUserSettings()
-    ).catch(() => undefined);
-    const accessToken = (settings?.market as any)?.accessToken;
+    // A caller-supplied token (`options.marketAccessToken`) overrides the stored one.
+    const settings = this.marketAccessToken
+      ? undefined
+      : await (
+          runFacts ? runFacts.userSettings() : new UserModel(this.db, this.userId).getUserSettings()
+        ).catch(() => undefined);
+    const accessToken = this.marketAccessToken ?? (settings?.market as any)?.accessToken;
 
     // A sandbox-workspace claim is signed into the trust token, so a service
     // carrying one is built for that run and kept out of the shared cache.
     if (options) {
       return new MarketService({
         accessToken,
-        userInfo: {
+        userInfo: await resolveMarketServiceIdentity({
+          proxyExecution: this.proxyExecution,
           sandboxStorage: options.sandboxStorage,
+          serverDB: this.db,
           userId: this.userId,
           // The claim resolves against the workspace's mirrored organization,
           // not the member's personal account, so the scope has to travel with it.
           workspaceId: this.workspaceId,
-        },
+        }),
       });
     }
 
     this._marketService = new MarketService({
       accessToken,
-      userInfo: { userId: this.userId },
+      userInfo: await resolveMarketServiceIdentity({
+        proxyExecution: this.proxyExecution,
+        serverDB: this.db,
+        userId: this.userId,
+      }),
     });
     return this._marketService;
   }
@@ -584,7 +592,6 @@ export class AiAgentService {
    *   → AgentRuntimeService.createOperation(...)
    */
   async execAgent(inputParams: InternalExecAgentParams): Promise<ExecAgentResult> {
-    // Reject private transcript conflicts before approval lookups or thread creation.
     if (
       inputParams.transcript &&
       (inputParams.appContext?.topicId ||
@@ -998,7 +1005,7 @@ export class AiAgentService {
       approvalSourceOperationId: providedApprovalSourceOperationId,
       selectedSkillIds,
       selectedToolIds,
-      shareGate,
+
       mentionedAgents,
       suppressUserMessage,
       ephemeralUserMessage,
@@ -1007,18 +1014,7 @@ export class AiAgentService {
       transcript,
     } = params;
 
-    // Agent Share visitor runs execute under the CREATOR's credentials but are
-    // approved by the VISITOR: granting a tool grants its normal approval
-    // flow, so the run honors the visitor's own approval mode (sent by the
-    // share client, see `shareChat.execAgent`) and parks intervention-gated
-    // calls for the visitor to resolve on the share page.
-    //
-    // A share caller that sends no config falls back to `manual`, never to
-    // this method's `headless` default: `headless` auto-runs `'required'`
-    // calls, which would grant a consent nobody gave.
-    const userInterventionConfig: UserInterventionConfig = shareGate
-      ? (params.userInterventionConfig ?? { approvalMode: 'manual' })
-      : requestedUserInterventionConfig;
+    const userInterventionConfig: UserInterventionConfig = requestedUserInterventionConfig;
 
     // Honour client-minted row ids on a FRESH send only. Resume / regeneration
     // replays reach this method too (resumeApproval, resumeToolResult,
@@ -1115,17 +1111,11 @@ export class AiAgentService {
           instructions,
           modelOverride,
           providerOverride,
-          shareVisitorUserId: shareGate?.visitorUserId,
           throwIfExecutionAborted,
           toolModeOverride,
         },
       ),
     );
-
-    // Share-visitor runs must never see the creator's files/knowledge bases.
-    // Applied to the resolved config before anything downstream (knowledge
-    // flags, tools engine, context snapshot) reads it.
-    if (shareGate) applyShareGateToAgentConfig(agentConfig);
 
     let resumeParentMessage: Awaited<ReturnType<MessageModel['findById']>>;
 
@@ -1296,7 +1286,7 @@ export class AiAgentService {
           resume,
           runFromHistory,
           selectedSkillIds,
-          shareGate,
+
           steer,
           throwIfExecutionAborted,
           title,
@@ -1317,6 +1307,9 @@ export class AiAgentService {
       selfMessageIds,
       topicId,
     } = turn;
+
+    if (!isHeteroAgent)
+      await assertGatewayProviderCapability(this.db, this.userId, provider, this.workspaceId);
 
     // Shared context for the extracted execAgent pipeline stages
     // (`pipeline/*`). Built after the turn rows exist so every stage sees the
@@ -1346,7 +1339,7 @@ export class AiAgentService {
       provider,
       resolvedAgentId,
       runFacts,
-      shareGate,
+
       topicEditingGroupId: turn.topicEditingGroupId,
       topicId,
       trigger,
@@ -1412,21 +1405,8 @@ export class AiAgentService {
 
         globalMemoryEnabled = agentMemoryEnabled ?? memorySettings?.enabled !== false;
 
-        // Timezone drives the session-date placeholder rendered back to whoever
-        // is actually conversing. In a share-visitor run that is the VISITOR,
-        // not the creator whose settings this block otherwise reads — memory /
-        // expertise intentionally stay creator-scoped below (gated by
-        // `allowReadMemory`), but the timezone has no such gate and must not
-        // leak the creator's own setting into a visitor's turn.
-        if (shareGate) {
-          const visitorSettings = await runFacts.userSettings(shareGate.visitorUserId);
-          const visitorGeneralSettings = visitorSettings?.general as
-            { timezone?: string } | undefined;
-          userTimezone = visitorGeneralSettings?.timezone;
-        } else {
-          const generalSettings = settings?.general as { timezone?: string } | undefined;
-          userTimezone = generalSettings?.timezone;
-        }
+        const generalSettings = settings?.general as { timezone?: string } | undefined;
+        userTimezone = generalSettings?.timezone;
       } catch (error) {
         log('execAgent: failed to fetch user settings: %O', error);
       }
@@ -1435,13 +1415,6 @@ export class AiAgentService {
         enableExpertise = preference?.lab?.enableSelfLearning === true;
       } catch (error) {
         console.error('Failed to resolve expertise injection Lab preference:', error);
-      }
-      // Share visitors only get the creator's memory (persona + learned
-      // expertise) when the share explicitly allows it — both surfaces would
-      // otherwise leak the creator's personal context into visitor turns.
-      if (shareGate && !shareGate.shareConfig.allowReadMemory) {
-        globalMemoryEnabled = false;
-        enableExpertise = false;
       }
     });
     log(
@@ -1458,7 +1431,6 @@ export class AiAgentService {
       : createHistoryMessagesLoader(
           {
             db: this.db,
-            isShareVisitorRun: !!shareGate,
             messageModel: this.messageModel,
             userId: this.userId,
             workspaceId: this.workspaceId,
@@ -1977,7 +1949,6 @@ export class AiAgentService {
 
   /**
    * Repair the topic reconnect marker and release the exact start reservation
-   * after a durable queue ACK. Delegates to {@link InterventionController}.
    */
   repairInterventionContinuationTopicAnchor(params: {
     assistantMessageId: string;

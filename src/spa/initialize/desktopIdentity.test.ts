@@ -1,7 +1,8 @@
 /**
  * @vitest-environment happy-dom
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getTenantScopeId, setRemoteTenantId } from '@lobechat/business-tenant/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useUserStore } from '@/store/user';
 
@@ -56,5 +57,23 @@ describe('applyDesktopBootstrapIdentity', () => {
 
     expect(getDesktopBootstrapIdentity).toHaveBeenCalledOnce();
     expect(useUserStore.getState().user?.id).toBe('bridge-user');
+  });
+});
+
+describe('applyDesktopBootstrapIdentity tenant partition', () => {
+  afterEach(() => setRemoteTenantId(undefined));
+
+  it('partitions local state by the organization of the stored token before first render', () => {
+    applyDesktopBootstrapIdentity({ isIdentityResolved: true, tenantId: 'tenant-a', userId: 'u1' });
+
+    expect(getTenantScopeId()).toBe('tenant-a');
+  });
+
+  it('keeps the partition while the stored token cannot be resolved', () => {
+    setRemoteTenantId('tenant-a');
+
+    applyDesktopBootstrapIdentity({ isIdentityResolved: false });
+
+    expect(getTenantScopeId()).toBe('tenant-a');
   });
 });

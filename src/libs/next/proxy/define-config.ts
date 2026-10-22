@@ -4,11 +4,11 @@ import { NextResponse } from 'next/server';
 import { UAParser } from 'ua-parser-js';
 import urlJoin from 'url-join';
 
-import { auth } from '@/auth';
 import { LOBE_LOCALE_COOKIE } from '@/const/locale';
 import { appEnv } from '@/envs/app';
 import { authEnv } from '@/envs/auth';
 import { type Locales } from '@/locales/resources';
+import { redactUrlEmail } from '@/server/services/tenantDiscovery/navigation';
 import { parseBrowserLanguage } from '@/utils/locale';
 import { DEFAULT_LANG, locales, RouteVariants } from '@/utils/server/routeVariants';
 
@@ -16,13 +16,11 @@ import { authSpaRoutes, nextjsOnlyRoutes } from '../nextjsOnlyRoutes';
 import { isShareSpaRoute } from '../shareRoutes';
 import { isAlwaysWorkbenchSpaRoute, isWorkbenchSpaRoute } from '../workbenchRoutes';
 import { createRouteMatcher } from './createRouteMatcher';
+import { createTenantMiddleware } from './tenant/middleware';
+import { dangerousLocalDevProxyRoute, PUBLIC_ACCEPTANCE_GUIDE } from './tenant/paths';
 
 // Create debug logger instances
 const logDefault = debug('middleware:default');
-const logBetterAuth = debug('middleware:better-auth');
-
-// Dev-only debug proxy route should bypass all middleware rewrites.
-const dangerousLocalDevProxyRoute = '/_dangerous_local_dev_proxy';
 
 // The locale is embedded raw into rewrite paths (/spa-auth/${locale}, /spa/${route}).
 // An unvalidated value (e.g. ?hl=../../api/dev) would let the URL parser collapse the
@@ -48,23 +46,19 @@ const persistLocaleCookie = (
 };
 
 export function defineConfig() {
-  // `/oauth/connector` is a backend route handler (custom connector OAuth callback);
-  // the rest of `/oauth/*` (e.g. /oauth/callback/success) are SPA pages, so scope
-  // the passthrough to the connector subtree only.
-  const backendApiEndpoints = ['/api', '/trpc', '/webapi', '/oidc', '/oauth/connector'];
-
-  const defaultMiddleware = (request: NextRequest) => {
+  /**
+   * Page rewrites for a tenant page. `pathname` is the path below `/t/{slug}`:
+   * the SPA reads the tenant prefix from the address bar as its router
+   * basename, so the HTML served for `/t/acme/agent` is the one for `/agent`.
+   */
+  const defaultMiddleware = (request: NextRequest, pathname: string, routedHeaders?: Headers) => {
     const url = new URL(request.url);
-    logDefault('Processing request: %s %s', request.method, request.url);
+    url.pathname = pathname;
+    const routedInit = routedHeaders ? { request: { headers: routedHeaders } } : undefined;
+    logDefault('Processing request: %s %s', request.method, redactUrlEmail(request.url));
 
     // Public installation instructions must remain readable by coding agents.
-    if (url.pathname === '/acceptance/skill.md') return NextResponse.next();
-
-    // skip all api requests
-    if (backendApiEndpoints.some((path) => url.pathname.startsWith(path))) {
-      logDefault('Skipping API request: %s', url.pathname);
-      return NextResponse.next();
-    }
+    if (url.pathname === PUBLIC_ACCEPTANCE_GUIDE) return NextResponse.rewrite(url, routedInit);
 
     // locale has three levels
     // 1. search params
@@ -109,7 +103,7 @@ export function defineConfig() {
     if (appEnv.MIDDLEWARE_REWRITE_THROUGH_LOCAL) {
       logDefault('Local container rewrite enabled: %O', {
         host: '127.0.0.1',
-        original: url.toString(),
+        original: redactUrlEmail(url.toString()),
         port: process.env.PORT || '3210',
         protocol: 'http',
       });
@@ -124,7 +118,7 @@ export function defineConfig() {
       url.pathname.startsWith(`${dangerousLocalDevProxyRoute}/`)
     ) {
       logDefault('Skipping rewrite for dangerous local dev proxy route: %s', url.pathname);
-      return NextResponse.next();
+      return NextResponse.next(routedInit);
     }
 
     const isAuthSpaRoute = authSpaRoutes.some(
@@ -134,10 +128,10 @@ export function defineConfig() {
     // Auth SPA routes: rewrite to /spa-auth/[locale]/[[...path]] catch-all
     if (isAuthSpaRoute) {
       const authSpaPath = `/spa-auth/${safeLocale}${url.pathname}`;
-      logDefault('Auth SPA route, rewriting to: %s', authSpaPath);
+      logDefault('Auth SPA route, rewriting to: %s', redactUrlEmail(authSpaPath));
       url.pathname = authSpaPath;
 
-      const response = NextResponse.rewrite(url);
+      const response = NextResponse.rewrite(url, routedInit);
       persistLocaleCookie(response, request, explicitlyLocale);
 
       return response;
@@ -150,7 +144,7 @@ export function defineConfig() {
       logDefault('Share SPA route, rewriting to: %s', sharePath);
       url.pathname = sharePath;
 
-      const response = NextResponse.rewrite(url);
+      const response = NextResponse.rewrite(url, routedInit);
       persistLocaleCookie(response, request, explicitlyLocale);
 
       return response;
@@ -164,7 +158,7 @@ export function defineConfig() {
       logDefault('Workbench SPA route, rewriting to: %s', workbenchPath);
       url.pathname = workbenchPath;
 
-      const response = NextResponse.rewrite(url);
+      const response = NextResponse.rewrite(url, routedInit);
       persistLocaleCookie(response, request, explicitlyLocale);
 
       return response;
@@ -178,7 +172,7 @@ export function defineConfig() {
       logDefault('SPA route, rewriting to: %s', spaPath);
       url.pathname = spaPath;
 
-      const response = NextResponse.rewrite(url);
+      const response = NextResponse.rewrite(url, routedInit);
       persistLocaleCookie(response, request, explicitlyLocale);
 
       return response;
@@ -199,9 +193,9 @@ export function defineConfig() {
 
     url.pathname = nextPathname;
 
-    logDefault('nextURL after rewrite: %s', url.toString());
+    logDefault('nextURL after rewrite: %s', redactUrlEmail(url.toString()));
     // build rewrite response first
-    const rewrite = NextResponse.rewrite(url, { status: 200 });
+    const rewrite = NextResponse.rewrite(url, { status: 200, ...routedInit });
 
     persistLocaleCookie(rewrite, request, explicitlyLocale);
 
@@ -209,23 +203,6 @@ export function defineConfig() {
   };
 
   const isPublicRoute = createRouteMatcher([
-    // backend api
-    '/api/v1(.*)', // OpenAPI routes should use OpenAPI auth (API Key/OIDC), not BetterAuth session
-    '/api/auth(.*)',
-    '/api/webhooks(.*)',
-    '/api/workflows(.*)',
-    '/api/agent(.*)',
-    '/api/acceptance-review(.*)',
-    '/api/dev(.*)',
-    '/webapi(.*)',
-    '/trpc(.*)',
-    // version
-    '/api/version',
-    '/api/desktop/(.*)',
-    // Composio OAuth callback — hit via a cross-site redirect from the provider
-    // after Composio-managed auth; only renders a popup-closing page, so it must
-    // not be session-gated.
-    '/api/composio/oauth/callback',
     // better auth
     '/signin',
     '/signup',
@@ -235,23 +212,6 @@ export function defineConfig() {
     // oauth
     // Make only the consent view public (GET page), not other oauth paths
     '/oauth/consent/(.*)',
-    // Custom connector OAuth callback — hit via a cross-site redirect from the
-    // provider, carries its own code+state, so it must not be session-gated.
-    '/oauth/connector/callback',
-    '/oidc/handoff',
-    '/oidc/device/auth',
-    '/oidc/token',
-    // OIDC protocol endpoints a client reads before (or without) any browser
-    // session: discovery and JWKS are public by spec, and userinfo authenticates
-    // with the bearer access token the provider itself checks. Session-gating them
-    // redirects non-browser callers to the sign-in HTML, which is what a
-    // third-party app registered through Settings → OAuth Apps hits first.
-    '/oidc/.well-known/openid-configuration',
-    '/oidc/jwks',
-    '/oidc/me',
-    // Interaction details for the consent/login page — must be reachable
-    // before the user has a session, so it cannot be session-gated.
-    '/oidc/interaction/(.*)',
     // market
     '/market-auth-callback',
     // public share pages
@@ -269,65 +229,7 @@ export function defineConfig() {
     '/verify-im',
   ]);
 
-  const betterAuthMiddleware = async (req: NextRequest) => {
-    logBetterAuth('BetterAuth middleware processing request: %s %s', req.method, req.url);
-
-    const response = defaultMiddleware(req);
-
-    // when enable auth protection, only public route is not protected, others are all protected
-    const isProtected = !isPublicRoute(req);
-
-    logBetterAuth('Route protection status: %s, %s', req.url, isProtected ? 'protected' : 'public');
-
-    // Skip session lookup for public routes to reduce latency
-    if (!isProtected) return response;
-
-    // Get full session with user data (Next.js 15.2.0+ feature)
-    const { response: session, headers: authHeaders } = await auth.api.getSession({
-      headers: req.headers,
-      returnHeaders: true,
-    });
-    for (const cookie of authHeaders.getSetCookie()) response.headers.append('set-cookie', cookie);
-
-    const isLoggedIn = !!session?.user;
-
-    logBetterAuth('BetterAuth session status: %O', {
-      isLoggedIn,
-      userId: session?.user?.id,
-    });
-
-    if (!isLoggedIn) {
-      // If request a protected route, redirect to sign-in page
-      if (isProtected) {
-        logBetterAuth('Request a protected route, redirecting to sign-in page');
-
-        const callbackUrl = `${appEnv.APP_URL}${req.nextUrl.pathname}${req.nextUrl.search}`;
-        const signInUrl = new URL('/signin', appEnv.APP_URL);
-        signInUrl.searchParams.set('callbackUrl', callbackUrl);
-        const hl = req.nextUrl.searchParams.get('hl');
-        if (hl) {
-          signInUrl.searchParams.set('hl', hl);
-          logBetterAuth('Preserving locale to sign-in: hl=%s', hl);
-        }
-        // Preserve marketing attribution (e.g. sign-ups originating from Market)
-        // so it survives the auth detour and reaches the sign-up page.
-        const utmSource = req.nextUrl.searchParams.get('utm_source');
-        if (utmSource) {
-          signInUrl.searchParams.set('utm_source', utmSource);
-          logBetterAuth('Preserving utm_source to sign-in: %s', utmSource);
-        }
-        const redirectHeaders = new Headers({ location: signInUrl.href });
-        for (const cookie of authHeaders.getSetCookie())
-          redirectHeaders.append('set-cookie', cookie);
-        return new Response(null, { status: 302, headers: redirectHeaders });
-      }
-      logBetterAuth('Request a free route but not login, allow visit without auth header');
-    }
-
-    return response;
-  };
-
   logDefault('Middleware configuration: %O', { enableOIDC: authEnv.ENABLE_OIDC });
 
-  return { middleware: betterAuthMiddleware };
+  return { middleware: createTenantMiddleware({ defaultMiddleware, isPublicRoute, toSafeLocale }) };
 }

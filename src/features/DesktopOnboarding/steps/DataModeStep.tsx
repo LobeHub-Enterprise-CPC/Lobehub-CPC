@@ -1,10 +1,10 @@
 'use client';
 
 import { Block, Empty, Flexbox } from '@lobehub/ui';
-import { Button, Checkbox, Text } from '@lobehub/ui/base-ui';
+import { Alert, Button, Checkbox, Text } from '@lobehub/ui/base-ui';
 import { cssVar } from 'antd-style';
 import { HeartHandshake, Undo2Icon } from 'lucide-react';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useUserStore } from '@/store/user';
@@ -27,16 +27,31 @@ const DataModeStep = memo<DataModeStepProps>(({ onBack, onNext }) => {
   const [selectedMode, setSelectedMode] = useState<DataMode>(
     telemetryEnabled ? 'share' : 'privacy',
   );
+  const saving = useRef(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
 
   const setMode = useCallback(
-    (mode: DataMode) => {
+    async (mode: DataMode) => {
+      if (saving.current) return;
       setSelectedMode(mode);
       const nextTelemetry = mode === 'share';
-      if (telemetryEnabled !== nextTelemetry) {
-        void updateGeneralConfig({ telemetry: nextTelemetry });
+      // A failed optimistic update already matches the selection. Retry the
+      // write anyway, so continuing always means this preference was saved.
+      if (!saveError && telemetryEnabled === nextTelemetry) return;
+      saving.current = true;
+      setIsSaving(true);
+      setSaveError(false);
+      try {
+        await updateGeneralConfig({ telemetry: nextTelemetry });
+      } catch {
+        setSaveError(true);
+      } finally {
+        saving.current = false;
+        setIsSaving(false);
       }
     },
-    [telemetryEnabled, updateGeneralConfig],
+    [saveError, telemetryEnabled, updateGeneralConfig],
   );
 
   const checkIcon = (
@@ -115,9 +130,22 @@ const DataModeStep = memo<DataModeStepProps>(({ onBack, onNext }) => {
       <Text color={cssVar.colorTextSecondary} fontSize={12} style={{ marginTop: 16 }}>
         {t('screen4.footerNote')}
       </Text>
+      {saveError && (
+        <Alert
+          description={t('screen4.saveError')}
+          role={'alert'}
+          type={'error'}
+          action={
+            <Button disabled={isSaving} onClick={() => setMode(selectedMode)}>
+              {t('retry', { ns: 'common' })}
+            </Button>
+          }
+        />
+      )}
       <OnboardingFooterActions
         left={
           <Button
+            disabled={isSaving || saveError}
             icon={Undo2Icon}
             style={{ color: cssVar.colorTextDescription }}
             type={'text'}
@@ -127,7 +155,12 @@ const DataModeStep = memo<DataModeStepProps>(({ onBack, onNext }) => {
           </Button>
         }
         right={
-          <Button type={'primary'} onClick={onNext}>
+          <Button
+            disabled={isSaving || saveError}
+            loading={isSaving}
+            type={'primary'}
+            onClick={onNext}
+          >
             {t('next')}
           </Button>
         }

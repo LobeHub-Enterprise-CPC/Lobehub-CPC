@@ -4,6 +4,7 @@
  * Handles connection validation and state management for ComfyUI server
  * Provides TTL-based connection validation caching
  */
+import { createSsrfSafeFetch } from '@lobechat/ssrf-safe-fetch';
 import debug from 'debug';
 
 import { ServicesError } from '@/server/services/comfyui/errors';
@@ -15,7 +16,11 @@ export class ComfyUIConnectionService {
   private lastValidationTime: number = 0;
   private readonly validationTTL = 5 * 60 * 1000; // 5 minutes
 
-  constructor() {
+  /**
+   * @param fetchImpl - Transport for the health check. Defaults to the SSRF-safe one because
+   * the server address is user-provided; pass the plain `fetch` only for platform-configured servers.
+   */
+  constructor(private readonly fetchImpl: typeof fetch = createSsrfSafeFetch() as any) {
     log('🔗 Initializing connection service');
   }
 
@@ -72,7 +77,7 @@ export class ComfyUIConnectionService {
 
       log('🔍 Validating connection to:', url);
 
-      const response = await fetch(url, {
+      const response = await this.fetchImpl(url, {
         headers: {
           ...headers,
           'Content-Type': 'application/json',

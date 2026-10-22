@@ -2,6 +2,7 @@ import debug from 'debug';
 import type { MiddlewareHandler } from 'hono';
 
 import { appEnv } from '@/envs/app';
+import { isBearerSecret } from '@/server/utils/bearerAuth';
 
 const log = debug('lobe-server:agent:service-token-auth');
 
@@ -26,7 +27,7 @@ export const serviceTokenAuth = (): MiddlewareHandler => async (c, next) => {
   }
 
   const authHeader = c.req.header('authorization');
-  if (authHeader !== `Bearer ${serviceToken}`) {
+  if (!isBearerSecret(authHeader, serviceToken)) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
 

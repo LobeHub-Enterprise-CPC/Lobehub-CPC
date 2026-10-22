@@ -1,0 +1,104 @@
+diff --git a/es/base-ui/Drawer/atoms.mjs b/es/base-ui/Drawer/atoms.mjs
+index 60e11e0..67ce980 100644
+--- a/es/base-ui/Drawer/atoms.mjs
++++ b/es/base-ui/Drawer/atoms.mjs
+@@ -236,7 +236,7 @@ const DrawerTrigger = ({ children, className, nativeButton, ref: refProp, ...res
+ 		return cloneElement(children, {
+ 			...mergedProps,
+ 			ref: mergeRefs([
+-				children.ref,
++				children.props.ref,
+ 				props.ref,
+ 				refProp
+ 			])
+diff --git a/es/base-ui/DropdownMenu/atoms.mjs b/es/base-ui/DropdownMenu/atoms.mjs
+index 43dd2c7..cb36aa5 100644
+--- a/es/base-ui/DropdownMenu/atoms.mjs
++++ b/es/base-ui/DropdownMenu/atoms.mjs
+@@ -43,7 +43,7 @@ const DropdownMenuTrigger = ({ children, className, nativeButton, ref: refProp,
+ 			...mergedProps,
+ 			className: clsx(CLASSNAMES.DropdownMenuTrigger, className, mergedProps.className),
+ 			ref: mergeRefs([
+-				children.ref,
++				children.props.ref,
+ 				props.ref,
+ 				refProp
+ 			])
+diff --git a/es/base-ui/Modal/atoms.mjs b/es/base-ui/Modal/atoms.mjs
+index bbce60b..dd3c7af 100644
+--- a/es/base-ui/Modal/atoms.mjs
++++ b/es/base-ui/Modal/atoms.mjs
+@@ -202,7 +202,7 @@ const ModalTrigger = ({ children, className, nativeButton, ref: refProp, ...rest
+ 		return cloneElement(children, {
+ 			...mergedProps,
+ 			ref: mergeRefs([
+-				children.ref,
++				children.props.ref,
+ 				props.ref,
+ 				refProp
+ 			])
+diff --git a/es/base-ui/Popover/PopoverInGroup.mjs b/es/base-ui/Popover/PopoverInGroup.mjs
+index b5e7d2c..d674417 100644
+--- a/es/base-ui/Popover/PopoverInGroup.mjs
++++ b/es/base-ui/Popover/PopoverInGroup.mjs
+@@ -48,7 +48,7 @@ const PopoverInGroup = ({ children, ref: refProp, ...props }) => {
+ 				...mergedProps,
+ 				className: cx(mergedProps.className, triggerClassName),
+ 				ref: mergeRefs([
+-					children.ref,
++					children.props.ref,
+ 					renderProps.ref,
+ 					refProp
+ 				])
+diff --git a/es/base-ui/Popover/atoms.mjs b/es/base-ui/Popover/atoms.mjs
+index f3145b7..6a232d5 100644
+--- a/es/base-ui/Popover/atoms.mjs
++++ b/es/base-ui/Popover/atoms.mjs
+@@ -37,7 +37,7 @@ const PopoverTriggerElement = ({ children, className, nativeButton, ref: refProp
+ 				...mergedProps,
+ 				className: cx(baseClassName, extraClassName),
+ 				ref: mergeRefs([
+-					children.ref,
++					children.props.ref,
+ 					props.ref,
+ 					refProp
+ 				])
+diff --git a/es/base-ui/Select/atoms.mjs b/es/base-ui/Select/atoms.mjs
+index ccef5c5..c47974d 100644
+--- a/es/base-ui/Select/atoms.mjs
++++ b/es/base-ui/Select/atoms.mjs
+@@ -46,7 +46,7 @@ const SelectTrigger = ({ children, className, nativeButton, shadow, size = "midd
+ 				...mergedProps,
+ 				className: cx(baseClassName, childClassName, extraClassName),
+ 				ref: mergeRefs([
+-					children.ref,
++					children.props.ref,
+ 					props.ref,
+ 					refProp
+ 				])
+diff --git a/es/base-ui/Tooltip/TooltipInGroup.mjs b/es/base-ui/Tooltip/TooltipInGroup.mjs
+index b2bb501..ce50fa3 100644
+--- a/es/base-ui/Tooltip/TooltipInGroup.mjs
++++ b/es/base-ui/Tooltip/TooltipInGroup.mjs
+@@ -89,7 +89,7 @@ const TooltipInGroup = ({ children, ref: refProp, arrow, className, classNames,
+ 			...mergedProps,
+ 			id: shouldPreservePopupTriggerId ? childProps.id : mergedProps.id,
+ 			ref: mergeRefs([
+-				childElement.ref,
++				childElement.props.ref,
+ 				renderProps.ref,
+ 				refProp
+ 			])
+diff --git a/es/base-ui/Tooltip/TooltipStandalone.mjs b/es/base-ui/Tooltip/TooltipStandalone.mjs
+index 8e0b068..a690eca 100644
+--- a/es/base-ui/Tooltip/TooltipStandalone.mjs
++++ b/es/base-ui/Tooltip/TooltipStandalone.mjs
+@@ -102,7 +102,7 @@ const TooltipStandalone = memo(({ children, title, arrow = false, className, cla
+ 					...mergedProps,
+ 					id: shouldPreservePopupTriggerId ? childProps.id : mergedProps.id,
+ 					ref: mergeRefs([
+-						children.ref,
++						children.props.ref,
+ 						props.ref,
+ 						refProp,
+ 						triggerCallbackRef

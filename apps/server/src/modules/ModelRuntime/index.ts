@@ -38,13 +38,16 @@ import { getServerDB } from '@/database/server';
 import { type LobeChatDatabase } from '@/database/type';
 import { getLLMConfig } from '@/envs/llm';
 import { getServerAiProviderConfig } from '@/server/globalConfig';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { createLLMGenerationTracingHook } from '@/server/services/llmGenerationTracing/hook';
 import { ensureFreshOAuthToken } from '@/server/services/oauthDeviceFlow/refresh';
 
 import { KeyVaultsGateKeeper } from '../KeyVaultsEncrypt';
 import apiKeyManager from './apiKeyManager';
+import { createUserEndpointFetch } from './userEndpoint';
 
 export * from './trace';
+export { createUserEndpointFetch } from './userEndpoint';
 export type { ServerDefaultHeterogeneousAgentType } from '@lobechat/heterogeneous-agents';
 export { SERVER_DEFAULT_HETEROGENEOUS_AGENT_TYPES } from '@lobechat/heterogeneous-agents';
 
@@ -197,6 +200,15 @@ export const buildPayloadFromKeyVaults = (
 };
 
 /**
+ * Instance provider credentials (`*_API_KEY`, `*_PROXY_URL`, `AZURE_*`, `AWS_*`,
+ * `VERTEXAI_*`, `COMFYUI_*`). Business builds are multi-tenant: a request runs
+ * on its tenant's router channels or on the user's own key, never on keys the
+ * deployment holds for itself, so they read as unset there.
+ */
+const getInstanceProviderEnv = (): Record<string, any> =>
+  ENABLE_BUSINESS_FEATURES ? {} : { ...process.env, ...getLLMConfig() };
+
+/**
  * Retrieves the options object from environment and apikeymanager
  * based on the provider and payload.
  *
@@ -205,7 +217,7 @@ export const buildPayloadFromKeyVaults = (
  * @returns The options object.
  */
 const getParamsFromPayload = (provider: string, payload: ClientSecretPayload) => {
-  const llmConfig = getLLMConfig() as Record<string, any>;
+  const llmConfig = getInstanceProviderEnv();
 
   switch (provider) {
     case ModelProvider.LobeHub: {
@@ -224,13 +236,13 @@ const getParamsFromPayload = (provider: string, payload: ClientSecretPayload) =>
       }
 
       const apiKey = apiKeyManager.pick(payload?.apiKey || llmConfig[`${upperProvider}_API_KEY`]);
-      const baseURL = payload?.baseURL || process.env[`${upperProvider}_PROXY_URL`];
+      const baseURL = payload?.baseURL || llmConfig[`${upperProvider}_PROXY_URL`];
 
       return baseURL ? { apiKey, baseURL } : { apiKey };
     }
 
     case ModelProvider.Ollama: {
-      const baseURL = payload?.baseURL || process.env.OLLAMA_PROXY_URL;
+      const baseURL = payload?.baseURL || llmConfig.OLLAMA_PROXY_URL;
 
       return { baseURL };
     }
@@ -321,7 +333,10 @@ const getParamsFromPayload = (provider: string, payload: ClientSecretPayload) =>
       } = llmConfig;
 
       // ComfyUI specific handling with environment variables fallback
-      const baseURL = payload?.baseURL || COMFYUI_BASE_URL || 'http://127.0.0.1:8000';
+      // No built-in literal here: an absent baseURL means "the platform's ComfyUI", which the
+      // ComfyUI service resolves to its own default. A literal would look like a user-typed URL
+      // downstream, where user-provided servers are SSRF-filtered and platform ones are not.
+      const baseURL = payload?.baseURL || COMFYUI_BASE_URL;
 
       // ComfyUI supports multiple auth types: none, basic, bearer, custom
       // Extract all relevant auth fields from the payload or environment
@@ -383,18 +398,19 @@ const buildVertexOptions = (
   payload: ClientSecretPayload,
   params: Partial<GoogleGenAIOptions> = {},
 ): GoogleGenAIOptions => {
-  const rawCredentials = payload.apiKey || process.env.VERTEXAI_CREDENTIALS || '';
+  const instanceEnv = getInstanceProviderEnv();
+  const rawCredentials = payload.apiKey || instanceEnv.VERTEXAI_CREDENTIALS || '';
   const credentials = safeParseJSON<Record<string, string>>(rawCredentials);
 
   const projectFromParams = params.project as string | undefined;
   const projectFromCredentials = credentials?.project_id;
-  const projectFromEnv = process.env.VERTEXAI_PROJECT;
+  const projectFromEnv = instanceEnv.VERTEXAI_PROJECT;
 
   const project = projectFromParams || projectFromCredentials || projectFromEnv;
   const location =
     (params.location as string | undefined) ||
     payload.vertexAIRegion ||
-    process.env.VERTEXAI_LOCATION ||
+    instanceEnv.VERTEXAI_LOCATION ||
     undefined;
 
   const googleAuthOptions = params.googleAuthOptions || (credentials ? { credentials } : undefined);
@@ -409,6 +425,17 @@ const buildVertexOptions = (
   if (location) options.location = location as GoogleGenAIOptions['location'];
 
   return options;
+};
+
+const hasUserProvidedEndpoint = (runtimeProvider: string, payload: ClientSecretPayload) => {
+  // ComfyUI calls the app's own service route, which guards the endpoint itself.
+  if (runtimeProvider === ModelProvider.ComfyUI) return false;
+  if (payload.baseURL) return true;
+
+  return (
+    runtimeProvider === ModelProvider.Cloudflare &&
+    !!payload.cloudflareBaseURLOrAccountID?.startsWith('http')
+  );
 };
 
 /**
@@ -444,11 +471,34 @@ export const initModelRuntimeWithUserPayload = (
     return new ModelRuntime(runtime, hooks);
   }
 
+  /**
+   * `lobehub` is the deployment-owned router: its channels (baseURL, keys) come
+   * from platform configuration and may legitimately be private. A baseURL in a
+   * user payload must never take part there, otherwise it could redirect a
+   * channel that has no baseURL of its own (and its platform credentials) to a
+   * user-chosen host.
+   */
+  const effectivePayload =
+    runtimeProvider === ModelProvider.LobeHub && payload.baseURL
+      ? { ...payload, baseURL: undefined }
+      : payload;
+
   return ModelRuntime.initializeWithProvider(
     runtimeProvider,
     {
-      ...getParamsFromPayload(runtimeProvider, payload),
+      ...getParamsFromPayload(runtimeProvider, effectivePayload),
       ...params,
+      // Endpoints the user typed in go through the SSRF-safe transport. Platform
+      // endpoints (env `*_PROXY_URL`, built-in defaults) are used only when the
+      // user supplied none, and keep the plain transport.
+      ...(hasUserProvidedEndpoint(runtimeProvider, effectivePayload) && {
+        fetch: createUserEndpointFetch(),
+      }),
+      // The ComfyUI route is a tenant route: called without the tenant prefix it is
+      // refused with TENANT_REQUIRED.
+      ...(runtimeProvider === ModelProvider.ComfyUI && {
+        serviceURL: buildTenantCallbackUrl('/webapi/create-image/comfyui'),
+      }),
     },
     hooks,
   );

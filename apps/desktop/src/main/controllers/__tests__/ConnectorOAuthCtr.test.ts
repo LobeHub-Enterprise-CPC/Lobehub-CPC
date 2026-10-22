@@ -135,6 +135,49 @@ describe('ConnectorOAuthCtr', () => {
     expect(BrowserWindow).not.toHaveBeenCalled();
   });
 
+  describe('tenant address with a path prefix', () => {
+    const tenantCallback = 'https://server.example/t/acme/oauth/connector/callback';
+    const withRedirect = (redirectUri: string) => {
+      const url = new URL(authorizationUrl);
+      url.searchParams.set('redirect_uri', redirectUri);
+      return url.href;
+    };
+
+    it.each(['https://server.example/t/acme', 'https://server.example/t/acme/'])(
+      'accepts the tenant callback of %s and binds completion to it',
+      async (server) => {
+        remoteUrl = server;
+        const result = controller.authorize({
+          ...params,
+          authorizationUrl: withRedirect(tenantCallback),
+        });
+        await Promise.resolve();
+        expect(popup.loadURL).toHaveBeenCalled();
+
+        // The tenant-less root callback is not the page this attempt may complete on.
+        popup.webContents.mainFrame.url =
+          'https://server.example/oauth/connector/callback?state=expected-state';
+        send();
+        expect(popup.destroy).not.toHaveBeenCalled();
+
+        popup.webContents.mainFrame.url = `${tenantCallback}?state=expected-state`;
+        send();
+        await expect(result).resolves.toBe('success');
+      },
+    );
+
+    it.each([
+      'https://server.example/oauth/connector/callback',
+      'https://server.example/t/other/oauth/connector/callback',
+    ])('rejects %s as the callback of a tenant address', async (redirectUri) => {
+      remoteUrl = 'https://server.example/t/acme';
+      await expect(
+        controller.authorize({ ...params, authorizationUrl: withRedirect(redirectUri) }),
+      ).resolves.toBe('failed');
+      expect(BrowserWindow).not.toHaveBeenCalled();
+    });
+  });
+
   it('keeps waiting after an aborted load caused by navigation', async () => {
     popup.loadURL.mockRejectedValue(Object.assign(new Error('aborted'), { code: 'ERR_ABORTED' }));
     const result = controller.authorize(params);

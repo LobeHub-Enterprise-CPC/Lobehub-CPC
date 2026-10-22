@@ -115,6 +115,8 @@ interface LobeGoogleAIParams extends ModelIdMappingOptions {
   baseURL?: string;
   client?: GoogleGenAI;
   defaultHeaders?: Record<string, any>;
+  /** Custom transport; the server injects an SSRF-safe one for user-provided endpoints. */
+  fetch?: typeof fetch;
   id?: string;
   isVertexAi?: boolean;
 }
@@ -132,6 +134,7 @@ const isAbortError = (error: Error): boolean => {
 
 export class LobeGoogleAI implements LobeRuntimeAI {
   private client: GoogleGenAI;
+  private customFetch?: typeof fetch;
   private isVertexAi: boolean;
   baseURL?: string;
   apiKey?: string;
@@ -145,13 +148,19 @@ export class LobeGoogleAI implements LobeRuntimeAI {
     isVertexAi,
     id,
     defaultHeaders,
+    fetch: customFetch,
     modelIdMapping,
   }: LobeGoogleAIParams = {}) {
     if (!apiKey) throw AgentRuntimeError.createError(AgentRuntimeErrorType.InvalidProviderAPIKey);
 
     const httpOptions = baseURL
-      ? ({ baseUrl: baseURL, headers: defaultHeaders } as HttpOptions)
+      ? ({
+          baseUrl: baseURL,
+          headers: defaultHeaders,
+          ...(customFetch && { fetch: customFetch }),
+        } as HttpOptions)
       : undefined;
+    this.customFetch = customFetch;
 
     this.apiKey = apiKey;
     this.client = client ?? new GoogleGenAI({ apiKey, httpOptions });
@@ -592,7 +601,7 @@ export class LobeGoogleAI implements LobeRuntimeAI {
   async models(options?: { signal?: AbortSignal }) {
     try {
       const url = `${this.baseURL}/v1beta/models`;
-      const response = await fetch(url, {
+      const response = await (this.customFetch ?? fetch)(url, {
         headers: {
           'x-goog-api-key': this.apiKey!,
         },

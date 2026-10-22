@@ -668,3 +668,7 @@ describe('AiAgentService.execAgent - file upload handling', () => {
     });
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');
