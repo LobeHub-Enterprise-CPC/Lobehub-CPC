@@ -139,7 +139,7 @@ describe('rehypeFileLink', () => {
       mockConstEnv.isDesktop = true;
     });
 
-    it('classifies against the official cloud origin, not the renderer origin', () => {
+    it('rejects other official subdomains in cloud mode', () => {
       useElectronStore.setState({ dataSyncConfig: { storageMode: 'cloud' } });
 
       const tree = {
@@ -148,15 +148,15 @@ describe('rehypeFileLink', () => {
           {
             type: 'element',
             tagName: 'a',
-            properties: { href: 'https://app.lobehub.com/f/file_abc123' },
-            children: [{ type: 'text', value: 'bubble_sort.py' }],
+            properties: { href: 'https://docs.lobehub.com/f/file_abc123' },
+            children: [{ type: 'text', value: 'not-ours' }],
           },
         ],
       };
 
       run(tree);
 
-      expect((tree as any).children[0].tagName).toBe(LOBE_FILE_LINK_TAG);
+      expect((tree as any).children[0].tagName).toBe('a');
     });
 
     it('classifies against the configured self-hosted remote server origin', () => {

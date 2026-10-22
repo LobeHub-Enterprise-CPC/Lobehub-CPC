@@ -1,8 +1,14 @@
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
 import type * as DeviceControlModule from '@lobechat/device-control';
+import type * as DeviceGatewayClientModule from '@lobechat/device-gateway-client';
 import { GatewayClient } from '@lobechat/device-gateway-client';
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as ApiClientModule from '../api/client';
 import type * as GatewayIdentityModule from '../auth/gatewayIdentity';
 import { createGatewayIdentityProvider } from '../auth/gatewayIdentity';
 import type * as RefreshModule from '../auth/refresh';
@@ -10,23 +16,26 @@ import { resolveToken } from '../auth/resolveToken';
 import { CLI_DISPLAY_NAME } from '../constants/identity';
 import { removeStatus, spawnDaemon, stopDaemon, writeStatus } from '../daemon/manager';
 import type * as DeviceRegister from '../device/register';
-import { loadSettings, resolveCommandMode, saveSettings } from '../settings';
+import type * as SystemInfoModule from '../device/systemInfo';
+import { loadDeviceGatewayUrl, resolveCommandMode, saveDeviceGatewayUrl } from '../settings';
 import { executeToolCall } from '../tools';
 import { cleanupAllProcesses, probeSandbox } from '../tools/shell';
 import { log, setVerbose } from '../utils/logger';
 import { registerConnectCommand } from './connect';
 
+// Native runtime probing spawns Codex; connect.nativeRuntimes.test.ts covers it.
+vi.mock('../device/systemInfo', async (importOriginal) => ({
+  ...(await importOriginal<typeof SystemInfoModule>()),
+  probeNativeRuntimes: vi.fn().mockResolvedValue([]),
+}));
+
 const registerDeviceMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-const mintWorkspaceConnectTokenMock = vi.hoisted(() => vi.fn());
-const registerWorkspaceDeviceMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../device/register', async (importOriginal) => {
   const actual = await importOriginal<typeof DeviceRegister>();
   return {
     ...actual,
-    mintWorkspaceConnectToken: mintWorkspaceConnectTokenMock,
     registerDevice: registerDeviceMock,
-    registerWorkspaceDevice: registerWorkspaceDeviceMock,
   };
 });
 
@@ -61,8 +70,13 @@ vi.mock('../auth/resolveToken', () => ({
     userId: 'test-user',
   }),
 }));
+vi.mock('../auth/source', () => ({
+  pickAuthSource: () => ({ kind: 'stored', token: 'test-token' }),
+}));
+
 vi.mock('../settings', () => ({
   addWorkspaceEnrollment: vi.fn(),
+  loadDeviceGatewayUrl: vi.fn(),
   loadOrCreateConnectionId: vi.fn().mockReturnValue('test-connection-id'),
   loadSettings: vi.fn().mockReturnValue(null),
   // Default: no persisted workspace shares, so runConnect skips the restore path.
@@ -72,14 +86,29 @@ vi.mock('../settings', () => ({
   // Default: this device has no opinion on fencing, so connect's readiness
   // check is a no-op and every scenario below is unaffected by it.
   resolveCommandMode: vi.fn().mockReturnValue('auto'),
-  resolveServerUrl: () => 'https://app.lobehub.com',
   resolveDeviceMetricsBacklogPath: vi.fn((id: string) => `/tmp/device-metrics/${id}.json`),
+  resolveServerUrl: () => 'https://app.lobehub.com',
+  saveDeviceGatewayUrl: vi.fn(),
   saveSettings: vi.fn(),
 }));
 
-vi.mock('../auth/source', () => ({
-  pickAuthSource: () => ({ kind: 'stored', token: 'test-token' }),
+// `config.getGlobalConfig` on the server the token belongs to.
+const getGlobalConfig = vi.hoisted(() => vi.fn());
+const createPublicLambdaClientMock = vi.hoisted(() =>
+  vi.fn(() => ({ config: { getGlobalConfig: { query: getGlobalConfig } } })),
+);
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof ApiClientModule>()),
+  createPublicLambdaClient: createPublicLambdaClientMock,
 }));
+
+const OFFICIAL_AUTH = {
+  serverUrl: 'https://app.lobehub.com',
+  token: 'test-token',
+  tokenType: 'jwt' as const,
+  userId: 'test-user',
+};
+const SELF_HOSTED = 'https://self-hosted.example.com';
 
 vi.mock('../tools/shell', () => ({
   cleanupAllProcesses: vi.fn(),
@@ -139,7 +168,9 @@ vi.mock('@lobechat/device-control', async (importOriginal) => ({
   }),
 }));
 
-vi.mock('@lobechat/device-gateway-client', () => ({
+vi.mock('@lobechat/device-gateway-client', async (importOriginal) => ({
+  // Address resolution is real; only the socket is faked.
+  ...(await importOriginal<typeof DeviceGatewayClientModule>()),
   GatewayClient: vi.fn().mockImplementation(function (opts: any) {
     clientOptions = opts;
     clientEventHandlers = {};
@@ -157,6 +188,7 @@ vi.mock('@lobechat/device-gateway-client', () => ({
       }),
       reconnect: vi.fn().mockResolvedValue(undefined),
       reportMetrics: clientReportMetrics,
+      sendRpcResponse: vi.fn(),
       sendSystemInfoResponse: vi.fn().mockImplementation((data: any) => {
         lastSentSystemInfoResponse = data;
       }),
@@ -183,6 +215,10 @@ describe('connect command', () => {
     mockRunningPid = null;
     mockSpawnedPid = 0;
     mockStatus = null;
+    clientOptions = {};
+    vi.mocked(resolveToken).mockResolvedValue(OFFICIAL_AUTH);
+    vi.mocked(loadDeviceGatewayUrl).mockReturnValue(undefined);
+    getGlobalConfig.mockResolvedValue({ serverConfig: {} });
   });
 
   afterEach(() => {
@@ -269,17 +305,6 @@ describe('connect command', () => {
     expect(log.info).toHaveBeenCalledWith(expect.stringContaining(CLI_DISPLAY_NAME));
   });
 
-  it('should require explicit gateway for custom login server', async () => {
-    vi.mocked(loadSettings).mockReturnValueOnce({ serverUrl: 'https://self-hosted.example.com' });
-
-    const program = createProgram();
-    await expect(program.parseAsync(['node', 'test', 'connect'])).rejects.toThrow('process.exit');
-    expect(log.error).toHaveBeenCalledWith(
-      "Current login uses custom --server https://self-hosted.example.com. Please also provide '--gateway <url>' for the device gateway.",
-    );
-    expect(exitSpy).toHaveBeenCalledWith(1);
-  });
-
   /**
    * A device configured to fence everything, on a host that cannot, would
    * otherwise connect successfully and then refuse every command it is sent —
@@ -309,22 +334,128 @@ describe('connect command', () => {
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
-  it('should use explicit gateway for custom login server', async () => {
-    vi.mocked(loadSettings).mockReturnValueOnce({ serverUrl: 'https://self-hosted.example.com' });
+  describe('device gateway address', () => {
+    const connect = (...args: string[]) =>
+      createProgram().parseAsync(['node', 'test', 'connect', ...args]);
 
-    const program = createProgram();
-    await program.parseAsync([
-      'node',
-      'test',
-      'connect',
-      '--gateway',
-      'https://gateway.example.com/',
-    ]);
+    it("connects to the gateway the token's server advertises when none is saved", async () => {
+      vi.mocked(resolveToken).mockResolvedValue({ ...OFFICIAL_AUTH, serverUrl: SELF_HOSTED });
+      getGlobalConfig.mockResolvedValue({
+        serverConfig: { deviceGatewayUrl: 'https://gw.example.com/edge/' },
+      });
 
-    expect(clientOptions.gatewayUrl).toBe('https://gateway.example.com');
-    expect(saveSettings).toHaveBeenCalledWith({
-      gatewayUrl: 'https://gateway.example.com',
-      serverUrl: 'https://self-hosted.example.com',
+      await connect();
+
+      expect(createPublicLambdaClientMock).toHaveBeenCalledWith(SELF_HOSTED);
+      expect(clientOptions).toMatchObject({
+        gatewayUrl: 'https://gw.example.com/edge',
+        serverUrl: SELF_HOSTED,
+        token: 'test-token',
+      });
+      expect(writeStatus).toHaveBeenCalledWith(
+        expect.objectContaining({
+          gatewaySource: 'server',
+          gatewayUrl: 'https://gw.example.com/edge',
+        }),
+      );
+      expect(log.info).toHaveBeenCalledWith(
+        '  Gateway   : https://gw.example.com/edge (advertised by the server)',
+      );
+    });
+
+    it.each([OFFICIAL_AUTH.serverUrl, SELF_HOSTED])(
+      'uses the address saved for the token’s server ahead of its advertisement (%s)',
+      async (serverUrl) => {
+        vi.mocked(resolveToken).mockResolvedValue({ ...OFFICIAL_AUTH, serverUrl });
+        vi.mocked(loadDeviceGatewayUrl).mockImplementation((server) =>
+          server === serverUrl ? 'https://gw.saved.example' : undefined,
+        );
+        getGlobalConfig.mockResolvedValue({
+          serverConfig: { deviceGatewayUrl: 'https://gw.example.com' },
+        });
+
+        await connect();
+
+        // Saved, so the server is not even asked: a down server cannot block it.
+        expect(getGlobalConfig).not.toHaveBeenCalled();
+        expect(clientOptions.gatewayUrl).toBe('https://gw.saved.example');
+        expect(log.info).toHaveBeenCalledWith(
+          '  Gateway   : https://gw.saved.example (saved for this server)',
+        );
+        expect(saveDeviceGatewayUrl).not.toHaveBeenCalled();
+      },
+    );
+
+    it('keeps the official gateway for official cloud when nothing is advertised or saved', async () => {
+      await connect();
+
+      expect(clientOptions.gatewayUrl).toBe('https://device-gateway.lobehub.com');
+    });
+
+    it('refuses to start without a gateway for a self-hosted server that advertises none', async () => {
+      vi.mocked(resolveToken).mockResolvedValue({ ...OFFICIAL_AUTH, serverUrl: SELF_HOSTED });
+
+      await expect(connect()).rejects.toThrow(
+        `${SELF_HOSTED} does not advertise a device gateway, and none is saved for it.`,
+      );
+      expect(clientOptions).toEqual({});
+    });
+
+    it.each([OFFICIAL_AUTH.serverUrl, SELF_HOSTED])(
+      'does not fall back when the config lookup fails (%s)',
+      async (serverUrl) => {
+        vi.mocked(resolveToken).mockResolvedValue({ ...OFFICIAL_AUTH, serverUrl });
+        getGlobalConfig.mockRejectedValue(new Error('HTTP 502'));
+
+        await expect(connect()).rejects.toThrow('Could not read the device gateway address');
+        expect(clientOptions).toEqual({});
+      },
+    );
+
+    it('uses --gateway without a lookup and saves it for that server', async () => {
+      vi.mocked(resolveToken).mockResolvedValue({ ...OFFICIAL_AUTH, serverUrl: SELF_HOSTED });
+      vi.mocked(loadDeviceGatewayUrl).mockReturnValue('https://gw.saved.example');
+      getGlobalConfig.mockRejectedValue(new Error('server down'));
+
+      await connect('--gateway', 'https://gateway.example.com/');
+
+      expect(getGlobalConfig).not.toHaveBeenCalled();
+      expect(clientOptions.gatewayUrl).toBe('https://gateway.example.com');
+      expect(saveDeviceGatewayUrl).toHaveBeenCalledWith(SELF_HOSTED, 'https://gateway.example.com');
+    });
+
+    it('opens workspace shares on the same gateway as the personal connection', async () => {
+      vi.mocked(resolveToken).mockResolvedValue({ ...OFFICIAL_AUTH, serverUrl: SELF_HOSTED });
+      getGlobalConfig.mockResolvedValue({
+        serverConfig: { deviceGatewayUrl: 'https://gw.example.com' },
+      });
+      await connect();
+      const personal = clientOptions;
+
+      await clientEventHandlers['rpc_request']?.({
+        method: 'enrollWorkspace',
+        params: { token: 'ws-token', workspaceId: 'ws-1' },
+        requestId: 'rpc-1',
+        type: 'rpc_request',
+      });
+
+      expect(clientOptions).not.toBe(personal);
+      expect(clientOptions).toMatchObject({
+        gatewayUrl: 'https://gw.example.com',
+        serverUrl: SELF_HOSTED,
+        token: 'ws-token',
+        workspaceId: 'ws-1',
+      });
+    });
+
+    it('passes --gateway through to the daemon child, which resolves the same way', async () => {
+      await connect('--daemon', '--gateway', 'https://gateway.example.com');
+
+      expect(spawnDaemon).toHaveBeenCalledWith(
+        expect.arrayContaining(['connect', '--gateway', 'https://gateway.example.com']),
+      );
+      // The parent resolves nothing itself; the child runs `runConnect`.
+      expect(getGlobalConfig).not.toHaveBeenCalled();
     });
   });
   it('should pass the resolved serverUrl to GatewayClient', async () => {
@@ -391,6 +522,7 @@ describe('connect command', () => {
     expect(lastSentSystemInfoResponse.result.success).toBe(true);
     expect(lastSentSystemInfoResponse.result.systemInfo).toHaveProperty('homePath');
     expect(lastSentSystemInfoResponse.result.systemInfo).toHaveProperty('arch');
+    // `getShellInfo` is async; reading `displayName` off the promise sent nothing.
     expect(lastSentSystemInfoResponse.result.systemInfo.defaultShell).toEqual(expect.any(String));
   });
 
@@ -475,6 +607,11 @@ describe('connect command', () => {
       await handler();
     }
 
+    // Pending health samples get a bounded push before the socket closes.
+    expect(metricsSampler.stop).toHaveBeenCalledWith({ flushTimeoutMs: 3000 });
+    expect(metricsSampler.stop.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(cleanupAllProcesses).mock.invocationCallOrder[0],
+    );
     expect(cleanupAllProcesses).toHaveBeenCalled();
     expect(removeStatus).toHaveBeenCalled();
   });
@@ -516,6 +653,78 @@ describe('connect command', () => {
     } else {
       expect(sysInfo.videosPath).toContain('Videos');
     }
+  });
+
+  describe.skipIf(process.platform === 'win32')('--auv', () => {
+    let auvDir: string;
+    let auvBinary: string;
+
+    beforeEach(async () => {
+      auvDir = await mkdtemp(path.join(os.tmpdir(), 'lh-connect-auv-'));
+      auvBinary = path.join(auvDir, 'auv');
+      await writeFile(auvBinary, `#!/bin/sh\nprintf '{"ok":true}'\n`);
+      await chmod(auvBinary, 0o755);
+    });
+
+    afterEach(async () => {
+      await rm(auvDir, { force: true, recursive: true });
+    });
+
+    const computerUseCall = {
+      requestId: 'req-cu',
+      toolCall: {
+        apiName: 'runCommand',
+        arguments: JSON.stringify({ argv: ['invoke', 'display.list'] }),
+        identifier: 'lobe-computer-use',
+      },
+      type: 'tool_call_request',
+    };
+
+    it('advertises Computer Use and runs it with the given binary', async () => {
+      await createProgram().parseAsync(['node', 'test', 'connect', '--auv', auvBinary]);
+
+      await clientEventHandlers['system_info_request']?.({
+        requestId: 'r',
+        type: 'system_info_request',
+      });
+      expect(lastSentSystemInfoResponse.result.systemInfo.supportedTools).toEqual([
+        'lobe-computer-use',
+      ]);
+
+      // `runCommand` is also the shell tool's apiName; the identifier decides.
+      await clientEventHandlers['tool_call_request']?.(computerUseCall);
+      expect(executeToolCall).not.toHaveBeenCalled();
+      expect(lastSentToolResponse.result).toMatchObject({
+        state: { exitCode: 0, output: { ok: true } },
+        success: true,
+      });
+    });
+
+    it('does not advertise or run Computer Use without --auv', async () => {
+      await createProgram().parseAsync(['node', 'test', 'connect']);
+
+      await clientEventHandlers['system_info_request']?.({
+        requestId: 'r',
+        type: 'system_info_request',
+      });
+      expect(lastSentSystemInfoResponse.result.systemInfo).not.toHaveProperty('supportedTools');
+
+      await clientEventHandlers['tool_call_request']?.(computerUseCall);
+      expect(executeToolCall).not.toHaveBeenCalled();
+      expect(lastSentToolResponse.result).toMatchObject({
+        error: expect.stringContaining('--auv'),
+        success: false,
+      });
+    });
+
+    it('passes the absolute binary path to the daemon child', async () => {
+      const relative = path.relative(process.cwd(), auvBinary);
+      await createProgram().parseAsync(['node', 'test', 'connect', '--daemon', '--auv', relative]);
+
+      expect(vi.mocked(spawnDaemon).mock.calls[0]?.[0]).toEqual(
+        expect.arrayContaining(['--auv', auvBinary]),
+      );
+    });
   });
 
   describe('--daemon flag', () => {

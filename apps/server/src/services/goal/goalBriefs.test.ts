@@ -144,7 +144,7 @@ describe('goal decision briefs', () => {
 });
 
 describe('machine gate briefs', () => {
-  it("says the retry follows a fix, in the reader's words", async () => {
+  it('says the retry follows a fix in source English regardless of the response language', async () => {
     await serverDB
       .insert(userSettings)
       .values({ general: { responseLanguage: 'zh-CN' }, id: userId })
@@ -166,9 +166,10 @@ describe('machine gate briefs', () => {
 
     const [brief] = await goalBriefs();
     if (!Array.isArray(brief.actions)) throw new Error('Expected brief actions to be an array');
-    expect(brief.actions[0]).toMatchObject({ key: 'retry', label: '已修好，重试' });
-    expect(brief.summary).toContain('工作目录 /tmp/x');
-    expect(brief.summary).toContain('推荐：已修好，重试');
+    expect(brief.actions[0]).toMatchObject({ key: 'retry', label: 'I fixed it — retry' });
+    expect(brief.summary).toContain('Working directory does not exist: /tmp/x');
+    expect(brief.summary).toContain('Recommended: I fixed it — retry');
+    expect(brief.title).toBe('Goal "Machine goal" needs your decision');
   });
 });
 

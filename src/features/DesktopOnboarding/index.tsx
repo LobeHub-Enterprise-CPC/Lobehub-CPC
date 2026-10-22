@@ -2,8 +2,7 @@
 
 import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { APP_WINDOW_MIN_SIZE } from '@lobechat/desktop-bridge';
-import { Flexbox } from '@lobehub/ui';
-import { Skeleton } from '@lobehub/ui/base-ui';
+import { Flexbox, Skeleton } from '@lobehub/ui';
 import { memo, Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 

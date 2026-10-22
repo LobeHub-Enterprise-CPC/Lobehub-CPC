@@ -3,19 +3,20 @@
 import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { AGENT_PROFILE_URL, DEFAULT_INBOX_AVATAR, INBOX_SESSION_ID } from '@lobechat/const';
 import type { AgentEvalRunStatus, EvalRunInputConfig } from '@lobechat/types';
-import { Flexbox } from '@lobehub/ui';
 import {
   Accordion,
   ActionIcon,
   Avatar,
+  createStaticStyles,
+  cssVar,
+  Flexbox,
   Input,
   InputNumber,
   Select,
   toast,
   useModalContext,
-} from '@lobehub/ui/base-ui';
-import { Form, useForm, useWatch } from '@lobehub/ui/base-ui/form';
-import { createStaticStyles, cssVar } from 'antd-style';
+} from '@lobehub/ui';
+import { Form, useForm, useWatch } from '@lobehub/ui/form';
 import { SquareArrowOutUpRight } from 'lucide-react';
 import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -30,11 +31,6 @@ import { datasetSelectors, useEvalStore } from '@/store/eval';
 const MAX_TIMEOUT_MINUTES = 240;
 
 const styles = createStaticStyles(({ css }) => ({
-  agentSelect: css`
-    .ant-select-content-value {
-      height: 22px !important;
-    }
-  `,
   hint: css`
     display: inline-block;
     margin-block-start: 4px;
@@ -213,7 +209,6 @@ const RunEditContent: FC<RunEditContentProps> = ({ formId, onLoadingChange, run 
           <Select
             allowClear
             showSearch
-            className={styles.agentSelect}
             loading={loadingAgents}
             options={agentOptions}
             placeholder={t('run.create.agent.placeholder')}

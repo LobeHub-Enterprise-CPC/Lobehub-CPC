@@ -1,7 +1,6 @@
 'use client';
 
-import { Flexbox } from '@lobehub/ui';
-import { createStaticStyles, useTheme } from 'antd-style';
+import { createStaticStyles, Flexbox, useTheme } from '@lobehub/ui';
 import { memo, type ReactNode, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router';
 
@@ -10,6 +9,7 @@ import { PageEditor } from '@/features/PageEditor';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { usePermission } from '@/hooks/usePermission';
 import dynamic from '@/libs/next/dynamic';
+import { invalidateDocumentMutation } from '@/services/document/invalidation';
 import { useFileStore } from '@/store/file';
 import { documentSelectors } from '@/store/file/slices/document/selectors';
 
@@ -100,7 +100,7 @@ const ResourceManager = memo<ResourceManagerProps>(({ content }) => {
   // row, so gating on it would wait for the very network the projection exists
   // to avoid. The view is read from the store, so a reload paints from the
   // persisted projection on the first frame and the network only confirms it.
-  const { mutate: refreshDocumentDetail } = useFetchDocumentDetail(currentViewItemId);
+  useFetchDocumentDetail(currentViewItemId);
 
   const handleBack = () => {
     setMode('explorer');
@@ -112,11 +112,15 @@ const ResourceManager = memo<ResourceManagerProps>(({ content }) => {
     });
   };
 
+  // The editor owns the write; refreshing readers must not issue another rename.
   const handleMetadataSaved = useCallback(() => {
-    void refreshDocumentDetail().catch(() => {
-      // The replica reports the read error; saving metadata has already succeeded.
+    if (!currentViewItemId) return;
+    void invalidateDocumentMutation({
+      documentId: currentViewItemId,
+      refreshDocumentEditor: false,
+      refreshResources: true,
     });
-  }, [refreshDocumentDetail]);
+  }, [currentViewItemId]);
 
   return (
     <>

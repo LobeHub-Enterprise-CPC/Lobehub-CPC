@@ -1,8 +1,7 @@
 'use client';
 
 import { HOME_PORTRAIT_ENABLED } from '@lobechat/business-const';
-import { Flexbox } from '@lobehub/ui';
-import { createStaticStyles, cx } from 'antd-style';
+import { createStaticStyles, cx, Flexbox } from '@lobehub/ui';
 import { lazy, memo, Suspense, useCallback, useEffect, useState } from 'react';
 
 import { useHomeUsageWidgetActive } from '@/business/client/features/HomeUsageWidget';

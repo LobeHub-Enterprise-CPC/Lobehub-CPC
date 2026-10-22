@@ -1,8 +1,7 @@
 'use client';
 
 import { DEFAULT_USER_AVATAR } from '@lobechat/const';
-import { Block, Flexbox } from '@lobehub/ui';
-import { Alert, Avatar, Button, Text } from '@lobehub/ui/base-ui';
+import { Alert, Avatar, Block, Button, Flexbox, Text } from '@lobehub/ui';
 import React, { memo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useHref } from 'react-router';

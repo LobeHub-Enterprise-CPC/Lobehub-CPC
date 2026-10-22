@@ -32,7 +32,8 @@ const activeScopeStorageKey = () => tenantStorageKey(ACTIVE_SCOPE_STORAGE_KEY);
 
 const isBrowser = () => typeof localStorage !== 'undefined';
 
-const readActiveScope = (): string | null => {
+/** The last-known resolved cache scope, or `null` when none is persisted. */
+export const readActiveScope = (): string | null => {
   if (!isBrowser()) return null;
   try {
     return localStorage.getItem(activeScopeStorageKey());
@@ -41,7 +42,7 @@ const readActiveScope = (): string | null => {
   }
 };
 
-const writeActiveScope = (scope: string): void => {
+export const writeActiveScope = (scope: string): void => {
   if (!isBrowser()) return;
   try {
     localStorage.setItem(activeScopeStorageKey(), scope);
@@ -190,3 +191,9 @@ export const getCacheScope = (): string => {
  * anonymous scope is a legitimate durable context there).
  */
 export const isScopeTrusted = (): boolean => isIdentityResolved(getUserStoreState());
+
+/**
+ * Reactive form of {@link isScopeTrusted}: re-renders the caller when the
+ * identity round-trip lands, even if the scope string itself did not change.
+ */
+export const useIsScopeTrusted = (): boolean => useUserStore(isIdentityResolved);

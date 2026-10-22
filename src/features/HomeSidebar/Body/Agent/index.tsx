@@ -1,18 +1,16 @@
 'use client';
 
 import { AGENT_PROFILE_NAVIGATION, NAV_RAIL_ENABLED } from '@lobechat/business-const';
-import { ContextMenuTrigger, Flexbox } from '@lobehub/ui';
-import {
-  AccordionHeader,
+import {   AccordionHeader,
   AccordionItem,
   AccordionPanel,
   accordionStyles,
   AccordionTrigger,
   ActionIcon,
+ContextMenuTrigger,   cx,
+Flexbox,
   Spin,
-  Text,
-} from '@lobehub/ui/base-ui';
-import { cx } from 'antd-style';
+  Text } from '@lobehub/ui';
 import { ArrowRight } from 'lucide-react';
 import React, { memo, type MouseEvent, Suspense, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';

@@ -1,7 +1,8 @@
-import { BRANDING_LOGO_URL, OFFICIAL_URL, ORG_NAME } from '@lobechat/business-const';
+import { BRANDING_LOGO_URL, BRANDING_NAME, OFFICIAL_URL, ORG_NAME } from '@lobechat/business-const';
 import { describe, expect, it } from 'vitest';
 
-import { buildPageMeta } from './seo';
+import { createShareT } from '../../src/shell/createShareI18n';
+import { buildPageMeta, shareMetaDescription } from './seo';
 
 // The share SPA renders its own <Meta> through react-router and, unlike the
 // main app, never registers the brand post-processor: every brand string it
@@ -52,5 +53,23 @@ describe('share page metadata', () => {
     const expected = isUpstream ? UPSTREAM_TWITTER_SITE : undefined;
 
     expect(contentOf('name', 'twitter:site')).toBe(expected);
+  });
+});
+
+describe('shareMetaDescription', () => {
+  it('translates through the chat translator', () => {
+    const t = createShareT('zh-CN', {
+      chat: { 'sharePage.meta.pageDescription': '分享自 {{appName}} 的页面。' },
+    });
+    expect(shareMetaDescription(t, 'pageDescription')).toBe(`分享自 ${BRANDING_NAME} 的页面。`);
+  });
+
+  it('falls back to English copy without a translation', () => {
+    expect(shareMetaDescription(createShareT('zh-CN', { chat: {} }), 'topicDescription')).toBe(
+      `A conversation shared from ${BRANDING_NAME}.`,
+    );
+    expect(shareMetaDescription(undefined, 'artifactDescription')).toBe(
+      `An artifact shared from ${BRANDING_NAME}.`,
+    );
   });
 });

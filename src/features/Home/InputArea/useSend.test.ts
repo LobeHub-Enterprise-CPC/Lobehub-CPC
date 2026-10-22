@@ -112,7 +112,7 @@ vi.mock('@/store/projectWorkingDirectory', () => ({
   useProjectDirectoryStore: { getState: () => ({ createProjectTopic: createProjectTopicMock }) },
 }));
 
-vi.mock('@lobehub/ui/base-ui', async (importOriginal) => ({
+vi.mock('@lobehub/ui', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   toast: { error: messageErrorMock, success: messageSuccessMock },
 }));

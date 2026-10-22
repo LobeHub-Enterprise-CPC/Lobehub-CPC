@@ -2,15 +2,13 @@
 
 import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import useSWR from 'swr';
 
 import ImperativeModal from '@/components/ImperativeModal';
 import { AgentMemberSelection } from '@/features/AgentMemberSelection';
-import { groupKeys } from '@/libs/swr/keys';
-import { agentService } from '@/services/agent';
 
 import { selectAddableAgents } from './selectAddableAgents';
 import { useAgentSelectionStore } from './store';
+import { useAddableGroupMembers } from './useAddableGroupMembers';
 
 export interface AddGroupMemberModalProps {
   existingMembers?: string[];
@@ -28,12 +26,7 @@ const AddGroupMemberModal = memo<AddGroupMemberModalProps>(
     const setSelectedAgents = useAgentSelectionStore((s) => s.setSelectedAgents);
     const clearSelection = useAgentSelectionStore((s) => s.clearSelection);
 
-    // Fetch non-virtual agents; the inbox is excluded unless a caller opts in
-    const { data: allAgents = [], isLoading: isLoadingAgents } = useSWR(
-      open ? groupKeys.queryAgents() : null,
-      () => agentService.queryAgents(),
-    );
-
+    const { allAgents, isLoading: isLoadingAgents } = useAddableGroupMembers(existingMembers);
     // Clear selection when modal closes
     useEffect(() => {
       if (!open) {

@@ -1,8 +1,6 @@
 'use client';
 
-import { Flexbox, Icon } from '@lobehub/ui';
-import { Tooltip } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cx } from 'antd-style';
+import { createStaticStyles, cx,Flexbox, Icon, Tooltip } from '@lobehub/ui';
 import { memo, Suspense, useMemo } from 'react';
 
 import Footer from '@/features/HomeSidebar/Footer';

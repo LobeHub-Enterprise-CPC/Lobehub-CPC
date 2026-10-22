@@ -1,8 +1,6 @@
 'use client';
 
-import { Flexbox } from '@lobehub/ui';
-import { Alert, Button, Text } from '@lobehub/ui/base-ui';
-import { cssVar } from 'antd-style';
+import { Alert, Button, cssVar,Flexbox, Text } from '@lobehub/ui';
 import { ArrowRightLeftIcon, Cloud, MailSearchIcon, Server } from 'lucide-react';
 import { type LucideIcon } from 'lucide-react';
 import { memo } from 'react';

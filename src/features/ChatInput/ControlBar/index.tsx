@@ -1,6 +1,5 @@
 import { COMPOSER_AGENT_ONLY_LAYOUT } from '@lobechat/business-const';
-import { Flexbox } from '@lobehub/ui';
-import { createStaticStyles } from 'antd-style';
+import { createStaticStyles, Flexbox } from '@lobehub/ui';
 import { memo } from 'react';
 
 import ChatInputCredits from '@/business/client/features/ChatInputCredits';

@@ -2,9 +2,17 @@
 
 import { SiGithub, SiX } from '@icons-pack/react-simple-icons';
 import { resolveAppUrl } from '@lobechat/business-tenant/client';
-import { Flexbox, Tooltip, TooltipGroup } from '@lobehub/ui';
-import { ActionIcon, Avatar, Button, Tag, Text } from '@lobehub/ui/base-ui';
-import { cssVar } from 'antd-style';
+import {
+  ActionIcon,
+  Avatar,
+  Button,
+  cssVar,
+  Flexbox,
+  Tag,
+  Text,
+  Tooltip,
+  TooltipGroup,
+} from '@lobehub/ui';
 import { Globe } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';

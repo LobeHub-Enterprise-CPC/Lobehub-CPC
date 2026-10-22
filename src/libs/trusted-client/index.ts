@@ -29,6 +29,7 @@ export interface TrustedClientUserInfo {
    * It rides the token rather than the request body on purpose: it is the one
    * thing the execution plane must not let a caller choose for itself.
    */
+  sandboxOperation?: { operationId: string; topicId: string };
   sandboxStorage?: SandboxStorageClaim | null;
   /**
    * Tenant this identity belongs to (`requireTenantScope().tenantId` at the
@@ -169,11 +170,10 @@ export const generateTrustedClientToken = (userInfo: TrustedClientUserInfo): str
     // Omitted when there is no entitlement, which is the free-tier shape and
     // leaves today's tokens unchanged.
     // TODO: pass through buildTrustedClientPayload once the SDK carries it.
-    // `tenantId` is attached the same way and for the same reason; it is always
-    // present, so Market admits the request into that tenant's own instance.
     const signedPayload: TenantTrustedClientPayload = {
       ...payload,
       ...(userInfo.sandboxStorage ? { sandboxStorage: userInfo.sandboxStorage } : {}),
+      ...(userInfo.sandboxOperation && { sandboxOperation: userInfo.sandboxOperation }),
       tenantId,
     };
 

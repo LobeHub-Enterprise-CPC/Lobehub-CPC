@@ -1,4 +1,4 @@
-import { PROJECT_FIRST_NAVIGATION } from '@lobechat/business-const';
+import { ENABLE_BUSINESS_FEATURES, PROJECT_FIRST_NAVIGATION } from '@lobechat/business-const';
 
 import { type labPreferSelectors } from '@/store/user/slices/preference/selectors/labPrefer';
 
@@ -30,9 +30,16 @@ type LabFeatureI18nKey =
   | 'oauthApps'
   | 'persistentSandbox'
   | 'projects'
-  | 'selfLearning';
+  | 'selfLearning'
+  | 'topicBugReport'
+  | 'workspaceOnboarding';
 
 export interface LabFeatureItem {
+  /**
+   * Only offered when business features are on: the experiment needs a service
+   * that a self-hosted deployment does not have, so its toggle would do nothing.
+   */
+  businessOnly?: boolean;
   /** Only rendered (and searchable) in the Electron shell */
   desktopOnly?: boolean;
   /** Lab flag, also the search anchor suffix (`labs-${flag}`) */
@@ -42,15 +49,11 @@ export interface LabFeatureItem {
   /** Extra untranslated English synonyms for the settings search index */
   searchKeywords: string[];
   stage: LabStage;
+  /** Only rendered (and searchable) for users with workspace access */
+  workspaceOnly?: boolean;
 }
 
-/**
- * Single source of truth for the lab experiments: the Labs settings page
- * renders this list (general first, then desktop-only), and the settings
- * search index derives its entries from it — adding a flag here makes it both
- * visible and searchable without a second registration.
- */
-export const LAB_FEATURES: LabFeatureItem[] = [
+const ALL_LAB_FEATURES: LabFeatureItem[] = [
   {
     flag: 'enableAgentGraphConfig',
     i18nKey: 'agentGraphConfig',
@@ -87,6 +90,13 @@ export const LAB_FEATURES: LabFeatureItem[] = [
     flag: 'enableEvalCapture',
     i18nKey: 'evalCapture',
     searchKeywords: ['eval', 'test case', 'capture', 'regression', 'benchmark'],
+    stage: 'alpha',
+  },
+  {
+    businessOnly: true,
+    flag: 'enableTopicBugReport',
+    i18nKey: 'topicBugReport',
+    searchKeywords: ['bug', 'report', 'feedback', 'issue', 'support'],
     stage: 'alpha',
   },
   {
@@ -137,6 +147,13 @@ export const LAB_FEATURES: LabFeatureItem[] = [
     stage: 'beta',
   },
   {
+    flag: 'enableWorkspaceOnboardingV2',
+    i18nKey: 'workspaceOnboarding',
+    searchKeywords: ['workspace', 'onboarding', 'team setup'],
+    stage: 'alpha',
+    workspaceOnly: true,
+  },
+  {
     desktopOnly: true,
     flag: 'enableDesktopSplitView',
     i18nKey: 'desktopSplitView',
@@ -174,3 +191,20 @@ export const LAB_FEATURES: LabFeatureItem[] = [
     stage: 'beta',
   },
 ];
+
+export const filterAvailableLabFeatures = (
+  features: LabFeatureItem[],
+  enableBusinessFeatures: boolean,
+): LabFeatureItem[] =>
+  features.filter((feature) => enableBusinessFeatures || !feature.businessOnly);
+
+/**
+ * Single source of truth for the lab experiments: the Labs settings page
+ * renders this list (general first, then workspace-only, then desktop-only), and the settings
+ * search index derives its entries from it — adding a flag here makes it both
+ * visible and searchable without a second registration.
+ */
+export const LAB_FEATURES: LabFeatureItem[] = filterAvailableLabFeatures(
+  ALL_LAB_FEATURES,
+  ENABLE_BUSINESS_FEATURES,
+);

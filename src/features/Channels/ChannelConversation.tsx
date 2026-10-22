@@ -1,5 +1,4 @@
-import { Empty, Flexbox } from '@lobehub/ui';
-import { ActionIcon, Button } from '@lobehub/ui/base-ui';
+import { ActionIcon, Button, Empty, Flexbox } from '@lobehub/ui';
 import { GitBranch, MessageSquare } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';

@@ -3,8 +3,7 @@
 import { NAV_RAIL_ENABLED } from '@lobechat/business-const';
 import { HotkeyScopeEnum } from '@lobechat/const/hotkeys';
 import { TITLE_BAR_HEIGHT } from '@lobechat/desktop-bridge';
-import { Flexbox } from '@lobehub/ui';
-import { cx } from 'antd-style';
+import { cx, Flexbox } from '@lobehub/ui';
 import { type CSSProperties, type FC } from 'react';
 import { Suspense } from 'react';
 import { HotkeysProvider } from 'react-hotkeys-hook';
@@ -25,6 +24,7 @@ import {
   useLastWorkspaceSlugSync,
   useWindowUrlMirror,
 } from '@/features/Electron/shell';
+import LinkHoverStatus from '@/features/Electron/system/LinkHoverStatus';
 import ZoomHUD from '@/features/Electron/system/ZoomHUD';
 import { TabHost, useSeedTabsOnBoot } from '@/features/Electron/TabHost';
 import TabCacheBridges from '@/features/Electron/titlebar/TabBar/TabCacheBridges';
@@ -75,6 +75,7 @@ const Layout: FC = () => {
           {showCloudPromotion && <CloudBanner />}
         </Suspense>
         <ZoomHUD />
+        <LinkHoverStatus />
 
         <Suspense fallback={null}>
           <TitleBar />

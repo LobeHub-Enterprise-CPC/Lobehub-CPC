@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as KeyVaultsModule from '@/server/modules/KeyVaultsEncrypt';
-import { hashApiKey } from '@/utils/server/apiKeyHash';
+import { hashApiKey, hashApiKeyWithSecret } from '@/utils/server/apiKeyHash';
 
 import { getTestDB } from '../../core/getTestDB';
 import { apiKeys, users, workspaces } from '../../schemas';
@@ -27,10 +27,13 @@ const userId = 'api-key-model-test-user-id';
 const validKeyVaultsSecret = 'ofQiJCXLF8mYemwfMWLOHoHimlPu91YmLfU7YZ4lreQ=';
 
 let apiKeyModel: ApiKeyModel;
+let originalFallbackSecret: string | undefined;
 let originalKeyVaultsSecret: string | undefined;
 
 beforeEach(async () => {
+  originalFallbackSecret = process.env.KEY_VAULTS_FALLBACK_SECRET;
   originalKeyVaultsSecret = process.env.KEY_VAULTS_SECRET;
+  delete process.env.KEY_VAULTS_FALLBACK_SECRET;
   process.env.KEY_VAULTS_SECRET = validKeyVaultsSecret;
   apiKeyModel = new ApiKeyModel(serverDB, userId);
   await serverDB.delete(users);
@@ -40,7 +43,10 @@ beforeEach(async () => {
 afterEach(async () => {
   await serverDB.delete(users).where(eq(users.id, userId));
   await serverDB.delete(apiKeys).where(eq(apiKeys.userId, userId));
-  process.env.KEY_VAULTS_SECRET = originalKeyVaultsSecret;
+  if (originalFallbackSecret === undefined) delete process.env.KEY_VAULTS_FALLBACK_SECRET;
+  else process.env.KEY_VAULTS_FALLBACK_SECRET = originalFallbackSecret;
+  if (originalKeyVaultsSecret === undefined) delete process.env.KEY_VAULTS_SECRET;
+  else process.env.KEY_VAULTS_SECRET = originalKeyVaultsSecret;
 });
 
 describe('ApiKeyModel', () => {
@@ -288,6 +294,26 @@ describe('ApiKeyModel', () => {
       expect(found).toBeDefined();
       expect(found?.key).toBe(validKey);
       expect(found?.name).toBe('Test Key');
+    });
+
+    it('finds a key hashed with the rotation fallback in static and scoped lookups', async () => {
+      const validKey = `${API_KEY_PREFIX}1234567890abcdef`;
+      const fallbackSecret = 'fallback-hash-secret';
+      process.env.KEY_VAULTS_FALLBACK_SECRET = fallbackSecret;
+      await serverDB.insert(apiKeys).values({
+        enabled: true,
+        key: validKey,
+        keyHash: hashApiKeyWithSecret(validKey, fallbackSecret),
+        name: 'Fallback Key',
+        userId,
+      });
+
+      await expect(ApiKeyModel.findByKey(serverDB, validKey)).resolves.toMatchObject({
+        name: 'Fallback Key',
+      });
+      await expect(apiKeyModel.findByKey(validKey)).resolves.toMatchObject({
+        name: 'Fallback Key',
+      });
     });
 
     it('should return null for invalid key format', async () => {

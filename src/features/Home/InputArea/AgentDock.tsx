@@ -1,5 +1,5 @@
 import { AGENT_AVATAR_GALLERY, PROJECT_FIRST_NAVIGATION } from '@lobechat/business-const';
-import { createStaticStyles } from 'antd-style';
+import { createStaticStyles } from '@lobehub/ui';
 import { memo } from 'react';
 
 import Avatar from '@/components/Avatar';

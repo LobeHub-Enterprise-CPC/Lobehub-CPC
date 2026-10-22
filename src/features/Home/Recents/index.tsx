@@ -1,6 +1,4 @@
 import { AGENT_PROFILE_NAVIGATION } from '@lobechat/business-const';
-import { type MenuProps } from '@lobehub/ui';
-import { ContextMenuTrigger, DropdownMenu, Flexbox, Icon } from '@lobehub/ui';
 import {
   AccordionHeader,
   AccordionItem,
@@ -8,10 +6,15 @@ import {
   accordionStyles,
   AccordionTrigger,
   ActionIcon,
+  ContextMenuTrigger,
+  cx,
+  type DropdownItem,
+  DropdownMenu,
+  Flexbox,
+  Icon,
   Spin,
   Text,
-} from '@lobehub/ui/base-ui';
-import { cx } from 'antd-style';
+} from '@lobehub/ui';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -137,7 +140,7 @@ const Recents = memo<RecentsProps>(({ itemKey }) => {
         label: t('navPanel.customizeSidebar'),
         onClick: () => openCustomizeSidebarModal(),
       },
-    ] as MenuProps['items'];
+    ] as DropdownItem[];
   }, [recentPageSize, updateSystemStatus, t, isFirst, isLast, moveSection, hideSection]);
 
   if (!isLogin) return null;

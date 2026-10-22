@@ -1,8 +1,7 @@
 'use client';
 
 import { BRANDING_EMAIL } from '@lobechat/business-const';
-import { FluentEmoji } from '@lobehub/ui';
-import { Button, Result, Text } from '@lobehub/ui/base-ui';
+import { Button, FluentEmoji, Result, Text } from '@lobehub/ui';
 import { CircleAlertIcon, FolderOpenIcon } from 'lucide-react';
 import { memo } from 'react';
 import { Trans, useTranslation } from 'react-i18next';

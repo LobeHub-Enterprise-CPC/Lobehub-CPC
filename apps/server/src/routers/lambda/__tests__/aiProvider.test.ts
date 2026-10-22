@@ -234,6 +234,8 @@ describe('aiProviderRouter', () => {
       const caller = aiProviderRouter.createCaller(createMockContext());
       const result = await caller.checkProviderConnectivity({ id: 'ollama' });
 
+      // This deployment reports the classified type only; provider-side reasons
+      // are never forwarded to the caller.
       expect(result).toEqual({
         error: 'ClientLlmExecutorUnavailable',
         model: 'qwen3:1.7b',

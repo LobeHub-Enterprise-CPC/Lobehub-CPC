@@ -2,9 +2,7 @@
 
 import { BRANDING_NAME } from '@lobechat/business-const';
 import type { DesktopDownloadUrls } from '@lobechat/types';
-import { Block, Flexbox, Icon } from '@lobehub/ui';
-import { Button, Text } from '@lobehub/ui/base-ui';
-import { createStaticStyles } from 'antd-style';
+import { Block, Button, createStaticStyles,Flexbox, Icon, Text } from '@lobehub/ui';
 import { AppleIcon, DownloadIcon, MonitorIcon } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';

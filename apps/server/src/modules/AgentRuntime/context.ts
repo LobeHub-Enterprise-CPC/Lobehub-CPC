@@ -126,6 +126,7 @@ export interface RuntimeExecutorContext {
    */
   execVirtualSubAgent?: (params: ExecVirtualSubAgentParams) => Promise<ExecSubAgentResult>;
   hookDispatcher?: HookDispatcher;
+  isInterrupted?: (operationId: string) => Promise<boolean>;
   loadAgentState?: (operationId: string) => Promise<AgentState | null>;
   messageModel: RuntimeMessageStore;
   modelRuntimeConfig?: AgentState['modelRuntimeConfig'];

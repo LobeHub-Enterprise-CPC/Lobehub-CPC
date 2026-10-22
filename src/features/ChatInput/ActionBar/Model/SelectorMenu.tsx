@@ -1,5 +1,7 @@
 import { COMPOSER_AGENT_ONLY_LAYOUT } from '@lobechat/business-const';
 import {
+  createStaticStyles,
+  cssVar,
   DropdownMenuItem,
   DropdownMenuItemContent,
   DropdownMenuItemExtra,
@@ -13,8 +15,7 @@ import {
   DropdownMenuSubmenuTrigger,
   DropdownMenuTrigger,
   renderDropdownMenuItems,
-} from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+} from '@lobehub/ui';
 import type { ReactNode } from 'react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';

@@ -3,16 +3,22 @@ import type { LobeChatDatabase } from '@lobechat/database';
 import { trackTenantWork } from '@lobechat/database/tenant';
 import type { HeterogeneousAgentType } from '@lobechat/heterogeneous-agents';
 import type {
+  AgentSenderMetadata,
   ChatAudioItem,
   ChatFileItem,
   ChatTopicMetadata,
   ChatVideoItem,
   FileAccessScope,
   HeterogeneousProviderConfig,
+  HeterogeneousRuntimePinSources,
   HeterogeneousTopicPin,
-  RequestTrigger,
 } from '@lobechat/types';
-import { ordinaryFileAccessScope, resolveHeterogeneousProviderTopicModel } from '@lobechat/types';
+import {
+  ordinaryFileAccessScope,
+  resolveHeterogeneousModelOverride,
+  resolveHeterogeneousProviderTopicModel,
+  resolveHeterogeneousTopicRuntimeSnapshot,
+} from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 
@@ -62,8 +68,9 @@ export interface RunAttachments {
 
 /**
  * Build the reasoning snapshot for a topic being created — see
- * `ChatTopicMetadata.reasoningConfig` / `heteroEffort`. Returns undefined when
- * there is nothing to pin (non-reasoning model, hetero agent without an effort)
+ * `ChatTopicMetadata.reasoningConfig` / `heteroEffort` / `heteroSpeed`. Returns
+ * undefined when there is nothing to pin (non-reasoning model, hetero agent
+ * without effort or speed)
  * so the caller leaves metadata untouched. Never throws: a failed lookup just
  * means the topic follows the user-level config until the user pins one.
  */
@@ -79,10 +86,12 @@ const resolveTopicReasoningSnapshot = async ({
   isHeteroTopic: boolean;
   model: string;
   provider: string;
-}): Promise<Pick<ChatTopicMetadata, 'heteroEffort' | 'reasoningConfig'> | undefined> => {
+}): Promise<
+  Pick<ChatTopicMetadata, 'heteroEffort' | 'heteroSpeed' | 'reasoningConfig'> | undefined
+> => {
   if (isHeteroTopic) {
-    const effort = heterogeneousProvider?.effort;
-    return effort === undefined ? undefined : { heteroEffort: effort };
+    const snapshot = resolveHeterogeneousTopicRuntimeSnapshot(heterogeneousProvider);
+    return Object.keys(snapshot).length === 0 ? undefined : snapshot;
   }
 
   try {
@@ -319,6 +328,12 @@ const resolveRunAttachments = async (
 
 export interface TurnSetupInput {
   agentConfig: AgentConfigWithId;
+  /**
+   * Sending agent of an agent → agent turn, resolved to a snapshot before this
+   * stage runs. Stamped onto the user message as `metadata.agentSender` so the
+   * receiving topic attributes the turn to that agent, not the human owner.
+   */
+  agentSender?: AgentSenderMetadata;
   agentSlug?: string | null;
   appContext?: InternalExecAgentParams['appContext'];
   assistantAgentId: string;
@@ -361,6 +376,8 @@ export interface TurnSetupInput {
    */
   transcript?: ExecAgentTranscript;
   trigger?: string;
+  /** The composer-authored part of the user message; see `ExecAgentParams.userMessage`. */
+  userMessage?: InternalExecAgentParams['userMessage'];
 }
 
 export interface TurnSetupResult {
@@ -377,19 +394,21 @@ export interface TurnSetupResult {
   isHeteroAgent: boolean;
   /** Effective model/provider after the topic-pinned model is applied. */
   model: string;
-  /** Topic-pinned model + reasoning effort for a heterogeneous run (reused topics only). */
+  /**
+   * Model, effort and speed pins for a heterogeneous run: a reused topic's pins,
+   * with a native Task model override taking the model's place.
+   */
   pinnedHeterogeneousTopicModel?: HeterogeneousTopicPin;
+  /** Which layer supplied each pin, for the dispatched configuration receipt. */
+  pinnedHeterogeneousTopicSources?: HeterogeneousRuntimePinSources;
   provider: string;
   /**
    * The request's device, or — when it named none — the device a reused topic
    * is bound to. Use this instead of the raw request value downstream.
    */
   requestedDeviceId?: string;
-  requestTriggerMetadata: {
-    agentDispatch?: { kind: 'callAgent'; visibility: 'internal' };
-    steer?: true;
-    trigger?: RequestTrigger;
-  };
+  /** Metadata persisted on this turn's user message; see `buildUserTurnMetadata`. */
+  requestTriggerMetadata: ReturnType<typeof buildUserTurnMetadata>;
   runAttachments: RunAttachments;
   /** Rows THIS turn persisted — the history loader must exclude them. */
   selfMessageIds: Set<string>;
@@ -422,6 +441,7 @@ export const setupTurn = async (
   const {
     agentConfig,
     agentSlug,
+    agentSender,
     appContext,
     assistantAgentId,
     attachedFileIds,
@@ -451,6 +471,7 @@ export const setupTurn = async (
     title,
     transcript,
     trigger,
+    userMessage,
   } = input;
 
   let topicId = appContext?.topicId;
@@ -480,6 +501,24 @@ export const setupTurn = async (
   let provider = agentConfig.provider!;
   const heterogeneousProvider = agentConfig.agencyConfig?.heterogeneousProvider;
   let pinnedHeterogeneousTopicModel: HeterogeneousTopicPin | undefined;
+  let pinnedHeterogeneousTopicSources: HeterogeneousRuntimePinSources | undefined;
+  // TaskRunner forwards the Task's model snapshot on every run. For a
+  // heterogeneous agent that snapshot is often the Agent row's wrapper pair (a
+  // runtime ID such as codex/openai, or an ordinary chat model), not a CLI
+  // model, so only a runtime-compatible override may replace a topic pin.
+  const heterogeneousModelOverride =
+    heterogeneousProvider && modelOverride
+      ? resolveHeterogeneousModelOverride(heterogeneousProvider, {
+          model: modelOverride,
+          provider: providerOverride,
+        })
+      : undefined;
+  const nativeModelOverride = heterogeneousProvider
+    ? heterogeneousModelOverride?.model
+    : modelOverride;
+  const nativeProviderOverride = heterogeneousProvider
+    ? heterogeneousModelOverride?.provider
+    : providerOverride;
   let topicEditingGroupId: string | undefined;
 
   const assertProjectDirectoryAccess = () => {
@@ -673,8 +712,8 @@ export const setupTurn = async (
         canUseTopicPin && (!existingTopic?.agentId || existingTopic.agentId === resolvedAgentId);
       const pinnedModel = canUseTopicModelPin ? existingTopic?.model : undefined;
       if (pinnedModel) {
-        model = modelOverride || pinnedModel;
-        provider = providerOverride || existingTopic?.provider || provider;
+        model = nativeModelOverride || pinnedModel;
+        provider = nativeProviderOverride || existingTopic?.provider || provider;
         pinnedHeterogeneousTopicModel = { model, provider };
         log(
           'execAgent: using topic-pinned model=%s provider=%s for topic %s',
@@ -683,15 +722,20 @@ export const setupTurn = async (
           topicId,
         );
       }
-      // The heterogeneous effort pin lives in metadata and is independent of the
-      // model pin (a runtime without a model selector can still pin an effort).
+      // Effort and speed pins live in metadata and are independent of the model
+      // pin (a runtime without a model selector can still pin them). They belong
+      // to the topic's own agent for the same reason as the model pin.
       const pinnedHeteroEffort = canUseTopicModelPin
         ? existingTopic?.metadata?.heteroEffort
         : undefined;
-      if (pinnedHeteroEffort !== undefined) {
+      const pinnedHeteroSpeed = canUseTopicModelPin
+        ? existingTopic?.metadata?.heteroSpeed
+        : undefined;
+      if (pinnedHeteroEffort !== undefined || pinnedHeteroSpeed !== undefined) {
         pinnedHeterogeneousTopicModel = {
           ...pinnedHeterogeneousTopicModel,
-          effort: pinnedHeteroEffort,
+          ...(pinnedHeteroEffort === undefined ? {} : { effort: pinnedHeteroEffort }),
+          ...(pinnedHeteroSpeed === undefined ? {} : { speed: pinnedHeteroSpeed }),
         };
       }
 
@@ -738,6 +782,26 @@ export const setupTurn = async (
     topicStage.end();
   }
 
+  if (heterogeneousProvider) {
+    // A new topic has no pins, yet a native Task model still replaces the
+    // agent's model. Carry it in the pin so dispatch and its receipt both read
+    // this one resolved result.
+    if (nativeModelOverride && !pinnedHeterogeneousTopicModel?.model) {
+      pinnedHeterogeneousTopicModel = {
+        ...pinnedHeterogeneousTopicModel,
+        model: nativeModelOverride,
+        provider: nativeProviderOverride ?? heterogeneousProvider.type,
+      };
+    }
+    if (pinnedHeterogeneousTopicModel) {
+      pinnedHeterogeneousTopicSources = {
+        effort: 'topic',
+        model: nativeModelOverride ? (operationTaskId ? 'task' : undefined) : 'topic',
+        speed: 'topic',
+      };
+    }
+  }
+
   await throwIfExecutionAborted('topic setup');
 
   // Resolve device-tool access ONCE per turn, BEFORE the hetero early exit —
@@ -773,8 +837,10 @@ export const setupTurn = async (
 
   // ── Shared turn setup (runs for BOTH hetero and normal agents) ──────────
   const requestTriggerMetadata = buildUserTurnMetadata({
+    agentSender,
     appContext,
     botSender,
+    composerMetadata: userMessage?.metadata,
     externalOrigin,
     selectedSkillIds,
     steer,
@@ -856,6 +922,8 @@ export const setupTurn = async (
       const userMessageParams = {
         agentId: conversationAgentId,
         content: prompt,
+        // Rich text as the composer authored it, like a client-runtime send stores.
+        editorData: userMessage?.editorData,
         files: runAttachments.fileIds,
         // Group reads filter on messages.groupId (MessageModel.query group
         // branch), so a group turn must stamp groupId or the message never
@@ -1001,6 +1069,7 @@ export const setupTurn = async (
     isHeteroAgent,
     model,
     pinnedHeterogeneousTopicModel,
+    pinnedHeterogeneousTopicSources,
     provider,
     requestedDeviceId: resolvedRequestedDeviceId,
     requestTriggerMetadata,

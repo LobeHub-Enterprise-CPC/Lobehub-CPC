@@ -1,8 +1,7 @@
 'use client';
 
 import type { AppMenuNode } from '@lobechat/electron-client-ipc';
-import { DropdownMenu, Tooltip } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cx } from 'antd-style';
+import { createStaticStyles, cx, DropdownMenu, Tooltip } from '@lobehub/ui';
 import { ChevronDown } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';

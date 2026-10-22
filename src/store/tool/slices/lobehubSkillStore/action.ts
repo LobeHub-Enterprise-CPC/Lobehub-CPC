@@ -191,13 +191,9 @@ export class LobehubSkillStoreActionImpl {
 
       const errorMessage = error instanceof Error ? error.message : String(error);
 
-      // The server flags a missing / expired connection as PRECONDITION_FAILED
-      // plus a discriminator; the message check covers older servers.
-      if (
-        isSkillConnectionError(error) ||
-        errorMessage.includes('NOT_CONNECTED') ||
-        errorMessage.includes('TOKEN_EXPIRED')
-      ) {
+      // The server flags a missing / expired connection as PRECONDITION_FAILED plus a
+      // discriminator in errorData; its message is human text, never the code.
+      if (isSkillConnectionError(error)) {
         return {
           error: errorMessage,
           errorCode: 'NOT_CONNECTED',

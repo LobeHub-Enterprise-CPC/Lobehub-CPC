@@ -38,6 +38,7 @@ vi.mock('@/features/Onboarding/useFinishOnboarding', () => ({
 
 vi.mock('@lobehub/ui', () => ({
   Flexbox: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  useResponsive: () => ({ mobile: false }),
 }));
 
 vi.mock('@/components/Loading/BrandTextLoading', () => ({

@@ -1,8 +1,7 @@
 'use client';
 
 import { EXTERNAL_INTEGRATIONS_ENABLED } from '@lobechat/business-const';
-import { Flexbox } from '@lobehub/ui';
-import { createStaticStyles } from 'antd-style';
+import { createStaticStyles, Flexbox } from '@lobehub/ui';
 import { memo, useCallback, useMemo } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 

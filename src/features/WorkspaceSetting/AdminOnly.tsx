@@ -1,8 +1,7 @@
 'use client';
 
 import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
-import { Flexbox, FluentEmoji } from '@lobehub/ui';
-import { Button } from '@lobehub/ui/base-ui';
+import { Button, Flexbox, FluentEmoji } from '@lobehub/ui';
 import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 

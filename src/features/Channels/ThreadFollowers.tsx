@@ -1,5 +1,4 @@
-import { Flexbox } from '@lobehub/ui';
-import { ActionIcon, Avatar, Button, Popover, Text, toast } from '@lobehub/ui/base-ui';
+import { ActionIcon, Avatar, Button, Flexbox, Popover, Text, toast } from '@lobehub/ui';
 import { Users, X } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';

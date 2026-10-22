@@ -1,6 +1,4 @@
-import { Flexbox } from '@lobehub/ui';
-import { Divider } from '@lobehub/ui/base-ui';
-import { createStaticStyles } from 'antd-style';
+import { createStaticStyles,Divider, Flexbox } from '@lobehub/ui';
 import { type ReactNode } from 'react';
 
 import type { AgentItemData } from './AgentItem';

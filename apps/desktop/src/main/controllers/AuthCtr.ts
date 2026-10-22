@@ -199,14 +199,11 @@ export default class AuthCtr extends ControllerModule {
     const gatewaySrv = this.app.getService(GatewayConnectionService);
     if (gatewaySrv) {
       logger.info('Triggering gateway connection after login');
-      void (async () => {
-        try {
-          await gatewaySrv.disconnect();
-          await gatewaySrv.connect();
-        } catch (error) {
-          logger.error('Gateway connection after login failed:', error);
-        }
-      })();
+      // Canary's `restart()` is the same intent (drop the previous identity's socket,
+      // then connect); keep one implementation instead of a local disconnect+connect.
+      gatewaySrv.restart().catch((error) => {
+        logger.error('Gateway connection after login failed:', error);
+      });
     }
   }
 

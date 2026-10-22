@@ -7,6 +7,7 @@ import { appEnv } from '@/envs/app';
 import { fileEnv } from '@/envs/file';
 import { pythonEnv } from '@/envs/python';
 import { translation } from '@/libs/i18n/serverTranslation';
+import { withShareNoIndexHeader } from '@/libs/next/shareRoutes';
 import { buildAnalyticsConfig, renderSpaHtml } from '@/libs/spaHtml';
 import { normalizeLocale } from '@/locales/resources';
 import { getServerFeatureFlagsFromRuntimeConfig } from '@/server/featureFlags';
@@ -90,5 +91,7 @@ export async function GET(
 
   const template = await getTemplate();
 
-  return renderSpaHtml(template, { seoMeta: await buildSeoMeta(locale), serverConfig: spaConfig });
+  return withShareNoIndexHeader(
+    renderSpaHtml(template, { seoMeta: await buildSeoMeta(locale), serverConfig: spaConfig }),
+  );
 }

@@ -1,8 +1,7 @@
 'use client';
 
 import { getTenant } from '@lobechat/business-tenant/client';
-import { Button, Text } from '@lobehub/ui/base-ui';
-import { createStaticStyles } from 'antd-style';
+import { Button, createStaticStyles, Text } from '@lobehub/ui';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 

@@ -1,5 +1,5 @@
 import { resolveAppUrl } from '@lobechat/business-tenant/client';
-import { toast } from '@lobehub/ui/base-ui';
+import { toast } from '@lobehub/ui';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 

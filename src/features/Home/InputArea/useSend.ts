@@ -1,7 +1,7 @@
 import { PROJECT_FIRST_NAVIGATION } from '@lobechat/business-const';
 import { AGENT_CHAT_TOPIC_URL, AGENT_CHAT_URL } from '@lobechat/const';
 import type { UIChatMessage } from '@lobechat/types';
-import { toast } from '@lobehub/ui/base-ui';
+import { toast } from '@lobehub/ui';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 

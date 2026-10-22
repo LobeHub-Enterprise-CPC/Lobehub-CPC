@@ -8,6 +8,7 @@ import { defineConfig } from 'vite';
 import tsconfigPaths from 'vite-tsconfig-paths';
 
 import { customBrandingLoadingScreen } from '../../plugins/vite/customBrandingLoadingScreen';
+import { canvasRuntimeEntries } from '../../plugins/vite/canvasRuntime';
 import { devLoadingProgress } from '../../plugins/vite/devLoadingProgress';
 import {
   createSharedRolldownOutput,
@@ -238,7 +239,7 @@ export default defineConfig(async (env) => {
       rolldownOptions: {
         input: RENDERER_INPUTS,
         output: createSharedRolldownOutput({
-          initialEntries: RENDERER_INPUTS,
+          initialEntries: { ...RENDERER_INPUTS, ...canvasRuntimeEntries },
           strictExecutionOrder: true,
         }),
         preserveEntrySignatures: 'allow-extension',
@@ -275,7 +276,10 @@ export default defineConfig(async (env) => {
       reactDevtoolsPlugin(),
       excludeWebSpaBuildArtifactsPlugin(),
       vanillaExtractPlugin(),
-      ...(sharedRendererPlugins({ platform: 'desktop' }) as PluginOption[]),
+      ...(sharedRendererPlugins({
+        platform: 'desktop',
+        stylexOverlaySrcDirs: isCloudDesktop ? [path.resolve(CLOUD_ROOT_DIR, 'src')] : undefined,
+      }) as PluginOption[]),
     ],
     resolve: {
       dedupe: sharedRendererDedupe,

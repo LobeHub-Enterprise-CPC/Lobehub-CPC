@@ -48,7 +48,7 @@ export const getStoreDefaults = (): ElectronMainStore => ({
   // decision — and the two would drift the first time one of them moved.
   gatewayEnabled: getDesktopEnv().DEVICE_GATEWAY_ENABLED,
   gatewayUrl: 'https://device-gateway.lobehub.com',
-  gatewayWorkspaceEnrollments: [],
+  gatewayWorkspaceEnrollmentsByAccount: {},
   heteroSessionDirPrefs: {},
   heteroTracingEnabled: false,
   imessageBridgeConfigs: [],

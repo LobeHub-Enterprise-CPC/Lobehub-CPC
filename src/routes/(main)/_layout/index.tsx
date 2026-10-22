@@ -2,8 +2,7 @@
 
 import { NAV_RAIL_ENABLED } from '@lobechat/business-const';
 import { HotkeyScopeEnum } from '@lobechat/const/hotkeys';
-import { Flexbox } from '@lobehub/ui';
-import { cx } from 'antd-style';
+import { cx, Flexbox } from '@lobehub/ui';
 import { type FC } from 'react';
 import { Suspense } from 'react';
 import { HotkeysProvider } from 'react-hotkeys-hook';

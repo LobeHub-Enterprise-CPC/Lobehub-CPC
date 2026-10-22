@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises';
+
+import { createCodexJwtFile } from '@lobechat/heterogeneous-agents/spawn';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createOperationTokenRenewal } from './OperationTokenRenewal';
@@ -55,6 +58,24 @@ describe('createOperationTokenRenewal', () => {
     expect(process.env.LOBEHUB_JWT).toBe(renewed[1]);
 
     renewal.stop();
+  });
+
+  it('hands the renewed token to a running Codex agent through its JWT file', async () => {
+    process.env.LOBEHUB_JWT = operationToken(NOW + 4 * HOUR);
+    const next = operationToken(NOW + 7 * HOUR);
+    const jwtFile = await createCodexJwtFile(process.env.LOBEHUB_JWT);
+    const renew = vi.fn().mockResolvedValueOnce({ jwt: next });
+
+    const renewal = createOperationTokenRenewal({ operationId: 'op-1', renew });
+    try {
+      await vi.advanceTimersByTimeAsync(3 * HOUR);
+      expect(renew).toHaveBeenCalledWith('op-1');
+      // The rewrite is real file I/O that fake timers do not settle.
+      await vi.waitFor(async () => expect(await readFile(jwtFile.path, 'utf8')).toBe(next));
+    } finally {
+      renewal.stop();
+      await jwtFile.cleanup();
+    }
   });
 
   it('retries a transient failure instead of letting the token lapse', async () => {

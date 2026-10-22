@@ -1,8 +1,15 @@
 import { BRANDING_NAME } from '@lobechat/business-const';
-import { Flexbox, Icon } from '@lobehub/ui';
-import { Alert, Badge, Button, Divider, Text } from '@lobehub/ui/base-ui';
-import { type FormInstance } from '@lobehub/ui/base-ui/form';
-import { createStaticStyles } from 'antd-style';
+import {
+  Alert,
+  Badge,
+  Button,
+  createStaticStyles,
+  Divider,
+  Flexbox,
+  Icon,
+  Text,
+} from '@lobehub/ui';
+import { type FormInstance } from '@lobehub/ui/form';
 import { type CSSProperties, type RefObject, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -196,7 +203,7 @@ export const SignInEmailStep = ({
                 (oAuthSSOProviders.length === 1 && emailSignInEnabled));
             return showLastUsed ? (
               <Badge
-                color="var(--ant-color-info)"
+                color="var(--lobe-color-info)"
                 count={t('betterAuth.signin.lastUsed')}
                 key={provider}
                 style={{ display: 'block', width: '100%' }}

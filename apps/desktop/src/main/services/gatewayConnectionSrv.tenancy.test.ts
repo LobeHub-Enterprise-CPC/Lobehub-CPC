@@ -73,7 +73,15 @@ describe('desktop workspace sharing rejection', () => {
       },
       i18n: { ns: () => () => message },
     } as unknown as App);
+    // A live personal session: the share joins its gateway.
     (service as any).client = {};
+    (service as any).session = {
+      accountKey: 'server.invalid#user',
+      endpoint: { source: 'advertised', url: 'https://gateway.invalid' },
+      serverKey: 'server.invalid',
+      serverUrl: 'https://server.invalid',
+      userId: 'user',
+    };
     service.setIdentityProviderFactory(async () => async () => {
       throw Object.assign(new Error('FORBIDDEN'), { code: 'FORBIDDEN', status: 403 });
     });
@@ -98,6 +106,8 @@ describe('desktop pending connection generation', () => {
           release = resolve;
         }),
     );
+    service.setServerUrlProvider(async () => 'https://server.invalid');
+    service.setTokenProvider(async () => 'login-token');
     service.setIdentityProviderFactory(
       async () => Object.assign(provider, { subject: 'same-sub' }) as any,
     );
@@ -154,7 +164,11 @@ describe('desktop gateway identity names the device', () => {
       identitySource: 'machine-id',
     });
     vi.spyOn(service as any, 'getConnectionId').mockReturnValue('connection-of-this-install');
-    vi.spyOn(service as any, 'getGatewayUrl').mockReturnValue('https://gateway.invalid');
+    vi.spyOn(service as any, 'resolveEndpoint').mockResolvedValue({
+      endpoint: { source: 'advertised', url: 'https://gateway.invalid' },
+    });
+    service.setServerUrlProvider(async () => 'https://server.invalid');
+    service.setTokenProvider(async () => 'login-token');
     return service;
   };
   const identity = {

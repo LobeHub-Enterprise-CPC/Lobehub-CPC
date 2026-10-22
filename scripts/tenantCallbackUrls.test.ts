@@ -32,6 +32,18 @@ const REVIEWED_PUBLISHERS = new Set([
 ]);
 
 /**
+ * The AgentRuntimeService modules schedule steps on `${deps.baseURL}/run`; `baseURL` is the
+ * service's getter in `index.ts`, built with `buildTenantCallbackUrl` (and still scanned here).
+ */
+const AGENT_RUNTIME_SERVICE_DIR = 'apps/server/src/services/agentRuntime/AgentRuntimeService/';
+const DELEGATED_BASE = /\$\{deps\.baseURL\}/;
+
+const usesDelegatedBase = (file: string, code: string) =>
+  file.startsWith(AGENT_RUNTIME_SERVICE_DIR) &&
+  file !== `${AGENT_RUNTIME_SERVICE_DIR}index.ts` &&
+  DELEGATED_BASE.test(code);
+
+/**
  * Public webhooks registered with a bot platform: they are built on the tenant's public base
  * (`context.appUrl` = `tenantPublicBaseUrl()`), not on the server-to-server callback address.
  */
@@ -63,7 +75,12 @@ export const scanCallbackProducers = (file: string, source: string): CallbackUrl
   if (file === HELPER_FILE || REVIEWED_PUBLIC_WEBHOOKS.has(file)) return [];
   const code = stripComments(source);
   const violations: CallbackUrlViolation[] = [];
-  if (PUBLISHER.test(code) && !HELPER.test(code) && !REVIEWED_PUBLISHERS.has(file))
+  if (
+    PUBLISHER.test(code) &&
+    !HELPER.test(code) &&
+    !REVIEWED_PUBLISHERS.has(file) &&
+    !usesDelegatedBase(file, code)
+  )
     violations.push({ file, kind: 'publisher-without-helper' });
   const lines = code.split('\n');
   lines.forEach((line, index) => {
@@ -109,6 +126,18 @@ describe('tenant callback URL producers', () => {
         "const baseURL = process.env.APP_URL;\nconst endpoint = new URL('/api/agent/webhooks/bot-replay', baseURL).toString();\nawait queue.scheduleMessage({ endpoint });",
       ).map((violation) => violation.kind),
     ).toEqual(['publisher-without-helper', 'hand-assembled-url']);
+  });
+
+  it('trusts the AgentRuntimeService base only inside its own modules', () => {
+    const schedule =
+      'await deps.queueService.scheduleMessage({ endpoint: `${deps.baseURL}/run` });';
+    expect(scanCallbackProducers(`${AGENT_RUNTIME_SERVICE_DIR}asyncTool.ts`, schedule)).toEqual([]);
+    expect(scanCallbackProducers(`${AGENT_RUNTIME_SERVICE_DIR}index.ts`, schedule)).toEqual([
+      { file: `${AGENT_RUNTIME_SERVICE_DIR}index.ts`, kind: 'publisher-without-helper' },
+    ]);
+    expect(scanCallbackProducers('apps/server/src/services/other.ts', schedule)).toEqual([
+      { file: 'apps/server/src/services/other.ts', kind: 'publisher-without-helper' },
+    ]);
   });
 
   it('accepts producers that use the helper, third-party APIs and comments', () => {

@@ -2,6 +2,7 @@ import { createContext, use } from 'react';
 
 /** Host identity keeps the shared list inside its Project route and data scope. */
 export interface TopicListScope {
+  coordinatorAgentId?: string;
   /**
    * Rows sit under a project row that already names them (the Home panel), so
    * they leave the agent avatar out and indent to the project's title, with

@@ -3,8 +3,7 @@
 import { DEFAULT_AVATAR, DEFAULT_INBOX_AVATAR, DEFAULT_INBOX_TITLE } from '@lobechat/const';
 import type { SidebarAgentItem } from '@lobechat/types';
 import { agentDisplayName } from '@lobechat/types';
-import { Flexbox, Tooltip } from '@lobehub/ui';
-import { ActionIcon } from '@lobehub/ui/base-ui';
+import { ActionIcon, Flexbox, Tooltip } from '@lobehub/ui';
 import { MoreHorizontal } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { memo, useMemo } from 'react';

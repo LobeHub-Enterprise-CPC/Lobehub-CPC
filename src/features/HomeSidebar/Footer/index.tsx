@@ -4,11 +4,11 @@ import {
   BRANDING_EMAIL,
   DESKTOP_APP_ENABLED,
   FOOTER_HIDDEN_MENU_KEYS,
+  SOCIAL_URL,
 } from '@lobechat/business-const';
-import { type MenuProps } from '@lobehub/ui';
-import { DropdownMenu, Flexbox, Icon } from '@lobehub/ui';
-import { ActionIcon } from '@lobehub/ui/base-ui';
-import { GithubIcon } from '@lobehub/ui/icons';
+import { type DropdownItem } from '@lobehub/ui';
+import { ActionIcon, DropdownMenu, Flexbox, Icon } from '@lobehub/ui';
+import { DiscordIcon, GithubIcon } from '@lobehub/ui/icons';
 import {
   Book,
   CircleHelp,
@@ -25,6 +25,7 @@ import { memo, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useHasActiveWorkspace } from '@/business/client/hooks/useHasActiveWorkspace';
+import { useHelpMenuBugReportItem } from '@/business/client/hooks/useHelpMenuBugReportItem';
 import { openChangelogModal } from '@/components/ChangelogModal';
 import { openFeedbackModal } from '@/components/FeedbackModal';
 import { DOCUMENTS_REFER_URL, GITHUB } from '@/const/url';
@@ -37,9 +38,10 @@ import { useNavLayout } from '@/hooks/useNavLayout';
 import { useAnalytics } from '@/libs/analytics/client';
 import { serverConfigSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useUserStore } from '@/store/user';
+import { labPreferSelectors } from '@/store/user/slices/preference/selectors/labPrefer';
 import { userGeneralSettingsSelectors } from '@/store/user/slices/settings/selectors/general';
 
-type FooterMenuItems = NonNullable<MenuProps['items']>;
+type FooterMenuItems = NonNullable<DropdownItem[]>;
 
 /**
  * Wrap each clickable menu item with a unified click tracker, preserving any
@@ -122,6 +124,8 @@ const Footer = memo(() => {
   const billboardMenuItems = useBillboardMenuItems();
   const enableBusinessFeatures = useServerConfigStore(serverConfigSelectors.enableBusinessFeatures);
   const isDevMode = useUserStore((s) => userGeneralSettingsSelectors.config(s).isDevMode);
+  const enableBugReport = useUserStore(labPreferSelectors.enableTopicBugReport);
+  const bugReportItem = useHelpMenuBugReportItem();
 
   const trackMenuClick = useCallback(
     (key: string) => {
@@ -146,33 +150,32 @@ const Footer = memo(() => {
   }, []);
 
   const { helpMenuItems, trackedMenuKeys } = useMemo<{
-    helpMenuItems: MenuProps['items'];
+    helpMenuItems: DropdownItem[];
     trackedMenuKeys: string[];
   }>(() => {
-    const allItems: FooterMenuItems = [
-      ...(footer.showSettingsEntry && !isDevMode
+    const settingsGroup: FooterMenuItems =
+      footer.showSettingsEntry && !isDevMode
         ? [
             {
               icon: <Icon icon={Settings2} />,
               key: 'setting',
               label: <WorkspaceLink to="/settings">{t(settingLabelKey)}</WorkspaceLink>,
             },
-            {
-              type: 'divider' as const,
-            },
           ]
-        : []),
-      ...(enableBusinessFeatures
-        ? [
-            {
-              icon: <Icon icon={Send} />,
-              key: 'inviteFriend',
-              label: (
-                <WorkspaceLink to="/settings/referral">{t('userPanel.inviteFriend')}</WorkspaceLink>
-              ),
-            },
-          ]
-        : []),
+        : [];
+    const inviteGroup: FooterMenuItems = enableBusinessFeatures
+      ? [
+          {
+            icon: <Icon icon={Send} />,
+            key: 'inviteFriend',
+            label: (
+              <WorkspaceLink to="/settings/referral">{t('userPanel.inviteFriend')}</WorkspaceLink>
+            ),
+          },
+        ]
+      : [];
+    // Getting help: read the docs, report what broke, or reach a person.
+    const helpGroup: FooterMenuItems = [
       {
         icon: <Icon icon={Book} />,
         key: 'docs',
@@ -182,6 +185,7 @@ const Footer = memo(() => {
           </a>
         ),
       },
+      ...(enableBugReport && bugReportItem ? [bugReportItem] : []),
       {
         icon: <Icon icon={Feather} />,
         key: 'feedback',
@@ -197,9 +201,8 @@ const Footer = memo(() => {
             },
           ]
         : []),
-      {
-        type: 'divider',
-      },
+    ];
+    const productGroup: FooterMenuItems = [
       {
         icon: <Icon icon={FileClockIcon} />,
         key: 'changelog',
@@ -219,6 +222,32 @@ const Footer = memo(() => {
             },
           ]
         : []),
+      ...(footer.showEvalEntry && footer.layout === 'compact'
+        ? [
+            {
+              icon: <Icon icon={FlaskConical} />,
+              key: 'eval',
+              label: <WorkspaceLink to="/eval">Evaluation Lab</WorkspaceLink>,
+            },
+          ]
+        : []),
+    ];
+    const communityGroup: FooterMenuItems = [
+      // A deployment with a support address replaces the upstream community
+      // invite: one entry in that slot, never both.
+      ...(BRANDING_EMAIL.support
+        ? []
+        : [
+            {
+              icon: <Icon icon={DiscordIcon} />,
+              key: 'discord',
+              label: (
+                <a href={SOCIAL_URL.discord} rel="noopener noreferrer" target="_blank">
+                  {t('userPanel.discord')}
+                </a>
+              ),
+            },
+          ]),
       ...(footer.layout === 'compact' && !footer.hideGitHub
         ? [
             {
@@ -232,16 +261,17 @@ const Footer = memo(() => {
             },
           ]
         : []),
-      ...(footer.showEvalEntry && footer.layout === 'compact'
-        ? [
-            {
-              icon: <Icon icon={FlaskConical} />,
-              key: 'eval',
-              label: <WorkspaceLink to="/eval">Evaluation Lab</WorkspaceLink>,
-            },
-          ]
-        : []),
     ];
+    // A divider only between groups that have items, never at an edge or doubled.
+    const allItems: FooterMenuItems = [
+      settingsGroup,
+      inviteGroup,
+      helpGroup,
+      productGroup,
+      communityGroup,
+    ]
+      .filter((group) => group.length > 0)
+      .flatMap((group, index) => (index === 0 ? group : [{ type: 'divider' as const }, ...group]));
 
     const ownItems = applyHiddenKeys(allItems);
     const billboardItems =
@@ -266,6 +296,8 @@ const Footer = memo(() => {
     footer.hideGitHub,
     footer.showEvalEntry,
     enableBusinessFeatures,
+    enableBugReport,
+    bugReportItem,
     handleOpenChangelogModal,
     handleOpenFeedbackModal,
     isDevMode,

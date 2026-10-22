@@ -56,7 +56,7 @@ vi.mock('@/store/tool/selectors', () => ({
     getInstalledPluginById: () => () => mockPlugin,
   },
 }));
-vi.mock('@/store/tool/slices/connector', () => ({
+vi.mock('@/store/tool/slices/connector/selectors', () => ({
   connectorSelectors: { connectorByIdentifier: () => () => connectorState.current },
 }));
 

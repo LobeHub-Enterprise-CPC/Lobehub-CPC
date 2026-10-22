@@ -1,8 +1,7 @@
 'use client';
 
 import { NAV_RAIL_ENABLED } from '@lobechat/business-const';
-import { DraggablePanel } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+import { createStaticStyles, cssVar, DraggablePanel } from '@lobehub/ui';
 import { type ReactNode } from 'react';
 import { Activity, memo, Suspense, useMemo, useRef } from 'react';
 

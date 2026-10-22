@@ -144,7 +144,6 @@ export class GroupAgentActionImpl {
     const queryKey = groupAgentDetailQueryKey(normalized);
     const sync = this.#detail.useSync(normalized, {
       enabled,
-      revalidateOnFocus: false,
       // NOT_FOUND is definitive: drop the hydrated entry (memory plus persisted
       // rows) so a deleted group stops painting a stale copy. Bind the removal
       // to the scope the failing request was captured under. Transient failures
@@ -152,6 +151,7 @@ export class GroupAgentActionImpl {
       onError: (error, { key, scope }) => {
         if (key && isTrpcErrorCode(error, 'NOT_FOUND')) this.#detail.remove(key, scope);
       },
+      revalidateOnFocus: false,
     });
     return this.#toSyncResult(
       sync,

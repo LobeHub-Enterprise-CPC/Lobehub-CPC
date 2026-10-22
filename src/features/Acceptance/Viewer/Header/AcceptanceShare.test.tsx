@@ -7,7 +7,8 @@ import AcceptanceShare from './AcceptanceShare';
 const menu = vi.hoisted(() => ({ items: [] as Array<{ key: string; onClick: () => unknown }> }));
 const toast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 
-vi.mock('@lobehub/ui/base-ui', () => ({
+vi.mock('@lobehub/ui', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   Button: ({ children }: { children: unknown }) => children,
   confirmModal: vi.fn(),
   DropdownMenu: ({ children, items }: { children: unknown; items: typeof menu.items }) => {

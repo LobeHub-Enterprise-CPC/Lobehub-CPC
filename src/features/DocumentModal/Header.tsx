@@ -1,17 +1,19 @@
 'use client';
 
 import { useAppBaseUrl } from '@lobechat/business-tenant/client';
-import { copyToClipboard, Flexbox } from '@lobehub/ui';
 import {
   ActionIcon,
   Avatar,
+  copyToClipboard,
+  createStaticStyles,
+  cssVar,
   DropdownMenu,
+  Flexbox,
   Skeleton,
   Text,
   toast,
   useModalContext,
-} from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+} from '@lobehub/ui';
 import { MoreHorizontal, XIcon } from 'lucide-react';
 import { memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';

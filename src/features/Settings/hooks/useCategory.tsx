@@ -1,7 +1,7 @@
 import { ENABLE_TOOL_CHANNEL_SETTINGS, SETTINGS_HIDDEN_TABS } from '@lobechat/business-const';
 import { useAppAssetUrl } from '@lobechat/business-tenant/client';
 import { isDesktop } from '@lobechat/const';
-import { Avatar } from '@lobehub/ui/base-ui';
+import { Avatar } from '@lobehub/ui';
 import { SkillsIcon } from '@lobehub/ui/icons';
 import {
   AppWindowIcon,

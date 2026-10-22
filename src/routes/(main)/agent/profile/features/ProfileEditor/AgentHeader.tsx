@@ -2,9 +2,7 @@
 
 import { AGENT_PROFILE_NAVIGATION, AGENT_PROFILE_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { agentSecondaryDisplayName } from '@lobechat/types';
-import { Flexbox, Tooltip } from '@lobehub/ui';
-import { ActionIcon, Button, Text } from '@lobehub/ui/base-ui';
-import { cssVar } from 'antd-style';
+import { ActionIcon, Button, cssVar, Flexbox, Text, Tooltip } from '@lobehub/ui';
 import isEqual from 'fast-deep-equal';
 import { PencilIcon, PencilLineIcon, SparklesIcon } from 'lucide-react';
 import { memo } from 'react';

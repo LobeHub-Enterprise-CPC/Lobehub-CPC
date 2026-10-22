@@ -1,5 +1,5 @@
 import { currentTenantRelativePath } from '@lobechat/business-tenant/client';
-import { toast } from '@lobehub/ui/base-ui';
+import { toast } from '@lobehub/ui';
 import { t } from 'i18next';
 
 import { fileService } from '@/services/file';

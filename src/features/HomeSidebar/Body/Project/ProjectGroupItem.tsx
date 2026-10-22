@@ -1,8 +1,6 @@
 'use client';
 
-import type { MenuProps } from '@lobehub/ui';
-import { DropdownMenu, Flexbox, Icon } from '@lobehub/ui';
-import { ActionIcon, Avatar } from '@lobehub/ui/base-ui';
+import { ActionIcon, Avatar, type DropdownItem, DropdownMenu, Flexbox, Icon } from '@lobehub/ui';
 import {
   FolderClosedIcon,
   FolderOpenIcon,
@@ -44,7 +42,7 @@ const ProjectGroupItem = memo<ProjectGroupItemProps>(({ project }) => {
   const scope = useMemo(() => ({ nested: true, projectId: project.id }), [project.id]);
   const reveal = useProjectTopicReveal(project.id);
 
-  const items: MenuProps['items'] = [
+  const items: DropdownItem[] = [
     {
       icon: <Icon icon={SquareArrowOutUpRightIcon} />,
       key: 'open',

@@ -12,7 +12,10 @@ vi.mock('@lobechat/utils/compressImage', () => ({
   compressImageFile: vi.fn(),
 }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-vi.mock('@lobehub/ui/base-ui', () => ({ toast: { error: vi.fn() } }));
+vi.mock('@lobehub/ui', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  toast: { error: vi.fn() },
+}));
 beforeEach(() => {
   upload.mockReset();
 });

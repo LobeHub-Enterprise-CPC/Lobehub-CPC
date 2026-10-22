@@ -503,27 +503,21 @@ export const marketRouter = router({
         log('connectCallTool error: %s', errorMessage);
 
         // The SDK carries the machine code in `error.code`; the message is human text.
-        // The message check stays as a fallback for errors that embed the code.
-        const isCode = (code: string) =>
-          (error instanceof MarketAPIError && error.isErrorCode(code)) ||
-          errorMessage.includes(code);
-
-        // Not UNAUTHORIZED: that code opens the LobeHub / Market re-login flows
-        // (see createResponseMeta), and a provider connection is neither. The
-        // client tells these apart by `errorData.code`.
-        if (isCode(SkillConnectionErrorCode.NotConnected)) {
+        // Not UNAUTHORIZED: that code opens the LobeHub / Market re-login flows (see
+        // createResponseMeta), and a provider connection is neither. The client tells
+        // these apart by `errorData.code`.
+        const connectionCode =
+          error instanceof MarketAPIError
+            ? Object.values(SkillConnectionErrorCode).find((code) => error.isErrorCode(code))
+            : undefined;
+        if (connectionCode) {
           throw new TRPCError({
-            cause: { data: { code: SkillConnectionErrorCode.NotConnected } },
+            cause: { data: { code: connectionCode } },
             code: 'PRECONDITION_FAILED',
-            message: 'Provider not connected. Please authorize first.',
-          });
-        }
-
-        if (isCode(SkillConnectionErrorCode.TokenExpired)) {
-          throw new TRPCError({
-            cause: { data: { code: SkillConnectionErrorCode.TokenExpired } },
-            code: 'PRECONDITION_FAILED',
-            message: 'Token expired. Please re-authorize.',
+            message:
+              connectionCode === SkillConnectionErrorCode.NotConnected
+                ? 'Provider not connected. Please authorize first.'
+                : 'Token expired. Please re-authorize.',
           });
         }
 

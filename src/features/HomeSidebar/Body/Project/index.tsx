@@ -8,9 +8,9 @@ import {
   accordionStyles,
   AccordionTrigger,
   ActionIcon,
+  cx,
   Text,
-} from '@lobehub/ui/base-ui';
-import { cx } from 'antd-style';
+} from '@lobehub/ui';
 import { ArrowRightIcon, PlusIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -19,8 +19,9 @@ import AsyncError from '@/components/AsyncError';
 import NavItem from '@/features/NavPanel/components/NavItem';
 import SkeletonList from '@/features/NavPanel/components/SkeletonList';
 import { openCreateProjectModal } from '@/features/Projects/CreateProjectModal';
+import { resolveProjectListState } from '@/features/Projects/projectListState';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
-import { useCurrentProjectList, useProjectStore } from '@/store/project';
+import { useLoadedProjectList, useProjectStore } from '@/store/project';
 import { useUserStore } from '@/store/user';
 import { labPreferSelectors } from '@/store/user/selectors';
 
@@ -38,12 +39,11 @@ const Project = memo<ProjectProps>(({ itemKey }) => {
   const { t } = useTranslation('project');
   const enabled = useUserStore(labPreferSelectors.enableProjects);
   const navigate = useWorkspaceAwareNavigate();
-  const projects = useCurrentProjectList();
+  const projects = useLoadedProjectList();
   const { error, isHydrated, isValidating, revalidate } = useProjectStore(
     (s) => s.useFetchProjectList,
   )(enabled);
-  // Rows come from the store; the hook only reports fetch progress.
-  const isLoading = !isHydrated || isValidating;
+  const state = resolveProjectListState({ error, isHydrated, isValidating, projects });
 
   if (!enabled) return null;
 
@@ -71,18 +71,18 @@ const Project = memo<ProjectProps>(({ itemKey }) => {
         </div>
       </AccordionHeader>
       <AccordionPanel>
-        {error && projects.length === 0 ? (
+        {state === 'error' ? (
           <AsyncError error={error} variant="inline" onRetry={() => revalidate()} />
-        ) : isLoading && projects.length === 0 ? (
+        ) : state === 'loading' ? (
           <SkeletonList rows={3} />
-        ) : projects.length === 0 ? (
+        ) : state === 'empty' ? (
           <NavItem
             icon={PlusIcon}
             title={t('sidebar.emptyAction')}
             onClick={() => openCreateProjectModal()}
           />
         ) : (
-          projects.map((project) => <Row key={project.id} project={project} />)
+          projects?.map((project) => <Row key={project.id} project={project} />)
         )}
       </AccordionPanel>
     </AccordionItem>

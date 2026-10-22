@@ -72,7 +72,7 @@ vi.mock('@/features/AgentBreadcrumb/useAgentRoutePath', () => ({
   useAgentRoutePath: (agentId: string) => () => `/agent/${agentId}`,
 }));
 
-vi.mock('@lobehub/ui/base-ui', async (importOriginal) => ({
+vi.mock('@lobehub/ui', async (importOriginal) => ({
   ...((await importOriginal()) as Record<string, unknown>),
   ActionIcon: (props: Record<string, unknown>) => {
     mocks.actionIconProps.all.push(props);

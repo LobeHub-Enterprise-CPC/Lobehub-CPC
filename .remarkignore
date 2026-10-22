@@ -1,3 +1,6 @@
 # Generated from lobehub/acceptance releases; preserve the upstream bytes.
 .agents/skills/acceptance/**
 contracts/gateway-tenancy/
+
+# Vendored from lobehub/lobe-design-skill via its install.sh --copy; keep upstream formatting and send local fixes upstream.
+.agents/skills/lobe-design/**

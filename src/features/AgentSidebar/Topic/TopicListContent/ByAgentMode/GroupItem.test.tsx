@@ -1,10 +1,11 @@
 /**
  * @vitest-environment happy-dom
  */
-import { AccordionRoot } from '@lobehub/ui/base-ui';
+import { AccordionRoot } from '@lobehub/ui';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { TopicListScopeContext } from '../../TopicListScope';
 import GroupItem from './GroupItem';
 
 vi.mock('@/store/agent', () => ({
@@ -26,10 +27,12 @@ vi.mock('../../List/Item', () => ({
   ),
 }));
 
-vi.mock('@lobehub/ui/base-ui', async (importOriginal) => ({
+vi.mock('@lobehub/ui', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   ...(await import('~base-ui-stubs')).baseUiStubs,
 }));
+
+vi.mock('@/store/projectWorkingDirectory', () => ({ useProjectDirectories: () => [] }));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -55,5 +58,33 @@ describe('TopicByAgentGroupItem', () => {
     );
 
     expect(screen.getByText('A1-目录A任务').getAttribute('data-suppress')).toBe('yes');
+  });
+
+  const renderInProject = (agentId: string) =>
+    render(
+      <TopicListScopeContext value={{ coordinatorAgentId: 'agt_lead', projectId: 'prj_1' }}>
+        <AccordionRoot>
+          <GroupItem
+            expanded={false}
+            group={{
+              children: [{ createdAt: 1, id: 't1', title: 'Plan', updatedAt: 1 }],
+              id: `agent:${agentId}`,
+              title: agentId,
+            }}
+          />
+        </AccordionRoot>
+      </TopicListScopeContext>,
+    );
+
+  it("tags the project's main agent as its lead", () => {
+    renderInProject('agt_lead');
+
+    expect(screen.getByText('sidebar.coordinatorTag')).toBeTruthy();
+  });
+
+  it('leaves other member agents untagged', () => {
+    renderInProject('agt_writer');
+
+    expect(screen.queryByText('sidebar.coordinatorTag')).toBeNull();
   });
 });

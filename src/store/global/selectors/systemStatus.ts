@@ -206,6 +206,7 @@ const DEFAULT_SIDEBAR_SECTIONS = PROJECT_FIRST_NAVIGATION
 
 export const DEFAULT_SIDEBAR_ITEMS: string[] = [
   'tasks',
+  'goals',
   'dashboard',
   'resource',
   ...DEFAULT_SIDEBAR_SECTIONS,

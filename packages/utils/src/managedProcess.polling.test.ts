@@ -70,6 +70,9 @@ describe('Windows process polling', () => {
     const { registry, child } = start();
     await vi.advanceTimersByTimeAsync(1000);
     await vi.advanceTimersByTimeAsync(1000);
+    // A finished sample is reused for 5s (slow Windows hosts); past that an
+    // explicit snapshot samples at once instead of waiting for the idle poll.
+    await vi.advanceTimersByTimeAsync(4000);
     await registry.snapshot();
     expect(enumerate).toHaveBeenCalledTimes(2);
     child.exitCode = null;

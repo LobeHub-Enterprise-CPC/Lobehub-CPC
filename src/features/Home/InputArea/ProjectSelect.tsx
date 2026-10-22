@@ -1,8 +1,7 @@
 'use client';
 
-import { Icon } from '@lobehub/ui';
-import { Button, type DropdownItem, DropdownMenu, Text } from '@lobehub/ui/base-ui';
-import { createStaticStyles } from 'antd-style';
+import type { DropdownItem} from '@lobehub/ui';
+import { Button, createStaticStyles, DropdownMenu, Icon, Text } from '@lobehub/ui';
 import { FolderClosedIcon, FolderOpenIcon, PlusIcon } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';

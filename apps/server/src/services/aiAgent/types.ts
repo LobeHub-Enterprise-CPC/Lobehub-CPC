@@ -7,6 +7,7 @@ import type {
   ExecAgentParams,
   ExternalOriginMetadata,
   LobeAgentChatConfig,
+  MessageMetadata,
   RuntimeMentionedAgent,
   UIChatMessage,
   UserInterventionConfig,
@@ -73,6 +74,13 @@ export interface ExecRunContext {
    * For a transcript run this is the host's delivery row id.
    */
   userMessageId?: string;
+  /**
+   * Metadata the user turn row was persisted with (attached content, steer,
+   * trigger, …); undefined when no row was created. Stages read attached content
+   * from here rather than from request fields, so a field persisted on the row
+   * is also the field the run sees.
+   */
+  userMessageMetadata?: MessageMetadata;
 }
 
 /**

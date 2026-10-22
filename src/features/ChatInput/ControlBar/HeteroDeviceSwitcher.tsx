@@ -4,15 +4,22 @@ import { DESKTOP_APP_ENABLED } from '@lobechat/business-const';
 import { isDesktop } from '@lobechat/const';
 import { HETEROGENEOUS_TYPE_LABELS } from '@lobechat/heterogeneous-agents';
 import type { DeviceExecutionTarget } from '@lobechat/types';
-import { Flexbox, Icon, Popover, Tooltip } from '@lobehub/ui';
-import { Button, toast } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar, cx } from 'antd-style';
+import {
+  Button,
+  createStaticStyles,
+  cssVar,
+  cx,
+  Flexbox,
+  Icon,
+  Popover,
+  toast,
+  Tooltip,
+} from '@lobehub/ui';
 import {
   ChevronDownIcon,
   ExternalLinkIcon,
   InfoIcon,
   MonitorDownIcon,
-  RefreshCwIcon,
   SettingsIcon,
   ShieldCheckIcon,
 } from 'lucide-react';
@@ -23,11 +30,9 @@ import InstantSwitch from '@/components/InstantSwitch';
 import { useChatInputResourceAccess } from '@/features/ChatInput/hooks/useChatInputResourceAccess';
 import { useLocalSandboxCapability } from '@/features/ChatInput/hooks/useLocalSandboxCapability';
 import { useSelectExecutionTarget } from '@/features/ChatInput/hooks/useSelectExecutionTarget';
-import { useDeviceList } from '@/features/DeviceManager/useDeviceList';
 import { useDesktopDownload } from '@/features/Downloads/useDesktopDownload';
 import {
   devicePoolForAgent,
-  ExecutionTargetDeviceStatus,
   ExecutionTargetIcon,
   groupExecutionTargetDevices,
 } from '@/features/ExecutionTargetPicker';
@@ -41,10 +46,13 @@ import { useIsGatewayModeEnabled } from '@/helpers/gatewayMode';
 import { useEffectiveAgencyConfig } from '@/hooks/useEffectiveAgencyConfig';
 import { localFileService } from '@/services/electron/localFileService';
 import { useAgentStore } from '@/store/agent';
+import { useDeviceList } from '@/store/device';
 import { useElectronStore } from '@/store/electron';
 
 import { useTopicId } from '../hooks/useTopicId';
 import { formatLockedControlTooltip } from '../utils/lockedControlTooltip';
+import DeviceOptionRow from './DeviceOptionRow';
+import { getDevicePoolStatus } from './devicePoolStatus';
 import OptionRow from './OptionRow';
 import { useSandboxNetworkToggle } from './useSandboxNetworkToggle';
 import { useTopicAwareTargetSelect } from './useTopicAwareTargetSelect';
@@ -170,12 +178,6 @@ const styles = createStaticStyles(({ css }) => ({
 
     min-width: 0;
   `,
-  reconnectButton: css`
-    min-height: 18px;
-    padding-block: 0;
-    padding-inline: 2px;
-    font-size: 11px;
-  `,
   optionTitle: css`
     overflow: hidden;
 
@@ -278,6 +280,7 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
     canDisplayExecutionTarget,
     canSelectExecutionTarget,
     isPreferenceLoading: isWorkspacePreferenceLoading,
+    topicDeviceUnknown,
     workspaceScoped,
   } = useEffectiveAgencyConfig(agentId, { topicId });
   const canShowExecutionTarget = canUseResource && canDisplayExecutionTarget;
@@ -292,10 +295,15 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
   const isHetero = !!heteroType;
   const supportsSandbox = isHeterogeneousSandboxExecutionAvailable(heteroType);
 
-  // Workspace-keyed SWR fetch — the raw lambdaQuery key has no workspace
-  // dimension, so the picker kept showing the previous workspace's pool after
-  // a switch.
-  const { data: devices, isLoading, mutate: refreshDevices } = useDeviceList();
+  // The device replica, partitioned by workspace: a reload paints the persisted
+  // list first, so the chip names the bound device instead of "Unknown device".
+  const {
+    data: devices,
+    error: deviceListError,
+    isConfirmed: isDeviceListConfirmed,
+    isValidating: isDeviceListValidating,
+    mutate: refreshDevices,
+  } = useDeviceList();
 
   // The current machine's own gateway deviceId (desktop only), used to badge the
   // matching device row with a "This device" tag and show the local-process
@@ -479,21 +487,13 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
       : undefined;
 
   // The picker splits by whether the caller is inside a workspace agent:
-  //
   // - **Personal agent** — flat list of the caller's personal-scope devices
-  //   only; there is no workspace context so no group split makes sense.
-  //   Never show `scope: 'workspace'` rows here (they belong to a workspace
-  //   the personal-mode agent has nothing to do with).
-  //
-  // - **Workspace agent** — split into `Private` and `Workspace` groups by
-  //   workspace-scope visibility, and drop `scope: 'personal'` entirely.
-  //   Personal devices are the caller's account-tier machines: they belong
-  //   to a different identity than the workspace agent runs under
-  //   (per-user `sha256(machineUUID + userId)` vs
-  //   `sha256(machineUUID + workspace:<id>)`), so binding one to a workspace
-  //   agent conflates identities. The `local` chip already covers "run on my
-  // machine" as a per-user override without needing to expose
-  //   the raw personal deviceId.
+  //   only; never `scope: 'workspace'` rows (no workspace context here).
+  // - **Workspace agent** — `Private` / `Workspace` groups by workspace-scope
+  //   visibility, dropping `scope: 'personal'`: personal devices run under a
+  //   different identity (`sha256(machineUUID + userId)` vs
+  //   `sha256(machineUUID + workspace:<id>)`), and the `local` chip already
+  //   covers "run on my machine" as a per-user override.
   //
   // Naming — Personal is reserved for the account-tier concept; workspace
   // groupings say Private/Workspace (私人/工作区) instead.
@@ -512,7 +512,15 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
   // The pool rule itself lives in `devicePoolForAgent`, shared with every other
   // surface that lists devices for an agent (e.g. the Task run-location chip).
   const deviceRows = devicePoolForAgent(devices, isWorkspaceAgent);
-  const hasNoDevices = deviceRows.length === 0;
+  // Only a server-confirmed list can say the pool is empty: a stored copy may
+  // lack this pool's rows (stale, or past the persisted-row cap).
+  const poolStatus = getDevicePoolStatus({
+    error: deviceListError,
+    isConfirmed: isDeviceListConfirmed,
+    isValidating: isDeviceListValidating,
+    rowCount: deviceRows.length,
+  });
+  const isPoolEmpty = poolStatus === 'empty';
   // On web with no device, the prominent download card below replaces the small
   // header link — avoid showing the same CTA twice. Workspace agents get the
   // enroll hint instead: downloading the desktop app wouldn't help until the
@@ -522,9 +530,8 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
     desktopDownload.available &&
     !isDesktop &&
     !isWorkspaceAgent &&
-    hasNoDevices &&
-    !isLoading;
-  const showWorkspaceEnrollHint = isWorkspaceAgent && hasNoDevices && !isLoading;
+    isPoolEmpty;
+  const showWorkspaceEnrollHint = isWorkspaceAgent && isPoolEmpty;
   // The header is an either/or: no download card means the small download link
   // takes its place. Gating only the card would therefore *reveal* the link on a
   // distribution that ships no desktop build — so decide the link explicitly
@@ -563,6 +570,13 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
         t('heteroAgent.executionTarget.unknownDevice'))
       : t('heteroAgent.executionTarget.workspaceGroup');
   }
+  // A cwd with no recorded machine: naming the agent default here would pair
+  // it with a path that may live on another computer.
+  const isMachineChip = chipExecutionTarget === 'local' || chipExecutionTarget === 'device';
+  if (topicDeviceUnknown && canShowExecutionTargetSelector && isMachineChip) {
+    chipIcon = <ExecutionTargetIcon target={'device'} />;
+    chipLabel = t('heteroAgent.executionTarget.unknownDevice');
+  }
 
   // Tag the row that runs this topic, so it reads as the conversation's own
   // machine rather than the agent default. A `fixed` target may point
@@ -588,52 +602,21 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
     return executionTarget === target;
   };
 
-  const renderDeviceStatus = (d: NonNullable<typeof devices>[number]) => (
-    <ExecutionTargetDeviceStatus
-      offlineLabel={t('heteroAgent.executionTarget.offline')}
-      online={d.online}
-      onlineLabel={t('heteroAgent.executionTarget.onlineConnections', {
-        count: d.channels.length,
-      })}
-    />
-  );
-
   const renderDeviceRow = (d: NonNullable<typeof devices>[number]) => {
     const isCurrentMachine = d.deviceId === currentDeviceId;
     return (
-      <OptionRow
+      <DeviceOptionRow
         active={isActive('device', d.deviceId)}
-        disabled={!d.online}
-        icon={<ExecutionTargetIcon devicePlatform={d.platform} target={'device'} />}
+        device={d}
+        isCurrentMachine={isCurrentMachine}
         key={d.deviceId}
-        label={d.friendlyName || d.hostname || d.deviceId}
-        desc={
-          <>
-            {isCurrentMachine
-              ? t('heteroAgent.executionTarget.gatewayDesc')
-              : renderDeviceStatus(d)}
-            {d.online ? null : (
-              <Button
-                className={styles.reconnectButton}
-                icon={<Icon icon={RefreshCwIcon} size={10} />}
-                loading={reconnectingDeviceId === d.deviceId}
-                size={'small'}
-                type={'text'}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void handleReconnectDevice(d.deviceId);
-                }}
-              >
-                {t('heteroAgent.executionTarget.reconnect')}
-              </Button>
-            )}
-          </>
-        }
+        reconnecting={reconnectingDeviceId === d.deviceId}
         tags={tagsFor(
           isActive('device', d.deviceId),
           isCurrentMachine ? [t('heteroAgent.executionTarget.gateway')] : [],
         )}
-        onClick={() => void handleSelect('device', d.deviceId)}
+        onReconnect={() => void handleReconnectDevice(d.deviceId)}
+        onSelect={() => void handleSelect('device', d.deviceId)}
       />
     );
   };
@@ -802,8 +785,21 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
           </div>
         )
       ) : null}
-      {hasNoDevices && isLoading ? (
+      {poolStatus === 'loading' ? (
         <div className={styles.empty}>{t('heteroAgent.executionTarget.loading')}</div>
+      ) : null}
+      {poolStatus === 'error' ? (
+        <div className={styles.empty}>
+          {t('heteroAgent.executionTarget.loadFailed')}{' '}
+          <a
+            role="button"
+            onClick={() => {
+              void refreshDevices();
+            }}
+          >
+            {t('retry', { ns: 'common' })}
+          </a>
+        </div>
       ) : null}
       {/* Workspace agent with no workspace device: personal machines are
           suppressed above, so guide the user to enroll one into the shared
@@ -838,7 +834,7 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
           <Icon className={styles.downloadCardArrow} icon={ExternalLinkIcon} size={13} />
         </a>
       ) : null}
-      {hasNoDevices && !isLoading && isDesktop && !isWorkspaceAgent ? (
+      {isPoolEmpty && isDesktop && !isWorkspaceAgent ? (
         <div className={styles.empty}>{t('heteroAgent.executionTarget.noDevices')}</div>
       ) : null}
     </Flexbox>

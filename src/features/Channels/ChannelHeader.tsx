@@ -1,5 +1,4 @@
-import { Flexbox } from '@lobehub/ui';
-import { Text } from '@lobehub/ui/base-ui';
+import { Flexbox, Text } from '@lobehub/ui';
 import { Hash } from 'lucide-react';
 
 import NavHeader from '@/features/NavHeader';

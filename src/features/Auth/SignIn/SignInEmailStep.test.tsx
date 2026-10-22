@@ -1,5 +1,5 @@
 import { initializeTenant } from '@lobechat/business-tenant/client';
-import { useForm } from '@lobehub/ui/base-ui/form';
+import { useForm } from '@lobehub/ui/form';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
