@@ -1,7 +1,7 @@
 'use client';
 
 import { type CloudTenant } from '@lobechat/electron-client-ipc';
-import { Alert, Button, Center, Flexbox, cssVar } from '@lobehub/ui';
+import { Alert, Button, Center, cssVar,Flexbox } from '@lobehub/ui';
 import { LogInIcon, LogOutIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';

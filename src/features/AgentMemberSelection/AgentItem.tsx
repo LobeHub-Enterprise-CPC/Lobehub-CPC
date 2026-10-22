@@ -1,7 +1,7 @@
 'use client';
 
 import { agentDisplayName } from '@lobechat/types';
-import { Avatar, Checkbox, Flexbox, Text, createStaticStyles } from '@lobehub/ui';
+import { Avatar, Checkbox, createStaticStyles,Flexbox, Text } from '@lobehub/ui';
 import { useHover } from 'ahooks';
 import { X } from 'lucide-react';
 import { memo, useRef } from 'react';

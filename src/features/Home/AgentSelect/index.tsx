@@ -1,6 +1,5 @@
 'use client';
 
-import { agentDisplayName } from '@lobechat/types';
 import { Button, createStaticStyles, Popover, Text } from '@lobehub/ui';
 import { ChevronsUpDownIcon } from 'lucide-react';
 import { memo, useState } from 'react';

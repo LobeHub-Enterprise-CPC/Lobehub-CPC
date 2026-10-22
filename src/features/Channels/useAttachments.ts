@@ -1,9 +1,9 @@
 import { CHANNEL_LIMITS, type UploadFileItem } from '@lobechat/types';
 import { COMPRESSIBLE_IMAGE_TYPES, compressImageFile } from '@lobechat/utils/compressImage';
+import { toast } from '@lobehub/ui';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { toast } from '@lobehub/ui';
 import { FILE_UPLOAD_BLACKLIST } from '@/const/file';
 import { useFileStore } from '@/store/file';
 

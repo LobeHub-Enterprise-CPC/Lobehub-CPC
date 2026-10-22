@@ -1,6 +1,6 @@
 'use client';
 
-import { Alert, Button, Flexbox, Text, createModal, useModalContext } from '@lobehub/ui';
+import { Alert, Button, createModal, Flexbox, Text, useModalContext } from '@lobehub/ui';
 import { t } from 'i18next';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';

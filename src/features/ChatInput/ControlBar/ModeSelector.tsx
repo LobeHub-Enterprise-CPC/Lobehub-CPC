@@ -1,4 +1,4 @@
-import { createStaticStyles, cssVar, cx, Flexbox, Icon, Popover, Tooltip } from '@lobehub/ui';
+import { cssVar, cx, Flexbox, Icon, Popover, Tooltip } from '@lobehub/ui';
 import {
   ChevronDownIcon,
   FolderIcon,

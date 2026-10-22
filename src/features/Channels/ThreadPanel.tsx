@@ -1,4 +1,4 @@
-import { ActionIcon, Button, Flexbox, Icon, Text, cssVar } from '@lobehub/ui';
+import { ActionIcon, Button, cssVar,Flexbox, Icon, Text } from '@lobehub/ui';
 import { GitBranch, X } from 'lucide-react';
 import { Activity, useState } from 'react';
 import { useTranslation } from 'react-i18next';

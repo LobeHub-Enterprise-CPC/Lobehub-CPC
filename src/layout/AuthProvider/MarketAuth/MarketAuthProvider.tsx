@@ -1,8 +1,8 @@
 'use client';
 
 import { buildAppUrl } from '@lobechat/business-tenant/client';
-import i18next from 'i18next';
 import { toast } from '@lobehub/ui';
+import i18next from 'i18next';
 import { type ReactNode } from 'react';
 import { createContext, lazy, Suspense, use, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';

@@ -1,5 +1,5 @@
-import { buttonStyles, createGlobalStyle, cssVar, cx } from '@lobehub/ui';
 import { BRANDING_THEME } from '@lobechat/business-const';
+import { buttonStyles, createGlobalStyle, cssVar, cx } from '@lobehub/ui';
 
 /**
  * lobe-ui paints solid primary / danger labels with `colorBgLayout`, which only

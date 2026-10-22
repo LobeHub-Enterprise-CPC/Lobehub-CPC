@@ -1,5 +1,4 @@
 import { useAppAssetUrl } from '@lobechat/business-tenant/client';
-import { isDesktop } from '@lobechat/const';
 import { Avatar } from '@lobehub/ui';
 import { SkillsIcon } from '@lobehub/ui/icons';
 import {

@@ -11,7 +11,6 @@ import { useTranslation } from 'react-i18next';
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import { formatPageEditorInfoTime } from '@/features/PageEditor/formatPageEditorInfoTime';
 import { useIsHtmlPage } from '@/features/PageEditor/HtmlPageBody';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { agentDocumentService } from '@/services/agentDocument';
 import { useDocumentStore } from '@/store/document';
 import { useGlobalStore } from '@/store/global';

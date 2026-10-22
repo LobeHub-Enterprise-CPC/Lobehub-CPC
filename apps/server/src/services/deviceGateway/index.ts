@@ -1,5 +1,4 @@
 import { type DeviceAttachment } from '@lobechat/builtin-tool-remote-device';
-import { TRPCError } from '@trpc/server';
 import {
   describeGatewayRequestFailure,
   type DeviceStatusResult,
@@ -7,6 +6,7 @@ import {
   GatewayHttpClient,
 } from '@lobechat/device-gateway-client';
 import type { DeviceClient, DeviceListeningPortsResult, DeviceMetricSample } from '@lobechat/types';
+import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 
 import { gatewayEnv } from '@/envs/gateway';
@@ -19,8 +19,8 @@ import * as gitRead from './gitRead';
 import * as gitWrite from './gitWrite';
 import * as projectFileMutations from './projectFileMutations';
 import * as projectFiles from './projectFiles';
-import * as terminal from './terminal';
 import { deviceGatewayTenancy } from './tenancy';
+import * as terminal from './terminal';
 import type { DeviceClientGetter, DeviceRpcArgs } from './types';
 import * as workspace from './workspace';
 

@@ -1,7 +1,7 @@
 'use client';
 
 import type { AgentAvatarGallery } from '@lobechat/business-const';
-import { Button, Flexbox, Text, createStaticStyles, cssVar } from '@lobehub/ui';
+import { Button, createStaticStyles, cssVar,Flexbox, Text } from '@lobehub/ui';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 

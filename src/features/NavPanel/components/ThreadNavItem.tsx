@@ -1,4 +1,4 @@
-import { Icon, cssVar } from '@lobehub/ui';
+import { cssVar,Icon } from '@lobehub/ui';
 import { CornerDownRight } from 'lucide-react';
 
 import NavItem, { type NavItemProps } from './NavItem';

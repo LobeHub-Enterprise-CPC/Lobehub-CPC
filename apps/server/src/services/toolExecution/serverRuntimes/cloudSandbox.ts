@@ -3,7 +3,6 @@ import { CloudSandboxExecutionRuntime } from '@lobechat/builtin-tool-cloud-sandb
 import debug from 'debug';
 
 import { UserModel } from '@/database/models/user';
-import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { FileService } from '@/server/services/file';
 import { createSandboxService, resolveSandboxSessionConfig } from '@/server/services/sandbox';
 import {

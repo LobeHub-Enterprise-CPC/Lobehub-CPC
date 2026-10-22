@@ -1,5 +1,5 @@
 import { AGENT_PROFILE_NAVIGATION } from '@lobechat/business-const';
-import { ContextMenuTrigger, DropdownMenu, Flexbox, Icon, type DropdownItem } from '@lobehub/ui';
+import { ContextMenuTrigger, type DropdownItem,DropdownMenu, Flexbox, Icon } from '@lobehub/ui';
 import {
   AccordionHeader,
   AccordionItem,

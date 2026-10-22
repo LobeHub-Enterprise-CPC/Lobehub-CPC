@@ -11,8 +11,8 @@ import { MCPInstallStep } from '@/types/plugins';
 import InstallError from './InstallError';
 import MCPConfigForm from './MCPConfigForm';
 import MCPDependenciesGuide from './MCPDependenciesGuide';
-import MCPOAuthConnect from './MCPOAuthConnect';
 import { MCPOAuthAuthorization } from './MCPOAuthAuthorization';
+import MCPOAuthConnect from './MCPOAuthConnect';
 
 const MCPInstallProgress = memo<{ identifier: string }>(({ identifier }) => {
   const { t } = useTranslation('plugin');

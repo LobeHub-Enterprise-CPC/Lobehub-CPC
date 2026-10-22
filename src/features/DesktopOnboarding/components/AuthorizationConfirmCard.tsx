@@ -1,7 +1,7 @@
 'use client';
 
 import { type AuthorizationConfirmRequest } from '@lobechat/electron-client-ipc';
-import { Alert, Button, Flexbox, Text, cssVar } from '@lobehub/ui';
+import { Alert, Button, cssVar,Flexbox, Text } from '@lobehub/ui';
 import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 

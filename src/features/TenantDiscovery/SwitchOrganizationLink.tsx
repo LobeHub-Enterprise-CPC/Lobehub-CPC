@@ -1,7 +1,7 @@
-import { Button, Text, createStaticStyles } from '@lobehub/ui';
-('use client');
+'use client';
 
 import { getTenant } from '@lobechat/business-tenant/client';
+import { Button, createStaticStyles, Text } from '@lobehub/ui';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 

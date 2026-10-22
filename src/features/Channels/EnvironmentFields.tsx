@@ -2,7 +2,7 @@
 
 import { isDesktop } from '@lobechat/const';
 import type { WorkingDirEntry } from '@lobechat/types';
-import { Flexbox, Icon, Input, Popover, Text, createStaticStyles, cssVar, cx } from '@lobehub/ui';
+import { createStaticStyles, cssVar, cx,Flexbox, Icon, Input, Popover, Text } from '@lobehub/ui';
 import {
   CheckIcon,
   ChevronDownIcon,

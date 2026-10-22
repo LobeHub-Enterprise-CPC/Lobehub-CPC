@@ -20,8 +20,8 @@ import {
   legacyGetAssistantIdentifiers,
   legacyGetAssistantList,
 } from './assistantsLegacy';
-import { pickContentSync, pickMarketResourceState } from './marketResourceState';
 import type { DiscoverService } from './index';
+import { pickContentSync, pickMarketResourceState } from './marketResourceState';
 import { isMarketNotFound, log, normalizeAuthorField } from './utils';
 
 // ============================== Assistant Market ==============================

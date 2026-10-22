@@ -3,7 +3,6 @@
 import { isDesktop } from '@lobechat/const';
 import { type BinaryStatus, type ClaudeAuthStatus } from '@lobechat/electron-client-ipc';
 import {
-  isHeterogeneousProviderBindingSupported,
   isKimiModelCandidate,
 } from '@lobechat/heterogeneous-agents';
 import {

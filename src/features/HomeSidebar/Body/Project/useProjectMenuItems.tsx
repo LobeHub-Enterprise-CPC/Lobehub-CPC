@@ -1,5 +1,5 @@
 import type { MenuProps } from '@lobehub/ui';
-import { Icon, confirmModal, toast } from '@lobehub/ui';
+import { confirmModal, Icon, toast } from '@lobehub/ui';
 import { PencilIcon, TrashIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';

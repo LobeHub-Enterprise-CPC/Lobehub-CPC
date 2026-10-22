@@ -67,7 +67,8 @@ export const parseFileLinkHref = (
   // root-relative href is inherently same-origin; an absolute one needs an
   // explicit origin to compare against, so without one it's left alone.
   if (!isRootRelative) {
-    o;
+    if (!appUrl) return null;
+    if (url.origin !== appUrl.origin) return null;
   }
 
   const match = appRelativePath(url.pathname, isRootRelative, appUrl)?.match(FILE_PROXY_PATH_REGEX);

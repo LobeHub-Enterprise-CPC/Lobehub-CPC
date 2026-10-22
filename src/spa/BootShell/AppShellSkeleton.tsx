@@ -2,7 +2,6 @@
 
 import { TITLE_BAR_HEIGHT } from '@lobechat/desktop-bridge';
 import { createStaticStyles, Flexbox, keyframes } from '@lobehub/ui';
-import { LobeHub } from '@lobehub/ui/brand';
 import { memo, useEffect, useLayoutEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 

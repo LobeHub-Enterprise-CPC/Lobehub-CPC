@@ -12,10 +12,14 @@ export const desensitizeUrl = (url: string) => {
       if (hostnameParts[secondLevelDomainIndex].length < 5) {
         hostnameParts[secondLevelDomainIndex] = '***';
       } else {
-        hostnameParts[secondLevelDomainIndex] = hostnameParts[secondLevelDomainIndex].replace(
-          /^(.*?)(\w{2})(\w+)(\w{2})$/,
-          (_, prefix, start, middle, end) => `${prefix}${start}****${end}`,
-        );
+        // Slice rather than match: a lazy prefix next to `\w+` is a
+        // super-linear backtracking shape, and the shape here is fixed.
+        const label = hostnameParts[secondLevelDomainIndex];
+        const tail = label.slice(-4);
+        if (/^\w{4}$/.test(tail)) {
+          hostnameParts[secondLevelDomainIndex] =
+            `${label.slice(0, -4)}${tail.slice(0, 2)}****${tail.slice(2)}`;
+        }
       }
     }
 

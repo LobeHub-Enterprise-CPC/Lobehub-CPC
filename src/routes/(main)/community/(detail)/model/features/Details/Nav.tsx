@@ -1,6 +1,5 @@
 'use client';
 
-import { SOCIAL_URL } from '@lobechat/business-const';
 import { createStaticStyles, Flexbox, Icon, Tabs } from '@lobehub/ui';
 import { BookOpenIcon, ListIcon, Settings2Icon } from 'lucide-react';
 import { memo } from 'react';

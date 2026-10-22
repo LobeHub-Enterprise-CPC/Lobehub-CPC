@@ -1,10 +1,10 @@
 'use client';
 
 import { BRANDING_NAME } from '@lobechat/business-const';
+import { Alert } from '@lobehub/ui';
 import { memo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { Alert } from '@lobehub/ui';
 import AuthEmailForm from '@/features/Auth/AuthEmailForm';
 import AuthCard from '@/features/AuthCard';
 

@@ -230,10 +230,10 @@ const AcceptanceOnboarding = () => {
                     {t('acceptance.workspace.onboarding.agent.prompt', { url: OFFICIAL_URL })}
                   </span>
                   <CopyButton
+                    size={'small'}
                     content={t('acceptance.workspace.onboarding.agent.prompt', {
                       url: OFFICIAL_URL,
                     })}
-                    size={'small'}
                   />
                 </Flexbox>
               </Flexbox>

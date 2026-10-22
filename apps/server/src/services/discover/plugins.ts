@@ -14,8 +14,8 @@ import { cloneDeep, countBy, isString, merge } from 'es-toolkit/compat';
 
 import { normalizeLocale } from '@/locales/resources';
 
-import { pickContentSync } from './marketResourceState';
 import type { DiscoverService } from './index';
+import { pickContentSync } from './marketResourceState';
 import { isMarketNotFound, log } from './utils';
 
 // ============================== Plugin Market ==============================

@@ -2,6 +2,7 @@ import { agentSignal } from './agentSignal';
 import { deviceSystemInfo } from './deviceSystemInfo';
 import { gatewayAuthorization } from './gatewayAuthorization';
 import { linear } from './linear';
+import { messenger } from './messenger';
 import { skillTools } from './skillTools';
 import { steerQueue } from './steerQueue';
 import { tenantDiscovery } from './tenantDiscovery';
@@ -14,6 +15,7 @@ export const redisService = {
   deviceSystemInfo,
   gatewayAuthorization,
   linear,
+  messenger,
   skillTools,
   steerQueue,
   tenantDiscovery,

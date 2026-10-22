@@ -182,7 +182,7 @@ export const mcpRouter = router({
       // ── End permission gate ───────────────────────────────────────────────
 
       const startTime = Date.now();
-      let success = true;
+      const success = true;
       let errorCode: string | undefined;
       let errorMessage: string | undefined;
       let result: Awaited<ReturnType<typeof mcpService.callTool>> | undefined;

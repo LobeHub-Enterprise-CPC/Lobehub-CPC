@@ -1,6 +1,6 @@
 'use client';
 
-import { Flexbox, createStaticStyles } from '@lobehub/ui';
+import { createStaticStyles,Flexbox } from '@lobehub/ui';
 import { type ReactNode } from 'react';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';

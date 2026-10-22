@@ -7,7 +7,6 @@ import { produce } from 'immer';
 import { gt, valid } from 'semver';
 
 import { ConnectorSourceType } from '@/database/schemas';
-import { executeOAuthCreate } from '@/utils/connectorOAuthCreate';
 import { newClientExecutionId, startTelemetryExecution } from '@/libs/market-telemetry';
 import { type MCPErrorData } from '@/libs/mcp/types';
 import { parseStdioErrorMessage } from '@/libs/mcp/types';
@@ -36,6 +35,7 @@ import {
   openConnectorOAuthPopup,
   waitForConnectorOAuth,
 } from '@/utils/connectorOAuth';
+import { executeOAuthCreate } from '@/utils/connectorOAuthCreate';
 import { type MarketplaceOAuth, readMarketplaceOAuth } from '@/utils/marketplaceOAuth';
 import { getPlatform } from '@/utils/platform';
 import { sleep } from '@/utils/sleep';

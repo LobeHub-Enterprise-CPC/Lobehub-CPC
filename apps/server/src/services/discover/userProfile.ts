@@ -7,8 +7,8 @@ import {
 } from '@lobechat/types';
 import { type UserInfoResponse } from '@lobehub/market-sdk';
 
-import { pickContentSync, pickMarketResourceState } from './marketResourceState';
 import type { DiscoverService } from './index';
+import { pickContentSync, pickMarketResourceState } from './marketResourceState';
 import { isMarketNotFound, log } from './utils';
 
 // ============================== User Profile ==============================

@@ -14,8 +14,6 @@ import type {
   HeterogeneousTopicPin,
 } from '@lobechat/types';
 import {
-  agentShareFileAccessScope,
-  ChatErrorType,
   ordinaryFileAccessScope,
   resolveHeterogeneousModelOverride,
   resolveHeterogeneousProviderTopicModel,

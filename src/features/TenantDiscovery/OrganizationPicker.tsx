@@ -1,6 +1,7 @@
 'use client';
 
-import { Alert, Flexbox, Icon, List, ListItem, Modal, Text } from '@lobehub/ui';
+import type { ListItem} from '@lobehub/ui';
+import { Alert, Flexbox, Icon, List, Modal, Text } from '@lobehub/ui';
 import { Loader2 } from 'lucide-react';
 import { type KeyboardEvent, memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';

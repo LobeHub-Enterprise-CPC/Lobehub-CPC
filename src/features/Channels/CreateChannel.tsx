@@ -1,11 +1,11 @@
 import {
   Button,
+  createModal,
   EditableText,
   Flexbox,
   Icon,
   Input,
   Text,
-  createModal,
   useModalContext,
 } from '@lobehub/ui';
 import { t } from 'i18next';

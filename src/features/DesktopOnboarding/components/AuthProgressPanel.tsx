@@ -1,6 +1,6 @@
 'use client';
 
-import { Alert, Button, Flexbox, Text, cssVar } from '@lobehub/ui';
+import { Alert, Button, cssVar,Flexbox, Text } from '@lobehub/ui';
 import { ArrowRightLeftIcon, Cloud, MailSearchIcon, Server } from 'lucide-react';
 import { type LucideIcon } from 'lucide-react';
 import { memo } from 'react';
