@@ -1,7 +1,7 @@
 'use client';
 
 import { BRANDING_EMAIL } from '@lobechat/business-const';
-import { createModal } from '@lobehub/ui/base-ui';
+import { createModal } from '@lobehub/ui';
 import { t } from 'i18next';
 
 import { useGlobalStore } from '@/store/global';

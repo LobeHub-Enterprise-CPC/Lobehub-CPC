@@ -28,6 +28,8 @@ vi.mock('react-i18next', () => ({
 
 interface RenderFooterOptions {
   billboardItems?: unknown[];
+  bugReportItem?: unknown;
+  bugReportLab?: boolean;
   desktop?: boolean;
   enableBusinessFeatures?: boolean;
   hiddenMenuKeys?: readonly string[];
@@ -41,6 +43,8 @@ let mockUserState: Record<string, unknown>;
 
 const renderFooter = async ({
   billboardItems = [],
+  bugReportItem = null,
+  bugReportLab = false,
   desktop = false,
   enableBusinessFeatures = false,
   hiddenMenuKeys,
@@ -61,6 +65,7 @@ const renderFooter = async ({
   };
   mockUserState = {
     defaultSettings: {},
+    preference: { lab: { enableTopicBugReport: bugReportLab } },
     settings: { general: { isDevMode } },
   };
 
@@ -96,6 +101,12 @@ const renderFooter = async ({
   vi.doMock('@/components/FeedbackModal', () => ({
     default: vi.fn(),
     openFeedbackModal: vi.fn(),
+  }));
+  function provideBugReportItem() {
+    return bugReportItem;
+  }
+  vi.doMock('@/business/client/hooks/useHelpMenuBugReportItem', () => ({
+    useHelpMenuBugReportItem: provideBugReportItem,
   }));
   vi.doMock('@/features/Billboard', () => ({
     default: () => null,
@@ -182,6 +193,7 @@ afterEach(() => {
   vi.doUnmock('@/libs/analytics/client');
   vi.doUnmock('@/components/ChangelogModal');
   vi.doUnmock('@/components/FeedbackModal');
+  vi.doUnmock('@/business/client/hooks/useHelpMenuBugReportItem');
   vi.doUnmock('@/features/Billboard');
   vi.doUnmock('@/features/Billboard/MenuItems');
   vi.doUnmock('@/features/NavPanel/useActiveNavKey');
@@ -419,5 +431,57 @@ describe('Footer help menu tracking', () => {
     // ...but billboard items (which emit their own billboard_* events) are not,
     // so their CTR denominator never gets an orphaned exposure.
     expect(keys).not.toContain('billboard-promo');
+  }, 20000);
+
+  it.each([
+    ['shows', true],
+    ['hides', false],
+  ])(
+    '%s the deployment bug report entry by the lab',
+    async (_case, bugReportLab) => {
+      const user = userEvent.setup();
+      await renderFooter({
+        bugReportItem: { key: 'reportBug', label: 'Report Bug', onClick: vi.fn() },
+        bugReportLab,
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Help' }));
+      await screen.findByText('Feedback');
+
+      expect(!!screen.queryByText('Report Bug')).toBe(bugReportLab);
+    },
+    20000,
+  );
+
+  it('groups help, product and community entries, each separated once', async () => {
+    const user = userEvent.setup();
+    await renderFooter({
+      bugReportItem: { key: 'reportBug', label: 'Report Bug', onClick: vi.fn() },
+      bugReportLab: true,
+      enableBusinessFeatures: true,
+      hideGitHub: false,
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Help' }));
+    const menu = (await screen.findByText('Docs')).closest('[role="menu"]')!;
+    const sequence = [...menu.querySelectorAll('[role="menuitem"], [role="separator"]')].map(
+      (node) => (node.getAttribute('role') === 'separator' ? '|' : node.textContent),
+    );
+
+    expect(sequence).toEqual([
+      'Settings',
+      '|',
+      'Invite a friend',
+      '|',
+      'Docs',
+      'Report Bug',
+      'Feedback',
+      '|',
+      'Changelog',
+      'Get App',
+      '|',
+      'Discord',
+      'GitHub',
+    ]);
   }, 20000);
 });

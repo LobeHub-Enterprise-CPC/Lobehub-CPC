@@ -1,5 +1,6 @@
 import { requireTenantScope } from '@lobechat/database/tenant';
 
+import { getServerDBConfig } from '@/config/db';
 import {
   deriveTenantDataKey,
   MasterKeyError,
@@ -34,6 +35,32 @@ If you don't have it, please run \`openssl rand -base64 32\` to create one.
       );
     throw error;
   }
+};
+
+/**
+ * The master secrets, for process-level uses that never touch tenant data
+ * (service-to-service bearer checks). Stored ciphertexts are sealed with the
+ * tenant data key, so there is no ciphertext rotation path here.
+ */
+export const getKeyVaultsSecrets = () => {
+  const { KEY_VAULTS_FALLBACK_SECRET, KEY_VAULTS_SECRET } = getServerDBConfig();
+  const active = KEY_VAULTS_SECRET?.trim() ? KEY_VAULTS_SECRET : undefined;
+  const fallback =
+    active && KEY_VAULTS_FALLBACK_SECRET?.trim() ? KEY_VAULTS_FALLBACK_SECRET : undefined;
+
+  return {
+    active,
+    fallback: fallback === active ? undefined : fallback,
+  };
+};
+
+export const isKeyVaultsSecretBearerToken = (authorization: string | null) => {
+  const { active, fallback } = getKeyVaultsSecrets();
+  if (!active) return false;
+
+  return [active, fallback].some(
+    (secret) => secret !== undefined && authorization === `Bearer ${secret}`,
+  );
 };
 
 export class KeyVaultsGateKeeper {

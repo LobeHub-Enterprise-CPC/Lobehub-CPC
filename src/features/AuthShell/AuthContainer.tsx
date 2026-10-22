@@ -1,9 +1,7 @@
 'use client';
 
 import { BRANDING_NAME } from '@lobechat/business-const';
-import { Center, Flexbox } from '@lobehub/ui';
-import { Divider } from '@lobehub/ui/base-ui';
-import { cx } from 'antd-style';
+import { Center, cx, Divider, Flexbox } from '@lobehub/ui';
 import { type FC, type PropsWithChildren } from 'react';
 
 import { ProductLogo } from '@/components/Branding';

@@ -4,7 +4,8 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
-    "./executionSignal": "./src/executionSignal.ts"
+    "./executionSignal": "./src/executionSignal.ts",
+    "./endpoint": "./src/endpoint.ts"
   },
   "main": "./src/index.ts",
   "scripts": {

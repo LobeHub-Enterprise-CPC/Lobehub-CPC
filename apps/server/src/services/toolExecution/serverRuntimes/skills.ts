@@ -34,12 +34,11 @@ import { TaskModel } from '@/database/models/task';
 import { UserModel } from '@/database/models/user';
 import type { LobeChatDatabase } from '@/database/type';
 import { filterBuiltinSkills } from '@/helpers/skillFilters';
-import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { AgentDocumentsService } from '@/server/services/agentDocuments';
 import { deviceGateway } from '@/server/services/deviceGateway';
 import { executeAuthorizedDeviceToolCall } from '@/server/services/deviceGateway/authorizedToolCall';
 import { FileService } from '@/server/services/file';
-import { MarketService } from '@/server/services/market';
+import type { MarketService } from '@/server/services/market';
 import {
   createSandboxService,
   normalizeSandboxCommandResult,
@@ -60,6 +59,7 @@ import {
 } from '@/server/services/userSkill';
 
 import { resolveContentWorkspaceId, resolveRunWorkspaceId } from './resolveWorkspaceScope';
+import { createSandboxMarketService } from './sandboxMarket';
 import { type ServerRuntimeRegistration } from './types';
 
 const log = debug('lobe-server:skills-runtime');
@@ -150,6 +150,12 @@ class SkillServerRuntimeService implements SkillRuntimeService {
   private fileModel: FileModel;
   private serverDB: LobeChatDatabase;
   private topicId?: string;
+  /**
+   * The run this runtime belongs to. Handed to `preprocessLhCommand` so a
+   * sandbox `lh agent run` carries `LOBEHUB_OPERATION_ID`, exactly as the device
+   * and heterogeneous runtimes do.
+   */
+  private operationId?: string;
   private userId: string;
   private workspaceId?: string;
   private sandboxCwd?: string;
@@ -181,6 +187,7 @@ class SkillServerRuntimeService implements SkillRuntimeService {
      */
     isSkillGranted?: (identifier: string) => boolean;
     marketService: MarketService;
+    operationId?: string;
     resourceService: SkillResourceService;
     /**
      * Persistence for this run, resolved once by the factory. Every sandbox
@@ -210,6 +217,7 @@ class SkillServerRuntimeService implements SkillRuntimeService {
     this.fileModel = options.fileModel;
     this.serverDB = options.serverDB;
     this.topicId = options.topicId;
+    this.operationId = options.operationId;
     this.userId = options.userId;
     this.workspaceId = options.workspaceId;
     this.sandboxCwd = options.sandboxCwd;
@@ -294,6 +302,7 @@ class SkillServerRuntimeService implements SkillRuntimeService {
       this.userId,
       workspaceId,
       this.shareVisitorBlocked,
+      this.operationId,
     );
 
     return { command: result.command, error: result.error };
@@ -904,16 +913,12 @@ export const skillsRuntime: ServerRuntimeRegistration = {
       workspaceId,
     });
 
-    const marketService = new MarketService({
-      accessToken: marketAccessToken,
-      userInfo: await resolveMarketServiceIdentity({
-        proxyExecution: Boolean(shareVisitor),
-        sandboxStorage: sandbox.claim,
-        serverDB: context.serverDB,
-        userId: context.userId,
-        workspaceId,
-      }),
-    });
+    const marketService = createSandboxMarketService(
+      context,
+      marketAccessToken,
+      workspaceId,
+      sandbox.claim,
+    );
     const fileService = new FileService(context.serverDB, context.userId, workspaceId);
     const fileModel = new FileModel(context.serverDB, context.userId, workspaceId);
 
@@ -946,6 +951,10 @@ export const skillsRuntime: ServerRuntimeRegistration = {
       fileService,
       isSkillGranted,
       marketService,
+      // The run this runtime belongs to, so an `lh agent run` it preprocesses in
+      // the cloud sandbox can be attributed to the agent that launched it — the
+      // device branch below carries the same id for its own routing.
+      operationId: context.operationId,
       resourceService,
       sandboxCwd: sandbox.cwd,
       sandboxInstanceId: sandbox.environment,

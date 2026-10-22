@@ -2,7 +2,7 @@
 import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { KeyVaultsGateKeeper } from './index';
+import { isKeyVaultsSecretBearerToken, KeyVaultsGateKeeper } from './index';
 
 const scope = (tenantId: string) =>
   ({ session: {}, slug: 'acme', tenantId }) as unknown as TenantScope;
@@ -11,18 +11,24 @@ const inTenant = <T>(tenantId: string, fn: () => Promise<T>) =>
 
 describe('KeyVaultsGateKeeper', () => {
   let gateKeeper: KeyVaultsGateKeeper;
+  let originalFallbackSecret: string | undefined;
   let originalSecret: string | undefined;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(async () => {
+    originalFallbackSecret = process.env.KEY_VAULTS_FALLBACK_SECRET;
     originalSecret = process.env.KEY_VAULTS_SECRET;
+    delete process.env.KEY_VAULTS_FALLBACK_SECRET;
     process.env.KEY_VAULTS_SECRET = 'Q10pwdq00KXUu9R+c8A8p4PSlIRWi7KwgUophBtkHVk=';
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     gateKeeper = KeyVaultsGateKeeper.forTenant('tenant-a');
   });
 
   afterEach(() => {
-    process.env.KEY_VAULTS_SECRET = originalSecret;
+    if (originalFallbackSecret === undefined) delete process.env.KEY_VAULTS_FALLBACK_SECRET;
+    else process.env.KEY_VAULTS_FALLBACK_SECRET = originalFallbackSecret;
+    if (originalSecret === undefined) delete process.env.KEY_VAULTS_SECRET;
+    else process.env.KEY_VAULTS_SECRET = originalSecret;
     consoleErrorSpy.mockRestore();
   });
 
@@ -37,6 +43,22 @@ describe('KeyVaultsGateKeeper', () => {
 
   it('refuses to build a gatekeeper outside a tenant scope', async () => {
     await expect(KeyVaultsGateKeeper.initWithEnvKey()).rejects.toThrow('TENANT_REQUIRED');
+  });
+
+  it('rejects fallback bearer tokens when the active secret is missing', () => {
+    const fallbackSecret = process.env.KEY_VAULTS_SECRET!;
+    process.env.KEY_VAULTS_FALLBACK_SECRET = fallbackSecret;
+    delete process.env.KEY_VAULTS_SECRET;
+
+    expect(isKeyVaultsSecretBearerToken(`Bearer ${fallbackSecret}`)).toBe(false);
+  });
+
+  it('rejects fallback bearer tokens when the active secret is blank', () => {
+    const fallbackSecret = process.env.KEY_VAULTS_SECRET!;
+    process.env.KEY_VAULTS_FALLBACK_SECRET = fallbackSecret;
+    process.env.KEY_VAULTS_SECRET = '   ';
+
+    expect(isKeyVaultsSecretBearerToken(`Bearer ${fallbackSecret}`)).toBe(false);
   });
 
   it("cannot open another tenant's data", async () => {

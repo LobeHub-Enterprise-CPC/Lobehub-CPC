@@ -1,6 +1,7 @@
 import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import urlJoin from 'url-join';
 
+import { integrationInstallOrigin } from '@/utils/integrationInstallOrigin';
 /** Platforms whose "Connect" flow starts at the LobeHub OAuth install endpoint. */
 export type MessengerOAuthInstallPlatform = 'discord' | 'slack';
 
@@ -23,7 +24,7 @@ export const resolveMessengerInstallHref = (
 ): string | undefined => {
   if (!appOrigin) return undefined;
 
-  return urlJoin(appOrigin, MESSENGER_INSTALL_PATHS[platform]);
+  return urlJoin(integrationInstallOrigin(appOrigin), MESSENGER_INSTALL_PATHS[platform]);
 };
 
 export const useMessengerInstallHref = (

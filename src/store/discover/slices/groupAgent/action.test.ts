@@ -65,7 +65,11 @@ const syncCalls = async (
       ([key]) => Array.isArray(key) && key[0] === 'replica:sync' && key[1] === name,
     )
     .map(([key, fetcher, config]) => ({
-      config: config as { onSuccess?: (data: unknown) => void; revalidateOnFocus?: boolean },
+      config: config as {
+        onError?: (error: unknown) => void;
+        onSuccess?: (data: unknown) => void;
+        revalidateOnFocus?: boolean;
+      },
       fetcher: fetcher as () => Promise<any>,
       key: key as unknown[],
     }));

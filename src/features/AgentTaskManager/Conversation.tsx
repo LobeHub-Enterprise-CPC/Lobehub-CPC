@@ -2,8 +2,7 @@
 
 import { AGENT_SWITCHING_ENABLED } from '@lobechat/business-const';
 import { isChatGroupSessionId } from '@lobechat/types';
-import { Flexbox } from '@lobehub/ui';
-import { Text } from '@lobehub/ui/base-ui';
+import { Flexbox, Text } from '@lobehub/ui';
 import { memo, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 

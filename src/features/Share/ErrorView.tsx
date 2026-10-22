@@ -1,8 +1,7 @@
 'use client';
 
 import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
-import { Center } from '@lobehub/ui';
-import { Button } from '@lobehub/ui/base-ui';
+import { Button, Center } from '@lobehub/ui';
 import { TRPCClientError } from '@trpc/client';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';

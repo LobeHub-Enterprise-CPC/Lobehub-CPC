@@ -2,6 +2,7 @@ import { setRemoteTenantId } from '@lobechat/business-tenant/client';
 import type { DesktopBootstrapIdentity } from '@lobechat/electron-client-ipc';
 
 import { useUserStore } from '@/store/user';
+import { readUserDisplaySnapshot, userFromDisplaySnapshot } from '@/store/user/displaySnapshot';
 import type { LobeUser } from '@/types/user';
 
 export const applyDesktopBootstrapIdentity = (
@@ -14,10 +15,14 @@ export const applyDesktopBootstrapIdentity = (
   if (identity.isIdentityResolved) setRemoteTenantId(identity.tenantId);
 
   const state = useUserStore.getState();
+  const isKnownUser = !!identity.userId && state.user?.id === identity.userId;
+  const snapshot =
+    identity.userId && !isKnownUser ? readUserDisplaySnapshot(identity.userId) : undefined;
+
   const nextUser = identity.userId
-    ? state.user?.id === identity.userId
+    ? isKnownUser
       ? state.user
-      : ({ id: identity.userId } as LobeUser)
+      : userFromDisplaySnapshot(snapshot, { id: identity.userId } as LobeUser)
     : identity.isIdentityResolved
       ? undefined
       : state.user;
@@ -27,5 +32,7 @@ export const applyDesktopBootstrapIdentity = (
     isLoaded: true,
     isSignedIn: identity.isIdentityResolved ? Boolean(identity.userId) : state.isSignedIn,
     user: nextUser,
+    ...(snapshot?.preference && { preference: snapshot.preference }),
+    ...(snapshot?.settings && { settings: snapshot.settings }),
   });
 };

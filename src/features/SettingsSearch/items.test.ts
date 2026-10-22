@@ -14,6 +14,7 @@ const webContext: SettingsSearchContext = {
   disableEmailPassword: false,
   enableBusinessFeatures: true,
   enableComposio: true,
+  enableWorkspace: false,
   showGatewayModeToggle: true,
   hasEmail: true,
   hideDocs: false,
@@ -37,7 +38,21 @@ describe('settings search index', () => {
 
     for (const feature of LAB_FEATURES) {
       const item = labsItems.find(({ anchor }) => anchor === `labs-${feature.flag}`)!;
-      expect(item.visible?.(webContext) ?? true).toBe(!feature.desktopOnly);
+      expect(item.visible?.(webContext) ?? true).toBe(
+        !feature.desktopOnly && !feature.workspaceOnly,
+      );
+    }
+  });
+
+  it('shows workspace-only lab features only to users with workspace access', () => {
+    const labsItems = SETTINGS_SEARCH_ITEMS.filter((item) => item.tab === SettingsTabs.Labs);
+    const workspaceFeatures = LAB_FEATURES.filter((feature) => feature.workspaceOnly);
+    expect(workspaceFeatures.length).toBeGreaterThan(0);
+
+    for (const feature of workspaceFeatures) {
+      const item = labsItems.find(({ anchor }) => anchor === `labs-${feature.flag}`)!;
+      expect(item.visible?.({ ...webContext, enableWorkspace: true })).toBe(true);
+      expect(item.visible?.(webContext)).toBe(false);
     }
   });
 

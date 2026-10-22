@@ -10,6 +10,7 @@ import {
   FeatherIcon,
   FilePen,
   LibraryBig,
+  ListTodo,
   MessageSquarePlusIcon,
   Monitor,
   Star,
@@ -45,6 +46,7 @@ const MainMenu = memo(() => {
     handleCreateTopic,
     handleCreateLibrary,
     handleCreatePage,
+    handleCreateTask,
     handleNavigate,
     handleExternalLink,
     handleCreateAgentTeam,
@@ -96,6 +98,16 @@ const MainMenu = memo(() => {
           onSelect={handleCreatePage}
         >
           {t('cmdk.newPage')}
+        </CommandItem>
+
+        <CommandItem
+          disabled={!canCreate}
+          icon={<ListTodo />}
+          keywords={[t('cmdk.newTask')]}
+          value="create new task"
+          onSelect={handleCreateTask}
+        >
+          {t('cmdk.newTask')}
         </CommandItem>
 
         <CommandItem

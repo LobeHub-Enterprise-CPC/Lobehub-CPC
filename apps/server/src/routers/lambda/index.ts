@@ -35,6 +35,7 @@ import { agentQuotaRouter } from './agentQuota';
 import { agentShareRouter } from './agentShare';
 import { agentSignalRouter } from './agentSignal';
 import { agentSkillsRouter } from './agentSkills';
+import { agentSteerQueueRouter } from './agentSteerQueue';
 import { agentTraceRouter } from './agentTrace';
 import { aiAgentRouter } from './aiAgent';
 import { aiChatRouter } from './aiChat';
@@ -44,6 +45,7 @@ import { apiKeyRouter } from './apiKey';
 import { asrRouter } from './asr';
 import { botMessageRouter } from './botMessage';
 import { briefRouter } from './brief';
+import { canvasRouter } from './canvas';
 import { changelogRouter } from './changelog';
 import { channelRouter } from './channel';
 import { chunkRouter } from './chunk';
@@ -72,6 +74,7 @@ import { importerRouter } from './importer';
 import { klavisRouter } from './klavis';
 import { knowledgeRouter } from './knowledge';
 import { knowledgeBaseRouter } from './knowledgeBase';
+import { linearRouter } from './linear';
 import { llmGenerationTracingRouter } from './llmGenerationTracing';
 import { marketRouter } from './market';
 import { messageRouter } from './message';
@@ -101,6 +104,7 @@ import { threadRouter } from './thread';
 import { topicRouter } from './topic';
 import { topicCommentRouter } from './topicComment';
 import { trashRouter } from './trash';
+import { ttsRouter } from './tts';
 import { uploadRouter } from './upload';
 import { usageRouter } from './usage';
 import { userRouter } from './user';
@@ -130,6 +134,8 @@ export const lambdaRouter = router({
   agentTrace: agentTraceRouter,
   expertise: expertiseRouter,
   agentSignal: agentSignalRouter,
+  agentSteerQueue: agentSteerQueueRouter,
+  canvas: canvasRouter,
   changelog: changelogRouter,
   channel: channelRouter,
   brief: briefRouter,
@@ -141,6 +147,7 @@ export const lambdaRouter = router({
   aiProvider: aiProviderRouter,
   apiKey: apiKeyRouter,
   asr: asrRouter,
+  tts: ttsRouter,
   chunk: chunkRouter,
   comfyui: comfyuiRouter,
   config: configRouter,
@@ -169,6 +176,7 @@ export const lambdaRouter = router({
   klavis: klavisRouter,
   knowledge: knowledgeRouter,
   knowledgeBase: knowledgeBaseRouter,
+  linear: linearRouter,
   llmGenerationTracing: llmGenerationTracingRouter,
   market: marketRouter,
   message: messageRouter,

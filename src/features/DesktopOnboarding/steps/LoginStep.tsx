@@ -3,9 +3,7 @@
 import { type AuthorizationProgress } from '@lobechat/electron-client-ipc';
 import { useWatchBroadcast } from '@lobechat/electron-client-ipc';
 import { normalizeRemoteBaseUrl } from '@lobechat/utils/remoteUrl';
-import { Center, Flexbox, Icon } from '@lobehub/ui';
-import { Alert, Button, Divider, Input, Text } from '@lobehub/ui/base-ui';
-import { cssVar } from 'antd-style';
+import { Alert, Button, Center, cssVar, Divider, Flexbox, Icon, Input, Text } from '@lobehub/ui';
 import { ArrowRightLeftIcon, Cloud, LogOutIcon, Server, Undo2Icon } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';

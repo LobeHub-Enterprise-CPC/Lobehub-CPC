@@ -148,6 +148,8 @@ export interface GlobalServerConfig {
   aiProvider: ServerLanguageModel;
   defaultAgent?: PartialDeep<UserDefaultAgent>;
   desktopDownloads?: DesktopDownloadUrls;
+  /** Whether the server has DEVICE_GATEWAY_URL configured, independent of its public URL. */
+  deviceGatewayConfigured?: boolean;
   /**
    * Public Device Gateway base URL (`DEVICE_GATEWAY_PUBLIC_URL`). Absent when not
    * configured; clients then keep the address they manage themselves.

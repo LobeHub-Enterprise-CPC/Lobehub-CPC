@@ -2,14 +2,14 @@ import react from '@vitejs/plugin-react';
 import { codeInspectorPlugin } from 'code-inspector-plugin';
 import type { ModulePreloadOptions, Plugin } from 'vite';
 
+import { canvasRuntime } from './canvasRuntime';
 import { viteCompletionSounds } from './completionSounds';
-import { viteEmotionSpeedy } from './emotionSpeedy';
 import { lobeIconImports } from './lobeIconImports';
 import { lobeUiImports } from './lobeUiImports';
 import { viteMarkdownImport } from './markdownImport';
 import { viteNodeModuleStub } from './nodeModuleStub';
 import { vitePlatformResolve } from './platformResolve';
-import { viteStaticStylesPrecompile } from './staticStylesPrecompile';
+import { stylexPlugin, stylexTokenModules } from './stylex';
 
 /**
  * Shared manual chunk naming — groups leaf-node modules to reduce chunk file count.
@@ -485,13 +485,14 @@ const isDev = process.env.NODE_ENV !== 'production';
 
 interface SharedRendererOptions {
   platform: Platform;
+  stylexOverlaySrcDirs?: string[];
   tsconfigPaths?: boolean;
 }
 
 export function sharedRendererPlugins(options: SharedRendererOptions) {
   return [
+    canvasRuntime(),
     viteCompletionSounds(),
-    viteEmotionSpeedy(),
     viteMarkdownImport(),
     viteNodeModuleStub(),
     vitePlatformResolve(options.platform),
@@ -524,8 +525,8 @@ export function sharedRendererPlugins(options: SharedRendererOptions) {
         exclude: [/\.(css|json|html)$/],
         hotKeys: ['altKey', 'ctrlKey'],
       }),
+    stylexPlugin({ overlaySrcDirs: options.stylexOverlaySrcDirs }),
     react(),
-    viteStaticStylesPrecompile(),
     ...(options.platform === 'desktop' ? [] : [...lobeIconImports(), ...lobeUiImports()]),
   ];
 }
@@ -551,18 +552,15 @@ export function sharedRendererDefine(options: { isElectron: boolean; isMobile: b
 }
 
 export const sharedOptimizeDeps = {
+  exclude: [...stylexTokenModules],
   include: [
     'react',
     'react-dom',
     'react-dom/client',
     'react-router',
     'react-router/dom',
-    'antd',
-    '@ant-design/icons',
     '@lobehub/ui',
-    '@lobehub/ui/base-ui',
     '@lobehub/ui > @emotion/react',
-    'antd-style',
     'zustand',
     'zustand/middleware',
     'swr',

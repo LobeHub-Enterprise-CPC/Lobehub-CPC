@@ -2,16 +2,21 @@
 
 import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import {
+  Avatar,
   Block,
+  createStaticStyles,
+  cx,
   DropdownMenu,
   Flexbox,
   Icon,
   stopPropagation,
+  Tag as AntTag,
+  Tag,
+  Text,
+  toast,
   Tooltip,
   TooltipGroup,
 } from '@lobehub/ui';
-import { Avatar, Tag as AntTag, Tag, Text, toast } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cx } from 'antd-style';
 import {
   AlertTriangle,
   ClockIcon,

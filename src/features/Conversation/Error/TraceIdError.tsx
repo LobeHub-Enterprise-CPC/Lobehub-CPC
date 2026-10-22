@@ -1,8 +1,6 @@
 import { BRANDING_EMAIL } from '@lobechat/business-const';
 import type { ChatMessageError } from '@lobechat/types';
-import { copyToClipboard, Flexbox, Icon } from '@lobehub/ui';
-import { Button, toast } from '@lobehub/ui/base-ui';
-import { cssVar } from 'antd-style';
+import { Button, copyToClipboard, cssVar, Flexbox, Icon, toast } from '@lobehub/ui';
 import { AlertTriangle, Copy, Mail, RotateCw } from 'lucide-react';
 import { memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';

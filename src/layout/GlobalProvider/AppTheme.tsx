@@ -1,11 +1,12 @@
 'use client';
 
-import 'antd/dist/reset.css';
+import '@lobehub/ui/theme.css';
+import '@lobehub/ui/global.css';
+import '@lobehub/ui/style.css';
 
 import { BRANDING_THEME } from '@lobechat/business-const';
 import { type NeutralColors, type PrimaryColors } from '@lobehub/ui';
-import { ConfigProvider, FontLoader, ThemeProvider } from '@lobehub/ui';
-import { createStaticStyles, cx } from 'antd-style';
+import { ConfigProvider, createStaticStyles, cx, FontLoader, setLobeTheme } from '@lobehub/ui';
 import * as m from 'motion/react-m';
 import { type ReactNode } from 'react';
 import { memo, useEffect, useMemo, useState } from 'react';
@@ -13,7 +14,6 @@ import { memo, useEffect, useMemo, useState } from 'react';
 import Link from '@/components/Link';
 import { genFontFamily, genFontFamilyCode } from '@/const/font';
 import { LOBE_THEME_NEUTRAL_COLOR, LOBE_THEME_PRIMARY_COLOR } from '@/const/theme';
-import { useIsDark } from '@/hooks/useIsDark';
 import { getUILocaleAndResources } from '@/libs/getUILocaleAndResources';
 import type { UILocaleResources } from '@/libs/getUILocaleAndResources.utils';
 import { resolveUILocale } from '@/libs/getUILocaleAndResources.utils';
@@ -25,7 +25,7 @@ import { preferenceSelectors, userGeneralSettingsSelectors } from '@/store/user/
 import { GlobalStyle } from '@/styles';
 import { setCookie } from '@/utils/client/cookie';
 
-import { createBrandAlgorithm } from './BrandTheme/algorithm';
+import { buildBrandThemeCss } from './BrandTheme/cssVars';
 import BrandGlobalStyle from './BrandTheme/GlobalStyle';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
@@ -102,12 +102,9 @@ const AppTheme = memo<AppThemeProps>(
     customFontFamily,
   }) => {
     const language = useGlobalStore(systemStatusSelectors.language);
-    const isDark = useIsDark();
-
-    const [primaryColor, neutralColor, animationMode, fontAntialiasing] = useUserStore((s) => [
+    const [primaryColor, neutralColor, fontAntialiasing] = useUserStore((s) => [
       userGeneralSettingsSelectors.primaryColor(s),
       userGeneralSettingsSelectors.neutralColor(s),
-      userGeneralSettingsSelectors.animationMode(s),
       userGeneralSettingsSelectors.fontAntialiasing(s),
     ]);
     const [userFontFamily, userFontFamilyCode] = useUserStore((s) => [
@@ -157,6 +154,19 @@ const AppTheme = memo<AppThemeProps>(
     }, [primaryColor]);
 
     useEffect(() => {
+      setLobeTheme({
+        neutralColor: neutralColor ?? defaultNeutralColor,
+        primaryColor: primaryColor ?? defaultPrimaryColor,
+      });
+    }, [primaryColor, neutralColor, defaultPrimaryColor, defaultNeutralColor]);
+
+    useEffect(() => {
+      const { style } = document.documentElement;
+      style.setProperty('--lobe-font-family', fontFamily);
+      style.setProperty('--lobe-font-family-code', fontFamilyCode);
+    }, [fontFamily, fontFamilyCode]);
+
+    useEffect(() => {
       setCookie(LOBE_THEME_NEUTRAL_COLOR, neutralColor);
     }, [neutralColor]);
 
@@ -165,26 +175,34 @@ const AppTheme = memo<AppThemeProps>(
       else document.documentElement.dataset.fontAntialiasing = 'off';
     }, [fontAntialiasing]);
 
-    const currentAppearence = isDark ? 'dark' : 'light';
-
-    const resolvedPrimaryColor = primaryColor ?? defaultPrimaryColor;
-    const resolvedNeutralColor = neutralColor ?? defaultNeutralColor;
-
-    // A distribution's brand scales stand in for lobe-ui's defaults only: a
-    // colour the user picked in Settings still wins.
-    const brandAlgorithm = useMemo(
+    // A distribution's brand scales are published as `--lobe-color-*` variables:
+    // lobe-ui v6 dropped the antd `ThemeProvider` and its algorithm chain, so the
+    // family has to be written where `theme.css` reads it. Only lobe-ui's defaults
+    // are replaced — a colour the user picked in Settings still wins.
+    const brandCss = useMemo(
       () =>
         BRANDING_THEME
-          ? createBrandAlgorithm({
-              appearance: currentAppearence,
-              skipNeutral: !!resolvedNeutralColor,
-              skipPrimary: !!resolvedPrimaryColor,
-              theme: BRANDING_THEME,
+          ? buildBrandThemeCss(BRANDING_THEME, {
+              skipNeutral: !!neutralColor,
+              skipPrimary: !!primaryColor,
             })
-          : undefined,
-      [currentAppearence, resolvedNeutralColor, resolvedPrimaryColor],
+          : '',
+      [neutralColor, primaryColor],
     );
 
+    useEffect(() => {
+      const id = 'brand-theme-vars';
+      const existing = document.getElementById(id) as HTMLStyleElement | null;
+      if (!brandCss) {
+        existing?.remove();
+        return;
+      }
+
+      const style = existing ?? document.createElement('style');
+      style.id = id;
+      if (style.textContent !== brandCss) style.textContent = brandCss;
+      if (!existing) document.head.append(style);
+    }, [brandCss]);
     return (
       <ConfigProvider
         locale={uiLocale}
@@ -197,34 +215,12 @@ const AppTheme = memo<AppThemeProps>(
           proxy: globalCDN ? 'unpkg' : undefined,
         }}
       >
-        <ThemeProvider
-          appearance={currentAppearence}
-          className={cx(styles.app, styles.scrollbar, styles.scrollbarPolyfill)}
-          defaultAppearance={currentAppearence}
-          defaultThemeMode={currentAppearence}
-          customTheme={{
-            neutralColor: resolvedNeutralColor,
-            primaryColor: resolvedPrimaryColor,
-          }}
-          theme={{
-            ...(brandAlgorithm ? { algorithm: brandAlgorithm } : {}),
-            cssVar: { key: 'lobe-vars' },
-            token: {
-              // lobe-ui passes its own radii through `theme.token`, which antd applies
-              // after the algorithm chain, so brand overrides have to ride the same path.
-              ...BRANDING_THEME?.token,
-              fontFamily,
-              fontFamilyCode,
-              motion: animationMode !== 'disabled',
-              motionUnit: animationMode === 'agile' ? 0.05 : 0.1,
-            },
-          }}
-        >
+        <div className={cx(styles.app, styles.scrollbar, styles.scrollbarPolyfill)}>
           {!!customFontURL && <FontLoader url={customFontURL} />}
           <GlobalStyle />
           <BrandGlobalStyle />
           {children}
-        </ThemeProvider>
+        </div>
       </ConfigProvider>
     );
   },

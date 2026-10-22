@@ -1,9 +1,22 @@
 'use client';
 
 import { useAppBaseUrl } from '@lobechat/business-tenant/client';
-import { Center, copyToClipboard, Flexbox, Icon, Popover, usePopoverContext } from '@lobehub/ui';
-import { Button, Checkbox, confirmModal, Input, Switch, Text, toast } from '@lobehub/ui/base-ui';
-import { cx } from 'antd-style';
+import {
+  Button,
+  Center,
+  Checkbox,
+  confirmModal,
+  copyToClipboard,
+  cx,
+  Flexbox,
+  Icon,
+  Input,
+  Popover,
+  Switch,
+  Text,
+  toast,
+  usePopoverContext,
+} from '@lobehub/ui';
 import {
   ChevronRightIcon,
   CopyIcon,

@@ -2,8 +2,8 @@
 
 import { BRANDING_NAME } from '@lobechat/business-const';
 import { useAppAssetUrl } from '@lobechat/business-tenant/client';
-import { Avatar, type AvatarProps } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+import { Avatar, type AvatarProps } from '@lobehub/ui';
+import { createStaticStyles, cssVar } from '@lobehub/ui';
 import { useMemo } from 'react';
 
 import { DEFAULT_USER_AVATAR_URL } from '@/const/meta';

@@ -18,11 +18,24 @@ const getNodeText = (node: any): string => {
  * its address, tenant path included, is what has to match (the tenant package's
  * app address, see getAppBaseUrl).
  */
-const getCurrentOrigin = (): string | undefined => {
-  if (typeof window === 'undefined') return undefined;
-  if (!isDesktop) return window.location.origin;
+const getCurrentOrigins = (): string[] => {
+  if (typeof window === 'undefined') return [];
+  if (!isDesktop) return [window.location.origin];
 
-  return getAppBaseUrl() || undefined;
+  const appBaseUrl = getAppBaseUrl();
+
+  return appBaseUrl ? [appBaseUrl] : [];
+};
+
+const parseAgainstOrigins = (href: string | undefined, origins: string[]) => {
+  if (origins.length === 0) return parseFileLinkHref(href);
+
+  for (const origin of origins) {
+    const parsed = parseFileLinkHref(href, origin);
+    if (parsed) return parsed;
+  }
+
+  return null;
 };
 
 /**
@@ -37,7 +50,7 @@ export const rehypeFileLink = () => (tree: any) => {
     if (node.tagName !== 'a') return;
 
     const href = node.properties?.href as string | undefined;
-    const parsed = parseFileLinkHref(href, getCurrentOrigin());
+    const parsed = parseAgainstOrigins(href, getCurrentOrigins());
     if (!parsed) return;
 
     const text = getNodeText(node).trim();

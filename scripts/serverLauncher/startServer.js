@@ -191,11 +191,6 @@ const QSTASH_SCHEDULES = [
     id: 'lobe-goal-sweep',
     path: '/api/cron/goal-sweep',
   },
-  {
-    cron: '* * * * *',
-    id: 'lobe-widget-tick',
-    path: '/api/cron/widget-tick',
-  },
 ];
 
 // Function to create the recurring QStash schedules the server relies on

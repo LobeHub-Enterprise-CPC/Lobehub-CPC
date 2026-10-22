@@ -1,8 +1,7 @@
-import {
-  mapTenantAppPath,
-  WORKSPACE_MIRRORED_FIRST_SEGMENTS,
-} from '@lobechat/business-tenant/routing';
+import { mapTenantAppPath } from '@lobechat/business-tenant/routing';
 import type { NavigateOptions } from 'react-router';
+
+import { parseRootSegment, WORKSPACE_MIRRORED_ROOT_SEGMENTS } from './rootSegments';
 
 export interface WorkspaceAwareNavigateOptions extends NavigateOptions {
   /** When true, navigate to the literal `to` path without applying the workspace prefix. */
@@ -46,6 +45,8 @@ export const WORKSPACE_SETTINGS_TABS: ReadonlySet<string> = new Set([
   'audit-log',
   'billing',
   'budget',
+  // Personal chat-assist preferences, reachable by every member.
+  'chat-preference',
   'connector',
   'credential',
   // Legacy alias for `credential` — the routers keep a redirect, so prefixed
@@ -79,12 +80,6 @@ export const WORKSPACE_SETTINGS_TABS: ReadonlySet<string> = new Set([
 ]);
 
 const SETTINGS_PREFIX_REGEX = /^\/settings\/([^/?#]+)/;
-const FIRST_SEGMENT_REGEX = /^\/([^/?#]+)/;
-
-const parseFirstSegment = (pathname: string): string | null => {
-  const match = pathname.match(FIRST_SEGMENT_REGEX);
-  return match ? match[1] : null;
-};
 
 /**
  * Returns `true` for `/settings/<tab>` where `<tab>` is NOT in
@@ -128,8 +123,8 @@ export const buildWorkspaceAwarePath = (
     if (isPersonalSettingsPath(rest)) return rest;
     if (rest === `/${activeSlug}` || rest.startsWith(`/${activeSlug}/`)) return rest;
 
-    const firstSegment = parseFirstSegment(rest);
-    if (firstSegment && !WORKSPACE_MIRRORED_FIRST_SEGMENTS.has(firstSegment)) return rest;
+    const firstSegment = parseRootSegment(rest);
+    if (firstSegment && !WORKSPACE_MIRRORED_ROOT_SEGMENTS.has(firstSegment)) return rest;
 
     return `/${activeSlug}${rest}`;
   });

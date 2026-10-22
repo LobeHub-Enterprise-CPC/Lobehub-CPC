@@ -1,3 +1,5 @@
+import '@/styles/stylex.css';
+
 import {
   initializeTenant,
   installTenantAssets,

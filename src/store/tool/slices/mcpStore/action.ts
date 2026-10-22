@@ -31,14 +31,20 @@ import {
   type MCPInstallProgress,
 } from '@/types/plugins';
 import { MCPInstallStep } from '@/types/plugins';
-import { waitForConnectorOAuth } from '@/utils/connectorOAuth';
+import {
+  ConnectorOAuthError,
+  openConnectorOAuthPopup,
+  waitForConnectorOAuth,
+} from '@/utils/connectorOAuth';
 import { type MarketplaceOAuth, readMarketplaceOAuth } from '@/utils/marketplaceOAuth';
 import { getPlatform } from '@/utils/platform';
 import { sleep } from '@/utils/sleep';
 import { setNamespace } from '@/utils/storeDebug';
 
 import { type ToolStore } from '../../store';
+import { pluginSelectors } from '../plugin/selectors';
 import { type MCPPluginListData, type MCPStoreState } from './initialState';
+import { installOAuthPlugin } from './installOAuthPlugin';
 import { MCP_PLUGIN_LIST_KEY, type MCPPluginListParams, mcpPluginListResource } from './projection';
 
 const log = debug('lobe-mcp:store:action');
@@ -261,7 +267,7 @@ export class PluginMCPStoreActionImpl {
       skipDepsCheck?: boolean;
     } = {},
   ): Promise<boolean | undefined> => {
-    const { resume = false, config, skipDepsCheck } = options;
+    const { authorize = false, resume = false, config, skipDepsCheck } = options;
     const normalizedConfig = toNonEmptyStringRecord(config);
     let plugin = mcpStoreSelectors.getPluginById(identifier)(this.#get());
 
@@ -303,6 +309,7 @@ export class PluginMCPStoreActionImpl {
     let result: CheckMcpInstallResult | undefined;
     let connection: any;
     const userAgent = `LobeHub Desktop/${CURRENT_VERSION}`;
+    const oauthPopup = options.oauthPopup;
 
     try {
       // Check if already cancelled
@@ -655,19 +662,50 @@ export class PluginMCPStoreActionImpl {
         );
       }
       if (!oauth && connection?.type === 'http') {
-        manifest = await mcpService.getStreamableMcpServerManifest(
-          {
-            auth: connection.auth,
-            headers: mergedHttpHeaders,
-            identifier,
-            metadata: {
-              avatar: plugin.icon,
+        if (connection.auth?.type === 'oauth2') {
+          if (!authorize) {
+            updateMCPInstallProgress(identifier, {
+              connection: { ...connection, headers: mergedHttpHeaders },
+              manifest: data,
+              progress: 50,
+              step: MCPInstallStep.AUTHORIZATION_REQUIRED,
+            });
+            updateInstallLoadingState(identifier, undefined);
+            return false;
+          }
+
+          if (oauthPopup === null) throw new ConnectorOAuthError('blocked');
+          updateMCPInstallProgress(identifier, {
+            progress: 70,
+            step: MCPInstallStep.AUTHORIZING,
+          });
+          manifest = await installOAuthPlugin(
+            {
+              connection: { ...connection, headers: mergedHttpHeaders },
               description: plugin.description,
+              icon: plugin.icon,
+              identifier,
+              name: data.name || identifier,
+              popup: oauthPopup,
+              signal: abortController.signal,
             },
-            url: connection.url!,
-          },
-          abortController.signal,
-        );
+            this.#get,
+          );
+        } else {
+          manifest = await mcpService.getStreamableMcpServerManifest(
+            {
+              auth: connection.auth,
+              headers: mergedHttpHeaders,
+              identifier,
+              metadata: {
+                avatar: plugin.icon,
+                description: plugin.description,
+              },
+              url: connection.url!,
+            },
+            abortController.signal,
+          );
+        }
       }
       if (connection?.type === 'cloud') {
         // Cloud type: build manifest directly from market data
@@ -716,8 +754,11 @@ export class PluginMCPStoreActionImpl {
       }
 
       // Update connection object, write merged configuration
-      const finalConnection = { ...connection };
-      if (finalConnection.type === 'http' && mergedHttpHeaders) {
+      const isOAuth = connection?.type === 'http' && connection.auth?.type === 'oauth2';
+      const finalConnection = isOAuth
+        ? { auth: { type: 'oauth2' }, type: 'http', url: connection.url }
+        : { ...connection };
+      if (finalConnection.type === 'http' && mergedHttpHeaders && !isOAuth) {
         finalConnection.headers = mergedHttpHeaders;
       }
       if (finalConnection.type === 'stdio' && mergedStdioEnv) {
@@ -732,7 +773,7 @@ export class PluginMCPStoreActionImpl {
         customParams: oauthConnectorId ? { oauthConnectorId } : { mcp: finalConnection },
         identifier: plugin.identifier,
         manifest,
-        settings: normalizedConfig,
+        settings: isOAuth ? undefined : normalizedConfig,
         type: 'plugin',
       });
 
@@ -838,11 +879,41 @@ export class PluginMCPStoreActionImpl {
         success: false,
       });
 
+      // Some marketplace manifests omit auth. A 401 from an unauthenticated
+      // endpoint can still lead into the connector's OAuth discovery flow.
+      if (
+        !authorize &&
+        connection?.type === 'http' &&
+        connection.auth?.type === 'none' &&
+        errorInfo.type === 'AUTHORIZATION_ERROR'
+      ) {
+        updateMCPInstallProgress(identifier, {
+          connection: {
+            ...connection,
+            auth: { type: 'oauth2' },
+            headers: { ...connection.headers, ...normalizedConfig },
+          },
+          manifest: data,
+          progress: 50,
+          step: MCPInstallStep.AUTHORIZATION_REQUIRED,
+        });
+        updateInstallLoadingState(identifier, undefined);
+        return false;
+      }
+
       // Set error status, display structured error info
       updateMCPInstallProgress(identifier, {
         errorInfo,
+        ...(authorize && {
+          connection,
+          manifest: data,
+          errorInfo: {
+            message: e instanceof ConnectorOAuthError ? e.reason : errorInfo.message,
+            type: 'AUTHORIZATION_ERROR' as const,
+          },
+        }),
         progress: 0,
-        step: MCPInstallStep.ERROR,
+        step: authorize ? MCPInstallStep.AUTHORIZATION_REQUIRED : MCPInstallStep.ERROR,
       });
 
       // Report installation failure result
@@ -865,6 +936,17 @@ export class PluginMCPStoreActionImpl {
         false,
         n('installMCPPlugin/clearController'),
       );
+    }
+  };
+
+  authorizeMCPPlugin = async (identifier: string): Promise<boolean | undefined> => {
+    if (this.#get().mcpInstallProgress[identifier]?.step !== MCPInstallStep.AUTHORIZATION_REQUIRED)
+      return false;
+    const oauthPopup = openConnectorOAuthPopup();
+    try {
+      return await this.installMCPPlugin(identifier, { authorize: true, oauthPopup, resume: true });
+    } finally {
+      oauthPopup?.close();
     }
   };
 
@@ -990,6 +1072,21 @@ export class PluginMCPStoreActionImpl {
   };
 
   uninstallMCPPlugin = async (identifier: string): Promise<void> => {
+    // Persisted display projections omit OAuth configuration. Confirm them
+    // before deciding whether this installation owns server-held credentials.
+    if (pluginSelectors.isInstalledPluginsCacheOnly(this.#get())) {
+      await this.#get().refreshPlugins();
+    }
+    const connection = pluginSelectors.getInstalledPluginById(identifier)(this.#get())?.customParams
+      ?.mcp;
+    if (connection?.type === 'http' && connection.auth?.type === 'oauth2') {
+      await this.#get().fetchConnectors();
+      const connector = this.#get().connectors.find(
+        (item) =>
+          item.identifier === identifier && item.sourceType === 'marketplace' && item.mcpServerUrl,
+      );
+      if (connector) await this.#get().deleteConnector(connector.id);
+    }
     await this.#get().uninstallPlugin(identifier);
 
     discoverService.reportMcpEvent({

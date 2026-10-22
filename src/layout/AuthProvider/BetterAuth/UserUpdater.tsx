@@ -1,8 +1,6 @@
 'use client';
 
-import { Flexbox } from '@lobehub/ui';
-import { Alert, Button } from '@lobehub/ui/base-ui';
-import { cssVar } from 'antd-style';
+import { Alert, Button, cssVar, Flexbox } from '@lobehub/ui';
 import { memo, type PropsWithChildren, useEffect, useLayoutEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -13,7 +11,7 @@ import { useSession } from '@/libs/better-auth/auth-client';
 import { useAppPainted } from '@/spa/atoms/app';
 import { removeStaticLoadingScreen } from '@/spa/loadingScreen';
 import { useUserStore } from '@/store/user';
-import { readUserDisplaySnapshot } from '@/store/user/displaySnapshot';
+import { readUserDisplaySnapshot, userFromDisplaySnapshot } from '@/store/user/displaySnapshot';
 import { type LobeUser } from '@/types/user';
 
 /**
@@ -95,7 +93,8 @@ const UserUpdater = memo(({ children }: PropsWithChildren) => {
           isLoaded: true,
           isSignedIn: true,
           preference: baseUser ? state.preference : (snapshot?.preference ?? DEFAULT_PREFERENCE),
-          user: {
+          ...(snapshot?.settings && { settings: snapshot.settings }),
+          user: userFromDisplaySnapshot(snapshot, {
             ...baseUser,
             // Preserve avatar from settings, don't override with auth provider value
             avatar: baseUser?.avatar ?? snapshot?.avatar ?? '',
@@ -110,7 +109,7 @@ const UserUpdater = memo(({ children }: PropsWithChildren) => {
             fullName: baseUser?.fullName || betterAuthUser.name,
             id: betterAuthUser.id,
             username: betterAuthUser.username,
-          } as LobeUser,
+          } as LobeUser),
         };
       });
       return;

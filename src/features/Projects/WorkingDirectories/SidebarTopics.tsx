@@ -1,5 +1,4 @@
-import { Flexbox } from '@lobehub/ui';
-import { ActionIcon, Text } from '@lobehub/ui/base-ui';
+import { ActionIcon, Flexbox, Text } from '@lobehub/ui';
 import { PlusIcon } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -9,7 +8,7 @@ import Filter from '@/features/AgentSidebar/Topic/Filter';
 import { useAgentTopicGroupMode } from '@/features/AgentSidebar/Topic/hooks/useAgentTopicGroupMode';
 import ToggleGroups from '@/features/AgentSidebar/Topic/ToggleGroups';
 import ByAgentMode from '@/features/AgentSidebar/Topic/TopicListContent/ByAgentMode';
-import ByProjectMode from '@/features/AgentSidebar/Topic/TopicListContent/ByProjectMode';
+import ByDeviceMode from '@/features/AgentSidebar/Topic/TopicListContent/ByDeviceMode';
 import ByStatusMode from '@/features/AgentSidebar/Topic/TopicListContent/ByStatusMode';
 import ByTimeMode from '@/features/AgentSidebar/Topic/TopicListContent/ByTimeMode';
 import FlatMode from '@/features/AgentSidebar/Topic/TopicListContent/FlatMode';
@@ -28,7 +27,10 @@ import { openProjectTopicModal } from './StartDirectoryModal';
 import { useProjectTopicReveal } from './useProjectTopicReveal';
 
 export function ProjectDirectoryTopics(props: { projectId: string; coordinatorAgentId: string }) {
-  const scope = useMemo(() => ({ projectId: props.projectId }), [props.projectId]);
+  const scope = useMemo(
+    () => ({ coordinatorAgentId: props.coordinatorAgentId, projectId: props.projectId }),
+    [props.projectId, props.coordinatorAgentId],
+  );
   const reveal = useProjectTopicReveal(props.projectId);
   return (
     <TopicListScopeContext value={scope}>
@@ -93,10 +95,10 @@ function ProjectTopicList({
         <FlatMode />
       ) : topicGroupMode === 'byStatus' ? (
         <ByStatusMode />
-      ) : topicGroupMode === 'byProject' ? (
-        <ByProjectMode />
       ) : topicGroupMode === 'byAgent' ? (
         <ByAgentMode />
+      ) : topicGroupMode === 'byDevice' ? (
+        <ByDeviceMode />
       ) : (
         <ByTimeMode />
       )}

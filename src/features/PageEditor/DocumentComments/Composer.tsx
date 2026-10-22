@@ -1,8 +1,7 @@
 import { tenantStorageKey } from '@lobechat/business-tenant/client';
 import type { DocumentCommentJson, DocumentCommentSelectionAnchor } from '@lobechat/types';
 import { ChatInput, ChatInputActionBar, SendButton, useEditor } from '@lobehub/editor/react';
-import { Flexbox } from '@lobehub/ui';
-import { Avatar, Button, toast } from '@lobehub/ui/base-ui';
+import { Avatar, Button, Flexbox, toast } from '@lobehub/ui';
 import { nanoid } from 'nanoid';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';

@@ -2,7 +2,6 @@ import { nanoid } from '@lobechat/utils';
 import debug from 'debug';
 import { produce } from 'immer';
 
-import { persistSettledTranscript } from '@/services/message/replica';
 import { type ChatStore } from '@/store/chat/store';
 import { type MessageMapKeyInput } from '@/store/chat/utils/messageMapKey';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -15,6 +14,7 @@ import { operationSelectors } from './selectors';
 import {
   type AfterCompletionCallback,
   AI_RUNTIME_OPERATION_TYPES,
+  isClientHeldQueuedMessage,
   type Operation,
   type OperationCancelContext,
   type OperationContext,
@@ -357,12 +357,8 @@ export class OperationActionsImpl {
       if (!agentId || !topicId) return;
       // A run that finishes after the user switched away must still persist to
       // its own conversation, so rebuild the operation's context with a definite
-      // agent/topic: `OperationContext` exposes them as optional, but the runtime
-      // check, the message key and the persist call all need a concrete agentId.
-      const context = { ...operation.context, agentId, topicId };
-      if (operationSelectors.isAgentRuntimeRunningByContext(context)(state)) return;
-      const messages = state.dbMessagesMap[messageMapKey(context)];
-      if (messages) persistSettledTranscript(context, messages);
+      // agent/topic: `OperationContext` exposes them as optional.
+      state.internal_settleTranscript({ ...operation.context, agentId, topicId });
     }
   };
 
@@ -869,7 +865,9 @@ export class OperationActionsImpl {
 
     // Soft: a running Gateway run hands its turn back at the next step boundary
     // instead of finishing every remaining step before the follow-up starts.
-    if (message.interruptMode === 'soft') this.#get().internal_syncQueuedMessagesFlag(contextKey);
+    // One handed to the server queue is the server's to join or start.
+    if (message.interruptMode === 'soft' && isClientHeldQueuedMessage(message))
+      this.#get().internal_syncQueuedMessagesFlag(contextKey);
 
     // Hard interrupt: cancel the running operation
     if (message.interruptMode === 'hard' && runningOperationId) {
@@ -883,10 +881,14 @@ export class OperationActionsImpl {
 
   /**
    * Drain all queued messages for a context (atomic take-all).
+   *
+   * Takes nothing while the server holds any of them: it delivers those
+   * itself, and the ones queued after them must not overtake them.
    */
   drainQueuedMessages = (contextKey: string): QueuedMessage[] => {
     const queue = this.#get().queuedMessages[contextKey];
     if (!queue || queue.length === 0) return [];
+    if (!queue.every(isClientHeldQueuedMessage)) return [];
 
     const messages = [...queue];
 
@@ -929,6 +931,35 @@ export class OperationActionsImpl {
     );
   };
 
+  /** Put a queued message back where it was (e.g. after a failed Send now), keeping the order. */
+  restoreQueuedMessage = (contextKey: string, message: QueuedMessage, index: number): void => {
+    this.#set(
+      produce((state: ChatStore) => {
+        const queue = state.queuedMessages[contextKey] ?? [];
+        queue.splice(Math.max(0, Math.min(index, queue.length)), 0, message);
+        state.queuedMessages[contextKey] = queue;
+      }),
+      false,
+      n(`restoreQueuedMessage/${contextKey}/${message.id}`),
+    );
+    if (isClientHeldQueuedMessage(message)) this.#get().internal_syncQueuedMessagesFlag(contextKey);
+  };
+
+  updateQueuedMessage = (
+    contextKey: string,
+    messageId: string,
+    patch: Partial<Pick<QueuedMessage, 'serverDelivery' | 'serverRequest' | 'serverUnconfirmed'>>,
+  ): void => {
+    this.#set(
+      produce((state: ChatStore) => {
+        const message = state.queuedMessages[contextKey]?.find((m) => m.id === messageId);
+        if (message) Object.assign(message, patch);
+      }),
+      false,
+      n(`updateQueuedMessage/${contextKey}/${messageId}`),
+    );
+  };
+
   removeQueuedMessage = (contextKey: string, messageId: string): void => {
     this.#set(
       produce((state: ChatStore) => {
@@ -941,8 +972,9 @@ export class OperationActionsImpl {
       n(`removeQueuedMessage/${contextKey}/${messageId}`),
     );
 
-    // The last queued message is gone: let the run finish its turn normally.
-    if (!this.#get().queuedMessages[contextKey]?.length)
+    // The last message only this client holds is gone: let the run finish its
+    // turn normally.
+    if (!this.#get().queuedMessages[contextKey]?.some(isClientHeldQueuedMessage))
       this.#get().internal_syncQueuedMessagesFlag(contextKey);
   };
 

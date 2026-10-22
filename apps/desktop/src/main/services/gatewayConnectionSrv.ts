@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 
-import type { GatewayIdentityProvider } from '@lobechat/agent-gateway-client';
 import { OFFICIAL_DEVICE_GATEWAY_URL } from '@lobechat/const/url';
 import type {
   EnrollWorkspaceParams,
@@ -13,13 +12,32 @@ import type { DeviceMetricsSampler } from '@lobechat/device-control/metrics';
 import type {
   AgentRunRequestMessage,
   GatewayClient,
+  GatewayMcpParams,
   MessageApiRequestMessage,
   RpcRequestMessage,
   SystemInfoRequestMessage,
   ToolCallRequestMessage,
+  ToolCallResponseMessage,
 } from '@lobechat/device-gateway-client';
-import type { IdentitySource } from '@lobechat/device-identity';
-import type { GatewayConnectionStatus } from '@lobechat/electron-client-ipc';
+import {
+  type DeviceGatewayEndpoint,
+  type DeviceGatewayResolutionWithDefault,
+  deviceGatewayServerKey,
+  resolveDeviceGatewayEndpoint,
+} from '@lobechat/device-gateway-client/endpoint';
+import type { DeviceIdentity, IdentitySource } from '@lobechat/device-identity';
+import type {
+  GatewayConnectionError,
+  GatewayConnectionState,
+  GatewayConnectionStatus,
+  GatewayConnectResult,
+  GatewayEndpointInfo,
+} from '@lobechat/electron-client-ipc';
+import type {
+  GatewayIdentityProvider,
+  GatewayIdentityResponse,
+} from '@lobechat/agent-gateway-client';
+import { createRuntimeProbeCache } from '@lobechat/heterogeneous-agents/runtimeProbeCache';
 import { app, powerSaveBlocker } from 'electron';
 
 import { isDev } from '@/const/env';
@@ -28,12 +46,12 @@ import { createLogger } from '@/utils/logger';
 import { getDesktopUserAgent } from '@/utils/user-agent';
 import { safeGetPath } from '@/utils/user-path';
 
+import { discoverDeviceGateway } from './gatewayDiscovery';
 import { GatewayExecutionHandlers } from './gatewayExecutionHandlers';
+import { collectBundledCliAgentRuntimes, collectGatewaySystemInfo } from './gatewaySystemInfo';
 import { ServiceModule } from './index';
 
 const logger = createLogger('services:GatewayConnectionSrv');
-
-const DEFAULT_GATEWAY_URL = OFFICIAL_DEVICE_GATEWAY_URL;
 
 /**
  * The socket drops about once an hour (Cloudflare moving the Durable Object,
@@ -42,26 +60,92 @@ const DEFAULT_GATEWAY_URL = OFFICIAL_DEVICE_GATEWAY_URL;
  */
 const RECONNECT_UI_GRACE_MS = 5000;
 
+/** The server + credential one connection attempt was resolved against. */
+interface GatewayAuthContext {
+  serverUrl: string;
+  token: string;
+}
+
 interface DeviceRegistrar {
-  (info: {
-    architecture: string;
-    deviceId: string;
-    hostname: string;
-    identitySource: IdentitySource;
-    metadata: Record<string, string>;
-    platform: string;
-  }): Promise<void>;
+  (
+    info: {
+      architecture: string;
+      deviceId: string;
+      hostname: string;
+      identitySource: IdentitySource;
+      metadata: Record<string, string>;
+      platform: string;
+    },
+    auth: GatewayAuthContext,
+  ): Promise<void>;
 }
 
 /**
- * Check whether the workspace-scoped deviceId still has a registered row on the
- * server. Returns `false` only on a definitive "row gone" answer (share revoked
- * while offline); `undefined` when the check could not be performed — callers
- * must NOT clear local state on `undefined`.
+ * Mint a fresh workspace-device connect token for a share connection. Injected
+ * by the controller (which owns the authed server calls) — used when restoring
+ * persisted enrollments on startup and when a workspace connection's token
+ * expires. `serverUrl` is the server the personal connection belongs to: the
+ * provider returns null instead of minting on another server (signed out or
+ * switched meanwhile).
+ */
+interface WorkspaceTokenProvider {
+  (workspaceId: string, serverUrl: string): Promise<string | null>;
+}
+
+/** What the server says about this machine's row in a workspace. */
+export interface WorkspaceDeviceRegistration {
+  /** The member who enrolled the row, when the server reports one. */
+  enrollerUserId?: string;
+  registered: boolean;
+}
+
+/**
+ * Check whether the workspace-scoped deviceId still has a registered row on
+ * `serverUrl`. `registered: false` is a definitive "row gone" answer (share
+ * revoked while offline); `undefined` means the check could not be performed —
+ * callers must NOT clear local state on `undefined`.
  */
 interface WorkspaceDeviceChecker {
-  (workspaceId: string, deviceId: string): Promise<boolean | undefined>;
+  (
+    workspaceId: string,
+    deviceId: string,
+    serverUrl: string,
+  ): Promise<WorkspaceDeviceRegistration | undefined>;
 }
+
+/**
+ * The context a personal connection was opened in. Workspace share connections
+ * reuse it, so every socket of one session talks to the same gateway on behalf
+ * of the same account; anything resolved for an older session is discarded.
+ */
+interface GatewaySession {
+  /** `<serverKey>#<userId>`: scopes persisted workspace enrollments. */
+  accountKey?: string;
+  endpoint: DeviceGatewayEndpoint;
+  serverKey: string;
+  serverUrl: string;
+  userId: string | null;
+}
+
+const CANCELLED: GatewayConnectResult = {
+  error: 'Connection attempt was superseded',
+  success: false,
+};
+
+const describeResolutionFailure = (
+  resolution: Extract<DeviceGatewayResolutionWithDefault, { ok: false }>,
+): GatewayConnectionError => {
+  switch (resolution.reason) {
+    case 'discovery_failed': {
+      return { code: 'config_unavailable', detail: resolution.detail };
+    }
+    case 'invalid_advertised_url':
+    case 'invalid_manual':
+    case 'invalid_override': {
+      return { code: 'invalid_gateway_url', detail: resolution.detail };
+    }
+  }
+};
 
 /**
  * GatewayConnectionService
@@ -71,47 +155,129 @@ interface WorkspaceDeviceChecker {
  */
 export default class GatewayConnectionService extends ServiceModule {
   private client: GatewayClient | null = null;
-  private connectionEpoch = 0;
-  private connectionController = new AbortController();
-  private enrollmentIdentity?: string;
-  private identityProviderFactory?: (
-    workspaceId?: string,
-    initialTicket?: string,
-  ) => Promise<GatewayIdentityProvider & { subject?: string }>;
-
-  setIdentityProviderFactory(
-    factory: NonNullable<GatewayConnectionService['identityProviderFactory']>,
-  ) {
-    this.identityProviderFactory = factory;
-  }
   private status: GatewayConnectionStatus = 'disconnected';
   private deviceId: string | null = null;
   private powerSaveBlockerId: number | null = null;
   /** Status last pushed to renderers; lags `status` during a transient drop. */
   private displayedStatus: GatewayConnectionStatus = 'disconnected';
+  private displayedError: GatewayConnectionError | null = null;
   private statusBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Why the last attempt ended; cleared by the next attempt or a disconnect. */
+  private connectionError: GatewayConnectionError | null = null;
+
+  /**
+   * Bumped by every new connection attempt and every disconnect (sign-out,
+   * instance switch). An async step that resumes under an older generation
+   * has been superseded and must not open or re-key anything.
+   */
+  private generation = 0;
+  private discoveryAbort: AbortController | null = null;
+  private pendingConnect: Promise<GatewayConnectResult> | null = null;
+  private session: GatewaySession | null = null;
 
   private identitySource: IdentitySource | null = null;
+  private identityCache: { identity: DeviceIdentity; userId: string } | null = null;
 
+  /**
+   * Bundled CLI capability probe. Each probe starts an Electron-as-node CLI plus a Codex
+   * app-server handshake, while system info is requested during ordinary runs, so it is
+   * probed once per connection (and refreshed after the cache lifetime).
+   */
+  private readonly agentRuntimes = createRuntimeProbeCache(collectBundledCliAgentRuntimes);
+
+  private serverUrlProvider: (() => Promise<string | undefined>) | null = null;
   private tokenProvider: (() => Promise<string | null>) | null = null;
+  private tokenRefresher: (() => Promise<{ error?: string; success: boolean }>) | null = null;
   private readonly execution = new GatewayExecutionHandlers(this.app);
+  /**
+   * Tenant login: the provider signs a gateway ticket naming this device and the
+   * account the committed login belongs to, and re-signs on every reconnect.
+   */
+  private identityProviderFactory?: (
+    workspaceId?: string,
+    initialTicket?: string,
+  ) => Promise<GatewayIdentityProvider & { subject?: string }>;
+  /** Tenant identity (tenant + account) the persisted workspace enrollments belong to. */
+  private enrollmentIdentity?: string;
   private deviceRegistrar: DeviceRegistrar | null = null;
   /** Samples CPU / memory / load for the personal device while the connection is on. */
   private metricsSampler: { deviceId: string; sampler: DeviceMetricsSampler } | null = null;
+  private workspaceTokenProvider: WorkspaceTokenProvider | null = null;
   private workspaceDeviceChecker: WorkspaceDeviceChecker | null = null;
 
   /** Live workspace-share connections, keyed by workspaceId. */
   private workspaceClients = new Map<string, GatewayClient>();
-  private workspaceDials = new Map<string, AbortController>();
-  /** Serializes enrollment restores so reconnect churn can't double-open sockets. */
-  private workspaceRestoreInFlight = false;
+  /** Serializes enrollment restores per session so reconnect churn can't double-open sockets. */
+  private workspaceRestoreFor: GatewaySession | null = null;
+  /**
+   * Set once an `auth_failed` has already triggered a token refresh for the
+   * current personal connection. Unlike `auth_expired`, `auth_failed` is
+   * terminal inside the gateway client (it disconnects and switches the backoff
+   * reconnect off), so the service is the only thing that can bring the socket
+   * back — and this guard is what stops a refresh that keeps yielding a
+   * rejected token from spinning forever. Cleared by a successful
+   * authentication, or by a user-initiated connect.
+   */
+  private authRecoveryAttempted = false;
+  /**
+   * Workspace clients that already spent their single `auth_failed` retry. A
+   * weak set on purpose: the retry budget is per client instance (a re-enroll
+   * builds a new one), so entries must die with their client.
+   */
+  private workspaceAuthRetried = new WeakSet<GatewayClient>();
+
   // ─── Configuration ───
+
+  /**
+   * The server the desktop is signed in to. Read together with the token at the
+   * start of every attempt, so discovery, the gateway and the credential all
+   * belong to one login.
+   */
+  setServerUrlProvider(provider: () => Promise<string | undefined>) {
+    this.serverUrlProvider = provider;
+  }
 
   /**
    * Set token provider function (to decouple from RemoteServerConfigCtr)
    */
   setTokenProvider(provider: () => Promise<string | null>) {
     this.tokenProvider = provider;
+  }
+
+  /** Set token refresher function (for auth_expired handling) */
+  setTokenRefresher(refresher: () => Promise<{ error?: string; success: boolean }>) {
+    this.tokenRefresher = refresher;
+  }
+
+  /**
+   * Push a freshly refreshed access token into the live personal connection.
+   *
+   * The gateway client captures its token at construction and replays that same
+   * value on every backoff / heartbeat reconnect, while the access token is
+   * refreshed elsewhere (AuthCtr's auto-refresh timer, not the gateway path).
+   * Without this push, a token that roams past `exp` while the socket is
+   * healthy is re-sent on the next reconnect, rejected with `auth_failed`, and
+   * the device goes offline until the user intervenes.
+   *
+   * Only a token for the account this connection belongs to is taken: a new
+   * sign-in also stores its token here first, and the sign-in itself rebuilds
+   * the connection for its own server.
+   */
+  updatePersonalToken(token: string) {
+    const session = this.session;
+    if (!this.client || !session) return;
+    if (this.extractUserIdFromToken(token) !== session.userId) return;
+    this.client.updateToken(token);
+  }
+
+  /**
+   * Set the tenant identity provider factory (desktop tenant login). When set, the
+   * socket authenticates with that provider's ticket instead of the user token.
+   */
+  setIdentityProviderFactory(
+    factory: NonNullable<GatewayConnectionService['identityProviderFactory']>,
+  ) {
+    this.identityProviderFactory = factory;
   }
 
   /**
@@ -148,11 +314,20 @@ export default class GatewayConnectionService extends ServiceModule {
 
   /**
    * Persist this device to the server's device registry. Called on every
-   * connect once the userId is known (deviceId is user-scoped). Injected by the
-   * controller, which owns the authed server URL + token.
+   * connect once the userId is known (deviceId is user-scoped), with the server
+   * and token of that attempt so the row lands where the socket authenticates.
    */
   setDeviceRegistrar(registrar: DeviceRegistrar) {
     this.deviceRegistrar = registrar;
+  }
+
+  /**
+   * Set the workspace connect-token minter used by share connections (startup
+   * restore + token expiry). Injected by the controller, which owns the authed
+   * server calls.
+   */
+  setWorkspaceTokenProvider(provider: WorkspaceTokenProvider) {
+    this.workspaceTokenProvider = provider;
   }
 
   /**
@@ -166,11 +341,7 @@ export default class GatewayConnectionService extends ServiceModule {
 
   // ─── Device ID ───
 
-  /**
-   * Ensure a stored fallback id exists. Pre-login this doubles as the device id
-   * shown by `getDeviceInfo`; once a userId is available `resolveDeviceIdentity`
-   * replaces it with a stable machine-derived id.
-   */
+  /** Ensure a stored fallback id (pre-login device id until `resolveDeviceIdentity`). */
   loadOrCreateDeviceId() {
     const stored = this.app.storeManager.get('gatewayDeviceId') as string | undefined;
     if (stored) {
@@ -183,16 +354,17 @@ export default class GatewayConnectionService extends ServiceModule {
   }
 
   /**
-   * Derive the stable, user-scoped device id. Survives LobeHub reinstalls
-   * because it hashes the OS machine id; falls back to the stored random UUID
-   * when the machine id is unavailable. Caches the result for this session.
+   * Stable, user-scoped device id: hashes the OS machine id (stored UUID when
+   * unavailable). Cached per user — machine-id reads are synchronous here.
    */
-  async resolveDeviceIdentity(
-    userId: string,
-  ): Promise<{ deviceId: string; identitySource: IdentitySource }> {
-    const { deriveDeviceId } = await import('@lobechat/device-identity');
-    const fallbackId = this.app.storeManager.get('gatewayDeviceId') as string | undefined;
-    const identity = deriveDeviceId(userId, { fallbackId });
+  async resolveDeviceIdentity(userId: string): Promise<DeviceIdentity> {
+    let identity = this.identityCache?.userId === userId ? this.identityCache.identity : undefined;
+    if (!identity) {
+      const { deriveDeviceId } = await import('@lobechat/device-identity');
+      const fallbackId = this.app.storeManager.get('gatewayDeviceId') as string | undefined;
+      identity = deriveDeviceId(userId, { fallbackId });
+      this.identityCache = { identity, userId };
+    }
     this.deviceId = identity.deviceId;
     this.identitySource = identity.identitySource;
     return identity;
@@ -200,6 +372,13 @@ export default class GatewayConnectionService extends ServiceModule {
 
   getDeviceId(): string {
     return this.deviceId || 'unknown';
+  }
+
+  /** Signed-in user's stable device id, derived locally; none while signed out. */
+  async resolveCurrentDeviceId(): Promise<string | undefined> {
+    const token = await this.tokenProvider?.();
+    const userId = token ? this.extractUserIdFromToken(token) : undefined;
+    return userId ? (await this.resolveDeviceIdentity(userId)).deviceId : undefined;
   }
 
   /**
@@ -230,6 +409,13 @@ export default class GatewayConnectionService extends ServiceModule {
     return this.displayedStatus;
   }
 
+  /** What the UI shows: the displayed status plus why the last attempt ended. */
+  getDisplayedState(): GatewayConnectionState {
+    return this.displayedError
+      ? { error: this.displayedError, status: this.displayedStatus }
+      : { status: this.displayedStatus };
+  }
+
   getDeviceInfo() {
     return {
       deviceId: this.getDeviceId(),
@@ -248,14 +434,24 @@ export default class GatewayConnectionService extends ServiceModule {
   async matchesDeviceId(deviceId: string): Promise<boolean> {
     if (this.getDeviceId() === deviceId) return true;
 
-    const token = await this.tokenProvider?.();
+    const [serverUrl, token] = await Promise.all([
+      this.serverUrlProvider?.(),
+      this.tokenProvider?.(),
+    ]);
     const userId = token ? this.extractUserIdFromToken(token) : undefined;
     if (userId) {
       const identity = await this.resolveDeviceIdentity(userId);
       if (identity.deviceId === deviceId) return true;
     }
 
-    for (const workspaceId of this.getPersistedWorkspaceEnrollments()) {
+    // Workspace identities are per machine, so a pre-scoping record still
+    // identifies this computer; whether it is restored is decided on connect.
+    const accountKey = this.toAccountKey(serverUrl, userId);
+    const workspaceIds = new Set([
+      ...(accountKey ? this.getPersistedWorkspaceEnrollments(accountKey) : []),
+      ...this.getLegacyWorkspaceEnrollments(),
+    ]);
+    for (const workspaceId of workspaceIds) {
       const identity = await this.resolveWorkspaceDeviceIdentity(workspaceId);
       if (identity.deviceId === deviceId) return true;
     }
@@ -265,78 +461,236 @@ export default class GatewayConnectionService extends ServiceModule {
 
   // ─── Connection Logic ───
 
-  async connect(): Promise<{ error?: string; success: boolean }> {
+  /**
+   * Start (or join) a connection for the current login. Startup auto-connect,
+   * post-login connect, the toggle, deep-link reconnects and the auth refresh
+   * all come through here, so they share discovery and the generation guard.
+   */
+  async connect(): Promise<GatewayConnectResult> {
+    if (this.pendingConnect) return this.pendingConnect;
     if (this.status === 'connected' || this.status === 'connecting') {
       return { success: true };
     }
-    return this.doConnect();
+    // A user-initiated connect always gets a fresh retry budget — only the
+    // automatic recoveries are rationed by the guard.
+    this.authRecoveryAttempted = false;
+    return this.startConnect();
   }
 
+  /**
+   * Drop everything bound to the previous login and connect afresh. Used after
+   * a new sign-in, which may be another account or another server.
+   */
+  async restart(): Promise<GatewayConnectResult> {
+    await this.disconnect();
+    // A sign-in is a user-initiated connect: it gets a fresh auth_failed budget.
+    this.authRecoveryAttempted = false;
+    return this.startConnect();
+  }
+
+  /**
+   * Close the personal and every workspace connection and invalidate whatever
+   * was resolved for them: in-flight discovery is aborted and any attempt still
+   * running resumes as stale, so a late answer can never reopen a socket — let
+   * alone send this login's token to the previous server's gateway.
+   */
   async disconnect(): Promise<{ success: boolean }> {
-    ++this.connectionEpoch;
-    this.connectionController.abort();
-    this.connectionController = new AbortController();
-    this.enrollmentIdentity = undefined;
-    for (const dial of this.workspaceDials.values()) dial.abort();
-    this.workspaceDials.clear();
-    // Fence every socket synchronously before waiting for any cleanup I/O.
-    const clients = [...this.workspaceClients.values(), ...(this.client ? [this.client] : [])];
+    this.invalidateAttempts();
+    this.session = null;
+    this.connectionError = null;
+
+    // A user-initiated disconnect turns the device off, so stop sampling too —
+    // the page then shows no data rather than "running but unreachable". The
+    // samples since the last upload are pushed first (bounded), while the
+    // socket is still open.
+    await this.stopMetricsSampler({ flushTimeoutMs: 3000 });
+    const client = this.client;
     this.client = null;
-    this.workspaceClients.clear();
-    const closing = clients.map((client) => client.disconnect());
+    await client?.disconnect();
+    // Take the workspace share connections down with the personal one (the
+    // device goes fully offline), but keep the persisted enrollments — the next
+    // connect restores them.
+    await this.closeAllWorkspaceClients();
     this.setStatus('disconnected');
-    await Promise.all(closing);
-    await this.stopMetricsSampler();
-    this.setStatus('disconnected');
+    this.scheduleStatusBroadcast(this.status);
     return { success: true };
   }
 
-  private async doConnect(): Promise<{ error?: string; success: boolean }> {
-    const epoch = ++this.connectionEpoch;
-    this.connectionController.abort();
-    this.connectionController = new AbortController();
-    const signal = this.connectionController.signal;
-    const current = () => epoch === this.connectionEpoch && !signal.aborted;
+  private startConnect(options?: { reuse?: GatewaySession }): Promise<GatewayConnectResult> {
+    const attempt = this.doConnect(options).finally(() => {
+      if (this.pendingConnect === attempt) this.pendingConnect = null;
+    });
+    this.pendingConnect = attempt;
+    return attempt;
+  }
+
+  private invalidateAttempts(): number {
+    this.generation += 1;
+    this.discoveryAbort?.abort();
+    this.discoveryAbort = null;
+    this.pendingConnect = null;
+    return this.generation;
+  }
+
+  private isStale(generation: number) {
+    return generation !== this.generation;
+  }
+
+  /**
+   * @param options.reuse Session of a connection being re-established (auth
+   *   refresh). Its endpoint is kept when the login is unchanged, like the
+   *   client's own short reconnects; a different server or account resolves
+   *   again.
+   */
+  private async doConnect({
+    reuse,
+  }: { reuse?: GatewaySession } = {}): Promise<GatewayConnectResult> {
+    const generation = this.invalidateAttempts();
+
+    // Clean up any existing client
+    if (this.client) {
+      const previous = this.client;
+      this.client = null;
+      await previous.disconnect();
+    }
+    if (this.isStale(generation)) return CANCELLED;
+
+    // Loading the server's config is part of connecting.
+    this.connectionError = null;
     this.setStatus('connecting');
-    try {
-      if (this.client) {
-        const previous = this.client;
-        this.client = null;
-        await previous.disconnect();
+
+    if (!this.tokenProvider || !this.serverUrlProvider) {
+      logger.warn('Cannot connect: no token provider configured');
+      return this.failConnect(
+        generation,
+        { code: 'not_signed_in' },
+        'No token provider configured',
+      );
+    }
+
+    const [serverUrl, token] = await Promise.all([this.serverUrlProvider(), this.tokenProvider()]);
+    if (this.isStale(generation)) return CANCELLED;
+
+    if (!token) {
+      logger.warn('Cannot connect: no access token');
+      return this.failConnect(generation, { code: 'not_signed_in' }, 'No access token available');
+    }
+
+    const serverKey = serverUrl ? deviceGatewayServerKey(serverUrl) : undefined;
+    if (!serverUrl || !serverKey) {
+      logger.warn('Cannot connect: no remote server configured');
+      return this.failConnect(generation, { code: 'not_signed_in' }, 'No remote server configured');
+    }
+
+    let userId = this.extractUserIdFromToken(token);
+
+    // Tenant login: the socket authenticates with a ticket from the committed
+    // login's provider, which also names the account the device identity derives
+    // from. Everything after this point is shared with the token flow below.
+    let identityProvider: GatewayIdentityProvider | undefined;
+    let socketToken = token;
+    if (this.identityProviderFactory) {
+      let provider: (GatewayIdentityProvider & { subject?: string }) | undefined;
+      try {
+        provider = await this.identityProviderFactory();
+      } catch (error) {
+        const message = (error as Error).message;
+        logger.warn(`Cannot connect: ${message}`);
+        return this.failConnect(generation, { code: 'not_signed_in' }, message);
       }
-      if (!this.identityProviderFactory) throw new Error('GATEWAY_LOGIN_CONFIRMATION_REQUIRED');
-      const provider = await this.identityProviderFactory();
-      // The ticket names the device, so the device identity is settled first;
-      // the provider's owner is the account the committed login belongs to.
-      if (!provider.subject) throw new Error('GATEWAY_LOGIN_CONFIRMATION_REQUIRED');
-      const identity = await this.resolveDeviceIdentity(provider.subject);
-      if (!current()) return { error: 'GATEWAY_IDENTITY_CHANGED', success: false };
-      let first = await provider({
-        connectionId: this.getConnectionId(),
-        deviceId: identity.deviceId,
-        signal,
-      });
-      if (!current()) return { error: 'GATEWAY_IDENTITY_CHANGED', success: false };
-      const identityProvider: GatewayIdentityProvider = async (input) => {
-        if (!current()) throw new Error('GATEWAY_IDENTITY_CHANGED');
-        if (first) {
-          const initial = first;
-          first = undefined;
+      if (this.isStale(generation)) return CANCELLED;
+      if (!provider.subject) {
+        return this.failConnect(
+          generation,
+          { code: 'not_signed_in' },
+          'GATEWAY_LOGIN_CONFIRMATION_REQUIRED',
+        );
+      }
+      userId = provider.subject;
+
+      // The ticket names the device, so the device identity is settled first.
+      const tenantIdentity = await this.resolveDeviceIdentity(userId);
+      if (this.isStale(generation)) return CANCELLED;
+
+      // Aborted by the next attempt, so a superseded sign-in cannot arrive late.
+      const controller = new AbortController();
+      this.discoveryAbort = controller;
+      let first: GatewayIdentityResponse;
+      try {
+        first = await provider({
+          connectionId: this.getConnectionId(),
+          deviceId: tenantIdentity.deviceId,
+          signal: controller.signal,
+        });
+      } catch (error) {
+        const message = (error as Error).message;
+        logger.warn(`Cannot connect: ${message}`);
+        return this.failConnect(generation, { code: 'not_signed_in' }, message);
+      } finally {
+        if (this.discoveryAbort === controller) this.discoveryAbort = null;
+      }
+      if (this.isStale(generation)) return CANCELLED;
+
+      socketToken = first.gatewayTicket;
+      this.enrollmentIdentity = JSON.stringify([first.tenantId, first.userId]);
+      // Every reconnect re-signs through the same provider; the first ticket is
+      // already in hand and must not be minted twice.
+      let pending: GatewayIdentityResponse | undefined = first;
+      identityProvider = async (input) => {
+        if (this.isStale(generation)) throw new Error('GATEWAY_IDENTITY_CHANGED');
+        if (pending) {
+          const initial = pending;
+          pending = undefined;
           return initial;
         }
-        return provider(input);
+        return provider!(input);
       };
-      const token = first.gatewayTicket;
-      const userId = first.userId;
-      this.enrollmentIdentity = JSON.stringify([first.tenantId, first.userId]);
-      const gatewayUrl = this.getGatewayUrl();
-      logger.info(`Connecting to device gateway: ${gatewayUrl}, userId: ${userId || 'unknown'}`);
+    }
 
-      // Resolve the stable, user-scoped device id and register with the server
-      // registry before opening the WS, so the device row exists by the time the
-      // gateway reports it online.
-      if (userId) {
-        await this.deviceRegistrar?.({
+    const endpoint: DeviceGatewayResolutionWithDefault =
+      reuse && reuse.serverKey === serverKey && reuse.userId === userId
+        ? { endpoint: reuse.endpoint, ok: true }
+        : await this.resolveEndpoint(serverUrl);
+    if (this.isStale(generation)) return CANCELLED;
+
+    // `in`, not `ok`: this project compiles without strictNullChecks, where a
+    // boolean discriminant does not narrow.
+    if ('reason' in endpoint) {
+      const error = describeResolutionFailure(endpoint);
+      logger.warn(
+        `Cannot connect: device gateway for ${serverUrl} unresolved (${endpoint.reason}${endpoint.detail ? `: ${endpoint.detail}` : ''})`,
+      );
+      return this.failConnect(generation, error, `Device gateway unavailable: ${endpoint.reason}`);
+    }
+
+    const { url: gatewayUrl, source } = endpoint.endpoint;
+    logger.info(
+      `Connecting to device gateway: ${gatewayUrl} (${source}), server: ${serverUrl}, userId: ${userId || 'unknown'}`,
+    );
+
+    const session: GatewaySession = {
+      accountKey: this.toAccountKey(serverUrl, userId),
+      endpoint: endpoint.endpoint,
+      serverKey,
+      serverUrl,
+      userId,
+    };
+    // Share connections are only kept across a reconnect of the same login to
+    // the same gateway; anything else belongs to the previous session.
+    if (this.session && !this.isSameSession(this.session, session)) {
+      await this.closeAllWorkspaceClients();
+      if (this.isStale(generation)) return CANCELLED;
+    }
+    this.session = session;
+
+    // Resolve the stable, user-scoped device id and register with the server
+    // registry before opening the WS, so the device row exists by the time the
+    // gateway reports it online.
+    if (userId) {
+      const identity = await this.resolveDeviceIdentity(userId);
+      if (this.isStale(generation)) return CANCELLED;
+      await this.deviceRegistrar?.(
+        {
           architecture: os.arch(),
           deviceId: identity.deviceId,
           hostname: os.hostname(),
@@ -348,39 +702,58 @@ export default class GatewayConnectionService extends ServiceModule {
             osRelease: os.release(),
           },
           platform: process.platform,
-        }).catch((err) => {
-          logger.warn(`Device registration failed (non-fatal): ${(err as Error).message}`);
-        });
-      }
-
-      const { GatewayClient } = await import('@lobechat/device-gateway-client');
-      if (!current()) return { success: false };
-      const client = new GatewayClient({
-        identityProvider,
-        channel: isDev ? 'desktop-dev' : 'desktop',
-        connectionId: this.getConnectionId(),
-        deviceId: this.getDeviceId(),
-        gatewayUrl,
-        logger,
-        tunnel: false,
-        token,
-        userAgent: getDesktopUserAgent(),
-        userId: userId || undefined,
+        },
+        { serverUrl, token },
+      ).catch((err) => {
+        logger.warn(`Device registration failed (non-fatal): ${(err as Error).message}`);
       });
-
-      this.setupClientEvents(client);
-      this.client = client;
-
-      await client.connect();
-
-      return { success: true };
-    } catch (error) {
-      if (current()) this.setStatus('disconnected');
-      return {
-        error: error instanceof Error ? error.message : 'GATEWAY_IDENTITY_REJECTED',
-        success: false,
-      };
+      if (this.isStale(generation)) return CANCELLED;
+      await this.startMetricsSampler(identity.deviceId);
     }
+
+    const { GatewayClient } = await import('@lobechat/device-gateway-client');
+    if (this.isStale(generation)) return CANCELLED;
+
+    const client = new GatewayClient({
+      channel: isDev ? 'desktop-dev' : 'desktop',
+      connectionId: this.getConnectionId(),
+      deviceId: this.getDeviceId(),
+      gatewayUrl,
+      ...(identityProvider && { identityProvider, tunnel: false }),
+      logger,
+      serverUrl: session.serverUrl,
+      token: socketToken,
+      userAgent: getDesktopUserAgent(),
+      userId: userId || undefined,
+    });
+
+    this.setupClientEvents(client);
+    this.client = client;
+
+    await client.connect();
+
+    // Re-open persisted workspace share connections once the personal
+    // connection is up. Fire-and-forget: restore failures must never block or
+    // fail the personal connect.
+    void this.restoreWorkspaceEnrollments(session).catch((err) => {
+      logger.warn('Workspace enrollment restore failed (non-fatal):', err);
+    });
+
+    return { success: true };
+  }
+
+  private failConnect(
+    generation: number,
+    error: GatewayConnectionError,
+    message: string,
+  ): GatewayConnectResult {
+    if (this.isStale(generation)) return CANCELLED;
+    this.connectionError = error;
+    this.setStatus('disconnected');
+    // The status may not have changed (e.g. failing before any socket), but
+    // the reason did.
+    this.scheduleStatusBroadcast(this.status);
+    return { error: message, errorCode: error.code, success: false };
   }
 
   /**
@@ -391,15 +764,15 @@ export default class GatewayConnectionService extends ServiceModule {
    * re-minting a workspace connect token instead of refreshing the user token.
    */
   private setupClientEvents(client: GatewayClient, scope?: { workspaceId: string }) {
-    const current = () =>
-      scope ? this.workspaceClients.get(scope.workspaceId) === client : this.client === client;
     if (scope) {
       client.on('status_changed', (status) => {
         logger.info(`Workspace ${scope.workspaceId} connection status: ${status}`);
       });
     } else {
+      // A replaced client still reports its own teardown; only the current one
+      // speaks for the device.
       client.on('status_changed', (status) => {
-        if (current()) this.setStatus(status);
+        if (this.client === client) this.setStatus(status);
       });
     }
 
@@ -424,27 +797,32 @@ export default class GatewayConnectionService extends ServiceModule {
     });
 
     client.on('auth_expired', () => {
-      if (current()) void client.reconnect();
-    });
-    client.on('auth_failed', (reason) => {
-      if (!current()) return;
-      logger.warn(
-        scope && reason === 'FORBIDDEN'
-          ? this.workspaceAdminMessage()
-          : `Gateway authentication stopped: ${reason}`,
-      );
-      if (scope) void this.closeWorkspaceClient(scope.workspaceId);
-      else {
-        for (const id of this.workspaceClients.keys()) void this.closeWorkspaceClient(id);
-        void client.disconnect();
-        this.setStatus('disconnected');
+      if (scope) {
+        logger.warn(`Workspace ${scope.workspaceId} connect token expired, re-minting`);
+        void this.handleWorkspaceAuthExpired(scope.workspaceId, client);
+      } else {
+        logger.warn('Received auth_expired, will reconnect with refreshed token');
+        void this.handleAuthExpired(client);
       }
     });
+
+    client.on('auth_failed', (reason) => {
+      if (scope) {
+        void this.handleWorkspaceAuthFailed(scope.workspaceId, client, reason);
+      } else {
+        void this.handleAuthFailed(client, reason);
+      }
+    });
+
     client.on('connected', () => {
-      if (!current() || scope) return;
-      void this.restoreWorkspaceEnrollments().catch((error) =>
-        logger.warn('Workspace enrollment restore failed:', error),
-      );
+      // A live authenticated socket is the reset point for the auth_failed
+      // retry guards: the next rejection gets a fresh single retry. A replaced
+      // client's late success says nothing about the current one.
+      if (scope) {
+        this.workspaceAuthRetried.delete(client);
+      } else if (this.client === client) {
+        this.authRecoveryAttempted = false;
+      }
     });
 
     client.on('replaced', () => {
@@ -478,8 +856,14 @@ export default class GatewayConnectionService extends ServiceModule {
     // existing enrollment (and ask for overwrite confirmation) without this
     // machine opening or persisting anything.
     if (params.identityOnly) return this.resolveWorkspaceDeviceIdentity(params.workspaceId);
-    const identity = await this.openWorkspaceClient(params.workspaceId, params.token);
-    this.persistWorkspaceEnrollment(params.workspaceId);
+
+    // The RPC arrives over the personal connection, so the share joins its
+    // session: same gateway, persisted for the same account.
+    const session = this.session;
+    if (!session) throw new Error('Device gateway is not connected');
+
+    const identity = await this.openWorkspaceClient(params.workspaceId, params.token, session);
+    if (session.accountKey) this.persistWorkspaceEnrollment(session.accountKey, params.workspaceId);
     logger.info(`Enrolled into workspace ${params.workspaceId} as device ${identity.deviceId}`);
     return identity;
   }
@@ -491,7 +875,12 @@ export default class GatewayConnectionService extends ServiceModule {
    */
   async unenrollWorkspace(params: UnenrollWorkspaceParams): Promise<{ success: boolean }> {
     await this.closeWorkspaceClient(params.workspaceId);
-    this.removePersistedWorkspaceEnrollment(params.workspaceId);
+    if (this.session?.accountKey) {
+      this.removePersistedWorkspaceEnrollment(this.session.accountKey, params.workspaceId);
+    }
+    // The workspace identity is per machine, so a revoke also settles a
+    // pre-scoping record of the same workspace.
+    this.removeLegacyWorkspaceEnrollment(params.workspaceId);
     logger.info(`Unenrolled from workspace ${params.workspaceId}`);
     return { success: true };
   }
@@ -520,73 +909,64 @@ export default class GatewayConnectionService extends ServiceModule {
     });
   }
 
+  /** Branded explanation for a refused share: only a workspace admin can accept one. */
+  private workspaceAdminMessage() {
+    return this.app.i18n.ns('common')('gateway.workspaceAdminRequired');
+  }
+
   private async openWorkspaceClient(
     workspaceId: string,
-    token?: string,
+    token: string | undefined,
+    session: GatewaySession,
   ): Promise<EnrollWorkspaceResult> {
-    const epoch = this.connectionEpoch;
-    if (!this.identityProviderFactory || !this.client) throw new Error('GATEWAY_IDENTITY_CHANGED');
+    // Re-enroll replaces the previous share connection instead of stacking one.
     await this.closeWorkspaceClient(workspaceId);
-    if (epoch !== this.connectionEpoch || !this.client) throw new Error('GATEWAY_IDENTITY_CHANGED');
-    const dial = new AbortController();
-    this.workspaceDials.set(workspaceId, dial);
-    const signal = AbortSignal.any([dial.signal, this.connectionController.signal]);
-    const assertCurrent = () => {
-      signal.throwIfAborted();
-      if (
-        epoch !== this.connectionEpoch ||
-        this.workspaceDials.get(workspaceId) !== dial ||
-        !this.client
-      )
-        throw new Error('GATEWAY_IDENTITY_CHANGED');
-    };
-    let provider: GatewayIdentityProvider;
-    let first: Awaited<ReturnType<GatewayIdentityProvider>> | undefined;
-    // The ticket names the device, so the workspace device identity comes first.
+
     const identity = await this.resolveWorkspaceDeviceIdentity(workspaceId);
-    assertCurrent();
-    try {
-      provider = await this.identityProviderFactory(workspaceId, token);
-      assertCurrent();
-      first = await provider({
+
+    // A tenant login signs workspace shares too: the same provider, scoped to
+    // this workspace, so the socket carries a ticket naming the shared device.
+    let identityProvider: GatewayIdentityProvider | undefined;
+    let socketToken = token;
+    if (this.identityProviderFactory) {
+      const provider = await this.identityProviderFactory(workspaceId, token);
+      let first: GatewayIdentityResponse | undefined = await provider({
         connectionId: this.getConnectionId(),
         deviceId: identity.deviceId,
-        signal,
+        signal: new AbortController().signal,
       });
-      assertCurrent();
-    } catch (error) {
-      if (this.workspaceDials.get(workspaceId) === dial) this.workspaceDials.delete(workspaceId);
-      dial.abort();
-      if ((error as { code?: string }).code === 'FORBIDDEN')
-        throw new Error(this.workspaceAdminMessage(), { cause: error });
-      throw error;
+      socketToken = first.gatewayTicket;
+      identityProvider = async (input) => {
+        if (!this.isCurrentSession(session)) throw new Error('GATEWAY_IDENTITY_CHANGED');
+        if (first) {
+          const initial = first;
+          first = undefined;
+          return initial;
+        }
+        return provider(input);
+      };
     }
-    const identityProvider: GatewayIdentityProvider = async (input) => {
-      if (epoch !== this.connectionEpoch || signal.aborted)
-        throw new Error('GATEWAY_IDENTITY_CHANGED');
-      input.signal.throwIfAborted();
-      if (first) {
-        const result = first;
-        first = undefined;
-        return result;
-      }
-      return provider(input);
-    };
+    if (!socketToken) {
+      throw new Error(`No credential for workspace ${workspaceId}`);
+    }
 
     const { GatewayClient } = await import('@lobechat/device-gateway-client');
-    assertCurrent();
+    if (!this.isCurrentSession(session)) {
+      throw new Error('Device gateway session changed while opening the share connection');
+    }
+
     const client = new GatewayClient({
-      identityProvider,
       channel: isDev ? 'desktop-dev' : 'desktop',
       // Reuse the install's connectionId: the gateway dedupes stale sockets per
       // principal, so the workspace connection only ever replaces its own
       // predecessor, never the personal socket.
       connectionId: this.getConnectionId(),
       deviceId: identity.deviceId,
-      gatewayUrl: this.getGatewayUrl(),
+      gatewayUrl: session.endpoint.url,
+      ...(identityProvider && { identityProvider, tunnel: false }),
       logger,
-      tunnel: false,
-      token: first.gatewayTicket,
+      serverUrl: session.serverUrl,
+      token: socketToken,
       userAgent: getDesktopUserAgent(),
       userId: undefined,
       workspaceId,
@@ -599,52 +979,155 @@ export default class GatewayConnectionService extends ServiceModule {
     return identity;
   }
 
-  private workspaceAdminMessage() {
-    return this.app.i18n.ns('common')('gateway.workspaceAdminRequired');
-  }
-
   private async closeWorkspaceClient(workspaceId: string) {
-    this.workspaceDials.get(workspaceId)?.abort();
-    this.workspaceDials.delete(workspaceId);
     const client = this.workspaceClients.get(workspaceId);
     if (!client) return;
     this.workspaceClients.delete(workspaceId);
     await client.disconnect();
   }
 
+  private async closeAllWorkspaceClients() {
+    for (const workspaceId of this.workspaceClients.keys()) {
+      await this.closeWorkspaceClient(workspaceId);
+    }
+  }
+
   /**
-   * Re-open share connections persisted by a previous run. Before reconnecting,
-   * confirm the derived workspace deviceId still has a registered row — the
-   * share may have been revoked while the app was offline (the server can't
-   * deliver `unenrollWorkspace` to a dead socket), and reconnecting anyway
-   * would resurrect the device as a ghost in the workspace pool.
+   * Workspace share connections authenticate with a short-lived minted token,
+   * not the user token — on expiry, re-mint via the injected provider and
+   * reconnect in place. A failed re-mint (share/membership likely revoked)
+   * closes the socket but keeps the persisted enrollment: the next startup's
+   * restore path settles it against the server row.
    */
-  private async restoreWorkspaceEnrollments() {
-    if (this.workspaceRestoreInFlight) return;
-    this.workspaceRestoreInFlight = true;
-    const epoch = this.connectionEpoch;
+  private async handleWorkspaceAuthExpired(workspaceId: string, client: GatewayClient) {
+    const session = this.session;
+    if (!session || this.workspaceClients.get(workspaceId) !== client) return;
 
     try {
-      for (const workspaceId of this.getPersistedWorkspaceEnrollments()) {
+      // A tenant-signed share renews through its identity provider on reconnect.
+      if (!this.identityProviderFactory) {
+        const token = await this.workspaceTokenProvider?.(workspaceId, session.serverUrl);
+        // Signed out, switched server or replaced meanwhile: nothing to re-key.
+        if (!this.isCurrentSession(session) || this.workspaceClients.get(workspaceId) !== client)
+          return;
+        if (!token) throw new Error('no workspace connect token available');
+        client.updateToken(token);
+      }
+      await client.reconnect();
+    } catch (error) {
+      logger.warn(`Workspace ${workspaceId} token re-mint failed, closing share:`, error);
+      if (this.workspaceClients.get(workspaceId) === client) {
+        await this.closeWorkspaceClient(workspaceId);
+      }
+    }
+  }
+
+  /**
+   * A workspace share connection was rejected outright by the gateway. Recover
+   * the same way as an expired connect token — re-mint and reconnect in place —
+   * but only once per client instance, so a share that keeps being rejected
+   * (revoked membership / revoked share) is closed instead of retried forever.
+   * The persisted enrollment is kept: the next startup's restore path settles it
+   * against the server row.
+   */
+  private async handleWorkspaceAuthFailed(
+    workspaceId: string,
+    client: GatewayClient,
+    reason: string,
+  ) {
+    // Closed, replaced or signed out meanwhile: not this share's verdict.
+    if (this.workspaceClients.get(workspaceId) !== client) return;
+
+    if (this.workspaceAuthRetried.has(client)) {
+      logger.warn(
+        `Workspace ${workspaceId} authentication failed again (${reason}), closing share connection`,
+      );
+      await this.closeWorkspaceClient(workspaceId);
+      return;
+    }
+
+    this.workspaceAuthRetried.add(client);
+    logger.warn(
+      reason === 'FORBIDDEN'
+        ? this.workspaceAdminMessage()
+        : `Workspace ${workspaceId} authentication failed (${reason}), re-minting connect token`,
+    );
+    await this.handleWorkspaceAuthExpired(workspaceId, client);
+  }
+
+  /**
+   * Re-open the share connections this account persisted in a previous run.
+   * Before reconnecting, confirm the derived workspace deviceId still has a
+   * registered row — the share may have been revoked while the app was offline
+   * (the server can't deliver `unenrollWorkspace` to a dead socket), and
+   * reconnecting anyway would resurrect the device as a ghost in the workspace
+   * pool.
+   *
+   * Records from before enrollments were scoped carry no account. One is
+   * adopted only when the server shows the signed-in user enrolled that row;
+   * otherwise it is left alone, so another account's share is never reopened
+   * under this login.
+   */
+  private async restoreWorkspaceEnrollments(session: GatewaySession) {
+    const { accountKey } = session;
+    if (!accountKey) return;
+    if (this.workspaceRestoreFor && this.isSameSession(this.workspaceRestoreFor, session)) return;
+    this.workspaceRestoreFor = session;
+
+    try {
+      const owned = this.getPersistedWorkspaceEnrollments(accountKey);
+      const candidates = [
+        ...owned.map((workspaceId) => ({ legacy: false, workspaceId })),
+        ...this.getLegacyWorkspaceEnrollments()
+          .filter((workspaceId) => !owned.includes(workspaceId))
+          .map((workspaceId) => ({ legacy: true, workspaceId })),
+      ];
+
+      for (const { legacy, workspaceId } of candidates) {
+        if (!this.isCurrentSession(session)) return;
         // Already live (e.g. personal reconnect after auth refresh) — leave it.
-        if (epoch !== this.connectionEpoch || !this.client) return;
         if (this.workspaceClients.has(workspaceId)) continue;
 
         try {
           const identity = await this.resolveWorkspaceDeviceIdentity(workspaceId);
 
-          const registered = await this.workspaceDeviceChecker?.(workspaceId, identity.deviceId);
-          if (epoch !== this.connectionEpoch) return;
-          if (registered === false) {
+          const registration = await this.workspaceDeviceChecker?.(
+            workspaceId,
+            identity.deviceId,
+            session.serverUrl,
+          );
+          if (!this.isCurrentSession(session)) return;
+
+          if (legacy) {
+            if (
+              !registration?.registered ||
+              !session.userId ||
+              registration.enrollerUserId !== session.userId
+            ) {
+              logger.info(
+                `Workspace share ${workspaceId} predates account scoping and is not this account's, leaving it untouched`,
+              );
+              continue;
+            }
+            this.adoptLegacyWorkspaceEnrollment(accountKey, workspaceId);
+          } else if (registration?.registered === false) {
             logger.info(
               `Workspace share ${workspaceId} was revoked while offline, clearing local enrollment`,
             );
-            this.removePersistedWorkspaceEnrollment(workspaceId);
+            this.removePersistedWorkspaceEnrollment(accountKey, workspaceId);
             continue;
           }
 
-          if (epoch !== this.connectionEpoch) return;
-          await this.openWorkspaceClient(workspaceId);
+          const token = this.identityProviderFactory
+            ? undefined
+            : await this.workspaceTokenProvider?.(workspaceId, session.serverUrl);
+          if (!this.isCurrentSession(session)) return;
+          if (!this.identityProviderFactory && !token) {
+            logger.warn(`No connect token for workspace ${workspaceId}, skipping restore`);
+            continue;
+          }
+
+          await this.openWorkspaceClient(workspaceId, token, session);
           logger.info(`Restored workspace share connection: ${workspaceId}`);
         } catch (error) {
           // Degraded by design: keep the record and retry on the next connect
@@ -653,46 +1136,203 @@ export default class GatewayConnectionService extends ServiceModule {
         }
       }
     } finally {
-      this.workspaceRestoreInFlight = false;
+      if (this.workspaceRestoreFor === session) this.workspaceRestoreFor = null;
     }
   }
 
   // ─── Workspace Enrollment Persistence ───
 
-  private getPersistedWorkspaceEnrollments(): string[] {
-    if (!this.enrollmentIdentity) return [];
-    const stored = this.app.storeManager.get('gatewayWorkspaceEnrollmentsByIdentity')?.[
-      this.enrollmentIdentity
-    ];
+  private toAccountKey(serverUrl: string | undefined, userId: string | null | undefined) {
+    const serverKey = serverUrl ? deviceGatewayServerKey(serverUrl) : undefined;
+    return serverKey && userId ? `${serverKey}#${userId}` : undefined;
+  }
+
+  private getEnrollmentsByAccount(): Record<string, string[]> {
+    const stored = this.app.storeManager.get('gatewayWorkspaceEnrollmentsByAccount');
+    return stored && typeof stored === 'object' ? stored : {};
+  }
+
+  private getEnrollmentsByIdentity(): Record<string, string[]> {
+    const stored = this.app.storeManager.get('gatewayWorkspaceEnrollmentsByIdentity');
+    return stored && typeof stored === 'object' ? stored : {};
+  }
+
+  private getPersistedIdentityEnrollments(): string[] {
+    const identity = this.enrollmentIdentity;
+    if (!identity) return [];
+    const stored = this.getEnrollmentsByIdentity()[identity];
     return Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : [];
   }
 
-  private persistWorkspaceEnrollment(workspaceId: string) {
-    const current = this.getPersistedWorkspaceEnrollments();
-    if (current.includes(workspaceId)) return;
-    if (!this.enrollmentIdentity) return;
-    this.app.storeManager.set('gatewayWorkspaceEnrollmentsByIdentity', {
-      ...this.app.storeManager.get('gatewayWorkspaceEnrollmentsByIdentity'),
-      [this.enrollmentIdentity]: [...current, workspaceId],
-    });
+  private setPersistedIdentityEnrollments(workspaceIds: string[]) {
+    const identity = this.enrollmentIdentity;
+    if (!identity) return;
+    const { [identity]: _previous, ...rest } = this.getEnrollmentsByIdentity();
+    this.app.storeManager.set(
+      'gatewayWorkspaceEnrollmentsByIdentity',
+      workspaceIds.length > 0 ? { ...rest, [identity]: workspaceIds } : rest,
+    );
   }
 
-  private removePersistedWorkspaceEnrollment(workspaceId: string) {
-    const current = this.getPersistedWorkspaceEnrollments();
+  /** Account scope plus the tenant-identity scope, so either can restore a share. */
+  private getPersistedWorkspaceEnrollments(accountKey: string): string[] {
+    const stored = this.getEnrollmentsByAccount()[accountKey];
+    const byAccount = Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : [];
+    return [...new Set([...byAccount, ...this.getPersistedIdentityEnrollments()])];
+  }
+
+  private setPersistedWorkspaceEnrollments(accountKey: string, workspaceIds: string[]) {
+    const { [accountKey]: _previous, ...rest } = this.getEnrollmentsByAccount();
+    this.app.storeManager.set(
+      'gatewayWorkspaceEnrollmentsByAccount',
+      workspaceIds.length > 0 ? { ...rest, [accountKey]: workspaceIds } : rest,
+    );
+  }
+
+  private persistWorkspaceEnrollment(accountKey: string, workspaceId: string) {
+    const stored = this.getEnrollmentsByAccount()[accountKey];
+    const byAccount = Array.isArray(stored) ? stored : [];
+    if (!byAccount.includes(workspaceId)) {
+      this.setPersistedWorkspaceEnrollments(accountKey, [...byAccount, workspaceId]);
+    }
+    const byIdentity = this.getPersistedIdentityEnrollments();
+    if (!byIdentity.includes(workspaceId)) {
+      this.setPersistedIdentityEnrollments([...byIdentity, workspaceId]);
+    }
+  }
+
+  private removePersistedWorkspaceEnrollment(accountKey: string, workspaceId: string) {
+    const stored = this.getEnrollmentsByAccount()[accountKey];
+    const byAccount = Array.isArray(stored) ? stored : [];
+    if (byAccount.includes(workspaceId)) {
+      this.setPersistedWorkspaceEnrollments(
+        accountKey,
+        byAccount.filter((id) => id !== workspaceId),
+      );
+    }
+    const byIdentity = this.getPersistedIdentityEnrollments();
+    if (byIdentity.includes(workspaceId)) {
+      this.setPersistedIdentityEnrollments(byIdentity.filter((id) => id !== workspaceId));
+    }
+  }
+
+  private getLegacyWorkspaceEnrollments(): string[] {
+    const stored = this.app.storeManager.get('gatewayWorkspaceEnrollments');
+    return Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : [];
+  }
+
+  private removeLegacyWorkspaceEnrollment(workspaceId: string) {
+    const current = this.getLegacyWorkspaceEnrollments();
     if (!current.includes(workspaceId)) return;
-    if (!this.enrollmentIdentity) return;
-    this.app.storeManager.set('gatewayWorkspaceEnrollmentsByIdentity', {
-      ...this.app.storeManager.get('gatewayWorkspaceEnrollmentsByIdentity'),
-      [this.enrollmentIdentity]: current.filter((id) => id !== workspaceId),
-    });
+    const rest = current.filter((id) => id !== workspaceId);
+    if (rest.length > 0) this.app.storeManager.set('gatewayWorkspaceEnrollments', rest);
+    else this.app.storeManager.delete('gatewayWorkspaceEnrollments');
   }
 
+  /** Move a pre-scoping record to the account the server confirmed owns it. */
+  private adoptLegacyWorkspaceEnrollment(accountKey: string, workspaceId: string) {
+    this.persistWorkspaceEnrollment(accountKey, workspaceId);
+    this.removeLegacyWorkspaceEnrollment(workspaceId);
+  }
+
+  // ─── Auth Expired / Failed Handling ───
+
+  /**
+   * Refresh the user token and rebuild the personal connection for the same
+   * login. A failed refresh settles on `disconnected` with the reason and waits
+   * for the next user action or app start.
+   */
+  private async handleAuthExpired(client: GatewayClient) {
+    if (this.client !== client) return;
+    const generation = this.generation;
+    const session = this.session;
+
+    // Retire the expired client; its own teardown no longer speaks for the
+    // device, which is reconnecting (a quick refresh stays hidden in the UI).
+    this.client = null;
+    this.setStatus('reconnecting');
+    await client.disconnect();
+
+    if (!this.tokenRefresher) {
+      logger.error('No token refresher configured, cannot refresh the access token');
+      this.setStatus('disconnected');
+      return;
+    }
+
+    logger.info('Attempting token refresh before reconnect');
+    const result = await this.tokenRefresher();
+    // Signed out, switched server or reconnected meanwhile: that path owns the
+    // connection now.
+    if (this.isStale(generation)) return;
+
+    if (result.success) {
+      logger.info('Token refreshed, reconnecting');
+      await this.startConnect({ reuse: session ?? undefined });
+    } else {
+      logger.error('Token refresh failed:', result.error);
+      this.connectionError = { code: 'auth_failed', detail: result.error };
+      this.setStatus('disconnected');
+    }
+  }
+
+  /**
+   * The gateway rejected our token outright (`auth_failed`). Unlike
+   * `auth_expired` this is terminal inside the gateway client: it emits the
+   * event and then calls `disconnect()`, which turns the backoff reconnect off.
+   * With nobody listening the socket stayed down — and because the UI switch
+   * reads the connection status, it surfaced as the switch turning itself off —
+   * until the user toggled it or restarted the app.
+   *
+   * Refresh once and reconnect. {@link authRecoveryAttempted} keeps a refresh
+   * that yields another rejected token (revoked grant, clock skew) from
+   * looping; that second rejection is surfaced as a retryable error.
+   */
+  private async handleAuthFailed(client: GatewayClient, reason: string) {
+    // A replaced or signed-out client's late verdict: not this connection's.
+    if (this.client !== client) return;
+    logger.warn(`Device gateway rejected the credential: ${reason}`);
+
+    if (this.authRecoveryAttempted) {
+      logger.error(
+        `Authentication failed again after a token refresh (${reason}); staying disconnected until the next connect`,
+      );
+      this.connectionError = { code: 'auth_failed', detail: reason };
+      this.setStatus('disconnected');
+      return;
+    }
+
+    this.authRecoveryAttempted = true;
+    logger.warn('Attempting token refresh before reconnect...');
+    await this.handleAuthExpired(client);
+  }
+
+  private isSameSession(a: GatewaySession, b: GatewaySession) {
+    return (
+      a.serverKey === b.serverKey &&
+      a.accountKey === b.accountKey &&
+      a.endpoint.url === b.endpoint.url
+    );
+  }
+
+  /** Whether work started for `session` may still act on the live connection. */
+  private isCurrentSession(session: GatewaySession) {
+    return this.session !== null && this.isSameSession(this.session, session);
+  }
+
+  // ─── System Info ───
+
+  /**
+   * Triggering workflow: gateway `system_info_request` -> handleSystemInfoRequest
+   * -> {@link GatewayClient.sendSystemInfoResponse}, including desktop tool support.
+   */
   private handleSystemInfoRequest(client: GatewayClient, request: SystemInfoRequestMessage) {
     return this.execution.handleSystemInfoRequest(client, request);
   }
+
   private handleRpcRequest(client: GatewayClient, request: RpcRequestMessage) {
     return this.execution.handleRpcRequest(client, request);
   }
+
   private handleAgentRunRequest(
     client: GatewayClient,
     request: AgentRunRequestMessage,
@@ -700,9 +1340,11 @@ export default class GatewayConnectionService extends ServiceModule {
   ) {
     return this.execution.handleAgentRunRequest(client, request, workspaceId);
   }
+
   private handleToolCallRequest(request: ToolCallRequestMessage, client: GatewayClient) {
     return this.execution.handleToolCallRequest(request, client);
   }
+
   private handleMessageApiRequest(request: MessageApiRequestMessage, client: GatewayClient) {
     return this.execution.handleMessageApiRequest(request, client);
   }
@@ -801,7 +1443,12 @@ export default class GatewayConnectionService extends ServiceModule {
     this.status = status;
 
     // Upload what accrued while offline right away, not at the next tick.
-
+    if (status === 'connected') {
+      void this.metricsSampler?.sampler.flush();
+      // A (re)connection reprobes the bundled CLI and warms the cache for the first request.
+      this.agentRuntimes.invalidate();
+      void this.agentRuntimes.get();
+    }
     this.syncPowerSaveBlocker();
     this.scheduleStatusBroadcast(status);
   }
@@ -828,21 +1475,69 @@ export default class GatewayConnectionService extends ServiceModule {
   }
 
   private broadcastStatus(status: GatewayConnectionStatus) {
-    if (this.displayedStatus === status) return;
+    // The reason only means something once the attempt has ended.
+    const error = status === 'disconnected' ? this.connectionError : null;
+    if (this.displayedStatus === status && this.displayedError === error) return;
     this.displayedStatus = status;
-    this.app.browserManager.broadcastToAllWindows('gatewayConnectionStatusChanged', { status });
+    this.displayedError = error;
+    this.app.browserManager.broadcastToAllWindows(
+      'gatewayConnectionStatusChanged',
+      this.getDisplayedState(),
+    );
   }
 
-  // ─── Gateway URL ───
+  // ─── Gateway Address ───
 
-  private getGatewayUrl(): string {
-    // Env override wins (dev: point at a local `wrangler dev` gateway), then the
-    // user-configured store value, then the production default.
-    return (
-      getDesktopEnv().DEVICE_GATEWAY_URL ||
-      this.app.storeManager.get('gatewayUrl') ||
-      DEFAULT_GATEWAY_URL
-    );
+  /**
+   * Resolve the gateway for `serverUrl`, first match wins:
+   *   1. `DEVICE_GATEWAY_URL` (dev: a local `wrangler dev` gateway), whatever
+   *      its value
+   *   2. the address saved in settings (`gatewayUrl`), unless it is the official
+   *      gateway itself
+   *   3. the address this server advertises
+   *   4. the official gateway, when the server answered without one
+   * The server is asked only for 3–4. A failed discovery is reported, never
+   * replaced by the default: that would send this server's token elsewhere.
+   */
+  private async resolveEndpoint(serverUrl: string): Promise<DeviceGatewayResolutionWithDefault> {
+    const controller = new AbortController();
+    this.discoveryAbort = controller;
+    try {
+      return await resolveDeviceGatewayEndpoint({
+        discover: () => discoverDeviceGateway(serverUrl, controller.signal),
+        manualUrl: this.getSavedGatewayUrl(),
+        officialGatewayUrl: OFFICIAL_DEVICE_GATEWAY_URL,
+        override: getDesktopEnv().DEVICE_GATEWAY_URL,
+      });
+    } finally {
+      if (this.discoveryAbort === controller) this.discoveryAbort = null;
+    }
+  }
+
+  /**
+   * The address saved in settings, or `undefined` when none is. Older installs
+   * persisted the official gateway as a default, so that exact value reads as
+   * unset without rewriting the stored value: the server's own
+   * address, then the official gateway, apply.
+   */
+  private getSavedGatewayUrl(): string | undefined {
+    const saved = this.app.storeManager.get('gatewayUrl');
+    if (typeof saved !== 'string' || saved.trim() === '') return undefined;
+    return saved === OFFICIAL_DEVICE_GATEWAY_URL ? undefined : saved;
+  }
+
+  /** The current server, the address saved in settings, and what the live connection uses. */
+  async getEndpointInfo(): Promise<GatewayEndpointInfo> {
+    const serverUrl = await this.serverUrlProvider?.();
+    const serverKey = serverUrl ? deviceGatewayServerKey(serverUrl) : undefined;
+    if (!serverUrl || !serverKey) return { manualUrl: this.getSavedGatewayUrl() };
+
+    const session = this.session?.serverKey === serverKey ? this.session : null;
+    return {
+      endpoint: session ? { ...session.endpoint } : undefined,
+      manualUrl: this.getSavedGatewayUrl(),
+      serverUrl,
+    };
   }
 
   // ─── Token Helpers ───

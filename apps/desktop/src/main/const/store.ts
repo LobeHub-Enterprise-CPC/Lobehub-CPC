@@ -49,6 +49,7 @@ export const getStoreDefaults = (): ElectronMainStore => ({
   gatewayEnabled: getDesktopEnv().DEVICE_GATEWAY_ENABLED,
   gatewayUrl: 'https://device-gateway.lobehub.com',
   gatewayWorkspaceEnrollments: [],
+  gatewayWorkspaceEnrollmentsByAccount: {},
   heteroSessionDirPrefs: {},
   heteroTracingEnabled: false,
   imessageBridgeConfigs: [],
