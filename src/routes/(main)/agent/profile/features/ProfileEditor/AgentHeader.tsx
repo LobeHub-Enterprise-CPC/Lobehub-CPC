@@ -1,6 +1,6 @@
 'use client';
 
-import { AGENT_PROFILE_SHOWCASE_LAYOUT } from '@lobechat/business-const';
+import { AGENT_PROFILE_NAVIGATION, AGENT_PROFILE_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { agentSecondaryDisplayName } from '@lobechat/types';
 import { Flexbox, Tooltip } from '@lobehub/ui';
 import { ActionIcon, Button, Text } from '@lobehub/ui/base-ui';
@@ -14,11 +14,13 @@ import { useNavigate } from 'react-router';
 import { useAgentRoutePath } from '@/features/AgentBreadcrumb/useAgentRoutePath';
 import { createAgentIdentityModal } from '@/features/AgentIdentityModal';
 import { AgentProfileArtwork } from '@/features/AgentProfileArtwork';
+import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { usePermission } from '@/hooks/usePermission';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { useGlobalStore } from '@/store/global';
 import { globalGeneralSelectors } from '@/store/global/selectors';
+import { useHomeStore } from '@/store/home';
 
 import { useAutoName } from './useAutoName';
 
@@ -27,6 +29,20 @@ const ChatButton = memo<{ agentId: string }>(({ agentId }) => {
   const { t } = useTranslation('setting');
   const buildAgentPath = useAgentRoutePath(agentId);
   const navigate = useNavigate();
+  const navigateInWorkspace = useWorkspaceAwareNavigate();
+  const updateSystemStatus = useGlobalStore((s) => s.updateSystemStatus);
+  const setHomeSelectedProjectId = useHomeStore((s) => s.setHomeSelectedProjectId);
+
+  const startChat = () => {
+    if (!AGENT_PROFILE_NAVIGATION) {
+      navigate(buildAgentPath());
+      return;
+    }
+    // Same as "New chat", with this agent picked in the home composer.
+    setHomeSelectedProjectId(undefined);
+    updateSystemStatus({ homeSelectedAgentId: agentId });
+    navigateInWorkspace('/');
+  };
 
   return (
     <Button
@@ -34,7 +50,7 @@ const ChatButton = memo<{ agentId: string }>(({ agentId }) => {
       icon={PencilLineIcon}
       shape={'round'}
       type={'primary'}
-      onClick={() => navigate(buildAgentPath())}
+      onClick={startChat}
     >
       {t('settingAgent.identity.chat')}
     </Button>

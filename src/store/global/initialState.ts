@@ -518,6 +518,12 @@ export interface GlobalState {
   isServerVersionOutdated?: boolean;
   isStatusInit?: boolean;
   latestVersion?: string;
+  /**
+   * The agent or group whose own workspace sidebar is open ("advanced mode")
+   * while the Home panel is the only everyday navigation. Not persisted: a
+   * reload, or leaving that agent or group, returns to the Home panel.
+   */
+  navAdvancedTargetId?: string;
   /** Imperative router navigate; see `NavigatorRegistrar` in `src/utils/router.tsx`. */
   navigationRef: GlobalNavigationRef;
   /**

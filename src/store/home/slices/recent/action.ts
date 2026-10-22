@@ -1,3 +1,4 @@
+import { AGENT_PROFILE_NAVIGATION } from '@lobechat/business-const';
 import type { RecentItem } from '@lobechat/types';
 
 import {
@@ -70,7 +71,11 @@ export class RecentActionImpl {
     this.#recentList = createReplicaSlice(recentListResource, {
       actionPrefix: n('recentList'),
       entity: recentEntity,
-      fetcher: ({ limit }) => recentService.getAll(limit, RECENT_SIDEBAR_TYPES),
+      // With the agent sidebars hidden, "Recent" is where conversations live.
+      fetcher: ({ limit }) =>
+        AGENT_PROFILE_NAVIGATION
+          ? recentService.getRecentTopics(limit)
+          : recentService.getAll(limit, RECENT_SIDEBAR_TYPES),
       get,
       set,
       stateKey: 'recentListReplica',
