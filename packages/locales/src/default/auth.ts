@@ -425,8 +425,13 @@ export default {
   'profile.usernameRule': 'Username can only contain letters, numbers, or underscores',
   'profile.usernameTooLong': 'Username cannot exceed 64 characters',
   'profile.usernameUpdateFailed': 'Failed to update username, please try again later',
-  'organization.current.named': 'Current organization: {{name}} ({{slug}})',
-  'organization.current.slugOnly': 'Current organization: {{slug}}',
+  'organization.account.continue': 'Continue',
+  'organization.account.lastUsed': 'Last used organization',
+  'organization.account.loading': 'Loading your organizations…',
+  'organization.account.others': 'Other organizations',
+  'organization.account.retry': 'Retry',
+  'organization.account.subtitle': 'Choose the organization to sign in to',
+  'organization.account.useAnother': 'Use another account',
   'organization.desktop.expired':
     'This sign-in request is no longer valid. Go back to the desktop app and start again.',
   'organization.desktop.fastPathUnavailable':

@@ -93,3 +93,37 @@ describe('desktop discovery presentation state', () => {
     }
   });
 });
+
+describe('remembered-account presentation flag', () => {
+  it('embeds rootAccount only for the tenantless root marked by the proxy', async () => {
+    const response = await GET(
+      new Request('https://app.example.com/spa-auth/en-US/', {
+        headers: { 'x-lobe-root-account': '1' },
+      }),
+      { params: Promise.resolve({ locale: 'en-US', path: [] }) },
+    );
+    const html = await response.text();
+    expect(html).toContain('"rootAccount":true');
+    expect(html).not.toContain('desktopFlow');
+  });
+
+  it.each([
+    ['a sign-in page', ['signin'] as string[], undefined, '1'],
+    ['a tenant page', [] as string[], { basePath: '/t/acme', slug: 'acme' }, '1'],
+    ['an absent flag', [] as string[], undefined, undefined],
+    ['a forged flag', [] as string[], undefined, 'true'],
+  ])('does not expose rootAccount on %s', async (_name, path, tenant, flag) => {
+    mocks.tenant = tenant;
+    try {
+      const response = await GET(
+        new Request('https://app.example.com/spa-auth/en-US/', {
+          headers: flag === undefined ? {} : { 'x-lobe-root-account': flag },
+        }),
+        { params: Promise.resolve({ locale: 'en-US', path }) },
+      );
+      expect(await response.text()).not.toContain('rootAccount');
+    } finally {
+      mocks.tenant = undefined;
+    }
+  });
+});

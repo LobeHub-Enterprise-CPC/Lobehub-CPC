@@ -26,9 +26,11 @@ const AuthContainer: FC<PropsWithChildren> = ({ children }) => {
             <ProductLogo size={40} />
           </a>
         </Flexbox>
-        <Center height={'100%'} padding={16} width={'100%'}>
-          {children}
-        </Center>
+        <Flexbox className={styles.content} flex={1} padding={16} width={'100%'}>
+          <Center className={styles.contentCenter} width={'100%'}>
+            {children}
+          </Center>
+        </Flexbox>
         <Flexbox horizontal align={'center'} justify={'space-between'} padding={16} width={'100%'}>
           <Flexbox horizontal align={'center'}>
             <AuthLangButton />

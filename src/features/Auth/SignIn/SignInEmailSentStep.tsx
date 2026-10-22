@@ -4,13 +4,9 @@ import { useTranslation } from 'react-i18next';
 
 import AuthCard from '@/features/AuthCard';
 
-import { CurrentOrganization } from './CurrentOrganization';
-
 export type SentEmailType = 'magicLink' | 'resetPassword';
 
 export interface SignInEmailSentStepProps {
-  /** The sign-in serves the desktop app's authorization: no web "switch organization" link. */
-  desktopAuth?: boolean;
   email: string;
   onBack: () => void;
   onResend: () => Promise<void>;
@@ -19,7 +15,6 @@ export interface SignInEmailSentStepProps {
 }
 
 export const SignInEmailSentStep = ({
-  desktopAuth,
   email,
   onBack,
   onResend,
@@ -38,25 +33,22 @@ export const SignInEmailSentStep = ({
       subtitle={description}
       title={t('betterAuth.signin.emailSent.title')}
       footer={
-        <>
-          <Text align={'center'} fontSize={13} style={{ marginTop: 16 }} type={'secondary'}>
-            <a
-              role="button"
-              style={{ color: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}
-              tabIndex={0}
-              onClick={onBack}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onBack();
-                }
-              }}
-            >
-              {t('betterAuth.signin.emailSent.changeEmail')}
-            </a>
-          </Text>
-          <CurrentOrganization desktopAuth={desktopAuth} />
-        </>
+        <Text align={'center'} fontSize={13} style={{ marginTop: 16 }} type={'secondary'}>
+          <a
+            role="button"
+            style={{ color: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}
+            tabIndex={0}
+            onClick={onBack}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onBack();
+              }
+            }}
+          >
+            {t('betterAuth.signin.emailSent.changeEmail')}
+          </a>
+        </Text>
       }
     >
       <Flexbox gap={16}>

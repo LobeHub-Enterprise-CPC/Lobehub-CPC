@@ -4,7 +4,10 @@
 import { NextRequest } from 'next/server';
 import { describe, expect, it, vi } from 'vitest';
 
+import { serializeAccountCookie } from '@/server/services/tenantDiscovery/accountCookie';
+
 import { defineConfig } from '../define-config';
+import { NAVIGATION_REDIRECT_HEADER } from '../navigationRedirect';
 import { documentNavigation, expectFragmentRedirect, mocks, useTenantMocks } from './testKit';
 
 // Next's node server installs this global before it loads any proxy code; the adapter's
@@ -19,6 +22,9 @@ vi.mock('@/server/modules/Tenant/endpoints', async () =>
 );
 vi.mock('@/server/services/tenantDiscovery/desktop', async () =>
   (await import('./testKit')).desktopModule(),
+);
+vi.mock('@/server/services/tenantDiscovery/account', async () =>
+  (await import('./testKit')).accountModule(),
 );
 vi.mock('@/auth', async () => (await import('./testKit')).authModule());
 vi.mock('@/server/modules/Tenant/runtime', async () => (await import('./testKit')).runtimeModule());
@@ -115,6 +121,22 @@ describe('document-only tenant navigation memory', () => {
     await expectFragmentRedirect(response, 'http://localhost:3010/#');
     expect(mocks.remembered).not.toHaveBeenCalled();
   });
+  it.each(['/signin', '/signin/'])(
+    'sends a bare tenantless %s through the root decision instead of the finder page',
+    async (path) => {
+      const response = await middleware(documentNavigation(path));
+      await expectFragmentRedirect(response, 'http://localhost:3010/#');
+      expect(mocks.remembered).not.toHaveBeenCalled();
+    },
+  );
+  it.each(['/signin?callbackUrl=%2Ft%2Facme%2Fagent', '/signin/?callbackUrl=%2Ft%2Facme%2Fagent'])(
+    'keeps a tenantless %s with any query on the finder page',
+    async (path) => {
+      const response = await middleware(documentNavigation(path));
+      await expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
+      expect(mocks.remembered).not.toHaveBeenCalled();
+    },
+  );
   it('reads the remembered tenant id live and redirects to the session entry of its current endpoint', async () => {
     mocks.remembered.mockResolvedValue({
       activeUrl: 'https://chat.example.com',
@@ -411,6 +433,17 @@ describe('ordinary navigation recovery', () => {
 });
 
 describe('fragment-clearing redirect', () => {
+  it('replaces a client-supplied signed header instead of trusting it', async () => {
+    const response = await middleware(
+      documentNavigation('/signin', { [NAVIGATION_REDIRECT_HEADER]: 'forged' }),
+    );
+    // A bare /signin re-enters the root decision, so the forged header is replaced with /#.
+    await expectFragmentRedirect(response, 'http://localhost:3010/#');
+    expect(response.headers.get(`x-middleware-request-${NAVIGATION_REDIRECT_HEADER}`)).not.toBe(
+      'forged',
+    );
+  });
+
   it('survives Next’s proxy adapter, which rebuilds any middleware Location without its `#`', async () => {
     const { adapter } = await import('next/dist/server/web/adapter');
     const { response } = await adapter({
@@ -428,5 +461,136 @@ describe('fragment-clearing redirect', () => {
       },
     } as never);
     await expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
+  });
+});
+
+describe('remembered-account root decision', () => {
+  const accountName = 'lobe-last-account';
+  const accountCookie = (email = 'user@example.com', tenantId = 'tenant-1', iat?: number) => {
+    const line = serializeAccountCookie(email, tenantId, 'http://localhost:3010', iat);
+    expect(line).not.toBeNull();
+    return line!.split(';')[0];
+  };
+  const headerOf = (response: Response) =>
+    response.headers.get('x-middleware-request-x-lobe-root-account');
+  const finderOf = (response: Response) => {
+    const rewrite = response.headers.get('x-middleware-rewrite');
+    expect(rewrite).not.toBeNull();
+    expect(new URL(rewrite!).pathname).toBe('/spa-auth/en-US/');
+    expect(headerOf(response)).toBeNull();
+  };
+
+  it('renders the root page in account mode for a readable account with two organizations', async () => {
+    mocks.accountOrganizations.mockResolvedValue([{ id: 'tenant-1' }, { id: 'tenant-2' }]);
+    const response = await middleware(
+      documentNavigation('/', { cookie: accountCookie('User@Example.com') }),
+    );
+    expect(headerOf(response)).toBe('1');
+    expect(new URL(response.headers.get('x-middleware-rewrite')!).pathname).toBe(
+      '/spa-auth/en-US/',
+    );
+    expect(mocks.accountOrganizations).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'user@example.com',
+        headers: expect.any(Headers),
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(mocks.remembered).not.toHaveBeenCalled();
+    expect(response.headers.getSetCookie()).toEqual([]);
+  });
+
+  it.each([0, 1])(
+    'keeps today’s path for %i organization(s), including the remembered tenant entry',
+    async (count) => {
+      mocks.accountOrganizations.mockResolvedValue(
+        Array.from({ length: count }, (_, index) => ({ id: `tenant-${index}` })),
+      );
+      const finder = await middleware(documentNavigation('/', { cookie: accountCookie() }));
+      finderOf(finder);
+
+      const entry = await middleware(
+        documentNavigation('/', {
+          cookie: `${accountCookie()}; lobe-last-tenant=tenant-1`,
+        }),
+      );
+      await expectFragmentRedirect(entry, 'http://localhost:3010/t/acme/__entry#');
+      expect(headerOf(entry)).toBeNull();
+    },
+  );
+
+  it('does not read the account cookie without one, or with switch=1, desktop or a non-document request', async () => {
+    for (const request of [
+      documentNavigation('/'),
+      documentNavigation('/?switch=1', { cookie: accountCookie() }),
+      documentNavigation(
+        '/?client=desktop&state=' + 'a'.repeat(32) + '&code_challenge=' + 'B'.repeat(43),
+        {
+          cookie: accountCookie(),
+        },
+      ),
+      new NextRequest('http://localhost:3010/', { headers: { cookie: accountCookie() } }),
+    ]) {
+      await middleware(request);
+    }
+    expect(mocks.accountOrganizations).not.toHaveBeenCalled();
+  });
+
+  it('clears an unreadable account cookie and keeps today’s path', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const finder = await middleware(
+        documentNavigation('/', { cookie: `${accountName}=not-a-value` }),
+      );
+      finderOf(finder);
+      expect(finder.headers.getSetCookie()).toEqual([
+        'lobe-last-account=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax',
+      ]);
+
+      const entry = await middleware(
+        documentNavigation('/', {
+          cookie: `${accountName}=not-a-value; lobe-last-tenant=tenant-1`,
+        }),
+      );
+      await expectFragmentRedirect(entry, 'http://localhost:3010/t/acme/__entry#');
+      expect(entry.headers.getSetCookie()).toContain(
+        'lobe-last-account=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax',
+      );
+      expect(mocks.accountOrganizations).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it.each([{ code: 'RATE_LIMITED' }, { code: 'TENANT_DISCOVERY_UNAVAILABLE' }, {}])(
+    'falls back to today’s path and logs only a reason code for %o',
+    async (failure) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mocks.accountOrganizations.mockRejectedValueOnce(
+          Object.assign(new Error('private@example.com'), failure),
+        );
+        const response = await middleware(
+          documentNavigation('/', {
+            cookie: `${accountCookie('private@example.com')}; lobe-last-tenant=tenant-1`,
+          }),
+        );
+        await expectFragmentRedirect(response, 'http://localhost:3010/t/acme/__entry#');
+        const logged = JSON.stringify(warn.mock.calls);
+        expect(logged).toContain('TENANT_ACCOUNT_MEMORY_UNAVAILABLE');
+        expect(logged).not.toContain('private@example.com');
+        expect(logged).toContain(failure.code ?? 'UNKNOWN');
+      } finally {
+        warn.mockRestore();
+      }
+    },
+  );
+
+  it('strips a client-supplied account-mode header on every proxy path', async () => {
+    for (const path of ['/', '/t/acme/signin', '/api/version', '/t/acme/api/auth/get-session']) {
+      const response = await middleware(documentNavigation(path, { 'x-lobe-root-account': '1' }));
+      expect(headerOf(response)).toBeNull();
+      expect(response.headers.get('x-middleware-request-x-lobe-root-account')).toBeNull();
+    }
   });
 });

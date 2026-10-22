@@ -3,7 +3,10 @@ import { type NextRequest, NextResponse } from 'next/server';
 
 import { LOBE_LOCALE_COOKIE } from '@/const/locale';
 import { translation } from '@/libs/i18n/serverTranslation';
-import { DESKTOP_FLOW_HEADER } from '@/server/services/tenantDiscovery/navigation';
+import {
+  DESKTOP_FLOW_HEADER,
+  ROOT_ACCOUNT_HEADER,
+} from '@/server/services/tenantDiscovery/navigation';
 import type { DesktopFlowStatus } from '@/types/spaServerConfig';
 import { parseBrowserLanguage } from '@/utils/locale';
 
@@ -61,6 +64,7 @@ export const discoveryPage = (
   request: NextRequest,
   headers: Headers,
   desktopStatus?: DesktopFlowStatus,
+  rootAccount = false,
 ) => {
   const url = new URL(request.url);
   url.pathname = `/spa-auth/${requestLocale(deps, request)}/`;
@@ -68,6 +72,8 @@ export const discoveryPage = (
   url.search = '';
   const routedHeaders = new Headers(headers);
   routedHeaders.delete(DESKTOP_FLOW_HEADER);
+  routedHeaders.delete(ROOT_ACCOUNT_HEADER);
   if (desktopStatus) routedHeaders.set(DESKTOP_FLOW_HEADER, desktopStatus);
+  if (rootAccount) routedHeaders.set(ROOT_ACCOUNT_HEADER, '1');
   return NextResponse.rewrite(url, { request: { headers: routedHeaders } });
 };

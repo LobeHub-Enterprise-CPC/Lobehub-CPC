@@ -6,6 +6,8 @@ import {
   TENANT_PREFIX,
 } from '@lobechat/business-tenant/routing';
 
+import { NAVIGATION_REDIRECT_PATH } from './navigationRedirect';
+
 /**
  * Where a request goes once its tenant is read from the URL (spec A16, A17,
  * FR-RT-04, FR-RT-06). The tenant comes from exactly one place — the
@@ -25,6 +27,7 @@ export const GATEWAY_ROOT_INTERNAL =
  */
 const TENANTLESS_BACKEND = [
   GATEWAY_ROOT_INTERNAL,
+  new RegExp(`^${NAVIGATION_REDIRECT_PATH}/?$`),
   /^\/api\/internal\/control-plane(?:\/|$)/,
   /^\/api\/internal\/tenant-discovery\/lookup\/?$/,
   /^\/api\/cron(?:\/|$)/,

@@ -7,6 +7,11 @@ import { tenantGateErrorOf } from '@/server/modules/Tenant/errors';
 import { routingUnavailableReasonOf } from '@/server/modules/Tenant/routingErrors';
 import { getTenantRuntime } from '@/server/modules/Tenant/runtime';
 import {
+  accountCookieAvailable,
+  accountCookieValue,
+  readAccountMemory,
+} from '@/server/services/tenantDiscovery/accountCookie';
+import {
   lookupEntrySession,
   SESSION_ENTRY_PATH,
 } from '@/server/services/tenantDiscovery/navigation';
@@ -40,6 +45,21 @@ export const sessionEntry = async (
   const root = `${route.activeUrl}/#`;
   const finder = `${new URL(endpointHosts().appUrl).origin}/?switch=1#`;
   const entryUrl = `${route.activeUrl}${SESSION_ENTRY_PATH}`;
+  const signin = req.nextUrl.searchParams.getAll('signin');
+  const wantsSignIn = signin.length === 1 && signin[0] === '1';
+  const noSessionTarget = () => {
+    if (!wantsSignIn) return finder;
+    const appUrl = endpointHosts().appUrl;
+    const host = req.headers.get('host') ?? req.nextUrl.host;
+    const onPlatform = host.toLowerCase() === new URL(appUrl).host.toLowerCase();
+    const value = onPlatform ? accountCookieValue(req.headers, appUrl) : undefined;
+    const memory = value && accountCookieAvailable() ? readAccountMemory(value) : null;
+    const target = new URL(`${route.activeUrl}/signin`);
+    if (memory) target.searchParams.set('email', memory.email);
+    return `${target.origin}${target.pathname}${target.search}#`;
+  };
+  const redirect = (location: string) =>
+    navigationRedirect(deps, req, headers, location, `${entryUrl}#`);
   const unavailable = (reason: string) => {
     console.warn('TENANT_SESSION_ENTRY_UNAVAILABLE', { reason });
     return navigationUnavailable(deps, req, `${entryUrl}#`);
@@ -52,11 +72,11 @@ export const sessionEntry = async (
     if ((error as { code?: string } | null)?.code === 'TENANT_NOT_FOUND') {
       console.warn('TENANT_NOT_FOUND', { slug: route.slug });
       onDefaultTenantPage(undefined);
-      return navigationRedirect(finder);
+      return redirect(finder);
     }
     // Only an explicit admission refusal is shown as the organization's own page; a runtime or
     // database failure while opening the scope, or anything unrecognized, is retryable.
-    if (tenantGateErrorOf(error)?.source === 'admission') return navigationRedirect(root);
+    if (tenantGateErrorOf(error)?.source === 'admission') return redirect(root);
     return unavailable(routingUnavailableReasonOf(error));
   }
 
@@ -76,7 +96,7 @@ export const sessionEntry = async (
     await release().catch(() => console.warn('TENANT_SESSION_ENTRY_RELEASE_FAILED'));
   }
 
-  const response = navigationRedirect(lookup.hasSession ? root : finder);
+  const response = await redirect(lookup.hasSession ? root : noSessionTarget());
   for (const cookie of lookup.setCookies) response.headers.append('set-cookie', cookie);
   return response;
 };

@@ -44,6 +44,9 @@ vi.mock('@/server/modules/Tenant/postgresClaims', () => ({
   tenantClaims: { bind: () => async () => {}, enter: async () => async () => {} },
 }));
 vi.mock('@/server/services/tenantDiscovery/desktop', () => ({ selectDesktopTenant: vi.fn() }));
+vi.mock('@/server/services/tenantDiscovery/account', () => ({
+  findAccountOrganizations: vi.fn(async () => []),
+}));
 vi.mock('@/server/services/gatewayAuthorization/authorize', () => ({
   authorizeGateway: boundary.authorize,
 }));

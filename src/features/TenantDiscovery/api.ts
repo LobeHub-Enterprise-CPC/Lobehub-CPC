@@ -61,7 +61,11 @@ const toLookupError = async (response: Response): Promise<OrganizationLookupErro
   return new OrganizationLookupError('unavailable');
 };
 
-const postJson = async (path: string, body: unknown, signal?: AbortSignal): Promise<unknown> => {
+export const postJson = async (
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<unknown> => {
   let response: Response;
   try {
     response = await fetch(path, {

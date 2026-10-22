@@ -41,7 +41,6 @@ const SignIn = () => {
   if (step === 'emailSent' && sentInfo)
     return (
       <SignInEmailSentStep
-        desktopAuth={desktopAuth}
         email={sentInfo.email}
         sending={sending}
         type={sentInfo.type}
@@ -53,7 +52,6 @@ const SignIn = () => {
   if (step === 'password' && !disableEmailPassword)
     return (
       <SignInPasswordStep
-        desktopAuth={desktopAuth}
         email={email}
         forgotLoading={sending}
         form={form as any}

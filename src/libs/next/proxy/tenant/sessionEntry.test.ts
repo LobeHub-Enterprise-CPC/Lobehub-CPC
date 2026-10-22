@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { config as proxyConfig } from '@/proxy';
 import { TenantGateError } from '@/server/modules/Tenant/errors';
+import { serializeAccountCookie } from '@/server/services/tenantDiscovery/accountCookie';
 
 import { defineConfig } from '../define-config';
 import {
@@ -31,6 +32,9 @@ vi.mock('@/server/modules/Tenant/endpoints', async () =>
 );
 vi.mock('@/server/services/tenantDiscovery/desktop', async () =>
   (await import('./testKit')).desktopModule(),
+);
+vi.mock('@/server/services/tenantDiscovery/account', async () =>
+  (await import('./testKit')).accountModule(),
 );
 vi.mock('@/auth', async () => (await import('./testKit')).authModule());
 vi.mock('@/server/modules/Tenant/runtime', async () => (await import('./testKit')).runtimeModule());
@@ -574,5 +578,95 @@ describe('session entry (/__entry)', () => {
       expect(response.headers.get('location')).toBeNull();
       expect(new URL(response.headers.get('x-middleware-rewrite')!).pathname).toMatch(/^\/spa\//);
     }
+  });
+});
+
+describe('sign-in entry flag (signin=1)', () => {
+  const ACTIVE = 'http://localhost:3010/t/acme';
+  const entryPath = '/t/acme/__entry';
+  const accountCookie = (email = 'user@example.com', iat?: number) =>
+    serializeAccountCookie(email, 'tenant-1', 'http://localhost:3010', iat)!.split(';')[0];
+
+  it('sends a no-session visitor to the organization sign-in page with an empty fragment', async () => {
+    mocks.getSession.mockResolvedValue({ headers: new Headers(), response: null });
+    const response = await middleware(documentNavigation(`${entryPath}?signin=1`));
+    await expectFragmentRedirect(response, `${ACTIVE}/signin#`);
+  });
+
+  it('prefills the remembered email when this platform request carries a readable cookie', async () => {
+    mocks.getSession.mockResolvedValue({ headers: new Headers(), response: null });
+    const response = await middleware(
+      documentNavigation(`${entryPath}?signin=1`, {
+        cookie: `${accountCookie('User@Example.com ')}; lh_x=1`,
+      }),
+    );
+    await expectFragmentRedirect(response, `${ACTIVE}/signin?email=user%40example.com#`);
+  });
+
+  it.each(['signin=1&signin=1', 'signin=2', 'signin=0', 'signin=', 'signin'])(
+    'treats %s as no flag and keeps the finder target',
+    async (query) => {
+      mocks.getSession.mockResolvedValue({ headers: new Headers(), response: null });
+      const response = await middleware(
+        documentNavigation(`${entryPath}?${query}`, { cookie: accountCookie() }),
+      );
+      await expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
+    },
+  );
+
+  it('keeps a valid session on the organization root', async () => {
+    const response = await middleware(
+      documentNavigation(`${entryPath}?signin=1`, { cookie: accountCookie() }),
+    );
+    await expectFragmentRedirect(response, `${ACTIVE}/#`);
+  });
+
+  it('does not prefill from an unreadable or expired cookie, but still uses the sign-in page', async () => {
+    mocks.getSession.mockResolvedValue({ headers: new Headers(), response: null });
+    for (const cookie of [
+      'lobe-last-account=not-a-value',
+      accountCookie('user@example.com', Math.floor(Date.now() / 1000) - 15_552_001),
+    ]) {
+      const response = await middleware(documentNavigation(`${entryPath}?signin=1`, { cookie }));
+      await expectFragmentRedirect(response, `${ACTIVE}/signin#`);
+    }
+  });
+
+  it('never pre-fills on a custom domain, even when asked with a platform cookie', async () => {
+    mocks.findHost.mockResolvedValue({
+      slug: 'acme',
+      tenantId: 'tenant-1',
+      state: {
+        activeUrl: 'https://chat.example.com',
+        endpoints: [{ kind: 'custom', host: 'chat.example.com', active: true }],
+      },
+    });
+    mocks.getSession.mockResolvedValue({ headers: new Headers(), response: null });
+    const response = await middleware(
+      new NextRequest('https://chat.example.com/__entry?signin=1', {
+        headers: {
+          'cookie': accountCookie(),
+          'sec-fetch-dest': 'document',
+          'sec-fetch-mode': 'navigate',
+        },
+      }),
+    );
+    await expectFragmentRedirect(response, 'https://chat.example.com/signin#');
+  });
+
+  it('keeps admission refusal, unknown organization and failure behaviour unchanged', async () => {
+    mocks.enterSlug.mockRejectedValueOnce(new TenantGateError('TENANT_FROZEN'));
+    const refused = await middleware(documentNavigation(`${entryPath}?signin=1`));
+    await expectFragmentRedirect(refused, `${ACTIVE}/#`);
+
+    mocks.enterSlug.mockRejectedValueOnce(
+      Object.assign(new Error('gone'), { code: 'TENANT_NOT_FOUND' }),
+    );
+    const vanished = await middleware(documentNavigation(`${entryPath}?signin=1`));
+    await expectFragmentRedirect(vanished, 'http://localhost:3010/?switch=1#');
+
+    mocks.enterSlug.mockRejectedValueOnce(new Error('boom'));
+    const failed = await middleware(documentNavigation(`${entryPath}?signin=1`));
+    expect(failed.status).toBe(503);
   });
 });

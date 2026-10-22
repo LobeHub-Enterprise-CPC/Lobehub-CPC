@@ -93,4 +93,47 @@ describe('tenant discovery rate limits', () => {
       expect(DISCOVERY_LIMITS.integration).toEqual({ global: 600, ip: 10, unknown: 30, email: 5 });
     });
   });
+  describe('account kind', () => {
+    it('counts ip, mailbox and global buckets under its own prefix', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(60_001);
+      client.eval.mockResolvedValue(1);
+      await expect(tenantDiscovery.admit('account', '192.0.2.1', 'hmac')).resolves.toBeNull();
+      expect(client.eval.mock.calls.map((call) => call[2])).toEqual([
+        'tenant-discovery:account:ip:192.0.2.1:1',
+        'tenant-discovery:account:email:hmac:1',
+        'tenant-discovery:account:global:1',
+      ]);
+    });
+    it('limits 60/IP, 60 for unknown IPs, 30/mailbox and 600 globally', async () => {
+      client.eval.mockResolvedValueOnce(60).mockResolvedValueOnce(30).mockResolvedValueOnce(600);
+      await expect(tenantDiscovery.admit('account', '192.0.2.1', 'hmac')).resolves.toBeNull();
+      client.eval.mockResolvedValueOnce(61);
+      expect(await tenantDiscovery.admit('account', '192.0.2.1', 'hmac')).toBeGreaterThan(0);
+      client.eval.mockResolvedValueOnce(60);
+      await expect(tenantDiscovery.admit('account', 'unknown', 'hmac')).resolves.toBeNull();
+      client.eval.mockResolvedValueOnce(61);
+      expect(await tenantDiscovery.admit('account', 'unknown', 'hmac')).toBeGreaterThan(0);
+      client.eval.mockReset();
+      client.eval.mockResolvedValueOnce(1).mockResolvedValueOnce(31);
+      expect(await tenantDiscovery.admit('account', '192.0.2.1', 'hmac')).toBeGreaterThan(0);
+      expect(client.eval).toHaveBeenCalledTimes(2);
+      client.eval.mockReset();
+      client.eval.mockResolvedValueOnce(1).mockResolvedValueOnce(1).mockResolvedValueOnce(601);
+      expect(await tenantDiscovery.admit('account', '192.0.2.1', 'hmac')).toBeGreaterThan(0);
+    });
+    it('spends only the IP and global buckets when no mailbox fingerprint is supplied', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1);
+      client.eval.mockResolvedValue(1);
+      await tenantDiscovery.admit('account', '192.0.2.1');
+      expect(client.eval.mock.calls.map((call) => call[2])).toEqual([
+        'tenant-discovery:account:ip:192.0.2.1:0',
+        'tenant-discovery:account:global:0',
+      ]);
+    });
+    it('declares the contract budget', () => {
+      expect(DISCOVERY_LIMITS.account).toEqual({ email: 30, global: 600, ip: 60, unknown: 60 });
+    });
+  });
 });
