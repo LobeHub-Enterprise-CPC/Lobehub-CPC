@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { transport } from './__tests__/httpFixtures';
 import { GatewayHttpClient } from './http';
+
+const headers = { 'X-LobeHub-Gateway-Tenancy': '1', 'X-LobeHub-Tenant-Id': 'tenant-test' };
 
 describe('GatewayHttpClient clientKinds', () => {
   let client: GatewayHttpClient;
 
   beforeEach(() => {
     client = new GatewayHttpClient({
+      ...transport,
       gatewayUrl: 'https://gateway.test.com',
       serviceToken: 'test-service-token',
     });
@@ -32,7 +36,31 @@ describe('GatewayHttpClient clientKinds', () => {
     if ('text' in response && typeof response.text === 'function') {
       res.text = response.text;
     }
-    vi.mocked(fetch).mockResolvedValue(res as any);
+    vi.mocked(fetch).mockImplementation(async (_url, options) => {
+      const body = JSON.parse((options?.body as string) || '{}');
+      if (!res.ok) return { ...res, headers: new Headers(headers) } as Response;
+      const payload = response.json ? await response.json() : {};
+      const value =
+        res.ok && body.intent
+          ? {
+              tenantId: 'tenant-test',
+              sourceAcceptedVersion: 7,
+              attemptId: body.intent.attemptId,
+              ...(body.intent.operationId ? { operationId: body.intent.operationId } : {}),
+              dispatchBinding: {
+                connectionId: 'actual-socket',
+                connectionGeneration: 1,
+                authorizationId: 'auth-test',
+              },
+              outcome: 'completed',
+              result: payload,
+            }
+          : payload;
+      return new Response(res.ok ? JSON.stringify(value) : await res.text(), {
+        status: res.status,
+        headers,
+      });
+    });
     return res;
   }
 
@@ -45,6 +73,7 @@ describe('GatewayHttpClient clientKinds', () => {
         target.kind === 'rpc' && target.method === 'listSkills' ? [] : (['desktop'] as const),
       );
       const kindsClient = new GatewayHttpClient({
+        ...transport,
         gatewayUrl: 'https://gateway.test.com',
         resolveClientKinds: resolveClientKinds as never,
         serviceToken: 'test-token',

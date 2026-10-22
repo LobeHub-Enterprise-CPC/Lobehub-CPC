@@ -1,11 +1,12 @@
 import { getServerDB } from '@/database/server';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { createCanvasStorageService } from '@/server/services/canvas';
 import { resolveCanvasRuntimeUrl } from '@/server/services/canvas/runtimeUrl';
 import { serveCanvasFile } from '@/server/services/canvas/serve';
 
 type Params = Promise<{ path?: string[]; token: string }>;
 
-export const GET = async (_req: Request, segmentData: { params: Params }) => {
+const handleGet = async (_req: Request, segmentData: { params: Params }) => {
   const { path, token } = await segmentData.params;
   const db = await getServerDB();
 
@@ -22,3 +23,6 @@ export const GET = async (_req: Request, segmentData: { params: Params }) => {
     return new Response('Internal server error', { status: 500 });
   }
 };
+
+// The preview reads the tenant's database, so it runs inside the routed tenant.
+export const GET = withTenantRequest(handleGet);

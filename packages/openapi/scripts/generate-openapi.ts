@@ -37,6 +37,9 @@ const SPEC_EXEMPT = new Set([
   'GET /api/v1/openapi.json',
   'POST /api/v1/anthropic/v1/messages',
   'POST /api/v1/openai/v1/responses',
+  // The device-gateway identity exchange speaks the gateway wire protocol
+  // (`parseGatewayWire`), which the gateway clients own, not the public API.
+  'POST /api/v1/gateway/identity',
 ]);
 
 // Import after the env defaults above are in place.

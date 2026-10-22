@@ -198,12 +198,12 @@ describe('GatewayClient', () => {
       const c = new GatewayClient({
         autoReconnect: false,
         gatewayUrl: 'https://edge.example.com/device-gateway/',
-        token: 'tok',
+        token: deviceTicket(),
       });
       c.connect();
       const ws = new URL((c as any).ws.url);
       expect(`${ws.protocol}//${ws.host}${ws.pathname}`).toBe(
-        'wss://edge.example.com/device-gateway/ws',
+        'wss://edge.example.com/device-gateway/tenant/v1/ws',
       );
       c.disconnect();
     });
