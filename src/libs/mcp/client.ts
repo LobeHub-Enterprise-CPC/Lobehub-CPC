@@ -273,8 +273,7 @@ export class MCPClient {
       if (this.params.type === 'http') {
         // StreamableHTTPError carries the status in code, not necessarily in its message.
         const error = e as Error & { code?: number };
-        if (error.code === 401 || error.message.includes('401'))
-          throw createMCPError('AUTHORIZATION_ERROR', error.message);
+        if (error.code === 401) throw createMCPError('AUTHORIZATION_ERROR', safe.message);
 
         throw safe;
       }

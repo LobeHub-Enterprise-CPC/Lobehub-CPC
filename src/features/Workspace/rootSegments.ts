@@ -55,7 +55,9 @@ export const RESERVED_ROOT_SEGMENTS: ReadonlySet<string> = new Set([
   // Personal-only roots in the SPA route table.
   'acceptance',
   'apps',
+  'channels',
   'desktop-onboarding',
+  'downloads',
   'me',
   'onboarding',
   'verify-im',

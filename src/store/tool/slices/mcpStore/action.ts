@@ -901,10 +901,14 @@ export class PluginMCPStoreActionImpl {
         return false;
       }
 
+      // A failed connector OAuth run stays retryable from the authorize step;
+      // Marketplace OAuth reports its own failure (errorInfo above) as final.
+      const retryAuthorization = authorize && !connection?.marketplaceOAuth;
+
       // Set error status, display structured error info
       updateMCPInstallProgress(identifier, {
         errorInfo,
-        ...(authorize && {
+        ...(retryAuthorization && {
           connection,
           manifest: data,
           errorInfo: {
@@ -913,7 +917,7 @@ export class PluginMCPStoreActionImpl {
           },
         }),
         progress: 0,
-        step: authorize ? MCPInstallStep.AUTHORIZATION_REQUIRED : MCPInstallStep.ERROR,
+        step: retryAuthorization ? MCPInstallStep.AUTHORIZATION_REQUIRED : MCPInstallStep.ERROR,
       });
 
       // Report installation failure result

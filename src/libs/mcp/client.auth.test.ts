@@ -36,7 +36,11 @@ describe('HTTP MCP authorization errors', () => {
       type: 'http',
       url: 'https://oauth.example/mcp',
     });
-    await expect(client.initialize()).rejects.toBe(error);
+    // Rethrown as the redacted copy, so compare the shape rather than identity.
+    await expect(client.initialize()).rejects.toMatchObject({
+      code: 503,
+      message: 'Service unavailable',
+    });
   });
 
   it('does not mistake digits in an endpoint or message for an HTTP authorization status', async () => {
@@ -47,6 +51,9 @@ describe('HTTP MCP authorization errors', () => {
       type: 'http',
       url: 'http://localhost:4010/mcp',
     });
-    await expect(client.initialize()).rejects.toBe(error);
+    await expect(client.initialize()).rejects.toMatchObject({
+      code: 404,
+      message: 'Service not found at localhost:4010',
+    });
   });
 });

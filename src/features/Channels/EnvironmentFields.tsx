@@ -2,7 +2,7 @@
 
 import { isDesktop } from '@lobechat/const';
 import type { WorkingDirEntry } from '@lobechat/types';
-import { createStaticStyles, cssVar, cx,Flexbox, Icon, Input, Popover, Text } from '@lobehub/ui';
+import { createStaticStyles, cssVar, cx, Flexbox, Icon, Input, Popover, Text } from '@lobehub/ui';
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -270,6 +270,8 @@ export function EnvironmentFields({
                           offlineLabel={t('offline')}
                           online={device.online}
                           onlineLabel={t('environment.online')}
+                          // Channel devices come from the server with a definite presence.
+                          unknownLabel={t('offline')}
                         />
                       </span>
                     </Flexbox>

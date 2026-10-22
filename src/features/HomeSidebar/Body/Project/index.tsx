@@ -82,7 +82,7 @@ const Project = memo<ProjectProps>(({ itemKey }) => {
             onClick={() => openCreateProjectModal()}
           />
         ) : (
-          projects.map((project) => <Row key={project.id} project={project} />)
+          projects?.map((project) => <Row key={project.id} project={project} />)
         )}
       </AccordionPanel>
     </AccordionItem>

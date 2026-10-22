@@ -645,7 +645,7 @@ export const execAgentTurn = async (
   // marker that no longer lists it. Claiming here keeps the window minimal;
   // a failed claim only wastes the preparation reads (its lone write — the
   // topic cwd pin — is additive and idempotent).
-  if (params.topicStartOwnerOperationId) {
+  if (params.topicStartOwnerOperationId && topicId && turn.assistantMessageId) {
     const attached = await deps.topicModel.appendRunningOperationChild(
       topicId,
       params.topicStartOwnerOperationId,

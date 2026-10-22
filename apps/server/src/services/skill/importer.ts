@@ -451,7 +451,7 @@ export class SkillImporter {
       resources?: Map<string, Buffer>;
       zipHash?: string;
     },
-    options?: { identifier?: string; source?: 'market' | 'user' },
+    options?: { identifier?: string; overwrite?: boolean; source?: 'market' | 'user' },
     zipBuffer?: Buffer,
   ): Promise<SkillImportResult> {
     const url = new URL(input.url);

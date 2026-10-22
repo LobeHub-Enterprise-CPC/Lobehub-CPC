@@ -48,7 +48,7 @@ export interface ToolReadsContext {
   isGoalTurn: boolean;
   requestedDeviceId?: string;
   resolvedAgentId: string;
-  topicId: string;
+  topicId?: string;
 }
 
 /**

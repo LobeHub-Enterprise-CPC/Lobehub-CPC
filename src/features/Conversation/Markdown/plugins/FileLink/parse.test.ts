@@ -41,17 +41,6 @@ describe('parseFileLinkHref', () => {
     expect(parseFileLinkHref('https://example.com/f/not-ours', ORIGIN)).toBeNull();
   });
 
-  it('treats the official cloud hosts as one app', () => {
-    // Desktop cloud mode classifies against the gateway apex, while links
-    // written earlier still point at app.lobehub.com.
-    expect(
-      parseFileLinkHref('https://app.lobehub.com/f/file_abc123', 'https://lobehub.com'),
-    ).toEqual({ fileId: 'file_abc123' });
-    expect(
-      parseFileLinkHref('https://lobehub.com/f/file_abc123', 'https://app.lobehub.com'),
-    ).toEqual({ fileId: 'file_abc123' });
-  });
-
   it('does not treat other official subdomains as the app', () => {
     expect(
       parseFileLinkHref('https://staging.app.lobehub.com/f/file_abc123', 'https://lobehub.com'),

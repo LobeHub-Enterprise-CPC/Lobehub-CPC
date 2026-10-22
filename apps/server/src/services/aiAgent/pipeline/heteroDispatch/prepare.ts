@@ -19,7 +19,7 @@ import { collectUnansweredUserTurns } from '@/server/services/heterogeneousAgent
 import { resolveSandboxSessionConfig } from '@/server/services/sandbox/session';
 
 import { supportsCloudHeterogeneousSandbox } from '../../helpers/heteroErrors';
-import type { ExecRunContext } from '../../types';
+import type { PersistedExecRunContext } from '../../types';
 import { heteroOperationCapabilities } from '../heteroOperationCapabilities';
 import { buildViewedTaskContextPrompt, joinSystemContext } from '../viewedTaskContext';
 import type { HeteroDispatchDeps, HeteroDispatchInput } from './types';
@@ -35,7 +35,7 @@ const log = debug('lobe-server:ai-agent-service');
 export const prepareHeteroRun = async (
   deps: HeteroDispatchDeps,
   ctx: Pick<
-    ExecRunContext,
+    PersistedExecRunContext,
     | 'agentConfig'
     | 'appContext'
     | 'assistantMessageId'

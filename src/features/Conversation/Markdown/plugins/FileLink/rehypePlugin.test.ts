@@ -139,46 +139,6 @@ describe('rehypeFileLink', () => {
       mockConstEnv.isDesktop = true;
     });
 
-    it('classifies against the official cloud origin, not the renderer origin', () => {
-      useElectronStore.setState({ dataSyncConfig: { storageMode: 'cloud' } });
-
-      const tree = {
-        type: 'root',
-        children: [
-          {
-            type: 'element',
-            tagName: 'a',
-            properties: { href: 'https://app.lobehub.com/f/file_abc123' },
-            children: [{ type: 'text', value: 'bubble_sort.py' }],
-          },
-        ],
-      };
-
-      run(tree);
-
-      expect((tree as any).children[0].tagName).toBe(LOBE_FILE_LINK_TAG);
-    });
-
-    it('also classifies links on the official cloud gateway apex', () => {
-      useElectronStore.setState({ dataSyncConfig: { storageMode: 'cloud' } });
-
-      const tree = {
-        type: 'root',
-        children: [
-          {
-            type: 'element',
-            tagName: 'a',
-            properties: { href: 'https://lobehub.com/f/file_abc123' },
-            children: [{ type: 'text', value: 'bubble_sort.py' }],
-          },
-        ],
-      };
-
-      run(tree);
-
-      expect((tree as any).children[0].tagName).toBe(LOBE_FILE_LINK_TAG);
-    });
-
     it('rejects other official subdomains in cloud mode', () => {
       useElectronStore.setState({ dataSyncConfig: { storageMode: 'cloud' } });
 

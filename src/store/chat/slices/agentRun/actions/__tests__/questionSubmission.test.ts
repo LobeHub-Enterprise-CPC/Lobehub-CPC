@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getPendingInterventions } from '@/features/Conversation/store/slices/data/pendingInterventions';
 import { collectGlobalApprovals } from '@/features/GlobalApprovalNotification/useGlobalPendingApprovals';
 import { messageService } from '@/services/message';
+import { initialState } from '@/store/chat/initialState';
 import { MessageInternalsActionImpl } from '@/store/chat/slices/message/actions/internals';
 import { OperationActionsImpl } from '@/store/chat/slices/operation/actions';
 import type { Operation } from '@/store/chat/slices/operation/types';
@@ -51,7 +52,10 @@ const answered = {
 };
 
 const createAction = () => {
+  // The dispatcher writes through the message transcript replica, so the store
+  // starts from the real initial state rather than only the maps read here.
   const state = {
+    ...initialState,
     dbMessagesMap: { [key]: [question, assistant] },
     messagesMap: { [key]: parse([question, assistant]).flatList },
     questionSubmissions: {},

@@ -1,3 +1,4 @@
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createCallerFactory } from '@/libs/trpc/lambda';
@@ -41,6 +42,10 @@ const testRouter = trpc.router({
 
 const createCaller = createCallerFactory(testRouter);
 
+// Operation tokens are honoured only by the tenant named in their `tid` claim.
+const inTenant = <T>(operation: () => Promise<T>, tenantId = 'tenant-a') =>
+  runWithTenantScope({ slug: tenantId, tenantId } as TenantScope, operation);
+
 const operationToken = (overrides: Record<string, unknown> = {}) => ({
   aud: HETERO_OPERATION_JWT_AUDIENCE,
   capabilities: ['hetero:ingest', 'hetero:finish', 'acceptance:evidence'],
@@ -51,6 +56,7 @@ const operationToken = (overrides: Record<string, unknown> = {}) => ({
   operation_id: 'op_task_run',
   purpose: HETERO_OPERATION_JWT_PURPOSE,
   sub: 'operation-owner',
+  tid: 'tenant-a',
   workspace_id: 'ws_1',
   ...overrides,
 });
@@ -70,7 +76,7 @@ describe('oidcAuth with a Task run operation token', () => {
     // is the only identity that can reach the round the operation's owner holds.
     const caller = createCaller({ oidcAuth: operationToken() } as any);
 
-    await expect(caller.verify.submitCheckEvidence()).resolves.toEqual({
+    await expect(inTenant(() => caller.verify.submitCheckEvidence())).resolves.toEqual({
       scope: 'op_task_run',
       userId: 'operation-owner',
       workspaceId: 'ws_1',
@@ -83,7 +89,9 @@ describe('oidcAuth with a Task run operation token', () => {
   it('keeps rejecting the token on every other route', async () => {
     const caller = createCaller({ oidcAuth: operationToken() } as any);
 
-    await expect(caller.verify.deleteRun()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    await expect(inTenant(() => caller.verify.deleteRun())).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
     expect(resolvePrincipal).not.toHaveBeenCalled();
   });
 
@@ -92,7 +100,7 @@ describe('oidcAuth with a Task run operation token', () => {
       oidcAuth: operationToken({ capabilities: ['hetero:ingest', 'hetero:finish'] }),
     } as any);
 
-    await expect(caller.verify.submitCheckEvidence()).rejects.toMatchObject({
+    await expect(inTenant(() => caller.verify.submitCheckEvidence())).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
     });
   });
@@ -100,9 +108,18 @@ describe('oidcAuth with a Task run operation token', () => {
   it('rejects a workspace header that names another workspace', async () => {
     const caller = createCaller({ oidcAuth: operationToken(), workspaceId: 'ws_other' } as any);
 
-    await expect(caller.verify.submitCheckEvidence()).rejects.toMatchObject({
+    await expect(inTenant(() => caller.verify.submitCheckEvidence())).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
     });
+    expect(resolvePrincipal).not.toHaveBeenCalled();
+  });
+
+  it('rejects a token minted for another tenant', async () => {
+    const caller = createCaller({ oidcAuth: operationToken() } as any);
+
+    await expect(
+      inTenant(() => caller.verify.submitCheckEvidence(), 'tenant-b'),
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
     expect(resolvePrincipal).not.toHaveBeenCalled();
   });
 
@@ -114,7 +131,7 @@ describe('oidcAuth with a Task run operation token', () => {
     );
     const caller = createCaller({ oidcAuth: operationToken() } as any);
 
-    await expect(caller.verify.submitCheckEvidence()).rejects.toMatchObject({
+    await expect(inTenant(() => caller.verify.submitCheckEvidence())).rejects.toMatchObject({
       code: 'CONFLICT',
     });
   });
