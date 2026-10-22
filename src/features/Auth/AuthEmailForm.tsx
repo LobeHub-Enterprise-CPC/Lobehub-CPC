@@ -1,8 +1,7 @@
 'use client';
 
-import { Icon } from '@lobehub/ui';
-import { Button, Input } from '@lobehub/ui/base-ui';
-import { Form, type FormInstance } from '@lobehub/ui/base-ui/form';
+import { Button, Icon, Input } from '@lobehub/ui';
+import { Form, type FormInstance } from '@lobehub/ui/form';
 import { Mail } from 'lucide-react';
 import { memo, type ReactNode, type Ref } from 'react';
 

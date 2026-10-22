@@ -1,7 +1,15 @@
 import { BRANDING_NAME } from '@lobechat/business-const';
-import { Alert, Badge, Button, Divider, Flexbox, Icon, Text } from '@lobehub/ui';
+import {
+  Alert,
+  Badge,
+  Button,
+  Divider,
+  Flexbox,
+  Icon,
+  Text,
+  createStaticStyles,
+} from '@lobehub/ui';
 import { type FormInstance } from '@lobehub/ui/form';
-import { createStaticStyles } from 'antd-style';
 import { type CSSProperties, type RefObject, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 

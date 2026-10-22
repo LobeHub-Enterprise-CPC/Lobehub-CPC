@@ -1,6 +1,5 @@
 import { CHANNEL_LIMITS } from '@lobechat/types';
-import { Flexbox } from '@lobehub/ui';
-import { ActionIcon, Button, Popover, toast } from '@lobehub/ui/base-ui';
+import { ActionIcon, Button, Flexbox, Popover, toast } from '@lobehub/ui';
 import { ExternalLink, Plus, Settings2, UserMinus } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';

@@ -1,5 +1,4 @@
-import { Flexbox } from '@lobehub/ui';
-import { Avatar, Button, Popover } from '@lobehub/ui/base-ui';
+import { Avatar, Button, Flexbox, Popover } from '@lobehub/ui';
 import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';

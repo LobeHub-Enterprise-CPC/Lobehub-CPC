@@ -1,7 +1,7 @@
 import { AGENT_AVATAR_GALLERY } from '@lobechat/business-const';
-import { createStaticStyles } from 'antd-style';
 import { memo } from 'react';
 
+import { createStaticStyles } from '@lobehub/ui';
 import Avatar from '@/components/Avatar';
 
 import AgentSelect from '../AgentSelect';

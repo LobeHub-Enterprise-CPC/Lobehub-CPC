@@ -1,10 +1,10 @@
+import { Popover, Tooltip, TooltipGroup } from '@lobehub/ui';
 /**
  * @vitest-environment happy-dom
  */
 import { type IEditor } from '@lobehub/editor';
 import { moment } from '@lobehub/editor';
 import { useEditor } from '@lobehub/editor/react';
-import { Popover, Tooltip, TooltipGroup } from '@lobehub/ui/base-ui';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { memo, useEffect, useRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

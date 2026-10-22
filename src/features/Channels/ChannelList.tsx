@@ -1,19 +1,22 @@
-import { ContextMenuTrigger, copyToClipboard, Flexbox, ScrollShadow } from '@lobehub/ui';
 import {
   AccordionHeader,
   AccordionItem,
   AccordionPanel,
   AccordionRoot,
-  accordionStyles,
   AccordionTrigger,
   ActionIcon,
   Button,
-  confirmModal,
+  ContextMenuTrigger,
   DropdownMenu,
+  Flexbox,
+  ScrollShadow,
   Text,
+  accordionStyles,
+  confirmModal,
+  copyToClipboard,
+  cx,
   toast,
-} from '@lobehub/ui/base-ui';
-import { cx } from 'antd-style';
+} from '@lobehub/ui';
 import { Copy, Hash, MoreHorizontal, PencilLine, Plus, Trash } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import useSWR, { useSWRConfig } from 'swr';

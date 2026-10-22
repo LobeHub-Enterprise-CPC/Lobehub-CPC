@@ -1,5 +1,4 @@
-import { ActionIcon } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+import { ActionIcon, createStaticStyles, cssVar } from '@lobehub/ui';
 import { RefreshCwIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { memo } from 'react';

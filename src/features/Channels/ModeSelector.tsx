@@ -1,7 +1,5 @@
 import type { ChannelMode } from '@lobechat/types';
-import { Flexbox, Icon } from '@lobehub/ui';
-import { Popover } from '@lobehub/ui/base-ui';
-import { cssVar, cx } from 'antd-style';
+import { Flexbox, Icon, Popover, cssVar, cx } from '@lobehub/ui';
 import { ChevronDownIcon, MessageCircleIcon, MessagesSquareIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';

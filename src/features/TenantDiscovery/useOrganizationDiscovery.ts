@@ -1,4 +1,4 @@
-import { useForm } from '@lobehub/ui/base-ui/form';
+import { useForm } from '@lobehub/ui/form';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 

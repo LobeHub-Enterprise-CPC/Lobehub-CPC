@@ -13,7 +13,11 @@ const { confirmModal, deprecateAgent, deprecateAgentGroup, toast } = vi.hoisted(
   };
 });
 
-vi.mock('@lobehub/ui/base-ui', () => ({ confirmModal, toast }));
+vi.mock('@lobehub/ui', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  confirmModal,
+  toast,
+}));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('@/layout/AuthProvider/MarketAuth', () => ({
   useMarketAuth: () => ({ session: { accessToken: 'token' } }),

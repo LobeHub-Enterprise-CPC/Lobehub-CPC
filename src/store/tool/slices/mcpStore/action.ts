@@ -7,7 +7,7 @@ import { produce } from 'immer';
 import { gt, valid } from 'semver';
 
 import { ConnectorSourceType } from '@/database/schemas';
-import { executeOAuthCreate } from '@/features/Connectors/CustomConnectorModal/oauthCreate';
+import { executeOAuthCreate } from '@/utils/connectorOAuthCreate';
 import { newClientExecutionId, startTelemetryExecution } from '@/libs/market-telemetry';
 import { type MCPErrorData } from '@/libs/mcp/types';
 import { parseStdioErrorMessage } from '@/libs/mcp/types';
