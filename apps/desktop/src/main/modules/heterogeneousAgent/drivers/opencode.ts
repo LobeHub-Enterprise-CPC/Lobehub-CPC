@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { OPENCODE_BASE_ARGS } from '@lobechat/heterogeneous-agents/spawn';
 import { formatServerDefaultHeterogeneousModel } from '@lobechat/types';
 
@@ -65,7 +66,7 @@ export const opencodeDriver: HeterogeneousAgentDriver = {
       small_model: selectedModel,
       provider: {
         [PROVIDER]: {
-          name: 'LobeHub Server Default',
+          name: `${BRANDING_NAME} Server Default`,
           npm: '@ai-sdk/openai',
           options: {
             apiKey: `{env:${TOKEN_ENV}}`,

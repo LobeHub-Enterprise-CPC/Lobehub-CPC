@@ -1,8 +1,9 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { buildCanvasComponentReference, CANVAS_LIMITS, CANVAS_PALETTE } from '@lobechat/canvas';
 
 const rules = `# Canvas guide
 
-A Canvas is a small web project (HTML, CSS, JS, JSON data and assets) that renders inside LobeHub with LobeHub's own components. It is shown as a card under your reply and opens in the side panel. Use it for reports and analyses the user will read, compare or come back to — not for a short answer that fits in the reply.
+A Canvas is a small web project (HTML, CSS, JS, JSON data and assets) that renders inside ${BRANDING_NAME} with ${BRANDING_NAME}'s own components. It is shown as a card under your reply and opens in the side panel. Use it for reports and analyses the user will read, compare or come back to — not for a short answer that fits in the reply.
 
 ## Project
 

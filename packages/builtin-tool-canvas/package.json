@@ -9,6 +9,7 @@
   },
   "main": "./src/index.ts",
   "dependencies": {
+    "@lobechat/business-const": "workspace:*",
     "@lobechat/canvas": "workspace:*"
   },
   "devDependencies": {

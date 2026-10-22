@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import AsyncError from '@/components/AsyncError';
+import { vendorLink } from '@/utils/vendorLink';
 
 import { useLinearIntegration } from '../useLinearIntegration';
 import Connections from './Connections';
@@ -108,6 +109,7 @@ const LinearIntegration = memo<LinearIntegrationProps>(({ onBack }) => {
       ? buildLinearInstallHref(config.installPath, { appOrigin, workspaceId, workspaceSlug })
       : undefined;
   const BrandIcon = LINEAR_INTEGRATION.icon;
+  const docsUrl = vendorLink(LINEAR_INTEGRATION.docsUrl);
 
   return (
     <Flexbox gap={24}>
@@ -126,17 +128,14 @@ const LinearIntegration = memo<LinearIntegrationProps>(({ onBack }) => {
           </Text>
           <Text type="secondary">{t('linear.tagline')}</Text>
         </Flexbox>
-        <a
-          className={styles.docs}
-          href={LINEAR_INTEGRATION.docsUrl}
-          rel="noreferrer"
-          target="_blank"
-        >
-          <Icon icon={BookOpenIcon} size="small" />
-          <Text style={{ fontSize: 13 }} type="secondary">
-            {t('linear.docsLink')}
-          </Text>
-        </a>
+        {docsUrl && (
+          <a className={styles.docs} href={docsUrl} rel="noreferrer" target="_blank">
+            <Icon icon={BookOpenIcon} size="small" />
+            <Text style={{ fontSize: 13 }} type="secondary">
+              {t('linear.docsLink')}
+            </Text>
+          </a>
+        )}
       </Flexbox>
 
       {data.isInitialLoading ? (

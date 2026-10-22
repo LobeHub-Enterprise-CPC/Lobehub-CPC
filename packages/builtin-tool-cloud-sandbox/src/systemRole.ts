@@ -1,4 +1,8 @@
-import { SANDBOX_INFRASTRUCTURE, SANDBOX_PREINSTALLED_SOFTWARE } from '@lobechat/business-const';
+import {
+  BRANDING_NAME,
+  SANDBOX_INFRASTRUCTURE,
+  SANDBOX_PREINSTALLED_SOFTWARE,
+} from '@lobechat/business-const';
 
 /**
  * The infrastructure name comes from `SANDBOX_INFRASTRUCTURE` rather than a
@@ -253,7 +257,7 @@ Your sandbox session is managed automatically per conversation topic, and it has
  */
 export const shareVisitorSystemPrompt = `<shared_conversation>
 This is a shared conversation: the user is a visitor of an agent that someone else published.
-- The LobeHub CLI (\`lh\`) cannot run in this sandbox. Every \`lh\` command is refused, so do not run, retry, or probe it.
+- The ${BRANDING_NAME} CLI (\`lh\`) cannot run in this sandbox. Every \`lh\` command is refused, so do not run, retry, or probe it.
 - When the agent instructions or a skill route a capability through \`lh\` (for example \`lh gen video\` or \`lh gen image\`), use the matching tool you were given instead, such as a video or image generation tool, when one is available.
 - When no available tool covers a requested capability, tell the user before starting the work which part cannot be delivered in this conversation, then continue only with the parts you can deliver. Do not hand the user a command to run elsewhere as a substitute for the deliverable.
 </shared_conversation>`;

@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import debug from 'debug';
 import type { Context } from 'hono';
 
@@ -40,7 +41,9 @@ export const linearCallback = async (c: Context): Promise<Response> => {
   const providerError = url.searchParams.get('error');
 
   if (!linearEnv.ENABLED_LINEAR) {
-    return new Response('Linear is not configured on this LobeHub deployment.', { status: 503 });
+    return new Response(`Linear is not configured on this ${BRANDING_NAME} deployment.`, {
+      status: 503,
+    });
   }
 
   const statePayload = state ? await redisService.linear.consumeOAuthState(state) : null;
