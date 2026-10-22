@@ -467,6 +467,48 @@ describe('TopicItem active state', () => {
     expect(screen.getByTestId('topic-unread-dot')).toBeInTheDocument();
   });
 
+  it('shows the unread dot for a Project topic whose agent list is not loaded', () => {
+    // A Project lists topics of many agents; the chat store only holds the
+    // active agent's, so the row's own status is the one to trust.
+    scopedTopicMock.value = { agentId: 'other-agent', agentName: 'Other Agent' };
+    useTopicNavigationMock.mockReturnValue({
+      isInAgentSubRoute: false,
+      isInTopicContextRoute: false,
+      navigateToTopic: vi.fn(),
+      routeTopicId: undefined,
+    });
+
+    render(
+      <TopicListScopeContext value={{ projectId: 'project-1' }}>
+        <TopicItem id="project-topic" status="unread" title="Project work" />
+      </TopicListScopeContext>,
+    );
+
+    expect(screen.getByTestId('topic-unread-dot')).toBeInTheDocument();
+  });
+
+  it('leaves the Agent avatar out of a Project row nested under its Project', () => {
+    scopedTopicMock.value = {
+      agentId: 'other-agent',
+      agentAvatar: '/avatars/other.png',
+      agentName: 'Other Agent',
+    };
+    useTopicNavigationMock.mockReturnValue({
+      isInAgentSubRoute: false,
+      isInTopicContextRoute: false,
+      navigateToTopic: vi.fn(),
+      routeTopicId: undefined,
+    });
+
+    render(
+      <TopicListScopeContext value={{ nested: true, projectId: 'project-1' }}>
+        <TopicItem id="project-topic" title="Project work" />
+      </TopicListScopeContext>,
+    );
+
+    expect(screen.queryByRole('img', { name: 'Other Agent' })).not.toBeInTheDocument();
+  });
+
   it('shows the pull request marker once the topic is no longer unread', () => {
     topicMetaCardMock.value = { pullRequest: { state: 'open' } };
     useTopicNavigationMock.mockReturnValue({

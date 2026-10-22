@@ -1,7 +1,17 @@
 import { createContext, use } from 'react';
 
 /** Host identity keeps the shared list inside its Project route and data scope. */
-export const TopicListScopeContext = createContext<{ projectId: string } | null>(null);
+export interface TopicListScope {
+  /**
+   * Rows sit under a project row that already names them (the Home panel), so
+   * they leave the agent avatar out and indent to the project's title, with
+   * the execution status trailing instead of leading.
+   */
+  nested?: boolean;
+  projectId: string;
+}
+
+export const TopicListScopeContext = createContext<TopicListScope | null>(null);
 export const useTopicListScope = () => use(TopicListScopeContext);
 
 /**

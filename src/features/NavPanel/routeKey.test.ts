@@ -1,6 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { resolveNavPanelKey } from './routeKey';
+
+// Tests read the distribution's flags; pin the stock (off) value per test.
+let mockProjectFirst = false;
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  get PROJECT_FIRST_NAVIGATION() {
+    return mockProjectFirst;
+  },
+}));
+
+afterEach(() => {
+  mockProjectFirst = false;
+});
 
 describe('resolveNavPanelKey', () => {
   it.each([
@@ -26,10 +39,26 @@ describe('resolveNavPanelKey', () => {
     ['/lobe-team/eval/bench/benchmark-1', 'lobe-team', 'evalBench'],
     ['/lobe-team/page/page-1', 'lobe-team', 'page'],
     ['/project/project-1', null, 'project'],
+    ['/project/project-1/conversation/tpc-1', null, 'project'],
     ['/lobe-team/project/project-1/library/kb-1', 'lobe-team', 'project'],
     ['/lobe-team/image', 'lobe-team', 'image'],
     ['/lobe-team/video', 'lobe-team', 'video'],
   ])('maps %s to %s', (pathname, activeWorkspaceSlug, expected) => {
     expect(resolveNavPanelKey(pathname, activeWorkspaceSlug)).toBe(expected);
+  });
+
+  describe('when projects lead navigation', () => {
+    it.each([
+      ['/project/project-1/conversation/tpc-1', null, 'home'],
+      ['/lobe-team/project/project-1/conversation/tpc-1', 'lobe-team', 'home'],
+      // The project page itself keeps its own sidebar.
+      ['/project/project-1', null, 'project'],
+      ['/project/project-1/conversation', null, 'project'],
+      ['/project/project-1/settings', null, 'project'],
+    ])('maps %s to %s', (pathname, activeWorkspaceSlug, expected) => {
+      mockProjectFirst = true;
+
+      expect(resolveNavPanelKey(pathname, activeWorkspaceSlug)).toBe(expected);
+    });
   });
 });

@@ -392,7 +392,9 @@ const TopicItemRow = memo<TopicItemRowProps>(
     // while the user is viewing the topic, like markTopicUnread's own guard.
     const isRunningTailUnread = isMaskedRunningTail && !isTopicActive;
 
-    const hasUnread = id && (isUnreadCompleted || isRunningTailUnread);
+    // The store only holds the active agent's topics. A Project lists other
+    // agents' topics too, and for those the row's own status is the only record.
+    const hasUnread = id && (isUnreadCompleted || isRunningTailUnread || status === 'unread');
 
     useEffect(() => {
       if (!activeAgentId || !id || !isUnreadCompleted || hasLocalRunningRuntime) return;
@@ -563,26 +565,24 @@ const TopicItemRow = memo<TopicItemRowProps>(
     // shrinks into a bottom-right corner badge. Personal mode keeps the
     // original layout untouched.
     const ownIconNode = statusIconNode ?? identityIconNode;
-    const leadingIconNode =
-      scopedTopic && !suppressAgentAvatar ? (
-        <Avatar
-          name={scopedTopic.agentName || scopedTopic.agentTitle || undefined}
-          size={20}
-          title={scopedTopic.agentName || scopedTopic.agentTitle || undefined}
-          avatar={
-            scopedTopic.agentAvatar ||
-            (activeAgentId === inboxId ? DEFAULT_INBOX_AVATAR : DEFAULT_AVATAR)
-          }
-        />
-      ) : author ? (
-        <TopicCreatorAvatar
-          botCreator={metadata?.botCreator}
-          corner={ownIconNode}
-          userId={userId}
-        />
-      ) : (
-        (ownIconNode ?? idleIconPlaceholder)
-      );
+    const nested = !!scope?.nested;
+    const leadingIconNode = nested ? (
+      idleIconPlaceholder
+    ) : scopedTopic && !suppressAgentAvatar ? (
+      <Avatar
+        name={scopedTopic.agentName || scopedTopic.agentTitle || undefined}
+        size={20}
+        title={scopedTopic.agentName || scopedTopic.agentTitle || undefined}
+        avatar={
+          scopedTopic.agentAvatar ||
+          (activeAgentId === inboxId ? DEFAULT_INBOX_AVATAR : DEFAULT_AVATAR)
+        }
+      />
+    ) : author ? (
+      <TopicCreatorAvatar botCreator={metadata?.botCreator} corner={ownIconNode} userId={userId} />
+    ) : (
+      (ownIconNode ?? idleIconPlaceholder)
+    );
 
     const navItem = (
       <TopicItemContextMenu fav={fav} id={id} status={status} title={title}>
@@ -598,7 +598,7 @@ const TopicItemRow = memo<TopicItemRowProps>(
           titleColor={cssVar.colorText}
           extra={
             <>
-              {scopedTopic && !suppressAgentAvatar && ownIconNode}
+              {scopedTopic && (nested || !suppressAgentAvatar) && ownIconNode}
               <TopicMigrationIndicator agentId={activeAgentId} topicId={id} />
               {/* Gated on the SAME boolean that draws the running ring: both say
                   "this row is visibly running", and a row that stopped spinning
