@@ -450,9 +450,9 @@ export const heteroRouter = router({
       // — otherwise any signed-in user could long-poll another run's
       // `agent_intervention_response` payloads by id. Bind the guard to the
       // operation row directly (tighter than the topic-level guard the write
-      // paths use, since the read has no topicId to key on). Strict operation-token
-      // callers already passed the durable principal check above; user tokens and
-      // pre-deploy operation tokens use the legacy ownership lookup.
+      // paths use, since the read has no topicId to key on). Operation-token callers
+      // already passed the durable principal check above; user tokens use the
+      // ownership lookup.
       if (ctx.heteroAuthKind !== 'operation') {
         const [operationRow] = await ctx.serverDB
           .select({ userId: agentOperations.userId })

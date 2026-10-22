@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BotMessageRouter } from './index';
@@ -146,7 +147,7 @@ describe('BotMessageRouter', () => {
         '1',
       );
       expect(thread.post).toHaveBeenCalledWith(
-        '提示：由于 WeChat 渠道通信成本过高，LobeHub 微信渠道能力将于近期调整为付费功能。预告期内已有连接可继续使用，但新建或重新连接微信渠道需要升级到个人付费 Plan。',
+        `提示：由于 WeChat 渠道通信成本过高，${BRANDING_NAME} 微信渠道能力将于近期调整为付费功能。预告期内已有连接可继续使用，但新建或重新连接微信渠道需要升级到个人付费 Plan。`,
       );
       expect(mockHandleMention).toHaveBeenCalledTimes(1);
     });

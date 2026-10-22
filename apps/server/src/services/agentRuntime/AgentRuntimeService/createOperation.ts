@@ -7,6 +7,7 @@ import {
   matchesAgentInterventionContinuationProvenance,
 } from '@/business/server/agent-run/agentInterventionIdentity';
 import { traceStartStage } from '@/server/services/aiAgent/pipeline/sendTracing';
+import { captureGatewayInitialState } from '@/server/services/gatewayAuthorization/operationAuthority';
 
 import { isAbortError, throwIfAborted } from '../abort';
 import { hookDispatcher, parseSerializedHooks } from '../hooks';
@@ -68,6 +69,7 @@ export async function createOperation(
     searchDecision,
     botContext,
     botPlatformContext,
+    channelContext,
     deviceAccessPolicy,
     connectorOwnershipNote,
     discordContext,
@@ -305,6 +307,7 @@ export async function createOperation(
       principal: {
         actor: {
           bot: botContext,
+          channel: channelContext,
           deviceScope: activeDeviceScope,
           shareVisitor: agentShareVisitor,
         },
@@ -385,9 +388,8 @@ export async function createOperation(
     );
     operationCreated = true;
 
-    // Save initial state
     await traceStartStage('save_state', () =>
-      deps.coordinator.saveAgentState(operationId, initialState as any),
+      deps.coordinator.saveAgentState(operationId, captureGatewayInitialState(initialState) as any),
     );
 
     // Register external hooks

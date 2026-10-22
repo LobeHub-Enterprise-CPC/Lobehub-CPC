@@ -23,7 +23,6 @@ import { UserModel } from '@/database/models/user';
 import type { LobeChatDatabase } from '@/database/type';
 import { createStreamEventManager } from '@/server/modules/AgentRuntime/factory';
 import type { AiAgentService } from '@/server/services/aiAgent';
-import type { AgentShareGate } from '@/server/services/aiAgent/shareGate';
 
 const log = debug('lobe-server:ai-agent-router');
 
@@ -42,14 +41,7 @@ export interface AgentInterventionDispatchContext {
    */
   aiAgentService: AiAgentService;
   serverDB: LobeChatDatabase;
-  /**
-   * Present when a share VISITOR resolved an intervention on their own share
-   * run (`shareChat.resolveInterventionBySource`). Rebuilt from the live share row by
-   * the caller — never from the parked run's state — so the continuation is
-   * gated by the share's CURRENT config exactly like a fresh visitor turn.
-   */
-  shareGate?: AgentShareGate;
-  /** The resolving actor: the owner/member, or the share visitor. */
+  /** The resolving actor. */
   userId: string;
   workspaceId?: string | null;
 }
@@ -449,7 +441,6 @@ const resolveContinuationUserInterventionConfig = async (
   const persistedAllowList = intervention?.allowList ?? [];
 
   const inherited = sourceState ? selectUserInterventionConfig(sourceState) : undefined;
-  if (ctx.shareGate) return inherited ?? { approvalMode: 'manual' };
   if (inherited) {
     const inheritedAllowList = inherited.allowList ?? [];
     const remembered = persistedAllowList.filter((key) => !inheritedAllowList.includes(key));
@@ -532,7 +523,7 @@ export const dispatchClaimedAgentIntervention = async (
        * run's trigger. Without an explicit trigger every LLM call in the
        * continuation lands in route attempt logs with an unknown source.
        */
-      const continuationTrigger = ctx.shareGate ? RequestTrigger.AgentShare : RequestTrigger.Chat;
+      const continuationTrigger = RequestTrigger.Chat;
       const continuation = continuationRuntimeAction(runtimeAction);
       const userInterventionConfig = continuation
         ? await resolveContinuationUserInterventionConfig(resolution, continuation.operationId, ctx)
@@ -581,7 +572,6 @@ export const dispatchClaimedAgentIntervention = async (
                 pluginState: customResult.pluginState,
                 toolCallId: runtimeAction.toolCallId,
               },
-              shareGate: ctx.shareGate,
               topicStartReservationId: deterministicContinuationOperationId,
               trigger: continuationTrigger,
               userInterventionConfig,
@@ -614,7 +604,6 @@ export const dispatchClaimedAgentIntervention = async (
             ...(runtimeAction.decisions.length === 1
               ? { resumeApproval: singleDecision }
               : { resumeApprovals: runtimeAction.decisions }),
-            shareGate: ctx.shareGate,
             topicStartReservationId: deterministicContinuationOperationId,
             trigger: continuationTrigger,
             userInterventionConfig,
@@ -642,7 +631,6 @@ export const dispatchClaimedAgentIntervention = async (
               rejectionReason: runtimeAction.rejectionReason,
               toolCallId: runtimeAction.toolCallId,
             },
-            shareGate: ctx.shareGate,
             topicStartReservationId: deterministicContinuationOperationId,
             trigger: continuationTrigger,
             userInterventionConfig,

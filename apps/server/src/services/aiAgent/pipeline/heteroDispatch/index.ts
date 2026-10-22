@@ -8,16 +8,16 @@ import { nanoid } from '@lobechat/utils';
 import debug from 'debug';
 
 import { resolveExecutionPlan, resolveWorkspaceScoped } from '@/helpers/executionTarget';
-import { signUserJWT } from '@/libs/trpc/utils/internalJwt';
 import {
   createAgentStateManager,
   createStreamEventManager,
 } from '@/server/modules/AgentRuntime/factory';
 import { CompletionLifecycle } from '@/server/services/agentRuntime/CompletionLifecycle';
 import { hookDispatcher } from '@/server/services/agentRuntime/hooks';
+import { mintOperationGatewayTicket } from '@/server/services/gatewayAuthorization';
 
 import { supportsCloudHeterogeneousSandbox } from '../../helpers/heteroErrors';
-import type { ExecRunContext } from '../../types';
+import type { PersistedExecRunContext } from '../../types';
 import { dispatchToCliDevice } from './device';
 import { prepareHeteroRun } from './prepare';
 import { dispatchToPlatformDevice } from './remote';
@@ -43,7 +43,7 @@ const log = debug('lobe-server:ai-agent-service');
  */
 export const dispatchHeteroAgent = async (
   deps: HeteroDispatchDeps,
-  ctx: ExecRunContext,
+  ctx: PersistedExecRunContext,
   input: HeteroDispatchInput,
 ): Promise<ExecAgentResult> => {
   const {
@@ -410,14 +410,9 @@ export const dispatchHeteroAgent = async (
     if (failure) return failure;
   }
 
-  let gatewayToken: string | undefined;
-  if (!deps.withholdGatewayToken) {
-    try {
-      gatewayToken = await signUserJWT(deps.userId);
-    } catch {
-      // non-critical
-    }
-  }
+  const gatewayToken = deps.withholdGatewayToken
+    ? undefined
+    : await mintOperationGatewayTicket(deps.userId, operationId, deps.workspaceId);
 
   return {
     agentId: resolvedAgentId,

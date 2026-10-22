@@ -371,7 +371,12 @@ export class MessageByIdsQueries extends MessageScope {
           usage: item.usage ?? (item.metadata as { usage?: ModelUsage } | null)?.usage,
           videoList: videoList
             .filter((relation) => relation.messageId === item.id)
-            .map<ChatVideoItem>(({ id, url, name }) => ({ alt: name!, id, url })),
+            .map<ChatVideoItem>(({ id, url, name, size }) => ({
+              alt: name!,
+              id,
+              size: size ?? undefined,
+              url,
+            })),
           audioList: audioList
             .filter((relation) => relation.messageId === item.id)
             .map<ChatAudioItem>(materializeChatAudioItem),

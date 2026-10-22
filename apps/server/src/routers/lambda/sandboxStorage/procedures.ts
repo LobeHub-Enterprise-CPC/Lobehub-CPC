@@ -4,6 +4,7 @@ import { wsCompatProcedure } from '@/business/server/trpc-middlewares/workspaceA
 import { EnvironmentModel } from '@/database/models/environment';
 import { EnvironmentInstanceModel } from '@/database/models/environmentInstance';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { MarketService } from '@/server/services/market';
 import { resolveSandboxStorageClaim } from '@/server/services/sandbox';
 import { SandboxStorageFilesError } from '@/server/services/sandbox/storageFiles';
@@ -70,7 +71,12 @@ export const storageClaimProcedure = wsCompatProcedure.use(serverDatabase).use(a
     ctx: {
       claim,
       marketService: new MarketService({
-        userInfo: { sandboxStorage: claim, userId: ctx.userId, workspaceId },
+        userInfo: await resolveMarketServiceIdentity({
+          sandboxStorage: claim,
+          serverDB: ctx.serverDB,
+          userId: ctx.userId,
+          workspaceId,
+        }),
       }),
     },
   });

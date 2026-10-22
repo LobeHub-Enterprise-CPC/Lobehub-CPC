@@ -37,7 +37,7 @@ export const resolveTurnScopedPluginIds = async (params: {
   const inputFileTypes = [...externalFileTypes, ...params.attachedFileTypes];
   const inputMediaAvailability = getMediaAvailabilityFromFileTypes(inputFileTypes);
   let historyMediaAvailability = { hasAudios: false, hasImages: false, hasVideos: false };
-  const multimodalUnderstandingConfigured = isMultimodalUnderstandingConfigured();
+  const multimodalUnderstandingConfigured = await isMultimodalUnderstandingConfigured();
 
   if (
     multimodalUnderstandingConfigured &&

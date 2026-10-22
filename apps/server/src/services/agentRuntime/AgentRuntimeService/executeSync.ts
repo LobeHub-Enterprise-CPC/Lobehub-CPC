@@ -39,8 +39,10 @@ export async function executeSync(
     initialContext?: AgentRuntimeContext;
     /** Maximum step limit to prevent infinite loops, defaults to 9999 */
     maxSteps?: number;
-    /** Callback after each step execution (for debugging) */
-    onStepComplete?: (stepIndex: number, state: AgentState) => void;
+    /**
+     * Awaited after each step is persisted and before the next one starts.
+     */
+    onStepComplete?: (stepIndex: number, state: AgentState) => void | Promise<void>;
   },
 ): Promise<AgentState> {
   const { maxSteps = 999, onStepComplete, initialContext } = options ?? {};
@@ -103,7 +105,7 @@ export async function executeSync(
 
     // Callback
     if (onStepComplete) {
-      onStepComplete(stepIndex, state);
+      await onStepComplete(stepIndex, state);
     }
 
     // Check if should continue

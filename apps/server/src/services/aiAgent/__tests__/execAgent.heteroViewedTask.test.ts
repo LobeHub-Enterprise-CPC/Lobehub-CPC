@@ -354,3 +354,6 @@ describe('AiAgentService.execAgent - hetero runs see the task viewed in Tasks', 
     expect(mockBuildRemoteDeviceHeteroContext.mock.calls[0][0].agentSystemContext).toBeUndefined();
   });
 });
+
+// Gateway tickets need a tenant execution scope; these cases cover dispatch, not minting.
+vi.mock('@/server/services/gatewayAuthorization');

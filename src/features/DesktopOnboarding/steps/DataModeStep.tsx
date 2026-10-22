@@ -1,6 +1,6 @@
 'use client';
 
-import { Block, Button, Checkbox, cssVar, Empty, Flexbox, Text } from '@lobehub/ui';
+import { Alert, Block, Button, Checkbox, cssVar, Empty, Flexbox, Text } from '@lobehub/ui';
 import { HeartHandshake, Undo2Icon } from 'lucide-react';
 import { memo, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';

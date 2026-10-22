@@ -7,12 +7,12 @@ import {
 } from '@lobechat/types';
 
 import type { AgentOperationModel } from '@/database/models/agentOperation';
-import type { MessageModel } from '@/database/models/message';
 import type { LobeChatDatabase } from '@/database/type';
 import type {
   AgentRuntimeCoordinator,
   AgentRuntimeCoordinatorOptions,
 } from '@/server/modules/AgentRuntime';
+import type { RuntimeMessageStore } from '@/server/modules/AgentRuntime/context';
 import type { IStreamEventManager } from '@/server/modules/AgentRuntime/types';
 import type { MessageService } from '@/server/services/message';
 import type { QueueService } from '@/server/services/queue';
@@ -217,6 +217,14 @@ export interface AgentRuntimeServiceOptions {
    */
   includeShareVisitor?: boolean;
   /**
+   * Message persistence the runtime writes through. Defaults to `MessageModel`
+   * (the `messages` table). Hosts that keep a private transcript (Channel
+   * native runs) inject an adapter so no row of the run lands in
+   * `messages` / `topics`; the same store is handed to `CompletionLifecycle`
+   * so terminal-state reads and writes hit the rows the run actually wrote.
+   */
+  messageStore?: RuntimeMessageStore;
+  /**
    * Custom QueueService
    * Set to null to disable queue scheduling (for synchronous execution tests)
    */
@@ -309,7 +317,7 @@ export interface AgentRuntimeServiceContext {
   loadGroupMemberBridge: Bound<typeof loadGroupMemberBridge>;
   loadInterventionContinuationState: Bound<typeof loadInterventionContinuationState>;
   maybeScheduleAsyncToolVerify: Bound<typeof maybeScheduleAsyncToolVerify>;
-  readonly messageModel: MessageModel;
+  readonly messageModel: RuntimeMessageStore;
   readonly messageService: MessageService;
   parkForClientLlm: Bound<typeof parkForClientLlm>;
   persistInterventionDispatchAck: Bound<typeof persistInterventionDispatchAck>;

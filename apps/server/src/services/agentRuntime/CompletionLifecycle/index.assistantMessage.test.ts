@@ -293,6 +293,23 @@ describe('CompletionLifecycle.emitSignalEvents — assistant anchor', () => {
     vi.restoreAllMocks();
   });
 
+  it('suppresses the completion Signal of a Channel run', async () => {
+    const emitSpy = vi
+      .spyOn(agentSignalService, 'emitAgentSignalSourceEvent')
+      .mockResolvedValue(undefined as any);
+    const lifecycle = buildLifecycle();
+    const state = {
+      messages: [{ content: 'channel reply', id: 'msg-assistant', role: 'assistant' }],
+      metadata: {},
+      origin: { agentId: 'agent-1', userId: 'user-1' },
+      principal: { actor: { channel: { channelId: 'channel-1', runId: 'run-1' } } },
+      status: 'done',
+    };
+
+    await expect(lifecycle.emitSignalEvents('op-1', state, 'done')).resolves.toEqual([]);
+    expect(emitSpy).not.toHaveBeenCalled();
+  });
+
   it('ships the resolved assistantMessageId on the completed payload for a server turn', async () => {
     // Regression: on a server execAgent turn the operation metadata has no
     // assistantMessageId, so the agent.execution.completed event used to carry

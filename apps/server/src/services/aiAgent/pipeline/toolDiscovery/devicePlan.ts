@@ -10,7 +10,6 @@ import {
   resolveToolMode,
 } from '@/helpers/executionTarget';
 
-import { shareGateGrantsCloudSandbox } from '../../shareGate';
 import type { ExecRunContext } from '../../types';
 import { traceDiscoveryStage } from '../discoveryTracing';
 import type { ToolDiscoveryDeps, ToolDiscoveryInput } from './types';
@@ -38,18 +37,12 @@ const log = debug('lobe-server:ai-agent-service');
  * Pass `chatConfig` so the plan degrades to `none` in chat mode — the
  * chat-mode derivation lives in `resolveExecutionPlan` (`resolveToolMode`),
  * the same source of truth the tools engine uses.
- *
- * A share visitor never passes `canUseDevice`, so a creator agent that
- * targets `local`/`auto` would collapse to `none` and silently drop a
- * `lobe-cloud-sandbox` grant (the sandbox manifest only materializes when
- * the plan resolves to `sandbox`). `sandboxFallback` keeps that decision
- * inside the resolver instead of patching its result here.
  */
 export const resolveDevicePlan = async (
   deps: ToolDiscoveryDeps,
   ctx: Pick<
     ExecRunContext,
-    'agentConfig' | 'assistantMessageId' | 'canUseDevice' | 'runFacts' | 'shareGate' | 'topicId'
+    'agentConfig' | 'assistantMessageId' | 'canUseDevice' | 'runFacts' | 'topicId'
   >,
   input: Pick<
     ToolDiscoveryInput,
@@ -65,7 +58,7 @@ export const resolveDevicePlan = async (
     onlineDevices: DeviceAttachment[];
   },
 ) => {
-  const { agentConfig, assistantMessageId, canUseDevice, shareGate, topicId } = ctx;
+  const { agentConfig, assistantMessageId, canUseDevice, topicId } = ctx;
   const {
     disableLocalSystem,
     isFixedDeviceTarget,
@@ -83,7 +76,7 @@ export const resolveDevicePlan = async (
     localDeviceId,
     onlineDeviceIds: onlineDevices.map((device) => device.deviceId),
     requestedDeviceId,
-    sandboxFallback: shareGate ? shareGateGrantsCloudSandbox(shareGate) : false,
+    sandboxFallback: false,
     trigger: requestTrigger,
   });
   // A fixed device target must never degrade to the cloud sandbox or a
@@ -106,14 +99,15 @@ export const resolveDevicePlan = async (
       executionPlan.kind === 'device-unrouted' && executionPlan.reason === 'bound-device-offline'
         ? 'The device fixed by this agent is offline. Ask an editor to bring it online or change the agent device policy.'
         : 'The device fixed by this agent is unavailable for this run. Ask an editor to check the agent device policy.';
-    await deps.messageModel.update(assistantMessageId, {
-      content: '',
-      error: {
-        body: { detail, ...errorData },
-        message: 'Fixed agent device unavailable',
-        type: 'ServerAgentRuntimeError',
-      },
-    });
+    if (assistantMessageId)
+      await deps.messageModel.update(assistantMessageId, {
+        content: '',
+        error: {
+          body: { detail, ...errorData },
+          message: 'Fixed agent device unavailable',
+          type: 'ServerAgentRuntimeError',
+        },
+      });
     throw new TRPCError({
       cause: { data: errorData },
       code: 'PRECONDITION_FAILED',

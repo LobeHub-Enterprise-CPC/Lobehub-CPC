@@ -1,3 +1,4 @@
+import { trackTenantWork } from '@lobechat/database/tenant';
 import { z } from 'zod';
 
 import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
@@ -15,9 +16,11 @@ export const editLockRouter = router({
       const prev = await ctx.editLockService.getActiveHolder('agent', input.agentId);
       const result = await ctx.editLockService.acquire('agent', input.agentId);
       if ((result.holderId ?? null) !== (prev ?? null)) {
-        void publishResourceEvent(
-          { id: input.agentId, type: 'agent' },
-          { actorId: ctx.userId, data: { holderId: result.holderId }, type: 'lock.changed' },
+        void trackTenantWork(() =>
+          publishResourceEvent(
+            { id: input.agentId, type: 'agent' },
+            { actorId: ctx.userId, data: { holderId: result.holderId }, type: 'lock.changed' },
+          ),
         );
       }
       return result;
@@ -43,9 +46,11 @@ export const editLockRouter = router({
       // lease expired and another member took over, the lock is still held.
       const released = await ctx.editLockService.release('agent', input.agentId);
       if (!released) return;
-      void publishResourceEvent(
-        { id: input.agentId, type: 'agent' },
-        { actorId: ctx.userId, data: { holderId: null }, type: 'lock.changed' },
+      void trackTenantWork(() =>
+        publishResourceEvent(
+          { id: input.agentId, type: 'agent' },
+          { actorId: ctx.userId, data: { holderId: null }, type: 'lock.changed' },
+        ),
       );
     }),
 });

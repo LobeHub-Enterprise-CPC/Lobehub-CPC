@@ -371,7 +371,7 @@ describe('App', () => {
 
   describe('single instance lock', () => {
     it('stops bootstrapping side effects when another instance holds the lock', async () => {
-      vi.mocked(electronApp.requestSingleInstanceLock).mockReturnValue(false);
+      vi.mocked(electronApp.requestSingleInstanceLock).mockReturnValueOnce(false);
       appInstance = new App();
       const makeAppReady = vi
         .spyOn(appInstance as any, 'makeAppReady')

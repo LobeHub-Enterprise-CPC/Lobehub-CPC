@@ -23,8 +23,8 @@ describe('normalizeAuvArgv', () => {
   it.each([
     [['serve', '--help'], 'Only "auv invoke" commands are allowed'],
     [['invoke'], 'AUV argv must include "invoke" and a command or --help'],
-    [['invoke', 'display.capture', '--store-root', '/tmp/other'], 'managed by LobeHub'],
-    [['invoke', 'display.capture', '--store-root=/tmp/other'], 'managed by LobeHub'],
+    [['invoke', 'display.capture', '--store-root', '/tmp/other'], 'managed by the application'],
+    [['invoke', 'display.capture', '--store-root=/tmp/other'], 'managed by the application'],
     [['invoke', '; rm -rf /'], 'Invalid AUV invoke command'],
     [['invoke', 'display.capture', 'a\0b'], 'NUL bytes'],
   ])('rejects %j', (argv, message) => {

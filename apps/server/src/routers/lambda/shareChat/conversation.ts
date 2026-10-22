@@ -19,11 +19,11 @@ export const conversationRouter = router({
       const share = await resolveLinkShareOrThrow(ctx.serverDB, input.shareId, ctx.userId);
 
       // The list is intentionally NOT bounded by the share's live
-      // `maxTopicsPerVisitor`: that cap gates ADMISSION of new topics (the
-      // COUNT check in `execAgent`, `exec.ts`), and a creator may lower it below
-      // what a visitor already created. Tying the page size to it would hide
-      // those older conversations with no pagination or deep link to reach
-      // them, so the model applies its own fixed, generous list bound instead.
+      // `maxTopicsPerVisitor`: that cap gated ADMISSION of new topics, and a
+      // creator may lower it below what a visitor already created. Tying the
+      // page size to it would hide those older conversations with no
+      // pagination or deep link to reach them, so the model applies its own
+      // fixed, generous list bound instead.
       const topicModel = new TopicModel(
         ctx.serverDB,
         share.ownerId,

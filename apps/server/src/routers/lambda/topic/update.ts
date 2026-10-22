@@ -162,4 +162,17 @@ export const updateRouter = router({
         rejectInFlightOperation: true,
       });
     }),
+  claimRunningStatus: topicProcedure
+    .use(withScopedPermission('topic:update'))
+    .input(
+      z.object({
+        id: z.string(),
+        operationId: z.string(),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      await assertCanUseTopicTargets(guardCtx(ctx), [input.id]);
+
+      return ctx.topicModel.claimRunningStatus(input.id, input.operationId);
+    }),
 });

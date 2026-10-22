@@ -180,6 +180,7 @@ export class TopicModel {
   // **************** Running operation marker *************** //
 
   settleRunningOperation = this.withContext(runningOperation.settleRunningOperation);
+  claimRunningStatus = this.withContext(runningOperation.claimRunningStatus);
   appendRunningOperationChild = this.withContext(runningOperation.appendRunningOperationChild);
   patchRunningOperation = this.withContext(runningOperation.patchRunningOperation);
   removeRunningOperationChild = this.withContext(runningOperation.removeRunningOperationChild);

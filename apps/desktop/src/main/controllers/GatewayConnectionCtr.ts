@@ -12,8 +12,8 @@ import {
 import type { AgentRunRequestMessage, GatewayMcpParams } from '@lobechat/device-gateway-client';
 import { deviceGatewayServerKey } from '@lobechat/device-gateway-client/endpoint';
 import type {
-  GatewayConnectResult,
   GatewayConnectionState,
+  GatewayConnectResult,
   GatewayEndpointInfo,
 } from '@lobechat/electron-client-ipc';
 import type { CodexChannelHost } from '@lobechat/heterogeneous-agents/channel';
@@ -30,8 +30,8 @@ import { managedProcessEnvironment, spawnManaged } from '@lobechat/utils/managed
 import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import { app as electronApp } from 'electron';
 
-import { createDesktopGatewayIdentityProvider } from '@/modules/tenantAuth/gatewayIdentity';
 import { withEmbeddedCliEnv } from '@/modules/cliEmbedding';
+import { createDesktopGatewayIdentityProvider } from '@/modules/tenantAuth/gatewayIdentity';
 import { updaterConfig } from '@/modules/updater/configs';
 import { createRemoteAppUpdateDeps } from '@/modules/updater/remoteUpdate';
 import AuvService, { type AuvRunCommandParams } from '@/services/auvSrv';
@@ -269,8 +269,8 @@ export default class GatewayConnectionCtr extends ControllerModule {
 
     srv.setDeviceRegistrar((info) => this.registerDevice(info));
 
-    srv.setWorkspaceDeviceChecker((workspaceId, deviceId) =>
-      this.checkWorkspaceDeviceRegistered(workspaceId, deviceId),
+    srv.setWorkspaceDeviceChecker((workspaceId, deviceId, expectedServerUrl) =>
+      this.checkWorkspaceDeviceRegistered(workspaceId, deviceId, expectedServerUrl),
     );
 
     this.resolveGatewayReady?.();

@@ -78,6 +78,11 @@ vi.mock('@/const/env', () => ({
 const mockGatewaySrv = {
   connect: vi.fn().mockResolvedValue({ success: true }),
   disconnect: vi.fn().mockResolvedValue({ success: true }),
+  // The real `restart` drops the previous identity's socket, then connects.
+  restart: vi.fn(async () => {
+    await mockGatewaySrv.disconnect();
+    return mockGatewaySrv.connect();
+  }),
 };
 
 const mockRemoteServerConfigCtr = {

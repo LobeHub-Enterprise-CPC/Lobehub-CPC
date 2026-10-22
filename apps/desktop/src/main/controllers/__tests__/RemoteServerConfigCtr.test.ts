@@ -202,12 +202,13 @@ describe('RemoteServerConfigCtr', () => {
     });
 
     it.each([true, false])(
-      'resolves the cloud URL without writing configuration (explicit config: %s)',
+      'never falls back to the upstream cloud URL and writes nothing (explicit config: %s)',
       async (explicitConfig) => {
         const config = mockStoreManager.get('dataSyncConfig');
-        expect(await controller.getRemoteServerUrl(explicitConfig ? config : undefined)).toBe(
-          'https://cloud.lobehub.com',
-        );
+        // A private deployment only connects to a confirmed tenant entry.
+        expect(
+          await controller.getRemoteServerUrl(explicitConfig ? config : undefined),
+        ).toBeUndefined();
         expect(storedConfig).toEqual({ active: false, storageMode: 'local' });
         expect(mockStoreManager.set).not.toHaveBeenCalled();
       },

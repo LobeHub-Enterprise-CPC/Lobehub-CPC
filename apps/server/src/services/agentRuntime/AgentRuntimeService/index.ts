@@ -1,13 +1,16 @@
 import type { Agent, GeneralAgentConfig } from '@lobechat/agent-runtime';
+import { currentTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
-import urlJoin from 'url-join';
 
 import { AgentOperationModel } from '@/database/models/agentOperation';
 import { MessageModel } from '@/database/models/message';
 import { type LobeChatDatabase } from '@/database/type';
 import { appEnv } from '@/envs/app';
 import { AgentRuntimeCoordinator, createStreamEventManager } from '@/server/modules/AgentRuntime';
+import type { RuntimeMessageStore } from '@/server/modules/AgentRuntime/context';
 import { type IStreamEventManager } from '@/server/modules/AgentRuntime/types';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
+import { getTenantLiveResources } from '@/server/modules/Tenant/liveResources';
 import { mcpService } from '@/server/services/mcp';
 import { MessageService } from '@/server/services/message';
 import { QueueService } from '@/server/services/queue';
@@ -137,12 +140,13 @@ export class AgentRuntimeService {
   private get baseURL() {
     const baseUrl = process.env.AGENT_RUNTIME_BASE_URL || appEnv.APP_URL || 'http://localhost:3010';
 
-    return urlJoin(baseUrl, '/api/agent');
+    // Step callbacks run in the tenant that scheduled them.
+    return buildTenantCallbackUrl('/api/agent', baseUrl);
   }
   private readonly serverDB: LobeChatDatabase;
   private readonly userId: string;
   private readonly workspaceId?: string;
-  private readonly messageModel: MessageModel;
+  private readonly messageModel: RuntimeMessageStore;
   // Lazily constructed because MessageService instantiates a FileService
   // which eagerly creates the S3 client and throws when S3 env vars are
   // missing — eager construction would break every test that builds an
@@ -190,11 +194,14 @@ export class AgentRuntimeService {
     const workspaceId = this.workspaceId;
     const includeShareVisitor = options?.includeShareVisitor ?? false;
     this.agentOperationModel = new AgentOperationModel(db, this.userId, workspaceId);
-    this.messageModel = new MessageModel(db, this.userId, workspaceId, undefined, {
-      includeShareVisitor,
-    });
+    this.messageModel =
+      options?.messageStore ??
+      new MessageModel(db, this.userId, workspaceId, undefined, {
+        includeShareVisitor,
+      });
     this.completionLifecycle = new CompletionLifecycle(db, userId, workspaceId, {
       includeShareVisitor,
+      messageStore: options?.messageStore,
     });
     this.humanIntervention = new HumanInterventionHandler(db, this.messageModel);
 
@@ -500,8 +507,24 @@ export class AgentRuntimeService {
     return resolveAsyncToolResumeParentMessageId(...args);
   }
 
-  executeStep(...args: MethodArgs<typeof executeStep>) {
-    return executeStep(this.context, ...args);
+  async executeStep(
+    ...args: MethodArgs<typeof executeStep>
+  ): Promise<Awaited<ReturnType<typeof executeStep>>> {
+    // The whole step is tenant live work: a freeze/offline drain waits for it.
+    const tenantId = currentTenantScope()?.tenantId;
+    let finish!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const unbind = tenantId
+      ? getTenantLiveResources().bind(tenantId, { close: () => {}, settled })
+      : undefined;
+    try {
+      return await executeStep(this.context, ...args);
+    } finally {
+      finish();
+      unbind?.();
+    }
   }
 
   tryResumeParentFromAsyncTool(...args: MethodArgs<typeof tryResumeParentFromAsyncTool>) {

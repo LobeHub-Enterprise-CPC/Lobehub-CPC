@@ -14,7 +14,7 @@ import { formatErrorForState } from '@/server/modules/AgentRuntime/formatErrorFo
 
 import { persistCodexTurnProvenance } from '../heteroProvenance';
 import { applyMainIntent, applySubagentIntent } from './applyIntents';
-import { eventKey, operationStates } from './operationState';
+import { eventKey, operationStates, stateKey } from './operationState';
 import {
   loadOrCreateState,
   refreshMainStateFromDb,
@@ -152,7 +152,7 @@ export class HeterogeneousPersistenceHandler {
    * publish identity (tracked follow-up), not a bigger in-memory map.
    */
   filterUnpublishedEvents(operationId: string, events: AgentStreamEvent[]): AgentStreamEvent[] {
-    const state = operationStates.get(operationId);
+    const state = operationStates.get(stateKey(operationId));
     if (!state) return events;
 
     return events.filter((event) => !state.publishedKeys.has(eventKey(event)));
@@ -160,7 +160,7 @@ export class HeterogeneousPersistenceHandler {
 
   /** Latch an event as published so a batch retry skips its XADD. */
   markEventPublished(operationId: string, event: AgentStreamEvent): void {
-    operationStates.get(operationId)?.publishedKeys.add(eventKey(event));
+    operationStates.get(stateKey(operationId))?.publishedKeys.add(eventKey(event));
   }
 
   /**
@@ -192,7 +192,7 @@ export class HeterogeneousPersistenceHandler {
      */
     topicId?: string;
   }): Promise<void> {
-    let state = operationStates.get(params.operationId);
+    let state = operationStates.get(stateKey(params.operationId));
 
     // A run that died before producing any stream event has no state — but its
     // terminal error must still land on the assistant message HERE, before the
@@ -225,7 +225,7 @@ export class HeterogeneousPersistenceHandler {
     try {
       if (params.error) await this.persistFinishError(state, params.error);
     } finally {
-      operationStates.delete(params.operationId);
+      operationStates.delete(stateKey(params.operationId));
     }
   }
 

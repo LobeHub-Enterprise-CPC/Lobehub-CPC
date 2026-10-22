@@ -16,6 +16,7 @@ import type {
   ToolsEngine,
   ToolSource,
 } from '@lobechat/context-engine';
+import { generateToolsFromManifest } from '@lobechat/context-engine';
 import {
   dropInvalidManifests,
   resolveClientExecutors,
@@ -37,11 +38,6 @@ import { resolveUnsupportedMessageApis } from '@/server/services/bot/platforms/m
 import { deviceGateway } from '@/server/services/deviceGateway';
 
 import { buildAllowedBuiltinTools } from '../../deviceToolRegistry';
-import {
-  filterPluginsByShareGate,
-  getShareGrantActivatedPluginIds,
-  getShareGrantedExtensionIds,
-} from '../../shareGate';
 import type { ExecRunContext } from '../../types';
 import {
   buildOwnershipNote,
@@ -81,16 +77,7 @@ export const discoverTools = async (
 ): Promise<ToolDiscoveryResult> => {
   /** Filled below when the run borrows connectors; returned as run context. */
   let connectorOwnershipNote: string | undefined;
-  const {
-    agentConfig,
-    appContext,
-    canUseDevice,
-    model,
-    prompt,
-    provider,
-    resolvedAgentId,
-    shareGate,
-  } = ctx;
+  const { agentConfig, appContext, canUseDevice, model, prompt, provider, resolvedAgentId } = ctx;
   const {
     additionalPluginIds,
     attachedFileIds,
@@ -103,6 +90,7 @@ export const discoverTools = async (
     exclusivePluginIds,
     externalFileTypes: rawExternalFileTypes,
     functionTools,
+    serverToolManifests,
     globalMemoryEnabled,
     hasMentionedAgents,
     loadHistoryMessages,
@@ -167,33 +155,8 @@ export const discoverTools = async (
             ...(additionalPluginIds || []),
             ...(selectedToolIds || []),
             ...(hasMentionedAgents ? ['lobe-agent-management'] : []),
-            ...(shareGate ? getShareGrantActivatedPluginIds(shareGate) : []),
           ]),
         ];
-
-  // Share allowlist runs EARLY, before connector resolution / credential
-  // decryption / stale-tool refresh scheduling — otherwise an ungranted HTTP
-  // connector pinned on the creator's agent would still be resolved and its
-  // OAuth credentials touched for a visitor turn (issuing background MCP
-  // traffic and refresh jobs on behalf of the creator). The later pass right
-  // before manifest discovery (~line 618) stays as defense in depth: internal
-  // additions like the bot message / multimodal
-  // understanding tool are appended after this point and must run through the
-  // same allowlist.
-  if (shareGate) {
-    agentPlugins = filterPluginsByShareGate(agentPlugins, shareGate);
-  }
-  // The unpinned sources the activator may discover (connectors, Composio,
-  // LobeHub Skills, installed plugins) need the same early cut for a share
-  // run: only granted identifiers are read. A grant the owner later disabled
-  // on the Agent is dropped here too, not only after discovery.
-  const shareGrantedExtensionIds = shareGate
-    ? new Set(
-        [...getShareGrantedExtensionIds(shareGate)].filter(
-          (identifier) => !disabledPluginIds.includes(identifier),
-        ),
-      )
-    : undefined;
 
   // Model metadata is needed both for tool support checks and agent-management context.
   const builtinModels = await loadModels();
@@ -212,8 +175,6 @@ export const discoverTools = async (
         isGoalTurn,
         requestedDeviceId,
         resolvedAgentId,
-        shareGate,
-        shareGrantedExtensionIds,
         topicId: ctx.topicId,
       });
 
@@ -234,13 +195,9 @@ export const discoverTools = async (
     // `rules` allowlist — because `createEnableChecker`'s explicit-activation
     // bypass (auto activator) short-circuits before rules are consulted, so a
     // present-but-rule-disabled manifest could still be auto-activated.
-    // A share run keeps only granted plugins, so an ungranted one never reaches
-    // the connector permission lookup or the activator pool below.
     const disabledPluginIdSet = new Set(disabledPluginIds);
     const installedPlugins = (await toolReads.installedPlugins).filter(
-      (p) =>
-        !disabledPluginIdSet.has(p.identifier) &&
-        (!shareGrantedExtensionIds || shareGrantedExtensionIds.has(p.identifier)),
+      (p) => !disabledPluginIdSet.has(p.identifier),
     );
     log(
       'execAgent: got %d installed plugins (%d disabled excluded)',
@@ -357,26 +314,6 @@ export const discoverTools = async (
     ];
     if (exclusivePluginIds) {
       agentPlugins = agentPlugins.filter((id) => exclusivePluginIds.includes(id));
-    }
-
-    // Share allowlist filters the full candidate set (pinned + mentioned +
-    // internal additions) before manifest discovery. This only trims which
-    // plugin ids get *activated*; the separate skill candidate pool built in
-    // `operationPrep` (`skills`, consumed by `SkillEngine`) needs its own pass
-    // against the same allowlist, since building the skill list is a distinct
-    // step from `SkillEngine.generate` and is not scoped by the plugin id list
-    // on its own. The operationToolSet snapshot then carries the restricted
-    // surface into every later step.
-    //
-    // Defense in depth: the same filter also runs at the top of
-    // `discoverTools` (before connector resolution) so that ungranted
-    // connectors never reach `resolveByIdentifiers` /
-    // `scheduleStaleConnectorToolsRefresh`. Keep this second pass — the
-    // internal additions above (bot message tool, multimodal understanding)
-    // are appended after the first pass and would
-    // otherwise slip through.
-    if (shareGate) {
-      agentPlugins = filterPluginsByShareGate(agentPlugins, shareGate);
     }
 
     // Resolve THE device decision for this run; see `resolveDevicePlan`.
@@ -582,21 +519,7 @@ export const discoverTools = async (
       composioManifests.length,
     );
 
-    // Share-visitor fail-closed gate — never expose the
-    // `declareSelfFeedbackIntent` tool to a share-visitor turn. This tool sits
-    // outside the normal `toolManifestMap` / `applyShareGateToToolSet`
-    // allowlist (it's injected directly into `tools` below), so the visitor's
-    // own model call can reach it even with an empty `enabledToolIds`. Its
-    // execution context is stamped with the share CREATOR's user id, and the
-    // resulting `agent.self_feedback_intent.declared` event dispatches a full
-    // autonomous background run under the creator's account, which can write
-    // to the creator's memory. Same root cause as the `agent.user.message`
-    // gate in `turnSetup`; `allowReadMemory` is a read-only grant so this must
-    // not be conditional on it either.
-    //
-    // There is no per-agent switch: Labs → Self-evolving covers every agent.
     if (
-      !shareGate &&
       !disableSelfFeedbackIntentTool &&
       (!exclusivePluginIds || exclusivePluginIds.includes(SELF_FEEDBACK_INTENT_IDENTIFIER))
     ) {
@@ -651,6 +574,18 @@ export const discoverTools = async (
       type: 'default',
     };
     toolsResult.enabledToolIds.push(CLIENT_FN_IDENTIFIER);
+  }
+
+  // Host-authorized builtins bypass agent plugin selection but still route
+  // through the normal builtin server runtime registry.
+  if (serverToolManifests?.length) {
+    tools = tools ?? [];
+    for (const manifest of serverToolManifests) {
+      toolManifestMap[manifest.identifier] = manifest;
+      toolSourceMap[manifest.identifier] = 'builtin';
+      toolsResult.enabledToolIds.push(manifest.identifier);
+      tools.push(...generateToolsFromManifest(manifest));
+    }
   }
 
   // Override RemoteDevice manifest's systemRole with the dynamic device

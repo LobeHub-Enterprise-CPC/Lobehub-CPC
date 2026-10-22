@@ -1,5 +1,5 @@
 import type { ServerDefaultHeterogeneousAgentType } from '@lobechat/heterogeneous-agents';
-import { createStaticStyles } from '@lobehub/ui';
+import { createStaticStyles, Flexbox, Tooltip } from '@lobehub/ui';
 import type { LobeDefaultAiModelListItem } from 'model-bank';
 import { useTranslation } from 'react-i18next';
 

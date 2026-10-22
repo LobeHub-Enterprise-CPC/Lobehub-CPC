@@ -19,7 +19,9 @@ vi.mock('@/features/Work/ShareVisitorDocumentModal', () => ({
   createShareVisitorDocumentModal: vi.fn(),
 }));
 
-vi.mock('@/hooks/useAppOrigin', () => ({ useAppOrigin: () => 'https://app.lobehub.com' }));
+vi.mock('@lobechat/business-tenant/client', () => ({
+  useAppBaseUrl: () => 'https://app.lobehub.com',
+}));
 
 const fileWork = (fileUrl?: string) =>
   ({

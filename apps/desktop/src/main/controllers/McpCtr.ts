@@ -657,9 +657,9 @@ export default class McpCtr extends ControllerModule {
     executionSignal?: AbortSignal,
   ): Promise<{ content: string; state: unknown; success: boolean }> {
     try {
-      executionSignal?.throwIfAborted();
-      executionSignal?.throwIfAborted();
-      client = await this.createClient(params);
+      // A gateway execution whose authority is revoked (stale tenant version,
+      // freeze) must never reach the tool: check before connecting, after the
+      // session is ready, and again before any retry.
       executionSignal?.throwIfAborted();
       const args = safeParseToRecord(rawArgs);
 
@@ -690,7 +690,9 @@ export default class McpCtr extends ControllerModule {
         });
 
       try {
-        return await runOn(await this.acquireClient(params));
+        const client = await this.acquireClient(params);
+        executionSignal?.throwIfAborted();
+        return await runOn(client);
       } catch (firstError) {
         const failedClient = (firstError as { ranOnClient?: MCPClient })?.ranOnClient;
         if (!isStaleSessionError(firstError)) {
@@ -725,6 +727,7 @@ export default class McpCtr extends ControllerModule {
         // create/set writes that strand the loser (and its established state).
         executionSignal?.throwIfAborted();
         const retryClient = await this.acquireClient(params);
+        executionSignal?.throwIfAborted();
         try {
           return await runOn(retryClient);
         } catch (retryError) {

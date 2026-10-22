@@ -32,6 +32,7 @@ import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { S3 } from '@/server/modules/S3';
 import { AsyncTaskStatus } from '@/types/asyncTask';
 
+import { resolveMemoryServiceModelConfig } from '../systemAgent';
 import type { MemoryExtractionExecutorContext } from './context';
 import type { MemoryExtractionTaskErrorItem } from './errors';
 import {
@@ -163,7 +164,9 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
           ctx.getAiProviderRuntimeState(job.userId, job.workspaceId),
         ]);
         const memoryServiceConfig = ctx.resolveUserMemoryServiceConfig(
-          userState.settings?.systemAgent as Partial<UserServiceModelConfig> | undefined,
+          await resolveMemoryServiceModelConfig(
+            userState.settings?.systemAgent as Partial<UserServiceModelConfig> | undefined,
+          ),
         );
         const keyVaults = await ctx.resolveRuntimeKeyVaults(
           aiProviderRuntimeState,

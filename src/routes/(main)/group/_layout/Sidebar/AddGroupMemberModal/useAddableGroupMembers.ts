@@ -1,11 +1,11 @@
 import isEqual from 'fast-deep-equal';
 import { useMemo } from 'react';
 
+import { type AgentItemData } from '@/features/AgentMemberSelection/AgentItem';
 import { useFetchAgentList } from '@/hooks/useFetchAgentList';
 import { useHomeStore } from '@/store/home';
 import { homeAgentListSelectors } from '@/store/home/selectors';
 
-import { type AgentItemData } from './AgentItem';
 import { selectAddableAgents, toPickableAgents } from './selectAddableAgents';
 
 /**

@@ -1,3 +1,4 @@
+import { trackTenantWork } from '@lobechat/database/tenant';
 import type { Chat, MessageContext } from 'chat';
 import debug from 'debug';
 
@@ -256,25 +257,27 @@ export function registerHandlers(
     }
 
     const merged = mergeSkippedMessages(message, context);
-    void emitAgentSignalSourceEvent(
-      {
-        payload: {
-          agentId,
-          applicationId,
-          platform,
-          message: merged.text,
-          platformThreadId: thread.id,
+    void trackTenantWork(() =>
+      emitAgentSignalSourceEvent(
+        {
+          payload: {
+            agentId,
+            applicationId,
+            platform,
+            message: merged.text,
+            platformThreadId: thread.id,
+          },
+          sourceId: merged.id,
+          sourceType: 'bot.message.merged',
         },
-        sourceId: merged.id,
-        sourceType: 'bot.message.merged',
-      },
-      {
-        agentId,
-        db: serverDB,
-        userId,
-        workspaceId: workspaceId ?? undefined,
-      },
-      { ignoreError: true },
+        {
+          agentId,
+          db: serverDB,
+          userId,
+          workspaceId: workspaceId ?? undefined,
+        },
+        { ignoreError: true },
+      ),
     );
 
     log(
@@ -487,25 +490,27 @@ export function registerHandlers(
         );
       }
     }
-    void emitAgentSignalSourceEvent(
-      {
-        payload: {
-          agentId,
-          applicationId,
-          platform,
-          message: merged.text,
-          platformThreadId: thread.id,
+    void trackTenantWork(() =>
+      emitAgentSignalSourceEvent(
+        {
+          payload: {
+            agentId,
+            applicationId,
+            platform,
+            message: merged.text,
+            platformThreadId: thread.id,
+          },
+          sourceId: merged.id,
+          sourceType: 'bot.message.merged',
         },
-        sourceId: merged.id,
-        sourceType: 'bot.message.merged',
-      },
-      {
-        agentId,
-        db: serverDB,
-        userId,
-        workspaceId: workspaceId ?? undefined,
-      },
-      { ignoreError: true },
+        {
+          agentId,
+          db: serverDB,
+          userId,
+          workspaceId: workspaceId ?? undefined,
+        },
+        { ignoreError: true },
+      ),
     );
 
     log(

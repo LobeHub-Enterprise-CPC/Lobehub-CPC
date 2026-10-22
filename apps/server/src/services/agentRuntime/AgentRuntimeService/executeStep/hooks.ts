@@ -3,7 +3,7 @@ import debug from 'debug';
 
 import { emitAgentSignalSourceEvent } from '@/server/services/agentSignal';
 
-import { isAgentShareRun } from '../../CompletionLifecycle';
+import { shouldSuppressAgentSignal } from '../../CompletionLifecycle';
 import { logToolCallPc } from '../../formalObservation';
 import { hookDispatcher } from '../../hooks';
 import type { AgentRuntimeServiceContext } from '../types';
@@ -38,7 +38,7 @@ export async function dispatchBeforeStepHooks(
     // Signal state for a turn an anonymous link visitor triggered — same
     // reasoning (and same predicate) as the completion-signal guard in
     // `CompletionLifecycle.emitSignalEvents`.
-    const beforeStepSignalEmission = isAgentShareRun(agentState)
+    const beforeStepSignalEmission = shouldSuppressAgentSignal(agentState)
       ? undefined
       : await emitAgentSignalSourceEvent(
           {
@@ -121,7 +121,7 @@ export async function dispatchAfterStepHooks(
     // See the `runtime.before_step` guard above — same share-visitor
     // suppression at the sibling per-step emission.
     afterStepSignalEvents = toAgentSignalSnapshotEvents(
-      isAgentShareRun(stepResult.newState)
+      shouldSuppressAgentSignal(stepResult.newState)
         ? undefined
         : await emitAgentSignalSourceEvent(
             {

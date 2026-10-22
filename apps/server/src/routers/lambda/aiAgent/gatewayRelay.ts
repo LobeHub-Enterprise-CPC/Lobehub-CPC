@@ -2,7 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { router } from '@/libs/trpc/lambda';
-import { signUserJWT } from '@/libs/trpc/utils/internalJwt';
+import { mintOperationGatewayTicket } from '@/server/services/gatewayAuthorization';
 
 import { LlmExecutorSchema } from './execSchemas';
 import { aiAgentProcedure, aiAgentWriteProcedure } from './procedures';
@@ -38,28 +38,18 @@ export const gatewayRelayRouter = router({
       return ctx.aiAgentService.releaseSubAgentLlmRelay(input.channel);
     }),
   /**
-   * Mint the per-USER Gateway JWT for the multiplexed v2 WebSocket (one
-   * socket per user, `GET /v2/ws`). Unlike `refreshGatewayToken` it is not
-   * bound to a running operation: the user hub authorizes every `subscribe`
-   * against the op's registered owner, so the token only has to carry the
-   * caller's identity. Short-lived (5m) like the v1 token; the client re-mints
-   * before every connect attempt.
-   *
-   * Blocked for restricted API keys (`TRPC_BLOCKED_PATH_PREFIXES`), like
-   * `refreshGatewayToken`: the JWT it returns passes `oidcAuth` as ordinary
-   * non-API-key auth, so a scoped key must never be able to mint one.
+   * Mint the per-USER Gateway JWT for the multiplexed v2 WebSocket. This
+   * deployment only issues operation-bound gateway tickets
+   * (`refreshGatewayToken`), so the multiplexed socket is refused.
    */
-  issueGatewayUserToken: aiAgentProcedure.query(async ({ ctx }) => {
-    const token = await signUserJWT(ctx.userId);
-
-    return { token };
+  issueGatewayUserToken: aiAgentProcedure.query(async (): Promise<{ token: string }> => {
+    throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'MUX_UNSUPPORTED' });
   }),
   /**
    * Refresh Gateway JWT token for an existing operation.
-   * Used when reconnecting after page reload (original token expired).
    */
   refreshGatewayToken: aiAgentProcedure
-    .input(z.object({ topicId: z.string() }))
+    .input(z.object({ topicId: z.string(), authorizationId: z.string().optional() }))
     .query(async ({ input, ctx }) => {
       // Verify the topic belongs to this user and has a running operation.
       // Use the creator-facing finder: a creator must not mint a token
@@ -81,7 +71,12 @@ export const gatewayRelayRouter = router({
         });
       }
 
-      const token = await signUserJWT(ctx.userId);
+      const token = await mintOperationGatewayTicket(
+        ctx.userId,
+        runningOperation.operationId,
+        ctx.workspaceId,
+        input.authorizationId,
+      );
 
       return { token };
     }),

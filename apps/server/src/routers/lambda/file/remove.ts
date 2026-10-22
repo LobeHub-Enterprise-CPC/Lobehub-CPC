@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import pMap from 'p-map';
 import { z } from 'zod';
 
+import { businessFileExternalReferenceGuard } from '@/business/server/lambda-routers/file';
 import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
 import { serverDBEnv } from '@/config/db';
 import { router } from '@/libs/trpc/lambda';
@@ -58,9 +59,11 @@ export const removeRouter = router({
       if (!existing) return;
       await assertFileNotInRestrictedKnowledgeBase(ctx, input.id);
 
-      const file = await ctx.fileModel.deleteUnreferenced(input.id, {
-        removeGlobalFile: serverDBEnv.REMOVE_GLOBAL_FILE,
-      });
+      const file = await ctx.fileModel.deleteUnreferenced(
+        input.id,
+        { removeGlobalFile: serverDBEnv.REMOVE_GLOBAL_FILE },
+        businessFileExternalReferenceGuard,
+      );
       if (!file) return;
 
       await ctx.fileService.deleteFile(file.url!);

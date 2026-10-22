@@ -1,4 +1,5 @@
 import { TASK_STATUSES } from '@lobechat/builtin-tool-task';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
@@ -345,9 +346,11 @@ export const updateRouter = router({
     const prev = await ctx.editLockService.getActiveHolder('task', resolved.id);
     const result = await ctx.editLockService.acquire('task', resolved.id);
     if ((result.holderId ?? null) !== (prev ?? null)) {
-      void publishResourceEvent(
-        { id: resolved.id, type: 'task' },
-        { actorId: ctx.userId, data: { holderId: result.holderId }, type: 'lock.changed' },
+      void trackTenantWork(() =>
+        publishResourceEvent(
+          { id: resolved.id, type: 'task' },
+          { actorId: ctx.userId, data: { holderId: result.holderId }, type: 'lock.changed' },
+        ),
       );
     }
     return result;
@@ -369,9 +372,11 @@ export const updateRouter = router({
     // lease expired and another member took over, the lock is still held.
     const released = await ctx.editLockService.release('task', resolved.id);
     if (!released) return;
-    void publishResourceEvent(
-      { id: resolved.id, type: 'task' },
-      { actorId: ctx.userId, data: { holderId: null }, type: 'lock.changed' },
+    void trackTenantWork(() =>
+      publishResourceEvent(
+        { id: resolved.id, type: 'task' },
+        { actorId: ctx.userId, data: { holderId: null }, type: 'lock.changed' },
+      ),
     );
   }),
 });

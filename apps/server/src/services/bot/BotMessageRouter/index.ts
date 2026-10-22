@@ -8,9 +8,9 @@ import { getServerDB } from '@/database/core/db-adaptor';
 import type { DecryptedBotProvider } from '@/database/models/agentBotProvider';
 import { AgentBotProviderModel } from '@/database/models/agentBotProvider';
 import type { LobeChatDatabase } from '@/database/type';
-import { appEnv } from '@/envs/app';
 import { getAgentRuntimeRedisClient } from '@/server/modules/AgentRuntime/redis';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 
 import { replayDeferredBotMessages } from '../deferredMessages';
 import { buildReplayMessages } from '../mergeMessages';
@@ -279,7 +279,7 @@ export class BotMessageRouter {
     );
 
     const runtimeContext: BotPlatformRuntimeContext = {
-      appUrl: appEnv.APP_URL,
+      appUrl: tenantPublicBaseUrl(),
       redisClient: getAgentRuntimeRedisClient() as any,
       userId,
     };

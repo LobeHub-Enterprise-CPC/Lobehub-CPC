@@ -156,6 +156,7 @@ export const getUserInfo = async (
     // Transform favoriteAgents to DiscoverAssistantItem format
     const transformedFavoriteAgents: DiscoverAssistantItem[] = (favoriteAgents || []).map(
       (agent: any) => ({
+        ...pickContentSync(agent),
         author: agent.author || '',
         avatar: agent.avatar || '',
         category: agent.category as any,
@@ -180,6 +181,7 @@ export const getUserInfo = async (
 
     // Transform favoriteAgentGroups to DiscoverGroupAgentItem format
     const transformedFavoriteAgentGroups = (favoriteAgentGroups || []).map((group: any) => ({
+      ...pickContentSync(group),
       author: group.author || '',
       avatar: group.avatar || '👥',
       category: group.category as any,

@@ -1,5 +1,6 @@
 'use client';
 
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { TITLE_BAR_HEIGHT } from '@lobechat/desktop-bridge';
 import {
   ActionIcon,
@@ -21,7 +22,6 @@ import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspa
 import { isDesktop } from '@/const/version';
 import { buildDocumentModalUrl } from '@/features/DocumentModal/url';
 import { useHtmlExport } from '@/features/Portal/Document/useHtmlExport';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 
 const hideHtmlPreviewActions = () => null;
 
@@ -40,7 +40,7 @@ interface GoalReportFullscreenProps {
 const GoalReportFullscreen = memo<GoalReportFullscreenProps>(
   ({ content, documentId, onClose, open, title }) => {
     const { t } = useTranslation(['file', 'common', 'components']);
-    const appOrigin = useAppOrigin();
+    const appOrigin = useAppBaseUrl();
     const workspaceSlug = useActiveWorkspaceSlug();
     const exportHtml = useHtmlExport(documentId);
 

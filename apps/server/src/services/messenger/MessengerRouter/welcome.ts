@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import type { Chat } from 'chat';
 import debug from 'debug';
 
@@ -63,8 +64,8 @@ export async function handleAppHomeOpened(
     }
 
     const text = activeAgentName
-      ? `Welcome to LobeHub! Your active agent is *${activeAgentName}*. Send a message to chat, or use \`/agents\` to switch.`
-      : 'Welcome to LobeHub! Send `/agents` to pick an active agent and start chatting.';
+      ? `Welcome to ${BRANDING_NAME}! Your active agent is *${activeAgentName}*. Send a message to chat, or use \`/agents\` to switch.`
+      : `Welcome to ${BRANDING_NAME}! Send \`/agents\` to pick an active agent and start chatting.`;
     await bot.binder.sendDmText(event.channelId, text);
   } catch (error) {
     log('handleAppHomeOpened: dispatch failed: %O', error);
@@ -99,10 +100,10 @@ export async function handleChannelJoin(
   }
 
   const text = [
-    ":wave: Hi, I'm *LobeHub* — your AI agent on Slack.",
+    `:wave: Hi, I'm *${BRANDING_NAME}* — your AI agent on Slack.`,
     '',
-    '• Mention me with `@LobeHub <your question>` to chat in this channel.',
-    '• First time? Send me a *direct message* to link your LobeHub account.',
+    '• Mention this bot followed by your question to chat in this channel.',
+    `• First time? Send me a *direct message* to link your ${BRANDING_NAME} account.`,
     '• Use `/agents` in DM to switch the active agent.',
   ].join('\n');
 

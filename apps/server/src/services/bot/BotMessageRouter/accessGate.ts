@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import type { Chat } from 'chat';
 import debug from 'debug';
 
@@ -30,10 +31,8 @@ import {
 import type { BotAccessGate } from './types';
 
 const log = debug('lobe-server:bot:message-router');
-const WECHAT_PRO_FEATURE_NOTICE =
-  '提示：由于 WeChat 渠道通信成本过高，LobeHub 微信渠道能力将于近期调整为付费功能。预告期内已有连接可继续使用，但新建或重新连接微信渠道需要升级到个人付费 Plan。';
-const WECHAT_PRO_FEATURE_NOTICE_WORKSPACE =
-  '提示：由于 WeChat 渠道通信成本过高，LobeHub 微信渠道能力将于近期调整为付费功能。预告期内已有连接可继续使用，但新建或重新连接微信渠道需要将所属工作区升级到付费 Plan。';
+const WECHAT_PRO_FEATURE_NOTICE = `提示：由于 WeChat 渠道通信成本过高，${BRANDING_NAME} 微信渠道能力将于近期调整为付费功能。预告期内已有连接可继续使用，但新建或重新连接微信渠道需要升级到个人付费 Plan。`;
+const WECHAT_PRO_FEATURE_NOTICE_WORKSPACE = `提示：由于 WeChat 渠道通信成本过高，${BRANDING_NAME} 微信渠道能力将于近期调整为付费功能。预告期内已有连接可继续使用，但新建或重新连接微信渠道需要将所属工作区升级到付费 Plan。`;
 
 export interface AccessGateParams {
   agentId: string;

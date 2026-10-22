@@ -1,3 +1,5 @@
+import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
+
 import { resolveServerUrl } from '../../settings';
 import { log } from '../../utils/logger';
 
@@ -63,7 +65,7 @@ interface UserStateClient {
 }
 
 export const responseLanguageSettingsUrl = () => {
-  const url = new URL('/settings/appearance', resolveServerUrl());
+  const url = buildRemoteUrl('/settings/appearance', resolveServerUrl());
   // The server URL may embed credentials; this link is printed to logs.
   url.username = '';
   url.password = '';

@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import type { Chat, Message, MessageContext } from 'chat';
 import debug from 'debug';
 
@@ -192,7 +193,7 @@ export function registerHandlers(
       if (!featureAccess.allowed) {
         await replyToSender(
           featureAccess.blockedMessage ??
-            'This messenger connection requires a paid plan. Upgrade in LobeHub Settings to continue.',
+            `This messenger connection requires a paid plan. Upgrade in ${BRANDING_NAME} Settings to continue.`,
         );
         return;
       }

@@ -1,5 +1,6 @@
 'use client';
 
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { createStaticStyles, Flexbox, Icon, Skeleton, Text, toast } from '@lobehub/ui';
 import { ArrowLeftIcon, BookOpenIcon } from 'lucide-react';
 import { memo, useEffect } from 'react';
@@ -8,7 +9,6 @@ import { useTranslation } from 'react-i18next';
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import AsyncError from '@/components/AsyncError';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 
 import { useLinearIntegration } from '../useLinearIntegration';
 import Connections from './Connections';
@@ -75,7 +75,7 @@ interface LinearIntegrationProps {
  */
 const LinearIntegration = memo<LinearIntegrationProps>(({ onBack }) => {
   const { t, ready } = useTranslation('integration');
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
   const workspaceSlug = useActiveWorkspaceSlug();
   const workspaceId = useActiveWorkspaceId();
   const scope = workspaceSlug ? 'workspace' : 'personal';

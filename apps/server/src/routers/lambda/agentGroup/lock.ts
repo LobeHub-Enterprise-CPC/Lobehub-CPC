@@ -1,3 +1,4 @@
+import { trackTenantWork } from '@lobechat/database/tenant';
 import { z } from 'zod';
 
 import { router } from '@/libs/trpc/lambda';
@@ -13,9 +14,11 @@ export const lockRouter = router({
       const prev = await ctx.editLockService.getActiveHolder('chatGroup', input.id);
       const result = await ctx.editLockService.acquire('chatGroup', input.id);
       if ((result.holderId ?? null) !== (prev ?? null)) {
-        void publishResourceEvent(
-          { id: input.id, type: 'chatGroup' },
-          { actorId: ctx.userId, data: { holderId: result.holderId }, type: 'lock.changed' },
+        void trackTenantWork(() =>
+          publishResourceEvent(
+            { id: input.id, type: 'chatGroup' },
+            { actorId: ctx.userId, data: { holderId: result.holderId }, type: 'lock.changed' },
+          ),
         );
       }
       return result;
@@ -39,9 +42,11 @@ export const lockRouter = router({
       // lease expired and another member took over, the lock is still held.
       const released = await ctx.editLockService.release('chatGroup', input.id);
       if (!released) return;
-      void publishResourceEvent(
-        { id: input.id, type: 'chatGroup' },
-        { actorId: ctx.userId, data: { holderId: null }, type: 'lock.changed' },
+      void trackTenantWork(() =>
+        publishResourceEvent(
+          { id: input.id, type: 'chatGroup' },
+          { actorId: ctx.userId, data: { holderId: null }, type: 'lock.changed' },
+        ),
       );
     }),
 });

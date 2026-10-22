@@ -1,9 +1,9 @@
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import type { WorkSummaryItem } from '@lobechat/types';
 import { useCallback } from 'react';
 
 import { getWorkTypeDescriptor, isSafeExternalUrl } from '@/features/Work/descriptors';
 import { createShareVisitorDocumentModal } from '@/features/Work/ShareVisitorDocumentModal';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { useChatStore } from '@/store/chat';
 
 import { useConversationStore } from '../../store';
@@ -21,7 +21,7 @@ export const useVisitorWorkOpen = () => {
   const agentShareId = useConversationStore((s) => s.context.agentShareId);
   const topicId = useConversationStore((s) => s.context.topicId);
   const openFilePreview = useChatStore((s) => s.openFilePreview);
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
 
   return useCallback(
     (item: WorkSummaryItem) => {

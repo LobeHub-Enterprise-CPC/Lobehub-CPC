@@ -1,7 +1,4 @@
-import {
-  DEFAULT_SEARCH_USER_MEMORY_TOP_K,
-  DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM,
-} from '@lobechat/const';
+import { DEFAULT_SEARCH_USER_MEMORY_TOP_K } from '@lobechat/const';
 import { type LobeChatDatabase } from '@lobechat/database';
 import type { SearchMemoryResult } from '@lobechat/types';
 import { searchMemorySchema } from '@lobechat/types';
@@ -14,8 +11,6 @@ import {
 } from '@/database/models/userMemory';
 import { UserMemoryTopicRepository } from '@/database/repositories/userMemory';
 import { router } from '@/libs/trpc/lambda';
-import { getServerDefaultFilesConfig } from '@/server/globalConfig';
-import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
 import {
   recordUserMemoryLexicalSearchDecision,
   type UserMemoryLexicalSearchSource,
@@ -28,7 +23,7 @@ import {
 
 import type { MemoryEffort } from './procedures';
 import { memorySearchProcedure, normalizeMemoryEffort } from './procedures';
-import { rethrowCandidateSearchError } from './utils';
+import { getEmbeddingRuntime, rethrowCandidateSearchError } from './utils';
 
 const EMPTY_SEARCH_RESULT: SearchMemoryResult = {
   activities: [],
@@ -62,9 +57,10 @@ const searchUserMemories = async (
   source: UserMemoryLexicalSearchSource,
 ): Promise<SearchMemoryResult> => {
   const normalizedInput = normalizeSearchMemoryParams(input);
-  const { provider, model: embeddingModel } =
-    getServerDefaultFilesConfig().embeddingModel || DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM;
-  const modelRuntime = await initModelRuntimeFromDB(ctx.serverDB, ctx.userId, provider);
+  const { agentRuntime: modelRuntime, embeddingModel } = await getEmbeddingRuntime(
+    ctx.serverDB,
+    ctx.userId,
+  );
   const normalizedQueries = normalizeUserMemorySearchQueries(normalizedInput.queries);
 
   const queryEmbeddings =

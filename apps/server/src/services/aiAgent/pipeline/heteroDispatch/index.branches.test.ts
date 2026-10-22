@@ -2,6 +2,8 @@ import { HETEROGENEOUS_PROVIDER_BINDING_LOCAL_ONLY_ERROR } from '@lobechat/heter
 import { ChatErrorType } from '@lobechat/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { mintOperationGatewayTicket } from '@/server/services/gatewayAuthorization';
+
 import {
   humanizeHeteroDispatchError,
   resolveHeteroDispatchErrorType,
@@ -173,6 +175,8 @@ const finalizeParams = (fields: Record<string, unknown>) => ({
 });
 
 beforeEach(() => {
+  // The run's gateway credential is a ticket bound to this operation, never a user JWT.
+  vi.mocked(mintOperationGatewayTicket).mockResolvedValue('operation-ticket');
   vi.clearAllMocks();
   mocks.recordStart.mockResolvedValue(true);
   mocks.signHeteroOperationJWT.mockResolvedValue('op-jwt');
@@ -365,7 +369,7 @@ describe('dispatchHeteroAgent — remote platform agents', () => {
       heteroType: 'openclaw',
       status: 'created',
       success: true,
-      token: 'user-jwt',
+      token: 'operation-ticket',
     });
   });
 });
@@ -492,7 +496,7 @@ describe('dispatchHeteroAgent — local CLI agents', () => {
       deviceWorkspaceId: undefined,
       heteroType: 'claude-code',
     });
-    expect(result).toMatchObject({ status: 'created', success: true, token: 'user-jwt' });
+    expect(result).toMatchObject({ status: 'created', success: true, token: 'operation-ticket' });
   });
 
   it('spawns in the source repo and names the active worktree in the context', async () => {
@@ -608,7 +612,7 @@ describe('dispatchHeteroAgent — cloud sandbox', () => {
         sandbox: undefined,
       }),
     );
-    expect(result).toMatchObject({ status: 'created', success: true, token: 'user-jwt' });
+    expect(result).toMatchObject({ status: 'created', success: true, token: 'operation-ticket' });
   });
 
   it('reads the GitHub credential from the workspace under a custom key', async () => {
@@ -648,3 +652,6 @@ describe('dispatchHeteroAgent — cloud sandbox', () => {
     expect(result).toMatchObject({ success: true, token: undefined });
   });
 });
+
+// Gateway tickets need a tenant execution scope; these cases cover dispatch, not minting.
+vi.mock('@/server/services/gatewayAuthorization');

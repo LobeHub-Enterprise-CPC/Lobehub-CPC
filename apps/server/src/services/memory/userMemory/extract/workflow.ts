@@ -10,6 +10,7 @@ import { asyncTasks } from '@/database/schemas';
 import { getServerDB } from '@/database/server';
 import { OtelWorkflowClient } from '@/libs/qstash';
 import { parseMemoryExtractionConfig } from '@/server/globalConfig/parseMemoryExtractionConfig';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import {
   AsyncTaskError,
   AsyncTaskErrorType,
@@ -53,11 +54,9 @@ const getProcessUserTopicsFlowControl = (): FlowControl => {
 const buildHourlyChildWorkflowRunId = (entryWorkflowRunId: string) =>
   `memory-user-memory-hourly-${entryWorkflowRunId.replaceAll(/[^\w-]/g, '_')}`;
 
-const getWorkflowUrl = (path: string, baseUrl: string) => {
-  const url = new URL(path, baseUrl);
-
-  return url.toString();
-};
+// The tenant is read when the trigger runs (always inside the tenant that
+// owns the extraction), never carried in `baseUrl`.
+const getWorkflowUrl = (path: string, baseUrl: string) => buildTenantCallbackUrl(path, baseUrl);
 
 const getWorkflowClient = () => {
   const token = process.env.QSTASH_TOKEN;

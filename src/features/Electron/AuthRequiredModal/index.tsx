@@ -3,7 +3,7 @@
 import { type AuthorizationPhase } from '@lobechat/electron-client-ipc';
 import { useWatchBroadcast } from '@lobechat/electron-client-ipc';
 import type { ImperativeModalProps, ModalInstance } from '@lobehub/ui';
-import { Button, createModal, Flexbox, Icon, ModalFooter } from '@lobehub/ui';
+import { Alert, Button, createModal, Flexbox, Icon, ModalFooter } from '@lobehub/ui';
 import debug from 'debug';
 import { AlertCircle, ArrowRightLeftIcon, LogIn, MailSearchIcon } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';

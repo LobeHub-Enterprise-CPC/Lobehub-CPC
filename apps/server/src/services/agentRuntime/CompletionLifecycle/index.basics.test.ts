@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentOperationModel } from '@/database/models/agentOperation';
 import type * as WorkRegistrationModule from '@/server/services/workRegistration';
 
-import { CompletionLifecycle, isSuccessLikeCompletionReason } from '.';
+import { CompletionLifecycle, isSuccessLikeCompletionReason, shouldSuppressAgentSignal } from '.';
 
 vi.mock('@/database/models/work', () => import('./testUtils').then((m) => m.workModelModule()));
 vi.mock('@/database/models/topic', () => import('./testUtils').then((m) => m.topicModelModule()));
@@ -26,6 +26,42 @@ vi.mock('@/server/services/workRegistration', async (importOriginal) => ({
 }));
 
 const buildLifecycle = () => new CompletionLifecycle({} as any, 'user-1');
+
+describe('shouldSuppressAgentSignal', () => {
+  it('suppresses Channel actor runs', () => {
+    expect(
+      shouldSuppressAgentSignal({
+        principal: { actor: { channel: { channelId: 'channel-1', runId: 'run-1' } } },
+      }),
+    ).toBe(true);
+  });
+
+  it('does not suppress ordinary runs or missing state', () => {
+    expect(shouldSuppressAgentSignal({ principal: { actor: {} } })).toBe(false);
+    expect(shouldSuppressAgentSignal(undefined)).toBe(false);
+  });
+
+  it('preserves Agent Share visitor suppression', () => {
+    expect(
+      shouldSuppressAgentSignal({
+        principal: { actor: { shareVisitor: { visitorUserId: 'visitor-1' } } },
+      }),
+    ).toBe(true);
+  });
+});
+
+describe('CompletionLifecycle message store', () => {
+  it('reads and writes the host transcript store instead of messages when one is given', async () => {
+    // A private transcript (Channel) keeps no row in `messages`: terminal-state
+    // writes must land in the store the run itself wrote to.
+    const messageStore = { update: vi.fn().mockResolvedValue({ success: true }) };
+    const lifecycle = new CompletionLifecycle({} as any, 'user-1', undefined, {
+      messageStore: messageStore as any,
+    });
+
+    expect((lifecycle as any).messageModel).toBe(messageStore);
+  });
+});
 
 describe('CompletionLifecycle.recordStart diagnostics', () => {
   let debugNamespaces: string;

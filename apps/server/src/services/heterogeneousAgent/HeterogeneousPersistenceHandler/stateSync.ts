@@ -23,7 +23,7 @@ import {
   INTERVENTION_PROVIDERS,
   INTERVENTION_TRANSITIONS,
 } from './intervention';
-import { operationStates, StaleHeteroOperationError } from './operationState';
+import { operationStates, StaleHeteroOperationError, stateKey } from './operationState';
 import type { HeterogeneousPersistenceHandlerDeps, OperationState } from './types';
 
 const log = debug('lobe-server:hetero-agent:persistence');
@@ -57,7 +57,7 @@ export async function loadOrCreateState(
   seedAssistantMessageId?: string,
   allowMissingRunningOperation = false,
 ): Promise<OperationState> {
-  let state = operationStates.get(operationId);
+  let state = operationStates.get(stateKey(operationId));
   if (state) {
     // Defensive: caller mismatch on topicId would corrupt persistence —
     // assert and throw rather than silently writing to the wrong topic.
@@ -182,7 +182,7 @@ export async function loadOrCreateState(
   };
   await refreshToolMessageIndex(deps, state);
   await refreshMainStateFromDb(deps, state);
-  operationStates.set(operationId, state);
+  operationStates.set(stateKey(operationId), state);
   log(
     'created state for operation %s on topic %s msgId=%s tools=%d restored(content=%d tools=%d)',
     operationId,

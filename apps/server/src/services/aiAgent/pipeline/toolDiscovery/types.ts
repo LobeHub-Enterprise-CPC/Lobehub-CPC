@@ -70,6 +70,8 @@ export interface ToolDiscoveryInput {
   requestedDeviceId?: string;
   requestTrigger?: RequestTrigger;
   selectedToolIds?: string[];
+  /** Host-scoped builtin manifests; see {@link InternalExecAgentParams.serverToolManifests}. */
+  serverToolManifests?: InternalExecAgentParams['serverToolManifests'];
   throwIfExecutionAborted: (stage: string) => Promise<void>;
   topicBoundDeviceId?: string | null;
 }

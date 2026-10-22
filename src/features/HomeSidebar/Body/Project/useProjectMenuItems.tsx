@@ -1,22 +1,21 @@
-import type { MenuProps } from '@lobehub/ui';
+import type { DropdownItem } from '@lobehub/ui';
 import { confirmModal, Icon, toast } from '@lobehub/ui';
 import { PencilIcon, TrashIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { openRenameProjectModal } from '@/features/Projects/RenameProjectModal';
+import { useCanManageProject } from '@/features/Projects/useCanManageProject';
 import type { ProjectListItem } from '@/store/project';
 import { useProjectStore } from '@/store/project';
-import { useUserStore } from '@/store/user';
-import { userProfileSelectors } from '@/store/user/selectors';
 
-/** Rename and delete for a project row; empty for a project the viewer does not own. */
+/** Rename and delete for a project row; empty when the viewer cannot manage projects. */
 export const useProjectMenuItems = (project: ProjectListItem) => {
   const { t } = useTranslation(['project', 'common']);
   const [deleting, setDeleting] = useState(false);
   const deleteProject = useProjectStore((s) => s.deleteProject);
-  const currentUserId = useUserStore(userProfileSelectors.userId);
-  const canManage = currentUserId === project.userId;
+  // Any member who can edit manages a project they can see, whoever created it.
+  const canManage = useCanManageProject();
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -30,7 +29,7 @@ export const useProjectMenuItems = (project: ProjectListItem) => {
     }
   };
 
-  const menuItems: MenuProps['items'] = canManage
+  const menuItems: DropdownItem[] = canManage
     ? [
         {
           icon: <Icon icon={PencilIcon} />,

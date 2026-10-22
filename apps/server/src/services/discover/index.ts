@@ -161,35 +161,6 @@ export class DiscoverService {
   getMcpList = mcp.getMcpList.bind(null, this);
   getMcpManifest = mcp.getMcpManifest.bind(null, this);
 
-  // ============================== MCP Analytics ==============================
-
-  /**
-   * report MCP plugin result marketplace
-   */
-  reportPluginInstallation = mcp.reportPluginInstallation.bind(null, this);
-
-  /**
-   * record Agent plugin event
-   */
-  createAgentEvent = mcp.createAgentEvent.bind(null, this);
-
-  /**
-   * record MCP plugin event
-   */
-  createPluginEvent = mcp.createPluginEvent.bind(null, this);
-
-  /**
-   * report plugin call result to marketplace
-   */
-  reportCall = mcp.reportCall.bind(null, this);
-
-  // ============================== Agent Analytics ==============================
-
-  /**
-   * Increase agent install count in marketplace
-   */
-  increaseAgentInstallCount = mcp.increaseAgentInstallCount.bind(null, this);
-
   /**
    * Get agents that use a specific plugin
    */
@@ -229,6 +200,4 @@ export class DiscoverService {
   getGroupAgentDetail = groupAgents.getGroupAgentDetail.bind(null, this);
   getGroupAgentIdentifiers = groupAgents.getGroupAgentIdentifiers.bind(null, this);
   getGroupAgentList = groupAgents.getGroupAgentList.bind(null, this);
-  createGroupAgentEvent = groupAgents.createGroupAgentEvent.bind(null, this);
-  increaseGroupAgentInstallCount = groupAgents.increaseGroupAgentInstallCount.bind(null, this);
 }

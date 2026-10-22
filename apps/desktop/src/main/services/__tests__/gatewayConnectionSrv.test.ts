@@ -31,6 +31,13 @@ vi.mock('@/utils/logger', () => ({
   createLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
 }));
 
+/** The execution authority every gateway request carries on this deployment. */
+const currentExecution = {
+  attemptId: 'attempt-1',
+  executionSignal: new AbortController().signal,
+  isExecutionCurrent: () => true,
+};
+
 const createClient = () =>
   ({ sendSystemInfoResponse: vi.fn() }) as unknown as GatewayClient & {
     sendSystemInfoResponse: ReturnType<typeof vi.fn>;
@@ -84,6 +91,7 @@ describe('GatewayConnectionService system_info_request', () => {
     });
     const client = createClient();
     await service['handleSystemInfoRequest'](client, {
+      ...currentExecution,
       requestId: 'native-desktop',
       type: 'system_info_request',
     });
@@ -120,6 +128,7 @@ describe('GatewayConnectionService system_info_request', () => {
     const client = createClient();
     for (const requestId of ['first', 'second', 'third']) {
       await service['handleSystemInfoRequest'](client, {
+        ...currentExecution,
         requestId,
         type: 'system_info_request',
       });
@@ -144,6 +153,7 @@ describe('GatewayConnectionService system_info_request', () => {
     });
     const client = createClient();
     await service['handleSystemInfoRequest'](client, {
+      ...currentExecution,
       requestId: 'first',
       type: 'system_info_request',
     });
@@ -154,6 +164,7 @@ describe('GatewayConnectionService system_info_request', () => {
     service['setStatus']('reconnecting');
     service['setStatus']('connected');
     await service['handleSystemInfoRequest'](client, {
+      ...currentExecution,
       requestId: 'second',
       type: 'system_info_request',
     });
@@ -176,6 +187,7 @@ describe('GatewayConnectionService system_info_request', () => {
     execFileMock.mockResolvedValue({ stdout: 'Usage: lh connect' });
     const client = createClient();
     await service['handleSystemInfoRequest'](client, {
+      ...currentExecution,
       requestId: 'malformed',
       type: 'system_info_request',
     });

@@ -53,8 +53,8 @@ export const aiAgentProcedure = aiAgentBaseProcedure.use(async (opts) => {
 });
 
 // Dedicated procedure for hetero-agent callbacks. Narrow operation tokens are
-// re-authorized against durable operation state; pre-deploy operation tokens and
-// normal user OIDC tokens go through the legacy ownership guards.
+// re-authorized against durable operation state; normal user OIDC tokens go
+// through the ownership guards.
 export const heteroAgentProcedure = heteroAuthedProcedure.use(serverDatabase);
 
 export const aiAgentWriteProcedure = aiAgentProcedure.use(withScopedPermission('message:create'));

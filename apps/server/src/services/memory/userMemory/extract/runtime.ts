@@ -7,6 +7,7 @@ import { getBusinessModelRuntimeHooks } from '@/business/server/model-runtime';
 import { AiInfraRepos } from '@/database/repositories/aiInfra';
 import type { MemoryAgentConfig } from '@/server/globalConfig/parseMemoryExtractionConfig';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { createUserEndpointFetch } from '@/server/modules/ModelRuntime/userEndpoint';
 import { getUserScopedAiProviderRuntimeState } from '@/server/services/aiProviderAccess';
 import type { GlobalMemoryLayer } from '@/types/serverConfig';
 import type { LayersEnum } from '@/types/userMemory';
@@ -110,6 +111,8 @@ export const resolveRuntimeAgentConfig = (
     return ModelRuntime.initializeWithProvider(provider, {
       apiKey: userApiKey,
       baseURL: userBaseURL,
+      // The vault baseURL is typed in by the user: keep it off private/metadata targets.
+      ...(userBaseURL && { fetch: createUserEndpointFetch() }),
       userId: options?.userId,
     });
   }

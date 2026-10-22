@@ -40,7 +40,8 @@ vi.mock('@/modules/tenantAuth/gatewayIdentity', () => ({
         authorizationId: 'source-A',
         acceptedVersion: 7,
       }),
-      { subject: 'mock-user' },
+      // The provider names the signed-in account, as the real one does.
+      { subject: userId || 'mock-user' },
     );
   },
 }));
@@ -380,6 +381,11 @@ const mockRemoteServerConfigCtr = {
   getRemoteCredentials: vi
     .fn()
     .mockResolvedValue({ serverUrl: 'https://server.example.com', token: 'mock-access-token' }),
+  getRemoteServerConfig: vi.fn().mockResolvedValue({
+    active: true,
+    remoteServerUrl: 'https://server.example.com',
+    storageMode: 'selfHost',
+  }),
   getRemoteServerUrl: vi.fn().mockResolvedValue('https://server.example.com'),
   isRemoteServerConfigured: vi.fn().mockResolvedValue(true),
   refreshAccessToken: vi.fn().mockResolvedValue({ success: true }),
@@ -483,7 +489,8 @@ describe('GatewayConnectionCtr', () => {
       expect(options.token).toBe('dedicated-ticket');
       expect(options.deviceId).toBeTruthy(); // derived from the account, before the ticket
       expect(options.connectionId).toBe('stored-device-id');
-      expect(options.gatewayUrl).toBe('https://device-gateway.lobehub.com');
+      // Nothing saved: the gateway this server advertises.
+      expect(options.gatewayUrl).toBe(SERVER_GATEWAY_URL);
       expect(options.logger).toBeDefined();
       expect(options.userAgent).toBe('LobeHub Desktop/1.2.3');
     });
@@ -519,7 +526,11 @@ describe('GatewayConnectionCtr', () => {
       vi.mocked(mockRemoteServerConfigCtr.getAccessToken).mockResolvedValueOnce(null);
 
       const result = await ctr.connect();
-      expect(result).toEqual({ error: 'GATEWAY_LOGIN_CONFIRMATION_REQUIRED', success: false });
+      expect(result).toEqual({
+        error: 'No access token available',
+        errorCode: 'not_signed_in',
+        success: false,
+      });
       expect(MockGatewayClient.lastInstance).toBeNull();
     });
 
@@ -890,27 +901,18 @@ describe('GatewayConnectionCtr', () => {
       expect(MockGatewayClient.lastOptions.gatewayUrl).toBe(SERVER_GATEWAY_URL);
     });
 
-    it('surfaces a gateway auth rejection as a retryable error once the refresh did not help', async () => {
+    it('surfaces a rejected tenant ticket as a retryable error without a refresh loop', async () => {
       await startCtr();
       const first = MockGatewayClient.lastInstance!;
 
-      // The first rejection refreshes the token and reconnects to the same gateway.
+      // A rejected tenant ticket is final (FR-GW-02): no token refresh, no new socket.
       first.emit('auth_failed', 'crypto/rsa: verification error');
       first.simulateStatusChanged('disconnected');
       await vi.advanceTimersByTimeAsync(0);
-      expect(mockRemoteServerConfigCtr.refreshAccessToken).toHaveBeenCalledTimes(1);
-      expect(MockGatewayClient.instances).toHaveLength(2);
-      expect(MockGatewayClient.lastOptions.gatewayUrl).toBe(SERVER_GATEWAY_URL);
-      expect(lastBroadcast()?.error).toBeUndefined();
 
-      // The refreshed token is rejected too: that is what the user sees.
-      const second = MockGatewayClient.lastInstance!;
-      second.emit('auth_failed', 'crypto/rsa: verification error');
-      second.simulateStatusChanged('disconnected');
-      await vi.advanceTimersByTimeAsync(0);
-
-      expect(mockRemoteServerConfigCtr.refreshAccessToken).toHaveBeenCalledTimes(1);
-      expect(MockGatewayClient.instances).toHaveLength(2);
+      expect(mockRemoteServerConfigCtr.refreshAccessToken).not.toHaveBeenCalled();
+      expect(first.disconnect).toHaveBeenCalled();
+      expect(MockGatewayClient.instances).toHaveLength(1);
       expect(lastBroadcast()).toEqual({
         error: { code: 'auth_failed', detail: 'crypto/rsa: verification error' },
         status: 'disconnected',
@@ -966,7 +968,8 @@ describe('GatewayConnectionCtr', () => {
         expect(MockGatewayClient.instances.map((c) => c.options.gatewayUrl)).toEqual([
           'https://gw.b.example.com',
         ]);
-        expect(MockGatewayClient.lastOptions.token).toBe(jwtFor('user-b'));
+        // The socket carries the ticket minted for the new login, never a raw token.
+        expect(MockGatewayClient.lastOptions.token).toBe('dedicated-ticket');
       });
 
       it('does not reconnect when signed out during an auth refresh', async () => {
@@ -987,7 +990,7 @@ describe('GatewayConnectionCtr', () => {
         expect(MockGatewayClient.instances).toEqual([client]);
       });
 
-      it('reconnects an auth refresh to the same gateway without re-reading the config', async () => {
+      it('renews an expired ticket on the same client without re-reading the config', async () => {
         await startCtr();
         const client = MockGatewayClient.lastInstance!;
         client.simulateConnected();
@@ -996,7 +999,8 @@ describe('GatewayConnectionCtr', () => {
         await vi.advanceTimersByTimeAsync(0);
 
         expect(netFetchMock).toHaveBeenCalledTimes(1);
-        expect(MockGatewayClient.instances).toHaveLength(2);
+        expect(client.reconnect).toHaveBeenCalledOnce();
+        expect(MockGatewayClient.instances).toEqual([client]);
         expect(MockGatewayClient.lastOptions.gatewayUrl).toBe(SERVER_GATEWAY_URL);
       });
     });
@@ -1051,7 +1055,7 @@ describe('GatewayConnectionCtr', () => {
         expect(MockGatewayClient.lastOptions).toMatchObject({
           gatewayUrl: SERVER_GATEWAY_URL,
           serverUrl: SERVER_URL,
-          token: 'ws-token',
+          token: 'dedicated-ticket',
           workspaceId: 'ws-1',
         });
         expect(store.gatewayWorkspaceEnrollmentsByAccount).toEqual({ [ACCOUNT]: ['ws-1'] });
@@ -1077,7 +1081,7 @@ describe('GatewayConnectionCtr', () => {
         expect(workspaceClients().map((c) => c.options)).toEqual([
           expect.objectContaining({
             gatewayUrl: SERVER_GATEWAY_URL,
-            token: 'ws-token-ws-own',
+            token: 'dedicated-ticket',
             workspaceId: 'ws-own',
           }),
         ]);

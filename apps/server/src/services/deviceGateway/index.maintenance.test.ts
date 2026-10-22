@@ -163,3 +163,6 @@ describe('DeviceGateway', () => {
     });
   });
 });
+
+// The tenant boundary is covered by tenancy tests; these exercise the RPC surface.
+vi.mock('./tenancy', () => ({ deviceGatewayTenancy: () => ({ tenantId: 'tenant-test' }) }));

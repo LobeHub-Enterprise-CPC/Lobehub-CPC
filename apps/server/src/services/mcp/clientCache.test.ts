@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/mcp');
+// Stdio clients only exist in the desktop build; the service refuses them elsewhere.
+vi.mock('@lobechat/const', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  isDesktop: true,
+}));
 
 describe('MCPService client cache', () => {
   let mcpService: any;

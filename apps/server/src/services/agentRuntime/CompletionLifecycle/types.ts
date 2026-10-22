@@ -1,6 +1,6 @@
 import type { AgentOperationModel } from '@/database/models/agentOperation';
-import type { MessageModel } from '@/database/models/message';
 import type { LobeChatDatabase } from '@/database/type';
+import type { RuntimeMessageStore } from '@/server/modules/AgentRuntime/context';
 
 import type { SerializedHook } from '../hooks';
 
@@ -77,7 +77,7 @@ export interface CompleteOperationOptions {
 export interface CompletionLifecycleDeps {
   agentOperationModel: AgentOperationModel;
   includeShareVisitor: boolean;
-  messageModel: MessageModel;
+  messageModel: RuntimeMessageStore;
   serverDB: LobeChatDatabase;
   userId: string;
   workspaceId?: string;

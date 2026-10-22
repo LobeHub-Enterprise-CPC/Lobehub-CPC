@@ -25,19 +25,8 @@ function expected(): Array<
   [name: string, type: 'mutation' | 'query' | 'subscription', middlewares: number]
 > {
   return [
-    ['abortUpload', 'mutation', 11],
-    ['createFile', 'mutation', 11],
-    ['createUploadUrl', 'mutation', 11],
-    ['execAgent', 'mutation', 11],
-    ['getDocument', 'query', 11],
-    ['getMessages', 'query', 11],
-    ['getTopics', 'query', 11],
-    ['interruptTask', 'mutation', 11],
-    ['issueGatewayUserToken', 'query', 11],
-    ['refreshGatewayToken', 'query', 11],
-    ['removeFile', 'mutation', 11],
-    ['resolveInterventionBySource', 'mutation', 11],
-    ['setQueuedMessages', 'mutation', 11],
-    ['stopPendingApproval', 'mutation', 11],
+    ['getDocument', 'query', 12],
+    ['getMessages', 'query', 12],
+    ['getTopics', 'query', 12],
   ];
 }

@@ -498,3 +498,6 @@ describe('AiAgentService.execAgent - Codex device runtime', () => {
     );
   });
 });
+
+// Gateway tickets need a tenant execution scope; these cases cover dispatch, not minting.
+vi.mock('@/server/services/gatewayAuthorization');

@@ -1,6 +1,7 @@
 /**
  * @vitest-environment node
  */
+import type * as SsrfSafeFetch from '@lobechat/ssrf-safe-fetch';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { hookDispatcher } from '../../hooks';
@@ -15,7 +16,18 @@ vi.mock('@lobechat/model-runtime', (...args) =>
 
 const { ssrfSafeFetch: mockSsrfSafeFetch } = vi.hoisted(() => ({ ssrfSafeFetch: vi.fn() }));
 
-vi.mock('@lobechat/ssrf-safe-fetch', () => ({ ssrfSafeFetch: mockSsrfSafeFetch }));
+vi.mock('@/server/modules/Tenant/postgresClaims', () => ({
+  heartbeatTenantProcess: vi.fn(),
+  tenantClaims: { bind: () => async () => {}, enter: async () => async () => {} },
+}));
+
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
+vi.mock('@lobechat/ssrf-safe-fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof SsrfSafeFetch>()),
+  ssrfSafeFetch: mockSsrfSafeFetch,
+}));
 
 // Mock trusted client to avoid server-side env access
 vi.mock('@/libs/trusted-client', (...args) =>
@@ -121,13 +133,13 @@ describe('AgentRuntimeService', () => {
     it('should initialize with default base URL', () => {
       delete process.env.AGENT_RUNTIME_BASE_URL;
       const newService = new AgentRuntimeService(mockDb, mockUserId);
-      expect((newService as any).baseURL).toBe('http://localhost:3210/api/agent');
+      expect((newService as any).baseURL).toBe('http://localhost:3210/t/acme/api/agent');
     });
 
     it('should initialize with custom base URL from environment', () => {
       process.env.AGENT_RUNTIME_BASE_URL = 'http://custom:3000';
       const newService = new AgentRuntimeService(mockDb, mockUserId);
-      expect((newService as any).baseURL).toBe('http://custom:3000/api/agent');
+      expect((newService as any).baseURL).toBe('http://custom:3000/t/acme/api/agent');
     });
   });
 

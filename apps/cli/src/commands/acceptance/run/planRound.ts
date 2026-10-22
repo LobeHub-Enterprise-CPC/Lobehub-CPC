@@ -1,5 +1,6 @@
 import { runEvidenceGaps } from '@lobechat/const/verify';
 import type { VerifyCheckItem } from '@lobechat/types';
+import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import pc from 'picocolors';
 
 import type { TrpcClient } from '../../../api/client';
@@ -154,7 +155,10 @@ export async function ingestIntoPlanRound(
   }
 
   const acceptanceUrl = run?.acceptanceId
-    ? new URL(`/acceptance/${encodeURIComponent(run.acceptanceId)}`, resolveServerUrl()).toString()
+    ? buildRemoteUrl(
+        `/acceptance/${encodeURIComponent(run.acceptanceId)}`,
+        resolveServerUrl(),
+      ).toString()
     : null;
   // The evidence landed, but with no acceptance there is nothing to hand off:
   // a caller reading only the status must not take this for a publication.

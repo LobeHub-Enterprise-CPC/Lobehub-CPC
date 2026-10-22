@@ -33,6 +33,18 @@ export const isAgentShareRun = (
     { principal?: { actor?: { shareVisitor?: { visitorUserId?: string } } } } | undefined | null,
 ): boolean => Boolean(state?.principal?.actor?.shareVisitor?.visitorUserId);
 
+/** Suppress owner-scoped signals for private Share and Channel transcripts. */
+export const shouldSuppressAgentSignal = (
+  state:
+    | {
+        principal?: {
+          actor?: { channel?: unknown; shareVisitor?: { visitorUserId?: string } };
+        };
+      }
+    | undefined
+    | null,
+): boolean => isAgentShareRun(state) || Boolean(state?.principal?.actor?.channel);
+
 const toAgentSignalSnapshotEvents = (
   emission: Awaited<ReturnType<typeof emitAgentSignalSourceEvent>> | undefined,
 ): SignalEvent[] => {
@@ -69,7 +81,7 @@ export async function emitSignalEvents(
     // telemetry for a run an anonymous link visitor triggered. Suppress the
     // whole emission rather than merely re-scoping it: a share visitor has no
     // Agent Signal identity of its own to attribute this to.
-    if (isAgentShareRun(state)) {
+    if (shouldSuppressAgentSignal(state)) {
       log(
         '[completion-lifecycle] skip agent signal emission for share visitor run op=%s reason=%s',
         operationId,

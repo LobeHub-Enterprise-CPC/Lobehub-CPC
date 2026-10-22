@@ -1,3 +1,4 @@
+import { trackTenantWork } from '@lobechat/database/tenant';
 import debug from 'debug';
 
 import {
@@ -7,7 +8,9 @@ import {
 import { MessageModel } from '@/database/models/message';
 import { VerifyRunModel } from '@/database/models/verifyRun';
 import type { LobeChatDatabase } from '@/database/type';
+import type { RuntimeMessageStore } from '@/server/modules/AgentRuntime/context';
 import { formatErrorForState } from '@/server/modules/AgentRuntime/formatErrorForState';
+import { captureOperationGatewayMetadata } from '@/server/services/gatewayAuthorization/operationAuthority';
 import {
   instantiateVerifyPlanOnStart,
   runVerifyOnCompletion,
@@ -26,7 +29,7 @@ import { buildLifecycleEvent, extractErrorMessage } from './lifecycleEvent';
 import { extractOutboundAttachments, extractTextFromMessageContent } from './messageContent';
 import { persistCompletion } from './persistence';
 import { recallUserOnCompletion } from './recall';
-import { emitSignalEvents, isAgentShareRun } from './signals';
+import { emitSignalEvents, shouldSuppressAgentSignal } from './signals';
 import type {
   CompleteOperationOptions,
   CompletionLifecycleDeps,
@@ -41,7 +44,7 @@ export {
   findLastAssistantMessage,
   normalizeCompletionMessages,
 } from './messageContent';
-export { isAgentShareRun } from './signals';
+export { isAgentShareRun, shouldSuppressAgentSignal } from './signals';
 export type { CompleteOperationOptions, OperationCompletionInput } from './types';
 
 const log = debug('lobe-server:completion-lifecycle');
@@ -71,7 +74,7 @@ export const isSuccessLikeCompletionReason = (reason: string): boolean =>
  * queue execution can retry the control-flow handoff.
  */
 export class CompletionLifecycle {
-  private readonly messageModel: MessageModel;
+  private readonly messageModel: RuntimeMessageStore;
   private readonly agentOperationModel: AgentOperationModel;
   private readonly workspaceId?: string;
   /**
@@ -93,13 +96,17 @@ export class CompletionLifecycle {
        * creator's identity.
        */
       includeShareVisitor?: boolean;
+      /** Store used by private-transcript hosts for this operation's messages. */
+      messageStore?: RuntimeMessageStore;
     },
   ) {
     this.workspaceId = workspaceId;
     this.includeShareVisitor = options?.includeShareVisitor ?? false;
-    this.messageModel = new MessageModel(serverDB, userId, workspaceId, undefined, {
-      includeShareVisitor: this.includeShareVisitor,
-    });
+    this.messageModel =
+      options?.messageStore ??
+      new MessageModel(serverDB, userId, workspaceId, undefined, {
+        includeShareVisitor: this.includeShareVisitor,
+      });
     this.agentOperationModel = new AgentOperationModel(serverDB, userId, workspaceId);
   }
 
@@ -122,14 +129,15 @@ export class CompletionLifecycle {
 
   /**
    * Persist the initial `agent_operations` row when an operation is created.
-   * Returns whether the row write succeeded so security-sensitive callers can
-   * require durable state before dispatch. Other runtime paths may preserve
-   * the historical non-blocking behavior by ignoring the result.
+   * Captures gateway authority before publishing queues or init.
    */
   async recordStart(params: RecordOperationStartParams): Promise<boolean> {
     let persisted = true;
     try {
-      await this.agentOperationModel.recordStart(params);
+      await this.agentOperationModel.recordStart({
+        ...params,
+        metadata: captureOperationGatewayMetadata(params.metadata),
+      });
     } catch (error) {
       persisted = false;
       // Hook configuration may contain inline authorization headers. Never log
@@ -399,10 +407,12 @@ export class CompletionLifecycle {
         isSuccessLikeCompletionReason(reason) &&
         runOrigin.lineage?.isSubAgent !== true &&
         runOrigin.lineage?.orchestrationRole !== 'member' &&
-        !isAgentShareRun(state)
+        !shouldSuppressAgentSignal(state)
       ) {
-        void this.recallUserOnCompletion(operationId, event, runOrigin).catch((error) =>
-          log('[%s] Completion notification failed (non-fatal): %O', operationId, error),
+        void trackTenantWork(() =>
+          this.recallUserOnCompletion(operationId, event, runOrigin).catch((error) =>
+            log('[%s] Completion notification failed (non-fatal): %O', operationId, error),
+          ),
         );
       }
 

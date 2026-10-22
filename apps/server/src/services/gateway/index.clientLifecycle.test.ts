@@ -88,7 +88,7 @@ describe('GatewayService client lifecycle', () => {
         credentials: { botToken: 'bot-token' },
         platform: 'discord',
         userId: 'user-1',
-        webhookPath: '/api/agent/webhooks/discord/app-1',
+        webhookPath: '/t/acme/api/agent/webhooks/discord/app-1',
       });
       expect(mockUpdateBotRuntimeStatus).toHaveBeenCalledWith({
         applicationId: 'app-1',
@@ -197,3 +197,6 @@ describe('GatewayService client lifecycle', () => {
     });
   });
 });
+
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');

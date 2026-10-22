@@ -389,3 +389,6 @@ describe('AiAgentService.execAgent - hetero runs keep the composer-authored user
     );
   });
 });
+
+// Gateway tickets need a tenant execution scope; these cases cover dispatch, not minting.
+vi.mock('@/server/services/gatewayAuthorization');

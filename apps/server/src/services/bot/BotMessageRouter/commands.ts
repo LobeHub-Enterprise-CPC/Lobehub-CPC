@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import type { Chat } from 'chat';
 import debug from 'debug';
 
@@ -10,7 +11,7 @@ import { AiAgentService } from '@/server/services/aiAgent';
 
 import { AgentBridgeService } from '../AgentBridgeService';
 import { deletePairingRequest, peekPairingRequest, releasePairingClaim } from '../dmPairingStore';
-import { submitBotFeedback } from '../feedbackSubmit';
+import { getPrivateFeedbackMessage, submitBotFeedback } from '../feedbackSubmit';
 import {
   type BotReplyLocale,
   type DmSettings,
@@ -321,7 +322,10 @@ export function buildCommands(
       name: 'approve',
     },
     {
-      description: 'Send feedback directly to the LobeHub team (no AI reply)',
+      description:
+        (BRANDING_NAME as string) === 'LobeHub'
+          ? `Send feedback directly to the ${BRANDING_NAME} team (no AI reply)`
+          : 'Contact support by email',
       // Declaring the argument so Discord/Slack surface a `/feedback <message>`
       // prompt instead of registering the command as zero-arg (see the
       // `options` comment on the BotCommand interface).
@@ -329,10 +333,15 @@ export function buildCommands(
         {
           description: 'Your feedback message',
           name: 'message',
-          required: true,
+          required: (BRANDING_NAME as string) === 'LobeHub',
         },
       ],
       handler: async (ctx) => {
+        const supportMessage = getPrivateFeedbackMessage(ctx.replyLocale);
+        if (supportMessage) {
+          await (ctx.postEphemeral ?? ctx.post)(supportMessage);
+          return;
+        }
         log('command /feedback: agent=%s, platform=%s', agentId, platform);
         // Prefer the ephemeral channel when available (Slack / Discord
         // native slash) so the user's feedback content and the bot's

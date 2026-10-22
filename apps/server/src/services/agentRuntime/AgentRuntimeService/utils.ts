@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { ABANDONED_OPERATION_ERROR_PREFIX } from '@lobechat/const/goal';
 import { ChatErrorType } from '@lobechat/types';
 
@@ -100,12 +101,12 @@ export const formatSubAgentCreditErrorReason = (error: unknown): string | undefi
   const shortfall = modelCostShortfall ? "can't cover this model's estimated cost" : 'are used up';
   const limit =
     budgetType === 'workspace'
-      ? `the workspace's shared LobeHub credits ${shortfall}; a workspace admin has to add credits`
+      ? `the workspace's shared ${BRANDING_NAME} credits ${shortfall}; a workspace admin has to add credits`
       : budgetType === 'workspace_member'
         ? `this member's workspace credit allowance ${modelCostShortfall ? shortfall : 'is used up'}; a workspace admin has to raise it`
         : modelCostShortfall
-          ? "the account's LobeHub credits are too low for this model; the account owner has to top up or upgrade"
-          : "the account's LobeHub plan limit was reached or the plan does not cover this model; the account owner has to upgrade the plan";
+          ? `the account's ${BRANDING_NAME} credits are too low for this model; the account owner has to top up or upgrade`
+          : `the account's ${BRANDING_NAME} plan limit was reached or the plan does not cover this model; the account owner has to upgrade the plan`;
 
   const advice = modelCostShortfall
     ? 'This limit is shared by every sub-agent and by this conversation, so retrying or dispatching more sub-agents on the same model will not get past it; a sub-agent that runs on a less expensive model may still fit. ' +
@@ -113,7 +114,7 @@ export const formatSubAgentCreditErrorReason = (error: unknown): string | undefi
     : 'This limit is shared by every sub-agent and by this conversation, so retrying or dispatching more sub-agents will not get past it. ' +
       'Finish with what you already have and tell the user about the limit.';
 
-  return `stopped by a LobeHub billing limit (${creditType}): ${limit}. ${advice}`;
+  return `stopped by a ${BRANDING_NAME} billing limit (${creditType}): ${limit}. ${advice}`;
 };
 
 /**

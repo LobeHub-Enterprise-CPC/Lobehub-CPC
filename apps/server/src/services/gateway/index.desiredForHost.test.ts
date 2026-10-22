@@ -205,7 +205,7 @@ describe('GatewayService', () => {
           botToken: 'tok-1',
           webhookToken: 'gateway-service-token',
         },
-        webhookPath: '/api/agent/messenger/webhooks/wechat',
+        webhookPath: '/t/acme/api/agent/messenger/webhooks/wechat',
       });
     });
 
@@ -380,3 +380,6 @@ describe('GatewayService', () => {
     });
   });
 });
+
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');

@@ -6,24 +6,19 @@ import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { assertAgentShareVisitorEnabled } from '../_helpers/agentShareFeatureGate';
 
 /**
- * Visitor-facing execution chain for shared agents (Agent Share).
+ * Read-only visitor access to shared agents (Agent Share). Visitor execution is
+ * unsupported on this deployment.
  *
- * All procedures authenticate the VISITOR (ctx.userId) but operate on rows in
- * the Agent's owning scope: topics/messages carry the creator's userId plus the
+ * All procedures authenticate the VISITOR (ctx.userId) but read rows in the
+ * Agent's owning scope: topics/messages carry the creator's userId plus the
  * Agent's workspaceId when present, and `topics.senderId = visitor` for
- * scoping. Every
- * read/write here is therefore manually authorized: resolve the share via
- * {@link resolveLinkShareOrThrow}, then require
+ * scoping. Every read is therefore manually authorized: resolve the share via
+ * `resolveLinkShareOrThrow`, then require
  * `topic.senderId === visitor && topic.agentId === share.agentId`
- * ({@link findVisitorTopicOrThrow}).
- *
- * A visitor topic is tied to its share through `(agentId, senderId)`. Turning
- * sharing off and back on keeps the same share row, so that visitor's older
- * conversations remain available and continue counting toward the topic cap.
+ * (`findVisitorTopicOrThrow`).
  *
  * Workspace identity is resolved from the share row, never from visitor
- * headers, and is threaded through every model/service that persists data or
- * invokes the runtime.
+ * headers.
  */
 export const shareChatProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
   // Visitor access depends on deployment support and share permissions,

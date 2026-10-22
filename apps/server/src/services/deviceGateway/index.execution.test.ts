@@ -81,6 +81,8 @@ describe('DeviceGateway', () => {
       expect(result.success).toBe(false);
       expect(result.content).toContain('Could not reach the device gateway');
       expect(result.error).toBe('DEVICE_GATEWAY_UNREACHABLE: connection refused');
+      // The request may have reached the device: retrying must not re-run it.
+      expect(result.executionUnknown).toBe(true);
     });
 
     it('should handle non-Error exceptions', async () => {
@@ -96,6 +98,7 @@ describe('DeviceGateway', () => {
       expect(result.success).toBe(false);
       expect(result.content).toContain('unclear whether the device ran it');
       expect(result.error).toBe('DEVICE_GATEWAY_ERROR: string error');
+      expect(result.executionUnknown).toBe(true);
     });
   });
 
@@ -162,6 +165,8 @@ describe('DeviceGateway', () => {
       expect(result.success).toBe(false);
       expect(result.content).toContain('Could not reach the device gateway');
       expect(result.error).toBe('DEVICE_GATEWAY_UNREACHABLE: connection refused');
+      // The request may have reached the device: retrying must not re-run it.
+      expect(result.executionUnknown).toBe(true);
     });
   });
 
@@ -226,3 +231,6 @@ describe('DeviceGateway', () => {
     });
   });
 });
+
+// The tenant boundary is covered by tenancy tests; these exercise the RPC surface.
+vi.mock('./tenancy', () => ({ deviceGatewayTenancy: () => ({ tenantId: 'tenant-test' }) }));

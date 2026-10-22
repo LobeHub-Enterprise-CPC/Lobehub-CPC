@@ -10,7 +10,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/business/client/hooks/useActiveWorkspaceSlug', () => ({
   useActiveWorkspaceSlug: () => 'lobe-team',
 }));
-vi.mock('@/hooks/useAppOrigin', () => ({ useAppOrigin: () => 'https://app.lobehub.com' }));
+vi.mock('@lobechat/business-tenant/client', () => ({
+  useAppBaseUrl: () => 'https://app.lobehub.com',
+}));
 vi.mock('@/store/chat', () => ({
   useChatStore: (selector: (state: unknown) => unknown) => selector({}),
 }));

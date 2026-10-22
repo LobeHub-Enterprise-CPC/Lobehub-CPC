@@ -61,7 +61,7 @@ export const normalizeAuvArgv = (params: AuvRunCommandParams): string[] => {
   if (
     argv.some((argument) => argument === '--store-root' || argument.startsWith('--store-root='))
   ) {
-    throw new Error('AUV --store-root is managed by LobeHub');
+    throw new Error('AUV --store-root is managed by the application');
   }
 
   const command = argv[1]!;

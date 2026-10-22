@@ -1,4 +1,9 @@
+import type { AgentState } from '@lobechat/agent-runtime';
+import { currentTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
+
+import { getTenantLiveResources } from '@/server/modules/Tenant/liveResources';
+import { isGatewayStateExecutionCurrent } from '@/server/services/gatewayAuthorization/operationAuthority';
 
 import {
   LEGACY_INTERRUPT_STATE_POLL_INTERVAL_MS,
@@ -22,6 +27,7 @@ export function startStepAbortPoll(
   deps: StepAbortPollDeps,
   operationId: string,
   stepIndex: number,
+  execution?: AgentState['execution'],
 ): StepAbortPoll {
   // Hoisted so the shared `finally` can stop it on every exit path — an
   // orphaned interval would keep polling Redis for a step that is long gone.
@@ -51,6 +57,10 @@ export function startStepAbortPoll(
       // that large blob at a much lower cadence until all writers have
       // sentinel support.
       let interrupted = await deps.coordinator.isInterrupted(operationId);
+      if (!(await isGatewayStateExecutionCurrent(operationId, execution))) {
+        await deps.coordinator.markInterrupted(operationId);
+        interrupted = true;
+      }
       const now = Date.now();
       if (
         !interrupted &&
@@ -79,11 +89,29 @@ export function startStepAbortPoll(
   };
   stepAbortPoll = setTimeout(pollForAbort, STEP_ABORT_POLL_INTERVAL_MS);
 
+  // A tenant freeze or offline (FR-CP-06 stage 3) cancels the running
+  // step exactly like a user Stop: the sentinel makes the step boundary
+  // persist `interrupted`, the abort ends the in-flight LLM / tool call.
+  // The operation ends there; nothing it already did is replayed later.
+  const stepTenantId = currentTenantScope()?.tenantId;
+  const releaseTenantStep = stepTenantId
+    ? getTenantLiveResources().bind(stepTenantId, {
+        close: async () => {
+          try {
+            await deps.coordinator.markInterrupted(operationId);
+          } finally {
+            stepAbortController.abort();
+          }
+        },
+      })
+    : undefined;
+
   return {
     signal: stepAbortController.signal,
     stop: () => {
       stepAbortPollStopped = true;
       if (stepAbortPoll) clearTimeout(stepAbortPoll);
+      releaseTenantStep?.();
     },
   };
 }

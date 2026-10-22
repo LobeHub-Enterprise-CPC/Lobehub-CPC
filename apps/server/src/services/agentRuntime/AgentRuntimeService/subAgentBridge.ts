@@ -2,6 +2,8 @@ import type { AgentState } from '@lobechat/agent-runtime';
 import { appendSubAgentReference, isCallSubAgentCall } from '@lobechat/builtin-tool-lobe-agent';
 import debug from 'debug';
 
+import { gatewayParentMayResume } from '@/server/services/gatewayAuthorization/parentExecution';
+
 import {
   extractTextFromMessage,
   findLastAssistantMessage,
@@ -22,8 +24,10 @@ export type SubAgentBridgeDeps = Pick<
   | 'messageModel'
   | 'resolveLastAssistantContentFromThread'
   | 'resolveLastAssistantMessageFromDB'
+  | 'serverDB'
   | 'streamManager'
   | 'tryResumeParentFromAsyncTool'
+  | 'userId'
 >;
 
 /**
@@ -101,6 +105,8 @@ export async function completeSubAgentBridge(
   params: SubAgentBridgeParams,
 ): Promise<boolean> {
   const { operationId, parentOperationId, reason, threadId, toolMessageId } = params;
+  if (!(await gatewayParentMayResume(deps.serverDB, operationId, parentOperationId, deps.userId)))
+    return false;
   const failed = reason === 'error' || reason === 'interrupted';
 
   // Infra errors propagate; a null state (expired) degrades to a stub note.
@@ -222,7 +228,7 @@ export async function completeSubAgentBridge(
   // Pass the just-backfilled message id so the barrier trusts this write
   // instead of re-reading a possibly-stale replica.
   return deps.tryResumeParentFromAsyncTool(
-    { parentOperationId },
+    { childOperationId: operationId, parentOperationId },
     { knownFulfilledMessageId: toolMessageId, scheduleVerifyOnHold: true },
   );
 }

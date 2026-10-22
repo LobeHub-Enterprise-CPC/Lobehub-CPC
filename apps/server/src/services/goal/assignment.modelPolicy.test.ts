@@ -226,8 +226,11 @@ describe('goal model overrides on a fixed-model Agent', () => {
     const local = { model: 'llama3.1', provider: 'ollama' };
     const member = new GoalAssignmentService(db, memberId, workspaceId);
 
-    // Planning advances in the background, with no device to reach it.
-    await expect(member.setModel(goalId, local)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    // Planning advances in the background, with no device to reach it. This
+    // deployment refuses a device-only provider at the relay boundary first.
+    await expect(member.setModel(goalId, local)).rejects.toMatchObject({
+      code: 'LLM_RELAY_UNSUPPORTED',
+    });
     await expect(member.setTaskModel(goalId, local)).resolves.toBeTruthy();
   });
 

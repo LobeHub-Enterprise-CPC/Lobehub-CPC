@@ -5,6 +5,7 @@ import debug from 'debug';
 
 import type { MessengerPlatform } from '@/config/messenger';
 import { gatewayEnv } from '@/envs/gateway';
+import { tenantPublicPath } from '@/server/modules/Tenant/callbackUrl';
 import {
   getInstallationStore,
   messengerConnectionIdForUser,
@@ -126,7 +127,7 @@ export async function ensureUserMessengerConnected(
         : { botToken: creds.botToken },
       platform,
       userId,
-      webhookPath: isPolling ? `/api/agent/messenger/webhooks/${platform}` : '',
+      webhookPath: isPolling ? tenantPublicPath(`/api/agent/messenger/webhooks/${platform}`) : '',
     });
 
     // Evict-on-add: the iterator yields keys in insertion order, so the

@@ -319,3 +319,8 @@ describe('AiAgentService entry guards', () => {
     });
   });
 });
+
+// Device-provider routing is covered by the relay tests; these exercise the entry guards.
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

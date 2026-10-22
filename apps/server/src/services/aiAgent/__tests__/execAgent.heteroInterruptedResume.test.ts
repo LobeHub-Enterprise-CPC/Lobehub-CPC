@@ -383,3 +383,6 @@ describe('AiAgentService.execAgent - hetero resume after a stopped run', () => {
     expect(mockBuildRemoteDeviceHeteroContext.mock.calls[0][0].unansweredUserTurns).toBeUndefined();
   });
 });
+
+// Gateway tickets need a tenant execution scope; these cases cover dispatch, not minting.
+vi.mock('@/server/services/gatewayAuthorization');

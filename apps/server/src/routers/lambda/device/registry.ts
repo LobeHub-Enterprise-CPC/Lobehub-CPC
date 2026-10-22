@@ -329,8 +329,6 @@ export const registryRouter = router({
   // member or an owner.
   /**
    * Auto-register the calling device (desktop after OIDC login / CLI on first
-   * `lh connect`). Upserts on (userId, deviceId); user-owned fields are
-   * preserved on conflict.
    */
   register: deviceProcedure
     .input(

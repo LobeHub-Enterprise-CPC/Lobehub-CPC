@@ -4,6 +4,7 @@ import { type ChatToolPayload } from '@lobechat/types';
 import debug from 'debug';
 
 import { AgentOperationModel } from '@/database/models/agentOperation';
+import { assertGatewayStateExecution } from '@/server/services/gatewayAuthorization/operationAuthority';
 
 import { type GroupActionOnComplete } from '../types';
 import { ASYNC_TOOL_VERIFY_MAX_ATTEMPTS } from './constants';
@@ -54,7 +55,7 @@ export type AsyncToolDeps = Pick<
  */
 export async function tryResumeParentFromAsyncTool(
   deps: AsyncToolDeps,
-  params: { parentOperationId: string },
+  params: { parentOperationId: string; childOperationId?: string },
   options?: {
     /**
      * Message id of a tool placeholder the caller just backfilled to a
@@ -133,9 +134,11 @@ export async function tryResumeParentFromAsyncTool(
   const onComplete: GroupActionOnComplete =
     options?.onComplete ?? (await deps.resolveAsyncToolOnComplete(pending));
 
-  // Single-fire guard: only one concurrent completion flips the op.
+  // Version and child linkage are rechecked in the final resume CAS.
+  await assertGatewayStateExecution(parentOperationId, state.execution);
   const won = await new AgentOperationModel(deps.serverDB, deps.userId).tryResumeFromAsyncTool(
     parentOperationId,
+    params.childOperationId,
   );
   if (!won) {
     log('[%s] lost async-tool resume CAS, no-op', parentOperationId);
@@ -157,6 +160,7 @@ export async function tryResumeParentFromAsyncTool(
       context: undefined,
       delay: 100,
       endpoint: `${deps.baseURL}/run`,
+      execution: state.execution,
       operationId: parentOperationId,
       payload: onComplete === 'finish' ? { finishAfterAsyncTool: true } : { resumeAsyncTool: true },
       priority: 'high',

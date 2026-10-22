@@ -146,18 +146,6 @@ describe('DiscoverService delegation and market proxies', () => {
   });
 
   describe('analytics', () => {
-    it.each([
-      ['reportPluginInstallation', market.plugins.reportInstallation, { identifier: 'p' }],
-      ['createAgentEvent', market.agents.createEvent, { event: 'click', identifier: 'a' }],
-      ['createPluginEvent', market.plugins.createEvent, { event: 'click', identifier: 'p' }],
-      ['reportCall', market.plugins.reportCall, { identifier: 'p', success: true }],
-      ['increaseAgentInstallCount', market.agents.increaseInstallCount, 'agent-1'],
-    ] as const)('%s forwards its argument to the market SDK', async (method, sdk, arg) => {
-      await (service as any)[method](arg);
-
-      expect(sdk).toHaveBeenCalledWith(arg);
-    });
-
     it('getAgentsByPlugin transforms market agents', async () => {
       market.agents.getAgentsByPlugin.mockResolvedValue({
         currentPage: 2,
@@ -229,17 +217,6 @@ describe('DiscoverService delegation and market proxies', () => {
         locale: 'en',
         version: 3,
       });
-    });
-
-    it('swallows event and install-count failures', async () => {
-      market.agentGroups.createAgentGroupEvent.mockRejectedValue(new Error('down'));
-      market.agentGroups.increaseInstallCount.mockRejectedValue(new Error('down'));
-
-      await expect(
-        service.createGroupAgentEvent({ event: 'click', identifier: 'g' }),
-      ).resolves.toBeUndefined();
-      await expect(service.increaseGroupAgentInstallCount('g')).resolves.toBeUndefined();
-      expect(market.agentGroups.increaseInstallCount).toHaveBeenCalledWith('g');
     });
   });
 

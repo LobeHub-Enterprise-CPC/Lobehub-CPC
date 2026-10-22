@@ -16,5 +16,7 @@ export const useElectronStore = <T = unknown>(selector?: (state: typeof emptySta
   selector ? selector(emptyState) : (emptyState as T);
 
 useElectronStore.getState = () => emptyState;
+// SSR state never changes, so a subscriber is never called.
+useElectronStore.subscribe = (_listener: () => void) => () => {};
 
 export const getElectronStoreState = () => emptyState;

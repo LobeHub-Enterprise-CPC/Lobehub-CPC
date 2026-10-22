@@ -1,6 +1,7 @@
 /**
  * @vitest-environment node
  */
+import type * as SsrfSafeFetch from '@lobechat/ssrf-safe-fetch';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { hookDispatcher } from '../../hooks';
@@ -16,7 +17,10 @@ vi.mock('@lobechat/model-runtime', (...args) =>
 
 const { ssrfSafeFetch: mockSsrfSafeFetch } = vi.hoisted(() => ({ ssrfSafeFetch: vi.fn() }));
 
-vi.mock('@lobechat/ssrf-safe-fetch', () => ({ ssrfSafeFetch: mockSsrfSafeFetch }));
+vi.mock('@lobechat/ssrf-safe-fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof SsrfSafeFetch>()),
+  ssrfSafeFetch: mockSsrfSafeFetch,
+}));
 
 // Mock trusted client to avoid server-side env access
 vi.mock('@/libs/trusted-client', (...args) =>

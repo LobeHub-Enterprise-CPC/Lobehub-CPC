@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { Chat } from 'chat';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -87,7 +88,9 @@ vi.mock('../platforms/wechat/binder', async () =>
 );
 vi.mock('../platforms/linq/binder', async () => (await import('./testUtils')).linqBinderModule());
 vi.mock('../platforms/linq/webhook', async () => (await import('./testUtils')).linqWebhookModule());
+// No private support address: /feedback submits as upstream does.
 vi.mock('@/server/services/bot/feedbackSubmit', () => ({
+  getPrivateFeedbackMessage: () => undefined,
   submitBotFeedback: mockSubmitBotFeedback,
 }));
 vi.mock('@/server/services/bot/deferredMessages', () => ({
@@ -398,7 +401,7 @@ describe('MessengerRouter Slack App Home welcome', () => {
     expect(mockSetIfNotExists).toHaveBeenCalledWith('app_home_welcomed:U_ALICE', '1');
     expect(mockSlackBinder.sendDmText).toHaveBeenCalledWith(
       'D_HOME',
-      'Welcome to LobeHub! Your active agent is *A*. Send a message to chat, or use `/agents` to switch.',
+      `Welcome to ${BRANDING_NAME}! Your active agent is *A*. Send a message to chat, or use \`/agents\` to switch.`,
     );
   });
 
@@ -530,8 +533,18 @@ describe('MessengerRouter bot lifecycle', () => {
     ]);
     expect(list.find((c) => c.command === 'feedback')).toEqual({
       command: 'feedback',
-      description: 'Send feedback directly to the LobeHub team (no AI reply)',
-      options: [{ description: 'Your feedback message', name: 'message', required: true }],
+      description:
+        (BRANDING_NAME as string) === 'LobeHub'
+          ? 'Send feedback directly to the LobeHub team (no AI reply)'
+          : 'Contact support by email',
+      // The text is only required where it is actually submitted (upstream brand).
+      options: [
+        {
+          description: 'Your feedback message',
+          name: 'message',
+          required: (BRANDING_NAME as string) === 'LobeHub',
+        },
+      ],
     });
   });
 

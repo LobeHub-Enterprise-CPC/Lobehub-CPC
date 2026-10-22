@@ -1,12 +1,6 @@
 import { type DiscoverMcpDetail, type McpListResponse, type McpQueryParams } from '@lobechat/types';
 import { CacheRevalidate, CacheTag, McpCategory, McpSorts } from '@lobechat/types';
 import { type CategoryItem, type CategoryListQuery } from '@lobehub/market-sdk';
-import {
-  type AgentEventRequest,
-  type CallReportRequest,
-  type InstallReportRequest,
-  type PluginEventRequest,
-} from '@lobehub/market-types';
 
 import { normalizeLocale } from '@/locales/resources';
 import { marketFetchCache } from '@/server/services/market/fetchCache';
@@ -116,46 +110,4 @@ export const getMcpManifest = async (
   );
   log('getMcpManifest: returning manifest for %s', params.identifier);
   return result;
-};
-
-// ============================== MCP Analytics ==============================
-
-/**
- * report MCP plugin result marketplace
- */
-export const reportPluginInstallation = async (
-  service: DiscoverService,
-  params: InstallReportRequest,
-) => {
-  await service.market.plugins.reportInstallation(params);
-};
-
-/**
- * record Agent plugin event
- */
-export const createAgentEvent = async (service: DiscoverService, params: AgentEventRequest) => {
-  await service.market.agents.createEvent(params);
-};
-
-/**
- * record MCP plugin event
- */
-export const createPluginEvent = async (service: DiscoverService, params: PluginEventRequest) => {
-  await service.market.plugins.createEvent(params);
-};
-
-/**
- * report plugin call result to marketplace
- */
-export const reportCall = async (service: DiscoverService, params: CallReportRequest) => {
-  await service.market.plugins.reportCall(params);
-};
-
-// ============================== Agent Analytics ==============================
-
-/**
- * Increase agent install count in marketplace
- */
-export const increaseAgentInstallCount = async (service: DiscoverService, identifier: string) => {
-  await service.market.agents.increaseInstallCount(identifier);
 };

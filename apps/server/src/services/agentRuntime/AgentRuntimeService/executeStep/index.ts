@@ -7,6 +7,8 @@ import {
 } from '@lobechat/observability-otel/modules/agent-runtime';
 import debug from 'debug';
 
+import { assertGatewayStateExecution } from '@/server/services/gatewayAuthorization/operationAuthority';
+
 import {
   type AgentExecutionParams,
   type AgentExecutionResult,
@@ -144,6 +146,7 @@ export async function executeStep(
       if (!agentState) {
         throw new Error(`Agent state not found for operation ${operationId}`);
       }
+      await assertGatewayStateExecution(operationId, agentState.execution);
 
       const replayed = await replayPendingInterventionLifecycle(deps, {
         agentState,
@@ -216,7 +219,7 @@ export async function executeStep(
       // Create Agent and Runtime instances
       // Use agentState.metadata which contains the full app context (topicId, agentId, etc.)
       // operationMetadata only contains basic fields (agentConfig, modelRuntimeConfig, userId)
-      abortPoll = startStepAbortPoll(deps, operationId, stepIndex);
+      abortPoll = startStepAbortPoll(deps, operationId, stepIndex, agentState.execution);
 
       const { runtime } = await deps.createAgentRuntime({
         abortSignal: abortPoll.signal,

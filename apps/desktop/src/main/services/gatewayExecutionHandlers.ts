@@ -1,8 +1,5 @@
-import os from 'node:os';
-
 import type {
   AgentRunRequestMessage,
-  DeviceSystemInfo,
   GatewayClient,
   GatewayMcpParams,
   MessageApiRequestMessage,
@@ -11,11 +8,12 @@ import type {
   ToolCallRequestMessage,
   ToolCallResponseMessage,
 } from '@lobechat/device-gateway-client';
-import { app } from 'electron';
+import type { RuntimeProbeCache } from '@lobechat/heterogeneous-agents/runtimeProbeCache';
 
 import type { App } from '@/core/App';
 import { createLogger } from '@/utils/logger';
-import { safeGetPath } from '@/utils/user-path';
+
+import { collectGatewaySystemInfo } from './gatewaySystemInfo';
 
 const logger = createLogger('services:GatewayExecutionHandlers');
 
@@ -118,7 +116,10 @@ export class GatewayExecutionHandlers {
   agentRunHandler: AgentRunHandler | null = null;
   rpcHandler: RpcHandler | null = null;
 
-  constructor(private app: App) {}
+  constructor(
+    private app: App,
+    private agentRuntimes: RuntimeProbeCache,
+  ) {}
   // ─── System Info ───
 
   /**
@@ -133,7 +134,7 @@ export class GatewayExecutionHandlers {
       client.sendSystemInfoResponse({
         attemptId: request.attemptId,
         requestId: request.requestId,
-        result: { success: true, systemInfo: await this.collectSystemInfo() },
+        result: { success: true, systemInfo: await collectGatewaySystemInfo(this.agentRuntimes) },
       });
     } catch (error) {
       // The gateway keeps the agent run parked until a correlated reply arrives,
@@ -146,25 +147,6 @@ export class GatewayExecutionHandlers {
         result: { success: false },
       });
     }
-  }
-
-  private async collectSystemInfo(): Promise<DeviceSystemInfo> {
-    const { getShellInfo } = await import('@lobechat/local-file-shell/shell');
-    return {
-      supportedTools: ['lobe-computer-use'],
-      arch: os.arch(),
-      // Tell the server-side prompt builder which shell runCommand spawns here.
-      defaultShell: (await getShellInfo()).displayName,
-      desktopPath: app.getPath('desktop'),
-      documentsPath: app.getPath('documents'),
-      downloadsPath: safeGetPath('downloads'),
-      homePath: app.getPath('home'),
-      musicPath: safeGetPath('music'),
-      picturesPath: safeGetPath('pictures'),
-      userDataPath: app.getPath('userData'),
-      videosPath: safeGetPath('videos'),
-      workingDirectory: process.cwd(),
-    };
   }
 
   // ─── Generic Device RPC ───

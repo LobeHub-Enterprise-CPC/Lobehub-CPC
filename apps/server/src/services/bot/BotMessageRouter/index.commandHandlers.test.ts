@@ -17,7 +17,11 @@ import {
 
 const mockSubmitBotFeedback = vi.hoisted(() => vi.fn());
 
-vi.mock('../feedbackSubmit', () => ({ submitBotFeedback: mockSubmitBotFeedback }));
+// No private support address: /feedback submits as upstream does.
+vi.mock('../feedbackSubmit', () => ({
+  getPrivateFeedbackMessage: () => undefined,
+  submitBotFeedback: mockSubmitBotFeedback,
+}));
 vi.mock('@/database/core/db-adaptor', async () => (await import('./testUtils')).dbAdaptorModule());
 vi.mock('@/database/models/agentBotProvider', async () =>
   (await import('./testUtils')).agentBotProviderModule(),

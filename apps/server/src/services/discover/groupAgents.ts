@@ -75,31 +75,3 @@ export const getGroupAgentList = async (
     return { currentPage: 1, items: [], totalCount: 0, totalPages: 1 };
   }
 };
-
-export const createGroupAgentEvent = async (
-  service: DiscoverService,
-  params: {
-    event: 'add' | 'chat' | 'click';
-    identifier: string;
-    source?: string;
-  },
-) => {
-  try {
-    // TODO: SDK method not yet available
-    await (service.market.agentGroups as any).createAgentGroupEvent?.(params);
-  } catch (error) {
-    log('createGroupAgentEvent: error: %O', error);
-  }
-};
-
-export const increaseGroupAgentInstallCount = async (
-  service: DiscoverService,
-  identifier: string,
-) => {
-  try {
-    // TODO: SDK method not yet available
-    await (service.market.agentGroups as any).increaseInstallCount?.(identifier);
-  } catch (error) {
-    log('increaseGroupAgentInstallCount: error: %O', error);
-  }
-};

@@ -448,7 +448,7 @@ export class DeviceGateway {
     return agents.executeMessageApi(this.clientGetter, ...args);
   }
 
-  listListeningPorts(_params: {
+  async listListeningPorts(_params: {
     cwd?: string;
     deviceId: string;
     timeout?: number;

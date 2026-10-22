@@ -1,17 +1,6 @@
-import { mergeRouters } from '@/libs/trpc/lambda';
-
 import { conversationRouter } from './conversation';
-import { execRouter } from './exec';
-import { gatewayRouter } from './gateway';
-import { runControlRouter } from './runControl';
-import { uploadRouter } from './upload';
 
-export const shareChatRouter = mergeRouters(
-  uploadRouter,
-  execRouter,
-  conversationRouter,
-  runControlRouter,
-  gatewayRouter,
-);
+/** Read-only access to previously shared conversations. Visitor execution is unsupported. */
+export const shareChatRouter = conversationRouter;
 
 export type ShareChatRouter = typeof shareChatRouter;

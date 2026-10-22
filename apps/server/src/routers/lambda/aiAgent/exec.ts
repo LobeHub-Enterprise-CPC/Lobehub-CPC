@@ -7,7 +7,6 @@ import debug from 'debug';
 import pMap from 'p-map';
 
 import {
-  type AgentInterventionShareVisitorScope,
   type AgentInterventionSourceAction,
   resolveAgentInterventionBySource,
 } from '@/business/server/agent-run/agentInterventionReview';
@@ -42,8 +41,6 @@ const log = debug('lobe-server:ai-agent-router');
  * authoritative operation/batch from the tool rows and claim the same generic
  * intervention before the legacy message CAS can run.
  *
- * Shared by the owner `execAgent` and the share-visitor `shareChat.execAgent`
- * resume paths; `shareVisitor` scopes the claim to the visitor's own share run.
  * Resolves `undefined` when no durable generic row exists (OSS, or a pre-v2
  * row), so the caller continues with the legacy message-row resume.
  */
@@ -54,20 +51,13 @@ export const bridgeLegacyResumeToSourceIntervention = async (
     resumeApproval?: ExecAgentInput['resumeApproval'];
     resumeApprovals?: ExecAgentInput['resumeApprovals'];
     resumeToolResult?: ExecAgentInput['resumeToolResult'];
-    shareVisitor?: AgentInterventionShareVisitorScope;
   },
   ctx: AgentInterventionDispatchContext,
   /** Forwarded to {@link dispatchClaimedAgentIntervention}; see its `options`. */
   options: { acceptsFileWorks?: boolean; acceptsMemberRuntimeEnd?: boolean } = {},
 ): Promise<ExecAgentResult | undefined> => {
-  const {
-    messageModel,
-    parentMessageId,
-    resumeApproval,
-    resumeApprovals,
-    resumeToolResult,
-    shareVisitor,
-  } = params;
+  const { messageModel, parentMessageId, resumeApproval, resumeApprovals, resumeToolResult } =
+    params;
 
   const legacyResumeTargets = [
     ...(resumeApprovals ?? []),
@@ -183,7 +173,6 @@ export const bridgeLegacyResumeToSourceIntervention = async (
           toolCallId,
           toolMessageId: parentMessageId,
         })),
-        ...(shareVisitor && { shareVisitor }),
         workspaceId: ctx.workspaceId ?? undefined,
       });
       if (sourceResolution.handled) {

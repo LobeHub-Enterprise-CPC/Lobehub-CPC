@@ -6,6 +6,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { AgentOperationModel } from '@/database/models/agentOperation';
+import { UserModel } from '@/database/models/user';
 import { agentOperations, workspaceMembers } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
 import { router } from '@/libs/trpc/lambda';
@@ -33,7 +34,7 @@ const assertServerDefaultControlAuth = (oidcAuth: Record<string, unknown> | null
   }
 };
 
-export const resolveServerDefaultHeterogeneousCapability = async () => {
+export const resolveServerDefaultHeterogeneousCapability = async (userEmail?: string | null) => {
   const base = {
     model: 'lobehub-default' as const,
   };
@@ -42,7 +43,7 @@ export const resolveServerDefaultHeterogeneousCapability = async () => {
   }
 
   try {
-    const models = await getServerDefaultHeterogeneousModels();
+    const models = await getServerDefaultHeterogeneousModels({ userEmail });
     const agents = SERVER_DEFAULT_HETEROGENEOUS_AGENT_TYPES.filter(
       (agentType) => models[agentType].length > 0,
     );
@@ -135,8 +136,10 @@ const settleServerDefaultControlOperation = async (params: {
 };
 
 export const serverDefaultHeteroRouter = router({
-  getServerDefaultHeterogeneousCapability: aiAgentBaseProcedure.query(() =>
-    resolveServerDefaultHeterogeneousCapability(),
+  getServerDefaultHeterogeneousCapability: aiAgentBaseProcedure.query(async ({ ctx }) =>
+    resolveServerDefaultHeterogeneousCapability(
+      (await UserModel.findById(ctx.serverDB, ctx.userId))?.email,
+    ),
   ),
   /**
    * Model-card facts Desktop writes into a CLI's model catalog for a model the
@@ -152,15 +155,15 @@ export const serverDefaultHeteroRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       assertServerDefaultControlAuth(ctx.oidcAuth);
-      return describeServerDefaultHeterogeneousModel(input.agentType, input.model).catch(
-        (error) => {
-          throw new TRPCError({
-            cause: error,
-            code: 'BAD_REQUEST',
-            message: 'The selected server model is not available for this heterogeneous agent',
-          });
-        },
-      );
+      return describeServerDefaultHeterogeneousModel(input.agentType, input.model, {
+        userId: ctx.userId,
+      }).catch((error) => {
+        throw new TRPCError({
+          cause: error,
+          code: 'BAD_REQUEST',
+          message: 'The selected server model is not available for this heterogeneous agent',
+        });
+      });
     }),
   beginServerDefaultHeterogeneousOperation: aiAgentBaseProcedure
     .input(
@@ -188,7 +191,8 @@ export const serverDefaultHeteroRouter = router({
           workspaceId,
         });
       }
-      const capability = await resolveServerDefaultHeterogeneousCapability();
+      const userEmail = (await UserModel.findById(ctx.serverDB, ctx.userId))?.email;
+      const capability = await resolveServerDefaultHeterogeneousCapability(userEmail);
       if (!capability.enabled) {
         throw new TRPCError({
           code: 'FORBIDDEN',
@@ -198,10 +202,9 @@ export const serverDefaultHeteroRouter = router({
               : 'No server model is available',
         });
       }
-      const selection = await resolveServerDefaultHeterogeneousModel(
-        input.agentType,
-        input.model,
-      ).catch((error) => {
+      const selection = await resolveServerDefaultHeterogeneousModel(input.agentType, input.model, {
+        userEmail,
+      }).catch((error) => {
         throw new TRPCError({
           cause: error,
           code: 'BAD_REQUEST',

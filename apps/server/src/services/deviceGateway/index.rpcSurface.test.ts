@@ -323,13 +323,7 @@ const cases: RpcCase[] = [
     name: 'statPath',
     payload: { method: 'statPath', params: { path: '/p' } },
   },
-  {
-    address: address(10_000),
-    call: (g) => g.listListeningPorts({ ...base, cwd: '/p' }),
-    failure: UNDEFINED,
-    name: 'listListeningPorts',
-    payload: { method: 'listListeningPorts', params: { cwd: '/p' } },
-  },
+  // listListeningPorts is refused before any RPC here (TUNNEL_UNSUPPORTED); see index.listeningPorts.test.ts.
   // ─── project files (reads) ───
   {
     address: address(30_000),
@@ -683,3 +677,6 @@ describe('DeviceGateway RPC surface', () => {
     });
   });
 });
+
+// The tenant boundary is covered by tenancy tests; these exercise the RPC surface.
+vi.mock('./tenancy', () => ({ deviceGatewayTenancy: () => ({ tenantId: 'tenant-test' }) }));

@@ -13,7 +13,7 @@ vi.mock('../libs/mcp/client', () => ({
 afterEach(() => vi.restoreAllMocks());
 
 describe('desktop MCP preparation execution boundary', () => {
-  it('does not call a tool if its authority is revoked while connecting, and releases the client', async () => {
+  it('does not call a tool if its authority is revoked while connecting, and keeps the pooled session', async () => {
     const controller = new McpCtr({} as App);
     let ready!: (client: MCPClient) => void;
     vi.spyOn(
@@ -29,13 +29,14 @@ describe('desktop MCP preparation execution boundary', () => {
     const disconnect = vi.fn();
     const authority = new AbortController();
     const pending = controller.runStdioMcpTool(
-      { args: '{}', params: { command: 'TEST-ONLY', name: 'fixture' }, toolName: 'write' },
+      { args: '{}', env: {}, params: { command: 'TEST-ONLY', name: 'fixture' }, toolName: 'write' },
       authority.signal,
     );
     authority.abort(new Error('GATEWAY_EXECUTION_STALE'));
     ready({ callTool, disconnect } as unknown as MCPClient);
     await expect(pending).rejects.toThrow('GATEWAY_EXECUTION_STALE');
     expect(callTool).not.toHaveBeenCalled();
-    expect(disconnect).toHaveBeenCalledOnce();
+    // The session is pooled for the next authorized call; only this execution is refused.
+    expect(disconnect).not.toHaveBeenCalled();
   });
 });

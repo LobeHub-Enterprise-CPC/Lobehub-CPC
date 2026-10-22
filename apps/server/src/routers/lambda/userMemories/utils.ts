@@ -1,14 +1,16 @@
 import { BRANDING_PROVIDER, ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
-import { DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM } from '@lobechat/const';
 import { type LobeChatDatabase } from '@lobechat/database';
 
 import { FtsSearchCandidateError } from '@/database/repositories/ftsSearch';
-import { getServerDefaultFilesConfig } from '@/server/globalConfig';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { resolveUserMemoryEmbeddingModel } from '@/server/services/memory/userMemory/embeddingModel';
 
 export const getEmbeddingRuntime = async (serverDB: LobeChatDatabase, userId: string) => {
-  const { provider, model: embeddingModel } =
-    getServerDefaultFilesConfig().embeddingModel || DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM;
+  // Same model the extractor writes memory vectors with, never the file embedding model.
+  const { provider, model: embeddingModel } = await resolveUserMemoryEmbeddingModel(
+    serverDB,
+    userId,
+  );
   // Read user's provider config from database
   const agentRuntime = await initModelRuntimeFromDB(
     serverDB,

@@ -452,34 +452,13 @@ describe('DeviceGateway', () => {
       mockEnv.DEVICE_GATEWAY_SERVICE_TOKEN = 'token';
     };
 
-    it('returns the gateway samples', async () => {
+    it('rejects metrics without dispatching to the gateway', async () => {
       configure();
-      const samples = [{ observedAt: 2000 }];
-      mockClient.getDeviceMetrics.mockResolvedValue(samples);
-
-      await expect(new DeviceGateway().queryDeviceMetrics(params)).resolves.toEqual(samples);
-      expect(mockClient.getDeviceMetrics).toHaveBeenCalledWith('user-1', 'dev-1', {
-        since: 1000,
-        workspaceId: 'ws-1',
+      await expect(new DeviceGateway().queryDeviceMetrics(params)).rejects.toMatchObject({
+        code: 'NOT_IMPLEMENTED',
+        message: 'DEVICE_METRICS_UNSUPPORTED',
       });
-    });
-
-    it('degrades to no samples when the gateway read fails', async () => {
-      configure();
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      mockClient.getDeviceMetrics.mockRejectedValue(
-        new Error('device metrics read failed: HTTP 500'),
-      );
-
-      await expect(new DeviceGateway().queryDeviceMetrics(params)).resolves.toEqual([]);
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('device metrics read failed'),
-        expect.objectContaining({
-          deviceId: 'dev-1',
-          error: 'device metrics read failed: HTTP 500',
-        }),
-      );
-      warn.mockRestore();
+      expect(mockClient.getDeviceMetrics).not.toHaveBeenCalled();
     });
   });
 
@@ -502,7 +481,7 @@ describe('DeviceGateway', () => {
       expect(MockGatewayHttpClient).not.toHaveBeenCalled();
     });
 
-    it('should create client only once across multiple calls', async () => {
+    it('creates a tenant-bound client for each call', async () => {
       mockEnv.DEVICE_GATEWAY_URL = 'https://gateway.example.com';
       mockEnv.DEVICE_GATEWAY_SERVICE_TOKEN = 'token';
       mockClient.queryDeviceStatus.mockResolvedValue({ deviceCount: 1, online: true });
@@ -511,12 +490,16 @@ describe('DeviceGateway', () => {
       await proxy.queryDeviceStatus('user-1');
       await proxy.queryDeviceStatus('user-2');
 
-      expect(MockGatewayHttpClient).toHaveBeenCalledTimes(1);
+      expect(MockGatewayHttpClient).toHaveBeenCalledTimes(2);
       expect(MockGatewayHttpClient).toHaveBeenCalledWith({
         gatewayUrl: 'https://gateway.example.com',
         resolveClientKinds: resolveDeviceClientKinds,
         serviceToken: 'token',
+        tenantId: 'tenant-test',
       });
     });
   });
 });
+
+// The tenant boundary is covered by tenancy tests; these exercise the RPC surface.
+vi.mock('./tenancy', () => ({ deviceGatewayTenancy: () => ({ tenantId: 'tenant-test' }) }));

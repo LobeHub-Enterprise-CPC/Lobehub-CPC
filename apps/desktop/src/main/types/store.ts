@@ -61,7 +61,6 @@ export interface ElectronMainStore {
    * Persisted so an app restart can re-open the share connections without
    * re-sharing from the web UI — only for the account that shared them.
    */
-  gatewayWorkspaceEnrollments: string[];
   gatewayWorkspaceEnrollmentsByAccount: Record<string, string[]>;
   gatewayWorkspaceEnrollmentsByIdentity?: Record<string, string[]>;
   /**

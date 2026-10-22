@@ -1,3 +1,4 @@
+import { trackTenantWork } from '@lobechat/database/tenant';
 import { TRPCError } from '@trpc/server';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
@@ -250,11 +251,13 @@ export const linkTokenRouter = router({
       }
 
       // Best-effort confirmation back to the IM platform.
-      void notifyLinkSuccess(payload.platform, {
-        activeAgentName: agentScope.title ?? undefined,
-        platformUserId: payload.platformUserId,
-        tenantId: payload.tenantId,
-      });
+      void trackTenantWork(() =>
+        notifyLinkSuccess(payload.platform, {
+          activeAgentName: agentScope.title ?? undefined,
+          platformUserId: payload.platformUserId,
+          tenantId: payload.tenantId,
+        }),
+      );
 
       return { data: link, success: true };
     }),

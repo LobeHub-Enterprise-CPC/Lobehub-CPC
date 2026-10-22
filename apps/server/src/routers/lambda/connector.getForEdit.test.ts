@@ -26,6 +26,7 @@ vi.mock('@/libs/trpc/lambda/middleware', async () => {
     serverDatabase: trpc.middleware((opts) =>
       opts.next({ ctx: { ...opts.ctx, serverDB: {} as never } }),
     ),
+    telemetry: trpc.middleware((opts) => opts.next()),
   };
 });
 

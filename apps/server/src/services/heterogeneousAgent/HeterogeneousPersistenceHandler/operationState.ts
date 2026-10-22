@@ -1,4 +1,5 @@
 import type { AgentStreamEvent } from '@lobechat/agent-gateway-client';
+import { currentTenantScope } from '@lobechat/database/tenant';
 
 import type { OperationState } from './types';
 
@@ -60,6 +61,10 @@ export const eventKey = (event: AgentStreamEvent): string => {
  * tool map / accumulated content / subagent runs.
  */
 export const operationStates = new Map<string, OperationState>();
+
+/** Operation ids come from the device: one tenant's run state must never be picked up by another. */
+export const stateKey = (operationId: string) =>
+  `${currentTenantScope()?.tenantId ?? ''}|${operationId}`;
 
 /** Test-only reset hook to clear the singleton between specs. */
 export const __resetOperationStatesForTesting = () => operationStates.clear();

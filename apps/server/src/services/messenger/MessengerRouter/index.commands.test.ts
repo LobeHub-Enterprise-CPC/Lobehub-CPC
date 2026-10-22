@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { Chat } from 'chat';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -458,7 +459,7 @@ describe('MessengerRouter Telegram Guest command privacy', () => {
     expect(mockTelegramBinder.replyToMessage.mock.calls).toEqual([
       [
         message,
-        `Open your direct message with the LobeHub bot and send \`${text.split(' ')[0]}\` there.`,
+        `Open your direct message with the ${BRANDING_NAME} bot and send \`${text.split(' ')[0]}\` there.`,
       ],
     ]);
     /** @example No picker or extra DM is sent while answering the Guest query. */

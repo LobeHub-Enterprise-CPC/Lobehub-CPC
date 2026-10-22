@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import type { Chat, SlashCommandEvent } from 'chat';
 import debug from 'debug';
 
@@ -5,7 +6,7 @@ import { MessengerAccountLinkModel } from '@/database/models/messengerAccountLin
 import type { LobeChatDatabase } from '@/database/type';
 import { AiAgentService } from '@/server/services/aiAgent';
 import { AgentBridgeService } from '@/server/services/bot/AgentBridgeService';
-import { submitBotFeedback } from '@/server/services/bot/feedbackSubmit';
+import { getPrivateFeedbackMessage, submitBotFeedback } from '@/server/services/bot/feedbackSubmit';
 import type { PlatformClient } from '@/server/services/bot/platforms';
 import { getBotReplyLocale } from '@/server/services/bot/platforms/const';
 import {
@@ -37,7 +38,7 @@ const log = debug('lobe-server:messenger:router');
 export function buildCommands(deps: MessengerRouterDeps): MessengerCommand[] {
   return [
     {
-      description: 'Bind your account to LobeHub',
+      description: `Bind your account to ${BRANDING_NAME}`,
       handler: async (ctx) => {
         const strings = getMessengerSystemStrings(ctx.platform);
         // Already-linked short-circuit: re-running `/start` while bound
@@ -275,7 +276,10 @@ export function buildCommands(deps: MessengerRouterDeps): MessengerCommand[] {
       name: 'stop',
     },
     {
-      description: 'Send feedback directly to the LobeHub team (no AI reply)',
+      description:
+        (BRANDING_NAME as string) === 'LobeHub'
+          ? `Send feedback directly to the ${BRANDING_NAME} team (no AI reply)`
+          : 'Contact support by email',
       // Declaring the argument so Discord/Slack surface a `/feedback <message>`
       // prompt; without it the slash picker registers the command as zero-arg
       // and the user can't enter feedback text from the picker UI.
@@ -283,12 +287,17 @@ export function buildCommands(deps: MessengerRouterDeps): MessengerCommand[] {
         {
           description: 'Your feedback message',
           name: 'message',
-          required: true,
+          required: (BRANDING_NAME as string) === 'LobeHub',
         },
       ],
       handler: async (ctx) => {
         const replyLocale = getBotReplyLocale(ctx.platform);
         const strings = getMessengerSystemStrings(ctx.platform);
+        const supportMessage = getPrivateFeedbackMessage(replyLocale);
+        if (supportMessage) {
+          await ctx.reply(supportMessage);
+          return;
+        }
         // Feedback is tied to a LobeHub account so the team can follow up;
         // an unbound user has no email/identity to attach. Mirror the
         // `/new` / `/stop` "you need to /start" guard for consistency.

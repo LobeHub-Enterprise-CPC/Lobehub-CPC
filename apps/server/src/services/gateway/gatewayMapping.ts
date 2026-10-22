@@ -4,6 +4,7 @@
  */
 import type { DecryptedMessengerAccountLink } from '@/database/models/messengerAccountLink';
 import { gatewayEnv } from '@/envs/gateway';
+import { tenantPublicPath } from '@/server/modules/Tenant/callbackUrl';
 import type { BotRuntimeStatus } from '@/types/botRuntimeStatus';
 
 import { extractWatchKeywordEntries } from '../bot/platforms';
@@ -77,7 +78,7 @@ export const buildBotProviderConnectConfig = ({
   credentials: provider.credentials,
   platform,
   userId: provider.userId,
-  webhookPath: `/api/agent/webhooks/${platform}/${provider.applicationId}`,
+  webhookPath: tenantPublicPath(`/api/agent/webhooks/${platform}/${provider.applicationId}`),
 });
 
 /** The connect payload for one messenger polling link. Same rationale as above. */
@@ -111,6 +112,6 @@ export const buildMessengerPollingConnectConfig = ({
     },
     platform,
     userId: link.userId,
-    webhookPath: `/api/agent/messenger/webhooks/${platform}`,
+    webhookPath: tenantPublicPath(`/api/agent/messenger/webhooks/${platform}`),
   };
 };

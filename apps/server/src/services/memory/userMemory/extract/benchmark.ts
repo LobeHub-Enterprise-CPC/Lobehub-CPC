@@ -17,6 +17,7 @@ import { UserModel } from '@/database/models/user';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import type { LayersEnum, MemorySourceType } from '@/types/userMemory';
 
+import { resolveMemoryServiceModelConfig } from '../systemAgent';
 import type { MemoryExtractionExecutorContext } from './context';
 import { serializeError } from './errors';
 
@@ -55,7 +56,9 @@ export async function extractBenchmarkSource(
           ctx.getAiProviderRuntimeState(params.userId),
         ]);
         const memoryServiceConfig = ctx.resolveUserMemoryServiceConfig(
-          userState.settings?.systemAgent as Partial<UserServiceModelConfig> | undefined,
+          await resolveMemoryServiceModelConfig(
+            userState.settings?.systemAgent as Partial<UserServiceModelConfig> | undefined,
+          ),
         );
         const keyVaults = await ctx.resolveRuntimeKeyVaults(
           aiProviderRuntimeState,

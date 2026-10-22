@@ -24,7 +24,6 @@ import type { ComposioService } from '@/server/services/composio';
 import type { MarketService } from '@/server/services/market';
 
 import { createRunFacts, type RunFacts } from '../runFacts';
-import { applyShareGateToAgentConfig } from '../shareGate';
 import type { ExecRunContext, InternalExecAgentParams } from '../types';
 import type { ApprovalClaimState } from './approvalResume';
 import { claimApprovalResume, tryReuseInterventionContinuation } from './approvalResume';
@@ -141,24 +140,14 @@ export const execAgentTurn = async (
     approvalSourceOperationId: providedApprovalSourceOperationId,
     selectedSkillIds,
     selectedToolIds,
-    shareGate,
     mentionedAgents,
     suppressUserMessage,
     ephemeralUserMessage,
+    channelContext,
+    serverToolManifests,
   } = params;
 
-  // Agent Share visitor runs execute under the CREATOR's credentials but are
-  // approved by the VISITOR: granting a tool grants its normal approval
-  // flow, so the run honors the visitor's own approval mode (sent by the
-  // share client, see `shareChat.execAgent`) and parks intervention-gated
-  // calls for the visitor to resolve on the share page.
-  //
-  // A share caller that sends no config falls back to `manual`, never to
-  // this method's `headless` default: `headless` auto-runs `'required'`
-  // calls, which would grant a consent nobody gave.
-  const userInterventionConfig: UserInterventionConfig = shareGate
-    ? (params.userInterventionConfig ?? { approvalMode: 'manual' })
-    : requestedUserInterventionConfig;
+  const userInterventionConfig: UserInterventionConfig = requestedUserInterventionConfig;
 
   // Honour client-minted row ids on a FRESH send only. Resume / regeneration
   // replays reach this method too (resumeApproval, resumeToolResult,
@@ -255,17 +244,11 @@ export const execAgentTurn = async (
         instructions,
         modelOverride,
         providerOverride,
-        shareVisitorUserId: shareGate?.visitorUserId,
         throwIfExecutionAborted,
         toolModeOverride,
       },
     ),
   );
-
-  // Share-visitor runs must never see the creator's files/knowledge bases.
-  // Applied to the resolved config before anything downstream (knowledge
-  // flags, tools engine, context snapshot) reads it.
-  if (shareGate) applyShareGateToAgentConfig(agentConfig);
 
   let resumeParentMessage: Awaited<ReturnType<MessageModel['findById']>>;
 
@@ -417,10 +400,10 @@ export const execAgentTurn = async (
         resume,
         runFromHistory,
         selectedSkillIds,
-        shareGate,
         steer,
         throwIfExecutionAborted,
         title,
+        transcript,
         trigger,
         userMessage,
       },
@@ -472,7 +455,6 @@ export const execAgentTurn = async (
     provider,
     resolvedAgentId,
     runFacts,
-    shareGate,
     topicEditingGroupId: turn.topicEditingGroupId,
     topicId,
     trigger,
@@ -483,6 +465,11 @@ export const execAgentTurn = async (
   };
 
   if (isHeteroAgent) {
+    // `setupTurn` rejects a hetero agent in transcript mode, so both anchors
+    // exist here; the narrowing gives hetero dispatch the persisted shape.
+    if (runContext.topicId === undefined || runContext.assistantMessageId === undefined) {
+      throw new Error('Heterogeneous dispatch requires a persisted topic and assistant row');
+    }
     return dispatchHeteroAgent(
       {
         bindTopicWorkingDirectory: (p) =>
@@ -496,7 +483,11 @@ export const execAgentTurn = async (
         withholdGatewayToken: deps.withholdGatewayToken,
         workspaceId: deps.workspaceId,
       },
-      runContext,
+      {
+        ...runContext,
+        assistantMessageId: runContext.assistantMessageId,
+        topicId: runContext.topicId,
+      },
       {
         canManageAgent,
         effectiveRequestedDeviceId: turn.effectiveRequestedDeviceId,
@@ -524,7 +515,7 @@ export const execAgentTurn = async (
   // 4. Fetch user settings (memory config + timezone)
   const { enableExpertise, globalMemoryEnabled, userTimezone } = await traceSendStage(
     'run_settings',
-    () => resolveRunSettings({ agentConfig, runFacts, shareGate }),
+    () => resolveRunSettings({ agentConfig, runFacts }),
   );
   log(
     'execAgent: globalMemoryEnabled=%s, timezone=%s',
@@ -541,7 +532,6 @@ export const execAgentTurn = async (
     : createHistoryMessagesLoader(
         {
           db: deps.db,
-          isShareVisitorRun: !!shareGate,
           messageModel: deps.messageModel,
           userId: deps.userId,
           workspaceId: deps.workspaceId,
@@ -566,7 +556,8 @@ export const execAgentTurn = async (
 
   // 15. Generate operation ID: op_{timestamp}_{agentId}_{topicId}_{random}
   const operationId =
-    continuationOperationId ?? `op_${Date.now()}_${resolvedAgentId}_${topicId}_${nanoid(8)}`;
+    continuationOperationId ??
+    `op_${Date.now()}_${resolvedAgentId}_${topicId ?? 'transcript'}_${nanoid(8)}`;
 
   // Stages 5–18 — the run's init: the tool surface, the message/context
   // assembly, and the human decision a resumed approval turns into the first
@@ -607,6 +598,7 @@ export const execAgentTurn = async (
     runAttachments,
     selectedSkillIds,
     selectedToolIds,
+    serverToolManifests,
     topicBoundDeviceId: turn.topicBoundDeviceId,
   });
 
@@ -709,6 +701,7 @@ export const execAgentTurn = async (
         onOperationCreated: params.onOperationCreated,
         botContext,
         botPlatformContext,
+        channelContext,
         clientIp,
         disabledPluginIds,
         discordContext,

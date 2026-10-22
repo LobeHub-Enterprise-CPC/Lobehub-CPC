@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 
+import type {
+  GatewayIdentityProvider,
+  GatewayIdentityResponse,
+} from '@lobechat/agent-gateway-client';
 import { OFFICIAL_DEVICE_GATEWAY_URL } from '@lobechat/const/url';
 import type {
   EnrollWorkspaceParams,
@@ -12,12 +16,10 @@ import type { DeviceMetricsSampler } from '@lobechat/device-control/metrics';
 import type {
   AgentRunRequestMessage,
   GatewayClient,
-  GatewayMcpParams,
   MessageApiRequestMessage,
   RpcRequestMessage,
   SystemInfoRequestMessage,
   ToolCallRequestMessage,
-  ToolCallResponseMessage,
 } from '@lobechat/device-gateway-client';
 import {
   type DeviceGatewayEndpoint,
@@ -33,10 +35,6 @@ import type {
   GatewayConnectResult,
   GatewayEndpointInfo,
 } from '@lobechat/electron-client-ipc';
-import type {
-  GatewayIdentityProvider,
-  GatewayIdentityResponse,
-} from '@lobechat/agent-gateway-client';
 import { createRuntimeProbeCache } from '@lobechat/heterogeneous-agents/runtimeProbeCache';
 import { app, powerSaveBlocker } from 'electron';
 
@@ -48,7 +46,7 @@ import { safeGetPath } from '@/utils/user-path';
 
 import { discoverDeviceGateway } from './gatewayDiscovery';
 import { GatewayExecutionHandlers } from './gatewayExecutionHandlers';
-import { collectBundledCliAgentRuntimes, collectGatewaySystemInfo } from './gatewaySystemInfo';
+import { collectBundledCliAgentRuntimes } from './gatewaySystemInfo';
 import { ServiceModule } from './index';
 
 const logger = createLogger('services:GatewayConnectionSrv');
@@ -188,7 +186,7 @@ export default class GatewayConnectionService extends ServiceModule {
   private serverUrlProvider: (() => Promise<string | undefined>) | null = null;
   private tokenProvider: (() => Promise<string | null>) | null = null;
   private tokenRefresher: (() => Promise<{ error?: string; success: boolean }>) | null = null;
-  private readonly execution = new GatewayExecutionHandlers(this.app);
+  private readonly execution = new GatewayExecutionHandlers(this.app, this.agentRuntimes);
   /**
    * Tenant login: the provider signs a gateway ticket naming this device and the
    * account the committed login belongs to, and re-signs on every reconnect.
@@ -444,13 +442,13 @@ export default class GatewayConnectionService extends ServiceModule {
       if (identity.deviceId === deviceId) return true;
     }
 
-    // Workspace identities are per machine, so a pre-scoping record still
-    // identifies this computer; whether it is restored is decided on connect.
+    // Only shares scoped to this login identify a workspace device: an
+    // account-less legacy record may belong to another account or tenant, so
+    // it never wakes this machine.
     const accountKey = this.toAccountKey(serverUrl, userId);
-    const workspaceIds = new Set([
-      ...(accountKey ? this.getPersistedWorkspaceEnrollments(accountKey) : []),
-      ...this.getLegacyWorkspaceEnrollments(),
-    ]);
+    const workspaceIds = new Set(
+      accountKey ? this.getPersistedWorkspaceEnrollments(accountKey) : [],
+    );
     for (const workspaceId of workspaceIds) {
       const identity = await this.resolveWorkspaceDeviceIdentity(workspaceId);
       if (identity.deviceId === deviceId) return true;
@@ -708,7 +706,8 @@ export default class GatewayConnectionService extends ServiceModule {
         logger.warn(`Device registration failed (non-fatal): ${(err as Error).message}`);
       });
       if (this.isStale(generation)) return CANCELLED;
-      await this.startMetricsSampler(identity.deviceId);
+      // Device metrics are not served on this deployment (DEVICE_METRICS_UNSUPPORTED),
+      // so no sampler is started.
     }
 
     const { GatewayClient } = await import('@lobechat/device-gateway-client');
@@ -929,12 +928,22 @@ export default class GatewayConnectionService extends ServiceModule {
     let identityProvider: GatewayIdentityProvider | undefined;
     let socketToken = token;
     if (this.identityProviderFactory) {
-      const provider = await this.identityProviderFactory(workspaceId, token);
-      let first: GatewayIdentityResponse | undefined = await provider({
-        connectionId: this.getConnectionId(),
-        deviceId: identity.deviceId,
-        signal: new AbortController().signal,
-      });
+      let provider: GatewayIdentityProvider;
+      let first: GatewayIdentityResponse | undefined;
+      try {
+        provider = await this.identityProviderFactory(workspaceId, token);
+        first = await provider({
+          connectionId: this.getConnectionId(),
+          deviceId: identity.deviceId,
+          signal: new AbortController().signal,
+        });
+      } catch (error) {
+        // Only a workspace admin can accept a share: say so instead of a bare 403.
+        if ((error as { code?: string }).code === 'FORBIDDEN')
+          throw new Error(this.workspaceAdminMessage(), { cause: error });
+        throw error;
+      }
+      if (!this.isCurrentSession(session)) throw new Error('GATEWAY_IDENTITY_CHANGED');
       socketToken = first.gatewayTicket;
       identityProvider = async (input) => {
         if (!this.isCurrentSession(session)) throw new Error('GATEWAY_IDENTITY_CHANGED');
@@ -1037,6 +1046,17 @@ export default class GatewayConnectionService extends ServiceModule {
   ) {
     // Closed, replaced or signed out meanwhile: not this share's verdict.
     if (this.workspaceClients.get(workspaceId) !== client) return;
+
+    // A rejected tenant ticket is final for this share; restore settles it later.
+    if (this.identityProviderFactory) {
+      logger.warn(
+        reason === 'FORBIDDEN'
+          ? this.workspaceAdminMessage()
+          : `Workspace ${workspaceId} authentication stopped: ${reason}`,
+      );
+      await this.closeWorkspaceClient(workspaceId);
+      return;
+    }
 
     if (this.workspaceAuthRetried.has(client)) {
       logger.warn(
@@ -1244,6 +1264,12 @@ export default class GatewayConnectionService extends ServiceModule {
    */
   private async handleAuthExpired(client: GatewayClient) {
     if (this.client !== client) return;
+    // A tenant-signed socket renews by asking its identity provider for a new
+    // ticket on reconnect; the login token is never refreshed for it here.
+    if (this.identityProviderFactory) {
+      await client.reconnect();
+      return;
+    }
     const generation = this.generation;
     const session = this.session;
 
@@ -1291,6 +1317,20 @@ export default class GatewayConnectionService extends ServiceModule {
     // A replaced or signed-out client's late verdict: not this connection's.
     if (this.client !== client) return;
     logger.warn(`Device gateway rejected the credential: ${reason}`);
+
+    // A rejected tenant ticket is final (FR-GW-02): no refresh loop. Shares
+    // ride on the same login, so they stop with it; the next connect retries.
+    if (this.identityProviderFactory) {
+      this.connectionError = { code: 'auth_failed', detail: reason };
+      await this.closeAllWorkspaceClients();
+      if (this.client === client) {
+        this.client = null;
+        await client.disconnect();
+      }
+      this.setStatus('disconnected');
+      this.scheduleStatusBroadcast(this.status);
+      return;
+    }
 
     if (this.authRecoveryAttempted) {
       logger.error(
@@ -1442,9 +1482,8 @@ export default class GatewayConnectionService extends ServiceModule {
     logger.info(`Connection status: ${this.status} → ${status}`);
     this.status = status;
 
-    // Upload what accrued while offline right away, not at the next tick.
+    // Device metrics are not uploaded on this deployment, so nothing is flushed here.
     if (status === 'connected') {
-      void this.metricsSampler?.sampler.flush();
       // A (re)connection reprobes the bundled CLI and warms the cache for the first request.
       this.agentRuntimes.invalidate();
       void this.agentRuntimes.get();
