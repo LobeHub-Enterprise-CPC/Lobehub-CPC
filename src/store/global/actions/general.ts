@@ -213,6 +213,12 @@ export class GlobalGeneralActionImpl {
     this.#get().statusStorage.saveToLocalStorage(nextStatus);
   };
 
+  /** Open (an id) or close (undefined) an agent's or group's advanced mode. */
+  setNavAdvancedTarget = (id?: string): void => {
+    if (this.#get().navAdvancedTargetId === id) return;
+    this.#set({ navAdvancedTargetId: id }, false, n('setNavAdvancedTarget'));
+  };
+
   resetSidebarCustomization = (): void => {
     this.#get().updateSystemStatus(
       {

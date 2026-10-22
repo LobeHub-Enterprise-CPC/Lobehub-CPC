@@ -1,5 +1,6 @@
 'use client';
 
+import { PROJECT_FIRST_NAVIGATION } from '@lobechat/business-const';
 import {
   AccordionHeader,
   AccordionItem,
@@ -24,7 +25,11 @@ import { useLoadedProjectList, useProjectStore } from '@/store/project';
 import { useUserStore } from '@/store/user';
 import { labPreferSelectors } from '@/store/user/selectors';
 
+import ProjectGroupItem from './ProjectGroupItem';
 import ProjectItem from './ProjectItem';
+
+// Where projects lead navigation, each row carries its conversations.
+const Row = PROJECT_FIRST_NAVIGATION ? ProjectGroupItem : ProjectItem;
 
 interface ProjectProps {
   itemKey: string;
@@ -77,7 +82,7 @@ const Project = memo<ProjectProps>(({ itemKey }) => {
             onClick={() => openCreateProjectModal()}
           />
         ) : (
-          projects?.map((project) => <ProjectItem key={project.id} project={project} />)
+          projects.map((project) => <Row key={project.id} project={project} />)
         )}
       </AccordionPanel>
     </AccordionItem>

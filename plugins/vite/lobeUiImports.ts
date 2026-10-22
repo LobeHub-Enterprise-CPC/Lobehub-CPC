@@ -83,10 +83,14 @@ const namedExportProxy = (maps: Record<string, Barrel>): Plugin => ({
 
     // Bare specifiers such as react-error-boundary are dependencies of
     // @lobehub/ui, not of the app, so they only resolve from the barrel's own
-    // location under pnpm's isolated node_modules.
-    const source = entry.source.startsWith('@lobehub/ui/es/')
-      ? entry.source
-      : ((await this.resolve(entry.source, maps[barrel].file))?.id ?? entry.source);
+    // location under pnpm's isolated node_modules. A package the app resolves
+    // itself (e.g. @lobehub/icons behind `@lobehub/ui/icons`) keeps its bare
+    // specifier: an absolute path bypasses dev dependency pre-bundling, and the
+    // browser then receives raw CommonJS such as react/jsx-runtime.
+    const source =
+      entry.source.startsWith('@lobehub/ui/es/') || (await this.resolve(entry.source))
+        ? entry.source
+        : ((await this.resolve(entry.source, maps[barrel].file))?.id ?? entry.source);
 
     return `export { ${entry.imported} as default } from ${JSON.stringify(source)};`;
   },

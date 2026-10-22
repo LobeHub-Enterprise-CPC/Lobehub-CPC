@@ -1,4 +1,8 @@
-import { HOME_DEFAULT_HIDDEN_WIDGETS, HOME_PORTRAIT_ENABLED } from '@lobechat/business-const';
+import {
+  HOME_DEFAULT_HIDDEN_WIDGETS,
+  HOME_PORTRAIT_ENABLED,
+  PROJECT_FIRST_NAVIGATION,
+} from '@lobechat/business-const';
 
 import { type TopicGroupMode } from '@/types/topic';
 
@@ -194,15 +198,18 @@ const sidebarExpandedKeys =
  * determines where the sidebar pushes items to the bottom. */
 export const SIDEBAR_SPACER_ID = '__spacer__';
 
+// Where projects lead navigation the Home panel reads agents, then projects with
+// their conversations, then the conversations filed under no project.
+const DEFAULT_SIDEBAR_SECTIONS = PROJECT_FIRST_NAVIGATION
+  ? ['private', 'agent', 'project', 'recents']
+  : ['recents', 'project', 'private', 'agent'];
+
 export const DEFAULT_SIDEBAR_ITEMS: string[] = [
   'tasks',
   'goals',
   'dashboard',
   'resource',
-  'recents',
-  'project',
-  'private',
-  'agent',
+  ...DEFAULT_SIDEBAR_SECTIONS,
   SIDEBAR_SPACER_ID,
   'image',
   'community',

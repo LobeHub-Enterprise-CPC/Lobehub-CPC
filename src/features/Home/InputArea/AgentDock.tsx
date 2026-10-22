@@ -1,4 +1,4 @@
-import { AGENT_AVATAR_GALLERY } from '@lobechat/business-const';
+import { AGENT_AVATAR_GALLERY, PROJECT_FIRST_NAVIGATION } from '@lobechat/business-const';
 import { memo } from 'react';
 
 import { createStaticStyles } from '@lobehub/ui';
@@ -6,6 +6,7 @@ import Avatar from '@/components/Avatar';
 
 import AgentSelect from '../AgentSelect';
 import { useHomeAgentDisplay } from '../AgentSelect/useHomeAgentDisplay';
+import ProjectSelect from './ProjectSelect';
 
 const AVATAR_SIZE = 80;
 
@@ -67,9 +68,13 @@ export const AgentDockAvatar = memo(() => {
 
 AgentDockAvatar.displayName = 'HomeAgentDockAvatar';
 
-/** The strip under the home composer that holds the agent switcher. */
+/**
+ * The strip under the home composer that holds the agent switcher, led by the
+ * project picker where conversations are organized by project.
+ */
 const AgentDock = memo(() => (
   <div className={styles.dock} data-brand-slot={'home-agent-dock'}>
+    {PROJECT_FIRST_NAVIGATION && <ProjectSelect />}
     <AgentSelect />
   </div>
 ));

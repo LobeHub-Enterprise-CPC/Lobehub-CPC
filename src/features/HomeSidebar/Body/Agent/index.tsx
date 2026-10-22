@@ -1,5 +1,7 @@
 'use client';
 
+import { AGENT_PROFILE_NAVIGATION, NAV_RAIL_ENABLED } from '@lobechat/business-const';
+import { ContextMenuTrigger, Flexbox } from '@lobehub/ui';
 import {
   AccordionHeader,
   AccordionItem,
@@ -25,6 +27,7 @@ import { useFetchAgentList } from '@/hooks/useFetchAgentList';
 
 import { useCreateMenuItems } from '../../hooks';
 import Actions from './Actions';
+import AvatarRow from './AvatarRow';
 import List from './List';
 import { useAgentModal } from './ModalProvider';
 import { useAgentActionsDropdownMenu } from './useDropdownMenu';
@@ -42,7 +45,12 @@ const Agent = memo<AgentProps>(({ itemKey }) => {
   // public/shared agents are labeled "Public" to make the contrast obvious.
   // Personal mode has no such duality — keep the existing "Agents" label.
   const activeWorkspaceId = useActiveWorkspaceId();
-  const titleKey = activeWorkspaceId ? 'navPanel.publicAgents' : 'navPanel.agent';
+  // The two-level layout names the section for both of its kinds of rows.
+  const titleKey = activeWorkspaceId
+    ? 'navPanel.publicAgents'
+    : NAV_RAIL_ENABLED
+      ? 'navPanel.agentsAndGroups'
+      : 'navPanel.agent';
 
   const { openConfigGroupModal } = useAgentModal();
 
@@ -69,6 +77,10 @@ const Agent = memo<AgentProps>(({ itemKey }) => {
     [navigate],
   );
 
+  const actions = (
+    <Actions addMenuItems={addMenuItems} dropdownMenu={dropdownMenu} isLoading={isLoading} />
+  );
+
   return (
     <AccordionItem value={itemKey}>
       <ContextMenuTrigger items={dropdownMenu}>
@@ -81,38 +93,47 @@ const Agent = memo<AgentProps>(({ itemKey }) => {
               {isRevalidating && <Spin size="small" variant="network" />}
             </Flexbox>
           </AccordionTrigger>
-          <Flexbox
-            horizontal
-            align="center"
-            gap={2}
-            className={cx(
-              'accordion-action',
-              accordionStyles.action,
-              accordionStyles.actionBorderless,
-            )}
-          >
-            {/* The flat view-all page adapts per mode: workspace gets the
+          {/* The avatar row ends with its own "…" to the full list; creating
+              agents lives on that page. */}
+          {!AGENT_PROFILE_NAVIGATION && (
+            <Flexbox
+              horizontal
+              align="center"
+              data-brand-slot="home-agent-actions"
+              gap={2}
+              className={cx(
+                'accordion-action',
+                accordionStyles.action,
+                accordionStyles.actionBorderless,
+                // The two-level layout keeps "add" and "view all" on show and
+                // leads with "add"; the more menu still waits for hover.
+                NAV_RAIL_ENABLED && accordionStyles.actionAlwaysVisible,
+              )}
+            >
+              {NAV_RAIL_ENABLED && actions}
+              {/* The flat view-all page adapts per mode: workspace gets the
                 workspace/private segments + per-user pin + author column;
                 personal mode gets the plain flat list. */}
-            <ActionIcon
-              icon={ArrowRight}
-              size={'small'}
-              title={t('navPanel.viewAllAgents')}
-              onClick={handleViewAll}
-            />
-            <Actions
-              addMenuItems={addMenuItems}
-              dropdownMenu={dropdownMenu}
-              isLoading={isLoading}
-            />
-          </Flexbox>
+              <ActionIcon
+                icon={ArrowRight}
+                size={'small'}
+                title={t('navPanel.viewAllAgents')}
+                onClick={handleViewAll}
+              />
+              {!NAV_RAIL_ENABLED && actions}
+            </Flexbox>
+          )}
         </AccordionHeader>
       </ContextMenuTrigger>
       <AccordionPanel>
         <Suspense fallback={<SkeletonList rows={6} />}>
-          <Flexbox gap={1} paddingBlock={1}>
-            <List />
-          </Flexbox>
+          {AGENT_PROFILE_NAVIGATION ? (
+            <AvatarRow />
+          ) : (
+            <Flexbox gap={1} paddingBlock={1}>
+              <List />
+            </Flexbox>
+          )}
         </Suspense>
       </AccordionPanel>
     </AccordionItem>

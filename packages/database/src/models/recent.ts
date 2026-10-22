@@ -9,11 +9,13 @@ import {
   DOCUMENT_FOLDER_TYPE,
   documents,
   messages,
+  projects,
   tasks,
   topics,
 } from '../schemas';
 import type { LobeChatDatabase } from '../type';
 import { notShareVisitorTopic } from '../utils/shareVisitor';
+import { notTrashed } from '../utils/softDelete';
 import { buildWorkspaceWhere } from '../utils/workspace';
 
 export interface RecentDbItem {
@@ -115,7 +117,6 @@ export class RecentModel {
     // Workspace rows are shared across members; `mineOnly` narrows a workspace
     // feed back to the viewer's own items. A no-op in personal mode, where the
     // scope predicate already pins the user.
-    const mineTopicWhere = mineOnly ? eq(topics.userId, this.userId) : undefined;
     const mineDocumentWhere = mineOnly ? eq(documents.userId, this.userId) : undefined;
     const mineTaskWhere = mineOnly ? eq(tasks.createdByUserId, this.userId) : undefined;
 
@@ -142,28 +143,7 @@ export class RecentModel {
         requestedTypes && !requestedTypes.has('topic')
           ? sql`false`
           : and(
-              buildWorkspaceWhere(scope, topics),
-              // Agent-share visitor topics keep the creator's userId — never
-              // surface a visitor's conversation in the creator's own Recent feed.
-              notShareVisitorTopic(),
-              mineTopicWhere,
-              // Topic scope alone is insufficient: stale/mismatched rows can
-              // point at a personal or foreign-workspace agent/group. Check
-              // the parent scope before returning titles or loading previews.
-              or(
-                and(
-                  isNotNull(topics.groupId),
-                  buildWorkspaceWhere(scope, chatGroups),
-                  sharedOnly ? sharedParentWhere(chatGroups.visibility) : undefined,
-                ),
-                and(
-                  isNull(topics.groupId),
-                  buildWorkspaceWhere(scope, agents),
-                  sharedOnly ? sharedParentWhere(agents.visibility) : undefined,
-                  or(eq(agents.slug, 'inbox'), ne(agents.virtual, true)),
-                ),
-              ),
-              or(isNull(topics.trigger), not(inArray(topics.trigger, SYSTEM_TOPIC_TRIGGERS))),
+              this.recentTopicWhere({ mineOnly, sharedOnly }),
               or(isNull(topics.status), not(inArray(topics.status, TOPIC_INBOX_STATUSES))),
             ),
       );
@@ -257,6 +237,79 @@ export class RecentModel {
         userId: row.userId,
       };
     });
+  };
+
+  /**
+   * The project-first sidebar's "Recent": the viewer's own conversations that
+   * are not filed under a project (those are listed under their project),
+   * newest first. Unlike `queryRecent` it keeps running and unread ones, since
+   * a conversation the user has just started is running.
+   */
+  queryRecentTopics = async (limit: number = 10): Promise<RecentDbItem[]> => {
+    const rows = await this.db
+      .select({
+        id: topics.id,
+        metadata: topics.metadata,
+        routeGroupId: topics.groupId,
+        routeId: topics.agentId,
+        title: sql<string>`COALESCE(${topics.title}, 'Untitled Topic')`,
+        updatedAt: topics.updatedAt,
+        userId: topics.userId,
+      })
+      .from(topics)
+      .leftJoin(agents, eq(topics.agentId, agents.id))
+      .leftJoin(chatGroups, eq(topics.groupId, chatGroups.id))
+      // A project in the recycle bin no longer lists its conversations, so they
+      // count as unfiled until it is restored.
+      .leftJoin(projects, and(eq(topics.projectId, projects.id), notTrashed(projects.isDeleted)))
+      .where(and(this.recentTopicWhere({ mineOnly: true }), isNull(projects.id)))
+      .orderBy(desc(topics.updatedAt))
+      .limit(limit);
+
+    return rows.map((row) => ({
+      ...row,
+      metadata: row.metadata ?? undefined,
+      status: null,
+      type: 'topic' as const,
+    }));
+  };
+
+  /**
+   * Topics a Recent feed may show at all; callers join `agents` and
+   * `chatGroups` on the topic's parent. `mineOnly` narrows a workspace feed to
+   * the viewer's own topics, `sharedOnly` to those under a shared parent; both
+   * are no-ops in personal mode, where the scope already pins the user.
+   */
+  private recentTopicWhere = ({
+    mineOnly,
+    sharedOnly,
+  }: { mineOnly?: boolean; sharedOnly?: boolean } = {}) => {
+    const scope = { userId: this.userId, workspaceId: this.workspaceId };
+
+    return and(
+      buildWorkspaceWhere(scope, topics),
+      // Agent-share visitor topics keep the creator's userId — never
+      // surface a visitor's conversation in the creator's own Recent feed.
+      notShareVisitorTopic(),
+      mineOnly ? eq(topics.userId, this.userId) : undefined,
+      // Topic scope alone is insufficient: stale/mismatched rows can
+      // point at a personal or foreign-workspace agent/group. Check
+      // the parent scope before returning titles or loading previews.
+      or(
+        and(
+          isNotNull(topics.groupId),
+          buildWorkspaceWhere(scope, chatGroups),
+          sharedOnly ? sharedParentWhere(chatGroups.visibility) : undefined,
+        ),
+        and(
+          isNull(topics.groupId),
+          buildWorkspaceWhere(scope, agents),
+          sharedOnly ? sharedParentWhere(agents.visibility) : undefined,
+          or(eq(agents.slug, 'inbox'), ne(agents.virtual, true)),
+        ),
+      ),
+      or(isNull(topics.trigger), not(inArray(topics.trigger, SYSTEM_TOPIC_TRIGGERS))),
+    );
   };
 
   private queryLastAssistantPreviews = async (topicIds: string[]): Promise<Map<string, string>> => {

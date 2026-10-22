@@ -17,7 +17,7 @@ const TYPE_ICON_MAP: Partial<Record<'document' | 'task' | 'topic', typeof FileTe
   topic: HashIcon,
 };
 
-const RecentListItem = memo<RecentItem>((item) => {
+const RecentListItem = memo<RecentItem & { active?: boolean }>(({ active, ...item }) => {
   const { title, type, agentId, id, metadata, status } = item;
   const IconComponent = TYPE_ICON_MAP[type] || FileTextIcon;
   const prefetchAgent = usePrefetchAgent();
@@ -40,8 +40,9 @@ const RecentListItem = memo<RecentItem>((item) => {
   const { dropdownMenu } = useRecentItemDropdownMenu(item);
 
   return (
-    <Flexbox style={{ position: 'relative' }}>
+    <Flexbox data-recent-type={type} style={{ position: 'relative' }}>
       <NavItem
+        active={active}
         contextMenuItems={dropdownMenu}
         title={title}
         actions={

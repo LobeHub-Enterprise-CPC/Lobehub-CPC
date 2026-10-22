@@ -29,6 +29,7 @@ import AgentBreadcrumb from '@/features/AgentBreadcrumb';
 import { useAgentMarketSubmission } from '@/features/AgentMarketSubmission/useAgentMarketSubmission';
 import AgentProfileTabs, { AGENT_PROFILE_TABS_CENTER_STYLE } from '@/features/AgentProfileTabs';
 import NavHeader from '@/features/NavHeader';
+import { useAdvancedModeMenuItem } from '@/features/NavPanel/useAdvancedModeMenuItem';
 import { formatPageEditorInfoTime } from '@/features/PageEditor/formatPageEditorInfoTime';
 import AccessLevelTag from '@/features/ResourcePermission/AccessLevelTag';
 import { useResourceAccess } from '@/features/ResourcePermission/useResourceAccess';
@@ -277,10 +278,13 @@ const Header = memo(() => {
     navigate(`/agent/${activeAgentId}/share`);
   }, [activeAgentId, navigate]);
 
+  const advancedModeMenuItem = useAdvancedModeMenuItem('agent');
   const menuItems = useMemo(() => {
     const businessTransferMenuItems = transferMenuItems ?? [];
 
     return [
+      advancedModeMenuItem,
+      advancedModeMenuItem ? { type: 'divider' as const } : null,
       {
         // View/use-level members can't edit the agent config — keep the entry
         // visible but disabled (project convention: disabled, not hidden).
@@ -378,6 +382,7 @@ const Header = memo(() => {
     ].filter(Boolean);
   }, [
     activeAgentId,
+    advancedModeMenuItem,
     authorName,
     canConfigure,
     canManage,

@@ -13,7 +13,12 @@ const Actions = memo<ActionsProps>(({ dropdownMenu, addMenuItems, isLoading }) =
   return (
     <Flexbox horizontal gap={2}>
       <DropdownMenu items={dropdownMenu}>
-        <ActionIcon icon={MoreHorizontalIcon} size={'small'} style={{ flex: 'none' }} />
+        <ActionIcon
+          data-brand-slot="home-agent-more-actions"
+          icon={MoreHorizontalIcon}
+          size={'small'}
+          style={{ flex: 'none' }}
+        />
       </DropdownMenu>
       <DropdownMenu items={addMenuItems}>
         <ActionIcon icon={PlusIcon} loading={isLoading} size={'small'} style={{ flex: 'none' }} />

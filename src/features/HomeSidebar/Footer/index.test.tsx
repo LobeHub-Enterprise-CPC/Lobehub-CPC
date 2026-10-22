@@ -468,6 +468,10 @@ describe('Footer help menu tracking', () => {
       (node) => (node.getAttribute('role') === 'separator' ? '|' : node.textContent),
     );
 
+    // A deployment with a support address swaps the upstream community invite
+    // for it inside the help group: one entry in that slot, never both.
+    const supportEntry = BRANDING_EMAIL.support ? ['Email Support'] : [];
+    const communityEntry = BRANDING_EMAIL.support ? [] : ['Discord'];
     expect(sequence).toEqual([
       'Settings',
       '|',
@@ -476,11 +480,12 @@ describe('Footer help menu tracking', () => {
       'Docs',
       'Report Bug',
       'Feedback',
+      ...supportEntry,
       '|',
       'Changelog',
       'Get App',
       '|',
-      'Discord',
+      ...communityEntry,
       'GitHub',
     ]);
   }, 20000);

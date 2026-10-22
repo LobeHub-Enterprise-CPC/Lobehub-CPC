@@ -1,4 +1,9 @@
-import { HOME_DEFAULT_HIDDEN_WIDGETS, HOME_PORTRAIT_ENABLED } from '@lobechat/business-const';
+import {
+  HOME_DEFAULT_HIDDEN_WIDGETS,
+  HOME_PORTRAIT_ENABLED,
+  NAV_PANEL_DEFAULT_WIDTH,
+  PROJECT_FIRST_NAVIGATION,
+} from '@lobechat/business-const';
 import { type NavigateFunction } from 'react-router';
 
 import { type LocaleMode } from '@/types/locale';
@@ -152,7 +157,11 @@ export type TaskViewMode = 'kanban' | 'list';
 /** How topics inside one byProject sidebar group are sectioned. */
 export type ProjectTopicSubGroupMode = 'none' | 'byDevice' | 'byTime' | 'byStatus';
 
-export const DEFAULT_HOME_SIDEBAR_EXPANDED_KEYS = ['recents', 'agent', 'private'];
+// Where projects lead navigation, their conversations are the point of the
+// section, so it starts open.
+export const DEFAULT_HOME_SIDEBAR_EXPANDED_KEYS = PROJECT_FIRST_NAVIGATION
+  ? ['agent', 'project', 'recents', 'private']
+  : ['recents', 'agent', 'private'];
 
 /** How the agent document tree orders sibling rows. */
 export interface AgentDocumentSort {
@@ -515,6 +524,12 @@ export interface GlobalState {
   isServerVersionOutdated?: boolean;
   isStatusInit?: boolean;
   latestVersion?: string;
+  /**
+   * The agent or group whose own workspace sidebar is open ("advanced mode")
+   * while the Home panel is the only everyday navigation. Not persisted: a
+   * reload, or leaving that agent or group, returns to the Home panel.
+   */
+  navAdvancedTargetId?: string;
   /** Imperative router navigate; see `NavigatorRegistrar` in `src/utils/router.tsx`. */
   navigationRef: GlobalNavigationRef;
   /**
@@ -573,7 +588,7 @@ export const INITIAL_STATUS = {
   imageTopicViewMode: 'grid' as const,
   imageTopicPanelWidth: 80,
   knowledgeBaseModalViewMode: 'list' as const,
-  leftPanelWidth: 280,
+  leftPanelWidth: NAV_PANEL_DEFAULT_WIDTH,
   mobileShowTopic: false,
   modelDetailPanelCollapsedKeys: [],
   modelSwitchPanelWidth: 460,

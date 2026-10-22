@@ -224,9 +224,39 @@ export const AGENT_PROFILE_SHOWCASE_LAYOUT = false;
  * Two-level navigation. When on, the app shell renders an icon rail outside
  * the navigation panel: page links, the help menu and the account entry move
  * to the rail, and the Home panel keeps the brand header and the lists (agents,
- * projects, recents). Off keeps the single-panel layout.
+ * projects, recents) — the agent list titled for agents and groups, its "add"
+ * and "view all" actions always shown, and its overflow row counting the agents
+ * left out. Off keeps the single-panel layout.
  */
 export const NAV_RAIL_ENABLED = false;
+
+/**
+ * Width the navigation panel opens at before the viewer resizes it. A width the
+ * viewer set by dragging is kept.
+ */
+export const NAV_PANEL_DEFAULT_WIDTH = 280;
+
+/**
+ * Projects as a top-level way to organize conversations. When on, projects are
+ * always enabled (no Labs toggle); the Home panel lists each project with its
+ * conversations nested under it and a "+" that starts a conversation in it; the
+ * home composer can pick a project for the next conversation; and a project
+ * conversation keeps the Home panel instead of switching to the project's own
+ * sidebar. The project page itself moves into the row's "..." menu. Off keeps
+ * the Labs-gated project list.
+ */
+export const PROJECT_FIRST_NAVIGATION = false;
+
+/**
+ * The Home panel as the only everyday navigation. When on, the Home panel's
+ * agent group is a row of avatars; an avatar opens the agent's (or group's)
+ * profile, whose chat button starts a home conversation with that agent; a
+ * conversation with any agent or group keeps the Home panel; and "Recent" lists
+ * the viewer's conversations outside projects. The agent's own workspace
+ * sidebar (topics, tasks, profile) opens only in "advanced mode", toggled from
+ * the profile's "..." menu. Off keeps the agent and group sidebars.
+ */
+export const AGENT_PROFILE_NAVIGATION = false;
 
 /**
  * Home sections hidden for a viewer who has not customized Home yet. Listing

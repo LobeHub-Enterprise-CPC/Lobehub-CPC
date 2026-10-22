@@ -65,6 +65,7 @@ const UnreadDot = memo<UnreadDotProps>(({ label }) => (
   <span
     aria-label={label}
     className={styles.wrapper}
+    data-brand-slot="unread-dot"
     data-testid="topic-unread-dot"
     role={label ? 'status' : undefined}
   >

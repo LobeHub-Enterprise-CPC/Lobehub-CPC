@@ -1,9 +1,22 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { type UserStore } from '@/store/user';
 
 import { initialPreferenceState } from './initialState';
 import { labPreferSelectors, preferenceSelectors } from './selectors';
+
+// Tests read the distribution's flags; pin the stock (off) value per test.
+let mockProjectFirst = false;
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  get PROJECT_FIRST_NAVIGATION() {
+    return mockProjectFirst;
+  },
+}));
+
+afterEach(() => {
+  mockProjectFirst = false;
+});
 
 describe('preferenceSelectors', () => {
   let store: UserStore;
@@ -99,6 +112,13 @@ describe('preferenceSelectors', () => {
       expect(labPreferSelectors.enableProjects(store)).toBe(false);
 
       store.preference.lab = { enableProjects: true };
+      expect(labPreferSelectors.enableProjects(store)).toBe(true);
+    });
+
+    it('always enables projects when the distribution organizes work by project', () => {
+      mockProjectFirst = true;
+      store.preference.lab = { enableProjects: false };
+
       expect(labPreferSelectors.enableProjects(store)).toBe(true);
     });
 

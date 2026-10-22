@@ -233,15 +233,21 @@ const Footer = memo(() => {
         : []),
     ];
     const communityGroup: FooterMenuItems = [
-      {
-        icon: <Icon icon={DiscordIcon} />,
-        key: 'discord',
-        label: (
-          <a href={SOCIAL_URL.discord} rel="noopener noreferrer" target="_blank">
-            {t('userPanel.discord')}
-          </a>
-        ),
-      },
+      // A deployment with a support address replaces the upstream community
+      // invite: one entry in that slot, never both.
+      ...(BRANDING_EMAIL.support
+        ? []
+        : [
+            {
+              icon: <Icon icon={DiscordIcon} />,
+              key: 'discord',
+              label: (
+                <a href={SOCIAL_URL.discord} rel="noopener noreferrer" target="_blank">
+                  {t('userPanel.discord')}
+                </a>
+              ),
+            },
+          ]),
       ...(footer.layout === 'compact' && !footer.hideGitHub
         ? [
             {
@@ -257,7 +263,7 @@ const Footer = memo(() => {
         : []),
     ];
     // A divider only between groups that have items, never at an edge or doubled.
-    const ownItems: FooterMenuItems = [
+    const allItems: FooterMenuItems = [
       settingsGroup,
       inviteGroup,
       helpGroup,
