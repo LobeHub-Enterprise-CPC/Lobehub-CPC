@@ -380,6 +380,10 @@ export class HomeInputActionImpl {
   setInputActiveMode = (mode: StarterMode): void => {
     this.#set({ inputActiveMode: mode }, false, n('setInputActiveMode', mode));
   };
+
+  setHomeSelectedProjectId = (projectId?: string): void => {
+    this.#set({ homeSelectedProjectId: projectId }, false, n('setHomeSelectedProjectId'));
+  };
 }
 
 export type HomeInputAction = Pick<HomeInputActionImpl, keyof HomeInputActionImpl>;

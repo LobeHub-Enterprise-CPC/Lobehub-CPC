@@ -1,3 +1,5 @@
+import { PROJECT_FIRST_NAVIGATION } from '@lobechat/business-const';
+
 export const resolveNavPanelKey = (
   pathname: string,
   activeWorkspaceSlug: string | null,
@@ -6,7 +8,7 @@ export const resolveNavPanelKey = (
   const isWorkspaceRoute =
     !!activeWorkspaceSlug && segments.length > 0 && segments[0] === activeWorkspaceSlug;
   const routeSegments = isWorkspaceRoute ? segments.slice(1) : segments;
-  const [rootSegment, childSegment, grandchildSegment] = routeSegments;
+  const [rootSegment, childSegment, grandchildSegment, leafSegment] = routeSegments;
 
   if (rootSegment === 'settings') {
     return isWorkspaceRoute ? 'workspace-settings' : 'settings';
@@ -46,6 +48,10 @@ export const resolveNavPanelKey = (
     }
 
     case 'project': {
+      // A project conversation opens from the Home panel, which lists it, so the
+      // panel stays put. The project page (no topic picked) keeps its sidebar.
+      if (PROJECT_FIRST_NAVIGATION && grandchildSegment === 'conversation' && leafSegment)
+        return 'home';
       return 'project';
     }
 

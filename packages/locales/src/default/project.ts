@@ -217,6 +217,8 @@ export default {
   'overview.worksEmptyDescription':
     'Documents, files, tasks, and external results created by the Project Coordinator will appear here.',
   'overview.worksEmptyTitle': 'No outputs yet',
+  'picker.clear': 'No project',
+  'picker.placeholder': 'Choose project',
   'rename.action': 'Rename',
   'rename.error': 'Could not rename the project.',
   'rename.nameLabel': 'Project name',
@@ -244,6 +246,7 @@ export default {
   'sidebar.conversationsEmpty': 'No project topics yet',
   'sidebar.librariesEmpty': 'No libraries are connected yet',
   'sidebar.newConversation': 'New conversation',
+  'sidebar.openProject': 'Open project',
   'sidebar.title': 'Projects',
   'sidebar.untitledConversation': 'Untitled conversation',
 };

@@ -29,6 +29,8 @@ vi.mock('@lobechat/business-const', async (importOriginal) => ({
   get NAV_RAIL_ENABLED() {
     return mocks.navRailEnabled;
   },
+  // Stock section layout; the project-first layout is covered by the store defaults.
+  PROJECT_FIRST_NAVIGATION: false,
 }));
 
 vi.mock('@lobehub/ui', async (importOriginal) => ({

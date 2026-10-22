@@ -114,6 +114,7 @@ const CreateAgentButton = memo<CreateAgentButtonProps>(({ groupId, className, vi
       align={'center'}
       className={cx(styles.container, className)}
       clickable={canCreate}
+      data-sidebar-row="create"
       gap={8}
       height={36}
       paddingInline={4}

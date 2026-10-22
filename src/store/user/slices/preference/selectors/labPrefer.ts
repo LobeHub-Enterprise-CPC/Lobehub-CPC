@@ -1,3 +1,4 @@
+import { PROJECT_FIRST_NAVIGATION } from '@lobechat/business-const';
 import { DEFAULT_PREFERENCE } from '@lobechat/const';
 
 import { type UserState } from '@/store/user/initialState';
@@ -29,7 +30,9 @@ export const labPreferSelectors = {
   enablePersistentSandbox: (s: UserState): boolean =>
     s.preference.lab?.enablePersistentSandbox ?? false,
   enableSelfLearning: (s: UserState): boolean => s.preference.lab?.enableSelfLearning ?? false,
-  enableProjects: (s: UserState): boolean => s.preference.lab?.enableProjects ?? false,
+  // A distribution that organizes work by project has no Labs switch for it.
+  enableProjects: (s: UserState): boolean =>
+    PROJECT_FIRST_NAVIGATION || (s.preference.lab?.enableProjects ?? false),
   // `updateLab` writes both keys, but older clients only write the legacy
   // `enableTopicAcceptance` — so while both exist it holds the latest choice.
   enableGoals: (s: UserState): boolean =>

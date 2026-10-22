@@ -1,3 +1,5 @@
+import { PROJECT_FIRST_NAVIGATION } from '@lobechat/business-const';
+
 import { type labPreferSelectors } from '@/store/user/slices/preference/selectors/labPrefer';
 
 /**
@@ -99,12 +101,17 @@ export const LAB_FEATURES: LabFeatureItem[] = [
     searchKeywords: ['tunnel', 'port forwarding', 'dev server', 'localhost'],
     stage: 'alpha',
   },
-  {
-    flag: 'enableProjects',
-    i18nKey: 'projects',
-    searchKeywords: ['project', 'workspace'],
-    stage: 'alpha',
-  },
+  // Always on where the distribution organizes work by project.
+  ...(PROJECT_FIRST_NAVIGATION
+    ? []
+    : [
+        {
+          flag: 'enableProjects',
+          i18nKey: 'projects',
+          searchKeywords: ['project', 'workspace'],
+          stage: 'alpha',
+        } satisfies LabFeatureItem,
+      ]),
   {
     flag: 'enableOAuthApps',
     i18nKey: 'oauthApps',

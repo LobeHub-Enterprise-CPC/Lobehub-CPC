@@ -50,7 +50,7 @@ const RecentsList = memo<RecentsListProps>(({ error, onRetry }) => {
       loading={<SkeletonList rows={3} />}
       onRetry={onRetry}
     >
-      <Flexbox gap={1}>
+      <Flexbox data-brand-slot={'home-recents'} gap={1}>
         {displayItems.map((item) => {
           const itemRef = `${item.type}:${item.id}` as const;
           return <ConnectedItem itemRef={itemRef} key={itemRef} queryKey={queryKey} />;

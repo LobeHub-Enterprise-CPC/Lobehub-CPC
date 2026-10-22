@@ -42,7 +42,7 @@ const RecentListItem = memo<RecentItem>((item) => {
   const { dropdownMenu } = useRecentItemDropdownMenu(item);
 
   return (
-    <Flexbox style={{ position: 'relative' }}>
+    <Flexbox data-recent-type={type} style={{ position: 'relative' }}>
       <NavItem
         contextMenuItems={dropdownMenu}
         title={title}

@@ -1,4 +1,6 @@
+import { PROJECT_FIRST_NAVIGATION } from '@lobechat/business-const';
 import { AGENT_CHAT_TOPIC_URL, AGENT_CHAT_URL } from '@lobechat/const';
+import type { UIChatMessage } from '@lobechat/types';
 import { toast } from '@lobehub/ui/base-ui';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,6 +10,7 @@ import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspa
 import { taskDetailPath } from '@/features/AgentTasks/shared/taskDetailPath';
 import type { SendButtonHandler } from '@/features/ChatInput/store/initialState';
 import { buildMessageContextSelections } from '@/features/ChatInput/utils/contextSelections';
+import { getProjectConversationPath } from '@/features/Projects/Layout/navigation';
 import { useResourceAccess } from '@/features/ResourcePermission/useResourceAccess';
 import { useHomeDailyBrief } from '@/hooks/useHomeDailyBrief';
 import { usePermission } from '@/hooks/usePermission';
@@ -18,7 +21,9 @@ import { builtinAgentSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
 import { fileChatSelectors, useFileStore } from '@/store/file';
 import { useHomeStore } from '@/store/home';
+import { useProjectDirectoryStore } from '@/store/projectWorkingDirectory';
 import { useTaskStore } from '@/store/task';
+import { markdownToTxt } from '@/utils/markdownToTxt';
 
 import { useResolvedHomeAgentId } from '../AgentSelect/useResolvedHomeAgentId';
 import type { HomeMode } from '../types';
@@ -50,6 +55,7 @@ const ensureAgentConfigLoaded = async (agentId: string): Promise<void> => {
 export const useSend = (mode: HomeMode = 'chat') => {
   const { t } = useTranslation('home');
   const { t: tChat } = useTranslation('chat');
+  const { t: tTopic } = useTranslation('topic');
   const router = useQueryRoute();
   const activeWorkspaceId = useActiveWorkspaceId();
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
@@ -225,6 +231,48 @@ export const useSend = (mode: HomeMode = 'chat') => {
 
             await ensureAgentConfigLoaded(selectedAgentId);
 
+            // A conversation filed under a project starts as a project topic, so
+            // it is listed under that project from the first frame; the message
+            // then goes into it like any reply in an open topic.
+            const { homeSelectedProjectId: projectId, setHomeSelectedProjectId } =
+              useHomeStore.getState();
+            if (PROJECT_FIRST_NAVIGATION && projectId) {
+              setIsSubmitting(true);
+              const topic = await useProjectDirectoryStore.getState().createProjectTopic({
+                agentId: selectedAgentId,
+                projectId,
+                title: markdownToTxt(message).slice(0, 80) || tTopic('defaultTitle'),
+              });
+
+              sendMessage({
+                context: {
+                  agentId: selectedAgentId,
+                  topicId: topic.id,
+                  ...(activeWorkspaceSlug ? { workspaceSlug: activeWorkspaceSlug } : {}),
+                },
+                contextSelections,
+                contexts: contextList,
+                editorData,
+                files: fileList,
+                message,
+                onPreflightFailure: () => {
+                  restoreChatContextSelections(contextSelectionKey, contextList);
+                },
+                pageSelections,
+              });
+              // The run only titles a topic that has none; this one was born
+              // with the message as a stand-in, so ask for the real title here.
+              void useChatStore
+                .getState()
+                .summaryTopicTitle(topic.id, [{ content: message, role: 'user' } as UIChatMessage])
+                .catch((error) => console.error('[home:send] topic title', error));
+
+              submitted = true;
+              setHomeSelectedProjectId(undefined);
+              router.push(getProjectConversationPath(projectId, topic.id));
+              break;
+            }
+
             sendMessage({
               context: {
                 agentId: selectedAgentId,
@@ -281,6 +329,7 @@ export const useSend = (mode: HomeMode = 'chat') => {
       canCreateContent,
       t,
       tChat,
+      tTopic,
     ],
   );
 

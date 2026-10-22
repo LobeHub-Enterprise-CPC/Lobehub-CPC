@@ -265,7 +265,13 @@ const Body = memo(() => {
   }, [visibleKeys, renderNavLink, sidebarExpandedKeys, handleAccordionExpandedChange]);
 
   return (
-    <Flexbox flex={1} gap={1} paddingInline={4} style={{ minHeight: '100%' }}>
+    <Flexbox
+      data-brand-slot="home-sidebar"
+      flex={1}
+      gap={1}
+      paddingInline={4}
+      style={{ minHeight: '100%' }}
+    >
       {content}
     </Flexbox>
   );
