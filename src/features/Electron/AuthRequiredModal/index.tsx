@@ -126,7 +126,7 @@ const AuthRequiredModalContent = memo<AuthRequiredModalContentProps>(
       <Flexbox gap={12}>
         <p style={{ margin: 0 }}>{t('authModal.description')}</p>
         {isSigningIn && (restarting || progressKey) && (
-          <p style={{ color: 'var(--ant-color-text-description)', margin: 0 }}>
+          <p style={{ color: 'var(--lobe-color-text-description)', margin: 0 }}>
             {restarting
               ? tOnboarding('screen5.auth.phase.restarting', {
                   attempt: restarting.attempt,

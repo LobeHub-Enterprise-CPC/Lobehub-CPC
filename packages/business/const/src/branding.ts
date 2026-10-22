@@ -97,8 +97,8 @@ export interface BrandingColorScale {
 
 export interface BrandingTheme {
   /**
-   * Raw CSS appended to the global stylesheet. Reads antd CSS variables
-   * (`var(--ant-…)`) and targets the stable `data-brand-slot` hooks the app
+   * Raw CSS appended to the global stylesheet. Reads lobe-ui CSS variables
+   * (`var(--lobe-…)`) and targets the stable `data-brand-slot` hooks the app
    * shell exposes, so a distribution can restyle the frame without forking
    * component code.
    */
