@@ -408,7 +408,7 @@
   "devices.appUpdate.restartingHint": "في انتظار عودة الجهاز على الإصدار v{{version}}",
   "devices.appUpdate.timedOut": "لم يعد الجهاز متصلاً بالإنترنت. تحقق من التطبيق على تلك الآلة.",
   "devices.appUpdate.unavailable": "تعذر قراءة حالة تحديث تطبيق سطح المكتب. حاول مرة أخرى.",
-  "devices.appUpdate.unsupported.cli": "أجاب lh connect بدلاً من تطبيق سطح المكتب. أوقف lh connect على هذا الجهاز، ثم حاول مرة أخرى.",
+  "devices.appUpdate.unsupported.cli": "أجاب {{cliBin}} connect بدلاً من تطبيق سطح المكتب. أوقف {{cliBin}} connect على هذا الجهاز، ثم حاول مرة أخرى.",
   "devices.appUpdate.unsupported.devBuild": "لا يمكن للتحديثات التطويرية تحديث نفسها.",
   "devices.appUpdate.unsupported.outdated": "لا يمكن تحديث هذا الإصدار من التطبيق عن بُعد. قم بتحديثه مرة واحدة على الجهاز لتمكين التحديثات عن بُعد.",
   "devices.appUpdate.updated": "تم التحديث إلى الإصدار v{{version}}",

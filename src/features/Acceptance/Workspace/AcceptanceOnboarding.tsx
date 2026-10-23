@@ -1,6 +1,6 @@
 'use client';
 
-import { CLI_INSTALL_COMMAND, OFFICIAL_URL } from '@lobechat/business-const';
+import { CLI_INSTALL_COMMAND, CLI_PRIMARY_BIN, OFFICIAL_URL } from '@lobechat/business-const';
 import {
   Button,
   CopyButton,
@@ -246,7 +246,7 @@ const AcceptanceOnboarding = () => {
                     title: t('acceptance.workspace.onboarding.install.title'),
                   },
                   {
-                    command: 'lh acceptance install',
+                    command: `${CLI_PRIMARY_BIN} acceptance install`,
                     description: t('acceptance.workspace.onboarding.enable.description'),
                     title: t('acceptance.workspace.onboarding.enable.title'),
                   },

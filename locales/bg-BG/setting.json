@@ -408,7 +408,7 @@
   "devices.appUpdate.restartingHint": "Изчакване устройството да се върне на v{{version}}",
   "devices.appUpdate.timedOut": "Устройството не се е върнало онлайн. Проверете приложението на тази машина.",
   "devices.appUpdate.unavailable": "Неуспешно четене на състоянието на актуализация на десктоп приложението. Опитайте отново.",
-  "devices.appUpdate.unsupported.cli": "lh connect отговори вместо десктоп приложението. Спрете lh connect на това устройство и опитайте отново.",
+  "devices.appUpdate.unsupported.cli": "{{cliBin}} connect отговори вместо десктоп приложението. Спрете {{cliBin}} connect на това устройство и опитайте отново.",
   "devices.appUpdate.unsupported.devBuild": "Развойните версии не могат да се актуализират сами.",
   "devices.appUpdate.unsupported.outdated": "Тази версия на приложението не може да бъде актуализирана дистанционно. Актуализирайте я веднъж на устройството, за да активирате дистанционни актуализации.",
   "devices.appUpdate.updated": "Актуализирано до v{{version}}",

@@ -408,7 +408,7 @@
   "devices.appUpdate.restartingHint": "En attente que l'appareil revienne sur la version {{version}}",
   "devices.appUpdate.timedOut": "L'appareil n'est pas revenu en ligne. Vérifiez l'application sur cette machine.",
   "devices.appUpdate.unavailable": "Impossible de lire l'état de mise à jour de l'application de bureau. Réessayez.",
-  "devices.appUpdate.unsupported.cli": "lh connect a répondu à la place de l'application de bureau. Arrêtez lh connect sur cet appareil, puis réessayez.",
+  "devices.appUpdate.unsupported.cli": "{{cliBin}} connect a répondu à la place de l'application de bureau. Arrêtez {{cliBin}} connect sur cet appareil, puis réessayez.",
   "devices.appUpdate.unsupported.devBuild": "Les versions de développement ne peuvent pas se mettre à jour elles-mêmes.",
   "devices.appUpdate.unsupported.outdated": "Cette version de l'application ne peut pas être mise à jour à distance. Mettez-la à jour une fois sur l'appareil pour activer les mises à jour à distance.",
   "devices.appUpdate.updated": "Mis à jour vers la version {{version}}",

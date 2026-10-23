@@ -1,5 +1,6 @@
 'use client';
 
+import { CLI_PRIMARY_BIN } from '@lobechat/business-const';
 import type { DeviceListItem } from '@lobechat/types';
 import { Block, cx, Flexbox, Icon, Popover, Text, Tooltip } from '@lobehub/ui';
 import { CheckIcon, ChevronDownIcon, FolderIcon } from 'lucide-react';
@@ -165,7 +166,9 @@ const TaskDeviceChip = memo<TaskDeviceChipProps>(
           <div className={styles.scroll}>{devices.map(renderDeviceRow)}</div>
         )}
         {!isPending && !devicesFailed && devices?.length === 0 && (
-          <div className={styles.emptyHint}>{t('heteroAgent.executionTarget.noDevices')}</div>
+          <div className={styles.emptyHint}>
+            {t('heteroAgent.executionTarget.noDevices', { cliBin: CLI_PRIMARY_BIN })}
+          </div>
         )}
 
         {directoryHint && (

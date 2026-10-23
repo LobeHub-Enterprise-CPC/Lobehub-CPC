@@ -408,7 +408,7 @@
   "devices.appUpdate.restartingHint": "기기가 v{{version}}으로 돌아오기를 기다리는 중",
   "devices.appUpdate.timedOut": "기기가 다시 온라인 상태로 돌아오지 않았습니다. 해당 기기의 앱을 확인하세요.",
   "devices.appUpdate.unavailable": "데스크톱 앱의 업데이트 상태를 읽을 수 없습니다. 다시 시도하세요.",
-  "devices.appUpdate.unsupported.cli": "lh connect가 데스크톱 앱 대신 응답했습니다. 이 기기에서 lh connect를 중지한 후 다시 시도하세요.",
+  "devices.appUpdate.unsupported.cli": "{{cliBin}} connect가 데스크톱 앱 대신 응답했습니다. 이 기기에서 {{cliBin}} connect를 중지한 후 다시 시도하세요.",
   "devices.appUpdate.unsupported.devBuild": "개발 빌드는 스스로 업데이트할 수 없습니다.",
   "devices.appUpdate.unsupported.outdated": "이 앱 버전은 원격으로 업데이트할 수 없습니다. 기기에서 한 번 업데이트하여 원격 업데이트를 활성화하세요.",
   "devices.appUpdate.updated": "v{{version}}으로 업데이트되었습니다",

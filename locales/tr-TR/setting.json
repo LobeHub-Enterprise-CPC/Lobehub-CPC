@@ -408,7 +408,7 @@
   "devices.appUpdate.restartingHint": "Cihazın v{{version}} sürümünde geri gelmesini bekliyoruz",
   "devices.appUpdate.timedOut": "Cihaz çevrimiçi olmadı. O makinedeki uygulamayı kontrol edin.",
   "devices.appUpdate.unavailable": "Masaüstü uygulamasının güncelleme durumu okunamadı. Tekrar deneyin.",
-  "devices.appUpdate.unsupported.cli": "lh connect masaüstü uygulaması yerine yanıt verdi. Bu cihazda lh connect'i durdurun ve tekrar deneyin.",
+  "devices.appUpdate.unsupported.cli": "{{cliBin}} connect masaüstü uygulaması yerine yanıt verdi. Bu cihazda {{cliBin}} connect'i durdurun ve tekrar deneyin.",
   "devices.appUpdate.unsupported.devBuild": "Geliştirme sürümleri kendilerini güncelleyemez.",
   "devices.appUpdate.unsupported.outdated": "Bu uygulama sürümü uzaktan güncellenemez. Uzaktan güncellemeleri etkinleştirmek için cihazda bir kez güncelleyin.",
   "devices.appUpdate.updated": "v{{version}} sürümüne güncellendi",

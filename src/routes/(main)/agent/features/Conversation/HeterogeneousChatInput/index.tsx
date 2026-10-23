@@ -1,5 +1,6 @@
 'use client';
 
+import { CLI_PRIMARY_BIN } from '@lobechat/business-const';
 import { HETEROGENEOUS_TYPE_LABELS } from '@lobechat/heterogeneous-agents';
 import { isHeteroSelectorAvailable } from '@lobechat/types';
 import { type ChatInputActionsProps } from '@lobehub/editor/react';
@@ -202,7 +203,7 @@ const HeterogeneousChatInput = memo(() => {
       desc = t('platformAgent.deviceGuard.noDevice.desc');
     } else if (status === 'device-offline') {
       title = t('platformAgent.deviceGuard.deviceOffline.title');
-      desc = t('platformAgent.deviceGuard.deviceOffline.desc');
+      desc = t('platformAgent.deviceGuard.deviceOffline.desc', { cliBin: CLI_PRIMARY_BIN });
     } else {
       // `platform-unavailable` only arises for remote-typed agents (the guard's
       // capability check), so providerType is always set here — fall back safely.

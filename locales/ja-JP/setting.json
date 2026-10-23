@@ -408,7 +408,7 @@
   "devices.appUpdate.restartingHint": "デバイスがv{{version}}で戻るのを待っています",
   "devices.appUpdate.timedOut": "デバイスがオンラインに戻っていません。そのマシン上のアプリを確認してください。",
   "devices.appUpdate.unavailable": "デスクトップアプリの更新ステータスを読み取れませんでした。再試行してください。",
-  "devices.appUpdate.unsupported.cli": "lh connectがデスクトップアプリの代わりに応答しました。このデバイスでlh connectを停止してから再試行してください。",
+  "devices.appUpdate.unsupported.cli": "{{cliBin}} connectがデスクトップアプリの代わりに応答しました。このデバイスで{{cliBin}} connectを停止してから再試行してください。",
   "devices.appUpdate.unsupported.devBuild": "開発ビルドは自己更新できません。",
   "devices.appUpdate.unsupported.outdated": "このアプリバージョンはリモートで更新できません。一度デバイス上で更新してリモート更新を有効にしてください。",
   "devices.appUpdate.updated": "v{{version}}に更新されました",
