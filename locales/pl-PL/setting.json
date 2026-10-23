@@ -408,7 +408,7 @@
   "devices.appUpdate.restartingHint": "Oczekiwanie na powrót urządzenia na wersję v{{version}}",
   "devices.appUpdate.timedOut": "Urządzenie nie wróciło online. Sprawdź aplikację na tym urządzeniu.",
   "devices.appUpdate.unavailable": "Nie udało się odczytać statusu aktualizacji aplikacji desktopowej. Spróbuj ponownie.",
-  "devices.appUpdate.unsupported.cli": "lh connect odpowiedział zamiast aplikacji desktopowej. Zatrzymaj lh connect na tym urządzeniu, a następnie spróbuj ponownie.",
+  "devices.appUpdate.unsupported.cli": "{{cliBin}} connect odpowiedział zamiast aplikacji desktopowej. Zatrzymaj {{cliBin}} connect na tym urządzeniu, a następnie spróbuj ponownie.",
   "devices.appUpdate.unsupported.devBuild": "Wersje deweloperskie nie mogą aktualizować się same.",
   "devices.appUpdate.unsupported.outdated": "Ta wersja aplikacji nie może być zaktualizowana zdalnie. Zaktualizuj ją raz na urządzeniu, aby umożliwić zdalne aktualizacje.",
   "devices.appUpdate.updated": "Zaktualizowano do wersji v{{version}}",

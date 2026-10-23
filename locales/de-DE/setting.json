@@ -408,7 +408,7 @@
   "devices.appUpdate.restartingHint": "Warten, bis das Gerät mit v{{version}} zurückkommt",
   "devices.appUpdate.timedOut": "Das Gerät ist nicht wieder online gekommen. Überprüfen Sie die App auf diesem Gerät.",
   "devices.appUpdate.unavailable": "Der Update-Status der Desktop-App konnte nicht gelesen werden. Versuchen Sie es erneut.",
-  "devices.appUpdate.unsupported.cli": "lh connect hat geantwortet, anstatt die Desktop-App. Stoppen Sie lh connect auf diesem Gerät und versuchen Sie es erneut.",
+  "devices.appUpdate.unsupported.cli": "{{cliBin}} connect hat geantwortet, anstatt die Desktop-App. Stoppen Sie {{cliBin}} connect auf diesem Gerät und versuchen Sie es erneut.",
   "devices.appUpdate.unsupported.devBuild": "Entwicklungs-Builds können sich nicht selbst aktualisieren.",
   "devices.appUpdate.unsupported.outdated": "Diese App-Version kann nicht aus der Ferne aktualisiert werden. Aktualisieren Sie sie einmal auf dem Gerät, um Remote-Updates zu aktivieren.",
   "devices.appUpdate.updated": "Aktualisiert auf v{{version}}",

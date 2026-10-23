@@ -408,7 +408,7 @@
   "devices.appUpdate.restartingHint": "منتظر بازگشت دستگاه با نسخه {{version}}",
   "devices.appUpdate.timedOut": "دستگاه دوباره آنلاین نشده است. برنامه را روی آن دستگاه بررسی کنید.",
   "devices.appUpdate.unavailable": "وضعیت به‌روزرسانی برنامه دسکتاپ قابل خواندن نیست. دوباره تلاش کنید.",
-  "devices.appUpdate.unsupported.cli": "lh connect به جای برنامه دسکتاپ پاسخ داد. lh connect را روی این دستگاه متوقف کنید، سپس دوباره تلاش کنید.",
+  "devices.appUpdate.unsupported.cli": "{{cliBin}} connect به جای برنامه دسکتاپ پاسخ داد. {{cliBin}} connect را روی این دستگاه متوقف کنید، سپس دوباره تلاش کنید.",
   "devices.appUpdate.unsupported.devBuild": "نسخه‌های توسعه نمی‌توانند خودشان را به‌روزرسانی کنند.",
   "devices.appUpdate.unsupported.outdated": "این نسخه از برنامه نمی‌تواند از راه دور به‌روزرسانی شود. یک بار آن را روی دستگاه به‌روزرسانی کنید تا به‌روزرسانی‌های از راه دور فعال شود.",
   "devices.appUpdate.updated": "به نسخه {{version}} به‌روزرسانی شد",

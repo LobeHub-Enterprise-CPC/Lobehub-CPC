@@ -408,7 +408,7 @@
   "devices.appUpdate.restartingHint": "Ожидание возвращения устройства на версию v{{version}}",
   "devices.appUpdate.timedOut": "Устройство не вернулось в сеть. Проверьте приложение на этом устройстве.",
   "devices.appUpdate.unavailable": "Не удалось прочитать статус обновления настольного приложения. Попробуйте снова.",
-  "devices.appUpdate.unsupported.cli": "lh connect ответил вместо настольного приложения. Остановите lh connect на этом устройстве, затем попробуйте снова.",
+  "devices.appUpdate.unsupported.cli": "{{cliBin}} connect ответил вместо настольного приложения. Остановите {{cliBin}} connect на этом устройстве, затем попробуйте снова.",
   "devices.appUpdate.unsupported.devBuild": "Сборки для разработчиков не могут обновляться самостоятельно.",
   "devices.appUpdate.unsupported.outdated": "Эта версия приложения не может быть обновлена удаленно. Обновите её один раз на устройстве, чтобы включить удаленные обновления.",
   "devices.appUpdate.updated": "Обновлено до версии v{{version}}",

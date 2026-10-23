@@ -408,7 +408,7 @@
   "devices.appUpdate.restartingHint": "Wachten tot het apparaat terugkomt op v{{version}}",
   "devices.appUpdate.timedOut": "Het apparaat is niet opnieuw online gekomen. Controleer de app op die machine.",
   "devices.appUpdate.unavailable": "Kon de update-status van de desktop-app niet lezen. Probeer het opnieuw.",
-  "devices.appUpdate.unsupported.cli": "lh connect heeft geantwoord in plaats van de desktop-app. Stop lh connect op dit apparaat en probeer het opnieuw.",
+  "devices.appUpdate.unsupported.cli": "{{cliBin}} connect heeft geantwoord in plaats van de desktop-app. Stop {{cliBin}} connect op dit apparaat en probeer het opnieuw.",
   "devices.appUpdate.unsupported.devBuild": "Ontwikkelversies kunnen zichzelf niet bijwerken.",
   "devices.appUpdate.unsupported.outdated": "Deze app-versie kan niet op afstand worden bijgewerkt. Werk het eenmalig bij op het apparaat om externe updates mogelijk te maken.",
   "devices.appUpdate.updated": "Bijgewerkt naar v{{version}}",
