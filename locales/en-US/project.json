@@ -41,6 +41,7 @@
   "create.slugInvalid": "Use lowercase letters, numbers, and single hyphens only.",
   "create.slugLabel": "Slug (optional)",
   "create.slugPlaceholder": "my-project",
+  "create.success": "Created project \"{{name}}\"",
   "create.title": "New project",
   "directories.add": "Add working directory",
   "directories.autoFileTopics": "All {{count}} existing topics will be linked to this project.",

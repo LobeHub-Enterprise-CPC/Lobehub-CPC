@@ -162,6 +162,7 @@ export default {
   'create.identifierPlaceholder': 'LOBE',
   'create.nameLabel': 'Project name',
   'create.namePlaceholder': 'What are you working on?',
+  'create.success': 'Created project "{{name}}"',
   'create.slugDescription': 'Used for the project URL and generated from the project name.',
   'create.slugInvalid': 'Use lowercase letters, numbers, and single hyphens only.',
   'create.slugLabel': 'Slug (optional)',

@@ -7,12 +7,12 @@ import { useTranslation } from 'react-i18next';
 
 import { ProductLogo } from '@/components/Branding';
 import { DESKTOP_HEADER_ICON_SMALL_SIZE } from '@/const/layoutTokens';
+import { startNewHomeChat } from '@/features/Home/startNewHomeChat';
 import NavItem from '@/features/NavPanel/components/NavItem';
 import SideBarHeaderLayout from '@/features/NavPanel/SideBarHeaderLayout';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 import { useGlobalStore } from '@/store/global';
-import { useHomeStore } from '@/store/home';
 import { isModifierClick } from '@/utils/navigation';
 
 import InboxButton from './InboxButton';
@@ -27,7 +27,6 @@ const BrandHeader = memo(() => {
   const { t: tElectron } = useTranslation('electron');
   const navigate = useWorkspaceAwareNavigate();
   const toggleCommandMenu = useGlobalStore((s) => s.toggleCommandMenu);
-  const setHomeSelectedProjectId = useHomeStore((s) => s.setHomeSelectedProjectId);
 
   return (
     <div data-brand-slot="home-sidebar-header">
@@ -57,8 +56,7 @@ const BrandHeader = memo(() => {
             if (isModifierClick(e)) return;
             e.preventDefault();
             // A plain new chat is not filed under the project a "+" picked.
-            setHomeSelectedProjectId(undefined);
-            navigate('/');
+            startNewHomeChat(navigate);
           }}
         >
           <NavItem icon={PencilLineIcon} title={tElectron('navigation.newChat')} />
