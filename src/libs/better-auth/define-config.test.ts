@@ -497,3 +497,98 @@ it('mounts custom host auth at its canonical root while preserving tenant cookie
     expect.objectContaining({ rpID: 'chat.example.com' }),
   );
 });
+
+describe('remembered-account hook', () => {
+  const originalSecret = process.env.KEY_VAULTS_SECRET;
+
+  beforeEach(() => {
+    process.env.KEY_VAULTS_SECRET = 'account-hook-test-secret';
+  });
+
+  afterEach(() => {
+    if (originalSecret === undefined) delete process.env.KEY_VAULTS_SECRET;
+    else process.env.KEY_VAULTS_SECRET = originalSecret;
+  });
+
+  const hook = async () => {
+    const { defineConfig } = await import('./define-config');
+    defineConfig(tenantOptions());
+    const options = mocks.betterAuth.mock.lastCall![0];
+    return options.hooks.after as (ctx: unknown) => Promise<unknown>;
+  };
+
+  const contextFor = (options: {
+    email?: string | null;
+    headers?: Record<string, string>;
+    responseHeaders?: Headers;
+  }) => ({
+    context: {
+      newSession: options.email ? { user: { email: options.email } } : null,
+      responseHeaders: options.responseHeaders ?? new Headers(),
+    },
+    headers: new Headers(options.headers ?? { host: 'example.com' }),
+    request: new Request('https://example.com/t/acme/api/auth/sign-in/email'),
+  });
+
+  const accountValueOf = (headers: Headers) => {
+    const line = headers.getSetCookie()[0];
+    expect(line).toBeDefined();
+    return line.slice(line.indexOf('=') + 1).split(';')[0];
+  };
+
+  it('writes the platform account cookie with the tenant id after a new session', async () => {
+    const after = await hook();
+    const ctx = contextFor({ email: 'User@Example.com' });
+    await after(ctx);
+
+    const line = ctx.context.responseHeaders.getSetCookie()[0];
+    expect(line).toMatch(
+      /^__Host-lobe-last-account=[\w-]+; Path=\/; Max-Age=15552000; HttpOnly; SameSite=Lax; Secure$/,
+    );
+    const { readAccountMemory } = await import('@/server/services/tenantDiscovery/accountCookie');
+    expect(readAccountMemory(accountValueOf(ctx.context.responseHeaders))).toMatchObject({
+      email: 'user@example.com',
+      tenantId: 'tenant-1',
+    });
+  });
+
+  it('does not write on a custom-domain request', async () => {
+    const after = await hook();
+    const ctx = contextFor({ email: 'user@example.com', headers: { host: 'chat.example.com' } });
+    await after(ctx);
+    expect(ctx.context.responseHeaders.getSetCookie()).toEqual([]);
+  });
+
+  it('does not write without a new session', async () => {
+    const after = await hook();
+    const ctx = contextFor({ email: null });
+    await after(ctx);
+    expect(ctx.context.responseHeaders.getSetCookie()).toEqual([]);
+  });
+
+  it('does not write without the signing secret', async () => {
+    delete process.env.KEY_VAULTS_SECRET;
+    const after = await hook();
+    const ctx = contextFor({ email: 'user@example.com' });
+    await after(ctx);
+    expect(ctx.context.responseHeaders.getSetCookie()).toEqual([]);
+  });
+
+  it('never fails the sign-in or logs the email when the write fails', async () => {
+    const after = await hook();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const append = vi.fn(() => {
+        throw new Error('header store unavailable');
+      });
+      const responseHeaders = { append } as unknown as Headers;
+      const ctx = contextFor({ email: 'private@example.com', responseHeaders });
+      await expect(after(ctx)).resolves.toBeUndefined();
+      expect(append).toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith('TENANT_ACCOUNT_MEMORY_WRITE_FAILED');
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('private@example.com');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});

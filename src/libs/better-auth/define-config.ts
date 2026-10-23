@@ -7,7 +7,7 @@ import * as schema from '@lobechat/database/schemas';
 import type { TenantScope } from '@lobechat/database/tenant';
 import bcrypt from 'bcryptjs';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { APIError } from 'better-auth/api';
+import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { verifyPassword as defaultVerifyPassword } from 'better-auth/crypto';
 import { type BetterAuthOptions } from 'better-auth/minimal';
 import { betterAuth } from 'better-auth/minimal';
@@ -21,6 +21,7 @@ import {
 import { type BetterAuthPlugin } from 'better-auth/types';
 import { EnvHttpProxyAgent, setGlobalDispatcher } from 'undici';
 
+import { appEnv } from '@/envs/app';
 import {
   getChangeEmailVerificationTemplate,
   getMagicLinkEmailTemplate,
@@ -38,6 +39,7 @@ import { clearMismatchedOIDCSession } from '@/libs/oidc-provider/session-cleanup
 import type { LoginMethods } from '@/server/globalConfig/loginMethods';
 import { tenantGateErrorOf } from '@/server/modules/Tenant/errors';
 import { EmailService } from '@/server/services/email';
+import { serializeAccountCookie } from '@/server/services/tenantDiscovery/accountCookie';
 import { UserService } from '@/server/services/user';
 
 const LOCAL_NO_PROXY_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
@@ -271,6 +273,23 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
           },
         },
       },
+    },
+    hooks: {
+      after: createAuthMiddleware(async (ctx) => {
+        const email = ctx.context.newSession?.user.email;
+        if (!email) return;
+        try {
+          const host =
+            ctx.headers?.get('host') ?? (ctx.request ? new URL(ctx.request.url).host : '');
+          if (!host || host.toLowerCase() !== new URL(appEnv.APP_URL).host.toLowerCase()) return;
+          const cookie = serializeAccountCookie(email, tenant.id, appEnv.APP_URL);
+          if (cookie) ctx.context.responseHeaders?.append('set-cookie', cookie);
+        } catch {
+          // Remembering an account is a navigation nicety: it must never fail the sign-in and
+          // must never log the email, the cookie or a raw error.
+          console.warn('TENANT_ACCOUNT_MEMORY_WRITE_FAILED');
+        }
+      }),
     },
     user: {
       changeEmail: {

@@ -17,21 +17,39 @@ import { discoveryResults, queryTenantMembership, verifyCandidateObjects } from 
 export { discoveryIpBucket, emailFingerprint } from './protection';
 
 const emailSchema = discoveryEmailSchema;
+export const tenantSelectionIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[\w.:-]+$/);
 const discoveryBody = z.object({ email: emailSchema }).strict();
 const selectBody = z
   .object({
-    id: z
-      .string()
-      .min(1)
-      .max(128)
-      .regex(/^[\w.:-]+$/),
+    id: tenantSelectionIdSchema,
     email: emailSchema.optional(),
     desktop: desktopFlowSchema.optional(),
   })
   .strict();
 
-const readBody = (request: Request, signal: AbortSignal) =>
+export const readDiscoveryBody = (request: Request, signal: AbortSignal) =>
   readDiscoveryJsonBody(request, signal, () => new DiscoveryError('INVALID_REQUEST', 400));
+
+/**
+ * The platform host and same-origin POST gate shared by every tenant-discovery entry point.
+ * Returns the platform origin; `requireOrigin` is for browser mutations.
+ */
+export const assertDiscoveryRequest = (
+  request: Request,
+  options: { requireOrigin: boolean },
+): string => {
+  const appOrigin = new URL(appEnv.APP_URL).origin;
+  const host = request.headers.get('host') ?? new URL(request.url).host;
+  if (host.toLowerCase() !== new URL(appOrigin).host.toLowerCase() || request.method !== 'POST')
+    throw new DiscoveryError('NOT_FOUND', 404);
+  if (options.requireOrigin && request.headers.get('origin') !== appOrigin)
+    throw new DiscoveryError('ORIGIN_REJECTED', 403);
+  return appOrigin;
+};
 const response = (body: unknown, status = 200, extra?: Record<string, string>) =>
   Response.json(body, {
     status,
@@ -44,14 +62,9 @@ export const handleTenantDiscovery = async (
   kind: 'discovery' | 'select' | 'desktop-handoff',
 ) => {
   try {
-    const appOrigin = new URL(appEnv.APP_URL).origin;
-    const host = request.headers.get('host') ?? new URL(request.url).host;
-    if (host.toLowerCase() !== new URL(appOrigin).host.toLowerCase() || request.method !== 'POST')
-      throw new DiscoveryError('NOT_FOUND', 404);
-    if (kind === 'select' && request.headers.get('origin') !== appOrigin)
-      throw new DiscoveryError('ORIGIN_REJECTED', 403);
+    assertDiscoveryRequest(request, { requireOrigin: kind === 'select' });
     return await withDiscoveryDeadline(request.signal, async (signal) => {
-      const raw = await readBody(request, signal);
+      const raw = await readDiscoveryBody(request, signal);
       const parsed = (
         kind === 'discovery' ? discoveryBody : kind === 'select' ? selectBody : desktopFlowSchema
       ).safeParse(raw);

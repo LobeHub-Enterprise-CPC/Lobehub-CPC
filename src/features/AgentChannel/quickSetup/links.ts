@@ -1,3 +1,5 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
+
 /**
  * Deep links that pre-fill a platform's own developer console, so creating a
  * bot app takes one click instead of a page of settings.
@@ -41,12 +43,16 @@ export const buildDiscordBotPageUrl = (applicationId: string) =>
   `${DISCORD_DEVELOPER_PORTAL_URL}/${encodeURIComponent(applicationId)}/bot`;
 
 /** Slack's bot user name allows lowercase letters, digits, `.`, `_` and `-` only. */
-const toSlackBotName = (name: string) =>
+const sanitizeSlackBotName = (name: string) =>
   name
     .toLowerCase()
     .replaceAll(/[^\d._a-z-]+/g, '-')
-    .replaceAll(/^-+|-+$/g, '')
-    .slice(0, 80) || 'lobehub-assistant';
+    .replaceAll(/^-+|-+$/g, '');
+
+const FALLBACK_SLACK_BOT_NAME = `${sanitizeSlackBotName(BRANDING_NAME) || 'app'}-assistant`;
+
+const toSlackBotName = (name: string) =>
+  sanitizeSlackBotName(name).slice(0, 80) || FALLBACK_SLACK_BOT_NAME;
 
 const SLACK_BOT_SCOPES = [
   'app_mentions:read',

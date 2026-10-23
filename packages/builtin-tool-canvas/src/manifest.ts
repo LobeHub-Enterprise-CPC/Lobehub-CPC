@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import type { BuiltinToolManifest } from '@lobechat/types';
 
 import { systemPrompt } from './systemRole';
@@ -127,8 +128,7 @@ export const CanvasManifest: BuiltinToolManifest = {
   identifier: CanvasIdentifier,
   meta: {
     avatar: '🖼️',
-    description:
-      'Default for reports, analyses, comparisons and data dashboards: a versioned page built from LobeHub components that the user can revisit and publish. Prefer it over inline HTML or Artifacts for these',
+    description: `Default for reports, analyses, comparisons and data dashboards: a versioned page built from ${BRANDING_NAME} components that the user can revisit and publish. Prefer it over inline HTML or Artifacts for these`,
     title: 'Canvas',
   },
   systemRole: systemPrompt,

@@ -1150,6 +1150,7 @@
   "src/features/SkillsList/SkillsList.tsx",
   "src/features/TaskDock/Item.tsx",
   "src/features/TaskDock/index.tsx",
+  "src/features/TenantDiscovery/AccountConfirmCard.tsx",
   "src/features/TenantDiscovery/SwitchOrganizationLink.tsx",
   "src/features/ToolSetting/ChannelItem.tsx",
   "src/features/ToolTag/index.tsx",

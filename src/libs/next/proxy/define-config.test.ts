@@ -19,6 +19,9 @@ vi.hoisted(() => {
 vi.mock('@/server/modules/Tenant/endpoints', async () =>
   (await import('./tenant/testKit')).endpointsModule(),
 );
+vi.mock('@/server/services/tenantDiscovery/account', async () =>
+  (await import('./tenant/testKit')).accountModule(),
+);
 vi.mock('@/auth', async () => (await import('./tenant/testKit')).authModule());
 vi.mock('@/server/modules/Tenant/runtime', async () =>
   (await import('./tenant/testKit')).runtimeModule(),

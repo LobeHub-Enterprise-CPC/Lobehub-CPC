@@ -181,6 +181,10 @@ export const readDesktopFlowStatus = (value: string | null): DesktopFlowStatus |
   }
 };
 
+/** Presentation only. The proxy clears client copies; account selection independently validates. */
+export const ROOT_ACCOUNT_HEADER = 'x-lobe-root-account';
+export const readRootAccountFlag = (value: string | null): boolean => value === '1';
+
 /** Keep URL logging safe even when sign-in embeds an entire OIDC request in callbackUrl. */
 export const redactUrlEmail = (value: string): string => {
   // Server-relative inputs (`/oidc/token?code=...`) are redacted by the same rules and stay relative.

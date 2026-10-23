@@ -1,5 +1,6 @@
 'use client';
 
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { isMaskedBotCredential } from '@lobechat/const';
 import type { SelectOption } from '@lobehub/ui';
 import {
@@ -569,7 +570,7 @@ const Body = memo<BodyProps>(
           ) : (
             <>
               <QuickSetupSection
-                appName={quickSetupAppName || 'LobeHub'}
+                appName={quickSetupAppName || BRANDING_NAME}
                 disabled={disabled}
                 form={form}
                 hasConfig={hasConfig}

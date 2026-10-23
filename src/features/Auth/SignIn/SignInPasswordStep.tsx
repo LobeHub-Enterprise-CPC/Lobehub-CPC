@@ -6,11 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import AuthCard from '@/features/AuthCard';
 
-import { CurrentOrganization } from './CurrentOrganization';
-
 export interface SignInPasswordStepProps {
-  /** The sign-in serves the desktop app's authorization: no web "switch organization" link. */
-  desktopAuth?: boolean;
   email: string;
   forgotLoading: boolean;
   form: FormInstance<{ password: string }>;
@@ -20,7 +16,6 @@ export interface SignInPasswordStepProps {
 }
 
 export const SignInPasswordStep = ({
-  desktopAuth,
   email,
   form,
   forgotLoading,
@@ -40,25 +35,22 @@ export const SignInPasswordStep = ({
       subtitle={email}
       title={t('betterAuth.signin.passwordStep.title')}
       footer={
-        <>
-          <Text align={'center'} fontSize={13} style={{ marginTop: 8 }} type={'secondary'}>
-            <a
-              role="button"
-              style={{ color: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}
-              tabIndex={0}
-              onClick={onBackToEmail}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onBackToEmail();
-                }
-              }}
-            >
-              {t('betterAuth.signin.backToEmail')}
-            </a>
-          </Text>
-          <CurrentOrganization desktopAuth={desktopAuth} />
-        </>
+        <Text align={'center'} fontSize={13} style={{ marginTop: 8 }} type={'secondary'}>
+          <a
+            role="button"
+            style={{ color: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}
+            tabIndex={0}
+            onClick={onBackToEmail}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onBackToEmail();
+              }
+            }}
+          >
+            {t('betterAuth.signin.backToEmail')}
+          </a>
+        </Text>
       }
     >
       <Form form={form} gap={0} layout="vertical">

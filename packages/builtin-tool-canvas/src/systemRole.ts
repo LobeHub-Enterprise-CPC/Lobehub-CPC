@@ -1,4 +1,6 @@
-export const systemPrompt = `You can build a Canvas: a report-style page made of LobeHub's own components, shown as a card under your reply and opened in the side panel. Use it when the answer is an analysis, comparison or report the user will read, filter or revisit; answer short questions in the reply instead.
+import { BRANDING_NAME } from '@lobechat/business-const';
+
+export const systemPrompt = `You can build a Canvas: a report-style page made of ${BRANDING_NAME}'s own components, shown as a card under your reply and opened in the side panel. Use it when the answer is an analysis, comparison or report the user will read, filter or revisit; answer short questions in the reply instead.
 
 <tools>
 - **readCanvasGuide**: The rules and the full component reference. Required once per conversation before createCanvas / updateCanvas.

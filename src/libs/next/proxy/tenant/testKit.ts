@@ -1,11 +1,18 @@
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, expect, vi } from 'vitest';
 
+import {
+  handleNavigationRedirect,
+  NAVIGATION_REDIRECT_HEADER,
+  NAVIGATION_REDIRECT_PATH,
+} from '../navigationRedirect';
+
 /**
  * Shared doubles for the proxy's tenant layer. A test file registers the `vi.mock` calls
  * (they are hoisted per file) with the factories below and calls `useTenantMocks()`.
  */
 export const mocks = {
+  accountOrganizations: vi.fn(),
   enterSlug: vi.fn(),
   findHost: vi.fn(),
   remembered: vi.fn(),
@@ -29,6 +36,9 @@ export const endpointsModule = () => ({
   findSlugEndpoint: (slug: string) => mocks.findSlug(slug),
 });
 export const desktopModule = () => ({ selectDesktopTenant: mocks.desktopSelection });
+export const accountModule = () => ({
+  findAccountOrganizations: mocks.accountOrganizations,
+});
 export const authModule = () => ({ getTenantAuth: () => mocks.getTenantAuth() });
 export const runtimeModule = () => ({ getTenantRuntime: () => ({ enterSlug: mocks.enterSlug }) });
 
@@ -42,6 +52,7 @@ export const useTenantMocks = () => {
 
   beforeEach(() => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mocks.accountOrganizations.mockReset().mockResolvedValue([]);
     mocks.desktopSelection
       .mockReset()
       .mockResolvedValue({ url: 'https://chat.example.com/oidc/auth?state=authorized' });
@@ -99,13 +110,31 @@ export const documentNavigation = (
   });
 
 /**
- * Next rebuilds every middleware `Location` and drops its empty fragment, so these navigations are
- * answered as a page whose meta refresh carries the target (see `navigationRedirect.ts`).
+ * Next rebuilds every middleware `Location` and drops its empty fragment, so the proxy rewrites to
+ * the signed-navigation route handler (see `navigationRedirect.ts`). This follows that transport
+ * end to end and asserts the browser-facing 302 and its exact target.
  */
 export const expectFragmentRedirect = async (response: Response, location: string) => {
-  expect(response.status).toBe(200);
   expect(response.headers.get('location')).toBeNull();
-  expect(response.headers.get('x-middleware-rewrite')).toBeNull();
-  expect(await response.text()).toContain(`content="0;url=${location.replaceAll('&', '&amp;')}"`);
+  const rewrite = response.headers.get('x-middleware-rewrite');
+  expect(rewrite).not.toBeNull();
+  expect(new URL(rewrite!).pathname).toBe(NAVIGATION_REDIRECT_PATH);
+  expect(response.headers.get('cache-control')).toBe('private, no-store');
+  expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+
+  const forwarded = new Headers();
+  for (const name of response.headers.get('x-middleware-override-headers')?.split(',') ?? []) {
+    const key = name.trim();
+    const value = response.headers.get(`x-middleware-request-${key}`);
+    if (key && value !== null) forwarded.set(key, value);
+  }
+  expect(forwarded.get(NAVIGATION_REDIRECT_HEADER)).not.toBeNull();
+
+  const final = handleNavigationRedirect(new Request(rewrite!, { headers: forwarded }));
+  expect(final.status).toBe(302);
+  expect(final.headers.get('location')).toBe(location);
+  expect(final.headers.get('cache-control')).toBe('private, no-store');
+  expect(final.headers.get('referrer-policy')).toBe('no-referrer');
+  expect(await final.text()).toBe('');
   expect(location.endsWith('#')).toBe(true);
 };

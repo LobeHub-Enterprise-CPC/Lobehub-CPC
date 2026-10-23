@@ -21,7 +21,6 @@ import AuthCard from '@/features/AuthCard';
 import AuthAgreement from '@/features/AuthShell/AuthAgreement';
 import { SwitchOrganizationLink } from '@/features/TenantDiscovery/SwitchOrganizationLink';
 
-import { CurrentOrganization } from './CurrentOrganization';
 import { EMAIL_REGEX, USERNAME_REGEX } from './emailRegex';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
@@ -307,7 +306,6 @@ export const SignInEmailStep = ({
           </a>
         </Text>
       )}
-      <CurrentOrganization desktopAuth={desktopAuth} hideSwitch={tenantUnavailable} />
     </AuthCard>
   );
 };

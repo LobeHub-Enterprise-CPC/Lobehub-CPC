@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { buildDroidAcpArgs } from '@lobechat/heterogeneous-agents/spawn';
 import { formatServerDefaultHeterogeneousModel } from '@lobechat/types';
 
@@ -24,7 +25,7 @@ export const droidDriver: HeterogeneousAgentDriver = {
     const customModel = {
       apiKey: '${LOBEHUB_DROID_API_KEY}',
       baseUrl: `${endpoint}/api/v1/anthropic`,
-      displayName: 'LobeHub Server Default',
+      displayName: `${BRANDING_NAME} Server Default`,
       maxOutputTokens:
         modelDescriptor?.maxOutput && modelDescriptor.maxOutput > 0
           ? modelDescriptor.maxOutput

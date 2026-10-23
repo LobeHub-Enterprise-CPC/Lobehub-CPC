@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { describe, expect, it } from 'vitest';
 
 import { getHeterogeneousAgentDriver } from '../index';
@@ -33,7 +34,7 @@ describe('droidDriver', () => {
         {
           apiKey: '${LOBEHUB_DROID_API_KEY}',
           baseUrl: 'https://example.test/api/v1/anthropic',
-          displayName: 'LobeHub Server Default',
+          displayName: `${BRANDING_NAME} Server Default`,
           maxOutputTokens: 8192,
           model: 'lobehub/vendor/model',
           noImageSupport: false,

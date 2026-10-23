@@ -5,6 +5,10 @@ import { unstable_doesMiddlewareMatch } from 'next/experimental/testing/server';
 import { NextRequest } from 'next/server';
 import { describe, expect, it, vi } from 'vitest';
 
+import {
+  NAVIGATION_REDIRECT_HEADER,
+  NAVIGATION_REDIRECT_PATH,
+} from '@/libs/next/proxy/navigationRedirect';
 import { config as proxyConfig } from '@/proxy';
 import { TENANT_ROUTE_HEADER, verifyTenantRoute } from '@/server/modules/Tenant/routeHeader';
 import { TenantRoutingUnavailableError } from '@/server/modules/Tenant/routingErrors';
@@ -26,6 +30,9 @@ vi.mock('@/server/modules/Tenant/endpoints', async () =>
 );
 vi.mock('@/server/services/tenantDiscovery/desktop', async () =>
   (await import('./testKit')).desktopModule(),
+);
+vi.mock('@/server/services/tenantDiscovery/account', async () =>
+  (await import('./testKit')).accountModule(),
 );
 vi.mock('@/auth', async () => (await import('./testKit')).authModule());
 vi.mock('@/server/modules/Tenant/runtime', async () => (await import('./testKit')).runtimeModule());
@@ -466,5 +473,49 @@ describe('scope release on a tenant page', () => {
     const redirect = await middleware(new NextRequest('http://localhost:3010/t/acme/agent'));
     expect(redirect.status).toBe(302);
     expect(release).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('signed navigation redirect transport', () => {
+  const document = { 'sec-fetch-dest': 'document', 'sec-fetch-mode': 'navigate' };
+
+  it.each(['http://localhost:3010', 'https://chat.example.com'])(
+    'refuses direct access to the internal route on %s before any tenant lookup',
+    async (origin) => {
+      const response = await middleware(
+        new NextRequest(`${origin}${NAVIGATION_REDIRECT_PATH}`, {
+          headers: { ...document, [NAVIGATION_REDIRECT_HEADER]: 'forged' },
+        }),
+      );
+      expect(response.status).toBe(404);
+      expect(response.headers.get('location')).toBeNull();
+      expect(response.headers.get('x-middleware-rewrite')).toBeNull();
+      expect(mocks.findHost).not.toHaveBeenCalled();
+      expect(mocks.findSlug).not.toHaveBeenCalled();
+      expect(mocks.remembered).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['/t/acme', '/t/nope'])(
+    'refuses the internal route under the tenant prefix %s',
+    async (prefix) => {
+      const response = await middleware(
+        new NextRequest(`http://localhost:3010${prefix}${NAVIGATION_REDIRECT_PATH}`, {
+          headers: { ...document, [NAVIGATION_REDIRECT_HEADER]: 'forged' },
+        }),
+      );
+      expect(response.status).toBe(404);
+      expect(response.headers.get('x-middleware-rewrite')).toBeNull();
+      expect(mocks.enterSlug).not.toHaveBeenCalled();
+    },
+  );
+
+  it('drops a client copy of the signed header from every forwarded request', async () => {
+    const response = await middleware(
+      new NextRequest('http://localhost:3010/t/acme/api/auth/get-session', {
+        headers: { [NAVIGATION_REDIRECT_HEADER]: 'forged' },
+      }),
+    );
+    expect(response.headers.get(`x-middleware-request-${NAVIGATION_REDIRECT_HEADER}`)).toBeNull();
   });
 });

@@ -16,11 +16,16 @@ import {
   DESKTOP_FLOW_HEADER,
   isDocumentNavigation,
   redactUrlEmail,
+  ROOT_ACCOUNT_HEADER,
   serializeTenantCookie,
   tenantCookieName,
 } from '@/server/services/tenantDiscovery/navigation';
 
-import { navigationRedirect } from '../navigationRedirect';
+import {
+  NAVIGATION_REDIRECT_HEADER,
+  NAVIGATION_REDIRECT_PATH,
+  navigationRedirect,
+} from '../navigationRedirect';
 import { discoveryNavigation } from './discovery';
 import { requestUrlByHost } from './hostAuthority';
 import { isDangerousLocalDevProxyRoute, PUBLIC_ACCEPTANCE_GUIDE } from './paths';
@@ -49,7 +54,13 @@ const routeTenantRequest = async (
   const headers = new Headers(req.headers);
   headers.delete(TENANT_ROUTE_HEADER);
   headers.delete(DESKTOP_FLOW_HEADER);
+  headers.delete(ROOT_ACCOUNT_HEADER);
+  headers.delete(NAVIGATION_REDIRECT_HEADER);
   if (isDangerousLocalDevProxyRoute(pathname)) return NextResponse.next({ request: { headers } });
+
+  // Only the proxy's own rewrite may reach the signed-navigation handler. A direct call is
+  // refused here, before any tenant lookup, on every authority.
+  if (pathname === NAVIGATION_REDIRECT_PATH) return rejectJson('NOT_FOUND', 404);
 
   // Public installation instructions (a static file) stay readable by coding
   // agents without a tenant; they hold no tenant data.
@@ -86,7 +97,8 @@ const routeTenantRequest = async (
   }
   if (route.kind === 'session-entry')
     return sessionEntry(deps, req, headers, route, onDefaultTenantPage);
-  if (route.kind === 'navigation-redirect') return navigationRedirect(route.url);
+  if (route.kind === 'navigation-redirect')
+    return navigationRedirect(deps, req, headers, route.url);
   if (route.kind === 'redirect')
     return new Response(null, {
       status: route.status ?? 302,

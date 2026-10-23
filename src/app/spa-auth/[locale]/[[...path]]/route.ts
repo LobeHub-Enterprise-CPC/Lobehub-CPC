@@ -10,6 +10,8 @@ import { getTenantPageBootstrap } from '@/server/modules/Tenant/pageBootstrap';
 import {
   DESKTOP_FLOW_HEADER,
   readDesktopFlowStatus,
+  readRootAccountFlag,
+  ROOT_ACCOUNT_HEADER,
 } from '@/server/services/tenantDiscovery/navigation';
 import { type AuthSPAServerConfig } from '@/types/spaServerConfig';
 
@@ -50,8 +52,12 @@ const renderAuthPage = async (
     !tenant && !path?.length
       ? readDesktopFlowStatus(request.headers.get(DESKTOP_FLOW_HEADER))
       : undefined;
+  // Presentation only, and only on the tenantless root the proxy marked for account mode.
+  const rootAccount =
+    !tenant && !path?.length && readRootAccountFlag(request.headers.get(ROOT_ACCOUNT_HEADER));
   const authConfig: AuthSPAServerConfig = {
     ...(desktopStatus ? { desktopFlow: { status: desktopStatus } } : {}),
+    ...(rootAccount ? { rootAccount: true as const } : {}),
     tenant,
     appUrl: new URL(appEnv.APP_URL).origin,
     analyticsConfig: buildAnalyticsConfig(),

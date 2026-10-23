@@ -1,6 +1,15 @@
 import { createStaticStyles } from '@lobehub/ui';
 
 export const styles = createStaticStyles(({ css, cssVar }) => ({
+  content: css`
+    overflow-y: auto;
+    min-height: 0;
+  `,
+
+  contentCenter: css`
+    margin-block: auto;
+  `,
+
   innerContainerDark: css`
     position: relative;
 

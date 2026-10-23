@@ -1,4 +1,5 @@
 import { builtinTools } from '@lobechat/builtin-tools';
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { COMPOSIO_APP_TYPES, DEFAULT_DISCOVER_PLUGIN_ITEM, OFFICIAL_SITE } from '@lobechat/const';
 import {
   type DiscoverPluginDetail,
@@ -207,7 +208,7 @@ export const getPluginDetail = async (
       avatar: typeof composioTool.icon === 'string' ? composioTool.icon : '',
       category: undefined,
       createdAt: '',
-      description: `LobeHub Mcp Server: ${composioTool.label}`,
+      description: `${BRANDING_NAME} Mcp Server: ${composioTool.label}`,
       homepage: 'https://composio.dev',
       identifier: composioTool.identifier,
       manifest: undefined,

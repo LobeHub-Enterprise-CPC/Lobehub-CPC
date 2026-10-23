@@ -2,14 +2,17 @@
 
 import { BRANDING_NAME } from '@lobechat/business-const';
 import { Alert } from '@lobehub/ui';
-import { memo, useEffect, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import AuthEmailForm from '@/features/Auth/AuthEmailForm';
 import AuthCard from '@/features/AuthCard';
 
+import { AccountConfirmCard } from './AccountConfirmCard';
+import { readAccountMode } from './accountMode';
 import { OrganizationPicker } from './OrganizationPicker';
 import { useOrganizationDiscovery } from './useOrganizationDiscovery';
+import { useRememberedAccount } from './useRememberedAccount';
 
 /**
  * Root-path page for a document that addresses no organization: find the organizations an
@@ -18,7 +21,7 @@ import { useOrganizationDiscovery } from './useOrganizationDiscovery';
  * It is the first half of signing in, so it speaks with the sign-in page's voice: the same
  * card, title, email field, terms checkbox and button.
  */
-const TenantDiscovery = memo(() => {
+const TenantDiscoveryForm = memo(() => {
   const { t } = useTranslation('auth');
   const emailInputRef = useRef<HTMLInputElement>(null);
   const {
@@ -110,6 +113,38 @@ const TenantDiscovery = memo(() => {
       />
     </AuthCard>
   );
+});
+
+TenantDiscoveryForm.displayName = 'TenantDiscoveryForm';
+
+/**
+ * The remembered-account branch of the root page: the account's organizations as a confirm
+ * card in the same `AuthCard`. When there is no remembered account the finder form takes
+ * over in place, without a reload.
+ */
+const AccountModeContent = memo(() => {
+  const { t } = useTranslation('auth');
+  const state = useRememberedAccount();
+
+  if (state.status === 'fallback') return <TenantDiscoveryForm />;
+
+  return (
+    <AuthCard
+      subtitle={t('organization.account.subtitle')}
+      title={t('signin.subtitle', { appName: BRANDING_NAME })}
+    >
+      <AccountConfirmCard state={state} />
+    </AuthCard>
+  );
+});
+
+AccountModeContent.displayName = 'AccountModeContent';
+
+const TenantDiscovery = memo(() => {
+  // Fixed for the life of the page: the request that opened it does not change.
+  const accountMode = useMemo(() => readAccountMode(), []);
+  if (accountMode) return <AccountModeContent />;
+  return <TenantDiscoveryForm />;
 });
 
 TenantDiscovery.displayName = 'TenantDiscovery';

@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import debug from 'debug';
 import type { Context } from 'hono';
 
@@ -18,7 +19,9 @@ const log = debug('lobe-server:linear:install');
  */
 export const linearInstall = async (c: Context): Promise<Response> => {
   if (!linearEnv.ENABLED_LINEAR) {
-    return new Response('Linear is not configured on this LobeHub deployment.', { status: 503 });
+    return new Response(`Linear is not configured on this ${BRANDING_NAME} deployment.`, {
+      status: 503,
+    });
   }
 
   const req = c.req.raw;
@@ -51,9 +54,10 @@ export const linearInstall = async (c: Context): Promise<Response> => {
       return null;
     });
   if (!state) {
-    return new Response('Connecting Linear needs Redis (REDIS_URL) on this LobeHub deployment.', {
-      status: 503,
-    });
+    return new Response(
+      `Connecting Linear needs Redis (REDIS_URL) on this ${BRANDING_NAME} deployment.`,
+      { status: 503 },
+    );
   }
 
   const authorizeUrl = buildLinearAuthorizeUrl(state);

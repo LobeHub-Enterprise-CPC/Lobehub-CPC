@@ -21,6 +21,7 @@ describe('sandbox environment overrides', () => {
 
   it('uses the overridden software description without appending another deployment’s restrictions', async () => {
     vi.doMock('@lobechat/business-const', () => ({
+      BRANDING_NAME: 'LobeHub',
       SANDBOX_INFRASTRUCTURE: 'Custom sandbox',
       SANDBOX_PREINSTALLED_SOFTWARE: 'Custom image with pnpm and LibreOffice.',
     }));
