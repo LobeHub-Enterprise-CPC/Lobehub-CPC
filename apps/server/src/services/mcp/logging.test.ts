@@ -101,7 +101,7 @@ describe('MCPService logging never leaks credentials', () => {
     expectNoSecrets(dump(debugLog));
   });
 
-  it('keeps diagnostic shape (name, type, auth type, header names, url host/path)', async () => {
+  it('keeps diagnostic shape (name, type, auth type, header names, url origin)', async () => {
     mockClient.listTools.mockRejectedValue(new Error('boom'));
 
     await expect(mcpService.listTools(cases[2][1])).rejects.toThrow(TRPCError);
@@ -109,7 +109,9 @@ describe('MCPService logging never leaks credentials', () => {
     const output = dump(consoleError);
     expect(output).toContain('clerk-oauth');
     expect(output).toContain('Authorization');
-    expect(output).toContain('mcp.example.com/mcp');
+    // Failure logs reduce the URL to its origin; paths can carry session keys.
+    expect(output).toContain('https://mcp.example.com');
+    expect(output).not.toContain('mcp.example.com/mcp');
   });
 
   it('does not leak on the successful debug path either', async () => {

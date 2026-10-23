@@ -69,6 +69,8 @@ overrides:
   '@lobehub/editor': ^5.0.0
   '@lobehub/charts': ^6.0.0
   '@lobehub/fluent-emoji': ^5.0.0
+  # Stay on the latest 1.9.x: @opentelemetry/*@2.x peers reject 1.10.0, and mixing both splits drizzle-orm into duplicate peer variants.
+  '@opentelemetry/api': 1.9.1
   '@react-pdf/image': 3.0.4
   # 0.2.11 moved the optional `import('zod-openapi')` out of try/catch, which fails the Turbopack build.
   '@standard-community/standard-openapi': 0.2.10
@@ -81,11 +83,6 @@ overrides:
   # every cross-package query into TS2345/TS2769. Pin the version so every
   # importer resolves the same copy.
   drizzle-orm: 0.45.4
-  # Same drift: better-auth's `@better-auth/core` peer and drizzle-orm's peer
-  # resolved to 1.9.0 at the root and 1.10.0 in the workspace packages, so
-  # `BetterAuthPlugin`/`BetterAuthOptions` no longer matched. 1.10.0 is what
-  # packages/observability-otel (`^1.9.1`) and the SDK packages already use.
-  '@opentelemetry/api': 1.10.0
   fast-xml-parser: 5.4.2
   lexical: 0.42.0
   # Keep the coupled core/autolink patches applied without a root lockfile.

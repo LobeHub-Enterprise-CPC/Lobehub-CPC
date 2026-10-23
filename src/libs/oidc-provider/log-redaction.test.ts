@@ -42,6 +42,8 @@ vi.mock('@/envs/auth', () => ({
 }));
 vi.mock('@/libs/trpc/utils/tenantBinding', () => ({ isBoundToCurrentTenant: mocks.tenantBound }));
 vi.mock('jose', () => ({
+  createLocalJWKSet: () => 'public-key-set',
+  decodeProtectedHeader: () => ({ kid: 'k' }),
   importJWK: async () => 'public-key',
   jwtVerify: mocks.jwtVerify,
 }));

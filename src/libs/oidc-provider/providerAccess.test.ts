@@ -41,6 +41,7 @@ vi.mock('./config', () => ({
       post_logout_redirect_uris: [],
     },
     { client_id: 'lobehub-mobile', redirect_uris: ['com.lobehub.app://auth/callback'] },
+    { client_id: 'toby', redirect_uris: [] },
   ],
   defaultScopes: ['openid', 'email'],
 }));
@@ -128,6 +129,9 @@ it.each([
     `${endpoint.publicUrl}/oauth/logout`,
   ]);
   expect(state.config.clients[1].redirect_uris).toEqual(['com.lobehub.app://auth/callback']);
+  expect(state.config.clients[2].redirect_uris).toEqual([
+    `${endpoint.publicUrl}/oidc/callback/toby`,
+  ]);
   expect(
     state.config.interactions.url({ oidc: {} }, { prompt: { name: 'consent' }, uid: 'consent-1' }),
   ).toBe(`${endpoint.basePath}/oauth/consent/consent-1`);
@@ -147,4 +151,10 @@ it('registers only the organization own desktop callbacks, without mutating anot
   expect(state.config.clients[0].redirect_uris).toEqual([
     'http://localhost:3000/t/acme/oidc/callback/desktop',
   ]);
+});
+
+it('registers only the organization own toby callback', async () => {
+  const endpoint = { basePath: '', publicUrl: 'https://lobehub.com', version: 1 };
+  await createOIDCProvider({} as never, { endpoint, slug: 'acme', tenantId: 'tenant-acme' });
+  expect(state.config.clients[2].redirect_uris).toEqual(['https://lobehub.com/oidc/callback/toby']);
 });

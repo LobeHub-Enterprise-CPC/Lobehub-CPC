@@ -576,6 +576,7 @@ const ACCEPTED_OPERATIONS = new Set([
   'POST eval/runs',
   'POST signals/source-events',
   'POST signals/trigger',
+  'POST tasks/{id}/runs',
 ]);
 
 const successStatusFor = (group: string, rest: string, method: string): number => {

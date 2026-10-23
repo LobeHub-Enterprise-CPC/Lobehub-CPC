@@ -7,7 +7,7 @@ import type { PluginOption, ViteDevServer } from 'vite';
 import { defineConfig, loadEnv } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-import { canvasRuntimeInitialEntries } from './plugins/vite/canvasRuntime';
+import { canvasRuntimeEntries } from './plugins/vite/canvasRuntime';
 import { customBrandingLoadingScreen } from './plugins/vite/customBrandingLoadingScreen';
 import { viteEnvRestartKeys } from './plugins/vite/envRestartKeys';
 import {
@@ -125,7 +125,8 @@ export default defineConfig({
             __dirname,
             isAuth ? 'index.auth.html' : isMobile ? 'index.mobile.html' : 'index.html',
           ),
-          ...canvasRuntimeInitialEntries(platform),
+          // Mobile/auth have no Canvas consumer, so the plugin emits no runtime entries.
+          ...(!isAuth && !isMobile && canvasRuntimeEntries),
         },
         strictExecutionOrder: true,
       }),

@@ -7,7 +7,7 @@ import type { PluginOption, UserConfig, ViteDevServer } from 'vite';
 import { defineConfig } from 'vite';
 import tsconfigPaths from 'vite-tsconfig-paths';
 
-import { canvasRuntimeInitialEntries } from '../../plugins/vite/canvasRuntime';
+import { canvasRuntimeEntries } from '../../plugins/vite/canvasRuntime';
 import { customBrandingLoadingScreen } from '../../plugins/vite/customBrandingLoadingScreen';
 import { devLoadingProgress } from '../../plugins/vite/devLoadingProgress';
 import {
@@ -239,7 +239,7 @@ export default defineConfig(async (env) => {
       rolldownOptions: {
         input: RENDERER_INPUTS,
         output: createSharedRolldownOutput({
-          initialEntries: { ...RENDERER_INPUTS, ...canvasRuntimeInitialEntries('desktop') },
+          initialEntries: { ...RENDERER_INPUTS, ...canvasRuntimeEntries },
           strictExecutionOrder: true,
         }),
         preserveEntrySignatures: 'allow-extension',
