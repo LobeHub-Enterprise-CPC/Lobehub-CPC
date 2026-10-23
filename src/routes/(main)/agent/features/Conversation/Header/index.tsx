@@ -25,7 +25,12 @@ import WorkingPanelToggle from './WorkingPanelToggle';
 // slots, which keep their own opaque backing for when content scrolls under.
 const FLOATING_HEADER_QUERY = '@container agent-chat-layout (min-width: 1200px)';
 
-const headerStyles = createStaticStyles(({ css }) => ({
+/**
+ * The conversation header's frame: a solid bar on a narrow column, floating
+ * title and action pills over the message stream on a wide one. Shared with
+ * other hosts of the conversation (a project conversation) so they lay out alike.
+ */
+export const conversationHeaderStyles = createStaticStyles(({ css }) => ({
   container: css`
     position: relative;
 
@@ -146,14 +151,14 @@ const Header = memo(() => {
   const { data: transferJob } = useAgentTransferJob({ agentId });
 
   return (
-    <div className={headerStyles.container}>
+    <div className={conversationHeaderStyles.container}>
       <NavHeader
         left={
           <Flexbox
             allowShrink
             horizontal
             align={'center'}
-            className={headerStyles.leftContent}
+            className={conversationHeaderStyles.leftContent}
             gap={4}
           >
             {splitView && agentMeta && (
@@ -172,9 +177,14 @@ const Header = memo(() => {
           </Flexbox>
         }
         right={
-          <Flexbox horizontal align={'center'} className={headerStyles.rightContent} gap={4}>
+          <Flexbox
+            horizontal
+            align={'center'}
+            className={conversationHeaderStyles.rightContent}
+            gap={4}
+          >
             {transferJob && agentId && (
-              <div className={headerStyles.migrationChipInline}>
+              <div className={conversationHeaderStyles.migrationChipInline}>
                 <AgentMigrationBadge agentId={agentId} />
               </div>
             )}
@@ -188,12 +198,12 @@ const Header = memo(() => {
           </Flexbox>
         }
         slotClassNames={{
-          left: headerStyles.slotLeft,
-          right: headerStyles.slotRight,
+          left: conversationHeaderStyles.slotLeft,
+          right: conversationHeaderStyles.slotRight,
         }}
       />
       {transferJob && agentId && (
-        <div className={headerStyles.migrationChipOverlay}>
+        <div className={conversationHeaderStyles.migrationChipOverlay}>
           <AgentMigrationBadge agentId={agentId} />
         </div>
       )}
