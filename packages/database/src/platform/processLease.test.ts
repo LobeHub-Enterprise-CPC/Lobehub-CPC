@@ -73,7 +73,11 @@ describe('platform process lease migration', () => {
     const pg = new PGlite();
     try {
       const migrations = readMigrationFiles({ migrationsFolder });
-      for (const migration of migrations.slice(0, -1))
+      const leaseIdx = migrations.findIndex((migration) =>
+        migration.sql.some((sql) => sql.includes('DROP TABLE "tenant_runtime_claim"')),
+      );
+      const cutoff = leaseIdx === -1 ? migrations.length - 1 : leaseIdx;
+      for (const migration of migrations.slice(0, cutoff))
         for (const sql of migration.sql) await pg.exec(sql);
       await pg.exec(`
         INSERT INTO tenant_runtime_process(process_id,host,pid) VALUES ('old','host',123);
@@ -81,7 +85,8 @@ describe('platform process lease migration', () => {
         INSERT INTO tenant_lifecycle(tenant_id,desired_state,accepted_version) VALUES ('t','frozen',2);
         INSERT INTO tenant_runtime_external_work(work_id,tenant_id,kind) VALUES ('external','t','video');
       `);
-      for (const sql of migrations.at(-1)!.sql) await pg.exec(sql);
+      for (const migration of migrations.slice(cutoff))
+        for (const sql of migration.sql) await pg.exec(sql);
       const result = await pg.query<{ expired: boolean; drained_generations: unknown }>(
         'SELECT lease_expires_at <= now() AS expired, drained_generations FROM tenant_runtime_process',
       );

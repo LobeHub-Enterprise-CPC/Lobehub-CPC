@@ -20,9 +20,9 @@ beforeEach(() => {
     // net.connect() hands the normalized `[options, cb]` pair through as one array.
     const [first] = Array.isArray(args[0]) ? args[0] : args;
     connectTargets.push(`${first?.host}:${first?.port}`);
-    // No error argument: the default host is https, and an 'error' event on that TLS socket
-    // would surface as an unhandled error instead of a failed request.
-    this.destroy();
+    // Defer the failure by a tick: the default host is https, and an 'error' event emitted
+    // before the TLS socket has its listeners surfaces as an unhandled error, not a failed request.
+    process.nextTick(() => this.destroy(new Error('network disabled in test')));
     return this;
   } as any);
   vi.spyOn(console, 'error').mockImplementation(() => {});

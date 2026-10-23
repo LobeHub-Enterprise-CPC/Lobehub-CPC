@@ -348,8 +348,8 @@ describe('AgentProviderAccountModel — lookups and credential lifecycle', () =>
 
     // flipping a ciphertext byte breaks the GCM tag → wasAuthentic = false
     const authentic = await gateKeeper.encrypt(JSON.stringify({ accessToken: 'tampered' }));
-    const [iv, tag, body] = authentic.split(':');
-    const tampered = `${iv}:${tag}:${body.replace(/^./, (c) => (c === '0' ? '1' : '0'))}`;
+    const [version, iv, body, tag] = authentic.split('.');
+    const tampered = `${version}.${iv}.${body.replace(/^./, (c) => (c === '0' ? '1' : '0'))}.${tag}`;
     const [tamperedRow] = await serverDB
       .insert(agentProviderAccounts)
       .values({ credentialMode: 'managed', credentials: tampered, provider: 'claude-code', userId })

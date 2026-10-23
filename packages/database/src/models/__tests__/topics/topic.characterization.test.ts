@@ -41,6 +41,7 @@ const PUBLIC_METHODS = [
   'batchDeleteIncludingTrashed',
   'batchInsert',
   'cancelRateLimitContinuation',
+  'claimRunningStatus',
   'count',
   'countBySender',
   'countShareVisitors',
