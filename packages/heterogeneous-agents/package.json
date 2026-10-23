@@ -38,6 +38,7 @@
     "@lobechat/utils": "workspace:*",
     "@lobehub/icons": "^6.0.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
+    "debug": "^4.4.3",
     "diff": "^8.0.4",
     "zod": "^4.4.3"
   },

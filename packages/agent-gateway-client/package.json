@@ -12,6 +12,10 @@
     "test": "bunx vitest run --silent='passed-only'",
     "test:coverage": "bunx vitest run --coverage"
   },
+  "dependencies": {
+    "@lobechat/types": "workspace:*",
+    "@lobechat/utils": "workspace:*"
+  },
   "devDependencies": {
     "vitest": "5.0.0"
   }
