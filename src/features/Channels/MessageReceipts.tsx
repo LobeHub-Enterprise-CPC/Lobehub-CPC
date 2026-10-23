@@ -3,6 +3,7 @@ import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { getMemberAvatar } from './memberAvatar';
 import type { ChannelDetail, MemberReceipt, ReceiptState } from './receipts';
 import { isQuietReceipt } from './receipts';
 import { statusStyles as styles } from './statusStyles';
@@ -34,11 +35,7 @@ export function ReceiptDetail({ receipt }: { receipt: MemberReceipt }) {
   return (
     <Flexbox className={styles.popover} gap={12}>
       <Flexbox horizontal align="center" gap={8}>
-        <Avatar
-          avatar={receipt.member.config.avatar || '🤖'}
-          size={28}
-          title={receipt.member.name}
-        />
+        <Avatar avatar={getMemberAvatar(receipt.member)} size={28} title={receipt.member.name} />
         <strong>{receipt.member.name}</strong>
       </Flexbox>
       <ReceiptStatus state={receipt.state} />
@@ -92,7 +89,7 @@ export function MessageReceipts({
           <Flexbox horizontal align="center" gap={4}>
             {receipts.map(({ member }) => (
               <Avatar
-                avatar={member.config.avatar || '🤖'}
+                avatar={getMemberAvatar(member)}
                 key={member.id}
                 size={16}
                 title={member.name}
@@ -123,7 +120,7 @@ export function MessageReceipts({
                 })}
               >
                 <Avatar
-                  avatar={receipt.member.config.avatar || '🤖'}
+                  avatar={getMemberAvatar(receipt.member)}
                   size={18}
                   title={receipt.member.name}
                 />
