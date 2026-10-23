@@ -9,6 +9,7 @@ import type {
 } from 'oidc-provider';
 
 import { getServerDB } from '@/database/core/db-adaptor';
+import { getRedisConfig } from '@/envs/redis';
 import { redisService } from '@/server/services/redis';
 
 import { GatewayAuthorizationError } from './wire';
@@ -24,6 +25,14 @@ export const projectGatewayOIDCAccess = async (
   const payload = parts.payload;
   const clientId = token.clientId;
   if (!clientId || !gatewayOIDCClients.has(clientId)) return;
+  // A deployment without Redis keeps issuing OIDC tokens: the gateway rejects
+  // these tokens at use because it cannot read the projection, but devices that
+  // only call the regular API still need a completed device flow. A configured
+  // Redis that fails to write still fails closed below.
+  if (!getRedisConfig().enabled) {
+    console.warn('[OIDC] Gateway projection skipped: Redis is not configured');
+    return;
+  }
   if (
     !('grantId' in token) ||
     !token.grantId ||

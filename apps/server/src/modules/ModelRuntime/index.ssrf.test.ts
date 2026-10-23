@@ -35,7 +35,7 @@ beforeEach(() => {
     const host = typeof first === 'object' && first ? first.host : second;
     const port = typeof first === 'object' && first ? first.port : first;
     connectTargets.push(`${host}:${port}`);
-    this.destroy(new Error('network disabled in test'));
+    process.nextTick(() => this.destroy(new Error('network disabled in test')));
     return this;
   } as any);
   vi.spyOn(console, 'error').mockImplementation(() => {});

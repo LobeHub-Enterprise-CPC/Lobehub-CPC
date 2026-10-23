@@ -40,7 +40,7 @@ describe('readConversationMessages', () => {
 
     expect(getMessages).toHaveBeenCalledWith({
       agentId: 'agent-1',
-      projectToolPayloads: true,
+      projectToolPayloads: false,
       topicId: 'topic-1',
     });
   });
@@ -81,7 +81,7 @@ describe('readConversationMessageListPage', () => {
 
     expect(getPage).toHaveBeenCalledWith({
       agentId: 'agent-1',
-      projectToolPayloads: true,
+      projectToolPayloads: false,
       topicId: 'topic-1',
     });
   });

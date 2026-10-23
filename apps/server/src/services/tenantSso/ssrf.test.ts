@@ -22,7 +22,7 @@ beforeEach(() => {
     // net.connect() hands the normalized `[options, cb]` pair through as one array.
     const [first] = Array.isArray(args[0]) ? args[0] : args;
     connectTargets.push(`${first?.host}:${first?.port}`);
-    this.destroy(new Error('network disabled in test'));
+    process.nextTick(() => this.destroy(new Error('network disabled in test')));
     return this;
   } as any);
   vi.spyOn(console, 'error').mockImplementation(() => {});

@@ -394,6 +394,14 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    services:
+      redis:
+        image: redis:8.2.1-alpine@sha256:987c376c727652f99625c7d205a1cba3cb2c53b92b0b62aade2bd48ee1593232
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+        ports:
+          - 6379:6379
+
     steps:
       - name: Checkout
         env:
@@ -413,6 +421,8 @@ jobs:
 
       - name: Test Server Coverage
         run: bunx vitest --coverage --silent='passed-only' --reporter=default --coverage.reportsDirectory=./apps/server/coverage --project server --shard=${{ matrix.shard }}/2
+        env:
+          GATEWAY_TEST_REDIS_URL: redis://127.0.0.1:6379
 
       # See the App shard above: uploaded together by `upload-sharded-coverage`.
       - name: Save Server Coverage shard
