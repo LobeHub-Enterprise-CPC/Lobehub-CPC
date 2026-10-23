@@ -257,7 +257,7 @@ export const credsRuntime: ServerRuntimeRegistration = {
       workspaceId,
     });
 
-    const marketService = createSandboxMarketService(
+    const marketService = await createSandboxMarketService(
       context,
       accessToken,
       workspaceId,
