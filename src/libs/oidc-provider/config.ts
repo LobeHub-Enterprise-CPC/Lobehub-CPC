@@ -83,6 +83,22 @@ export const defaultClients: ClientMetadata[] = [
   },
   {
     application_type: 'native',
+    client_id: 'toby',
+    ...clientDisplay('Toby', 'https://hub-apac-1.lobeobjects.space/lobehub-desktop-icon.png'),
+    grant_types: ['authorization_code', 'refresh_token'],
+    post_logout_redirect_uris: [],
+    // Like the desktop client, the toby callback lives under each organization's own
+    // address, so the tenant provider adds `${publicUrl}/oidc/callback/toby`
+    // (`provider.ts`). A deployment-root address serves no tenant.
+    // Universal-link callback: iOS only hands it to the app listed in the AASA
+    // webcredentials, so another app cannot impersonate toby the way it could
+    // with a custom scheme.
+    redirect_uris: [],
+    response_types: ['code'],
+    token_endpoint_auth_method: 'none',
+  },
+  {
+    application_type: 'native',
     client_id: 'lobehub-cli',
     ...clientDisplay('CLI', 'https://hub-apac-1.lobeobjects.space/lobehub-desktop-icon.png'),
     grant_types: ['urn:ietf:params:oauth:grant-type:device_code', 'refresh_token'],

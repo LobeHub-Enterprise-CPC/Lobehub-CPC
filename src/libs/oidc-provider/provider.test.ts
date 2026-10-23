@@ -73,6 +73,19 @@ describe('OIDC Provider - Market Client Integration', () => {
       expect(desktopClient?.post_logout_redirect_uris).toEqual([]);
     });
 
+    it('should register toby as a public native client with its callback left to the tenant provider', async () => {
+      const { defaultClients } = await import('./config');
+      const tobyClient = defaultClients.find((c) => c.client_id === 'toby');
+
+      expect(tobyClient?.application_type).toBe('native');
+      expect(tobyClient?.token_endpoint_auth_method).toBe('none');
+      expect(tobyClient?.grant_types).toEqual(['authorization_code', 'refresh_token']);
+      // The toby callback lives under each organization's own address, so no
+      // deployment-root address (which serves no tenant) is registered by default;
+      // the tenant provider adds `${publicUrl}/oidc/callback/toby` (see providerAccess.test.ts).
+      expect(tobyClient?.redirect_uris).toEqual([]);
+    });
+
     it('should export API_AUDIENCE constant', async () => {
       vi.doMock('@/envs/app', () => ({
         appEnv: {

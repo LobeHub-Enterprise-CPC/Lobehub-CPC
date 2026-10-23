@@ -1,3 +1,4 @@
+import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import type { Command } from 'commander';
 import pc from 'picocolors';
 
@@ -165,7 +166,7 @@ export async function submitAction(options: SubmitOptions): Promise<void> {
   // has no link to hand off (the plan handoff lookup reports it as blocked).
   const round = await client.verify.getRun.query({ verifyRunId }).catch(() => null);
   const acceptanceUrl = round?.acceptanceId
-    ? new URL(
+    ? buildRemoteUrl(
         `/acceptance/${encodeURIComponent(round.acceptanceId)}`,
         resolveServerUrl(),
       ).toString()

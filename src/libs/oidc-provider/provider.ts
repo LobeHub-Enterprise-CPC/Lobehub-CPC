@@ -27,6 +27,10 @@ const logProvider = debug('lobe-oidc:provider');
 
 export const API_AUDIENCE = 'urn:lobehub:chat';
 
+// First-party native client added upstream (#21429). Like the desktop client, its
+// callback is registered per tenant below, not at the deployment root (`config.ts`).
+const TOBY_CLIENT_ID = 'toby';
+
 // One deadline for every optional display claim of an id_token.
 const DISPLAY_CLAIMS_BUDGET_MS = 1000;
 
@@ -188,7 +192,17 @@ export const createOIDCProvider = async (
               ]),
             ],
           }
-        : client,
+        : client.client_id === TOBY_CLIENT_ID
+          ? {
+              ...client,
+              redirect_uris: [
+                ...new Set([
+                  ...(client.redirect_uris ?? []),
+                  `${endpoint.publicUrl}/oidc/callback/toby`,
+                ]),
+              ],
+            }
+          : client,
     ),
 
     // Tenants share one signing key, so the JWT access token itself must say

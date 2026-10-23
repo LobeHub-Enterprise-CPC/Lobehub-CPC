@@ -21,6 +21,7 @@ import { resolveSandboxSessionConfig } from '@/server/services/sandbox/session';
 import { supportsCloudHeterogeneousSandbox } from '../../helpers/heteroErrors';
 import type { PersistedExecRunContext } from '../../types';
 import { heteroOperationCapabilities } from '../heteroOperationCapabilities';
+import { buildHeteroProjectContext } from '../projectContext';
 import { buildViewedTaskContextPrompt, joinSystemContext } from '../viewedTaskContext';
 import type { HeteroDispatchDeps, HeteroDispatchInput } from './types';
 
@@ -191,7 +192,10 @@ export const prepareHeteroRun = async (
   // user attached to this message ride along — the same selection context the
   // desktop's in-process run hands its CLI.
   const providerContext = agentConfig.agencyConfig?.heterogeneousProvider?.systemContext;
-  const viewedTaskContext = await buildViewedTaskContextPrompt(deps, appContext, operationTaskId);
+  const [viewedTaskContext, projectContext] = await Promise.all([
+    buildViewedTaskContextPrompt(deps, appContext, operationTaskId),
+    buildHeteroProjectContext(deps, appContext?.projectId, agentConfig.id),
+  ]);
   const contextSelections = userMessageMetadata?.contextSelections;
   const pageSelections = userMessageMetadata?.pageSelections;
   const selectionContext = contextSelections?.length
@@ -200,7 +204,7 @@ export const prepareHeteroRun = async (
       ? formatPageSelections(pageSelections)
       : undefined;
   const agentSystemContext = withConversationGoalPrompt(
-    joinSystemContext(providerContext, viewedTaskContext, selectionContext),
+    joinSystemContext(providerContext, projectContext, viewedTaskContext, selectionContext),
     prompt,
   );
   const systemContext = buildCloudHeteroContext({

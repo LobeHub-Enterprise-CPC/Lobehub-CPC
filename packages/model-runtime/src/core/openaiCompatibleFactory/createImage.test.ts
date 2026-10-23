@@ -84,7 +84,7 @@ describe('createOpenAICompatibleImage', () => {
           model: 'gemini-2.0-flash-exp:image',
           params: {
             prompt: 'Edit this image',
-            imageUrl: mockImageUrl,
+            imageUrls: [mockImageUrl],
           },
         };
 
@@ -125,7 +125,7 @@ describe('createOpenAICompatibleImage', () => {
           model: 'test-model:image',
           params: {
             prompt: 'Process this',
-            imageUrl: mockImageUrl,
+            imageUrls: [mockImageUrl],
           },
         };
 
@@ -147,7 +147,7 @@ describe('createOpenAICompatibleImage', () => {
           model: 'test-model:image',
           params: {
             prompt: 'Process this',
-            imageUrl: mockImageUrl,
+            imageUrls: [mockImageUrl],
           },
         };
 
@@ -194,7 +194,7 @@ describe('createOpenAICompatibleImage', () => {
           model: 'vision-model:image',
           params: {
             prompt: 'Convert and process',
-            imageUrl: mockHttpImageUrl,
+            imageUrls: [mockHttpImageUrl],
           },
         };
 
@@ -217,7 +217,7 @@ describe('createOpenAICompatibleImage', () => {
           model: 'test-model:image',
           params: {
             prompt: 'Process this',
-            imageUrl: mockInvalidUrl,
+            imageUrls: [mockInvalidUrl],
           },
         };
 
@@ -478,7 +478,7 @@ describe('createOpenAICompatibleImage', () => {
           model: 'vision-model:image',
           params: {
             prompt: 'Edit this image by adding a sunset',
-            imageUrl: mockImageUrl,
+            imageUrls: [mockImageUrl],
           },
         };
 
@@ -688,6 +688,72 @@ describe('createOpenAICompatibleImage', () => {
       expect(result.imageUrl).toBe('data:image/png;base64,generatedImage');
       expect(mockClient.images.generate).toHaveBeenCalled();
       expect(mockClient.images.edit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('reference images', () => {
+    it('rejects imageUrl and imageUrls together instead of letting one overwrite the other', async () => {
+      await expect(
+        createOpenAICompatibleImage(
+          mockClient,
+          {
+            model: 'gpt-image-2',
+            params: {
+              imageUrl: 'https://example.com/a.jpg',
+              imageUrls: ['https://example.com/b.jpg'],
+              prompt: 'Merge these images',
+            },
+          },
+          'openai',
+        ),
+      ).rejects.toThrow('Pass reference images in either imageUrl or imageUrls, not both.');
+      expect(mockClient.images.edit).not.toHaveBeenCalled();
+      expect(mockClient.images.generate).not.toHaveBeenCalled();
+    });
+
+    it('rejects imageUrl for :image chat models, which declare only imageUrls', async () => {
+      await expect(
+        createOpenAICompatibleImage(
+          mockClient,
+          {
+            model: 'google/gemini-2.5-flash-image:image',
+            params: { imageUrl: 'data:image/png;base64,Zmlyc3Q=', prompt: 'Edit this image' },
+          },
+          'openrouter',
+        ),
+      ).rejects.toThrow('Chat image models take reference images in imageUrls, not imageUrl.');
+      expect(mockClient.chat.completions.create).not.toHaveBeenCalled();
+    });
+
+    it('sends imageUrls references to :image chat models in order', async () => {
+      const first = 'data:image/png;base64,Zmlyc3Q=';
+      const second = 'data:image/jpeg;base64,c2Vjb25k';
+      vi.spyOn(uriParserModule, 'parseDataUri').mockImplementation((url: string) => {
+        const [, mimeType, base64] = url.match(/^data:([^;]+);base64,(.+)$/)!;
+        return { base64, mimeType, type: 'base64' } as any;
+      });
+      vi.mocked(mockClient.chat.completions.create).mockResolvedValue({
+        choices: [
+          { message: { images: [{ image_url: { url: 'data:image/png;base64,chatResult' } }] } },
+        ],
+      } as any);
+
+      const result = await createOpenAICompatibleImage(
+        mockClient,
+        {
+          model: 'google/gemini-2.5-flash-image:image',
+          params: { imageUrls: [first, second], prompt: 'Merge these images' },
+        },
+        'openrouter',
+      );
+
+      expect(result.imageUrl).toBe('data:image/png;base64,chatResult');
+      const request = vi.mocked(mockClient.chat.completions.create).mock.calls[0][0] as any;
+      expect(request.messages[0].content).toEqual([
+        { text: 'Merge these images', type: 'text' },
+        { image_url: { url: first }, type: 'image_url' },
+        { image_url: { url: second }, type: 'image_url' },
+      ]);
     });
   });
 

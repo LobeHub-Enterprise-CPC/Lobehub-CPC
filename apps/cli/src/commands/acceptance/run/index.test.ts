@@ -243,6 +243,7 @@ describe('acceptance publication with missing evidence', () => {
     client.verify.submitCheckEvidence.mutate.mockResolvedValue({
       checkResult: { id: 'result-screen', verifyRunId: 'run-1' },
     });
+    client.verify.getRun.query.mockResolvedValue({ acceptanceId: 'acceptance-1', roundIndex: 2 });
 
     await run(
       'result',
@@ -256,7 +257,7 @@ describe('acceptance publication with missing evidence', () => {
       '--json',
     );
 
-    expect(result().url).toBe('https://host/t/acme/verify/run-1');
+    expect(result().acceptanceUrl).toBe('https://host/t/acme/acceptance/acceptance-1');
   });
 
   it.each([undefined, 'Upload failed: 503 Service Unavailable'])(

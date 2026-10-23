@@ -268,6 +268,7 @@ export async function createOperation(
           parentOperationId,
           progressAnchor: appContext?.subAgentProgress,
         },
+        projectId: appContext?.projectId,
         scope: appContext?.scope ?? undefined,
         sessionId: appContext?.sessionId,
         signal: appContext?.agentSignal,

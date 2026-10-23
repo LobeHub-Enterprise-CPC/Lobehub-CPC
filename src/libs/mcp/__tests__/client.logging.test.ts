@@ -21,7 +21,9 @@ describe('MCPClient debug logging', () => {
     });
 
     const output = dump();
-    expect(output).toContain('mcp.example.com/mcp');
+    // Only the URL origin is logged; userinfo, path and query never are.
+    expect(output).toContain('https://mcp.example.com');
+    expect(output).not.toContain('/mcp?');
     for (const secret of ['SECRET_PASS', 'SECRET_QUERY', 'SECRET_ACCESS', 'SECRET_HEADER']) {
       expect(output).not.toContain(secret);
     }
@@ -38,7 +40,9 @@ describe('MCPClient debug logging', () => {
     });
 
     const output = dump();
-    expect(output).toContain('server.js');
+    // The transport line carries no command or args at all.
+    expect(output).toContain('Using stdio transport');
+    expect(output).not.toContain('server.js');
     expect(output).not.toContain('SECRET_ARG');
     expect(output).not.toContain('SECRET_EQ');
   });

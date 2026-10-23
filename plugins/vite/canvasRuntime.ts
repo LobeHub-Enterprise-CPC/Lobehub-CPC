@@ -19,16 +19,6 @@ export const canvasRuntimeEntries = {
   mermaid: path.join(runtimeRoot, 'src/addons/mermaid.ts'),
 };
 
-/**
- * `initialEntries` labels chunks by the entries that statically reach them, and
- * the labeler rejects entries missing from the module graph. Only the
- * desktop/web renderer loads `virtual:canvas-runtime` (through the Working
- * Sidebar Canvas host); the mobile and auth bundles never import it, so they
- * must not register the canvas chunks as entries.
- */
-export const canvasRuntimeInitialEntries = (platform: 'auth' | 'desktop' | 'mobile' | 'web') =>
-  platform === 'auth' || platform === 'mobile' ? {} : canvasRuntimeEntries;
-
 const describeModule = (code: string, id: string): Omit<CanvasRuntimeModule, 'code' | 'url'> => {
   const imports: CanvasRuntimeModule['imports'] = [];
   const meta: NonNullable<CanvasRuntimeModule['meta']> = [];
