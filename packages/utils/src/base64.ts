@@ -3,7 +3,7 @@
  * Works in both browser and Node.js environments
  */
 
-import { Buffer } from 'buffer.js';
+import { Buffer } from 'buffer';
 
 /**
  * Encode raw bytes to base64
