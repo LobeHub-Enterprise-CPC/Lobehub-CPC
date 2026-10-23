@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@lobechat/types": "workspace:*",
+    "@lobechat/utils": "workspace:*",
     "ws": "^8.21.0"
   },
   "devDependencies": {
