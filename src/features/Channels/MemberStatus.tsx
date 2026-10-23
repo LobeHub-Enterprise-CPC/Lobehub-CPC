@@ -9,6 +9,7 @@ import Avatar from '@/components/Avatar';
 import { channelService } from '@/services/channel';
 
 import { openCreateChannelModal } from './CreateChannel';
+import { getMemberAvatar } from './memberAvatar';
 import { openMemberEnvironmentModal } from './MemberEnvironmentModal';
 import { ReceiptStatus, receiptTone } from './MessageReceipts';
 import type { ChannelDetail, ChannelReceipts } from './receipts';
@@ -70,7 +71,7 @@ export function MemberStatus({
             content={
               <Flexbox className={styles.popover} gap={12}>
                 <Flexbox horizontal align="center" gap={8}>
-                  <Avatar avatar={member.config.avatar || '🤖'} size={28} title={member.name} />
+                  <Avatar avatar={getMemberAvatar(member)} size={28} title={member.name} />
                   <strong>{member.name}</strong>
                 </Flexbox>
                 <ReceiptStatus state={state} />
@@ -144,7 +145,7 @@ export function MemberStatus({
                 state: t(`receipt.state.${state}`),
               })}
             >
-              <Avatar avatar={member.config.avatar || '🤖'} size={24} title={member.name} />
+              <Avatar avatar={getMemberAvatar(member)} size={24} title={member.name} />
               <span
                 aria-hidden
                 className={`${styles.state} ${styles.memberDot}`}

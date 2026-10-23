@@ -16,6 +16,7 @@ import { userProfileSelectors } from '@/store/user/selectors';
 
 import { channelActivity } from './activity';
 import { Composer } from './Composer';
+import { getMemberAvatar } from './memberAvatar';
 import { MessageAttachments } from './MessageAttachments';
 import { MessageReceipts } from './MessageReceipts';
 import type { ChannelReceipts } from './receipts';
@@ -135,8 +136,7 @@ export function ChannelConversation({
         }
         avatar={{
           avatar: message.authorMemberId
-            ? data.members.find((member) => member.id === message.authorMemberId)?.config.avatar ||
-              '🤖'
+            ? getMemberAvatar(data.members.find((member) => member.id === message.authorMemberId))
             : selfAvatar,
           title: message.authorMemberId
             ? data.members.find((member) => member.id === message.authorMemberId)?.name
