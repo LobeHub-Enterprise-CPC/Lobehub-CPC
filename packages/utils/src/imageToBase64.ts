@@ -1,4 +1,4 @@
-import { Buffer } from 'buffer.js';
+import { Buffer } from 'buffer';
 
 import { resolveMimeTypeFromBytes } from './imageMimeType';
 import { readBlobWithLimit } from './readBlobWithLimit';

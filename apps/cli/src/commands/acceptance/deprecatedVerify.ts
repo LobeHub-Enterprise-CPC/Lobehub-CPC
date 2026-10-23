@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 
+import { CLI_PRIMARY_BIN } from '../../constants/identity';
 import { log } from '../../utils/logger';
 import { attachCriterionCommands } from './criterion';
 import { registerAcceptanceCommands } from './index';
@@ -16,7 +17,7 @@ const deprecateGroup = (group: Command, replacement: string): Command =>
       rest.unshift(cmd.name());
     const suffix = rest.length > 0 ? ` ${rest.join(' ')}` : '';
     log.warn(
-      `\`lh verify ${group.name()}${suffix}\` is deprecated — use \`${replacement}${suffix}\` (removed in a future release)`,
+      `\`${CLI_PRIMARY_BIN} verify ${group.name()}${suffix}\` is deprecated — use \`${replacement}${suffix}\` (removed in a future release)`,
     );
   });
 
@@ -26,17 +27,19 @@ const deprecateGroup = (group: Command, replacement: string): Command =>
  * are scheduled for removal once callers migrate.
  */
 export function registerVerifyCommand(program: Command) {
-  const verify = program.command('verify').description('Deprecated — use `lh acceptance`');
+  const verify = program
+    .command('verify')
+    .description(`Deprecated — use \`${CLI_PRIMARY_BIN} acceptance\``);
 
   // `verify acceptance …` — legacy alias of the first-class `lh acceptance`.
   registerAcceptanceCommands(verify, { deprecated: true });
   attachDeprecatedVerifyRunAliases(verify);
 
-  deprecateGroup(attachCriterionCommands(verify), 'lh acceptance criterion');
-  deprecateGroup(attachRubricCommands(verify), 'lh acceptance rubric');
-  deprecateGroup(attachPlanCommands(verify), 'lh acceptance plan');
+  deprecateGroup(attachCriterionCommands(verify), `${CLI_PRIMARY_BIN} acceptance criterion`);
+  deprecateGroup(attachRubricCommands(verify), `${CLI_PRIMARY_BIN} acceptance rubric`);
+  deprecateGroup(attachPlanCommands(verify), `${CLI_PRIMARY_BIN} acceptance plan`);
   deprecateGroup(
     attachPlanExecuteCommand(verify.command('execute <operationId>')),
-    'lh acceptance plan execute',
+    `${CLI_PRIMARY_BIN} acceptance plan execute`,
   );
 }

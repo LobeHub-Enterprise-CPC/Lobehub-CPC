@@ -1,4 +1,4 @@
-import { Buffer } from 'buffer.js';
+import { Buffer } from 'buffer';
 import Replicate from 'replicate';
 
 import type { LobeRuntimeAI } from '../../core/BaseAI';

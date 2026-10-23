@@ -1,5 +1,5 @@
 import { imageUrlToBase64 } from '@lobechat/utils';
-import type { Buffer } from 'buffer.js';
+import type { Buffer } from 'buffer';
 
 /**
  * Short-lived in-process cache for downloaded image/video generation reference
