@@ -1,6 +1,8 @@
 'use client';
 
 import { Center, Flexbox, Spin, Text } from '@lobehub/ui';
+import { cssVar } from '@lobehub/ui/stylex/cssVar.stylex';
+import * as stylex from '@stylexjs/stylex';
 import { memo, useCallback, useLayoutEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useParams } from 'react-router';
@@ -12,6 +14,7 @@ import NavHeader from '@/features/NavHeader';
 import { useInitAgentConfig } from '@/hooks/useInitAgentConfig';
 import ChatConversation from '@/routes/(main)/agent/features/Conversation';
 import ChatHydration from '@/routes/(main)/agent/features/Conversation/ChatHydration';
+import { conversationHeaderStyles } from '@/routes/(main)/agent/features/Conversation/Header';
 import TerminalPanelToggle from '@/routes/(main)/agent/features/Conversation/Header/TerminalPanelToggle';
 import WorkingPanelToggle from '@/routes/(main)/agent/features/Conversation/Header/WorkingPanelToggle';
 import { useAgentStore } from '@/store/agent';
@@ -21,6 +24,16 @@ import { useCurrentProjectDetail, useProjectStore } from '@/store/project';
 import { useProjectDirectoryStore, useProjectTopics } from '@/store/projectWorkingDirectory';
 
 import { getProjectConversationPath } from '../Layout/navigation';
+
+// The agent conversation page's layout paints the column with the container
+// background; this page has no such layout around it.
+const styles = stylex.create({
+  container: {
+    position: 'relative',
+    overflow: 'hidden',
+    backgroundColor: cssVar.colorBgContainer,
+  },
+});
 
 const ProjectConversation = memo(() => {
   const { t } = useTranslation('project');
@@ -102,34 +115,57 @@ const ProjectConversation = memo(() => {
   }
 
   return (
-    <ConversationWorkspace
-      header={
-        <NavHeader
-          left={
-            <Text ellipsis weight={600}>
-              {topicTitle || selectedTopic?.title || t('sidebar.newConversation')}
-            </Text>
-          }
-          right={
-            <Flexbox horizontal align="center" gap={4}>
-              <TerminalPanelToggle />
-              <WorkingPanelToggle />
-              <TopicActions
-                id={topicId}
-                status={selectedTopic?.status}
-                title={topicTitle || selectedTopic?.title || t('directories.untitled')}
-                completionLabel={t(
-                  selectedTopic?.status === 'completed' ? 'topics.resume' : 'topics.complete',
-                )}
-              />
-            </Flexbox>
-          }
-        />
-      }
-    >
-      <ChatHydration getConversationPath={getConversationPath} getTopicPath={getTopicPath} />
-      <ChatConversation />
-    </ConversationWorkspace>
+    <Flexbox className={stylex.props(styles.container).className} flex={1} height={'100%'}>
+      <ConversationWorkspace
+        header={
+          // The agent conversation header's frame, so the title, its "..." and
+          // the message stream below sit where they do in an agent conversation.
+          <div className={conversationHeaderStyles.container}>
+            <NavHeader
+              left={
+                <Flexbox
+                  allowShrink
+                  horizontal
+                  align="center"
+                  className={conversationHeaderStyles.leftContent}
+                  gap={4}
+                >
+                  <Text ellipsis style={{ marginInlineStart: 8 }} weight={600}>
+                    {topicTitle || selectedTopic?.title || t('sidebar.newConversation')}
+                  </Text>
+                  <TopicActions
+                    id={topicId}
+                    status={selectedTopic?.status}
+                    title={topicTitle || selectedTopic?.title || t('directories.untitled')}
+                    completionLabel={t(
+                      selectedTopic?.status === 'completed' ? 'topics.resume' : 'topics.complete',
+                    )}
+                  />
+                </Flexbox>
+              }
+              right={
+                <Flexbox
+                  horizontal
+                  align="center"
+                  className={conversationHeaderStyles.rightContent}
+                  gap={4}
+                >
+                  <TerminalPanelToggle />
+                  <WorkingPanelToggle />
+                </Flexbox>
+              }
+              slotClassNames={{
+                left: conversationHeaderStyles.slotLeft,
+                right: conversationHeaderStyles.slotRight,
+              }}
+            />
+          </div>
+        }
+      >
+        <ChatHydration getConversationPath={getConversationPath} getTopicPath={getTopicPath} />
+        <ChatConversation />
+      </ConversationWorkspace>
+    </Flexbox>
   );
 });
 
