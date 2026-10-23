@@ -100,6 +100,18 @@ export const CLI_CONNECT_ENABLED = true;
 export const CLI_INSTALL_COMMAND = 'npm install -g @lobehub/cli';
 
 /**
+ * The command name a distribution's CLI installs as — the token shown ahead of
+ * every example command in the connect wizard, device-offline/no-devices
+ * hints, and anywhere else the app tells a user what to type.
+ *
+ * A slot for the same reason as CLI_INSTALL_COMMAND: a distribution publishing
+ * its own CLI under its own binary name has every shown example still say
+ * `lh`, which either runs nothing or runs somebody else's CLI if one happens
+ * to be on PATH.
+ */
+export const CLI_PRIMARY_BIN = 'lh';
+
+/**
  * Whether this distribution has a changelog to point users at.
  *
  * `CHANGELOG_URL` is the hosted site's, so a rebranded or self-hosted build

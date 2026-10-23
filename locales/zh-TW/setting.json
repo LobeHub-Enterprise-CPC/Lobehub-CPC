@@ -408,7 +408,7 @@
   "devices.appUpdate.restartingHint": "等待裝置回到 v{{version}}",
   "devices.appUpdate.timedOut": "裝置尚未重新上線。檢查該機器上的應用程式。",
   "devices.appUpdate.unavailable": "無法讀取桌面應用程式的更新狀態。請重試。",
-  "devices.appUpdate.unsupported.cli": "lh connect 回應而非桌面應用程式。請在此裝置上停止 lh connect，然後重試。",
+  "devices.appUpdate.unsupported.cli": "{{cliBin}} connect 回應而非桌面應用程式。請在此裝置上停止 {{cliBin}} connect，然後重試。",
   "devices.appUpdate.unsupported.devBuild": "開發版本無法自行更新。",
   "devices.appUpdate.unsupported.outdated": "此應用程式版本無法遠端更新。請在裝置上更新一次以啟用遠端更新。",
   "devices.appUpdate.updated": "已更新至 v{{version}}",

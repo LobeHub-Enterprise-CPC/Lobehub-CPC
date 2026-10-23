@@ -408,7 +408,7 @@
   "devices.appUpdate.restartingHint": "In attesa che il dispositivo torni alla versione {{version}}",
   "devices.appUpdate.timedOut": "Il dispositivo non è tornato online. Controlla l'app su quella macchina.",
   "devices.appUpdate.unavailable": "Impossibile leggere lo stato di aggiornamento dell'app desktop. Riprova.",
-  "devices.appUpdate.unsupported.cli": "lh connect ha risposto invece dell'app desktop. Arresta lh connect su questo dispositivo, quindi riprova.",
+  "devices.appUpdate.unsupported.cli": "{{cliBin}} connect ha risposto invece dell'app desktop. Arresta {{cliBin}} connect su questo dispositivo, quindi riprova.",
   "devices.appUpdate.unsupported.devBuild": "Le build di sviluppo non possono aggiornarsi automaticamente.",
   "devices.appUpdate.unsupported.outdated": "Questa versione dell'app non può essere aggiornata da remoto. Aggiornala una volta sul dispositivo per abilitare gli aggiornamenti remoti.",
   "devices.appUpdate.updated": "Aggiornato alla versione {{version}}",

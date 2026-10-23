@@ -1,6 +1,6 @@
 'use client';
 
-import { DESKTOP_APP_ENABLED } from '@lobechat/business-const';
+import { CLI_PRIMARY_BIN, DESKTOP_APP_ENABLED } from '@lobechat/business-const';
 import { isDesktop } from '@lobechat/const';
 import { HETEROGENEOUS_TYPE_LABELS } from '@lobechat/heterogeneous-agents';
 import type { DeviceExecutionTarget } from '@lobechat/types';
@@ -807,7 +807,7 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
       {showWorkspaceEnrollHint ? (
         <div className={styles.empty}>
           {t('heteroAgent.executionTarget.noWorkspaceDevices', {
-            cmd: `lh connect --workspace ${agentWorkspaceId}`,
+            cmd: `${CLI_PRIMARY_BIN} connect --workspace ${agentWorkspaceId}`,
           })}
         </div>
       ) : null}
@@ -835,7 +835,9 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
         </a>
       ) : null}
       {isPoolEmpty && isDesktop && !isWorkspaceAgent ? (
-        <div className={styles.empty}>{t('heteroAgent.executionTarget.noDevices')}</div>
+        <div className={styles.empty}>
+          {t('heteroAgent.executionTarget.noDevices', { cliBin: CLI_PRIMARY_BIN })}
+        </div>
       ) : null}
     </Flexbox>
   );

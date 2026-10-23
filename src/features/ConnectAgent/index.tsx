@@ -1,6 +1,10 @@
 'use client';
 
-import { CLI_CONNECT_ENABLED, DESKTOP_APP_ENABLED } from '@lobechat/business-const';
+import {
+  CLI_CONNECT_ENABLED,
+  CLI_PRIMARY_BIN,
+  DESKTOP_APP_ENABLED,
+} from '@lobechat/business-const';
 import { isDesktop } from '@lobechat/const';
 import type {
   HeterogeneousAgentScanStatus,
@@ -721,7 +725,11 @@ const ConnectAgentContent = memo<ConnectAgentContentProps>(
                         </Text>
                       </Flexbox>
                       <div className={styles.emptyOptionAction}>
-                        <CommandLine command={t('connectAgent.create.noDevicesCmd')} />
+                        <CommandLine
+                          command={t('connectAgent.create.noDevicesCmd', {
+                            cliBin: CLI_PRIMARY_BIN,
+                          })}
+                        />
                       </div>
                     </div>
                   )}
@@ -805,7 +813,9 @@ const ConnectAgentContent = memo<ConnectAgentContentProps>(
               {isDesktop && deviceListState === 'empty' && (
                 <div className={styles.commandHint}>
                   <Text type={'secondary'}>{t('connectAgent.create.noDevicesCliHint')}</Text>
-                  <CommandLine command={t('connectAgent.create.noDevicesCmd')} />
+                  <CommandLine
+                    command={t('connectAgent.create.noDevicesCmd', { cliBin: CLI_PRIMARY_BIN })}
+                  />
                 </div>
               )}
             </Flexbox>

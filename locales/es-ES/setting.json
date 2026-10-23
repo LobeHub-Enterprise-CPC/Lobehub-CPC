@@ -408,7 +408,7 @@
   "devices.appUpdate.restartingHint": "Esperando que el dispositivo vuelva con la v{{version}}",
   "devices.appUpdate.timedOut": "El dispositivo no ha vuelto a estar en línea. Verifica la aplicación en esa máquina.",
   "devices.appUpdate.unavailable": "No se pudo leer el estado de actualización de la aplicación de escritorio. Inténtalo de nuevo.",
-  "devices.appUpdate.unsupported.cli": "lh connect respondió en lugar de la aplicación de escritorio. Detén lh connect en este dispositivo y luego inténtalo de nuevo.",
+  "devices.appUpdate.unsupported.cli": "{{cliBin}} connect respondió en lugar de la aplicación de escritorio. Detén {{cliBin}} connect en este dispositivo y luego inténtalo de nuevo.",
   "devices.appUpdate.unsupported.devBuild": "Las versiones de desarrollo no pueden actualizarse a sí mismas.",
   "devices.appUpdate.unsupported.outdated": "Esta versión de la aplicación no se puede actualizar de forma remota. Actualízala una vez en el dispositivo para habilitar las actualizaciones remotas.",
   "devices.appUpdate.updated": "Actualizado a la v{{version}}",
