@@ -41,6 +41,7 @@
   "create.slugInvalid": "仅可使用小写字母、数字和单个连字符。",
   "create.slugLabel": "Slug（可选）",
   "create.slugPlaceholder": "my-project",
+  "create.success": "已创建项目「{{name}}」",
   "create.title": "新建项目",
   "directories.add": "添加工作目录",
   "directories.autoFileTopics": "此目录已有的 {{count}} 个话题将自动关联到项目。",

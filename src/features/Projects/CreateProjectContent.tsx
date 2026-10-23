@@ -15,6 +15,7 @@ import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwar
 import { type ProjectListItem, useProjectStore } from '@/store/project';
 
 import {
+  getCreatedProjectPath,
   getCreateProjectInput,
   getProjectFieldSuggestions,
   isProjectIdentifierValid,
@@ -84,8 +85,14 @@ const CreateProjectContent = memo<CreateProjectOptions>(({ onCreated }) => {
     try {
       const project = await createProject(createInput);
       close();
-      if (onCreated) onCreated(project);
-      else navigate(`/project/${project.slug ?? project.id}`);
+      if (onCreated) {
+        onCreated(project);
+      } else {
+        const path = getCreatedProjectPath(project);
+        if (path) navigate(path);
+        // Staying put, the new row in the sidebar is the only sign it worked.
+        else toast.success(t('create.success', { name: project.name }));
+      }
     } catch (error) {
       console.error('Failed to create project', error);
       toast.error(t('operationFailed', { ns: 'common' }));

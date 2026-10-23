@@ -12,13 +12,13 @@ import { useNavigate } from 'react-router';
 import { useAgentRoutePath } from '@/features/AgentBreadcrumb/useAgentRoutePath';
 import { createAgentIdentityModal } from '@/features/AgentIdentityModal';
 import { AgentProfileArtwork } from '@/features/AgentProfileArtwork';
+import { startNewHomeChat } from '@/features/Home/startNewHomeChat';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { usePermission } from '@/hooks/usePermission';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { useGlobalStore } from '@/store/global';
 import { globalGeneralSelectors } from '@/store/global/selectors';
-import { useHomeStore } from '@/store/home';
 
 import { useAutoName } from './useAutoName';
 
@@ -28,8 +28,6 @@ const ChatButton = memo<{ agentId: string }>(({ agentId }) => {
   const buildAgentPath = useAgentRoutePath(agentId);
   const navigate = useNavigate();
   const navigateInWorkspace = useWorkspaceAwareNavigate();
-  const updateSystemStatus = useGlobalStore((s) => s.updateSystemStatus);
-  const setHomeSelectedProjectId = useHomeStore((s) => s.setHomeSelectedProjectId);
 
   const startChat = () => {
     if (!AGENT_PROFILE_NAVIGATION) {
@@ -37,9 +35,7 @@ const ChatButton = memo<{ agentId: string }>(({ agentId }) => {
       return;
     }
     // Same as "New chat", with this agent picked in the home composer.
-    setHomeSelectedProjectId(undefined);
-    updateSystemStatus({ homeSelectedAgentId: agentId });
-    navigateInWorkspace('/');
+    startNewHomeChat(navigateInWorkspace, agentId);
   };
 
   return (

@@ -27,7 +27,7 @@ const messageSuccessMock = vi.hoisted(() => vi.fn());
 const createProjectTopicMock = vi.hoisted(() => vi.fn());
 const summaryTopicTitleMock = vi.hoisted(() => vi.fn());
 const setHomeSelectedProjectIdMock = vi.hoisted(() => vi.fn());
-const flags = vi.hoisted(() => ({ projectFirst: false }));
+const flags = vi.hoisted(() => ({ agentProfileNavigation: false, projectFirst: false }));
 
 const chatState = vi.hoisted(() => ({
   inputMessage: 'hello',
@@ -47,6 +47,7 @@ const fileState = vi.hoisted(() => ({
   restoreChatContextSelections: restoreChatContextSelectionsMock,
 }));
 
+const refreshRecentsMock = vi.hoisted(() => vi.fn());
 const homeState = vi.hoisted(() => ({
   agentGroups: [],
   homeInputLoading: false,
@@ -56,6 +57,7 @@ const homeState = vi.hoisted(() => ({
   pinnedAgents: [],
   privateAgentGroups: [],
   privatePinnedAgents: [],
+  refreshRecents: refreshRecentsMock,
   privateUngroupedAgents: [],
   sendAsAgent: vi.fn(),
   sendAsGroup: vi.fn(),
@@ -103,6 +105,9 @@ const activeWorkspaceIdMock = vi.hoisted(() => ({
 // Distributions flip this slot constant; pin it so both layouts are covered.
 vi.mock('@lobechat/business-const', async (importOriginal) => ({
   ...(await importOriginal<object>()),
+  get AGENT_PROFILE_NAVIGATION() {
+    return flags.agentProfileNavigation;
+  },
   get PROJECT_FIRST_NAVIGATION() {
     return flags.projectFirst;
   },
@@ -220,6 +225,8 @@ describe('Home InputArea useSend', () => {
     summaryTopicTitleMock.mockResolvedValue(undefined);
     setHomeSelectedProjectIdMock.mockReset();
     flags.projectFirst = false;
+    flags.agentProfileNavigation = false;
+    refreshRecentsMock.mockReset();
     homeState.homeSelectedProjectId = undefined;
     homeDailyBriefState.advance.mockReset();
     homeDailyBriefState.currentPair = undefined;
@@ -518,6 +525,27 @@ describe('Home InputArea useSend', () => {
     });
 
     expect(routerMock.replace).toHaveBeenCalledWith('/agent/agt_inbox/tpc_created');
+  });
+
+  it('lists the created conversation in "Recent" once the server has it', async () => {
+    flags.agentProfileNavigation = true;
+    const { result } = renderHook(() => useSend());
+
+    await act(async () => {
+      await result.current.send({
+        clearContent: vi.fn(),
+        editor: {} as Parameters<SendButtonHandler>[0]['editor'],
+        getEditorData: () => undefined,
+        getMarkdownContent: () => 'hello',
+      });
+    });
+    expect(refreshRecentsMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await sendMessageMock.mock.calls[0][0].onTopicCreated('tpc_created');
+    });
+
+    expect(refreshRecentsMock).toHaveBeenCalledTimes(1);
   });
 
   it('files a conversation under the project picked on Home', async () => {
