@@ -1,4 +1,4 @@
-import { PROJECT_FIRST_NAVIGATION } from '@lobechat/business-const';
+import { AGENT_PROFILE_NAVIGATION, PROJECT_FIRST_NAVIGATION } from '@lobechat/business-const';
 import { AGENT_CHAT_TOPIC_URL, AGENT_CHAT_URL } from '@lobechat/const';
 import type { UIChatMessage } from '@lobechat/types';
 import { toast } from '@lobehub/ui';
@@ -289,6 +289,9 @@ export const useSend = (mode: HomeMode = 'chat') => {
               },
               onTopicCreated: (topicId) => {
                 router.replace(AGENT_CHAT_TOPIC_URL(selectedAgentId, topicId, false));
+                // The server has stored the topic by now; with the agent sidebars
+                // hidden, "Recent" is where the user looks for it.
+                if (AGENT_PROFILE_NAVIGATION) void useHomeStore.getState().refreshRecents();
               },
               pageSelections,
             });
