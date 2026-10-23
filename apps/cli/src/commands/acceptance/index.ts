@@ -23,6 +23,7 @@ import {
   unsetLanguageWarning,
 } from './language';
 import { attachPlanCommands } from './plan';
+import { projectEnsureInput, resolveAcceptanceProject, warnIfFiledElsewhere } from './project';
 import { attachRubricCommands } from './rubric';
 import { attachAcceptanceRunCommands } from './run';
 import type { ReviewAnnotationRegion } from './utils';
@@ -145,12 +146,17 @@ export function registerAcceptanceCommands(parent: Command, options?: { deprecat
       'Reuse or create for task/topic/document/standalone; omit for a new standalone acceptance',
     )
     .option(
+      '--project <ref>',
+      "File under a project (id, slug or identifier such as LOBE), overriding the subject's own; otherwise the subject's project, then the one in .agents/acceptance/config.json",
+    )
+    .option(
       '--json [fields]',
-      'Output JSON, optionally select fields (acceptanceId, acceptanceUrl, requirement, status, subject)',
+      'Output JSON, optionally select fields (acceptanceId, acceptanceUrl, projectId, requirement, status, subject)',
     )
     .action(
       async (options: {
         json?: boolean | string;
+        project?: string;
         requirement: string;
         subject?: string;
         title?: string;
@@ -175,7 +181,17 @@ export function registerAcceptanceCommands(parent: Command, options?: { deprecat
           { path: '--requirement', text: requirement },
           { path: '--title', text: title },
         ]);
-        const result = await client.acceptance.ensure.mutate({ ...subject, requirement, title });
+        const project = await resolveAcceptanceProject(client, {
+          flag: options.project,
+          startDirs: [process.cwd()],
+        });
+        const result = await client.acceptance.ensure.mutate({
+          ...subject,
+          ...projectEnsureInput(project),
+          requirement,
+          title,
+        });
+        warnIfFiledElsewhere(project, result);
         const acceptanceUrl = buildRemoteUrl(
           `/acceptance/${encodeURIComponent(result.id)}`,
           resolveServerUrl(),
@@ -186,6 +202,7 @@ export function registerAcceptanceCommands(parent: Command, options?: { deprecat
             {
               acceptanceId: result.id,
               acceptanceUrl,
+              projectId: result.projectId,
               requirement: result.requirement,
               status: result.status,
               subject: { subjectId: result.subjectId, subjectType: result.subjectType },
@@ -196,6 +213,9 @@ export function registerAcceptanceCommands(parent: Command, options?: { deprecat
         }
 
         console.log(`${pc.bold('acceptance')}: ${result.id} (${result.status})`);
+        if (project && result.projectId === project.id) {
+          console.log(`${pc.bold('project')}: ${project.name}`);
+        }
         console.log(`${pc.bold('open acceptance')}: ${acceptanceUrl}`);
         console.log(
           pc.dim(

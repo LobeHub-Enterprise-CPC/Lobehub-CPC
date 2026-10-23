@@ -47,6 +47,7 @@ function expected(): Array<
     ['getDocumentsMap', 'query', 13],
     ['getOrCreateChatTopic', 'mutation', 13],
     ['getReaderDocument', 'query', 13],
+    ['getSkill', 'query', 13],
     ['getTemplates', 'query', 12],
     ['hasDocuments', 'query', 13],
     ['importFile', 'mutation', 14],
