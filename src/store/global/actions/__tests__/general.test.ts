@@ -5,6 +5,8 @@ import * as activeWorkspaceSlugModule from '@/business/client/hooks/useActiveWor
 import type * as VersionConstants from '@/const/version';
 import { CURRENT_VERSION } from '@/const/version';
 import { globalService } from '@/services/global';
+import { useElectronStore } from '@/store/electron';
+import { initialState as electronInitialState } from '@/store/electron/initialState';
 import { useGlobalStore } from '@/store/global';
 import { initialState } from '@/store/global/initialState';
 import { switchLang } from '@/utils/client/switchLang';
@@ -33,8 +35,141 @@ vi.mock('@/utils/client/switchLang', () => ({
 vi.mock('@/services/global', () => ({
   globalService: {
     getLatestVersion: vi.fn(),
+    getServerVersion: vi.fn(),
   },
 }));
+
+describe('desktop server-version checks follow the committed organization', () => {
+  beforeEach(() => {
+    versionContext.desktop = true;
+    // Cloud mode judges the build's cloud address, not the tenant entry. Pin it so the
+    // suite does not follow @lobechat/business-const OFFICIAL_URL (official on CPC).
+    vi.stubEnv('OFFICIAL_CLOUD_SERVER', 'https://host');
+    useGlobalStore.setState({ ...initialState, isServerVersionOutdated: false });
+    useElectronStore.setState(electronInitialState);
+    vi.mocked(globalService.getServerVersion).mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const connect = (url: string) =>
+    useElectronStore.setState({
+      isInitRemoteServerConfig: true,
+      dataSyncConfig: { active: true, storageMode: 'selfHost', remoteServerUrl: url },
+    });
+  const renderCheck = () =>
+    renderHook(() => useGlobalStore.getState().useCheckServerVersion(), { wrapper: withSWR });
+
+  it('does not label an unbound cloud session as an old server', async () => {
+    vi.mocked(globalService.getServerVersion).mockResolvedValue(null);
+    renderCheck();
+    await act(async () => {});
+    expect(globalService.getServerVersion).not.toHaveBeenCalled();
+    expect(useGlobalStore.getState().isServerVersionOutdated).toBe(false);
+  });
+
+  it('waits for a committed cloud organization even after config hydration', async () => {
+    useElectronStore.setState({
+      isInitRemoteServerConfig: true,
+      dataSyncConfig: { active: true, storageMode: 'cloud', remoteServerUrl: 'https://platform' },
+    });
+    vi.mocked(globalService.getServerVersion).mockResolvedValue(null);
+    renderCheck();
+    await act(async () => {});
+    expect(globalService.getServerVersion).not.toHaveBeenCalled();
+    expect(useGlobalStore.getState().isServerVersionOutdated).toBe(false);
+  });
+
+  it('checks the committed cloud organization with the same upstream version', async () => {
+    useElectronStore.setState({
+      isInitRemoteServerConfig: true,
+      dataSyncConfig: {
+        active: true,
+        storageMode: 'cloud',
+        cloudTenant: {
+          entryUrl: 'https://host/t/acme',
+          generation: 'login-A',
+          display: { account: 'sub' },
+          identity: { issuer: 'https://host/t/acme/oidc', subject: 'sub', tenantId: 'A' },
+        },
+      },
+    });
+    vi.mocked(globalService.getServerVersion).mockResolvedValue('2.2.14');
+    renderCheck();
+    await waitFor(() => expect(useGlobalStore.getState().serverVersion).toBe('2.2.14'));
+    expect(useGlobalStore.getState().isServerVersionOutdated).toBe(false);
+  });
+
+  it('does not request a version when the cloud address is an official lobehub.com host', async () => {
+    vi.stubEnv('OFFICIAL_CLOUD_SERVER', 'https://app.lobehub.com');
+    useElectronStore.setState({
+      isInitRemoteServerConfig: true,
+      dataSyncConfig: {
+        active: true,
+        storageMode: 'cloud',
+        cloudTenant: {
+          entryUrl: 'https://app.lobehub.com/t/acme',
+          generation: 'login-A',
+          display: { account: 'sub' },
+          identity: {
+            issuer: 'https://app.lobehub.com/t/acme/oidc',
+            subject: 'sub',
+            tenantId: 'A',
+          },
+        },
+      },
+    });
+    vi.mocked(globalService.getServerVersion).mockResolvedValue('2.1.0');
+    renderCheck();
+    await act(async () => {});
+    expect(globalService.getServerVersion).not.toHaveBeenCalled();
+    expect(useGlobalStore.getState().isServerVersionOutdated).toBe(false);
+    expect(useGlobalStore.getState().serverVersion).toBeUndefined();
+  });
+
+  it('keeps the warning for an actual server without the version API', async () => {
+    connect('https://host/t/acme');
+    vi.mocked(globalService.getServerVersion).mockResolvedValue(null);
+    renderCheck();
+    await waitFor(() => expect(useGlobalStore.getState().isServerVersionOutdated).toBe(true));
+  });
+
+  it('clears the warning on logout and checks the next organization independently', async () => {
+    connect('https://host/t/old');
+    vi.mocked(globalService.getServerVersion)
+      .mockResolvedValueOnce('2.1.0')
+      .mockResolvedValue('2.2.14');
+    renderCheck();
+    await waitFor(() => expect(useGlobalStore.getState().isServerVersionOutdated).toBe(true));
+    act(() => useElectronStore.setState({ dataSyncConfig: { storageMode: 'cloud' } }));
+    expect(useGlobalStore.getState().isServerVersionOutdated).toBe(false);
+    act(() => connect('https://host/t/current'));
+    await waitFor(() => expect(globalService.getServerVersion).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(useGlobalStore.getState().serverVersion).toBe('2.2.14'));
+    expect(useGlobalStore.getState().isServerVersionOutdated).toBe(false);
+  });
+
+  it('ignores an old organization response after switching', async () => {
+    let completeOld!: (value: string | null) => void;
+    connect('https://host/t/slow');
+    vi.mocked(globalService.getServerVersion)
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          completeOld = resolve;
+        }),
+      )
+      .mockResolvedValue('2.2.14');
+    renderCheck();
+    await waitFor(() => expect(globalService.getServerVersion).toHaveBeenCalledTimes(1));
+    act(() => connect('https://host/t/current'));
+    await waitFor(() => expect(useGlobalStore.getState().serverVersion).toBe('2.2.14'));
+    await act(async () => completeOld('2.1.0'));
+    expect(useGlobalStore.getState().serverVersion).toBe('2.2.14');
+    expect(useGlobalStore.getState().isServerVersionOutdated).toBe(false);
+  });
+});
 
 describe('generalActionSlice', () => {
   beforeEach(() => {

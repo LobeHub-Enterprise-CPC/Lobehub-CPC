@@ -95,7 +95,8 @@ describe('electronSyncSelectors.remoteServerUrl', () => {
 });
 
 describe('electronSyncSelectors.isOfficialServer', () => {
-  it('is official in cloud mode regardless of remoteServerUrl', () => {
+  it('recognizes a vendor cloud build independently of its stored remoteServerUrl', () => {
+    process.env.OFFICIAL_CLOUD_SERVER = 'https://lobehub.com';
     expect(
       electronSyncSelectors.isOfficialServer(
         withConfig({ remoteServerUrl: 'http://localhost:3210', storageMode: 'cloud' }),

@@ -523,7 +523,7 @@ export const toolKeys = {
 // ---- global -------------------------------------------------------------
 export const globalKeys = {
   latestVersion: def('global:latestVersion', () => ['global:latestVersion']),
-  serverVersion: def('global:serverVersion', () => ['global:serverVersion']),
+  serverVersion: def('global:serverVersion', (scope: string) => ['global:serverVersion', scope]),
   systemStatus: def('global:systemStatus', () => ['global:systemStatus']),
 };
 
