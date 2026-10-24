@@ -913,7 +913,7 @@ export const skillsRuntime: ServerRuntimeRegistration = {
       workspaceId,
     });
 
-    const marketService = createSandboxMarketService(
+    const marketService = await createSandboxMarketService(
       context,
       marketAccessToken,
       workspaceId,
