@@ -8,6 +8,12 @@ export interface DesktopDownloadTarget {
 }
 
 interface ResolveOptions {
+  /**
+   * The address this app is served under (`https://host/t/acme`). The offer is
+   * opened as a plain link, outside the router, so the page's own tenant prefix
+   * has to be part of it. Omitted, the link stays a root-relative `/downloads`.
+   */
+  appBaseUrl?: string;
   /** `DOWNLOAD_URL.default` — the hosted site's downloads page. */
   fallbackUrl: string;
   /** Whether this build has been rebranded away from upstream. */
@@ -34,13 +40,15 @@ interface ResolveOptions {
  * moving the release hosting is an env change and a restart.
  */
 export const resolveDesktopDownload = ({
+  appBaseUrl = '',
   fallbackUrl,
   isCustomBranding,
   urls,
 }: ResolveOptions): DesktopDownloadTarget => {
   const hasOwnDownloads = Boolean(urls && (urls.macOS || urls.windows));
 
-  if (hasOwnDownloads) return { available: true, href: '/downloads' };
+  if (hasOwnDownloads)
+    return { available: true, href: `${appBaseUrl.replace(/\/+$/, '')}/downloads` };
   if (isCustomBranding) return { available: false };
 
   return { available: true, href: fallbackUrl };

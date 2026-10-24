@@ -1,3 +1,4 @@
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { DOWNLOAD_URL } from '@lobechat/const';
 
 import { isCustomBranding } from '@/const/version';
@@ -15,8 +16,10 @@ import { resolveDesktopDownload } from './resolveDesktopDownload';
  */
 export const useDesktopDownload = (): DesktopDownloadTarget => {
   const urls = useServerConfigStore(serverConfigSelectors.desktopDownloads);
+  const appBaseUrl = useAppBaseUrl();
 
   return resolveDesktopDownload({
+    appBaseUrl,
     fallbackUrl: DOWNLOAD_URL.default,
     isCustomBranding,
     urls,

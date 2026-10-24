@@ -151,7 +151,7 @@ export const cloudSandboxRuntime: ServerRuntimeRegistration = {
       workspaceId,
     });
 
-    const marketService = createSandboxMarketService(
+    const marketService = await createSandboxMarketService(
       context,
       accessToken,
       workspaceId,

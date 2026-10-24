@@ -474,7 +474,7 @@ export const mergeQueuedMessages = (messages: QueuedMessage[]): MergedQueuedMess
  */
 export interface OperationFilter {
   agentId?: string;
-  groupId?: string;
+  groupId?: string | null;
   isNew?: boolean;
   messageId?: string;
   scope?: MessageMapScope;

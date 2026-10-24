@@ -47,4 +47,38 @@ describe('resolveDesktopDownload', () => {
       resolveDesktopDownload({ fallbackUrl: HOSTED, isCustomBranding: true, urls: {} }),
     ).toEqual({ available: false });
   });
+
+  it('keeps the tenant prefix of the page when linking to its own page', () => {
+    // The offer opens in a new tab as a plain link: a bare `/downloads` there
+    // reaches the proxy without a tenant and answers NOT_FOUND.
+    expect(
+      resolveDesktopDownload({
+        appBaseUrl: 'https://app.example.com/t/acme',
+        fallbackUrl: HOSTED,
+        isCustomBranding: true,
+        urls: { windows: 'https://example.com/releases/stable/Setup.exe' },
+      }),
+    ).toEqual({ available: true, href: 'https://app.example.com/t/acme/downloads' });
+  });
+
+  it('tolerates a trailing slash on the app address', () => {
+    expect(
+      resolveDesktopDownload({
+        appBaseUrl: 'https://app.example.com/',
+        fallbackUrl: HOSTED,
+        isCustomBranding: true,
+        urls: { macOS: 'https://example.com/releases/stable/Setup.dmg' },
+      }).href,
+    ).toBe('https://app.example.com/downloads');
+  });
+
+  it('does not put a tenant address on the hosted fallback', () => {
+    expect(
+      resolveDesktopDownload({
+        appBaseUrl: 'https://app.example.com/t/acme',
+        fallbackUrl: HOSTED,
+        isCustomBranding: false,
+      }).href,
+    ).toBe(HOSTED);
+  });
 });
