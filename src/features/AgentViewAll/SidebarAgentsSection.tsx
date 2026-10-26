@@ -1,6 +1,5 @@
 'use client';
 
-import { AGENT_CHAT_URL, GROUP_CHAT_URL } from '@lobechat/const';
 import type { SidebarAgentItem } from '@lobechat/types';
 import { agentDisplayName, agentSecondaryDisplayName } from '@lobechat/types';
 import { Block, ContextMenuTrigger, type DropdownItem, Flexbox, Icon } from '@lobehub/ui';
@@ -15,6 +14,7 @@ import { systemStatusSelectors } from '@/store/global/selectors';
 
 import AgentAvatar from './AgentAvatar';
 import ItemActions from './ItemActions';
+import { getAgentItemPath } from './itemPath';
 import RoleTag, { nameBesideRoleStyle } from './RoleTag';
 
 // "In sidebar" overview: a collapsible card grid pinned above the main list
@@ -126,7 +126,7 @@ const SidebarMiniCard = memo<SidebarMiniCardProps>(({ item, onToggleSidebar }) =
         aria-label={displayTitle}
         className={styles.link}
         ref={setAnchor}
-        to={type === 'group' ? GROUP_CHAT_URL(id) : AGENT_CHAT_URL(id, false)}
+        to={getAgentItemPath({ id, type })}
         onPointerEnter={activateMenu}
       >
         <Block

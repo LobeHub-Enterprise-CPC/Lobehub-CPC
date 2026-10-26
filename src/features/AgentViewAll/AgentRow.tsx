@@ -1,7 +1,7 @@
 'use client';
 
 import { AGENT_DIRECTORY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
-import { AGENT_CHAT_URL, DEFAULT_AVATAR, GROUP_CHAT_URL } from '@lobechat/const';
+import { DEFAULT_AVATAR } from '@lobechat/const';
 import type { SidebarAgentItem } from '@lobechat/types';
 import { agentDisplayName, agentSecondaryDisplayName } from '@lobechat/types';
 import { ContextMenuTrigger, type DropdownItem, Flexbox, Tooltip } from '@lobehub/ui';
@@ -15,6 +15,7 @@ import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 
 import AgentAvatar from './AgentAvatar';
 import ItemActions from './ItemActions';
+import { getAgentItemPath } from './itemPath';
 import LabelTags from './LabelTags';
 import RoleTag, { nameBesideRoleStyle } from './RoleTag';
 
@@ -141,7 +142,7 @@ const AgentRow = memo<AgentRowProps>(
           <WorkspaceLink
             aria-label={displayTitle}
             className={styles.identity}
-            to={type === 'group' ? GROUP_CHAT_URL(id) : AGENT_CHAT_URL(id, false)}
+            to={getAgentItemPath({ id, type })}
           >
             <AgentAvatar item={item} size={28} />
             <Flexbox flex={1} style={{ minWidth: 0 }}>

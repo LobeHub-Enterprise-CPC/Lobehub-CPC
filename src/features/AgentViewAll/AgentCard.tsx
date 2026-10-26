@@ -1,6 +1,6 @@
 'use client';
 
-import { AGENT_CHAT_URL, DEFAULT_AVATAR, GROUP_CHAT_URL } from '@lobechat/const';
+import { DEFAULT_AVATAR } from '@lobechat/const';
 import type { SidebarAgentItem } from '@lobechat/types';
 import { agentDisplayName, agentSecondaryDisplayName } from '@lobechat/types';
 import {
@@ -22,6 +22,7 @@ import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 import AgentAvatar from './AgentAvatar';
 import { type AgentRowAuthor, formatUpdatedAt } from './AgentRow';
 import ItemActions from './ItemActions';
+import { getAgentItemPath } from './itemPath';
 import LabelTags from './LabelTags';
 import RoleTag, { nameBesideRoleStyle } from './RoleTag';
 
@@ -137,7 +138,7 @@ const AgentCard = memo<AgentCardProps>(
             aria-label={displayTitle}
             className={cardStyles.link}
             ref={setAnchor}
-            to={type === 'group' ? GROUP_CHAT_URL(id) : AGENT_CHAT_URL(id, false)}
+            to={getAgentItemPath({ id, type })}
             onPointerEnter={activateMenu}
           >
             <Block clickable className={cardStyles.card} height={'100%'} variant={'outlined'}>
