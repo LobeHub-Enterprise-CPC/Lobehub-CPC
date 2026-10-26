@@ -17,6 +17,7 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import AsyncError from '@/components/AsyncError';
+import CappedNavList from '@/features/NavPanel/components/CappedNavList';
 import NavItem from '@/features/NavPanel/components/NavItem';
 import SkeletonList from '@/features/NavPanel/components/SkeletonList';
 import { openCreateProjectModal } from '@/features/Projects/CreateProjectModal';
@@ -91,7 +92,11 @@ const Project = memo<ProjectProps>(({ itemKey }) => {
             onClick={() => openCreateProjectModal()}
           />
         ) : (
-          projects?.map((project) => <Row key={project.id} project={project} />)
+          <CappedNavList ready={projects?.length}>
+            {projects?.map((project) => (
+              <Row key={project.id} project={project} />
+            ))}
+          </CappedNavList>
         )}
       </AccordionPanel>
     </AccordionItem>

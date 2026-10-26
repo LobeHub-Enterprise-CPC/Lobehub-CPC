@@ -10,7 +10,7 @@ const DEFAULT_SUPPORT_COPY = {
   joinDiscord: 'Join Discord',
 } satisfies Required<EmailSupportCopy>;
 
-const escapeHtml = (value: string) =>
+export const escapeHtml = (value: string) =>
   value
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
