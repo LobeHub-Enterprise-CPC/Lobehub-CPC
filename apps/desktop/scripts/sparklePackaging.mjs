@@ -9,7 +9,11 @@ export const resolveSparklePackaging = ({
   platform,
   sparklePublicKey,
   updateServerUrl,
+  updatesDisabled = false,
 }) => {
+  // A distribution without an update feed ships no updater at all.
+  if (updatesDisabled) return { useSparkle: false };
+
   const hasSparkleSettings = Boolean(updateServerUrl && sparklePublicKey);
   const sparkleRelease = platform === 'darwin' && isSparkleReleaseChannel(channel);
 

@@ -224,6 +224,7 @@ const { useSparkle } = resolveSparklePackaging({
   platform: process.platform,
   sparklePublicKey,
   updateServerUrl,
+  updatesDisabled: process.env.DESKTOP_DISABLE_UPDATES === '1',
 });
 const sparklePackageDir = useSparkle
   ? await fs.realpath(path.join(__dirname, 'node_modules/electron-sparkle-updater'))
