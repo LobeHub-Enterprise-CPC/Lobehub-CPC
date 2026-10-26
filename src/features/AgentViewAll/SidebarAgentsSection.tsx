@@ -4,7 +4,7 @@ import { AGENT_CHAT_URL, GROUP_CHAT_URL } from '@lobechat/const';
 import type { SidebarAgentItem } from '@lobechat/types';
 import { agentDisplayName, agentSecondaryDisplayName } from '@lobechat/types';
 import { Block, ContextMenuTrigger, type DropdownItem, Flexbox, Icon } from '@lobehub/ui';
-import { createStaticStyles, cssVar, responsive, Tag, Text } from '@lobehub/ui';
+import { createStaticStyles, cssVar, responsive, Text } from '@lobehub/ui';
 import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
 import { memo, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -15,6 +15,7 @@ import { systemStatusSelectors } from '@/store/global/selectors';
 
 import AgentAvatar from './AgentAvatar';
 import ItemActions from './ItemActions';
+import RoleTag, { nameBesideRoleStyle } from './RoleTag';
 
 // "In sidebar" overview: a collapsible card grid pinned above the main list
 // so the user can see at a glance which agents currently show in the sidebar
@@ -137,14 +138,12 @@ const SidebarMiniCard = memo<SidebarMiniCardProps>(({ item, onToggleSidebar }) =
         >
           <Flexbox horizontal align={'center'} gap={8} style={{ minWidth: 0 }}>
             <AgentAvatar item={item} size={24} />
-            <Text ellipsis style={{ minWidth: 0 }} weight={600}>
-              {displayTitle}
-            </Text>
-            {roleTag ? (
-              <Tag size={'small'} style={{ flex: 'none' }}>
-                {roleTag}
-              </Tag>
-            ) : null}
+            <Flexbox horizontal align={'center'} flex={1} gap={8} style={{ minWidth: 0 }}>
+              <Text ellipsis style={roleTag ? nameBesideRoleStyle : { minWidth: 0 }} weight={600}>
+                {displayTitle}
+              </Text>
+              {roleTag ? <RoleTag role={roleTag} /> : null}
+            </Flexbox>
           </Flexbox>
           {description ? (
             <Text

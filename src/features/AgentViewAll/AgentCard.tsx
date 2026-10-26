@@ -11,7 +11,6 @@ import {
   type DropdownItem,
   Flexbox,
   responsive,
-  Tag,
   Text,
   Tooltip,
 } from '@lobehub/ui';
@@ -24,6 +23,7 @@ import AgentAvatar from './AgentAvatar';
 import { type AgentRowAuthor, formatUpdatedAt } from './AgentRow';
 import ItemActions from './ItemActions';
 import LabelTags from './LabelTags';
+import RoleTag, { nameBesideRoleStyle } from './RoleTag';
 
 // Card layout mirrors the agent channel platform cards
 // (src/features/AgentChannel/PlatformGrid.tsx): icon + title + trailing state on
@@ -151,14 +151,14 @@ const AgentCard = memo<AgentCardProps>(
               >
                 <AgentAvatar item={item} size={24} />
                 <Flexbox horizontal align={'center'} flex={1} gap={6} style={{ minWidth: 0 }}>
-                  <Text ellipsis style={{ minWidth: 0 }} weight={600}>
+                  <Text
+                    ellipsis
+                    style={roleTag ? nameBesideRoleStyle : { minWidth: 0 }}
+                    weight={600}
+                  >
                     {displayTitle}
                   </Text>
-                  {roleTag ? (
-                    <Tag size={'small'} style={{ flex: 'none' }}>
-                      {roleTag}
-                    </Tag>
-                  ) : null}
+                  {roleTag ? <RoleTag role={roleTag} /> : null}
                 </Flexbox>
               </Flexbox>
               <Text className={cardStyles.description} fontSize={12} type={'secondary'}>
