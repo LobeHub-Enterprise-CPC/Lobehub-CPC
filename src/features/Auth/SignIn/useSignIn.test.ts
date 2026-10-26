@@ -8,6 +8,7 @@ const mockNavigate = vi.hoisted(() => vi.fn());
 const mockSearchParamsGet = vi.hoisted(() => vi.fn().mockReturnValue(null));
 const mockMessageError = vi.hoisted(() => vi.fn());
 const mockMessageSuccess = vi.hoisted(() => vi.fn());
+const mockConfirmModal = vi.hoisted(() => vi.fn());
 const mockSignInOauth2 = vi.hoisted(() => vi.fn());
 const mockSignInSSO = vi.hoisted(() => vi.fn());
 const mockSignInEmail = vi.hoisted(() => vi.fn());
@@ -44,6 +45,7 @@ vi.mock('react-router', () => ({
 
 vi.mock('@lobehub/ui', async (importOriginal) => ({
   ...(await importOriginal<object>()),
+  confirmModal: mockConfirmModal,
   toast: { error: mockMessageError, success: mockMessageSuccess },
 }));
 
@@ -338,19 +340,20 @@ describe('useSignIn', () => {
         expect(result.current.step).toBe('email');
       });
 
-      it('leaves the click to the user while the terms are not accepted on this origin', async () => {
+      it('asks for the terms by itself when they are not accepted on this origin, then continues', async () => {
         arrive();
         localStorage.removeItem(AGREEMENT_KEY);
-        mockBusinessSignin.ssoLoaded = false;
-        const { result, rerender } = renderHook(() => useSignIn());
-        const button = continueButton();
-        result.current.continueButtonRef.current = button;
+        const { result } = renderHook(() => useSignIn());
 
-        mockBusinessSignin.ssoLoaded = true;
-        rerender();
-
-        await waitFor(() => expect(document.activeElement).toBe(button));
+        // Nothing is checked or remembered before the user agrees (or if they cancel).
+        await waitFor(() => expect(mockConfirmModal).toHaveBeenCalledOnce());
         expect(checkUserCalls()).toHaveLength(0);
+        expect(localStorage.getItem(AGREEMENT_KEY)).toBeNull();
+
+        act(() => mockConfirmModal.mock.calls[0][0].onOk());
+        await waitFor(() => expect(result.current.step).toBe('password'));
+        expect(checkUserCalls()).toHaveLength(1);
+        expect(localStorage.getItem(AGREEMENT_KEY)).toBe('true');
       });
 
       it.each([
