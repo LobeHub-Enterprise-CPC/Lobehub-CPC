@@ -5,7 +5,7 @@ import { AGENT_CHAT_URL, DEFAULT_AVATAR, GROUP_CHAT_URL } from '@lobechat/const'
 import type { SidebarAgentItem } from '@lobechat/types';
 import { agentDisplayName, agentSecondaryDisplayName } from '@lobechat/types';
 import { ContextMenuTrigger, type DropdownItem, Flexbox, Tooltip } from '@lobehub/ui';
-import { ActionIcon, Avatar, createStaticStyles, cssVar, Tag, Text } from '@lobehub/ui';
+import { ActionIcon, Avatar, createStaticStyles, cssVar, Text } from '@lobehub/ui';
 import dayjs from 'dayjs';
 import { EyeIcon, EyeOffIcon } from 'lucide-react';
 import { memo, type MouseEvent, useCallback, useRef, useState } from 'react';
@@ -16,6 +16,7 @@ import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 import AgentAvatar from './AgentAvatar';
 import ItemActions from './ItemActions';
 import LabelTags from './LabelTags';
+import RoleTag, { nameBesideRoleStyle } from './RoleTag';
 
 /** Fixed action-column width (sidebar-eye toggle + "…" menu) so rows stay aligned. */
 export const ACTION_COL_WIDTH = 64;
@@ -147,14 +148,15 @@ const AgentRow = memo<AgentRowProps>(
               {/* Single-line row (Linear-style density) — the description only
                 renders in card mode, where there is room to browse. */}
               <Flexbox horizontal align={'center'} gap={6} style={{ minWidth: 0 }}>
-                <Text ellipsis className={'agent-row-title'} weight={500}>
+                <Text
+                  ellipsis
+                  className={'agent-row-title'}
+                  style={roleTag ? nameBesideRoleStyle : undefined}
+                  weight={500}
+                >
                   {displayTitle}
                 </Text>
-                {roleTag ? (
-                  <Tag size={'small'} style={{ flex: 'none' }}>
-                    {roleTag}
-                  </Tag>
-                ) : null}
+                {roleTag ? <RoleTag role={roleTag} /> : null}
               </Flexbox>
               {AGENT_DIRECTORY_SHOWCASE_LAYOUT && description ? (
                 <Text ellipsis fontSize={12} type={'secondary'}>
