@@ -28,6 +28,12 @@ vi.mock('@/config/db', () => ({
   },
 }));
 
+// The distribution slot as Enterprise fills it; the fixture chain creates the same table.
+vi.mock('@lobechat/business-tenant', () => ({
+  businessTenantAllowList: { column: 'entry', table: 'auth_allow_list' },
+  registerBusinessTenantMigrators: () => undefined,
+}));
+
 // Only an explicitly supplied disposable, isolated cluster may create this shared role.
 // Never point this test at a development/business cluster, even with a fresh database.
 const isolatedUrl = process.env.TEST_ACCOUNT_LOOKUP_ISOLATED_CLUSTER_URL;
@@ -64,6 +70,7 @@ const executor = new PostgresTenantDatabaseExecutor({
         await client.query(`
     CREATE TABLE IF NOT EXISTS ${quote(schemaName)}.users (id text PRIMARY KEY, email text, banned boolean, ban_expires timestamptz, private_value text);
     CREATE TABLE IF NOT EXISTS ${quote(schemaName)}.private_records (secret text);
+    CREATE TABLE IF NOT EXISTS ${quote(schemaName)}.auth_allow_list (entry text PRIMARY KEY, enabled boolean NOT NULL DEFAULT true, note text);
   `);
       },
     },
@@ -156,6 +163,13 @@ describe.skipIf(!enabled)(
       createdLookupRole = true;
       await executor.migrate(context);
       await verifyLookupPermissions(root, names.schemaName);
+      await root.query(
+        `REVOKE SELECT (entry) ON ${quote(names.schemaName)}.auth_allow_list FROM ${quote(ACCOUNT_LOOKUP_ROLE)}`,
+      );
+      await expect(verifyLookupPermissions(root, names.schemaName)).rejects.toThrow('ALLOW_LIST');
+      await root.query(
+        `GRANT SELECT (entry) ON ${quote(names.schemaName)}.auth_allow_list TO ${quote(ACCOUNT_LOOKUP_ROLE)}`,
+      );
       // No migrations need run to repair missing grants: the executor always reapplies owner grants.
       await root.query(
         `REVOKE SELECT (email) ON ${quote(names.schemaName)}.users FROM ${quote(ACCOUNT_LOOKUP_ROLE)}`,
@@ -174,12 +188,15 @@ describe.skipIf(!enabled)(
       await lookup.connect();
       await verifyLookupIdentity(lookup);
       await lookup.query(`SELECT email,banned,ban_expires FROM ${quote(names.schemaName)}.users`);
+      await lookup.query(`SELECT entry FROM ${quote(names.schemaName)}.auth_allow_list`);
       for (const query of [
         `SELECT id FROM ${quote(names.schemaName)}.users`,
         `SELECT * FROM ${quote(names.schemaName)}.private_records`,
         `INSERT INTO ${quote(names.schemaName)}.users (email) VALUES ('x@example.com')`,
         `SELECT email FROM ${quote(names.schemaName)}.users WHERE private_value = 'secret'`,
         `SELECT count(id) FROM ${quote(names.schemaName)}.users`,
+        `SELECT note FROM ${quote(names.schemaName)}.auth_allow_list`,
+        `INSERT INTO ${quote(names.schemaName)}.auth_allow_list (entry) VALUES ('x@example.com')`,
       ])
         await expect(lookup.query(query)).rejects.toMatchObject({ code: '42501' });
     });
@@ -226,6 +243,10 @@ describe.skipIf(!enabled)(
         [
           `GRANT SELECT ON ${quote(names.schemaName)}.private_records TO PUBLIC`,
           `REVOKE SELECT ON ${quote(names.schemaName)}.private_records FROM PUBLIC`,
+        ],
+        [
+          `GRANT SELECT (note) ON ${quote(names.schemaName)}.auth_allow_list TO PUBLIC`,
+          `REVOKE SELECT (note) ON ${quote(names.schemaName)}.auth_allow_list FROM PUBLIC`,
         ],
       ]) {
         await root.query(grant);
@@ -334,6 +355,27 @@ describe.skipIf(!enabled)(
       await expect(
         verifyCandidateObjects(lookup, [{ ...candidate(), database: 'wrong_database' }]),
       ).rejects.toMatchObject({ status: 503 });
+      // Not signed up yet: the allow-list address or domain finds the tenant; a ban still wins.
+      await root.query(`INSERT INTO ${quote(names.schemaName)}.auth_allow_list (entry) VALUES
+      ('invited@example.com'),(' Corp.Example '),('permanent@example.com'),('')`);
+      for (const email of ['invited@example.com', 'new.hire@corp.example'])
+        expect(await queryTenantMembership(lookup, [candidate()], email)).toHaveLength(1);
+      for (const email of [
+        'permanent@example.com',
+        'stranger@example.com',
+        'someone@sub.corp.example',
+        'corp.example',
+      ])
+        expect(await queryTenantMembership(lookup, [candidate()], email)).toHaveLength(0);
+      await root.query(
+        `REVOKE SELECT (entry) ON ${quote(names.schemaName)}.auth_allow_list FROM ${quote(ACCOUNT_LOOKUP_ROLE)}`,
+      );
+      await expect(
+        queryTenantMembership(lookup, [candidate()], 'allowed@example.com'),
+      ).rejects.toMatchObject({ status: 503 });
+      await root.query(
+        `GRANT SELECT (entry) ON ${quote(names.schemaName)}.auth_allow_list TO ${quote(ACCOUNT_LOOKUP_ROLE)}`,
+      );
       await root.query(
         `REVOKE SELECT (banned) ON ${quote(names.schemaName)}.users FROM ${quote(ACCOUNT_LOOKUP_ROLE)}`,
       );
@@ -522,6 +564,8 @@ describe.skipIf(!enabled)(
       CREATE TABLE ${quote(c.schemaName)}.users (email text,banned boolean,ban_expires timestamptz);
       GRANT USAGE ON SCHEMA ${quote(c.schemaName)} TO ${quote(ACCOUNT_LOOKUP_ROLE)};
       GRANT SELECT (email,banned,ban_expires) ON ${quote(c.schemaName)}.users TO ${quote(ACCOUNT_LOOKUP_ROLE)};
+      CREATE TABLE ${quote(c.schemaName)}.auth_allow_list (entry text);
+      GRANT SELECT (entry) ON ${quote(c.schemaName)}.auth_allow_list TO ${quote(ACCOUNT_LOOKUP_ROLE)};
       ${i === 0 || i === 499 ? `INSERT INTO ${quote(c.schemaName)}.users VALUES ('scale@example.com',false,null);` : ''}`,
           )
           .join('\n'),

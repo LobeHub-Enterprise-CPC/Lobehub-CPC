@@ -1,3 +1,4 @@
+import { businessTenantAllowList } from '@lobechat/business-tenant';
 import type { Client } from 'pg';
 
 export const ACCOUNT_LOOKUP_ROLE = 'lobehub_account_lookup';
@@ -10,7 +11,11 @@ export const requireLookupRole = async (client: Queryable) => {
   if (!result.rowCount) throw new Error('ACCOUNT_LOOKUP_ROLE_MISSING');
 };
 
-/** Effective privileges include PUBLIC grants and inherited grants, not just ACL text. */
+/**
+ * The lookup role reads exactly `users(email, banned, ban_expires)` and, when the distribution
+ * declares one, the allow-list entry column. Effective privileges include PUBLIC grants and
+ * inherited grants, not just ACL text.
+ */
 export const verifyLookupPermissions = async (client: Queryable, schemaName: string) => {
   const result = await client.query<{ violation: string }>(
     `
@@ -34,7 +39,12 @@ export const verifyLookupPermissions = async (client: Queryable, schemaName: str
         OR EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
           AND (pg_catalog.has_column_privilege($1, c.oid, a.attnum, 'INSERT,UPDATE,REFERENCES')
             OR ((c.relname <> 'users' OR a.attname NOT IN ('email','banned','ban_expires'))
+              AND (c.relname::text, a.attname::text) IS DISTINCT FROM ($3::text, $4::text)
               AND pg_catalog.has_column_privilege($1, c.oid, a.attnum, 'SELECT'))))))
+    UNION ALL SELECT 'ALLOW_LIST' WHERE $3::text IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM relations c JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid
+      WHERE c.relname = $3 AND c.relkind IN ('r','p') AND a.attname = $4 AND a.attnum > 0
+        AND NOT a.attisdropped AND pg_catalog.has_column_privilege($1, c.oid, a.attnum, 'SELECT'))
     UNION ALL SELECT 'SEQUENCE' WHERE EXISTS (
       SELECT 1 FROM sequences c WHERE pg_catalog.has_sequence_privilege($1, c.oid, 'USAGE,SELECT,UPDATE'))
     UNION ALL SELECT 'SECURITY_DEFINER' WHERE EXISTS (
@@ -44,7 +54,12 @@ export const verifyLookupPermissions = async (client: Queryable, schemaName: str
           AND d.objid = p.oid AND d.deptype = 'e')
       AND pg_catalog.has_function_privilege($1, p.oid, 'EXECUTE'))
   `,
-    [ACCOUNT_LOOKUP_ROLE, schemaName],
+    [
+      ACCOUNT_LOOKUP_ROLE,
+      schemaName,
+      businessTenantAllowList?.table ?? null,
+      businessTenantAllowList?.column ?? null,
+    ],
   );
   if (result.rows.length) throw new Error(`ACCOUNT_LOOKUP_PRIVILEGES_${result.rows[0].violation}`);
 };
