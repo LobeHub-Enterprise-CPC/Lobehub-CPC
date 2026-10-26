@@ -114,7 +114,7 @@ const InputArea = ({
         >
           {editorSlot}
         </InputDragUpload>
-        {HOME_COMPOSER_AGENT_DOCK && <AgentDock />}
+        {HOME_COMPOSER_AGENT_DOCK && <AgentDock mode={mode} />}
         {showInputBanners && (
           <InputBannerQueue>
             {showNewModelShortcuts && (

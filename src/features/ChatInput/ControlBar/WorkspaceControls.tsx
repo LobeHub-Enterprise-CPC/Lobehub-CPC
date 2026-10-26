@@ -8,6 +8,11 @@ import { useChatInputResourceAccess } from '@/features/ChatInput/hooks/useChatIn
 
 import CloudRepoSwitcher from './CloudRepoSwitcher';
 import DeviceSwitcher from './DeviceSwitcher';
+import {
+  ExecutionPlacePicker,
+  type ExecutionPlacePickerProps,
+} from './executionPlace/ExecutionPlacePicker';
+import { useAgentPlacePicker } from './executionPlace/useAgentPlacePicker';
 import SandboxStorageSection from './SandboxStorageSection';
 import { useWorkspaceSurface, type WorkspaceSurface } from './useWorkspaceSurface';
 import WorkingDirectorySection from './WorkingDirectorySection';
@@ -21,6 +26,13 @@ interface WorkspaceControlsProps {
    * local mode.
    */
   alwaysShowWorkspace?: boolean;
+  /**
+   * Home dock always uses the place picker. Topic bars follow
+   * `COMPOSER_AGENT_ONLY_LAYOUT` on their own.
+   */
+  placePicker?: boolean;
+  /** Side the place picker's cascade opens on; the home dock opens it leftwards. */
+  placePickerPlacement?: ExecutionPlacePickerProps['placement'];
 }
 
 /**
@@ -33,9 +45,10 @@ interface WorkspaceControlsProps {
  * full-access badge) stay in their respective bars.
  */
 const WorkspaceControls = memo<WorkspaceControlsProps>(
-  ({ agentId, alwaysShowWorkspace = false }) => {
+  ({ agentId, alwaysShowWorkspace = false, placePicker = false, placePickerPlacement }) => {
     const { t } = useTranslation('setting');
     const { canConfigureResource, canUseResource } = useChatInputResourceAccess();
+    const { enabled: placePickerActive } = useAgentPlacePicker(agentId, placePicker);
     // Resolved from the effective (override-merged) execution target so the
     // surfaces follow the device THIS member's run actually targets.
     const surfaces = useWorkspaceSurface(agentId, alwaysShowWorkspace);
@@ -43,7 +56,7 @@ const WorkspaceControls = memo<WorkspaceControlsProps>(
     const renderSurface = (surface: WorkspaceSurface) => {
       switch (surface) {
         case 'workingDirectory': {
-          return <WorkingDirectorySection agentId={agentId} />;
+          return <WorkingDirectorySection agentId={agentId} hidePicker={placePickerActive} />;
         }
         case 'cloudRepo': {
           return <CloudRepoSwitcher agentId={agentId} />;
@@ -94,7 +107,15 @@ const WorkspaceControls = memo<WorkspaceControlsProps>(
 
     return (
       <>
-        <DeviceSwitcher agentId={agentId} />
+        {placePickerActive ? (
+          <ExecutionPlacePicker
+            agentId={agentId}
+            allowDirectory={canConfigureResource}
+            placement={placePickerPlacement}
+          />
+        ) : (
+          <DeviceSwitcher agentId={agentId} />
+        )}
         {surfaces.map((surface) => (
           <Fragment key={surface}>{withAccessGate(surface)}</Fragment>
         ))}
