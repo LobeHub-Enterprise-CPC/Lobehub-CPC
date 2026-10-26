@@ -271,6 +271,13 @@ importers:
         version: 2.5.0
 
   ../../packages/agent-gateway-client:
+    dependencies:
+      '@lobechat/types':
+        specifier: workspace:*
+        version: link:../types
+      '@lobechat/utils':
+        specifier: workspace:*
+        version: link:../utils
     devDependencies:
       vitest:
         specifier: 5.0.3
@@ -324,6 +331,9 @@ importers:
       '@lobehub/ui':
         specifier: ^6.0.4
         version: 6.0.4(@lobehub/fluent-emoji@5.0.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(@lobehub/icons@6.0.0)(@shikijs/themes@4.5.0)(@types/mdast@4.0.4)(@types/react@19.3.0)(date-fns@4.4.0)(micromark-util-types@2.0.3)(micromark@4.0.3(supports-color@9.4.0))(motion@14.2.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(supports-color@9.4.0)
+      es-toolkit:
+        specifier: ^1.50.0
+        version: 1.52.0
       query-string:
         specifier: ^9.4.1
         version: 9.5.1
@@ -373,6 +383,9 @@ importers:
       '@lobechat/types':
         specifier: workspace:*
         version: link:../types
+      '@lobechat/utils':
+        specifier: workspace:*
+        version: link:../utils
       ws:
         specifier: ^8.21.0
         version: 8.22.0
@@ -535,6 +548,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.1
         version: 1.32.1(supports-color@9.4.0)(zod@4.6.5)
+      debug:
+        specifier: ^4.4.3
+        version: 4.4.3(supports-color@9.4.0)
       diff:
         specifier: ^8.0.4
         version: 8.0.4
@@ -616,10 +632,19 @@ importers:
     dependencies:
       '@lobechat/business-const':
         specifier: workspace:*
-        version: link:../../apps/desktop/stubs/business-const
+        version: link:../business/const
       '@lobechat/const':
         specifier: workspace:*
         version: link:../const
+      unist-builder:
+        specifier: ^4.0.0
+        version: 4.0.0
+      xast-util-to-xml:
+        specifier: ^4.0.0
+        version: 4.0.0
+      xastscript:
+        specifier: ^4.0.0
+        version: 4.0.0
     devDependencies:
       '@lobechat/types':
         specifier: workspace:*
@@ -3502,6 +3527,9 @@ packages:
 
   '@types/ws@8.18.2':
     resolution: {integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==}
+
+  '@types/xast@2.0.4':
+    resolution: {integrity: sha512-6Q6HWhHXR5EEKcxgF5YBW5XPAAtCi/GgyCWHx6wR7dZTXF5rv2B2fm0hgpSscJqaVDVm6n1DAVbsM8RSM5PlMw==}
 
   '@types/yauzl@2.10.3':
     resolution: {integrity: sha512-oJoftv0LSuaDZE3Le4DbKX+KS9G36NzOeSap90UIK0yMA/NhKJhqlSGtNDORNRaIbQfzjXDrQa0ytJ6mNRGz/Q==}
@@ -7831,6 +7859,9 @@ packages:
   unified@11.0.5:
     resolution: {integrity: sha512-xKvGhPWw3k84Qjh8bI3ZeJjqnyadK+GEFtazSfZv/rKeTkTjOJho6mFqh2SM96iIcZokxiOpg78GazTSg8+KHA==}
 
+  unist-builder@4.0.0:
+    resolution: {integrity: sha512-wmRFnH+BLpZnTKpc5L7O67Kac89s9HMrtELpnNaE6TAobq5DTZZs5YaTQfAZBA9bFPECx2uVAPO31c+GVug8mg==}
+
   unist-util-find-after@5.0.0:
     resolution: {integrity: sha512-amQa0Ep2m6hE2g72AugUItjbuM8X8cGQnFoHk0pGfrFeT9GZhzN5SW8nRsiGKK7Aif4CrACPENkA6P/Lw6fHGQ==}
 
@@ -8224,6 +8255,12 @@ packages:
         optional: true
       utf-8-validate:
         optional: true
+
+  xast-util-to-xml@4.0.0:
+    resolution: {integrity: sha512-r1euIWS5yZJUNpfN+ReE4m7Vld2iytaOPJtuXVuRQacRZwqRN1MAb+dv0aGLrdXOZrpGLyvUFf1Upyrb3R5qBg==}
+
+  xastscript@4.0.0:
+    resolution: {integrity: sha512-r7a0kObEyivkML0dLrp/nOH5l51y9v5DL1MT/Xc6qUgGGNP1mZZUmT6NXtWAmx2FLfjonop++PtpVMwp1Hw/Gw==}
 
   xdg-app-paths@5.5.1:
     resolution: {integrity: sha512-hI3flOB4PLZIy5prbtTpirobtPE2ZtZ52szO+2mM9Efp6ErM398La+C1lIpNWDfNoQk+6Lsi6nMcCwVB7pxeMQ==}
@@ -10729,6 +10766,10 @@ snapshots:
   '@types/ws@8.18.2':
     dependencies:
       '@types/node': 24.19.1
+
+  '@types/xast@2.0.4':
+    dependencies:
+      '@types/unist': 3.0.3
 
   '@types/yauzl@2.10.3':
     dependencies:
@@ -15794,6 +15835,10 @@ snapshots:
       trough: 2.2.0
       vfile: 6.0.3
 
+  unist-builder@4.0.0:
+    dependencies:
+      '@types/unist': 3.0.3
+
   unist-util-find-after@5.0.0:
     dependencies:
       '@types/unist': 3.0.3
@@ -16120,6 +16165,16 @@ snapshots:
       signal-exit: 4.1.0
 
   ws@8.22.0: {}
+
+  xast-util-to-xml@4.0.0:
+    dependencies:
+      '@types/xast': 2.0.4
+      ccount: 2.0.1
+      stringify-entities: 4.0.4
+
+  xastscript@4.0.0:
+    dependencies:
+      '@types/xast': 2.0.4
 
   xdg-app-paths@5.5.1:
     dependencies:
