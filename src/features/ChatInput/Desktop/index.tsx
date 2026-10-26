@@ -29,6 +29,7 @@ import { useWorkspaceFileDrop } from '../InputEditor/useWorkspaceFileDrop';
 import SendArea from '../SendArea';
 import TypoBar from '../TypoBar';
 import ContextContainer from './ContextContainer';
+import { focusEditorOnBodyClick } from './focusEditorOnBodyClick';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
   container: css`
@@ -267,6 +268,7 @@ const DesktopChatInput = memo<DesktopChatInputProps>(
               {contextContainerNode}
             </Flexbox>
           }
+          onBodyClick={focusEditorOnBodyClick(editor)}
           onSizeChange={(height) => {
             updateSystemStatus({ chatInputHeight: height });
           }}
