@@ -1,6 +1,7 @@
 /**
  * Application settings storage related constants
  */
+import { DESKTOP_DEVICE_GATEWAY_ALWAYS_ON } from '@lobechat/business-const';
 import { DEFAULT_ELECTRON_DESKTOP_SHORTCUTS } from '@lobechat/const/desktopGlobalShortcuts';
 import type { NetworkProxySettings } from '@lobechat/electron-client-ipc';
 
@@ -41,6 +42,8 @@ export const getStoreDefaults = (): ElectronMainStore => ({
   // Build-time default, still overridable at runtime through the store — a
   // distribution that runs no gateway of its own must not have every install
   // opening a socket to the official one. See DEVICE_GATEWAY_ENABLED in env.ts.
+  // An always-on build does not change this default; `resolveGatewayEnabled`
+  // is what ignores a stored false.
   //
   // The URL below deliberately stays a plain constant: DEVICE_GATEWAY_URL is
   // already consulted ahead of the store in `gatewayConnectionSrv.getGatewayUrl`,
@@ -64,3 +67,12 @@ export const getStoreDefaults = (): ElectronMainStore => ({
   updateChannel: UPDATE_CHANNEL,
   windowsShellMode: 'auto',
 });
+
+/**
+ * Whether auto-connect should treat the gateway as enabled.
+ *
+ * The stored value wins, except on a build that no longer shows a way to turn
+ * the gateway back on: a persisted `false` is then read as on.
+ */
+export const resolveGatewayEnabled = (persisted: boolean | undefined): boolean =>
+  DESKTOP_DEVICE_GATEWAY_ALWAYS_ON || Boolean(persisted);

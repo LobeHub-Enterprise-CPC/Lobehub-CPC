@@ -1,3 +1,4 @@
+import { DESKTOP_DEVICE_GATEWAY_ALWAYS_ON } from '@lobechat/business-const';
 import { type GatewayConnectionErrorCode, useWatchBroadcast } from '@lobechat/electron-client-ipc';
 import { ActionIcon, Button, createStaticStyles, Flexbox, Popover, Switch } from '@lobehub/ui';
 import { HardDrive, SettingsIcon } from 'lucide-react';
@@ -72,32 +73,39 @@ interface DeviceGatewayProps {
   workspaceScoped: boolean;
 }
 
+/**
+ * Loads the gateway status and this device's identity, and follows status
+ * broadcasts. Many features read `gatewayDeviceInfo` to recognise the current
+ * computer, so this runs app-wide even when the title-bar entry is hidden.
+ */
+const useGatewayStateSync = () => {
+  const setGatewayConnectionState = useElectronStore((s) => s.setGatewayConnectionState);
+
+  useElectronStore((s) => s.useFetchGatewayStatus)();
+  useElectronStore((s) => s.useFetchGatewayDeviceInfo)();
+  useWatchBroadcast('gatewayConnectionStatusChanged', setGatewayConnectionState);
+};
+
+const DeviceGatewayStateSync = memo(() => {
+  useGatewayStateSync();
+
+  return null;
+});
+
 const DeviceGateway = memo<DeviceGatewayProps>(({ workspaceScoped }) => {
   const { t } = useTranslation('electron');
   const navigate = useWorkspaceAwareNavigate();
-  const [
-    gatewayStatus,
-    gatewayError,
-    connectGateway,
-    disconnectGateway,
-    setGatewayConnectionState,
-    useFetchGatewayStatus,
-  ] = useElectronStore((s) => [
+  const [gatewayStatus, gatewayError, connectGateway, disconnectGateway] = useElectronStore((s) => [
     s.gatewayConnectionStatus,
     s.gatewayConnectionError,
     s.connectGateway,
     s.disconnectGateway,
-    s.setGatewayConnectionState,
-    s.useFetchGatewayStatus,
   ]);
 
-  useFetchGatewayStatus();
-  useElectronStore((s) => s.useFetchGatewayDeviceInfo)();
+  useGatewayStateSync();
   const gatewayDeviceInfo = useElectronStore((s) => s.gatewayDeviceInfo);
   const deviceList = useDeviceList();
   const devices = deviceList.data;
-
-  useWatchBroadcast('gatewayConnectionStatusChanged', setGatewayConnectionState);
 
   const isConnected = gatewayStatus === 'connected';
   const isConnecting =
@@ -221,6 +229,9 @@ const DeviceGatewayWithAuth = memo(() => {
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
 
   if (!isSyncActive) return null;
+
+  // Always-on builds keep the connection without any user-facing control.
+  if (DESKTOP_DEVICE_GATEWAY_ALWAYS_ON) return <DeviceGatewayStateSync />;
 
   return <DeviceGateway workspaceScoped={!!activeWorkspaceSlug} />;
 });

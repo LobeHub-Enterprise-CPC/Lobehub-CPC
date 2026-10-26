@@ -30,6 +30,7 @@ import { managedProcessEnvironment, spawnManaged } from '@lobechat/utils/managed
 import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import { app as electronApp } from 'electron';
 
+import { resolveGatewayEnabled } from '@/const/store';
 import { withEmbeddedCliEnv } from '@/modules/cliEmbedding';
 import { createDesktopGatewayIdentityProvider } from '@/modules/tenantAuth/gatewayIdentity';
 import { updaterConfig } from '@/modules/updater/configs';
@@ -375,8 +376,7 @@ export default class GatewayConnectionCtr extends ControllerModule {
   // ─── Auto Connect ───
 
   private async tryAutoConnect() {
-    const gatewayEnabled = this.app.storeManager.get('gatewayEnabled');
-    if (!gatewayEnabled) return;
+    if (!resolveGatewayEnabled(this.app.storeManager.get('gatewayEnabled'))) return;
 
     const isConfigured = await this.remoteServerConfigCtr.isRemoteServerConfigured();
     if (!isConfigured) return;
