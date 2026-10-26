@@ -14,6 +14,8 @@ import { useTranslation } from 'react-i18next';
 import ChatInputCredits from '@/business/client/features/ChatInputCredits';
 import { SkeletonBar } from '@/components/Skeleton';
 import DeviceSwitcher from '@/features/ChatInput/ControlBar/DeviceSwitcher';
+import { ExecutionPlacePicker } from '@/features/ChatInput/ControlBar/executionPlace/ExecutionPlacePicker';
+import { useAgentPlacePicker } from '@/features/ChatInput/ControlBar/executionPlace/useAgentPlacePicker';
 import WorkspaceControls from '@/features/ChatInput/ControlBar/WorkspaceControls';
 import { useAgentId } from '@/features/ChatInput/hooks/useAgentId';
 import { useChatInputResourceAccess } from '@/features/ChatInput/hooks/useChatInputResourceAccess';
@@ -151,6 +153,7 @@ const HeteroControlBar = memo(() => {
   const { t: tChat } = useTranslation('chat');
   const agentId = useAgentId();
   const topicId = useTopicId();
+  const { enabled: placePickerActive } = useAgentPlacePicker(agentId);
   const { canConfigureResource, isAccessLoading } = useChatInputResourceAccess();
   const [runtimeStatus, setRuntimeStatus] = useState<HeterogeneousAgentRuntimeStatus>();
 
@@ -205,7 +208,11 @@ const HeteroControlBar = memo(() => {
     if (!agentId || isLoading) return <HeteroControlBarSkeleton />;
     return (
       <Flexbox horizontal align={'center'} className={styles.bar} justify={'space-between'}>
-        <DeviceSwitcher agentId={agentId} />
+        {placePickerActive ? (
+          <ExecutionPlacePicker agentId={agentId} allowDirectory={false} />
+        ) : (
+          <DeviceSwitcher agentId={agentId} />
+        )}
         {shouldShowApiCredits && <ChatInputCredits />}
       </Flexbox>
     );

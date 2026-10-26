@@ -3,10 +3,15 @@ import { createStaticStyles } from '@lobehub/ui';
 import { memo } from 'react';
 
 import Avatar from '@/components/Avatar';
+import { SkeletonBar } from '@/components/Skeleton';
+import { useHomeStore } from '@/store/home';
 
 import AgentSelect from '../AgentSelect';
 import { useHomeAgentDisplay } from '../AgentSelect/useHomeAgentDisplay';
+import { useResolvedHomeAgentId } from '../AgentSelect/useResolvedHomeAgentId';
+import type { HomeMode } from '../types';
 import ProjectSelect from './ProjectSelect';
+import { useHomeDockWorkspace } from './useHomeDockWorkspace';
 
 const AVATAR_SIZE = 80;
 
@@ -28,6 +33,7 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
     z-index: 0;
 
     display: flex;
+    flex-wrap: nowrap;
     gap: 8px;
     align-items: center;
 
@@ -39,6 +45,39 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
     border-radius: 0 0 16px 16px;
 
     background: ${cssVar.colorFillQuaternary};
+  `,
+  // Shares leftover width with the workspace cluster and gives it up when the
+  // row is narrow, so the project / agent labels can ellipsize.
+  leftGroup: css`
+    overflow: hidden;
+    display: flex;
+    flex: 1 1 auto;
+    gap: 8px;
+    align-items: center;
+
+    min-width: 0;
+
+    & > * {
+      min-width: 0;
+    }
+  `,
+  // Long device / directory labels scroll inside the group instead of wrapping
+  // or painting over the agent switcher. The scrollbar stays hidden.
+  rightGroup: css`
+    scrollbar-width: none;
+
+    overflow: auto hidden;
+    display: flex;
+    flex: 1 1 auto;
+    gap: 4px;
+    align-items: center;
+    justify-content: flex-end;
+
+    min-width: 0;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
   `,
 }));
 
@@ -72,12 +111,44 @@ AgentDockAvatar.displayName = 'HomeAgentDockAvatar';
  * The strip under the home composer that holds the agent switcher, led by the
  * project picker where conversations are organized by project.
  */
-const AgentDock = memo(() => (
-  <div className={styles.dock} data-brand-slot={'home-agent-dock'}>
-    {PROJECT_FIRST_NAVIGATION && <ProjectSelect />}
-    <AgentSelect />
+interface AgentDockProps {
+  /** Home composer mode. Workspace controls belong only to an ordinary chat send. */
+  mode: HomeMode;
+}
+
+const WorkspaceSkeleton = () => (
+  <div
+    aria-busy
+    className={styles.rightGroup}
+    data-pending={'chunk'}
+    data-testid={'home-dock-workspace'}
+  >
+    <SkeletonBar height={22} radius={4} width={88} />
+    <SkeletonBar height={22} radius={4} width={120} />
   </div>
-));
+);
+
+const AgentDock = memo<AgentDockProps>(({ mode }) => {
+  const inputActiveMode = useHomeStore((s) => s.inputActiveMode);
+  const { agentId } = useResolvedHomeAgentId();
+  const showWorkspace = mode === 'chat' && !inputActiveMode;
+  const { failed, Workspace } = useHomeDockWorkspace(showWorkspace && !!agentId);
+
+  return (
+    <div className={styles.dock} data-brand-slot={'home-agent-dock'}>
+      <div className={styles.leftGroup}>
+        {PROJECT_FIRST_NAVIGATION && <ProjectSelect />}
+        <AgentSelect />
+      </div>
+      {showWorkspace &&
+        (agentId && Workspace ? (
+          <Workspace agentId={agentId} className={styles.rightGroup} />
+        ) : (
+          !failed && <WorkspaceSkeleton />
+        ))}
+    </div>
+  );
+});
 
 AgentDock.displayName = 'HomeAgentDock';
 
