@@ -64,6 +64,18 @@ export const EXTERNAL_INTEGRATIONS_ENABLED = true;
 export const DESKTOP_APP_ENABLED = true;
 
 /**
+ * Whether the desktop device gateway stays on with no user-facing control.
+ *
+ * When on, the title bar does not render the gateway entry (status dot,
+ * connect switch, or the jump to device settings), and a persisted
+ * `gatewayEnabled: false` — including one saved by an older build — is still
+ * treated as on, because the user can no longer turn it back on. Login,
+ * organization switch and reconnect keep their existing timing. Logout still
+ * closes the socket. Off keeps the entry and honors the stored flag.
+ */
+export const DESKTOP_DEVICE_GATEWAY_ALWAYS_ON = false;
+
+/**
  * Whether this distribution reaches the hosted skill marketplace.
  *
  * Governs the prompt, not a button. The activator's `<skill_store_discovery>`

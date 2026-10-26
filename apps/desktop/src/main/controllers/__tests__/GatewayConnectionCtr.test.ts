@@ -19,6 +19,15 @@ import McpCtr from '../McpCtr';
 import RemoteServerConfigCtr from '../RemoteServerConfigCtr';
 import ShellCommandCtr from '../ShellCommandCtr';
 
+const gatewayAlwaysOn = vi.hoisted(() => ({ value: false }));
+
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  get DESKTOP_DEVICE_GATEWAY_ALWAYS_ON() {
+    return gatewayAlwaysOn.value;
+  },
+}));
+
 vi.mock('@/modules/tenantAuth/gatewayIdentity', () => ({
   createDesktopGatewayIdentityProvider: async (host: {
     getAccessToken: () => Promise<string | null>;
@@ -453,6 +462,7 @@ describe('GatewayConnectionCtr', () => {
     vi.mocked(mockRemoteServerConfigCtr.getRemoteServerUrl).mockResolvedValue(SERVER_URL);
     vi.mocked(mockRemoteServerConfigCtr.getAccessToken).mockResolvedValue('mock-access-token');
     vi.mocked(mockRemoteServerConfigCtr.refreshAccessToken).mockResolvedValue({ success: true });
+    gatewayAlwaysOn.value = false;
     mockStoreGet.mockImplementation((key: string) => {
       if (key === 'gatewayEnabled') return true;
       return undefined;
@@ -1173,6 +1183,35 @@ describe('GatewayConnectionCtr', () => {
     });
 
     it('should skip auto-connect when gatewayEnabled is false', async () => {
+      mockStoreGet.mockImplementation((key: string) => {
+        if (key === 'gatewayEnabled') return false;
+        return undefined;
+      });
+
+      ctr = new GatewayConnectionCtr(mockApp);
+      ctr.afterFirstFrame();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(MockGatewayClient.lastInstance).toBeNull();
+    });
+
+    it('still auto-connects when the gateway is always on and gatewayEnabled is false', async () => {
+      gatewayAlwaysOn.value = true;
+      mockStoreGet.mockImplementation((key: string) => {
+        if (key === 'gatewayEnabled') return false;
+        return undefined;
+      });
+
+      ctr = new GatewayConnectionCtr(mockApp);
+      ctr.afterFirstFrame();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(MockGatewayClient.lastInstance).not.toBeNull();
+      expect(MockGatewayClient.lastInstance!.connect).toHaveBeenCalled();
+    });
+
+    it('keeps skipping auto-connect when the gateway is not always on and gatewayEnabled is false', async () => {
+      gatewayAlwaysOn.value = false;
       mockStoreGet.mockImplementation((key: string) => {
         if (key === 'gatewayEnabled') return false;
         return undefined;
