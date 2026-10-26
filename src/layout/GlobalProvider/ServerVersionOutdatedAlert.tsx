@@ -88,6 +88,7 @@ const ServerVersionOutdatedAlert = () => {
   const [dismissed, setDismissed] = useState(false);
   const isServerVersionOutdated = useGlobalStore((s) => s.isServerVersionOutdated);
   const isOfficialServer = useElectronStore(electronSyncSelectors.isOfficialServer);
+  const serverScope = useElectronStore(electronSyncSelectors.serverConfigScope);
 
   const cssVariables = useMemo<Record<string, string>>(
     () => ({
@@ -97,7 +98,7 @@ const ServerVersionOutdatedAlert = () => {
     [theme.yellowBorder, theme.yellowBg],
   );
 
-  if (isOfficialServer || !isServerVersionOutdated || dismissed) return null;
+  if (!serverScope || isOfficialServer || !isServerVersionOutdated || dismissed) return null;
 
   return (
     <div className={styles.container}>
