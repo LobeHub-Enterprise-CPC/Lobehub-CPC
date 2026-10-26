@@ -8,6 +8,8 @@ import { useActiveLocation } from '@/hooks/useActiveLocation';
 const ROW_HEIGHT = 36;
 const ROW_GAP = 1;
 const PADDING_BLOCK = 1;
+// ScrollShadow fades this much of each scrolled edge.
+const SHADOW_SIZE = 12;
 
 // Every sidebar row (channel, thread, project, topic) renders through NavItem.
 const ROW_SELECTOR = '[data-brand-slot="nav-item"]';
@@ -81,7 +83,8 @@ const CappedNavList = ({ children, ready, rows = DEFAULT_VISIBLE_ROWS }: CappedN
   }, [rows]);
 
   // A route can activate a row below the cap. Scroll only this list, never its
-  // ancestors, so landing on the page does not also move the whole sidebar.
+  // ancestors, so landing on the page does not also move the whole sidebar, and
+  // clear the faded edge so the active row is not half-hidden under it.
   useEffect(() => {
     const container = ref.current;
     const row = container?.querySelector<HTMLElement>('[data-active]');
@@ -89,8 +92,10 @@ const CappedNavList = ({ children, ready, rows = DEFAULT_VISIBLE_ROWS }: CappedN
 
     const viewport = container.getBoundingClientRect();
     const rect = row.getBoundingClientRect();
-    if (rect.top < viewport.top) container.scrollTop += rect.top - viewport.top;
-    else if (rect.bottom > viewport.bottom) container.scrollTop += rect.bottom - viewport.bottom;
+    if (rect.top < viewport.top + SHADOW_SIZE)
+      container.scrollTop += rect.top - viewport.top - SHADOW_SIZE;
+    else if (rect.bottom > viewport.bottom - SHADOW_SIZE)
+      container.scrollTop += rect.bottom - viewport.bottom + SHADOW_SIZE;
   }, [pathname, search, ready, maxHeight]);
 
   return (
@@ -98,7 +103,7 @@ const CappedNavList = ({ children, ready, rows = DEFAULT_VISIBLE_ROWS }: CappedN
       gap={ROW_GAP}
       paddingBlock={PADDING_BLOCK}
       ref={ref}
-      size={12}
+      size={SHADOW_SIZE}
       style={{ maxHeight }}
     >
       {children}

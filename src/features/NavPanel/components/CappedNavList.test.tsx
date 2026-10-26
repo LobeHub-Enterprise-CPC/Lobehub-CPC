@@ -75,8 +75,8 @@ describe('CappedNavList', () => {
     expect((container.firstElementChild as HTMLElement).style.maxHeight).toBe('191px');
   });
 
-  // Landing on a channel below the cap must not leave its row hidden.
-  it('scrolls only itself to bring the active row into view', () => {
+  // Landing on a channel below the cap must not leave its row hidden or faded.
+  it('scrolls only itself to bring the active row clear of the faded edge', () => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
       this: HTMLElement,
     ) {
@@ -91,6 +91,7 @@ describe('CappedNavList', () => {
       </CappedNavList>,
     );
 
-    expect((container.firstElementChild as HTMLElement).scrollTop).toBe(150);
+    // Row bottom 336, list bottom 186, plus the 12px fade.
+    expect((container.firstElementChild as HTMLElement).scrollTop).toBe(162);
   });
 });
