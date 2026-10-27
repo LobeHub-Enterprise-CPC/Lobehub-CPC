@@ -20,6 +20,7 @@ import { resolveMissingTaskModelConfig } from '@/server/services/task/modelSnaps
 import { createTaskRunHooks } from '@/server/services/task/runHooks';
 import { readTaskSkillIds } from '@/server/services/userSkill';
 
+import { reusedScheduleExecutions } from '../task/reusedScheduleExecutions';
 import { buildTaskPrompt } from './buildTaskPrompt';
 import {
   resolveRunDeviceId,
@@ -108,13 +109,14 @@ export class TaskRunnerService {
     const {
       additionalPluginIds,
       taskId: idOrIdentifier,
-      continueTopicId,
+      continueTopicId: requestedContinueTopicId,
       deviceId,
       extraPrompt,
       maxSteps,
       trigger = 'manual',
     } = params;
 
+    let continueTopicId = requestedContinueTopicId;
     const task = await this.taskModel.resolve(idOrIdentifier);
     if (!task) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Task not found' });
@@ -157,6 +159,21 @@ export class TaskRunnerService {
       }
 
       const existingTopics = await this.taskTopicModel.findByTaskId(task.id);
+      const schedulePreferences = (task.config as { schedule?: { newChatPerRun?: boolean } } | null)
+        ?.schedule;
+      if (
+        !continueTopicId &&
+        task.automationMode === 'schedule' &&
+        schedulePreferences?.newChatPerRun === false &&
+        !existingTopics.some((topic) => topic.status === 'running')
+      ) {
+        const previous = existingTopics.find((topic) => topic.status === 'completed');
+        if (previous) {
+          const previousTopic = await this.topicModel.findById(previous.topicId);
+          // Never continue a thread belonging to a previous assignee.
+          if (previousTopic?.agentId === task.assigneeAgentId) continueTopicId = previous.topicId;
+        }
+      }
 
       if (continueTopicId) {
         const target = existingTopics.find((t) => t.topicId === continueTopicId);
@@ -403,6 +420,24 @@ export class TaskRunnerService {
             await taskTopicModel.updateStatus(task.id, continueTopicId, 'running');
             await taskTopicModel.updateOperationId(task.id, continueTopicId, result.operationId);
             await taskModel.updateCurrentTopic(task.id, continueTopicId);
+            // task_topics is unique per conversation. A continued scheduled run
+            // still consumes a fresh execution, under the same task row lock.
+            if (trigger === 'schedule' && current) {
+              const context = (current.context || {}) as Record<string, unknown>;
+              const scheduler = (context.scheduler || {}) as Record<string, unknown>;
+              await taskModel.update(task.id, {
+                context: {
+                  ...context,
+                  scheduler: {
+                    ...scheduler,
+                    reusedExecutions: {
+                      window: scheduler.scheduleStartedAt,
+                      count: reusedScheduleExecutions(context) + 1,
+                    },
+                  },
+                },
+              });
+            }
           } else {
             await taskModel.incrementTopicCount(task.id);
             await taskModel.updateCurrentTopic(task.id, topicId);

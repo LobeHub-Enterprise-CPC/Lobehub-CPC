@@ -82,6 +82,7 @@ interface ModelOption {
 
 interface ModelSelectProps extends Pick<
   SelectProps,
+  | 'id'
   | 'allowClear'
   | 'disabled'
   | 'labelRender'
@@ -111,6 +112,7 @@ interface ModelSelectProps extends Pick<
 const ModelSelect = memo<ModelSelectProps>(
   ({
     value,
+    id,
     onChange,
     onClear,
     allowClear,
@@ -374,6 +376,7 @@ const ModelSelect = memo<ModelSelectProps>(
     return (
       <TooltipGroup>
         <Select
+          id={id}
           allowClear={allowClear}
           className={styles.select}
           classNames={{ itemIndicator: ITEM_INDICATOR_CLASSNAME }}

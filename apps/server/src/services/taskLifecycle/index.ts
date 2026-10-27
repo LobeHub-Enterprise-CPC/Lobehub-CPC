@@ -48,6 +48,8 @@ import { SystemAgentService } from '@/server/services/systemAgent';
 import { TaskResultBridgeService } from '@/server/services/taskResultBridge';
 import { createTaskSchedulerModule } from '@/server/services/taskScheduler';
 
+import { reusedScheduleExecutions } from '../task/reusedScheduleExecutions';
+
 import {
   isTrivialAssistantContent,
   selectBriefPriority,
@@ -305,6 +307,21 @@ export class TaskLifecycleService {
           }
         } else if (!verifyBound && this.taskModel.shouldPauseOnTopicComplete(currentTask)) {
           await this.taskModel.updateStatus(taskId, 'paused', { error: null });
+        }
+      }
+
+      // Archiving removes successful chats from ordinary lists, while their
+      // task_topics association keeps them available in task run history.
+      if (
+        topicId &&
+        currentTask?.automationMode === 'schedule' &&
+        (currentTask.config as { schedule?: { archiveSuccessfulRuns?: boolean } } | null)?.schedule
+          ?.archiveSuccessfulRuns === true
+      ) {
+        try {
+          await this.topicModel.update(topicId, { status: 'archived' });
+        } catch (error) {
+          log('archive successful run failed for topic=%s (non-fatal): %O', topicId, error);
         }
       }
 
@@ -597,7 +614,7 @@ export class TaskLifecycleService {
       // are ad-hoc and must not push the task toward its cap.
       triggers: ['schedule'],
     });
-    return runCount >= maxExecutions;
+    return runCount + reusedScheduleExecutions(task.context) >= maxExecutions;
   }
 
   /**

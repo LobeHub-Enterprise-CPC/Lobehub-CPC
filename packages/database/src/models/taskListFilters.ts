@@ -41,6 +41,8 @@ export interface TaskListFilterOptions {
   /** Only tasks assigned to this workspace member. */
   assigneeUserId?: string;
   automated?: boolean;
+  /** Scheduled management includes finished schedules; live roll-ups keep the default. */
+  includeFinishedAutomation?: boolean;
   /** Only tasks created by this user. */
   createdByUserId?: string;
   /** Archived tasks are user-closed and hidden from every list unless asked for. */
@@ -72,6 +74,7 @@ export const buildTaskListFilters = ({
   automated,
   createdByUserId,
   includeArchived,
+  includeFinishedAutomation,
   parentTaskId,
   projectId,
   visibility,
@@ -81,7 +84,7 @@ export const buildTaskListFilters = ({
   if (assigneeAgentId) conditions.push(eq(tasks.assigneeAgentId, assigneeAgentId));
   if (assigneeUserId) conditions.push(eq(tasks.assigneeUserId, assigneeUserId));
   if (createdByUserId) conditions.push(eq(tasks.createdByUserId, createdByUserId));
-  if (automated === true) conditions.push(LIVE_AUTOMATION);
+  if (automated === true) conditions.push(includeFinishedAutomation ? or(eq(tasks.automationMode, 'schedule'), eq(tasks.automationMode, 'heartbeat'))! : LIVE_AUTOMATION);
   // `IS NOT TRUE`, not `NOT (…)`: nullable automation fields make the
   // runnable expression NULL for manual tasks, and WHERE would drop them.
   if (automated === false) conditions.push(sql`${LIVE_AUTOMATION} IS NOT TRUE`);

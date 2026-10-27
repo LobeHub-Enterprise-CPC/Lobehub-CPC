@@ -61,6 +61,7 @@ export const COMPLETE_TASK_LIST_PAGE_SIZE = 100;
 export const TASK_COLLECTION_PAGE_SIZE = 50;
 
 export interface ScheduledTaskListOptions {
+  includeFinishedAutomation?: boolean;
   agentId?: string;
   limit?: number;
   offset?: number;
@@ -74,12 +75,14 @@ export interface ScheduledTaskListOptions {
  */
 export const scheduledTaskListQuery = ({
   agentId,
+  includeFinishedAutomation,
   limit,
   offset,
   projectId,
 }: ScheduledTaskListOptions): TaskListQuery => ({
   agentId: projectId ? undefined : agentId,
   automated: true,
+  ...(includeFinishedAutomation ? { includeFinishedAutomation } : {}),
   limit,
   offset,
   orderBy: 'updatedAt',
@@ -156,6 +159,7 @@ export class TaskListSliceActionImpl {
     const params = {
       ...(query.agentId ? { assigneeAgentId: query.agentId } : {}),
       automated: query.automated,
+      ...(query.includeFinishedAutomation ? { includeFinishedAutomation: true } : {}),
       includeArchived: query.includeArchived,
       orderBy: query.orderBy,
       projectId: query.projectId,

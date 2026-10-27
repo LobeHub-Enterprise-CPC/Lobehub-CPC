@@ -26,6 +26,7 @@ class TaskService {
     after?: { at: Date | string; seq: number };
     assigneeAgentId?: string;
     automated?: boolean;
+    includeFinishedAutomation?: boolean;
     /** Archived tasks are left out unless this is set. */
     includeArchived?: boolean;
     orderBy?: 'createdAt' | 'updatedAt';
