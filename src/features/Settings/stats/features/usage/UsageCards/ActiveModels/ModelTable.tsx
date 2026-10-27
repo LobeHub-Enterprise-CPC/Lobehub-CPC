@@ -1,5 +1,6 @@
 import { CategoryBar, useThemeColorRange } from '@lobehub/charts';
 import { Accordion, Avatar, cssVar, Flexbox, Skeleton, Tag } from '@lobehub/ui';
+import { getProviderDisplayName } from 'model-bank/modelProviders';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -133,7 +134,7 @@ const ModelTable = memo<UsageChartProps>(({ data, isLoading, groupBy, resolveUse
         ) : (
           <ModelIcon model={key} size={24} />
         )}
-        {key}
+        {groupBy === GroupBy.Provider ? getProviderDisplayName(key) : key}
       </Flexbox>
     );
   };
@@ -172,7 +173,9 @@ const ModelTable = memo<UsageChartProps>(({ data, isLoading, groupBy, resolveUse
                       return (
                         <Flexbox horizontal align={'center'} gap={12} key={value}>
                           {renderInnerIcon(record.id, themeColorRange[index])}
-                          {value}
+                          {(groupBy ?? GroupBy.Model) === GroupBy.Model
+                            ? getProviderDisplayName(value)
+                            : value}
                         </Flexbox>
                       );
                     },
