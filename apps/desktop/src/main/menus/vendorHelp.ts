@@ -1,7 +1,8 @@
-import { BRANDING_NAME } from '@lobechat/business-const';
 import type { MenuItemConstructorOptions } from 'electron';
 
-export const isCustomBranding = (BRANDING_NAME as string) !== 'LobeHub';
+import { isCustomBranding } from '@/const/branding';
+
+export { isCustomBranding };
 
 /**
  * The Help menu's website, GitHub repository and issue entries open the
