@@ -48,8 +48,16 @@ export class CloudSandboxExecutionRuntime extends ComputerRuntime {
 
       const state: ExecuteCodeState = {
         ...(result.sessionExpiredAndRecreated && { sessionExpiredAndRecreated: true }),
-        error: result.result?.error,
-        exitCode: result.result?.exitCode,
+        // A governance denial/outage never executes, so `result` is null and
+        // the machine code lives on the envelope `result.error` — surface its
+        // message in state without fabricating an `exitCode` (absent means
+        // never executed; 0/1 are real statuses and would misreport).
+        error: result.success
+          ? result.result?.error
+          : (result.error?.message ?? result.result?.error),
+        // Omitted, not synthesized: undefined means never executed, and 0/1
+        // would falsely claim a real shell status.
+        ...(result.result?.exitCode !== undefined && { exitCode: result.result.exitCode }),
         language,
         output: result.result?.output,
         stderr: result.result?.stderr,

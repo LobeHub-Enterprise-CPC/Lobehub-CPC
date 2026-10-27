@@ -108,6 +108,51 @@ describe('trusted host routing', () => {
       kind: 'reject',
     });
   });
+  it('admits the whole governance mount on the internal host, tenant-bound', async () => {
+    // Routing admission only: serviceTokenAuth behind the handler still returns
+    // 503 without a configured token and 401 on mismatch (covered by the
+    // governance route's service-token test).
+    for (const path of [
+      '/api/governance/check',
+      '/api/governance/log',
+      '/api/governance/rules',
+      '/api/governance/rules/abc',
+      '/api/governance/logs',
+      '/api/governance/execution-policy',
+      '/api/governance/execution-policy/user-1',
+    ])
+      expect(await route(`http://internal:3010/t/acme${path}`, 'POST')).toEqual({
+        kind: 'tenant-backend',
+        path,
+        slug: 'acme',
+      });
+  });
+  it('keeps the internal-host governance admission narrow', async () => {
+    // Unknown backend paths and lookalike prefixes stay 404 on the internal host.
+    for (const path of [
+      '/t/acme/api/unknown',
+      '/t/acme/api/governance-evil',
+      '/t/acme/api/governanceX/check',
+      '/t/acme/api/auth',
+    ])
+      expect(await route(`http://internal:3010${path}`)).toMatchObject({ kind: 'reject' });
+    // Unknown slugs never resolve, even for allowlisted mounts.
+    expect(await route('http://internal:3010/t/nope/api/governance/check', 'POST')).toMatchObject({
+      kind: 'reject',
+    });
+    // A governance path without a tenant prefix has no tenant to bind to.
+    expect(await route('http://internal:3010/api/governance/check', 'POST')).toMatchObject({
+      kind: 'reject',
+    });
+    // The admission is scoped to the internal authority: custom domains refuse
+    // the /t prefix and off-443 ports refuse everything, governance included.
+    expect(
+      await route('https://chat.example.com/t/acme/api/governance/check', 'POST'),
+    ).toMatchObject({ kind: 'reject' });
+    expect(await route('http://internal:3011/t/acme/api/governance/check', 'POST')).toMatchObject({
+      kind: 'reject',
+    });
+  });
   it('routes custom root and refuses every tenant path on it', async () => {
     expect(await route('https://chat.example.com/api/auth')).toEqual({
       kind: 'tenant-backend',

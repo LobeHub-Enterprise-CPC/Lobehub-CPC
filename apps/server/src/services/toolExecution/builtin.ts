@@ -68,6 +68,7 @@ const COMMAND_EXECUTION_IDENTIFIERS = new Set<string>([
 const COMMAND_EXECUTION_API_NAMES = new Set<string>([
   LocalSystemApiName.runCommand,
   CloudSandboxApiName.runCommand,
+  CloudSandboxApiName.executeCode,
 ]);
 
 const FILE_GOVERNANCE_API_NAMES = new Set<string>([
@@ -108,7 +109,18 @@ const buildCommandGovernanceContext = (
 
   const executionTarget = resolveCommandExecutionTarget(identifier, context);
 
-  const commandText = typeof args?.command === 'string' ? args.command : JSON.stringify(args ?? {});
+  // The exact payload that will execute: `executeCode` runs `code` in
+  // python/javascript/typescript (never the sibling `command` field, which an
+  // attacker can attach as a decoy); the shell APIs run `command`. A missing
+  // field still gates on the JSON so governance is never skipped.
+  const commandText =
+    apiName === CloudSandboxApiName.executeCode
+      ? typeof args?.code === 'string'
+        ? args.code
+        : JSON.stringify(args ?? {})
+      : typeof args?.command === 'string'
+        ? args.command
+        : JSON.stringify(args ?? {});
 
   return {
     apiName,

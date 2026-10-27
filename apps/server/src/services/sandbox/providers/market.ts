@@ -31,6 +31,31 @@ const SANDBOX_AUTH_ENV_PATTERN = /\b(LOBEHUB_JWT|GITHUB_TOKEN)=("[^"]*"|'[^']*'|
  */
 const CREDS_ENV_WRITE_PATTERN = />>\s*~\/\.creds\/env\b/;
 
+/** Tools whose successful invocation is an observation of a shell command. */
+const SHELL_TOOL_NAMES = new Set(['execScript', 'runCommand']);
+
+/**
+ * Market reports a command that exited non-zero as `success: false` because its
+ * dispatcher treats any non-zero status as a tool error, but it still returns
+ * the real observation (`exitCode`, `stdout`, `stderr`) under `data.result`.
+ * That is an executed command, not a failed governance/transport call: keep the
+ * observation and let the shell semantics (`exitCode`) describe the failure.
+ * Structured errors such as `COMMAND_GOVERNANCE_DENIED` carry a `code` and no
+ * exit status, so they still take the failure path.
+ */
+const isShellObservation = (toolName: string, result: unknown): boolean => {
+  if (!SHELL_TOOL_NAMES.has(toolName) || !result || typeof result !== 'object') return false;
+  const record = result as Record<string, unknown>;
+  if (typeof record.code === 'string') return false;
+  const exitCode = record.exitCode ?? record.exit_code;
+  return (
+    typeof exitCode === 'number' &&
+    (typeof record.stdout === 'string' ||
+      typeof record.stderr === 'string' ||
+      typeof record.output === 'string')
+  );
+};
+
 export class MarketSandboxProvider implements SandboxProvider {
   readonly capabilities = {
     backgroundCommands: true,
@@ -126,21 +151,34 @@ export class MarketSandboxProvider implements SandboxProvider {
 
       log('Sandbox tool %s response: %O', toolName, response);
 
+      const result = response.data?.result ?? null;
+      // Market can fail a response after the workspace was already recreated;
+      // the flag is still true and must reach the caller on both paths.
+      const sessionExpiredAndRecreated = response.data?.sessionExpiredAndRecreated ?? false;
+
       if (!response.success) {
+        if (isShellObservation(toolName, result)) {
+          return { result, sessionExpiredAndRecreated, success: true };
+        }
+
         return {
           error: getToolAccessDeniedError(response.error, response.error?.message || '') || {
+            // Keep both the machine code and the legacy `name` field so the
+            // downstream classifier can distinguish a policy denial from an
+            // outage without re-parsing the message.
+            ...(response.error?.code ? { code: response.error.code } : {}),
             message: response.error?.message || 'Unknown error',
             name: response.error?.code,
           },
-          result: null,
-          sessionExpiredAndRecreated: false,
+          result,
+          sessionExpiredAndRecreated,
           success: false,
         };
       }
 
       return {
-        result: response.data?.result,
-        sessionExpiredAndRecreated: response.data?.sessionExpiredAndRecreated || false,
+        result,
+        sessionExpiredAndRecreated,
         success: true,
       };
     } catch (error) {
@@ -148,6 +186,9 @@ export class MarketSandboxProvider implements SandboxProvider {
 
       return {
         error: getToolAccessDeniedError(error, (error as Error).message) || {
+          ...(typeof (error as { code?: unknown }).code === 'string' && {
+            code: (error as { code: string }).code,
+          }),
           message: (error as Error).message,
           name: (error as Error).name,
         },

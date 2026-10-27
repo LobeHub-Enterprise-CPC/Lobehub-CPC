@@ -1,9 +1,9 @@
 import type { ChatToolPayload } from '@lobechat/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { BuiltinToolsExecutor } from '../builtin';
-import { hasServerRuntime } from '../serverRuntimes';
-import type { ToolExecutionContext } from '../types';
+import { BuiltinToolsExecutor } from './builtin';
+import { hasServerRuntime } from './serverRuntimes';
+import type { ToolExecutionContext } from './types';
 
 const mocks = vi.hoisted(() => ({
   apiHandler: vi.fn(),
@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
 }));
 const mockApiHandler = mocks.apiHandler;
 
-vi.mock('../serverRuntimes', () => ({
+vi.mock('./serverRuntimes', () => ({
   hasServerRuntime: vi.fn().mockReturnValue(true),
   getServerRuntime: vi.fn(async () => ({
     createDocument: mocks.apiHandler,
@@ -334,7 +334,7 @@ describe('BuiltinToolsExecutor truncated arguments', () => {
         return { content: 'ok', success: true };
       }
     }
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     vi.mocked(getServerRuntime).mockResolvedValueOnce(new FooRuntime() as any);
 
     const result = await executor.execute(
@@ -478,7 +478,7 @@ describe('BuiltinToolsExecutor manifest-driven Work registration', () => {
   });
 
   it('emits a task Work intent after a successful createTask, reading identity from state', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     vi.mocked(getServerRuntime).mockResolvedValueOnce({
       createTask: vi.fn().mockResolvedValue({
         content: 'ok',
@@ -505,7 +505,7 @@ describe('BuiltinToolsExecutor manifest-driven Work registration', () => {
   });
 
   it('emits an intent for only the succeeded items of a partial-failure batch', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     vi.mocked(getServerRuntime).mockResolvedValueOnce({
       createTasks: vi.fn().mockResolvedValue({
         content: 'ok',
@@ -532,7 +532,7 @@ describe('BuiltinToolsExecutor manifest-driven Work registration', () => {
   });
 
   it('emits no intent for an API without a work config', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     vi.mocked(getServerRuntime).mockResolvedValueOnce({
       listTasks: vi.fn().mockResolvedValue({ content: 'ok', success: true }),
     } as any);
@@ -543,7 +543,7 @@ describe('BuiltinToolsExecutor manifest-driven Work registration', () => {
   });
 
   it('emits no intent when the update failed (no extractable target)', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     vi.mocked(getServerRuntime).mockResolvedValueOnce({
       editTask: vi.fn().mockResolvedValue({ content: 'Task not found', success: false }),
     } as any);
@@ -557,7 +557,7 @@ describe('BuiltinToolsExecutor manifest-driven Work registration', () => {
   });
 
   it('emits an update intent for a successful editTask', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     vi.mocked(getServerRuntime).mockResolvedValueOnce({
       editTask: vi.fn().mockResolvedValue({ content: 'edited', success: true }),
     } as any);
@@ -603,7 +603,7 @@ describe('BuiltinToolsExecutor command governance hook', () => {
   });
 
   it('checks the command, dispatches to the runtime, and logs a success outcome when allowed', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const runCommandMock = vi.fn().mockResolvedValue({ content: 'done', success: true });
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ runCommand: runCommandMock } as any);
 
@@ -633,7 +633,7 @@ describe('BuiltinToolsExecutor command governance hook', () => {
   });
 
   it('tags a local-system runCommand call with executionTarget "local" when the plan resolved to local', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const runCommandMock = vi.fn().mockResolvedValue({ content: 'done', success: true });
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ runCommand: runCommandMock } as any);
 
@@ -650,7 +650,7 @@ describe('BuiltinToolsExecutor command governance hook', () => {
   });
 
   it('falls back to executionTarget "device" when deviceExecutionTarget is "auto" or absent', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const runCommandMock = vi.fn().mockResolvedValue({ content: 'done', success: true });
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ runCommand: runCommandMock } as any);
 
@@ -667,7 +667,7 @@ describe('BuiltinToolsExecutor command governance hook', () => {
   });
 
   it('tags a cloud-sandbox runCommand call with executionTarget "sandbox"', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const runCommandMock = vi.fn().mockResolvedValue({ content: 'done', success: true });
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ runCommand: runCommandMock } as any);
 
@@ -681,7 +681,7 @@ describe('BuiltinToolsExecutor command governance hook', () => {
 
   it('returns a structured COMMAND_BLOCKED error and never calls the runtime when denied', async () => {
     mocks.checkCommand.mockReset().mockResolvedValueOnce({ allowed: false, ruleId: 'rule-1' });
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const runCommandMock = vi.fn();
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ runCommand: runCommandMock } as any);
 
@@ -699,7 +699,7 @@ describe('BuiltinToolsExecutor command governance hook', () => {
 
   it('does not run the command, and does not call it blocked, when governance cannot be evaluated', async () => {
     mocks.checkCommand.mockReset().mockRejectedValueOnce(new mocks.GovernanceUnavailableError());
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const runCommandMock = vi.fn();
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ runCommand: runCommandMock } as any);
 
@@ -715,7 +715,7 @@ describe('BuiltinToolsExecutor command governance hook', () => {
 
   it('still returns the real tool result when logCommandExecution rejects', async () => {
     mocks.logCommandExecution.mockReset().mockRejectedValue(new Error('audit db down'));
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const runCommandMock = vi.fn().mockResolvedValue({ content: 'done', success: true });
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ runCommand: runCommandMock } as any);
 
@@ -727,7 +727,7 @@ describe('BuiltinToolsExecutor command governance hook', () => {
   });
 
   it('logs a failure outcome (not a masked result) when the runtime call throws', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const runCommandMock = vi.fn().mockRejectedValue(new Error('spawn failed'));
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ runCommand: runCommandMock } as any);
 
@@ -769,7 +769,7 @@ describe('BuiltinToolsExecutor file governance hook', () => {
   });
 
   it('never touches file governance for a cloud-sandbox writeFile call', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const writeFileMock = vi.fn().mockResolvedValue({ content: 'done', success: true });
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ writeFile: writeFileMock } as any);
 
@@ -780,7 +780,7 @@ describe('BuiltinToolsExecutor file governance hook', () => {
   });
 
   it('checks the path, dispatches to the runtime, and logs a success outcome when allowed', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const writeFileMock = vi.fn().mockResolvedValue({ content: 'done', success: true });
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ writeFile: writeFileMock } as any);
 
@@ -807,7 +807,7 @@ describe('BuiltinToolsExecutor file governance hook', () => {
   });
 
   it('resolves a relative path against context.workingDirectory before checking', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const writeFileMock = vi.fn().mockResolvedValue({ content: 'done', success: true });
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ writeFile: writeFileMock } as any);
 
@@ -823,7 +823,7 @@ describe('BuiltinToolsExecutor file governance hook', () => {
   });
 
   it('does not prepend workingDirectory to an already-absolute path', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const writeFileMock = vi.fn().mockResolvedValue({ content: 'done', success: true });
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ writeFile: writeFileMock } as any);
 
@@ -840,7 +840,7 @@ describe('BuiltinToolsExecutor file governance hook', () => {
       allowed: false,
       matchedField: 'deniedWriteRoots',
     });
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const writeFileMock = vi.fn();
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ writeFile: writeFileMock } as any);
 
@@ -857,7 +857,7 @@ describe('BuiltinToolsExecutor file governance hook', () => {
   });
 
   it('checks readFile against deniedReadRoots via the same chokepoint', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const readFileMock = vi.fn().mockResolvedValue({ content: 'secret', success: true });
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ readFile: readFileMock } as any);
 
@@ -877,7 +877,7 @@ describe('BuiltinToolsExecutor file governance hook', () => {
   });
 
   it('checks searchFiles against its scope (not path) arg', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const searchMock = vi.fn().mockResolvedValue([]);
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ searchFiles: searchMock } as any);
 
@@ -897,7 +897,7 @@ describe('BuiltinToolsExecutor file governance hook', () => {
   });
 
   it('checks editFile against its file_path (not path) arg — the manifest field name, not the IPC one', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const editMock = vi.fn().mockResolvedValue({ replacements: 1, success: true });
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ editFile: editMock } as any);
 
@@ -921,7 +921,7 @@ describe('BuiltinToolsExecutor file governance hook', () => {
   });
 
   it('checks globFiles against its scope (not path) arg', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const globMock = vi.fn().mockResolvedValue({ files: [], success: true, total_files: 0 });
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ globFiles: globMock } as any);
 
@@ -946,7 +946,7 @@ describe('BuiltinToolsExecutor file governance hook', () => {
       matchedField:
         ctx.path === '/home/alice/.ssh/authorized_keys' ? 'deniedWriteRoots' : undefined,
     }));
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const moveMock = vi.fn().mockResolvedValue([]);
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ moveFiles: moveMock } as any);
 
@@ -983,7 +983,7 @@ describe('BuiltinToolsExecutor file governance hook', () => {
   });
 
   it('allows a moveFiles batch through and dispatches once every item passes', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const moveMock = vi.fn().mockResolvedValue([]);
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ moveFiles: moveMock } as any);
 
@@ -1004,7 +1004,7 @@ describe('BuiltinToolsExecutor file governance hook', () => {
 
   it('still returns the real tool result when logCommandExecution rejects', async () => {
     mocks.logCommandExecution.mockReset().mockRejectedValue(new Error('audit db down'));
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const writeFileMock = vi.fn().mockResolvedValue({ content: 'done', success: true });
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ writeFile: writeFileMock } as any);
 
@@ -1015,7 +1015,7 @@ describe('BuiltinToolsExecutor file governance hook', () => {
   });
 
   it('logs a failure outcome (not a masked result) when the runtime call throws', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const writeFileMock = vi.fn().mockRejectedValue(new Error('disk full'));
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ writeFile: writeFileMock } as any);
 
@@ -1031,7 +1031,7 @@ describe('BuiltinToolsExecutor file governance hook', () => {
   });
 
   it('does not trigger command governance for a file-shaped call, and vice versa', async () => {
-    const { getServerRuntime } = await import('../serverRuntimes');
+    const { getServerRuntime } = await import('./serverRuntimes');
     const writeFileMock = vi.fn().mockResolvedValue({ content: 'done', success: true });
     vi.mocked(getServerRuntime).mockResolvedValueOnce({ writeFile: writeFileMock } as any);
 

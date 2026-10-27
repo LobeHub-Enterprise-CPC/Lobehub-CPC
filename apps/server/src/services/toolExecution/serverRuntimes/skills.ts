@@ -331,7 +331,6 @@ class SkillServerRuntimeService implements SkillRuntimeService {
     // can't silently run in the sandbox while the user expects their device.
     if (this.device) {
       return {
-        exitCode: 1,
         output: '',
         stderr:
           'runCommand targets the cloud sandbox and is unavailable while a local device is routed. Use execScript for skill scripts, or lobe-local-system runCommand for other shell commands on the device.',
@@ -348,7 +347,6 @@ class SkillServerRuntimeService implements SkillRuntimeService {
     if (lhResult.error) {
       return {
         executionEnv: 'sandbox',
-        exitCode: 1,
         output: '',
         stderr: lhResult.error,
         success: false,
@@ -372,17 +370,6 @@ class SkillServerRuntimeService implements SkillRuntimeService {
 
       log('runCommand response: %O', response);
 
-      if (!response.success) {
-        return {
-          error: response.error,
-          executionEnv: 'sandbox',
-          exitCode: 1,
-          output: '',
-          stderr: response.error?.message || 'Command execution failed',
-          success: false,
-        };
-      }
-
       return { ...normalizeSandboxCommandResult(response), executionEnv: 'sandbox' };
     } catch (error) {
       log('Error running command: %O', error);
@@ -391,7 +378,6 @@ class SkillServerRuntimeService implements SkillRuntimeService {
           message: (error as Error).message,
         },
         executionEnv: 'sandbox',
-        exitCode: 1,
         output: '',
         stderr: (error as Error).message || 'Command execution failed',
         success: false,
@@ -462,7 +448,6 @@ class SkillServerRuntimeService implements SkillRuntimeService {
     const device = this.device!;
     const fail = (stderr: string): CommandResult => ({
       executionEnv: 'device',
-      exitCode: 1,
       output: '',
       stderr,
       success: false,
@@ -691,7 +676,6 @@ class SkillServerRuntimeService implements SkillRuntimeService {
     if (lhResult.error) {
       return {
         executionEnv: 'sandbox',
-        exitCode: 1,
         output: '',
         stderr: lhResult.error,
         success: false,
@@ -730,17 +714,6 @@ class SkillServerRuntimeService implements SkillRuntimeService {
 
       log('execScript response: %O', response);
 
-      if (!response.success) {
-        return {
-          error: response.error,
-          executionEnv: 'sandbox',
-          exitCode: 1,
-          output: '',
-          stderr: response.error?.message || 'Command execution failed',
-          success: false,
-        };
-      }
-
       return { ...normalizeSandboxCommandResult(response), executionEnv: 'sandbox' };
     } catch (error) {
       log('Error executing script: %O', error);
@@ -749,7 +722,6 @@ class SkillServerRuntimeService implements SkillRuntimeService {
           message: (error as Error).message,
         },
         executionEnv: 'sandbox',
-        exitCode: 1,
         output: '',
         stderr: (error as Error).message || 'Command execution failed',
         success: false,

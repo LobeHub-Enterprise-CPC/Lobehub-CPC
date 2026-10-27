@@ -121,4 +121,94 @@ describe('SandboxMiddlewareService command governance', () => {
     expect(mocks.checkCommand).not.toHaveBeenCalled();
     expect(mocks.callTenantSandboxTool).toHaveBeenCalledOnce();
   });
+
+  it('governs executeCode on its real code field and runs when allowed', async () => {
+    const result = await service().callTool('executeCode', {
+      code: 'print("ok")',
+      language: 'python',
+    });
+
+    expect(result.success).toBe(true);
+    expect(mocks.checkCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiName: 'executeCode',
+        commandText: 'print("ok")',
+        executionTarget: 'sandbox',
+        toolIdentifier: 'lobe-cloud-sandbox',
+        userId: 'user-1',
+      }),
+      expect.anything(),
+    );
+    expect(mocks.callTenantSandboxTool).toHaveBeenCalledWith(
+      expect.anything(),
+      'executeCode',
+      { code: 'print("ok")', language: 'python' },
+      expect.anything(),
+    );
+  });
+
+  it.each(['python', 'javascript', 'typescript'] as const)(
+    'governs executeCode for language %s',
+    async (language) => {
+      vi.clearAllMocks();
+      mocks.isGovernanceEnabled.mockResolvedValue(true);
+      mocks.checkCommand.mockResolvedValue({ allowed: true });
+      mocks.callTenantSandboxTool.mockResolvedValue({ result: { output: 'ok' }, success: true });
+
+      const code = language === 'python' ? 'print("ok")' : 'console.log("ok")';
+      await service().callTool('executeCode', { code, language });
+
+      expect(mocks.checkCommand).toHaveBeenCalledWith(
+        expect.objectContaining({ commandText: code }),
+        expect.anything(),
+      );
+    },
+  );
+
+  it('denies executeCode without running and audits the real code', async () => {
+    mocks.checkCommand.mockResolvedValue({ allowed: false, ruleId: 'rule-code' });
+
+    const result = await service().callTool('executeCode', {
+      code: 'import os; os.system("rm")',
+      language: 'python',
+    });
+
+    expect(result).toMatchObject({ error: { name: 'COMMAND_BLOCKED' }, success: false });
+    expect(mocks.callTenantSandboxTool).not.toHaveBeenCalled();
+    expect(mocks.logCommandExecution).toHaveBeenCalledWith(
+      expect.objectContaining({ commandText: 'import os; os.system("rm")' }),
+      { blocked: true, matchedRuleId: 'rule-code' },
+      expect.anything(),
+    );
+  });
+
+  it('fails closed for executeCode when governance is unavailable', async () => {
+    mocks.checkCommand.mockRejectedValue(new mocks.GovernanceUnavailableError());
+
+    const result = await service().callTool('executeCode', {
+      code: 'print("ok")',
+      language: 'python',
+    });
+
+    expect(result).toMatchObject({
+      error: { name: 'GOVERNANCE_UNAVAILABLE' },
+      success: false,
+    });
+    expect(mocks.callTenantSandboxTool).not.toHaveBeenCalled();
+    expect(mocks.logCommandExecution).not.toHaveBeenCalled();
+  });
+
+  it('never lets an attacker-supplied command field override executeCode code', async () => {
+    const realCode = 'import os; os.system("evil")';
+    await service().callTool('executeCode', {
+      code: realCode,
+      command: 'echo innocent',
+      language: 'python',
+    });
+
+    expect(mocks.checkCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ commandText: realCode }),
+      expect.anything(),
+    );
+  });
 });

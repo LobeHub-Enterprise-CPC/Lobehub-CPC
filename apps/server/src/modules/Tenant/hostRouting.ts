@@ -52,7 +52,7 @@ export type HostTenantRoute =
 // QStash signatures, workflow signatures, API keys or signed callback state. Never admit pages
 // or browser auth through a second deployment host.
 const INTERNAL_CALLBACKS =
-  /^\/(?:api\/workflows(?:\/|$)|trpc\/async(?:\/|$)|webapi\/create-image\/comfyui(?:\/|$)|api\/webhooks\/video(?:\/|$)|api\/agent(?:$|\/(?:run|tool-result|finalize-abandoned|llm-relay|gateway\/(?:callback|desired-connections|start)|webhooks\/(?:bot-callback|bot-replay|subagent-callback|group-member-callback))(?:\/|$)))/;
+  /^\/(?:api\/workflows(?:\/|$)|trpc\/async(?:\/|$)|webapi\/create-image\/comfyui(?:\/|$)|api\/webhooks\/video(?:\/|$)|api\/governance(?:\/|$)|api\/agent(?:$|\/(?:run|tool-result|finalize-abandoned|llm-relay|gateway\/(?:callback|desired-connections|start)|webhooks\/(?:bot-callback|bot-replay|subagent-callback|group-member-callback))(?:\/|$)))/;
 const ROOT_INTERNAL = /^\/api\/(?:internal\/control-plane|cron)(?:\/|$)/;
 const reject = (code = 'NOT_FOUND', status = 404): HostTenantRoute => ({
   kind: 'reject',
