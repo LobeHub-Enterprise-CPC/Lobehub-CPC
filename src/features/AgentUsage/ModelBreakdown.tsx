@@ -1,6 +1,7 @@
 'use client';
 
 import { Block, Flexbox, Table, type TableColumn, Text } from '@lobehub/ui';
+import { getProviderDisplayName } from 'model-bank/modelProviders';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -27,7 +28,7 @@ const ModelBreakdown = memo<ModelBreakdownProps>(({ rows, isLoading }) => {
           <Flexbox>
             <Text ellipsis>{model}</Text>
             <Text fontSize={12} type={'secondary'}>
-              {record.provider}
+              {getProviderDisplayName(record.provider)}
             </Text>
           </Flexbox>
         </Flexbox>

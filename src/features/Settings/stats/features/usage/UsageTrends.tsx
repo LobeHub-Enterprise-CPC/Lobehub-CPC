@@ -1,5 +1,6 @@
 import { type BarChartProps } from '@lobehub/charts';
 import { Skeleton, Tabs } from '@lobehub/ui';
+import { getProviderDisplayName } from 'model-bank/modelProviders';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -23,6 +24,7 @@ const categoryLabel = (
   resolveUser?: UserDisplayResolver,
 ): string => {
   if (groupBy === GroupBy.User && resolveUser) return resolveUser(key).name;
+  if (groupBy === GroupBy.Provider) return getProviderDisplayName(key);
   return key;
 };
 

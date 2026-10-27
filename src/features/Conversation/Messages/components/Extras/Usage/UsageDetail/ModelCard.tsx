@@ -2,6 +2,7 @@ import { getCachedTextInputUnitRate, getWriteCacheInputUnitRate } from '@lobecha
 import { createStaticStyles, Flexbox, Icon, Tabs, Tooltip } from '@lobehub/ui';
 import { ArrowDownToDot, ArrowUpFromDot, BookUp2Icon, CircleFadingArrowUp } from 'lucide-react';
 import { type LobeDefaultAiModelListItem } from 'model-bank';
+import { getProviderDisplayName } from 'model-bank/modelProviders';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -55,7 +56,7 @@ const ModelCard = memo<ModelCardProps>(({ pricing, id, provider, displayName }) 
             <Flexbox horizontal align={'center'} gap={8} style={{ lineHeight: '12px' }}>
               {displayName || id}
             </Flexbox>
-            <span className={styles.desc}>{provider}</span>
+            <span className={styles.desc}>{getProviderDisplayName(provider)}</span>
           </Flexbox>
         </Flexbox>
         {!!pricing && (
