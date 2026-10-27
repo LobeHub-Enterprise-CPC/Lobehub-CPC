@@ -7,6 +7,7 @@ import { getServerDB } from '@/database/server';
 import { appEnv } from '@/envs/app';
 import { qstashClient } from '@/libs/qstash';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
+import { scheduleWindow } from '@/server/services/task/scheduleWindow';
 import { runScheduleTick } from '@/server/services/taskRunner/scheduleTick';
 
 const log = debug('lobe-server:workflows:task:schedule-dispatch');
@@ -55,6 +56,17 @@ export async function scheduleDispatch(c: Context) {
     const due: DueTask[] = [];
     for (const task of tasks) {
       if (!task.schedulePattern) continue;
+      const window = scheduleWindow(task.config, now);
+      if (window !== 'open') {
+        if (window === 'expired' && !dryRun) {
+          await new TaskModel(db, task.createdByUserId, task.workspaceId ?? undefined).updateStatus(
+            task.id,
+            'completed',
+            { completedAt: now },
+          );
+        }
+        continue;
+      }
       const scheduler = (
         task.context as {
           scheduler?: { lastDispatchedOccurrenceAt?: string; scheduleStartedAt?: string };

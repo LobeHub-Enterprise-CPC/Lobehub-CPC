@@ -26,6 +26,7 @@ export interface TaskListQuery {
   /** Assignee filter; absent for all-agents and project scopes. */
   agentId?: string;
   automated?: boolean;
+  includeFinishedAutomation?: boolean;
   /** Every page walked (the Tasks list view), or the first server page. */
   complete?: boolean;
   /** Archived tasks are hidden unless the "Show archived" option is on. */

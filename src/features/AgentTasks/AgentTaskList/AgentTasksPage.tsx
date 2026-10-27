@@ -29,6 +29,7 @@ import { taskListSelectors } from '@/store/task/selectors';
 import { TASK_COLLECTION_PAGE_SIZE } from '@/store/task/slices/list/action';
 
 import { createTaskModal } from '../CreateTaskModal';
+import { ScheduledTasksWorkspace } from '../ScheduledTasks/ScheduledTasksWorkspace';
 import Breadcrumb from '../shared/Breadcrumb';
 import { taskDetailPath } from '../shared/taskDetailPath';
 import CreateTaskInlineEntry from './CreateTaskInlineEntry';
@@ -264,6 +265,7 @@ const AgentTasksPage = memo<AgentTasksPageProps>(({ agentId, projectId }) => {
   );
   const useFetchScheduledTaskList = useTaskStore((s) => s.useFetchScheduledTaskList);
   const scheduledSWR = useFetchScheduledTaskList({
+    includeFinishedAutomation: true,
     agentId,
     enabled: isScheduledCollection,
     limit: COLLECTION_PAGE_SIZE,
@@ -375,6 +377,7 @@ const AgentTasksPage = memo<AgentTasksPageProps>(({ agentId, projectId }) => {
       }
       // The sub-view only means something inside "My tasks".
       if (value !== 'mine') next.delete('scope');
+      if (value !== 'scheduled') next.delete('scheduledTask');
       setCollectionPage(1);
       setSearchParams(next, { replace: true });
     },
@@ -405,6 +408,25 @@ const AgentTasksPage = memo<AgentTasksPageProps>(({ agentId, projectId }) => {
     isMobile,
     projectId,
   });
+
+  if (isScheduledCollection)
+    return (
+      <ScheduledTasksWorkspace
+        agentId={agentId}
+        error={scheduledSWR.error}
+        isLoading={scheduledSWR.isLoading}
+        items={collectionTasks}
+        page={collectionPage}
+        pageSize={COLLECTION_PAGE_SIZE}
+        projectId={projectId}
+        total={collectionTasksTotal}
+        onExit={() => handleCollectionChange('tasks')}
+        onPageChange={setCollectionPage}
+        onRefresh={() => {
+          void scheduledSWR.mutate();
+        }}
+      />
+    );
 
   const headerLeft = (
     <Flexbox horizontal align={'center'} gap={8}>

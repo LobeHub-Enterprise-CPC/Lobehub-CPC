@@ -9,6 +9,7 @@ import { tasks } from '@/database/schemas';
 import { getServerDB } from '@/database/server';
 import { notTrashed } from '@/database/utils/softDelete';
 
+import { scheduleWindow } from '../task/scheduleWindow';
 import { TaskRunnerService } from './index';
 
 const log = debug('task-runner:schedule-tick');
@@ -21,6 +22,7 @@ export type ScheduleTickOutcome =
 
 export type ScheduleTickSkipReason =
   | 'archived'
+  | 'outside-window'
   | 'human-waiting'
   | 'in-flight'
   | 'max-executions-reached'
@@ -79,6 +81,15 @@ export async function runScheduleTick(
   if (task.status === 'paused') {
     log('skip task=%s reason=paused', taskId);
     return { ran: false, reason: 'paused' };
+  }
+
+  const window = scheduleWindow(task.config);
+  if (window !== 'open') {
+    if (window === 'expired')
+      await new TaskModel(db, userId, wsId).updateStatus(taskId, 'completed', {
+        completedAt: new Date(),
+      });
+    return { ran: false, reason: 'outside-window' };
   }
 
   const briefModel = new BriefModel(db, userId, wsId);

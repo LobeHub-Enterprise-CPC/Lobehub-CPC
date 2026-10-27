@@ -10,6 +10,7 @@ export const listSchema = z.object({
   // misconfigured one cannot), false → its exact complement. Omitted leaves the
   // set unnarrowed.
   automated: z.boolean().optional(),
+  includeFinishedAutomation: z.boolean().optional(),
   // Archived tasks are user-closed; lists leave them out unless asked.
   includeArchived: z.boolean().optional(),
   limit: z.number().min(1).max(100).default(50),
