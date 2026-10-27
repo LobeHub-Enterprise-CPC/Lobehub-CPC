@@ -1,5 +1,7 @@
 import pc from 'picocolors';
 
+import { CLI_PRODUCT_NAME } from '../constants/identity';
+
 /**
  * How `lh agent run` ended, as far as the CLI could establish it.
  *
@@ -138,7 +140,7 @@ export const describeOutcome = (outcome: AgentRunOutcome): string => {
       return `${pc.yellow('■')} Agent interrupted`;
     }
     case 'waiting_for_human': {
-      return `${pc.yellow('⏸')} Agent paused: waiting for human approval — approve or answer it in LobeHub, the CLI does not wait for it`;
+      return `${pc.yellow('⏸')} Agent paused: waiting for human approval — approve or answer it in ${CLI_PRODUCT_NAME}, the CLI does not wait for it`;
     }
     case 'unknown': {
       return `${pc.yellow('?')} Agent run outcome unknown${outcome.status ? ` (status: ${outcome.status})` : ''}`;

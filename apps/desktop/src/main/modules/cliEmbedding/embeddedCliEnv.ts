@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { getCliWrapperDir } from './generateCliWrapper';
+import { binNames, getCliWrapperDir } from './generateCliWrapper';
 
 /**
  * Absolute path of the `lh` this desktop build ships, for an agent whose shell
@@ -10,10 +10,19 @@ import { getCliWrapperDir } from './generateCliWrapper';
  */
 export const LOBEHUB_CLI_ENV = 'LOBEHUB_CLI';
 
-const CLI_WRAPPER_NAME = process.platform === 'win32' ? 'lh.cmd' : 'lh';
+/**
+ * Upstream's wrapper set includes `lh`. A distribution that renames its CLI
+ * (DESKTOP_CLI_BIN_NAMES) installs only its own names, where `lh` would point
+ * at a file that does not exist, so it uses that build's primary name.
+ */
+const cliWrapperName = (): string => {
+  const names = binNames();
+  const name = names.includes('lh') ? 'lh' : names[0];
+  return process.platform === 'win32' ? `${name}.cmd` : name;
+};
 
 export const getEmbeddedCliPath = (wrapperDir: string = getCliWrapperDir()): string =>
-  path.join(wrapperDir, CLI_WRAPPER_NAME);
+  path.join(wrapperDir, cliWrapperName());
 
 /**
  * The env key holding the search path. Windows env names are case-insensitive and

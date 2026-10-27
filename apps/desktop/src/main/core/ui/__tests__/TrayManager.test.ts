@@ -17,6 +17,15 @@ vi.mock('@/../../package.json', () => ({
   name: 'test-app',
 }));
 
+// The tooltip depends on the build's branding; pin it per test.
+const branding = vi.hoisted(() => ({ rebranded: false }));
+vi.mock('@/const/branding', () => ({
+  get isCustomBranding() {
+    return branding.rebranded;
+  },
+}));
+vi.mock('@/utils/appIdentity', () => ({ getAppDisplayName: () => 'Acme Work' }));
+
 // Mock Tray class
 vi.mock('../Tray', () => ({
   Tray: vi.fn(),
@@ -122,6 +131,17 @@ describe('TrayManager', () => {
         mockApp,
       );
       expect(result).toBe(mockTray);
+    });
+
+    it("shows a rebranded build's product name, not the package name", () => {
+      branding.rebranded = true;
+      try {
+        trayManager.initializeMainTray();
+      } finally {
+        branding.rebranded = false;
+      }
+
+      expect(Tray).toHaveBeenCalledWith(expect.objectContaining({ tooltip: 'Acme Work' }), mockApp);
     });
 
     it('should add created tray to trays map', () => {

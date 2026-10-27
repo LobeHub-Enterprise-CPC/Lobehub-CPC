@@ -12,7 +12,7 @@ import { resolveRemotePlatformRuntime } from '@lobechat/heterogeneous-agents/sca
 import { sleep } from '@lobechat/utils/sleep';
 
 import { getTrpcClient } from '../api/client';
-import { CLI_PRODUCT_NAME, resolveCliDirName } from '../constants/identity';
+import { CLI_PRIMARY_BIN, CLI_PRODUCT_NAME, resolveCliDirName } from '../constants/identity';
 import { getTask, listTasks, removeTask, saveTask } from '../daemon/taskRegistry';
 import { cancelAgentRun } from '../device/agentRunRegistry';
 import { log } from '../utils/logger';
@@ -57,12 +57,12 @@ function saveHermesSessionId(topicId: string, sessionId: string): void {
   fs.writeFileSync(HERMES_SESSIONS_FILE, JSON.stringify(data), 'utf8');
 }
 
-/** Resolve the absolute path to the `lh` binary to avoid PATH issues in child processes. */
+/** Resolve the absolute path to this CLI's binary to avoid PATH issues in child processes. */
 function resolveLhPath(): string {
   try {
-    return execFileSync('which', ['lh'], { encoding: 'utf8' }).trim();
+    return execFileSync('which', [CLI_PRIMARY_BIN], { encoding: 'utf8' }).trim();
   } catch {
-    return 'lh';
+    return CLI_PRIMARY_BIN;
   }
 }
 

@@ -8,6 +8,7 @@ import type { RuntimeProbeCache } from '@lobechat/heterogeneous-agents/runtimePr
 import { isRecord } from '@lobechat/utils/object';
 import { app } from 'electron';
 
+import { getDesktopEnv } from '@/env';
 import { resolveCliScript } from '@/modules/cliEmbedding';
 import { createLogger } from '@/utils/logger';
 import { safeGetPath } from '@/utils/user-path';
@@ -52,13 +53,24 @@ export const collectBundledCliAgentRuntimes = async (): Promise<string[]> => {
   }
 };
 
+/**
+ * Computer use on macOS runs through the bundled Computer Use helper. A package
+ * built without it (DESKTOP_COMPUTER_USE_HELPER=false) must not advertise the
+ * tool, or the server would route computer-use calls to a device that cannot
+ * run them.
+ */
+export const desktopSupportedTools = (
+  platform: NodeJS.Platform = process.platform,
+  shipsHelper: boolean = getDesktopEnv().DESKTOP_COMPUTER_USE_HELPER !== 'false',
+): string[] => (platform === 'darwin' && !shipsHelper ? [] : [COMPUTER_USE_IDENTIFIER]);
+
 /** Host paths, desktop tools, and the cached native runtimes this Desktop reports. */
 export const collectGatewaySystemInfo = async (
   agentRuntimes: RuntimeProbeCache,
 ): Promise<DeviceSystemInfo> => {
   const { getShellInfo } = await import('@lobechat/local-file-shell/shell');
   return {
-    supportedTools: [COMPUTER_USE_IDENTIFIER],
+    supportedTools: desktopSupportedTools(),
     supportedAgentRuntimes: await agentRuntimes.get(),
     arch: os.arch(),
     // Tell the server-side prompt builder which shell runCommand spawns here.
