@@ -85,7 +85,7 @@ describe('AuthFlowManager', () => {
         idTokenOverride ??
         sign({
           ...common,
-          aud: 'lobehub-desktop',
+          aud: 'tituwork-desktop',
           email: 'alice@example.com',
           ...idTokenExtraClaims,
         }),
@@ -664,7 +664,7 @@ describe('AuthFlowManager', () => {
       expect(url.origin + url.pathname).toBe(`${ENTRY}/oidc/auth`);
       expect(url.searchParams.get('scope')).toBe('openid profile email offline_access');
       expect(url.searchParams.get('redirect_uri')).toBe(`${ENTRY}/oidc/callback/desktop`);
-      expect(url.searchParams.get('client_id')).toBe('lobehub-desktop');
+      expect(url.searchParams.get('client_id')).toBe('tituwork-desktop');
       expect(requests[0].url.pathname).toBe('/t/acme/oidc/.well-known/openid-configuration');
 
       await vi.advanceTimersByTimeAsync(5000);
@@ -827,7 +827,7 @@ describe('AuthFlowManager', () => {
     it('displays the subject when the id token has no email or preferred_username', async () => {
       const iat = Math.floor(Date.now() / 1000);
       idTokenOverride = sign({
-        aud: 'lobehub-desktop',
+        aud: 'tituwork-desktop',
         exp: iat + 600,
         iat,
         iss: ISSUER,

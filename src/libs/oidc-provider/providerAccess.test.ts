@@ -36,7 +36,7 @@ vi.mock('./config', () => ({
   defaultClaims: {},
   defaultClients: [
     {
-      client_id: 'lobehub-desktop',
+      client_id: 'tituwork-desktop',
       redirect_uris: [],
       post_logout_redirect_uris: [],
     },

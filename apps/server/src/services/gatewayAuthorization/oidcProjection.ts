@@ -14,7 +14,7 @@ import { redisService } from '@/server/services/redis';
 
 import { GatewayAuthorizationError } from './wire';
 
-export const gatewayOIDCClients = new Set(['lobehub-desktop', 'lobehub-cli']);
+export const gatewayOIDCClients = new Set(['tituwork-desktop', 'lobehub-cli']);
 
 /** Runs before signing JWT-format access tokens, which do not have adapter AccessToken rows. */
 export const projectGatewayOIDCAccess = async (

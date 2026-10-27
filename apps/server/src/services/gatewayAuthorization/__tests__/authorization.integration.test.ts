@@ -189,7 +189,7 @@ beforeEach(async () => {
     redisService.gatewayAuthorization.putOIDCProjection(jti, {
       tenantId,
       subject,
-      clientId: 'lobehub-desktop',
+      clientId: 'tituwork-desktop',
       issuer: 'http://test.invalid/oidc',
       clientAuthority: 'database',
       grantId: 'grant-A',
@@ -362,7 +362,7 @@ redisSuite('real source rows and immutable authorization ledger', () => {
       });
       await projectGatewayOIDCAccess(
         {} as any,
-        { clientId: 'lobehub-desktop', grantId: 'grant-A', sessionUid: 'bound-uid' } as any,
+        { clientId: 'tituwork-desktop', grantId: 'grant-A', sessionUid: 'bound-uid' } as any,
         {
           payload: {
             jti,

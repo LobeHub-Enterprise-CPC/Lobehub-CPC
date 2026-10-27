@@ -53,7 +53,7 @@ const requireSnapshot = (raw: unknown): DesktopSelectionSnapshot => {
 export const buildDesktopAuthorizeUrl = (snapshot: DesktopSelectionSnapshot, state: string) => {
   const url = new URL(`${snapshot.entry}/oidc/auth`);
   url.search = new URLSearchParams({
-    client_id: 'lobehub-desktop',
+    client_id: 'tituwork-desktop',
     code_challenge: snapshot.codeChallenge,
     code_challenge_method: 'S256',
     prompt: 'consent',
