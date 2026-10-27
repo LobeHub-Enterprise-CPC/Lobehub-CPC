@@ -14,6 +14,8 @@ vi.mock('../vendorHelp', async (importOriginal) => {
     ...actual,
     vendorHelpItems: (items: Parameters<typeof VendorHelp.vendorHelpItems>[0]) =>
       actual.vendorHelpItems(items, branding.rebranded),
+    updateDownloadUrl: () =>
+      actual.updateDownloadUrl(branding.rebranded, 'https://app.example.com'),
   };
 });
 

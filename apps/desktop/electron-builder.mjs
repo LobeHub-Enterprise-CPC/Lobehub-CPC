@@ -37,6 +37,16 @@ const packageJSON = JSON.parse(await fs.readFile(path.join(__dirname, 'package.j
 
 const computerUseHelperVersion = resolveComputerUseHelperVersion(packageJSON);
 
+/**
+ * Whether the macOS build embeds the upstream-signed Computer Use helper.
+ *
+ * The helper is built, signed and notarized under the upstream vendor's name
+ * and team; a distribution cannot rename it without breaking that signature,
+ * so a rebranded build that does not want another product's name in the
+ * user's Privacy & Security list leaves it out and loses computer use on macOS.
+ */
+const shipComputerUseHelper = process.env.DESKTOP_COMPUTER_USE_HELPER !== 'false';
+
 const channel = process.env.UPDATE_CHANNEL;
 const arch = os.arch();
 const hasAppleCertificate = Boolean(process.env.CSC_LINK);
@@ -367,7 +377,7 @@ const config = {
     const resourcesPath = path.join(appPath, 'Contents', 'Resources');
 
     // The Mac App Store sandbox cannot register the helper's LaunchAgent.
-    if (context.electronPlatformName === 'darwin') {
+    if (context.electronPlatformName === 'darwin' && shipComputerUseHelper) {
       await embedComputerUseHelper({
         appPath,
         arch: arch === 'arm64' ? 'arm64' : 'x64',
@@ -394,15 +404,19 @@ const config = {
     await verifyFontListSignature(context);
 
     if (context.electronPlatformName === 'darwin') {
-      verifyComputerUseHelper(
-        path.join(
-          context.appOutDir,
-          `${context.packager.appInfo.productFilename}.app`,
-          COMPUTER_USE_HELPER_BUNDLE_PATH,
-        ),
-        { version: computerUseHelperVersion },
-      );
-      console.info('✅ Computer Use helper kept its notarized signature');
+      if (shipComputerUseHelper) {
+        verifyComputerUseHelper(
+          path.join(
+            context.appOutDir,
+            `${context.packager.appInfo.productFilename}.app`,
+            COMPUTER_USE_HELPER_BUNDLE_PATH,
+          ),
+          { version: computerUseHelperVersion },
+        );
+        console.info('✅ Computer Use helper kept its notarized signature');
+      } else {
+        console.info('⏭️  Computer Use helper not shipped (DESKTOP_COMPUTER_USE_HELPER=false)');
+      }
 
       if (hasAppleCertificate) {
         await notarizeMacApp(

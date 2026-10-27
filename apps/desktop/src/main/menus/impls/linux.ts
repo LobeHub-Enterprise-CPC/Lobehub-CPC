@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { DOWNLOAD_URL, GITHUB, OFFICIAL_SITE } from '@lobechat/const/url';
+import { GITHUB, OFFICIAL_SITE } from '@lobechat/const/url';
 import type { TrayNavigationSnapshot } from '@lobechat/electron-client-ipc';
 import type { MenuItemConstructorOptions } from 'electron';
 import { app, clipboard, dialog, Menu, shell } from 'electron';
@@ -11,7 +11,7 @@ import { getAppDisplayName } from '@/utils/appIdentity';
 
 import { buildTrayMenuTemplate } from '../trayMenu';
 import type { ContextMenuData, IMenuPlatform, MenuOptions } from '../types';
-import { vendorHelpItems } from '../vendorHelp';
+import { updateDownloadUrl, vendorHelpItems } from '../vendorHelp';
 import { BaseMenuPlatform } from './BaseMenuPlatform';
 
 export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
@@ -304,7 +304,7 @@ export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
       // snap / tar.gz / a runtime-less AppImage cannot replace themselves.
       case 'unsupported': {
         return {
-          click: () => shell.openExternal(DOWNLOAD_URL.default),
+          click: () => shell.openExternal(updateDownloadUrl()),
           label: t('common.updateUnsupported'),
         };
       }

@@ -6,6 +6,7 @@ import pc from 'picocolors';
 
 import { getTrpcClient } from '../../api/client';
 import { getAgentStreamAuthInfo } from '../../api/http';
+import { CLI_PRODUCT_NAME } from '../../constants/identity';
 import { resolveAgentGatewayUrl } from '../../settings';
 import type { AgentRunOutcome } from '../../utils/agentRunOutcome';
 import { AGENT_RUN_EXIT_CODES } from '../../utils/agentRunOutcome';
@@ -34,7 +35,7 @@ export function registerAgentRunCommand(agent: Command) {
     )
     .option(
       '--no-headless',
-      "Disable headless mode: tool calls that need approval park the run for a human (default: headless — tools auto-run, matching the CLI's non-interactive nature). The CLI does not wait for that approval; it returns with exit code 2 and the run continues once it is answered in LobeHub",
+      `Disable headless mode: tool calls that need approval park the run for a human (default: headless — tools auto-run, matching the CLI's non-interactive nature). The CLI does not wait for that approval; it returns with exit code 2 and the run continues once it is answered in ${CLI_PRODUCT_NAME}`,
     )
     .option(
       '--tool <id>',
@@ -181,8 +182,7 @@ Exit codes:
           // for a human, as this flag's help text promises.
           const savedConfig = (
             (await client.user.getUserState.query().catch(() => undefined)) as
-              | { settings?: { tool?: { humanIntervention?: UserInterventionConfig } } }
-              | undefined
+              { settings?: { tool?: { humanIntervention?: UserInterventionConfig } } } | undefined
           )?.settings?.tool?.humanIntervention;
           // The Web tool-intervention selector treats a persisted 'headless' as
           // a backend-only value and shows 'auto-run' instead (settings

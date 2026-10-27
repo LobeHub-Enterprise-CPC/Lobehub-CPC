@@ -63,7 +63,7 @@ export const detectDshCommand = async (
   return {
     ...status,
     available: false,
-    error: `DeepSeek Harness CLI ${status.version} is too old; LobeHub needs ${DSH_MIN_VERSION} or newer. Update it with: npm i -g @deepseek-ai/dsh`,
+    error: `DeepSeek Harness CLI ${status.version} is too old; ${DSH_MIN_VERSION} or newer is required. Update it with: npm i -g @deepseek-ai/dsh`,
   };
 };
 

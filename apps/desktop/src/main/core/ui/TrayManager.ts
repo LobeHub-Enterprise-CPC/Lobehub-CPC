@@ -5,7 +5,9 @@ import type {
 } from '@lobechat/electron-client-ipc';
 
 import { name } from '@/../../package.json';
+import { isCustomBranding } from '@/const/branding';
 import { isMac } from '@/const/env';
+import { getAppDisplayName } from '@/utils/appIdentity';
 import { createLogger } from '@/utils/logger';
 
 import type { App } from '../App';
@@ -99,7 +101,9 @@ export class TrayManager {
       iconPath: isMac ? 'trayTemplate.png' : 'tray.png',
       identifier: 'main',
       isTemplateImage: isMac,
-      tooltip: name,
+      // `name` is this repo's package name (`lobehub-desktop-dev`), which the
+      // packaging scripts never reach; a rebranded build shows its product name.
+      tooltip: isCustomBranding ? getAppDisplayName() : name,
     });
   }
 

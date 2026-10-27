@@ -114,6 +114,34 @@ describe('brandPostProcessor', () => {
     expect(brandPostProcessor.process('能力名称', keys, {}, {} as never)).toBe('Acme Agent');
   });
 
+  it('renames the suggested client-secret variable in the OAuth integration prompt', () => {
+    const prompt = '- Client secret: read it from the LOBEHUB_CLIENT_SECRET environment variable';
+
+    expect(
+      brandPostProcessor.process(prompt, 'oauthApp.integration.prompt.web', {}, {} as never),
+    ).toBe('- Client secret: read it from the ACME_WORKSPACE_CLIENT_SECRET environment variable');
+  });
+
+  it('uses a branded example task prefix in the project form', () => {
+    expect(
+      brandPostProcessor.process('LOBE', 'create.identifierPlaceholder', {}, {} as never),
+    ).toBe('ACME');
+    expect(
+      brandPostProcessor.process(
+        '用于任务编号前缀，例如 LOBE-123。',
+        'create.identifierDescription',
+        {},
+        {} as never,
+      ),
+    ).toBe('用于任务编号前缀，例如 ACME-123。');
+  });
+
+  it('leaves the same upper-case tokens alone outside those keys', () => {
+    expect(
+      brandPostProcessor.process('LOBE-123 LOBEHUB_CLIENT_SECRET', 'other', {}, {} as never),
+    ).toBe('LOBE-123 LOBEHUB_CLIENT_SECRET');
+  });
+
   it('rewrites ordinary copy when i18next supplies a single key', () => {
     expect(brandPostProcessor.process('Ask Lobe AI', 'greeting', {}, {} as never)).toBe(
       'Ask Acme Assistant',
