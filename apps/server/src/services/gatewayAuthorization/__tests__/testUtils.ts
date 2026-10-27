@@ -43,7 +43,7 @@ export const seedGatewaySourceRows = async (
     scopes: null,
   });
   await db.insert(oidcClients).values({
-    id: 'lobehub-desktop',
+    id: 'tituwork-desktop',
     name: 'Desktop',
     redirectUris: [],
     grants: [],
@@ -53,7 +53,7 @@ export const seedGatewaySourceRows = async (
   });
   await db.insert(oidcGrants).values({
     id: 'grant-A',
-    clientId: 'lobehub-desktop',
+    clientId: 'tituwork-desktop',
     userId: subject,
     data: {},
     expiresAt: new Date(Date.now() + 3600_000),

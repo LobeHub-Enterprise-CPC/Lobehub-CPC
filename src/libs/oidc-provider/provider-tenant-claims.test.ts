@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { expectNoSecretsLogged, startLogCapture, stopLogCapture } from './__tests__/logCapture';
+import { DESKTOP_CLIENT_ID } from './desktopClient';
 import { createOIDCProvider } from './provider';
 
 const NAME = 'SENTINEL_TENANT_NAME_c0ffee';
@@ -51,7 +52,7 @@ const scope = {
   tenantId: 'tenant-acme',
 };
 
-const claimsFor = async (use: string, clientId = 'lobehub-desktop') => {
+const claimsFor = async (use: string, clientId = DESKTOP_CLIENT_ID) => {
   const account = await state.config.findAccount({ oidc: { client: { clientId } } }, 'alice');
   return account.claims(use, 'openid profile email');
 };

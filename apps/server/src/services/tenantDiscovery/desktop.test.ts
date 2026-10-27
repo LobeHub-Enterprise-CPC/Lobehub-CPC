@@ -93,7 +93,7 @@ describe('immutable desktop selection', () => {
     const url = new URL(result.url);
     expect(url.origin + url.pathname).toBe('https://app.example.com/t/acme/oidc/auth');
     expect(Object.fromEntries(url.searchParams)).toEqual({
-      client_id: 'lobehub-desktop',
+      client_id: 'tituwork-desktop',
       code_challenge: flow.codeChallenge,
       code_challenge_method: 'S256',
       prompt: 'consent',

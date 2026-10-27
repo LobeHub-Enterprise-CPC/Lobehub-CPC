@@ -6,7 +6,7 @@ import { fetchNoRedirect, readJsonLimited } from './safeFetch';
 /** Same claim the server signs into every tenant access token (`TENANT_ID_CLAIM`). */
 export const TENANT_ID_CLAIM = 'tid';
 
-export const DESKTOP_CLIENT_ID = 'lobehub-desktop';
+export const DESKTOP_CLIENT_ID = 'tituwork-desktop';
 export const ACCESS_TOKEN_AUDIENCE = 'urn:lobehub:chat';
 
 /** Clock skew tolerated on `iat`. */

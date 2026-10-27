@@ -39,7 +39,7 @@ const sign = (
 };
 
 const idClaims = (extra: Record<string, unknown> = {}) => ({
-  aud: 'lobehub-desktop',
+  aud: 'tituwork-desktop',
   exp: NOW / 1000 + 600,
   iat: NOW / 1000 - 10,
   iss: ISSUER,
@@ -78,7 +78,7 @@ describe('tokenVerifier', () => {
     ['another audience', () => sign(key.privateKey, idClaims({ aud: 'someone-else' }))],
     [
       'a multi-value audience',
-      () => sign(key.privateKey, idClaims({ aud: ['lobehub-desktop', 'x'] })),
+      () => sign(key.privateKey, idClaims({ aud: ['tituwork-desktop', 'x'] })),
     ],
     ['a foreign authorized party', () => sign(key.privateKey, idClaims({ azp: 'other' }))],
     ['an expired token', () => sign(key.privateKey, idClaims({ exp: NOW / 1000 - 1 }))],
@@ -213,7 +213,7 @@ describe('tokenVerifier', () => {
       });
 
     expect(readTenantId((await verify(claims)).claims)).toBe('tenant-1');
-    await expect(verify({ ...claims, aud: 'lobehub-desktop' })).rejects.toBeInstanceOf(
+    await expect(verify({ ...claims, aud: 'tituwork-desktop' })).rejects.toBeInstanceOf(
       TokenVerificationError,
     );
     expect(readTenantId({ ...claims, tid: '' })).toBeNull();

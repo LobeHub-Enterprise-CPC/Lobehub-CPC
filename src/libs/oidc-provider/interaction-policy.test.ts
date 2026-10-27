@@ -29,7 +29,7 @@ vi.mock('@/auth', () => ({
  * what is under test is what the provider does with each result it is handed.
  */
 
-const DESKTOP = 'lobehub-desktop';
+const DESKTOP = 'tituwork-desktop';
 const OTHER = 'lobehub-market';
 const REDIRECT_URI = 'https://client.example/callback';
 

@@ -4,6 +4,8 @@
 import type { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { DESKTOP_CLIENT_ID } from '@/libs/oidc-provider/desktopClient';
+
 import { GET, HEAD } from './route';
 
 const mocks = vi.hoisted(() => ({
@@ -50,7 +52,7 @@ const call = (uid = 'uid-1', options?: Parameters<typeof createRequest>[1]) =>
   GET(createRequest(uid, options), { params: Promise.resolve({ uid }) });
 
 const details = (overrides: Record<string, unknown> = {}) => ({
-  params: { client_id: 'lobehub-desktop' },
+  params: { client_id: DESKTOP_CLIENT_ID },
   prompt: { name: 'login', reasons: ['no_session'] },
   uid: 'uid-1',
   ...overrides,
@@ -224,7 +226,7 @@ describe('GET /oidc/interaction/[uid]/login', () => {
       expect(response.headers.get('location')).toBe('/t/acme/oidc/auth/uid-1');
     });
 
-    it.each([['lobehub-desktop'], ['lobehub-mobile'], ['lobehub-market']])(
+    it.each([[DESKTOP_CLIENT_ID], ['lobehub-mobile'], ['lobehub-market']])(
       'ends with login_required for %s when the provider asks for more than a session',
       async (clientId) => {
         mocks.getInteractionDetails.mockResolvedValue(

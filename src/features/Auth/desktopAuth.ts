@@ -1,7 +1,7 @@
 import { useInteractionDetails } from './OAuthConsent/useInteractionDetails';
 
 /** The OIDC client id the desktop app signs in with. */
-export const DESKTOP_CLIENT_ID = 'lobehub-desktop';
+export const DESKTOP_CLIENT_ID = 'tituwork-desktop';
 
 export const isDesktopClientId = (clientId: string | null | undefined): boolean =>
   clientId === DESKTOP_CLIENT_ID;
@@ -20,7 +20,7 @@ const parseCallback = (callbackUrl: string | null | undefined): URL | null => {
   }
 };
 
-/** `callbackUrl` is the authorization request itself (`…/oidc/auth?client_id=lobehub-desktop…`). */
+/** `callbackUrl` is the authorization request itself (`…/oidc/auth?client_id=tituwork-desktop…`). */
 export const isDesktopAuthorizeCallback = (callbackUrl: string | null | undefined): boolean => {
   const url = parseCallback(callbackUrl);
   if (!url || !/\/oidc\/auth\/?$/.test(url.pathname)) return false;

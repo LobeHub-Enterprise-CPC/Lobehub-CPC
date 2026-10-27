@@ -33,17 +33,17 @@ describe('isDesktopClientId', () => {
 
 describe('isDesktopAuthorizeCallback', () => {
   it('recognises the desktop authorization request, with or without a tenant prefix', () => {
-    expect(isDesktopAuthorizeCallback(authorize('lobehub-desktop'))).toBe(true);
-    expect(isDesktopAuthorizeCallback(authorize('lobehub-desktop', '/t/acme'))).toBe(true);
-    expect(isDesktopAuthorizeCallback('/oidc/auth?client_id=lobehub-desktop')).toBe(true);
+    expect(isDesktopAuthorizeCallback(authorize('tituwork-desktop'))).toBe(true);
+    expect(isDesktopAuthorizeCallback(authorize('tituwork-desktop', '/t/acme'))).toBe(true);
+    expect(isDesktopAuthorizeCallback('/oidc/auth?client_id=tituwork-desktop')).toBe(true);
   });
 
   it.each([
     ['another client', authorize('lobehub-mobile')],
-    ['a look-alike path', 'https://app.example.com/other/oidc/author?client_id=lobehub-desktop'],
+    ['a look-alike path', 'https://app.example.com/other/oidc/author?client_id=tituwork-desktop'],
     [
       'the client id only in another parameter',
-      'https://app.example.com/agent?client_id=lobehub-desktop',
+      'https://app.example.com/agent?client_id=tituwork-desktop',
     ],
     ['no callback', null],
     ['an empty callback', ''],
@@ -85,14 +85,14 @@ describe('useDesktopAuthContext', () => {
   });
 
   it('is true from the callback alone, without looking anything up', () => {
-    const { result } = renderHook(() => useDesktopAuthContext(authorize('lobehub-desktop')));
+    const { result } = renderHook(() => useDesktopAuthContext(authorize('tituwork-desktop')));
 
     expect(result.current).toBe(true);
     expect(interaction.uid).toBeUndefined();
   });
 
   it('reads the client from the interaction the callback names', () => {
-    interaction.data = { clientId: 'lobehub-desktop' };
+    interaction.data = { clientId: 'tituwork-desktop' };
 
     const { result } = renderHook(() =>
       useDesktopAuthContext('https://app.example.com/t/acme/oauth/consent/abc123'),
@@ -103,7 +103,7 @@ describe('useDesktopAuthContext', () => {
   });
 
   it('resolves the interaction behind a login-prompt page via the read-only details lookup', () => {
-    interaction.data = { clientId: 'lobehub-desktop' };
+    interaction.data = { clientId: 'tituwork-desktop' };
 
     const { result } = renderHook(() =>
       useDesktopAuthContext('/t/acme/oidc/interaction/abc123/login'),

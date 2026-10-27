@@ -67,7 +67,7 @@ describe('OIDC Provider - Market Client Integration', () => {
       // Callback and logout pages live under each organization's own address, so no
       // deployment-root address (which serves no tenant) is registered by default.
       const { defaultClients } = await import('./config');
-      const desktopClient = defaultClients.find((c) => c.client_id === 'lobehub-desktop');
+      const desktopClient = defaultClients.find((c) => c.client_id === 'tituwork-desktop');
 
       expect(desktopClient?.redirect_uris).toEqual([]);
       expect(desktopClient?.post_logout_redirect_uris).toEqual([]);
@@ -203,7 +203,7 @@ describe('OIDC Provider - Market Client Integration', () => {
   describe('Non-Market Client Logic (Default Path)', () => {
     it('should use UserModel for non-market clients (desktop client)', () => {
       // Desktop client should use the default user database lookup
-      const desktopClientId = 'lobehub-desktop';
+      const desktopClientId = 'tituwork-desktop';
       expect(desktopClientId).not.toBe(MARKET_CLIENT_ID);
     });
 
@@ -214,7 +214,7 @@ describe('OIDC Provider - Market Client Integration', () => {
     });
 
     it('should validate non-market client IDs are different from market client', () => {
-      const nonMarketClients = ['lobehub-desktop', 'lobehub-mobile'];
+      const nonMarketClients = ['tituwork-desktop', 'lobehub-mobile'];
 
       nonMarketClients.forEach((clientId) => {
         expect(clientId).not.toBe(MARKET_CLIENT_ID);
@@ -255,12 +255,12 @@ describe('OIDC Provider - Market Client Integration', () => {
       it('should use local UserModel for desktop client', () => {
         // Business: Desktop app uses local database for user management
         const scenario = {
-          client: 'lobehub-desktop',
+          client: 'tituwork-desktop',
           authProvider: 'UserModel (Local Database)',
           useCase: 'Desktop app with local/self-hosted user database',
         };
 
-        expect(scenario.client).toBe('lobehub-desktop');
+        expect(scenario.client).toBe('tituwork-desktop');
         expect(scenario.authProvider).toBe('UserModel (Local Database)');
       });
     });

@@ -47,7 +47,7 @@ const clientDisplay = (suffix: string, defaultLogoUri: string) => ({
 export const defaultClients: ClientMetadata[] = [
   {
     application_type: 'web',
-    client_id: 'lobehub-desktop',
+    client_id: 'tituwork-desktop',
     ...clientDisplay('Desktop', 'https://hub-apac-1.lobeobjects.space/lobehub-desktop-icon.png'),
     // Only supports authorization code flow
     grant_types: ['authorization_code', 'refresh_token'],

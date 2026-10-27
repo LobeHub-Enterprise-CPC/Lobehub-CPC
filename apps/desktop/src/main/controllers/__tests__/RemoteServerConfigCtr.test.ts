@@ -749,7 +749,6 @@ describe('RemoteServerConfigCtr', () => {
         return null;
       });
 
-      // Save initial tokens
       await controller.saveTokens('old-access', 'old-refresh');
 
       mockFetch.mockResolvedValue({
@@ -775,6 +774,7 @@ describe('RemoteServerConfigCtr', () => {
           method: 'POST',
         }),
       );
+      expect(mockFetch.mock.calls[0][1].body).toContain('client_id=tituwork-desktop');
     });
 
     it.each(['https://server.com/t/acme', 'https://server.com/t/acme/'])(

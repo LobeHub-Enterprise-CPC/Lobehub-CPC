@@ -164,7 +164,7 @@ describe('useSignIn', () => {
       );
 
     it('is recognised from a callback that is the desktop authorization request', () => {
-      callbackFor('https://app.example.com/t/acme/oidc/auth?client_id=lobehub-desktop&x=1');
+      callbackFor('https://app.example.com/t/acme/oidc/auth?client_id=tituwork-desktop&x=1');
 
       const { result } = renderHook(() => useSignIn());
 
