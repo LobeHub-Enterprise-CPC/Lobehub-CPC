@@ -4,7 +4,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { App } from '@/core/App';
 
+import type * as VendorHelp from '../vendorHelp';
 import { LinuxMenu } from './linux';
+
+// The Help menu's vendor links depend on the build's branding; pin it per test.
+const branding = vi.hoisted(() => ({ rebranded: false }));
+vi.mock('../vendorHelp', async (importOriginal) => {
+  const actual = await importOriginal<typeof VendorHelp>();
+  return {
+    ...actual,
+    vendorHelpItems: (items: Parameters<typeof VendorHelp.vendorHelpItems>[0]) =>
+      actual.vendorHelpItems(items, branding.rebranded),
+  };
+});
 
 // Mock Electron modules
 vi.mock('electron', () => ({
@@ -129,6 +141,7 @@ describe('LinuxMenu', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    branding.rebranded = false;
     mockApp = createMockApp();
     linuxMenu = new LinuxMenu(mockApp);
   });
@@ -235,6 +248,22 @@ describe('LinuxMenu', () => {
       const template = (Menu.buildFromTemplate as any).mock.calls[0][0];
       const devMenu = template.find((item: any) => item.label === 'Developer');
       expect(devMenu).toBeDefined();
+    });
+  });
+
+  describe('rebranded build', () => {
+    it('omits the vendor website, repository and issue links from Help', () => {
+      branding.rebranded = true;
+      linuxMenu.buildAndSetAppMenu();
+
+      const template = (Menu.buildFromTemplate as any).mock.calls[0][0];
+      const helpMenu = template.find((item: any) => item.label === 'Help');
+      const labels = helpMenu.submenu.map((item: any) => item.label);
+
+      for (const label of ['Visit Website', 'GitHub Repository'])
+        expect(labels).not.toContain(label);
+      expect(helpMenu.submenu[0].type).not.toBe('separator');
+      expect(shell.openExternal).not.toHaveBeenCalled();
     });
   });
 
