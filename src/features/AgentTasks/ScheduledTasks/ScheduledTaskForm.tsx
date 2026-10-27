@@ -2,16 +2,18 @@ import type { TaskDetailData, TaskExecutionConfig } from '@lobechat/types';
 import { readTaskExecutionConfig, toTaskExecutionConfigPatch } from '@lobechat/types';
 import {
   Alert,
-  Block,
   Button,
   createModal,
   Flexbox,
   Input,
   Select,
+  Switch,
+  Icon,
   Text,
   TextArea,
   useModalContext,
 } from '@lobehub/ui';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -19,12 +21,13 @@ import ModelSelect from '@/features/ModelSelect';
 import { usePermission } from '@/hooks/usePermission';
 import { taskService } from '@/services/task';
 import { useAgentStore } from '@/store/agent';
-import { builtinAgentSelectors } from '@/store/agent/selectors';
+import { agentByIdSelectors, builtinAgentSelectors } from '@/store/agent/selectors';
 import { useCurrentProjectList, useProjectStore } from '@/store/project';
 import { useTaskStore } from '@/store/task';
 
 import AssigneeAgentSelector from '../features/AssigneeAgentSelector';
-import TaskExecutionControls from '../features/TaskExecutionControls';
+import TaskDeviceChip from '../features/TaskDeviceChip';
+import { TIMEZONE_OPTIONS } from '../AgentTaskDetail/scheduler/CronConfig';
 import { useAgentDisplayMeta } from '../shared/useAgentDisplayMeta';
 import { FieldRow } from './FieldRow';
 import { ScheduleFields } from './ScheduleFields';
@@ -58,7 +61,16 @@ export const ScheduledTaskForm = ({
   const [scheduleTouched, setScheduleTouched] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [assignee, setAssignee] = useState(task?.agentId || agentId || inboxId);
-  const [project, setProject] = useState(projectId);
+  const [project, setProject] = useState(task?.projectId || projectId);
+  const [newChatPerRun, setNewChatPerRun] = useState(
+    (task?.config?.schedule as { newChatPerRun?: boolean } | undefined)?.newChatPerRun !== false,
+  );
+  const [archiveSuccessfulRuns, setArchiveSuccessfulRuns] = useState(
+    task
+      ? (task.config?.schedule as { archiveSuccessfulRuns?: boolean } | undefined)
+          ?.archiveSuccessfulRuns === true
+      : true,
+  );
   const [execution, setExecution] = useState<TaskExecutionConfig | undefined>(() =>
     readTaskExecutionConfig(task?.config),
   );
@@ -70,6 +82,10 @@ export const ScheduledTaskForm = ({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const meta = useAgentDisplayMeta(assignee);
+  const agentModel = useAgentStore((s) => agentByIdSelectors.getAgentModelById(assignee || '')(s));
+  const agentProvider = useAgentStore((s) =>
+    agentByIdSelectors.getAgentModelProviderById(assignee || '')(s),
+  );
   const projects = useCurrentProjectList();
   useProjectStore((s) => s.useFetchProjectList)();
   const save = async () => {
@@ -87,11 +103,23 @@ export const ScheduledTaskForm = ({
     setError('');
     setCanDismissByClickOutside(false);
     try {
-      const built = buildSchedule(schedule);
+      const built =
+        !task || scheduleTouched
+          ? buildSchedule(schedule)
+          : {
+              schedule: {},
+              schedulePattern: task.schedule?.pattern,
+              scheduleTimezone: task.schedule?.timezone,
+            };
       const config = {
         ...model,
         execution: toTaskExecutionConfigPatch(execution || {}),
-        schedule: { ...((task?.config?.schedule || {}) as object), ...built.schedule },
+        schedule: {
+          ...((task?.config?.schedule || {}) as object),
+          ...built.schedule,
+          newChatPerRun,
+          archiveSuccessfulRuns,
+        },
       };
       let identifier: string;
       if (task) {
@@ -100,7 +128,16 @@ export const ScheduledTaskForm = ({
           assigneeAgentId: assignee,
           configPatch: {
             ...config,
-            ...(!scheduleTouched ? { schedule: task.config?.schedule || {} } : {}),
+            ...(model || { model: null, provider: null }),
+            ...(!scheduleTouched
+              ? {
+                  schedule: {
+                    ...((task.config?.schedule || {}) as object),
+                    newChatPerRun,
+                    archiveSuccessfulRuns,
+                  },
+                }
+              : {}),
           },
           ...(instruction !== (task.instruction || '') ? { instruction: instruction.trim() } : {}),
           name: name.trim() || instruction.trim().slice(0, 60),
@@ -165,6 +202,7 @@ export const ScheduledTaskForm = ({
             disabled={busy}
             id="schedule-instruction"
             placeholder={t('scheduledTasks.placeholder')}
+            style={{ minHeight: 92, resize: 'vertical' }}
             rows={3}
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
@@ -174,26 +212,59 @@ export const ScheduledTaskForm = ({
           disabled={busy || !allowed}
           style={{ border: 0, margin: 0, minWidth: 0, padding: 0 }}
         >
-          {task?.automationMode === 'heartbeat' ? <Text>{t('taskSchedule.summary.heartbeat', { interval: `${(task.heartbeat?.interval || 0) / 60} ${t('taskSchedule.minutes')}` })}</Text> : <ScheduleFields
-            value={schedule}
-            onChange={(value) => {
-              setSchedule(value);
-              setScheduleTouched(true);
-            }}
-          />}
+          {task?.automationMode === 'heartbeat' ? (
+            <Text>
+              {t('taskSchedule.summary.heartbeat', {
+                interval: `${(task.heartbeat?.interval || 0) / 60} ${t('taskSchedule.minutes')}`,
+              })}
+            </Text>
+          ) : (
+            <ScheduleFields
+              value={schedule}
+              onChange={(value) => {
+                setSchedule(value);
+                setScheduleTouched(true);
+              }}
+            />
+          )}
         </fieldset>
-        <Button block aria-expanded={advanced} type="text" onClick={() => setAdvanced(!advanced)}>
-          {t('scheduledTasks.advanced')}
-        </Button>
-        {advanced && (
-          <Flexbox gap={8}>
-            {!task && (
+        <Flexbox gap={8}>
+          <Button
+            aria-expanded={advanced}
+            aria-controls="schedule-advanced"
+            className={styles.advancedToggle}
+            type="text"
+            onClick={() => setAdvanced(!advanced)}
+          >
+            {t('scheduledTasks.advanced')}
+            <Icon icon={advanced ? ChevronUp : ChevronDown} size={12} />
+          </Button>
+          {advanced && (
+            <Flexbox gap={8} id="schedule-advanced">
+              <FieldRow label={t('scheduledTasks.newChat')}>
+                <Switch
+                  aria-label={t('scheduledTasks.newChat')}
+                  checked={newChatPerRun}
+                  disabled={busy}
+                  onChange={setNewChatPerRun}
+                />
+              </FieldRow>
+              <FieldRow label={t('scheduledTasks.archiveRuns')}>
+                <Switch
+                  aria-label={t('scheduledTasks.archiveRuns')}
+                  checked={archiveSuccessfulRuns}
+                  disabled={busy}
+                  onChange={setArchiveSuccessfulRuns}
+                />
+              </FieldRow>
               <FieldRow id="schedule-project" label={t('scheduledTasks.project')}>
                 <Select
-                  disabled={!!projectId || busy}
+                  disabled={!!task || !!projectId || busy}
+                  style={{ width: 'auto', maxWidth: '70%', minWidth: 120 }}
                   id="schedule-project"
                   value={project || 'none'}
                   variant="borderless"
+                  suffixIcon={null}
                   options={[
                     { label: t('scheduledTasks.none'), value: 'none' },
                     ...projects.map((p) => ({ label: p.name, value: p.id })),
@@ -204,59 +275,84 @@ export const ScheduledTaskForm = ({
                   }}
                 />
               </FieldRow>
-            )}
-            <AssigneeAgentSelector
-              allowUnassigned={false}
-              currentAgentId={assignee}
-              disabled={lockAssignee || busy}
-              onChange={(id) => {
-                setAssignee(id || undefined);
-                setExecution(undefined);
-                setModel(undefined);
-              }}
-            >
-              <Block
-                clickable
-                horizontal
-                align="center"
-                className={styles.row}
-                justify="space-between"
+              <FieldRow label={t('scheduledTasks.device')}>
+                {assignee ? (
+                  <TaskDeviceChip
+                    agentId={assignee}
+                    disabled={busy || !!project}
+                    value={execution?.boundDeviceId}
+                    onChange={(boundDeviceId) =>
+                      setExecution(boundDeviceId ? { boundDeviceId } : undefined)
+                    }
+                  />
+                ) : (
+                  <Text>{t('taskExecution.followAgent')}</Text>
+                )}
+              </FieldRow>
+              <AssigneeAgentSelector
+                allowUnassigned={false}
+                currentAgentId={assignee}
+                disabled={lockAssignee || busy}
+                onChange={(id) => {
+                  setAssignee(id || undefined);
+                  setExecution(undefined);
+                  setModel(undefined);
+                }}
               >
-                <Text>{t('scheduledTasks.agent')}</Text>
-                <Text ellipsis>{meta?.title || t('scheduledTasks.inheritModel')}</Text>
-              </Block>
-            </AssigneeAgentSelector>
-            <FieldRow label={t('scheduledTasks.model')}>
-              <ModelSelect
-                disabled={busy}
-                model={model?.model || ''}
-                provider={model?.provider || ''}
-                onChange={setModel}
-              />
-            </FieldRow>
-            <Flexbox gap={8}>
-              <Text fontSize={12} type="secondary">
-                {t('scheduledTasks.device')}
-              </Text>
-              <TaskExecutionControls
-                assigneeAgentId={assignee}
-                disabled={busy || !!project}
-                value={execution}
-                onChange={setExecution}
-              />
+                <div className={styles.row} style={{ width: '100%' }}>
+                  <Text>{t('scheduledTasks.agent')}</Text>
+                  <Text ellipsis>{meta?.title || t('scheduledTasks.inheritModel')}</Text>
+                </div>
+              </AssigneeAgentSelector>
+              <FieldRow id="schedule-model" label={t('scheduledTasks.model')}>
+                <ModelSelect
+                  id="schedule-model"
+                  disabled={busy}
+                  initialWidth
+                  variant="borderless"
+                  value={
+                    model ||
+                    (agentModel && agentProvider
+                      ? { model: agentModel, provider: agentProvider }
+                      : undefined)
+                  }
+                  placeholder={t('scheduledTasks.inheritModel')}
+                  onChange={setModel}
+                />
+              </FieldRow>
+              <FieldRow id="schedule-timezone" label={t('taskSchedule.timezone')}>
+                <Select
+                  showSearch
+                  id="schedule-timezone"
+                  variant="borderless"
+                  suffixIcon={null}
+                  style={{ maxWidth: '70%', textAlign: 'end' }}
+                  value={schedule.timezone}
+                  options={
+                    TIMEZONE_OPTIONS.some((tz) => tz.value === schedule.timezone)
+                      ? TIMEZONE_OPTIONS
+                      : [
+                          { label: schedule.timezone, value: schedule.timezone },
+                          ...TIMEZONE_OPTIONS,
+                        ]
+                  }
+                  onChange={(timezone) => {
+                    setSchedule({ ...schedule, timezone });
+                    setScheduleTouched(true);
+                  }}
+                />
+              </FieldRow>
             </Flexbox>
-            <Text fontSize={12} type="secondary">
-              {t('scheduledTasks.newChat')}
-            </Text>
-          </Flexbox>
-        )}
-        {error && <Alert showIcon title={error} type="error" />}
+          )}
+        </Flexbox>
       </div>
+      {error && <Alert showIcon title={error} type="error" />}
       <div className={styles.footer}>
-        <Button disabled={busy} onClick={() => close()}>
+        <Button className={styles.pill} disabled={busy} onClick={() => close()}>
           {t('scheduledTasks.cancel')}
         </Button>
         <Button
+          className={styles.pill}
           disabled={!allowed || !instruction.trim()}
           htmlType="submit"
           loading={busy}
@@ -277,12 +373,14 @@ export const createScheduledTaskModal = (props: ScheduledTaskFormProps = {}) =>
     title: <ScheduledTaskModalTitle editing={!!props.task} />,
     width: 'min(520px, calc(100vw - 24px))',
     styles: {
+      popup: { maxHeight: 'calc(100dvh - 32px)', display: 'flex', flexDirection: 'column' },
+      header: { padding: '24px 24px 20px' },
       content: {
         display: 'flex',
         flexDirection: 'column',
-        maxHeight: 'calc(100dvh - 140px)',
+        maxHeight: 'calc(100dvh - 112px)',
         overflow: 'hidden',
-        padding: 24,
+        padding: '0 24px 24px',
       },
     },
   });

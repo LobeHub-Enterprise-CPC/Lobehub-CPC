@@ -15,9 +15,10 @@ export interface ScheduleFormValue {
   frequency: ScheduleFrequency;
   interval: number;
   monthDay: number;
+  maxExecutions?: number | null;
   time: string;
   timezone: string;
-  weekday: number;
+  weekday: number | string;
 }
 
 export const initialSchedule = (
@@ -29,7 +30,7 @@ export const initialSchedule = (
     ' ',
   );
   const schedule = config?.schedule as
-    { endsAt?: string | null; onceAt?: string | null } | undefined;
+    { endsAt?: string | null; onceAt?: string | null; maxExecutions?: number | null } | undefined;
   const zone = tz || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   return {
     date: schedule?.onceAt
@@ -50,9 +51,10 @@ export const initialSchedule = (
               : 'daily',
     interval: hour.startsWith('*/') ? Number(hour.slice(2)) : 1,
     monthDay: day !== '*' ? Number(day) : 1,
+    maxExecutions: schedule?.onceAt ? null : schedule?.maxExecutions,
     time: `${hour.includes('*') ? '08' : hour.padStart(2, '0')}:${minute.padStart(2, '0')}`,
     timezone: zone,
-    weekday: weekday !== '*' ? Number(weekday.split(',')[0]) || 0 : 1,
+    weekday: weekday.includes(',') ? weekday : weekday !== '*' ? Number(weekday) || 0 : 1,
   };
 };
 
@@ -112,7 +114,7 @@ export const buildSchedule = (value: ScheduleFormValue) => {
           : value.ends
             ? dayjs.tz(`${value.endDate} 23:59:59.999`, value.timezone).toISOString()
             : null,
-      maxExecutions: value.frequency === 'once' ? 1 : null,
+      maxExecutions: value.frequency === 'once' ? 1 : (value.maxExecutions ?? null),
       onceAt: value.frequency === 'once' ? date.toISOString() : null,
     },
   };

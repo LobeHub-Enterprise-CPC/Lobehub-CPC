@@ -9,6 +9,7 @@ import { tasks } from '@/database/schemas';
 import { getServerDB } from '@/database/server';
 import { notTrashed } from '@/database/utils/softDelete';
 
+import { reusedScheduleExecutions } from '../task/reusedScheduleExecutions';
 import { scheduleWindow } from '../task/scheduleWindow';
 import { TaskRunnerService } from './index';
 
@@ -126,7 +127,7 @@ export async function runScheduleTick(
         since: startedAt,
         triggers: ['schedule'],
       });
-      if (runCount >= maxExecutions) {
+      if (runCount + reusedScheduleExecutions(task.context) >= maxExecutions) {
         log(
           'skip task=%s reason=max-executions-reached (%d/%d) — marking completed',
           taskId,

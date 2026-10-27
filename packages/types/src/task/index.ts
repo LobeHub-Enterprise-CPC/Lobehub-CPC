@@ -249,6 +249,8 @@ export interface TaskSchedulerContext {
   // ISO timestamp opening the current schedule window: `maxExecutions` counts
   // schedule runs since it, and the dispatcher never fires an earlier occurrence.
   scheduleStartedAt?: string;
+  /** Additional scheduled executions sharing an existing conversation, scoped to this window. */
+  reusedExecutions?: { window?: string; count: number };
   // QStash messageId (or LocalScheduler scheduleId) for the next tick. Used to
   // cancel when the user wants an interval change to take effect immediately.
   tickMessageId?: string;
@@ -603,6 +605,7 @@ export interface TaskRunVerifySummary {
 }
 
 export interface TaskDetailData {
+  projectId?: string | null;
   activities?: TaskDetailActivity[];
   agentId?: string | null;
   /** ISO time the user archived the task; null when it is not archived. */

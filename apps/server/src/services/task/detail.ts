@@ -491,6 +491,7 @@ export class TaskDetailService {
 
     return {
       ...projectTaskDetailState(task, taskConfig),
+      projectId: task.projectId,
       agentId: task.assigneeAgentId,
       automationMode: task.automationMode ?? null,
       checkpoint: this.taskModel.getCheckpointConfig(task),

@@ -2,7 +2,6 @@ import { validateCronPattern } from '@lobechat/utils/cronEval';
 import dayjs from 'dayjs';
 import type { TFunction } from 'i18next';
 
-import { WEEKDAYS } from '../AgentTaskDetail/scheduler/CronConfig';
 import { initialSchedule } from './scheduleForm';
 
 export const scheduleSummary = (
@@ -22,11 +21,15 @@ export const scheduleSummary = (
   if (!/^\d+ (?:\d+|\*|\*\/\d+) \* \* (?:\*|[0-6](?:,[0-6])*)$/.test(pattern))
     return t('scheduledTasks.custom', { pattern });
   const [minute, hour, , , weekdays] = pattern.split(' ');
-  if (parsed.frequency === 'hourly') return t('scheduledTasks.custom', { pattern });
+  if (parsed.frequency === 'hourly')
+    return t('scheduledTasks.intervalSummary', { count: parsed.interval });
   const time = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
-  if (weekdays === '*') return t('taskSchedule.summary.daily', { time });
-  const days = weekdays.split(',').map((day) => t(WEEKDAYS.find((entry) => entry.key === Number(day))!.label as any)).join('/');
-  return t('taskSchedule.summary.weekly', { days, time });
+  if (weekdays === '*') return t('scheduledTasks.dailySummary', { time });
+  const days = weekdays
+    .split(',')
+    .map((day) => t(`scheduledTasks.weekday.${day}`))
+    .join('/');
+  return t('scheduledTasks.weeklySummary', { days, time });
 };
 
 export const nextScheduledDate = (
@@ -47,7 +50,21 @@ export const nextScheduledDate = (
   return schedule?.endsAt && next > new Date(schedule.endsAt) ? null : next;
 };
 
-export const formatScheduledDate = (date: Date | string, timezone?: string | null) =>
-  dayjs(date)
+export const formatScheduledDate = (
+  date: Date | string,
+  timezone?: string | null,
+  locale = 'zh-CN',
+) => {
+  const value = new Date(date);
+  const options = { timeZone: timezone || 'UTC' };
+  const day = new Intl.DateTimeFormat(locale, {
+    ...options,
+    month: 'short',
+    day: 'numeric',
+  }).format(value);
+  const weekday = new Intl.DateTimeFormat(locale, { ...options, weekday: 'long' }).format(value);
+  const time = dayjs(value)
     .tz(timezone || 'UTC')
-    .format('MM-DD · HH:mm');
+    .format('HH:mm');
+  return `${day} · ${weekday} (${time})`;
+};

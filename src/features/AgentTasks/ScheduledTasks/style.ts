@@ -30,12 +30,13 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
     padding: 12px;
   `,
   detail: css`
+    container-type: inline-size;
     overflow-y: auto;
     flex: 1;
 
     min-width: 0;
     min-height: 0;
-    padding-block: 32px;
+    padding-block: 40px;
     padding-inline: 48px;
 
     @media (width <= 1100px) {
@@ -43,23 +44,79 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
     }
 
     @media (width <= 767px) {
+      --scheduled-back-display: inline-flex;
       padding-block: 20px;
       padding-inline: 16px;
     }
   `,
   properties: css`
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
-    gap: 24px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 28px 32px;
     min-width: 0;
-
-    @media (width <= 1000px) {
+    > * {
+      min-width: 0;
+    }
+    @container (width < 760px) {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-
-    @media (width <= 480px) {
+    @container (width < 400px) {
       grid-template-columns: minmax(0, 1fr);
     }
+  `,
+  sidebarHeader: css`
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 96px;
+    padding: 16px 20px 40px;
+  `,
+  taskItem: css`
+    width: 100%;
+    justify-content: flex-start;
+    min-height: 56px;
+    padding: 6px 8px;
+    text-align: start;
+    border: 0;
+    box-shadow: none;
+    color: inherit;
+    background: transparent;
+    > .lobe-flex {
+      flex: 1;
+      text-align: start;
+    }
+  `,
+  selectedTask: css`
+    &,
+    &:focus-visible {
+      color: ${cssVar.colorText};
+    }
+    background: ${cssVar.colorPrimaryBg};
+    &:hover {
+      background: ${cssVar.colorPrimaryBgHover};
+    }
+  `,
+  mutedTask: css`
+    color: ${cssVar.colorTextTertiary};
+  `,
+  pill: css`
+    border-radius: 999px;
+    padding-inline: 18px;
+    height: 40px;
+  `,
+  summaryValue: css`
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  `,
+  advancedToggle: css`
+    justify-content: flex-start;
+    padding: 0;
+    min-height: 24px;
+    color: ${cssVar.colorTextSecondary};
+    font-size: 12px;
   `,
   description: css`
     line-height: 1.7;
@@ -76,6 +133,8 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
     width: 100%;
     min-height: 56px;
     padding: 16px;
+    border: 0;
+    box-shadow: none;
     border-radius: ${cssVar.borderRadiusLG};
 
     text-align: start;
@@ -106,10 +165,10 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 24px;
 
     min-height: 0;
-    padding: 4px;
+    padding: 0;
   `,
   row: css`
     display: flex;
@@ -129,12 +188,23 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
     }
 
     > :last-child {
+      margin-inline-start: auto;
       min-width: 0;
       max-width: 70%;
     }
 
     input {
       text-align: end;
+    }
+    [role='combobox'] {
+      justify-content: flex-end;
+      text-align: end;
+    }
+    .lobe-select__value {
+      justify-content: flex-end;
+    }
+    .lobe-select__suffix:empty {
+      display: none;
     }
   `,
   nativeInput: css`

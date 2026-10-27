@@ -5,14 +5,14 @@ import {
   Alert,
   Button,
   Divider,
+  DropdownMenu,
   Flexbox,
-  Icon,
   Skeleton,
   Tag,
   Text,
 } from '@lobehub/ui';
 import dayjs from 'dayjs';
-import { ArrowLeft, Clock, Pause, Play } from 'lucide-react';
+import { ArrowLeft, MoreHorizontal, Play, Pencil } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -21,22 +21,21 @@ import { usePermission } from '@/hooks/usePermission';
 import { useTaskStore } from '@/store/task';
 import { taskDetailSelectors } from '@/store/task/selectors';
 
-import TaskExecutionConfig from '../AgentTaskDetail/TaskExecutionConfig';
-import TaskModelConfig from '../AgentTaskDetail/TaskModelConfig';
+import AssigneeAvatar from '../features/AssigneeAvatar';
+import { ScheduledTaskProperties } from './ScheduledTaskProperties';
 import { useActiveTaskDetail } from '../AgentTaskDetail/useActiveTaskDetail';
-import TaskScheduleConfig from '../AgentTaskDetail/TaskScheduleConfig';
-import { useAgentDisplayMeta } from '../shared/useAgentDisplayMeta';
 import { createScheduledTaskModal } from './ScheduledTaskForm';
-import { scheduleSummary } from './scheduleSummary';
 import { styles } from './style';
 
 export const ScheduledTaskDetail = ({
+  compactActions = false,
   onBack,
   onOpenRun,
   onSaved,
   projectName,
   taskId,
 }: {
+  compactActions?: boolean;
   onBack: () => void;
   onOpenRun: (run: TaskDetailActivity, agentId: string) => void;
   onSaved: () => void;
@@ -46,7 +45,7 @@ export const ScheduledTaskDetail = ({
   const { t } = useTranslation('chat');
   const { error, isInitialLoading, isNotFound, onRetry } = useActiveTaskDetail(taskId);
   const detail = useTaskStore(taskDetailSelectors.activeTaskDetail);
-  const meta = useAgentDisplayMeta(detail?.agentId);
+
   const { allowed } = usePermission('create_content');
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -58,7 +57,6 @@ export const ScheduledTaskDetail = ({
   const runs = (detail.activities || [])
     .filter((a) => a.type === 'topic' && a.id)
     .sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
-  const schedule = detail.config?.schedule as { endsAt?: string | null } | undefined;
   const paused = detail.status === 'paused';
   const running = detail.status === 'running';
   const act = async (runNow: boolean) => {
@@ -78,7 +76,13 @@ export const ScheduledTaskDetail = ({
     <Flexbox gap={24}>
       <Flexbox horizontal align="start" gap={12} justify="space-between" wrap="wrap">
         <Flexbox horizontal align="center" gap={8} style={{ minWidth: 0 }}>
-          <ActionIcon icon={ArrowLeft} aria-label={t('scheduledTasks.back')} title={t('scheduledTasks.back')} onClick={onBack} />
+          <ActionIcon
+            style={{ display: 'var(--scheduled-back-display, none)' }}
+            icon={ArrowLeft}
+            aria-label={t('scheduledTasks.back')}
+            title={t('scheduledTasks.back')}
+            onClick={onBack}
+          />
           <Text as="h1" fontSize={24} style={{ margin: 0, overflowWrap: 'anywhere' }} weight={600}>
             {detail.name || detail.identifier}
           </Text>
@@ -86,28 +90,47 @@ export const ScheduledTaskDetail = ({
         <Flexbox horizontal gap={8} wrap="wrap">
           <Button
             disabled={!allowed || busy || running}
+            className={styles.pill}
             icon={Play}
+            aria-label={t('scheduledTasks.runNow')}
+            style={compactActions ? { width: 40, padding: 0 } : undefined}
             loading={busy}
             onClick={() => void act(true)}
           >
-            {t('scheduledTasks.runNow')}
+            {!compactActions && t('scheduledTasks.runNow')}
           </Button>
           <Button
-            disabled={!allowed || busy || running}
-            icon={paused ? Play : Pause}
-            onClick={() => void act(false)}
-          >
-            {t(paused ? 'scheduledTasks.resume' : 'scheduledTasks.pause')}
-          </Button>
-          <Button
+            className={styles.pill}
+            icon={Pencil}
+            aria-label={t('scheduledTasks.edit')}
+            style={compactActions ? { width: 40, padding: 0 } : undefined}
             disabled={!allowed || running}
             onClick={() => createScheduledTaskModal({ task: detail, onSaved })}
           >
-            {t('scheduledTasks.edit')}
+            {!compactActions && t('scheduledTasks.edit')}
           </Button>
+          <DropdownMenu
+            items={[
+              {
+                key: 'pause',
+                label: t(paused ? 'scheduledTasks.resume' : 'scheduledTasks.pause'),
+                disabled: !allowed || busy || running,
+                onClick: () => void act(false),
+              },
+            ]}
+          >
+            <ActionIcon aria-label={t('scheduledTasks.taskActions')} icon={MoreHorizontal} />
+          </DropdownMenu>
         </Flexbox>
       </Flexbox>
-      {actionError && <Alert showIcon aria-label={t('scheduledTasks.actionFailed')} title={t('scheduledTasks.actionFailed')} type="error" />}
+      {actionError && (
+        <Alert
+          showIcon
+          aria-label={t('scheduledTasks.actionFailed')}
+          title={t('scheduledTasks.actionFailed')}
+          type="error"
+        />
+      )}
       {detail.error && <Alert showIcon title={detail.error} type="error" />}
       <Flexbox gap={8}>
         <Text fontSize={12} type="secondary">
@@ -127,58 +150,7 @@ export const ScheduledTaskDetail = ({
           </Button>
         )}
       </Flexbox>
-      <div className={styles.properties}>
-        <Flexbox gap={8}>
-          <Text fontSize={12} type="secondary">
-            {t('scheduledTasks.frequency')}
-          </Text>
-          <Text>
-            {detail.automationMode === 'heartbeat' ? <TaskScheduleConfig taskId={detail.identifier} /> : scheduleSummary(detail.schedule?.pattern, detail.schedule?.timezone, detail.config, t)}
-          </Text>
-          <Text fontSize={12} type="secondary">
-            {detail.schedule?.timezone}
-          </Text>
-          {schedule?.endsAt && (
-            <Text fontSize={12}>
-              {t('scheduledTasks.until', {
-                date: dayjs(schedule.endsAt)
-                  .tz(detail.schedule?.timezone || 'UTC')
-                  .format('YYYY-MM-DD'),
-              })}
-            </Text>
-          )}
-        </Flexbox>
-        <Flexbox gap={8}>
-          <Text fontSize={12} type="secondary">
-            {t('scheduledTasks.agent')}
-          </Text>
-          <Text>{meta?.title || t('scheduledTasks.inheritModel')}</Text>
-        </Flexbox>
-        <Flexbox gap={8}>
-          <Text fontSize={12} type="secondary">
-            {t('scheduledTasks.model')}
-          </Text>
-          <TaskModelConfig />
-        </Flexbox>
-        <Flexbox gap={8}>
-          <Text fontSize={12} type="secondary">
-            {t('scheduledTasks.project')}
-          </Text>
-          <Text>{projectName || t('scheduledTasks.none')}</Text>
-        </Flexbox>
-        <Flexbox gap={8}>
-          <Text fontSize={12} type="secondary">
-            {t('scheduledTasks.device')}
-          </Text>
-          <TaskExecutionConfig />
-        </Flexbox>
-        <Flexbox gap={8}>
-          <Text fontSize={12} type="secondary">
-            {t('scheduledTasks.advanced')}
-          </Text>
-          <Text>{t('scheduledTasks.newChat')}</Text>
-        </Flexbox>
-      </div>
+      <ScheduledTaskProperties detail={detail} projectName={projectName} />
       <Divider style={{ margin: 0 }} />
       <Flexbox gap={12}>
         <Flexbox horizontal align="center" gap={8}>
@@ -191,6 +163,7 @@ export const ScheduledTaskDetail = ({
           runs.map((run) => (
             <Button
               block
+              type="text"
               className={styles.run}
               key={run.id}
               onClick={() => onOpenRun(run, run.agentId || detail.agentId || '')}
@@ -203,8 +176,9 @@ export const ScheduledTaskDetail = ({
                 style={{ width: '100%', minWidth: 0 }}
                 wrap="wrap"
               >
-                <Flexbox horizontal align="center" gap={8} style={{ minWidth: 0 }} wrap="wrap">
-                  <Icon icon={Clock} size={16} />
+                <Flexbox horizontal align="center" gap={12} style={{ minWidth: 0 }} wrap="wrap">
+                  <AssigneeAvatar agentId={run.agentId || detail.agentId} size={28} />
+
                   <Text ellipsis>{run.title || detail.name}</Text>
                   <Text fontSize={12} type="secondary">
                     #{run.seq}

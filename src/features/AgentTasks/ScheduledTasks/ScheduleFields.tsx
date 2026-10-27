@@ -1,7 +1,7 @@
-import { Flexbox, InputNumber, Select, Switch, Text } from '@lobehub/ui';
+import { Flexbox, Input, InputNumber, Select, Switch, Text } from '@lobehub/ui';
 import { useTranslation } from 'react-i18next';
 
-import { TIMEZONE_OPTIONS, WEEKDAYS } from '../AgentTaskDetail/scheduler/CronConfig';
+import { WEEKDAYS } from '../AgentTaskDetail/scheduler/CronConfig';
 import { FieldRow } from './FieldRow';
 import type { ScheduleFormValue, ScheduleFrequency } from './scheduleForm';
 import { styles } from './style';
@@ -15,7 +15,7 @@ export const ScheduleFields = ({
 }) => {
   const { t } = useTranslation('chat');
   const update = (patch: Partial<ScheduleFormValue>) => onChange({ ...value, ...patch });
-  const selectStyle = { minWidth: 120, maxWidth: '70%' };
+  const selectStyle = { minWidth: 120, maxWidth: '70%', width: 'auto', textAlign: 'end' as const };
   return (
     <Flexbox gap={8}>
       <Text fontSize={12} type="secondary">
@@ -35,6 +35,7 @@ export const ScheduleFields = ({
             style={selectStyle}
             value={value.frequency}
             variant="borderless"
+            suffixIcon={null}
             options={(
               ['daily', 'hourly', 'weekdays', 'weekly', 'monthly'] as ScheduleFrequency[]
             ).map((frequency) => ({
@@ -60,10 +61,27 @@ export const ScheduleFields = ({
         <FieldRow id="schedule-weekday" label={t('scheduledTasks.date')}>
           <Select
             id="schedule-weekday"
-            options={WEEKDAYS.map(({ key, label }) => ({ label: t(label), value: key }))}
+            options={[
+              ...(typeof value.weekday === 'string' && value.weekday.includes(',')
+                ? [
+                    {
+                      value: value.weekday,
+                      label: value.weekday
+                        .split(',')
+                        .map((day) => t(`scheduledTasks.weekday.${day}`))
+                        .join(' / '),
+                    },
+                  ]
+                : []),
+              ...WEEKDAYS.map(({ key }) => ({
+                label: t(`scheduledTasks.weekday.${key}`),
+                value: key,
+              })),
+            ]}
             style={selectStyle}
             value={value.weekday}
             variant="borderless"
+            suffixIcon={null}
             onChange={(weekday) => update({ weekday })}
           />
         </FieldRow>
@@ -75,6 +93,7 @@ export const ScheduleFields = ({
             style={selectStyle}
             value={value.monthDay}
             variant="borderless"
+            suffixIcon={null}
             options={Array.from({ length: 31 }, (_, i) => ({
               label: t('scheduledTasks.monthDay', { day: i + 1 }),
               value: i + 1,
@@ -97,10 +116,13 @@ export const ScheduleFields = ({
         </FieldRow>
       ) : (
         <FieldRow id="schedule-time" label={t('scheduledTasks.time')}>
-          <input
-            className={styles.nativeInput}
+          <Input
             id="schedule-time"
-            type="time"
+            inputMode="numeric"
+            maxLength={5}
+            placeholder="HH:mm"
+            style={{ width: 100, textAlign: 'end' }}
+            variant="borderless"
             value={value.time}
             onChange={(e) => update({ time: e.target.value })}
           />
@@ -110,6 +132,22 @@ export const ScheduleFields = ({
         <Text fontSize={12} type="secondary">
           {t('scheduledTasks.shortMonth')}
         </Text>
+      )}
+      {value.frequency !== 'once' && value.maxExecutions != null && value.maxExecutions > 0 && (
+        <FieldRow id="schedule-max-executions" label={t('taskSchedule.maxExecutions')}>
+          <InputNumber
+            id="schedule-max-executions"
+            min={1}
+            precision={0}
+            style={{ width: 100 }}
+            value={value.maxExecutions}
+            onChange={(maxExecutions) =>
+              maxExecutions != null &&
+              Number(maxExecutions) >= 1 &&
+              update({ maxExecutions: Number(maxExecutions) })
+            }
+          />
+        </FieldRow>
       )}
       {value.frequency !== 'once' && (
         <FieldRow label={t('scheduledTasks.endDate')}>
@@ -131,21 +169,6 @@ export const ScheduleFields = ({
           />
         </FieldRow>
       )}
-      <FieldRow id="schedule-timezone" label={t('taskSchedule.timezone')}>
-        <Select
-          showSearch
-          id="schedule-timezone"
-          style={{ maxWidth: '70%', width: 220 }}
-          value={value.timezone}
-          variant="borderless"
-          options={
-            TIMEZONE_OPTIONS.some((tz) => tz.value === value.timezone)
-              ? TIMEZONE_OPTIONS
-              : [{ label: value.timezone, value: value.timezone }, ...TIMEZONE_OPTIONS]
-          }
-          onChange={(timezone) => update({ timezone })}
-        />
-      </FieldRow>
     </Flexbox>
   );
 };
