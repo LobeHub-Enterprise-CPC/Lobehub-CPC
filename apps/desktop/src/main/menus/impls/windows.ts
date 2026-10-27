@@ -12,6 +12,7 @@ import { getAppDisplayName } from '@/utils/appIdentity';
 import { assignMenuIds } from '../appMenuSnapshot';
 import { buildTrayMenuTemplate } from '../trayMenu';
 import type { ContextMenuData, IMenuPlatform, MenuOptions } from '../types';
+import { vendorHelpItems } from '../vendorHelp';
 import { BaseMenuPlatform } from './BaseMenuPlatform';
 
 export class WindowsMenu extends BaseMenuPlatform implements IMenuPlatform {
@@ -199,19 +200,20 @@ export class WindowsMenu extends BaseMenuPlatform implements IMenuPlatform {
       {
         label: t('help.title'),
         submenu: [
-          {
-            click: async () => {
-              await shell.openExternal(OFFICIAL_SITE);
+          ...vendorHelpItems([
+            {
+              click: async () => {
+                await shell.openExternal(OFFICIAL_SITE);
+              },
+              label: t('help.visitWebsite'),
             },
-            label: t('help.visitWebsite'),
-          },
-          {
-            click: async () => {
-              await shell.openExternal(GITHUB);
+            {
+              click: async () => {
+                await shell.openExternal(GITHUB);
+              },
+              label: t('help.githubRepo'),
             },
-            label: t('help.githubRepo'),
-          },
-          { type: 'separator' },
+          ]),
           {
             click: () => {
               this.app.browserManager.retrieveByIdentifier('processExplorer').show();

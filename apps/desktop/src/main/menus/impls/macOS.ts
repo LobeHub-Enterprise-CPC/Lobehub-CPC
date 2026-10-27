@@ -13,6 +13,7 @@ import { getAppDisplayName } from '@/utils/appIdentity';
 
 import { buildDockMenuTemplate, buildTrayMenuTemplate } from '../trayMenu';
 import type { ContextMenuData, IMenuPlatform, MenuOptions } from '../types';
+import { vendorHelpItems } from '../vendorHelp';
 import { BaseMenuPlatform } from './BaseMenuPlatform';
 
 export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
@@ -263,25 +264,26 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
         label: t('help.title'),
         role: 'help',
         submenu: [
-          {
-            click: async () => {
-              await shell.openExternal(OFFICIAL_SITE);
+          ...vendorHelpItems([
+            {
+              click: async () => {
+                await shell.openExternal(OFFICIAL_SITE);
+              },
+              label: t('help.visitWebsite'),
             },
-            label: t('help.visitWebsite'),
-          },
-          {
-            click: async () => {
-              await shell.openExternal(GITHUB);
+            {
+              click: async () => {
+                await shell.openExternal(GITHUB);
+              },
+              label: t('help.githubRepo'),
             },
-            label: t('help.githubRepo'),
-          },
-          {
-            click: async () => {
-              await shell.openExternal(GITHUB_ISSUES);
+            {
+              click: async () => {
+                await shell.openExternal(GITHUB_ISSUES);
+              },
+              label: t('help.reportIssue'),
             },
-            label: t('help.reportIssue'),
-          },
-          { type: 'separator' },
+          ]),
           {
             click: () => {
               this.app.browserManager.retrieveByIdentifier('processExplorer').show();
