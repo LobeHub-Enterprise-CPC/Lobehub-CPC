@@ -87,8 +87,7 @@ const genInstallCommand = (identifier?: string, platform?: PlatformType) => {
     }
     default: {
       return `# Recommended for ${BRANDING_NAME} users:
-# Open the marketplace page and install with one click:
-# https://lobechat.com/community/skills/${id}`;
+# Open the marketplace page and install with one click.`;
     }
   }
 };
