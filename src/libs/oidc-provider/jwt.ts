@@ -8,7 +8,6 @@ import { authEnv } from '@/envs/auth';
 import { isBoundToCurrentTenant } from '@/libs/trpc/utils/tenantBinding';
 
 import { isAcceptanceReviewClient, isAcceptanceReviewIssued } from './acceptanceReview';
-import { RETIRED_DESKTOP_CLIENT_IDS } from './desktopClient';
 import { describeError } from './safe-log';
 
 const log = debug('oidc-jwt');
@@ -135,26 +134,7 @@ const verifyJwt = async (token: string, publicKeys: JWK_RSA_Public[]) => {
   throw signatureError ?? new Error('No RSA key available for JWT verification');
 };
 
-/**
- * Validate OIDC JWT Access Token
- *
- * All tenants sign with the same JWKS, so beyond the signature the token must
- * carry the `tid` claim of the tenant this request runs in (set by the tenant's
- * OIDC provider and by the server-minted CLI/operation tokens). A token minted
- * for another tenant, or without the claim, is rejected.
- * @param token - JWT access token
- * @returns Parsed token payload and user information
- */
-export const validateOIDCJWT = async (token: string) => {
-  log('Starting OIDC JWT token validation');
-
-  // JWKS / signing key retrieval is an infrastructure concern (misconfigured
-  // env, malformed JWKS, key import failure). Let these errors propagate as
-  // plain Error so upstream middleware maps them to 500 and triggers ops
-  // alerts — treating them as 401 would incorrectly ask clients to re-auth
-  // while the real problem is server-side.
-  const publicKeys = await getVerificationKeys();
-
+const parseOIDCJWT = async (token: string, publicKeys: JWK_RSA_Public[]) => {
   try {
     const { payload } = await verifyJwt(token, publicKeys);
 
@@ -176,13 +156,6 @@ export const validateOIDCJWT = async (token: string) => {
       throw new TRPCError({
         code: 'UNAUTHORIZED',
         message: 'JWT token is missing user ID (sub)',
-      });
-    }
-
-    if (typeof clientId === 'string' && RETIRED_DESKTOP_CLIENT_IDS.has(clientId)) {
-      throw new TRPCError({
-        code: 'UNAUTHORIZED',
-        message: 'JWT token was issued to a retired desktop client',
       });
     }
 
@@ -231,6 +204,51 @@ export const validateOIDCJWT = async (token: string) => {
       message: `JWT token validation failed: ${(error as Error).message}`,
     });
   }
+};
+
+const isClientServed = async (clientId: unknown) => {
+  if (typeof clientId !== 'string') return false;
+  // Loaded on demand: the provider pulls in the whole OIDC server stack.
+  const { getOIDCProvider } = await import('@/server/services/oidc/oidcProvider');
+  return Boolean(await (await getOIDCProvider()).Client.find(clientId));
+};
+
+/**
+ * Validate OIDC JWT Access Token
+ *
+ * All tenants sign with the same JWKS, so beyond the signature the token must
+ * carry the `tid` claim of the tenant this request runs in (set by the tenant's
+ * OIDC provider and by the server-minted CLI/operation tokens). A token minted
+ * for another tenant, or without the claim, is rejected.
+ * @param token - JWT access token
+ * @returns Parsed token payload and user information
+ */
+export const validateOIDCJWT = async (token: string) => {
+  log('Starting OIDC JWT token validation');
+
+  // JWKS / signing key retrieval is an infrastructure concern (misconfigured
+  // env, malformed JWKS, key import failure). Let these errors propagate as
+  // plain Error so upstream middleware maps them to 500 and triggers ops
+  // alerts — treating them as 401 would incorrectly ask clients to re-auth
+  // while the real problem is server-side.
+  const publicKeys = await getVerificationKeys();
+
+  const validated = await parseOIDCJWT(token, publicKeys);
+
+  // Access tokens are stateless, so retiring the client is what retires them: a
+  // client renamed, removed or disabled at the provider no longer vouches for
+  // the tokens it issued, and their holders sign in again. Server-minted
+  // tokens name no client. Kept out of `parseOIDCJWT`'s catch: a provider that
+  // cannot load is a server fault, not a rejected token.
+  const { clientId } = validated;
+  if (clientId !== undefined && !(authEnv.ENABLE_OIDC && (await isClientServed(clientId)))) {
+    throw new TRPCError({
+      code: 'UNAUTHORIZED',
+      message: 'JWT token was issued to a retired client',
+    });
+  }
+
+  return validated;
 };
 
 export const verifyAcceptanceReviewJWT = async (token: string) => {

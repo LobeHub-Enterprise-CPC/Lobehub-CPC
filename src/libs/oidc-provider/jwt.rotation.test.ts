@@ -4,7 +4,7 @@ import { calculateJwkThumbprint, SignJWT } from 'jose';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 const { authEnvMock } = vi.hoisted(() => ({
-  authEnvMock: { JWKS_KEY: '' },
+  authEnvMock: { ENABLE_OIDC: true, JWKS_KEY: '' },
 }));
 
 vi.mock('@/envs/auth', () => ({ authEnv: authEnvMock }));
@@ -13,6 +13,10 @@ vi.mock('@/envs/auth', () => ({ authEnv: authEnvMock }));
 // rotation is orthogonal to tenancy (covered by jwt.test.ts), so bind everything here.
 const tenantBound = vi.hoisted(() => vi.fn());
 vi.mock('@/libs/trpc/utils/tenantBinding', () => ({ isBoundToCurrentTenant: tenantBound }));
+// Likewise orthogonal: whether the issuing client is still registered (jwt.test.ts).
+vi.mock('@/server/services/oidc/oidcProvider', () => ({
+  getOIDCProvider: async () => ({ Client: { find: async (clientId: string) => ({ clientId }) } }),
+}));
 
 const createRsaKey = (kid: string) => {
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });

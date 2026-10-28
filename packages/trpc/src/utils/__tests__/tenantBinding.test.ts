@@ -16,10 +16,14 @@ import {
 } from '../internalJwt';
 
 const { mockAuthEnv } = vi.hoisted(() => ({
-  mockAuthEnv: { INTERNAL_JWT_EXPIRATION: '1m', JWKS_KEY: '' },
+  mockAuthEnv: { ENABLE_OIDC: true, INTERNAL_JWT_EXPIRATION: '1m', JWKS_KEY: '' },
 }));
 
 vi.mock('@/envs/auth', () => ({ authEnv: mockAuthEnv }));
+// Orthogonal to tenant binding: whether the issuing client is still registered (jwt.test.ts).
+vi.mock('@/server/services/oidc/oidcProvider', () => ({
+  getOIDCProvider: async () => ({ Client: { find: async (clientId: string) => ({ clientId }) } }),
+}));
 
 // Real keys and real jose: tenant binding is a property of the signed token,
 // so the signature path must not be mocked.
