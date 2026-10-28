@@ -23,7 +23,7 @@ vi.mock('@lobechat/const', () => ({
 // the value.
 //
 // This asserts the resource half: for every one of the 18 shipped locales, each
-// literal in the namespaces those SPAs load is rewritable by the processor, so no
+// literal in every locale namespace is rewritable by the processor, so no
 // translation can survive the registration fix. The instance half — that each SPA
 // factory registers the processor — is asserted next to those factories
 // (`createShareI18n.test.ts`, `createAuthI18n.test.ts`,
@@ -34,11 +34,9 @@ vi.mock('@lobechat/const', () => ({
 // under default/ through the `@/locales/default/*` dynamic-import glob, where
 // node:fs and unresolvable `new URL(..., import.meta.url)` fail the Turbopack
 // production build.
-const SPA_NAMESPACES = ['chat', 'error', 'pageShare', 'verify', 'auth', 'oauth', 'marketAuth'];
-
 const LITERAL = /LobeHub|LobeChat/;
 
-describe('brand literals in SPA-served locales', () => {
+describe('brand literals in shipped locales', () => {
   it('stays rewritable in every shipped locale', () => {
     const root = new URL('../../../locales/', import.meta.url);
     const failures: string[] = [];
@@ -47,7 +45,8 @@ describe('brand literals in SPA-served locales', () => {
     for (const locale of readdirSync(root, { withFileTypes: true }).filter((d) =>
       d.isDirectory(),
     )) {
-      for (const ns of SPA_NAMESPACES) {
+      for (const file of readdirSync(new URL(`${locale.name}/`, root)).filter((f) => f.endsWith('.json'))) {
+        const ns = file.slice(0, -5);
         let resources: Record<string, unknown>;
         try {
           resources = JSON.parse(readFileSync(new URL(`${locale.name}/${ns}.json`, root), 'utf8'));
