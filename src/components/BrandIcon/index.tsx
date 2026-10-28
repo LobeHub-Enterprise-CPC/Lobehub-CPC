@@ -1,6 +1,7 @@
 import { type BrandIconKey, BRANDING_ICONS } from '@lobechat/business-const/icons';
 import { cx } from '@lobehub/ui';
 import type { LucideIcon, LucideProps } from 'lucide-react';
+import type { Ref } from 'react';
 
 const cache = new Map<BrandIconKey, LucideIcon>();
 
@@ -20,7 +21,7 @@ export const brandIcon = (key: BrandIconKey, fallback: LucideIcon): LucideIcon =
   const cached = cache.get(key);
   if (cached) return cached;
 
-  const BrandIcon = ({
+  const BrandIcon = (({
     ref,
     absoluteStrokeWidth: _absoluteStrokeWidth,
     children: _children,
@@ -33,23 +34,22 @@ export const brandIcon = (key: BrandIconKey, fallback: LucideIcon): LucideIcon =
     strokeWidth: _strokeWidth,
     style,
     ...rest
-  }: LucideProps & { ref?: React.RefObject<SVGSVGElement | null> }) =>
-    (
-      <svg
-        aria-hidden
-        className={cx('lucide', className)}
-        dangerouslySetInnerHTML={{ __html: entry.svg }}
-        data-brand-icon={key}
-        fill="none"
-        height={size}
-        ref={ref}
-        style={color && color !== 'currentColor' ? { color, ...style } : style}
-        viewBox={entry.viewBox}
-        width={size}
-        xmlns="http://www.w3.org/2000/svg"
-        {...rest}
-      />
-    ) as LucideIcon;
+  }: LucideProps & { ref?: Ref<SVGSVGElement> }) => (
+    <svg
+      aria-hidden
+      className={cx('lucide', className)}
+      dangerouslySetInnerHTML={{ __html: entry.svg }}
+      data-brand-icon={key}
+      fill="none"
+      height={size}
+      ref={ref}
+      style={color && color !== 'currentColor' ? { color, ...style } : style}
+      viewBox={entry.viewBox}
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+      {...rest}
+    />
+  )) as unknown as LucideIcon;
   BrandIcon.displayName = `BrandIcon(${key})`;
 
   cache.set(key, BrandIcon);
