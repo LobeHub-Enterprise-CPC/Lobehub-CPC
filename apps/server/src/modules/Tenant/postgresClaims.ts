@@ -9,15 +9,17 @@ import {
 } from '@lobechat/database/platform';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 
+import { drainAgentSteps } from '@/server/modules/AgentRuntime/stepDrain';
+
 import { TenantClaims } from './claims';
 import { LifecycleFailure } from './lifecycleFailure';
-import { TENANT_PROCESS_LEASE_MS, TenantProcessLease } from './processLease';
+import { TENANT_PROCESS_LEASE_MS, type TenantLeaseStore, TenantProcessLease } from './processLease';
 import { getTenantRuntime } from './runtime';
 
 let observedGenerations = new Map<string, string>();
 
 /** Each heartbeat observes Console's generations before invalidating local admission snapshots. */
-export const tenantProcessLease = new TenantProcessLease({
+const tenantLeaseStore: TenantLeaseStore = {
   async renew(processId) {
     const db = getPlatformDB();
     await db.transaction(async (tx) => {
@@ -78,7 +80,16 @@ export const tenantProcessLease = new TenantProcessLease({
       .delete(tenantRuntimeProcess)
       .where(eq(tenantRuntimeProcess.processId, processId));
   },
-});
+};
+
+// Agent steps running here are tenant live work: SIGTERM lets them finish first.
+export const tenantProcessLease = new TenantProcessLease(
+  tenantLeaseStore,
+  undefined,
+  undefined,
+  undefined,
+  drainAgentSteps,
+);
 
 export const tenantClaims = new TenantClaims(
   () => tenantProcessLease.ensure(),

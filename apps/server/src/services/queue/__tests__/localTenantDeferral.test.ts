@@ -23,6 +23,10 @@ const admission = vi.hoisted(() => ({
     effectiveState: 'active',
   })),
 }));
+const drain = vi.hoisted(() => ({ draining: false }));
+vi.mock('@/server/modules/AgentRuntime/stepDrain', () => ({
+  isDrainingAgentSteps: () => drain.draining,
+}));
 vi.mock('@/server/modules/Tenant/runtime', () => ({ getTenantRuntime: () => admission }));
 // The global test setup replaces the gate with a pass-through; use the real one.
 vi.mock('@/server/modules/Tenant/gate', async (importOriginal) => importOriginal());
@@ -46,6 +50,7 @@ describe('LocalQueueServiceImpl tenant admission', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     admission.enterTenantId.mockReset();
+    drain.draining = false;
   });
   afterEach(() => vi.useRealTimers());
 
@@ -115,6 +120,22 @@ describe('LocalQueueServiceImpl tenant admission', () => {
     await vi.advanceTimersByTimeAsync(10);
     expect(executed).toHaveBeenCalledTimes(1);
     expect(seenScopes[0]).toBe(admitted);
+  });
+
+  it('starts no queued or deferred step once the process drains', async () => {
+    const { executed, queue } = setup();
+    admission.enterTenantId.mockRejectedValueOnce(new TenantGateError('TENANT_FROZEN'));
+    admission.enterTenantId.mockResolvedValue({ release: async () => {}, scope: scopeOf('c') });
+    await runWithTenantScope(scopeOf('c'), () => queue.scheduleMessage(message));
+    await vi.advanceTimersByTimeAsync(10);
+    await runWithTenantScope(scopeOf('c'), () =>
+      queue.scheduleMessage({ ...message, operationId: 'op-2' }),
+    );
+
+    drain.draining = true;
+    await vi.advanceTimersByTimeAsync(10 + TENANT_DEFERRED_STEP_RETRY_MS);
+    expect(executed).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('rejects an envelope outside any tenant', async () => {

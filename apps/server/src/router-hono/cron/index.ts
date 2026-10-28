@@ -8,6 +8,7 @@ import { startGatewayForAllTenants } from '@/server/services/gateway/tenantStart
 
 import { bearerSecretAuth } from '../agent/middlewares/bearerSecretAuth';
 import { qstashAuth } from '../agent/middlewares/qstashAuth';
+import { reapOperationsForAllTenants } from './reapOperations';
 
 /**
  * Deployment-wide schedules (spec FR-AS-02). These are the only business
@@ -55,6 +56,14 @@ app.post(
     const body = (await c.req.json().catch(() => ({}))) as { restart?: boolean };
     return c.json(await startGatewayForAllTenants({ restart: body.restart }));
   },
+);
+
+// POST /api/cron/agent/reap-operations — stale-operation recovery for every
+// tenant (Bearer CRON_SECRET), called by the deployment's scheduler.
+app.post(
+  '/agent/reap-operations',
+  bearerSecretAuth(() => process.env.CRON_SECRET),
+  reapOperationsForAllTenants,
 );
 
 export default app;

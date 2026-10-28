@@ -8,6 +8,7 @@ import { type LobeChatDatabase } from '@/database/type';
 import { appEnv } from '@/envs/app';
 import { AgentRuntimeCoordinator, createStreamEventManager } from '@/server/modules/AgentRuntime';
 import type { RuntimeMessageStore } from '@/server/modules/AgentRuntime/context';
+import { trackAgentStep } from '@/server/modules/AgentRuntime/stepDrain';
 import { type IStreamEventManager } from '@/server/modules/AgentRuntime/types';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { getTenantLiveResources } from '@/server/modules/Tenant/liveResources';
@@ -520,7 +521,8 @@ export class AgentRuntimeService {
       ? getTenantLiveResources().bind(tenantId, { close: () => {}, settled })
       : undefined;
     try {
-      return await executeStep(this.context, ...args);
+      // A process shutting down waits for this step before it lets go of its tenant lease.
+      return await trackAgentStep(executeStep(this.context, ...args));
     } finally {
       finish();
       unbind?.();
