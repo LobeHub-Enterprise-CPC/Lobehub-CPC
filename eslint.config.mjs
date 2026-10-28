@@ -97,15 +97,20 @@ const NODE_BUILTINS = [
   'worker_threads',
   'zlib',
 ];
-const browserRuntimeRestrictedImportPaths = NODE_BUILTINS.flatMap((name) => [
-  name,
-  `node:${name}`,
-]).map((name) => ({
-  allowTypeImports: true,
-  message:
-    'Node built-ins do not exist in the browser. Move the work behind a server endpoint or an Electron IPC call; type imports are fine.',
-  name,
-}));
+const browserRuntimeRestrictedImportPaths = [
+  ...NODE_BUILTINS.flatMap((name) => [name, `node:${name}`]).map((name) => ({
+    allowTypeImports: true,
+    message:
+      'Node built-ins do not exist in the browser. Move the work behind a server endpoint or an Electron IPC call; type imports are fine.',
+    name,
+  })),
+  // Vite resolves `buffer` to the empty built-in stub, so `Buffer` is undefined at runtime.
+  ...['buffer', 'node:buffer'].map((name) => ({
+    allowTypeImports: true,
+    message: "Import Buffer from 'buffer.js', the npm polyfill alias that browser bundles include.",
+    name,
+  })),
+];
 const browserRuntimeRestrictedImportPatterns = [
   {
     allowTypeImports: true,
