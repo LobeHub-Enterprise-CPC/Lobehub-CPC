@@ -132,7 +132,7 @@ describe('ExpertiseRejectionWorkflow.trigger without a queue', () => {
     // Without the tenant prefix the delivery is refused with TENANT_REQUIRED.
     expect(workflowClient.trigger).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: 'https://app.test/t/acme/api/workflows/expertise-rejection/run',
+        url: 'https://app.test/orgs/acme/api/workflows/expertise-rejection/run',
       }),
     );
   });

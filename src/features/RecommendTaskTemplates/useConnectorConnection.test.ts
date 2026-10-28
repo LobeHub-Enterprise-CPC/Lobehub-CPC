@@ -84,7 +84,7 @@ describe('useConnectorConnection', () => {
 
   it('returns from provider OAuth to the callback page under the tenant path', async () => {
     mocks.marketAuth.isAuthenticated = true;
-    initializeTenant(new URL(`${window.location.origin}/t/acme/tasks`));
+    initializeTenant(new URL(`${window.location.origin}/orgs/acme/tasks`));
     const { result, unmount } = renderHook(() => useConnectorConnection([lobehubSpec]));
 
     await act(async () => {
@@ -93,7 +93,7 @@ describe('useConnectorConnection', () => {
     initializeTenant(new URL(window.location.href));
 
     expect(mocks.toolState.getLobehubSkillAuthorizeUrl).toHaveBeenCalledWith('linear', {
-      redirectUri: `${window.location.origin}/t/acme/oauth/callback/success?provider=linear`,
+      redirectUri: `${window.location.origin}/orgs/acme/oauth/callback/success?provider=linear`,
     });
     unmount();
   });

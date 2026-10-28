@@ -159,18 +159,18 @@ describe('settings', () => {
   });
 
   it('should keep the tenant path of the server and drop every trailing slash', () => {
-    expect(normalizeUrl('https://host/t/acme')).toBe('https://host/t/acme');
-    expect(normalizeUrl('https://host/t/acme/')).toBe('https://host/t/acme');
-    expect(normalizeUrl('https://host/t/acme//')).toBe('https://host/t/acme');
+    expect(normalizeUrl('https://host/orgs/acme')).toBe('https://host/orgs/acme');
+    expect(normalizeUrl('https://host/orgs/acme/')).toBe('https://host/orgs/acme');
+    expect(normalizeUrl('https://host/orgs/acme//')).toBe('https://host/orgs/acme');
   });
 
   it('should resolve a tenant server address from the environment and from settings', () => {
-    process.env.LOBEHUB_SERVER = 'https://host/t/acme/';
-    expect(resolveServerUrl()).toBe('https://host/t/acme');
+    process.env.LOBEHUB_SERVER = 'https://host/orgs/acme/';
+    expect(resolveServerUrl()).toBe('https://host/orgs/acme');
 
     delete process.env.LOBEHUB_SERVER;
-    saveSettings({ serverUrl: 'https://host/t/beta/' });
-    expect(resolveServerUrl()).toBe('https://host/t/beta');
+    saveSettings({ serverUrl: 'https://host/orgs/beta/' });
+    expect(resolveServerUrl()).toBe('https://host/orgs/beta');
   });
 
   it('should prefer LOBEHUB_SERVER over settings', () => {

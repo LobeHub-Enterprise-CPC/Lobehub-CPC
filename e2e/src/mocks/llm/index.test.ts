@@ -69,7 +69,7 @@ describe('tenant chat interception', () => {
     const browserWindow: Record<string, unknown> = {
       clearTimeout,
       fetch: originalFetch,
-      location: { href: 'https://app.test/t/e2e/agent/inbox' },
+      location: { href: 'https://app.test/orgs/e2e/agent/inbox' },
       setTimeout,
     };
     const page = {
@@ -94,7 +94,7 @@ describe('tenant chat interception', () => {
       streamDelay: 0,
     }).setup(page);
     const fetch = browserWindow.fetch as typeof globalThis.fetch;
-    const response = await fetch('/t/e2e/webapi/chat/openai', {
+    const response = await fetch('/orgs/e2e/webapi/chat/openai', {
       body: JSON.stringify({ messages: [] }),
       method: 'POST',
     });
@@ -104,7 +104,7 @@ describe('tenant chat interception', () => {
       .join('');
     expect(text).toBe('tenant reply');
     expect(originalFetch).not.toHaveBeenCalled();
-    await fetch('/t/e2e/api/config');
+    await fetch('/orgs/e2e/api/config');
     expect(originalFetch).toHaveBeenCalledOnce();
   });
 });

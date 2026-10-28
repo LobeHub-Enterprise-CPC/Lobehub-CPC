@@ -64,7 +64,7 @@ export interface ICredsService {
 }
 
 export interface CredsExecutionContext {
-  /** The tenant's public app address OAuth returns to (`https://host/t/acme`); defaults to APP_URL. */
+  /** The tenant's public app address OAuth returns to (`https://host/orgs/acme`); defaults to APP_URL. */
   appUrl?: string;
   topicId?: string;
   userId?: string;

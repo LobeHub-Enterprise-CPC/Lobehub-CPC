@@ -7,7 +7,7 @@ import { expect, it } from 'vitest';
 
 import { OIDC_ROUTES } from './routes';
 
-it.each(['/t/acme', ''])(
+it.each(['/orgs/acme', ''])(
   'advertises reachable OIDC endpoints beneath the active entry %s',
   async (basePath) => {
     const server = createServer();

@@ -117,7 +117,7 @@ const tenantOptions = () => ({
   plugins: [],
   secondaryStorageNamespace: 'tenant-1',
   tenant: {
-    endpoint: { basePath: '/t/acme', publicUrl: 'https://example.com/t/acme', version: 1 },
+    endpoint: { basePath: '/orgs/acme', publicUrl: 'https://example.com/orgs/acme', version: 1 },
     id: 'tenant-1',
     slug: 'acme',
   },
@@ -334,14 +334,14 @@ describe('defineConfig', () => {
 
       const requested = await post('/request-password-reset', {
         email: 'fixture@example.com',
-        redirectTo: `${config.baseURL}/t/acme/reset-password`,
+        redirectTo: `${config.baseURL}/orgs/acme/reset-password`,
       });
       expect.soft(requested.status).toBe(emailPassword ? 200 : 404);
       expect.soft(sendResetPassword).toHaveBeenCalledTimes(emailPassword ? 1 : 0);
 
       const callback = await instance.handler(
         new Request(
-          `${config.baseURL}${config.basePath}/reset-password/${token}?callbackURL=${encodeURIComponent(`${config.baseURL}/t/acme/reset-password`)}`,
+          `${config.baseURL}${config.basePath}/reset-password/${token}?callbackURL=${encodeURIComponent(`${config.baseURL}/orgs/acme/reset-password`)}`,
         ),
       );
       expect(callback.status).toBe(302);
@@ -426,11 +426,11 @@ describe('defineConfig', () => {
     defineConfig(tenantOptions());
     const [options] = mocks.betterAuth.mock.lastCall!;
 
-    expect(options.basePath).toBe('/t/acme/api/auth');
+    expect(options.basePath).toBe('/orgs/acme/api/auth');
     expect(options.advanced.cookiePrefix).toBe('lh_test');
-    expect(options.advanced.defaultCookieAttributes).toEqual({ path: '/t/acme' });
+    expect(options.advanced.defaultCookieAttributes).toEqual({ path: '/orgs/acme' });
     expect(options.advanced.crossSubDomainCookies).toBeUndefined();
-    expect(options.onAPIError.errorURL).toBe('/t/acme/auth-error');
+    expect(options.onAPIError.errorURL).toBe('/orgs/acme/auth-error');
   });
 
   it('should never link a new provider to an existing account by email', async () => {
@@ -527,7 +527,7 @@ describe('remembered-account hook', () => {
       responseHeaders: options.responseHeaders ?? new Headers(),
     },
     headers: new Headers(options.headers ?? { host: 'example.com' }),
-    request: new Request('https://example.com/t/acme/api/auth/sign-in/email'),
+    request: new Request('https://example.com/orgs/acme/api/auth/sign-in/email'),
   });
 
   const accountValueOf = (headers: Headers) => {

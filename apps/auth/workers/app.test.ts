@@ -22,19 +22,19 @@ afterEach(() => {
 });
 
 describe('auth worker', () => {
-  it("loads the tenant's auth config for a page under /t/{slug}", async () => {
+  it("loads the tenant's auth config for a page under /orgs/{slug}", async () => {
     const fetchMock = vi.fn(async () => Response.json({ config: {} }));
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await worker.fetch(
-      new Request('https://auth.example.com/t/acme/signin'),
+      new Request('https://auth.example.com/orgs/acme/signin'),
       env(),
     );
 
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toBe(
-      'https://api.example.com/t/acme/webapi/auth/spa-config',
+      'https://api.example.com/orgs/acme/webapi/auth/spa-config',
     );
   });
 
@@ -53,12 +53,12 @@ describe('auth worker', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await worker.fetch(
-      new Request('https://auth.example.com/t/acme/api/auth/get-session?x=1'),
+      new Request('https://auth.example.com/orgs/acme/api/auth/get-session?x=1'),
       env(),
     );
 
     expect((fetchMock.mock.calls[0] as unknown as [Request])[0].url).toBe(
-      'https://api.example.com/t/acme/api/auth/get-session?x=1',
+      'https://api.example.com/orgs/acme/api/auth/get-session?x=1',
     );
   });
 });

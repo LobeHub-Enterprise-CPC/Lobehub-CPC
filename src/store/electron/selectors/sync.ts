@@ -36,7 +36,7 @@ const serverConfigScope = (s: ElectronState): string | null => {
 /**
  * The address this renderer builds every absolute link, asset URL and business request on.
  * It follows the main process (`RemoteServerConfigCtr.getRemoteServerUrl`): the committed tenant
- * entry (`https://host/t/acme`, or a custom-domain root), else the legacy self-hosted address.
+ * entry (`https://host/orgs/acme`, or a custom-domain root), else the legacy self-hosted address.
  * A cloud login without a committed tenant has none (`''`); the platform origin is never a
  * fallback, because every business path on it fails with TENANT_REQUIRED.
  *

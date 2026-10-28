@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import reservedSlugs from '../../../../../contracts/tenant-control-plane/reserved-slugs.json';
-import { TENANT_PREFIX } from '../path';
+import { LEGACY_TENANT_PREFIX, TENANT_PREFIX } from '../path';
 import {
   isRegistrableSlug,
   isReservedSlug,
@@ -46,14 +46,20 @@ describe('reserved slugs', () => {
   });
 
   it('covers every first segment this application serves', () => {
-    const served = [TENANT_PREFIX, ...WORKSPACE_MIRRORED_FIRST_SEGMENTS, ...OWN_TOP_LEVEL_ROUTES];
+    const served = [
+      TENANT_PREFIX,
+      LEGACY_TENANT_PREFIX,
+      ...WORKSPACE_MIRRORED_FIRST_SEGMENTS,
+      ...OWN_TOP_LEVEL_ROUTES,
+    ];
     expect(served.filter((segment) => !RESERVED_SLUGS.has(segment))).toEqual([]);
   });
 
-  it('reserves the tenant prefix itself', () => {
-    // Without this, `/t/t/...` and a workspace literally named `t` both become
-    // ambiguous with the prefix.
-    expect(isReservedSlug('t')).toBe(true);
+  it('reserves the tenant prefixes themselves', () => {
+    // Without this, `/orgs/orgs/...` and a workspace literally named `orgs` (or the legacy `t`)
+    // both become ambiguous with the prefix.
+    expect(isReservedSlug(TENANT_PREFIX)).toBe(true);
+    expect(isReservedSlug(LEGACY_TENANT_PREFIX)).toBe(true);
   });
 
   it('reserves every workspace-mirrored segment', () => {

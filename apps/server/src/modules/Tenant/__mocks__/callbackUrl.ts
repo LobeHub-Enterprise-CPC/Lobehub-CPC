@@ -17,7 +17,7 @@ const trimTrailingSlash = (url: string) => url.replace(/\/+$/, '');
 
 export const tenantCallbackPath = (path: string): string => {
   const normalized = path.startsWith('/') ? path : `/${path}`;
-  const prefix = `/t/${TEST_TENANT_SLUG}`;
+  const prefix = `/orgs/${TEST_TENANT_SLUG}`;
   if (normalized === prefix || normalized.startsWith(`${prefix}/`)) return normalized;
   return normalized === '/' ? prefix : `${prefix}${normalized}`;
 };

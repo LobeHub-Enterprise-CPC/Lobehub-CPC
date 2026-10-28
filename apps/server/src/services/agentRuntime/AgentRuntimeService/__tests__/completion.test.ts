@@ -133,13 +133,13 @@ describe('AgentRuntimeService', () => {
     it('should initialize with default base URL', () => {
       delete process.env.AGENT_RUNTIME_BASE_URL;
       const newService = new AgentRuntimeService(mockDb, mockUserId);
-      expect((newService as any).baseURL).toBe('http://localhost:3210/t/acme/api/agent');
+      expect((newService as any).baseURL).toBe('http://localhost:3210/orgs/acme/api/agent');
     });
 
     it('should initialize with custom base URL from environment', () => {
       process.env.AGENT_RUNTIME_BASE_URL = 'http://custom:3000';
       const newService = new AgentRuntimeService(mockDb, mockUserId);
-      expect((newService as any).baseURL).toBe('http://custom:3000/t/acme/api/agent');
+      expect((newService as any).baseURL).toBe('http://custom:3000/orgs/acme/api/agent');
     });
   });
 

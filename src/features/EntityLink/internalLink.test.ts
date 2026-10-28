@@ -7,17 +7,17 @@ afterEach(() => initializeTenant(new URL('https://app.lobehub.com/')));
 
 describe('parseInternalLink under a tenant address', () => {
   it('strips the current tenant prefix so the router basename can re-add it', () => {
-    initializeTenant(new URL('https://app.lobehub.com/t/acme/agent'));
+    initializeTenant(new URL('https://app.lobehub.com/orgs/acme/agent'));
 
     expect(
-      parseInternalLink('https://app.lobehub.com/t/acme/agent/agent-1/task/T-199?x=1#h'),
+      parseInternalLink('https://app.lobehub.com/orgs/acme/agent/agent-1/task/T-199?x=1#h'),
     ).toEqual({
       agentId: 'agent-1',
       pathname: '/agent/agent-1/task/T-199?x=1#h',
       taskId: 'T-199',
       type: 'task',
     });
-    expect(parseInternalLink('/t/acme/agent/agent-1', 'https://app.lobehub.com')).toEqual({
+    expect(parseInternalLink('/orgs/acme/agent/agent-1', 'https://app.lobehub.com')).toEqual({
       agentId: 'agent-1',
       pathname: '/agent/agent-1',
       type: 'agent',
@@ -25,16 +25,16 @@ describe('parseInternalLink under a tenant address', () => {
   });
 
   it('keeps links to another tenant, or a tenant prefix outside a tenant, as plain anchors', () => {
-    initializeTenant(new URL('https://app.lobehub.com/t/acme/agent'));
-    expect(parseInternalLink('/t/other/agent/agent-1')).toBeNull();
+    initializeTenant(new URL('https://app.lobehub.com/orgs/acme/agent'));
+    expect(parseInternalLink('/orgs/other/agent/agent-1')).toBeNull();
 
     initializeTenant(new URL('https://app.lobehub.com/'));
-    expect(parseInternalLink('/t/acme/agent/agent-1')).toBeNull();
+    expect(parseInternalLink('/orgs/acme/agent/agent-1')).toBeNull();
   });
 
   it('never treats the file proxy under a tenant prefix as a route', () => {
-    initializeTenant(new URL('https://app.lobehub.com/t/acme/agent'));
-    expect(parseInternalLink('/t/acme/f/file_1')).toBeNull();
+    initializeTenant(new URL('https://app.lobehub.com/orgs/acme/agent'));
+    expect(parseInternalLink('/orgs/acme/f/file_1')).toBeNull();
   });
 });
 

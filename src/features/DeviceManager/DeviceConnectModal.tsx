@@ -115,7 +115,7 @@ const DeviceConnectModal = memo<DeviceConnectModalProps>(
       if (open) setActive(showDesktopTab ? (initialTab ?? 'desktop') : 'cli');
     }, [open, initialTab, showDesktopTab]);
 
-    // appBaseUrl is this tenant's own entry (`https://host/t/acme`); omitted
+    // appBaseUrl is this tenant's own entry (`https://host/orgs/acme`); omitted
     // only while it is not yet known (unconfigured desktop renderer), so the
     // shown command falls back to the CLI's own default server.
     const serverOption = appBaseUrl ? ` --server ${appBaseUrl}` : '';

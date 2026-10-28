@@ -24,7 +24,7 @@ dayjs.extend(utc);
 dayjs.extend(isToday);
 dayjs.extend(isYesterday);
 
-// Backend calls carry the tenant of the page (`/t/{slug}`), like its routes; so do the
+// Backend calls carry the tenant of the page (`/orgs/{slug}`), like its routes; so do the
 // backend URLs the browser loads itself (<img src>, <a href>, ...).
 if (typeof window !== 'undefined') {
   const url = new URL(window.location.href);

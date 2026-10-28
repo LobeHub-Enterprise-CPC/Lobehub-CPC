@@ -5,7 +5,7 @@ const callbackPath =
 
 /**
  * Protocol callbacks are browser navigations, including SAML form POSTs.
- * `errorPath` is the error page to land on (a tenant's own, under `/t/{slug}`).
+ * `errorPath` is the error page to land on (a tenant's own, under `/orgs/{slug}`).
  */
 export const redirectCallbackError = async (
   request: Request,

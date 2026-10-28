@@ -19,11 +19,11 @@ describe('inputHistoryStorage', () => {
   });
 
   it("keeps one tenant's history out of another tenant on the same origin", () => {
-    initializeTenant(new URL('https://app.test/t/acme/agent'));
+    initializeTenant(new URL('https://app.test/orgs/acme/agent'));
     addInputHistory({ markdown: 'acme secret' });
     expect(getInputHistory()).toHaveLength(1);
 
-    initializeTenant(new URL('https://app.test/t/other/agent'));
+    initializeTenant(new URL('https://app.test/orgs/other/agent'));
     expect(getInputHistory()).toEqual([]);
   });
 

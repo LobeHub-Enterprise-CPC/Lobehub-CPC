@@ -238,9 +238,9 @@ describe('getValidToken', () => {
   it('should refresh against the tenant path of the server', async () => {
     vi.mocked(loadCredentials).mockReturnValue({
       ...expiredCredentials('my-refresh-token'),
-      serverUrl: 'https://host/t/acme',
+      serverUrl: 'https://host/orgs/acme',
     });
-    vi.mocked(resolveServerUrl).mockReturnValue('https://host/t/acme');
+    vi.mocked(resolveServerUrl).mockReturnValue('https://host/orgs/acme');
     vi.mocked(fetch).mockResolvedValue({
       json: vi.fn().mockResolvedValue({ access_token: 'new-token', token_type: 'Bearer' }),
       ok: true,
@@ -248,7 +248,7 @@ describe('getValidToken', () => {
 
     await getValidToken();
 
-    expect(fetch).toHaveBeenCalledWith('https://host/t/acme/oidc/token', expect.any(Object));
+    expect(fetch).toHaveBeenCalledWith('https://host/orgs/acme/oidc/token', expect.any(Object));
   });
 
   it('should send correct request to refresh endpoint', async () => {
@@ -286,7 +286,7 @@ describe('getValidToken', () => {
 describe('credentials are only used at the server that issued them', () => {
   beforeEach(() => {
     vi.mocked(saveCredentials).mockClear();
-    vi.mocked(resolveServerUrl).mockReturnValue('https://host/t/b');
+    vi.mocked(resolveServerUrl).mockReturnValue('https://host/orgs/b');
     vi.stubGlobal('fetch', vi.fn());
   });
 
@@ -297,12 +297,12 @@ describe('credentials are only used at the server that issued them', () => {
   it('never sends the refresh token to another tenant of the same host', async () => {
     vi.mocked(loadCredentials).mockReturnValue({
       ...expiredCredentials('tenant-a-refresh'),
-      serverUrl: 'https://host/t/a',
+      serverUrl: 'https://host/orgs/a',
     });
 
     await expect(getValidToken()).resolves.toEqual({
-      issuer: 'https://host/t/a',
-      serverUrl: 'https://host/t/b',
+      issuer: 'https://host/orgs/a',
+      serverUrl: 'https://host/orgs/b',
       status: 'foreign-server',
     });
     expect(fetch).not.toHaveBeenCalled();
@@ -314,7 +314,7 @@ describe('credentials are only used at the server that issued them', () => {
       accessToken: 'tenant-a-access',
       expiresAt: Math.floor(Date.now() / 1000) + 3600,
       refreshToken: 'tenant-a-refresh',
-      serverUrl: 'https://host/t/a',
+      serverUrl: 'https://host/orgs/a',
     });
 
     await expect(getValidToken()).resolves.toMatchObject({ status: 'foreign-server' });
@@ -333,7 +333,7 @@ describe('credentials are only used at the server that issued them', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it.each(['https://HOST/t/b/', 'https://host/t/b'])(
+  it.each(['https://HOST/orgs/b/', 'https://host/orgs/b'])(
     'accepts the same server as %s',
     async (issuer) => {
       vi.mocked(loadCredentials).mockReturnValue({
@@ -349,7 +349,7 @@ describe('credentials are only used at the server that issued them', () => {
   it('keeps the issuer when a refreshed login is saved', async () => {
     vi.mocked(loadCredentials).mockReturnValue({
       ...expiredCredentials('r'),
-      serverUrl: 'https://host/t/b',
+      serverUrl: 'https://host/orgs/b',
     });
     vi.mocked(fetch).mockResolvedValue({
       json: vi.fn().mockResolvedValue({ access_token: 'new', token_type: 'Bearer' }),
@@ -359,20 +359,20 @@ describe('credentials are only used at the server that issued them', () => {
     await getValidToken();
 
     expect(saveCredentials).toHaveBeenCalledWith(
-      expect.objectContaining({ accessToken: 'new', serverUrl: 'https://host/t/b' }),
+      expect.objectContaining({ accessToken: 'new', serverUrl: 'https://host/orgs/b' }),
     );
   });
 
   it('tells the user which server issued the login and how to sign in to this one', () => {
     const report = describeTokenLookup({
-      issuer: 'https://host/t/a',
-      serverUrl: 'https://host/t/b',
+      issuer: 'https://host/orgs/a',
+      serverUrl: 'https://host/orgs/b',
       status: 'foreign-server',
     });
 
-    expect(report?.detail).toContain('https://host/t/a');
-    expect(report?.detail).toContain('https://host/t/b');
-    expect(report?.fix).toContain('login --server https://host/t/b');
+    expect(report?.detail).toContain('https://host/orgs/a');
+    expect(report?.detail).toContain('https://host/orgs/b');
+    expect(report?.fix).toContain('login --server https://host/orgs/b');
   });
 });
 

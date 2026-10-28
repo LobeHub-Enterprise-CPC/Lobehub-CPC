@@ -54,13 +54,13 @@ describe('tenant SSO reader', () => {
 
     const config = toGenericOAuthConfig(
       provider!,
-      `https://app.example.com/t/acme${tenantSsoCallbackPath('okta')}`,
+      `https://app.example.com/orgs/acme${tenantSsoCallbackPath('okta')}`,
     );
     expect(config).toMatchObject({
       clientId: 'client-1',
       clientSecret: 's3cret',
       providerId: 'okta',
-      redirectURI: 'https://app.example.com/t/acme/api/auth/callback/okta',
+      redirectURI: 'https://app.example.com/orgs/acme/api/auth/callback/okta',
     });
   });
 

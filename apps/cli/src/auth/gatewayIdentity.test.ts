@@ -58,7 +58,7 @@ const attestation = (principal: { kind: 'user' | 'workspace'; id: string }) =>
     }),
   ).toString('base64url')}.TEST`;
 const auth = {
-  serverUrl: 'https://example.test/t/a',
+  serverUrl: 'https://example.test/orgs/a',
   token: 'original-api-key',
   tokenType: 'apiKey' as const,
   userId: 'same-sub',
@@ -81,7 +81,7 @@ describe('CLI original-source gateway identity', () => {
       mutable.token = 'other-key';
       await provider(input());
       expect(String(fetcher.mock.calls[0][0])).toBe(
-        'https://example.test/t/a/api/v1/gateway/identity',
+        'https://example.test/orgs/a/api/v1/gateway/identity',
       );
       const init = fetcher.mock.calls[1][1]!;
       expect(JSON.parse(init.body as string).renewAuthorizationId).toBe(first.authorizationId);

@@ -39,7 +39,7 @@ const service = vi.mocked(remoteServerService);
 const request = {
   account: 'li@acme.example',
   confirmationId: 'confirm-1',
-  entryUrl: 'https://work.example.com/t/acme',
+  entryUrl: 'https://work.example.com/orgs/acme',
   expiresAt: Date.now() + 300_000,
   generation: 'gen-1',
   name: 'Acme',
@@ -190,9 +190,9 @@ describe('connectRemoteServer', () => {
     active: true,
     cloudTenant: {
       display: { account: 'a@acme.example' },
-      entryUrl: 'https://work.example.com/t/acme',
+      entryUrl: 'https://work.example.com/orgs/acme',
       generation: 'gen-a',
-      identity: { issuer: 'https://work.example.com/t/acme/oidc', subject: 'u1', tenantId: 'a' },
+      identity: { issuer: 'https://work.example.com/orgs/acme/oidc', subject: 'u1', tenantId: 'a' },
     },
     storageMode: 'cloud',
   };
@@ -201,7 +201,7 @@ describe('connectRemoteServer', () => {
     service.getRemoteServerConfig.mockResolvedValue(committed);
     service.requestAuthorization.mockResolvedValue({ success: true });
     const next: DataSyncConfig = {
-      remoteServerUrl: 'https://other.example.com/t/b',
+      remoteServerUrl: 'https://other.example.com/orgs/b',
       storageMode: 'selfHost',
     };
 
@@ -222,7 +222,7 @@ describe('connectRemoteServer', () => {
     });
 
     await state().connectRemoteServer({
-      remoteServerUrl: 'https://other.example.com/t/b',
+      remoteServerUrl: 'https://other.example.com/orgs/b',
       storageMode: 'selfHost',
     });
 
@@ -238,9 +238,9 @@ describe('user data follows the committed identity only', () => {
     active: true,
     cloudTenant: {
       display: { account: 'a@acme.example' },
-      entryUrl: 'https://work.example.com/t/acme',
+      entryUrl: 'https://work.example.com/orgs/acme',
       generation: 'gen-a',
-      identity: { issuer: 'https://work.example.com/t/acme/oidc', subject: 'u1', tenantId: 'a' },
+      identity: { issuer: 'https://work.example.com/orgs/acme/oidc', subject: 'u1', tenantId: 'a' },
     },
     storageMode: 'cloud',
   };

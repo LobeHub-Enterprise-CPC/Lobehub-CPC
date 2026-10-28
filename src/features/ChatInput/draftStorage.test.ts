@@ -21,11 +21,11 @@ describe('draftStorage', () => {
   });
 
   it("keeps one tenant's drafts out of another tenant on the same origin", () => {
-    initializeTenant(new URL('https://app.test/t/acme/agent'));
+    initializeTenant(new URL('https://app.test/orgs/acme/agent'));
     saveDraft('main_a_new', { root: { children: [] } });
     expect(getDraft('main_a_new')).toBeDefined();
 
-    initializeTenant(new URL('https://app.test/t/other/agent'));
+    initializeTenant(new URL('https://app.test/orgs/other/agent'));
     expect(getDraft('main_a_new')).toBeUndefined();
   });
 

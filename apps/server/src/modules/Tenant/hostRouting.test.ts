@@ -20,7 +20,7 @@ const defaultEntry = {
   slug: 'beta',
   tenantId: 'b',
   state: {
-    activeUrl: 'https://app.example.com/t/beta',
+    activeUrl: 'https://app.example.com/orgs/beta',
     endpoints: [{ kind: 'default', host: null, active: true }],
   },
 };
@@ -71,7 +71,7 @@ describe('trusted host routing', () => {
         });
       for (const authority of [deps.appUrl, deps.internalUrl]) {
         for (const path of [
-          `/t/beta/api/internal/gateway/${endpoint}`,
+          `/orgs/beta/api/internal/gateway/${endpoint}`,
           `/api/internal/gateway/${endpoint}/extra`,
           `/api/internal/gateway/${endpoint}-extra`,
           `/api/internal/gateway/extra-${endpoint}`,
@@ -84,7 +84,7 @@ describe('trusted host routing', () => {
     },
   );
   it('carries documented navigation queries but drops secrets and unknown fields on both inactive authorities', async () => {
-    for (const prefix of ['https://app.example.com/t/acme', 'https://old.example.com']) {
+    for (const prefix of ['https://app.example.com/orgs/acme', 'https://old.example.com']) {
       const result = await route(
         `${prefix}/resource?tab=files&page=2&q=report&code=secret&state=s&access_token=t&refresh_token=r&id_token=i&token=t&password=p&email=e&callbackURL=u&redirect_uri=u&unknown=x&CODE=c`,
       );
@@ -95,16 +95,16 @@ describe('trusted host routing', () => {
     }
   });
   it('resolves default paths only on the platform authority', async () => {
-    expect(await route('https://app.example.com/t/beta/agent')).toEqual({
+    expect(await route('https://app.example.com/orgs/beta/agent')).toEqual({
       kind: 'tenant-page',
       slug: 'beta',
       path: '/agent',
     });
-    expect(await route('https://evil.example.com/t/beta/api/auth')).toMatchObject({
+    expect(await route('https://evil.example.com/orgs/beta/api/auth')).toMatchObject({
       kind: 'reject',
       status: 404,
     });
-    expect(await route('https://app.example.com:444/t/beta/agent')).toMatchObject({
+    expect(await route('https://app.example.com:444/orgs/beta/agent')).toMatchObject({
       kind: 'reject',
     });
   });
@@ -121,7 +121,7 @@ describe('trusted host routing', () => {
       '/api/governance/execution-policy',
       '/api/governance/execution-policy/user-1',
     ])
-      expect(await route(`http://internal:3010/t/acme${path}`, 'POST')).toEqual({
+      expect(await route(`http://internal:3010/orgs/acme${path}`, 'POST')).toEqual({
         kind: 'tenant-backend',
         path,
         slug: 'acme',
@@ -130,14 +130,16 @@ describe('trusted host routing', () => {
   it('keeps the internal-host governance admission narrow', async () => {
     // Unknown backend paths and lookalike prefixes stay 404 on the internal host.
     for (const path of [
-      '/t/acme/api/unknown',
-      '/t/acme/api/governance-evil',
-      '/t/acme/api/governanceX/check',
-      '/t/acme/api/auth',
+      '/orgs/acme/api/unknown',
+      '/orgs/acme/api/governance-evil',
+      '/orgs/acme/api/governanceX/check',
+      '/orgs/acme/api/auth',
     ])
       expect(await route(`http://internal:3010${path}`)).toMatchObject({ kind: 'reject' });
     // Unknown slugs never resolve, even for allowlisted mounts.
-    expect(await route('http://internal:3010/t/nope/api/governance/check', 'POST')).toMatchObject({
+    expect(
+      await route('http://internal:3010/orgs/nope/api/governance/check', 'POST'),
+    ).toMatchObject({
       kind: 'reject',
     });
     // A governance path without a tenant prefix has no tenant to bind to.
@@ -147,9 +149,11 @@ describe('trusted host routing', () => {
     // The admission is scoped to the internal authority: custom domains refuse
     // the /t prefix and off-443 ports refuse everything, governance included.
     expect(
-      await route('https://chat.example.com/t/acme/api/governance/check', 'POST'),
+      await route('https://chat.example.com/orgs/acme/api/governance/check', 'POST'),
     ).toMatchObject({ kind: 'reject' });
-    expect(await route('http://internal:3011/t/acme/api/governance/check', 'POST')).toMatchObject({
+    expect(
+      await route('http://internal:3011/orgs/acme/api/governance/check', 'POST'),
+    ).toMatchObject({
       kind: 'reject',
     });
   });
@@ -159,24 +163,26 @@ describe('trusted host routing', () => {
       slug: 'acme',
       path: '/api/auth',
     });
-    expect(await route('https://chat.example.com/t/beta/api/auth')).toMatchObject({
+    expect(await route('https://chat.example.com/orgs/beta/api/auth')).toMatchObject({
       kind: 'reject',
     });
-    expect(await route('https://chat.example.com/t/acme/signin')).toMatchObject({ kind: 'reject' });
+    expect(await route('https://chat.example.com/orgs/acme/signin')).toMatchObject({
+      kind: 'reject',
+    });
   });
   it('redirects only inactive page navigation and keeps query', async () => {
     expect(
-      await route('https://app.example.com/t/acme/agent?hl=en-US&code=secret&state=secret'),
+      await route('https://app.example.com/orgs/acme/agent?hl=en-US&code=secret&state=secret'),
     ).toEqual({ kind: 'redirect', url: 'https://chat.example.com/agent?hl=en-US' });
     expect(await route('https://old.example.com/agent', 'HEAD')).toEqual({
       kind: 'redirect',
       url: 'https://chat.example.com/agent',
     });
     for (const [path, method] of [
-      ['/t/acme/api/auth', 'GET'],
-      ['/t/acme/agent', 'POST'],
-      ['/t/acme/oauth/consent/code', 'GET'],
-      ['/t/acme/market-auth-callback?code=secret&state=secret', 'GET'],
+      ['/orgs/acme/api/auth', 'GET'],
+      ['/orgs/acme/agent', 'POST'],
+      ['/orgs/acme/oauth/consent/code', 'GET'],
+      ['/orgs/acme/market-auth-callback?code=secret&state=secret', 'GET'],
     ])
       expect(await route(`https://app.example.com${path}`, method)).toEqual({
         kind: 'endpoint-changed',
@@ -184,11 +190,17 @@ describe('trusted host routing', () => {
       });
   });
   it('allows authenticated internal transports without admitting browser surfaces', async () => {
-    expect(await route('http://internal:3010/t/acme/trpc/async', 'POST')).toMatchObject({
+    expect(await route('http://internal:3010/orgs/acme/trpc/async', 'POST')).toMatchObject({
       kind: 'tenant-backend',
       slug: 'acme',
     });
-    for (const path of ['/signin', '/api/auth', '/agent', '/t/acme/signin', '/t/acme/api/auth'])
+    for (const path of [
+      '/signin',
+      '/api/auth',
+      '/agent',
+      '/orgs/acme/signin',
+      '/orgs/acme/api/auth',
+    ])
       expect(await route(`http://internal:3010${path}`)).toMatchObject({ kind: 'reject' });
   });
   it('keeps queued authenticated callbacks when internal and platform hosts coincide', async () => {
@@ -202,7 +214,7 @@ describe('trusted host routing', () => {
     ]) {
       expect(
         await resolveHostTenantRoute(
-          new URL(`https://app.example.com/t/acme${path}`),
+          new URL(`https://app.example.com/orgs/acme${path}`),
           'POST',
           sameHost,
         ),
@@ -210,7 +222,7 @@ describe('trusted host routing', () => {
     }
     expect(
       await resolveHostTenantRoute(
-        new URL('https://app.example.com/t/acme/api/auth/callback/google'),
+        new URL('https://app.example.com/orgs/acme/api/auth/callback/google'),
         'POST',
         sameHost,
       ),
@@ -220,7 +232,7 @@ describe('trusted host routing', () => {
     for (const path of ['/api/internal/control-plane/tenant-endpoints', '/api/cron/daily']) {
       for (const authority of [deps.appUrl, deps.internalUrl])
         expect(await route(`${authority}${path}`, 'POST')).toEqual({ kind: 'tenantless-backend' });
-      for (const prefix of ['https://chat.example.com', 'https://app.example.com/t/beta'])
+      for (const prefix of ['https://chat.example.com', 'https://app.example.com/orgs/beta'])
         expect(await route(`${prefix}${path}`, 'POST')).toMatchObject({ kind: 'reject' });
     }
   });
@@ -232,12 +244,12 @@ describe('trusted host routing', () => {
       '/f/id',
       '/api/version',
     ]) {
-      const unknown = await route(`https://app.example.com/t/nope${path}`, 'POST');
+      const unknown = await route(`https://app.example.com/orgs/nope${path}`, 'POST');
       expect(unknown).toMatchObject({ kind: 'unknown-tenant', slug: 'nope' });
       const without = await route(`https://app.example.com${path}`, 'POST');
       expect((unknown as { fallback: unknown }).fallback).toMatchObject(without);
     }
-    expect(await route('https://app.example.com/t/nope/api/auth/get-session')).toEqual({
+    expect(await route('https://app.example.com/orgs/nope/api/auth/get-session')).toEqual({
       kind: 'unknown-tenant',
       slug: 'nope',
       fallback: { kind: 'reject', code: 'TENANT_REQUIRED', status: 400 },
@@ -255,7 +267,7 @@ describe('discovery deployment boundary', () => {
       kind: 'tenantless-backend',
     });
     for (const slug of ['beta', 'nope'])
-      expect(resolveTenantRoute(new URL(`https://app.example.com/t/${slug}${path}`))).toEqual({
+      expect(resolveTenantRoute(new URL(`https://app.example.com/orgs/${slug}${path}`))).toEqual({
         kind: 'reject',
         code: 'NOT_FOUND',
         status: 404,
@@ -267,9 +279,9 @@ describe('discovery deployment boundary', () => {
       'http://internal:3010',
       'https://chat.example.com',
       'https://old.example.com',
-      'https://app.example.com/t/beta',
-      'https://app.example.com/t/nope',
-      'https://app.example.com/t/INVALID',
+      'https://app.example.com/orgs/beta',
+      'https://app.example.com/orgs/nope',
+      'https://app.example.com/orgs/INVALID',
       'https://app.example.com/t/',
     ])
       expect(await route(`${prefix}${path}`, 'POST')).toMatchObject({
@@ -282,18 +294,21 @@ describe('discovery deployment boundary', () => {
 describe('session entry (/__entry)', () => {
   it('hands an active default endpoint to the session check without recording the visit', async () => {
     const { onDefaultTenantPage, result } = await entryRoute(
-      'https://app.example.com/t/beta/__entry',
+      'https://app.example.com/orgs/beta/__entry',
       true,
     );
     expect(result).toEqual({
       kind: 'session-entry',
       slug: 'beta',
-      activeUrl: 'https://app.example.com/t/beta',
+      activeUrl: 'https://app.example.com/orgs/beta',
     });
     expect(onDefaultTenantPage).not.toHaveBeenCalled();
   });
   it('still records an ordinary explicit visit, so the entry exception stays narrow', async () => {
-    const { onDefaultTenantPage } = await entryRoute('https://app.example.com/t/beta/agent', true);
+    const { onDefaultTenantPage } = await entryRoute(
+      'https://app.example.com/orgs/beta/agent',
+      true,
+    );
     expect(onDefaultTenantPage).toHaveBeenCalledTimes(1);
   });
   it('hands an active custom host to the session check', async () => {
@@ -305,15 +320,15 @@ describe('session entry (/__entry)', () => {
     });
   });
   it.each([
-    ['https://app.example.com/t/beta/__entry', 'GET', false],
-    ['https://app.example.com/t/beta/__entry', 'HEAD', false],
-    ['https://app.example.com/t/beta/__entry', 'POST', false],
-    ['https://app.example.com/t/beta/__entry/', 'GET', false],
+    ['https://app.example.com/orgs/beta/__entry', 'GET', false],
+    ['https://app.example.com/orgs/beta/__entry', 'HEAD', false],
+    ['https://app.example.com/orgs/beta/__entry', 'POST', false],
+    ['https://app.example.com/orgs/beta/__entry/', 'GET', false],
     ['https://chat.example.com/__entry', 'GET', false],
     ['https://chat.example.com/__entry/', 'GET', false],
     // An inactive endpoint answers a non-document request exactly like an active one.
-    ['https://app.example.com/t/acme/__entry', 'GET', false],
-    ['https://app.example.com/t/acme/__entry', 'HEAD', false],
+    ['https://app.example.com/orgs/acme/__entry', 'GET', false],
+    ['https://app.example.com/orgs/acme/__entry', 'HEAD', false],
     ['https://old.example.com/__entry', 'GET', false],
   ])(
     'refuses %s (%s, document navigation %s) without recording or redirecting',
@@ -324,14 +339,14 @@ describe('session entry (/__entry)', () => {
     },
   );
   it('refuses a request whose navigation status was never supplied', async () => {
-    expect(await route('https://app.example.com/t/beta/__entry')).toEqual({
+    expect(await route('https://app.example.com/orgs/beta/__entry')).toEqual({
       kind: 'reject',
       code: 'NOT_FOUND',
       status: 404,
     });
   });
   it.each([
-    'https://app.example.com/t/acme/__entry?token=secret&email=a@example.com&callbackUrl=https://evil.example',
+    'https://app.example.com/orgs/acme/__entry?token=secret&email=a@example.com&callbackUrl=https://evil.example',
     'https://old.example.com/__entry?code=secret&hl=en-US',
   ])('moves an inactive endpoint to the active one dropping every query field: %s', async (url) => {
     const { onDefaultTenantPage, result } = await entryRoute(url, true);
@@ -344,8 +359,8 @@ describe('session entry (/__entry)', () => {
   it('normalizes a trailing slash on an active endpoint to the same origin and nothing else', async () => {
     for (const [url, target] of [
       [
-        'https://app.example.com/t/beta/__entry/?x=secret',
-        'https://app.example.com/t/beta/__entry',
+        'https://app.example.com/orgs/beta/__entry/?x=secret',
+        'https://app.example.com/orgs/beta/__entry',
       ],
       ['https://chat.example.com/__entry/', 'https://chat.example.com/__entry'],
     ]) {
@@ -366,18 +381,18 @@ describe('session entry (/__entry)', () => {
       },
     };
     const result = await resolveHostTenantRoute(
-      new URL('https://app.example.com/t/acme/__entry/'),
+      new URL('https://app.example.com/orgs/acme/__entry/'),
       'GET',
       { ...deps, documentNavigation: true, findSlug: async () => both },
     );
     expect(result).toEqual({
       kind: 'redirect',
       status: 308,
-      url: 'https://app.example.com/t/acme/__entry',
+      url: 'https://app.example.com/orgs/acme/__entry',
     });
   });
   it.each([
-    'https://app.example.com/t/acme/__entry/?token=secret',
+    'https://app.example.com/orgs/acme/__entry/?token=secret',
     'https://old.example.com/__entry/?code=secret',
   ])(
     'moves a deactivated endpoint straight to the active entry, clearing the fragment: %s',
@@ -392,7 +407,7 @@ describe('session entry (/__entry)', () => {
   );
   it('treats an unknown slug like any unknown tenant page and an unknown host as unknown', async () => {
     const { onDefaultTenantPage, result } = await entryRoute(
-      'https://app.example.com/t/nope/__entry',
+      'https://app.example.com/orgs/nope/__entry',
       true,
     );
     expect(result).toMatchObject({ kind: 'unknown-tenant', slug: 'nope' });
@@ -402,12 +417,67 @@ describe('session entry (/__entry)', () => {
       status: 404,
     });
     expect(
-      (await entryRoute('https://chat.example.com/t/beta/__entry', true)).result,
+      (await entryRoute('https://chat.example.com/orgs/beta/__entry', true)).result,
     ).toMatchObject({ kind: 'reject' });
   });
   it('is not reachable through the internal authority', async () => {
-    expect((await entryRoute('http://internal:3010/t/beta/__entry', true)).result).toMatchObject({
-      kind: 'reject',
+    expect((await entryRoute('http://internal:3010/orgs/beta/__entry', true)).result).toMatchObject(
+      {
+        kind: 'reject',
+      },
+    );
+  });
+});
+
+describe('legacy /t prefix', () => {
+  it('moves a page of a known tenant to /orgs on the same origin, query kept', async () => {
+    for (const method of ['GET', 'HEAD'])
+      expect(await route('https://app.example.com/t/beta/agent?topic=1&code=x', method)).toEqual({
+        kind: 'redirect',
+        status: 308,
+        url: 'https://app.example.com/orgs/beta/agent?topic=1&code=x',
+      });
+    expect(await route('https://app.example.com/t/beta')).toEqual({
+      kind: 'redirect',
+      status: 308,
+      url: 'https://app.example.com/orgs/beta',
     });
+  });
+
+  it('serves backend calls and non-GET requests in place', async () => {
+    expect(await route('https://app.example.com/t/beta/api/auth/callback/x?code=1')).toEqual({
+      kind: 'tenant-backend',
+      path: '/api/auth/callback/x',
+      slug: 'beta',
+    });
+    expect(await route('https://app.example.com/t/beta/trpc/lambda/x', 'POST')).toEqual({
+      kind: 'tenant-backend',
+      path: '/trpc/lambda/x',
+      slug: 'beta',
+    });
+    expect(await route('https://app.example.com/t/beta/agent', 'POST')).toEqual({
+      kind: 'tenant-page',
+      path: '/agent',
+      slug: 'beta',
+    });
+    expect(await route('http://internal:3010/t/beta/api/workflows/x', 'POST')).toEqual({
+      kind: 'tenant-backend',
+      path: '/api/workflows/x',
+      slug: 'beta',
+    });
+  });
+
+  it('leaves a tenant whose default endpoint moved to its active address', async () => {
+    expect(await route('https://app.example.com/t/acme/agent')).toEqual({
+      kind: 'redirect',
+      url: 'https://chat.example.com/agent',
+    });
+  });
+
+  it('treats an unknown slug and a custom host exactly like the /orgs form', async () => {
+    expect(await route('https://app.example.com/t/nope/agent')).toEqual(
+      await route('https://app.example.com/orgs/nope/agent'),
+    );
+    expect(await route('https://chat.example.com/t/acme/agent')).toMatchObject({ kind: 'reject' });
   });
 });

@@ -49,7 +49,7 @@ describe('RemoteServerSyncCtr tRPC stream forwarding', () => {
     vi.restoreAllMocks();
   });
 
-  it.each(['https://host.example/t/acme', 'https://host.example/t/acme/'])(
+  it.each(['https://host.example/orgs/acme', 'https://host.example/orgs/acme/'])(
     'forwards the request under the tenant path prefix of %s',
     async (url) => {
       remoteServerUrl = url;
@@ -57,7 +57,7 @@ describe('RemoteServerSyncCtr tRPC stream forwarding', () => {
 
       const options = httpsRequestMock.mock.calls[0][0];
       expect(options.hostname).toBe('host.example');
-      expect(options.path).toBe('/t/acme/trpc/lambda/chat.stream?batch=1');
+      expect(options.path).toBe('/orgs/acme/trpc/lambda/chat.stream?batch=1');
     },
   );
 
@@ -69,7 +69,7 @@ describe('RemoteServerSyncCtr tRPC stream forwarding', () => {
   });
 
   it('refuses to forward a path that names another origin', async () => {
-    remoteServerUrl = 'https://host.example/t/acme';
+    remoteServerUrl = 'https://host.example/orgs/acme';
     await start('//evil.example/trpc');
 
     expect(httpsRequestMock).not.toHaveBeenCalled();

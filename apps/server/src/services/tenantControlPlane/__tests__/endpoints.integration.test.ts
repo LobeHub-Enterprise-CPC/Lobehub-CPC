@@ -124,7 +124,7 @@ suite('PostgreSQL endpoint projection and migration', () => {
     expect(await service.get(FIXTURE_TENANT)).toMatchObject({
       appliedVersion: 0,
       acceptedVersion: 0,
-      activeUrl: 'https://app.example.com/t/acme',
+      activeUrl: 'https://app.example.com/orgs/acme',
       endpoints: [{ id: 'default', kind: 'default', host: null, active: true }],
     });
     expect(await platform.select().from(schema.tenantEndpointState)).toEqual([]);
@@ -149,7 +149,7 @@ suite('PostgreSQL endpoint projection and migration', () => {
       status: 'applied',
       acceptedVersion: 1,
       appliedVersion: 1,
-      activeUrl: 'https://app.example.com/t/acme',
+      activeUrl: 'https://app.example.com/orgs/acme',
     });
     expect(await service.receive(request())).toEqual(first);
     expect(await loadTenantPublicEndpoint(FIXTURE_TENANT, platform)).toMatchObject({
@@ -218,7 +218,7 @@ suite('PostgreSQL endpoint projection and migration', () => {
     expect(result.every((r) => r.status === 'fulfilled')).toBe(true);
     expect(await service.get(FIXTURE_TENANT)).toMatchObject({
       appliedVersion: 4,
-      activeUrl: 'https://app.example.com/t/acme',
+      activeUrl: 'https://app.example.com/orgs/acme',
     });
     expect(await findHostEndpoint('chat.example.com', platform)).toBeNull();
     expect(await findHostEndpoint('other.example.com', platform)).toBeNull();
@@ -279,7 +279,7 @@ suite('PostgreSQL endpoint projection and migration', () => {
     await migrate(db, { migrationsFolder: migrateFolder });
     expect(
       await new TenantEndpointsService(db, 'https://app.example.com').get(HISTORICAL_TENANT),
-    ).toMatchObject({ appliedVersion: 1, activeUrl: 'https://app.example.com/t/history' });
+    ).toMatchObject({ appliedVersion: 1, activeUrl: 'https://app.example.com/orgs/history' });
     await db.insert(schema.tenantDirectory).values(directory(FIXTURE_TENANT, 'isolated'));
     expect(await loadTenantPublicEndpoint(FIXTURE_TENANT, db)).toMatchObject({
       version: 0,

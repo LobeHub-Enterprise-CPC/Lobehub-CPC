@@ -1,4 +1,4 @@
-// Like the main SPA entries: tenant fetch/asset prefixing (`/t/{slug}`) and the
+// Like the main SPA entries: tenant fetch/asset prefixing (`/orgs/{slug}`) and the
 // StyleX sheet. Without it every share read goes out unscoped (TENANT_REQUIRED).
 import '@/initialize';
 
@@ -12,7 +12,7 @@ import { createSPABrowserRouter, createSPARoot } from '@/spa/runtime';
 
 import { shareRoutes } from './router';
 
-// A tenant share link is `/t/{slug}/share/...`; without the basename it falls to
+// A tenant share link is `/orgs/{slug}/share/...`; without the basename it falls to
 // the catch-all, which leaves the share for the root entry (signin / finder).
 const { basename } = resolveAppBasename({
   debugProxy: window.__DEBUG_PROXY__,

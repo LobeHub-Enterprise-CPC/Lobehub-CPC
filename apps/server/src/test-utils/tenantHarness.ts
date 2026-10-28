@@ -41,7 +41,7 @@ export const runWithTestTenant = async <T>(
     tenantId: 'tenant-agent-integration',
     acceptedVersion: 1,
     slug: 'acme',
-    endpoint: { basePath: '/t/acme', publicUrl: 'http://test.invalid/t/acme', version: 1 },
+    endpoint: { basePath: '/orgs/acme', publicUrl: 'http://test.invalid/orgs/acme', version: 1 },
     // Resolve the database provisioned by this test file, including queued continuations.
     session: {
       get database() {

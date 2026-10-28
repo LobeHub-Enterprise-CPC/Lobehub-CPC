@@ -7,7 +7,7 @@ import {
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 
-import { parseTenantPath, TENANT_PREFIX, withTenantPath } from './path';
+import { hasTenantPrefix, parseTenantPath, withTenantPath } from './path';
 import type { TenantContext } from './resolve';
 import { resolveTenant } from './resolve';
 
@@ -57,7 +57,7 @@ export const withCurrentTenantPath = (path: string): string => {
 /**
  * What partitions this client's browser-local state per tenant: the slug of the page the server
  * served, or the committed tenant id in the desktop renderer (which is not served under
- * `/t/{slug}`); `undefined` for an unscoped document.
+ * `/orgs/{slug}`); `undefined` for an unscoped document.
  */
 export const getTenantScopeId = (): string | undefined => {
   const { remoteTenantId, tenant } = tenantStore.getState();
@@ -75,10 +75,14 @@ export const setRemoteTenantId = (tenantId: string | undefined): void => {
  * history, cached transcripts). Every tenant shares one origin, hence one
  * `localStorage`; an unscoped key would show tenant A's draft to tenant B in the
  * same browser. Pure UI preferences (theme, playback rate) stay unscoped.
+ *
+ * The namespace is a storage name, not the url prefix: keys already written under it must keep
+ * resolving when the url prefix changes.
  */
+const STORAGE_NAMESPACE = 't';
 export const tenantStorageKey = (key: string): string => {
   const scopeId = getTenantScopeId();
-  return scopeId ? `${TENANT_PREFIX}:${scopeId}:${key}` : key;
+  return scopeId ? `${STORAGE_NAMESPACE}:${scopeId}:${key}` : key;
 };
 
 /**
@@ -88,7 +92,7 @@ export const tenantStorageKey = (key: string): string => {
  */
 export const currentTenantRelativePath = (pathname: string): string | null => {
   const { rest, tenantSlug } = parseTenantPath(pathname);
-  if (getTenant()?.basePath === '') return /^\/t(?:\/|$)/.test(pathname) ? null : pathname;
+  if (getTenant()?.basePath === '') return hasTenantPrefix(pathname) ? null : pathname;
   return tenantSlug === (getTenant()?.slug ?? null) ? rest : null;
 };
 
@@ -100,7 +104,7 @@ export const currentTenantRelativePath = (pathname: string): string | null => {
 /**
  * Called by a client that is not served by the app server (the desktop
  * renderer) with its configured remote server address, a tenant address such
- * as `https://host/t/acme`; `''` while unconfigured, `undefined` to unset.
+ * as `https://host/orgs/acme`; `''` while unconfigured, `undefined` to unset.
  */
 export const setRemoteAppAddress = (address: string | undefined): void => {
   const remoteAddress = address === undefined ? undefined : normalizeRemoteBaseUrl(address);
@@ -118,7 +122,7 @@ const appBaseUrlOf = ({ remoteAddress, tenant }: TenantState): string => {
 /**
  * The address the tenant's app lives under, without a trailing slash:
  * - a page the server served: the tenant's active public address it
- *   bootstrapped (`https://host/t/acme`, or a custom domain); without a
+ *   bootstrapped (`https://host/orgs/acme`, or a custom domain); without a
  *   bootstrap, the page origin plus the tenant path it was addressed with;
  * - the desktop renderer: the configured remote server address (`''` until set).
  *
@@ -153,7 +157,7 @@ export const useAppAssetUrl = <T extends string | undefined>(value: T): T =>
   );
 
 /**
- * The app path of a URL pathname under the app address (`/t/acme/f/x` ->
+ * The app path of a URL pathname under the app address (`/orgs/acme/f/x` ->
  * `/f/x`), or `null` when it belongs to another tenant or no address is known.
  */
 export const appRelativePath = (pathname: string): string | null => {

@@ -33,7 +33,7 @@ const json = (body: unknown, init?: ResponseInit) =>
   });
 
 const acme = { id: 'tenant-acme', name: 'Acme' };
-const globex = { address: 'app.example.com/t/globex', id: 'tenant-globex', name: 'Globex' };
+const globex = { address: 'app.example.com/orgs/globex', id: 'tenant-globex', name: 'Globex' };
 const globexTwin = { address: 'globex.example.org', id: 'tenant-globex-2', name: 'Globex' };
 
 const emailInput = () => screen.getByRole('textbox', { name: 'organization.discovery.emailLabel' });
@@ -161,7 +161,7 @@ describe('TenantDiscovery', () => {
       const rows = within(dialog).getAllByRole('button', { name: /Acme|Globex/ });
       expect(rows.map((row) => row.textContent)).toEqual([
         'Acme',
-        'Globexapp.example.com/t/globex',
+        'Globexapp.example.com/orgs/globex',
         'Globexglobex.example.org',
       ]);
     });
@@ -209,7 +209,7 @@ describe('TenantDiscovery', () => {
       expect(acmeRow.textContent).toContain('organization.picker.itemUnavailable');
       expect(
         within(dialog)
-          .getByRole('button', { name: /app\.example\.com\/t\/globex/ })
+          .getByRole('button', { name: /app\.example\.com\/orgs\/globex/ })
           .getAttribute('aria-disabled'),
       ).toBeNull();
     });

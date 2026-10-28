@@ -17,7 +17,7 @@ export const buildAppUrl = ({ pathname, serverUrl, workspaceSlug }: AppUrlOption
     ? `/${encodeURIComponent(workspaceSlug)}${normalizedPath}`
     : normalizedPath;
 
-  // The server address may be a tenant address (`https://host/t/acme`): mount the
+  // The server address may be a tenant address (`https://host/orgs/acme`): mount the
   // app path under it instead of resolving against its origin.
   return buildRemoteUrl(path, serverUrl).toString();
 };

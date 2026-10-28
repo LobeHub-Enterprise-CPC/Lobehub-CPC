@@ -20,7 +20,7 @@ const { POST } = await import('./route');
 
 const userinfo = () =>
   POST(
-    new NextRequest('https://work.example.com/t/acme/market/oidc/userinfo', {
+    new NextRequest('https://work.example.com/orgs/acme/market/oidc/userinfo', {
       body: JSON.stringify({}),
       method: 'POST',
     }),

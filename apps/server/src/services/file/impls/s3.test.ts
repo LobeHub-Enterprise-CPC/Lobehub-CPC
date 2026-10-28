@@ -358,7 +358,7 @@ describe('S3StaticFileImpl', () => {
 
   describe('getKeyFromFullUrl', () => {
     it('should extract fileId from proxy URL and return S3 key from database', async () => {
-      const proxyUrl = 'http://localhost:3010/t/acme/f/abc123';
+      const proxyUrl = 'http://localhost:3010/orgs/acme/f/abc123';
       const expectedKey = 'ppp/491067/image.jpg';
 
       vi.spyOn(FileModel, 'getFileById').mockResolvedValue({ url: expectedKey } as any);
@@ -369,8 +369,17 @@ describe('S3StaticFileImpl', () => {
       expect(result).toBe(expectedKey);
     });
 
+    it('still resolves a proxy URL written under the legacy /t prefix', async () => {
+      vi.spyOn(FileModel, 'getFileById').mockResolvedValue({ url: 'ppp/491067/image.jpg' } as any);
+
+      const result = await fileService.getKeyFromFullUrl('http://localhost:3010/t/acme/f/abc123');
+
+      expect(FileModel.getFileById).toHaveBeenCalledWith(mockDb, 'abc123');
+      expect(result).toBe('ppp/491067/image.jpg');
+    });
+
     it('should return null when file is not found in database', async () => {
-      const proxyUrl = 'http://localhost:3010/t/acme/f/nonexistent';
+      const proxyUrl = 'http://localhost:3010/orgs/acme/f/nonexistent';
 
       vi.spyOn(FileModel, 'getFileById').mockResolvedValue(undefined);
 
@@ -381,7 +390,7 @@ describe('S3StaticFileImpl', () => {
     });
 
     it('should handle URL with different domain', async () => {
-      const proxyUrl = 'https://example.com/t/acme/f/file456';
+      const proxyUrl = 'https://example.com/orgs/acme/f/file456';
       const expectedKey = 'uploads/file.png';
 
       vi.spyOn(FileModel, 'getFileById').mockResolvedValue({ url: expectedKey } as any);
@@ -413,7 +422,7 @@ describe('S3StaticFileImpl', () => {
       const spy = vi.spyOn(FileModel, 'getFileById');
 
       await expect(
-        fileService.getKeyFromFullUrl('https://example.com/t/other/f/file456'),
+        fileService.getKeyFromFullUrl('https://example.com/orgs/other/f/file456'),
       ).resolves.toBeNull();
       await expect(
         fileService.getKeyFromFullUrl('https://example.com/f/file456'),

@@ -7,7 +7,7 @@
     "appliedVersion": 1,
     "status": "applied",
     "errorCode": null,
-    "activeUrl": "https://app.example.com/t/acme",
+    "activeUrl": "https://app.example.com/orgs/acme",
     "observedAt": "2026-10-13T00:00:00.000Z"
   },
   "contract": "tenant-endpoints",

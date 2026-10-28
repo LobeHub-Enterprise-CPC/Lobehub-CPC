@@ -18,7 +18,7 @@ import {
  *
  * Accounts and sessions live in the tenant schema, so each tenant gets its own
  * better-auth instance: its database, its SSO providers, its endpoints under
- * `/t/{slug}/api/auth`, and cookies named `lh_<h24>_*` scoped to `/t/{slug}`.
+ * `/orgs/{slug}/api/auth`, and cookies named `lh_<h24>_*` scoped to `/orgs/{slug}`.
  * The instance is resolved from the current tenant scope; outside one, every
  * use fails with `TENANT_REQUIRED`. There is no global auth instance.
  */

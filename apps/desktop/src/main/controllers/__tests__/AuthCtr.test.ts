@@ -205,7 +205,7 @@ describe('AuthCtr', () => {
 
     it('requestAuthorization takes the config as flow input and never persists it', async () => {
       const config: DataSyncConfig = {
-        remoteServerUrl: 'https://other.example.com/t/b',
+        remoteServerUrl: 'https://other.example.com/orgs/b',
         storageMode: 'selfHost',
       };
 

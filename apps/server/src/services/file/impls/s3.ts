@@ -197,7 +197,7 @@ export class S3StaticFileImpl implements FileServiceImpl {
   /**
    * The logical key behind a file URL of the current tenant, or `null`.
    *
-   * - File proxy URL `/t/{slug}/f/{fileId}`: looked up in the tenant database;
+   * - File proxy URL `/orgs/{slug}/f/{fileId}`: looked up in the tenant database;
    *   another tenant's slug is not resolved.
    * - Public object URL `…/[bucket/]t/{tenantId}/{key}`: the tenant root is
    *   stripped; an object outside the current tenant's root is not resolved.

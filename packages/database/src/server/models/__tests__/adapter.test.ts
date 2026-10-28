@@ -99,7 +99,7 @@ describe('DrizzleAdapter', () => {
       const server = createServer((req, res) => provider.callback()(req, res));
       await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
       const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-      const issuer = `${origin}/t/test/oidc`;
+      const issuer = `${origin}/orgs/test/oidc`;
       const clientId = 'adapter-protocol-client';
       const createProvider = () =>
         new Provider(issuer, {
@@ -130,8 +130,8 @@ describe('DrizzleAdapter', () => {
             ctx.body = out;
           },
           routes: {
-            authorization: '/t/test/oidc/auth',
-            pushed_authorization_request: '/t/test/oidc/request',
+            authorization: '/orgs/test/oidc/auth',
+            pushed_authorization_request: '/orgs/test/oidc/request',
           },
         });
       try {

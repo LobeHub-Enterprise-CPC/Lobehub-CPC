@@ -48,18 +48,18 @@ describe('createBrowserContextFactProviders', () => {
     });
 
     it('anchors links on the tenant address of the page, not the bare origin', async () => {
-      initializeTenant(new URL(`${window.location.origin}/t/acme/agent`));
+      initializeTenant(new URL(`${window.location.origin}/orgs/acme/agent`));
 
       await expect(createBrowserContextFactProviders().getWorkspaceContext!()).resolves.toEqual(
-        expect.objectContaining({ appUrl: `${window.location.origin}/t/acme` }),
+        expect.objectContaining({ appUrl: `${window.location.origin}/orgs/acme` }),
       );
     });
 
     it('anchors links on the remote tenant address in the desktop renderer', async () => {
-      setRemoteAppAddress('https://host.example/t/acme');
+      setRemoteAppAddress('https://host.example/orgs/acme');
 
       await expect(createBrowserContextFactProviders().getWorkspaceContext!()).resolves.toEqual(
-        expect.objectContaining({ appUrl: 'https://host.example/t/acme' }),
+        expect.objectContaining({ appUrl: 'https://host.example/orgs/acme' }),
       );
     });
 

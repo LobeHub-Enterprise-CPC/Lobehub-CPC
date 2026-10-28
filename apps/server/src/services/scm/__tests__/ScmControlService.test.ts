@@ -817,7 +817,7 @@ describe('ScmControlService — the tracking comment in GitHub', () => {
     const body = mocks.postComment.mock.calls[0][0].body as string;
     expect(body).not.toContain('PR topic');
     expect(body).not.toContain(`/agent/agt_control/${topic.id}`);
-    expect(body).toContain(`https://app.test/t/acme/acceptance/${acceptance.id}`);
+    expect(body).toContain(`https://app.test/orgs/acme/acceptance/${acceptance.id}`);
 
     await serverDB.delete(users).where(eq(users.id, installer));
   });
@@ -840,8 +840,8 @@ describe('ScmControlService — the tracking comment in GitHub', () => {
       topicId: row.topicId,
       v: 1,
     });
-    expect(body).toContain(`https://app.test/t/acme/acceptance/${row.acceptanceId}`);
-    expect(body).toContain(`https://app.test/t/acme/agent/agt_control/${row.topicId}`);
+    expect(body).toContain(`https://app.test/orgs/acme/acceptance/${row.acceptanceId}`);
+    expect(body).toContain(`https://app.test/orgs/acme/agent/agt_control/${row.topicId}`);
     expect(body).toContain('| 🟡 Delivered |');
     expect(body).toContain('[PR topic ↗︎]');
 

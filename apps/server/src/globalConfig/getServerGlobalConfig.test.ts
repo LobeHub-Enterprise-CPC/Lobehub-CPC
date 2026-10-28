@@ -311,13 +311,17 @@ describe('getServerGlobalConfig', () => {
 
   it("should expose the issuer on the tenant's active entry, as the provider does", async () => {
     mocks.tenant = {
-      endpoint: { basePath: '/t/acme', publicUrl: 'https://chat.example.com/t/acme', version: 1 },
+      endpoint: {
+        basePath: '/orgs/acme',
+        publicUrl: 'https://chat.example.com/orgs/acme',
+        version: 1,
+      },
       slug: 'acme',
       tenantId: 'tenant-acme',
     };
     await expect(
       loadServerConfig(false, { appUrl: 'https://chat.example.com/' }),
-    ).resolves.toHaveProperty('oidcIssuer', 'https://chat.example.com/t/acme/oidc');
+    ).resolves.toHaveProperty('oidcIssuer', 'https://chat.example.com/orgs/acme/oidc');
   });
 
   it('should omit the OIDC issuer outside a tenant', async () => {

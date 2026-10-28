@@ -95,7 +95,7 @@ describe('MessengerTelegramBinder.createClient', () => {
         credentials: { botToken: 'tg-bot-token', secretToken: 'tg-secret' },
         platform: 'telegram',
       }),
-      { appUrl: 'https://app.example.com/t/acme' },
+      { appUrl: 'https://app.example.com/orgs/acme' },
     );
   });
 
@@ -133,7 +133,7 @@ describe('MessengerTelegramBinder.handleUnlinkedMessage', () => {
     expect(chatId).toBe('C_DM');
     expect(text).toContain('Welcome to LobeHub');
     expect(button.text).toContain('Link Account');
-    expect(button.url).toContain('https://app.example.com/t/acme/verify-im');
+    expect(button.url).toContain('https://app.example.com/orgs/acme/verify-im');
     expect(button.url).toContain('im_type=telegram');
     expect(button.url).toContain('im_user_id=12345');
     expect(button.url).toContain('random_id=rand-tg-1');
@@ -155,7 +155,7 @@ describe('MessengerTelegramBinder.handleUnlinkedMessage', () => {
       expect(sendMessageWithUrlButton).not.toHaveBeenCalled();
       expect(sendMessage).toHaveBeenCalledTimes(1);
       const [, text] = sendMessage.mock.calls[0];
-      expect(text).toContain('http://localhost:3010/t/acme/verify-im');
+      expect(text).toContain('http://localhost:3010/orgs/acme/verify-im');
     } finally {
       (appMod as any).appEnv.APP_URL = 'https://app.example.com';
     }

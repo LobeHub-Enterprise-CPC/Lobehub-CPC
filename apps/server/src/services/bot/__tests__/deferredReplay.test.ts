@@ -84,7 +84,7 @@ describe('independent deferred replay retries', () => {
         deduplicationId: expect.stringMatching(/^[a-f\d]{64}$/),
         retries: 8,
         retryDelay: '60000',
-        url: 'https://example.com/t/acme/api/agent/webhooks/bot-replay',
+        url: 'https://example.com/orgs/acme/api/agent/webhooks/bot-replay',
       }),
     );
     expect(mockPublish.mock.calls[0][0].body.payload).not.toHaveProperty('lastAssistantContent');

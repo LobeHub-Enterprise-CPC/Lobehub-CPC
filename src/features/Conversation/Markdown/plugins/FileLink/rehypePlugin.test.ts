@@ -187,7 +187,7 @@ describe('rehypeFileLink', () => {
     it('classifies the tenant-prefixed file link of a tenant address', () => {
       useElectronStore.setState({
         dataSyncConfig: {
-          remoteServerUrl: 'https://host/t/acme/',
+          remoteServerUrl: 'https://host/orgs/acme/',
           storageMode: 'selfHost',
         },
       });
@@ -203,8 +203,8 @@ describe('rehypeFileLink', () => {
           },
         ],
       });
-      const own = tenantLink('https://host/t/acme/f/file_abc123');
-      const other = tenantLink('https://host/t/other/f/file_abc123');
+      const own = tenantLink('https://host/orgs/acme/f/file_abc123');
+      const other = tenantLink('https://host/orgs/other/f/file_abc123');
 
       run(own);
       run(other);

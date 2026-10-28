@@ -13,7 +13,7 @@ const setServerConfig = (config: Record<string, unknown> | undefined) => {
 
 describe('getSwitchOrganizationUrl', () => {
   beforeEach(() => {
-    initializeTenant(new URL('https://app.example.com/t/acme/signin'));
+    initializeTenant(new URL('https://app.example.com/orgs/acme/signin'));
   });
 
   afterEach(() => {

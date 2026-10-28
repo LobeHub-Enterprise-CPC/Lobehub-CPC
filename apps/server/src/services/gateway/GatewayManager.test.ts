@@ -31,7 +31,7 @@ vi.mock('@/database/models/agentBotProvider', () => ({
 }));
 
 vi.mock('@/server/modules/Tenant/callbackUrl', () => ({
-  tenantPublicBaseUrl: () => 'https://app.test/t/acme',
+  tenantPublicBaseUrl: () => 'https://app.test/orgs/acme',
 }));
 
 vi.mock('@/server/modules/KeyVaultsEncrypt', () => ({

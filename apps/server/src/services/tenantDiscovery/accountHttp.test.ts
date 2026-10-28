@@ -23,7 +23,7 @@ vi.mock('./query', async (original) => ({
 
 const APP = 'https://app.example.com';
 const candidate = (overrides: Record<string, unknown> = {}) => ({
-  activeUrl: 'https://app.example.com/t/acme',
+  activeUrl: 'https://app.example.com/orgs/acme',
   endpointVersion: 3,
   id: 'tenant-1',
   name: 'Acme',
@@ -140,11 +140,11 @@ describe('account API boundary', () => {
 
   it('returns the remembered email, the eligible last organization and finder-shaped results', async () => {
     deps.candidates.mockResolvedValue([
-      candidate({ id: 'tenant-2', name: 'Beta', activeUrl: 'https://app.example.com/t/beta' }),
+      candidate({ id: 'tenant-2', name: 'Beta', activeUrl: 'https://app.example.com/orgs/beta' }),
       candidate({ id: 'tenant-1', name: 'Acme' }),
     ]);
     deps.query.mockResolvedValue([
-      candidate({ id: 'tenant-2', name: 'Beta', activeUrl: 'https://app.example.com/t/beta' }),
+      candidate({ id: 'tenant-2', name: 'Beta', activeUrl: 'https://app.example.com/orgs/beta' }),
       candidate({ id: 'tenant-1', name: 'Acme' }),
     ]);
     const response = await handleTenantAccount(
@@ -214,7 +214,7 @@ describe('account API boundary', () => {
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      url: 'https://app.example.com/t/acme/__entry?signin=1',
+      url: 'https://app.example.com/orgs/acme/__entry?signin=1',
     });
     expect(response.headers.get('Set-Cookie')).toBe(
       '__Host-lobe-last-tenant=tenant-1; Path=/; Max-Age=15552000; HttpOnly; SameSite=Lax; Secure',

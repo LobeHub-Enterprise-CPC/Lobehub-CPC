@@ -1,9 +1,10 @@
 import { currentTenantRelativePath } from '@lobechat/business-tenant/client';
+import { hasTenantPrefix } from '@lobechat/business-tenant/routing';
 import { relativeToRemoteBase } from '@lobechat/utils/remoteUrl';
 
 export const LOBE_FILE_LINK_TAG = 'lobeFileLink';
 
-// Matches this app's own file proxy path, e.g. `${APP_URL}/t/{slug}/f/:fileId`
+// Matches this app's own file proxy path, e.g. `${APP_URL}/orgs/{slug}/f/:fileId`
 // (see server/routers/lambda/file.ts -> getFileProxyUrl). This is deliberately
 // narrower than Link/internalLink.ts's NON_SPA_ROUTE_ROOTS exclusion of `/f`:
 // that keeps the generic link classifier out of the file proxy entirely, so
@@ -20,8 +21,8 @@ export interface ParsedFileLink {
  *
  * A web document knows its tenant from its own URL. The desktop renderer is not
  * a tenant document: it is served from `app://`, and the tenant is the path of
- * the remote server address it is connected to (`https://host/t/acme`), so that
- * address decides which `/t/{slug}` prefix is ours.
+ * the remote server address it is connected to (`https://host/orgs/acme`), so that
+ * address decides which `/orgs/{slug}` prefix is ours.
  */
 const appRelativePath = (
   pathname: string,
@@ -37,12 +38,12 @@ const appRelativePath = (
 
   // A root-relative link without a prefix is relative to the app address itself;
   // one that names another tenant is not ours.
-  return isRootRelative && !/^\/t(?:\/|$)/.test(pathname) ? pathname : null;
+  return isRootRelative && !hasTenantPrefix(pathname) ? pathname : null;
 };
 
 /**
  * @param currentAppUrl The address the app is served from: the page origin on
- * web, the remote server address on desktop (which may carry a `/t/{slug}`
+ * web, the remote server address on desktop (which may carry a `/orgs/{slug}`
  * tenant path). Absolute links must be on its origin to be ours.
  */
 export const parseFileLinkHref = (

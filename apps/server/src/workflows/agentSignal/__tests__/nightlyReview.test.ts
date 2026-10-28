@@ -64,7 +64,7 @@ describe('AgentSignalNightlyReviewWorkflow cron entry', () => {
         parallelism: 1,
       },
       headers: { traceparent: '00-trace-parent' },
-      url: 'https://internal.example.com/t/acme/api/workflows/agent-signal/paginate-nightly-review-users',
+      url: 'https://internal.example.com/orgs/acme/api/workflows/agent-signal/paginate-nightly-review-users',
     });
   });
 
@@ -152,7 +152,7 @@ describe('AgentSignalNightlyReviewWorkflow', () => {
         parallelism: 1,
       },
       headers: { traceparent: '00-trace-parent' },
-      url: 'https://internal.example.com/t/acme/api/workflows/agent-signal/paginate-nightly-review-users',
+      url: 'https://internal.example.com/orgs/acme/api/workflows/agent-signal/paginate-nightly-review-users',
     });
   });
 
@@ -181,7 +181,7 @@ describe('AgentSignalNightlyReviewWorkflow', () => {
         parallelism: 5,
       },
       headers: { traceparent: '00-trace-parent' },
-      url: 'https://internal.example.com/t/acme/api/workflows/agent-signal/execute-nightly-review-user',
+      url: 'https://internal.example.com/orgs/acme/api/workflows/agent-signal/execute-nightly-review-user',
     });
   });
 });

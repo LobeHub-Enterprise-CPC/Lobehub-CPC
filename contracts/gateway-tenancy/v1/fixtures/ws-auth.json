@@ -452,7 +452,7 @@
         "tenancyProtocol": 1,
         "tokenType": "apiKey",
         "token": "TEST-ONLY-NOT-A-REAL-KEY",
-        "serverUrl": "https://work.example.invalid/t/acme"
+        "serverUrl": "https://work.example.invalid/orgs/acme"
       },
       "context": {
         "allowedOrigins": [
@@ -475,13 +475,127 @@
         "tenancyProtocol": 1,
         "tokenType": "apiKey",
         "token": "TEST-ONLY-NOT-A-REAL-KEY",
-        "serverUrl": "https://work.example.invalid/t/acme"
+        "serverUrl": "https://work.example.invalid/orgs/acme"
       },
       "context": {
         "exchangeStatus": 302,
         "redirectTarget": "http://127.0.0.1/private",
         "followRedirects": false,
         "redirectTargetContacted": false
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      }
+    },
+    {
+      "id": "auth-api-key-legacy-entry",
+      "schema": "authFrame",
+      "validation": "binding",
+      "input": {
+        "type": "auth",
+        "tenancyProtocol": 1,
+        "tokenType": "apiKey",
+        "token": "TEST-ONLY-NOT-A-REAL-KEY",
+        "serverUrl": "https://work.example.invalid/t/acme"
+      },
+      "context": {
+        "allowedOrigins": [
+          "https://work.example.invalid"
+        ],
+        "fixedExchangeSuffix": "/api/v1/gateway/identity",
+        "followRedirects": false
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "auth-api-key-entry-extra-segment-rejected",
+      "schema": "authFrame",
+      "validation": "binding",
+      "input": {
+        "type": "auth",
+        "tenancyProtocol": 1,
+        "tokenType": "apiKey",
+        "token": "TEST-ONLY-NOT-A-REAL-KEY",
+        "serverUrl": "https://work.example.invalid/orgs/acme/extra"
+      },
+      "context": {
+        "allowedOrigins": [
+          "https://work.example.invalid"
+        ],
+        "fixedExchangeSuffix": "/api/v1/gateway/identity",
+        "followRedirects": false
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      }
+    },
+    {
+      "id": "auth-api-key-entry-singular-prefix-rejected",
+      "schema": "authFrame",
+      "validation": "binding",
+      "input": {
+        "type": "auth",
+        "tenancyProtocol": 1,
+        "tokenType": "apiKey",
+        "token": "TEST-ONLY-NOT-A-REAL-KEY",
+        "serverUrl": "https://work.example.invalid/org/acme"
+      },
+      "context": {
+        "allowedOrigins": [
+          "https://work.example.invalid"
+        ],
+        "fixedExchangeSuffix": "/api/v1/gateway/identity",
+        "followRedirects": false
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      }
+    },
+    {
+      "id": "auth-api-key-entry-lookalike-prefix-rejected",
+      "schema": "authFrame",
+      "validation": "binding",
+      "input": {
+        "type": "auth",
+        "tenancyProtocol": 1,
+        "tokenType": "apiKey",
+        "token": "TEST-ONLY-NOT-A-REAL-KEY",
+        "serverUrl": "https://work.example.invalid/orgsx/acme"
+      },
+      "context": {
+        "allowedOrigins": [
+          "https://work.example.invalid"
+        ],
+        "fixedExchangeSuffix": "/api/v1/gateway/identity",
+        "followRedirects": false
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      }
+    },
+    {
+      "id": "auth-api-key-entry-userinfo-rejected",
+      "schema": "authFrame",
+      "validation": "binding",
+      "input": {
+        "type": "auth",
+        "tenancyProtocol": 1,
+        "tokenType": "apiKey",
+        "token": "TEST-ONLY-NOT-A-REAL-KEY",
+        "serverUrl": "https://user:pass@work.example.invalid/orgs/acme"
+      },
+      "context": {
+        "allowedOrigins": [
+          "https://work.example.invalid"
+        ],
+        "fixedExchangeSuffix": "/api/v1/gateway/identity",
+        "followRedirects": false
       },
       "expected": {
         "accepted": false,

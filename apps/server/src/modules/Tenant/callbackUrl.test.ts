@@ -20,7 +20,7 @@ vi.mock('@/envs/app', () => ({
 }));
 
 const scope = {
-  endpoint: { basePath: '/t/acme', publicUrl: 'https://app.example.com/t/acme', version: 1 },
+  endpoint: { basePath: '/orgs/acme', publicUrl: 'https://app.example.com/orgs/acme', version: 1 },
   session: {},
   slug: 'acme',
   tenantId: 'tenant-1',
@@ -30,19 +30,19 @@ const inTenant = <T>(fn: () => T) => runWithTenantScope(scope, fn);
 describe('tenant callback addresses', () => {
   it('addresses a callback to the current tenant over the internal base', () => {
     expect(inTenant(() => buildTenantCallbackUrl('/api/workflows/goal/advance'))).toBe(
-      'http://lobehub:3210/t/acme/api/workflows/goal/advance',
+      'http://lobehub:3210/orgs/acme/api/workflows/goal/advance',
     );
   });
 
   it('keeps an explicit base and does not double the prefix', () => {
     expect(
-      inTenant(() => buildTenantCallbackUrl('/t/acme/api/agent', 'https://proxy.example.com/')),
-    ).toBe('https://proxy.example.com/t/acme/api/agent');
-    expect(inTenant(() => tenantCallbackPath('api/agent/run'))).toBe('/t/acme/api/agent/run');
+      inTenant(() => buildTenantCallbackUrl('/orgs/acme/api/agent', 'https://proxy.example.com/')),
+    ).toBe('https://proxy.example.com/orgs/acme/api/agent');
+    expect(inTenant(() => tenantCallbackPath('api/agent/run'))).toBe('/orgs/acme/api/agent/run');
   });
 
   it('gives the tenant public base for external callers', () => {
-    expect(inTenant(() => tenantPublicBaseUrl())).toBe('https://app.example.com/t/acme');
+    expect(inTenant(() => tenantPublicBaseUrl())).toBe('https://app.example.com/orgs/acme');
   });
 
   it('fails closed outside a tenant', () => {
@@ -57,11 +57,13 @@ describe('tenant callback addresses', () => {
       method: 'POST',
     });
     const restored = inTenant(() => withTenantRequestUrl(routed));
-    expect(restored.url).toBe('http://lobehub:3210/t/acme/api/workflows/goal/advance?x=1');
+    expect(restored.url).toBe('http://lobehub:3210/orgs/acme/api/workflows/goal/advance?x=1');
     expect(restored.headers.get('upstash-signature')).toBe('sig');
     await expect(restored.json()).resolves.toEqual({ a: 1 });
 
-    const already = new Request('http://lobehub:3210/t/acme/api/workflows/x', { method: 'POST' });
+    const already = new Request('http://lobehub:3210/orgs/acme/api/workflows/x', {
+      method: 'POST',
+    });
     expect(inTenant(() => withTenantRequestUrl(already))).toBe(already);
   });
 });
@@ -73,26 +75,26 @@ describe('canonical public URLs', () => {
       endpoint: { basePath: '', publicUrl: 'https://chat.example.com', version: 2 },
     };
     runWithTenantScope(custom, () => {
-      expect(buildTenantPublicUrl('/t/acme/agent?topic=1')).toBe(
+      expect(buildTenantPublicUrl('/orgs/acme/agent?topic=1')).toBe(
         'https://chat.example.com/agent?topic=1',
       );
       expect(withTenantPublicRequestUrl(new Request('http://internal/oidc/token?x=1')).url).toBe(
         'https://chat.example.com/oidc/token?x=1',
       );
       expect(buildTenantCallbackUrl('/api/workflows/run')).toBe(
-        'http://lobehub:3210/t/acme/api/workflows/run',
+        'http://lobehub:3210/orgs/acme/api/workflows/run',
       );
     });
   });
   it.each([
-    '/t/beta/agent',
-    '/../../t/beta',
-    '/a/%2e%2e/t/beta',
+    '/orgs/beta/agent',
+    '/../../orgs/beta',
+    '/a/%2e%2e/orgs/beta',
     '/a/%2fbeta',
     '/a/%5cbeta',
     '/a/../b',
     '//evil.example.com',
-    '/t/%61cme/agent',
+    '/orgs/%61cme/agent',
   ])('rejects ambiguous or cross-tenant public path %s', (path) => {
     expect(() => inTenant(() => buildTenantPublicUrl(path))).toThrow();
   });

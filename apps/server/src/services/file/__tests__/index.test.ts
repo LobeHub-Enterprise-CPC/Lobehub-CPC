@@ -522,7 +522,7 @@ describe('FileService', () => {
 
       expect(result).toEqual({
         fileId: 'new-file-id',
-        url: 'https://lobehub.com/t/acme/f/new-file-id',
+        url: 'https://lobehub.com/orgs/acme/f/new-file-id',
       });
     });
 
@@ -541,7 +541,7 @@ describe('FileService', () => {
 
       expect(result).toEqual({
         fileId: 'custom-id',
-        url: 'https://lobehub.com/t/acme/f/custom-id',
+        url: 'https://lobehub.com/orgs/acme/f/custom-id',
       });
     });
 

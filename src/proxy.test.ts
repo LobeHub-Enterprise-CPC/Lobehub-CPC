@@ -25,11 +25,11 @@ describe('SPA proxy route matching', () => {
     '/api/chat',
     '/trpc/lambda/share.getSharedAgent',
     '/webapi/chat',
-    '/t/acme/api/workflows/goal/advance',
-    '/t/acme/trpc/lambda/share.getSharedAgent',
+    '/orgs/acme/api/workflows/goal/advance',
+    '/orgs/acme/trpc/lambda/share.getSharedAgent',
   ])('routes backend request %s through the proxy', (pathname) => {
-    expect(
-      unstable_doesMiddlewareMatch({ config, url: `http://localhost:3010${pathname}` }),
-    ).toBe(true);
+    expect(unstable_doesMiddlewareMatch({ config, url: `http://localhost:3010${pathname}` })).toBe(
+      true,
+    );
   });
 });

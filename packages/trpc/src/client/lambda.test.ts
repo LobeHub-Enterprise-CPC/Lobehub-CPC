@@ -35,7 +35,7 @@ describe('lambdaClient sign-out boundary', () => {
   it.each([true, false])('handles a 401 with intentional sign-out=%s', async (isSigningOut) => {
     authState.isSigningOut = isSigningOut;
     vi.spyOn(Date, 'now').mockReturnValue(isSigningOut ? 1_800_000_000_000 : 1_800_000_010_000);
-    vi.stubGlobal('location', new URL('http://localhost/t/acme/agent'));
+    vi.stubGlobal('location', new URL('http://localhost/orgs/acme/agent'));
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.stubGlobal(
       'fetch',

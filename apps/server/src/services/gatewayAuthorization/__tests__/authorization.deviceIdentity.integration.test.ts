@@ -67,7 +67,7 @@ const scope = () =>
     tenantId,
     acceptedVersion: state.version,
     slug: 'test',
-    endpoint: { basePath: '/t/test', publicUrl: 'http://test.invalid/t/test', version: 1 },
+    endpoint: { basePath: '/orgs/test', publicUrl: 'http://test.invalid/orgs/test', version: 1 },
     session: { database: db },
   }) as TenantScope;
 const run = <T>(fn: () => T) => runWithTenantScope(scope(), fn);

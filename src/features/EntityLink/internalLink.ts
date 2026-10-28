@@ -144,7 +144,7 @@ const parseInternalLinkReference = (
 
   if (!isRootRelative && !isInternalHost(url, currentOrigin)) return null;
 
-  // `/t/{slug}` is the address the router mounts as its basename, so a route
+  // `/orgs/{slug}` is the address the router mounts as its basename, so a route
   // reference is tenant-relative: strip the prefix here and `navigate` re-emits
   // it. A link to another tenant (or any tenant prefix outside a tenant
   // document) is not this app's route and stays a plain anchor.
