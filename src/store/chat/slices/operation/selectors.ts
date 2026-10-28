@@ -8,6 +8,8 @@ import {
   INPUT_LOADING_OPERATION_TYPES,
   isQueueBlockingOperation,
   QUEUE_BLOCKING_OPERATION_TYPES,
+  SEND_NOW_CANCEL_REASON,
+  TOPIC_VISIBLY_RUNNING_OPERATION_TYPES,
 } from './types';
 
 // === Basic Queries ===
@@ -327,6 +329,26 @@ const getRunningQueueBlockingOperationIds =
       .map((op) => op.id);
   };
 
+const getOperationTurnStartTime = (op: Operation) =>
+  op.metadata.turnStartTime ?? op.metadata.startTime;
+
+const isTurnTimedOperation = (op: Operation) =>
+  AI_RUNTIME_OPERATION_TYPES.includes(op.type) || op.metadata.turnStartTime !== undefined;
+
+const getLatestAgentRuntimeTurnStartTime =
+  (context: MessageMapKeyInput) =>
+  (s: ChatStoreState): number | undefined => {
+    if (!context.agentId) return undefined;
+
+    let latest: Operation | undefined;
+    for (const op of getOperationsByContext(context)(s)) {
+      if (!AI_RUNTIME_OPERATION_TYPES.includes(op.type)) continue;
+      if (!latest || op.metadata.startTime > latest.metadata.startTime) latest = op;
+    }
+
+    return latest ? getOperationTurnStartTime(latest) : undefined;
+  };
+
 /**
  * Get the earliest start time for a running agent runtime operation in a
  * specific context. This anchors visible elapsed-time UI to the top-level
@@ -349,10 +371,8 @@ const getAgentRuntimeStartTimeByContext =
         continue;
       }
 
-      startTime =
-        startTime === undefined
-          ? op.metadata.startTime
-          : Math.min(startTime, op.metadata.startTime);
+      const turnStartTime = getOperationTurnStartTime(op);
+      startTime = startTime === undefined ? turnStartTime : Math.min(startTime, turnStartTime);
     }
 
     return startTime;
@@ -370,14 +390,12 @@ const getVisibleAgentRuntimeStartTimeByContext =
     let startTime: number | undefined;
 
     for (const op of operations) {
-      if (!AI_RUNTIME_OPERATION_TYPES.includes(op.type) || !isVisiblyRunningOperation(op)) {
+      if (!isTurnTimedOperation(op) || !isVisiblyRunningOperation(op)) {
         continue;
       }
 
-      startTime =
-        startTime === undefined
-          ? op.metadata.startTime
-          : Math.min(startTime, op.metadata.startTime);
+      const turnStartTime = getOperationTurnStartTime(op);
+      startTime = startTime === undefined ? turnStartTime : Math.min(startTime, turnStartTime);
     }
 
     return startTime;
@@ -430,7 +448,9 @@ const isInputVisiblyLoadingByContext =
     const hasRunning = operations.some(
       (op) => INPUT_LOADING_OPERATION_TYPES.includes(op.type) && isRunningOperation(op),
     );
-    return hasRunning && getQueuedMessages(context)(s).length > 0;
+    if (hasRunning) return getQueuedMessages(context)(s).length > 0;
+
+    return isSteerHandoffPending(context)(s);
   };
 
 // === Backward Compatibility ===
@@ -470,20 +490,40 @@ const isAgentVisiblyRunning =
     return false;
   };
 
+/** Check visible runtime loading across all agents and topics in a chat group. */
+const isGroupVisiblyRunning =
+  (groupId: string) =>
+  (s: ChatStoreState): boolean => {
+    for (const type of AI_RUNTIME_OPERATION_TYPES) {
+      const operationIds = s.operationsByType[type] || [];
+      if (
+        operationIds.some((id) => {
+          const op = s.operations[id];
+          return op && isVisiblyRunningOperation(op) && op.context.groupId === groupId;
+        })
+      )
+        return true;
+    }
+    return false;
+  };
+
 /**
  * Whether a turn is visibly in progress for a topic on THIS client — the whole
- * send → run pipeline (see INPUT_LOADING_OPERATION_TYPES), matched by the
- * operation context's topicId regardless of agent/group/thread.
+ * send → run pipeline (see TOPIC_VISIBLY_RUNNING_OPERATION_TYPES), matched by
+ * the operation context's topicId regardless of agent/group/thread.
  *
  * Drives the sidebar topic spinner. Persisted `topic.status === 'running'`
  * covers runs owned by other clients / the server; this covers what status
  * cannot: client-mode runs (which never persist a status) and the startup
  * window of gateway/hetero runs before the server writes `running`.
+ *
+ * Whatever this reports as running must also be retirable by
+ * `settleAllUnbackedTopicRuns` — see TOPIC_VISIBLY_RUNNING_OPERATION_TYPES.
  */
 const isTopicVisiblyRunning =
   (topicId: string) =>
   (s: ChatStoreState): boolean => {
-    for (const type of INPUT_LOADING_OPERATION_TYPES) {
+    for (const type of TOPIC_VISIBLY_RUNNING_OPERATION_TYPES) {
       const operationIds = s.operationsByType[type] || [];
       const hasRunning = operationIds.some((id) => {
         const op = s.operations[id];
@@ -502,7 +542,7 @@ const isTopicVisiblyRunning =
  */
 const visiblyRunningTopicIds = (s: ChatStoreState): Set<string> => {
   const ids = new Set<string>();
-  for (const type of INPUT_LOADING_OPERATION_TYPES) {
+  for (const type of TOPIC_VISIBLY_RUNNING_OPERATION_TYPES) {
     for (const id of s.operationsByType[type] || []) {
       const op = s.operations[id];
       if (op && isVisiblyRunningOperation(op) && op.context.topicId) {
@@ -511,6 +551,21 @@ const visiblyRunningTopicIds = (s: ChatStoreState): Set<string> => {
     }
   }
   return ids;
+};
+
+/**
+ * Whether ANY topic row is visibly running on this client. Backs the sidebar's
+ * candidate gate for the stale-run sweep: without a candidate there is nothing
+ * to retire, so the sweep must not poll the server at all.
+ */
+const hasVisiblyRunningTopic = (s: ChatStoreState): boolean => {
+  for (const type of TOPIC_VISIBLY_RUNNING_OPERATION_TYPES) {
+    for (const id of s.operationsByType[type] || []) {
+      const op = s.operations[id];
+      if (op && isVisiblyRunningOperation(op) && op.context.topicId) return true;
+    }
+  }
+  return false;
 };
 
 /**
@@ -911,6 +966,37 @@ const getQueuedMessages = (context: MessageMapKeyInput) => (s: ChatStoreState) =
   return s.queuedMessages[messageMapKey(context)] ?? [];
 };
 
+const getIdleQueueHost = (context: MessageMapKeyInput) => (s: ChatStoreState) => {
+  if (getQueuedMessages(context)(s).length === 0) return;
+
+  let latest: Operation | undefined;
+  for (const op of getOperationsByContext(context)(s)) {
+    if (!INPUT_LOADING_OPERATION_TYPES.includes(op.type)) continue;
+    if (isRunningOperation(op)) return;
+    if (!AI_RUNTIME_OPERATION_TYPES.includes(op.type)) continue;
+    if (!latest || op.metadata.startTime > latest.metadata.startTime) latest = op;
+  }
+
+  return latest;
+};
+
+// A successful top-level run always drains its queue into a steered send, so a
+// queue sitting behind a completed run is the hand-off window, not a stale queue.
+const isDrainingQueueHost = (host?: Operation): boolean =>
+  host?.status === 'completed' && !host.metadata.endedWithoutCompletion;
+
+const isQueueDrainPending = (context: MessageMapKeyInput) => (s: ChatStoreState) =>
+  isDrainingQueueHost(getIdleQueueHost(context)(s));
+
+// Send now keeps its item queued until the interrupt is confirmed; that wait is
+// part of the hand-off too, but its own send must not be re-queued.
+const isSteerHandoffPending = (context: MessageMapKeyInput) => (s: ChatStoreState) => {
+  const host = getIdleQueueHost(context)(s);
+  if (isDrainingQueueHost(host)) return true;
+
+  return host?.status === 'cancelled' && host.metadata.cancelReason === SEND_NOW_CANCEL_REASON;
+};
+
 /**
  * Operation Selectors
  */
@@ -928,6 +1014,7 @@ export const operationSelectors = {
   getOperationById,
   getOperationContextFromMessage,
   getAgentRuntimeStartTimeByContext,
+  getLatestAgentRuntimeTurnStartTime,
   getOperationsByContext,
   getOperationsByMessage,
   getOperationsByType,
@@ -947,6 +1034,7 @@ export const operationSelectors = {
 
   isAgentRunning,
   isAgentVisiblyRunning,
+  isGroupVisiblyRunning,
   isAgentRuntimeRunning,
   isAgentRuntimeVisiblyRunning,
   isAgentUnreadCompleted,
@@ -968,13 +1056,17 @@ export const operationSelectors = {
   isMessageProcessing,
   isMessageRegenerating,
   isRegenerating,
+  isQueueDrainPending,
   isSendingMessage,
+  isSteerHandoffPending,
+  hasVisiblyRunningTopic,
   isTopicUnreadCompleted,
   isTopicVisiblyRunning,
   unreadCompletedCountForTopics,
   visiblyRunningTopicIds,
 
   // Message Queue
+  getIdleQueueHost,
   getQueuedMessages,
   queuedMessageCount,
 };

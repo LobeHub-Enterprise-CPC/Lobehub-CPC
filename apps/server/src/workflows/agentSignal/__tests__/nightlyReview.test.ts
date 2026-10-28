@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentSignalNightlyReviewWorkflow } from '../nightlyReview';
 
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 const mocks = vi.hoisted(() => ({
   injectActiveTraceHeaders: vi.fn((headers: Headers) => {
     headers.set('traceparent', '00-trace-parent');
@@ -12,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/envs/app', () => ({
+  getInternalApiUrl: () => 'https://internal.example.com',
   appEnv: {
     APP_URL: 'https://public.example.com',
     INTERNAL_APP_URL: 'https://internal.example.com',
@@ -60,7 +64,7 @@ describe('AgentSignalNightlyReviewWorkflow cron entry', () => {
         parallelism: 1,
       },
       headers: { traceparent: '00-trace-parent' },
-      url: 'https://internal.example.com/api/workflows/agent-signal/paginate-nightly-review-users',
+      url: 'https://internal.example.com/t/acme/api/workflows/agent-signal/paginate-nightly-review-users',
     });
   });
 
@@ -148,7 +152,7 @@ describe('AgentSignalNightlyReviewWorkflow', () => {
         parallelism: 1,
       },
       headers: { traceparent: '00-trace-parent' },
-      url: 'https://internal.example.com/api/workflows/agent-signal/paginate-nightly-review-users',
+      url: 'https://internal.example.com/t/acme/api/workflows/agent-signal/paginate-nightly-review-users',
     });
   });
 
@@ -177,7 +181,7 @@ describe('AgentSignalNightlyReviewWorkflow', () => {
         parallelism: 5,
       },
       headers: { traceparent: '00-trace-parent' },
-      url: 'https://internal.example.com/api/workflows/agent-signal/execute-nightly-review-user',
+      url: 'https://internal.example.com/t/acme/api/workflows/agent-signal/execute-nightly-review-user',
     });
   });
 });

@@ -73,6 +73,30 @@ describe.each(['runCommand', 'executeCode', 'getCommandOutput'] as const)(
   },
 );
 
+describe('CloudSandbox executeCode governance error channel', () => {
+  it.each(['COMMAND_BLOCKED', 'GOVERNANCE_UNAVAILABLE'] as const)(
+    'preserves %s in the tool error without fabricating an exit code',
+    async (name) => {
+      const runtime = new CloudSandboxExecutionRuntime({
+        callTool: vi.fn().mockResolvedValue({
+          error: { message: name === 'COMMAND_BLOCKED' ? 'blocked' : 'unavailable', name },
+          result: null,
+          success: false,
+        }),
+        exportAndUploadFile: vi.fn(),
+      });
+
+      const result = await runtime.executeCode({ code: 'print(1)' });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatchObject({ name });
+      expect(result.state).not.toHaveProperty('exitCode');
+      expect(result.state).toMatchObject({ success: false });
+      expect(typeof (result.state as { error?: unknown }).error).toBe('string');
+    },
+  );
+});
+
 describe('ComputerRuntime command status mapping', () => {
   it('uses command result success when command transport succeeds with non-zero exit code', async () => {
     const runtime = new TestComputerRuntime({

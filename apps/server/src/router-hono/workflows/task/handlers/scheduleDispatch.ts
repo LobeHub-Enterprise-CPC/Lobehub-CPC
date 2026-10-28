@@ -6,6 +6,8 @@ import { TaskModel } from '@/database/models/task';
 import { getServerDB } from '@/database/server';
 import { appEnv } from '@/envs/app';
 import { qstashClient } from '@/libs/qstash';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
+import { scheduleWindow } from '@/server/services/task/scheduleWindow';
 import { runScheduleTick } from '@/server/services/taskRunner/scheduleTick';
 
 const log = debug('lobe-server:workflows:task:schedule-dispatch');
@@ -54,6 +56,17 @@ export async function scheduleDispatch(c: Context) {
     const due: DueTask[] = [];
     for (const task of tasks) {
       if (!task.schedulePattern) continue;
+      const window = scheduleWindow(task.config, now);
+      if (window !== 'open') {
+        if (window === 'expired' && !dryRun) {
+          await new TaskModel(db, task.createdByUserId, task.workspaceId ?? undefined).updateStatus(
+            task.id,
+            'completed',
+            { completedAt: now },
+          );
+        }
+        continue;
+      }
       const scheduler = (
         task.context as {
           scheduler?: { lastDispatchedOccurrenceAt?: string; scheduleStartedAt?: string };
@@ -203,7 +216,7 @@ const fanout = async (db: ServerDB, due: DueTask[]): Promise<number> => {
     if (!process.env.APP_URL) {
       throw new Error('APP_URL is required to fan out scheduled task executions via QStash');
     }
-    const url = `${process.env.APP_URL.replace(/\/$/, '')}${SCHEDULE_EXECUTE_PATH}`;
+    const url = buildTenantCallbackUrl(SCHEDULE_EXECUTE_PATH, process.env.APP_URL);
 
     const results = await Promise.allSettled(
       due.map((d) =>

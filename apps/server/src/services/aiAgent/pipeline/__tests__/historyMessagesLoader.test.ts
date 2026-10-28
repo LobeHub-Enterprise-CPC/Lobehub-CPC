@@ -69,7 +69,6 @@ const createLoader = (messageModel: ReturnType<typeof createMessageModel>, exist
   createHistoryMessagesLoader(
     {
       db: {} as any,
-      isShareVisitorRun: false,
       messageModel: messageModel as any,
       userId: 'user_agent_testing_001',
     },

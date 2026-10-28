@@ -20,6 +20,12 @@ import { FileS3, S3 } from './index';
 
 // Mock AWS SDK
 vi.mock('@aws-sdk/client-s3');
+
+// Every object belongs to tenant `tenant-1`: the module stores it under `t/tenant-1/`.
+vi.mock('@lobechat/database/tenant', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  requireTenantScope: () => ({ slug: 'acme', tenantId: 'tenant-1' }),
+}));
 vi.mock('@aws-sdk/s3-request-presigner');
 
 // Mock environment variables
@@ -255,7 +261,7 @@ describe('FileS3', () => {
 
       expect(DeleteObjectCommand).toHaveBeenCalledWith({
         Bucket: 'test-bucket',
-        Key: 'test-key.txt',
+        Key: 't/tenant-1/test-key.txt',
       });
       expect(mockS3ClientSend).toHaveBeenCalled();
     });
@@ -280,7 +286,11 @@ describe('FileS3', () => {
       expect(DeleteObjectsCommand).toHaveBeenCalledWith({
         Bucket: 'test-bucket',
         Delete: {
-          Objects: [{ Key: 'file1.txt' }, { Key: 'file2.txt' }, { Key: 'file3.txt' }],
+          Objects: [
+            { Key: 't/tenant-1/file1.txt' },
+            { Key: 't/tenant-1/file2.txt' },
+            { Key: 't/tenant-1/file3.txt' },
+          ],
         },
       });
       expect(mockS3ClientSend).toHaveBeenCalled();
@@ -329,7 +339,7 @@ describe('FileS3', () => {
 
       expect(GetObjectCommand).toHaveBeenCalledWith({
         Bucket: 'test-bucket',
-        Key: 'test-file.txt',
+        Key: 't/tenant-1/test-file.txt',
       });
       expect(result).toBe(mockContent);
     });
@@ -344,7 +354,7 @@ describe('FileS3', () => {
 
       expect(GetObjectCommand).toHaveBeenCalledWith({
         Bucket: 'test-bucket',
-        Key: 'preview.md',
+        Key: 't/tenant-1/preview.md',
         Range: 'bytes=0-8191',
       });
     });
@@ -375,7 +385,7 @@ describe('FileS3', () => {
 
       expect(GetObjectCommand).toHaveBeenCalledWith({
         Bucket: 'test-bucket',
-        Key: 'test-file.bin',
+        Key: 't/tenant-1/test-file.bin',
       });
       expect(result).toEqual(mockBytes);
     });
@@ -404,7 +414,7 @@ describe('FileS3', () => {
 
       expect(HeadObjectCommand).toHaveBeenCalledWith({
         Bucket: 'test-bucket',
-        Key: 'test-file.png',
+        Key: 't/tenant-1/test-file.png',
       });
       expect(result).toEqual({
         contentLength: 1024,
@@ -458,7 +468,7 @@ describe('FileS3', () => {
       expect(PutObjectCommand).toHaveBeenCalledWith({
         ACL: 'public-read',
         Bucket: 'test-bucket',
-        Key: 'upload-file.txt',
+        Key: 't/tenant-1/upload-file.txt',
       });
       expect(mockGetSignedUrl).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
         expiresIn: 3600,
@@ -475,7 +485,7 @@ describe('FileS3', () => {
         ACL: 'public-read',
         Bucket: 'test-bucket',
         ContentLength: 123,
-        Key: 'upload-file.txt',
+        Key: 't/tenant-1/upload-file.txt',
       });
     });
   });
@@ -489,7 +499,7 @@ describe('FileS3', () => {
       expect(PutObjectCommand).toHaveBeenCalledWith({
         ACL: 'public-read',
         Bucket: 'test-bucket',
-        Key: 'upload-file.txt',
+        Key: 't/tenant-1/upload-file.txt',
       });
       expect(result).toEqual({
         headers: { 'x-amz-acl': 'public-read' },
@@ -514,11 +524,11 @@ describe('FileS3', () => {
         ACL: 'public-read',
         Bucket: 'test-bucket',
         ContentType: 'application/octet-stream',
-        Key: 'large.bin',
+        Key: 't/tenant-1/large.bin',
       });
       expect(UploadPartCommand).toHaveBeenCalledWith({
         Bucket: 'test-bucket',
-        Key: 'large.bin',
+        Key: 't/tenant-1/large.bin',
         PartNumber: 2,
         UploadId: 'upload-1',
       });
@@ -532,7 +542,7 @@ describe('FileS3', () => {
       expect(UploadPartCommand).toHaveBeenCalledWith({
         Bucket: 'test-bucket',
         ContentLength: 123,
-        Key: 'large.bin',
+        Key: 't/tenant-1/large.bin',
         PartNumber: 2,
         UploadId: 'upload-1',
       });
@@ -550,7 +560,7 @@ describe('FileS3', () => {
       expect(paginateListParts).not.toHaveBeenCalled();
       expect(CompleteMultipartUploadCommand).toHaveBeenCalledWith({
         Bucket: 'test-bucket',
-        Key: 'large.bin',
+        Key: 't/tenant-1/large.bin',
         MultipartUpload: {
           Parts: [
             { ETag: 'etag-1', PartNumber: 1 },
@@ -580,7 +590,7 @@ describe('FileS3', () => {
 
       expect(CompleteMultipartUploadCommand).toHaveBeenCalledWith({
         Bucket: 'test-bucket',
-        Key: 'large.bin',
+        Key: 't/tenant-1/large.bin',
         MultipartUpload: {
           Parts: [
             { ETag: 'etag-1', PartNumber: 1 },
@@ -660,7 +670,7 @@ describe('FileS3', () => {
 
       expect(AbortMultipartUploadCommand).toHaveBeenCalledWith({
         Bucket: 'test-bucket',
-        Key: 'large.bin',
+        Key: 't/tenant-1/large.bin',
         UploadId: 'upload-1',
       });
     });
@@ -674,7 +684,7 @@ describe('FileS3', () => {
 
       expect(GetObjectCommand).toHaveBeenCalledWith({
         Bucket: 'test-bucket',
-        Key: 'preview-file.jpg',
+        Key: 't/tenant-1/preview-file.jpg',
       });
       expect(mockGetSignedUrl).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
         expiresIn: 7200,
@@ -701,7 +711,7 @@ describe('FileS3', () => {
 
       expect(GetObjectCommand).toHaveBeenCalledWith({
         Bucket: 'test-bucket',
-        Key: 'video-file.mp4',
+        Key: 't/tenant-1/video-file.mp4',
         ResponseContentDisposition:
           "attachment; filename*=UTF-8''%E6%8B%BC%E8%B4%B4%20%E5%8A%A8%E7%94%BB.mp4",
       });
@@ -725,7 +735,7 @@ describe('FileS3', () => {
         Body: buffer,
         Bucket: 'test-bucket',
         ContentType: 'application/octet-stream',
-        Key: 'test-file.bin',
+        Key: 't/tenant-1/test-file.bin',
       });
       expect(mockS3ClientSend).toHaveBeenCalled();
     });
@@ -742,7 +752,7 @@ describe('FileS3', () => {
         Body: buffer,
         Bucket: 'test-bucket',
         ContentType: undefined,
-        Key: 'test-file.bin',
+        Key: 't/tenant-1/test-file.bin',
       });
     });
   });
@@ -759,7 +769,7 @@ describe('FileS3', () => {
         ACL: 'public-read',
         Body: content,
         Bucket: 'test-bucket',
-        Key: 'test-file.txt',
+        Key: 't/tenant-1/test-file.txt',
       });
       expect(mockS3ClientSend).toHaveBeenCalled();
     });
@@ -774,7 +784,7 @@ describe('FileS3', () => {
         ACL: 'public-read',
         Body: '',
         Bucket: 'test-bucket',
-        Key: 'empty.txt',
+        Key: 't/tenant-1/empty.txt',
       });
     });
   });
@@ -793,7 +803,7 @@ describe('FileS3', () => {
         Bucket: 'test-bucket',
         CacheControl: expect.stringContaining('public, max-age='),
         ContentType: 'image/jpeg',
-        Key: 'image.jpg',
+        Key: 't/tenant-1/image.jpg',
       });
       expect(mockS3ClientSend).toHaveBeenCalled();
     });
@@ -808,7 +818,7 @@ describe('FileS3', () => {
       expect(PutObjectCommand).toHaveBeenCalledWith(
         expect.objectContaining({
           ContentType: 'image/png',
-          Key: 'image.png',
+          Key: 't/tenant-1/image.png',
         }),
       );
     });
@@ -823,7 +833,7 @@ describe('FileS3', () => {
       expect(PutObjectCommand).toHaveBeenCalledWith(
         expect.objectContaining({
           ContentType: 'image/gif',
-          Key: 'animation.gif',
+          Key: 't/tenant-1/animation.gif',
         }),
       );
     });

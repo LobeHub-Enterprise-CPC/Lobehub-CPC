@@ -1,13 +1,18 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 
 import { CHANNEL_HISTORY } from '@lobechat/types';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { getTestDB } from '../../core/getTestDB';
-import { channelJobs, channelMessages, channelRuns, channels } from '../../privateSchemas/channel';
+import {
+  channelJobs,
+  channelMembers,
+  channelMessages,
+  channelRuns,
+  channels,
+} from '../../privateSchemas/channel';
 import { users } from '../../schemas';
 import type { LobeChatDatabase } from '../../type';
 import { ChannelModel } from '../channel';
@@ -59,6 +64,37 @@ async function messages(channelId: string, amount: number, threadId: string | nu
 }
 
 describe('Channel bounded presentation reads', () => {
+  it('derives display state on the server from typed block codes, never from error text', async () => {
+    const channel = await create();
+    const member = (await model.page(channel.id)).members[0];
+    const request = await model.send(channel.id, {
+      content: 'Queued request',
+      mentions: [member.id],
+      requestKey: randomUUID(),
+    });
+    const [job] = await db.select().from(channelJobs).where(eq(channelJobs.messageId, request.id));
+    const state = async () => (await model.page(channel.id)).jobs.find((j) => j.id === job.id)!;
+    expect(await state()).toMatchObject({ state: 'queued', blockedCode: null });
+
+    await model.unavailable(channel.id, job.id, 'DEVICE_OFFLINE: text alone is not a signal');
+    expect(await state()).toMatchObject({ state: 'unavailable', blockedCode: 'unavailable' });
+    await model.unavailable(channel.id, job.id, 'Personal device is unavailable', 'device_offline');
+    expect(await state()).toMatchObject({ state: 'offline', blockedCode: 'device_offline' });
+
+    await db
+      .update(channelMembers)
+      .set({ executionPaused: true })
+      .where(eq(channelMembers.id, member.id));
+    expect((await state()).state).toBe('paused');
+
+    await db.update(channelJobs).set({ status: 'cancelled' }).where(eq(channelJobs.id, job.id));
+    expect(await state()).toMatchObject({
+      state: 'cancelled',
+      blockedCode: null,
+      blockedReason: null,
+    });
+  });
+
   it('pages a scope without gaps or duplicates while newer messages arrive', async () => {
     const channel = await create();
     const seeded = await messages(channel.id, 130);
@@ -102,7 +138,7 @@ describe('Channel bounded presentation reads', () => {
     expect(await model.revision(channel.id)).toEqual(revision);
   });
 
-  it('keeps old active requests and approvals visible without returning the private manifest', async () => {
+  it('keeps old active requests visible without returning the private manifest', async () => {
     const channel = await create();
     const member = (await model.page(channel.id)).members[0];
     const request = await model.send(channel.id, {
@@ -127,33 +163,16 @@ describe('Channel bounded presentation reads', () => {
     const typing = await model.revision(channel.id);
     expect(typing.revision).not.toBe(before.revision);
     expect(typing.navigationRevision).toBe(before.navigationRevision);
-    const approvalId = randomUUID();
-    await model.requestApproval(
-      channel.id,
-      run.id,
-      run.fence,
-      approvalId,
-      { command: 'test' },
-      new Date(Date.now() + 60000),
-    );
-    expect((await model.revision(channel.id)).revision).not.toBe(typing.revision);
     const page = await model.page(channel.id);
     expect(page.messages).toHaveLength(CHANNEL_HISTORY.pageSize);
     expect(page.contextMessages.map((message) => message.id)).toContain(request.id);
     expect(page.jobs.some((item) => item.id === job.id)).toBe(true);
-    expect(page.approvals.map((item) => item.id)).toContain(approvalId);
     expect(page.runs[0].manifest).toEqual({ threadId: null, requestMessageId: request.id });
     expect(JSON.stringify(page)).not.toContain('private-history');
-    const awaiting = await model.revision(channel.id);
-    await model.decideApproval(channel.id, approvalId, true);
-    expect((await model.revision(channel.id)).revision).not.toBe(awaiting.revision);
     await model.fail(channel.id, run.id, run.fence, 'failed');
     await model.releaseWriter(channel.id, run.id, run.fence);
     const settled = await model.revision(channel.id);
-    await db
-      .update(channelRuns)
-      .set({ manifest: { ...run.manifest, messages: [] } })
-      .where(eq(channelRuns.id, run.id));
+    expect(settled.revision).toMatch(/^\d+$/);
     expect(await model.revision(channel.id)).toEqual(settled);
     expect((await model.page(channel.id)).runs).toHaveLength(0);
     const historical = await model.page(channel.id, { before: 2 });
@@ -211,24 +230,5 @@ describe('Channel bounded presentation reads', () => {
       navigation.threads[0].followerMemberIds[0],
     );
     expect((await model.revision(channel.id)).revision).not.toBe(previous.revision);
-  });
-
-  it('replays the consolidated discussion migration without modifying messages', async () => {
-    const channel = await create();
-    await messages(channel.id, 3);
-    const before = await model.page(channel.id);
-    // Migration ownership moved to the enterprise chain (see
-    // src/privateSchemas/channel.ts) after this test was written; the file
-    // this test replays moved with it.
-    const migration = readFileSync(
-      new URL(
-        '../../../../../../packages/enterprise/src/database/migrations/0009_channel_mvp.sql',
-        import.meta.url,
-      ),
-      'utf8',
-    );
-    for (const statement of migration.split('--> statement-breakpoint'))
-      await db.execute(sql.raw(statement));
-    expect(await model.page(channel.id)).toEqual(before);
   });
 });

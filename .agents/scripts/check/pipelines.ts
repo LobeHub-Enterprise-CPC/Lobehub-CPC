@@ -17,7 +17,7 @@ export const lobehubPipelines: PipelineEntry[] = [
   {
     exts: ['.mdx'],
     tools: [
-      ['remark', '-r', './.remarkrc.mdx.mjs', '--silent', '--output', '--'],
+      ['remark', '-r', './.remarkrc.mdx.mjs', '--silent', '--silently-ignore', '--output', '--'],
       ['eslint', '--quiet', '--fix'],
     ],
   },

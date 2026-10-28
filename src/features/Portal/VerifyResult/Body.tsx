@@ -1,9 +1,8 @@
 import type { VerifierType } from '@lobechat/types';
 import { formatDuration as formatDurationMs } from '@lobechat/utils';
-import { Flexbox, Markdown } from '@lobehub/ui';
-import { Button, Text } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+import { Button, createStaticStyles, cssVar, Flexbox, Markdown, Text } from '@lobehub/ui';
 import { ListTree } from 'lucide-react';
+import { getProviderDisplayName } from 'model-bank/modelProviders';
 import type { ReactNode } from 'react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -134,7 +133,9 @@ const Body = () => {
     duration && { key: t('detail.duration'), value: duration },
     tracing?.model && {
       key: t('detail.model'),
-      value: tracing.provider ? `${tracing.provider} / ${tracing.model}` : tracing.model,
+      value: tracing.provider
+        ? `${getProviderDisplayName(tracing.provider)} / ${tracing.model}`
+        : tracing.model,
     },
     tokens != null && { key: t('detail.tokens'), value: tokens.toLocaleString() },
   ].filter(Boolean) as { key: string; value: string }[];

@@ -1,12 +1,12 @@
 'use client';
 
 import { TITLE_BAR_HEIGHT } from '@lobechat/desktop-bridge';
-import { Flexbox } from '@lobehub/ui';
-import { createStaticStyles, keyframes } from 'antd-style';
-import { memo, useEffect, useState } from 'react';
+import { createStaticStyles, Flexbox, keyframes } from '@lobehub/ui';
+import { memo, useEffect, useLayoutEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ProductLogo } from '@/components/Branding/ProductLogo';
+import { retainSkeleton } from '@/components/Skeleton/skeletonHandover';
 import { isDesktop } from '@/const/version';
 import {
   getInnerCssVariables,
@@ -16,12 +16,6 @@ import { styles as containerStyles } from '@/features/DesktopLayoutContainer/sty
 import { electronStylish } from '@/styles/electron';
 
 import { readBootShellGeometry } from './geometry';
-
-// antd emits its design tokens as `.lobe-vars{--ant-*: …}` — a plain global
-// class rule, not a `:root` one. The shell renders outside `AppTheme`, so it has
-// to opt into that class itself or every `var(--ant-*)` below resolves to its
-// fallback.
-const CSS_VAR_CLASS = 'lobe-vars';
 
 export const APP_SHELL_FALLBACK_ID = 'app-shell-fallback';
 
@@ -119,13 +113,15 @@ const AppShellSkeleton = memo<AppShellSkeletonProps>(({ id }) => {
   const { isDark, navPanelBackground, navPanelWidth, showLeftPanel } = readBootShellGeometry();
   const [waiting, setWaiting] = useState(false);
 
+  useLayoutEffect(retainSkeleton, []);
+
   useEffect(() => {
     const timer = setTimeout(() => setWaiting(true), HINT_DELAY);
     return () => clearTimeout(timer);
   }, []);
 
   return (
-    <div aria-hidden className={`${CSS_VAR_CLASS} ${styles.root}`} id={id}>
+    <div aria-hidden className={styles.root} id={id}>
       {isDesktop && <div className={`${styles.dragRegion} ${electronStylish.draggable}`} />}
       <Flexbox
         horizontal

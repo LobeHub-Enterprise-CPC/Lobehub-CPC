@@ -48,6 +48,114 @@ describe('normalizeSandboxCommandResult', () => {
       }),
     ).toMatchObject({ sessionExpiredAndRecreated: true, success });
   });
+
+  it('keeps a real non-zero shell observation instead of collapsing it into a synthetic exit', async () => {
+    const { normalizeSandboxCommandResult } = await import('../service');
+
+    expect(
+      normalizeSandboxCommandResult({
+        result: { exitCode: 7, stderr: 'boom', stdout: 'partial output' },
+        sessionExpiredAndRecreated: true,
+        success: true,
+      }),
+    ).toEqual({
+      exitCode: 7,
+      output: 'partial output',
+      sessionExpiredAndRecreated: true,
+      stderr: 'boom',
+      success: false,
+    });
+  });
+
+  it('does not report a missing exit code as exit 0 success while the command is running', async () => {
+    const { normalizeSandboxCommandResult } = await import('../service');
+
+    const result = normalizeSandboxCommandResult({
+      result: { commandId: 'shell-9', output: 'partial', running: true },
+      success: true,
+    });
+
+    expect(result.exitCode).toBeUndefined();
+    expect(result.success).toBe(true);
+    expect(result.shellId).toBe('shell-9');
+    expect(result.output).toBe('partial');
+  });
+
+  it('does not invent an exit code for an observation without one', async () => {
+    const { normalizeSandboxCommandResult } = await import('../service');
+
+    const result = normalizeSandboxCommandResult({
+      result: { stdout: 'still going' },
+      success: true,
+    });
+
+    expect(result).not.toHaveProperty('exitCode');
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('normalizeSandboxCommandResult — failed tool call (never executed)', () => {
+  it('preserves the upstream error kind instead of reporting a shell failure', async () => {
+    const { normalizeSandboxCommandResult } = await import('../service');
+
+    expect(
+      normalizeSandboxCommandResult({
+        error: { message: 'blocked by policy', name: 'COMMAND_GOVERNANCE_DENIED' },
+        result: null,
+        success: false,
+      }),
+    ).toEqual({
+      error: { message: 'blocked by policy', name: 'COMMAND_GOVERNANCE_DENIED' },
+      output: '',
+      success: false,
+    });
+  });
+
+  it('keeps a governance outage distinct from a policy denial and never fabricates an exit code', async () => {
+    const { normalizeSandboxCommandResult } = await import('../service');
+
+    const result = normalizeSandboxCommandResult({
+      error: {
+        message: 'governance unavailable; temporary',
+        name: 'COMMAND_GOVERNANCE_UNAVAILABLE',
+      },
+      result: null,
+      success: false,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result).not.toHaveProperty('exitCode');
+    expect(result.error).toMatchObject({ name: 'COMMAND_GOVERNANCE_UNAVAILABLE' });
+    expect(result.error?.name).not.toBe('COMMAND_GOVERNANCE_DENIED');
+  });
+
+  it('preserves the error details and recreation even when the envelope failed', async () => {
+    const { normalizeSandboxCommandResult } = await import('../service');
+
+    expect(
+      normalizeSandboxCommandResult({
+        error: { code: 'COMMAND_GOVERNANCE_UNAVAILABLE', message: 'not run' },
+        result: { code: 'COMMAND_GOVERNANCE_UNAVAILABLE', message: 'not run' },
+        sessionExpiredAndRecreated: true,
+        success: false,
+      }),
+    ).toEqual({
+      error: { code: 'COMMAND_GOVERNANCE_UNAVAILABLE', message: 'not run' },
+      output: '',
+      sessionExpiredAndRecreated: true,
+      success: false,
+    });
+  });
+
+  it('falls back to a generic message when the upstream error is absent', async () => {
+    const { normalizeSandboxCommandResult } = await import('../service');
+
+    expect(normalizeSandboxCommandResult({ result: null, success: false })).toEqual({
+      error: { message: 'Command execution failed' },
+      output: '',
+      success: false,
+    });
+  });
 });
 
 describe('SandboxMiddlewareService', () => {

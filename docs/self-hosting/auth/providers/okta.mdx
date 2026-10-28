@@ -29,7 +29,7 @@ tags:
      - Sign-in redirect URIs: Add your callback URL
 
   <Callout type={'info'}>
-    **Callback URL Format**: `https://your-domain.com/api/auth/callback/okta`
+    **Callback URL Format**: `https://your-domain.com/t/<tenant>/api/auth/callback/okta`
   </Callout>
 
   6. After creation, note down the **Client ID** and **Client Secret**
@@ -40,21 +40,19 @@ tags:
 
   For custom authorization servers: `https://your-okta-domain.okta.com/oauth2/default`
 
-  ### Configure Environment Variables
+  ### Configure in Admin
 
-  When deploying LobeHub, you need to configure the following environment variables:
+  SSO is configured per tenant in Admin, not with environment variables. In Admin, open the tenant's SSO providers, add a provider and fill in:
 
-  | Environment Variable | Type     | Description                                                                   |
-  | -------------------- | -------- | ----------------------------------------------------------------------------- |
-  | `AUTH_SECRET`        | Required | Key used to encrypt session tokens. Generate using: `openssl rand -base64 32` |
-  | `AUTH_SSO_PROVIDERS` | Required | SSO provider for LobeHub. Use `okta` for Okta                                 |
-  | `AUTH_OKTA_ID`       | Required | Client ID from Okta application                                               |
-  | `AUTH_OKTA_SECRET`   | Required | Client Secret from Okta application                                           |
-  | `AUTH_OKTA_ISSUER`   | Required | Okta issuer URL (e.g., `https://your-okta-domain.okta.com`)                   |
+  | Field         | Value                                                      |
+  | ------------- | ---------------------------------------------------------- |
+  | Protocol      | OIDC                                                       |
+  | Provider ID   | `okta` selects the okta preset; any other ID is plain OIDC |
+  | Client ID     | Client ID from the provider                                |
+  | Client Secret | Client secret from the provider; Admin stores it encrypted |
+  | Issuer        | `https://<your-okta-domain>.okta.com`                      |
 
-  <Callout type={'tip'}>
-    Go to [📘 Environment Variables](/docs/self-hosting/environment-variables/auth#okta) for detailed information on these variables.
-  </Callout>
+  The callback URL to register with the provider is `https://your-domain.com/t/<tenant>/api/auth/callback/<provider-id>`; Admin shows it for each provider.
 </Steps>
 
 <Callout type={'info'}>

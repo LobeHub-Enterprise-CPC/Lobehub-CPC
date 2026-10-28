@@ -1,15 +1,15 @@
 'use client';
 
-import type { ExpertiseEnforcement } from '@lobechat/types';
-import { Flexbox, SortableList } from '@lobehub/ui';
-import { ActionIcon, type DropdownItem, DropdownMenu, Tag, Tooltip } from '@lobehub/ui/base-ui';
-import { cx } from 'antd-style';
+import type { ExpertiseEnforcement, ExpertiseRuleDirection } from '@lobechat/types';
+import { cx, Flexbox, SortableList } from '@lobehub/ui';
+import { ActionIcon, type DropdownItem, DropdownMenu, Tag, Tooltip } from '@lobehub/ui';
 import dayjs from 'dayjs';
 import { MoreHorizontalIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import type { RuleItem } from '@/services/expertise';
 
+import DirectionToggle from './DirectionToggle';
 import EnforcementToggle from './EnforcementToggle';
 import { styles } from './styles';
 
@@ -18,10 +18,15 @@ interface RuleRowProps {
   /** Where an archived rule went, when it was folded into another one. */
   archivedInto?: string | null;
   code: string;
+  /** Off while the sheet is sorted by a column: that order is not the reviewer's to drag. */
+  draggable?: boolean;
   menu: DropdownItem[];
+  onDirection: (next: ExpertiseRuleDirection) => void;
   onEnforcement: (next: ExpertiseEnforcement) => void;
   onSelect: () => void;
   rule: RuleItem;
+  /** Whether the row sits in an agent's part, where what the reviewer wrote was taught to it. */
+  taughtToAgent?: boolean;
 }
 
 /**
@@ -33,10 +38,13 @@ const RuleRow = ({
   active,
   archivedInto,
   code,
+  draggable = true,
   menu,
+  onDirection,
   onEnforcement,
   onSelect,
   rule,
+  taughtToAgent,
 }: RuleRowProps) => {
   const { t } = useTranslation('memory');
   const archived = rule.status === 'retired';
@@ -59,13 +67,17 @@ const RuleRow = ({
         onClick={onSelect}
       >
         <span data-hover className={styles.hover} onClick={(e) => e.stopPropagation()}>
-          {!archived && <SortableList.DragHandle size={'small'} />}
+          {!archived && draggable && <SortableList.DragHandle size={'small'} />}
         </span>
         <span className={styles.cellId}>{code}</span>
         <div style={{ minWidth: 0 }}>
           <Flexbox horizontal align={'baseline'} gap={6} wrap={'wrap'}>
             <span className={styles.title}>{rule.title}</span>
-            {authored && <Tag size={'small'}>{t('rules.tag.authored')}</Tag>}
+            {authored && (
+              <Tag size={'small'}>
+                {t(taughtToAgent ? 'rules.tag.taught' : 'rules.tag.authored')}
+              </Tag>
+            )}
             {rule.specificity === 'one-off' && !archived && (
               <Tooltip title={t('rules.origin.oneOff')}>
                 <Tag size={'small'}>{t('rules.tag.oneOff')}</Tag>
@@ -82,6 +94,7 @@ const RuleRow = ({
             )}
           </Flexbox>
         </div>
+        <DirectionToggle disabled={archived} value={rule.direction} onChange={onDirection} />
         <EnforcementToggle disabled={archived} value={rule.enforcement} onChange={onEnforcement} />
         <span className={styles.muted}>{t(`rules.method.${rule.compilability}`)}</span>
         <Tooltip

@@ -1,13 +1,12 @@
-import { EDITOR_DEBOUNCE_TIME, EDITOR_MAX_WAIT, isDesktop } from '@lobechat/const';
-import { confirmModal, toast } from '@lobehub/ui/base-ui';
+import { buildAppUrl, getAppBaseUrl } from '@lobechat/business-tenant/client';
+import { EDITOR_DEBOUNCE_TIME, EDITOR_MAX_WAIT } from '@lobechat/const';
+import { confirmModal, toast } from '@lobehub/ui';
 import debug from 'debug';
 import { debounce } from 'es-toolkit/compat';
 import { type StateCreator } from 'zustand';
 
 import { type EditLockHealth } from '@/features/EditLock';
 import { useDocumentStore } from '@/store/document';
-import { getElectronStoreState } from '@/store/electron';
-import { electronSyncSelectors } from '@/store/electron/selectors';
 import { useFileStore } from '@/store/file';
 
 import { type PendingCommentAnchor, type RightPanelMode, type State } from './initialState';
@@ -98,10 +97,11 @@ export const store: (initState?: Partial<State>) => StateCreator<Store> =
       handleCopyLink: (t) => {
         const { documentId } = get();
         if (documentId) {
-          const appOrigin = isDesktop
-            ? electronSyncSelectors.remoteServerUrl(getElectronStoreState())
-            : window.location.origin;
-          const url = `${appOrigin}${window.location.pathname}`;
+          // The page path is an app path (tenant-prefixed on web): mount it on the
+          // tenant's active address, which on desktop is the remote server.
+          const url = getAppBaseUrl()
+            ? buildAppUrl(window.location.pathname)
+            : window.location.pathname;
           navigator.clipboard.writeText(url);
           toast.success(t('pageEditor.linkCopied'));
         }
@@ -182,7 +182,7 @@ export const store: (initState?: Partial<State>) => StateCreator<Store> =
               emoji,
               title,
             },
-            { saveSource: 'autosave' },
+            { metadataOnly: true, saveSource: 'autosave' },
           );
 
           // Notify parent after successful save. The callbacks were captured

@@ -1,5 +1,13 @@
-import { Flexbox, Input } from '@lobehub/ui';
-import { Button, ModalFooter, Text, toast, useModalContext } from '@lobehub/ui/base-ui';
+import {
+  Button,
+  cssVar,
+  Flexbox,
+  Input,
+  ModalFooter,
+  Text,
+  toast,
+  useModalContext,
+} from '@lobehub/ui';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -7,6 +15,7 @@ import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwar
 import { type ProjectListItem, useProjectStore } from '@/store/project';
 
 import {
+  getCreatedProjectPath,
   getCreateProjectInput,
   getProjectFieldSuggestions,
   isProjectIdentifierValid,
@@ -76,8 +85,14 @@ const CreateProjectContent = memo<CreateProjectOptions>(({ onCreated }) => {
     try {
       const project = await createProject(createInput);
       close();
-      if (onCreated) onCreated(project);
-      else navigate(`/project/${project.slug ?? project.id}`);
+      if (onCreated) {
+        onCreated(project);
+      } else {
+        const path = getCreatedProjectPath(project);
+        if (path) navigate(path);
+        // Staying put, the new row in the sidebar is the only sign it worked.
+        else toast.success(t('create.success', { name: project.name }));
+      }
     } catch (error) {
       console.error('Failed to create project', error);
       toast.error(t('operationFailed', { ns: 'common' }));
@@ -107,9 +122,10 @@ const CreateProjectContent = memo<CreateProjectOptions>(({ onCreated }) => {
             {t('create.identifierLabel')}
           </Text>
           <Input
+            aria-invalid={identifierInvalid}
             maxLength={6}
             placeholder={t('create.identifierPlaceholder')}
-            status={identifierInvalid ? 'error' : undefined}
+            style={identifierInvalid ? { borderColor: cssVar.colorError } : undefined}
             value={form.identifier}
             onPressEnter={handleCreate}
             onChange={(event) =>
@@ -125,9 +141,10 @@ const CreateProjectContent = memo<CreateProjectOptions>(({ onCreated }) => {
             {t('create.slugLabel')}
           </Text>
           <Input
+            aria-invalid={!slugValid}
             maxLength={100}
             placeholder={t('create.slugPlaceholder')}
-            status={slugValid ? undefined : 'error'}
+            style={slugValid ? undefined : { borderColor: cssVar.colorError }}
             value={form.slug}
             onPressEnter={handleCreate}
             onChange={(event) =>

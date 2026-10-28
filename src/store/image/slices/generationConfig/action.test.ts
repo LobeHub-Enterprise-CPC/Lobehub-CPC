@@ -421,6 +421,49 @@ describe('GenerationConfigAction', () => {
       });
     });
 
+    it('should not throw or change state when the reused model is no longer enabled', () => {
+      const { result } = renderHook(() => useImageStore());
+      const before = {
+        model: result.current.model,
+        parameters: result.current.parameters,
+        parametersSchema: result.current.parametersSchema,
+        provider: result.current.provider,
+      };
+
+      let removedModelResult: boolean | undefined;
+      let removedProviderResult: boolean | undefined;
+      expect(() => {
+        act(() => {
+          removedModelResult = result.current.reuseSettings('removed-model', 'fal', {
+            prompt: 'x',
+          });
+          removedProviderResult = result.current.reuseSettings('flux/schnell', 'removed-provider', {
+            prompt: 'x',
+          });
+        });
+      }).not.toThrow();
+
+      expect(removedModelResult).toBe(false);
+      expect(removedProviderResult).toBe(false);
+      expect({
+        model: result.current.model,
+        parameters: result.current.parameters,
+        parametersSchema: result.current.parametersSchema,
+        provider: result.current.provider,
+      }).toEqual(before);
+    });
+
+    it('should report success when the reused model is enabled', () => {
+      const { result } = renderHook(() => useImageStore());
+      let reused: boolean | undefined;
+
+      act(() => {
+        reused = result.current.reuseSettings('flux/schnell', 'fal', {});
+      });
+
+      expect(reused).toBe(true);
+    });
+
     it('should update only seed parameter via reuseSeed', () => {
       const { result } = renderHook(() => useImageStore());
 

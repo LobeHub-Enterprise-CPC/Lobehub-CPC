@@ -18,6 +18,7 @@
   "actions.submit": "提交",
   "app.description": "你的 AI 助手协作平台",
   "app.name": "LobeHub",
+  "gateway.workspaceAdminRequired": "接受共享前，此设备当前登录的账号必须拥有工作区管理权限。请在设备上登录工作区管理员账号，然后重新共享设备。",
   "status.error": "错误",
   "status.info": "信息",
   "status.loading": "加载中",

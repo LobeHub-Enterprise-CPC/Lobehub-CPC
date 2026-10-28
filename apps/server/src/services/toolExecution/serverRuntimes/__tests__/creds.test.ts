@@ -1,3 +1,4 @@
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MarketService } from '@/server/services/market';
@@ -38,7 +39,7 @@ describe('credsRuntime', () => {
 
     expect(getMember).toHaveBeenCalledWith('workspace-1', 'user-1');
     expect(MarketService).toHaveBeenCalledWith({
-      userInfo: { userId: 'user-1', workspaceId: 'workspace-1' },
+      userInfo: expect.objectContaining({ userId: 'user-1', workspaceId: 'workspace-1' }),
     });
   });
 
@@ -76,9 +77,12 @@ describe('credsRuntime', () => {
     });
 
     expect(getMember).not.toHaveBeenCalled();
-    expect(MarketService).toHaveBeenCalledWith({
-      userInfo: { userId: 'user-1', workspaceId: undefined },
-    });
+    expect(MarketService).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userInfo: expect.objectContaining({ userId: 'user-1' }),
+      }),
+    );
+    expect(vi.mocked(MarketService).mock.calls[0][0]?.userInfo?.workspaceId).toBeUndefined();
   });
 
   it('rejects runtime creation without a user identity', async () => {
@@ -160,5 +164,85 @@ describe('ServerCredsService.injectCreds', () => {
       userId: 'user-1',
     });
     expect(result).toBe(injectResult);
+  });
+});
+
+// R13: a tenant has no workspace organization. Reads and writes inside a
+// workspace fail as that one tool call, with a readable reason; they never fall
+// back to the personal credentials.
+describe('ServerCredsService inside a tenant workspace', () => {
+  const inTenant = <T>(fn: () => T) =>
+    runWithTenantScope(
+      { session: {}, slug: 'acme', tenantId: 'tenant-a' } as unknown as TenantScope,
+      fn,
+    );
+
+  const build = () => {
+    const personal = {
+      get: vi.fn(),
+      inject: vi.fn().mockResolvedValue({ success: true }),
+      list: vi.fn().mockResolvedValue({ data: [{ id: 1, key: 'PERSONAL' }] }),
+    };
+    const organizations = { creds: vi.fn() };
+    const market = { creds: personal, organizations };
+    return { market, organizations, personal };
+  };
+
+  it('fails the list with a readable reason and reads no credentials', async () => {
+    const { market, organizations, personal } = build();
+    const service = new ServerCredsService({ market } as unknown as MarketService, 'workspace-1');
+
+    await expect(inTenant(() => service.listCreds())).rejects.toThrow(
+      /Workspace credentials are not available/,
+    );
+    expect(personal.list).not.toHaveBeenCalled();
+    expect(organizations.creds).not.toHaveBeenCalled();
+  });
+
+  it('fails a read by key the same way', async () => {
+    const { market, personal } = build();
+    const service = new ServerCredsService({ market } as unknown as MarketService, 'workspace-1');
+
+    await expect(inTenant(() => service.getByKey('PERSONAL'))).rejects.toThrow(
+      /Workspace credentials are not available/,
+    );
+    expect(personal.list).not.toHaveBeenCalled();
+    expect(personal.get).not.toHaveBeenCalled();
+  });
+
+  // Market resolved the organization's credentials from the workspaceId in the
+  // token. The token no longer carries it, so an inject would pick personal ones.
+  it('refuses to inject, so personal credentials never land in the workspace sandbox', async () => {
+    const { market, personal } = build();
+    const service = new ServerCredsService({ market } as unknown as MarketService, 'workspace-1');
+
+    await expect(
+      inTenant(() => service.injectCreds({ keys: ['K'], topicId: 't', userId: 'u' })),
+    ).rejects.toThrow(/Workspace credentials are not available/);
+    expect(personal.inject).not.toHaveBeenCalled();
+  });
+
+  it('surfaces as a failed tool call, not a failed run', async () => {
+    const { market } = build();
+    const { CredsExecutionRuntime } = await import('@lobechat/builtin-tool-creds/executionRuntime');
+    const runtime = new CredsExecutionRuntime(
+      new ServerCredsService({ market } as unknown as MarketService, 'workspace-1'),
+      { appUrl: 'https://app.test', topicId: 't', userId: 'u' },
+    );
+
+    const result = await inTenant(() => (runtime as any).injectCredsToSandbox({ keys: ['K'] }));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toMatch(/Workspace credentials are not available/);
+  });
+
+  it('keeps personal credentials working without a workspace', async () => {
+    const { market, personal } = build();
+    const service = new ServerCredsService({ market } as unknown as MarketService);
+
+    await expect(inTenant(() => service.listCreds())).resolves.toMatchObject({
+      data: [{ key: 'PERSONAL' }],
+    });
+    expect(personal.list).toHaveBeenCalledTimes(1);
   });
 });

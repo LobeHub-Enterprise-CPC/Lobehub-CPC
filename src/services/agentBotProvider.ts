@@ -94,7 +94,19 @@ class AgentBotProviderService {
   };
 
   wechatPollQrStatus = async (qrcode: string) => {
-    return lambdaClient.agentBotProvider.wechatPollQrStatus.query({ qrcode });
+    return lambdaClient.agentBotProvider.wechatPollQrStatus.mutate({ qrcode });
+  };
+
+  feishuRegisterBegin = async (
+    params: Parameters<typeof lambdaClient.agentBotProvider.feishuRegisterBegin.mutate>[0],
+  ) => {
+    return lambdaClient.agentBotProvider.feishuRegisterBegin.mutate(params);
+  };
+
+  feishuRegisterPoll = async (
+    params: Parameters<typeof lambdaClient.agentBotProvider.feishuRegisterPoll.query>[0],
+  ) => {
+    return lambdaClient.agentBotProvider.feishuRegisterPoll.query(params);
   };
 }
 

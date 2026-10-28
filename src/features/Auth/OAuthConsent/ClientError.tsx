@@ -1,7 +1,6 @@
 'use client';
 
-import { FluentEmoji } from '@lobehub/ui';
-import { Result, Text } from '@lobehub/ui/base-ui';
+import { FluentEmoji, Result, Text } from '@lobehub/ui';
 import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -29,17 +28,17 @@ const ConsentClientError = memo<ClientProps>(({ error }) => {
     <Result
       icon={<FluentEmoji emoji={'🥵'} size={96} type={'anim'} />}
       status={'error'}
-      subTitle={
-        <Text fontSize={16} type="secondary">
-          {message}
-        </Text>
-      }
       title={
         <Text fontSize={32} weight={'bold'}>
           {title}
         </Text>
       }
-    />
+    >
+      {/* Result wraps subTitle in <p>: block content (Text renders a div) must stay outside it */}
+      <Text fontSize={16} style={{ maxWidth: '36ch' }} type="secondary">
+        {message}
+      </Text>
+    </Result>
   );
 });
 

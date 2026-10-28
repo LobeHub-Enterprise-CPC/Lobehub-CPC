@@ -1,4 +1,5 @@
 import { oidcSessions } from '@lobechat/database/schemas';
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import Keygrip from 'keygrip';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -151,4 +152,25 @@ describe('clearCurrentOIDCSession', () => {
     expect(delete_).not.toHaveBeenCalled();
     expect(context.setCookie).toHaveBeenCalledTimes(OIDC_SESSION_COOKIE_NAMES.length);
   });
+});
+
+it.each([
+  {
+    basePath: '/t/acme',
+    publicUrl: 'https://app.example.com/t/acme',
+    version: 1,
+    expected: '/t/acme',
+  },
+  { basePath: '', publicUrl: 'https://chat.example.com', version: 2, expected: '/' },
+])('expires OIDC cookies on their canonical path $expected', async (endpoint) => {
+  const context = createCookieContext('a', 'forged');
+  const { db } = createDb([]);
+  await runWithTenantScope({ slug: 'acme', tenantId: 'tenant-a', endpoint } as TenantScope, () =>
+    clearCurrentOIDCSession(db as any, context),
+  );
+  expect(context.setCookie).toHaveBeenCalledWith(
+    '_session',
+    '',
+    expect.objectContaining({ path: endpoint.expected }),
+  );
 });

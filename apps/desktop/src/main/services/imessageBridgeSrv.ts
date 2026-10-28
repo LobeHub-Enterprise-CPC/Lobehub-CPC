@@ -7,11 +7,13 @@ import {
   type BlueBubblesSendOptions,
   type BlueBubblesWebhookEvent,
 } from '@lobechat/chat-adapter-imessage';
+import { isMaskedBotCredential } from '@lobechat/const/bot';
 import type {
   ImessageBridgeConfig,
   ImessageBridgePublicConfig,
   ImessageBridgeStatus,
 } from '@lobechat/electron-client-ipc';
+import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import { getPort } from 'get-port-please';
 
 import { createLogger } from '@/utils/logger';
@@ -216,12 +218,22 @@ export default class ImessageBridgeService extends ServiceModule {
       config.blueBubblesPassword?.trim() || existing?.blueBubblesPassword?.trim();
     if (!blueBubblesPassword) throw new Error('blueBubblesPassword is required');
 
+    // `webhookSecret` is shared with the cloud provider, so the bridge and the
+    // cloud must hold the same value. The renderer reads the provider through
+    // the replica, whose at-rest copy masks credentials — a cache-first save
+    // therefore hands us the mask, not the secret. Keep the real secret this
+    // bridge already holds instead of persisting the placeholder, which would
+    // make local webhook forwarding fail against the cloud.
+    const webhookSecret = isMaskedBotCredential(config.webhookSecret)
+      ? existing?.webhookSecret
+      : config.webhookSecret;
+
     return {
       applicationId: assertString(config.applicationId, 'applicationId'),
       blueBubblesPassword,
       blueBubblesServerUrl: assertString(config.blueBubblesServerUrl, 'blueBubblesServerUrl'),
       enabled: config.enabled,
-      webhookSecret: assertString(config.webhookSecret, 'webhookSecret'),
+      webhookSecret: assertString(webhookSecret, 'webhookSecret'),
     };
   }
 
@@ -355,9 +367,10 @@ export default class ImessageBridgeService extends ServiceModule {
     ]);
     if (!serverUrl) throw new Error('Remote server URL is not configured');
 
-    const target = new URL(
+    // The server URL may carry a tenant path prefix (`/t/{slug}`) the webhook route lives under.
+    const target = buildRemoteUrl(
       `/api/agent/webhooks/imessage/${encodeURIComponent(config.applicationId)}`,
-      serverUrl.endsWith('/') ? serverUrl : `${serverUrl}/`,
+      serverUrl,
     );
     target.searchParams.set('secret', config.webhookSecret);
 

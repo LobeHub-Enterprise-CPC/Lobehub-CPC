@@ -24,6 +24,11 @@ class RecentService {
       withTopicPreview,
     });
   };
+
+  /** The viewer's conversations outside projects, newest first. */
+  getRecentTopics = (limit?: number): Promise<RecentItem[]> => {
+    return lambdaClient.recent.getRecentTopics.query({ limit });
+  };
 }
 
 export const recentService = new RecentService();

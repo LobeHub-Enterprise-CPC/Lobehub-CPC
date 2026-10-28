@@ -287,7 +287,7 @@ export class SlackInstallationStore implements MessengerInstallationStore {
 
   private gateKeeperPromise?: Promise<KeyVaultsGateKeeper>;
 
-  /** Lazily init the encryptor — `KEY_VAULTS_SECRET` is constant per process. */
+  /** Lazily init the encryptor; it resolves the tenant key on every call. */
   private getGateKeeper(): Promise<KeyVaultsGateKeeper> {
     if (!this.gateKeeperPromise) {
       this.gateKeeperPromise = KeyVaultsGateKeeper.initWithEnvKey();

@@ -68,6 +68,33 @@ const rect = { height: 0.2, width: 0.3, x: 0.1, y: 0.1 };
 
 describe('AcceptanceCommentModel', () => {
   describe('create', () => {
+    it('stores independent video times in metadata and preserves retry identity and other facts', async () => {
+      const input = {
+        acceptanceId,
+        anchor: { checkItemId: 'c2', evidenceId, rect, time: { start: 2.5 } },
+        authorUserId: reviewer,
+        clientId: 'video-frame',
+        content: 'first frame',
+        metadata: { origin: 'reviewer' },
+      };
+      const { comment } = await model.create(input);
+      expect(comment.metadata).toEqual({
+        origin: 'reviewer',
+        evidenceAnchor: { time: { start: 2.5 } },
+      });
+      const second = await model.create({
+        ...input,
+        anchor: { ...input.anchor, time: { start: 6 } },
+        clientId: 'another-video-frame',
+      });
+      const retry = await model.create(input);
+      expect(retry.isDuplicate).toBe(true);
+      expect(retry.comment.id).toBe(comment.id);
+      expect((await model.findById(comment.id))?.metadata).toEqual(comment.metadata);
+      expect(second.comment.metadata).toMatchObject({ evidenceAnchor: { time: { start: 6 } } });
+      expect(await model.listByAcceptance(acceptanceId)).toHaveLength(2);
+    });
+
     it('writes a global comment with the round it was written against', async () => {
       const { comment, isDuplicate } = await model.create({
         acceptanceId,
@@ -147,9 +174,18 @@ describe('AcceptanceCommentModel', () => {
 
     it('keeps the product page and metadata on a thread root, never on a reply', async () => {
       const source = {
-        kind: 'product-page' as const,
-        selector: '#run-status',
+        intent: 'comment' as const,
+        scroll: { x: 0, y: 0 },
+        targets: [
+          {
+            label: 'Status',
+            rect: { height: 20, width: 80, x: 0, y: 0 },
+            selector: '#run-status',
+          },
+        ],
         url: 'https://product.example.com/experiments',
+        v: 1 as const,
+        viewport: { dpr: 1, height: 800, width: 1280 },
       };
       const { comment: root } = await model.create({
         acceptanceId,

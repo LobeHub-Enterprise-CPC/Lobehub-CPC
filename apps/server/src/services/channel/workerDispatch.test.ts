@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { CHANNEL_LIMITS } from '@lobechat/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LobeChatDatabase } from '@/database/type';
@@ -20,6 +21,8 @@ const { methods, inspect, probe, start, stopDevice, settleOperation, deviceConst
       publish: vi.fn(),
       releaseWriter: vi.fn(),
       recordEnvironmentCleanup: vi.fn(),
+      advanceDiscussions: vi.fn(),
+      isolate: vi.fn(),
     },
     deviceConstructor: vi.fn(),
     inspect: vi.fn(),
@@ -36,6 +39,7 @@ vi.mock('@/database/models/channel', () => ({
   },
 }));
 vi.mock('./device', () => ({
+  ChannelDeviceOfflineError: class extends Error {},
   ChannelDeviceStartError: class extends Error {
     constructor(
       message: string,
@@ -67,7 +71,7 @@ vi.mock('./artifact', () => ({ resolveChannelArtifactRunIds: async () => [] }));
 vi.mock('./serverDefault', () => ({ settleChannelServerDefaultOperation: settleOperation }));
 
 const channel = { id: 'channel', ownerId: 'owner', archived: false };
-function database(rows: unknown[][]) {
+function database(rows: unknown[][], discussing: unknown[] = []) {
   const chain = (result: unknown) => {
     const query = Promise.resolve(result);
     Object.assign(query, {
@@ -81,20 +85,19 @@ function database(rows: unknown[][]) {
   };
   return {
     select: () => chain(rows.shift()!),
-    /** The discussion sweep sees no active discussions in these isolation tests. */
-    selectDistinct: () => chain([]),
+    selectDistinct: () => chain(discussing),
   } as unknown as LobeChatDatabase;
 }
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(isChannelEnabled).mockReturnValue(true);
+  vi.mocked(isChannelEnabled).mockResolvedValue(true);
   for (const method of Object.values(methods)) method.mockResolvedValue(undefined);
   methods.claim.mockResolvedValue(null);
 });
 
 describe('Channel dispatch isolation', () => {
-  it('does not claim queued work when the gateway is unconfigured', async () => {
-    vi.mocked(isChannelEnabled).mockReturnValue(false);
+  it('does not claim queued work when Channels are disabled for the owner', async () => {
+    vi.mocked(isChannelEnabled).mockResolvedValue(false);
     const worker = new ChannelWorker(
       database([
         [],
@@ -103,13 +106,13 @@ describe('Channel dispatch isolation', () => {
       ]),
     );
     await worker.tick();
-    expect(isChannelEnabled).toHaveBeenCalledWith();
+    expect(isChannelEnabled).toHaveBeenCalledWith(channel.ownerId);
     expect(methods.claim).not.toHaveBeenCalled();
     expect(start).not.toHaveBeenCalled();
   });
 
-  it('revokes unpublished runs when the gateway is removed instead of publishing their drafts', async () => {
-    vi.mocked(isChannelEnabled).mockReturnValue(false);
+  it('revokes unpublished runs when Channels are disabled instead of publishing their drafts', async () => {
+    vi.mocked(isChannelEnabled).mockResolvedValue(false);
     const worker = new ChannelWorker(
       database([
         [
@@ -242,6 +245,7 @@ describe('Channel dispatch isolation', () => {
       channel.id,
       'queued',
       expect.stringContaining('WORKSPACE_CHANGED'),
+      'workspace_changed',
     );
   });
 
@@ -434,4 +438,251 @@ describe('Channel dispatch isolation', () => {
       expect(settleOperation).not.toHaveBeenCalled();
     },
   );
+
+  it('keeps dispatching when one Channel discussion fails to advance', async () => {
+    methods.advanceDiscussions.mockRejectedValueOnce(new Error('corrupt discussion'));
+    const worker = new ChannelWorker(
+      database(
+        [[], [], [{ channel, config: { runtime: 'native' }, revision: 3, job: { id: 'queued' } }]],
+        [
+          { channelId: 'broken', ownerId: 'owner' },
+          { channelId: 'healthy', ownerId: 'owner' },
+        ],
+      ),
+    );
+    await expect(worker.tick()).resolves.toBeUndefined();
+    expect(methods.advanceDiscussions).toHaveBeenCalledWith('healthy');
+    expect(methods.claim).toHaveBeenCalledWith(channel.id, 'queued', 3);
+  });
+
+  it('backs off a failed device probe and records an unchanged reason only once', async () => {
+    probe.mockRejectedValue(new Error('DEVICE_OFFLINE'));
+    const queued = (blockedReason: string | null) => [
+      {
+        channel,
+        config: { runtime: 'codex', deviceId: 'device', workingDirectory: '/repo' },
+        job: { id: 'queued', blockedReason, blockedCode: blockedReason && 'unavailable' },
+      },
+    ];
+    const worker = new ChannelWorker(
+      database([[], [], queued(null), [], [], queued('DEVICE_OFFLINE')]),
+    );
+    await worker.tick();
+    await worker.tick();
+    expect(probe).toHaveBeenCalledOnce();
+    expect(methods.unavailable).toHaveBeenCalledOnce();
+
+    vi.useFakeTimers({ now: Date.now() + 10_001, toFake: ['Date'] });
+    try {
+      await new ChannelWorker(database([[], [], queued('DEVICE_OFFLINE')])).tick();
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(probe).toHaveBeenCalledTimes(2);
+    expect(methods.unavailable).toHaveBeenCalledOnce();
+    expect(methods.claim).not.toHaveBeenCalled();
+  });
+
+  it('does not lock the Channel to clear a block that was never recorded', async () => {
+    probe.mockResolvedValue('/repo');
+    const worker = new ChannelWorker(
+      database([
+        [],
+        [],
+        [
+          {
+            channel,
+            config: { runtime: 'codex', deviceId: 'device', workingDirectory: '/repo' },
+            revision: 1,
+            job: { id: 'queued', blockedReason: null },
+          },
+        ],
+      ]),
+    );
+    await worker.tick();
+    expect(methods.unavailable).not.toHaveBeenCalled();
+    expect(methods.claim).toHaveBeenCalledWith(channel.id, 'queued', 1);
+  });
+
+  it.each([
+    [31 * 60 * 1000, true],
+    [5 * 60 * 1000, false],
+  ])('enforces the device execution budget (age=%sms, expired=%s)', async (age, expired) => {
+    stopDevice.mockResolvedValue({
+      fence: 1,
+      physicalStopped: true,
+      runId: 'long',
+      status: 'stopped',
+    });
+    inspect.mockResolvedValue({
+      fence: 1,
+      physicalStopped: false,
+      runId: 'long',
+      status: 'running',
+    });
+    const worker = new ChannelWorker(
+      database([
+        [
+          {
+            channel,
+            memberActive: true,
+            config: { runtime: 'codex', deviceId: 'device' },
+            run: {
+              id: 'long',
+              channelId: channel.id,
+              createdAt: new Date(Date.now() - age),
+              fence: 1,
+              executionFence: 1,
+              executionConfig: { runtime: 'codex', deviceId: 'device' },
+              publicationRevoked: false,
+              writerReleased: false,
+              draft: null,
+            },
+          },
+        ],
+        [],
+        [],
+      ]),
+    );
+    await worker.tick();
+    if (expired) {
+      expect(methods.fail).toHaveBeenCalledWith(
+        channel.id,
+        'long',
+        1,
+        expect.stringContaining('30 minutes'),
+      );
+      expect(stopDevice).toHaveBeenCalledWith('long', 1);
+      expect(settleOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'interrupted' }),
+      );
+      expect(methods.releaseWriter).toHaveBeenCalledWith(channel.id, 'long', 1);
+    } else {
+      expect(methods.fail).not.toHaveBeenCalled();
+      expect(stopDevice).not.toHaveBeenCalled();
+      expect(inspect).toHaveBeenCalledWith('long', 1);
+      expect(methods.releaseWriter).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe('Channel unconfirmed writer isolation', () => {
+  const overdue = (limitMs: number, extraMs = 1000) =>
+    new Date(Date.now() - limitMs - CHANNEL_LIMITS.terminationGraceMs - extraMs);
+  const deviceRun = (overrides: Record<string, unknown>) => ({
+    channel,
+    memberActive: true,
+    config: { runtime: 'codex', deviceId: 'device' },
+    run: {
+      id: 'stuck',
+      channelId: channel.id,
+      fence: 1,
+      executionFence: 1,
+      executionConfig: { runtime: 'codex', deviceId: 'device' },
+      publicationRevoked: true,
+      writerReleased: false,
+      draft: null,
+      isolatedAt: null,
+      ...overrides,
+    },
+  });
+  const unconfirmed = {
+    fence: 1,
+    physicalStopped: false,
+    runId: 'stuck',
+    status: 'execution_unknown',
+  };
+
+  it('isolates a device writer whose stop stays unconfirmed past its limit and grace', async () => {
+    stopDevice.mockResolvedValue(unconfirmed);
+    const worker = new ChannelWorker(
+      database([[deviceRun({ createdAt: overdue(CHANNEL_LIMITS.deviceExecutionMs) })], [], []]),
+    );
+    await worker.tick();
+    // One more stop attempt comes first; only its failure to confirm leads to isolation.
+    expect(stopDevice).toHaveBeenCalledWith('stuck', 1);
+    expect(methods.releaseWriter).not.toHaveBeenCalled();
+    expect(methods.isolate).toHaveBeenCalledWith(channel.id, 'stuck', 1, expect.any(String));
+  });
+
+  it('isolates an unconfirmed device writer even when the device cannot be reached', async () => {
+    stopDevice.mockRejectedValue(new Error('DEVICE_OFFLINE'));
+    const worker = new ChannelWorker(
+      database([[deviceRun({ createdAt: overdue(CHANNEL_LIMITS.deviceExecutionMs) })], [], []]),
+    );
+    await worker.tick();
+    expect(methods.executionUnknown).toHaveBeenCalled();
+    expect(methods.isolate).toHaveBeenCalledWith(channel.id, 'stuck', 1, expect.any(String));
+  });
+
+  it('keeps waiting for confirmation within the grace period', async () => {
+    stopDevice.mockResolvedValue(unconfirmed);
+    const worker = new ChannelWorker(
+      database([
+        [deviceRun({ createdAt: new Date(Date.now() - CHANNEL_LIMITS.deviceExecutionMs - 1000) })],
+        [],
+        [],
+      ]),
+    );
+    await worker.tick();
+    expect(stopDevice).toHaveBeenCalled();
+    expect(methods.isolate).not.toHaveBeenCalled();
+  });
+
+  it('keeps trying to confirm an isolated device writer without isolating it again', async () => {
+    stopDevice.mockResolvedValue({ ...unconfirmed, physicalStopped: true, status: 'stopped' });
+    const worker = new ChannelWorker(
+      database([
+        [
+          deviceRun({
+            createdAt: overdue(CHANNEL_LIMITS.deviceExecutionMs),
+            isolatedAt: new Date(),
+          }),
+        ],
+        [],
+        [],
+      ]),
+    );
+    await worker.tick();
+    expect(methods.isolate).not.toHaveBeenCalled();
+    // A late physical confirmation still settles the writer normally.
+    expect(methods.releaseWriter).toHaveBeenCalledWith(channel.id, 'stuck', 1);
+  });
+
+  it('isolates an orphaned native writer once its execution limit and grace have passed', async () => {
+    const native = (overrides: Record<string, unknown>) => ({
+      channel,
+      memberActive: true,
+      config: { runtime: 'native' },
+      run: {
+        id: 'orphan',
+        channelId: channel.id,
+        fence: 1,
+        executionConfig: { runtime: 'native' },
+        publicationRevoked: false,
+        writerReleased: false,
+        draft: null,
+        isolatedAt: null,
+        ...overrides,
+      },
+    });
+    const worker = new ChannelWorker(
+      database([
+        [native({ createdAt: overdue(CHANNEL_LIMITS.executionMs) })],
+        [],
+        [],
+        [native({ createdAt: overdue(CHANNEL_LIMITS.executionMs), isolatedAt: new Date() })],
+        [],
+        [],
+      ]),
+    );
+    await worker.tick();
+    expect(methods.executionUnknown).toHaveBeenCalledTimes(1);
+    expect(methods.isolate).toHaveBeenCalledWith(channel.id, 'orphan', 1, expect.any(String));
+    vi.clearAllMocks();
+    await worker.tick();
+    // Nothing can confirm an orphaned native writer, so an isolated one is not re-diagnosed.
+    expect(methods.executionUnknown).not.toHaveBeenCalled();
+    expect(methods.isolate).not.toHaveBeenCalled();
+  });
 });

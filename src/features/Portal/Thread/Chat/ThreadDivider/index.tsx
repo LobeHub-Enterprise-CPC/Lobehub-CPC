@@ -1,7 +1,5 @@
 import { type IThreadType, ThreadType } from '@lobechat/types';
-import { Flexbox, Icon } from '@lobehub/ui';
-import { Divider } from 'antd';
-import { cssVar } from 'antd-style';
+import { cssVar, Divider, Flexbox, Icon } from '@lobehub/ui';
 import { GitBranch } from 'lucide-react';
 import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -22,7 +20,7 @@ const ThreadDivider = memo<ThreadDividerProps>(({ children, threadType }) => {
 
   return (
     <div style={{ padding: '0 20px' }}>
-      <Divider style={{ margin: 0, padding: '20px 0' }}>
+      <Divider style={{ padding: '20px 0' }}>
         <Flexbox
           horizontal
           align={'center'}

@@ -1,10 +1,13 @@
 'use client';
 
-import { Flexbox, Input } from '@lobehub/ui';
-import { Button, Text } from '@lobehub/ui/base-ui';
+import { CLI_PRIMARY_BIN } from '@lobechat/business-const';
+import { Button, Flexbox, Input, Text } from '@lobehub/ui';
 import { memo, useCallback, useState } from 'react';
 
+import { isCustomBranding } from '@/const/version';
 import { electronSystemService } from '@/services/electron/system';
+
+const CLI_LABEL = isCustomBranding ? CLI_PRIMARY_BIN : 'lobehub';
 
 interface CommandResult {
   args: string;
@@ -39,7 +42,7 @@ const CliTestSection = memo(() => {
       <Flexbox horizontal gap={8} wrap="wrap">
         {presetCommands.map((cmd) => (
           <Button key={cmd} loading={running} size="small" onClick={() => runCommand(cmd)}>
-            lobehub {cmd}
+            {CLI_LABEL} {cmd}
           </Button>
         ))}
       </Flexbox>
@@ -68,15 +71,15 @@ const CliTestSection = memo(() => {
           gap={4}
           key={i}
           style={{
-            background: 'var(--ant-color-fill-quaternary)',
+            background: 'var(--lobe-color-fill-quaternary)',
             borderRadius: 8,
             fontFamily: 'monospace',
             fontSize: 12,
             padding: 12,
           }}
         >
-          <Text style={{ color: 'var(--ant-color-primary)', fontWeight: 600 }}>
-            $ lobehub {r.args} (exit: {r.exitCode})
+          <Text style={{ color: 'var(--lobe-color-primary)', fontWeight: 600 }}>
+            $ {CLI_LABEL} {r.args} (exit: {r.exitCode})
           </Text>
           {r.stdout && (
             <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
@@ -86,7 +89,7 @@ const CliTestSection = memo(() => {
           {r.stderr && (
             <pre
               style={{
-                color: 'var(--ant-color-error)',
+                color: 'var(--lobe-color-error)',
                 margin: 0,
                 whiteSpace: 'pre-wrap',
                 wordBreak: 'break-all',

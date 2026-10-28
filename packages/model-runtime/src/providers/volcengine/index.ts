@@ -68,25 +68,31 @@ export const LobeVolcengineAI = createOpenAICompatibleRuntime({
   baseURL: 'https://ark.cn-beijing.volces.com/api/v3',
   chatCompletion: {
     handlePayload: (payload) => {
-      const { enabledSearch, thinking, reasoning_effort, ...rest } = payload;
+      // Ark addresses models by their catalog (deployment) name, not the
+      // logical id the builtin cards ship with (`deepseek-v4-pro-ga` vs
+      // `deepseek-v4-pro-ga-260813`): sending the bare id 404s with
+      // InvalidEndpointOrModel.NotFound. Same pattern as spark/azureOpenai.
+      const { deploymentName, enabledSearch, model, thinking, reasoning_effort, ...rest } = payload;
+      const requestModel = deploymentName ?? model;
 
       if (enabledSearch) {
         return {
           ...rest,
+          model: requestModel,
           apiMode: 'responses',
           enabledSearch,
         } as ChatStreamPayload;
       }
 
-      const params = resolveVolcengineReasoningParams(
-        payload.model,
-        thinking,
-        reasoning_effort,
-        false,
-      );
+      // Family detection runs on the logical `model`, not `requestModel`:
+      // deploymentName can be a custom alias (e.g. `prod-endpoint`) that hides
+      // the deepseek-v4 / glm-5-2 family and would skip the reasoning-effort
+      // mapping. requestModel stays reserved for the outgoing payload.
+      const params = resolveVolcengineReasoningParams(model, thinking, reasoning_effort, false);
 
       return {
         ...rest,
+        model: requestModel,
         ...(params.thinking?.type && { thinking: { type: params.thinking.type } }),
         ...(params.reasoning_effort && { reasoning_effort: params.reasoning_effort }),
       } as any;
@@ -101,18 +107,20 @@ export const LobeVolcengineAI = createOpenAICompatibleRuntime({
   handleCreateVideoWebhook: handleVolcengineVideoWebhook,
   handlePollVideoStatus: async (inferenceId, options) => {
     const baseURL = options.baseURL || 'https://ark.cn-beijing.volces.com/api/v3';
-    return pollVolcengineVideoStatus(inferenceId, options.apiKey || '', baseURL);
+    return pollVolcengineVideoStatus(
+      inferenceId,
+      options.apiKey || '',
+      baseURL,
+      options.fetch as typeof fetch | undefined,
+    );
   },
   provider: ModelProvider.Volcengine,
   responses: {
     handlePayload: (payload) => {
-      const { enabledSearch, tools, thinking, reasoning_effort, ...rest } = payload;
-      const params = resolveVolcengineReasoningParams(
-        payload.model,
-        thinking,
-        reasoning_effort,
-        true,
-      );
+      const { deploymentName, enabledSearch, model, tools, thinking, reasoning_effort, ...rest } =
+        payload;
+      const requestModel = deploymentName ?? model;
+      const params = resolveVolcengineReasoningParams(model, thinking, reasoning_effort, true);
 
       const volcengineTools = enabledSearch
         ? [
@@ -128,11 +136,24 @@ export const LobeVolcengineAI = createOpenAICompatibleRuntime({
 
       return {
         ...rest,
+        model: requestModel,
         tools: volcengineTools,
         ...(params.thinking?.type && { thinking: { type: params.thinking.type } }),
         ...(params.reasoning_effort && { reasoning_effort: params.reasoning_effort }),
       } as any;
     },
   },
-  videoGenerationCapabilities: { completionModes: ['webhook'] },
+  /**
+   * Ark's `contents/generations/tasks` API has no callback parameter: a task is
+   * submitted, then polled with `GET .../contents/generations/tasks/{id}` until it
+   * reports `content.video_url` (see `createVideo.ts` and `handlePollVideoStatus`
+   * above). Declaring `webhook` here strands every task on deployments without a
+   * reachable callback endpoint — `createVideo` records the inferenceId and stops,
+   * `schedulePolling` is never registered, and `handlePollVideoStatus` becomes
+   * unreachable until the generic async-task watchdog reports
+   * "task is timeout, please try again". This regression was introduced when a
+   * canary sync added the declaration as a single new line; the CPC polling fix it
+   * overrode is a5af22eea4 / 9c0fe84395.
+   */
+  videoGenerationCapabilities: { completionModes: ['polling'] },
 });

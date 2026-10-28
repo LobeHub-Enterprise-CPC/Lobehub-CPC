@@ -120,6 +120,11 @@ export interface WorkspaceUserPreference {
    *   ignored; nothing reads or writes this map.
    */
   sidebarPinnedOverrides?: Record<string /* itemId */, boolean>;
+  /**
+   * Topic sidebars list only the topics this member created, hiding the other
+   * members' topics under the same agent / group.
+   */
+  topicOnlyMine?: boolean;
 }
 
 export interface LobeUser {
@@ -207,12 +212,9 @@ export const UserLabSchema = z.object({
    */
   enableProjects: z.boolean().optional(),
   /**
-   * show the "my rules" page under memory: the delivery rules distilled from rejected
-   * acceptance rounds, with ordering, grouping and enforcement controls
-   */
-  enableMemoryRules: z.boolean().optional(),
-  /**
-   * show the per-agent self-learning (expertise) page and its sidebar entry
+   * self-evolving: inject what was learned (the user's rules and each agent's own lessons) into
+   * runs, and show it under memory and on each agent's self-learning page. The former separate
+   * "my rules" switch (`enableMemoryRules`) is folded into this one.
    */
   enableSelfLearning: z.boolean().optional(),
   /**
@@ -222,15 +224,10 @@ export const UserLabSchema = z.object({
   /** Capture a conversation turn as an eval test case (developer-facing). */
   enableEvalCapture: z.boolean().optional(),
   /**
-   * route every agent run in this tab over one shared gateway WebSocket
-   * (protocol v2 mux) instead of one socket per run
-   *
-   * @deprecated The Labs toggle is gone; the transport is gated by the
-   * `agent_gateway_mux` feature flag. Still read on the server to pick
-   * message-patch delivery and read-path projection until those decisions move
-   * to the client's declared protocol, which removes this field.
+   * show "Report a problem" in the topic menu, which sends where the topic is
+   * (its ids and the client environment) to the support team
    */
-  enableGatewayMux: z.boolean().optional(),
+  enableTopicBugReport: z.boolean().optional(),
   /**
    * enable Goals: hand the agent a goal it plans into tasks, tracks and delivers
    */
@@ -246,6 +243,17 @@ export const UserLabSchema = z.object({
    * running there can be opened from this UI
    */
   enableDeviceTunnel: z.boolean().optional(),
+  /**
+   * opt this user's cloud-sandbox runs into a persistent workspace: the working
+   * directory survives session recycling and is shared across their topics,
+   * instead of being thrown away with the sandbox
+   */
+  enablePersistentSandbox: z.boolean().optional(),
+  /**
+   * show the redesigned onboarding flow when this user first enters a newly
+   * created workspace (the previous flow otherwise)
+   */
+  enableWorkspaceOnboardingV2: z.boolean().optional(),
 });
 
 export type UserLab = z.infer<typeof UserLabSchema>;
@@ -311,6 +319,12 @@ export interface UserPreference {
    * context. Stored as id (not slug) so workspace renames don't invalidate it.
    */
   lastWorkspaceId?: string | null;
+  /**
+   * How a project's topic sidebar groups its topics. Kept apart from
+   * `topicGroupMode` because a project spans agents and devices: it defaults to
+   * grouping by agent, and its choice must not leak into single-agent lists.
+   */
+  projectTopicGroupMode?: TopicGroupMode;
   /**
    * Personal-mode counterpart of
    * {@link WorkspaceUserPreference.sidebarHiddenAgentIds}: agents/chat-groups
@@ -398,11 +412,16 @@ export const UserPreferenceSchema = z
     integration: UserIntegrationPreferenceSchema.optional(),
     lab: UserLabSchema.optional(),
     lastWorkspaceId: z.string().nullish(),
+    projectTopicGroupMode: z
+      .enum(['byTime', 'byProject', 'flat', 'byStatus', 'byAgent', 'byDevice'])
+      .optional(),
     sidebarHiddenAgentIds: z.array(z.string()).optional(),
     sidebarHiddenGroupIds: z.array(z.string()).optional(),
     terminalFontFamily: z.string().optional(),
     telemetry: z.boolean().nullable(),
-    topicGroupMode: z.enum(['byTime', 'byProject', 'flat', 'byStatus']).optional(),
+    topicGroupMode: z
+      .enum(['byTime', 'byProject', 'flat', 'byStatus', 'byAgent', 'byDevice'])
+      .optional(),
     topicIncludeCompleted: z.boolean().optional(),
     topicSortBy: z.enum(['createdAt', 'updatedAt']).optional(),
     useCmdEnterToSend: z.boolean().optional(),

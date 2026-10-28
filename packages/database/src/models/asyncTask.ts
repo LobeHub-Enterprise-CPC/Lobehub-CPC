@@ -1,4 +1,4 @@
-import { ASYNC_TASK_TIMEOUT } from '@lobechat/business-config/server';
+import { ASYNC_TASK_TIMEOUT, VIDEO_GENERATION_TASK_TIMEOUT } from '@lobechat/business-config/server';
 import type {
   HourlyUserMemoryExtractionMetadata,
   HourlyUserMemoryExtractionProgress,
@@ -10,12 +10,24 @@ import {
   AsyncTaskStatus,
   AsyncTaskType,
 } from '@lobechat/types';
-import { and, eq, inArray, lt, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, or, sql } from 'drizzle-orm';
 
 import type { AsyncTaskSelectItem, NewAsyncTaskItem } from '../schemas';
 import { asyncTasks } from '../schemas';
 import type { LobeChatDatabase } from '../type';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
+
+/**
+ * Deadline used by the watchdog, per async task type.
+ *
+ * Video generation waits on a remote render that is observed through a callback or a
+ * poll, so it must not share the generic deadline: the poller starts after submission
+ * and its own budget is close to ASYNC_TASK_TIMEOUT, which is what made the watchdog
+ * kill tasks that were still legitimately in flight. See the budget notes in
+ * `packages/business/config/src/server/route.ts`.
+ */
+const timeoutForTaskType = (type?: AsyncTaskType | string | null) =>
+  type === AsyncTaskType.VideoGeneration ? VIDEO_GENERATION_TASK_TIMEOUT : ASYNC_TASK_TIMEOUT;
 
 export class AsyncTaskModel {
   private userId: string;
@@ -179,7 +191,7 @@ export class AsyncTaskModel {
     let chunkTasks: AsyncTaskSelectItem[] = [];
 
     if (taskIds.length > 0) {
-      await this.checkTimeoutTasks(taskIds);
+      await this.checkTimeoutTasks(taskIds, type);
       chunkTasks = await this.db.query.asyncTasks.findMany({
         where: and(inArray(asyncTasks.id, taskIds), eq(asyncTasks.type, type), this.ownership()),
       });
@@ -299,44 +311,51 @@ export class AsyncTaskModel {
   };
 
   /**
-   * make the task status to be `error` if the task is not finished in 20 seconds
+   * Mark tasks that are past their deadline as `error`.
+   *
+   * The deadline depends on the task type and callers that only hold ids cannot know
+   * it (`getGenerationStatus` guards a single video task without passing a type), so
+   * candidates are read first and only the rows past *their own* deadline are expired.
+   *
+   * @param ids task ids to consider
+   * @param type optional known type; when omitted each row's own type decides
    */
-  checkTimeoutTasks = async (ids: string[]) => {
-    const tasks = await this.db
-      .select({ id: asyncTasks.id })
+  checkTimeoutTasks = async (ids: string[], type?: AsyncTaskType) => {
+    if (ids.length === 0) return;
+
+    const activeStatuses = or(
+      eq(asyncTasks.status, AsyncTaskStatus.Pending),
+      eq(asyncTasks.status, AsyncTaskStatus.Processing),
+    );
+
+    const candidates = await this.db
+      .select({ createdAt: asyncTasks.createdAt, id: asyncTasks.id, type: asyncTasks.type })
       .from(asyncTasks)
+      .where(and(inArray(asyncTasks.id, ids), this.ownership(), activeStatuses));
+
+    const now = Date.now();
+    const expiredIds = candidates
+      .filter((task) => now - task.createdAt.getTime() > timeoutForTaskType(type ?? task.type))
+      .map((task) => task.id);
+
+    if (expiredIds.length === 0) return;
+
+    await this.db
+      .update(asyncTasks)
+      .set({
+        error: new AsyncTaskError(AsyncTaskErrorType.Timeout, 'task is timeout, please try again'),
+        status: AsyncTaskStatus.Error,
+      })
       .where(
         and(
-          inArray(asyncTasks.id, ids),
+          inArray(asyncTasks.id, expiredIds),
           this.ownership(),
-          or(
-            eq(asyncTasks.status, AsyncTaskStatus.Pending),
-            eq(asyncTasks.status, AsyncTaskStatus.Processing),
-          ),
-          lt(asyncTasks.createdAt, new Date(Date.now() - ASYNC_TASK_TIMEOUT)),
+          // Re-check the status: the task may have been finalized by the poller, the
+          // callback or a duplicate watchdog between the read above and this write, and
+          // a completed task must not be pushed back to `error`.
+          activeStatuses,
         ),
       );
-
-    if (tasks.length > 0) {
-      await this.db
-        .update(asyncTasks)
-        .set({
-          error: new AsyncTaskError(
-            AsyncTaskErrorType.Timeout,
-            'task is timeout, please try again',
-          ),
-          status: AsyncTaskStatus.Error,
-        })
-        .where(
-          and(
-            inArray(
-              asyncTasks.id,
-              tasks.map((item) => item.id),
-            ),
-            this.ownership(),
-          ),
-        );
-    }
   };
 }
 

@@ -17,6 +17,15 @@ vi.mock('@/../../package.json', () => ({
   name: 'test-app',
 }));
 
+// The tooltip depends on the build's branding; pin it per test.
+const branding = vi.hoisted(() => ({ rebranded: false }));
+vi.mock('@/const/branding', () => ({
+  get isCustomBranding() {
+    return branding.rebranded;
+  },
+}));
+vi.mock('@/utils/appIdentity', () => ({ getAppDisplayName: () => 'Acme Work' }));
+
 // Mock Tray class
 vi.mock('../Tray', () => ({
   Tray: vi.fn(),
@@ -44,6 +53,7 @@ describe('TrayManager', () => {
     mockApp = {
       menuManager: {
         buildTrayMenu: vi.fn(() => ({ _mockMenu: true }) as any),
+        updateDockMenu: vi.fn(),
       },
       storeManager: {
         get: vi.fn(() => true),
@@ -89,6 +99,14 @@ describe('TrayManager', () => {
       expect(mockTray.setMenu).toHaveBeenCalledWith({ _mockMenu: true });
     });
 
+    it('should forward navigation snapshots to the dock menu even without a tray', () => {
+      const snapshot = { agents: [], pinned: [], recent: [] };
+
+      trayManager.updateNavigationSnapshot(snapshot);
+
+      expect(mockApp.menuManager.updateDockMenu).toHaveBeenCalledWith(snapshot);
+    });
+
     it('should skip tray initialization when app tray is disabled', () => {
       vi.mocked(mockApp.storeManager.get).mockReturnValue(false);
 
@@ -113,6 +131,17 @@ describe('TrayManager', () => {
         mockApp,
       );
       expect(result).toBe(mockTray);
+    });
+
+    it("shows a rebranded build's product name, not the package name", () => {
+      branding.rebranded = true;
+      try {
+        trayManager.initializeMainTray();
+      } finally {
+        branding.rebranded = false;
+      }
+
+      expect(Tray).toHaveBeenCalledWith(expect.objectContaining({ tooltip: 'Acme Work' }), mockApp);
     });
 
     it('should add created tray to trays map', () => {

@@ -1,7 +1,7 @@
 'use client';
 
-import { Flexbox, FluentEmoji } from '@lobehub/ui';
-import { Button } from '@lobehub/ui/base-ui';
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
+import { Button, Flexbox, FluentEmoji } from '@lobehub/ui';
 import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -34,7 +34,7 @@ const Forbidden = memo(() => {
       <div style={{ lineHeight: '1.8', marginBottom: '2em', textAlign: 'center' }}>
         {t('forbidden.desc')}
       </div>
-      <Button type={'primary'} onClick={() => (window.location.href = '/')}>
+      <Button type={'primary'} onClick={() => (window.location.href = withCurrentTenantPath('/'))}>
         {t('forbidden.backHome')}
       </Button>
     </Flexbox>

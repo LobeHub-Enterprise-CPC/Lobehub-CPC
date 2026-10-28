@@ -34,3 +34,6 @@ export const updaterConfig = {
    */
   enableAppUpdate: !isDev && !getDesktopEnv().DESKTOP_DISABLE_UPDATES,
 };
+
+export const getSparkleFeedUrl = (baseUrl: string, channel: UpdateChannel) =>
+  `${baseUrl.replace(/\/(stable|nightly|canary|beta)\/?$/, '').replace(/\/$/, '')}/${channel}/appcast-${process.arch}.xml`;

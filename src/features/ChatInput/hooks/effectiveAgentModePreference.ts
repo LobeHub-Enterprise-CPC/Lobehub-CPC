@@ -1,3 +1,4 @@
+import { COMPOSER_AGENT_ONLY_LAYOUT } from '@lobechat/business-const';
 import type { AgentItem } from '@lobechat/types';
 
 import { useAgentManagementAccess } from '@/features/ResourcePermission/useAgentManagementAccess';
@@ -30,6 +31,8 @@ const resolveEffectiveAgentModePreference = ({
 
 /** Resolve the Chat/Agent preference used by generation for this agent. */
 export const getEffectiveAgentModePreference = (agentId: string) => {
+  if (COMPOSER_AGENT_ONLY_LAYOUT) return true;
+
   const agentState = getAgentStoreState();
   const userState = useUserStore.getState();
   const agent = agentByIdSelectors.getAgentById(agentId)(agentState);
@@ -76,8 +79,9 @@ export const useEffectiveAgentModePreference = (agentId: string) => {
     : undefined;
 
   return {
-    enableAgentMode: memberOverride ?? sharedEnableAgentMode,
-    isPreferenceLoading: isAccessLoading || (usesWorkspaceMemberMode && isLoading),
+    enableAgentMode: COMPOSER_AGENT_ONLY_LAYOUT || (memberOverride ?? sharedEnableAgentMode),
+    isPreferenceLoading:
+      !COMPOSER_AGENT_ONLY_LAYOUT && (isAccessLoading || (usesWorkspaceMemberMode && isLoading)),
     usesWorkspaceMemberMode,
   };
 };

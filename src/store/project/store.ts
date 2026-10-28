@@ -1,141 +1,254 @@
-import { useLayoutEffect } from 'react';
-import type { SWRResponse } from 'swr';
 import { shallow } from 'zustand/shallow';
 import { createWithEqualityFn } from 'zustand/traditional';
 
 import { getActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
-import { mutate, useClientDataSWR } from '@/libs/swr';
-import { getCacheScope, useCacheScope } from '@/libs/swr/useCacheScope';
-import { projectService } from '@/services/project';
+import {
+  arrayEntity,
+  createReplicaSlice,
+  createReplicaState,
+  linkReplicaEntity,
+  recordLens,
+  type ReplicaState,
+  type ReplicaSyncResult,
+  singleEntity,
+} from '@/libs/replica';
+import {
+  type ProjectAgentBindingPatch,
+  type ProjectKnowledgeBaseBindingPatch,
+  projectService,
+} from '@/services/project';
 import { createDevtools } from '@/store/middleware/createDevtools';
 import { expose } from '@/store/middleware/expose';
 
-type ProjectListResponse = Awaited<ReturnType<typeof projectService.listAll>>;
-type ProjectDetailResponse = Awaited<ReturnType<typeof projectService.detail>>;
-export type ProjectListItem = ProjectListResponse['data'][number];
-export type ProjectDetail = ProjectDetailResponse['data'];
+import {
+  PROJECT_LIST_KEY,
+  type ProjectDetail,
+  projectDetailResource,
+  type ProjectListItem,
+  projectListResource,
+} from './projection';
 
-const LIST_KEY = 'project/list';
-const listKey = (scope: string) => [LIST_KEY, scope] as const;
-const detailKey = (scope: string, id: string) => ['project/detail', scope, id] as const;
+export type { ProjectDetail, ProjectListItem } from './projection';
 
-interface ProjectStore {
+export interface ProjectStoreState {
+  /** Project pages by route param (id or slug). */
+  projectDetailMap: Record<string, ProjectDetail>;
+  /** Replica bookkeeping for `projectDetailMap`. */
+  projectDetailReplica: ReplicaState<ProjectDetail>;
+  /** `projectListMap.all`: every project of the active scope. */
+  projectListMap: Record<string, ProjectListItem[]>;
+  /** Replica bookkeeping for `projectListMap`. */
+  projectListReplica: ReplicaState<ProjectListItem[]>;
+}
+
+interface ProjectStore extends ProjectStoreState {
+  /** Invite agents; one refetch after the batch so every loaded page shows them. */
+  addProjectAgents: (projectId: string, agentIds: string[]) => Promise<void>;
+  addProjectKnowledgeBases: (projectId: string, knowledgeBaseIds: string[]) => Promise<void>;
   createProject: (input: {
     identifier: string;
     name: string;
     slug?: string;
   }) => Promise<ProjectListItem>;
   deleteProject: (id: string) => Promise<void>;
-  projectDetails: Record<string, Record<string, ProjectDetail>>;
-  projectLists: Record<string, ProjectListItem[]>;
   refreshProjectList: () => Promise<void>;
-  updateProject: (id: string, input: { name: string }) => Promise<ProjectListItem>;
-  useFetchProjectDetail: (id?: string) => SWRResponse<ProjectDetailResponse>;
-  useFetchProjectList: (enabled?: boolean) => SWRResponse<ProjectListResponse>;
+  removeProjectAgent: (projectId: string, agentId: string) => Promise<void>;
+  removeProjectKnowledgeBase: (projectId: string, knowledgeBaseId: string) => Promise<void>;
+  updateProject: (
+    id: string,
+    input: Parameters<typeof projectService.update>[1],
+  ) => Promise<ProjectListItem>;
+  updateProjectAgent: (
+    projectId: string,
+    agentId: string,
+    patch: ProjectAgentBindingPatch,
+  ) => Promise<void>;
+  updateProjectKnowledgeBase: (
+    projectId: string,
+    knowledgeBaseId: string,
+    patch: ProjectKnowledgeBaseBindingPatch,
+  ) => Promise<void>;
+  /** Fetch orchestration only; read the value with `useCurrentProjectDetail`. */
+  useFetchProjectDetail: (idOrSlug?: string) => ReplicaSyncResult;
+  /** Fetch orchestration only; read the rows with `useCurrentProjectList`. */
+  useFetchProjectList: (enabled?: boolean) => ReplicaSyncResult;
 }
+
+export const initialProjectState: ProjectStoreState = {
+  projectDetailMap: {},
+  projectDetailReplica: createReplicaState(),
+  projectListMap: {},
+  projectListReplica: createReplicaState(),
+};
+
+const LIST_PARAMS = {} as Record<string, never>;
 
 const devtools = createDevtools('project');
 
 export const useProjectStore = createWithEqualityFn<ProjectStore>()(
-  devtools((set, get) => ({
-    createProject: async (input) => {
-      const response = await projectService.create(input, getActiveWorkspaceId());
-      await get().refreshProjectList();
-      return response.data;
-    },
-    deleteProject: async (id) => {
-      await projectService.delete(id);
-      await get().refreshProjectList();
-    },
-    projectDetails: {},
-    projectLists: {},
-    refreshProjectList: async () => mutate(listKey(getCacheScope())),
-    updateProject: async (id, input) => {
-      const response = await projectService.update(id, input);
-      const project = response.data;
+  devtools((set, get) => {
+    const list = createReplicaSlice(projectListResource, {
+      actionPrefix: 'project/list',
+      entity: arrayEntity<ProjectListItem>((project) => project.id),
+      fetcher: () => projectService.listAll(),
+      get,
+      merge: (response) => response.data,
+      set,
+      stateKey: 'projectListReplica',
+      view: recordLens<ProjectStore, ProjectListItem[]>('projectListMap'),
+    });
+    const detail = createReplicaSlice(projectDetailResource, {
+      actionPrefix: 'project/detail',
+      entity: singleEntity<ProjectDetail, ProjectListItem>((project) => project.id, {
+        get: (value) => value.project,
+        set: (value, project) => ({ ...value, project }),
+      }),
+      fetcher: (idOrSlug) => projectService.detail(idOrSlug),
+      get,
+      merge: (response) => response.data,
+      set,
+      stateKey: 'projectDetailReplica',
+      view: recordLens<ProjectStore, ProjectDetail>('projectDetailMap'),
+    });
+    // The same project lives in the list and in every loaded project page.
+    const projectEntity = linkReplicaEntity<ProjectListItem>([list, detail]);
 
-      set(
-        (state) => ({
-          projectDetails: Object.fromEntries(
-            Object.entries(state.projectDetails).map(([scope, details]) => [
-              scope,
-              Object.fromEntries(
-                Object.entries(details).map(([reference, detail]) => [
-                  reference,
-                  detail.project.id === id ? { ...detail, project } : detail,
-                ]),
-              ),
-            ]),
-          ),
-          projectLists: Object.fromEntries(
-            Object.entries(state.projectLists).map(([scope, projects]) => [
-              scope,
-              projects.map((item) => (item.id === id ? project : item)),
-            ]),
-          ),
-        }),
-        false,
-        'updateProject/success',
-      );
-      await get().refreshProjectList();
-      return project;
-    },
-    useFetchProjectDetail: (id) => {
-      const scope = useCacheScope();
+    const refreshList = () => list.revalidate(PROJECT_LIST_KEY);
 
-      return useClientDataSWR(id ? detailKey(scope, id) : null, () => projectService.detail(id!), {
-        onSuccess: (response: ProjectDetailResponse) => {
-          if (scope !== getCacheScope()) return;
+    // A project page is keyed by its route param, so one project can sit under
+    // both its id and its slug.
+    const detailKeysOf = (projectId: string) =>
+      Object.entries(get().projectDetailMap)
+        .filter(([, value]) => value?.project.id === projectId)
+        .map(([key]) => key);
+    const refreshDetail = async (projectId: string) => {
+      await Promise.all(detailKeysOf(projectId).map((key) => detail.fetch(key, { fresh: true })));
+    };
+    /** Patch every loaded page now; the refetch afterwards reconciles server-owned fields. */
+    const patchDetail = (projectId: string, patch: (value: ProjectDetail) => ProjectDetail) => {
+      for (const key of detailKeysOf(projectId)) {
+        detail.update(key, (value) => (value ? patch(value) : value));
+      }
+    };
+    const mutateAndRefresh = async (projectId: string, mutation: () => Promise<unknown>) => {
+      try {
+        await mutation();
+      } finally {
+        await refreshDetail(projectId);
+      }
+    };
 
-          set(
-            (state) => ({
-              projectDetails: {
-                ...state.projectDetails,
-                [scope]: { ...state.projectDetails[scope], [id!]: response.data },
-              },
-            }),
-            false,
-            'useFetchProjectDetail/success',
-          );
-        },
-      });
-    },
-    useFetchProjectList: (enabled = true) => {
-      const scope = useCacheScope();
-      const response = useClientDataSWR(enabled ? listKey(scope) : null, () =>
-        projectService.listAll(),
-      );
-      const { data } = response;
-
-      useLayoutEffect(() => {
-        /**
-         * SWR cache hits do not invoke onSuccess. Hydrate Zustand before paint
-         * so the sidebar can render the cached list during a cold refresh.
-         * Ignore data captured for an obsolete user or workspace scope.
-         */
-        if (!enabled || !data || scope !== getCacheScope()) return;
-
-        set(
-          (state) => ({ projectLists: { ...state.projectLists, [scope]: data.data } }),
-          false,
-          'useFetchProjectList/hydrate',
+    return {
+      ...initialProjectState,
+      addProjectAgents: async (projectId, agentIds) => {
+        await mutateAndRefresh(projectId, () =>
+          Promise.all(agentIds.map((agentId) => projectService.addAgent(projectId, agentId))),
         );
-      }, [data, enabled, scope]);
-
-      return response;
-    },
-  })),
+      },
+      addProjectKnowledgeBases: async (projectId, knowledgeBaseIds) => {
+        await mutateAndRefresh(projectId, () =>
+          Promise.all(
+            knowledgeBaseIds.map((knowledgeBaseId) =>
+              projectService.addKnowledgeBase(projectId, knowledgeBaseId),
+            ),
+          ),
+        );
+      },
+      createProject: async (input) => {
+        const response = await projectService.create(input, getActiveWorkspaceId());
+        const project = response.data;
+        list.update(PROJECT_LIST_KEY, (items) =>
+          items && !items.some((item) => item.id === project.id) ? [project, ...items] : items,
+        );
+        void refreshList();
+        return project;
+      },
+      deleteProject: async (id) => {
+        await projectService.delete(id);
+        projectEntity.remove(id);
+        void refreshList();
+      },
+      refreshProjectList: async () => {
+        await refreshList();
+      },
+      removeProjectAgent: async (projectId, agentId) => {
+        patchDetail(projectId, (value) => ({
+          ...value,
+          agents: value.agents?.filter(({ agent }) => agent.id !== agentId) ?? value.agents,
+        }));
+        await mutateAndRefresh(projectId, () => projectService.removeAgent(projectId, agentId));
+      },
+      removeProjectKnowledgeBase: async (projectId, knowledgeBaseId) => {
+        patchDetail(projectId, (value) => ({
+          ...value,
+          knowledgeBases:
+            value.knowledgeBases?.filter(
+              ({ knowledgeBase }) => knowledgeBase.id !== knowledgeBaseId,
+            ) ?? value.knowledgeBases,
+        }));
+        await mutateAndRefresh(projectId, () =>
+          projectService.removeKnowledgeBase(projectId, knowledgeBaseId),
+        );
+      },
+      updateProjectAgent: async (projectId, agentId, patch) => {
+        patchDetail(projectId, (value) => ({
+          ...value,
+          agents:
+            value.agents?.map((item) =>
+              item.agent.id === agentId
+                ? { ...item, binding: { ...item.binding, ...patch } }
+                : item,
+            ) ?? value.agents,
+        }));
+        await mutateAndRefresh(projectId, () =>
+          projectService.updateAgent(projectId, agentId, patch),
+        );
+      },
+      updateProjectKnowledgeBase: async (projectId, knowledgeBaseId, patch) => {
+        patchDetail(projectId, (value) => ({
+          ...value,
+          knowledgeBases:
+            value.knowledgeBases?.map((item) =>
+              item.knowledgeBase.id === knowledgeBaseId
+                ? { ...item, binding: { ...item.binding, ...patch } }
+                : item,
+            ) ?? value.knowledgeBases,
+        }));
+        await mutateAndRefresh(projectId, () =>
+          projectService.updateKnowledgeBase(projectId, knowledgeBaseId, patch),
+        );
+      },
+      updateProject: async (id, input) => {
+        const response = await projectEntity.optimistic(
+          id,
+          (project) => ({ ...project, ...input }),
+          () => projectService.update(id, input),
+        );
+        // Server-owned fields (updatedAt, slug normalisation) land in every copy.
+        projectEntity.update(id, (project) => ({ ...project, ...response.data }));
+        void refreshList();
+        return response.data;
+      },
+      useFetchProjectDetail: (idOrSlug) => detail.useSync(idOrSlug || null),
+      useFetchProjectList: (enabled = true) => list.useSync(LIST_PARAMS, { enabled }),
+    };
+  }),
   shallow,
 );
 
 expose('project', useProjectStore);
 
-export const useCurrentProjectList = () => {
-  const scope = useCacheScope();
-  return useProjectStore((state) => state.projectLists[scope] ?? []);
-};
+const EMPTY_PROJECTS: ProjectListItem[] = [];
 
-export const useCurrentProjectDetail = (id?: string) => {
-  const scope = useCacheScope();
-  return useProjectStore((state) => (id ? state.projectDetails[scope]?.[id] : undefined));
-};
+export const useCurrentProjectList = () =>
+  useProjectStore((state) => state.projectListMap[PROJECT_LIST_KEY] ?? EMPTY_PROJECTS);
+
+/**
+ * Every project of the active scope, or `undefined` until the list first loads
+ * — for callers that must tell "not loaded" from "no projects".
+ */
+export const useLoadedProjectList = () =>
+  useProjectStore((state): ProjectListItem[] | undefined => state.projectListMap[PROJECT_LIST_KEY]);
+
+export const useCurrentProjectDetail = (idOrSlug?: string) =>
+  useProjectStore((state) => (idOrSlug ? state.projectDetailMap[idOrSlug] : undefined));

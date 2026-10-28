@@ -1,0 +1,46 @@
+{
+  "author": {
+    "name": "腾讯文档",
+    "url": "https://docs.qq.com"
+  },
+  "capabilities": {
+    "prompts": false,
+    "resources": false,
+    "tools": true
+  },
+  "category": "developer",
+  "createdAt": "2026-10-15T07:43:15.922Z",
+  "deploymentOptions": [
+    {
+      "connection": {
+        "configSchema": {
+          "type": "object",
+          "required": [],
+          "properties": {}
+        },
+        "type": "http",
+        "url": "https://docs.qq.com/openapi/mcp"
+      },
+      "description": "腾讯文档官方 HTTP MCP；DCR + OAuth，仅申请读取权限",
+      "installationDetails": {
+        "mcpAuth": {
+          "type": "oauth2",
+          "scopes": ["docs:read"],
+          "version": 1,
+          "registration": "dcr"
+        }
+      },
+      "installationMethod": "manual",
+      "isRecommended": true,
+      "systemDependencies": []
+    }
+  ],
+  "description": "通过腾讯文档官方远程 MCP 读取和检索文档。安装时登录授权，当前申请 docs:read；需要支持 OAuth 安装的新版客户端。",
+  "homepage": "https://docs.qq.com",
+  "icon": "https://docs.idqqimg.com/tim/docs/desktop/favicon.ico",
+  "identifier": "tencent-docs-mcp",
+  "name": "腾讯文档（OAuth）",
+  "tools": [],
+  "updatedAt": "2026-10-15T07:43:15.922Z",
+  "version": "0.1.0"
+}

@@ -12,6 +12,9 @@ import {
   checkCommand,
   COMMAND_BLOCKED_MESSAGE,
   type CommandGovernanceContext,
+  GOVERNANCE_UNAVAILABLE_MESSAGE,
+  GovernanceUnavailableError,
+  isGovernanceEnabled,
   logCommandExecution,
 } from '@/server/services/governance';
 
@@ -20,6 +23,7 @@ import {
   SANDBOX_INIT_TIMEOUT_MS,
   type SandboxInitDownload,
 } from './bootstrap';
+import { callTenantSandboxTool } from './tenantWork';
 import type {
   SandboxCommandResult,
   SandboxProvider,
@@ -32,13 +36,15 @@ import type {
 const log = debug('lobe-server:sandbox:service');
 
 /**
- * Sandbox tool names that spawn a shell command, and therefore are the ones
+ * Sandbox tool names that execute arbitrary code, and therefore are the ones
  * command governance gates. Mirrors `SHELL_TOOL_NAMES` in
  * `toolExecution/serverRuntimes/cloudSandbox.ts` (kept as a separate literal
  * rather than a shared import — that module belongs to the Agent tool-call
  * layer, this one gates every caller of `SandboxMiddlewareService`).
+ * `executeCode` runs the `code` field (python/javascript/typescript, default
+ * python); `runCommand`/`execScript` run the `command` field.
  */
-const GOVERNED_SHELL_TOOL_NAMES = new Set(['execScript', 'runCommand']);
+const GOVERNED_SHELL_TOOL_NAMES = new Set(['execScript', 'runCommand', 'executeCode']);
 
 export class SandboxMiddlewareService implements SandboxService {
   readonly capabilities: SandboxProviderCapabilities;
@@ -59,12 +65,13 @@ export class SandboxMiddlewareService implements SandboxService {
    * the Agent tool-call path (`toolExecution/serverRuntimes/cloudSandbox.ts`)
    * and the front-end "run" path (`routers/tools/market.ts` →
    * `execInSandboxHandler`) both end up here. Command governance is gated at
-   * this chokepoint rather than upstream so both paths, and both shell tool
-   * names (`runCommand`/`execScript`), are covered by one check — and so a
-   * new sandbox shell tool is covered automatically.
+   * this chokepoint rather than upstream so both paths, and all code-execution
+   * tool names (`runCommand`/`execScript`/`executeCode`), are covered by one
+   * check — and so a new sandbox shell tool is covered automatically.
    *
-   * `checkCommand`/`logCommandExecution` no-op with zero DB access when
-   * `COMMAND_GOVERNANCE_ENABLED` is off, and fail open on any internal error
+   * `checkCommand`/`logCommandExecution` no-op without touching governance
+   * rules or logs when the `command_governance` flag is off for the user. An unreadable flag does
+   * not run the command (`GOVERNANCE_UNAVAILABLE`); rule-lookup errors also prevent execution
    * — see `services/governance/policyGate.ts`.
    */
   async callTool(
@@ -75,26 +82,52 @@ export class SandboxMiddlewareService implements SandboxService {
 
     const { serverDB, userId } = this.options;
 
-    if (!GOVERNED_SHELL_TOOL_NAMES.has(toolName) || !serverDB || !userId) {
-      return this.provider.callTool(toolName, params);
+    if (!GOVERNED_SHELL_TOOL_NAMES.has(toolName)) {
+      return callTenantSandboxTool(this.provider, toolName, params, this.options);
     }
 
     const ctx = {
       apiName: toolName,
+      // The exact payload that will execute: `executeCode` runs `code` (never
+      // the sibling `command` field, which an attacker can attach as a decoy).
       commandText:
-        typeof params?.command === 'string' ? params.command : JSON.stringify(params ?? {}),
+        toolName === 'executeCode'
+          ? typeof params?.code === 'string'
+            ? params.code
+            : JSON.stringify(params ?? {})
+          : typeof params?.command === 'string'
+            ? params.command
+            : JSON.stringify(params ?? {}),
       executionTarget: 'sandbox',
       toolIdentifier: CloudSandboxIdentifier,
       userId,
     } satisfies CommandGovernanceContext;
 
-    const decision = await checkCommand(ctx, serverDB);
+    let decision;
+    try {
+      if (!userId) throw new GovernanceUnavailableError();
+      if (!serverDB) {
+        if (await isGovernanceEnabled(userId)) throw new GovernanceUnavailableError();
+        return callTenantSandboxTool(this.provider, toolName, params, this.options);
+      }
+      decision = await checkCommand(ctx, serverDB);
+    } catch (error) {
+      // Governance could not be evaluated: nothing runs, and it is not reported as a rule
+      // denial (COMMAND_BLOCKED tells the model never to retry).
+      if (!(error instanceof GovernanceUnavailableError)) throw error;
+      log('Command governance unavailable for %s', toolName);
+      return {
+        error: { message: GOVERNANCE_UNAVAILABLE_MESSAGE, name: 'GOVERNANCE_UNAVAILABLE' },
+        result: null,
+        success: false,
+      };
+    }
 
     if (!decision.allowed) {
       try {
         await logCommandExecution(ctx, { blocked: true, matchedRuleId: decision.ruleId }, serverDB);
       } catch (auditError) {
-        log('Failed to record blocked-command audit log: %O', auditError);
+        console.error('[governance] Failed to record blocked-command audit log: %O', auditError);
       }
 
       return {
@@ -108,7 +141,7 @@ export class SandboxMiddlewareService implements SandboxService {
     }
 
     const startedAt = Date.now();
-    const result = await this.provider.callTool(toolName, params);
+    const result = await callTenantSandboxTool(this.provider, toolName, params, this.options);
 
     try {
       await logCommandExecution(
@@ -122,7 +155,7 @@ export class SandboxMiddlewareService implements SandboxService {
         serverDB,
       );
     } catch (auditError) {
-      log('Failed to record command execution audit log: %O', auditError);
+      console.error('[governance] Failed to record command execution audit log: %O', auditError);
     }
 
     return result;
@@ -168,7 +201,7 @@ export class SandboxMiddlewareService implements SandboxService {
       if (downloads.length === 0) return;
 
       const command = buildSandboxFilesInitCommand(downloads);
-      const result = await this.provider.callTool('runCommand', {
+      const result = await callTenantSandboxTool(this.provider, 'runCommand', {
         command,
         timeout: SANDBOX_INIT_TIMEOUT_MS,
       });
@@ -288,26 +321,44 @@ export const normalizeSandboxCommandResult = (
     ? { sessionExpiredAndRecreated: true }
     : {};
   if (!result.success) {
+    // The tool call failed before (or without) producing a shell observation:
+    // propagate the upstream error kind (governance denial/outage, transport
+    // failure) so callers keep the deny-vs-unavailable-vs-retry distinction.
+    // There is deliberately no `exitCode`: 0 and 1 are real shell statuses, so
+    // synthesizing either would claim an execution that never happened.
     return {
       ...sessionState,
-      exitCode: 1,
+      error: result.error || { message: 'Command execution failed' },
       output: '',
-      stderr: result.error?.message || 'Command execution failed',
       success: false,
     };
   }
 
   const raw = result.result || {};
   const rawExitCode = raw.exitCode ?? raw.exit_code;
-  const exitCode = typeof rawExitCode === 'number' ? rawExitCode : 0;
+  const exitCode = typeof rawExitCode === 'number' ? rawExitCode : undefined;
+  // A background/observation-window result can report liveness explicitly; a
+  // missing exit code without that flag still means "not finished yet" per the
+  // provider contract, so it must not be reported as exit 0.
+  const running = raw.running === true || raw.isRunning === true;
   const output = String(raw.stdout || raw.output || '');
   const stderr = raw.stderr === undefined ? undefined : String(raw.stderr);
-  const success = typeof raw.success === 'boolean' ? raw.success : exitCode === 0;
+  const shellId =
+    typeof raw.commandId === 'string'
+      ? raw.commandId
+      : typeof raw.shell_id === 'string'
+        ? raw.shell_id
+        : undefined;
+  const success =
+    typeof raw.success === 'boolean'
+      ? raw.success
+      : running || exitCode === undefined || exitCode === 0;
 
   return {
     ...sessionState,
-    exitCode,
+    ...(exitCode !== undefined && !running && { exitCode }),
     output,
+    ...(shellId && { shellId }),
     stderr,
     success,
   };

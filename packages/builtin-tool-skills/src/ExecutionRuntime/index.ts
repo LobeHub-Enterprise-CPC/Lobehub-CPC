@@ -1,4 +1,4 @@
-import { AGENT_SKILLS_IDENTIFIER_PREFIX } from '@lobechat/const';
+import { AGENT_SKILLS_IDENTIFIER_PREFIX, USER_SKILLS_IDENTIFIER_PREFIX } from '@lobechat/const';
 import {
   formatCommandResult,
   formatSandboxRecreation,
@@ -105,6 +105,12 @@ export interface SkillsExecutionRuntimeOptions {
   deviceFileAccess?: DeviceFileAccess;
   /** Filesystem skills discovered on the execution device. */
   projectSkills?: ProjectSkillRuntimeItem[];
+  /**
+   * Resolves a skill by name when it is not among `builtinSkills`: a library
+   * too large to load up front (the user's own skills) is read on demand, only
+   * for the name a call asks for.
+   */
+  resolveSkill?: (name: string) => Promise<BuiltinSkill | undefined>;
   service: SkillRuntimeService;
 }
 
@@ -167,6 +173,7 @@ export class SkillsExecutionRuntime {
   private builtinSkills: BuiltinSkill[];
   private projectSkills: ProjectSkillRuntimeItem[];
   private deviceFileAccess?: DeviceFileAccess;
+  private resolveSkill?: (name: string) => Promise<BuiltinSkill | undefined>;
   private service: SkillRuntimeService;
 
   constructor(options: SkillsExecutionRuntimeOptions) {
@@ -175,7 +182,17 @@ export class SkillsExecutionRuntime {
     this.builtinSkills = options.builtinSkills || [];
     this.projectSkills = options.projectSkills || [];
     this.deviceFileAccess = options.deviceFileAccess;
+    this.resolveSkill = options.resolveSkill;
   }
+
+  /** A preloaded builtin-shaped skill, else one the resolver reads on demand. */
+  private findBuiltinSkill = async (name: string): Promise<BuiltinSkill | undefined> => {
+    const preloaded = findByNameCI(this.builtinSkills, name);
+    if (preloaded || !this.resolveSkill) return preloaded;
+    const resolved = await this.resolveSkill(name);
+    if (resolved) this.builtinSkills = [...this.builtinSkills, resolved];
+    return resolved;
+  };
 
   async execScript(args: ExecScriptParams): Promise<BuiltinServerRuntimeOutput> {
     const { command, description } = args;
@@ -365,7 +382,7 @@ export class SkillsExecutionRuntime {
 
       // Fall back to builtin skills (includes agent-document skill bundles
       // via the `agent-skills:` identifier prefix).
-      const builtinSkill = findByNameCI(this.builtinSkills, id);
+      const builtinSkill = await this.findBuiltinSkill(id);
       if (builtinSkill?.resources) {
         const meta = builtinSkill.resources[path];
         if (meta?.content !== undefined) {
@@ -470,7 +487,7 @@ export class SkillsExecutionRuntime {
 
     // Fall back to builtin skills (includes agent-document skill bundles via
     // the `agent-skills:` identifier prefix).
-    const builtinSkill = findByNameCI(this.builtinSkills, name);
+    const builtinSkill = await this.findBuiltinSkill(name);
     if (builtinSkill) {
       let content = builtinSkill.content;
       const hasResources = !!(
@@ -486,6 +503,8 @@ export class SkillsExecutionRuntime {
       // inspector can pick the right label ("Activate Agent Skill") and prefer
       // the friendly `title` over the raw `agent-skills:<filename>` name.
       const isAgentSkill = builtinSkill.identifier.startsWith(AGENT_SKILLS_IDENTIFIER_PREFIX);
+      // The user's own skill library rides the same path under `user-skills:`.
+      const isUserSkill = builtinSkill.identifier.startsWith(USER_SKILLS_IDENTIFIER_PREFIX);
 
       return {
         content,
@@ -494,7 +513,7 @@ export class SkillsExecutionRuntime {
           hasResources,
           identifier: builtinSkill.identifier,
           name: builtinSkill.name,
-          source: isAgentSkill ? 'agent' : 'builtin',
+          source: isAgentSkill ? 'agent' : isUserSkill ? 'user' : 'builtin',
           ...(builtinSkill.title && { title: builtinSkill.title }),
         },
         success: true,
@@ -518,7 +537,21 @@ export class SkillsExecutionRuntime {
    * This ensures consistent content format across all runtimes.
    */
   private formatCommandOutput(command: string, result: CommandResult): BuiltinServerRuntimeOutput {
+    // `error` is the upstream failure object (it carries `name`/`code` for the
+    // tool error channel); the formatter only renders a message. A command that
+    // never ran has no `exitCode`, so it reads as "Command failed: <reason>"
+    // instead of borrowing exit code 1.
+    const errorMessage =
+      typeof result.error === 'string'
+        ? result.error
+        : result.error &&
+            typeof result.error === 'object' &&
+            typeof (result.error as { message?: unknown }).message === 'string'
+          ? (result.error as { message: string }).message
+          : undefined;
+
     const content = formatCommandResult({
+      error: errorMessage,
       stderr: result.stderr,
       stdout: result.output,
       success: result.success,
@@ -537,8 +570,11 @@ export class SkillsExecutionRuntime {
       state: {
         command,
         ...(result.sessionExpiredAndRecreated && { sessionExpiredAndRecreated: true }),
+        ...(result.error !== undefined && { error: result.error }),
         ...(result.executionEnv && { executionEnv: result.executionEnv }),
-        exitCode: result.exitCode,
+        // Omitted, not synthesized: undefined means never executed or still
+        // running, and 0 would falsely claim a successful completion.
+        ...(result.exitCode !== undefined && { exitCode: result.exitCode }),
         ...(result.outputFiles && { outputFiles: result.outputFiles }),
         ...(result.shellId && { shellId: result.shellId }),
         success: result.success,

@@ -1,7 +1,11 @@
 'use client';
 
-import type { ExpertiseEnforcement, ExpertiseReasonKind } from '@lobechat/types';
-import { Block, Flexbox, Icon, TextArea } from '@lobehub/ui';
+import {
+  EXPERTISE_RULE_DIRECTIONS,
+  type ExpertiseEnforcement,
+  type ExpertiseReasonKind,
+} from '@lobechat/types';
+import { Block, createStaticStyles, cssVar, cx, Flexbox, Icon } from '@lobehub/ui';
 import {
   ActionIcon,
   Button,
@@ -10,13 +14,14 @@ import {
   SkeletonText,
   Tag,
   Text,
-} from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar, cx } from 'antd-style';
+  TextArea,
+} from '@lobehub/ui';
 import dayjs from 'dayjs';
 import {
   ActivityIcon,
   BellIcon,
   ClipboardCheckIcon,
+  FileTextIcon,
   HistoryIcon,
   type LucideIcon,
   MessageSquareTextIcon,
@@ -35,6 +40,7 @@ import RightPanel from '@/features/RightPanel';
 import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
 import type { RuleGroup, RuleItem, UpdateRuleInput } from '@/services/expertise';
 
+import { DIRECTION_ICON } from './DirectionToggle';
 import Field from './Field';
 import { useRuleRevisions, useRuleSources } from './hooks';
 import {
@@ -189,8 +195,8 @@ interface PropertyProps {
 
 /**
  * One property line, in the shape the task detail uses: a label, an icon, the current value, and
- * a menu behind the click when it can be changed. Read-only lines drop the fill so the eye finds
- * the switches first.
+ * a menu behind the click when it can be changed. Every line sits on the same plain ground; the
+ * ones that open a menu only light up on hover, so the block does not read as a highlight.
  */
 const Property = ({ children, icon, label, menu }: PropertyProps) => {
   const row = (
@@ -200,7 +206,7 @@ const Property = ({ children, icon, label, menu }: PropertyProps) => {
       className={cx(styles.property, !menu && styles.propertyStatic)}
       clickable={Boolean(menu)}
       gap={8}
-      variant={menu ? 'filled' : 'borderless'}
+      variant={'borderless'}
     >
       <span className={styles.propertyLabel}>{label}</span>
       <Icon color={cssVar.colorTextSecondary} icon={icon} size={14} />
@@ -265,6 +271,8 @@ const RuleDocument = ({
   const titleOf = (id: string) => all.find((r) => r.id === id)?.title ?? id;
   const mergedInto = mergedIntoId(rule);
   const origin = ruleOrigin(rule);
+  // What the reviewer wrote into an agent's lessons was taught to that agent, not a rule of theirs.
+  const taught = authored && group?.owner.kind === 'agent';
 
   const save = async (patch: UpdateRuleInput) => {
     if (busy) return false;
@@ -375,6 +383,24 @@ const RuleDocument = ({
             </span>
           </Property>
           <Property
+            icon={DIRECTION_ICON[rule.direction ?? 'unset']}
+            label={t('rules.meta.direction')}
+            menu={
+              editable
+                ? choose(
+                    EXPERTISE_RULE_DIRECTIONS,
+                    (value) => t(`rules.direction.${value}`),
+                    (direction) => void save({ direction }),
+                  )
+                : undefined
+            }
+          >
+            <Text weight={500}>{t(`rules.direction.${rule.direction ?? 'unset'}`)}</Text>
+            <span className={styles.muted}>
+              {t(`rules.direction.${rule.direction ?? 'unset'}Desc`)}
+            </span>
+          </Property>
+          <Property
             icon={ClipboardCheckIcon}
             label={t('rules.meta.method')}
             menu={
@@ -432,7 +458,9 @@ const RuleDocument = ({
           </Property>
           <Property icon={HistoryIcon} label={t('rules.meta.origin')}>
             <span>
-              {t(`rules.origin.${origin.key}`, 'params' in origin ? origin.params : undefined)}
+              {taught
+                ? t('rules.origin.taught')
+                : t(`rules.origin.${origin.key}`, 'params' in origin ? origin.params : undefined)}
               {!authored && rule.lastHitAt
                 ? t('rules.origin.lastHit', { time: dayjs(rule.lastHitAt).fromNow() })
                 : ''}
@@ -516,7 +544,9 @@ const RuleDocument = ({
                     {t(
                       source.fromAcceptance
                         ? 'rules.sources.acceptance'
-                        : 'rules.sources.conversation',
+                        : source.materialType
+                          ? `rules.sources.material.${source.materialType as 'document' | 'file' | 'text' | 'topic'}`
+                          : 'rules.sources.conversation',
                     )}
                   </Tag>
                   <span style={{ fontSize: 13, fontWeight: 500 }}>
@@ -539,6 +569,25 @@ const RuleDocument = ({
                   >
                     <Icon icon={MessageSquareTextIcon} size={12} />
                     {t(source.messageId ? 'rules.sources.openMessage' : 'rules.sources.openTopic')}
+                  </a>
+                )}
+                {/* A document or file it was read from opens where the reviewer keeps it. */}
+                {source.documentId && (
+                  <a
+                    className={styles.link}
+                    href={buildWorkspaceAwarePath(
+                      source.documentFileId
+                        ? `/resource?file=${source.documentFileId}`
+                        : `/page/${source.documentId}`,
+                      workspaceSlug,
+                    )}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigate(e.currentTarget.getAttribute('href')!);
+                    }}
+                  >
+                    <Icon icon={FileTextIcon} size={12} />
+                    {t('rules.sources.openMaterial')}
                   </a>
                 )}
                 {source.acceptanceId && (
@@ -569,7 +618,13 @@ const RuleDocument = ({
           ))
         ) : (
           <p className={styles.muted}>
-            {t(authored ? 'rules.sources.authoredEmpty' : 'rules.sources.empty')}
+            {t(
+              taught
+                ? 'rules.sources.taughtEmpty'
+                : authored
+                  ? 'rules.sources.authoredEmpty'
+                  : 'rules.sources.empty',
+            )}
           </p>
         )}
 

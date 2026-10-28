@@ -1,9 +1,24 @@
+import { DOWNLOAD_URL } from '@lobechat/const/url';
 import { app, BrowserWindow, dialog, Menu, shell } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { App } from '@/core/App';
 
+import type * as VendorHelp from '../vendorHelp';
 import { LinuxMenu } from './linux';
+
+// The Help menu's vendor links depend on the build's branding; pin it per test.
+const branding = vi.hoisted(() => ({ rebranded: false }));
+vi.mock('../vendorHelp', async (importOriginal) => {
+  const actual = await importOriginal<typeof VendorHelp>();
+  return {
+    ...actual,
+    vendorHelpItems: (items: Parameters<typeof VendorHelp.vendorHelpItems>[0]) =>
+      actual.vendorHelpItems(items, branding.rebranded),
+    updateDownloadUrl: () =>
+      actual.updateDownloadUrl(branding.rebranded, 'https://app.example.com'),
+  };
+});
 
 // Mock Electron modules
 vi.mock('electron', () => ({
@@ -39,6 +54,8 @@ const createMockApp = () => {
       'file.preferences': 'Preferences',
       'file.quit': 'Quit',
       'common.checkUpdates': 'Check for Updates',
+      'common.restartToUpdate': 'Restart to update',
+      'common.updateUnsupported': 'Download latest version...',
       'window.close': 'Close',
       'window.minimize': 'Minimize',
       'window.title': 'Window',
@@ -110,6 +127,8 @@ const createMockApp = () => {
     },
     updaterManager: {
       checkForUpdates: vi.fn(),
+      getUpdaterState: vi.fn(() => ({ stage: 'idle' })),
+      installNow: vi.fn(),
     },
     storeManager: {
       get: vi.fn(),
@@ -124,6 +143,7 @@ describe('LinuxMenu', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    branding.rebranded = false;
     mockApp = createMockApp();
     linuxMenu = new LinuxMenu(mockApp);
   });
@@ -233,6 +253,22 @@ describe('LinuxMenu', () => {
     });
   });
 
+  describe('rebranded build', () => {
+    it('omits the vendor website, repository and issue links from Help', () => {
+      branding.rebranded = true;
+      linuxMenu.buildAndSetAppMenu();
+
+      const template = (Menu.buildFromTemplate as any).mock.calls[0][0];
+      const helpMenu = template.find((item: any) => item.label === 'Help');
+      const labels = helpMenu.submenu.map((item: any) => item.label);
+
+      for (const label of ['Visit Website', 'GitHub Repository'])
+        expect(labels).not.toContain(label);
+      expect(helpMenu.submenu[0].type).not.toBe('separator');
+      expect(shell.openExternal).not.toHaveBeenCalled();
+    });
+  });
+
   describe('menu item click handlers', () => {
     it('should handle preferences click', () => {
       const mainWindow = { broadcast: vi.fn(), loadUrl: vi.fn(), show: vi.fn() };
@@ -263,6 +299,37 @@ describe('LinuxMenu', () => {
       expect(checkUpdatesItem).toBeDefined();
       checkUpdatesItem.click();
       expect(mockApp.updaterManager.checkForUpdates).toHaveBeenCalledWith({ manual: true });
+    });
+
+    // Regression: the Linux menu used to hard-code "Check for Updates" and never
+    // read the updater stage, so a downloaded update could not be installed from
+    // the menu at all — unlike macOS and Windows. Issue #19564.
+    it('offers restart-to-update once an update is downloaded', () => {
+      mockApp.updaterManager.getUpdaterState = vi.fn(() => ({ stage: 'downloaded' })) as any;
+      linuxMenu.buildAndSetAppMenu();
+
+      const template = (Menu.buildFromTemplate as any).mock.calls.at(-1)[0];
+      const fileMenu = template.find((item: any) => item.label === 'File');
+      const item = fileMenu.submenu.find((entry: any) => entry.label === 'Restart to update');
+
+      expect(item).toBeDefined();
+      item.click();
+      expect(mockApp.updaterManager.installNow).toHaveBeenCalled();
+    });
+
+    it('sends the user to the download page when the install format cannot self-update', () => {
+      mockApp.updaterManager.getUpdaterState = vi.fn(() => ({ stage: 'unsupported' })) as any;
+      linuxMenu.buildAndSetAppMenu();
+
+      const template = (Menu.buildFromTemplate as any).mock.calls.at(-1)[0];
+      const fileMenu = template.find((item: any) => item.label === 'File');
+      const item = fileMenu.submenu.find(
+        (entry: any) => entry.label === 'Download latest version...',
+      );
+
+      expect(item).toBeDefined();
+      item.click();
+      expect(shell.openExternal).toHaveBeenCalledWith(DOWNLOAD_URL.default);
     });
 
     it('should handle visit website click', async () => {

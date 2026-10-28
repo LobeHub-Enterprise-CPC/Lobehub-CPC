@@ -1,4 +1,5 @@
 import { type LobeToolManifest } from '@lobechat/context-engine';
+import { currentTenantScope } from '@lobechat/database/tenant';
 import { CacheRevalidate, CacheTag } from '@lobechat/types';
 import { MarketSDK, type OrgRef, orgRefToPathSegment } from '@lobehub/market-sdk';
 import debug from 'debug';
@@ -7,12 +8,26 @@ import pMap from 'p-map';
 
 import { type TrustedClientUserInfo } from '@/libs/trusted-client';
 import { generateTrustedClientToken, getTrustedClientTokenForSession } from '@/libs/trusted-client';
+import { isSyntheticTrustedClientUserId, isTenantMarketMode } from '@/libs/trusted-client/config';
+import { TrustedClientIdentityError } from '@/libs/trusted-client/errors';
+import { redisService } from '@/server/services/redis';
+import {
+  createSandboxStorageClient,
+  type SandboxStorageClient,
+} from '@/server/services/sandbox/storageFiles';
+import { SkillImportError } from '@/server/services/skill/errors';
 import { getToolAccessDeniedError } from '@/server/services/toolExecution/errorClassification';
 
+import { marketFetchCache } from './fetchCache';
 import {
   listSkillToolsWithLiveFallback,
   type SkillToolsClient,
 } from './listSkillToolsWithLiveFallback';
+import {
+  guardOrganizationActing,
+  MarketActingAsOrganizationUnavailableError,
+} from './organizationGuard';
+import { guardProxyExecution } from './proxyExecutionGuard';
 
 const log = debug('lobe-server:market-service');
 
@@ -151,15 +166,65 @@ export interface MarketServiceOptions {
 export class MarketService {
   market: MarketSDK;
 
+  private readonly sandboxReceiptIdentity?: TrustedClientUserInfo;
+
+  getSandboxReceiptIdentity() {
+    return this.sandboxReceiptIdentity && structuredClone(this.sandboxReceiptIdentity);
+  }
+
   private readonly oauthProxyHeaders: Record<string, string>;
+
+  /** Tenant mode, as decided when this service was built. */
+  private readonly tenantMode: boolean;
+
+  /**
+   * Who the cached skill tool lists belong to. A service built without a user
+   * (M2M credentials, a bare trusted token) has no scope and skips the cache.
+   */
+  private readonly skillCacheScope?: string;
 
   constructor(options: MarketServiceOptions = {}) {
     const { accessToken, userInfo, clientCredentials, trustedClientToken, ownerAccountId } =
       options;
+    // Acting as an organization is closed inside a tenant (R13). Refused rather
+    // than dropped: the request would otherwise run as the person.
+    const tenantMode = isTenantMarketMode() || Boolean(userInfo?.tenantId);
+    if (tenantMode && ownerAccountId !== undefined) {
+      throw new MarketActingAsOrganizationUnavailableError('ownerAccountId');
+    }
+    // Only identity and entitlement facts, never access tokens or signing keys.
+    // The tenant is part of who this is: operator reconciliation replays the
+    // identity outside any tenant scope, and a token signed without it would
+    // reach Market as a different (or no) principal.
+    this.sandboxReceiptIdentity = userInfo && {
+      userId: userInfo.userId,
+      // Replayed and re-signed later: a tenant identity never carries a workspace.
+      ...(tenantMode ? {} : { workspaceId: userInfo.workspaceId }),
+      sandboxStorage: userInfo.sandboxStorage,
+      tenantId: userInfo.tenantId ?? currentTenantScope()?.tenantId,
+    };
+    this.skillCacheScope = userInfo?.userId;
+    this.tenantMode = tenantMode;
 
-    // Use provided trustedClientToken or generate from userInfo
+    // Use provided trustedClientToken or generate from userInfo. In tenant mode
+    // `generateTrustedClientToken` throws when it cannot sign, so a failure here
+    // stops the request before anything is sent.
     const resolvedTrustedClientToken =
       trustedClientToken || (userInfo ? generateTrustedClientToken(userInfo) : undefined);
+
+    // A tenant request without a trust token either reaches the default instance
+    // (no credentials) or is refused as a legacy Bearer. Neither is the tenant
+    // the caller asked for, so it does not go out. Synthetic eval users never
+    // have a token and keep their old path; M2M and anonymous services have no
+    // user to speak for.
+    if (
+      tenantMode &&
+      !resolvedTrustedClientToken &&
+      (accessToken || userInfo) &&
+      !(userInfo && isSyntheticTrustedClientUserId(userInfo.userId))
+    ) {
+      throw new TrustedClientIdentityError('TRUST_TOKEN_REQUIRED');
+    }
 
     this.oauthProxyHeaders = {
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
@@ -169,7 +234,7 @@ export class MarketService {
       ...(resolvedTrustedClientToken ? { 'x-lobe-trust-token': resolvedTrustedClientToken } : {}),
     };
 
-    this.market = new MarketSDK({
+    const sdk = new MarketSDK({
       accessToken,
       baseURL: MARKET_BASE_URL,
       clientId: clientCredentials?.clientId,
@@ -177,6 +242,10 @@ export class MarketService {
       ownerAccountId,
       trustedClientToken: resolvedTrustedClientToken,
     });
+    // A run executing under another principal's identity must not publish
+    // Market content with it.
+    const guarded = userInfo?.proxyExecution ? guardProxyExecution(sdk) : sdk;
+    this.market = tenantMode ? guardOrganizationActing(guarded) : guarded;
 
     log(
       'MarketService initialized: baseURL=%s, hasAccessToken=%s, hasTrustedToken=%s, hasClientCredentials=%s, ownerAccountId=%s',
@@ -225,6 +294,12 @@ export class MarketService {
     parameters,
     provider,
   }: MarketOAuthProxyRequest): Promise<MarketOAuthProxyResponse> => {
+    // The provider proxy acts for a person: in a tenant that is a trust token or
+    // nothing, never the legacy Bearer and never an anonymous call.
+    if (this.tenantMode && !this.oauthProxyHeaders['x-lobe-trust-token']) {
+      throw new TrustedClientIdentityError('TRUST_TOKEN_REQUIRED');
+    }
+
     const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
     const url = new URL(
       `/api/v1/proxy/${encodeURIComponent(provider)}${normalizedEndpoint}`,
@@ -414,6 +489,32 @@ export class MarketService {
   }
 
   /**
+   * The live tool list of one connected skill, remembered per connection for
+   * ten minutes.
+   *
+   * Discovery runs on every send and `tools/live` is a round trip to the
+   * provider's MCP server (150ms for GitHub, up to a second for Notion) for
+   * an answer that changes when the provider ships tools, not per turn. The
+   * key carries the connection's identity (`createdAt`, provider user), so a
+   * re-connected skill starts from a fresh read; an empty or failed list is
+   * never remembered. The connection list itself stays live so a newly
+   * connected skill shows up on the next send.
+   */
+  private async listSkillToolsForConnection(
+    connection: { createdAt?: string; providerUserId?: string },
+    providerId: string,
+  ) {
+    const read = () =>
+      this.listSkillTools(providerId, { timeoutMs: LOBEHUB_SKILL_DISCOVERY_TIMEOUT_MS });
+    if (!this.skillCacheScope) return read();
+
+    return redisService.skillTools.remember(
+      { connection, providerId, userId: this.skillCacheScope },
+      read,
+    );
+  }
+
+  /**
    * Call a skill tool
    */
   async callSkillTool(provider: string, params: { args: Record<string, any>; tool: string }) {
@@ -470,27 +571,6 @@ export class MarketService {
     return this.market.plugins.getPluginManifest(params);
   }
 
-  /**
-   * Report plugin installation
-   */
-  async reportPluginInstallation(params: any) {
-    return this.market.plugins.reportInstallation(params);
-  }
-
-  /**
-   * Report plugin call
-   */
-  async reportPluginCall(params: any) {
-    return this.market.plugins.reportCall(params);
-  }
-
-  /**
-   * Create plugin event
-   */
-  async createPluginEvent(params: any) {
-    return this.market.plugins.createEvent(params);
-  }
-
   // ============================== Agent Methods ==============================
 
   /**
@@ -505,20 +585,6 @@ export class MarketService {
    */
   async getAgentList(params?: any) {
     return this.market.agents.getAgentList(params);
-  }
-
-  /**
-   * Increase agent install count
-   */
-  async increaseAgentInstallCount(identifier: string) {
-    return this.market.agents.increaseInstallCount(identifier);
-  }
-
-  /**
-   * Create agent event
-   */
-  async createAgentEvent(params: any) {
-    return this.market.agents.createEvent(params);
   }
 
   // ============================== Agent Group Methods ==============================
@@ -584,12 +650,13 @@ export class MarketService {
     // it — alone among the store's tabs — went down whenever the upstream was
     // throttled or a credential went stale. The MCP tab looked healthy through
     // the same incidents only because it was being served from this cache.
-    const result = await this.market.marketSkills.getSkillList(params, {
-      next: {
+    const result = await this.market.marketSkills.getSkillList(
+      params,
+      marketFetchCache({
         revalidate: CacheRevalidate.List,
         tags: [CacheTag.Discover, CacheTag.Skills],
-      },
-    });
+      }),
+    );
 
     log('searchSkill response: %O', result);
 
@@ -635,29 +702,28 @@ export class MarketService {
     return this.market.marketSkills.getRatingDistribution(identifier);
   }
 
-  /**
-   * Get skill download URL from market
-   */
   getSkillDownloadUrl(identifier: string, version?: string): string {
     return this.market.marketSkills.getDownloadUrl(identifier, version);
   }
 
-  /**
-   * Download skill ZIP directly
-   */
   async downloadSkill(identifier: string, version?: string) {
-    log('downloadSkill: %s, version: %s', identifier, version);
-
-    return this.market.marketSkills.downloadSkill(identifier, version);
+    try {
+      return await this.market.marketSkills.downloadSkill(identifier, version, {
+        redirect: 'error',
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch {
+      throw new SkillImportError('Failed to download skill from Market', 'DOWNLOAD_FAILED');
+    }
   }
 
   /**
    * Get skill categories
    */
-  async getSkillCategories() {
-    log('getSkillCategories');
+  async getSkillCategories(params?: { locale?: string; q?: string }) {
+    log('getSkillCategories: %O', params);
 
-    return this.market.marketSkills.getCategories();
+    return this.market.marketSkills.getCategories(params);
   }
 
   /**
@@ -788,16 +854,23 @@ export class MarketService {
    * provider whose tools could not be listed (with its `providerId`), or the
    * connection lookup itself (without one). Lets callers tell degraded
    * discovery apart from a user with no connected skills.
+   * @param options.providerIds - Only build manifests for these providers. The
+   * tool list of any other connection is never requested.
    * @returns Array of tool manifests for connected skills
    */
   async getLobehubSkillManifests(options?: {
     onError?: (error: unknown, providerId?: string) => void;
+    providerIds?: string[];
   }): Promise<LobeToolManifest[]> {
     try {
       // 1. Get user's connected skills
-      const { connections } = await this.market.connect.listConnections({
+      const { connections: allConnections } = await this.market.connect.listConnections({
         signal: AbortSignal.timeout(LOBEHUB_SKILL_DISCOVERY_TIMEOUT_MS),
       });
+      const providerIds = options?.providerIds && new Set(options.providerIds);
+      const connections = providerIds
+        ? allConnections?.filter((connection) => providerIds.has((connection as any).providerId))
+        : allConnections;
       if (!connections || connections.length === 0) {
         log('getLobehubSkillManifests: no connected skills found');
         return [];
@@ -821,9 +894,10 @@ export class MarketService {
             const icon = (connection as any).icon;
             const providerLabel = LOBEHUB_SKILL_PROVIDER_LABELS[providerId] || providerId;
 
-            const { tools, instruction } = await this.listSkillTools(providerId, {
-              timeoutMs: LOBEHUB_SKILL_DISCOVERY_TIMEOUT_MS,
-            });
+            const { tools, instruction } = await this.listSkillToolsForConnection(
+              connection,
+              providerId,
+            );
             if (!tools || tools.length === 0) return;
 
             const manifest: LobeToolManifest = {
@@ -890,6 +964,9 @@ export class MarketService {
     orgId?: OrgRef;
   }): Promise<{ fileHashId: string; fileName: string; fileSize: number; fileType: string }> {
     const { file, fileName, fileType, orgId } = params;
+    if (orgId !== undefined && isTenantMarketMode()) {
+      throw new MarketActingAsOrganizationUnavailableError('uploadCredFile');
+    }
     // Numeric account id or `workspace:<workspaceId>` path segment.
     const orgSegment = orgId === undefined ? undefined : orgRefToPathSegment(orgId);
 
@@ -946,6 +1023,21 @@ export class MarketService {
     const result = await response.json();
     log('uploadCredFile success: fileHashId=%s', result.fileHashId);
     return result;
+  }
+
+  /**
+   * Client for the persistent sandbox workspace's file API.
+   *
+   * Not on the SDK yet, so it is hand-written against the same endpoints; it
+   * lives in its own module and only borrows this service's auth headers, so
+   * replacing it with the generated client later is a deletion. The workspace it
+   * addresses is always the one the caller's signed entitlement names.
+   */
+  getSandboxStorageClient(): SandboxStorageClient {
+    return createSandboxStorageClient({
+      baseURL: MARKET_BASE_URL,
+      headers: this.oauthProxyHeaders,
+    });
   }
 
   // ============================== Direct SDK Access ==============================

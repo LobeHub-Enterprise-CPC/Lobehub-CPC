@@ -152,7 +152,10 @@ vi.mock('@/database/models/userMemory/persona', () => ({
 vi.mock('@/server/services/agentRuntime', () => ({
   AgentRuntimeService: vi.fn().mockImplementation(function () {
     return {
+      acceptsFileWorks: vi.fn().mockResolvedValue(false),
       acceptsMemberRuntimeEnd: vi.fn().mockResolvedValue(false),
+      getLlmExecutor: vi.fn().mockResolvedValue(undefined),
+      getOperationEditingGroupId: vi.fn().mockResolvedValue(undefined),
       completeGroupActionMember: mockCompleteGroupActionMember,
       createOperation: mockCreateOperation,
       ensureInterventionContinuationStarted: mockEnsureInterventionContinuationStarted,
@@ -225,7 +228,6 @@ vi.mock('model-bank', async (importOriginal) => {
 
 describe('AiAgentService.execAgent - resumeApproval', () => {
   let service: AiAgentService;
-
   // `messages` row — `findById` returns this. Note plugin metadata (apiName,
   // identifier, etc.) lives in a separate `message_plugins` table.
   const pendingToolMessage = {
@@ -246,7 +248,6 @@ describe('AiAgentService.execAgent - resumeApproval', () => {
     toolCallId: 'call_xyz',
     type: 'builtin',
   };
-
   beforeEach(() => {
     vi.clearAllMocks();
     mockCreateOperation.mockResolvedValue({
@@ -276,14 +277,12 @@ describe('AiAgentService.execAgent - resumeApproval', () => {
     // `LobeChatDatabase` parameter type without dragging the real schema.
     service = new AiAgentService({} as unknown as LobeChatDatabase, 'user-1');
   });
-
   const baseParams = {
     agentId: 'agent-1',
     appContext: { sessionId: 'session-1', threadId: 'thread-1', topicId: 'topic-1' },
     parentMessageId: 'tool-msg-1',
     prompt: '',
   };
-
   describe('decision=approved', () => {
     it('persists intervention=approved and seeds initialContext for human_approved_tool', async () => {
       await service.execAgent({
@@ -295,15 +294,18 @@ describe('AiAgentService.execAgent - resumeApproval', () => {
         },
       });
 
-      expect(mockResolveHumanApproval).toHaveBeenCalledWith([
-        {
-          id: 'tool-msg-1',
-          intervention: {
-            resolutionRequestId: expect.stringMatching(/^legacy_/),
-            status: 'approved',
+      expect(mockResolveHumanApproval).toHaveBeenCalledWith(
+        [
+          {
+            id: 'tool-msg-1',
+            intervention: {
+              resolutionRequestId: expect.stringMatching(/^legacy_/),
+              status: 'approved',
+            },
           },
-        },
-      ]);
+        ],
+        { publishResult: true },
+      );
       // `approved` decision never writes tool content — the content arrives
       // when the approved tool actually executes.
       expect(mockUpdateToolMessage).not.toHaveBeenCalled();
@@ -340,12 +342,15 @@ describe('AiAgentService.execAgent - resumeApproval', () => {
         },
       });
 
-      expect(mockResolveHumanApproval).toHaveBeenCalledWith([
-        {
-          id: 'tool-msg-1',
-          intervention: { resolutionRequestId: approvalResolutionRequestId, status: 'approved' },
-        },
-      ]);
+      expect(mockResolveHumanApproval).toHaveBeenCalledWith(
+        [
+          {
+            id: 'tool-msg-1',
+            intervention: { resolutionRequestId: approvalResolutionRequestId, status: 'approved' },
+          },
+        ],
+        { publishResult: true },
+      );
       expect(mockUpdateTopicMetadata).not.toHaveBeenCalled();
     });
 
@@ -463,17 +468,20 @@ describe('AiAgentService.execAgent - resumeApproval', () => {
         },
       });
 
-      expect(mockResolveHumanApproval).toHaveBeenCalledWith([
-        {
-          content: `User reject this tool calling ${expectedSuffix}`,
-          id: 'tool-msg-1',
-          intervention: {
-            rejectedReason: rejectionReason,
-            resolutionRequestId: expect.stringMatching(/^legacy_/),
-            status: 'rejected',
+      expect(mockResolveHumanApproval).toHaveBeenCalledWith(
+        [
+          {
+            content: `User reject this tool calling ${expectedSuffix}`,
+            id: 'tool-msg-1',
+            intervention: {
+              rejectedReason: rejectionReason,
+              resolutionRequestId: expect.stringMatching(/^legacy_/),
+              status: 'rejected',
+            },
           },
-        },
-      ]);
+        ],
+        { publishResult: true },
+      );
 
       expect(mockCreateOperation).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -498,17 +506,20 @@ describe('AiAgentService.execAgent - resumeApproval', () => {
       },
     });
 
-    expect(mockResolveHumanApproval).toHaveBeenCalledWith([
-      {
-        content: 'User reject this tool calling without reason',
-        id: 'tool-msg-1',
-        intervention: {
-          rejectedReason: undefined,
-          resolutionRequestId: expect.stringMatching(/^legacy_/),
-          status: 'rejected',
+    expect(mockResolveHumanApproval).toHaveBeenCalledWith(
+      [
+        {
+          content: 'User reject this tool calling without reason',
+          id: 'tool-msg-1',
+          intervention: {
+            rejectedReason: undefined,
+            resolutionRequestId: expect.stringMatching(/^legacy_/),
+            status: 'rejected',
+          },
         },
-      },
-    ]);
+      ],
+      { publishResult: true },
+    );
   });
 
   it('restores the claimed rows when preparation fails before the continuation starts', async () => {
@@ -532,6 +543,7 @@ describe('AiAgentService.execAgent - resumeApproval', () => {
         claimedResolutionRequestId,
         id: 'tool-msg-1',
         intervention: { status: 'pending' },
+        pluginError: null,
         pluginState: null,
         replacePluginState: true,
       },
@@ -1065,22 +1077,25 @@ describe('AiAgentService.execAgent - resumeApproval', () => {
         ],
       });
 
-      expect(mockResolveHumanApproval).toHaveBeenCalledWith([
-        {
-          id: 'tool-msg-1',
-          intervention: {
-            resolutionRequestId: expect.stringMatching(/^legacy_/),
-            status: 'approved',
+      expect(mockResolveHumanApproval).toHaveBeenCalledWith(
+        [
+          {
+            id: 'tool-msg-1',
+            intervention: {
+              resolutionRequestId: expect.stringMatching(/^legacy_/),
+              status: 'approved',
+            },
           },
-        },
-        {
-          id: 'tool-msg-2',
-          intervention: {
-            resolutionRequestId: expect.stringMatching(/^legacy_/),
-            status: 'approved',
+          {
+            id: 'tool-msg-2',
+            intervention: {
+              resolutionRequestId: expect.stringMatching(/^legacy_/),
+              status: 'approved',
+            },
           },
-        },
-      ]);
+        ],
+        { publishResult: true },
+      );
       expect(mockCreateOperation).toHaveBeenCalledWith(
         expect.objectContaining({
           initialContext: expect.objectContaining({
@@ -1192,18 +1207,21 @@ describe('AiAgentService.stopPendingApproval', () => {
     // In place: the approval pause already wrote these rows. Inserting fresh
     // aborted rows would duplicate every tool AND leave the originals pending,
     // which is what keeps the approval cards on screen after a stop.
-    expect(mockResolveHumanApproval).toHaveBeenCalledWith([
-      {
-        content: 'Tool execution was aborted by user.',
-        id: 'tool-msg-1',
-        intervention: { status: 'aborted' },
-      },
-      {
-        content: 'Tool execution was aborted by user.',
-        id: 'tool-msg-2',
-        intervention: { status: 'aborted' },
-      },
-    ]);
+    expect(mockResolveHumanApproval).toHaveBeenCalledWith(
+      [
+        {
+          content: 'Tool execution was aborted by user.',
+          id: 'tool-msg-1',
+          intervention: { status: 'aborted' },
+        },
+        {
+          content: 'Tool execution was aborted by user.',
+          id: 'tool-msg-2',
+          intervention: { status: 'aborted' },
+        },
+      ],
+      { publishResult: true },
+    );
 
     // The exact parked operation and sealed batch identity are validated; a
     // newer operation in the same topic can never be guessed and interrupted.
@@ -1232,6 +1250,7 @@ describe('AiAgentService.stopPendingApproval', () => {
           intervention: { resolutionRequestId: approvalResolutionRequestId, status: 'aborted' },
         }),
       ]),
+      { publishResult: true },
     );
   });
 
@@ -1280,3 +1299,7 @@ describe('AiAgentService.stopPendingApproval', () => {
     expect(mockInterruptOperation).not.toHaveBeenCalled();
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

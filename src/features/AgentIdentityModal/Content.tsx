@@ -1,9 +1,7 @@
 'use client';
 
 import { randomAgentName } from '@lobechat/const';
-import { Flexbox, Input } from '@lobehub/ui';
-import { ActionIcon, Button, Text, useModalContext } from '@lobehub/ui/base-ui';
-import { cssVar } from 'antd-style';
+import { ActionIcon, Button, cssVar, Flexbox, Input, Text, useModalContext } from '@lobehub/ui';
 import { DicesIcon } from 'lucide-react';
 import { memo, type ReactNode, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -60,7 +58,7 @@ const AgentIdentityContent = memo<AgentIdentityContentProps>(({ agentId }) => {
   }, [agentId, locale, setName]);
 
   return (
-    <Flexbox gap={20} padding={20}>
+    <Flexbox data-brand-slot={'agent-identity-form'} gap={20} padding={20}>
       <Field label={t('settingAgent.personalName.label', { ns: 'setting' })}>
         <Input
           autoFocus
@@ -115,9 +113,10 @@ const AgentIdentityContent = memo<AgentIdentityContentProps>(({ agentId }) => {
           }
         >
           <Input
+            aria-invalid={!!form.error}
+            data-invalid={form.error ? '' : undefined}
             placeholder={t('settingAgent.slug.placeholder', { ns: 'setting' })}
             prefix={'@'}
-            status={form.error ? 'error' : undefined}
             value={form.slug}
             onChange={(e) => form.setSlug(e.target.value)}
           />

@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
-import { defineConfig } from 'vitest/config';
+
+import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [
@@ -24,7 +25,9 @@ export default defineConfig({
       '@/locales': resolve(__dirname, '../locales/src'),
       '@/business/server': resolve(__dirname, '../business-server/src'),
       '@/server/services': resolve(__dirname, '../../apps/server/src/services'),
+      '@/server/crypto': resolve(__dirname, '../../apps/server/src/crypto'),
       '@/server/modules': resolve(__dirname, '../../apps/server/src/modules'),
+      '@/server/globalConfig': resolve(__dirname, '../../apps/server/src/globalConfig'),
       '@': resolve(__dirname, '../../src'),
     },
     coverage: {
@@ -44,9 +47,14 @@ export default defineConfig({
       reporter: ['text', 'json', 'lcov', 'text-summary'],
     },
     env: {
+      // Tenant key derivation (OIDC adapter secrets) needs a master key; a fixed test value keeps the
+      // real-PG run independent of any local .env.
+      KEY_VAULTS_SECRET: 'database-server-test-master-secret',
+      TEST_DB_EXTRA_MIGRATIONS_FOLDER: '',
       TEST_SERVER_DB: '1',
     },
     environment: 'node',
+    exclude: configDefaults.exclude,
     isolate: false,
     maxWorkers: 1,
     setupFiles: './tests/setup-db.ts',

@@ -28,13 +28,13 @@ interface ZhipuImageStatusResponse {
 
 export async function queryZhipuImageStatus(
   inferenceId: string,
-  options: { apiKey: string; baseURL: string },
+  options: { apiKey: string; baseURL: string; fetch?: typeof fetch },
 ): Promise<ZhipuImageStatusResponse> {
   const statusUrl = `${options.baseURL}/async-result/${inferenceId}`;
 
   log('Querying image status for: %s', inferenceId);
 
-  const response = await fetch(statusUrl, {
+  const response = await (options.fetch ?? fetch)(statusUrl, {
     headers: {
       'Authorization': `Bearer ${options.apiKey}`,
       'Content-Type': 'application/json',
@@ -55,7 +55,7 @@ export async function queryZhipuImageStatus(
 
 export async function pollZhipuImageStatus(
   inferenceId: string,
-  options: { apiKey: string; baseURL: string },
+  options: { apiKey: string; baseURL: string; fetch?: typeof fetch },
 ): Promise<CreateImageResponse> {
   return await asyncifyPolling<ZhipuImageStatusResponse, CreateImageResponse>({
     backoffMultiplier: 1,
@@ -128,7 +128,7 @@ export async function createZhipuImage(
     ? `${baseURL}/images/generations`
     : `${baseURL}/async/images/generations`;
 
-  const response = await fetch(endpoint, {
+  const response = await (options.fetch ?? fetch)(endpoint, {
     body: JSON.stringify(body),
     headers: {
       'Authorization': `Bearer ${options.apiKey}`,
@@ -162,5 +162,6 @@ export async function createZhipuImage(
   return await pollZhipuImageStatus(data.id, {
     apiKey: options.apiKey,
     baseURL,
+    fetch: options.fetch as typeof fetch | undefined,
   });
 }

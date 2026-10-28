@@ -1,19 +1,30 @@
 'use client';
 
 import { formatSize } from '@lobechat/utils/format';
-import { Center, Flexbox, Icon, Markdown, useAppElement } from '@lobehub/ui';
-import { ActionIcon, Button, Skeleton, Tag, Text } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar, cx } from 'antd-style';
+import {
+  ActionIcon,
+  Button,
+  Center,
+  createStaticStyles,
+  cssVar,
+  cx,
+  Flexbox,
+  Icon,
+  Markdown,
+  Skeleton,
+  Tag,
+  Text,
+  useAppElement,
+} from '@lobehub/ui';
 import { ArrowLeft, ArrowRight, Download, ExternalLink, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
+import { EntityLinkHostProvider, useEntityMarkdown } from '@/features/EntityLink';
 import { isSafeExternalUrl } from '@/features/Work/descriptors';
 import { useActivityTime } from '@/hooks/useActivityTime';
-import { useClientDataSWR } from '@/libs/swr';
-import { portalKeys } from '@/libs/swr/keys';
-import { documentService } from '@/services/document';
+import { useDocumentStore } from '@/store/document';
 
 import type { DeliverableItem } from './deliverableList';
 import {
@@ -157,11 +168,11 @@ const SidebarItem = ({
 };
 
 const DocumentBody = ({ documentId }: { documentId: string }) => {
-  const { data: document, isLoading } = useClientDataSWR(
-    portalKeys.documentHeader(documentId),
-    () => documentService.getDocumentById(documentId),
-  );
+  const markdownProps = useEntityMarkdown();
+  const useFetchDocumentDetail = useDocumentStore((s) => s.useFetchDocumentDetail);
+  const { data: document, isHydrated, isLoading } = useFetchDocumentDetail(documentId);
 
+  if (isLoading && !isHydrated) return null;
   if (isLoading)
     return (
       <Flexbox className={styles.doc} data-testid={'deliverable-reader-loading'} gap={12}>
@@ -174,7 +185,9 @@ const DocumentBody = ({ documentId }: { documentId: string }) => {
 
   return (
     <div className={styles.doc} data-testid={'deliverable-reader-document'}>
-      <Markdown variant={'chat'}>{document?.content ?? ''}</Markdown>
+      <Markdown variant={'chat'} {...markdownProps}>
+        {document?.content ?? ''}
+      </Markdown>
     </div>
   );
 };
@@ -416,7 +429,11 @@ const DeliverableReader = ({ index, items, onClose, onIndexChange }: Deliverable
       <Flexbox flex={1} style={{ minWidth: 0 }}>
         <Header index={index} item={current} total={items.length} onIndexChange={onIndexChange} />
         <div className={styles.body}>
-          <Body item={current} key={current.artifact.workVersionId} />
+          {/* The reader covers the page it was opened from, so a detail opened
+              in a side panel would be invisible — entity links navigate. */}
+          <EntityLinkHostProvider portal={false} onDismiss={onClose}>
+            <Body item={current} key={current.artifact.workVersionId} />
+          </EntityLinkHostProvider>
         </div>
       </Flexbox>
     </div>,

@@ -38,6 +38,7 @@ const SendButton = memo(() => {
       <Flexbox horizontal align={'center'} gap={8}>
         <Send generating shape={shape} size={size} onStop={() => handleStop()} />
         <Send
+          data-brand-slot={'composer-send'}
           disabled={disabled || !canSend}
           shape={shape}
           size={size}
@@ -46,6 +47,7 @@ const SendButton = memo(() => {
       </Flexbox>
     ) : (
       <Send
+        data-brand-slot={generating ? undefined : 'composer-send'}
         disabled={disabled || !canSend}
         generating={generating}
         menu={canSend ? (sendMenu as any) : undefined}

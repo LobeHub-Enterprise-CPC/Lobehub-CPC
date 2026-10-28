@@ -1,16 +1,19 @@
 'use client';
 
+import { AGENT_PROFILE_NAVIGATION, AGENT_PROFILE_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { agentSecondaryDisplayName } from '@lobechat/types';
-import { Flexbox, Tooltip } from '@lobehub/ui';
-import { ActionIcon, Button, Text } from '@lobehub/ui/base-ui';
-import { cssVar } from 'antd-style';
+import { ActionIcon, Button, cssVar, Flexbox, Text, Tooltip } from '@lobehub/ui';
 import isEqual from 'fast-deep-equal';
-import { PencilIcon, SparklesIcon } from 'lucide-react';
+import { PencilIcon, PencilLineIcon, SparklesIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router';
 
+import { useAgentRoutePath } from '@/features/AgentBreadcrumb/useAgentRoutePath';
 import { createAgentIdentityModal } from '@/features/AgentIdentityModal';
 import { AgentProfileArtwork } from '@/features/AgentProfileArtwork';
+import { startNewHomeChat } from '@/features/Home/startNewHomeChat';
+import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { usePermission } from '@/hooks/usePermission';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
@@ -18,6 +21,35 @@ import { useGlobalStore } from '@/store/global';
 import { globalGeneralSelectors } from '@/store/global/selectors';
 
 import { useAutoName } from './useAutoName';
+
+/** Opens a conversation with the agent — only the showcase header offers it. */
+const ChatButton = memo<{ agentId: string }>(({ agentId }) => {
+  const { t } = useTranslation('setting');
+  const buildAgentPath = useAgentRoutePath(agentId);
+  const navigate = useNavigate();
+  const navigateInWorkspace = useWorkspaceAwareNavigate();
+
+  const startChat = () => {
+    if (!AGENT_PROFILE_NAVIGATION) {
+      navigate(buildAgentPath());
+      return;
+    }
+    // Same as "New chat", with this agent picked in the home composer.
+    startNewHomeChat(navigateInWorkspace, agentId);
+  };
+
+  return (
+    <Button
+      data-brand-slot={'agent-profile-chat'}
+      icon={PencilLineIcon}
+      shape={'round'}
+      type={'primary'}
+      onClick={startChat}
+    >
+      {t('settingAgent.identity.chat')}
+    </Button>
+  );
+});
 
 const AgentHeader = memo(() => {
   const { t } = useTranslation(['setting', 'common']);
@@ -43,6 +75,123 @@ const AgentHeader = memo(() => {
   // falls back to the plain label rather than showing an action nobody can take.
   const showNamePrompt = !personalName && canEdit;
 
+  const editButton = canEdit ? (
+    <ActionIcon
+      icon={PencilIcon}
+      size={'small'}
+      title={t('settingAgent.identity.edit', { ns: 'setting' })}
+      onClick={() => createAgentIdentityModal(agentId)}
+    />
+  ) : null;
+
+  const nameRow = showNamePrompt ? (
+    <Flexbox horizontal align={'center'} gap={8} style={{ minWidth: 0 }}>
+      <Text ellipsis style={{ color: cssVar.colorTextTertiary, fontSize: 20 }}>
+        {t('settingAgent.personalName.unnamed', { ns: 'setting' })}
+      </Text>
+      <Button
+        icon={SparklesIcon}
+        loading={naming}
+        size={'small'}
+        type={'text'}
+        onClick={() => {
+          void autoName();
+        }}
+      >
+        {t('settingAgent.personalName.pickForMe', { ns: 'setting' })}
+      </Button>
+      {AGENT_PROFILE_SHOWCASE_LAYOUT ? editButton : null}
+    </Flexbox>
+  ) : (
+    <Flexbox horizontal align={'center'} gap={8} style={{ minWidth: 0 }}>
+      <Text ellipsis style={{ fontSize: AGENT_PROFILE_SHOWCASE_LAYOUT ? 26 : 36, fontWeight: 600 }}>
+        {personalName || t('settingAgent.identity.untitled', { ns: 'setting' })}
+      </Text>
+      {editButton}
+    </Flexbox>
+  );
+
+  const roleRow = (
+    <Flexbox horizontal align={'center'} gap={8} style={{ minWidth: 0 }}>
+      {/* `Text type="secondary"` resolves to `colorTextDescription`, which antd
+          maps to the TERTIARY step — too faint for the line that carries the
+          agent's role. Set the secondary colour explicitly, and leave only
+          the decorative `@` and the separator at tertiary. */}
+      {/* A heterogeneous product name that already includes its role is
+          shown once. Genuinely custom names retain the role underneath. */}
+      {!suppressDuplicateRole ? (
+        <Text
+          ellipsis
+          style={{
+            color: role ? cssVar.colorTextSecondary : cssVar.colorTextTertiary,
+          }}
+        >
+          {role || t('settingAgent.role.unset', { ns: 'setting' })}
+        </Text>
+      ) : null}
+      {slug && !suppressDuplicateRole ? (
+        <Text style={{ color: cssVar.colorTextTertiary }}>·</Text>
+      ) : null}
+      {/* The tooltip only renders when a slug exists, so it can always name
+          the real url rather than a `<slug>` the reader has to substitute. */}
+      {slug ? (
+        <Tooltip title={t('settingAgent.slug.openWith', { ns: 'setting', slug })}>
+          <Text code style={{ color: cssVar.colorTextSecondary, flex: 'none' }}>
+            <span style={{ color: cssVar.colorTextTertiary }}>@</span>
+            {slug}
+          </Text>
+        </Tooltip>
+      ) : null}
+    </Flexbox>
+  );
+
+  const artwork = (
+    <AgentProfileArtwork
+      agentId={agentId}
+      avatar={meta.avatar}
+      background={meta.backgroundColor}
+      canEdit={canEdit}
+      compact={AGENT_PROFILE_SHOWCASE_LAYOUT}
+      description={meta.description}
+      locale={locale}
+      name={meta.name}
+      storedAvatar={storedAvatar}
+      systemRole={config?.systemRole}
+      title={meta.title}
+      onAvatarChange={(avatar) => {
+        if (canEdit) void updateMetaById(agentId, { avatar });
+      }}
+      onBackgroundChange={(backgroundColor) => {
+        if (canEdit) void updateMetaById(agentId, { backgroundColor });
+      }}
+    />
+  );
+
+  // Showcase: one row — avatar, identity, and the way into a conversation —
+  // with no cover banner above it.
+  if (AGENT_PROFILE_SHOWCASE_LAYOUT)
+    return (
+      <Flexbox
+        horizontal
+        align={'center'}
+        data-brand-slot={'agent-profile-header'}
+        gap={20}
+        paddingBlock={'8px 24px'}
+        style={{ cursor: 'default' }}
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+        }}
+      >
+        {artwork}
+        <Flexbox flex={1} gap={4} style={{ minWidth: 0 }}>
+          {nameRow}
+          {roleRow}
+        </Flexbox>
+        <ChatButton agentId={agentId} />
+      </Flexbox>
+    );
+
   return (
     <Flexbox
       gap={16}
@@ -57,24 +206,7 @@ const AgentHeader = memo(() => {
         e.preventDefault();
       }}
     >
-      <AgentProfileArtwork
-        agentId={agentId}
-        avatar={meta.avatar}
-        background={meta.backgroundColor}
-        canEdit={canEdit}
-        description={meta.description}
-        locale={locale}
-        name={meta.name}
-        storedAvatar={storedAvatar}
-        systemRole={config?.systemRole}
-        title={meta.title}
-        onAvatarChange={(avatar) => {
-          if (canEdit) void updateMetaById(agentId, { avatar });
-        }}
-        onBackgroundChange={(backgroundColor) => {
-          if (canEdit) void updateMetaById(agentId, { backgroundColor });
-        }}
-      />
+      {artwork}
       {/* Identity Section — display only. Editing all three fields happens in a
           form modal; inline inputs crowded the header and left no room for a
           per-field label or error. */}
@@ -85,69 +217,8 @@ const AgentHeader = memo(() => {
             until then: naming it IS the
             next step, and offering the full identity form alongside would split
             attention between two ways to do the same thing. */}
-        {showNamePrompt ? (
-          <Flexbox horizontal align={'center'} gap={8} style={{ minWidth: 0 }}>
-            <Text ellipsis style={{ color: cssVar.colorTextTertiary, fontSize: 20 }}>
-              {t('settingAgent.personalName.unnamed', { ns: 'setting' })}
-            </Text>
-            <Button
-              icon={SparklesIcon}
-              loading={naming}
-              size={'small'}
-              type={'text'}
-              onClick={() => {
-                void autoName();
-              }}
-            >
-              {t('settingAgent.personalName.pickForMe', { ns: 'setting' })}
-            </Button>
-          </Flexbox>
-        ) : (
-          <Flexbox horizontal align={'center'} gap={8} style={{ minWidth: 0 }}>
-            <Text ellipsis style={{ fontSize: 36, fontWeight: 600 }}>
-              {personalName || t('settingAgent.identity.untitled', { ns: 'setting' })}
-            </Text>
-            {canEdit ? (
-              <ActionIcon
-                icon={PencilIcon}
-                size={'small'}
-                title={t('settingAgent.identity.edit', { ns: 'setting' })}
-                onClick={() => createAgentIdentityModal(agentId)}
-              />
-            ) : null}
-          </Flexbox>
-        )}
-        <Flexbox horizontal align={'center'} gap={8} style={{ minWidth: 0 }}>
-          {/* `Text type="secondary"` resolves to `colorTextDescription`, which antd
-              maps to the TERTIARY step — too faint for the line that carries the
-              agent's role. Set the secondary colour explicitly, and leave only
-              the decorative `@` and the separator at tertiary. */}
-          {/* A heterogeneous product name that already includes its role is
-              shown once. Genuinely custom names retain the role underneath. */}
-          {!suppressDuplicateRole ? (
-            <Text
-              ellipsis
-              style={{
-                color: role ? cssVar.colorTextSecondary : cssVar.colorTextTertiary,
-              }}
-            >
-              {role || t('settingAgent.role.unset', { ns: 'setting' })}
-            </Text>
-          ) : null}
-          {slug && !suppressDuplicateRole ? (
-            <Text style={{ color: cssVar.colorTextTertiary }}>·</Text>
-          ) : null}
-          {/* The tooltip only renders when a slug exists, so it can always name
-              the real url rather than a `<slug>` the reader has to substitute. */}
-          {slug ? (
-            <Tooltip title={t('settingAgent.slug.openWith', { ns: 'setting', slug })}>
-              <Text code style={{ color: cssVar.colorTextSecondary, flex: 'none' }}>
-                <span style={{ color: cssVar.colorTextTertiary }}>@</span>
-                {slug}
-              </Text>
-            </Tooltip>
-          ) : null}
-        </Flexbox>
+        {nameRow}
+        {roleRow}
       </Flexbox>
     </Flexbox>
   );

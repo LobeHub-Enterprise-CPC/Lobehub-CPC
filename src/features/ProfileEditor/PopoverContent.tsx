@@ -1,6 +1,5 @@
 import { type ItemType } from '@lobehub/ui';
-import { Flexbox, Icon, SearchBar, stopPropagation } from '@lobehub/ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+import { createStaticStyles, cssVar, Flexbox, Icon, SearchBar, stopPropagation } from '@lobehub/ui';
 import { ChevronRight, ExternalLink, Settings, Store } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -76,7 +75,7 @@ const PopoverContent = memo<PopoverContentProps>(({ items, onOpenStore, onClose 
   const isEmpty = filteredItems.length === 0;
 
   return (
-    <Flexbox style={{ maxHeight: 500, width: '100%' }}>
+    <Flexbox data-brand-slot={'agent-skill-picker'} style={{ maxHeight: 500, width: '100%' }}>
       <div className={styles.header} onClick={stopPropagation}>
         <SearchBar
           allowClear

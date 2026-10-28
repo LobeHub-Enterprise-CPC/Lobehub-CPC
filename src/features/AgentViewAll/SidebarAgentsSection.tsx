@@ -1,11 +1,9 @@
 'use client';
 
-import { AGENT_CHAT_URL, GROUP_CHAT_URL } from '@lobechat/const';
 import type { SidebarAgentItem } from '@lobechat/types';
 import { agentDisplayName, agentSecondaryDisplayName } from '@lobechat/types';
-import { Block, ContextMenuTrigger, Flexbox, Icon, type MenuProps } from '@lobehub/ui';
-import { Tag, Text } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar, responsive } from 'antd-style';
+import { Block, ContextMenuTrigger, type DropdownItem, Flexbox, Icon } from '@lobehub/ui';
+import { createStaticStyles, cssVar, responsive, Text } from '@lobehub/ui';
 import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
 import { memo, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -16,6 +14,8 @@ import { systemStatusSelectors } from '@/store/global/selectors';
 
 import AgentAvatar from './AgentAvatar';
 import ItemActions from './ItemActions';
+import { getAgentItemPath } from './itemPath';
+import RoleTag, { nameBesideRoleStyle } from './RoleTag';
 
 // "In sidebar" overview: a collapsible card grid pinned above the main list
 // so the user can see at a glance which agents currently show in the sidebar
@@ -111,8 +111,8 @@ const SidebarMiniCard = memo<SidebarMiniCardProps>(({ item, onToggleSidebar }) =
 
   const [menuActivated, setMenuActivated] = useState(false);
   const activateMenu = useCallback(() => setMenuActivated(true), []);
-  const menuItemsRef = useRef<(() => MenuProps['items']) | null>(null);
-  const handleMenuReady = useCallback((getItems: () => MenuProps['items']) => {
+  const menuItemsRef = useRef<(() => DropdownItem[]) | null>(null);
+  const handleMenuReady = useCallback((getItems: () => DropdownItem[]) => {
     menuItemsRef.current = getItems;
   }, []);
   const getContextMenuItems = useCallback(() => menuItemsRef.current?.() ?? [], []);
@@ -126,23 +126,32 @@ const SidebarMiniCard = memo<SidebarMiniCardProps>(({ item, onToggleSidebar }) =
         aria-label={displayTitle}
         className={styles.link}
         ref={setAnchor}
-        to={type === 'group' ? GROUP_CHAT_URL(id) : AGENT_CHAT_URL(id, false)}
+        to={getAgentItemPath({ id, type })}
         onPointerEnter={activateMenu}
       >
-        <Block clickable className={styles.card} height={'100%'} variant={'outlined'}>
+        <Block
+          clickable
+          className={styles.card}
+          data-brand-slot="agent-sidebar-card"
+          height={'100%'}
+          variant={'outlined'}
+        >
           <Flexbox horizontal align={'center'} gap={8} style={{ minWidth: 0 }}>
             <AgentAvatar item={item} size={24} />
-            <Text ellipsis style={{ minWidth: 0 }} weight={600}>
-              {displayTitle}
-            </Text>
-            {roleTag ? (
-              <Tag size={'small'} style={{ flex: 'none' }}>
-                {roleTag}
-              </Tag>
-            ) : null}
+            <Flexbox horizontal align={'center'} flex={1} gap={8} style={{ minWidth: 0 }}>
+              <Text ellipsis style={roleTag ? nameBesideRoleStyle : { minWidth: 0 }} weight={600}>
+                {displayTitle}
+              </Text>
+              {roleTag ? <RoleTag role={roleTag} /> : null}
+            </Flexbox>
           </Flexbox>
           {description ? (
-            <Text className={styles.description} fontSize={12} type={'secondary'}>
+            <Text
+              className={styles.description}
+              data-brand-slot="agent-sidebar-card-description"
+              fontSize={12}
+              type={'secondary'}
+            >
               {description}
             </Text>
           ) : null}
@@ -185,7 +194,7 @@ const SidebarAgentsSection = memo<SidebarAgentsSectionProps>(({ items, onToggleS
   );
 
   return (
-    <Flexbox className={styles.container} gap={12}>
+    <Flexbox className={styles.container} data-brand-slot="agent-sidebar-section" gap={12}>
       <Flexbox
         horizontal
         align={'center'}
@@ -216,7 +225,7 @@ const SidebarAgentsSection = memo<SidebarAgentsSectionProps>(({ items, onToggleS
         </Flexbox>
       </Flexbox>
       {!collapsed && (
-        <div className={styles.grid}>
+        <div className={styles.grid} data-brand-slot="agent-sidebar-grid">
           {items.map((item) => (
             <SidebarMiniCard item={item} key={item.id} onToggleSidebar={onToggleSidebar} />
           ))}

@@ -27,7 +27,12 @@ vi.mock('@/utils/env', () => ({
   isDev: false,
 }));
 
-const CREDS = "LOBEHUB_JWT='mock-jwt-token' LOBEHUB_SERVER='https://app.lobehub.com'";
+vi.mock('@lobechat/database/tenant', () => ({
+  requireTenantScope: () => ({ slug: 'acme', tenantId: 'tenant-acme' }),
+}));
+
+// The sandbox CLI must address the tenant: every backend call is `/t/{slug}/...`.
+const CREDS = "LOBEHUB_JWT='mock-jwt-token' LOBEHUB_SERVER='https://app.lobehub.com/t/acme'";
 /**
  * The shim: an `lh` executable written to a fresh `PATH` directory, with
  * credentials scoped to the `npx` process it execs rather than exported.
@@ -68,6 +73,29 @@ describe('preprocessLhCommand', () => {
     expect(result.command).toBe(
       wrap('lh agent view agt_123', " LOBEHUB_WORKSPACE_ID='workspace-1'"),
     );
+  });
+
+  it('should hand the run its own operation id, so a sandbox dispatch can be attributed', async () => {
+    const result = await preprocessLhCommand(
+      'lh agent run -a agt_123 -p hi',
+      'user-1',
+      'workspace-1',
+      false,
+      'op-1',
+    );
+
+    expect(result.command).toBe(
+      wrap(
+        'lh agent run -a agt_123 -p hi',
+        " LOBEHUB_WORKSPACE_ID='workspace-1' LOBEHUB_OPERATION_ID='op-1'",
+      ),
+    );
+  });
+
+  it('should omit the operation id when the caller has no run context', async () => {
+    const result = await preprocessLhCommand('lh topic list', 'user-1');
+
+    expect(result.command).not.toContain('LOBEHUB_OPERATION_ID');
   });
 
   it('should emit the JWT once regardless of how many lh calls the script makes', async () => {

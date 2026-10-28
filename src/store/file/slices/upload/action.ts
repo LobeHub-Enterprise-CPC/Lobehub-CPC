@@ -1,6 +1,6 @@
 import { LOBE_CHAT_CLOUD } from '@lobechat/business-const';
 import { isAudioOnlyIsoBmff } from '@lobechat/utils';
-import { toast } from '@lobehub/ui/base-ui';
+import { toast } from '@lobehub/ui';
 import { t } from 'i18next';
 
 import { handleFileUploadError } from '@/business/client/handleFileUploadError';

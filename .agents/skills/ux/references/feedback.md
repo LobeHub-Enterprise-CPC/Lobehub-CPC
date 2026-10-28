@@ -371,6 +371,13 @@ Stay reactive — the reminder clears the moment the user switches to a capable 
 unsupported state. Scope to the mode that needs it — one reminder per root cause — and
 state both the problem and the remedy.
 
+When several guardrails collapse behind one summary control, keep that control subordinate
+to the action surface. Semantic warning color may identify the icon or label, but it must not
+turn a toolbar affordance into a raised warning card through a strong outline, tinted depth,
+or decorative stacking shadow. The expanded rows still carry the complete warning treatment.
+For wrapped messages, align the status icon to the first line of copy rather than centering it
+against the whole text block; the icon identifies the message, not its bounding box.
+
 **Soft-inline is right only when the user can fix it _in context_.** The "never a hard block"
 rule above assumes a **model / config** capability — the user switches the model dropdown and
 the feature works, so blocking them would be gratuitous. A different class of gap is
@@ -397,6 +404,8 @@ with a path out. Both still owe the remedy.
 - [ ] No warning while config is still loading; only on resolved-unsupported. _(Certainty)_
 - [ ] Scoped to the dependent mode; one reminder per root cause. _(Natural・Certainty)_
 - [ ] Copy states the problem and the remedy. _(Meaningful)_
+- [ ] A collapsed guardrail summary stays visually subordinate to its action surface — semantic color can identify it, but no strong warning outline or decorative colored elevation turns it into a competing card. _(Natural・Certainty)_
+- [ ] In a wrapped guardrail row, the status icon aligns with the first line of copy, not the vertical center of the complete text block. _(Natural)_
 
 ## 4.4 Autosave needs a persistent save-state, and one convention per surface・Certainty・Meaningful
 

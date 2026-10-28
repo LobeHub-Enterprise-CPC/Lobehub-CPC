@@ -1,4 +1,6 @@
+import { createLambdaClient } from '../api/client';
 import { log } from '../utils/logger';
+import { uploadLocalFile } from '../utils/uploadLocalFile';
 import { checkPlatformCapability } from './checkPlatformCapability';
 import { getAgentProfile } from './getAgentProfile';
 import { cancelHeteroTask, runHeteroTask } from './heteroTask';
@@ -23,13 +25,21 @@ export async function executeToolCall(
   apiName: string,
   argsStr: string,
   timeout?: number,
+  /**
+   * The connected device's current credentials, read per call so a refreshed
+   * token is used. `readFile` uploads images with them.
+   */
+  auth?: Parameters<typeof createLambdaClient>[0],
+  executionSignal?: AbortSignal,
 ): Promise<{
   content: string;
   error?: string;
   state?: unknown;
   success: boolean;
 }> {
-  if (shouldRunInWorker(apiName)) return executeToolCallInWorker(apiName, argsStr, timeout);
+  executionSignal?.throwIfAborted();
+  if (shouldRunInWorker(apiName))
+    return executeToolCallInWorker(apiName, argsStr, timeout, executionSignal);
 
   let args: Record<string, any>;
   try {
@@ -49,7 +59,10 @@ export async function executeToolCall(
     // File/shell tools route through LocalSystemExecutionRuntime so `content` is
     // the formatted prompt text and `state` carries the structured payload for
     // client renders — matching the desktop gateway path (PR #15114).
-    const localResult = await runLocalSystemTool(apiName, finalArgs);
+    const localResult = await runLocalSystemTool(apiName, finalArgs, {
+      executionSignal,
+      uploadImage: auth && ((filePath) => uploadLocalFile(createLambdaClient(auth), filePath)),
+    });
     if (localResult) {
       const { error } = localResult;
       return {
@@ -61,6 +74,7 @@ export async function executeToolCall(
       };
     }
 
+    executionSignal?.throwIfAborted();
     // CLI-only tools return raw domain payloads, serialized into `content`.
     const handler = methodMap[apiName];
     if (!handler) {

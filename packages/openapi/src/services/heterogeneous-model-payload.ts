@@ -1,7 +1,10 @@
 import type { ServerDefaultHeterogeneousAgentType } from '@lobechat/heterogeneous-agents';
 import type { ChatStreamPayload } from '@lobechat/model-runtime';
+import { parseClaudeModelId } from '@lobechat/model-runtime/providers/anthropic/modelId';
+import { isResponsesAPIModel } from '@lobechat/model-runtime/providers/openai/modelId';
+import { normalizeAnthropicToolSchema } from '@lobechat/model-runtime/utils/anthropicToolSchema';
 import type { CodexReasoningEffort } from '@lobechat/types';
-import { getCodexReasoningEffortLevels, isCodexServerDefaultCustomModel } from '@lobechat/types';
+import { getCodexReasoningEffortLevels } from '@lobechat/types';
 
 /** Shared by the live relay and CLI compatibility probe, without auth/DB dependencies. */
 export const prepareServerDefaultChatPayload = (params: {
@@ -13,6 +16,17 @@ export const prepareServerDefaultChatPayload = (params: {
   supportsAdaptiveThinking: boolean;
 }): ChatStreamPayload => {
   const normalizedPayload = { ...params.payload };
+  // OpenAI-compatible routers can also select Claude. Normalize before routing,
+  // using the logical model rather than an opaque provider deployment alias.
+  if (parseClaudeModelId(params.model)) {
+    normalizedPayload.tools = normalizedPayload.tools?.map((tool) => ({
+      ...tool,
+      function: {
+        ...tool.function,
+        parameters: normalizeAnthropicToolSchema(tool.function.parameters),
+      },
+    }));
+  }
   if (
     (params.agentType === 'claude-code' || params.agentType === 'kimi-code') &&
     normalizedPayload.thinking?.type === 'adaptive' &&
@@ -55,13 +69,13 @@ export const prepareServerDefaultChatPayload = (params: {
     ...(routedReasoningEffort ? { reasoning_effort: routedReasoningEffort } : {}),
   };
   if (params.agentType === 'codex') {
-    payload = isCodexServerDefaultCustomModel(params.model)
-      ? {
+    payload = isResponsesAPIModel(params.model)
+      ? { ...normalizedPayload, apiMode: 'responses' }
+      : {
           ...chatCompletionsPayload,
           apiMode: 'chatCompletion' as const,
           reasoning_effort: normalizedPayload.reasoning_effort ?? reasoningEffort,
-        }
-      : { ...normalizedPayload, apiMode: 'responses' };
+        };
   }
   return payload;
 };

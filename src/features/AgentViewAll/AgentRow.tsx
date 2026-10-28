@@ -1,11 +1,11 @@
 'use client';
 
-import { AGENT_CHAT_URL, DEFAULT_AVATAR, GROUP_CHAT_URL } from '@lobechat/const';
+import { AGENT_DIRECTORY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
+import { DEFAULT_AVATAR } from '@lobechat/const';
 import type { SidebarAgentItem } from '@lobechat/types';
 import { agentDisplayName, agentSecondaryDisplayName } from '@lobechat/types';
-import { ContextMenuTrigger, Flexbox, type MenuProps, Tooltip } from '@lobehub/ui';
-import { ActionIcon, Avatar, Tag, Text } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+import { ContextMenuTrigger, type DropdownItem, Flexbox, Tooltip } from '@lobehub/ui';
+import { ActionIcon, Avatar, createStaticStyles, cssVar, Text } from '@lobehub/ui';
 import dayjs from 'dayjs';
 import { EyeIcon, EyeOffIcon } from 'lucide-react';
 import { memo, type MouseEvent, useCallback, useRef, useState } from 'react';
@@ -15,7 +15,9 @@ import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 
 import AgentAvatar from './AgentAvatar';
 import ItemActions from './ItemActions';
+import { getAgentItemPath } from './itemPath';
 import LabelTags from './LabelTags';
+import RoleTag, { nameBesideRoleStyle } from './RoleTag';
 
 /** Fixed action-column width (sidebar-eye toggle + "…" menu) so rows stay aligned. */
 export const ACTION_COL_WIDTH = 64;
@@ -101,7 +103,7 @@ interface AgentRowProps {
 const AgentRow = memo<AgentRowProps>(
   ({ author, item, onToggleSidebar, showAuthor, sidebarHidden }) => {
     const { t } = useTranslation('common');
-    const { id, type, updatedAt } = item;
+    const { description, id, type, updatedAt } = item;
     // Groups have no personal name, so this resolves to their title.
     const displayTitle = agentDisplayName(item, t('agentViewAll.untitled'));
     const roleTag = agentSecondaryDisplayName(item);
@@ -112,8 +114,8 @@ const AgentRow = memo<AgentRowProps>(
     // its filtered items back via ref for the ContextMenuTrigger.
     const [menuActivated, setMenuActivated] = useState(false);
     const activateMenu = useCallback(() => setMenuActivated(true), []);
-    const menuItemsRef = useRef<(() => MenuProps['items']) | null>(null);
-    const handleMenuReady = useCallback((getItems: () => MenuProps['items']) => {
+    const menuItemsRef = useRef<(() => DropdownItem[]) | null>(null);
+    const handleMenuReady = useCallback((getItems: () => DropdownItem[]) => {
       menuItemsRef.current = getItems;
     }, []);
     const getContextMenuItems = useCallback(() => menuItemsRef.current?.() ?? [], []);
@@ -132,6 +134,7 @@ const AgentRow = memo<AgentRowProps>(
           horizontal
           align={'center'}
           className={styles.row}
+          data-brand-slot="agent-row"
           gap={12}
           ref={setAnchor}
           onPointerEnter={activateMenu}
@@ -139,22 +142,28 @@ const AgentRow = memo<AgentRowProps>(
           <WorkspaceLink
             aria-label={displayTitle}
             className={styles.identity}
-            to={type === 'group' ? GROUP_CHAT_URL(id) : AGENT_CHAT_URL(id, false)}
+            to={getAgentItemPath({ id, type })}
           >
             <AgentAvatar item={item} size={28} />
             <Flexbox flex={1} style={{ minWidth: 0 }}>
               {/* Single-line row (Linear-style density) — the description only
                 renders in card mode, where there is room to browse. */}
               <Flexbox horizontal align={'center'} gap={6} style={{ minWidth: 0 }}>
-                <Text ellipsis className={'agent-row-title'} weight={500}>
+                <Text
+                  ellipsis
+                  className={'agent-row-title'}
+                  style={roleTag ? nameBesideRoleStyle : undefined}
+                  weight={500}
+                >
                   {displayTitle}
                 </Text>
-                {roleTag ? (
-                  <Tag size={'small'} style={{ flex: 'none' }}>
-                    {roleTag}
-                  </Tag>
-                ) : null}
+                {roleTag ? <RoleTag role={roleTag} /> : null}
               </Flexbox>
+              {AGENT_DIRECTORY_SHOWCASE_LAYOUT && description ? (
+                <Text ellipsis fontSize={12} type={'secondary'}>
+                  {description}
+                </Text>
+              ) : null}
             </Flexbox>
           </WorkspaceLink>
           {/* Trailing cluster (Task-list-style): label pills + author avatar +

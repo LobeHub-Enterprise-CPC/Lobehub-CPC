@@ -1,16 +1,26 @@
 export default {
+  'config.aspectRatio.followStartFrame': 'Follows the start frame',
   'config.aspectRatio.label': 'Aspect Ratio',
   'config.cameraFixed.label': 'Fixed Camera',
   'config.duration.label': 'Duration',
   'config.endImageUrl.label': 'End Frame',
   'config.generateAudio.label': 'Generate Audio',
   'config.header.title': 'Video',
+  'config.imageInputMode.frames': 'Frames',
+  'config.imageInputMode.reference': 'References',
   'config.imageUpload.maxCountReached': 'You can add up to {{count}} reference images',
   'config.imageUrl.label': 'Start Frame',
   'config.prompt.editPlaceholder': 'Describe what you want to change in this video',
+  'config.prompt.placeholderWithReference':
+    'Describe the video, referring to the images as Image 1, Image 2…',
   'config.promptExtend.label': 'Prompt Extend',
+  'config.promptExtend.options.balanced': 'Balanced',
+  'config.promptExtend.options.disabled': 'Off',
+  'config.promptExtend.options.quality': 'Quality',
   'config.prompt.placeholder': 'Describe the video you want to generate',
   'config.prompt.placeholderWithRef': 'Describe the scene you want to generate with the image',
+  'config.referenceImage.count': 'Reference {{count}}/{{max}}',
+  'config.referenceImage.indexedLabel': 'Image {{index}}',
   'config.referenceImage.label': 'Reference Image',
   'config.resolution.label': 'Resolution',
   'config.seed.label': 'Seed',
@@ -44,6 +54,8 @@ export default {
   'generation.version.sourceDeleted': 'Edited from a deleted video',
   'notice.modelRemoved':
     'The current model is no longer available from {{name}}. Please switch to an available model.',
+  'notice.noModelAvailable':
+    'No video generation model is available. Contact your administrator to add one.',
   'notice.providerDisabled':
     'The provider {{name}} for the current model is disabled. Please enable it or switch to an available model.',
   'topic.createNew': 'Create New Topic',

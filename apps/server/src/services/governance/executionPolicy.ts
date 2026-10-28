@@ -1,11 +1,8 @@
 import type { LobeChatDatabase } from '@lobechat/database';
-import debug from 'debug';
 
 import { getPolicyForUser } from './executionPolicyRepository';
-import { isGovernanceEnabled } from './policyGate';
+import { GovernanceUnavailableError, isGovernanceEnabled } from './policyGate';
 import type { ResolvedExecutionPolicy } from './types';
-
-const log = debug('lobe-server:governance:execution-policy');
 
 /**
  * Resolve the execution policy the CLI/desktop should enforce for one user,
@@ -13,15 +10,14 @@ const log = debug('lobe-server:governance:execution-policy');
  * governance feature flag is off. `null` means "unrestricted": the caller
  * falls back to its existing behavior, never to "deny everything".
  *
- * Same fail-open posture as `checkCommand`: a lookup failure (DB down,
- * malformed row) must not be able to lock a user out of their own machine, so
- * it resolves to `null` rather than throwing or denying.
+ * Unreadable switches and policy lookup failures reject with GovernanceUnavailableError.
+ * A successful lookup with no enabled policy remains unrestricted.
  */
 export const getUserExecutionPolicy = async (
   userId: string,
   db: LobeChatDatabase,
 ): Promise<ResolvedExecutionPolicy | null> => {
-  if (!isGovernanceEnabled()) return null;
+  if (!(await isGovernanceEnabled(userId))) return null;
 
   try {
     const row = await getPolicyForUser(db, userId);
@@ -39,8 +35,7 @@ export const getUserExecutionPolicy = async (
       writableRoots: row.writableRoots,
     };
   } catch (error) {
-    console.error('[governance] getUserExecutionPolicy failed, failing open (null): %O', error);
-    log('getUserExecutionPolicy failed for user %s: %O', userId, error);
-    return null;
+    console.error('[governance] execution policy unavailable: %O', error);
+    throw new GovernanceUnavailableError({ cause: error });
   }
 };

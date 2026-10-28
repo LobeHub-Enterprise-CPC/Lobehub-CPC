@@ -1,6 +1,7 @@
 import createDebug from 'debug';
 
 import type { CreateVideoOptions } from '../../../core/openaiCompatibleFactory';
+import { SubmissionRejectedError } from '../../../errors/submissionRejected';
 import type {
   CreateVideoPayload,
   CreateVideoResult,
@@ -8,6 +9,13 @@ import type {
 } from '../../../types/video';
 
 const log = createDebug('lobe-video:volcengine');
+
+/**
+ * A single status query must not block for longer than this. The status endpoint
+ * either answers quickly or is unhealthy; the caller retries transient failures on
+ * its own interval, so hanging here would only eat the caller's polling budget.
+ */
+const STATUS_QUERY_TIMEOUT_MS = 30_000;
 
 interface VolcengineVideoTaskResponse {
   content?: { video_url?: string };
@@ -20,18 +28,29 @@ export async function pollVolcengineVideoStatus(
   taskId: string,
   apiKey: string,
   baseURL: string,
+  customFetch?: typeof fetch,
 ): Promise<PollVideoStatusResult> {
-  const response = await fetch(`${baseURL}/contents/generations/tasks/${taskId}`, {
+  const response = await (customFetch ?? fetch)(`${baseURL}/contents/generations/tasks/${taskId}`, {
     headers: { Authorization: `Bearer ${apiKey}` },
     method: 'GET',
+    signal: AbortSignal.timeout(STATUS_QUERY_TIMEOUT_MS),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
+    log(
+      'Volcengine video status query failed for task %s: %s %s',
+      taskId,
+      response.status,
+      errorText,
+    );
     throw new Error(`Failed to query task status for ${taskId} (${response.status}): ${errorText}`);
   }
 
   const data: VolcengineVideoTaskResponse = await response.json();
+  // Upstream terminal state, logged with the task id so a task id from the database
+  // can be traced to what Ark actually reported.
+  log('Volcengine video task %s status: %s', taskId, data.status);
   if (data.status === 'succeeded') {
     const videoUrl = data.content?.video_url;
     return videoUrl
@@ -116,7 +135,7 @@ export async function createVolcengineVideo(
 
   log('Volcengine video API request body: %s', JSON.stringify(body, null, 2));
 
-  const response = await fetch(`${baseURL}/contents/generations/tasks`, {
+  const response = await (options.fetch ?? fetch)(`${baseURL}/contents/generations/tasks`, {
     body: JSON.stringify(body),
     headers: {
       'Authorization': `Bearer ${options.apiKey}`,
@@ -128,6 +147,12 @@ export async function createVolcengineVideo(
   if (!response.ok) {
     const errorText = await response.text();
     log('Volcengine video API error: %s %s', response.status, errorText);
+    if ([400, 401, 403, 422].includes(response.status))
+      throw new SubmissionRejectedError(
+        `Volcengine video API error: ${response.status} ${errorText}`,
+        'volcengine',
+        response.status,
+      );
     throw new Error(`Volcengine video API error: ${response.status} ${errorText}`);
   }
 

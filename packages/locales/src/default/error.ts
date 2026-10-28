@@ -2,10 +2,17 @@ export default {
   'asyncState.desc': 'Something went wrong while loading. Please try again.',
   'asyncState.metricLabel': 'Failed to load',
   'asyncState.title': 'Failed to load',
+  'otherScope.desc': 'It belongs to {{name}}, not the space you are in now.',
+  'otherScope.personal': 'your personal space',
+  'otherScope.switch': 'Switch to {{name}}',
+  'otherScope.title': 'This is in another space',
   'chatRequestBlocked.contactSupport': 'Contact support',
   'chatRequestBlocked.description':
     'This request was blocked by our security checks. If you think this is a mistake, contact support to restore access.',
   'chatRequestBlocked.title': 'Request blocked',
+  'marketIdentity.desc':
+    'The community could not confirm who you are in this organization, so nothing was loaded. Reload the page, or contact your administrator if it keeps happening.',
+  'marketIdentity.title': 'Community identity unavailable',
   'saveState.retry': 'Retry',
   'saveState.saveFailed': 'Failed to save your changes. Please try again.',
   'error.backHome': 'Back to Home',
@@ -190,6 +197,8 @@ export default {
     'This generation was paused due to content safety restrictions. Its waiting period has ended. Revise your prompt and try again.',
   'response.DeviceGatewayNotConfigured':
     "Couldn't reach a run device for this agent. Connect a device, or configure the device gateway on the server, then try again.",
+  'response.DeviceResponseTimeout':
+    "The device didn't respond in time. It may be offline or asleep, or it may still be starting this run. Check that the device is connected and whether this run is already in progress, then try again.",
   'response.RemoteServerOffline':
     'You appear to be offline. This is a problem with your local network, not the app — please check your internet connection and try again.',
   'response.RemoteServerTimeout':
@@ -222,6 +231,7 @@ export default {
     'This workspace is frozen by an admin and cannot run requests. Please contact the workspace owner to resolve the issue.',
   'response.WorkspaceFrozenByRiskControl':
     'This workspace was auto-frozen by risk control and cannot run requests. Please contact support to review the status.',
+  'unknownError.troubleshoot': 'Troubleshoot',
   'workspaceBillingInactive.bannerHint': 'Click for details',
   'workspaceBillingInactive.bannerTitle': 'Workspace subscription inactive',
   'workspaceBillingInactive.confirm': 'Got it',

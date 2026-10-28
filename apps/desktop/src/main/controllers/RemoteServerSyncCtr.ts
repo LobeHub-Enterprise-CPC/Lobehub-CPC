@@ -2,9 +2,10 @@ import { Buffer } from 'node:buffer';
 import type { IncomingMessage, OutgoingHttpHeaders } from 'node:http';
 import http from 'node:http';
 import https from 'node:https';
-import { URL } from 'node:url';
+import type { URL } from 'node:url';
 
 import type { ProxyTRPCStreamRequestParams } from '@lobechat/electron-client-ipc';
+import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import type { IpcMainEvent, WebContents } from 'electron';
 import { ipcMain } from 'electron';
 import { HttpProxyAgent } from 'http-proxy-agent';
@@ -115,7 +116,8 @@ export default class RemoteServerSyncCtr extends ControllerModule {
       remoteServerUrl,
       requestId,
     } = args;
-    const targetUrl = new URL(urlPath, remoteServerUrl);
+    // The remote URL may carry a tenant path prefix (`/t/{slug}`) that urlPath lacks.
+    const targetUrl = buildRemoteUrl(urlPath, remoteServerUrl);
     const logPrefix = `[ForwardStream ${method} ${targetUrl.pathname}][${requestId}]`;
 
     const { requestOptions, requester } = this.createRequester({

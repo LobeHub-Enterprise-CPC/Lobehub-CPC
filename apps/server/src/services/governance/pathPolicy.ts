@@ -1,7 +1,9 @@
+import path from 'node:path';
+
 import type { LobeChatDatabase } from '@lobechat/database';
 
 import { getUserExecutionPolicy } from './executionPolicy';
-import { isGovernanceEnabled } from './policyGate';
+import { GovernanceUnavailableError } from './policyGate';
 import type { CommandExecutionLogPolicyField, CommandGovernanceContext } from './types';
 
 /**
@@ -19,6 +21,8 @@ export interface PathGovernanceDecision {
   allowed: boolean;
   matchedField?: CommandExecutionLogPolicyField;
 }
+
+const ABSOLUTE_ROOT = /^(?:\/|[A-Z]:\/)/i;
 
 /** File-operation APIs that write — checked against `deniedWriteRoots`; everything else is a read, checked against `deniedReadRoots`. */
 const WRITE_API_NAMES = new Set(['writeFile', 'editFile', 'moveFiles']);
@@ -52,11 +56,18 @@ export const FILE_BLOCKED_MESSAGE =
  * must still match a real half-width `~/.ssh` path.
  */
 export const pathMatchesRoot = (targetPath: string, root: string): boolean => {
-  const normalize = (value: string) => value.normalize('NFKC').replaceAll('\\', '/');
+  const normalize = (value: string) =>
+    path.posix.normalize(value.normalize('NFKC').replaceAll('\\', '/')).replace(/(?<=.)\/$/, '');
 
   const normalizedTarget = normalize(targetPath);
   const normalizedRoot = normalize(root).replace(/^~\/?/, '');
-  if (!normalizedRoot) return false;
+  if (!normalizedRoot || normalizedRoot === '.') return false;
+
+  // An absolute root (POSIX `/etc/secrets`, Windows `C:/Secrets`) names one exact location, so it
+  // is a path prefix. Only a home-relative root (`~/.ssh`) is matched as a trailing/inner segment.
+  if (ABSOLUTE_ROOT.test(normalizedRoot)) {
+    return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}/`);
+  }
 
   return (
     normalizedTarget === normalizedRoot ||
@@ -69,16 +80,13 @@ export const pathMatchesRoot = (targetPath: string, root: string): boolean => {
  * Evaluate whether `ctx.path` is allowed for `ctx.apiName`, against the
  * calling user's `user_execution_policies` row.
  *
- * FAIL-OPEN BY DESIGN, same posture as `checkCommand`: feature disabled, no
- * policy configured, or an internal error all resolve to `{ allowed: true }`.
- * File-path governance is defense-in-depth, not the user's only safety net.
+ * Only an explicitly disabled switch, an absent/disabled policy, or a successfully evaluated
+ * policy may allow access. Configuration and evaluation failures reject.
  */
 export const checkPath = async (
   ctx: PathGovernanceContext,
   db: LobeChatDatabase,
 ): Promise<PathGovernanceDecision> => {
-  if (!isGovernanceEnabled()) return { allowed: true };
-
   try {
     const policy = await getUserExecutionPolicy(ctx.userId, db);
     if (!policy) return { allowed: true };
@@ -94,7 +102,8 @@ export const checkPath = async (
 
     return hit ? { allowed: false, matchedField } : { allowed: true };
   } catch (error) {
-    console.error('[governance] checkPath failed, failing open (allowed=true): %O', error);
-    return { allowed: true };
+    if (error instanceof GovernanceUnavailableError) throw error;
+    console.error('[governance] file policy evaluation unavailable: %O', error);
+    throw new GovernanceUnavailableError({ cause: error });
   }
 };

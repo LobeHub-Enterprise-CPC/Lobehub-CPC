@@ -15,7 +15,16 @@ const readJson = (file) => {
 const resolveChannel = ({ resourcesPath, userData }) => {
   const stored = readJson(path.join(userData, 'lobehub-settings.json'))?.updateChannel;
   if (stored != null) return stored === 'canary' ? 'canary' : 'stable';
-  const built = readJson(path.join(resourcesPath, 'core.asar', 'manifest.json'))?.channel;
+  let built = readJson(path.join(resourcesPath, 'core.asar', 'manifest.json'))?.channel;
+  if (built == null) {
+    try {
+      built = /\/(stable|nightly|canary|beta)\/?['"]?\s*$/m.exec(
+        fs.readFileSync(path.join(resourcesPath, 'app-update.yml'), 'utf8'),
+      )?.[1];
+    } catch {
+      // A missing core still has its packaged feed; without either, use Stable.
+    }
+  }
   return built === 'canary' || built === 'beta' ? 'canary' : 'stable';
 };
 
@@ -130,7 +139,7 @@ function runRescue({ error, fallback, identity, log = [] }) {
   logger.info(`channel=${channel} feed=${feedUrl ?? '(app-update.yml)'}`);
 
   let installing = false;
-  // quitAndInstall closes every window before Squirrel.Mac takes over; exiting there would
+  // quitAndInstall closes every window before the installer takes over; exiting there would
   // abort the install.
   app.on('window-all-closed', () => {
     if (!installing) app.exit(0);
@@ -171,8 +180,17 @@ function runRescue({ error, fallback, identity, log = [] }) {
         ]);
       }
 
-      const { autoUpdater } = require('./electron-updater.cjs');
-      configureUpdater(autoUpdater, { channel, feedUrl, logger });
+      let autoUpdater;
+      if (process.platform === 'darwin') {
+        autoUpdater = require('./sparkle').createSparkleUpdater({
+          app,
+          feedUrl,
+          resourcesPath: process.resourcesPath,
+        });
+      } else {
+        autoUpdater = require('./electron-updater.cjs').autoUpdater;
+        configureUpdater(autoUpdater, { channel, feedUrl, logger });
+      }
       const openDownloadPage = () =>
         shell.openExternal(identity.downloadUrl).finally(() => app.exit(1));
 
@@ -210,7 +228,7 @@ function runRescue({ error, fallback, identity, log = [] }) {
         }
       };
 
-      // Squirrel.Mac reports install failures only through this event, after quitAndInstall.
+      // Installation can fail asynchronously after quitAndInstall.
       autoUpdater.on('error', (installError) => {
         if (!installing) return;
         installing = false;

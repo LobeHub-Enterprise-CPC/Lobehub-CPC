@@ -1,6 +1,7 @@
 import { ENABLE_TOOL_CHANNEL_SETTINGS, SETTINGS_HIDDEN_TABS } from '@lobechat/business-const';
+import { useAppAssetUrl } from '@lobechat/business-tenant/client';
 import { isDesktop } from '@lobechat/const';
-import { Avatar } from '@lobehub/ui/base-ui';
+import { Avatar } from '@lobehub/ui';
 import { SkillsIcon } from '@lobehub/ui/icons';
 import {
   AppWindowIcon,
@@ -11,6 +12,7 @@ import {
   BrainCircuit,
   ChartColumnBigIcon,
   Coins,
+  ContainerIcon,
   CreditCard,
   Database,
   EllipsisIcon,
@@ -34,8 +36,6 @@ import {
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { useElectronStore } from '@/store/electron';
-import { electronSyncSelectors } from '@/store/electron/selectors';
 import { SettingsTabs } from '@/store/global/initialState';
 import {
   featureFlagsSelectors,
@@ -92,18 +92,15 @@ export const useCategory = () => {
     userProfileSelectors.userAvatar(s),
     userProfileSelectors.nickName(s),
   ]);
-  const remoteServerUrl = useElectronStore(electronSyncSelectors.remoteServerUrl);
   const isDevMode = useUserStore((s) => userGeneralSettingsSelectors.config(s).isDevMode);
   const enableOAuthApps = useUserStore(labPreferSelectors.enableOAuthApps);
   const enableIntegrations = useUserStore(labPreferSelectors.enableIntegrations);
+  // Behind the same experiment that gates the persistent sandbox itself: a tab
+  // for environments nothing can run in would be a dead end.
+  const enablePersistentSandbox = useUserStore(labPreferSelectors.enablePersistentSandbox);
 
-  const avatarUrl = useMemo(() => {
-    if (!avatar) return undefined;
-    if (isDesktop && avatar.startsWith('/') && remoteServerUrl) {
-      return remoteServerUrl + avatar;
-    }
-    return avatar;
-  }, [avatar, remoteServerUrl]);
+  // On desktop a server-relative avatar is mounted under the remote server address
+  const avatarUrl = useAppAssetUrl(avatar || undefined);
   const enableBusinessFeatures = useServerConfigStore(serverConfigSelectors.enableBusinessFeatures);
   const categoryGroups: CategoryGroup[] = useMemo(() => {
     const groups: CategoryGroup[] = [];
@@ -128,8 +125,10 @@ export const useCategory = () => {
         label: t('tab.hotkey'),
       },
       // Messenger bindings are a per-user identity (owned by userId), so they
-      // live with the account rather than the agent configuration.
-      {
+      // live with the account rather than the agent configuration. The bots
+      // are LobeHub-operated: their credentials are only ever written by the
+      // cloud admin, so a self-hosted deployment has nothing to bind to.
+      enableBusinessFeatures && {
         icon: MessageCircleIcon,
         key: SettingsTabs.Messenger,
         label: t('tab.messenger'),
@@ -161,6 +160,11 @@ export const useCategory = () => {
         icon: MonitorSmartphoneIcon,
         key: SettingsTabs.Devices,
         label: t('tab.devices'),
+      },
+      enablePersistentSandbox && {
+        icon: ContainerIcon,
+        key: SettingsTabs.Environments,
+        label: t('tab.environments'),
       },
       (enableBusinessFeatures || isDesktop) && {
         icon: BellIcon,
@@ -331,6 +335,7 @@ export const useCategory = () => {
     isDevMode,
     enableOAuthApps,
     enableIntegrations,
+    enablePersistentSandbox,
     avatarUrl,
     username,
   ]);

@@ -1,6 +1,7 @@
 import VoiceDictation from '../Dictation';
 import VoiceMessage from '../VoiceMessage';
 import AgentMode from './AgentMode';
+import ApprovalMode from './ApprovalMode';
 import Clear from './Clear';
 import History from './History';
 import Memory from './Memory';
@@ -17,6 +18,7 @@ import Upload from './Upload';
 
 export const actionMap = {
   agentMode: AgentMode,
+  approvalMode: ApprovalMode,
   clear: Clear,
   contextWindow: ContextWindow,
   fileUpload: Upload,

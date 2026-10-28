@@ -1,6 +1,8 @@
 import type {
   ISandboxService,
+  SandboxCallToolResult,
   SandboxExportFileResult,
+  SandboxMode,
 } from '@lobechat/builtin-tool-cloud-sandbox';
 import type { LobeChatDatabase } from '@lobechat/database';
 
@@ -9,7 +11,69 @@ import type { MarketService } from '@/server/services/market';
 
 export type SandboxProviderKind = 'market' | 'onlyboxes';
 
+/**
+ * The part of an environment's definition the execution plane acts on while a
+ * session runs, as opposed to while it is being built.
+ *
+ * A deliberate pick rather than the stored object passed through. Two reasons,
+ * and the first is the one that matters: `EnvironmentConfiguration` is typed
+ * without credentials, but it is `jsonb` — the column accepts whatever was
+ * written to it, and this object now travels to the execution plane on every
+ * tool call. Naming the fields means a key that appears in the database later
+ * cannot start leaving the server just because someone added it upstream.
+ *
+ * The second is that `bootstrapCommand` and `sources` are here even though a
+ * session never runs either: they are two of the three keys the execution
+ * plane digests to decide which build a snapshot belongs to. Dropping them
+ * would make every session disagree with the build it restored.
+ */
+export interface SandboxSessionSpecification {
+  bootstrapCommand?: string;
+  env?: Record<string, string>;
+  excludePaths?: string[];
+  internetAccess?: boolean;
+  maintenanceCommand?: string;
+  sources?: { kind: string; path?: string; ref?: string; uri?: string; url?: string }[];
+}
+
 export interface SandboxSessionContext {
+  /**
+   * Working directory inside the persistent workspace, relative to its root.
+   * Forwarded with every call; the execution plane composes it onto the
+   * directory the entitlement names and fences the result. Only meaningful
+   * alongside `sandboxMode: 'persistent'`.
+   */
+  sandboxCwd?: string;
+  /**
+   * Named environment to restore for this run; absent means the caller's
+   * default. Like `sandboxMode`, every call for a topic must carry the same
+   * value — the session binds to one environment on its first call.
+   */
+  sandboxInstanceId?: string;
+  /**
+   * Whether this run wants its working directory to survive the session.
+   * Absent means ephemeral. Half the decision — the execution plane also
+   * requires an entitlement on the trust token, which is minted upstream of
+   * this service.
+   */
+  sandboxMode?: SandboxMode;
+  /**
+   * The instance's definition, so the execution plane can act on the half of
+   * it that belongs to a run rather than to a build: exporting the declared
+   * variables, running the maintenance command once, cutting the network when
+   * the environment asks for it, and routing the regenerable paths on capture.
+   *
+   * Carried on every call for the same reason {@link sandboxInstanceId} is —
+   * the runtime adopts it per invocation and a call that omitted it would run
+   * with whatever the previous one happened to set.
+   */
+  sandboxSpecification?: SandboxSessionSpecification;
+  /**
+   * Where commands run, on the sandbox's local disk, for an instance whose
+   * checkout lives there. Sent alongside {@link sandboxCwd}, which keeps
+   * naming the instance the call belongs to on the volume.
+   */
+  sandboxWorkingDir?: string;
   topicId: string;
   userId: string;
 }
@@ -33,10 +97,12 @@ export interface SandboxProviderCapabilities {
 
 export interface SandboxProvider extends Pick<ISandboxService, 'callTool'> {
   readonly capabilities: SandboxProviderCapabilities;
-
   exportFileToUploadUrl: (
     request: SandboxProviderFileExportRequest,
   ) => Promise<SandboxProviderFileExportResult>;
+
+  /** Non-secret, allowlisted routing facts for querying this exact remote task after restart. */
+  getReceiptContext?: (workId: string) => Record<string, unknown> | undefined;
 
   readonly kind: SandboxProviderKind;
 }
@@ -70,10 +136,25 @@ export interface SandboxProviderFileExportResult {
 }
 
 export interface SandboxCommandResult {
-  exitCode: number;
+  /**
+   * Why the command produced no shell observation. Present when the command
+   * never ran (governance denial/outage, transport failure) — the error
+   * kind (`COMMAND_GOVERNANCE_DENIED`, `COMMAND_GOVERNANCE_UNAVAILABLE`, …)
+   * is the source of truth there, not `exitCode`. Absent when a shell
+   * actually executed.
+   */
+  error?: SandboxCallToolResult['error'];
+  /**
+   * The real shell exit status. Absent when the command never executed or is
+   * still running past the observation window — never synthesized as 0 or 1,
+   * because those are valid real statuses and would misreport the outcome.
+   */
+  exitCode?: number;
   output: string;
   /** The provider recreated the workspace before executing this command. */
   sessionExpiredAndRecreated?: boolean;
+  /** Pollable handle when the command outlived the observation window. */
+  shellId?: string;
   stderr?: string;
   success: boolean;
 }

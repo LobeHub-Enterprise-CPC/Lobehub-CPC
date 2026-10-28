@@ -1,8 +1,16 @@
+import {
+  HOME_DEFAULT_HIDDEN_WIDGETS,
+  HOME_PORTRAIT_ENABLED,
+  PROJECT_FIRST_NAVIGATION,
+} from '@lobechat/business-const';
+
 import { type TopicGroupMode } from '@/types/topic';
 
 import type {
+  AgentDocumentSort,
   GlobalState,
   ModelDetailPanelExpandedKey,
+  ProjectTopicSubGroupMode,
   SystemStatus,
   WorkspaceOverridableField,
 } from '../initialState';
@@ -90,12 +98,26 @@ const collapsedTopicGroupKeys =
   (s: GlobalState): string[] | undefined =>
     s.status.collapsedTopicGroupKeysByMode?.[mode];
 
+const projectTopicSubGroupMode =
+  (groupId: string) =>
+  (s: GlobalState): ProjectTopicSubGroupMode =>
+    s.status.projectTopicSubGroupModeByGroup?.[groupId] ?? 'none';
+
 const agentSidebarSections =
   (agentId: string | undefined) =>
   (s: GlobalState): Record<string, boolean> | undefined =>
     agentId ? s.status.expandAgentSidebarSectionsByAgent?.[agentId] : undefined;
 
-const topicPageSize = (s: GlobalState): number => s.status.topicPageSize || 20;
+/** Upper bound of `topic.getTopics`'s `pageSize` input on the server. */
+export const MAX_TOPIC_PAGE_SIZE = 100;
+
+/**
+ * Clamped to the server's cap: the project sidebar's "load more" used to grow
+ * the persisted value past 100, after which every topic list request failed
+ * validation. Clamping on read recovers users who already persisted it.
+ */
+const topicPageSize = (s: GlobalState): number =>
+  Math.min(s.status.topicPageSize || 20, MAX_TOPIC_PAGE_SIZE);
 
 const agentPageSize = (s: GlobalState): number => s.status.agentPageSize || 5;
 
@@ -176,13 +198,18 @@ const sidebarExpandedKeys =
  * determines where the sidebar pushes items to the bottom. */
 export const SIDEBAR_SPACER_ID = '__spacer__';
 
+// Where projects lead navigation the Home panel reads agents, then projects with
+// their conversations, then the conversations filed under no project.
+const DEFAULT_SIDEBAR_SECTIONS = PROJECT_FIRST_NAVIGATION
+  ? ['private', 'agent', 'project', 'recents']
+  : ['recents', 'project', 'private', 'agent'];
+
 export const DEFAULT_SIDEBAR_ITEMS: string[] = [
   'tasks',
+  'goals',
+  'dashboard',
   'resource',
-  'recents',
-  'project',
-  'private',
-  'agent',
+  ...DEFAULT_SIDEBAR_SECTIONS,
   SIDEBAR_SPACER_ID,
   'image',
   'community',
@@ -382,12 +409,15 @@ const mobileShowTopic = (s: GlobalState) => s.status.mobileShowTopic;
 const mobileShowPortal = (s: GlobalState) => s.status.mobileShowPortal;
 const showAgentBuilderPanel = (s: GlobalState) => s.status.showAgentBuilderPanel;
 const showHomeRail = (s: GlobalState) => s.status.showHomeRail ?? true;
-const showHomePortrait = (s: GlobalState) => s.status.showHomePortrait ?? true;
-const hiddenHomeWidgets = (s: GlobalState): string[] => s.status.hiddenHomeWidgets ?? [];
+const showHomePortrait = (s: GlobalState) => s.status.showHomePortrait ?? HOME_PORTRAIT_ENABLED;
+const hiddenHomeWidgets = (s: GlobalState): string[] =>
+  s.status.hiddenHomeWidgets ?? HOME_DEFAULT_HIDDEN_WIDGETS;
 const homeGoalsCollapsed = (s: GlobalState): boolean => s.status.homeGoalsCollapsed ?? false;
 const homeRecentsCount = (s: GlobalState): number => s.status.homeRecentsCount ?? 8;
 const homeTaskCount = (s: GlobalState): number => s.status.homeTaskCount ?? 8;
 const showRightPanel = (s: GlobalState) => s.status.showRightPanel;
+const showWorkingOverview = (s: GlobalState) =>
+  s.status.showWorkingOverview ?? !s.status.showRightPanel;
 const showLeftPanel = (s: GlobalState) => s.status.showLeftPanel;
 const showPageAgentPanel = (s: GlobalState) => s.status.showPageAgentPanel;
 const showTaskAgentPanel = (s: GlobalState) => s.status.showTaskAgentPanel;
@@ -421,6 +451,13 @@ const filePanelWidth = (s: GlobalState) => s.status.filePanelWidth;
 const groupAgentBuilderPanelWidth = (s: GlobalState) => s.status.groupAgentBuilderPanelWidth || 360;
 const imagePanelWidth = (s: GlobalState) => s.status.imagePanelWidth;
 const agentListViewMode = (s: GlobalState) => s.status.agentListViewMode || 'list';
+const DEFAULT_AGENT_DOCUMENT_SORT: AgentDocumentSort = {
+  by: 'name',
+  foldersFirst: true,
+  order: 'asc',
+};
+const agentDocumentSort = (s: GlobalState): AgentDocumentSort =>
+  s.status.agentDocumentSort ?? DEFAULT_AGENT_DOCUMENT_SORT;
 const agentListViewOptions = (s: GlobalState) => s.status.agentListViewOptions;
 const agentListExpandedGroupKeys = (s: GlobalState) => s.status.agentListExpandedGroupKeys ?? [];
 const agentListSidebarSectionCollapsed = (s: GlobalState) =>
@@ -469,6 +506,7 @@ const homeSelectedAgentId = (s: GlobalState) => s.status.homeSelectedAgentId;
 
 export const systemStatusSelectors = {
   agentBuilderPanelWidth,
+  agentDocumentSort,
   agentListExpandedGroupKeys,
   agentListSidebarSectionCollapsed,
   agentListViewMode,
@@ -528,6 +566,7 @@ export const systemStatusSelectors = {
   showRightPanel,
   showSystemRole,
   showTaskAgentPanel,
+  showWorkingOverview,
   showTerminalPanel,
   showVerifyReportPanel,
   showVideoPanel,
@@ -537,6 +576,7 @@ export const systemStatusSelectors = {
   verifyReportPanelWidth,
   tokenDisplayFormatShort,
   collapsedTopicGroupKeys,
+  projectTopicSubGroupMode,
   topicPageSize,
   videoPanelWidth,
   videoTopicViewMode,

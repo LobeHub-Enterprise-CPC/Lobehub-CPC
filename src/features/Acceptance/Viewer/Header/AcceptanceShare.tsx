@@ -1,4 +1,5 @@
-import { Button, confirmModal, DropdownMenu, toast } from '@lobehub/ui/base-ui';
+import { buildAppUrl } from '@lobechat/business-tenant/client';
+import { Button, confirmModal, DropdownMenu, toast } from '@lobehub/ui';
 import { Share2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -53,8 +54,8 @@ const AcceptanceShare = () => {
           label: t('report.actions.copyLink'),
           onClick: async () => {
             try {
-              const url = new URL(`/acceptance/${acceptanceId}`, window.location.origin);
-              await navigator.clipboard.writeText(url.toString());
+              // Under the tenant's app address: a bare origin link opens organization discovery.
+              await navigator.clipboard.writeText(buildAppUrl(`/acceptance/${acceptanceId}`));
               toast.success(t('report.actions.copyLinkSuccess'));
             } catch {
               toast.error(t('acceptance.share.copyFailed'));

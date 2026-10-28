@@ -1,7 +1,28 @@
+import { currentTenantScope } from '@lobechat/database/tenant';
 import { TRPCError } from '@trpc/server';
 
+import type { WorkspaceRole } from '@/business/server/trpc-middlewares/workspaceAuth';
 import type { DeviceModel } from '@/database/models/device';
 import { isPathWithinRoot } from '@/server/services/deviceGateway';
+import { canEditWorkspaceDevice } from '@/server/services/deviceGateway/access';
+
+export {
+  canEditWorkspaceDevice,
+  canOperateWorkspaceDevice,
+} from '@/server/services/deviceGateway/access';
+
+/** Throw unless the caller may edit this workspace device's registration. */
+export const assertWorkspaceDeviceEditable = (
+  role: WorkspaceRole | undefined,
+  actorUserId: string,
+  enrollerUserId: string,
+): void => {
+  if (canEditWorkspaceDevice(role, actorUserId, enrollerUserId)) return;
+  throw new TRPCError({
+    code: 'FORBIDDEN',
+    message: 'Only the enrolling member or a workspace owner can modify this device.',
+  });
+};
 
 /**
  * In-memory cache of device-scoped skill preview roots, populated by
@@ -11,13 +32,16 @@ import { isPathWithinRoot } from '@/server/services/deviceGateway';
  */
 const deviceSkillRoots = new Map<string, Set<string>>();
 
+/** Device ids are chosen by the client, so the grant is scoped to the tenant that registered it. */
+const skillRootsKey = (deviceId: string) => `${currentTenantScope()?.tenantId ?? ''}|${deviceId}`;
+
 export const registerDeviceSkillRoots = (deviceId: string, roots: string[]) => {
   if (roots.length === 0) return;
-  deviceSkillRoots.set(deviceId, new Set(roots));
+  deviceSkillRoots.set(skillRootsKey(deviceId), new Set(roots));
 };
 
 const isWithinSkillRoots = (deviceId: string, workingDirectory: string): boolean => {
-  const roots = deviceSkillRoots.get(deviceId);
+  const roots = deviceSkillRoots.get(skillRootsKey(deviceId));
   if (!roots) return false;
   return [...roots].some((root) => isPathWithinRoot(root, workingDirectory));
 };
@@ -40,11 +64,16 @@ const isWithinSkillRoots = (deviceId: string, workingDirectory: string): boolean
  * RPC is forwarded. The picker upserts every chosen directory into `workingDirs`
  * (see `useCommitWorkingDirectory`) and run start upserts the bound cwd, so a
  * legitimately-selected workspace is always present here.
+ *
+ * Use the request's authorized workspace scope for shared devices: their
+ * `userId` is the enroller, not necessarily the caller. Never fall back to a
+ * personal row, whose approved directories belong to a different device scope.
  */
 export const assertWorkspaceRootApproved = async (
   deviceModel: DeviceModel,
   deviceId: string,
   workingDirectory: string,
+  workspaceId?: string,
 ): Promise<void> => {
   if (!workingDirectory) {
     throw new TRPCError({
@@ -53,7 +82,9 @@ export const assertWorkspaceRootApproved = async (
     });
   }
 
-  const device = await deviceModel.findByDeviceId(deviceId);
+  const device = workspaceId
+    ? await deviceModel.findWorkspaceDeviceById(deviceId)
+    : await deviceModel.findByDeviceId(deviceId);
 
   const approvedRoots = (device?.workingDirs ?? [])
     .flatMap((dir) => [dir.path, dir.git?.activeWorktree])

@@ -2,6 +2,8 @@ import { randomBytes } from 'node:crypto';
 
 import bcrypt from 'bcryptjs';
 
+import { tenantClientConfig } from './tenant';
+
 const runId = process.env.E2E_RUN_ID || process.env.GITHUB_RUN_ID || 'local';
 const workerId = process.env.CUCUMBER_WORKER_ID || process.env.E2E_WORKER_ID || 'local';
 const testScope = runId === 'local' ? workerId : `${runId}_${workerId}`;
@@ -39,7 +41,7 @@ export async function seedTestUser(): Promise<void> {
 
   // Dynamic import pg to avoid bundling issues
   const { default: pg } = await import('pg');
-  const client = new pg.Client({ connectionString: databaseUrl });
+  const client = new pg.Client(tenantClientConfig(databaseUrl));
 
   try {
     await client.connect();
@@ -113,7 +115,7 @@ export async function createTestSession(): Promise<string | null> {
   await seedTestUser();
 
   const { default: pg } = await import('pg');
-  const client = new pg.Client({ connectionString: databaseUrl });
+  const client = new pg.Client(tenantClientConfig(databaseUrl));
 
   try {
     await client.connect();
@@ -146,7 +148,7 @@ export async function cleanupTestUser(): Promise<void> {
   }
 
   const { default: pg } = await import('pg');
-  const client = new pg.Client({ connectionString: databaseUrl });
+  const client = new pg.Client(tenantClientConfig(databaseUrl));
 
   try {
     await client.connect();

@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 
 import { aiAgentService } from '@/services/aiAgent';
-import { shareChatService } from '@/services/shareChat';
 import type { QueuedMessage } from '@/store/chat/slices/operation/types';
 import { useChatStore } from '@/store/chat/store';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -38,15 +37,11 @@ const seedOperations = (operations: ReturnType<typeof operation>[]) => {
 
 describe('queued messages flag', () => {
   let setQueuedMessages: MockInstance<typeof aiAgentService.setQueuedMessages>;
-  let setShareQueuedMessages: MockInstance<typeof shareChatService.setQueuedMessages>;
 
   beforeEach(() => {
     useChatStore.setState(useChatStore.getInitialState());
     setQueuedMessages = vi
       .spyOn(aiAgentService, 'setQueuedMessages')
-      .mockResolvedValue({ success: true });
-    setShareQueuedMessages = vi
-      .spyOn(shareChatService, 'setQueuedMessages')
       .mockResolvedValue({ success: true });
   });
 
@@ -123,15 +118,6 @@ describe('queued messages flag', () => {
 
     useChatStore.getState().enqueueMessage(contextKey, queued('q1'), 'client');
 
-    expect(setQueuedMessages).not.toHaveBeenCalled();
-  });
-
-  it('routes a share visitor run through the share endpoint', () => {
-    seedOperations([operation('gw', { context: { ...context, agentShareId: 'share-1' } })]);
-
-    useChatStore.getState().enqueueMessage(contextKey, queued('q1'), 'gw');
-
-    expect(setShareQueuedMessages).toHaveBeenCalledWith('share-1', 'topic-1', 'server-gw', true);
     expect(setQueuedMessages).not.toHaveBeenCalled();
   });
 

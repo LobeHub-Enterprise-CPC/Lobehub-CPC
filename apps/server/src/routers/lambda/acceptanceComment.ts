@@ -5,6 +5,7 @@ import type {
   AcceptanceCommentList,
   AcceptanceCommentReaction,
 } from '@lobechat/types';
+import { acceptanceCommentTimeSchema, reviewAnchorSchema } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
@@ -29,6 +30,7 @@ import type { LobeChatDatabase } from '@/database/type';
 import { assertAgentUsableBy } from '@/database/utils/agent-access';
 import { authedProcedure, publicProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { notifyAcceptance } from '@/server/services/acceptanceReview/events';
 import { createEvidenceFileResolver } from '@/server/services/verify/evidenceFiles';
 
 import { resolveAcceptanceCommentAccess } from './_helpers/acceptanceCommentAccess';
@@ -48,6 +50,7 @@ const createSchema = z
         checkItemId: z.string().min(1).max(255),
         evidenceId: z.string().uuid(),
         rect: rectSchema,
+        time: acceptanceCommentTimeSchema.optional(),
       })
       .optional(),
     attachments: z
@@ -62,6 +65,7 @@ const createSchema = z
     editorData: z.unknown().optional(),
     kind: z.enum(['approval', 'comment', 'proposal']).optional(),
     parentCommentId: z.string().trim().min(1).max(64).optional(),
+    source: reviewAnchorSchema.optional(),
   })
   .refine(
     (value) =>
@@ -72,6 +76,10 @@ const createSchema = z
   .refine((value) => !(value.parentCommentId && value.anchor), {
     message: 'A reply cannot carry its own anchor',
     path: ['anchor'],
+  })
+  .refine((value) => !(value.parentCommentId && value.source), {
+    message: 'A reply cannot carry its own page anchor',
+    path: ['source'],
   })
   .refine((value) => !(value.parentCommentId && value.kind === 'approval'), {
     message: 'An approval is a thread root',
@@ -252,6 +260,22 @@ const enrich = async (
     reactionsByComment.set(row.parentCommentId, byEmoji);
   }
 
+  // The reporter's console errors and user agent are diagnostics for whoever
+  // fixes the page, not something every link holder should read.
+  const sourceOf = (row: AcceptanceCommentRow) => {
+    if (!row.source) return null;
+    const own = Boolean(scope.userId) && row.authorUserId === scope.userId;
+    if (own || scope.canModerate) return row.source;
+    const { env: _env, ...rest } = row.source;
+    return rest;
+  };
+
+  const timeOf = (row: AcceptanceCommentRow) => {
+    if (row.anchorType !== 'evidence') return null;
+    const parsed = acceptanceCommentTimeSchema.safeParse(row.metadata?.evidenceAnchor?.time);
+    return parsed.success ? parsed.data : null;
+  };
+
   return rows
     .filter((row) => row.kind !== 'reaction')
     .map((row) => ({
@@ -282,8 +306,10 @@ const enrich = async (
       parentCommentId: row.parentCommentId,
       reactions: [...(reactionsByComment.get(row.id)?.values() ?? [])],
       rect: row.anchorRect,
+      time: timeOf(row),
       resolvedAt: row.resolvedAt,
       resolvedByUserId: row.resolvedByUserId,
+      source: sourceOf(row),
       updatedAt: row.updatedAt,
     }));
 };
@@ -347,7 +373,10 @@ const assertAuthorAgentUsable = async (
 const assertReferencesBelongToAcceptance = async (
   db: LobeChatDatabase,
   acceptanceId: string,
-  refs: { evidenceId?: string; runId?: string },
+  refs: {
+    anchor?: { evidenceId: string; checkItemId: string; time?: { start: number } };
+    runId?: string;
+  },
 ) => {
   if (refs.runId) {
     const [run] = await db
@@ -358,15 +387,46 @@ const assertReferencesBelongToAcceptance = async (
     if (!run) throw new TRPCError({ code: 'NOT_FOUND', message: 'Round not found' });
   }
 
-  if (refs.evidenceId) {
+  if (refs.anchor) {
     const [evidence] = await db
-      .select({ id: verifyEvidence.id })
+      .select({
+        id: verifyEvidence.id,
+        type: verifyEvidence.type,
+        checkItemId: verifyCheckResults.checkItemId,
+        sourceCriterionId: verifyCheckResults.sourceCriterionId,
+        runId: verifyRuns.id,
+        plan: verifyRuns.plan,
+      })
       .from(verifyEvidence)
       .innerJoin(verifyCheckResults, eq(verifyCheckResults.id, verifyEvidence.checkResultId))
       .innerJoin(verifyRuns, eq(verifyRuns.id, verifyCheckResults.verifyRunId))
-      .where(and(eq(verifyEvidence.id, refs.evidenceId), eq(verifyRuns.acceptanceId, acceptanceId)))
+      .where(
+        and(
+          eq(verifyEvidence.id, refs.anchor.evidenceId),
+          eq(verifyRuns.acceptanceId, acceptanceId),
+        ),
+      )
       .limit(1);
     if (!evidence) throw new TRPCError({ code: 'NOT_FOUND', message: 'Evidence not found' });
+    // Use the producing round's snapshot, even when the viewer is in a later round.
+    // Flow occurrences may share a criterion but remain distinct checks in the union.
+    const item = evidence.plan?.find((item) => item.id === evidence.checkItemId);
+    const checkId = item?.sourceFlowNode
+      ? item.id
+      : (item?.sourceCriterionId ?? evidence.sourceCriterionId ?? evidence.checkItemId);
+    if (checkId !== refs.anchor.checkItemId)
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Evidence belongs to another check' });
+    if (!['screenshot', 'gif', 'video'].includes(evidence.type))
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'This evidence cannot carry a media anchor',
+      });
+    if (Boolean(refs.anchor.time) !== (evidence.type === 'video'))
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Video anchors require a time; images have no time',
+      });
+    return evidence.runId;
   }
 };
 
@@ -402,10 +462,14 @@ export const acceptanceCommentRouter = router({
       { userId: ctx.userId, workspaceId: access.memberOfWorkspaceId },
       input.authorAgentId,
     );
-    await assertReferencesBelongToAcceptance(ctx.serverDB, access.acceptance.id, {
-      evidenceId: input.anchor?.evidenceId,
-      runId: input.contextRunId,
-    });
+    const evidenceRunId = await assertReferencesBelongToAcceptance(
+      ctx.serverDB,
+      access.acceptance.id,
+      {
+        anchor: input.anchor,
+        runId: input.contextRunId,
+      },
+    );
 
     try {
       const { comment } = await ctx.acceptanceCommentModel.create({
@@ -416,10 +480,12 @@ export const acceptanceCommentRouter = router({
         authorUserId: ctx.userId,
         clientId: input.clientId,
         content: input.content,
-        contextRunId: input.contextRunId,
+        // Inherited evidence keeps its producing run; the comment belongs to the viewing run.
+        contextRunId: input.contextRunId ?? evidenceRunId,
         editorData: input.editorData as never,
         kind: input.kind,
         parentCommentId: input.parentCommentId,
+        source: input.source,
         /*
          * The ceiling travels INTO the write so it is counted and charged in
          * one transaction: checked out here it would be advisory only, and a
@@ -442,6 +508,7 @@ export const acceptanceCommentRouter = router({
         visibility: access.acceptance.visibility,
         workspaceId: access.acceptance.workspaceId,
       });
+      notifyAcceptance(access.acceptance.id, 'comments', ctx.userId);
       return { data: item, success: true };
     } catch (error) {
       if (error instanceof TRPCError) throw error;
@@ -481,6 +548,7 @@ export const acceptanceCommentRouter = router({
         comment.id,
         own ? { authorUserId: ctx.userId } : { moderator: true },
       );
+      notifyAcceptance(comment.acceptanceId, 'comments', ctx.userId);
       return { data: { deleted: result !== false }, success: true };
     }),
 
@@ -558,6 +626,7 @@ export const acceptanceCommentRouter = router({
         input.resolved,
         ctx.userId,
       );
+      notifyAcceptance(comment.acceptanceId, 'comments', ctx.userId);
       return { data: { resolvedAt: row?.resolvedAt ?? null }, success: true };
     }),
 });

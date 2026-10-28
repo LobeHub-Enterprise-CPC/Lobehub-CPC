@@ -3,6 +3,11 @@ import resourcesToBackend from 'i18next-resources-to-backend';
 import { initReactI18next } from 'react-i18next';
 
 import { DEFAULT_LANG } from '@/const/locale';
+import {
+  BRAND_POST_PROCESSOR,
+  brandPostProcessor,
+  isBrandPostProcessorEnabled,
+} from '@/locales/brandPostProcessor';
 import { normalizeLocale } from '@/locales/resources';
 import { unwrapESMModule } from '@/utils/esm/unwrapESMModule';
 import { loadI18nNamespaceModule } from '@/utils/i18n/loadI18nNamespaceModule';
@@ -35,10 +40,14 @@ export const createWorkbenchI18n = (lang?: string, bundledResources?: Record<str
   const locale = normalizeLocale(lang);
   const resources = bundledResources ? { [locale]: bundledResources } : undefined;
 
-  const instance = i18next
-    .createInstance()
-    .use(initReactI18next)
-    .use(resourcesToBackend(loadWorkbenchNamespace));
+  // The acceptance namespace names the product inline ("Install LobeHub CLI"),
+  // and this standalone SPA has no branding layer above the translations, so
+  // register the same post-processor the main app uses. No-op under default
+  // branding.
+  let instance = i18next.createInstance();
+  if (isBrandPostProcessorEnabled) instance = instance.use(brandPostProcessor);
+
+  instance = instance.use(initReactI18next).use(resourcesToBackend(loadWorkbenchNamespace));
   let languageRequest = 0;
 
   return {
@@ -63,6 +72,8 @@ export const createWorkbenchI18n = (lang?: string, bundledResources?: Record<str
         lng: locale,
         ns: [],
         partialBundledLanguages: true,
+        // Rewrite brand strings baked into the locale copy (white-label only).
+        ...(isBrandPostProcessorEnabled ? { postProcess: [BRAND_POST_PROCESSOR] } : {}),
         react: {
           bindI18nStore: 'added',
           useSuspense: false,

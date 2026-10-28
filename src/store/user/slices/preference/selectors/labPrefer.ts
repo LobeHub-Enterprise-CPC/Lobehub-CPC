@@ -1,3 +1,4 @@
+import { PROJECT_FIRST_NAVIGATION } from '@lobechat/business-const';
 import { DEFAULT_PREFERENCE } from '@lobechat/const';
 
 import { type UserState } from '@/store/user/initialState';
@@ -21,17 +22,23 @@ export const labPreferSelectors = {
   enableIntegrations: (s: UserState): boolean => s.preference.lab?.enableIntegrations ?? false,
   enableInputMarkdown: (s: UserState): boolean =>
     s.preference.lab?.enableInputMarkdown ?? DEFAULT_PREFERENCE.lab?.enableInputMarkdown ?? true,
-  enableMemoryRules: (s: UserState): boolean => s.preference.lab?.enableMemoryRules ?? false,
   enableMessageTextSelectionActions: (s: UserState): boolean =>
     s.preference.lab?.enableMessageTextSelectionActions ??
     DEFAULT_PREFERENCE.lab?.enableMessageTextSelectionActions ??
     false,
   enableOAuthApps: (s: UserState): boolean => s.preference.lab?.enableOAuthApps ?? false,
+  enablePersistentSandbox: (s: UserState): boolean =>
+    s.preference.lab?.enablePersistentSandbox ?? false,
   enableSelfLearning: (s: UserState): boolean => s.preference.lab?.enableSelfLearning ?? false,
-  enableProjects: (s: UserState): boolean => s.preference.lab?.enableProjects ?? false,
+  // A distribution that organizes work by project has no Labs switch for it.
+  enableProjects: (s: UserState): boolean =>
+    PROJECT_FIRST_NAVIGATION || (s.preference.lab?.enableProjects ?? false),
   // `updateLab` writes both keys, but older clients only write the legacy
   // `enableTopicAcceptance` — so while both exist it holds the latest choice.
   enableGoals: (s: UserState): boolean =>
     s.preference.lab?.enableTopicAcceptance ?? s.preference.lab?.enableGoals ?? false,
   enableTaskVerify: (s: UserState): boolean => s.preference.lab?.enableTaskVerify ?? false,
+  enableTopicBugReport: (s: UserState): boolean => s.preference.lab?.enableTopicBugReport ?? false,
+  enableWorkspaceOnboardingV2: (s: UserState): boolean =>
+    s.preference.lab?.enableWorkspaceOnboardingV2 ?? false,
 };

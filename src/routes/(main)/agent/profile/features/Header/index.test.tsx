@@ -153,6 +153,10 @@ vi.mock('@/const/layoutTokens', () => ({
   DESKTOP_HEADER_ICON_SMALL_SIZE: 24,
 }));
 
+vi.mock('@/features/NavPanel/useAdvancedModeMenuItem', () => ({
+  useAdvancedModeMenuItem: () => null,
+}));
+
 vi.mock('@/features/AgentBreadcrumb', () => ({
   default: () => null,
 }));

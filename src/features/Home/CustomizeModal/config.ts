@@ -1,3 +1,5 @@
+import { HOME_DEFAULT_HIDDEN_WIDGETS, HOME_PORTRAIT_ENABLED } from '@lobechat/business-const';
+
 // The sections HomeInbox owns. Kept apart from the full key list because the
 // main column's standalone blocks (recents, tasks) are rendered by
 // HomeModeContent rather than HomeInbox.
@@ -46,10 +48,10 @@ export const HOME_WIDGET_GROUPS = [
 export type HomeWidgetGroupKey = (typeof HOME_WIDGET_GROUPS)[number]['key'];
 
 export const HOME_CUSTOMIZE_DEFAULTS = {
-  hiddenHomeWidgets: [] as string[],
+  hiddenHomeWidgets: HOME_DEFAULT_HIDDEN_WIDGETS,
   homeRecentsCount: 8,
   homeTaskCount: 8,
-  showHomePortrait: true,
+  showHomePortrait: HOME_PORTRAIT_ENABLED,
 };
 
 export const HOME_COUNT_MIN = 3;

@@ -30,13 +30,13 @@ interface ZhipuVideoStatusResponse {
  */
 export async function queryZhipuVideoStatus(
   inferenceId: string,
-  options: { apiKey: string; baseURL: string },
+  options: { apiKey: string; baseURL: string; fetch?: typeof fetch },
 ): Promise<ZhipuVideoStatusResponse> {
   const statusUrl = `${options.baseURL}/async-result/${inferenceId}`;
 
   log('Querying video status for: %s', inferenceId);
 
-  const response = await fetch(statusUrl, {
+  const response = await (options.fetch ?? fetch)(statusUrl, {
     headers: {
       'Authorization': `Bearer ${options.apiKey}`,
       'Content-Type': 'application/json',
@@ -60,7 +60,7 @@ export async function queryZhipuVideoStatus(
  */
 export async function pollZhipuVideoStatus(
   inferenceId: string,
-  options: { apiKey: string; baseURL: string },
+  options: { apiKey: string; baseURL: string; fetch?: typeof fetch },
 ): Promise<PollVideoStatusResult> {
   const response = await queryZhipuVideoStatus(inferenceId, options);
 
@@ -141,7 +141,7 @@ export async function createZhipuVideo(
 
   log('Zhipu video API request body: %O', body);
 
-  const response = await fetch(`${baseURL}/videos/generations`, {
+  const response = await (options.fetch ?? fetch)(`${baseURL}/videos/generations`, {
     body: JSON.stringify(body),
     headers: {
       'Authorization': `Bearer ${options.apiKey}`,

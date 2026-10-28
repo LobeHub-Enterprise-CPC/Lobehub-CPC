@@ -11,8 +11,8 @@ describe('ComfyUIConnectionService', () => {
   const mockFetch = vi.mocked(fetch);
 
   beforeEach(() => {
-    service = new ComfyUIConnectionService();
     vi.clearAllMocks();
+    service = new ComfyUIConnectionService(mockFetch as unknown as typeof fetch);
     vi.useFakeTimers();
   });
 
@@ -22,7 +22,7 @@ describe('ComfyUIConnectionService', () => {
 
   describe('Constructor and initialization', () => {
     it('should initialize with default state', () => {
-      const newService = new ComfyUIConnectionService();
+      const newService = new ComfyUIConnectionService(mockFetch as unknown as typeof fetch);
 
       expect(newService.isValidated()).toBe(false);
 

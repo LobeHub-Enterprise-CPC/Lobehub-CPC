@@ -1,4 +1,4 @@
-import { ASYNC_TASK_TIMEOUT } from '@lobechat/business-config/server';
+import { VIDEO_GENERATION_POLL_TIMEOUT } from '@lobechat/business-config/server';
 import { ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
 import {
   buildMappedBusinessModelFields,
@@ -20,8 +20,10 @@ import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { GenerationModel } from '@/database/models/generation';
 import { asyncAuthedProcedure, asyncRouter as router } from '@/libs/trpc/async';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { GenerationService } from '@/server/services/generation';
 import { VideoGenerationService } from '@/server/services/generation/video';
 import { buildVideoGenerationFilePayload } from '@/server/services/generation/videoFile';
+import { measureVideoOutputUsage } from '@/server/services/generation/videoOutputUsage';
 import { FileSource } from '@/types/files';
 
 const log = debug('lobe-video:async');
@@ -69,7 +71,7 @@ async function pollUntilCompletion(
   signal: AbortSignal,
 ): Promise<{ headers?: Record<string, string>; videoUrl: string } | null> {
   const pollingInterval = 5000;
-  const maxRetries = Math.ceil(ASYNC_TASK_TIMEOUT / pollingInterval);
+  const maxRetries = Math.ceil(VIDEO_GENERATION_POLL_TIMEOUT / pollingInterval);
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     checkAbortSignal(signal);
@@ -219,6 +221,12 @@ export const videoRouter = router({
 
         log('Asset and file created successfully for generation: %s', generationId);
 
+        // Before marking Success so the client's post-success topic refresh sees it
+        await new GenerationService(ctx.serverDB, ctx.userId, workspaceId).ensureTopicCover(
+          generationTopicId,
+          processResult.thumbnailKey,
+        );
+
         const duration = Date.now() - asyncTaskCreatedAt.getTime();
 
         log('Updating task status to Success: %s, duration: %dms', asyncTaskId, duration);
@@ -231,6 +239,7 @@ export const videoRouter = router({
           try {
             await chargeAfterGenerate({
               computePriceParams: {
+                duration: (batch?.config as any)?.duration,
                 generateAudio: (batch?.config as any)?.generateAudio,
                 resolution: (batch?.config as any)?.resolution,
               },
@@ -249,7 +258,7 @@ export const videoRouter = router({
               model: resolvedModelId,
               prechargeResult,
               provider,
-              usage: undefined,
+              usage: measureVideoOutputUsage(resolvedModelId, processResult),
               userId: ctx.userId,
               workspaceId,
             });
@@ -266,7 +275,7 @@ export const videoRouter = router({
       timeoutId = setTimeout(() => {
         log('Video generation timeout, aborting operation: %s', asyncTaskId);
         abortController.abort();
-      }, ASYNC_TASK_TIMEOUT);
+      }, VIDEO_GENERATION_POLL_TIMEOUT);
 
       const result = await pollingPromise(abortController.signal);
 

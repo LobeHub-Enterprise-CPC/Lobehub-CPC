@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getServerDB } from '@/database/core/db-adaptor';
@@ -6,6 +7,11 @@ import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import type { PlatformClient, PlatformDefinition } from '@/server/services/bot/platforms';
 
 import { createGatewayManager, GatewayManager, getGatewayManager } from './GatewayManager';
+
+vi.mock('@/server/modules/Tenant/postgresClaims', () => ({
+  heartbeatTenantProcess: vi.fn(),
+  tenantClaims: { bind: () => async () => {}, enter: async () => async () => {} },
+}));
 
 // Mock database and external dependencies
 const { mockFindEnabledByPlatform, mockFindEnabledByPlatformAndAppId } = vi.hoisted(() => ({
@@ -22,6 +28,10 @@ vi.mock('@/database/models/agentBotProvider', () => ({
     findEnabledByPlatform: mockFindEnabledByPlatform,
     findEnabledByPlatformAndAppId: mockFindEnabledByPlatformAndAppId,
   }),
+}));
+
+vi.mock('@/server/modules/Tenant/callbackUrl', () => ({
+  tenantPublicBaseUrl: () => 'https://app.test/t/acme',
 }));
 
 vi.mock('@/server/modules/KeyVaultsEncrypt', () => ({
@@ -79,13 +89,52 @@ describe('GatewayManager', () => {
 
     // Clean up global singleton between tests
     const globalForGateway = globalThis as any;
-    delete globalForGateway.gatewayManager;
+    delete globalForGateway.gatewayManagers;
   });
 
   afterEach(() => {
     vi.clearAllMocks();
     const globalForGateway = globalThis as any;
-    delete globalForGateway.gatewayManager;
+    delete globalForGateway.gatewayManagers;
+  });
+
+  it('waits for an in-flight start before stopping late-created clients', async () => {
+    let finish!: () => void;
+    const manager = new GatewayManager({ definitions: [] });
+    const bot = createMockBot();
+    vi.spyOn(manager as any, 'sync').mockImplementation(async () => {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      (manager as any).clients.set('slack:late', bot);
+    });
+    const starting = manager.start();
+    await Promise.resolve();
+    let stopped = false;
+    const stopping = manager.stop().then(() => {
+      stopped = true;
+    });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+    finish();
+    await Promise.all([starting, stopping]);
+    expect(bot.stop).toHaveBeenCalledTimes(1);
+    expect(manager.isRunning).toBe(false);
+  });
+
+  it('stops healthy clients even when another client fails, and retries the failed client', async () => {
+    const manager = new GatewayManager({ definitions: [] });
+    await manager.start();
+    const failed = createMockBot();
+    const healthy = createMockBot();
+    vi.mocked(failed.stop).mockRejectedValueOnce(new Error('socket still open'));
+    (manager as any).clients.set('failed', failed);
+    (manager as any).clients.set('healthy', healthy);
+    await expect(manager.stop()).rejects.toThrow();
+    expect(healthy.stop).toHaveBeenCalledTimes(1);
+    await manager.stop();
+    expect(failed.stop).toHaveBeenCalledTimes(2);
+    expect(healthy.stop).toHaveBeenCalledTimes(1);
   });
 
   describe('constructor and isRunning', () => {
@@ -321,36 +370,54 @@ describe('GatewayManager', () => {
 });
 
 describe('createGatewayManager / getGatewayManager', () => {
+  const scope = (tenantId: string) =>
+    ({ session: {} as never, slug: tenantId, tenantId }) as unknown as TenantScope;
+  const inTenant = <T>(tenantId: string, fn: () => T) => runWithTenantScope(scope(tenantId), fn);
+
   beforeEach(() => {
     const globalForGateway = globalThis as any;
-    delete globalForGateway.gatewayManager;
+    delete globalForGateway.gatewayManagers;
   });
 
   afterEach(() => {
     const globalForGateway = globalThis as any;
-    delete globalForGateway.gatewayManager;
+    delete globalForGateway.gatewayManagers;
   });
 
   it('should return undefined when no manager has been created', () => {
-    expect(getGatewayManager()).toBeUndefined();
+    expect(inTenant('tenant-a', () => getGatewayManager())).toBeUndefined();
   });
 
   it('should create and return a GatewayManager instance', () => {
-    const manager = createGatewayManager({ definitions: [] });
+    const manager = inTenant('tenant-a', () => createGatewayManager({ definitions: [] }));
     expect(manager).toBeInstanceOf(GatewayManager);
   });
 
-  it('should return the same instance on subsequent calls (singleton)', () => {
-    const manager1 = createGatewayManager({ definitions: [] });
-    const manager2 = createGatewayManager({ definitions: [createFakeDefinition('slack')] });
+  it('should return the same instance on subsequent calls in one tenant', () => {
+    const manager1 = inTenant('tenant-a', () => createGatewayManager({ definitions: [] }));
+    const manager2 = inTenant('tenant-a', () =>
+      createGatewayManager({ definitions: [createFakeDefinition('slack')] }),
+    );
 
     expect(manager1).toBe(manager2);
   });
 
   it('should be accessible via getGatewayManager after creation', () => {
-    const created = createGatewayManager({ definitions: [] });
-    const retrieved = getGatewayManager();
+    const created = inTenant('tenant-a', () => createGatewayManager({ definitions: [] }));
+    const retrieved = inTenant('tenant-a', () => getGatewayManager());
 
     expect(retrieved).toBe(created);
+  });
+
+  it('keeps a separate manager per tenant', () => {
+    const managerA = inTenant('tenant-a', () => createGatewayManager({ definitions: [] }));
+    const managerB = inTenant('tenant-b', () => createGatewayManager({ definitions: [] }));
+
+    expect(managerA).not.toBe(managerB);
+    expect(inTenant('tenant-b', () => getGatewayManager())).toBe(managerB);
+  });
+
+  it('refuses to reach a manager without a tenant', () => {
+    expect(() => getGatewayManager()).toThrow();
   });
 });

@@ -1,3 +1,4 @@
+import { BRANDING_PROVIDER, ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
 import type { LobeChatDatabase } from '@lobechat/database';
 import { MergeStrategyEnum } from '@lobechat/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,6 +14,10 @@ const mocks = vi.hoisted(() => ({
     return queries ?? [];
   }),
   recordUserMemoryLexicalSearchDecision: vi.fn(),
+  resolveUserMemoryEmbeddingModel: vi.fn(async () => ({
+    model: 'memory-embedding-model',
+    provider: 'memory-provider',
+  })),
   searchMemory: vi.fn(),
   shouldRunUserMemoryLexicalSearch: vi.fn(),
   updateIdentityEntry: vi.fn(),
@@ -34,11 +39,15 @@ vi.mock('@/database/schemas', () => ({
 }));
 
 vi.mock('@/server/globalConfig', () => ({
-  getServerDefaultFilesConfig: vi.fn(function () {
+  getServerDefaultFilesConfig: vi.fn(async function () {
     return {
       embeddingModel: { model: 'default-embedding-model', provider: 'default-provider' },
     };
   }),
+}));
+
+vi.mock('@/server/services/memory/userMemory/embeddingModel', () => ({
+  resolveUserMemoryEmbeddingModel: mocks.resolveUserMemoryEmbeddingModel,
 }));
 
 vi.mock('@/server/modules/ModelRuntime', () => ({
@@ -168,6 +177,52 @@ describe('memoryRuntime', () => {
 
       expect(topK).toMatchObject({ activities: 3, contexts: 0, experiences: 0, preferences: 3 });
     });
+  });
+
+  it('falls back to the provider every other memory embedding uses', async () => {
+    mocks.embeddings.mockResolvedValueOnce([[0.1, 0.2, 0.3]]);
+    mocks.initModelRuntimeFromDB.mockResolvedValueOnce({ embeddings: mocks.embeddings });
+    mocks.searchMemory.mockResolvedValueOnce({
+      activities: [],
+      contexts: [],
+      experiences: [],
+      identities: [],
+      preferences: [],
+    });
+
+    const runtime = await memoryRuntime.factory({
+      ...createContext(),
+      memoryEmbeddingRuntime: undefined,
+    });
+    await runtime.searchUserMemory({ queries: ['renewal timeline'] });
+
+    const expected = ENABLE_BUSINESS_FEATURES ? BRANDING_PROVIDER : 'memory-provider';
+    expect(mocks.initModelRuntimeFromDB.mock.calls[0][2]).toBe(expected);
+  });
+
+  // Vectors are written with the memory embedding model; the file embedding model
+  // would query a different (or unavailable) model and silently find nothing.
+  it('embeds fallback-path queries with the memory embedding model, not the file one', async () => {
+    mocks.embeddings.mockResolvedValueOnce([[0.1, 0.2, 0.3]]);
+    mocks.initModelRuntimeFromDB.mockResolvedValueOnce({ embeddings: mocks.embeddings });
+    mocks.searchMemory.mockResolvedValueOnce({
+      activities: [],
+      contexts: [],
+      experiences: [],
+      identities: [],
+      preferences: [],
+    });
+
+    const runtime = await memoryRuntime.factory({
+      ...createContext(),
+      memoryEmbeddingRuntime: undefined,
+    });
+    await runtime.searchUserMemory({ queries: ['renewal timeline'] });
+
+    expect(mocks.embeddings).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'memory-embedding-model' }),
+      expect.anything(),
+    );
   });
 
   it('records the lexical decision on the default Gateway memory path', async () => {

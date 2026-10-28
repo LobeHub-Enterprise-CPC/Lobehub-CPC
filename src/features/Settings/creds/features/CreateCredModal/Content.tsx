@@ -1,9 +1,8 @@
 'use client';
 
 import { type CredType } from '@lobechat/types';
-import { useModalContext } from '@lobehub/ui/base-ui';
-import { Steps } from 'antd';
-import { createStaticStyles } from 'antd-style';
+import { Steps, useModalContext } from '@lobehub/ui';
+import * as stylex from '@stylexjs/stylex';
 import { type FC, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -13,11 +12,7 @@ import FileCredForm from './FileCredForm';
 import KVCredForm from './KVCredForm';
 import OAuthCredForm from './OAuthCredForm';
 
-const styles = createStaticStyles(({ css }) => ({
-  steps: css`
-    margin-block-end: 24px;
-  `,
-}));
+const styles = stylex.create({ steps: { marginBlockEnd: '24px' } });
 
 export interface CreateCredModalContentProps {
   /**
@@ -80,9 +75,8 @@ const CreateCredModalContent: FC<CreateCredModalContentProps> = ({ credsApi, onS
   return (
     <>
       <Steps
-        className={styles.steps}
+        className={stylex.props(styles.steps).className}
         current={step}
-        size={'small'}
         items={[
           { title: t('creds.createModal.selectType') },
           { title: t('creds.createModal.fillForm') },

@@ -3,7 +3,7 @@
  */
 import { act, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ConfigAction from './ConfigAction';
 import GenerationMediaModeSegment from './GenerationMediaModeSegment';
@@ -18,35 +18,50 @@ interface SegmentedCapture {
 const componentMocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   segmented: undefined as SegmentedCapture | undefined,
+  select: undefined as SegmentedCapture | undefined,
+  showAiImage: true,
 }));
 
-vi.mock('@lobehub/ui/base-ui', async (importOriginal) => ({
-  ...((await importOriginal()) as Record<string, unknown>),
-  ActionIcon: ({ title }: { title?: ReactNode }) => (
-    <button aria-label={typeof title === 'string' ? title : 'action'} type="button" />
-  ),
-  Segmented: (props: SegmentedCapture) => {
-    componentMocks.segmented = props;
-    return (
-      <div data-testid="mode-toggle-group">
-        {props.options?.map((option) => (
-          <span key={option.value}>{option.icon}</span>
-        ))}
-      </div>
-    );
-  },
-  Select: () => <div data-testid="mode-select" />,
-}));
-
-vi.mock('antd-style', async (importOriginal) => ({
-  ...((await importOriginal()) as Record<string, unknown>),
-  createStaticStyles: () => ({
-    heroSelect: 'hero-select',
-    heroText: 'hero-text',
-    toolbarItem: 'toolbar-item',
-    toolbarLabel: 'toolbar-label',
-  }),
-}));
+vi.mock('@lobehub/ui', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  const factories: ((original: typeof importOriginal) => unknown)[] = [
+    async (importOriginal) => ({
+      ...((await importOriginal()) as Record<string, unknown>),
+      ActionIcon: ({ title }: { title?: ReactNode }) => (
+        <button aria-label={typeof title === 'string' ? title : 'action'} type="button" />
+      ),
+      Segmented: (props: SegmentedCapture) => {
+        componentMocks.segmented = props;
+        return (
+          <div data-testid="mode-toggle-group">
+            {props.options?.map((option) => (
+              <span key={option.value}>{option.icon}</span>
+            ))}
+          </div>
+        );
+      },
+      Select: (props: SegmentedCapture) => {
+        componentMocks.select = props;
+        return <div data-testid="mode-select" />;
+      },
+    }),
+    async (importOriginal) => ({
+      ...((await importOriginal()) as Record<string, unknown>),
+      createStaticStyles: () => ({
+        heroSelect: 'hero-select',
+        heroText: 'hero-text',
+        toolbarItem: 'toolbar-item',
+        toolbarLabel: 'toolbar-label',
+      }),
+    }),
+  ];
+  const merged: Record<string, unknown> = { ...actual };
+  for (const factory of factories) {
+    const part = (await factory(importOriginal)) as Record<string, unknown>;
+    for (const [key, value] of Object.entries(part)) if (value !== actual[key]) merged[key] = value;
+  }
+  return merged;
+});
 
 vi.mock('@/features/Workspace/useWorkspaceAwareNavigate', () => ({
   useWorkspaceAwareNavigate: () => componentMocks.navigate,
@@ -66,11 +81,26 @@ vi.mock('@/features/ChatInput/ActionBar/components/ActionPopover', () => ({
 }));
 
 vi.mock('@/store/serverConfig', () => ({
-  useServerConfigStore: <T,>(selector: (state: { isMobile: boolean }) => T) =>
-    selector({ isMobile: false }),
+  featureFlagsSelectors: (state: { featureFlags: unknown }) => state.featureFlags,
+  useServerConfigStore: <T,>(
+    selector: (state: { isMobile: boolean; featureFlags: { showAiImage: boolean } }) => T,
+  ) => selector({ isMobile: false, featureFlags: { showAiImage: componentMocks.showAiImage } }),
 }));
 
 describe('GenerationMediaModeSegment', () => {
+  beforeEach(() => {
+    componentMocks.showAiImage = true;
+  });
+
+  it.each(['toolbar', 'hero'] as const)(
+    'keeps only video options in %s when ai_image is disabled',
+    (layout) => {
+      componentMocks.showAiImage = false;
+      render(<GenerationMediaModeSegment layout={layout} mode="video" />);
+      const captured = layout === 'hero' ? componentMocks.select : componentMocks.segmented;
+      expect(captured?.options?.map((option) => option.value)).toEqual(['video']);
+    },
+  );
   it('uses an icon-only toggle group in the composer toolbar', () => {
     render(<GenerationMediaModeSegment mode="image" />);
 

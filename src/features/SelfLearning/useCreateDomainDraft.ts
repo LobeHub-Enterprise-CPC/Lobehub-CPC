@@ -1,3 +1,4 @@
+import { tenantStorageKey } from '@lobechat/business-tenant/client';
 import { useEffect, useRef, useState } from 'react';
 
 import type { ExpertiseDomainDraft } from '@/services/expertise';
@@ -24,7 +25,7 @@ const readStoredCreateDraft = (storageKey?: string) =>
   parseStoredCreateDraft(storageKey ? localStorage.getItem(storageKey) : null);
 
 export const useCreateDomainDraft = (agentId?: string) => {
-  const storageKey = agentId ? `self-learning:create:${agentId}` : undefined;
+  const storageKey = agentId ? tenantStorageKey(`self-learning:create:${agentId}`) : undefined;
   const [stored] = useState(() => readStoredCreateDraft(storageKey));
   const [brief, setBrief] = useState(stored.brief);
   const [draft, setDraft] = useState<ExpertiseDomainDraft | undefined>(stored.draft);

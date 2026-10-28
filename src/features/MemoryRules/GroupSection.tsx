@@ -1,8 +1,7 @@
 'use client';
 
-import { Flexbox, Icon } from '@lobehub/ui';
-import { ActionIcon, type DropdownItem, DropdownMenu, Tooltip } from '@lobehub/ui/base-ui';
-import { cx } from 'antd-style';
+import { cx, Flexbox, Icon } from '@lobehub/ui';
+import { ActionIcon, type DropdownItem, DropdownMenu, Tooltip } from '@lobehub/ui';
 import { ChevronRightIcon, MoreHorizontalIcon, PlusIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -27,6 +26,10 @@ interface GroupSectionProps {
 const GroupSection = ({ collapsed, count, group, menu, onToggle, onWrite }: GroupSectionProps) => {
   const { t } = useTranslation('memory');
   const scopeLabel = useScopeLabel();
+  const owner = group.owner;
+  const onlyItsAgent =
+    owner.kind === 'agent' &&
+    group.scopes.every((scope) => scope.kind === 'agent' && scope.id === owner.agent.id);
 
   return (
     <div className={cx(styles.section, collapsed && styles.sectionCollapsed)} onClick={onToggle}>
@@ -35,9 +38,12 @@ const GroupSection = ({ collapsed, count, group, menu, onToggle, onWrite }: Grou
       </span>
       <span className={styles.sectionTitle}>{group.domain.title}</span>
       <span className={styles.sectionCount}>{count}</span>
-      <span className={styles.sectionScope}>
-        {t('rules.group.scope', { scopes: scopeLabel(group.scopes) })}
-      </span>
+      {/* Under an agent's heading, "applies to that agent" only repeats the heading. */}
+      {!onlyItsAgent && (
+        <span className={styles.sectionScope}>
+          {t('rules.group.scope', { scopes: scopeLabel(group.scopes) })}
+        </span>
+      )}
       {!collapsed && <span data-line className={styles.sectionLine} />}
       <span
         data-hover

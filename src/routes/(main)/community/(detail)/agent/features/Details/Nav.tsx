@@ -1,8 +1,6 @@
 'use client';
 
-import { Flexbox, Icon } from '@lobehub/ui';
-import { Tabs, Tag } from '@lobehub/ui/base-ui';
-import { createStaticStyles } from 'antd-style';
+import { createStaticStyles, Flexbox, Icon, Tabs, Tag } from '@lobehub/ui';
 import {
   BookOpenIcon,
   HistoryIcon,

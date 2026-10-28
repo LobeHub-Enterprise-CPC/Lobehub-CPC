@@ -1,9 +1,8 @@
 'use client';
 
-import { Flexbox, Icon } from '@lobehub/ui';
-import { Button, Text } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+import { Button, createStaticStyles, cssVar, Flexbox, Icon, Text } from '@lobehub/ui';
 import { ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
+import { getProviderDisplayName } from 'model-bank/modelProviders';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -119,7 +118,7 @@ const ProposalCard = memo<ProposalCardProps>(
               a model id there just pushes the summary out of view. */}
           {open && (
             <span className={styles.muted}>
-              {proposal.provider}/{proposal.model}
+              {getProviderDisplayName(proposal.provider)}/{proposal.model}
             </span>
           )}
           {!open && proposal.comment && <span className={styles.preview}>{proposal.comment}</span>}

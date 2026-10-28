@@ -1,9 +1,9 @@
 'use client';
 
+import { NAV_RAIL_ENABLED } from '@lobechat/business-const';
 import { HotkeyScopeEnum } from '@lobechat/const/hotkeys';
 import { TITLE_BAR_HEIGHT } from '@lobechat/desktop-bridge';
-import { Flexbox } from '@lobehub/ui';
-import { cx } from 'antd-style';
+import { cx, Flexbox } from '@lobehub/ui';
 import { type CSSProperties, type FC } from 'react';
 import { Suspense } from 'react';
 import { HotkeysProvider } from 'react-hotkeys-hook';
@@ -24,18 +24,21 @@ import {
   useLastWorkspaceSlugSync,
   useWindowUrlMirror,
 } from '@/features/Electron/shell';
+import LinkHoverStatus from '@/features/Electron/system/LinkHoverStatus';
 import ZoomHUD from '@/features/Electron/system/ZoomHUD';
 import { TabHost, useSeedTabsOnBoot } from '@/features/Electron/TabHost';
 import TabCacheBridges from '@/features/Electron/titlebar/TabBar/TabCacheBridges';
 import TitleBar from '@/features/Electron/titlebar/TitleBar';
 import HotkeyHelperPanel from '@/features/HotkeyHelperPanel';
 import NavPanelShell from '@/features/NavPanel/Shell';
+import NavRail from '@/features/NavRail';
 import { DndContextWrapper } from '@/features/ResourceManager/DndContextWrapper';
 import { usePlatform } from '@/hooks/usePlatform';
 import CmdkLazy from '@/layout/GlobalProvider/CmdkLazy';
 import dynamic from '@/libs/next/dynamic';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 
+import ClientLlmWaitResume from './ClientLlmWaitResume';
 import DesktopAutoOidcOnFirstOpen from './DesktopAutoOidcOnFirstOpen';
 import GatewayMuxWarmup from './GatewayMuxWarmup';
 import RegisterHotkeys from './RegisterHotkeys';
@@ -72,6 +75,7 @@ const Layout: FC = () => {
           {showCloudPromotion && <CloudBanner />}
         </Suspense>
         <ZoomHUD />
+        <LinkHoverStatus />
 
         <Suspense fallback={null}>
           <TitleBar />
@@ -83,6 +87,7 @@ const Layout: FC = () => {
             height={`calc(100% - ${TITLE_BAR_HEIGHT}px)`}
             width={'100%'}
           >
+            {NAV_RAIL_ENABLED && <NavRail />}
             <NavPanelShell />
             <DesktopLayoutContainer>
               <Flexbox height={'100%'} style={tabHostContainer} width={'100%'}>
@@ -94,6 +99,7 @@ const Layout: FC = () => {
         <Suspense fallback={null}>
           <HotkeyHelperPanel />
           <GatewayMuxWarmup />
+          <ClientLlmWaitResume />
           <HeteroRestartRecovery />
           <RegisterHotkeys />
           <CmdkLazy />

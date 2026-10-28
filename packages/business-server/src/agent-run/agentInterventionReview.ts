@@ -303,6 +303,13 @@ export interface AgentInterventionRuntimeAppContext {
    * resumes with no target (the run is owned by the builder itself).
    */
   editingAgentId?: string;
+  /**
+   * The group a Group Agent Builder run edits. Without it a `group_agent_builder`
+   * continuation falls back to `topics.metadata.editingGroupId`, which older
+   * topics never received — the member tools then answer `NoGroupContext`.
+   * Cloud rebuilds it from the parked operation's durable row.
+   */
+  editingGroupId?: string;
   groupId?: string | null;
   scope?: MessageMapScope;
   sessionId?: string;
@@ -488,6 +495,12 @@ export interface NotifyAgentInterventionRequiredParams {
   context: Omit<AgentInterventionReviewContext, 'agent' | 'topic' | 'triggerRequest'>;
   deadline?: number;
   items: NotifyAgentInterventionItem[];
+  /**
+   * Set when the parked run is a share VISITOR's run. The visitor resolves it
+   * on the share page; owner-facing delivery (push, Live Activity, Review
+   * links) must be skipped — the owner is not the approver of that run.
+   */
+  shareVisitorUserId?: string;
   summary: string;
   /**
    * A partial per-card decision may re-park the unresolved rows in a new
@@ -537,7 +550,13 @@ export async function getAgentInterventionReviewBySource(
   return { handled: false };
 }
 
-/** Atomic, idempotent first-winner claim. OSS fails closed for token-based v2 resolution. */
+/**
+ * Atomic, idempotent first-winner claim. Keep submitted answers in the private
+ * resolution/outbox; never write raw content or result state into chat messages.
+ * Runtime dispatch applies afterToolCall before publishing the final result.
+ * MessageModel.resolveHumanApproval defaults to this claim-only behavior.
+ * OSS fails closed for token-based v2 resolution.
+ */
 export async function resolveAgentIntervention(
   _params: ResolveAgentInterventionParams,
 ): Promise<ResolveAgentInterventionResult> {
@@ -548,6 +567,7 @@ export async function resolveAgentIntervention(
  * Authenticated Web bridge into the generic first-winner claim.
  *
  * Cloud resolves the source locators and builds the canonical item action.
+ * Like resolveAgentIntervention, it claims only; runtime dispatch publishes answers.
  * For a mixed partially-settled Stop it supplies a full-batch version/revision
  * snapshot while selecting only rows that are still pending; terminal siblings
  * remain immutable. OSS has no durable generic store and falls back to its

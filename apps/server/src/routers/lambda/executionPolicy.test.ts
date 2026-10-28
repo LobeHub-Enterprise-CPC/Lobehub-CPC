@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { executionPolicyRouter } from './executionPolicy';
 
 const mocks = vi.hoisted(() => ({
+  GovernanceUnavailableError: class GovernanceUnavailableError extends Error {},
   getUserExecutionPolicy: vi.fn(),
   logCommandExecution: vi.fn().mockResolvedValue(undefined),
 }));
@@ -11,6 +12,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/database/core/db-adaptor', () => ({ getServerDB: vi.fn(async () => ({})) }));
 
 vi.mock('@/server/services/governance', () => ({
+  GOVERNANCE_UNAVAILABLE_MESSAGE: 'governance unavailable',
+  GovernanceUnavailableError: mocks.GovernanceUnavailableError,
   getUserExecutionPolicy: mocks.getUserExecutionPolicy,
   logCommandExecution: mocks.logCommandExecution,
 }));
@@ -39,6 +42,20 @@ describe('executionPolicyRouter', () => {
       const result = await caller().get();
 
       expect(result).toBeNull();
+    });
+  });
+
+  describe('get when governance cannot be loaded', () => {
+    it('answers 503 instead of an unrestricted null policy', async () => {
+      mocks.getUserExecutionPolicy.mockRejectedValueOnce(new mocks.GovernanceUnavailableError());
+
+      await expect(caller().get()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+    });
+
+    it('does not mask other failures', async () => {
+      mocks.getUserExecutionPolicy.mockRejectedValueOnce(new Error('boom'));
+
+      await expect(caller().get()).rejects.toMatchObject({ code: 'INTERNAL_SERVER_ERROR' });
     });
   });
 

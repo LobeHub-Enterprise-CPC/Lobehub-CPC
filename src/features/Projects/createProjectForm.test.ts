@@ -1,11 +1,37 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  getCreatedProjectPath,
   getCreateProjectInput,
   getProjectFieldSuggestions,
   isProjectIdentifierValid,
   isProjectSlugValid,
 } from './createProjectForm';
+
+// Tests read the distribution's flags; pin the stock (off) value per test.
+let mockProjectFirst = false;
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  get PROJECT_FIRST_NAVIGATION() {
+    return mockProjectFirst;
+  },
+}));
+
+afterEach(() => {
+  mockProjectFirst = false;
+});
+
+describe('getCreatedProjectPath', () => {
+  it('opens the new project page', () => {
+    expect(getCreatedProjectPath({ id: 'prj_1', slug: 'site' })).toBe('/project/site');
+    expect(getCreatedProjectPath({ id: 'prj_1', slug: null })).toBe('/project/prj_1');
+  });
+
+  it('stays put when projects lead the Home panel', () => {
+    mockProjectFirst = true;
+    expect(getCreatedProjectPath({ id: 'prj_1', slug: 'site' })).toBeUndefined();
+  });
+});
 
 describe('createProjectForm', () => {
   it('derives a valid identifier and slug from the project name', () => {

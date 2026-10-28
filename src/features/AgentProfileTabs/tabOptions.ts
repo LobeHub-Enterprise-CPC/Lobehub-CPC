@@ -8,21 +8,6 @@ export interface AgentProfileTabOption {
   value: AgentProfileTab;
 }
 
-/**
- * Message channels exist for cloud agents and for the two CLI providers whose
- * runtime can host them — a device-only heterogeneous agent has nothing to
- * connect, so the segment must not be offered.
- *
- * Channels are also the external-messenger surface (Discord, Slack, Feishu,
- * WeChat, …), so a distribution shipping none of those has nothing behind the
- * segment at all — the route itself already bounces back out in that case.
- */
-export const supportsMessageChannels = (heterogeneousProviderType?: string) =>
-  EXTERNAL_INTEGRATIONS_ENABLED &&
-  (!heterogeneousProviderType ||
-    heterogeneousProviderType === 'claude-code' ||
-    heterogeneousProviderType === 'codex');
-
 export const buildAgentProfileTabPath = (agentId: string, tab: AgentProfileTab) =>
   urlJoin('/agent', agentId, tab);
 
@@ -41,18 +26,20 @@ export const buildAgentProfileTabPath = (agentId: string, tab: AgentProfileTab) 
 export const buildAgentProfileTabOptions = ({
   active,
   canConfigure,
-  channelsSupported,
   labels,
   shareSupported,
 }: {
   active: AgentProfileTab;
   canConfigure: boolean;
-  channelsSupported: boolean;
   labels: Record<AgentProfileTab, string>;
   shareSupported: boolean;
 }): AgentProfileTabOption[] => {
   const showProfile = canConfigure || active === 'profile';
-  const showChannel = (canConfigure && channelsSupported) || active === 'channel';
+  // Channels can dispatch to a bound device; cloud sandbox support is not required.
+  // They are also the external-messenger surface (Discord, Slack, Feishu,
+  // WeChat, …), so a distribution shipping none of those has nothing behind the
+  // segment at all — the route itself already bounces back out in that case.
+  const showChannel = (canConfigure && EXTERNAL_INTEGRATIONS_ENABLED) || active === 'channel';
   // Sharing hands visitors real execution on the owner's account, so the
   // segment follows the same configure gate as Profile / Channels on top of the
   // capability gate (personal, non-builtin agents on deployments that allow it).

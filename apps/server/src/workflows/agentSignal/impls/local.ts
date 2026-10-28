@@ -1,3 +1,4 @@
+import { currentTenantScope, trackTenantWork } from '@lobechat/database/tenant';
 import debug from 'debug';
 
 import type { AgentSignalWorkflowRunPayload } from '../types';
@@ -33,7 +34,11 @@ export const scheduleLocalAgentSignalRun = (
 
   log('Scheduling local workflow payload=%O', logContext);
 
-  const previousRun = localRunQueues.get(payload.sourceEvent.scopeKey) ?? Promise.resolve();
+  const queueKey = JSON.stringify([
+    currentTenantScope()?.tenantId ?? null,
+    payload.sourceEvent.scopeKey,
+  ]);
+  const previousRun = localRunQueues.get(queueKey) ?? Promise.resolve();
   const currentRun = previousRun
     .catch(() => undefined)
     .then(deferLocalRun)
@@ -74,11 +79,11 @@ export const scheduleLocalAgentSignalRun = (
       }
     });
 
-  localRunQueues.set(payload.sourceEvent.scopeKey, currentRun);
+  localRunQueues.set(queueKey, currentRun);
 
-  void currentRun.finally(() => {
-    if (localRunQueues.get(payload.sourceEvent.scopeKey) === currentRun) {
-      localRunQueues.delete(payload.sourceEvent.scopeKey);
+  void trackTenantWork(() => currentRun).finally(() => {
+    if (localRunQueues.get(queueKey) === currentRun) {
+      localRunQueues.delete(queueKey);
     }
   });
 

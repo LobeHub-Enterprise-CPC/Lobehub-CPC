@@ -1,21 +1,6 @@
-import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { defineConfig } from 'vitest/config';
-
-// When this submodule is checked out inside the CPC enterprise shell repo,
-// point getTestDB() (src/core/getTestDB.ts) at the enterprise chain's
-// migrations too, so model tests against tables owned there (e.g. Channel
-// MVP — see src/privateSchemas/channel.ts for why they live outside this
-// repo's own chain) get a real schema instead of "relation does not exist".
-// A no-op in the plain OSS checkout, where that directory doesn't exist.
-const enterpriseMigrationsFolder = resolve(
-  __dirname,
-  '../../../packages/enterprise/src/database/migrations',
-);
-const extraMigrationsEnv = existsSync(enterpriseMigrationsFolder)
-  ? { TEST_DB_EXTRA_MIGRATIONS_FOLDER: enterpriseMigrationsFolder }
-  : undefined;
 
 export default defineConfig({
   plugins: [
@@ -28,7 +13,6 @@ export default defineConfig({
   ],
   optimizeDeps: {
     exclude: ['crypto', 'util', 'tty'],
-    include: ['@lobehub/tts'],
   },
   test: {
     alias: {
@@ -44,10 +28,14 @@ export default defineConfig({
       '@/locales': resolve(__dirname, '../locales/src'),
       '@/business/server': resolve(__dirname, '../business-server/src'),
       '@/server/services': resolve(__dirname, '../../apps/server/src/services'),
+      '@/server/crypto': resolve(__dirname, '../../apps/server/src/crypto'),
       '@/server/modules': resolve(__dirname, '../../apps/server/src/modules'),
+      '@/server/globalConfig': resolve(__dirname, '../../apps/server/src/globalConfig'),
       '@': resolve(__dirname, '../../src'),
     },
-    env: extraMigrationsEnv,
+    // Standalone means the same thing inside and outside a parent checkout: a
+    // distribution's extra chain is not picked up unless a run asks for it.
+    env: { TEST_DB_EXTRA_MIGRATIONS_FOLDER: '' },
     coverage: {
       exclude: [
         'src/server/**',

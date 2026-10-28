@@ -47,19 +47,29 @@ const integrationCredentialRouting = EXTERNAL_INTEGRATIONS_ENABLED
 `
   : '';
 
-const basePrompt = `You have access to a Tools Activator that allows you to dynamically activate tools on demand. Not all tools are loaded by default — you must activate them before use.
+const intro = `You have access to a Tools Activator that allows you to dynamically activate tools on demand. Not all tools are loaded by default — you must activate them before use.`;
 
-<how_it_works>
+const howItWorksSkill = `7. To activate a skill, use the \`activateSkill\` tool from ${skillsId} — it returns instructions to follow
+`;
+
+const howItWorks = ({ withSkills }: { withSkills: boolean }) => `<how_it_works>
 1. Available tools are listed in an \`<available_tools>\` block injected into the conversation as system context
 2. Each entry shows the tool's identifier, name, and description
 3. To use a tool, first call \`activateTools\` with the tool identifiers you need
 4. After activation, the tool's full API schemas become available as native function calls in subsequent turns
 5. You can activate multiple tools at once by passing multiple identifiers
 6. Include the required concise \`reason\` field when calling \`activateTools\` so the user understands why activation is needed
-7. To activate a skill, use the \`activateSkill\` tool from ${skillsId} — it returns instructions to follow
-</how_it_works>
+${withSkills ? howItWorksSkill : ''}</how_it_works>`;
 
-<tool_selection_guidelines>
+const toolSelectionSkill = `- **activateSkill** (provided by ${skillsId}): Use this when the user's task matches one of the available skills
+  - **IMPORTANT**: If a skill's content is already provided in \`<selected_skill_context>\` within the user message, do NOT call activateSkill for that skill — its instructions are already loaded and ready to use
+`;
+
+const toolSelectionGuidelines = ({
+  withSkills,
+}: {
+  withSkills: boolean;
+}) => `<tool_selection_guidelines>
 - **activateTools**: Call this when you need to use a tool that isn't yet activated
   - Review the \`<available_tools>\` list to find relevant tools for the user's task
   - Provide an array of tool identifiers to activate
@@ -67,11 +77,9 @@ const basePrompt = `You have access to a Tools Activator that allows you to dyna
   - After activation, the tools' APIs will be available for you to call directly
   - Tools that are already active will be noted in the response
   - If an identifier is not found, it will be reported in the response
-- **activateSkill** (provided by ${skillsId}): Use this when the user's task matches one of the available skills
-  - **IMPORTANT**: If a skill's content is already provided in \`<selected_skill_context>\` within the user message, do NOT call activateSkill for that skill — its instructions are already loaded and ready to use
-</tool_selection_guidelines>
+${withSkills ? toolSelectionSkill : ''}</tool_selection_guidelines>`;
 
-<skill_store_discovery>
+const skillStoreDiscovery = `<skill_store_discovery>
 **CRITICAL: Always activate \`${skillStoreId}\` FIRST when ANY of the following conditions are met:**
 
 **Trigger keywords/patterns (MUST activate ${skillStoreId} immediately):**
@@ -100,7 +108,7 @@ const basePrompt = `You have access to a Tools Activator that allows you to dyna
 1. \`importFromMarket\` — whenever you have or can extract a marketplace identifier
 2. \`importSkill\` — any other skill URL (GitHub repo, raw SKILL.md, ZIP)
 3. The marketplace CLI (\`npx @lobehub/market-cli register\` / \`skills install\`) in a sandbox — **last
-   resort only**, when \`lobe-skill-store\` is genuinely unavailable, or steps 1 and 2 were tried and
+   resort only**, when \`${skillStoreId}\` is genuinely unavailable, or steps 1 and 2 were tried and
    failed. It needs a device registration the tools don't, is rate-limited, and needs a working
    sandbox. A skill page documents the CLI because it is written for agents with no Skill Store
    tool; when you have one, importing through it IS installing "as documented".
@@ -109,9 +117,9 @@ const basePrompt = `You have access to a Tools Activator that allows you to dyna
 - Do NOT manually curl/fetch SKILL.md files or try to parse them yourself
 - For \`lobehub.com/skills/xxx/skill.md\` URLs, ALWAYS extract the identifier and use \`importFromMarket\`, NOT \`importSkill\`
 - \`importSkill\` is only for GitHub repository URLs or ZIP packages, not for lobehub.com skill URLs
-</skill_store_discovery>
+</skill_store_discovery>`;
 
-<credentials_management>
+const credentialsManagement = `<credentials_management>
 **CRITICAL: Activate \`${credsId}\` when ANY of the following conditions are met:**
 
 **Trigger conditions (MUST activate ${credsId} immediately):**
@@ -126,7 +134,7 @@ ${integrationTriggers}
 2. Check if the required credential already exists using the credentials list in context
 3. If credential exists and the sandbox is reachable → use \`injectCredsToSandbox\` (see \`<credential_usage_by_runtime>\` below)
 4. If credential doesn't exist:
-${integrationCredentialRouting}   - For API keys/tokens → guide user to save with \`saveCreds\`
+${integrationCredentialRouting}   - For API keys/tokens → use \`requestCredsInput\` so the user enters them in a secure form
 5. For sandbox code that needs credentials → use \`injectCredsToSandbox\` to inject them as environment variables
 
 **Important:**
@@ -142,18 +150,25 @@ When \`{{creds_sandbox_reachable}}\` is \`false\` (this run is routed to a devic
 - Do NOT call \`injectCredsToSandbox\` — it would still report success, but it writes into a cloud sandbox nothing in this run actually executes in.
 - There is currently no tool exposed to read a saved credential's plaintext value for inline use on a device-routed run. Tell the user this credential can't be used in this run rather than inventing a workaround.
 </credential_usage_by_runtime>
-</credentials_management>
+</credentials_management>`;
 
-<best_practices>
-- **IMPORTANT: Plan ahead and activate all needed tools upfront in a single call.** Before responding to the user, analyze their request and determine ALL tools you will need, then activate them together. Do NOT activate tools incrementally during a multi-step task.
-- **SKILL-FIRST: Any mention of skills, SKILL.md, GitHub skill links, or the ${BRANDING_NAME} marketplace → activate \`${skillStoreId}\` FIRST, no exceptions.**
+const bestPracticesSkillFirst = `- **SKILL-FIRST: Any mention of skills, SKILL.md, GitHub skill links, or the ${BRANDING_NAME} marketplace → activate \`${skillStoreId}\` FIRST, no exceptions.**
 - **CREDS-FIRST: Any need for authentication, API keys, OAuth, tokens, or env variables → activate \`${credsId}\` FIRST to manage credentials securely.**
-- Check the \`<available_tools>\` list before activating tools
-- For specialized tasks, search the Skill Marketplace first — a dedicated skill is almost always better than a generic approach
-- Only activate tools that are relevant to the user's current request
-- After activation, use the tools' APIs directly — no need to call activateTools again for the same tools
-</best_practices>
 `;
+
+const bestPracticesSkillMarketplace = `- For specialized tasks, search the Skill Marketplace first — a dedicated skill is almost always better than a generic approach
+`;
+
+const bestPractices = ({
+  withSkillStoreAndCreds,
+}: {
+  withSkillStoreAndCreds: boolean;
+}) => `<best_practices>
+- **IMPORTANT: Plan ahead and activate all needed tools upfront in a single call.** Before responding to the user, analyze their request and determine ALL tools you will need, then activate them together. Do NOT activate tools incrementally during a multi-step task.
+${withSkillStoreAndCreds ? bestPracticesSkillFirst : ''}- Check the \`<available_tools>\` list before activating tools
+${withSkillStoreAndCreds ? bestPracticesSkillMarketplace : ''}- Only activate tools that are relevant to the user's current request
+- After activation, use the tools' APIs directly — no need to call activateTools again for the same tools
+</best_practices>`;
 
 /**
  * Drop the marketplace routing rules where there is no marketplace to reach.
@@ -163,14 +178,31 @@ When \`{{creds_sandbox_reachable}}\` is \`false\` (this run is routed to a devic
  * cannot satisfy the request, and the model ends up quoting the address back to
  * the user — a link out of the product that no UI gate can intercept, because
  * the app never rendered it.
- *
- * Removed from the assembled prompt rather than lifted into its own conditional
- * literal: the block is full of escaped backticks, and re-escaping it to move it
- * is a way to corrupt the prompt silently.
  */
-const stripSkillStoreDiscovery = (prompt: string) =>
-  prompt.replace(/<skill_store_discovery>[\S\s]*?<\/skill_store_discovery>\n*/, '');
+export const systemPrompt = `${intro}
 
-export const systemPrompt = SKILL_MARKETPLACE_ENABLED
-  ? basePrompt
-  : stripSkillStoreDiscovery(basePrompt);
+${howItWorks({ withSkills: true })}
+
+${toolSelectionGuidelines({ withSkills: true })}
+
+${SKILL_MARKETPLACE_ENABLED ? `${skillStoreDiscovery}\n\n` : ''}${credentialsManagement}
+
+${bestPractices({ withSkillStoreAndCreds: true })}
+`;
+
+/**
+ * Variant for Agent Share visitor runs. `lobe-skill-store` and `lobe-creds`
+ * are never available to a visitor, so the sections that send the model to
+ * activate them first would divert requests (skills, auth, GitHub/Notion…)
+ * toward an impossible prerequisite instead of the granted tools. The
+ * `activateSkill` lines are kept only when the share grants skills, since
+ * `lobe-skills` is otherwise absent from the visitor's tool set.
+ */
+export const getSystemPromptForShareVisitor = ({ withSkills }: { withSkills: boolean }) => `${intro}
+
+${howItWorks({ withSkills })}
+
+${toolSelectionGuidelines({ withSkills })}
+
+${bestPractices({ withSkillStoreAndCreds: false })}
+`;

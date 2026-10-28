@@ -75,7 +75,7 @@ describe('EXTERNAL_INTEGRATIONS_ENABLED = false', () => {
   it('keeps local credential management intact', async () => {
     const { apiNames, systemPrompt } = await load(false);
 
-    expect(apiNames).toContain('saveCreds');
+    expect(apiNames).toContain('requestCredsInput');
     expect(apiNames).toContain('injectCredsToSandbox');
     expect(systemPrompt).toContain('{{CREDS_LIST}}');
     expect(systemPrompt).toContain('Never display credential values');

@@ -2,6 +2,8 @@ import { Flexbox } from '@lobehub/ui';
 import { type FC, type PropsWithChildren } from 'react';
 import { useEffect, useMemo, useRef } from 'react';
 
+import { isScheduledTasksWorkspace } from '@/features/NavPanel/isScheduledTasksWorkspace';
+import { useActiveLocation } from '@/hooks/useActiveLocation';
 import { useIsDark } from '@/hooks/useIsDark';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
@@ -13,7 +15,11 @@ import { styles } from './style';
 const DesktopLayoutContainer: FC<PropsWithChildren> = ({ children }) => {
   const innerContainerRef = useRef<HTMLDivElement>(null);
   const isDarkMode = useIsDark();
-  const [expand] = useGlobalStore((s) => [systemStatusSelectors.showLeftPanel(s)]);
+  const { pathname, search } = useActiveLocation();
+  const [leftPanelExpanded] = useGlobalStore((s) => [systemStatusSelectors.showLeftPanel(s)]);
+
+  const scheduled = isScheduledTasksWorkspace(pathname, search);
+  const expand = leftPanelExpanded && !scheduled;
 
   const outerCssVariables = useMemo(() => getOuterCssVariables({ expand }), [expand]);
 
@@ -39,6 +45,8 @@ const DesktopLayoutContainer: FC<PropsWithChildren> = ({ children }) => {
   return (
     <Flexbox
       className={styles.outerContainer}
+      data-brand-slot="main-outer"
+      data-nav-expanded={!!expand}
       height={'100%'}
       padding={8}
       style={outerCssVariables}
@@ -46,6 +54,7 @@ const DesktopLayoutContainer: FC<PropsWithChildren> = ({ children }) => {
     >
       <Flexbox
         className={styles.innerContainer}
+        data-brand-slot="main-inner"
         height={'100%'}
         ref={innerContainerRef}
         style={innerCssVariables}

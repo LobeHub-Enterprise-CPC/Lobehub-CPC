@@ -1,8 +1,6 @@
 'use client';
 
-import { Flexbox, Icon } from '@lobehub/ui';
-import { Button } from '@lobehub/ui/base-ui';
-import { createStaticStyles, useTheme } from 'antd-style';
+import { Button, createStaticStyles, Flexbox, Icon, useTheme } from '@lobehub/ui';
 import { TriangleAlert, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -90,6 +88,7 @@ const ServerVersionOutdatedAlert = () => {
   const [dismissed, setDismissed] = useState(false);
   const isServerVersionOutdated = useGlobalStore((s) => s.isServerVersionOutdated);
   const isOfficialServer = useElectronStore(electronSyncSelectors.isOfficialServer);
+  const serverScope = useElectronStore(electronSyncSelectors.serverConfigScope);
 
   const cssVariables = useMemo<Record<string, string>>(
     () => ({
@@ -99,7 +98,7 @@ const ServerVersionOutdatedAlert = () => {
     [theme.yellowBorder, theme.yellowBg],
   );
 
-  if (isOfficialServer || !isServerVersionOutdated || dismissed) return null;
+  if (!serverScope || isOfficialServer || !isServerVersionOutdated || dismissed) return null;
 
   return (
     <div className={styles.container}>

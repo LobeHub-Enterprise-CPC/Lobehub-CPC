@@ -1,9 +1,15 @@
 'use client';
 
 import { isDraftVerifyRun } from '@lobechat/const/verify';
-import { Flexbox } from '@lobehub/ui';
-import { ActionIcon, Select, Text, toast } from '@lobehub/ui/base-ui';
-import { createStaticStyles, useResponsive } from 'antd-style';
+import {
+  ActionIcon,
+  createStaticStyles,
+  Flexbox,
+  Select,
+  Text,
+  toast,
+  useResponsive,
+} from '@lobehub/ui';
 import { ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useState } from 'react';
@@ -18,7 +24,7 @@ import { verifyService } from '@/services/verify';
 import { useAcceptanceScope } from '../AcceptanceScope';
 import { hasVisualEvidence } from '../Evidence/evidence';
 import AcceptanceInteractionCost from '../History/AcceptanceInteractionCost';
-import { acceptanceCheckPath } from '../routes';
+import { acceptanceCheckPath, useAcceptanceRouteBase } from '../routes';
 import { checksForTurn } from '../turnChecks';
 import { useAcceptanceBundle } from '../useAcceptanceBundle';
 import { useAcceptanceTurn } from '../useAcceptanceTurn';
@@ -72,6 +78,7 @@ const AcceptanceCheckInventory = ({
   const { t } = useTranslation('verify');
   const { md = true } = useResponsive();
   const { acceptanceId, embedded } = useAcceptanceScope();
+  const routeBase = useAcceptanceRouteBase();
   const { data, mutate } = useAcceptanceBundle(acceptanceId);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -210,7 +217,8 @@ const AcceptanceCheckInventory = ({
     !md && !embedded
       ? (id: string) =>
           navigate(
-            acceptanceCheckPath(acceptanceId, id) + (searchParams.size ? `?${searchParams}` : ''),
+            acceptanceCheckPath(acceptanceId, id, routeBase) +
+              (searchParams.size ? `?${searchParams}` : ''),
             {
               state: { fromCheckList: true },
             },

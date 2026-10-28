@@ -1,14 +1,23 @@
 import querystring from 'node:querystring';
 import { URL } from 'node:url';
 
-import type { DataSyncConfig, DesktopBootstrapIdentity } from '@lobechat/electron-client-ipc';
+import type {
+  CloudTenant,
+  DataSyncConfig,
+  DesktopBootstrapIdentity,
+  StorageMode,
+  TenantEndpointChangedKind,
+} from '@lobechat/electron-client-ipc';
+import { buildRemoteUrl, normalizeRemoteBaseUrl } from '@lobechat/utils/remoteUrl';
 import { safeStorage, session as electronSession } from 'electron';
 
-import { OFFICIAL_CLOUD_SERVER } from '@/const/env';
+import { isDev, OFFICIAL_CLOUD_SERVER } from '@/const/env';
+import { isSameHost, normalizeEntryUrl } from '@/modules/tenantAuth/entry';
+import { isEndpointChangedResponse } from '@/modules/tenantAuth/flowRequests';
+import { fetchNoRedirect } from '@/modules/tenantAuth/safeFetch';
 import GatewayConnectionService from '@/services/gatewayConnectionSrv';
 import { appendVercelCookie } from '@/utils/http-headers';
 import { createLogger } from '@/utils/logger';
-import { netFetch } from '@/utils/net-fetch';
 import { setDesktopUserAgentHeader } from '@/utils/user-agent';
 
 import { ControllerModule, IpcMethod } from './index';
@@ -38,6 +47,54 @@ const DETERMINISTIC_FAILURES = [
 // Create logger
 const logger = createLogger('controllers:RemoteServerConfigCtr');
 
+/** Whether the build's official cloud is lobehub.com itself (or a subdomain of it). */
+const isLobehubOfficialServer = (server: string | undefined): boolean => {
+  try {
+    const hostname = new URL(server ?? '').hostname.toLowerCase();
+    return hostname === 'lobehub.com' || hostname.endsWith('.lobehub.com');
+  } catch {
+    return false;
+  }
+};
+
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0;
+
+/** Structural check for a persisted `cloudTenant`; anything else is treated as not logged in. */
+const isValidCloudTenant = (value: unknown): value is CloudTenant => {
+  if (typeof value !== 'object' || value === null) return false;
+  const { display, entryUrl, generation, identity } = value as Partial<CloudTenant>;
+
+  return (
+    isNonEmptyString(entryUrl) &&
+    normalizeEntryUrl(entryUrl, isDev) === entryUrl &&
+    isNonEmptyString(generation) &&
+    typeof identity === 'object' &&
+    identity !== null &&
+    isNonEmptyString(identity.issuer) &&
+    isNonEmptyString(identity.subject) &&
+    isNonEmptyString(identity.tenantId) &&
+    typeof display === 'object' &&
+    display !== null &&
+    isNonEmptyString(display.account) &&
+    (display.organizationName === undefined || typeof display.organizationName === 'string') &&
+    (display.organizationSlug === undefined || typeof display.organizationSlug === 'string') &&
+    (display.hasOtherOrganizations === undefined ||
+      typeof display.hasOtherOrganizations === 'boolean')
+  );
+};
+
+export interface CommitAuthorizationParams {
+  display: CloudTenant['display'];
+  entryUrl: string;
+  generation: string;
+  identity: CloudTenant['identity'];
+  /** Typed server address, kept for self-hosted configs. */
+  remoteServerUrl?: string;
+  storageMode: StorageMode;
+  tokens: { accessToken: string; expiresIn?: number; refreshToken: string };
+}
+
 /**
  * Remote Server Configuration Controller
  * Used to manage custom remote LobeChat server configuration
@@ -52,20 +109,23 @@ export default class RemoteServerConfigCtr extends ControllerModule {
   /**
    * Normalize legacy config that used local storageMode.
    * Local mode has been removed; fall back to cloud.
+   * Persistence belongs to explicit configuration updates, not reads.
    */
-  private normalizeConfig = (config: DataSyncConfig): DataSyncConfig => {
+  private normalizeConfig = (rawConfig: DataSyncConfig): DataSyncConfig => {
+    // The remote URL is a tenant address that may carry a path prefix (`https://host/t/acme`):
+    // keep the prefix, drop trailing slashes / query / hash so every `${url}/path` join is exact.
+    const remoteServerUrl = normalizeRemoteBaseUrl(rawConfig.remoteServerUrl);
+    const config =
+      remoteServerUrl === rawConfig.remoteServerUrl ? rawConfig : { ...rawConfig, remoteServerUrl };
+
     // Use type assertion to handle legacy 'local' value from stored data
     if ((config.storageMode as string) !== 'local') return config;
 
-    const nextConfig: DataSyncConfig = {
+    return {
       ...config,
-      remoteServerUrl: config.remoteServerUrl || OFFICIAL_CLOUD_SERVER,
+      remoteServerUrl: config.remoteServerUrl || normalizeRemoteBaseUrl(OFFICIAL_CLOUD_SERVER),
       storageMode: 'cloud',
     };
-
-    this.app.storeManager.set('dataSyncConfig', nextConfig);
-
-    return nextConfig;
   };
 
   /**
@@ -76,6 +136,7 @@ export default class RemoteServerConfigCtr extends ControllerModule {
     logger.debug('Getting remote server configuration');
     const { storeManager } = this.app;
 
+    this.reconcileStoredState();
     const config: DataSyncConfig = storeManager.get('dataSyncConfig');
     const normalized = this.normalizeConfig(config);
 
@@ -88,7 +149,8 @@ export default class RemoteServerConfigCtr extends ControllerModule {
 
   /**
    * Check if remote server is properly configured and ready for use
-   * For 'cloud' mode, only checks if active (remoteServerUrl is undefined, uses OFFICIAL_CLOUD_SERVER)
+   * For 'cloud' mode, checks if active AND a confirmed tenant entry (`cloudTenant`) is committed;
+   * the platform origin is never used as a fallback for business requests.
    * For 'selfHost' mode, checks if active AND remoteServerUrl is configured
    * @param config Optional config object, if not provided will fetch current config
    * @returns true if remote server is properly configured
@@ -100,8 +162,10 @@ export default class RemoteServerConfigCtr extends ControllerModule {
     const isSelfHostConfigured =
       effectiveConfig.storageMode !== 'selfHost' ||
       this.isValidSelfHostRemoteUrl(effectiveConfig.remoteServerUrl);
+    const isCloudConfigured =
+      effectiveConfig.storageMode !== 'cloud' || isValidCloudTenant(effectiveConfig.cloudTenant);
 
-    return isActive && isSelfHostConfigured;
+    return isActive && isSelfHostConfigured && isCloudConfigured;
   }
 
   private isValidSelfHostRemoteUrl(remoteServerUrl?: string): boolean {
@@ -127,11 +191,27 @@ export default class RemoteServerConfigCtr extends ControllerModule {
       `Setting remote server storageMode: active=${config.active}, storageMode=${config.storageMode}, url=${config.remoteServerUrl}`,
     );
     const { storeManager } = this.app;
+    this.reconcileStoredState();
     const prev: DataSyncConfig = storeManager.get('dataSyncConfig');
 
+    // `cloudTenant` is committed by the main process together with the tokens; a caller
+    // (the renderer in particular) can neither set nor replace it.
+    const { cloudTenant: _ignoredCloudTenant, ...requested } = config;
+
     // Save configuration with legacy local storage fallback
-    const merged = this.normalizeConfig({ ...prev, ...config });
+    const merged = this.normalizeConfig({ ...prev, ...requested });
     storeManager.set('dataSyncConfig', merged);
+
+    // The device gateway connection belongs to the login it was opened for.
+    // Pointing at another server, or deactivating this one, ends that login:
+    // close it and drop whatever was resolved for it before anything reconnects.
+    const [prevServerUrl, nextServerUrl] = await Promise.all([
+      this.getRemoteServerUrl(prev),
+      this.getRemoteServerUrl(merged),
+    ]);
+    if (prevServerUrl !== nextServerUrl || (prev.active && !merged.active)) {
+      await this.app.getService(GatewayConnectionService)?.disconnect();
+    }
 
     this.broadcastRemoteServerConfigUpdated();
 
@@ -146,8 +226,12 @@ export default class RemoteServerConfigCtr extends ControllerModule {
     logger.info('Clearing remote server configuration');
     const { storeManager } = this.app;
 
-    // Clear instance configuration
+    // Clear instance configuration (including the confirmed tenant record)
     storeManager.set('dataSyncConfig', { active: false, storageMode: 'cloud' });
+    this.endpointChangedPaused = false;
+
+    // Stop any authorization still in flight before its pending credentials can be committed
+    for (const listener of this.logoutListeners) listener();
 
     // Clear tokens (if any)
     await this.clearTokens();
@@ -155,6 +239,13 @@ export default class RemoteServerConfigCtr extends ControllerModule {
     this.broadcastRemoteServerConfigUpdated();
 
     return true;
+  }
+
+  private readonly logoutListeners = new Set<() => void>();
+
+  /** Called when the user logs out, so in-flight authorizations are cancelled too. */
+  onLogout(listener: () => void) {
+    this.logoutListeners.add(listener);
   }
 
   private broadcastRemoteServerConfigUpdated() {
@@ -200,12 +291,18 @@ export default class RemoteServerConfigCtr extends ControllerModule {
 
       const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as {
         sub?: unknown;
+        tid?: unknown;
       };
       if (typeof payload.sub !== 'string' || payload.sub.length === 0) {
         return { isIdentityResolved: false };
       }
 
-      return { isIdentityResolved: true, userId: payload.sub };
+      return {
+        isIdentityResolved: true,
+        // Verified at commit; the renderer only uses it to partition local state per tenant.
+        ...(typeof payload.tid === 'string' && payload.tid ? { tenantId: payload.tid } : {}),
+        userId: payload.sub,
+      };
     } catch (error) {
       logger.warn('Failed to resolve Desktop bootstrap identity from access token:', error);
       return { isIdentityResolved: false };
@@ -219,7 +316,60 @@ export default class RemoteServerConfigCtr extends ControllerModule {
   private refreshPromise: Promise<{ error?: string; success: boolean }> | null = null;
 
   /**
-   * Encrypt and store tokens
+   * Generation of the authorization these tokens were committed with. Set together with
+   * `cloudTenant.generation`; undefined only for legacy self-hosted sessions.
+   */
+  private tokenGeneration?: string;
+
+  /** Bumped whenever the active session is replaced or cleared, to discard stale responses. */
+  private sessionEpoch = 0;
+
+  /** Set once a 409 TENANT_ENDPOINT_CHANGED arrives on a logged-in session. */
+  private endpointChangedPaused = false;
+
+  private reconciled = false;
+
+  private protectToken(value: string): string {
+    if (!safeStorage.isEncryptionAvailable()) {
+      logger.warn('Safe storage not available, storing tokens unencrypted');
+      return value;
+    }
+    return Buffer.from(safeStorage.encryptString(value)).toString('base64');
+  }
+
+  private buildEncryptedTokens(
+    accessToken: string,
+    refreshToken: string,
+    expiresIn: number | undefined,
+    generation: string | undefined,
+  ) {
+    const now = Date.now();
+    return {
+      accessToken: this.protectToken(accessToken),
+      expiresAt: expiresIn ? now + expiresIn * 1000 : undefined,
+      generation,
+      lastRefreshAt: now,
+      refreshToken: this.protectToken(refreshToken),
+    };
+  }
+
+  private applyTokensToMemory(tokens: {
+    accessToken: string;
+    expiresAt?: number;
+    generation?: string;
+    lastRefreshAt?: number;
+    refreshToken: string;
+  }) {
+    this.encryptedAccessToken = tokens.accessToken;
+    this.encryptedRefreshToken = tokens.refreshToken;
+    this.tokenExpiresAt = tokens.expiresAt;
+    this.lastRefreshAt = tokens.lastRefreshAt;
+    this.tokenGeneration = tokens.generation;
+  }
+
+  /**
+   * Encrypt and store refreshed tokens for the already committed session. The generation
+   * stays that of the session, so a refresh can never re-label tokens as another login.
    * @param accessToken Access token
    * @param refreshToken Refresh token
    * @param expiresIn Token expiration time in seconds (optional)
@@ -227,51 +377,86 @@ export default class RemoteServerConfigCtr extends ControllerModule {
   async saveTokens(accessToken: string, refreshToken: string, expiresIn?: number) {
     logger.info('Saving encrypted tokens');
 
-    // Calculate expiration time if provided
-    if (expiresIn) {
-      this.tokenExpiresAt = Date.now() + expiresIn * 1000;
-      logger.debug(`Token expires at: ${new Date(this.tokenExpiresAt).toISOString()}`);
-    } else {
-      this.tokenExpiresAt = undefined;
-    }
-
-    // Update last refresh time
-    this.lastRefreshAt = Date.now();
-    logger.debug(`Token last refreshed at: ${new Date(this.lastRefreshAt).toISOString()}`);
-
-    // If platform doesn't support secure storage, store raw tokens
-    if (!safeStorage.isEncryptionAvailable()) {
-      logger.warn('Safe storage not available, storing tokens unencrypted');
-      this.encryptedAccessToken = accessToken;
-      this.encryptedRefreshToken = refreshToken;
-      // Persist unencrypted tokens (consider security implications)
-      this.app.storeManager.set(this.encryptedTokensKey, {
-        accessToken: this.encryptedAccessToken,
-        expiresAt: this.tokenExpiresAt,
-        lastRefreshAt: this.lastRefreshAt,
-        refreshToken: this.encryptedRefreshToken,
-      });
-      return;
-    }
-
-    // Encrypt tokens
-    logger.debug('Encrypting tokens using safe storage');
-    this.encryptedAccessToken = Buffer.from(safeStorage.encryptString(accessToken)).toString(
-      'base64',
+    const tokens = this.buildEncryptedTokens(
+      accessToken,
+      refreshToken,
+      expiresIn,
+      this.tokenGeneration,
     );
+    this.app.storeManager.set(this.encryptedTokensKey, tokens);
+    this.applyTokensToMemory(tokens);
 
-    this.encryptedRefreshToken = Buffer.from(safeStorage.encryptString(refreshToken)).toString(
-      'base64',
-    );
+    if (tokens.expiresAt) {
+      logger.debug(`Token expires at: ${new Date(tokens.expiresAt).toISOString()}`);
+    }
+  }
 
-    // Persist encrypted tokens
-    logger.debug(`Persisting encrypted tokens to store key: ${this.encryptedTokensKey}`);
-    this.app.storeManager.set(this.encryptedTokensKey, {
-      accessToken: this.encryptedAccessToken,
-      expiresAt: this.tokenExpiresAt,
-      lastRefreshAt: this.lastRefreshAt,
-      refreshToken: this.encryptedRefreshToken,
+  /**
+   * Commit a confirmed authorization: tokens, `cloudTenant` and `active` land in one store
+   * write (all or nothing), then memory is updated. Nothing here touches the gateway; the
+   * caller reconnects it only after this resolves. Everything before the write is
+   * synchronous, so a caller's generation check immediately before the call still holds.
+   */
+  async commitAuthorization(params: CommitAuthorizationParams): Promise<void> {
+    const { storeManager } = this.app;
+    this.reconcileStoredState();
+    const prev: DataSyncConfig = storeManager.get('dataSyncConfig');
+
+    // A re-login of the very same identity (e.g. through a known entry, which never learns
+    // the organization name) keeps the display values confirmed earlier instead of blanking
+    // them. Any other identity starts without them: absent means unknown.
+    const previousTenant = isValidCloudTenant(prev.cloudTenant) ? prev.cloudTenant : undefined;
+    const sameIdentity =
+      previousTenant !== undefined &&
+      previousTenant.entryUrl === params.entryUrl &&
+      previousTenant.identity.issuer === params.identity.issuer &&
+      previousTenant.identity.tenantId === params.identity.tenantId &&
+      previousTenant.identity.subject === params.identity.subject;
+    const kept = sameIdentity ? previousTenant.display : undefined;
+    const organizationName = params.display.organizationName || kept?.organizationName;
+    const organizationSlug = params.display.organizationSlug || kept?.organizationSlug;
+    const hasOtherOrganizations =
+      params.display.hasOtherOrganizations ?? kept?.hasOtherOrganizations;
+
+    const cloudTenant: CloudTenant = {
+      display: {
+        account: params.display.account,
+        ...(organizationName ? { organizationName } : {}),
+        ...(organizationSlug ? { organizationSlug } : {}),
+        ...(hasOtherOrganizations !== undefined ? { hasOtherOrganizations } : {}),
+      },
+      entryUrl: params.entryUrl,
+      generation: params.generation,
+      identity: params.identity,
+    };
+
+    const { remoteServerUrl: _previousUrl, ...rest } = prev;
+    const nextConfig = this.normalizeConfig({
+      ...rest,
+      active: true,
+      cloudTenant,
+      ...(params.storageMode === 'selfHost'
+        ? { remoteServerUrl: params.remoteServerUrl ?? params.entryUrl }
+        : {}),
+      storageMode: params.storageMode,
     });
+
+    const tokens = this.buildEncryptedTokens(
+      params.tokens.accessToken,
+      params.tokens.refreshToken,
+      params.tokens.expiresIn,
+      params.generation,
+    );
+
+    // One atomic write: config and tokens carry the same generation or neither is stored.
+    storeManager.setMany({ dataSyncConfig: nextConfig, encryptedTokens: tokens });
+
+    this.applyTokensToMemory(tokens);
+    this.sessionEpoch += 1;
+    this.endpointChangedPaused = false;
+    logger.info('Committed authorization');
+
+    this.broadcastRemoteServerConfigUpdated();
   }
 
   /**
@@ -350,6 +535,8 @@ export default class RemoteServerConfigCtr extends ControllerModule {
     this.encryptedAccessToken = undefined;
     this.encryptedRefreshToken = undefined;
     this.tokenExpiresAt = undefined;
+    this.tokenGeneration = undefined;
+    this.sessionEpoch += 1;
     // Also clear from persistent storage
     logger.debug(`Deleting tokens from store key: ${this.encryptedTokensKey}`);
     this.app.storeManager.delete(this.encryptedTokensKey);
@@ -440,6 +627,10 @@ export default class RemoteServerConfigCtr extends ControllerModule {
    */
   private async performTokenRefresh(): Promise<{ error?: string; success: boolean }> {
     try {
+      if (this.endpointChangedPaused) {
+        return { error: 'Remote activity paused: tenant endpoint changed', success: false };
+      }
+
       // Get configuration information
       const config = await this.getRemoteServerConfig();
 
@@ -455,19 +646,26 @@ export default class RemoteServerConfigCtr extends ControllerModule {
         return { error: 'No refresh token available', success: false };
       }
 
-      // Construct refresh request
-      const remoteUrl = await this.getRemoteServerUrl(config);
+      // The refresh token only ever goes to the entry it was issued by; the response is
+      // applied only if the same session is still current when it arrives.
+      const epoch = this.sessionEpoch;
 
-      const tokenUrl = new URL('/oidc/token', remoteUrl);
+      // Construct refresh request (the remote URL may carry a tenant path prefix)
+      const remoteUrl = await this.getRemoteServerUrl(config);
+      if (!remoteUrl) {
+        return { error: 'Remote server is not active or configured', success: false };
+      }
+
+      const tokenUrl = buildRemoteUrl('/oidc/token', remoteUrl);
 
       // Construct request body
       const body = querystring.stringify({
-        client_id: 'lobehub-desktop',
+        client_id: 'tituwork-desktop',
         grant_type: 'refresh_token',
         refresh_token: refreshToken,
       });
 
-      logger.debug(`Sending token refresh request to ${tokenUrl.toString()}`);
+      logger.debug(`Sending token refresh request to ${tokenUrl.origin}`);
 
       // Send request
       const headers: Record<string, string> = {
@@ -475,7 +673,23 @@ export default class RemoteServerConfigCtr extends ControllerModule {
       };
       appendVercelCookie(headers);
       setDesktopUserAgentHeader(headers);
-      const response = await netFetch(tokenUrl.toString(), { body, headers, method: 'POST' });
+      const response = await fetchNoRedirect(tokenUrl.toString(), {
+        body,
+        headers,
+        method: 'POST',
+      });
+
+      if (epoch !== this.sessionEpoch) {
+        logger.warn('Session changed during token refresh, discarding the response.');
+        await response.body?.cancel().catch(() => undefined);
+        return { error: 'Authorization changed during refresh', success: false };
+      }
+
+      if (response.status === 409 && (await isEndpointChangedResponse(response.clone()))) {
+        // 409 only says "resolve the entry again"; the token is never sent anywhere else.
+        this.handleEndpointChanged();
+        return { error: 'Tenant endpoint changed', success: false };
+      }
 
       if (!response.ok) {
         // Try to parse error response
@@ -486,16 +700,21 @@ export default class RemoteServerConfigCtr extends ControllerModule {
           .join(' ');
         const errorMessage =
           `Token refresh failed: ${response.status} ${response.statusText} ${errorDetail}`.trim();
-        logger.error(errorMessage, errorData);
+        logger.error(errorMessage);
         return { error: errorMessage, success: false };
       }
 
       // Parse response
       const data = await response.json();
 
+      if (epoch !== this.sessionEpoch) {
+        logger.warn('Session changed during token refresh, discarding the response.');
+        return { error: 'Authorization changed during refresh', success: false };
+      }
+
       // Check if response contains necessary tokens
       if (!data.access_token || !data.refresh_token) {
-        logger.error('Refresh response missing access_token or refresh_token', data);
+        logger.error('Refresh response missing access_token or refresh_token');
         return { error: 'Missing tokens in refresh response', success: false };
       }
 
@@ -506,9 +725,101 @@ export default class RemoteServerConfigCtr extends ControllerModule {
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Exception during token refresh operation:', errorMessage, error);
+      logger.error('Exception during token refresh operation:', errorMessage);
       return { error: `Exception occurred during token refresh: ${errorMessage}`, success: false };
     }
+  }
+
+  /**
+   * The server answered 409 TENANT_ENDPOINT_CHANGED on a logged-in session. That only means
+   * the entry has to be resolved again: pause refresh and the gateway, and ask the user to
+   * log in again. No credential is ever sent to an address taken from the 409.
+   */
+  handleEndpointChanged() {
+    if (this.endpointChangedPaused) return;
+
+    const config: DataSyncConfig = this.app.storeManager.get('dataSyncConfig');
+    if (!config?.active) return;
+
+    this.endpointChangedPaused = true;
+    logger.warn('Tenant endpoint changed on a logged-in session, pausing remote activity');
+
+    const entry = config.cloudTenant?.entryUrl ?? config.remoteServerUrl;
+    const standalone =
+      config.storageMode === 'selfHost' && !(entry && isSameHost(entry, this.getPlatformOrigin()));
+    const kind: TenantEndpointChangedKind = standalone
+      ? 'update_address_required'
+      : 'relogin_required';
+
+    this.app
+      .getService(GatewayConnectionService)
+      ?.disconnect()
+      ?.catch(() => undefined);
+
+    this.app.browserManager.broadcastToAllWindows('tenantEndpointChanged', { kind });
+    this.app.browserManager.broadcastToAllWindows('authorizationRequired', {
+      reason: 'tenant_endpoint_changed',
+    });
+  }
+
+  /** Whether remote activity is paused until the user logs in again. */
+  isRemoteActivityPaused() {
+    return this.endpointChangedPaused;
+  }
+
+  /**
+   * Make the persisted state self-consistent before anything reads it. Tokens and
+   * `cloudTenant` must carry the same generation; otherwise (crash between writes, an
+   * older client, hand-edited store) the user is simply logged out.
+   */
+  private reconcileStoredState() {
+    if (this.reconciled) return;
+    this.reconciled = true;
+
+    const { storeManager } = this.app;
+    const config: DataSyncConfig = storeManager.get('dataSyncConfig') ?? { storageMode: 'cloud' };
+    const tokens = storeManager.get(this.encryptedTokensKey) ?? {};
+    const hasTokens = Boolean(tokens.accessToken && tokens.refreshToken);
+    const tenant = config.cloudTenant;
+
+    let dropTenant = false;
+    let dropTokens = false;
+
+    if (tenant !== undefined && !isValidCloudTenant(tenant)) {
+      dropTenant = true;
+      dropTokens = true;
+    } else if (tenant) {
+      if (hasTokens && tokens.generation !== tenant.generation) {
+        dropTenant = true;
+        dropTokens = true;
+      }
+    } else if (config.storageMode === 'cloud') {
+      // Cloud logins from before the confirmed tenant record cannot be trusted.
+      dropTokens = hasTokens;
+    } else if (tokens.generation) {
+      dropTokens = true;
+    }
+
+    const wasActive = Boolean(config.active);
+    const needsInactive =
+      wasActive &&
+      (dropTenant ||
+        dropTokens ||
+        (tenant && !hasTokens) ||
+        (!tenant && config.storageMode === 'cloud'));
+
+    if (!dropTenant && !dropTokens && !needsInactive) return;
+
+    logger.warn(
+      `Stored authorization is inconsistent, logging out (tenant=${Boolean(tenant)}, tokens=${hasTokens})`,
+    );
+
+    const { cloudTenant: _tenant, ...configWithoutTenant } = config;
+    storeManager.set('dataSyncConfig', {
+      ...(dropTenant ? configWithoutTenant : config),
+      active: needsInactive ? false : config.active,
+    });
+    if (dropTokens) storeManager.delete(this.encryptedTokensKey);
   }
 
   /**
@@ -516,6 +827,7 @@ export default class RemoteServerConfigCtr extends ControllerModule {
    * This should be called during initialization or if memory tokens are missing.
    */
   private loadTokensFromStore() {
+    this.reconcileStoredState();
     logger.debug(`Attempting to load tokens from store key: ${this.encryptedTokensKey}`);
     const storedTokens = this.app.storeManager.get(this.encryptedTokensKey);
 
@@ -525,6 +837,7 @@ export default class RemoteServerConfigCtr extends ControllerModule {
       this.encryptedRefreshToken = storedTokens.refreshToken;
       this.tokenExpiresAt = storedTokens.expiresAt;
       this.lastRefreshAt = storedTokens.lastRefreshAt;
+      this.tokenGeneration = storedTokens.generation;
 
       if (this.tokenExpiresAt) {
         logger.debug(
@@ -553,10 +866,38 @@ export default class RemoteServerConfigCtr extends ControllerModule {
     this.loadTokensFromStore();
   }
 
-  async getRemoteServerUrl(config?: DataSyncConfig) {
+  /** Origin of the platform that hosts the organization lookup page. */
+  getPlatformOrigin(): string {
+    return normalizeRemoteBaseUrl(OFFICIAL_CLOUD_SERVER);
+  }
+
+  /**
+   * The confirmed tenant entry business requests go to. A cloud session without a
+   * committed `cloudTenant` has none: the platform origin is never a fallback.
+   */
+  async getRemoteServerUrl(config?: DataSyncConfig): Promise<string | undefined> {
     const dataConfig = this.normalizeConfig(config ?? (await this.getRemoteServerConfig()));
 
-    return dataConfig.storageMode === 'cloud' ? OFFICIAL_CLOUD_SERVER : dataConfig.remoteServerUrl;
+    if (dataConfig.cloudTenant?.entryUrl) return dataConfig.cloudTenant.entryUrl;
+
+    return dataConfig.storageMode === 'selfHost' ? dataConfig.remoteServerUrl : undefined;
+  }
+
+  /**
+   * The confirmed tenant entry and the access token that was issued for it, read as one pair.
+   * A login committed (or a logout) between the two reads would otherwise send the previous
+   * organization's token to the new entry, or the new token to the old one; that, a paused
+   * endpoint and a signed-out state all yield `null`.
+   */
+  async getRemoteCredentials(): Promise<{ serverUrl: string; token: string } | null> {
+    if (this.endpointChangedPaused) return null;
+    const epoch = this.sessionEpoch;
+    const [serverUrl, token] = await Promise.all([
+      this.getRemoteServerUrl(),
+      this.getAccessToken(),
+    ]);
+    if (epoch !== this.sessionEpoch || this.endpointChangedPaused) return null;
+    return serverUrl && token ? { serverUrl, token } : null;
   }
 
   /**
@@ -568,6 +909,13 @@ export default class RemoteServerConfigCtr extends ControllerModule {
   @IpcMethod()
   async setupSubscriptionWebviewSession(params: { partition: string }) {
     const { partition } = params;
+
+    // The token goes to `*.lobehub.com` only for builds whose official cloud is lobehub.com;
+    // enterprise builds (and any other host) never register this interceptor.
+    if (!isLobehubOfficialServer(OFFICIAL_CLOUD_SERVER)) {
+      logger.info('Official cloud is not lobehub.com, skipping Oidc-Auth injection');
+      return { skipped: true, success: true };
+    }
 
     logger.info(`Setting up subscription webview session for partition: ${partition}`);
 

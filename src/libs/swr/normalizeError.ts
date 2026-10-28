@@ -26,6 +26,19 @@ export interface NormalizedAsyncError {
 const NON_RETRYABLE_STATUS = new Set([401, 403]);
 
 /**
+ * The server's refusal to talk to Market because it could not establish who is
+ * asking (`MARKET_IDENTITY_UNAVAILABLE:<reason>`, from the Market trust-token
+ * identity). Not a Market outage and not a signed-out user, so it gets its own
+ * copy instead of the generic "failed to load".
+ */
+export const MARKET_IDENTITY_ERROR_PREFIX = 'MARKET_IDENTITY_UNAVAILABLE';
+
+export const isMarketIdentityUnavailable = (error: unknown): boolean => {
+  const message = (error as { message?: unknown } | null | undefined)?.message;
+  return typeof message === 'string' && message.startsWith(MARKET_IDENTITY_ERROR_PREFIX);
+};
+
+/**
  * Best-effort extraction of an HTTP status from the heterogeneous error shapes
  * that reach SWR: TRPC client errors (`data.httpStatus`), fetch `Response`
  * rejections (`status` / `response.status`), and plain objects.
@@ -83,6 +96,8 @@ const NON_AUTO_RETRYABLE_STATUS = new Set([401, 403, 429]);
 export const isAutoRetryable = (error: unknown): boolean => {
   const err = error as any;
   if (err?.meta?.shouldRetry === false) return false;
+  // Nothing on a timer changes who the server can establish; a reload might.
+  if (isMarketIdentityUnavailable(err)) return false;
 
   const status = extractStatus(err);
   return !(typeof status === 'number' && NON_AUTO_RETRYABLE_STATUS.has(status));

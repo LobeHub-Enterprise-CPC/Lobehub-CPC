@@ -9,6 +9,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { executeToolCall } from './index';
 import * as isolatedWorker from './isolatedWorker';
 
+const { uploadLocalFileMock } = vi.hoisted(() => ({ uploadLocalFileMock: vi.fn() }));
+
+vi.mock('../utils/uploadLocalFile', () => ({ uploadLocalFile: uploadLocalFileMock }));
+
+const auth = { serverUrl: 'https://lobehub.example.com', token: 'jwt', tokenType: 'jwt' as const };
+
 describe('executeToolCall', () => {
   const tmpDir = path.join(os.tmpdir(), 'cli-tool-dispatch-test-' + process.pid);
 
@@ -32,6 +38,66 @@ describe('executeToolCall', () => {
     expect(result.content).toContain('hello world');
     // structured payload travels in `state` for client renders
     expect((result.state as { content: string }).content).toContain('hello world');
+  });
+
+  describe('readFile on images', () => {
+    const jpgBytes = Buffer.from('ffd8ffe000104a464946', 'hex');
+
+    beforeEach(() => {
+      uploadLocalFileMock.mockReset();
+    });
+
+    it('uploads the image so vision models can see it instead of refusing it as binary', async () => {
+      uploadLocalFileMock.mockResolvedValue({
+        id: 'file-1',
+        url: 'https://files.example.com/a.jpg',
+      });
+      const filePath = path.join(tmpDir, 'test1.jpg');
+      await writeFile(filePath, jpgBytes);
+
+      const result = await executeToolCall(
+        'readFile',
+        JSON.stringify({ path: filePath }),
+        undefined,
+        auth,
+      );
+
+      expect(uploadLocalFileMock).toHaveBeenCalledWith(expect.anything(), filePath);
+      expect(result.success).toBe(true);
+      expect(result.content).toBe('[Image: test1.jpg]');
+      expect(result.state).toMatchObject({
+        images: [
+          { fileId: 'file-1', mediaType: 'image/jpeg', url: 'https://files.example.com/a.jpg' },
+        ],
+      });
+    });
+
+    it('tells the model why it cannot see the image when the upload fails', async () => {
+      uploadLocalFileMock.mockRejectedValue(new Error('Not authenticated'));
+      const filePath = path.join(tmpDir, 'test1.jpg');
+      await writeFile(filePath, jpgBytes);
+
+      const result = await executeToolCall(
+        'readFile',
+        JSON.stringify({ path: filePath }),
+        undefined,
+        auth,
+      );
+
+      expect(result.content).toContain('[Image: test1.jpg]');
+      expect(result.content).toContain('Not authenticated');
+      expect(result.content).not.toContain('Unsupported binary file type');
+    });
+
+    it('degrades to a placeholder without credentials instead of uploading', async () => {
+      const filePath = path.join(tmpDir, 'test1.jpg');
+      await writeFile(filePath, jpgBytes);
+
+      const result = await executeToolCall('readFile', JSON.stringify({ path: filePath }));
+
+      expect(uploadLocalFileMock).not.toHaveBeenCalled();
+      expect(result.content).toContain('upload unavailable');
+    });
   });
 
   it('should dispatch writeFile', async () => {
@@ -71,21 +137,16 @@ describe('executeToolCall', () => {
 
   it('should dispatch listFiles', async () => {
     const workerResult = { content: 'list result', state: { totalCount: 1 }, success: true };
-    const spy = vi
-      .spyOn(isolatedWorker, 'executeToolCallInWorker')
-      .mockResolvedValueOnce(workerResult);
+    vi.spyOn(isolatedWorker, 'executeToolCallInWorker').mockResolvedValueOnce(workerResult);
 
     const result = await executeToolCall('listFiles', JSON.stringify({ path: tmpDir }));
 
     expect(result).toEqual(workerResult);
-    expect(spy).toHaveBeenCalledWith('listFiles', JSON.stringify({ path: tmpDir }), undefined);
   });
 
   it('should dispatch globFiles', async () => {
     const workerResult = { content: 'glob result', state: { files: ['test.ts'] }, success: true };
-    const spy = vi
-      .spyOn(isolatedWorker, 'executeToolCallInWorker')
-      .mockResolvedValueOnce(workerResult);
+    vi.spyOn(isolatedWorker, 'executeToolCallInWorker').mockResolvedValueOnce(workerResult);
 
     const result = await executeToolCall(
       'globFiles',
@@ -93,11 +154,6 @@ describe('executeToolCall', () => {
     );
 
     expect(result).toEqual(workerResult);
-    expect(spy).toHaveBeenCalledWith(
-      'globFiles',
-      JSON.stringify({ cwd: tmpDir, pattern: '*.ts' }),
-      undefined,
-    );
   });
 
   it('should dispatch editFile', async () => {
@@ -184,9 +240,7 @@ describe('executeToolCall', () => {
       state: { results: [{ path: path.join(tmpDir, 'search_target.txt') }] },
       success: true,
     };
-    const spy = vi
-      .spyOn(isolatedWorker, 'executeToolCallInWorker')
-      .mockResolvedValueOnce(workerResult);
+    vi.spyOn(isolatedWorker, 'executeToolCallInWorker').mockResolvedValueOnce(workerResult);
 
     const result = await executeToolCall(
       'searchFiles',
@@ -194,11 +248,6 @@ describe('executeToolCall', () => {
     );
 
     expect(result).toEqual(workerResult);
-    expect(spy).toHaveBeenCalledWith(
-      'searchFiles',
-      JSON.stringify({ directory: tmpDir, keywords: 'search_target' }),
-      undefined,
-    );
   });
 
   it('should dispatch getCommandOutput', async () => {

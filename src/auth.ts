@@ -1,20 +1,147 @@
 import { businessAuthPlugins, getBusinessAuthOptions } from '@lobechat/business-auth';
+import { requireTenantScope, tenantHash, type TenantScope } from '@lobechat/database/tenant';
+import type { BetterAuthOptions } from 'better-auth/minimal';
 
-import { authEnv } from '@/envs/auth';
 import { defineConfig } from '@/libs/better-auth/define-config';
+import { buildTenantSsoProviders } from '@/libs/better-auth/tenant-sso';
+import { getLoginMethods, type LoginMethods } from '@/server/globalConfig/loginMethods';
+import { buildTenantPublicUrl } from '@/server/modules/Tenant/callbackUrl';
+import {
+  loadTenantSsoProviders,
+  ssoRevisionKey,
+  tenantSsoCallbackPath,
+  type TenantSsoProvider,
+} from '@/server/services/tenantSso';
 
-export const auth = defineConfig({
-  ...(authEnv.AUTH_COOKIE_PREFIX && { cookiePrefix: authEnv.AUTH_COOKIE_PREFIX }),
-  plugins: [...businessAuthPlugins],
+/**
+ * better-auth per tenant (spec A15, A16, FR-ID-05, FR-ID-09, FR-ID-10).
+ *
+ * Accounts and sessions live in the tenant schema, so each tenant gets its own
+ * better-auth instance: its database, its SSO providers, its endpoints under
+ * `/t/{slug}/api/auth`, and cookies named `lh_<h24>_*` scoped to `/t/{slug}`.
+ * The instance is resolved from the current tenant scope; outside one, every
+ * use fails with `TENANT_REQUIRED`. There is no global auth instance.
+ */
+
+type TenantAuth = ReturnType<typeof defineConfig>;
+
+/** Cookie name prefix from the immutable tenant id, not the slug (spec FR-ID-10). */
+export const tenantCookiePrefix = (tenantId: string) => `lh_${tenantHash(tenantId)}`;
+
+const SSO_SNAPSHOT_TTL_MS = 30_000;
+const MAX_INSTANCES = 64;
+
+// Bounded like `instances`: a deployment with many organizations must not grow without limit.
+const ssoSnapshots = new Map<string, { at: number; providers: TenantSsoProvider[] }>();
+/**
+ * One instance per tenant. It is bound to the tenant's database session, which
+ * the runtime replaces when Console moves or re-keys the datasource; an
+ * instance built on a replaced session is never served again.
+ */
+const instances = new Map<string, { instance: TenantAuth; session: TenantScope['session'] }>();
+
+const loadSsoSnapshot = async (scope: TenantScope) => {
+  const cached = ssoSnapshots.get(scope.tenantId);
+  if (cached && Date.now() - cached.at < SSO_SNAPSHOT_TTL_MS) return cached.providers;
+  const providers = await loadTenantSsoProviders(scope.session.database, scope.tenantId);
+  ssoSnapshots.delete(scope.tenantId);
+  ssoSnapshots.set(scope.tenantId, { at: Date.now(), providers });
+  while (ssoSnapshots.size > MAX_INSTANCES) ssoSnapshots.delete(ssoSnapshots.keys().next().value!);
+  return providers;
+};
+
+/** Drops a tenant's cached instance and SSO snapshot (lifecycle cache invalidation). */
+export const invalidateTenantAuth = (tenantId: string) => {
+  ssoSnapshots.delete(tenantId);
+  for (const key of instances.keys()) if (key.startsWith(`${tenantId}|`)) instances.delete(key);
+};
+
+const tenantSsoProviderSet = (scope: TenantScope, providers: TenantSsoProvider[]) =>
+  buildTenantSsoProviders(providers, (providerId) =>
+    buildTenantPublicUrl(tenantSsoCallbackPath(providerId)),
+  );
+
+/** The tenant's enabled SSO providers that this build can run (OIDC and custom OAuth 2.0). */
+export const getTenantSsoProviders = async () => {
+  const scope = requireTenantScope();
+  return tenantSsoProviderSet(scope, await loadSsoSnapshot(scope)).providers;
+};
+
+/** Changes whenever the tenant's login methods do, so a saved change rebuilds the instance. */
+const loginMethodsKey = ({ emailPassword, magicLink, requireEmailVerification }: LoginMethods) =>
+  [emailPassword, magicLink, requireEmailVerification].map(Number).join('');
+
+const buildTenantAuth = (
+  scope: TenantScope,
+  providers: TenantSsoProvider[],
+  loginMethods: LoginMethods,
+  overrides?: BetterAuthOptions,
+) => {
+  const { genericOAuthProviders } = tenantSsoProviderSet(scope, providers);
+  return defineConfig({
+    cookiePrefix: tenantCookiePrefix(scope.tenantId),
+    database: scope.session.database,
+    genericOAuthProviders,
+    loginMethods,
+    overrides,
+    plugins: [...businessAuthPlugins],
+    secondaryStorageNamespace: `t:${scope.tenantId}`,
+    tenant: { id: scope.tenantId, slug: scope.slug, endpoint: scope.endpoint },
+  });
+};
+
+export const getTenantAuth = async (): Promise<TenantAuth> => {
+  const scope = requireTenantScope();
+  // Both read inside the tenant scope: the providers and the login methods are this tenant's own.
+  const [providers, loginMethods] = await Promise.all([loadSsoSnapshot(scope), getLoginMethods()]);
+  const key = `${scope.tenantId}|${scope.slug}|${scope.endpoint.version}|${ssoRevisionKey(providers)}|${loginMethodsKey(loginMethods)}`;
+
+  const cached = instances.get(key);
+  if (cached?.session === scope.session) {
+    // Refresh LRU position.
+    instances.delete(key);
+    instances.set(key, cached);
+    return cached.instance;
+  }
+
+  const instance = buildTenantAuth(scope, providers, loginMethods);
+
+  for (const existing of instances.keys())
+    if (existing.startsWith(`${scope.tenantId}|`)) instances.delete(existing);
+  instances.set(key, { instance, session: scope.session });
+  while (instances.size > MAX_INSTANCES) instances.delete(instances.keys().next().value!);
+  return instance;
+};
+
+const apiProxy = new Proxy({} as TenantAuth['api'], {
+  get(_target, method) {
+    return async (...args: unknown[]) => {
+      const instance = await getTenantAuth();
+      const fn = Reflect.get(instance.api, method) as (...input: unknown[]) => unknown;
+      return fn.apply(instance.api, args);
+    };
+  },
 });
 
-/** Session reads use the base instance; only protocol requests load a provider snapshot. */
-export const getAuthForRequest = async (request: Request) => {
+/**
+ * The current tenant's better-auth, for callers that use `auth.api.*` or
+ * `auth.handler`. Each call resolves the tenant instance at call time.
+ */
+export const auth = {
+  api: apiProxy,
+  handler: async (request: Request) => (await getTenantAuth()).handler(request),
+} as unknown as TenantAuth;
+
+/**
+ * The tenant's better-auth for a protocol request. Session reads use the
+ * cached tenant instance; when the distribution contributes request-scoped
+ * options (`getBusinessAuthOptions`), a one-off instance of the same tenant
+ * carries them.
+ */
+export const getAuthForRequest = async (request: Request): Promise<TenantAuth> => {
   const overrides = await getBusinessAuthOptions(request);
-  if (!overrides) return auth;
-  return defineConfig({
-    ...(authEnv.AUTH_COOKIE_PREFIX && { cookiePrefix: authEnv.AUTH_COOKIE_PREFIX }),
-    plugins: [...businessAuthPlugins],
-    overrides,
-  });
+  if (!overrides) return getTenantAuth();
+  const scope = requireTenantScope();
+  const [providers, loginMethods] = await Promise.all([loadSsoSnapshot(scope), getLoginMethods()]);
+  return buildTenantAuth(scope, providers, loginMethods, overrides);
 };

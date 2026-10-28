@@ -1,4 +1,5 @@
 import type { FileStorePort } from '@lobechat/heterogeneous-agents/spawn';
+import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import superjson from 'superjson';
 
 import { createLogger } from '@/utils/logger';
@@ -44,20 +45,20 @@ export const callLambdaMutation = async <T>(
   procedure: string,
   input: unknown,
 ): Promise<T> => {
-  const base = serverUrl.replace(/\/$/, '');
-
   // Deliberately no workspace header: every Desktop-main lambda call runs
   // under the personal OIDC identity. Provider binding is personal-agent /
   // local-execution only — `selectRuntimeType` rejects API-mode runs for any
   // workspace agent (including the author, who otherwise CAN spawn one
   // in-process) — so a workspace scope must never leak in here.
-  const response = await fetch(`${base}/trpc/lambda/${procedure}`, {
+  // serverUrl may carry a tenant path prefix (`/t/{slug}`); buildRemoteUrl keeps it.
+  const response = await fetch(buildRemoteUrl(`/trpc/lambda/${procedure}`, serverUrl).toString(), {
     body: JSON.stringify(superjson.serialize(input)),
     headers: {
       'Content-Type': 'application/json',
       'Oidc-Auth': accessToken,
     },
     method: 'POST',
+    redirect: 'error',
   });
 
   const payload = (await response.json().catch(() => undefined)) as

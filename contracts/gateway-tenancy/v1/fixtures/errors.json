@@ -1,0 +1,236 @@
+{
+  "contractVersion": 1,
+  "cases": [
+    {
+      "id": "safe-error-valid",
+      "schema": "error",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "error": {
+          "code": "UNAUTHORIZED",
+          "message": "Authentication required"
+        }
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "unknown-error-code",
+      "schema": "error",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "error": {
+          "code": "SECRET_DATABASE_ERROR",
+          "message": "Rejected"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "business-resource-not-found",
+      "schema": "error",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "error": {
+          "code": "RESOURCE_NOT_FOUND",
+          "message": "Resource not found"
+        }
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "foreignAndMissingResourcesHaveSameShape": true,
+        "httpStatus": 404
+      }
+    },
+    {
+      "id": "service-token-cannot-read-admin-history",
+      "schema": "admissionRequest",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "FORBIDDEN"
+      },
+      "context": {
+        "targetPath": "/tenant/v1/api/admin/errors",
+        "credentialKind": "service"
+      }
+    },
+    {
+      "id": "tenant-header-valid",
+      "schema": "admissionRequest",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A"
+      },
+      "context": {
+        "rawTenantHeaderValues": [
+          "tenant-A"
+        ],
+        "serviceAuthenticated": true
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "tenant-header-missing",
+      "schema": "admissionRequest",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A"
+      },
+      "context": {
+        "rawTenantHeaderValues": [],
+        "serviceAuthenticated": true
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TENANT_REQUIRED"
+      }
+    },
+    {
+      "id": "tenant-header-empty",
+      "schema": "admissionRequest",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A"
+      },
+      "context": {
+        "rawTenantHeaderValues": [
+          ""
+        ],
+        "serviceAuthenticated": true
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TENANT_INVALID"
+      }
+    },
+    {
+      "id": "tenant-header-duplicate",
+      "schema": "admissionRequest",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A"
+      },
+      "context": {
+        "rawTenantHeaderValues": [
+          "tenant-A",
+          "tenant-A"
+        ],
+        "serviceAuthenticated": true
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TENANT_INVALID"
+      }
+    },
+    {
+      "id": "tenant-header-comma",
+      "schema": "admissionRequest",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A"
+      },
+      "context": {
+        "rawTenantHeaderValues": [
+          "tenant-A,tenant-B"
+        ],
+        "serviceAuthenticated": true
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TENANT_INVALID"
+      }
+    },
+    {
+      "id": "tenant-header-conflicts-body",
+      "schema": "admissionRequest",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A"
+      },
+      "context": {
+        "rawTenantHeaderValues": [
+          "tenant-B"
+        ],
+        "serviceAuthenticated": true
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TENANT_MISMATCH"
+      }
+    },
+    {
+      "id": "old-path-block-before-state",
+      "schema": "admissionRequest",
+      "validation": "gate",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A"
+      },
+      "context": {
+        "path": "/api/operations/init",
+        "serviceAuthenticated": true,
+        "protocolHeader": "1",
+        "stateCreationCount": 0
+      },
+      "expected": {
+        "accepted": false,
+        "code": "GATEWAY_TENANCY_REQUIRED"
+      }
+    },
+    {
+      "id": "old-server-no-client-downgrade",
+      "schema": "admissionRequest",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A"
+      },
+      "context": {
+        "requestedPath": "/tenant/v1/api/operations/init",
+        "responseStatus": 404,
+        "legacyRetryCount": 0
+      },
+      "expected": {
+        "accepted": false,
+        "code": "GATEWAY_TENANCY_UNSUPPORTED"
+      }
+    },
+    {
+      "id": "ws-capability-failure-valid",
+      "schema": "wsError",
+      "validation": "wire",
+      "input": {
+        "type": "capability_failed",
+        "tenancyProtocol": 1,
+        "code": "MUX_UNSUPPORTED",
+        "message": "Capability unavailable"
+      },
+      "expected": {
+        "accepted": true
+      }
+    }
+  ]
+}

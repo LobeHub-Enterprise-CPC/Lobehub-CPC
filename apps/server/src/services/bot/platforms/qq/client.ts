@@ -1,5 +1,6 @@
 import type { QQAdapter } from '@lobechat/chat-adapter-qq';
 import { createQQAdapter, QQApiClient } from '@lobechat/chat-adapter-qq';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import type { Chat as ChatBot, Message } from 'chat';
 import debug from 'debug';
 
@@ -11,6 +12,7 @@ import {
 } from '@/server/services/gateway/runtimeStatus';
 
 import { stripMarkdown } from '../stripMarkdown';
+import { TrackedPlatformClient } from '../TrackedPlatformClient';
 import {
   type BotPlatformRuntimeContext,
   type BotProviderConfig,
@@ -122,6 +124,7 @@ class QQGatewayClient implements PlatformClient {
   private context: BotPlatformRuntimeContext;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  private readonly lifecycle = new TrackedPlatformClient();
 
   constructor(config: BotProviderConfig, context: BotPlatformRuntimeContext) {
     this.config = config;
@@ -132,6 +135,13 @@ class QQGatewayClient implements PlatformClient {
   // --- Lifecycle ---
 
   async start(options?: GatewayListenerOptions): Promise<void> {
+    return this.lifecycle.start(
+      () => this.startNow(options),
+      () => this.stop(),
+    );
+  }
+
+  private async startNow(options?: GatewayListenerOptions): Promise<void> {
     log('Starting QQBot appId=%s', this.applicationId);
 
     this.stopped = false;
@@ -149,7 +159,7 @@ class QQGatewayClient implements PlatformClient {
 
     try {
       if (this.bot) {
-        await this.bot.shutdown().catch(() => {});
+        await this.bot.shutdown();
         this.bot = null;
       }
 
@@ -178,7 +188,11 @@ class QQGatewayClient implements PlatformClient {
       await bot.initialize();
 
       const qqAdapter = (bot as any).adapters.get('qq') as QQAdapter;
-      const waitUntil = options?.waitUntil ?? ((task: Promise<any>) => task.catch(() => {}));
+      const waitUntil = (task: Promise<any>) => {
+        const tracked = trackTenantWork(() => task);
+        if (options?.waitUntil) options.waitUntil(tracked);
+        else void tracked.catch(() => undefined);
+      };
 
       const webhookUrl = `${(this.context.appUrl || '').trim()}/api/agent/webhooks/qq/${this.applicationId}`;
 
@@ -199,7 +213,7 @@ class QQGatewayClient implements PlatformClient {
             durationMs / 3_600_000,
           );
           this.abort.abort();
-          this.start().catch((err) => {
+          trackTenantWork(() => this.start()).catch((err) => {
             log('Failed to refresh QQBot appId=%s: %O', this.applicationId, err);
           });
         }, durationMs);
@@ -230,6 +244,14 @@ class QQGatewayClient implements PlatformClient {
   }
 
   async stop(): Promise<void> {
+    return this.lifecycle.stop(() => this.stopNow());
+  }
+
+  private async stopNow(): Promise<void> {
+    this.stopped = true;
+    this.abort.abort();
+    await this.lifecycle.waitForStart();
+
     log('Stopping QQBot appId=%s', this.applicationId);
     this.stopped = true;
     if (this.refreshTimer) {
@@ -238,7 +260,7 @@ class QQGatewayClient implements PlatformClient {
     }
     this.abort.abort();
     if (this.bot) {
-      await this.bot.shutdown().catch(() => {});
+      await this.bot.shutdown();
       this.bot = null;
     }
     await updateBotRuntimeStatus(

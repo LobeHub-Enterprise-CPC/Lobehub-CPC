@@ -1,15 +1,22 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  appEnv: { COMMAND_GOVERNANCE_ENABLED: false },
-  getUserExecutionPolicy: vi.fn(),
+  flags: { command_governance: false },
+  getPolicyForUser: vi.fn(),
+  getFlags: vi.fn(),
 }));
 
-vi.mock('@/envs/app', () => ({ appEnv: mocks.appEnv }));
-vi.mock('../executionPolicy', () => ({
-  getUserExecutionPolicy: mocks.getUserExecutionPolicy,
+vi.mock('@/server/featureFlags', () => ({
+  getServerFeatureFlagsFromRuntimeConfig: mocks.getFlags,
+}));
+vi.mock('../executionPolicyRepository', () => ({
+  getPolicyForUser: async (...args: unknown[]) => {
+    const policy = await mocks.getPolicyForUser(...args);
+    return policy ? { enabled: true, ...policy } : policy;
+  },
 }));
 
+const { GovernanceUnavailableError } = await import('../policyGate');
 const { checkPath, FILE_BLOCKED_MESSAGE, pathMatchesRoot } = await import('../pathPolicy');
 
 const baseCtx = {
@@ -21,6 +28,8 @@ const baseCtx = {
 };
 
 const db = {} as any;
+
+afterEach(() => vi.restoreAllMocks());
 
 describe('pathMatchesRoot', () => {
   it('matches a half-width ~ root against a resolved absolute path', () => {
@@ -43,6 +52,23 @@ describe('pathMatchesRoot', () => {
     expect(pathMatchesRoot('/home/alice/Desktop/notes.txt', '~/.ssh')).toBe(false);
   });
 
+  it('matches an absolute root as a path prefix, not as a trailing segment', () => {
+    expect(pathMatchesRoot('/etc/secrets', '/etc/secrets')).toBe(true);
+    expect(pathMatchesRoot('/etc/secrets/db/key.pem', '/etc/secrets')).toBe(true);
+    expect(pathMatchesRoot('/etc/secrets/db/key.pem', '/etc/secrets/')).toBe(true);
+    expect(pathMatchesRoot('C:\\Secrets\\key.pem', 'C:/Secrets')).toBe(true);
+  });
+
+  it('does not let an absolute root match a sibling or a nested lookalike', () => {
+    expect(pathMatchesRoot('/etc/secrets2/key.pem', '/etc/secrets')).toBe(false);
+    expect(pathMatchesRoot('/srv/etc/secrets/key.pem', '/etc/secrets')).toBe(false);
+  });
+
+  it('resolves dot segments before comparing an absolute root', () => {
+    expect(pathMatchesRoot('/tmp/../etc/secrets/key.pem', '/etc/secrets')).toBe(true);
+    expect(pathMatchesRoot('/etc/secrets/../public/a', '/etc/secrets')).toBe(false);
+  });
+
   it('is a known, accepted imprecision: a coincidental directory name still matches', () => {
     // Suffix/substring matching (chosen because the server cannot resolve a
     // remote device's real home directory) cannot tell "~/.ssh" apart from an
@@ -55,23 +81,31 @@ describe('pathMatchesRoot', () => {
 describe('checkPath', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.appEnv.COMMAND_GOVERNANCE_ENABLED = false;
+    mocks.flags = { command_governance: false };
+    mocks.getFlags.mockImplementation(async () => mocks.flags);
   });
 
   it('allows without querying the policy when governance is disabled', async () => {
     const decision = await checkPath(baseCtx, db);
 
     expect(decision).toEqual({ allowed: true });
-    expect(mocks.getUserExecutionPolicy).not.toHaveBeenCalled();
+    expect(mocks.getPolicyForUser).not.toHaveBeenCalled();
+  });
+
+  it('rejects when the switch cannot be read', async () => {
+    mocks.getFlags.mockRejectedValueOnce(new Error('unavailable'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(checkPath(baseCtx, db)).rejects.toBeInstanceOf(GovernanceUnavailableError);
+    expect(mocks.getPolicyForUser).not.toHaveBeenCalled();
   });
 
   describe('governance enabled', () => {
     beforeEach(() => {
-      mocks.appEnv.COMMAND_GOVERNANCE_ENABLED = true;
+      mocks.flags = { command_governance: true };
     });
 
     it('allows when the user has no policy configured', async () => {
-      mocks.getUserExecutionPolicy.mockResolvedValueOnce(null);
+      mocks.getPolicyForUser.mockResolvedValueOnce(null);
 
       const decision = await checkPath(baseCtx, db);
 
@@ -79,7 +113,7 @@ describe('checkPath', () => {
     });
 
     it('allows when the policy has no denied roots for this direction', async () => {
-      mocks.getUserExecutionPolicy.mockResolvedValueOnce({ deniedWriteRoots: [] });
+      mocks.getPolicyForUser.mockResolvedValueOnce({ deniedWriteRoots: [] });
 
       const decision = await checkPath(baseCtx, db);
 
@@ -87,7 +121,7 @@ describe('checkPath', () => {
     });
 
     it('denies a write under deniedWriteRoots and reports which field matched', async () => {
-      mocks.getUserExecutionPolicy.mockResolvedValueOnce({ deniedWriteRoots: ['~/.ssh'] });
+      mocks.getPolicyForUser.mockResolvedValueOnce({ deniedWriteRoots: ['~/.ssh'] });
 
       const decision = await checkPath(baseCtx, db);
 
@@ -95,7 +129,7 @@ describe('checkPath', () => {
     });
 
     it('checks reads against deniedReadRoots, not deniedWriteRoots', async () => {
-      mocks.getUserExecutionPolicy.mockResolvedValueOnce({
+      mocks.getPolicyForUser.mockResolvedValueOnce({
         deniedReadRoots: ['~/.ssh'],
         deniedWriteRoots: [],
       });
@@ -106,7 +140,7 @@ describe('checkPath', () => {
     });
 
     it('does not deny a write against a deniedReadRoots-only policy', async () => {
-      mocks.getUserExecutionPolicy.mockResolvedValueOnce({
+      mocks.getPolicyForUser.mockResolvedValueOnce({
         deniedReadRoots: ['~/.ssh'],
         deniedWriteRoots: [],
       });
@@ -116,13 +150,11 @@ describe('checkPath', () => {
       expect(decision).toEqual({ allowed: true });
     });
 
-    it('fails open when the policy lookup throws', async () => {
-      mocks.getUserExecutionPolicy.mockRejectedValueOnce(new Error('DB is down'));
+    it('rejects when the policy lookup throws', async () => {
+      mocks.getPolicyForUser.mockRejectedValueOnce(new Error('DB is down'));
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const decision = await checkPath(baseCtx, db);
-
-      expect(decision).toEqual({ allowed: true });
+      await expect(checkPath(baseCtx, db)).rejects.toBeInstanceOf(GovernanceUnavailableError);
       expect(consoleErrorSpy).toHaveBeenCalled();
 
       consoleErrorSpy.mockRestore();

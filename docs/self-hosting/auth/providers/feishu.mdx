@@ -33,8 +33,8 @@ tags:
   <Callout type={'info'}>
     Callback URL format:
 
-    - Local development: `http://localhost:3210/api/auth/callback/feishu`
-    - Production: `https://your-domain.com/api/auth/callback/feishu`
+    - Local development: `http://localhost:3210/t/<tenant>/api/auth/callback/feishu`
+    - Production: `https://your-domain.com/t/<tenant>/api/auth/callback/feishu`
   </Callout>
 
   3. Go to **Permissions & Scopes** and add:
@@ -47,19 +47,18 @@ tags:
   2. Create a new version and submit for review
   3. Once approved, publish the app
 
-  ### Configure Environment Variables
+  ### Configure in Admin
 
-  | Environment Variable     | Type     | Description                                                     |
-  | ------------------------ | -------- | --------------------------------------------------------------- |
-  | `AUTH_SECRET`            | Required | Session encryption key, generate with `openssl rand -base64 32` |
-  | `AUTH_SSO_PROVIDERS`     | Required | Set to `feishu`                                                 |
-  | `AUTH_FEISHU_APP_ID`     | Required | App ID from Feishu Open Platform                                |
-  | `AUTH_FEISHU_APP_SECRET` | Required | App Secret from Feishu Open Platform                            |
+  SSO is configured per tenant in Admin, not with environment variables. In Admin, open the tenant's SSO providers, add a provider and fill in:
 
-  <Callout type={'tip'}>
-    Go to [📘 Environment Variables](/docs/self-hosting/environment-variables/auth#feishu)
-    for detailed information.
-  </Callout>
+  | Field         | Value                                                                    |
+  | ------------- | ------------------------------------------------------------------------ |
+  | Protocol      | OAuth 2.0, preset **Feishu**                                             |
+  | Provider ID   | Any ID, for example `feishu`; it is the last segment of the callback URL |
+  | Client ID     | Client ID from the provider                                              |
+  | Client Secret | Client secret from the provider; Admin stores it encrypted               |
+
+  The callback URL to register with the provider is `https://your-domain.com/t/<tenant>/api/auth/callback/<provider-id>`; Admin shows it for each provider.
 </Steps>
 
 <Callout type={'info'}>

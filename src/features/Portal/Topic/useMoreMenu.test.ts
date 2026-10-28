@@ -19,7 +19,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/components/RenameModal', () => ({ openRenameModal: mocks.openRenameModal }));
 vi.mock('@/features/DeleteTopicConfirm', () => ({ confirmRemoveTopic: mocks.confirmRemoveTopic }));
 vi.mock('@/hooks/usePermission', () => ({ usePermission: () => ({ allowed: mocks.allowed }) }));
-vi.mock('@/hooks/useAppOrigin', () => ({ useAppOrigin: () => 'https://app.lobehub.com' }));
+vi.mock('@lobechat/business-tenant/client', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useAppBaseUrl: () => 'https://app.lobehub.com',
+}));
 vi.mock('@/business/client/hooks/useActiveWorkspaceSlug', () => ({
   useActiveWorkspaceSlug: () => mocks.workspaceSlug,
 }));

@@ -4,6 +4,7 @@ import type { DiscoverPluginItem } from './plugins';
 import type { DiscoverSkillItem } from './skills';
 
 export * from './assistants';
+export * from './capabilities';
 export * from './fork';
 export * from './groupAgents';
 export * from './mcp';

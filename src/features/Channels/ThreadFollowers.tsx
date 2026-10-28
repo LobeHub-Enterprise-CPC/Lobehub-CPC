@@ -1,10 +1,11 @@
-import { Flexbox } from '@lobehub/ui';
-import { ActionIcon, Avatar, Button, Popover, Text, toast } from '@lobehub/ui/base-ui';
+import { ActionIcon, Avatar, Button, Flexbox, Popover, Text, toast } from '@lobehub/ui';
 import { Users, X } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { channelService } from '@/services/channel';
+
+import { getMemberAvatar } from './memberAvatar';
 
 type Detail = Awaited<ReturnType<typeof channelService.detail>>;
 
@@ -31,7 +32,7 @@ export function ThreadFollowers({
           <Text weight={600}>{t('threadFollowers')}</Text>
           {followers.map((member) => (
             <Flexbox horizontal align="center" gap={8} key={member.id}>
-              <Avatar avatar={member.config.avatar || '🤖'} size={28} title={member.name} />
+              <Avatar avatar={getMemberAvatar(member)} size={28} title={member.name} />
               <Text ellipsis style={{ flex: 1, minWidth: 0 }}>
                 {member.name}
               </Text>
@@ -77,7 +78,7 @@ export function ThreadFollowers({
           <Flexbox horizontal align="center" gap={4}>
             {followers.slice(0, 3).map((member) => (
               <Avatar
-                avatar={member.config.avatar || '🤖'}
+                avatar={getMemberAvatar(member)}
                 key={member.id}
                 size={20}
                 title={member.name}

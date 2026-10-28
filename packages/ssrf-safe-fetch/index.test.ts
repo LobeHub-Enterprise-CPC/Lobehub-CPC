@@ -1,8 +1,10 @@
 // @ts-ignore
+import { PassThrough } from 'node:stream';
+
 import fetch from 'node-fetch';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ssrfSafeFetch } from './index';
+import { createSsrfSafeFetch, ssrfSafeFetch } from './index';
 
 // Mock node-fetch to avoid actual network requests
 vi.mock('node-fetch', () => ({
@@ -194,7 +196,10 @@ describe('ssrfSafeFetch', () => {
         'Fetch failed: Network error',
       );
 
-      expect(console.error).toHaveBeenCalledWith('Fetch error:', originalError);
+      expect(console.error).toHaveBeenCalledWith(
+        'Fetch error:',
+        expect.objectContaining({ message: 'Network error' }),
+      );
     });
 
     it('should throw SSRF blocked error when request-filtering-agent blocks', async () => {
@@ -205,7 +210,10 @@ describe('ssrfSafeFetch', () => {
 
       await expect(ssrfSafeFetch('http://10.0.0.1/internal')).rejects.toThrow(/SSRF blocked/);
 
-      expect(console.error).toHaveBeenCalledWith('SSRF protection blocked request:', ssrfError);
+      expect(console.error).toHaveBeenCalledWith(
+        'SSRF protection blocked request:',
+        expect.objectContaining({ message: ssrfError.message }),
+      );
     });
 
     it('should handle non-Error thrown values', async () => {
@@ -505,6 +513,118 @@ describe('ssrfSafeFetch', () => {
           agent: expect.any(Function),
         }),
       );
+    });
+  });
+  describe('createSsrfSafeFetch (SDK fetch injection)', () => {
+    it('hands the body to the caller as a stream instead of buffering it', async () => {
+      const upstream = new PassThrough();
+      const arrayBuffer = vi.fn().mockRejectedValue(new Error('must not buffer'));
+      mockFetch.mockResolvedValue({
+        arrayBuffer,
+        body: upstream,
+        headers: new Map([['content-type', 'text/event-stream']]),
+        status: 200,
+        statusText: 'OK',
+      });
+
+      const response = await createSsrfSafeFetch()('https://api.example.com/v1/chat', {
+        method: 'POST',
+      });
+
+      // The upstream is still open: a buffering implementation would never get here.
+      upstream.write('data: first\n\n');
+      const reader = response.body!.getReader();
+      const chunk = await reader.read();
+
+      expect(new TextDecoder().decode(chunk.value)).toBe('data: first\n\n');
+      expect(arrayBuffer).not.toHaveBeenCalled();
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.example.com/v1/chat',
+        expect.objectContaining({ agent: expect.any(Function), method: 'POST' }),
+      );
+      upstream.end();
+    });
+
+    it('accepts URL objects and returns null-body statuses without a body', async () => {
+      mockFetch.mockResolvedValue({
+        arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
+        body: new PassThrough(),
+        headers: new Map(),
+        status: 204,
+        statusText: 'No Content',
+      });
+
+      const response = await createSsrfSafeFetch()(new URL('https://api.example.com/x'));
+
+      expect(mockFetch.mock.calls[0][0]).toBe('https://api.example.com/x');
+      expect(response.status).toBe(204);
+    });
+  });
+
+  describe('credential redaction', () => {
+    const CANARIES = ['PASSCANARY', 'KEYCANARY', 'FRAGCANARY', 'TOKENCANARY'];
+    const url = 'https://user:PASSCANARY@example.com/mcp?apikey=KEYCANARY&x=1#FRAGCANARY';
+
+    const chain = (error: unknown): string[] => {
+      const out: string[] = [];
+      let current: any = error;
+      for (let i = 0; current && i < 10; i++) {
+        out.push(String(current.message), String(current.stack));
+        current = current.cause;
+      }
+      return out;
+    };
+
+    const logged = () =>
+      (console.error as any).mock.calls
+        .flat()
+        .flatMap((arg: unknown) => (arg instanceof Error ? chain(arg) : [String(arg)]))
+        .join('\n');
+
+    const expectNoCanaries = (text: string) => {
+      for (const canary of CANARIES) expect(text).not.toContain(canary);
+    };
+
+    it('does not log or rethrow the raw URL of a failed request', async () => {
+      const fetchError = Object.assign(
+        new Error(
+          `request to ${url} failed, reason: Client network socket disconnected before secure TLS connection was established`,
+        ),
+        { code: 'ECONNRESET', type: 'system' },
+      );
+      mockFetch.mockRejectedValue(fetchError);
+
+      const thrown: any = await ssrfSafeFetch(url).catch((e) => e);
+
+      expect(thrown).toBeInstanceOf(Error);
+      // still diagnosable: host, path and the parameter names survive
+      expect(thrown.message).toContain('example.com/mcp?apikey=');
+      expect(thrown.message).toContain('Client network socket disconnected');
+      // machine-readable fields survive on the sanitized cause
+      expect(thrown.cause.code).toBe('ECONNRESET');
+      expectNoCanaries(chain(thrown).join('\n'));
+      expectNoCanaries(logged());
+    });
+
+    it('does not log or rethrow the raw URL when the SSRF guard blocks the request', async () => {
+      mockFetch.mockRejectedValue(
+        new Error(`request to ${url} is not allowed. Because, It is private IP address.`),
+      );
+
+      const thrown: any = await ssrfSafeFetch(url).catch((e) => e);
+
+      expect(thrown.message).toMatch(/SSRF blocked/);
+      expectNoCanaries(chain(thrown).join('\n'));
+      expectNoCanaries(logged());
+    });
+
+    it('also scrubs URLs from non-Error rejections', async () => {
+      mockFetch.mockRejectedValue(`boom ${url}`);
+
+      const thrown: any = await ssrfSafeFetch(url).catch((e) => e);
+
+      expectNoCanaries(chain(thrown).join('\n'));
+      expectNoCanaries(logged());
     });
   });
 });

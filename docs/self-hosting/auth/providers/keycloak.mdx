@@ -36,8 +36,8 @@ tags:
   <Callout type={'info'}>
     Callback URL format:
 
-    - Local development: `http://localhost:3210/api/auth/callback/keycloak`
-    - Production: `https://your-domain.com/api/auth/callback/keycloak`
+    - Local development: `http://localhost:3210/t/<tenant>/api/auth/callback/keycloak`
+    - Production: `https://your-domain.com/t/<tenant>/api/auth/callback/keycloak`
   </Callout>
 
   ### Get Client Secret
@@ -50,20 +50,19 @@ tags:
 
   For example: `https://keycloak.example.com/realms/master`
 
-  ### Configure Environment Variables
+  ### Configure in Admin
 
-  | Environment Variable   | Type     | Description                                                     |
-  | ---------------------- | -------- | --------------------------------------------------------------- |
-  | `AUTH_SECRET`          | Required | Session encryption key, generate with `openssl rand -base64 32` |
-  | `AUTH_SSO_PROVIDERS`   | Required | Set to `keycloak`                                               |
-  | `AUTH_KEYCLOAK_ID`     | Required | Client ID                                                       |
-  | `AUTH_KEYCLOAK_SECRET` | Required | Client Secret                                                   |
-  | `AUTH_KEYCLOAK_ISSUER` | Required | `https://your-keycloak-domain/realms/your-realm`                |
+  SSO is configured per tenant in Admin, not with environment variables. In Admin, open the tenant's SSO providers, add a provider and fill in:
 
-  <Callout type={'tip'}>
-    Go to [📘 Environment Variables](/docs/self-hosting/environment-variables/auth#keycloak)
-    for detailed information.
-  </Callout>
+  | Field         | Value                                                              |
+  | ------------- | ------------------------------------------------------------------ |
+  | Protocol      | OIDC                                                               |
+  | Provider ID   | `keycloak` selects the keycloak preset; any other ID is plain OIDC |
+  | Client ID     | Client ID from the provider                                        |
+  | Client Secret | Client secret from the provider; Admin stores it encrypted         |
+  | Issuer        | `https://keycloak.example.com/realms/<realm>`                      |
+
+  The callback URL to register with the provider is `https://your-domain.com/t/<tenant>/api/auth/callback/<provider-id>`; Admin shows it for each provider.
 </Steps>
 
 <Callout type={'info'}>

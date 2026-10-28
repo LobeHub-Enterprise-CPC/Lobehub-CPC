@@ -154,7 +154,8 @@ describe('Channel Desktop provider binding parity', () => {
     const launch = await createChannelLaunch(auth, '/unused', app as never)(request);
     expect(launch.command).toBe('/login/bin/amp');
     expect(launch.env).toMatchObject({
-      PATH: '/login/bin:/usr/bin',
+      // The detected login PATH, after the embedded CLI directory standalone Agents get too.
+      PATH: expect.stringMatching(/(^|[:;])\/login\/bin:\/usr\/bin$/),
       HTTPS_PROXY: 'http://127.0.0.1:8123',
     });
     expect(launch.env).not.toHaveProperty('ANTHROPIC_API_KEY');

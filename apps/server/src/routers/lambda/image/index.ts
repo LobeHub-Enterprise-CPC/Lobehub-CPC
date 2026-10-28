@@ -29,7 +29,8 @@ import {
 } from '@/types/asyncTask';
 import { generateUniqueSeeds } from '@/utils/number';
 
-import { validateNoUrlsInConfig } from './utils';
+import { assertImageGenerationEnabled } from '../_helpers/imageGenerationFeatureGate';
+import { applyLookupPricingParamDefaults, validateNoUrlsInConfig } from './utils';
 
 const log = debug('lobe-image:lambda');
 
@@ -51,6 +52,10 @@ const imageProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) =>
 // paid for. Admit at submission instead: refuse to start when storage is
 // already full, and let an in-flight generation finish.
 const imageCreateProcedure = imageProcedure
+  .use(async ({ ctx, next }) => {
+    await assertImageGenerationEnabled(ctx.userId);
+    return next();
+  })
   .use(withScopedPermission('file:upload'))
   .use(checkFileStorageUsage);
 
@@ -191,6 +196,16 @@ export const imageRouter = router({
 
       // Defensive check: ensure no full URLs enter the database
       validateNoUrlsInConfig(configForDatabase, 'configForDatabase');
+
+      // Backfill lookup-pricing params (e.g. quality/resolution) from model
+      // card defaults so omitted optional parameters don't break cost
+      // computation before charging. Use the resolved model ID so business
+      // aliases without their own model-bank card still resolve pricing.
+      generationParams = await applyLookupPricingParamDefaults(
+        generationParams,
+        resolvedModelId,
+        provider,
+      );
 
       const generationTopic = await generationTopicModel.findById(generationTopicId);
       if (!generationTopic) {
@@ -336,16 +351,23 @@ export const imageRouter = router({
         generationsWithTasks.forEach(({ generation, asyncTaskId }) => {
           log('Starting background async task %s for generation %s', asyncTaskId, generation.id);
 
-          asyncCaller.image.createImage({
-            generationBatchId: createdBatch.id,
-            generationId: generation.id,
-            generationTopicId,
-            model,
-            params: generationParams,
-            provider,
-            taskId: asyncTaskId,
-            workspaceId: wsId,
-          });
+          asyncCaller.image
+            .createImage({
+              generationBatchId: createdBatch.id,
+              generationId: generation.id,
+              generationTopicId,
+              model,
+              params: generationParams,
+              provider,
+              taskId: asyncTaskId,
+              workspaceId: wsId,
+            })
+            // The async router owns the task's status and billing once the request
+            // reaches it; a failed HTTP response here (e.g. a proxy timing out a
+            // long generation) does not mean the task failed, so only log it.
+            .catch((error: unknown) => {
+              console.error('Async image task %s request failed: %O', asyncTaskId, error);
+            });
         });
 
         log('All %d background async image generation tasks started', generationsWithTasks.length);

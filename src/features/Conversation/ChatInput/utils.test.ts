@@ -1,12 +1,17 @@
 import type { UIChatMessage } from '@lobechat/types';
 import { describe, expect, it, vi } from 'vitest';
 
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+
 import {
   createQueueSendNowGate,
   getContextWindowMessages,
   getConversationChatInputUiState,
   getConversationSendButtonProps,
+  putQueuedMessageInEditor,
+  sendQueuedMessageNow,
   toChatInputMessages,
+  toDisplayableSendErrorMessage,
 } from './utils';
 
 const tokenMessages = [
@@ -236,5 +241,179 @@ describe('getConversationChatInputUiState', () => {
       showSendWhileGenerating: false,
       showStopButton: true,
     });
+  });
+});
+
+describe('toDisplayableSendErrorMessage', () => {
+  /**
+   * @example A send fails before the server's databaseError middleware strips it.
+   */
+  it('drops a raw database error instead of showing SQL and its bound values', () => {
+    // ROOT CAUSE:
+    //
+    // `inputSendErrorMsg` is the failed call's `error.message` verbatim. Drizzle
+    // stringifies a failed statement as `Failed query: <sql>\nparams: <values>`,
+    // so this notice used to render the whole INSERT together with every bound
+    // parameter — including the user's own message text — with no way for the
+    // user to act on it.
+    //
+    // Before: the raw dump was rendered as-is.
+    // After: the caller substitutes localized generic copy.
+    const raw =
+      'Failed query: insert into "messages" ("id", "role", "content") values ($1, $2, $3)\n' +
+      'params: msg_1,user,a user message';
+
+    expect(toDisplayableSendErrorMessage(raw)).toBeUndefined();
+  });
+
+  it('keeps a message the user can act on', () => {
+    expect(toDisplayableSendErrorMessage('Internal server error (ref: db_abc123def456)')).toBe(
+      'Internal server error (ref: db_abc123def456)',
+    );
+  });
+
+  it('trims surrounding whitespace and treats blank input as nothing to show', () => {
+    expect(toDisplayableSendErrorMessage('  Network error  ')).toBe('Network error');
+    expect(toDisplayableSendErrorMessage('   ')).toBeUndefined();
+    expect(toDisplayableSendErrorMessage()).toBeUndefined();
+  });
+});
+
+describe('sendQueuedMessageNow', () => {
+  const context = { agentId: 'agt-1', topicId: 'tpc-1' };
+  const msg = {
+    content: 'now',
+    createdAt: 1,
+    id: 'q1',
+    interruptMode: 'soft' as const,
+    serverDelivery: 'server' as const,
+  };
+  const chatWith = (cancelled: boolean | Error) => {
+    const order: string[] = [];
+    const chat = {
+      cancelOperation: vi.fn(async () => {
+        order.push('cancel');
+        if (cancelled instanceof Error) throw cancelled;
+        return cancelled;
+      }),
+      restoreQueuedMessage: vi.fn(),
+      operations: {
+        'op-1': {
+          context,
+          id: 'op-1',
+          metadata: { startTime: 1 },
+          status: 'running',
+          type: 'execServerAgentRuntime',
+        },
+      },
+      operationsByContext: { [messageMapKey(context)]: ['op-1'] },
+      queuedMessages: {
+        [messageMapKey(context)]: [
+          { content: 'before', createdAt: 0, id: 'q0', interruptMode: 'soft' },
+          msg,
+          { content: 'after', createdAt: 2, id: 'q2', interruptMode: 'soft' },
+        ],
+      },
+      sendMessage: vi.fn(async () => {
+        order.push('send');
+      }),
+    } as any;
+    return { chat, order };
+  };
+
+  // ROOT CAUSE:
+  //
+  // Send now interrupted the run before withdrawing the item. When that run
+  // had already taken it from the server, the withdrawal then failed and no
+  // replacement send happened, leaving the follow-up unanswered.
+  //
+  // Before: cancel, then withdraw.
+  // After: withdraw first; an item already on its way stops nothing.
+  it('withdraws the item before interrupting the run, then sends it', async () => {
+    const { chat, order } = chatWith(true);
+    const withdraw = vi.fn(async () => {
+      order.push('withdraw');
+      return true;
+    });
+
+    await sendQueuedMessageNow({
+      chat,
+      context,
+      contextKey: messageMapKey(context),
+      msg,
+      withdraw,
+    });
+
+    expect(order).toEqual(['withdraw', 'cancel', 'send']);
+    expect(chat.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'now', metadata: { steer: true } }),
+    );
+  });
+
+  it('stops nothing and sends nothing when the run already took it', async () => {
+    const { chat } = chatWith(true);
+
+    await sendQueuedMessageNow({
+      chat,
+      context,
+      contextKey: messageMapKey(context),
+      msg,
+      withdraw: async () => false,
+    });
+
+    expect(chat.cancelOperation).not.toHaveBeenCalled();
+    expect(chat.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['unconfirmed', false],
+    ['failed', new Error('device unreachable')],
+  ])('puts the item back, held here, when the interrupt is %s', async (_label, cancelled) => {
+    const { chat } = chatWith(cancelled);
+
+    await expect(
+      sendQueuedMessageNow({
+        chat,
+        context,
+        contextKey: messageMapKey(context),
+        msg,
+        withdraw: async () => true,
+      }),
+    ).rejects.toThrow();
+
+    // Back at its own place (index 1), not at the tail, so the order holds.
+    expect(chat.restoreQueuedMessage).toHaveBeenCalledWith(
+      messageMapKey(context),
+      { ...msg, serverDelivery: undefined, serverUnconfirmed: undefined },
+      1,
+    );
+    expect(chat.sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('putQueuedMessageInEditor', () => {
+  // ROOT CAUSE:
+  //
+  // Edit rebuilt the composer from the message text as markdown, dropping the
+  // selected skills, tools and @-mentions the send reads from the structured
+  // document — so an edited follow-up silently lost them.
+  //
+  // Before: always markdown.
+  // After: the structured document when there is one.
+  it('restores the structured document, so selections survive an edit', () => {
+    const editor = { setDocument: vi.fn() };
+    const editorData = { root: { type: 'root' } };
+
+    putQueuedMessageInEditor(editor, { content: 'text', editorData });
+
+    expect(editor.setDocument).toHaveBeenCalledWith('json', editorData);
+  });
+
+  it('falls back to markdown for a message without one', () => {
+    const editor = { setDocument: vi.fn() };
+
+    putQueuedMessageInEditor(editor, { content: 'text' });
+
+    expect(editor.setDocument).toHaveBeenCalledWith('markdown', 'text');
   });
 });

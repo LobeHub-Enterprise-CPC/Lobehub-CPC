@@ -1,7 +1,9 @@
+import { initTRPC } from '@trpc/server';
+import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import superjson from 'superjson';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { lambdaClient } from './lambda';
+import { lambdaClient, withLlmRelay } from './lambda';
 
 vi.mock('@/const/version', () => ({ isDesktop: false }));
 vi.mock('@/services/_auth', () => ({ createHeaderWithAuth: async () => ({}) }));
@@ -10,11 +12,54 @@ vi.mock('@/business/client/trpc-headers', () => ({ getBusinessTrpcHeaders: async
 // below check which copy was selected, not its wording.
 vi.mock('i18next', () => ({ t: (key: string) => key }));
 
+const authState = vi.hoisted(() => ({ isSignedIn: true, isSigningOut: false, logout: vi.fn() }));
+const redirect = vi.hoisted(() => vi.fn());
+vi.mock('@/store/user/store', () => ({ getUserStoreState: () => authState }));
+vi.mock('@/components/Error/loginRequiredNotification', () => ({ loginRequired: { redirect } }));
+
 const okTrpcResponse = (data: unknown) =>
   new Response(JSON.stringify({ result: { data: superjson.serialize(data) } }), {
     headers: { 'content-type': 'application/json' },
     status: 200,
   });
+
+describe('lambdaClient sign-out boundary', () => {
+  afterEach(() => {
+    authState.isSigningOut = false;
+    authState.logout.mockClear();
+    redirect.mockClear();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it.each([true, false])('handles a 401 with intentional sign-out=%s', async (isSigningOut) => {
+    authState.isSigningOut = isSigningOut;
+    vi.spyOn(Date, 'now').mockReturnValue(isSigningOut ? 1_800_000_000_000 : 1_800_000_010_000);
+    vi.stubGlobal('location', new URL('http://localhost/t/acme/agent'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: superjson.serialize({
+              code: -32_001,
+              data: { code: 'UNAUTHORIZED', httpStatus: 401 },
+              message: 'UNAUTHORIZED',
+            }),
+          }),
+          { headers: { 'content-type': 'application/json' }, status: 401 },
+        ),
+      ),
+    );
+
+    await expect(
+      lambdaClient.agent.getAgentConfigById.query({ agentId: 'agt_test' }),
+    ).rejects.toThrow('UNAUTHORIZED');
+    expect(authState.logout).toHaveBeenCalledTimes(isSigningOut ? 0 : 1);
+    expect(redirect).not.toHaveBeenCalled();
+  });
+});
 
 describe('lambdaClient large-input query transport', () => {
   const fetchMock = vi.fn();
@@ -106,6 +151,44 @@ describe('lambdaClient transport lanes', () => {
     fetchMock.mockReset();
   });
 
+  it('streams a large Canvas snapshot without buffering it with ordinary reads', async () => {
+    const t = initTRPC.create({ transformer: superjson });
+    const snapshot = { entry: 'index.html', files: [{ content: 'a'.repeat(6 * 1024 * 1024) }] };
+    const router = t.router({
+      agent: t.router({ getAgentConfigById: t.procedure.query(() => null) }),
+      canvas: t.router({ getProject: t.procedure.query(() => snapshot) }),
+    });
+    const transports: { streaming: boolean; url: string }[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init: RequestInit) => {
+      const req = new Request(new URL(String(input), 'http://localhost'), init);
+      const streaming = req.headers.get('trpc-accept') === 'application/jsonl';
+      transports.push({ streaming, url: req.url });
+      const response = await fetchRequestHandler({
+        createContext: () => ({}),
+        endpoint: '/trpc/lambda',
+        req,
+        router,
+      });
+      if (streaming) return response;
+      const text = await response.text();
+      return text.length > 4_500_000
+        ? new Response('Response payload too large', { status: 500 })
+        : new Response(text, { headers: response.headers });
+    });
+
+    const [result] = await Promise.all([
+      lambdaClient.canvas.getProject.query({ canvasId: 'cvs_large', version: 1 }),
+      lambdaClient.agent.getAgentConfigById.query({ agentId: 'agt_test' }),
+    ]);
+
+    expect(result).toEqual(snapshot);
+    expect(transports).toHaveLength(2);
+    expect(transports.find((item) => item.streaming)?.url).toContain('/canvas.getProject?');
+    expect(transports.find((item) => item.streaming)?.url).not.toContain(
+      'agent.getAgentConfigById',
+    );
+  });
+
   // Regression: every `device.*` read hops from the server to one of the user's
   // own machines and is capped by a 10-60s RPC timeout. Batched with ordinary
   // lambda reads, one sleeping laptop held the whole batch's response — opening a
@@ -150,6 +233,31 @@ describe('lambdaClient transport lanes', () => {
     expect(tokenUrl).toBeDefined();
     expect(tokenUrl).not.toContain('batch=1');
     expect(tokenUrl).not.toContain('agent.getAgentConfigById');
+  });
+
+  // One-shot relay: the server reads the channel this tab subscribed from the
+  // request headers, so the call carries its own headers and never shares a
+  // batch with calls that must not be relayed.
+  it('sends a call with one-shot relay headers unbatched, with its headers', async () => {
+    fetchMock.mockImplementation(respondByLane);
+    const relay = {
+      headers: { 'x-lobe-client-id': 'tab-1', 'x-lobe-llm-relay-channel': 'llmcall:u:abcdefgh' },
+    };
+
+    await Promise.all([
+      lambdaClient.agent.getAgentConfigById.query({ agentId: 'agt_test' }, withLlmRelay(relay)),
+      lambdaClient.agent.getAgentConfigById.query({ agentId: 'agt_other' }),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const relayed = fetchMock.mock.calls.find(([, init]) =>
+      new Headers((init as RequestInit).headers).has('x-lobe-llm-relay-channel'),
+    );
+    expect(relayed).toBeDefined();
+    expect(String(relayed![0])).not.toContain('batch=1');
+    const headers = new Headers((relayed![1] as RequestInit).headers);
+    expect(headers.get('x-lobe-llm-relay-channel')).toBe('llmcall:u:abcdefgh');
+    expect(headers.get('x-lobe-client-id')).toBe('tab-1');
   });
 });
 
@@ -199,6 +307,30 @@ describe('lambdaClient unreadable response handling', () => {
     await expect(
       lambdaClient.agent.getAgentConfigById.query({ agentId: 'agt_test' }),
     ).rejects.toThrow('response.UnreadableServerResponse');
+  });
+
+  // The workspace-unavailable screen explains a closed tenant; every request it
+  // refuses must neither log an error nor make SWR retry against a closed gate.
+  it('stops retrying a request refused because the workspace is closed', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: superjson.serialize({
+            code: -32_003,
+            data: { code: 'FORBIDDEN', httpStatus: 403 },
+            message: 'TENANT_FROZEN',
+          }),
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 403 },
+      ),
+    );
+
+    const error = await lambdaClient.agent.getAgentConfigById
+      .query({ agentId: 'agt_test' })
+      .catch((error_: any) => error_);
+    expect(error.message).toBe('TENANT_FROZEN');
+    expect(error.meta?.shouldRetry).toBe(false);
+    expect(console.error).not.toHaveBeenCalled();
   });
 
   it('keeps a well-formed tRPC error message untouched', async () => {

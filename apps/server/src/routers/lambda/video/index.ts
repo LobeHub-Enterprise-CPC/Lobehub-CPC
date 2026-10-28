@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import { BRANDING_PROVIDER } from '@lobechat/business-const';
 import { isLobeHubModelAvailable } from '@lobechat/business-model-bank/model-config';
@@ -6,6 +6,7 @@ import {
   buildMappedBusinessModelFields,
   resolveBusinessModelMapping,
 } from '@lobechat/business-model-runtime';
+import { SubmissionRejectedError } from '@lobechat/model-runtime/errors';
 import {
   ChatErrorType,
   RequestTrigger,
@@ -42,9 +43,16 @@ import { appEnv } from '@/envs/app';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
+import {
+  beginExternalTenantWork,
+  confirmExternalTenantWork,
+  identifyExternalTenantWork,
+} from '@/server/modules/Tenant/externalWork';
 import { FileService } from '@/server/services/file';
 import { getVideoAvgLatencies, getVideoLatencyKey } from '@/server/services/generation/latency';
 import { processBackgroundVideoPolling } from '@/server/services/generation/videoBackgroundPolling';
+import { fillVideoPricingDefaults } from '@/server/services/generation/videoPricingDefaults';
 import { after } from '@/server/utils/scheduleAfterResponse';
 import { AsyncTaskStatus, AsyncTaskType } from '@/types/asyncTask';
 
@@ -104,9 +112,15 @@ export const videoRouter = router({
     .mutation(async ({ input, ctx }) => {
       const { userId, serverDB, asyncTaskModel, fileService, generationTopicModel } = ctx;
       const wsId = ctx.workspaceId ?? undefined;
-      const { generationTopicId, previousGenerationId, provider, model, params } = input;
+      const { generationTopicId, previousGenerationId, provider, model } = input;
 
       const { resolvedModelId } = await resolveBusinessModelMapping(provider, model);
+      // Everything downstream (billing, stored config, provider request) sees the same params
+      const params = await fillVideoPricingDefaults({
+        model: resolvedModelId,
+        params: input.params,
+        provider,
+      });
 
       // Reject lobehub model ids that are no longer in the model bank so callers get a
       // clear error instead of an opaque downstream failure when the resolved channel
@@ -281,6 +295,7 @@ export const videoRouter = router({
         model,
         params,
         provider,
+        providerParams: generationParams,
         spendOrigin: ctx.spendOrigin,
         userId,
         workspaceId: wsId,
@@ -368,15 +383,29 @@ export const videoRouter = router({
 
         const callbackBaseUrl = appEnv.WEBHOOK_PROXY_URL || appEnv.APP_URL;
         // Append to the base instead of resolving a root-relative path, which would drop a
-        // reverse-proxy prefix such as `https://host/lobehub`.
+        // reverse-proxy prefix such as `https://host/lobehub`; the callback carries the tenant.
         const callbackUrl = new URL(
-          `${callbackBaseUrl.replace(/\/+$/, '')}/api/webhooks/video/${provider}`,
+          buildTenantCallbackUrl(`/api/webhooks/video/${provider}`, callbackBaseUrl),
         );
         callbackUrl.searchParams.set('model', resolvedModelId);
         callbackUrl.searchParams.set('token', webhookToken);
-        log('Using callback URL: %s', callbackUrl);
+        // Log origin + path only. The `token` in this URL is the callback's only
+        // authentication and DEBUG output routinely ends up in bug reports.
+        log(
+          'Using callback URL: %s?model=%s&token=<redacted>',
+          `${callbackUrl.origin}${callbackUrl.pathname}`,
+          resolvedModelId,
+        );
 
         const requestMetadata: Record<string, unknown> = { trigger: RequestTrigger.Video };
+        const workContext = {
+          userId,
+          workspaceId: wsId,
+          provider,
+          model: resolvedModelId,
+          webhookTokenHash: createHash('sha256').update(webhookToken).digest('hex'),
+        };
+        await beginExternalTenantWork('video', asyncTaskId, workContext);
         const response = await modelRuntime.createVideo(
           {
             callbackUrl: callbackUrl.toString(),
@@ -407,9 +436,18 @@ export const videoRouter = router({
           webhookToken,
         };
 
-        const schedulePolling = (inferenceId: string) => {
+        await identifyExternalTenantWork('video', asyncTaskId, response.inferenceId, {
+          ...workContext,
+          route,
+        });
+
+        const schedulePolling = (inferenceId: string, pollingIsFallback: boolean) => {
           after(async () => {
             log('Background video polling scheduled for task: %s', asyncTaskId);
+
+            console.info(
+              `[video] polling started asyncTask=${asyncTaskId} inferenceId=${inferenceId} provider=${provider} model=${model} routerId=${route?.routerId ?? '-'} channelId=${route?.channelId ?? '-'} fallback=${pollingIsFallback}`,
+            );
 
             try {
               const db = await getServerDB();
@@ -422,6 +460,7 @@ export const videoRouter = router({
                 generationTopicId,
                 inferenceId,
                 model,
+                pollingIsFallback,
                 prechargeResult,
                 previousGenerationId,
                 provider,
@@ -438,31 +477,53 @@ export const videoRouter = router({
           });
         };
 
-        if (response.completionMode === 'webhook') {
-          // Webhook-based provider (e.g. Volcengine): wait for callback
-          log('Webhook-based provider detected, waiting for callback');
+        // Always-on submission record: a stuck task is debugged from these ids, and
+        // production runs without DEBUG.
+        console.info(
+          `[video] submitted asyncTask=${asyncTaskId} inferenceId=${response.inferenceId} provider=${provider} model=${resolvedModelId} mode=${response.completionMode} routerId=${route?.routerId ?? '-'} channelId=${route?.channelId ?? '-'}`,
+        );
 
-          await asyncTaskModel.update(asyncTaskId, {
-            inferenceId: response.inferenceId,
-            metadata: taskMetadata,
-            status: AsyncTaskStatus.Processing,
-          });
+        await asyncTaskModel.update(asyncTaskId, {
+          inferenceId: response.inferenceId,
+          metadata: taskMetadata,
+          status: AsyncTaskStatus.Processing,
+        });
+
+        // Register the poller for polling *and* webhook completions, whenever the
+        // runtime can actually poll. Webhook mode used to skip it entirely, so a
+        // callback that never reached us left the task in Processing until the
+        // watchdog reported a generic timeout, even when the upstream render had
+        // already succeeded. Both observers finish through
+        // AsyncTaskModel.claimVideoCompletion, so the first one wins and the second
+        // is a no-op; a fallback poll failure may not finalize the task either (see
+        // `pollingIsFallback`), so a merely-late callback keeps its chance.
+        const pollingIsFallback = response.completionMode === 'webhook';
+
+        if (pollingIsFallback && !modelRuntime.supportsVideoPolling()) {
+          log('Webhook-only provider detected, waiting for callback');
+          console.info(
+            `[video] awaiting webhook only asyncTask=${asyncTaskId} inferenceId=${response.inferenceId} (runtime has no poller)`,
+          );
         } else {
-          // Polling-based provider (e.g. OpenAI Sora): use background polling
-          log('Polling-based provider detected (inferenceId only), scheduling background polling');
+          log('Scheduling background polling for completion mode: %s', response.completionMode);
 
-          await asyncTaskModel.update(asyncTaskId, {
-            inferenceId: response.inferenceId,
-            metadata: taskMetadata,
-            status: AsyncTaskStatus.Processing,
-          });
-
-          schedulePolling(response.inferenceId);
+          schedulePolling(response.inferenceId, pollingIsFallback);
 
           log('After() hook registered for background video polling: %s', asyncTaskId);
         }
       } catch (e) {
-        console.error('Failed to submit video generation task:', e);
+        // Only a direct adapter's positive rejection is authoritative. Router fallback errors
+        // cannot prove earlier attempts did not create remote work.
+        if (
+          provider === 'volcengine' &&
+          e instanceof SubmissionRejectedError &&
+          e.provider === provider
+        )
+          await confirmExternalTenantWork('video', asyncTaskId);
+        console.error(
+          `[video] submit failed asyncTask=${asyncTaskId} provider=${provider} model=${resolvedModelId}:`,
+          e,
+        );
 
         const providerContentPolicyMessage = await getProviderContentPolicyErrorMessage({
           error: e,

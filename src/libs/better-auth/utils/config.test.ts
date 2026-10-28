@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/envs/app', () => ({ appEnv: mocks.appEnv }));
 vi.mock('@/envs/auth', () => ({ authEnv: mocks.authEnv }));
 vi.mock('@/envs/redis', () => ({ getRedisConfig: vi.fn() }));
-vi.mock('@/libs/redis', () => ({
+vi.mock('@/server/modules/Redis', () => ({
   initializeRedis: vi.fn(),
   isRedisEnabled: vi.fn(() => false),
 }));
@@ -33,27 +33,27 @@ describe('getTrustedOrigins', () => {
     process.env = originalEnv;
   });
 
-  it('should append normalized origins to provider-aware defaults', async () => {
+  it('should append normalized origins to the defaults', async () => {
     mocks.authEnv.AUTH_ADDITIONAL_TRUSTED_ORIGINS = [
       'https://gateway.example.com/signin',
       'gateway.example.com/another-path',
     ].join(',');
     const { getTrustedOrigins } = await import('./config');
 
-    expect(getTrustedOrigins(['apple'])).toEqual([
+    expect(getTrustedOrigins()).toEqual([
       'https://app.example.com',
       'com.lobehub.app://',
-      'https://appleid.apple.com',
       'https://gateway.example.com',
     ]);
   });
 
-  it('should append origins without changing override semantics', async () => {
+  it('always trusts the canonical tenant origin along with explicit origins', async () => {
     mocks.authEnv.AUTH_TRUSTED_ORIGINS = 'https://override.example.com/callback';
     mocks.authEnv.AUTH_ADDITIONAL_TRUSTED_ORIGINS = 'https://gateway.example.com/signin';
     const { getTrustedOrigins } = await import('./config');
 
-    expect(getTrustedOrigins(['apple'])).toEqual([
+    expect(getTrustedOrigins()).toEqual([
+      'https://app.example.com',
       'https://override.example.com',
       'https://gateway.example.com',
     ]);

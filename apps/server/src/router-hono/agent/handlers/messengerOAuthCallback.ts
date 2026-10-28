@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import debug from 'debug';
 import type { Context } from 'hono';
 
@@ -5,6 +6,7 @@ import { getServerDB } from '@/database/core/db-adaptor';
 import { MessengerInstallationModel } from '@/database/models/messengerInstallation';
 import { appEnv } from '@/envs/app';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { buildTenantPublicUrl, tenantPublicPath } from '@/server/modules/Tenant/callbackUrl';
 import { consumeOAuthState } from '@/server/services/messenger/oauth/stateStore';
 import { messengerPlatformRegistry } from '@/server/services/messenger/platforms';
 
@@ -16,7 +18,10 @@ const SETTINGS_PATH = '/settings/messenger';
 // freshly-installed workspace/server without an extra click. The detail page
 // reads `installed=ok` / `error=...` / `workspace=...` from the URL.
 const redirectToPlatform = (origin: string, platform: string, query?: string): Response => {
-  const target = new URL(`${SETTINGS_PATH}/${platform}${query ? `?${query}` : ''}`, origin);
+  const target = new URL(
+    `${tenantPublicPath(`${SETTINGS_PATH}/${platform}`)}${query ? `?${query}` : ''}`,
+    origin,
+  );
   return Response.redirect(target, 302);
 };
 
@@ -75,7 +80,7 @@ export async function messengerOAuthCallback(c: Context): Promise<Response> {
   if (!config) {
     log('callback[%s]: messenger env not configured', platform);
     return new Response(
-      `${definition.name} messenger is not configured on this LobeHub deployment.`,
+      `${definition.name} messenger is not configured on this ${BRANDING_NAME} deployment.`,
       { status: 503 },
     );
   }
@@ -93,7 +98,8 @@ export async function messengerOAuthCallback(c: Context): Promise<Response> {
 
   // 2. Exchange via platform adapter. Use the SAME redirect_uri we generated
   // at install time — most upstreams reject the exchange otherwise.
-  const redirectUri = `${appEnv.APP_URL.replace(/\/$/, '')}/api/agent/messenger/${platform}/oauth/callback`;
+  // The redirect target is a browser hop back into this tenant.
+  const redirectUri = buildTenantPublicUrl(`/api/agent/messenger/${platform}/oauth/callback`);
   let install;
   try {
     install = await definition.oauth.exchangeCode({

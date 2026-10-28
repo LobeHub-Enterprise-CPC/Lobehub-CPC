@@ -1,6 +1,17 @@
+import { requireTenantScope } from '@lobechat/database/tenant';
+
+import { assertGatewayVersion } from '@/server/services/gatewayAuthorization';
+import { operationExecutionContext } from '@/server/services/gatewayAuthorization/operationAuthority';
+import { GatewayAuthorizationError } from '@/server/services/gatewayAuthorization/wire';
+
 import { type QueueServiceImpl } from './impls';
 import { createQueueServiceModule, LocalQueueServiceImpl } from './impls';
 import { type HealthCheckResult, type QueueMessage, type QueueStats } from './types';
+
+const tenantJobExecution = () => {
+  const { acceptedVersion, tenantId } = requireTenantScope();
+  return { sourceAcceptedVersion: acceptedVersion, tenantId };
+};
 
 /**
  * Queue Service
@@ -36,14 +47,25 @@ export class QueueService {
    * Schedule a message to the queue
    */
   async scheduleMessage(message: QueueMessage): Promise<string> {
-    return this.impl.scheduleMessage(message);
+    const execution =
+      message.kind === 'tenant-job'
+        ? tenantJobExecution()
+        : await operationExecutionContext(message.operationId);
+    if (
+      message.execution &&
+      (message.execution.tenantId !== execution.tenantId ||
+        message.execution.sourceAcceptedVersion !== execution.sourceAcceptedVersion)
+    )
+      throw new GatewayAuthorizationError('TENANT_EXECUTION_VERSION_STALE', 409);
+    await assertGatewayVersion(execution.tenantId, execution.sourceAcceptedVersion);
+    return this.impl.scheduleMessage({ ...message, execution });
   }
 
   /**
    * Schedule multiple messages to the queue
    */
   async scheduleBatchMessages(messages: QueueMessage[]): Promise<string[]> {
-    return this.impl.scheduleBatchMessages(messages);
+    return Promise.all(messages.map((message) => this.scheduleMessage(message)));
   }
 
   /**

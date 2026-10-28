@@ -1,11 +1,21 @@
 'use client';
 
+import { resolveAppUrl } from '@lobechat/business-tenant/client';
 import { OFFICIAL_URL } from '@lobechat/const';
-import { Block, Center, Flexbox, Icon, Input, TextArea, Tooltip } from '@lobehub/ui';
-import { Avatar, Button, Tabs, Tag, Text, toast, Upload } from '@lobehub/ui/base-ui';
-import type { TableColumnsType } from 'antd';
-import { Input as AntInput, Table } from 'antd';
-import { createStaticStyles, cssVar } from 'antd-style';
+import { Block, Center, createStaticStyles, cssVar, Flexbox, Icon, Tooltip } from '@lobehub/ui';
+import {
+  Avatar,
+  Button,
+  Input,
+  Table,
+  type TableColumn,
+  Tabs,
+  Tag,
+  Text,
+  TextArea,
+  toast,
+  Upload,
+} from '@lobehub/ui';
 import {
   ArrowLeft,
   CircleHelp,
@@ -153,7 +163,7 @@ const MembersCard = memo<{ canManage: boolean }>(({ canManage }) => {
     }
   }, [refresh, t]);
 
-  const columns = useMemo<TableColumnsType<CommunityWorkspaceMember>>(
+  const columns = useMemo<TableColumn<CommunityWorkspaceMember>[]>(
     () => [
       {
         dataIndex: 'displayName',
@@ -419,9 +429,7 @@ const CommunityWorkspaceSettings = memo(() => {
           toast.error(t('user.workspaceProfile.errors.uploadFailed'));
           return;
         }
-        setAvatarUrl(
-          result.url.startsWith('/') ? `${window.location.origin}${result.url}` : result.url,
-        );
+        setAvatarUrl(resolveAppUrl(result.url));
       } catch (error) {
         console.error('[CommunityWorkspaceSettings] Avatar upload failed:', error);
         toast.error(t('user.workspaceProfile.errors.uploadFailed'));
@@ -446,10 +454,7 @@ const CommunityWorkspaceSettings = memo(() => {
           toast.error(t('user.workspaceProfile.errors.uploadFailed'));
           return;
         }
-        const url = result.url.startsWith('/')
-          ? `${window.location.origin}${result.url}`
-          : result.url;
-        setBannerUrl(url);
+        setBannerUrl(resolveAppUrl(result.url));
       } catch (error) {
         console.error('[CommunityWorkspaceSettings] Banner upload failed:', error);
         toast.error(t('user.workspaceProfile.errors.uploadFailed'));
@@ -505,10 +510,10 @@ const CommunityWorkspaceSettings = memo(() => {
             )}
           >
             <Input
-              showCount
               disabled={!canEdit}
               maxLength={DISPLAY_NAME_MAX}
               style={{ maxWidth: 420 }}
+              suffix={`${displayName.length} / ${DISPLAY_NAME_MAX}`}
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
             />
@@ -527,13 +532,14 @@ const CommunityWorkspaceSettings = memo(() => {
               })
             }
           >
-            <AntInput
-              showCount
-              addonBefore={ORGANIZATION_URL_PREFIX}
+            <Input
+              aria-invalid={!!namespaceValidation}
+              data-invalid={namespaceValidation ? '' : undefined}
               disabled={!canEdit}
               maxLength={NAMESPACE_MAX}
-              status={namespaceValidation ? 'error' : undefined}
+              prefix={ORGANIZATION_URL_PREFIX}
               style={{ maxWidth: 560 }}
+              suffix={`${namespace.length} / ${NAMESPACE_MAX}`}
               value={namespace}
               onChange={(e) => {
                 setNamespace(e.target.value);
@@ -570,8 +576,9 @@ const CommunityWorkspaceSettings = memo(() => {
             )}
           >
             <Input
+              aria-invalid={!!websiteError}
+              data-invalid={websiteError ? '' : undefined}
               disabled={!canEdit}
-              status={websiteError ? 'error' : undefined}
               style={{ maxWidth: 560 }}
               value={websiteUrl}
               prefix={

@@ -7,7 +7,14 @@ import { createFileSearchModule } from '@lobechat/local-file-shell';
 import { type ILocalSystemService, LocalSystemExecutionRuntime } from '@lobechat/tool-runtime';
 
 import { CLI_DISPLAY_NAME } from '../constants/identity';
-import { editLocalFile, grepContent, listLocalFiles, readLocalFile, writeLocalFile } from './file';
+import {
+  editLocalFile,
+  grepContent,
+  type ImageUploader,
+  listLocalFiles,
+  readLocalFile,
+  writeLocalFile,
+} from './file';
 import { getCommandOutput, killCommand, runCommand } from './shell';
 
 /**
@@ -66,7 +73,34 @@ const localSystemService: ILocalSystemService = {
   writeFile: writeLocalFile,
 };
 
-const runtime = new LocalSystemExecutionRuntime(localSystemService);
+const createRuntime = (uploadImage?: ImageUploader, executionSignal?: AbortSignal) => {
+  const service = {
+    ...localSystemService,
+    runCommand: (params: Parameters<typeof runCommand>[0]) => runCommand(params, executionSignal),
+    readLocalFile: (params: Parameters<ILocalSystemService['readLocalFile']>[0]) =>
+      readLocalFile(params, uploadImage),
+  };
+  const guarded = executionSignal
+    ? (Object.fromEntries(
+        Object.entries(service).map(([key, fn]) => [
+          key,
+          (...args: unknown[]) => {
+            executionSignal.throwIfAborted();
+            return Reflect.apply(fn, service, args);
+          },
+        ]),
+      ) as unknown as ILocalSystemService)
+    : service;
+  return new LocalSystemExecutionRuntime(guarded);
+};
+
+const defaultRuntime = createRuntime();
+
+export interface LocalSystemToolContext {
+  executionSignal?: AbortSignal;
+  /** Uploads images `readFile` returns, so vision models can see them. */
+  uploadImage?: ImageUploader;
+}
 
 /**
  * Route file/shell tool calls through `LocalSystemExecutionRuntime` so the
@@ -84,7 +118,13 @@ const runtime = new LocalSystemExecutionRuntime(localSystemService);
 export async function runLocalSystemTool(
   apiName: string,
   args: Record<string, any>,
+  { uploadImage, executionSignal }: LocalSystemToolContext = {},
 ): Promise<LocalSystemToolOutput | null> {
+  // The uploader carries per-call credentials, so it gets its own runtime.
+  executionSignal?.throwIfAborted();
+  const runtime =
+    uploadImage || executionSignal ? createRuntime(uploadImage, executionSignal) : defaultRuntime;
+
   // `trustArgsCwd` — args reach the CLI only after the server runtime has
   // stripped any inbound `cwd` and re-injected the device-bound one, so the
   // `cwd` in `args` here is server-controlled rather than model-chosen.

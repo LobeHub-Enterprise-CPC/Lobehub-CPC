@@ -1,5 +1,5 @@
-import { Flexbox, Icon, stopPropagation } from '@lobehub/ui';
-import { Checkbox, Spin } from '@lobehub/ui/base-ui';
+import { buildAppUrl } from '@lobechat/business-tenant/client';
+import { Checkbox, Flexbox, Icon, Spin, stopPropagation } from '@lobehub/ui';
 import { SquareArrowOutUpRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
@@ -224,7 +224,7 @@ const LobehubSkillServerItem = memo<LobehubSkillServerItemProps>(
         // Use /oauth/callback/success as redirect URI with provider param for auto-enable
         // Skip redirectUri on desktop (app:// protocol) since the system browser can't navigate to it
         const redirectUri = window.location.protocol.startsWith('http')
-          ? `${window.location.origin}/oauth/callback/success?provider=${encodeURIComponent(provider)}`
+          ? buildAppUrl(`/oauth/callback/success?provider=${encodeURIComponent(provider)}`)
           : undefined;
         const { authorizeUrl } = await getAuthorizeUrl(provider, { redirectUri });
         openOAuthWindow(authorizeUrl);
@@ -306,7 +306,9 @@ const LobehubSkillServerItem = memo<LobehubSkillServerItemProps>(
                 if (!canEdit) return;
                 try {
                   const redirectUri = window.location.protocol.startsWith('http')
-                    ? `${window.location.origin}/oauth/callback/success?provider=${encodeURIComponent(provider)}`
+                    ? buildAppUrl(
+                        `/oauth/callback/success?provider=${encodeURIComponent(provider)}`,
+                      )
                     : undefined;
                   const { authorizeUrl } = await getAuthorizeUrl(provider, { redirectUri });
                   openOAuthWindow(authorizeUrl);

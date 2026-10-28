@@ -1,8 +1,6 @@
 import { GROUP_CHAT_URL } from '@lobechat/const';
 import { type SidebarAgentItem } from '@lobechat/types';
-import { Flexbox } from '@lobehub/ui';
-import { ActionIcon, Spin, Tag } from '@lobehub/ui/base-ui';
-import { cssVar } from 'antd-style';
+import { ActionIcon, cssVar, Flexbox, Spin, Tag } from '@lobehub/ui';
 import { PinIcon } from 'lucide-react';
 import { type CSSProperties, type DragEvent } from 'react';
 import { memo, useCallback, useMemo, useState } from 'react';
@@ -42,7 +40,7 @@ const GroupItem = memo<GroupItemProps>(({ item, style, className, onNavigate }) 
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {displayTitle}
       </span>
-      <Tag size={'small'} style={{ flexShrink: 0 }}>
+      <Tag data-brand-slot="sidebar-group-tag" size={'small'} style={{ flexShrink: 0 }}>
         {t('group.title')}
       </Tag>
     </Flexbox>

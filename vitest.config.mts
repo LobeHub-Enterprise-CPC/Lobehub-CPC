@@ -4,24 +4,28 @@ import { dirname, join, resolve } from 'node:path';
 import tsconfigPaths from 'vite-tsconfig-paths';
 import { defineConfig } from 'vitest/config';
 
+import { canvasRuntime } from './plugins/vite/canvasRuntime';
+import { stylexPlugin, stylexTokenModules } from './plugins/vite/stylex';
+
 if (process.env.NODE_ENV === 'production') {
   Reflect.set(process.env, 'NODE_ENV', 'test');
 }
 
 // When this submodule is checked out inside the CPC enterprise shell repo,
 // point getTestDB() (packages/database/src/core/getTestDB.ts) at the
-// enterprise chain's migrations too, so model tests against tables owned
-// there (e.g. Channel MVP — see packages/database/src/privateSchemas/
-// channel.ts for why they live outside this repo's own chain) get a real
-// schema instead of "relation does not exist". A no-op in the plain OSS
-// checkout, where that directory doesn't exist.
+// enterprise chain's migrations too, so tests against tables owned there
+// (e.g. runtime_configs, organizations) get a real schema instead of
+// "relation does not exist". A no-op in the plain OSS checkout, where that
+// directory doesn't exist. The governance and Channel tables are not among
+// them: the tenant-only chain creates those.
 if (!process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER) {
   const enterpriseMigrationsFolder = resolve(
     __dirname,
-    '../packages/enterprise/src/database/migrations',
+    '../packages/enterprise/src/database/migrations/tenant',
   );
   if (existsSync(enterpriseMigrationsFolder)) {
     process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER = enterpriseMigrationsFolder;
+    process.env.TEST_DB_EXTRA_MIGRATIONS_SCHEMA = 'tenant_template';
   }
 }
 
@@ -102,10 +106,13 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['crypto', 'util', 'tty'],
-    include: ['@lobehub/tts'],
   },
   plugins: [
-    tsconfigPaths({ projects: ['.', './apps/workbench'] }),
+    // Standalone SPA files are outside the root tsconfig's include; load their
+    // own configs so aliases also resolve when their tests run in this project.
+    canvasRuntime(),
+    stylexPlugin(),
+    tsconfigPaths({ projects: ['.', './apps/auth', './apps/share', './apps/workbench'] }),
     // Let `.md` imports resolve to their raw text content so Rollup/Vitest
     // doesn't try to parse Markdown as JavaScript.
     {
@@ -172,7 +179,10 @@ export default defineConfig({
   test: {
     alias,
     env: process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER
-      ? { TEST_DB_EXTRA_MIGRATIONS_FOLDER: process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER }
+      ? {
+          TEST_DB_EXTRA_MIGRATIONS_FOLDER: process.env.TEST_DB_EXTRA_MIGRATIONS_FOLDER,
+          TEST_DB_EXTRA_MIGRATIONS_SCHEMA: process.env.TEST_DB_EXTRA_MIGRATIONS_SCHEMA,
+        }
       : undefined,
     coverage: {
       exclude: [
@@ -233,13 +243,6 @@ export default defineConfig({
         client: {
           enabled: true,
           rolldownOptions: {
-            // CJS deps bundled into the chunk (antd-style) call `require('react/jsx-runtime')`.
-            // Rolldown's ESM interop only works when a real `require` is in scope, and the dep
-            // optimizer cannot set `output.banner`, so inject the shim through `output.intro`.
-            output: {
-              intro:
-                'import { createRequire as __vitestCreateRequire } from "node:module"; const require = __vitestCreateRequire(import.meta.url);',
-            },
             // Dep optimization bypasses Vite plugins, so mirror the resolveId hacks here.
             plugins: [
               {
@@ -263,14 +266,23 @@ export default defineConfig({
             ],
           },
           // Setting `exclude` here replaces the root optimizeDeps.exclude; the node
-          // builtins must stay listed or vite swaps them for browser shims
-          exclude: ['crypto', 'util', 'tty'],
+          // builtins must stay listed or vite swaps them for browser shims.
+          // Vitest itself excludes `react`, which externalizes every `react/*`
+          // subpath, but vite only builds a `require()` facade for exact entries,
+          // so CJS deps in the chunk (re-resizable) need the jsx runtimes listed.
+          exclude: [
+            'crypto',
+            'util',
+            'tty',
+            'react/jsx-runtime',
+            'react/jsx-dev-runtime',
+            ...stylexTokenModules,
+          ],
           // Every imported subpath must be prebundled together: a subpath left to
           // vite-node loads a second copy of the library whose MotionProvider /
           // modal-stack contexts don't match the chunk's
           include: [
             '@lobehub/ui',
-            '@lobehub/ui/base-ui',
             '@lobehub/ui/icons',
             '@lobehub/ui/mobile',
             '@lobehub/ui/chat',

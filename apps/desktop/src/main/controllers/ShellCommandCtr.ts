@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { withExecutionSignal } from '@lobechat/device-gateway-client/executionSignal';
 import type { LocalSandboxPolicyOverlay, SandboxCapability } from '@lobechat/device-sandbox';
 import type {
   DesktopShellSettings,
@@ -328,7 +329,7 @@ export default class ShellCommandCtr extends ControllerModule {
   async ensureSandboxWorkspace({
     agentId,
   }: EnsureSandboxWorkspaceParams): Promise<EnsureSandboxWorkspaceResult> {
-    const target = path.join(os.homedir(), 'LobeHub', 'sandbox', safeSegment(agentId));
+    const target = path.join(os.homedir(), 'TiTuWork', 'sandbox', safeSegment(agentId));
     try {
       fs.mkdirSync(target, { recursive: true });
       // Resolve symlinks now: this exact string becomes the fence root, and the
@@ -371,13 +372,17 @@ export default class ShellCommandCtr extends ControllerModule {
   }
 
   @IpcMethod()
-  async handleRunCommand(params: RunCommandParams): Promise<RunCommandResult> {
+  async handleRunCommand(
+    params: RunCommandParams,
+    executionSignal?: AbortSignal,
+  ): Promise<RunCommandResult> {
+    executionSignal?.throwIfAborted();
     const processOwner = {
       topicId: params.topicId,
       agentId: params.agentId,
       label: params.description || 'Shell',
     };
-    const spawnProcess = spawnManagedFor(processOwner);
+    const spawnProcess = withExecutionSignal(spawnManagedFor(processOwner), executionSignal);
     params = {
       ...params,
       env: {

@@ -1,8 +1,7 @@
 'use client';
 
-import type { FormGroupItemType, FormItemProps } from '@lobehub/ui';
-import { Flexbox, Form, InputNumber, TextArea, Tooltip } from '@lobehub/ui';
-import { Switch } from '@lobehub/ui/base-ui';
+import { Flexbox, InputNumber, Switch, TextArea, Tooltip } from '@lobehub/ui';
+import { Form, type FormFieldProps, type FormGroupItem, useForm } from '@lobehub/ui/form';
 import isEqual from 'fast-deep-equal';
 import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -17,9 +16,11 @@ import { usePermission } from '@/hooks/usePermission';
 import { useSaveState } from '@/hooks/useSaveState';
 import { useUserStore } from '@/store/user';
 import { settingsSelectors } from '@/store/user/selectors';
-import type { SystemAgentItem, UserServiceModelConfigKey } from '@/types/user/settings';
-
-import { serviceModelFormStyles as styles } from './styles';
+import {
+  PERSONAL_SYSTEM_AGENT_KEYS,
+  type SystemAgentItem,
+  type UserServiceModelConfigKey,
+} from '@/types/user/settings';
 
 type ModelAssignmentItemKey = Exclude<
   UserServiceModelConfigKey,
@@ -59,7 +60,15 @@ const MEMORY_MODEL_ITEMS: SystemAgentModelItem[] = [
   { contextLimit: true, key: 'userMemoryEmbedding', modelType: 'embedding' },
 ];
 
-const ModelAssignmentsForm = memo(() => {
+interface ModelAssignmentsFormProps {
+  /**
+   * Drop the personal chat-assist rows (follow-up, input completion). The
+   * workspace surface edits them on its own Chat Preferences tab instead.
+   */
+  hidePersonalPreferences?: boolean;
+}
+
+const ModelAssignmentsForm = memo<ModelAssignmentsFormProps>(({ hidePersonalPreferences }) => {
   const { t } = useTranslation('setting');
   const { allowed: canManageServiceModel, reason } = usePermission('manage_settings');
   const [defaultAgent, systemAgentSettings] = useUserStore(
@@ -84,6 +93,7 @@ const ModelAssignmentsForm = memo(() => {
   // shared save-state — the write-side counterpart to the read-side AsyncError above.
   const [savingGroup, setSavingGroup] = useState<SavingGroup>();
   const { status: saveStatus, lastSavedAt, save, retry } = useSaveState();
+  const form = useForm();
 
   useEffect(() => {
     if (loadingKey === 'defaultAgent') setLoadingKey(undefined);
@@ -141,8 +151,7 @@ const ModelAssignmentsForm = memo(() => {
     }
   };
 
-  const defaultAgentItem: FormItemProps = {
-    className: styles.centeredLabel,
+  const defaultAgentItem: FormFieldProps = {
     children: (
       <Tooltip title={reason}>
         <Flexbox
@@ -167,11 +176,10 @@ const ModelAssignmentsForm = memo(() => {
     label: t('defaultAgent.title'),
   };
 
-  const systemModelItems: FormItemProps[] = SYSTEM_AGENT_MODEL_ITEMS.map(({ key }) => {
+  const systemModelItems: FormFieldProps[] = SYSTEM_AGENT_MODEL_ITEMS.map(({ key }) => {
     const value = systemAgentSettings[key];
 
     return {
-      className: styles.centeredLabel,
       children: (
         <Tooltip title={reason}>
           <Flexbox
@@ -191,10 +199,10 @@ const ModelAssignmentsForm = memo(() => {
         </Tooltip>
       ),
       label: t(`systemAgent.${key}.title`),
-    } satisfies FormItemProps;
+    } satisfies FormFieldProps;
   });
 
-  const memoryModelItems: FormItemProps[] = MEMORY_MODEL_ITEMS.map(
+  const memoryModelItems: FormFieldProps[] = MEMORY_MODEL_ITEMS.map(
     ({ contextLimit, key, modelType }) => {
       const value = systemAgentSettings[key];
 
@@ -232,11 +240,14 @@ const ModelAssignmentsForm = memo(() => {
         ),
         desc: t(`systemAgent.${key}.modelDesc`),
         label: t(`systemAgent.${key}.title`),
-      } satisfies FormItemProps;
+      } satisfies FormFieldProps;
     },
   );
 
-  const optionalFeatureItems: FormItemProps[] = OPTIONAL_FEATURE_ITEMS.map(({ key }) => {
+  const optionalFeatureItems: FormFieldProps[] = OPTIONAL_FEATURE_ITEMS.filter(
+    ({ key }) =>
+      !hidePersonalPreferences || !(PERSONAL_SYSTEM_AGENT_KEYS as readonly string[]).includes(key),
+  ).map(({ key }) => {
     const value = systemAgentSettings[key];
     const featureDisabled = value.enabled === false;
 
@@ -291,11 +302,11 @@ const ModelAssignmentsForm = memo(() => {
           {t(`systemAgent.${key}.title`)}
         </span>
       ),
-    } satisfies FormItemProps;
+    } satisfies FormFieldProps;
   });
 
   const asrValue = systemAgentSettings.asr;
-  const asrItem: FormItemProps = {
+  const asrItem: FormFieldProps = {
     children: (
       <Tooltip title={reason}>
         <Flexbox
@@ -328,7 +339,7 @@ const ModelAssignmentsForm = memo(() => {
       <AutoSaveHint lastUpdatedTime={lastSavedAt} saveStatus={saveStatus} onRetry={retry} />
     );
 
-  const modelAssignments: FormGroupItemType = {
+  const modelAssignments: FormGroupItem = {
     children: [defaultAgentItem, ...systemModelItems],
     extra: renderSaveHint('assignments'),
     title: (
@@ -338,7 +349,7 @@ const ModelAssignmentsForm = memo(() => {
     ),
   };
 
-  const optionalFeatures: FormGroupItemType = {
+  const optionalFeatures: FormGroupItem = {
     children: [...optionalFeatureItems, asrItem],
     extra: renderSaveHint('optional'),
     title: (
@@ -348,7 +359,7 @@ const ModelAssignmentsForm = memo(() => {
     ),
   };
 
-  const memoryModels: FormGroupItemType = {
+  const memoryModels: FormGroupItem = {
     children: memoryModelItems,
     extra: renderSaveHint('memory'),
     title: (
@@ -361,6 +372,7 @@ const ModelAssignmentsForm = memo(() => {
   return (
     <Form
       collapsible={false}
+      form={form}
       items={[modelAssignments, memoryModels, optionalFeatures]}
       itemsType={'group'}
       variant={'filled'}

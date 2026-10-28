@@ -1,6 +1,5 @@
 import { splitAssistantGroupFinalAnswer } from '@lobechat/conversation-flow';
-import { Flexbox } from '@lobehub/ui';
-import { createStaticStyles } from 'antd-style';
+import { createStaticStyles, Flexbox } from '@lobehub/ui';
 import isEqual from 'fast-deep-equal';
 import { Fragment, memo, useMemo } from 'react';
 
@@ -15,7 +14,7 @@ import { MessageAggregationContext } from '../../Contexts/MessageAggregationCont
 import { formatReasoningDuration } from '../toolDisplayNames';
 import { CollapsedMessage } from './CollapsedMessage';
 import type { GroupChainInput, GroupChainView } from './groupChain';
-import { buildChainView, getLastBlockCreatedAt, getTurnDurationMs } from './groupChain';
+import { buildChainView, getChainDurationsMs, getLastBlockCreatedAt } from './groupChain';
 import ProcessFold from './ProcessFold';
 import { renderChainSegment } from './renderChainSegment';
 import type { GroupRenderSegment } from './segments';
@@ -71,7 +70,11 @@ const Group = memo<GroupChildrenProps>(
     const [isCollapsed, generatingFlags] = useConversationStore(
       (s) => [
         messageStateSelectors.isMessageCollapsed(id)(s),
-        chains.map((chain) => messageStateSelectors.isAssistantGroupItemGenerating(chain.id)(s)),
+        chains.map(
+          (chain) =>
+            messageStateSelectors.isAssistantGroupItemGenerating(chain.id)(s) ||
+            messageStateSelectors.isMessageCreating(chain.id)(s),
+        ),
       ],
       isEqual,
     );
@@ -120,7 +123,7 @@ const Group = memo<GroupChildrenProps>(
       [chains, persistedFinishTypes],
     );
     const chainDurations = useConversationStore(
-      (s) => chains.map((chain) => getTurnDurationMs(s.dbMessages, chain.blocks)),
+      (s) => getChainDurationsMs(s.dbMessages, chains),
       isEqual,
     );
     const lastBlock = allBlocks.at(-1);
@@ -182,23 +185,24 @@ const Group = memo<GroupChildrenProps>(
     // that is the turn's payload; only the process collapses. The latest turn
     // is eligible only once its final answer exists (so a tool-only latest turn
     // does not collapse into a lone header); still-generating turns render in
-    // full. Steered continuations fold per turn: every earlier turn's output is
-    // process, only the last turn's final answer stays visible, and each steer
-    // bubble sits between the fold it interrupted and the fold it started.
-    const { processSegments, finalSegments } = splitAssistantGroupFinalAnswer(lastView.segments);
-    const processSegmentsOf = (view: GroupChainView) =>
-      view === lastView ? processSegments : view.segments;
+    // full. Steered continuations fold per turn, and each turn keeps its own
+    // final answer: a queued follow-up is only sent once the turn before it has
+    // finished, so that turn's answer is a real reply, not process. Each steer
+    // bubble sits after the answer of the turn it followed. A turn that stopped
+    // on a tool call has no final answer and folds whole.
+    const splits = views.map((view) => splitAssistantGroupFinalAnswer(view.segments));
+    const finalSegments = splits.at(-1)!.finalSegments;
     const foldProcess = shouldFoldProcess({
       enabled: enableProcessFold,
       hasFinalAnswer: hasRenderableFinalAnswer(finalSegments),
       isGenerating,
       isLatestItem,
       operationEnded: !views.some((view) => view.hasActiveOperation),
-      processSegments: views.flatMap(processSegmentsOf),
+      processSegments: splits.flatMap((split) => split.processSegments),
     });
 
     const renderFold = (view: GroupChainView, index: number) => {
-      const segments = processSegmentsOf(view);
+      const segments = splits[index]!.processSegments;
       if (segments.length === 0) return null;
       const durationMs = chainDurations[index] ?? 0;
       return (
@@ -217,14 +221,19 @@ const Group = memo<GroupChildrenProps>(
         {views.map((view, index) => (
           <Fragment key={view.id}>
             {view.steerUserId && <SteerMessage id={view.steerUserId} />}
-            {foldProcess ? renderFold(view, index) : renderChain(view, view.segments, 'process')}
+            {foldProcess ? (
+              <>
+                {renderFold(view, index)}
+                {renderChain(view, splits[index]!.finalSegments, 'final')}
+              </>
+            ) : (
+              renderChain(view, view.segments, 'process')
+            )}
           </Fragment>
         ))}
-        {foldProcess
-          ? renderChain(lastView, finalSegments, 'final')
-          : lastView.showTailRunningIndicator && (
-              <ContentLoading id={lastView.id} startTime={lastBlockCreatedAt} />
-            )}
+        {!foldProcess && lastView.showTailRunningIndicator && (
+          <ContentLoading id={lastView.id} startTime={lastBlockCreatedAt} />
+        )}
       </Flexbox>
     );
   },

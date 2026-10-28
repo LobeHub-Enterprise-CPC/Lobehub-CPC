@@ -18,6 +18,8 @@ const common = {
   'actions.submit': 'Submit',
   'app.description': 'Where Agents Collaborate',
   'app.name': 'LobeHub',
+  'gateway.workspaceAdminRequired':
+    'The account signed in on this device must be a workspace administrator to accept sharing. Sign in with a workspace administrator account, then share this device again.',
   'status.error': 'Error',
   'status.info': 'Information',
   'status.loading': 'Loading',

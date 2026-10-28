@@ -1,10 +1,12 @@
 import { BRANDING_NAME } from '@lobechat/business-const';
 import { DEFAULT_TOOL_RESULT_MAX_LENGTH, truncateToolResult } from '@lobechat/prompts/toolResult';
 import { type ChatToolPayload } from '@lobechat/types';
-import { isLocalOrPrivateUrl, safeParseJSON } from '@lobechat/utils';
+import { safeParseJSON } from '@lobechat/utils';
+import { isDeviceOnlyMcpEndpoint } from '@lobechat/utils/mcpEndpoint';
 import debug from 'debug';
 
 import { ConnectorToolPermission } from '@/database/schemas';
+import { composeExecutionId } from '@/libs/market-telemetry';
 import {
   type CloudMCPParams,
   type HttpMCPClientParams,
@@ -15,6 +17,7 @@ import {
   buildBlockedToolResponse,
   getConnectorToolPermission,
 } from '@/libs/mcp/connectorPermissionCheck';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { deviceGateway } from '@/server/services/deviceGateway';
 import { resolveDeviceClientKind } from '@/server/services/deviceGateway/deviceChannels';
 import { resolveDeviceDispatchAuthorizationFailure } from '@/server/services/deviceGateway/dispatchAuthorization';
@@ -22,10 +25,13 @@ import { getScopedOnlineDevices } from '@/server/services/deviceGateway/scopedDe
 import { contentBlocksToString } from '@/server/services/mcp/contentProcessor';
 
 import { DiscoverService } from '../discover';
+import { beginToolCallTelemetry, type ToolCallTelemetry } from '../marketTelemetry';
 import { type MCPService } from '../mcp';
 import { type BuiltinToolsExecutor } from './builtin';
 import { classifyToolError, getToolAccessDeniedError } from './errorClassification';
+import { buildMcpAuthorizationErrorContent, isMcpAuthorizationError } from './mcpAuthError';
 import { resolveRunWorkspaceId } from './serverRuntimes/resolveWorkspaceScope';
+import { withoutDeviceReplay } from './serverRuntimes/withoutDeviceReplay';
 import {
   type ToolExecutionContext,
   type ToolExecutionResult,
@@ -33,6 +39,22 @@ import {
 } from './types';
 
 const log = debug('lobe-server:tool-execution-service');
+
+/** What the dispatcher learns about how an MCP call was routed, for its report. */
+interface McpRoute {
+  viaDevice?: boolean;
+}
+
+/** A code Market can store: the executor's own, never free text. */
+const telemetryErrorCode = (error: unknown): string | undefined => {
+  const code = (error as { code?: unknown } | null | undefined)?.code;
+  return typeof code === 'string' && /^[\w.:-]{1,100}$/.test(code) ? code : undefined;
+};
+
+const telemetryErrorMessage = (data: ToolExecutionResult): string | undefined => {
+  const message = (data.errorData ?? data.error)?.message;
+  return typeof message === 'string' ? message : undefined;
+};
 
 interface ToolExecutionServiceDeps {
   builtinToolsExecutor: Pick<BuiltinToolsExecutor, 'execute'>;
@@ -140,6 +162,15 @@ export class ToolExecutionService {
 
     log('Executing tool: %s:%s (type: %s)', identifier, apiName, type);
 
+    const startTime = Date.now();
+    // The one boundary every MCP execution reports through — cloud, http/sse,
+    // stdio and device alike — started before anything can refuse or fail (the
+    // identity of the execution is already known here) and completed where the
+    // outcome becomes known.
+    const route: McpRoute = {};
+    const telemetry =
+      (type as string) === 'mcp' ? this.beginMcpTelemetry(payload, context) : undefined;
+
     // ── Connector tool permission gate (covers ALL paths + qstash) ────────
     // Check before any execution so that disabled tools are blocked universally:
     // Lobehub market skills, Composio, MCP connectors, and execAgent/qstash alike.
@@ -147,29 +178,41 @@ export class ToolExecutionService {
     // hard-block 'disabled' here (and needs_approval in headless/qstash context
     // since the manifest's humanIntervention auto-rejects them there already).
     if (context.serverDB && context.userId && identifier && apiName) {
-      const permission = await getConnectorToolPermission(
-        context.serverDB,
-        context.userId,
-        identifier,
-        apiName,
-        context.workspaceId,
-        context.agentId,
-      );
+      let permission: Awaited<ReturnType<typeof getConnectorToolPermission>>;
+      try {
+        permission = await getConnectorToolPermission(
+          context.serverDB,
+          context.userId,
+          identifier,
+          apiName,
+          context.workspaceId,
+          context.agentId,
+        );
+      } catch (error) {
+        // The lookup failure still escapes as before; the execution it stopped
+        // is reported as the failure it is.
+        telemetry?.complete({ thrown: error });
+        throw error;
+      }
       if (permission === ConnectorToolPermission.disabled) {
         log('Tool %s:%s is disabled by user — blocking execution', identifier, apiName);
         const blocked = buildBlockedToolResponse(apiName);
+        telemetry?.complete({
+          errorCode: 'TOOL_DISABLED',
+          errorMessage: 'The tool is disabled by the user',
+          success: false,
+        });
         return { ...blocked, executionTime: 0 };
       }
     }
     // ── End permission gate ───────────────────────────────────────────────
 
-    const startTime = Date.now();
     try {
       const typeStr = type as string;
       let data: ToolExecutionResult;
       switch (typeStr) {
         case 'mcp': {
-          data = await this.executeMCPTool(payload, context);
+          data = await this.executeMCPTool(payload, context, route);
           break;
         }
 
@@ -209,6 +252,13 @@ export class ToolExecutionService {
       }
 
       if (!data.success) {
+        telemetry?.complete({
+          errorCode: telemetryErrorCode(data.errorData ?? data.error),
+          errorMessage: telemetryErrorMessage(data),
+          result: data,
+          success: false,
+          viaDevice: route.viaDevice,
+        });
         return {
           ...data,
           content: truncatedContent,
@@ -216,6 +266,10 @@ export class ToolExecutionService {
           executionTime,
         };
       }
+
+      // A result can succeed as a call and still say it is an error (an MCP
+      // `isError`); `complete` reads that off the result.
+      telemetry?.complete({ result: data, success: true, viaDevice: route.viaDevice });
 
       return {
         ...data,
@@ -228,6 +282,7 @@ export class ToolExecutionService {
       const executionTime = Date.now() - startTime;
       log('Error executing tool %s:%s: %O', identifier, apiName, error);
       const errorMessage = getThrownErrorText(error);
+      telemetry?.complete({ thrown: error, viaDevice: route.viaDevice });
       const denial = getToolAccessDeniedError(error, errorMessage);
       const content = denial ? JSON.stringify({ error: denial }) : errorMessage;
 
@@ -240,9 +295,43 @@ export class ToolExecutionService {
     }
   }
 
+  /**
+   * Start the telemetry of one MCP execution. Its identity is the operation and
+   * the tool call (stable across a redelivered step) plus the retry loop's
+   * attempt (a retried tool is a new event). A run that cannot name both is an
+   * independent execution.
+   */
+  private beginMcpTelemetry(
+    payload: ChatToolPayload,
+    context: ToolExecutionContext,
+  ): ToolCallTelemetry {
+    const { apiName, id: toolCallId, identifier } = payload;
+    const mcpParams = (context.toolManifestMap[identifier] as any)?.mcpParams as
+      { command?: string; type?: string } | undefined;
+
+    return beginToolCallTelemetry({
+      attempt: context.executionAttempt,
+      command: mcpParams?.type === 'stdio' ? mcpParams.command : undefined,
+      context: { serverDB: context.serverDB, userId: context.userId },
+      executionId:
+        context.operationId && toolCallId
+          ? composeExecutionId(context.operationId, toolCallId)
+          : undefined,
+      identifier,
+      mcpType: mcpParams?.type,
+      meta: {
+        sessionId: context.topicId,
+        version: (context.toolManifestMap[identifier] as any)?.version,
+      },
+      methodName: apiName,
+      requestPayload: payload.arguments,
+    });
+  }
+
   private async executeMCPTool(
     payload: ChatToolPayload,
     context: ToolExecutionContext,
+    route: McpRoute = {},
   ): Promise<ToolExecutionResult> {
     const { identifier, apiName, arguments: args } = payload;
 
@@ -283,26 +372,43 @@ export class ToolExecutionService {
       mcpParams.type,
     );
 
+    const isDeviceOnlyMcp = isDeviceOnlyMcpEndpoint(mcpParams);
+
+    // Agent Share visitor runs execute with the CREATOR's identity, so a
+    // device-only MCP would access the creator's device or private network
+    // on a visitor's behalf. The tool-set gate already drops
+    // these manifests (`applyShareGateToToolSet`); this is the unbypassable
+    // dispatch-site check, mirroring `isShareBlockedBuiltinDispatch`.
+    if (context.agentShareVisitor && isDeviceOnlyMcp) {
+      log('Share gate blocked device-only MCP dispatch: %s:%s', identifier, apiName);
+      const message = `MCP server '${identifier}' runs on the agent owner's own machine and is not available in shared conversations.`;
+      return {
+        content: message,
+        error: { code: 'SHARE_GATE_BLOCKED', message },
+        success: false,
+      };
+    }
+
     try {
       // Check if this is a cloud MCP endpoint
       if (mcpParams.type === 'cloud') {
         return await this.executeCloudMCPTool(payload, context, mcpParams);
       }
 
-      // MCP servers only the user's machine can reach must not be called from
-      // the cloud: stdio (the binary lives on the user's machine) and
-      // localhost / private-network HTTP endpoints (the cloud's fetch can't
-      // reach them, #16533). When a device gateway is configured (cloud
-      // deployment), such calls MUST tunnel to a device — with no reachable
-      // device, fail fast with an actionable error instead of spawning the
-      // command / fetching the private URL on the server (the same rule the
-      // classic-path guard in connector exec enforces). Standalone Electron /
-      // self-host (no gateway) falls through to the in-process MCP service
-      // below, which legitimately runs on the user's machine or LAN.
-      const isDeviceOnlyMcp =
-        mcpParams.type === 'stdio' ||
-        (mcpParams.type === 'http' && isLocalOrPrivateUrl(mcpParams.url));
-      if (isDeviceOnlyMcp && deviceGateway.isConfigured) {
+      // Stdio must run on a desktop device. Without a configured gateway or a
+      // reachable device, fail instead of executing the command on the server.
+      // Private HTTP also uses the device when a gateway is configured, while
+      // self-hosted servers without one can still access their LAN over HTTP.
+      if (mcpParams.type === 'stdio' || (isDeviceOnlyMcp && deviceGateway.isConfigured)) {
+        if (!deviceGateway.isConfigured) {
+          const message = `MCP server '${identifier}' uses stdio and must run on a desktop device, but this server's device gateway is not configured. Configure a device gateway on the server and connect the desktop app on the machine that hosts this MCP server, then retry.`;
+          return {
+            content: message,
+            error: { code: 'MCP_GATEWAY_NOT_CONFIGURED', message },
+            success: false,
+          };
+        }
+
         const tunnelTarget = context.userId
           ? await this.resolveMcpTunnelTarget(context)
           : undefined;
@@ -315,10 +421,11 @@ export class ToolExecutionService {
             success: false,
           };
         }
+        route.viaDevice = true;
         return await this.executeMcpViaDevice(payload, context, mcpParams, tunnelTarget);
       }
 
-      // For stdio (in-process) / http/sse types, use standard MCP service
+      // HTTP MCP endpoints can execute through the server-side MCP service.
       const result = await this.mcpService.callTool({
         argsStr: args,
         clientParams: mcpParams,
@@ -334,6 +441,16 @@ export class ToolExecutionService {
       };
     } catch (error) {
       log('MCP tool execution failed for %s:%s: %O', identifier, apiName, error);
+      if (isMcpAuthorizationError(error)) {
+        const content = buildMcpAuthorizationErrorContent(identifier, {
+          isShareVisitor: !!context.agentShareVisitor,
+        });
+        return {
+          content,
+          error: { code: 'UNAUTHORIZED', message: (error as Error).message },
+          success: false,
+        };
+      }
       return {
         content: (error as Error).message,
         error: {
@@ -492,7 +609,9 @@ export class ToolExecutionService {
     );
 
     if (!result.success) {
-      return {
+      // The device may already be running the call, so never let the retry
+      // classifier replay it (see withoutDeviceReplay).
+      return withoutDeviceReplay({
         content: result.content,
         error: result.errorData ?? {
           code: 'MCP_DEVICE_EXECUTION_ERROR',
@@ -501,7 +620,7 @@ export class ToolExecutionService {
         errorData: result.errorData,
         ...(result.executionUnknown && { executionUnknown: true }),
         success: false,
-      };
+      });
     }
 
     return {
@@ -524,7 +643,12 @@ export class ToolExecutionService {
     try {
       // Create DiscoverService with user context
       const discoverService = new DiscoverService({
-        userInfo: context.userId ? { userId: context.userId } : undefined,
+        userInfo: context.userId
+          ? await resolveMarketServiceIdentity({
+              serverDB: context.serverDB,
+              userId: context.userId,
+            })
+          : undefined,
       });
 
       // Parse arguments

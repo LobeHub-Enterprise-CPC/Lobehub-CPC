@@ -1,9 +1,9 @@
-import { ASYNC_TASK_TIMEOUT } from '@lobechat/business-config/server';
+import { VIDEO_GENERATION_POLL_TIMEOUT } from '@lobechat/business-config/server';
 import {
   buildMappedBusinessModelFields,
   resolveBusinessModelMapping,
 } from '@lobechat/business-model-runtime';
-import type { VideoGenerationUsage } from '@lobechat/model-runtime';
+import type { PollVideoStatusResult, VideoGenerationUsage } from '@lobechat/model-runtime';
 import { RequestTrigger, type SpendOrigin, type VideoGenerationRoute } from '@lobechat/types';
 import debug from 'debug';
 import type { RuntimeVideoGenParams } from 'model-bank';
@@ -16,13 +16,51 @@ import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { GenerationModel } from '@/database/models/generation';
 import type { LobeChatDatabase } from '@/database/type';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { confirmExternalTenantWork } from '@/server/modules/Tenant/externalWork';
+import { GenerationService } from '@/server/services/generation';
 import { VideoGenerationService } from '@/server/services/generation/video';
 import { buildVideoGenerationFilePayload } from '@/server/services/generation/videoFile';
+import { measureVideoOutputUsage } from '@/server/services/generation/videoOutputUsage';
 import { AsyncTaskError, AsyncTaskErrorType, AsyncTaskStatus } from '@/types/asyncTask';
 import { FileSource } from '@/types/files';
 import type { VideoGenerationAsset } from '@/types/generation';
 
 const log = debug('lobe-video:background-polling');
+
+/**
+ * Raised when the provider reports a terminal failure for the task, or a success
+ * without a usable URL.
+ *
+ * It is deliberately distinguishable from transport errors: a poller that runs as a
+ * fallback next to a provider callback may not turn a network hiccup into a task
+ * failure, but an authoritative upstream failure must still surface immediately.
+ */
+export class VideoGenerationFailedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'VideoGenerationFailedError';
+  }
+}
+
+/** A single status query must not be able to consume the whole polling budget. */
+const STATUS_QUERY_TIMEOUT = 30_000;
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+
+  try {
+    // `Promise.race<T>([...])` is explicit on purpose. Left to inference, the array
+    // widens to `Promise<T> | Promise<never>` and `race` resolves to `unknown`, which
+    // erases the discriminated union the caller switches on (`status === 'success'`).
+    return await Promise.race<T>([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 interface BackgroundPollingParams {
   asyncTaskCreatedAt: Date;
@@ -32,12 +70,22 @@ interface BackgroundPollingParams {
   generationTopicId: string;
   inferenceId: string;
   model: string;
+  /**
+   * True when a provider callback is also expected for this task.
+   *
+   * The poller must then stay non-authoritative on failure: a transport error or an
+   * exhausted poll budget leaves the task in Processing for the callback, and only an
+   * explicit upstream failure finalizes it. The task deadline is the backstop.
+   */
+  pollingIsFallback?: boolean;
   prechargeResult?: any;
   previousGenerationId?: string;
   provider: string;
   route?: VideoGenerationRoute;
   /** Keeps the completion charge attributed like the webhook path, which reads it from the task row. */
   spendOrigin?: SpendOrigin;
+  /** Verified durable receipt, used only for admitted business compensation after resume. */
+  terminalReceipt?: Exclude<PollVideoStatusResult, { status: 'pending' }>;
   userId: string;
   workspaceId?: string;
 }
@@ -54,6 +102,7 @@ export async function processBackgroundVideoPolling(
     generationTopicId,
     inferenceId,
     model,
+    pollingIsFallback,
     prechargeResult,
     previousGenerationId,
     provider,
@@ -77,16 +126,28 @@ export async function processBackgroundVideoPolling(
     const videoService = new VideoGenerationService(db, userId, workspaceId);
     const generationModel = new GenerationModel(db, userId, workspaceId);
 
-    const modelRuntime = await initModelRuntimeFromDB(db, userId, provider, workspaceId);
-    // `route` was pinned for the mapped model id at creation, so poll with that id too;
-    // the user-facing alias may resolve to a router list that no longer holds the route.
-    const { resolvedModelId: pollModelId } = await resolveBusinessModelMapping(provider, model);
-    const pollResult = await pollUntilCompletion(modelRuntime, inferenceId, pollModelId, route);
+    let pollResult: {
+      videoUrl: string;
+      headers?: Record<string, string>;
+      usage?: VideoGenerationUsage;
+    } | null;
+    if (params.terminalReceipt) {
+      if (params.terminalReceipt.status === 'failed')
+        throw new VideoGenerationFailedError(String(params.terminalReceipt.error));
+      pollResult = params.terminalReceipt;
+    } else {
+      const modelRuntime = await initModelRuntimeFromDB(db, userId, provider, workspaceId);
+      const { resolvedModelId: pollModelId } = await resolveBusinessModelMapping(provider, model);
+      pollResult = await pollUntilCompletion(modelRuntime, inferenceId, pollModelId, route);
+    }
 
     if (!pollResult) {
       throw new Error('Polling completed but no video URL returned');
     }
 
+    await confirmExternalTenantWork('video', asyncTaskId, {
+      result: { status: 'success', ...pollResult },
+    });
     claimedByThisWorker = await AsyncTaskModel.claimVideoCompletion(db, asyncTaskId);
     if (!claimedByThisWorker) {
       log('Video task already claimed or finalized, skipping polling result: %s', asyncTaskId);
@@ -127,6 +188,12 @@ export async function processBackgroundVideoPolling(
       FileSource.VideoGeneration,
     );
 
+    // Before marking Success so the client's post-success topic refresh sees it
+    await new GenerationService(db, userId, workspaceId).ensureTopicCover(
+      generationTopicId,
+      processResult.thumbnailKey,
+    );
+
     const duration = Date.now() - asyncTaskCreatedAt.getTime();
 
     await asyncTaskModel.update(asyncTaskId, {
@@ -151,6 +218,7 @@ export async function processBackgroundVideoPolling(
       const { resolvedModelId } = await resolveBusinessModelMapping(provider, model);
       await chargeAfterGenerate({
         computePriceParams: {
+          duration: (batch?.config as RuntimeVideoGenParams | undefined)?.duration,
           generateAudio: (batch?.config as RuntimeVideoGenParams | undefined)?.generateAudio,
           resolution: (batch?.config as RuntimeVideoGenParams | undefined)?.resolution,
         },
@@ -169,7 +237,7 @@ export async function processBackgroundVideoPolling(
         model: resolvedModelId,
         prechargeResult,
         provider,
-        usage: pollResult.usage,
+        usage: pollResult.usage ?? measureVideoOutputUsage(resolvedModelId, processResult),
         userId,
         workspaceId,
       });
@@ -178,13 +246,36 @@ export async function processBackgroundVideoPolling(
     }
 
     log('Video processing completed successfully for task: %s', asyncTaskId);
+
+    console.info(
+      `[video] result stored asyncTask=${asyncTaskId} inferenceId=${inferenceId} provider=${provider} routerId=${route?.routerId ?? '-'} durationMs=${duration} mode=${pollingIsFallback ? 'fallback-polling' : 'polling'}`,
+    );
   } catch (error) {
     // Always visible regardless of DEBUG: this is the terminal "why the video
     // never showed up" reason, not routine per-attempt tracing — matches the
     // console.error already used for the infra-level catch in the caller
     // (routers/lambda/video/index.ts).
-    console.error(`[video] Background polling failed for task ${asyncTaskId}:`, error);
+    console.error(
+      `[video] polling failed asyncTask=${asyncTaskId} inferenceId=${inferenceId} provider=${provider} routerId=${route?.routerId ?? '-'} fallback=${Boolean(pollingIsFallback)}:`,
+      error,
+    );
 
+    // A fallback poller runs next to a provider callback that may still arrive, so it
+    // must not decide the outcome from its own transport failures or from running out
+    // of budget: doing so would fail a task whose video is generated and merely
+    // delivered through the other channel. Only an authoritative upstream failure
+    // finalizes it, and the video task deadline is the backstop for the rest.
+    if (pollingIsFallback && !(error instanceof VideoGenerationFailedError)) {
+      console.warn(
+        `[video] fallback polling inconclusive asyncTask=${asyncTaskId} inferenceId=${inferenceId}; leaving the task for the provider callback`,
+      );
+      return;
+    }
+
+    if (error instanceof VideoGenerationFailedError)
+      await confirmExternalTenantWork('video', asyncTaskId, {
+        result: { status: 'failed', error: error.message },
+      });
     const asyncTaskModel = new AsyncTaskModel(db, userId, workspaceId);
     if (!claimedByThisWorker) {
       claimedByThisWorker = await AsyncTaskModel.claimVideoCompletion(db, asyncTaskId);
@@ -225,6 +316,10 @@ export async function processBackgroundVideoPolling(
       status: AsyncTaskStatus.Error,
     });
 
+    console.error(
+      `[video] polling finalized as error asyncTask=${asyncTaskId} inferenceId=${inferenceId} provider=${provider} type=${providerContentPolicyMessage ? 'content-policy' : 'server'}`,
+    );
+
     try {
       const { resolvedModelId } = await resolveBusinessModelMapping(provider, model);
       await chargeAfterGenerate({
@@ -263,10 +358,16 @@ async function pollUntilCompletion(
   videoUrl: string;
 } | null> {
   const pollingInterval = 5000;
-  const maxRetries = Math.ceil(ASYNC_TASK_TIMEOUT / pollingInterval);
+  // Budget on wall-clock time, not on an attempt count: the provider query itself
+  // can block, and a count of intervals silently extends the real wait past the
+  // deadline it was derived from.
   const startedAt = Date.now();
+  const deadline = startedAt + VIDEO_GENERATION_POLL_TIMEOUT;
+  const budgetSec = Math.round(VIDEO_GENERATION_POLL_TIMEOUT / 1000);
+  let attempt = 0;
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
+  while (Date.now() < deadline) {
+    attempt += 1;
     const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
 
     try {
@@ -275,14 +376,18 @@ async function pollUntilCompletion(
       // time so a mid-flight platform kill (no further lines after this one)
       // can be told apart from a genuine multi-minute in-progress wait.
       log(
-        'Polling attempt %d/%d for task: %s (elapsed %ds)',
-        attempt + 1,
-        maxRetries,
+        'Polling attempt %d for task: %s (elapsed %ds/%ds)',
+        attempt,
         inferenceId,
         elapsedSec,
+        budgetSec,
       );
 
-      const result = await modelRuntime.handlePollVideoStatus(inferenceId, model, route);
+      const result = await withTimeout<PollVideoStatusResult>(
+        modelRuntime.handlePollVideoStatus(inferenceId, model, route),
+        STATUS_QUERY_TIMEOUT,
+        `Video status query did not answer within ${STATUS_QUERY_TIMEOUT / 1000}s`,
+      );
 
       log('Poll result for task %s at %ds: %O', inferenceId, elapsedSec, result);
 
@@ -292,17 +397,21 @@ async function pollUntilCompletion(
       }
 
       if (result.status === 'failed') {
-        throw new Error(`Video generation failed: ${result.error}`);
+        throw new VideoGenerationFailedError(`Video generation failed: ${result.error}`);
       }
 
       await sleep(pollingInterval);
     } catch (error) {
-      if (error instanceof Error && error.message.includes('failed')) {
+      // An explicit upstream failure ends the wait; everything else (network resets,
+      // provider 429/5xx, a single query that timed out) is retried on the normal
+      // interval until the budget is exhausted, which then reports the timeout.
+      if (error instanceof VideoGenerationFailedError) {
         throw error;
       }
+
       log(
         'Polling attempt %d failed for task: %s at %ds: %O',
-        attempt + 1,
+        attempt,
         inferenceId,
         elapsedSec,
         error,
@@ -311,9 +420,7 @@ async function pollUntilCompletion(
     }
   }
 
-  throw new Error(
-    `Video generation timeout after ${maxRetries} attempts (${(maxRetries * pollingInterval) / 1000}s)`,
-  );
+  throw new Error(`Video generation timeout after ${budgetSec}s of polling`);
 }
 
 function sleep(ms: number): Promise<void> {

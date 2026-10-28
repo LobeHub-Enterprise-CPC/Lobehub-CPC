@@ -2,6 +2,16 @@ import { WorkspaceMemberModel } from '@/database/models/workspaceMember';
 import type { AcceptanceItem } from '@/database/schemas/verify';
 import type { LobeChatDatabase } from '@/database/type';
 
+/**
+ * Workspace roles that may decide on a teammate's acceptance. Admins run the
+ * workspace day to day, so a delivery waiting on its author must not be stuck
+ * until the one owner turns up; members and viewers weigh in through approvals
+ * and comments instead.
+ */
+const DECIDER_ROLES = new Set(['owner', 'admin']);
+
+const isDeciderRole = (role?: string | null) => Boolean(role && DECIDER_ROLES.has(role));
+
 export interface AcceptanceScopeCtx {
   serverDB: LobeChatDatabase;
   userId?: string | null;
@@ -11,7 +21,7 @@ export interface AcceptanceScopeCtx {
  * May this caller write to this acceptance?
  *
  * The creator always may. Beyond that, an acceptance that belongs to a workspace
- * may also be managed by an OWNER of **that** workspace — not of the caller's
+ * may also be managed by an OWNER or ADMIN of **that** workspace — not of the caller's
  * currently-active one, which is frequently a different workspace or none at
  * all. Reading membership off the row's own workspace is what makes the rule
  * stable no matter where the caller happens to be standing, and it is the same
@@ -29,13 +39,14 @@ export async function canManageAcceptance(
     acceptance.workspaceId,
     ctx.userId,
   );
-  return member?.role === 'owner';
+  return isDeciderRole(member?.role);
 }
 
 /**
- * Batch twin of {@link canManageAcceptance} for sweep endpoints: same rule,
- * but ONE membership lookup per distinct workspace instead of one per row —
- * a 200-row sweep must not turn authorization into 200 serial queries.
+ * Batch twin of {@link canManageAcceptance} for sweep and list endpoints: same
+ * rule, but the caller's roles in every distinct foreign workspace come back in
+ * ONE read — a 200-row sweep, or a participated page spanning many workspaces,
+ * must not turn authorization into a chain of sequential queries.
  */
 export async function filterManageableAcceptances<
   T extends Pick<AcceptanceItem, 'userId' | 'workspaceId'>,
@@ -50,16 +61,14 @@ export async function filterManageableAcceptances<
         .map((row) => row.workspaceId as string),
     ),
   ];
-  const owned = new Set<string>();
-  for (const workspaceId of foreignWorkspaceIds) {
-    const member = await new WorkspaceMemberModel(ctx.serverDB, userId).getMember(
-      workspaceId,
-      userId,
-    );
-    if (member?.role === 'owner') owned.add(workspaceId);
-  }
+  const roles = await new WorkspaceMemberModel(ctx.serverDB, userId).getRolesInWorkspaces(
+    foreignWorkspaceIds,
+    userId,
+  );
 
   return rows.filter(
-    (row) => row.userId === userId || (row.workspaceId ? owned.has(row.workspaceId) : false),
+    (row) =>
+      row.userId === userId ||
+      (row.workspaceId ? isDeciderRole(roles.get(row.workspaceId)) : false),
   );
 }

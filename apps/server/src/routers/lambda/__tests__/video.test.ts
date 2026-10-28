@@ -4,10 +4,14 @@ import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { FileService } from '@/server/services/file';
 import { AsyncTaskStatus } from '@/types/asyncTask';
 
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 // ---- hoisted mocks (available inside vi.mock factories) ----
 
 const {
   mockCreateVideo,
+  mockFillVideoPricingDefaults,
   mockFindPreviousGeneration,
   mockFindUserById,
   mockGenerationTopicFindById,
@@ -15,6 +19,7 @@ const {
   mockIsLobeHubModelAvailable,
   mockProcessBackgroundVideoPolling,
   mockResolveBusinessModelMapping,
+  mockSupportsVideoPolling,
   mockAfter,
   mockAppEnv,
   mockServerDB,
@@ -33,6 +38,7 @@ const {
   const mockAfter = vi.fn(function (cb: () => void) {
     return cb();
   });
+  const mockFillVideoPricingDefaults = vi.fn(async ({ params }: { params: unknown }) => params);
   const mockAppEnv = {
     APP_URL: 'https://app.example.com',
     VIDEO_GENERATION_PREFER_WEBHOOK: false,
@@ -45,8 +51,10 @@ const {
   const mockIsLobeHubModelAvailable = vi.fn();
   const mockProcessBackgroundVideoPolling = vi.fn().mockResolvedValue(undefined);
   const mockResolveBusinessModelMapping = vi.fn();
+  const mockSupportsVideoPolling = vi.fn(() => true);
   return {
     mockCreateVideo,
+    mockFillVideoPricingDefaults,
     mockFindPreviousGeneration,
     mockFindUserById,
     mockGenerationTopicFindById,
@@ -54,6 +62,7 @@ const {
     mockIsLobeHubModelAvailable,
     mockProcessBackgroundVideoPolling,
     mockResolveBusinessModelMapping,
+    mockSupportsVideoPolling,
     mockAfter,
     mockAppEnv,
     mockServerDB,
@@ -90,7 +99,10 @@ vi.mock('@/database/server', () => ({
   getServerDB: vi.fn().mockResolvedValue(mockServerDB),
 }));
 vi.mock('@/server/modules/ModelRuntime', () => ({
-  initModelRuntimeFromDB: vi.fn().mockResolvedValue({ createVideo: mockCreateVideo }),
+  initModelRuntimeFromDB: vi.fn().mockResolvedValue({
+    createVideo: mockCreateVideo,
+    supportsVideoPolling: () => mockSupportsVideoPolling(),
+  }),
 }));
 vi.mock('@/business/server/video-generation/chargeBeforeGenerate', () => ({
   chargeBeforeGenerate: vi.fn().mockResolvedValue({ errorBatch: null, prechargeResult: null }),
@@ -111,6 +123,9 @@ vi.mock('@lobechat/business-model-bank/model-config', () => ({
       { getUserEmail?: () => Promise<string | null | undefined>; userEmail?: string | null }?,
     ]
   ) => mockIsLobeHubModelAvailable(...args),
+}));
+vi.mock('@/server/services/generation/videoPricingDefaults', () => ({
+  fillVideoPricingDefaults: mockFillVideoPricingDefaults,
 }));
 vi.mock('@/business/server/video-generation/getVideoFreeQuota', () => ({
   getVideoFreeQuota: vi.fn().mockResolvedValue({ remaining: 10 }),
@@ -219,6 +234,7 @@ describe('videoRouter', () => {
     mockServerDB.query.generationBatches.findFirst.mockResolvedValue(undefined);
     mockAppEnv.VIDEO_GENERATION_PREFER_WEBHOOK = false;
     mockAppEnv.WEBHOOK_PROXY_URL = undefined;
+    mockSupportsVideoPolling.mockReturnValue(true);
   });
 
   describe('createVideo - async strategy routing', () => {
@@ -235,7 +251,9 @@ describe('videoRouter', () => {
       expect(result.success).toBe(true);
       expect(mockCreateVideo).toHaveBeenCalledWith(
         expect.objectContaining({
-          callbackUrl: expect.stringMatching(/^https:\/\/app\.example\.com\/api\/webhooks\/video/),
+          callbackUrl: expect.stringMatching(
+            /^https:\/\/app\.example\.com\/t\/acme\/api\/webhooks\/video/,
+          ),
         }),
         expect.objectContaining({ preferredCompletionMode: 'polling' }),
       );
@@ -247,8 +265,34 @@ describe('videoRouter', () => {
         },
         status: AsyncTaskStatus.Processing,
       });
-      // Webhook: should NOT trigger background polling
+      // Regression cover (Volcengine/Seedance): a webhook completion must ALSO get the
+      // poller. When it did not, a callback that never arrived left the task in
+      // `processing` until the watchdog killed it, even though the render had
+      // succeeded upstream.
+      expect(mockProcessBackgroundVideoPolling).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          asyncTaskId: 'async-1',
+          inferenceId: 'inf-1',
+          pollingIsFallback: true,
+        }),
+      );
+    });
+
+    it('should keep waiting for the callback when the runtime has no poller', async () => {
+      setupMocks();
+      mockSupportsVideoPolling.mockReturnValue(false);
+      mockCreateVideo.mockResolvedValue({
+        completionMode: 'webhook',
+        inferenceId: 'inf-webhook-only',
+      });
+
+      const caller = videoRouter.createCaller(mockCtx);
+      await caller.createVideo(defaultInput);
+
+      // Nothing to poll: the callback is the only completion path for this runtime.
       expect(mockAfter).not.toHaveBeenCalled();
+      expect(mockProcessBackgroundVideoPolling).not.toHaveBeenCalled();
     });
 
     it('should pass the webhook preference and typed proxy callback URL to the runtime', async () => {
@@ -266,7 +310,7 @@ describe('videoRouter', () => {
       expect(mockCreateVideo).toHaveBeenCalledWith(
         expect.objectContaining({
           callbackUrl: expect.stringMatching(
-            /^https:\/\/local-tunnel\.example\.com\/api\/webhooks\/video/,
+            /^https:\/\/local-tunnel\.example\.com\/t\/acme\/api\/webhooks\/video/,
           ),
         }),
         expect.objectContaining({ preferredCompletionMode: 'webhook' }),
@@ -283,14 +327,14 @@ describe('videoRouter', () => {
       expect(mockCreateVideo).toHaveBeenCalledWith(
         expect.objectContaining({
           callbackUrl: expect.stringMatching(
-            /^https:\/\/proxy\.example\.com\/lobehub\/api\/webhooks\/video\/[^?]+\?/,
+            /^https:\/\/proxy\.example\.com\/lobehub\/t\/acme\/api\/webhooks\/video\/[^?]+\?/,
           ),
         }),
         expect.any(Object),
       );
     });
 
-    it('should preserve route metadata without polling for a webhook-based interaction', async () => {
+    it('should preserve route metadata and poll the pinned route for a webhook-based interaction', async () => {
       const { mockUpdate } = setupMocks();
       mockCreateVideo.mockImplementation(async (_payload, options) => {
         options.metadata.routeAttempt = {
@@ -308,8 +352,21 @@ describe('videoRouter', () => {
       const caller = videoRouter.createCaller(mockCtx);
       await caller.createVideo(defaultInput);
 
-      expect(mockAfter).not.toHaveBeenCalled();
-      expect(mockProcessBackgroundVideoPolling).not.toHaveBeenCalled();
+      // The fallback poller must reuse the route pinned at submission instead of
+      // resolving a fresh one, otherwise it queries a channel the task was not
+      // created on.
+      expect(mockProcessBackgroundVideoPolling).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          inferenceId: 'interactions/omni-1',
+          pollingIsFallback: true,
+          route: {
+            apiType: 'google',
+            channelId: 'google-channel-2',
+            routerId: 'google-router',
+          },
+        }),
+      );
       expect(mockUpdate).toHaveBeenCalledWith(
         'async-1',
         expect.objectContaining({
@@ -606,7 +663,7 @@ describe('videoRouter', () => {
       expect(mockProcessBackgroundVideoPolling).toHaveBeenCalled();
     });
 
-    it('should not start polling for a webhook task', async () => {
+    it('should start the fallback poller for a webhook task', async () => {
       setupMocks();
       mockCreateVideo.mockResolvedValue({
         completionMode: 'webhook',
@@ -616,8 +673,17 @@ describe('videoRouter', () => {
       const caller = videoRouter.createCaller(mockCtx);
       await caller.createVideo(defaultInput);
 
-      expect(mockAfter).not.toHaveBeenCalled();
-      expect(mockProcessBackgroundVideoPolling).not.toHaveBeenCalled();
+      // Webhook mode used to rely on the callback alone, which stranded every task
+      // whose callback never arrived (INC-016). The poller now runs alongside it and
+      // is marked as a fallback so it cannot finalize the task on its own failure.
+      expect(mockAfter).toHaveBeenCalled();
+      expect(mockProcessBackgroundVideoPolling).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          inferenceId: 'inf-4',
+          pollingIsFallback: true,
+        }),
+      );
     });
   });
 
@@ -656,6 +722,36 @@ describe('videoRouter', () => {
       await caller.createVideo(defaultInput);
 
       expect(chargeBeforeGenerate).toHaveBeenCalledWith(expect.objectContaining({ spendOrigin }));
+    });
+
+    it('prices and generates with the model defaults the request omitted', async () => {
+      setupMocks();
+      const { chargeBeforeGenerate } =
+        await import('@/business/server/video-generation/chargeBeforeGenerate');
+      mockFillVideoPricingDefaults.mockImplementationOnce(async ({ params }) => ({
+        ...(params as object),
+        duration: 5,
+        resolution: '768P',
+      }));
+
+      const caller = videoRouter.createCaller(mockCtx);
+      await caller.createVideo(defaultInput);
+
+      expect(mockFillVideoPricingDefaults).toHaveBeenCalledWith(
+        expect.objectContaining({ params: defaultInput.params }),
+      );
+      expect(chargeBeforeGenerate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: expect.objectContaining({ duration: 5, resolution: '768P' }),
+          providerParams: expect.objectContaining({ duration: 5, resolution: '768P' }),
+        }),
+      );
+      expect(mockCreateVideo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: expect.objectContaining({ duration: 5, resolution: '768P' }),
+        }),
+        expect.anything(),
+      );
     });
 
     it('should return error batch when pre-charge fails', async () => {

@@ -1,9 +1,7 @@
 'use client';
 
-import { DropdownMenu, Flexbox, Icon } from '@lobehub/ui';
-import { ActionIcon, Button, type ModalInstance } from '@lobehub/ui/base-ui';
-import { Divider } from 'antd';
-import { useTheme } from 'antd-style';
+import { DropdownMenu, Flexbox, Icon, useTheme } from '@lobehub/ui';
+import { ActionIcon, Button, Divider, type ModalInstance } from '@lobehub/ui';
 import { MoreHorizontalIcon, PlayIcon, Settings2Icon, UsersIcon } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -15,6 +13,7 @@ import { useAgentGroupTransferToMemberMenuItem } from '@/business/client/hooks/u
 import { useHasActiveWorkspace } from '@/business/client/hooks/useHasActiveWorkspace';
 import { EditingIndicator, type EditLockClient, useEditLock } from '@/features/EditLock';
 import { EditorCanvas } from '@/features/EditorCanvas';
+import { useAdvancedModeMenuItem } from '@/features/NavPanel/useAdvancedModeMenuItem';
 import AccessLevelTag from '@/features/ResourcePermission/AccessLevelTag';
 import { useResourceAccess } from '@/features/ResourcePermission/useResourceAccess';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
@@ -68,6 +67,7 @@ const GroupProfile = memo(() => {
   // page, matching the agent profile header. Shown for private groups too: the
   // creator sets there what members get the moment the group is published.
   const showPermissionPageEntry = hasActiveWorkspace && !!groupId;
+  const advancedModeMenuItem = useAdvancedModeMenuItem('group');
   const moreMenuItems = useMemo(() => {
     const permissionMenuItem = showPermissionPageEntry
       ? {
@@ -87,6 +87,11 @@ const GroupProfile = memo(() => {
       : null;
 
     return [
+      advancedModeMenuItem,
+      advancedModeMenuItem &&
+      (permissionMenuItem || transferMenuItems?.length || transferToMemberItem)
+        ? ({ type: 'divider' } as const)
+        : null,
       permissionMenuItem,
       permissionMenuItem && (transferMenuItems?.length || transferToMemberItem)
         ? ({ type: 'divider' } as const)
@@ -95,6 +100,7 @@ const GroupProfile = memo(() => {
       transferToMemberItem,
     ].filter(Boolean);
   }, [
+    advancedModeMenuItem,
     canEdit,
     groupId,
     navigate,
@@ -249,7 +255,7 @@ const GroupProfile = memo(() => {
           </Button>
         </Flexbox>
       </Flexbox>
-      <Divider />
+      <Divider style={{ marginBlock: 24 }} />
       {/* Group Content Editor */}
       <EditingIndicator
         holderId={lock.lockedByOther ? lock.holderId : null}

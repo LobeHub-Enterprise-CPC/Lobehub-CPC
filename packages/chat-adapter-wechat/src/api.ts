@@ -121,9 +121,20 @@ function combinedSignal(signal?: AbortSignal, timeoutMs: number = POLL_TIMEOUT_M
 export class WechatApiClient {
   private readonly botToken: string;
   private readonly baseUrl: string;
+  private readonly fetchImpl: typeof fetch;
   botId: string;
 
-  constructor(botToken: string, botId?: string, baseUrl?: string) {
+  /**
+   * @param options.fetch - Transport for the iLink API host (`baseUrl`). Servers pass an
+   * SSRF-safe one when `baseUrl` is user-provided; the default is the global `fetch`.
+   */
+  constructor(
+    botToken: string,
+    botId?: string,
+    baseUrl?: string,
+    options: { fetch?: typeof fetch } = {},
+  ) {
+    this.fetchImpl = options.fetch ?? ((input, init) => fetch(input, init));
     this.botToken = botToken;
     this.botId = botId || '';
     this.baseUrl = stripTrailingSlashes(baseUrl || DEFAULT_BASE_URL);
@@ -139,7 +150,7 @@ export class WechatApiClient {
       get_updates_buf: cursor || '',
     };
 
-    const response = await fetch(`${this.baseUrl}/ilink/bot/getupdates`, {
+    const response = await this.fetchImpl(`${this.baseUrl}/ilink/bot/getupdates`, {
       body: JSON.stringify(body),
       headers: buildHeaders(this.botToken),
       method: 'POST',
@@ -197,7 +208,7 @@ export class WechatApiClient {
       },
     };
 
-    const response = await fetch(`${this.baseUrl}/ilink/bot/sendmessage`, {
+    const response = await this.fetchImpl(`${this.baseUrl}/ilink/bot/sendmessage`, {
       body: JSON.stringify(body),
       headers: buildHeaders(this.botToken),
       method: 'POST',
@@ -233,7 +244,7 @@ export class WechatApiClient {
     const rawfilemd5 = createHash('md5').update(plaintext).digest('hex');
 
     // Step 1: request upload_param
-    const uploadParamResp = await fetch(`${this.baseUrl}/ilink/bot/getuploadurl`, {
+    const uploadParamResp = await this.fetchImpl(`${this.baseUrl}/ilink/bot/getuploadurl`, {
       body: JSON.stringify({
         aeskey: aesKeyHex,
         base_info: BASE_INFO,
@@ -301,7 +312,7 @@ export class WechatApiClient {
    * Send typing indicator via iLink Bot API.
    */
   async sendTyping(toUserId: string, typingTicket: string, start = true): Promise<void> {
-    await fetch(`${this.baseUrl}/ilink/bot/sendtyping`, {
+    await this.fetchImpl(`${this.baseUrl}/ilink/bot/sendtyping`, {
       body: JSON.stringify({
         base_info: BASE_INFO,
         ilink_user_id: toUserId,
@@ -373,7 +384,7 @@ export class WechatApiClient {
    * Requires userId and contextToken per reference implementation.
    */
   async getConfig(userId: string, contextToken: string): Promise<WechatGetConfigResponse> {
-    const response = await fetch(`${this.baseUrl}/ilink/bot/getconfig`, {
+    const response = await this.fetchImpl(`${this.baseUrl}/ilink/bot/getconfig`, {
       body: JSON.stringify({
         base_info: BASE_INFO,
         context_token: contextToken,

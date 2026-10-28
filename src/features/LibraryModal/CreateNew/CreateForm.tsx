@@ -1,5 +1,5 @@
-import { Flexbox, Input, TextArea } from '@lobehub/ui';
-import { Button } from '@lobehub/ui/base-ui';
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
+import { Button, Flexbox, Input, TextArea } from '@lobehub/ui';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -65,7 +65,9 @@ const CreateForm = memo<CreateFormProps>(({ id, initialValues, onClose, onSucces
           // Workspace routes are mounted under `/:workspaceSlug`, so the hard
           // navigation must carry the active slug or it lands in the personal
           // scope where the new library does not resolve.
-          window.location.href = buildLibraryPath(newId, activeWorkspaceSlug);
+          window.location.href = withCurrentTenantPath(
+            buildLibraryPath(newId, activeWorkspaceSlug),
+          );
         }
       }
     } catch (e) {

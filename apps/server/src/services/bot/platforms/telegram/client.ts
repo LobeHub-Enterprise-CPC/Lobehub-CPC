@@ -191,9 +191,14 @@ class TelegramWebhookClient implements PlatformClient {
   }
 
   private async registerWebhook(): Promise<string> {
-    const baseUrl = (this.config.credentials.webhookProxyUrl || this.context.appUrl || '')
-      .trim()
-      .replace(/\/$/, '');
+    // `appUrl` is the tenant's public base; a webhook proxy replaces only its
+    // origin, so the tenant path is kept behind the proxy too.
+    const appUrl = (this.context.appUrl || '').trim().replace(/\/$/, '');
+    const proxyUrl = (this.config.credentials.webhookProxyUrl || '').trim().replace(/\/$/, '');
+    const baseUrl =
+      proxyUrl && appUrl
+        ? `${proxyUrl}${new URL(appUrl).pathname.replace(/\/$/, '')}`
+        : proxyUrl || appUrl;
     const webhookUrl = `${baseUrl}/api/agent/webhooks/telegram/${this.applicationId}`;
     await setTelegramWebhook(
       this.config.credentials.botToken,

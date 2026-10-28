@@ -183,6 +183,79 @@ describe('BackendProxyProtocolManager', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  describe('remote base url with a tenant path prefix', () => {
+    const rewrite = async (base: string, url: string) => {
+      const manager = new BackendProxyProtocolManager();
+      const session = {} as any;
+      const fetchMock = vi.fn<FetchMock>(async () => new Response('ok', { status: 200 }));
+      vi.stubGlobal('fetch', fetchMock as any);
+
+      manager.registerWithRemoteBaseUrl(session, {
+        getAccessToken: async () => 'token',
+        getRemoteBaseUrl: async () => base,
+      });
+
+      const res = await manager.proxy(
+        { headers: new Headers(), method: 'GET', url } as any,
+        session,
+      );
+      return { fetchMock, res };
+    };
+
+    it.each(['https://remote.example.com/t/acme', 'https://remote.example.com/t/acme/'])(
+      'mounts renderer backend paths under the tenant prefix of %s',
+      async (base) => {
+        const { fetchMock, res } = await rewrite(base, 'app://renderer/trpc/hello?batch=1');
+
+        expect(res).not.toBeNull();
+        expect(fetchMock.mock.calls[0]![0]).toBe(
+          'https://remote.example.com/t/acme/trpc/hello?batch=1',
+        );
+        expect(res!.headers.get('X-Src-Url')).toBe(
+          'https://remote.example.com/t/acme/trpc/hello?batch=1',
+        );
+      },
+    );
+
+    it('does not rewrite a same-origin request that already targets the tenant address', async () => {
+      const { fetchMock, res } = await rewrite(
+        'https://remote.example.com/t/acme',
+        'https://remote.example.com/t/acme/trpc/hello',
+      );
+
+      expect(res).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('does not let a same-origin root path through to the tenant-less root', async () => {
+      const { fetchMock, res } = await rewrite(
+        'https://remote.example.com/t/acme',
+        'https://remote.example.com/trpc/hello?x=1',
+      );
+
+      expect(res).not.toBeNull();
+      expect(fetchMock.mock.calls[0]![0]).toBe('https://remote.example.com/t/acme/trpc/hello?x=1');
+    });
+
+    it('does not add the prefix twice to a path that already carries it', async () => {
+      const { fetchMock } = await rewrite(
+        'https://remote.example.com/t/acme',
+        'app://renderer/t/acme/trpc/hello',
+      );
+
+      expect(fetchMock.mock.calls[0]![0]).toBe('https://remote.example.com/t/acme/trpc/hello');
+    });
+
+    it('keeps the root behaviour for a custom-domain root address', async () => {
+      const { fetchMock } = await rewrite(
+        'https://custom.example.com',
+        'app://renderer/trpc/hello',
+      );
+
+      expect(fetchMock.mock.calls[0]![0]).toBe('https://custom.example.com/trpc/hello');
+    });
+  });
+
   it('returns null when rewrite fails (invalid remote base url)', async () => {
     const manager = new BackendProxyProtocolManager();
     const session = {} as any;
@@ -496,6 +569,67 @@ describe('BackendProxyProtocolManager', () => {
       expect(res!.status).toBe(502);
     });
 
+    describe('signed out (the session has no remote server to talk to)', () => {
+      const signedOutInterceptor = () => {
+        const manager = new BackendProxyProtocolManager();
+        manager.registerWithRemoteBaseUrl(electronSession.defaultSession as any, {
+          getAccessToken: async () => null,
+          getRemoteBaseUrl: async () => null,
+        });
+        return manager.createAppRequestInterceptor();
+      };
+      const call = (interceptor: ReturnType<typeof signedOutInterceptor>, path: string) =>
+        interceptor({ headers: new Headers(), method: 'GET', url: `app://renderer${path}` } as any);
+
+      it('answers tRPC with a 401 UNAUTHORIZED the client parses for every call of a batch', async () => {
+        const fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock as any);
+
+        const res = await call(signedOutInterceptor(), '/trpc/lambda/a.b,c.d?batch=1&input=%7B%7D');
+
+        expect(res!.status).toBe(401);
+        expect(res!.headers.get('content-type')).toContain('application/json');
+        // A bare error object (not an array) is applied to every operation of the batch.
+        const body = await res!.json();
+        expect(Array.isArray(body)).toBe(false);
+        expect(body).toEqual({
+          error: {
+            json: {
+              code: -32_001,
+              data: { code: 'UNAUTHORIZED', httpStatus: 401 },
+              message: expect.any(String),
+            },
+          },
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+      });
+
+      it('is a plain "not signed in", never the "session expired" prompt', async () => {
+        vi.useFakeTimers();
+        const send = vi.fn();
+        vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
+          { isDestroyed: () => false, webContents: { send } },
+        ] as any);
+
+        const res = await call(signedOutInterceptor(), '/trpc/lambda/a.b');
+        await vi.advanceTimersByTimeAsync(5000);
+
+        expect(res!.headers.has(AUTH_REQUIRED_HEADER)).toBe(false);
+        expect(send).not.toHaveBeenCalled();
+      });
+
+      it.each(['/webapi/chat/openai', '/api/auth/session', '/market/agents'])(
+        'answers %s with the app error envelope at 401',
+        async (path) => {
+          const res = await call(signedOutInterceptor(), path);
+
+          expect(res!.status).toBe(401);
+          expect(res!.headers.has(AUTH_REQUIRED_HEADER)).toBe(false);
+          expect(await res!.json()).toEqual({ body: expect.any(Object), errorType: 401 });
+        },
+      );
+    });
+
     it('proxies backend paths through the registered default-session context', async () => {
       const fetchMock = vi.fn<FetchMock>(async () => new Response('proxied', { status: 200 }));
       vi.stubGlobal('fetch', fetchMock as any);
@@ -570,6 +704,52 @@ describe('BackendProxyProtocolManager', () => {
         body: { detail: 'net::ERR_TIMED_OUT', url: 'https://remote.example.com/trpc/hello' },
         errorType: 'RemoteServerTimeout',
       });
+    });
+  });
+
+  describe('409 TENANT_ENDPOINT_CHANGED', () => {
+    const proxyWith = async (response: Response) => {
+      const manager = new BackendProxyProtocolManager();
+      const session = {} as any;
+      const onEndpointChanged = vi.fn();
+      vi.stubGlobal('fetch', vi.fn(async () => response) as any);
+      manager.registerWithRemoteBaseUrl(session, {
+        getAccessToken: async () => 'token',
+        getRemoteBaseUrl: async () => 'https://remote.example.com/t/acme',
+        onEndpointChanged,
+      });
+
+      const proxied = await manager.proxy(
+        { headers: new Headers(), method: 'GET', url: 'app://renderer/trpc/hello' } as any,
+        session,
+      );
+      return { onEndpointChanged, proxied };
+    };
+
+    it('tells the session owner once and still returns the response untouched', async () => {
+      const body = JSON.stringify({
+        activeUrl: 'https://elsewhere.example/t/acme',
+        code: 'TENANT_ENDPOINT_CHANGED',
+      });
+
+      const { onEndpointChanged, proxied } = await proxyWith(new Response(body, { status: 409 }));
+
+      expect(onEndpointChanged).toHaveBeenCalledTimes(1);
+      expect(proxied!.status).toBe(409);
+      expect(await proxied!.text()).toBe(body);
+    });
+
+    it.each([
+      ['another 409 body', new Response('{"code":"CONFLICT"}', { status: 409 })],
+      ['a non-JSON 409', new Response('conflict', { status: 409 })],
+      [
+        'a 200 carrying the code',
+        new Response('{"code":"TENANT_ENDPOINT_CHANGED"}', { status: 200 }),
+      ],
+    ])('ignores %s', async (_name, response) => {
+      const { onEndpointChanged } = await proxyWith(response);
+
+      expect(onEndpointChanged).not.toHaveBeenCalled();
     });
   });
 });

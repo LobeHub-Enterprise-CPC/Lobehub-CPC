@@ -22,7 +22,7 @@ import type { LobeChatDatabase } from '@/database/type';
 import { getComposioClient } from '@/libs/composio';
 import { inferCrudType } from '@/libs/mcp/utils';
 import { router } from '@/libs/trpc/lambda';
-import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { serverDatabase, telemetry } from '@/libs/trpc/lambda/middleware';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { callConnectorToolById, ConnectorToolCallError } from '@/server/services/connector/exec';
 import {
@@ -30,12 +30,15 @@ import {
   discoverConnectorOAuth,
   getConnectorRedirectUri,
   registerDynamicClient,
+  registeredAuthMethod,
+  toClientInformation,
 } from '@/server/services/connector/oauth';
 import {
   generateConnectorOAuthState,
   saveConnectorOAuthState,
 } from '@/server/services/connector/stateStore';
 import { syncConnectorToolsById } from '@/server/services/connector/sync';
+import { beginToolCallTelemetry } from '@/server/services/marketTelemetry';
 import { hasWorkspaceScopedPermission } from '@/server/services/workspacePermission';
 import {
   resolveConnectorAuthorizerId,
@@ -274,7 +277,8 @@ export const connectorRouter = router({
       // to know an OAuth flow is configured (reflected via oidcConfig presence).
       const safeCredentials = credentials?.type === 'oauth2' ? null : credentials;
 
-      return { ...rest, credentials: safeCredentials, oidcConfig: safeOidcConfig };
+      const tools = await ctx.connectorToolModel.queryByConnector(connector.id);
+      return { ...rest, credentials: safeCredentials, oidcConfig: safeOidcConfig, tools };
     }),
 
   /**
@@ -339,8 +343,24 @@ export const connectorRouter = router({
       // The upsert path rewrites another creator's config/credentials — only
       // the creator (or a workspace owner) may re-add over an existing row.
       assertWorkspaceRowManageable(ctx, existing.userId, 'connector');
+      // Marketplace retries may change scopes/headers, but must keep the DCR
+      // registration (including its server-owned secret) for this same endpoint.
+      const reuseMarketplaceClient =
+        input.sourceType === ConnectorSourceType.marketplace &&
+        input.metadata?.marketplaceOAuth === true &&
+        existing.sourceType === ConnectorSourceType.marketplace &&
+        existing.metadata?.marketplaceOAuth === true &&
+        existing.mcpServerUrl === input.mcpServerUrl;
       await ctx.connectorModel.update(existing.id, {
         ...fields,
+        ...(reuseMarketplaceClient && {
+          metadata: { ...existing.metadata, ...fields.metadata },
+          oidcConfig: {
+            ...existing.oidcConfig,
+            ...input.oidcConfig,
+            scheme: input.oidcConfig?.scheme ?? existing.oidcConfig?.scheme ?? 'dcr',
+          },
+        }),
         isEnabled: input.isEnabled ?? true,
         sourceType: input.sourceType,
         status: ConnectorStatus.disconnected,
@@ -570,6 +590,7 @@ export const connectorRouter = router({
       // 2. Resolve the OAuth client: pre-registration vs. DCR.
       let clientId = existing.clientId;
       let clientSecret = existing.clientSecret;
+      let tokenEndpointAuthMethod = existing.tokenEndpointAuthMethod;
       const scheme: OIDCConfig['scheme'] = clientId ? 'pre_registration' : 'dcr';
 
       if (!clientId) {
@@ -594,6 +615,7 @@ export const connectorRouter = router({
         });
         clientId = reg.client_id;
         clientSecret = reg.client_secret ?? undefined;
+        tokenEndpointAuthMethod = registeredAuthMethod(reg, metadata);
       }
 
       // 3. Persist the resolved config so the callback + refresh can reuse it.
@@ -608,6 +630,7 @@ export const connectorRouter = router({
         scheme,
         scopes,
         tokenEndpoint: metadata.token_endpoint,
+        tokenEndpointAuthMethod,
       };
       await ctx.connectorModel.update(input.id, { oidcConfig: resolvedOidc });
 
@@ -615,7 +638,7 @@ export const connectorRouter = router({
       const state = generateConnectorOAuthState();
       const { authorizationUrl, codeVerifier } = await buildAuthorizationUrl({
         authorizationServerUrl,
-        clientInformation: { client_id: clientId, client_secret: clientSecret },
+        clientInformation: toClientInformation(resolvedOidc),
         metadata,
         redirectUri,
         resource: connector.mcpServerUrl,
@@ -629,6 +652,7 @@ export const connectorRouter = router({
         connectorId: input.id,
         lobeUserId: ctx.userId,
         returnTo: input.returnTo,
+        workspaceId: ctx.workspaceId ?? undefined,
       });
 
       return { authorizationUrl };
@@ -753,17 +777,45 @@ export const connectorRouter = router({
    * needed, and calls the remote MCP server with the decrypted credentials.
    */
   callTool: connectorWriteProcedure
+    .use(telemetry)
     .input(
       z.object({
         args: z.string().optional(),
+        // The client's id for this invocation, kept across transport retries so a
+        // retried request is the same telemetry event. Without it the request is
+        // an independent execution.
+        executionId: z.string().min(1).max(200).optional(),
         identifier: z.string().min(1),
         toolName: z.string().min(1),
       }),
     )
     .mutation(async ({ input, ctx }) => {
+      // This procedure is where a connected MCP actually runs for the classic
+      // chat, so it is the execution-completion boundary for that path. It
+      // starts before the connector is even looked up: a call refused there is
+      // an execution that failed.
+      const reporting = beginToolCallTelemetry({
+        context: {
+          // Used only by a deployment without tenants; a tenant reports as its
+          // trust identity and never falls back to this token.
+          marketAccessToken: ctx.marketAccessToken,
+          serverDB: ctx.serverDB,
+          telemetryEnabled: ctx.telemetryEnabled,
+          userId: ctx.userId,
+        },
+        executionId: input.executionId,
+        identifier: input.identifier,
+        methodName: input.toolName,
+        requestPayload: input.args,
+      });
+      let result: unknown;
+      let thrown: unknown;
+
       try {
-        return await callConnectorToolById(input, ctx);
+        result = await callConnectorToolById(input, ctx);
+        return result;
       } catch (err: any) {
+        thrown = err;
         if (err instanceof ConnectorToolCallError) {
           throw new TRPCError({ cause: err, code: err.code, message: err.message });
         }
@@ -772,6 +824,9 @@ export const connectorRouter = router({
           code: 'INTERNAL_SERVER_ERROR',
           message: `Connector tool call failed: ${err?.message ?? 'unknown error'}`,
         });
+      } finally {
+        // A result that says it is an error counts as one, as does a throw.
+        reporting.complete({ result, thrown });
       }
     }),
 
@@ -966,6 +1021,24 @@ export const connectorRouter = router({
           code: 'NOT_FOUND',
           message: `Plugin '${input.identifier}' not found`,
         });
+      }
+
+      if (plugin.customParams?.oauthConnectorId) {
+        const connector = await ctx.connectorModel.findById(plugin.customParams.oauthConnectorId);
+        if (
+          !connector ||
+          connector.identifier !== input.identifier ||
+          connector.sourceType !== ConnectorSourceType.marketplace ||
+          connector.metadata?.marketplaceOAuth !== true
+        ) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Marketplace OAuth connector not found',
+          });
+        }
+        assertWorkspaceRowManageable(ctx, connector.userId, 'connector');
+        const { toolCount } = await syncConnectorToolsById(connector.id, ctx);
+        return { connectorId: connector.id, toolCount };
       }
 
       // The customPlugin migration guard MUST run before the manifest check.

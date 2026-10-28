@@ -1,11 +1,14 @@
+import { tenantStorageKey } from '@lobechat/business-tenant/client';
+
 import { type TabScope, tabScopeKey } from '../TabBar/scope';
 import { type TabItem } from '../TabBar/types';
 
 export const PINNED_PAGES_STORAGE_KEY_V3 = 'lobechat:desktop:pinned-pages:v3';
 export const PINNED_PAGES_STORAGE_KEY_PREFIX = 'lobechat:desktop:pinned-pages:v4';
 
+// Partitioned per organization, like the tab pages (see TabBar/storage).
 export const pinnedPagesStorageKey = (scope: TabScope): string =>
-  `${PINNED_PAGES_STORAGE_KEY_PREFIX}:${tabScopeKey(scope)}`;
+  tenantStorageKey(`${PINNED_PAGES_STORAGE_KEY_PREFIX}:${tabScopeKey(scope)}`);
 
 const isTabItem = (item: unknown): item is TabItem =>
   !!item &&

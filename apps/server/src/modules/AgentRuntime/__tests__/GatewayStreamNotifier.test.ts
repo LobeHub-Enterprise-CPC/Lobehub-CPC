@@ -7,7 +7,46 @@ import type { IStreamEventManager, PublishAgentRuntimeEndParams } from '../types
 
 // Mock global fetch
 const mockFetch = vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
-vi.stubGlobal('fetch', mockFetch);
+const tenancyHeaders = { 'X-LobeHub-Gateway-Tenancy': '1', 'X-LobeHub-Tenant-Id': 'tenant-test' };
+vi.stubGlobal('fetch', async (...args: unknown[]) => {
+  const result = await mockFetch(...args);
+  return result instanceof Response
+    ? result
+    : new Response(await result.text(), {
+        status: result.status ?? (result.ok ? 200 : 500),
+        headers: tenancyHeaders,
+      });
+});
+vi.mock('@lobechat/database/tenant', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  requireTenantScope: () => ({ tenantId: 'tenant-test', acceptedVersion: 7 }),
+}));
+vi.mock('@/database/core/db-adaptor', () => ({
+  getServerDB: async () => ({
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: async () => [
+            { userId: 'user-1', metadata: { tenantId: 'tenant-test', sourceAcceptedVersion: 7 } },
+          ],
+        }),
+      }),
+    }),
+  }),
+}));
+const intent = {
+  tenancyProtocol: 1,
+  tenantId: 'tenant-test',
+  sourceAcceptedVersion: 7,
+  actor: { subject: 'user-1', sourceRef: 'source' },
+  targetPrincipal: { kind: 'user', id: 'user-1' },
+  action: 'operations.tool-execute',
+  operationId: 'op-1',
+  resourceId: 'op-1',
+  toolCallId: 'call-1',
+  attemptId: 'attempt-test',
+  attemptExpiresAt: Date.now() + 30000,
+} as const;
 
 function createMockInner(): IStreamEventManager & { calls: Record<string, any[][]> } {
   const calls: Record<string, any[][]> = {};
@@ -74,7 +113,7 @@ describe('GatewayStreamNotifier', () => {
       await new Promise((r) => setTimeout(r, 50));
 
       expect(mockFetch).toHaveBeenCalledWith(
-        `${gatewayUrl}/api/operations/push-event`,
+        `${gatewayUrl}/tenant/v1/api/operations/push-event`,
         expect.objectContaining({
           headers: expect.objectContaining({
             Authorization: `Bearer ${serviceToken}`,
@@ -106,6 +145,7 @@ describe('GatewayStreamNotifier', () => {
           type: 'step_complete',
         });
 
+        await vi.waitFor(() => expect(mockFetch).toHaveBeenCalled());
         const body = JSON.parse(mockFetch.mock.calls[0][1].body);
         const { finalState: _finalState, ...expected } = data;
         expect(body.event.data).toEqual(expected);
@@ -136,6 +176,7 @@ describe('GatewayStreamNotifier', () => {
 
       await notifier.publishStreamEvent('op-1', { data, stepIndex: 1, type: 'tool_end' });
 
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalled());
       const pushed = JSON.parse(mockFetch.mock.calls[0][1].body).event.data;
       expect(pushed.result).not.toHaveProperty('content');
       expect(pushed.result.success).toBe(true);
@@ -156,6 +197,7 @@ describe('GatewayStreamNotifier', () => {
 
       await notifier.publishStreamEvent('op-1', { data, stepIndex: 1, type: 'tool_end' });
 
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalled());
       const pushed = JSON.parse(mockFetch.mock.calls[0][1].body).event.data;
       expect(pushed.result.content).toBe('Switched to branch feat/x');
       expect(pushed.result.state.exitCode).toBe(0);
@@ -175,6 +217,7 @@ describe('GatewayStreamNotifier', () => {
       await notifier.publishStreamEvent('op-1', { data, stepIndex: 1, type: 'stream_end' });
       await notifier.drainPushes('op-1');
 
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalled());
       const pushed = JSON.parse(mockFetch.mock.calls[0][1].body).event.data;
       expect(pushed).toEqual({ finalContent: 'the answer', stepLabel: 'Step 2' });
       // In-process consumers (Responses API, the CLI) keep the whole payload.
@@ -195,6 +238,7 @@ describe('GatewayStreamNotifier', () => {
 
       await notifier.publishStreamEvent('op-1', { data, stepIndex: 1, type: 'step_start' });
 
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalled());
       expect(JSON.parse(mockFetch.mock.calls[0][1].body).event.data.result.content).toBe('kept');
     });
 
@@ -207,6 +251,7 @@ describe('GatewayStreamNotifier', () => {
       };
       const data = { finalState, phase: 'execution_complete', reason: 'done' };
       await notifier.publishStreamEvent('op-1', { data, stepIndex: 2, type: 'step_complete' });
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalled());
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body.event.data.finalState).toEqual({
         host: { includeFinalState: true },
@@ -397,8 +442,8 @@ describe('GatewayStreamNotifier', () => {
       await new Promise((r) => setTimeout(r, 50));
 
       const urls = mockFetch.mock.calls.map((c: any[]) => c[0]);
-      expect(urls).toContain(`${gatewayUrl}/api/operations/init`);
-      expect(urls).toContain(`${gatewayUrl}/api/operations/push-event`);
+      expect(urls).toContain(`${gatewayUrl}/tenant/v1/api/operations/init`);
+      expect(urls).toContain(`${gatewayUrl}/tenant/v1/api/operations/push-event`);
     });
 
     // Protocol v2 §3.2: the per-user hub describes an op in its lifecycle feed
@@ -423,9 +468,9 @@ describe('GatewayStreamNotifier', () => {
       });
 
       const initCall = mockFetch.mock.calls.find(
-        (call: any[]) => call[0] === `${gatewayUrl}/api/operations/init`,
+        (call: any[]) => call[0] === `${gatewayUrl}/tenant/v1/api/operations/init`,
       )!;
-      expect(JSON.parse(initCall[1].body)).toEqual({
+      expect(JSON.parse(initCall[1].body)).toMatchObject({
         meta: {
           agentId: 'agt_1',
           groupId: 'grp_1',
@@ -455,16 +500,23 @@ describe('GatewayStreamNotifier', () => {
       await notifier.publishAgentRuntimeInit('op-legacy', { userId: 'user-1' });
 
       const bodies = mockFetch.mock.calls
-        .filter((call: any[]) => call[0] === `${gatewayUrl}/api/operations/init`)
+        .filter((call: any[]) => call[0] === `${gatewayUrl}/tenant/v1/api/operations/init`)
         .map((call: any[]) => JSON.parse(call[1].body));
 
       expect(bodies).toEqual([
         {
           meta: { agentId: 'agt_1', topicId: 'tpc_1' },
+          tenantId: 'tenant-test',
+          sourceAcceptedVersion: 7,
           operationId: 'op-hetero',
           userId: 'user-1',
         },
-        { operationId: 'op-legacy', userId: 'user-1' },
+        {
+          operationId: 'op-legacy',
+          userId: 'user-1',
+          tenantId: 'tenant-test',
+          sourceAcceptedVersion: 7,
+        },
       ]);
       expect(bodies[1]).not.toHaveProperty('meta');
     });
@@ -479,29 +531,27 @@ describe('GatewayStreamNotifier', () => {
       });
 
       const initCall = mockFetch.mock.calls.find(
-        (call: any[]) => call[0] === `${gatewayUrl}/api/operations/init`,
+        (call: any[]) => call[0] === `${gatewayUrl}/tenant/v1/api/operations/init`,
       )!;
-      expect(JSON.parse(initCall[1].body)).toEqual({
+      expect(JSON.parse(initCall[1].body)).toMatchObject({
         meta: { agentId: 'agt_1', heteroType: 'claude-code', topicId: 'tpc_1' },
         operationId: 'op-cc',
         userId: 'user-1',
       });
     });
 
-    it('registers the visitor as gateway owner while still sending meta', async () => {
+    it('uses the durable owner instead of accepting a visitor owner override', async () => {
       await notifier.publishAgentRuntimeInit('op-share', {
         streamOwnerUserId: 'visitor-1',
         topicId: 'tpc_1',
         userId: 'creator-1',
       });
-
       const initCall = mockFetch.mock.calls.find(
-        (call: any[]) => call[0] === `${gatewayUrl}/api/operations/init`,
+        (call: unknown[]) => call[0] === `${gatewayUrl}/tenant/v1/api/operations/init`,
       )!;
-      expect(JSON.parse(initCall[1].body)).toEqual({
-        meta: { topicId: 'tpc_1' },
+      expect(JSON.parse(initCall[1].body)).toMatchObject({
         operationId: 'op-share',
-        userId: 'visitor-1',
+        userId: 'user-1',
       });
     });
 
@@ -525,13 +575,13 @@ describe('GatewayStreamNotifier', () => {
 
       await vi.waitFor(() => {
         expect(mockFetch).toHaveBeenCalledWith(
-          `${gatewayUrl}/api/operations/init`,
+          `${gatewayUrl}/tenant/v1/api/operations/init`,
           expect.objectContaining({ method: 'POST' }),
         );
       });
       expect(resolved).toBe(false);
       expect(mockFetch.mock.calls.map((call: any[]) => call[0])).not.toContain(
-        `${gatewayUrl}/api/operations/push-event`,
+        `${gatewayUrl}/tenant/v1/api/operations/push-event`,
       );
 
       resolveInit();
@@ -540,7 +590,7 @@ describe('GatewayStreamNotifier', () => {
       expect(resolved).toBe(true);
       await vi.waitFor(() => {
         expect(mockFetch.mock.calls.map((call: any[]) => call[0])).toContain(
-          `${gatewayUrl}/api/operations/push-event`,
+          `${gatewayUrl}/tenant/v1/api/operations/push-event`,
         );
       });
     });
@@ -621,9 +671,9 @@ describe('GatewayStreamNotifier', () => {
       await new Promise((r) => setTimeout(r, 50));
 
       const urls = mockFetch.mock.calls.map((c: any[]) => c[0]);
-      expect(urls).toContain(`${gatewayUrl}/api/operations/push-event`);
+      expect(urls).toContain(`${gatewayUrl}/tenant/v1/api/operations/push-event`);
       // Gateway handles session completion directly in pushEvent on agent_runtime_end
-      expect(urls).not.toContain(`${gatewayUrl}/api/operations/update-status`);
+      expect(urls).not.toContain(`${gatewayUrl}/tenant/v1/api/operations/update-status`);
     });
 
     it('computes effectiveReasonDetail when reasonDetail is omitted', async () => {
@@ -897,13 +947,15 @@ describe('GatewayStreamNotifier', () => {
       expect(inner.calls.publishStreamEvent).toHaveLength(1);
     });
 
-    it('publishAgentRuntimeInit succeeds when gateway returns 500', async () => {
-      mockFetch.mockResolvedValue({ ok: false, status: 500, text: () => 'Internal Error' });
-
-      const result = await notifier.publishAgentRuntimeInit('op-1', { userId: 'u1' });
-
-      expect(result).toBe('publishAgentRuntimeInit-result');
-      expect(inner.calls.publishAgentRuntimeInit).toHaveLength(1);
+    it('surfaces failed init before exposing a usable gateway operation', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('error'),
+      });
+      await expect(
+        notifier.publishAgentRuntimeInit('op-1', { userId: 'user-1' }),
+      ).rejects.toThrow();
     });
 
     it('publishAgentRuntimeEnd succeeds when gateway times out', async () => {
@@ -977,7 +1029,7 @@ describe('GatewayStreamNotifier', () => {
       await new Promise((r) => setTimeout(r, 50));
 
       const url = mockFetch.mock.calls[0][0];
-      expect(url).toBe(`${gatewayUrl}/api/operations/push-event`);
+      expect(url).toBe(`${gatewayUrl}/tenant/v1/api/operations/push-event`);
       // No double slashes
       expect(url).not.toContain('//api');
     });
@@ -1000,7 +1052,7 @@ describe('GatewayStreamNotifier', () => {
     });
 
     it('POSTs to /api/operations/tool-execute with the expected payload', async () => {
-      await notifier.sendToolExecute('op-1', toolExecuteData);
+      await notifier.sendToolExecute('op-1', { ...toolExecuteData, intent });
 
       const calls = mockFetch.mock.calls.filter((c: any[]) =>
         String(c[0]).includes('/api/operations/tool-execute'),
@@ -1008,12 +1060,15 @@ describe('GatewayStreamNotifier', () => {
       expect(calls).toHaveLength(1);
 
       const [url, init] = calls[0];
-      expect(url).toBe(`${gatewayUrl}/api/operations/tool-execute`);
+      expect(url).toBe(`${gatewayUrl}/tenant/v1/api/operations/tool-execute`);
       expect(init.method).toBe('POST');
       expect(init.headers.Authorization).toBe(`Bearer ${serviceToken}`);
-      expect(JSON.parse(init.body)).toEqual({
+      expect(JSON.parse(init.body)).toMatchObject({
         data: toolExecuteData,
         operationId: 'op-1',
+        intent,
+        tenantId: 'tenant-test',
+        sourceAcceptedVersion: 7,
       });
     });
 
@@ -1024,19 +1079,19 @@ describe('GatewayStreamNotifier', () => {
         text: () => Promise.resolve('bad gateway'),
       });
 
-      await expect(notifier.sendToolExecute('op-1', toolExecuteData)).rejects.toThrow(/502/);
+      await expect(
+        notifier.sendToolExecute('op-1', { ...toolExecuteData, intent }),
+      ).rejects.toThrow(/502/);
     });
 
     it('rejects when fetch throws (network / timeout)', async () => {
       mockFetch.mockRejectedValueOnce(new Error('network down'));
 
-      await expect(notifier.sendToolExecute('op-1', toolExecuteData)).rejects.toThrow(
-        'network down',
-      );
+      await expect(
+        notifier.sendToolExecute('op-1', { ...toolExecuteData, intent }),
+      ).rejects.toThrow('network down');
     });
   });
-
-  // ─── Single-connection multiplexing: mirror member events to supervisor op ───
 
   describe('mirrorToOperationId (single-connection multiplexing)', () => {
     const pushEventCalls = () =>
@@ -1062,7 +1117,7 @@ describe('GatewayStreamNotifier', () => {
     });
 
     it('does not mirror when no mirrorToOperationId was registered', async () => {
-      await notifier.publishAgentRuntimeInit('op-solo', { userId: 'u1' });
+      await notifier.publishAgentRuntimeInit('op-solo', { userId: 'user-1' });
 
       await notifier.publishStreamChunk('op-solo', 0, {
         chunkType: 'text',

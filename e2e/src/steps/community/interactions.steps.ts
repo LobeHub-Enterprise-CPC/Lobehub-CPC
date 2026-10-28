@@ -1,6 +1,7 @@
 import { Then, When } from '@cucumber/cucumber';
 import { expect } from '@playwright/test';
 
+import { tenantPath } from '../../support/tenant';
 import type { CustomWorld } from '../../support/world';
 
 // ============================================
@@ -10,7 +11,7 @@ import type { CustomWorld } from '../../support/world';
 When('I type {string} in the search bar', async function (this: CustomWorld, searchText: string) {
   await this.page.waitForLoadState('domcontentloaded', { timeout: 30_000 });
 
-  const searchBar = this.page.locator('input[type="text"]').first();
+  const searchBar = this.page.locator('input[data-testid="search-bar"]');
   await searchBar.waitFor({ state: 'visible', timeout: 30_000 });
   await searchBar.fill(searchText);
 
@@ -30,9 +31,7 @@ When('I click on a category in the category menu', async function (this: CustomW
 
   // Find the category menu items - they are clickable elements in the sidebar
   // The UI shows categories like "All", "Academic", "Career", etc.
-  const categoryItems = this.page.locator(
-    '[class*="CategoryMenu"] [class*="Item"], [class*="category"] a, [class*="category"] button, [role="menuitem"]',
-  );
+  const categoryItems = this.page.locator('[data-testid="category-menu"] li > :is(a, button)');
 
   const count = await categoryItems.count();
   console.log(`   📍 Found ${count} category items`);
@@ -70,9 +69,7 @@ When('I click on a category in the category filter', async function (this: Custo
 
   // Find the category filter items - MCP page has categories like "Developer Tools", "Productivity Tools"
   // Use the same selector pattern as the category menu
-  const categoryItems = this.page.locator(
-    '[class*="CategoryMenu"] [class*="Item"], [class*="category"] a, [class*="category"] button, [role="menuitem"]',
-  );
+  const categoryItems = this.page.locator('[data-testid="category-menu"] li > :is(a, button)');
 
   const count = await categoryItems.count();
   console.log(`   📍 Found ${count} category filter items`);
@@ -256,7 +253,7 @@ When('I select a sort option', async function (this: CustomWorld) {
   // Some dropdown implementations close immediately under parallel CI focus
   // churn. The user behavior we need to validate is the sorted model route, so
   // fall back to the same query state that the menu item would push.
-  await this.page.goto('/community/model?sort=identifier');
+  await this.page.goto(tenantPath('/community/model?sort=identifier'));
   this.testContext.selectedSortOption = 'Model ID';
 });
 
@@ -327,7 +324,7 @@ When(
 
     // Last resort: navigate directly
     console.log('   📍 Last resort: direct navigation to /community/mcp');
-    await this.page.goto('/community/mcp');
+    await this.page.goto(tenantPath('/community/mcp'));
   },
 );
 
@@ -361,10 +358,6 @@ Then('I should see filtered assistant cards', async function (this: CustomWorld)
 
   // Wait for at least one item to be visible
   await expect(assistantItems.first()).toBeVisible({ timeout: 30_000 });
-
-  // Verify that at least one item exists
-  const count = await assistantItems.count();
-  expect(count).toBeGreaterThan(0);
 });
 
 Then(
@@ -376,10 +369,6 @@ Then(
 
     // Wait for at least one item to be visible
     await expect(assistantItems.first()).toBeVisible({ timeout: 30_000 });
-
-    // Verify that at least one item exists
-    const count = await assistantItems.count();
-    expect(count).toBeGreaterThan(0);
   },
 );
 
@@ -471,10 +460,6 @@ Then('I should see model cards in the sorted order', async function (this: Custo
 
   // Wait for at least one item to be visible
   await expect(modelItems.first()).toBeVisible({ timeout: 30_000 });
-
-  // Verify that at least one item exists
-  const count = await modelItems.count();
-  expect(count).toBeGreaterThan(0);
 });
 
 Then('I should be navigated to the model detail page', async function (this: CustomWorld) {
@@ -550,10 +535,6 @@ Then(
 
     // Wait for at least one item to be visible
     await expect(mcpItems.first()).toBeVisible({ timeout: 30_000 });
-
-    // Verify that at least one item exists
-    const count = await mcpItems.count();
-    expect(count).toBeGreaterThan(0);
   },
 );
 

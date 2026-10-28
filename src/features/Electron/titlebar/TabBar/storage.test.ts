@@ -1,3 +1,4 @@
+import { setRemoteTenantId } from '@lobechat/business-tenant/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -17,7 +18,21 @@ describe('TabBar storage', () => {
   });
 
   afterEach(() => {
+    setRemoteTenantId(undefined);
     window.localStorage.clear();
+  });
+
+  it('keeps each organization of the desktop renderer in its own bucket', () => {
+    setRemoteTenantId('tenant-a');
+    saveTabPages(personalScope, [{ id: 'a-tab', lastVisited: 1, url: '/agent/a1' }], 'a-tab');
+
+    setRemoteTenantId('tenant-b');
+    expect(getTabPages(personalScope)).toEqual({ activeTabId: null, tabs: [] });
+    const keyB = tabPagesStorageKey(personalScope);
+
+    setRemoteTenantId('tenant-a');
+    expect(tabPagesStorageKey(personalScope)).not.toBe(keyB);
+    expect(getTabPages(personalScope).tabs).toHaveLength(1);
   });
 
   it('returns empty scoped data when nothing is stored', () => {

@@ -7,6 +7,7 @@ import { ModelProvider } from 'model-bank/modelProvider';
 import { NextResponse } from 'next/server';
 
 import { auth } from '@/auth';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 
 /**
  * Public model config for the LobeHub (branded) provider, consumed by the
@@ -25,7 +26,7 @@ import { auth } from '@/auth';
  * to load it) — an anonymous caller simply gets no session, so every beta
  * model is filtered out for them, same as a logged-in but ungranted user.
  */
-export const GET = async (request: Request) => {
+const handleGet = async (request: Request) => {
   try {
     const [models, planCardModels] = await Promise.all([
       loadModels(),
@@ -56,3 +57,5 @@ export const GET = async (request: Request) => {
     return NextResponse.json({ models: [], planCardModels: [], version: 1 });
   }
 };
+
+export const GET = withTenantRequest(handleGet);

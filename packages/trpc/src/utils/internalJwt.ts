@@ -1,9 +1,20 @@
 import { randomUUID } from 'node:crypto';
 
 import debug from 'debug';
-import { importJWK, jwtVerify, SignJWT } from 'jose';
+import type { JSONWebKeySet, JWK, JWK_RSA_Public, JWTVerifyOptions } from 'jose';
+import {
+  calculateJwkThumbprint,
+  createLocalJWKSet,
+  decodeProtectedHeader,
+  importJWK,
+  jwtVerify,
+  SignJWT,
+} from 'jose';
 
 import { authEnv } from '@/envs/auth';
+import type { GatewayAuthorizationSource } from '@/server/services/gatewayAuthorization/types';
+
+import { currentTenantClaim, isBoundToCurrentTenant } from './tenantBinding';
 
 const log = debug('lobe-internal-jwt');
 
@@ -13,7 +24,12 @@ export const HETERO_OPERATION_JWT_AUDIENCE = 'urn:lobehub:hetero-operation';
 export const HETERO_OPERATION_JWT_PURPOSE = 'hetero-operation';
 
 export type HeteroOperationCapability =
-  'goal:manage' | 'hetero:finish' | 'hetero:ingest' | 'hetero:intervention:read' | 'model:invoke';
+  | 'acceptance:evidence'
+  | 'goal:manage'
+  | 'hetero:finish'
+  | 'hetero:ingest'
+  | 'hetero:intervention:read'
+  | 'model:invoke';
 
 export interface HeteroOperationJwtClaims {
   aud: typeof HETERO_OPERATION_JWT_AUDIENCE;
@@ -27,76 +43,104 @@ export interface HeteroOperationJwtClaims {
   provider_id?: string;
   purpose: typeof HETERO_OPERATION_JWT_PURPOSE;
   sub: string;
+  /** Tenant the operation was minted for (see `TENANT_ID_CLAIM`). */
+  tid: string;
   workspace_id?: string;
 }
 
 /**
  * Get RSA key pair from JWKS_KEY environment variable
  */
-const getJwksKey = () => {
+const isRsaSigningKey = (key: JWK): key is JWK_RSA_Public =>
+  key.alg === 'RS256' &&
+  key.kty === 'RSA' &&
+  typeof key.e === 'string' &&
+  typeof key.n === 'string';
+
+const getKeyId = (key: JWK_RSA_Public) => key.kid ?? calculateJwkThumbprint(key);
+
+const toPublicRsaKey = async (key: JWK_RSA_Public): Promise<JWK_RSA_Public> => ({
+  alg: 'RS256',
+  e: key.e,
+  kid: await getKeyId(key),
+  kty: 'RSA',
+  n: key.n,
+  ...(key.use ? { use: key.use } : {}),
+});
+
+const getJwksKeys = () => {
   const jwksString = authEnv.JWKS_KEY;
 
   if (!jwksString) {
     throw new Error('JWKS_KEY environment variable is not set');
   }
 
-  const jwks = JSON.parse(jwksString);
-  const rsaKey = jwks.keys.find((key: any) => key.alg === 'RS256' && key.kty === 'RSA');
+  const jwks = JSON.parse(jwksString) as JSONWebKeySet;
+  const rsaKeys = jwks.keys.filter(isRsaSigningKey);
 
-  if (!rsaKey) {
+  if (rsaKeys.length === 0) {
     throw new Error('No RS256 RSA key found in JWKS');
   }
 
-  return rsaKey;
+  return rsaKeys;
 };
 
 /**
  * Get RSA private key for signing
  */
 const getSigningKey = async () => {
-  const rsaKey = getJwksKey();
+  const rsaKey = getJwksKeys()[0];
 
   return {
     key: await importJWK(rsaKey, 'RS256'),
-    kid: rsaKey.kid as string,
+    kid: await getKeyId(rsaKey),
   };
 };
 
 /**
  * Get RSA public key for verification
  */
-const getVerificationKey = async () => {
-  const privateRsaKey = getJwksKey();
+const isSignatureVerificationError = (error: unknown) =>
+  typeof error === 'object' &&
+  error !== null &&
+  'code' in error &&
+  error.code === 'ERR_JWS_SIGNATURE_VERIFICATION_FAILED';
 
-  // Create a "clean" JWK object containing only public key components
-  // The essential fields for RSA public key are: kty, n, e
-  const publicKeyJwk = {
-    alg: privateRsaKey.alg,
-    e: privateRsaKey.e,
-    kid: privateRsaKey.kid,
-    kty: privateRsaKey.kty,
-    n: privateRsaKey.n,
-    use: privateRsaKey.use,
-  };
+const verifyJwt = async (token: string, options: JWTVerifyOptions) => {
+  const publicKeys = await Promise.all(getJwksKeys().map(toPublicRsaKey));
 
-  // Remove any undefined fields to keep the object clean
-  Object.keys(publicKeyJwk).forEach(
-    (key) => (publicKeyJwk as any)[key] === undefined && delete (publicKeyJwk as any)[key],
-  );
+  if (decodeProtectedHeader(token).kid) {
+    return jwtVerify(token, createLocalJWKSet({ keys: publicKeys }), options);
+  }
 
-  return await importJWK(publicKeyJwk, 'RS256');
+  // Tokens issued before this rotation support landed did not include `kid`.
+  // Try each retained key only for those in-flight tokens; newly issued tokens
+  // keep the exact-key lookup above and avoid ambiguous JWKS selection.
+  let signatureError: unknown;
+  for (const publicKey of publicKeys) {
+    try {
+      return await jwtVerify(token, await importJWK(publicKey, 'RS256'), options);
+    } catch (error) {
+      if (!isSignatureVerificationError(error)) throw error;
+      signatureError = error;
+    }
+  }
+
+  throw signatureError ?? new Error('No RSA key available for JWT verification');
 };
 
 /**
  * Sign JWT for internal lambda → async calls
  * Uses JWKS private key with configurable expiration (default: 30s)
- * The JWT only proves the request is from lambda, payload is sent via LOBE_CHAT_AUTH_HEADER
+ * The token names both the tenant it is for and the user the call acts as
+ * (`sub`), so the async side trusts nothing outside the signature.
  */
-export const signInternalJWT = async (): Promise<string> => {
+export const signInternalJWT = async (userId: string): Promise<string> => {
   const { key, kid } = await getSigningKey();
 
-  return new SignJWT({ purpose: INTERNAL_JWT_PURPOSE })
+  return new SignJWT({ purpose: INTERNAL_JWT_PURPOSE, ...currentTenantClaim() })
     .setProtectedHeader({ alg: 'RS256', kid })
+    .setSubject(userId)
     .setIssuedAt()
     .setExpirationTime(authEnv.INTERNAL_JWT_EXPIRATION)
     .sign(key);
@@ -120,7 +164,7 @@ export const signUserJWT = async (
 ): Promise<string> => {
   const { key, kid } = await getSigningKey();
 
-  return new SignJWT({ purpose: 'cli-sandbox' })
+  return new SignJWT({ purpose: 'cli-sandbox', ...currentTenantClaim() })
     .setProtectedHeader({ alg: 'RS256', kid })
     .setSubject(userId)
     .setIssuedAt()
@@ -145,6 +189,7 @@ export const signHeteroOperationJWT = async (params: {
 
   return new SignJWT({
     capabilities: params.capabilities,
+    ...currentTenantClaim(),
     ...(params.model ? { model: params.model } : {}),
     operation_id: params.operationId,
     ...(params.providerId ? { provider_id: params.providerId } : {}),
@@ -179,6 +224,7 @@ export const validateHeteroOperationClaims = (
     payload.aud !== HETERO_OPERATION_JWT_AUDIENCE ||
     payload.purpose !== HETERO_OPERATION_JWT_PURPOSE ||
     typeof payload.sub !== 'string' ||
+    !isBoundToCurrentTenant(payload) ||
     typeof payload.operation_id !== 'string' ||
     typeof payload.jti !== 'string' ||
     typeof payload.iat !== 'number' ||
@@ -186,6 +232,7 @@ export const validateHeteroOperationClaims = (
     !Array.isArray(capabilities) ||
     !capabilities.every((capability) =>
       [
+        'acceptance:evidence',
         'goal:manage',
         'model:invoke',
         'hetero:ingest',
@@ -207,8 +254,7 @@ export const validateHeteroOperationJWT = async (
   token: string,
 ): Promise<HeteroOperationJwtClaims | null> => {
   try {
-    const publicKey = await getVerificationKey();
-    const { payload } = await jwtVerify(token, publicKey, {
+    const { payload } = await verifyJwt(token, {
       algorithms: ['RS256'],
       audience: HETERO_OPERATION_JWT_AUDIENCE,
       issuer: HETERO_OPERATION_JWT_ISSUER,
@@ -221,29 +267,18 @@ export const validateHeteroOperationJWT = async (
 };
 
 /**
- * Sign a connection token for a WORKSPACE-owned device. The device gateway reads
- * the `workspace_id` claim and routes the socket to the `workspace:<id>`
- * principal (so every workspace member can reach the device), instead of the
- * signer's personal principal. Minted ONLY after the server has verified the
- * requester is a workspace admin — the gateway trusts this signed claim.
+ * Attest that the requester may enroll devices into a WORKSPACE. Minted ONLY
+ * after the server has verified the requester is a workspace owner/admin. It is
+ * not a connection ticket: the device exchanges its own credential for a ticket
+ * naming its device and connection (`/api/v1/gateway/identity`), and only uses
+ * this to pin the tenant and workspace that exchange must return.
  */
-export const signWorkspaceDeviceToken = async (workspaceId: string): Promise<string> => {
-  const { key, kid } = await getSigningKey();
-
-  return (
-    new SignJWT({ purpose: 'workspace-device-connect', workspace_id: workspaceId })
-      .setProtectedHeader({ alg: 'RS256', kid })
-      .setSubject(workspaceId)
-      .setIssuedAt()
-      // This token is NOT revocable (the gateway verifies signature + purpose +
-      // principal only), so its TTL doubles as the worst-case window for a leaked
-      // token or a demoted owner's device. Keep it short — aligned with the 4h
-      // operation tokens. The CLI re-mints ahead of expiry (and re-checks owner via
-      // wsOwnerProcedure each time), so a long-lived connection rolls over without
-      // dropping; the TTL is a security bound, not a connection-lifetime limit.
-      .setExpirationTime('4h')
-      .sign(key)
-  );
+export const signWorkspaceDeviceToken = async (
+  workspaceId: string,
+  source: GatewayAuthorizationSource,
+): Promise<string> => {
+  const { mintGatewayEnrollment } = await import('@/server/services/gatewayAuthorization');
+  return mintGatewayEnrollment({ source, principal: { kind: 'workspace', id: workspaceId } });
 };
 
 /**
@@ -264,6 +299,7 @@ export const signTunnelAccessToken = async (params: {
 
   return new SignJWT({
     purpose: 'tunnel-access',
+    ...currentTenantClaim(),
     ...(params.workspaceId ? { workspace_id: params.workspaceId } : {}),
   })
     .setProtectedHeader({ alg: 'RS256', kid })
@@ -291,29 +327,38 @@ export const signWorkspaceOperationJwt = async (
   });
 
 /**
- * Validate internal JWT from lambda → async calls
- * Returns true if valid, false otherwise
+ * Validate internal JWT from lambda → async calls.
+ * Returns the user the call acts as when the token is valid and was minted for
+ * the tenant this request runs in, null otherwise.
  */
-export const validateInternalJWT = async (token: string): Promise<boolean> => {
+export const validateInternalJWT = async (token: string): Promise<{ userId: string } | null> => {
   try {
     log('Validating internal JWT token');
 
-    const publicKey = await getVerificationKey();
-
-    const { payload } = await jwtVerify(token, publicKey, {
+    const { payload } = await verifyJwt(token, {
       algorithms: ['RS256'],
     });
 
     // Verify this is an internal call token, not a user's OIDC token
     if (payload.purpose !== INTERNAL_JWT_PURPOSE) {
       log('JWT purpose mismatch: expected %s, got %s', INTERNAL_JWT_PURPOSE, payload.purpose);
-      return false;
+      return null;
+    }
+
+    if (!isBoundToCurrentTenant(payload)) {
+      log('Internal JWT is not bound to the current tenant');
+      return null;
+    }
+
+    if (typeof payload.sub !== 'string' || !payload.sub) {
+      log('Internal JWT is missing the user (sub)');
+      return null;
     }
 
     log('Internal JWT validation successful');
-    return true;
+    return { userId: payload.sub };
   } catch (error) {
     log('Internal JWT validation failed: %O', error);
-    return false;
+    return null;
   }
 };

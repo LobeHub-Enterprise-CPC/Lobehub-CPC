@@ -1,23 +1,25 @@
 import { BRANDING_NAME } from '@lobechat/business-const';
 import { OG_URL } from '@lobechat/const';
 
-import { getServerFeatureFlagsValue } from '@/config/featureFlags';
 import { OFFICIAL_URL } from '@/const/url';
 import { isCustomORG } from '@/const/version';
 import { appEnv } from '@/envs/app';
 import { fileEnv } from '@/envs/file';
 import { pythonEnv } from '@/envs/python';
 import { translation } from '@/libs/i18n/serverTranslation';
+import { withShareNoIndexHeader } from '@/libs/next/shareRoutes';
 import { buildAnalyticsConfig, renderSpaHtml } from '@/libs/spaHtml';
-import { type Locales, normalizeLocale } from '@/locales/resources';
+import { normalizeLocale } from '@/locales/resources';
+import { getServerFeatureFlagsFromRuntimeConfig } from '@/server/featureFlags';
 import { getServerGlobalConfig } from '@/server/globalConfig';
+import { getTenantPageBootstrap } from '@/server/modules/Tenant/pageBootstrap';
 import { type SPAClientEnv, type SPAServerConfig } from '@/types/spaServerConfig';
 
-export function generateStaticParams() {
-  const staticLocales: Locales[] = ['en-US', 'zh-CN'];
-
-  return staticLocales.map((locale) => ({ locale }));
-}
+// The shell is rendered per request: tenant bootstrap, login methods and feature
+// flags come from the signed tenant route header, which a prerendered route
+// handler cannot read (production build: DYNAMIC_SERVER_USAGE -> 500). Hence no
+// static params; the proxy rewrite supplies any locale/variant.
+export const dynamic = 'force-dynamic';
 
 // No dev branch here: share is developed against its own Vite server
 // (`dev:spa:share`), and asking the main one for a shell it doesn't own gets the
@@ -31,6 +33,7 @@ async function getTemplate(): Promise<string> {
 function buildClientEnv(): SPAClientEnv {
   return {
     marketBaseUrl: appEnv.MARKET_BASE_URL,
+    marketSkillInstallBaseUrl: appEnv.MARKET_SKILL_INSTALL_BASE_URL,
     pyodideIndexUrl: pythonEnv.NEXT_PUBLIC_PYODIDE_INDEX_URL,
     pyodidePipIndexUrl: pythonEnv.NEXT_PUBLIC_PYODIDE_PIP_INDEX_URL,
     s3FilePath: fileEnv.NEXT_PUBLIC_S3_FILE_PATH,
@@ -65,21 +68,30 @@ async function buildSeoMeta(locale: string): Promise<string> {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ locale: string; path?: string[] }> },
 ) {
   const { locale: rawLocale } = await params;
   const locale = normalizeLocale(rawLocale);
 
+  const tenant = await getTenantPageBootstrap(request);
   const spaConfig: SPAServerConfig = {
+    tenant,
     analyticsConfig: buildAnalyticsConfig(),
     clientEnv: buildClientEnv(),
-    config: await getServerGlobalConfig(),
-    featureFlags: getServerFeatureFlagsValue(),
+    config: {
+      ...(await getServerGlobalConfig()),
+      ...(tenant ? { oidcIssuer: `${tenant.publicUrl}/oidc` } : {}),
+    },
+    // Rendered outside any tenant scope: business builds embed the product
+    // defaults here, and the tenant's own flags arrive with the server config.
+    featureFlags: await getServerFeatureFlagsFromRuntimeConfig(),
     isMobile: false,
   };
 
   const template = await getTemplate();
 
-  return renderSpaHtml(template, { seoMeta: await buildSeoMeta(locale), serverConfig: spaConfig });
+  return withShareNoIndexHeader(
+    renderSpaHtml(template, { seoMeta: await buildSeoMeta(locale), serverConfig: spaConfig }),
+  );
 }

@@ -2,8 +2,10 @@ import { exec } from 'node:child_process';
 import { platform } from 'node:os';
 import { promisify } from 'node:util';
 
+import { BRANDING_NAME, CLI_PRIMARY_BIN, isCustomBranding } from '@/const/branding';
 import type { BinarySpec, BinaryStatus } from '@/core/infrastructure/BinaryManager';
 import { defineCommandBinary } from '@/core/infrastructure/BinaryManager';
+import { binNames } from '@/modules/cliEmbedding/generateCliWrapper';
 
 const execPromise = promisify(exec);
 
@@ -96,13 +98,20 @@ export const uvBinary: BinarySpec = defineCommandBinary('uv', {
 });
 
 /**
- * LobeHub CLI
- * Tries lobehub, lobe, lh in order; validates via --help output containing "LobeHub"
+ * The product's own CLI.
+ *
+ * Upstream tries lobehub, lobe, lh and accepts the one whose --help names
+ * LobeHub. A rebranded build installs its CLI under its own command
+ * (DESKTOP_CLI_BIN_NAMES, falling back to CLI_PRIMARY_BIN) and brands its
+ * help text, so it looks for that * instead — otherwise it would report a separately installed upstream CLI as
+ * this product's.
  */
 export const lobehubBinary: BinarySpec = {
-  description: 'LobeHub CLI - manage and connect to LobeHub services',
+  description: `${BRANDING_NAME} CLI - manage and connect to ${BRANDING_NAME} services`,
   async detect(): Promise<BinaryStatus> {
-    const commands = ['lobehub', 'lobe', 'lh'];
+    const commands = isCustomBranding
+      ? [...new Set([...binNames(), CLI_PRIMARY_BIN])]
+      : ['lobehub', 'lobe', 'lh'];
     const whichCmd = platform() === 'win32' ? 'where' : 'which';
 
     for (const cmd of commands) {
@@ -112,7 +121,7 @@ export const lobehubBinary: BinarySpec = {
 
         // Validate it's actually LobeHub CLI by checking help output
         const { stdout: helpOut } = await execPromise(`${cmd} --help`, { timeout: 3000 });
-        if (!helpOut.includes('LobeHub')) continue;
+        if (!helpOut.includes(BRANDING_NAME)) continue;
 
         const { stdout: versionOut } = await execPromise(`${cmd} --version`, { timeout: 3000 });
         const version = versionOut.trim().split('\n')[0];

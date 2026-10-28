@@ -36,11 +36,12 @@ describe('HeterogeneousPromptEngine', () => {
     },
   );
 
-  it('keeps the CLI guide disabled when native resume falls back to a new session', () => {
+  it('keeps the CLI guide disabled while preserving context and images on resume fallback', () => {
     businessConst.HETEROGENEOUS_AGENT_CLI_GUIDE_ENABLED = false;
 
     const payload = JSON.parse(
       buildHeteroExecStdinPayload({
+        imageList: [{ id: 'image-1', url: 'https://example.com/image.png' }],
         isNewSession: false,
         prompt: 'Continue',
         resumeFallbackSystemContext: 'Replayed history',
@@ -48,14 +49,21 @@ describe('HeterogeneousPromptEngine', () => {
       }),
     );
 
+    const imageBlock = {
+      source: { id: 'image-1', type: 'url', url: 'https://example.com/image.png' },
+      type: 'image',
+    };
+
     expect(payload).toEqual({
       content: [
         { text: 'Workspace context', type: 'text' },
         { text: 'Continue', type: 'text' },
+        imageBlock,
       ],
       resumeFallback: [
         { text: 'Replayed history', type: 'text' },
         { text: 'Continue', type: 'text' },
+        imageBlock,
       ],
     });
   });

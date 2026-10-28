@@ -7,6 +7,8 @@ import type {
   SkillRatingDistribution,
 } from '@lobehub/market-sdk';
 
+import type { MarketContentSyncState, MarketEditCapabilities } from './capabilities';
+
 export enum SkillCategory {
   AgentToAgentProtocols = 'agent-to-agent-protocols',
   AILLMs = 'ai-llms',
@@ -62,7 +64,11 @@ export enum SkillNavKey {
   Version = 'version',
 }
 
-export interface DiscoverSkillItem extends Omit<MarketSkillListItem, 'commentCount'> {
+export interface DiscoverSkillItem
+  extends
+    MarketContentSyncState,
+    MarketEditCapabilities,
+    Omit<MarketSkillListItem, 'commentCount'> {
   commentCount?: number;
   homepage?: string;
   ratingAvg?: number;
@@ -90,7 +96,7 @@ export interface SkillListResponse extends MarketSkillListResponse {
   categories?: SkillCategoryItem[];
 }
 
-export interface DiscoverSkillDetail extends MarketSkillDetail {
+export interface DiscoverSkillDetail extends MarketContentSyncState, MarketSkillDetail {
   comments?: SkillCommentListResponse;
   downloadUrl?: string;
   github?: {

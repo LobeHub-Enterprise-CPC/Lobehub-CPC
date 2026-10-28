@@ -13,8 +13,7 @@ import {
   SendButton,
   useEditor,
 } from '@lobehub/editor/react';
-import { Flexbox, InputNumber, Tooltip } from '@lobehub/ui';
-import { ActionIcon, Upload } from '@lobehub/ui/base-ui';
+import { ActionIcon, Flexbox, InputNumber, Tooltip, Upload } from '@lobehub/ui';
 import { $getSelection, $isRangeSelection } from 'lexical';
 import { Paperclip } from 'lucide-react';
 import { useRef, useState } from 'react';

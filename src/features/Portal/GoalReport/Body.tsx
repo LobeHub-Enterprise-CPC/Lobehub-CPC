@@ -1,12 +1,11 @@
-import { Flexbox, Markdown } from '@lobehub/ui';
-import { Skeleton, Tag, Text } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+import { createStaticStyles, cssVar, Flexbox, Markdown, Skeleton, Tag, Text } from '@lobehub/ui';
 import { memo, type ReactNode, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import AsyncError from '@/components/AsyncError';
 import Graph from '@/features/AgentGoals/ProcessControl/Graph';
 import { chapterMap } from '@/features/AgentGoals/ProcessControl/Graph/chapterMap';
+import { useEntityMarkdown } from '@/features/EntityLink';
 import { useChatStore } from '@/store/chat';
 import { chatPortalSelectors } from '@/store/chat/selectors';
 
@@ -19,13 +18,15 @@ import { useReportChapter, useReportGraph } from './useReportGraph';
  */
 
 const styles = createStaticStyles(({ css }) => ({
+  /**
+   * Review: an outline is enough — no tinted fill, so the detour reads as a
+   * callout beside the map rather than a filled warning block.
+   */
   detour: css`
     padding-block: 10px;
     padding-inline: 12px;
     border: 1px dashed ${cssVar.colorWarningBorder};
     border-radius: ${cssVar.borderRadius};
-
-    background: ${cssVar.colorWarningBg};
   `,
   scroll: css`
     overflow-y: auto;
@@ -58,6 +59,7 @@ const Unavailable = ({ children }: { children: string }) => (
 export const ReportBody = memo(() => {
   const { t } = useTranslation('chat');
   const view = useChatStore(chatPortalSelectors.goalReportView);
+  const markdownProps = useEntityMarkdown();
   const { error, isLoading, mutate, story } = useReportGraph(view?.goalId);
 
   if (!view) return null;
@@ -73,7 +75,9 @@ export const ReportBody = memo(() => {
         {story.metadata.headline}
       </Text>
       {content ? (
-        <Markdown variant={'chat'}>{content}</Markdown>
+        <Markdown variant={'chat'} {...markdownProps}>
+          {content}
+        </Markdown>
       ) : (
         <Text type={'secondary'}>{t('goalProcess.result.story.reportEmpty')}</Text>
       )}
@@ -128,6 +132,7 @@ export const ChapterBody = memo(() => {
       </Text>
       {map.graph.nodes.length > 0 && (
         <Graph
+          initialShowMainline
           bridges={map.bridges}
           graph={map.graph}
           highlightedIds={highlightedIds}

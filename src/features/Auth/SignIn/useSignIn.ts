@@ -1,16 +1,22 @@
-import { toast } from '@lobehub/ui/base-ui';
-import { Form } from 'antd';
-import { useEffect, useState } from 'react';
+import { toast } from '@lobehub/ui';
+import { useForm } from '@lobehub/ui/form';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router';
 
 import type { CheckUserResponseData } from '@/app/(backend)/api/auth/check-user/route';
 import type { ResolveUsernameResponseData } from '@/app/(backend)/api/auth/resolve-username/route';
 import { useBusinessSignin } from '@/business/client/hooks/useBusinessSignin';
+import { useDesktopAuthContext } from '@/features/Auth/desktopAuth';
+import {
+  isTenantUnavailableCode,
+  isTenantUnavailableResponse,
+} from '@/features/Auth/utils/tenantUnavailable';
+import { useAuthAgreement } from '@/features/AuthShell/AuthAgreement';
 import { useAuthServerConfigStore } from '@/features/AuthShell/AuthServerConfigProvider';
 import { trackLoginOrSignupClicked } from '@/features/User/UserLoginOrSignup/trackLoginOrSignupClicked';
 import { requestPasswordReset, signIn } from '@/libs/better-auth/auth-client';
-import { isBuiltinProvider, normalizeProviderId } from '@/libs/better-auth/utils/client';
+import { beginBridgeLogin } from '@/libs/better-auth/bridge';
 import {
   buildOnboardingRedirectUrl,
   sanitizeRedirectPath,
@@ -45,6 +51,7 @@ export const useSignIn = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const sessionExpired = searchParams.get('reason') === 'sessionExpired';
+  const desktopAuth = useDesktopAuthContext(searchParams.get('callbackUrl'));
   const enableMagicLink = useAuthServerConfigStore((s) => s.serverConfig.enableMagicLink || false);
   const disableEmailPassword = useAuthServerConfigStore(
     (s) => s.serverConfig.disableEmailPassword || false,
@@ -52,12 +59,31 @@ export const useSignIn = () => {
   const enableBusinessFeatures = useAuthServerConfigStore(
     (s) => s.serverConfig.enableBusinessFeatures || false,
   );
-  const [form] = Form.useForm<SignInFormValues>();
+  const { agreementChecked, continueWithAgreement, setAgreementChecked } = useAuthAgreement();
+  const form = useForm<SignInFormValues>({
+    initialValues: { email: '', password: '' },
+    onSubmit: (values) => {
+      if (step === 'password' && !disableEmailPassword) {
+        void handleSignIn(values);
+        return;
+      }
+      continueWithAgreement(() => {
+        void handleCheckUser(values);
+      });
+    },
+  });
   const [loading, setLoading] = useState(false);
   // Locks the email-dispatch actions (magic link / password reset / resend) so a
   // slow network can't be double-clicked into multiple emails.
   const [sending, setSending] = useState(false);
   const [socialLoading, setSocialLoading] = useState<string | null>(null);
+  // Set after mount so the stored terms acceptance (read in an effect) has settled with it.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const continueButtonRef = useRef<HTMLButtonElement | HTMLAnchorElement>(null);
+  const prefillHandled = useRef(false);
+  const bridgeAttempt = useRef<ReturnType<typeof beginBridgeLogin> | null>(null);
+  useEffect(() => () => bridgeAttempt.current?.cancel(), []);
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
   const [sentInfo, setSentInfo] = useState<SentEmailInfo | null>(null);
@@ -75,6 +101,7 @@ export const useSignIn = () => {
     ssoError,
     ssoLoaded,
     ssoProviders,
+    tenantUnavailable,
   } = useBusinessSignin();
 
   useEffect(() => {
@@ -87,18 +114,17 @@ export const useSignIn = () => {
 
   useEffect(() => {
     const emailParam = searchParams.get('email');
-    if (emailParam) form.setFieldValue('email', emailParam);
+    if (emailParam) form.setValue('email', emailParam);
   }, [searchParams, form]);
 
   const handleSendMagicLink = async (targetEmail?: string): Promise<boolean> => {
-    if (sending) return false;
+    if (!enableMagicLink || sending) return false;
     try {
       const emailValue =
         targetEmail ||
         (await form
-          .validateFields(['email'])
-          .then((v) => v.email as string)
-          .catch(() => null));
+          .validate(['email'])
+          .then(({ valid }) => (valid ? form.getValue('email') : null)));
       if (!emailValue) return false;
 
       setSending(true);
@@ -123,10 +149,8 @@ export const useSignIn = () => {
       setStep('emailSent');
       return true;
     } catch (error) {
-      if (!(error as any)?.errorFields) {
-        console.error('Magic link error:', error);
-        toast.error(t('betterAuth.signin.magicLinkError'));
-      }
+      console.error('Magic link error:', error);
+      toast.error(t('betterAuth.signin.magicLinkError'));
       return false;
     } finally {
       setSending(false);
@@ -167,7 +191,8 @@ export const useSignIn = () => {
     }
   };
 
-  const handleCheckUser = async (values: Pick<SignInFormValues, 'email'>) => {
+  const checkUser = async (values: Pick<SignInFormValues, 'email'>) => {
+    if (disableEmailPassword && !enableMagicLink) return;
     setLoading(true);
     await trackLoginOrSignupClicked({ spm: 'signin.email_step.submit' });
 
@@ -181,11 +206,23 @@ export const useSignIn = () => {
         headers: { 'Content-Type': 'application/json' },
         method: 'POST',
       });
+      if (await isTenantUnavailableResponse(response)) {
+        toast.error(t('tenant.unavailable.description'));
+        return;
+      }
+      if (!response.ok) {
+        toast.error(t('betterAuth.signin.error'));
+        return;
+      }
       const data: CheckUserResponseData = await response.json();
 
       if (!data.exists) {
         if (identifierType === 'username') {
           toast.error(t('betterAuth.errors.usernameNotRegistered'));
+          return;
+        }
+        if (disableEmailPassword) {
+          await handleSendMagicLink(targetEmail);
           return;
         }
         const callbackUrl = searchParams.get('callbackUrl') || '/';
@@ -201,7 +238,7 @@ export const useSignIn = () => {
       }
 
       setEmail(targetEmail);
-      if (data.hasPassword) {
+      if (data.hasPassword && !disableEmailPassword) {
         setStep('password');
         return;
       }
@@ -221,12 +258,20 @@ export const useSignIn = () => {
     }
   };
 
+  // Every submission goes through here, and the first one retires the prefill's own
+  // auto-continue: whatever the user submitted is what they meant, not the URL's email.
+  const handleCheckUser = (values: Pick<SignInFormValues, 'email'>) => {
+    prefillHandled.current = true;
+    return checkUser(values);
+  };
+
   const handleSignIn = async (values: Pick<SignInFormValues, 'password'>) => {
+    if (disableEmailPassword) return;
     setLoading(true);
     await trackLoginOrSignupClicked({ spm: 'signin.password_step.submit' });
 
     try {
-      const callbackUrl = searchParams.get('callbackUrl') || '/';
+      const callbackUrl = sanitizeRedirectPath(searchParams.get('callbackUrl') || '/');
       const result = await signIn.email(
         {
           callbackURL: toAbsoluteAuthCallbackUrl(callbackUrl, window.location.origin),
@@ -236,29 +281,28 @@ export const useSignIn = () => {
         {
           onError: (ctx) => {
             console.error('Sign in error:', ctx.error);
+            if (isTenantUnavailableCode(ctx.error.code)) {
+              toast.error(t('tenant.unavailable.description'));
+              return;
+            }
             if (ctx.error.status === 403) {
               navigate(
                 `/verify-email?email=${encodeURIComponent(email)}&callbackUrl=${encodeURIComponent(callbackUrl)}`,
               );
             }
           },
-          // callbackUrl targets the main app, outside this auth SPA — full page load required
-          onSuccess: () => {
-            window.location.href = sanitizeRedirectPath(callbackUrl);
-          },
         },
       );
 
-      if (result.error && result.error.status !== 403) {
+      if (
+        result.error &&
+        result.error.status !== 403 &&
+        !isTenantUnavailableCode(result.error.code)
+      ) {
         // Wrong password is the most common sign-in failure. Keep the error
         // pinned inline on the field (persistent, with retry context) rather
         // than a toast that vanishes in 3s (ux Read §1.1 / Same-Page Error).
-        form.setFields([
-          {
-            errors: [result.error.message || t('betterAuth.signin.error')],
-            name: 'password',
-          },
-        ]);
+        form.setErrors({ password: result.error.message || t('betterAuth.signin.error') });
       }
     } catch (error) {
       console.error('Sign in error:', error);
@@ -269,10 +313,39 @@ export const useSignIn = () => {
   };
 
   const handleSocialSignIn = async (provider: string) => {
+    if (bridgeAttempt.current) return;
     setSocialLoading(provider);
-    const normalizedProvider = normalizeProviderId(provider);
+    if (ssoProviders.find((item) => item.id === provider)?.protocol === 'bridge') {
+      try {
+        // Open in the trusted click, before telemetry or any other async work.
+        const attempt = beginBridgeLogin(
+          provider,
+          sanitizeRedirectPath(searchParams.get('callbackUrl') || '/'),
+        );
+        bridgeAttempt.current = attempt;
+        const result = await attempt.completion;
+        window.location.assign(sanitizeRedirectPath(result.callbackURL || '/'));
+      } catch (error) {
+        const code = error instanceof Error ? error.message : '';
+        toast.error(
+          t(
+            code === 'BRIDGE_POPUP_BLOCKED'
+              ? 'bridge.popupBlocked'
+              : code === 'BRIDGE_EXPIRED'
+                ? 'bridge.expired'
+                : code === 'BRIDGE_CANCELLED'
+                  ? 'bridge.cancelled'
+                  : 'bridge.failed',
+          ),
+        );
+      } finally {
+        bridgeAttempt.current = null;
+        setSocialLoading(null);
+      }
+      return;
+    }
     await trackLoginOrSignupClicked({
-      provider: normalizedProvider,
+      provider,
       spm: 'signin.social.click',
     });
 
@@ -314,25 +387,19 @@ export const useSignIn = () => {
                 newUserCallbackURL,
                 providerId: managedProvider.id,
               })
-            : isBuiltinProvider(normalizedProvider)
-              ? await signIn.social({
-                  additionalData,
-                  callbackURL,
-                  newUserCallbackURL,
-                  provider: normalizedProvider,
-                })
-              : await signIn.oauth2({
-                  additionalData,
-                  callbackURL,
-                  newUserCallbackURL,
-                  providerId: normalizedProvider,
-                });
+            : // Tenant SSO is generic OAuth only: the id is the administrator's, never a built-in preset.
+              await signIn.oauth2({
+                additionalData,
+                callbackURL,
+                newUserCallbackURL,
+                providerId: provider,
+              });
 
       const result = await signInWithAdditionalData();
 
       if (result && 'error' in result && result.error) throw result.error;
     } catch (error) {
-      console.error(`${normalizedProvider} sign in error:`, error);
+      console.error(`${provider} sign in error:`, error);
       toast.error(t('betterAuth.signin.socialError'));
     } finally {
       setSocialLoading(null);
@@ -346,11 +413,12 @@ export const useSignIn = () => {
     // Drop the previous account's password + any inline error. The form
     // instance is shared across steps and defaults to preserve, so without this
     // the next email's password step remounts pre-filled with the stale value.
-    form.resetFields(['password']);
+    form.reset({ ...form.getValues(), password: '' });
   };
 
   const handleGoToSignup = () => {
-    const currentEmail = form.getFieldValue('email');
+    if (disableEmailPassword) return;
+    const currentEmail = form.getValue('email');
     const callbackUrl = searchParams.get('callbackUrl') || '/';
     const params = new URLSearchParams();
     if (currentEmail) params.set('email', currentEmail);
@@ -367,7 +435,7 @@ export const useSignIn = () => {
   // Fire the password-reset email. Returns true on success. Shared by the
   // "forgot password" entry and the resend action on the sent screen.
   const dispatchPasswordReset = async (targetEmail: string): Promise<boolean> => {
-    if (sending) return false;
+    if (disableEmailPassword || sending) return false;
     setSending(true);
     try {
       // The better-auth client resolves with `{ data, error }` instead of
@@ -390,7 +458,7 @@ export const useSignIn = () => {
   };
 
   const handleForgotPassword = async () => {
-    if (!email || sending) return;
+    if (disableEmailPassword || !email || sending) return;
     const ok = await dispatchPasswordReset(email);
     if (!ok) return;
     setSentInfo({ email, type: 'resetPassword' });
@@ -417,7 +485,12 @@ export const useSignIn = () => {
     ? []
     : managedSSO
       ? ssoProviders.map((item) => item.id)
-      : oAuthSSOProviders;
+      : [
+          ...new Set([
+            ...oAuthSSOProviders,
+            ...ssoProviders.filter((item) => item.protocol === 'bridge').map((item) => item.id),
+          ]),
+        ];
   const sortedProviders = lastAuthProvider
     ? [...resolvedProviders].sort((a, b) => {
         if (a === lastAuthProvider) return -1;
@@ -426,9 +499,50 @@ export const useSignIn = () => {
       })
     : resolvedProviders;
 
+  // A prefilled email (arriving from the organization lookup) carries on by itself, once.
+  // Where SSO is offered the user still has a choice to make, so it only hands them the
+  // button; where the terms were not accepted on this origin it asks for them right away
+  // and carries on once the user agrees, exactly as clicking Continue would.
+  const emailParam = searchParams.get('email')?.trim() ?? '';
+  const emailSignInEnabled = !disableEmailPassword || enableMagicLink;
+  const prefillSettled = mounted && ssoLoaded && !ssoError && !tenantUnavailable;
+  const checkUserRef = useRef(checkUser);
+  checkUserRef.current = checkUser;
+
+  useEffect(() => {
+    if (prefillHandled.current || !prefillSettled || !emailSignInEnabled) return;
+    if (step !== 'email' || !EMAIL_REGEX.test(emailParam)) return;
+    prefillHandled.current = true;
+
+    // The field is editable while the SSO configuration loads. Carry on only with what it
+    // still holds: an edited address is the user's, and is theirs to submit.
+    if (String(form.getValue('email') ?? '').trim() !== emailParam) return;
+
+    if (resolvedProviders.length > 0) {
+      continueButtonRef.current?.focus();
+      return;
+    }
+    continueWithAgreement(() => {
+      void checkUserRef.current({ email: emailParam });
+    });
+  }, [
+    continueWithAgreement,
+    emailParam,
+    emailSignInEnabled,
+    form,
+    prefillSettled,
+    resolvedProviders.length,
+    step,
+  ]);
+
   return {
+    agreementChecked,
+    continueButtonRef,
+    continueWithAgreement,
+    desktopAuth,
     disableEmailPassword,
     email,
+    enableMagicLink,
     form,
     handleBackFromSent,
     handleBackToEmail,
@@ -448,8 +562,10 @@ export const useSignIn = () => {
     sessionExpired,
     sentInfo,
     serverConfigInit: ssoLoaded && serverConfigInit,
-    ssoError,
+    setAgreementChecked,
     socialLoading,
+    ssoError,
+    tenantUnavailable,
     step,
   };
 };

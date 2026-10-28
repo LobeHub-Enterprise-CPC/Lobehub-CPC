@@ -1,10 +1,21 @@
 /**
  * @vitest-environment happy-dom
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { initializeTenant } from '@lobechat/business-tenant/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { seedAttachments } from './attachmentRegistry';
 import { getFileDownloadUrl, openFileDownload } from './fileDownload';
+
+// The page the app is served from: its origin and tenant are the default app address.
+const openPage = (url: string) => {
+  (window as typeof window & { happyDOM: { setURL: (url: string) => void } }).happyDOM.setURL(url);
+  initializeTenant(new URL(url));
+};
+
+beforeEach(() => {
+  openPage('https://app.lobehub.com/tasks/T-201');
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -65,5 +76,75 @@ describe('fileDownload', () => {
       '_blank',
       'noopener,noreferrer',
     );
+  });
+
+  describe('under a tenant address', () => {
+    it('requests attachment delivery for tenant file proxy URLs', () => {
+      openPage('https://app.lobehub.com/t/acme/agent');
+
+      expect(
+        getFileDownloadUrl('https://app.lobehub.com/t/acme/f/file_123', {
+          baseUrl: 'https://app.lobehub.com/t/acme/tasks/T-201',
+        }),
+      ).toBe('https://app.lobehub.com/t/acme/f/file_123?download=1');
+    });
+
+    it("leaves another tenant's file proxy URL as it is", () => {
+      openPage('https://app.lobehub.com/t/acme/agent');
+
+      expect(
+        getFileDownloadUrl('https://app.lobehub.com/t/beta/f/file_123', {
+          baseUrl: 'https://app.lobehub.com/t/acme/tasks/T-201',
+        }),
+      ).toBe('https://app.lobehub.com/t/beta/f/file_123');
+    });
+
+    it('builds the stable download proxy under the current tenant', () => {
+      expect(
+        getFileDownloadUrl('https://storage.example.com/video.mp4?sig=1', {
+          appUrl: 'https://app.lobehub.com/t/acme',
+          fileId: 'file_video',
+        }),
+      ).toBe('https://app.lobehub.com/t/acme/f/file_video?download=1');
+    });
+  });
+
+  describe('under a custom-domain entry', () => {
+    it('builds the download proxy at the domain root, never under /t/', () => {
+      expect(
+        getFileDownloadUrl('https://storage.example.com/video.mp4?sig=1', {
+          appUrl: 'https://chat.acme.example',
+          fileId: 'file_video',
+        }),
+      ).toBe('https://chat.acme.example/f/file_video?download=1');
+    });
+  });
+
+  describe('on desktop (the app address is the remote tenant address)', () => {
+    const appUrl = 'https://host.example/t/acme';
+
+    it('requests attachment delivery for the tenant file proxy URL the server returned', () => {
+      expect(
+        getFileDownloadUrl('https://host.example/t/acme/f/file_123', {
+          appUrl,
+          baseUrl: 'app://desktop/agent',
+        }),
+      ).toBe('https://host.example/t/acme/f/file_123?download=1');
+    });
+
+    it("leaves another tenant's file URL as it is", () => {
+      const url = 'https://host.example/t/beta/f/file_123';
+
+      expect(getFileDownloadUrl(url, { appUrl, baseUrl: 'app://desktop/agent' })).toBe(url);
+    });
+
+    it('builds the download proxy on the remote tenant address, not the renderer origin', () => {
+      expect(
+        getFileDownloadUrl('https://storage.example.com/video.mp4?sig=1', {
+          appUrl,
+          fileId: 'file_video',
+        }),
+      ).toBe('https://host.example/t/acme/f/file_video?download=1');
+    });
   });
 });

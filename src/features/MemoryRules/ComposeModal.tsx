@@ -1,19 +1,26 @@
 'use client';
 
-import type { ExpertiseEnforcement } from '@lobechat/types';
-import { Flexbox, Icon, TextArea } from '@lobehub/ui';
+import {
+  EXPERTISE_RULE_DIRECTIONS,
+  type ExpertiseEnforcement,
+  type ExpertiseRuleDirection,
+} from '@lobechat/types';
 import {
   ActionIcon,
   Button,
   createModal,
+  createStaticStyles,
+  cssVar,
   DropdownMenu,
+  Flexbox,
+  Icon,
   Spin,
   Text,
+  TextArea,
   toast,
   Tooltip,
   useModalContext,
-} from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+} from '@lobehub/ui';
 import {
   ArrowLeftIcon,
   BellIcon,
@@ -32,6 +39,7 @@ import GeneratingBorder from '@/components/GeneratingBorder';
 import { expertiseService, type RuleDraft, type RuleGroup } from '@/services/expertise';
 import { shinyTextStyles } from '@/styles';
 
+import { DIRECTION_ICON } from './DirectionToggle';
 import { composeStyles, type CreatedGroup, createGroupModal } from './GroupModal';
 import { useScopeLabel } from './labels';
 
@@ -70,6 +78,11 @@ interface GroupChoice {
 }
 
 interface ComposeContentProps {
+  /**
+   * Whether a new group may be opened from here. A new group always mounts on the reviewer, so
+   * writing into an agent's part must stay within that agent's existing groups.
+   */
+  canOpenGroup?: boolean;
   defaultGroupId?: string;
   groups: RuleGroup[];
   onCreated: (id: string) => void;
@@ -81,6 +94,7 @@ interface ComposeContentProps {
  * myself" skips the draft and lands on the same review form.
  */
 const ComposeContent = ({
+  canOpenGroup = true,
   defaultGroupId,
   groups: initialGroups,
   onCreated,
@@ -105,6 +119,8 @@ const ComposeContent = ({
   const [how, setHow] = useState('');
   const [limits, setLimits] = useState('');
   const [enforcement, setEnforcement] = useState<ExpertiseEnforcement>('remind');
+  // Left unset when writing by hand: the page judges it afterwards unless the reviewer picks.
+  const [direction, setDirection] = useState<ExpertiseRuleDirection>();
   const [compilability, setCompilability] = useState<Compilability>('not-compilable');
   const [busy, setBusy] = useState(false);
   const [tick, setTick] = useState(0);
@@ -137,11 +153,12 @@ const ComposeContent = ({
       setHow(drafted.how ?? '');
       setLimits(drafted.limits ?? '');
       setEnforcement(drafted.enforcement);
+      setDirection(drafted.direction);
       setCompilability(drafted.compilability);
       if (drafted.groupId) {
         setGroupId(drafted.groupId);
         setNewGroup(null);
-      } else if (drafted.newGroup) {
+      } else if (drafted.newGroup && canOpenGroup) {
         setGroupId(undefined);
         setNewGroup(drafted.newGroup);
       }
@@ -177,6 +194,7 @@ const ComposeContent = ({
       if (!domainId) return;
       const created = await expertiseService.createRule({
         compilability,
+        direction,
         domainId,
         enforcement,
         how: how.trim() || undefined,
@@ -317,7 +335,7 @@ const ComposeContent = ({
                       setNewGroup(null);
                     },
                   })),
-                  ...(newGroup
+                  ...(newGroup && canOpenGroup
                     ? [
                         {
                           key: 'proposed',
@@ -326,18 +344,35 @@ const ComposeContent = ({
                         },
                       ]
                     : []),
-                  { type: 'divider' as const },
-                  {
-                    icon: <Icon icon={FolderPlusIcon} />,
-                    key: 'new',
-                    label: t('rules.actions.newGroup'),
-                    onClick: addGroup,
-                  },
+                  ...(canOpenGroup
+                    ? [
+                        { type: 'divider' as const },
+                        {
+                          icon: <Icon icon={FolderPlusIcon} />,
+                          key: 'new',
+                          label: t('rules.actions.newGroup'),
+                          onClick: addGroup,
+                        },
+                      ]
+                    : []),
                 ]}
               >
                 <span className={styles.chip}>
                   <Icon icon={newGroup && !group ? FolderPlusIcon : FolderIcon} size={13} />
                   {groupLabel}
+                  <Icon icon={ChevronDownIcon} size={12} />
+                </span>
+              </DropdownMenu>
+              <DropdownMenu
+                items={EXPERTISE_RULE_DIRECTIONS.map((value) => ({
+                  key: value,
+                  label: t(`rules.direction.${value}`),
+                  onClick: () => setDirection(value),
+                }))}
+              >
+                <span className={styles.chip}>
+                  <Icon icon={DIRECTION_ICON[direction ?? 'unset']} size={13} />
+                  {direction ? t(`rules.direction.${direction}`) : t('rules.meta.direction')}
                   <Icon icon={ChevronDownIcon} size={12} />
                 </span>
               </DropdownMenu>

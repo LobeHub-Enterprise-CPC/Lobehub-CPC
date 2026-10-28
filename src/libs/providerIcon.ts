@@ -1,12 +1,12 @@
 import { BRANDING_PROVIDER } from '@lobechat/business-const';
+/* eslint-disable no-restricted-imports -- the lazy wrapper in @/components/LobeIcons is the only importer */
 import {
-  // eslint-disable-next-line no-restricted-imports -- loaded only through the lazy LobeIcons facade
-  ProviderCombine as VendorProviderCombine,
-  // eslint-disable-next-line no-restricted-imports -- loaded only through the lazy LobeIcons facade
-  ProviderIcon as VendorProviderIcon,
+  ProviderCombine as LobeProviderCombine,
+  ProviderIcon as LobeProviderIcon,
   providerMappings,
   Unsloth,
 } from '@lobehub/icons';
+/* eslint-enable no-restricted-imports */
 import { type ComponentProps, createElement } from 'react';
 
 import { ProductLogo } from '@/components/Branding/ProductLogo';
@@ -30,8 +30,12 @@ if (
 const isBrandedProvider = (provider?: string) =>
   isCustomBranding && provider?.toLowerCase() === BRANDING_PROVIDER.toLowerCase();
 
-export const ProviderIcon = (props: ComponentProps<typeof VendorProviderIcon>) => {
-  if (!isBrandedProvider(props.provider)) return createElement(VendorProviderIcon, props);
+// Do not turn these back into `export { ... }` re-exports: with rolldown's
+// strictExecutionOrder (rolldown 1.2.12) the icon modules' init wrappers are
+// then never called in production chunks, both exports stay undefined and the
+// lazy loaders in @/components/LobeIcons crash with React #306.
+export const ProviderIcon = (props: ComponentProps<typeof LobeProviderIcon>) => {
+  if (!isBrandedProvider(props.provider)) return createElement(LobeProviderIcon, props);
 
   const { className, forceMono, size = 24, style, type } = props;
   return createElement(ProductLogo, {
@@ -42,8 +46,8 @@ export const ProviderIcon = (props: ComponentProps<typeof VendorProviderIcon>) =
   });
 };
 
-export const ProviderCombine = (props: ComponentProps<typeof VendorProviderCombine>) => {
-  if (!isBrandedProvider(props.provider)) return createElement(VendorProviderCombine, props);
+export const ProviderCombine = (props: ComponentProps<typeof LobeProviderCombine>) => {
+  if (!isBrandedProvider(props.provider)) return createElement(LobeProviderCombine, props);
 
   const { provider: _provider, size = 24, type: _type, ...rest } = props;
   return createElement(ProductLogo, { ...rest, size, type: 'combine' });

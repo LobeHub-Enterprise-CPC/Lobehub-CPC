@@ -9,6 +9,11 @@ export interface StoredCredentials {
   accessToken: string;
   expiresAt?: number; // Unix timestamp (seconds)
   refreshToken?: string;
+  /**
+   * The server (tenant address included) that issued these tokens. Tokens are only ever sent
+   * there; a login that does not record it is not trusted for any server.
+   */
+  serverUrl?: string;
 }
 
 const LOBEHUB_DIR_NAME = resolveCliDirName();

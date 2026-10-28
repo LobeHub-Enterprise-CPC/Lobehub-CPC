@@ -1,14 +1,20 @@
 'use client';
 
 import { Tooltip } from '@lobehub/ui';
-import { memo } from 'react';
+import { Fragment, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useChatInputResourceAccess } from '@/features/ChatInput/hooks/useChatInputResourceAccess';
 
 import CloudRepoSwitcher from './CloudRepoSwitcher';
-import HeteroDeviceSwitcher from './HeteroDeviceSwitcher';
-import { useWorkspaceSurface } from './useWorkspaceSurface';
+import DeviceSwitcher from './DeviceSwitcher';
+import {
+  ExecutionPlacePicker,
+  type ExecutionPlacePickerProps,
+} from './executionPlace/ExecutionPlacePicker';
+import { useAgentPlacePicker } from './executionPlace/useAgentPlacePicker';
+import SandboxStorageSection from './SandboxStorageSection';
+import { useWorkspaceSurface, type WorkspaceSurface } from './useWorkspaceSurface';
 import WorkingDirectorySection from './WorkingDirectorySection';
 
 interface WorkspaceControlsProps {
@@ -20,6 +26,13 @@ interface WorkspaceControlsProps {
    * local mode.
    */
   alwaysShowWorkspace?: boolean;
+  /**
+   * Home dock always uses the place picker. Topic bars follow
+   * `COMPOSER_AGENT_ONLY_LAYOUT` on their own.
+   */
+  placePicker?: boolean;
+  /** Side the place picker's cascade opens on; the home dock opens it leftwards. */
+  placePickerPlacement?: ExecutionPlacePickerProps['placement'];
 }
 
 /**
@@ -32,63 +45,80 @@ interface WorkspaceControlsProps {
  * full-access badge) stay in their respective bars.
  */
 const WorkspaceControls = memo<WorkspaceControlsProps>(
-  ({ agentId, alwaysShowWorkspace = false }) => {
+  ({ agentId, alwaysShowWorkspace = false, placePicker = false, placePickerPlacement }) => {
     const { t } = useTranslation('setting');
     const { canConfigureResource, canUseResource } = useChatInputResourceAccess();
+    const { enabled: placePickerActive } = useAgentPlacePicker(agentId, placePicker);
     // Resolved from the effective (override-merged) execution target so the
-    // surface follows the device THIS member's run actually targets.
-    const surface = useWorkspaceSurface(agentId, alwaysShowWorkspace);
+    // surfaces follow the device THIS member's run actually targets.
+    const surfaces = useWorkspaceSurface(agentId, alwaysShowWorkspace);
 
-    const renderWorkspace = () => {
+    const renderSurface = (surface: WorkspaceSurface) => {
       switch (surface) {
         case 'workingDirectory': {
-          return <WorkingDirectorySection agentId={agentId} />;
+          return <WorkingDirectorySection agentId={agentId} hidePicker={placePickerActive} />;
         }
         case 'cloudRepo': {
           return <CloudRepoSwitcher agentId={agentId} />;
         }
-        default: {
-          return null;
+        case 'sandbox': {
+          return <SandboxStorageSection agentId={agentId} />;
         }
       }
     };
 
     // The directory picker and git controls write shared agent config / run
-    // device git mutations, so members without edit access see the whole
-    // cluster disabled. The device switcher handles its own use-level gate.
-    const workspace = renderWorkspace();
+    // device git mutations, so members without edit access see that cluster
+    // disabled. The device switcher handles its own use-level gate.
+    //
+    // The sandbox is exempt: its choice lands in the topic's own metadata, not
+    // in the shared agent row, so a member who may use the agent may choose
+    // where their own run keeps its files. Gated one surface at a time, so a
+    // run that shows both keeps the sandbox chip live while the repo switcher
+    // is inert.
+    const withAccessGate = (surface: WorkspaceSurface) => {
+      const node = renderSurface(surface);
+      if (canConfigureResource || surface === 'sandbox') return node;
+
+      return (
+        <Tooltip
+          title={t(
+            canUseResource ? 'permission.accessTag.useOnlyTip' : 'permission.accessTag.viewOnlyTip',
+          )}
+        >
+          {/* Outer div catches hover for the tooltip; the inner one makes
+              the controls inert. */}
+          <div style={{ alignItems: 'center', display: 'flex', gap: 4 }}>
+            <div
+              style={{
+                alignItems: 'center',
+                display: 'flex',
+                gap: 4,
+                opacity: 0.5,
+                pointerEvents: 'none',
+              }}
+            >
+              {node}
+            </div>
+          </div>
+        </Tooltip>
+      );
+    };
 
     return (
       <>
-        <HeteroDeviceSwitcher agentId={agentId} />
-        {workspace &&
-          (canConfigureResource ? (
-            workspace
-          ) : (
-            <Tooltip
-              title={t(
-                canUseResource
-                  ? 'permission.accessTag.useOnlyTip'
-                  : 'permission.accessTag.viewOnlyTip',
-              )}
-            >
-              {/* Outer div catches hover for the tooltip; the inner one makes
-                  the controls inert. */}
-              <div style={{ alignItems: 'center', display: 'flex', gap: 4 }}>
-                <div
-                  style={{
-                    alignItems: 'center',
-                    display: 'flex',
-                    gap: 4,
-                    opacity: 0.5,
-                    pointerEvents: 'none',
-                  }}
-                >
-                  {workspace}
-                </div>
-              </div>
-            </Tooltip>
-          ))}
+        {placePickerActive ? (
+          <ExecutionPlacePicker
+            agentId={agentId}
+            allowDirectory={canConfigureResource}
+            placement={placePickerPlacement}
+          />
+        ) : (
+          <DeviceSwitcher agentId={agentId} />
+        )}
+        {surfaces.map((surface) => (
+          <Fragment key={surface}>{withAccessGate(surface)}</Fragment>
+        ))}
       </>
     );
   },

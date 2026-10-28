@@ -1,11 +1,12 @@
 // @vitest-environment node
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getTestDB } from '../../core/getTestDB';
 import { ExpertiseRuleRepository } from '../../repositories/expertiseRules';
 import {
   agents,
+  documents,
   expertiseBindings,
   expertiseDomains,
   expertiseHits,
@@ -482,9 +483,11 @@ describe('ExpertiseModel', () => {
     expect(group.rules[2].enforcement).toBe('remind');
   });
 
-  it('lists groups distilled from a project, but not agent self-learning domains', async () => {
+  it("lists project groups as the reviewer's, and agent self-learning after them", async () => {
     await seedRuleGroup();
-    await serverDB.insert(agents).values({ id: 'rules-agent', userId });
+    await serverDB
+      .insert(agents)
+      .values({ avatar: '🦊', id: 'rules-agent', title: '狐狸', userId });
     await serverDB.insert(projects).values({
       coordinatorAgentId: 'rules-agent',
       id: 'rules-project',
@@ -517,11 +520,52 @@ describe('ExpertiseModel', () => {
 
     const groups = await new ExpertiseModel(serverDB, userId).listRules();
 
-    expect(groups.map((g) => g.domain.title)).toContain('lobehub 的规矩');
-    expect(groups.map((g) => g.domain.title)).not.toContain('智能体专长');
+    expect(groups.find((g) => g.domain.id === 'project-domain')?.owner).toEqual({ kind: 'mine' });
     expect(groups.find((g) => g.domain.id === 'project-domain')?.scopes).toEqual([
       { id: 'rules-project', kind: 'project', title: 'lobehub' },
     ]);
+    // Agent self-learning is listed too, owned by its agent, after every group of the reviewer's.
+    expect(groups.at(-1)?.domain.id).toBe('agent-domain');
+    expect(groups.at(-1)?.owner).toEqual({
+      agent: { avatar: '🦊', backgroundColor: null, id: 'rules-agent', title: '狐狸' },
+      kind: 'agent',
+    });
+    expect(groups.slice(0, -1).every((g) => g.owner.kind === 'mine')).toBe(true);
+  });
+
+  it("leaves out what a teammate's private agent learned", async () => {
+    const teammate = 'expertise-rules-private-learner';
+    const workspaceId = 'rules-private-learner-workspace';
+    await serverDB.insert(users).values({ id: teammate });
+    await serverDB.insert(workspaces).values({
+      id: workspaceId,
+      name: 'Team',
+      primaryOwnerId: userId,
+      slug: 'rules-private-learner',
+    });
+    await serverDB.insert(agents).values({
+      id: 'private-learner',
+      title: '队友的私有助手',
+      userId: teammate,
+      visibility: 'private',
+      workspaceId,
+    });
+    await serverDB.insert(expertiseDomains).values({
+      anchorChosenAt: new Date(),
+      domainFilter: '私有专长',
+      id: 'private-learned-domain',
+      slug: 'private-learned-domain',
+      title: '私有专长',
+      userId: teammate,
+      workspaceId,
+    });
+    await serverDB
+      .insert(expertiseBindings)
+      .values({ agentId: 'private-learner', domainId: 'private-learned-domain' });
+
+    const groups = await new ExpertiseModel(serverDB, userId, workspaceId).listRules();
+
+    expect(groups.map((g) => g.domain.id)).not.toContain('private-learned-domain');
   });
 
   it('files a hand-written rule at the top of its group with the next code', async () => {
@@ -551,6 +595,30 @@ describe('ExpertiseModel', () => {
     });
     // A foreign group is not a place the caller can write into.
     expect(await model.createRule({ domainId: 'rules-foreign-domain', title: 'x' })).toBeNull();
+  });
+
+  it('fills judged directions only on rules that have none', async () => {
+    const { first, second } = await seedRuleGroup();
+    const model = new ExpertiseModel(serverDB, userId);
+    const created = await model.createRule({
+      direction: 'negative',
+      domainId: 'rules-domain',
+      title: '非链接控件不要套蓝色链接样式',
+    });
+
+    // The reviewer flipped one while the judgment was in flight; their choice stands.
+    await model.updateLessonFields(second, { direction: 'positive' });
+    await model.fillLessonDirections([
+      { direction: 'positive', id: first },
+      { direction: 'negative', id: second },
+      { direction: 'positive', id: created!.id },
+    ]);
+
+    const [group] = await model.listRules();
+    const directionOf = (id: string) => group.rules.find((rule) => rule.id === id)?.direction;
+    expect(directionOf(first)).toBe('positive');
+    expect(directionOf(second)).toBe('positive');
+    expect(directionOf(created!.id)).toBe('negative');
   });
 
   it('versions a rewording but not a switch flip', async () => {
@@ -766,6 +834,217 @@ describe('ExpertiseModel', () => {
       runId,
     });
   };
+
+  const seedAgentLesson = async () => {
+    await serverDB.insert(agents).values({ id: 'reach-agent', title: '狐狸', userId });
+    await serverDB.insert(expertiseDomains).values({
+      anchorChosenAt: new Date(),
+      domainFilter: '智能体专长',
+      id: 'reach-agent-domain',
+      slug: 'reach-agent-domain',
+      title: '狐狸学到的',
+      userId,
+    });
+    await serverDB
+      .insert(expertiseBindings)
+      .values({ agentId: 'reach-agent', domainId: 'reach-agent-domain' });
+    const id = '0d3e1a5c-6f52-4c2e-8f2a-9f2d3f26b1a1';
+    await serverDB.insert(expertiseLessons).values({
+      code: 'P-01',
+      domainId: 'reach-agent-domain',
+      id,
+      polarity: 'rule',
+      sections: [{ body: '空状态给出下一步', key: 'rule' }],
+      title: '空状态给出下一步',
+    });
+    return id;
+  };
+
+  it("refuses to move the reviewer's rule into an agent's lessons", async () => {
+    const { first } = await seedRuleGroup();
+    await seedAgentLesson();
+    const model = new ExpertiseModel(serverDB, userId);
+
+    expect(await model.moveRule(first, 'reach-agent-domain')).toBeNull();
+
+    const [row] = await serverDB
+      .select({ domainId: expertiseLessons.domainId, status: expertiseLessons.status })
+      .from(expertiseLessons)
+      .where(eq(expertiseLessons.id, first));
+    expect(row).toEqual({ domainId: 'rules-domain', status: 'active' });
+  });
+
+  it("refuses to merge across the reviewer's rules and an agent's lessons", async () => {
+    const { first } = await seedRuleGroup();
+    const agentLesson = await seedAgentLesson();
+    const repository = new ExpertiseRuleRepository(serverDB, userId);
+
+    expect(await repository.mergeRules(first, agentLesson)).toBeNull();
+    expect(await repository.mergeRules(agentLesson, first)).toBeNull();
+
+    const rows = await serverDB
+      .select({ id: expertiseLessons.id, status: expertiseLessons.status })
+      .from(expertiseLessons)
+      .where(inArray(expertiseLessons.id, [first, agentLesson]));
+    expect(rows.every((row) => row.status === 'active')).toBe(true);
+  });
+
+  it('numbers a material run after a concurrent writer holding the same domain', async () => {
+    await seedRuleGroup();
+    let release!: () => void;
+    let reportLocked!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const locked = new Promise<void>((resolve) => {
+      reportLocked = resolve;
+    });
+    // Another writer (ingestion, a second distillation) takes the domain lock and numbers a run.
+    const other = serverDB.transaction(async (tx) => {
+      await tx
+        .select({ id: expertiseDomains.id })
+        .from(expertiseDomains)
+        .where(eq(expertiseDomains.id, 'rules-domain'))
+        .for('update');
+      reportLocked();
+      await released;
+      await new ExpertiseModel(tx as LobeChatDatabase, userId).insertMaterialRun({
+        domainId: 'rules-domain',
+        reflectionKey: 'material:text:other',
+        subjectId: 'other',
+        subjectType: 'standalone',
+      });
+    });
+    await locked;
+
+    const distilling = new ExpertiseRuleRepository(serverDB, userId).commitDistilled(
+      { subjectId: null, subjectType: 'standalone', title: 'notes', type: 'text' },
+      [
+        {
+          domainId: 'rules-domain',
+          kind: 'create',
+          quote: 'always rebase',
+          rule: { title: 'Rebase before delivering' },
+        },
+      ],
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    release();
+
+    const settled = await Promise.allSettled([other, distilling]);
+    expect(settled.map(({ status }) => status)).toEqual(['fulfilled', 'fulfilled']);
+    const runs = await serverDB
+      .select({ runIndex: expertiseRuns.runIndex })
+      .from(expertiseRuns)
+      .where(eq(expertiseRuns.domainId, 'rules-domain'));
+    expect(new Set(runs.map(({ runIndex }) => runIndex)).size).toBe(runs.length);
+  });
+
+  it("refuses to number a run or file a rule into another user's domain", async () => {
+    await seedRuleGroup();
+
+    const results = await new ExpertiseRuleRepository(serverDB, userId).commitDistilled(
+      { subjectId: null, subjectType: 'standalone', title: 'notes', type: 'text' },
+      [
+        {
+          domainId: 'rules-foreign-domain',
+          kind: 'create',
+          quote: 'always rebase',
+          rule: { title: 'Rebase before delivering' },
+        },
+      ],
+    );
+
+    expect(results).toEqual([]);
+    const runs = await serverDB
+      .select({ id: expertiseRuns.id })
+      .from(expertiseRuns)
+      .where(eq(expertiseRuns.domainId, 'rules-foreign-domain'));
+    expect(runs).toEqual([]);
+    expect(
+      await new ExpertiseModel(serverDB, userId).insertMaterialRun({
+        domainId: 'rules-foreign-domain',
+        reflectionKey: 'material:text:x',
+        subjectId: 'x',
+        subjectType: 'standalone',
+      }),
+    ).toBeNull();
+  });
+
+  it('files rules distilled from a document and records a restatement on the rule it repeats', async () => {
+    const { first } = await seedRuleGroup();
+    await serverDB.insert(documents).values({
+      content: '交付前必须 rebase 到 canary。',
+      fileType: 'markdown',
+      id: 'distill-doc',
+      source: 'document',
+      sourceType: 'api',
+      title: '工程规范',
+      totalCharCount: 20,
+      totalLineCount: 1,
+      userId,
+    });
+    const repository = new ExpertiseRuleRepository(serverDB, userId);
+
+    const results = await repository.commitDistilled(
+      { subjectId: 'distill-doc', subjectType: 'document', title: '工程规范', type: 'document' },
+      [
+        {
+          domainId: 'rules-domain',
+          kind: 'create',
+          quote: '交付前必须 rebase 到 canary。',
+          rule: { enforcement: 'block', title: '交付前先 rebase 到 canary' },
+        },
+        { intoId: first, kind: 'merge', quote: '证据只拍成功路径' },
+      ],
+    );
+
+    expect(results.map(({ kind }) => kind)).toEqual(['create', 'merge']);
+    const created = results[0].id;
+    const model = new ExpertiseModel(serverDB, userId);
+    const rules = (await model.listRules()).flatMap((group) => group.rules);
+    // Read from a material: counted apart from rejections and conversations, and not "yours".
+    expect(rules.find(({ id }) => id === created)).toMatchObject({
+      authored: false,
+      conversationHitCount: 0,
+      enforcement: 'block',
+      materialHitCount: 1,
+      rejectionHitCount: 0,
+    });
+    expect(rules.find(({ id }) => id === first)).toMatchObject({ materialHitCount: 1 });
+
+    const [source] = await model.listLessonSources(created);
+    expect(source).toMatchObject({
+      documentId: 'distill-doc',
+      example: '交付前必须 rebase 到 canary。',
+      fromAcceptance: false,
+      materialType: 'document',
+      where: '工程规范',
+    });
+  });
+
+  it('keeps quotes read from a material out of how reliably a rule is practised', async () => {
+    const { first } = await seedRuleGroup();
+
+    const [created] = await new ExpertiseRuleRepository(serverDB, userId).commitDistilled(
+      { subjectId: null, subjectType: 'standalone', title: 'notes', type: 'text' },
+      [
+        {
+          domainId: 'rules-domain',
+          kind: 'create',
+          quote: 'always rebase',
+          rule: { title: 'Rebase before delivering' },
+        },
+        { intoId: first, kind: 'merge', quote: 'shoot the success path' },
+      ],
+    );
+
+    const model = new ExpertiseModel(serverDB, userId);
+    expect(await model.reliabilitySeries(['rules-domain'])).toEqual([]);
+    const lessons = await model.listLessonsWithRecent(['rules-domain']);
+    expect(lessons.find(({ id }) => id === created.id)?.recent).toEqual([]);
+    expect(lessons.find(({ id }) => id === first)?.recent).toEqual([]);
+  });
 
   it('moves an unencumbered rule in place with a fresh code', async () => {
     const { first } = await seedRuleGroup();

@@ -10,9 +10,17 @@ import {
   deriveAgentInterventionContinuationOperationId,
   deriveAgentInterventionQueueDeduplicationId,
 } from '@/business/server/agent-run/agentInterventionIdentity';
+import type * as TenantBinding from '@/libs/trpc/utils/tenantBinding';
 
 import { aiAgentRouter } from '../aiAgent';
 import { cleanupTestUser, createTestUser } from './integration/setup';
+
+// Operation tokens are bound to the tenant of the request by their `tid` claim
+// (covered in heteroOperationAuth.test.ts); these tests run outside a tenant scope.
+vi.mock('@/libs/trpc/utils/tenantBinding', async (importOriginal) => ({
+  ...(await importOriginal<typeof TenantBinding>()),
+  isBoundToCurrentTenant: () => true,
+}));
 
 const business = vi.hoisted(() => ({
   getHeteroInterventionReview: vi.fn(),
@@ -155,7 +163,7 @@ describe('aiAgentRouter — remote Human-in-the-loop', () => {
       },
       userId,
     } as any);
-  // Exec leg from a token minted before operation-bound claims were deployed.
+  // Exec leg from a token minted before operation-bound claims existed (now refused).
   const legacyHeteroCaller = (sub: string) =>
     aiAgentRouter.createCaller({
       jwtPayload: { userId: sub },
@@ -1077,6 +1085,113 @@ describe('aiAgentRouter — remote Human-in-the-loop', () => {
     });
   });
 
+  // The router's contract is pass-through: it forwards the claimed runtime
+  // action's appContext verbatim plus the parked operation id
+  // (`approvalSourceOperationId`). The Group Agent Builder target inheritance
+  // itself lives in the service pipeline — see
+  // `startOperation.editingGroupId.test.ts` (Codex P1 on #20626: a bare
+  // execAgent mock never reaches that enrichment, so asserting an inherited
+  // value here was both failing and vacuous).
+  describe('group builder editing target forwarding', () => {
+    const execution = {
+      autoStarted: true,
+      messageId: 'assistant-continuation-group',
+      operationId: 'operation-continuation-group',
+      success: true,
+    };
+
+    const resolveGroupContinuation = async (params: {
+      appContext?: Record<string, unknown>;
+      resolutionRequestId: string;
+      sourceOperationId: string;
+    }) => {
+      await insertPendingTool({
+        batchId: `batch-${params.sourceOperationId}`,
+        messageId: 'assistant-runtime',
+        operationId: params.sourceOperationId,
+        toolCallId: 'tool-runtime',
+      });
+      businessV2.resolveAgentIntervention.mockResolvedValueOnce({
+        claimId: `claim-${params.sourceOperationId}`,
+        contractVersion: 2,
+        handled: true,
+        ownerUserId: userId,
+        resolutionRequestId: params.resolutionRequestId,
+        runtimeAction: {
+          agentId: 'agt_group_builder',
+          appContext: params.appContext ?? { topicId: 'topic-runtime' },
+          content: '{"answer":"A"}',
+          operationId: params.sourceOperationId,
+          outcome: 'submitted',
+          parentMessageId: 'assistant-runtime',
+          toolCallId: 'tool-runtime',
+          type: 'resume_tool_result',
+        },
+        state: 'claimed',
+      });
+      aiAgentService.execAgent.mockResolvedValueOnce(execution);
+
+      await userCaller().resolveAgentIntervention({
+        action: { itemId: 'item-runtime', type: 'skip_interaction' },
+        expectedBatchVersion: 1,
+        expectedRequestRevisions: {
+          'item-runtime': { hash: 'c'.repeat(64), version: 1 },
+        },
+        resolutionRequestId: params.resolutionRequestId,
+        reviewToken: 'h'.repeat(43),
+      });
+    };
+
+    const execCallFor = () =>
+      aiAgentService.execAgent.mock.calls.find(
+        ([input]) => input?.appContext?.topicId === 'topic-runtime',
+      );
+
+    it('forwards the appContext verbatim and names the parked operation for the service to enrich', async () => {
+      const sourceOperationId = 'operation-group-source';
+      await insertOperation(sourceOperationId, userId);
+
+      await resolveGroupContinuation({
+        resolutionRequestId: '018fbd8e-7baf-7c6d-8000-000000000051',
+        sourceOperationId,
+      });
+
+      const call = execCallFor();
+      expect(call?.[0]?.appContext).toEqual({ topicId: 'topic-runtime' });
+      expect(call?.[0]?.approvalSourceOperationId).toBe(sourceOperationId);
+    });
+
+    it('never injects an editing group at the router boundary (ordinary topic)', async () => {
+      const sourceOperationId = 'operation-plain-source';
+      await insertOperation(sourceOperationId, userId);
+
+      await resolveGroupContinuation({
+        resolutionRequestId: '018fbd8e-7baf-7c6d-8000-000000000052',
+        sourceOperationId,
+      });
+
+      expect(execCallFor()?.[0]?.appContext).not.toHaveProperty('editingGroupId');
+    });
+
+    it('passes a request-named editing group through without rewriting it', async () => {
+      const sourceOperationId = 'operation-group-explicit';
+      await insertOperation(sourceOperationId, userId);
+
+      await resolveGroupContinuation({
+        appContext: { editingGroupId: 'cg_panel', topicId: 'topic-runtime' },
+        resolutionRequestId: '018fbd8e-7baf-7c6d-8000-000000000053',
+        sourceOperationId,
+      });
+
+      const call = execCallFor();
+      expect(call?.[0]?.appContext).toEqual({
+        editingGroupId: 'cg_panel',
+        topicId: 'topic-runtime',
+      });
+      expect(call?.[0]?.approvalSourceOperationId).toBe(sourceOperationId);
+    });
+  });
+
   it('retries only the published transition after runtime dispatch already settled the source', async () => {
     const reviewToken = 'f'.repeat(43);
     const messageId = 'message-published-retry';
@@ -1672,35 +1787,17 @@ describe('aiAgentRouter — remote Human-in-the-loop', () => {
   });
 
   describe('waitInterventionResponse ownership guard', () => {
-    it('lets a pre-deploy operation token read an operation owned by its subject', async () => {
+    // Tokens minted before operation-bound claims existed are no longer honoured: an
+    // operation token must carry the full contract (and its tenant), never the owner path.
+    it('rejects an operation token without the operation claims', async () => {
       await insertOperation('op-legacy-owned', userId);
-      await userCaller().submitHeteroIntervention({
-        operationId: 'op-legacy-owned',
-        result: { answer: 'yes' },
-        toolCallId: 't-legacy-own',
-      });
-
-      const res = await legacyHeteroCaller(userId).waitInterventionResponse({
-        lastEventId: '0',
-        operationId: 'op-legacy-owned',
-      });
-
-      expect(res.events).toHaveLength(1);
-      expect(res.events[0].data).toMatchObject({ toolCallId: 't-legacy-own' });
-    });
-
-    it("rejects a pre-deploy operation token reading another user's operation", async () => {
-      const otherUserId = await createTestUser(serverDB);
-      await insertOperation('op-legacy-others', otherUserId);
 
       await expect(
         legacyHeteroCaller(userId).waitInterventionResponse({
           lastEventId: '0',
-          operationId: 'op-legacy-others',
+          operationId: 'op-legacy-owned',
         }),
-      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-
-      await cleanupTestUser(serverDB, otherUserId);
+      ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
     });
 
     it('lets an owner token read its own operation', async () => {

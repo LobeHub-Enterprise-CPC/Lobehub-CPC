@@ -1,6 +1,7 @@
 import createDebug from 'debug';
 
 import type { CreateVideoOptions } from '../../core/openaiCompatibleFactory';
+import { getVideoReferenceImages } from '../../core/usageConverters/utils/computeVideoCost';
 import type { CreateVideoPayload, CreateVideoResult } from '../../types/video';
 import { resolveMappedModelId } from '../../utils/modelIdMapping';
 
@@ -84,13 +85,13 @@ const resolveMiniMaxV2BaseURL = (baseURL?: string) => {
 
 export async function queryMiniMaxVideoStatus(
   taskId: string,
-  options: { apiKey: string; baseURL: string },
+  options: { apiKey: string; baseURL: string; fetch?: typeof fetch },
 ): Promise<MiniMaxVideoStatusResponse> {
   const statusUrl = `${options.baseURL}/query/video_generation`;
   const urlWithParams = new URL(statusUrl);
   urlWithParams.searchParams.append('task_id', taskId);
 
-  const response = await fetch(urlWithParams.toString(), {
+  const response = await (options.fetch ?? fetch)(urlWithParams.toString(), {
     headers: {
       Authorization: `Bearer ${options.apiKey}`,
     },
@@ -107,11 +108,11 @@ export async function queryMiniMaxVideoStatus(
 
 export async function queryMiniMaxH3VideoStatus(
   taskId: string,
-  options: { apiKey: string; baseURL: string },
+  options: { apiKey: string; baseURL: string; fetch?: typeof fetch },
 ): Promise<MiniMaxH3VideoStatusResponse> {
   const statusUrl = `${resolveMiniMaxV2BaseURL(options.baseURL)}/query/video_generation/${encodeURIComponent(taskId)}`;
 
-  const response = await fetch(statusUrl, {
+  const response = await (options.fetch ?? fetch)(statusUrl, {
     headers: {
       Authorization: `Bearer ${options.apiKey}`,
     },
@@ -128,13 +129,13 @@ export async function queryMiniMaxH3VideoStatus(
 
 export async function retrieveMiniMaxVideoFile(
   fileId: string,
-  options: { apiKey: string; baseURL: string },
+  options: { apiKey: string; baseURL: string; fetch?: typeof fetch },
 ): Promise<string> {
   const retrieveUrl = `${options.baseURL}/files/retrieve`;
   const urlWithParams = new URL(retrieveUrl);
   urlWithParams.searchParams.append('file_id', fileId);
 
-  const response = await fetch(urlWithParams.toString(), {
+  const response = await (options.fetch ?? fetch)(urlWithParams.toString(), {
     headers: {
       Authorization: `Bearer ${options.apiKey}`,
     },
@@ -161,7 +162,7 @@ export async function retrieveMiniMaxVideoFile(
 
 export async function pollMiniMaxVideoStatus(
   inferenceId: string,
-  options: { apiKey: string; baseURL: string },
+  options: { apiKey: string; baseURL: string; fetch?: typeof fetch },
 ): Promise<
   | { status: 'success'; videoUrl: string }
   | { status: 'failed'; error: string }
@@ -233,12 +234,8 @@ export async function createMiniMaxVideo(
 
   if (isMiniMaxH3(model) || isMiniMaxH3(requestModel)) {
     const content: Record<string, unknown>[] = [{ text: prompt, type: 'text' }];
-    const hasReferenceImages = Boolean(imageUrls?.length);
-    const referenceImageUrls = hasReferenceImages
-      ? [imageUrl, ...(imageUrls ?? []), endImageUrl].filter(
-          (url): url is string => typeof url === 'string' && url.length > 0,
-        )
-      : [];
+    const referenceImageUrls = getVideoReferenceImages({ endImageUrl, imageUrl, imageUrls });
+    const hasReferenceImages = referenceImageUrls.length > 0;
 
     if (referenceImageUrls.length > 9) {
       throw new Error('MiniMax-H3 supports up to 9 reference images');
@@ -279,14 +276,17 @@ export async function createMiniMaxVideo(
 
     log('Creating video with MiniMax H3 API - model: %s, params: %O', model, params);
 
-    const response = await fetch(`${resolveMiniMaxV2BaseURL(baseURL)}/video_generation`, {
-      body: JSON.stringify(body),
-      headers: {
-        'Authorization': `Bearer ${options.apiKey}`,
-        'Content-Type': 'application/json',
+    const response = await (options.fetch ?? fetch)(
+      `${resolveMiniMaxV2BaseURL(baseURL)}/video_generation`,
+      {
+        body: JSON.stringify(body),
+        headers: {
+          'Authorization': `Bearer ${options.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
       },
-      method: 'POST',
-    });
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -333,7 +333,7 @@ export async function createMiniMaxVideo(
 
   log('Creating video with MiniMax API - model: %s, params: %O', model, params);
 
-  const response = await fetch(`${baseURL}/video_generation`, {
+  const response = await (options.fetch ?? fetch)(`${baseURL}/video_generation`, {
     body: JSON.stringify(body),
     headers: {
       'Authorization': `Bearer ${options.apiKey}`,

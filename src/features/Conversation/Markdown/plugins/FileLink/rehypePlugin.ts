@@ -1,8 +1,6 @@
+import { getAppBaseUrl } from '@lobechat/business-tenant/client';
 import { isDesktop } from '@lobechat/const';
 import { SKIP, visit } from 'unist-util-visit';
-
-import { useElectronStore } from '@/store/electron';
-import { electronSyncSelectors } from '@/store/electron/selectors';
 
 import { LOBE_FILE_LINK_TAG, parseFileLinkHref } from './parse';
 
@@ -14,17 +12,30 @@ const getNodeText = (node: any): string => {
 };
 
 /**
- * The origin file links should be classified against. On desktop the
+ * The address file links should be classified against. On desktop the
  * renderer's own origin isn't the app's — exported files are absolute URLs
- * pointing at the remote server, so that's what has to match (see useAppOrigin,
- * this plugin's non-hook equivalent).
+ * pointing at the remote server (`https://host/t/acme/f/:id` for a tenant), so
+ * its address, tenant path included, is what has to match (the tenant package's
+ * app address, see getAppBaseUrl).
  */
-const getCurrentOrigin = (): string | undefined => {
-  if (typeof window === 'undefined') return undefined;
-  if (!isDesktop) return window.location.origin;
+const getCurrentOrigins = (): string[] => {
+  if (typeof window === 'undefined') return [];
+  if (!isDesktop) return [window.location.origin];
 
-  const remoteServerUrl = electronSyncSelectors.remoteServerUrl(useElectronStore.getState());
-  return remoteServerUrl || undefined;
+  const appBaseUrl = getAppBaseUrl();
+
+  return appBaseUrl ? [appBaseUrl] : [];
+};
+
+const parseAgainstOrigins = (href: string | undefined, origins: string[]) => {
+  if (origins.length === 0) return parseFileLinkHref(href);
+
+  for (const origin of origins) {
+    const parsed = parseFileLinkHref(href, origin);
+    if (parsed) return parsed;
+  }
+
+  return null;
 };
 
 /**
@@ -39,7 +50,7 @@ export const rehypeFileLink = () => (tree: any) => {
     if (node.tagName !== 'a') return;
 
     const href = node.properties?.href as string | undefined;
-    const parsed = parseFileLinkHref(href, getCurrentOrigin());
+    const parsed = parseAgainstOrigins(href, getCurrentOrigins());
     if (!parsed) return;
 
     const text = getNodeText(node).trim();

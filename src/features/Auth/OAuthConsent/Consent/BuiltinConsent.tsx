@@ -1,9 +1,9 @@
 'use client';
 
-import { Flexbox } from '@lobehub/ui';
-import { Text } from '@lobehub/ui/base-ui';
+import { Flexbox, Text } from '@lobehub/ui';
 import { memo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useHref } from 'react-router';
 
 import BrandLoading from '@/components/Loading/BrandTextLoading';
 
@@ -13,6 +13,7 @@ interface BuiltinConsentProps {
 
 const BuiltinConsent = memo<BuiltinConsentProps>(({ uid }) => {
   const { t } = useTranslation('oauth');
+  const action = useHref('/oidc/consent');
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
@@ -26,7 +27,7 @@ const BuiltinConsent = memo<BuiltinConsentProps>(({ uid }) => {
         <BrandLoading debugId={'ouidc'} />
         <Text fontSize={14}>{t('consent.redirecting')}</Text>
       </Flexbox>
-      <form action="/oidc/consent" method="post" ref={formRef} style={{ display: 'none' }}>
+      <form action={action} method="post" ref={formRef} style={{ display: 'none' }}>
         <input name="uid" type="hidden" value={uid} />
         <input name="consent" type="hidden" value="accept" />
       </form>

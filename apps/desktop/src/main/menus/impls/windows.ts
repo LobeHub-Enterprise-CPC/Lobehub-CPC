@@ -9,8 +9,10 @@ import { isDev } from '@/const/env';
 import { HETERO_AGENT_DIR } from '@/const/heteroAgent';
 import { getAppDisplayName } from '@/utils/appIdentity';
 
+import { assignMenuIds } from '../appMenuSnapshot';
 import { buildTrayMenuTemplate } from '../trayMenu';
 import type { ContextMenuData, IMenuPlatform, MenuOptions } from '../types';
+import { updateDownloadUrl, vendorHelpItems } from '../vendorHelp';
 import { BaseMenuPlatform } from './BaseMenuPlatform';
 
 export class WindowsMenu extends BaseMenuPlatform implements IMenuPlatform {
@@ -19,6 +21,7 @@ export class WindowsMenu extends BaseMenuPlatform implements IMenuPlatform {
 
   buildAndSetAppMenu(options?: MenuOptions): Menu {
     const template = this.getAppMenuTemplate(options);
+    assignMenuIds(template);
     this.appMenu = Menu.buildFromTemplate(template);
     Menu.setApplicationMenu(this.appMenu);
     return this.appMenu;
@@ -197,19 +200,20 @@ export class WindowsMenu extends BaseMenuPlatform implements IMenuPlatform {
       {
         label: t('help.title'),
         submenu: [
-          {
-            click: async () => {
-              await shell.openExternal(OFFICIAL_SITE);
+          ...vendorHelpItems([
+            {
+              click: async () => {
+                await shell.openExternal(OFFICIAL_SITE);
+              },
+              label: t('help.visitWebsite'),
             },
-            label: t('help.visitWebsite'),
-          },
-          {
-            click: async () => {
-              await shell.openExternal(GITHUB);
+            {
+              click: async () => {
+                await shell.openExternal(GITHUB);
+              },
+              label: t('help.githubRepo'),
             },
-            label: t('help.githubRepo'),
-          },
-          { type: 'separator' },
+          ]),
           {
             click: () => {
               this.app.browserManager.retrieveByIdentifier('processExplorer').show();
@@ -242,8 +246,8 @@ export class WindowsMenu extends BaseMenuPlatform implements IMenuPlatform {
       template.push({
         label: t('dev.title'),
         submenu: [
-          { label: t('dev.reload'), role: 'reload' },
-          { label: t('dev.forceReload'), role: 'forceReload' },
+          this.buildReloadMenuItem(t('dev.reload')),
+          this.buildReloadMenuItem(t('dev.forceReload'), true),
           this.buildDevToolsMenuItem(t('dev.devTools')),
           { type: 'separator' },
           {
@@ -277,6 +281,13 @@ export class WindowsMenu extends BaseMenuPlatform implements IMenuPlatform {
       }
       case 'latest': {
         return { enabled: false, label: t('common.isLatestVersion') };
+      }
+      // snap / tar.gz / a runtime-less AppImage cannot replace themselves.
+      case 'unsupported': {
+        return {
+          click: () => shell.openExternal(updateDownloadUrl()),
+          label: t('common.updateUnsupported'),
+        };
       }
       default: {
         return {

@@ -2,15 +2,13 @@ import type { DocumentLoadFormat, DocumentLoadRule } from '@lobechat/agent-templ
 import { buildAgentDocumentUrl } from '@lobechat/builtin-tool-agent-documents';
 import { AgentDocumentsExecutionRuntime } from '@lobechat/builtin-tool-agent-documents/executionRuntime';
 import { AgentDocumentsExecutor } from '@lobechat/builtin-tool-agent-documents/executor';
-import { isDesktop } from '@lobechat/const';
+import { getAppBaseUrl } from '@lobechat/business-tenant/client';
 
 import { getActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import { agentDocumentService } from '@/services/agentDocument';
 import { invalidateDocumentMutation } from '@/services/document/invalidation';
 import { workService } from '@/services/work';
 import { useAgentStore } from '@/store/agent';
-import { useElectronStore } from '@/store/electron';
-import { electronSyncSelectors } from '@/store/electron/selectors';
 import { stashWorkIntent } from '@/utils/clientWorkIntentStash';
 
 interface DocumentWorkRefreshContext {
@@ -19,17 +17,11 @@ interface DocumentWorkRefreshContext {
 }
 
 /**
- * App origin for share links. Desktop points at the connected remote server so
- * the link opens the cloud app; web uses the current origin.
+ * Build the sharable document URL for the active workspace (stash intent + tool result share
+ * both use it), under the tenant's app address so the link opens the same organization.
  */
-const getAppOrigin = (): string | undefined => {
-  if (isDesktop) return electronSyncSelectors.remoteServerUrl(useElectronStore.getState());
-  return typeof window === 'undefined' ? undefined : window.location.origin;
-};
-
-/** Build the sharable document URL for the active workspace (stash intent + tool result share both use it). */
-const buildDocumentShareUrl = (agentId: string, documentId: string): string | undefined =>
-  buildAgentDocumentUrl(getAppOrigin(), agentId, documentId, {
+export const buildDocumentShareUrl = (agentId: string, documentId: string): string | undefined =>
+  buildAgentDocumentUrl(getAppBaseUrl() || undefined, agentId, documentId, {
     workspaceSlug: getActiveWorkspaceSlug(),
   });
 
@@ -81,6 +73,26 @@ const stashDocumentRegisterIntent = (input: {
   });
 };
 
+const toListedDocument = (d: {
+  childCount?: number;
+  documentId: string;
+  filename: string;
+  fileType: string;
+  id: string;
+  parentId: string | null;
+  title: string;
+  updatedAt: Date;
+}) => ({
+  childCount: d.childCount,
+  documentId: d.documentId,
+  filename: d.filename,
+  fileType: d.fileType,
+  id: d.id,
+  parentId: d.parentId,
+  title: d.title,
+  updatedAt: d.updatedAt,
+});
+
 const runtime = new AgentDocumentsExecutionRuntime(
   {
     copyDocument: async ({ agentId, id, newTitle, toolContext, trigger }) => {
@@ -131,6 +143,11 @@ const runtime = new AgentDocumentsExecutionRuntime(
       });
       return doc;
     },
+    createFolder: async ({ agentId, parentId, title }) => {
+      const result = await agentDocumentService.createFolderById({ agentId, parentId, title });
+      if (!result) throw new Error(`Failed to create folder "${title}".`);
+      return result;
+    },
     createTopicDocument: async ({
       agentId,
       content,
@@ -170,13 +187,9 @@ const runtime = new AgentDocumentsExecutionRuntime(
         includeArchivedToolResults: true,
         parentId,
         sourceType,
+        withChildCount: true,
       });
-      return docs.map((d) => ({
-        documentId: d.documentId,
-        filename: d.filename,
-        id: d.id,
-        title: d.title,
-      }));
+      return docs.map(toListedDocument);
     },
     listTopicDocuments: async ({ agentId, parentId, sourceType, topicId }) => {
       const docs = await agentDocumentService.listDocuments({
@@ -186,14 +199,12 @@ const runtime = new AgentDocumentsExecutionRuntime(
         scope: 'currentTopic',
         sourceType,
         topicId,
+        withChildCount: true,
       });
-      return docs.map((d) => ({
-        documentId: d.documentId,
-        filename: d.filename,
-        id: d.id,
-        title: d.title,
-      }));
+      return docs.map(toListedDocument);
     },
+    moveDocuments: async ({ agentId, ids, parentId }) =>
+      (await agentDocumentService.moveDocumentsById({ agentId, ids, parentId })) ?? [],
     modifyNodes: async ({ agentId, id, operations, toolContext, trigger }) => {
       const doc = await agentDocumentService.modifyNodes({
         agentId,
@@ -218,10 +229,10 @@ const runtime = new AgentDocumentsExecutionRuntime(
     // Delete stays a lambda side-effect (removeDocument drops the Work server-side);
     // it carries no cost, so it needs no cost-stamping defer. Keep the immediate
     // work-cache refresh so the sidebar drops the removed doc.
-    removeDocument: async ({ agentId, id, toolContext, trigger }) =>
+    removeDocument: async ({ agentId, id, toolContext, trigger, withChildren }) =>
       (
         await withWorkRefresh(
-          agentDocumentService.removeDocument({ agentId, id, toolContext, trigger }),
+          agentDocumentService.removeDocument({ agentId, id, toolContext, trigger, withChildren }),
           toolContext,
         )
       ).deleted,

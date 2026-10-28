@@ -1,7 +1,14 @@
 import type * as ModelBankModule from 'model-bank';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { assertGatewayProviderCapability } from '@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite';
+
 import { AiAgentService } from '../index';
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite', () => ({
+  assertGatewayProviderCapability: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('@/server/services/gatewayAuthorization');
 
 const {
   mockIsResourceAuthorOrAdmin,
@@ -222,6 +229,17 @@ describe('AiAgentService.execAgent - model/provider override', () => {
     service = new AiAgentService(mockDb, userId);
   });
 
+  it('refuses an unsupported provider before creating or queueing an operation', async () => {
+    mockGetAgentConfig.mockResolvedValue({ ...defaultAgentConfig });
+    vi.mocked(assertGatewayProviderCapability).mockRejectedValueOnce(
+      new Error('LLM_RELAY_UNSUPPORTED'),
+    );
+    await expect(service.execAgent({ agentId: 'agent-1', prompt: 'Hello' })).rejects.toThrow(
+      'LLM_RELAY_UNSUPPORTED',
+    );
+    expect(mockCreateOperation).not.toHaveBeenCalled();
+  });
+
   it('should use agent default model/provider when no override is provided', async () => {
     mockGetAgentConfig.mockResolvedValue({ ...defaultAgentConfig });
 
@@ -340,6 +358,53 @@ describe('AiAgentService.execAgent - model/provider override', () => {
     expect(mockCreateOperation.mock.calls[0][0].agentConfig).toMatchObject({
       model: 'gpt-4',
       provider: 'openai',
+    });
+  });
+
+  // #19542: `callAgent` runs the callee in an isolation thread on the caller's
+  // topic, so the caller's topic pin must not replace the callee's own model.
+  it("runs a callAgent callee on its own model instead of the caller's topic pin", async () => {
+    mockGetAgentConfig.mockResolvedValue({
+      ...defaultAgentConfig,
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+    });
+    mockTopicFindById.mockResolvedValue({
+      agentId: 'caller-agent',
+      metadata: { heteroEffort: 'high' },
+      model: 'gpt-4',
+      provider: 'openai',
+    });
+
+    await service.execAgent({
+      agentId: 'agent-1',
+      appContext: { isolationThread: true, threadId: 'thread-1', topicId: 'topic-1' },
+      prompt: 'Hello',
+    });
+
+    expect(mockCreateOperation.mock.calls[0][0].modelRuntimeConfig).toMatchObject({
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+    });
+  });
+
+  it("falls back to the topic pin when the run belongs to the topic's own agent", async () => {
+    mockGetAgentConfig.mockResolvedValue({ ...defaultAgentConfig });
+    mockTopicFindById.mockResolvedValue({
+      agentId: 'agent-1',
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+    });
+
+    await service.execAgent({
+      agentId: 'agent-1',
+      appContext: { topicId: 'topic-1' },
+      prompt: 'Hello',
+    });
+
+    expect(mockCreateOperation.mock.calls[0][0].modelRuntimeConfig).toMatchObject({
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
     });
   });
 

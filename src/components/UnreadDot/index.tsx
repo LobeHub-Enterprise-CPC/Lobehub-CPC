@@ -1,4 +1,4 @@
-import { createStaticStyles, keyframes } from 'antd-style';
+import { createStaticStyles, keyframes } from '@lobehub/ui';
 import { memo } from 'react';
 
 const rippleAnim = keyframes`
@@ -65,6 +65,7 @@ const UnreadDot = memo<UnreadDotProps>(({ label }) => (
   <span
     aria-label={label}
     className={styles.wrapper}
+    data-brand-slot="unread-dot"
     data-testid="topic-unread-dot"
     role={label ? 'status' : undefined}
   >

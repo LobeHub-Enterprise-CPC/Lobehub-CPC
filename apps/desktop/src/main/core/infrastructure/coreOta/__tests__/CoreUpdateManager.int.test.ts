@@ -19,6 +19,7 @@ import type { ShellGlobal } from '@/const/shell';
 
 import { canonicalJson, type CoreManifestV3 as CoreManifest, sha256File } from '../manifest';
 import { readPointer, writePointer } from '../pointer';
+import type { RendererSource } from '../rendererSource';
 import { SAFE_VERSION } from '../store';
 
 const { privateKey, publicKey } = generateKeyPairSync('ed25519');
@@ -26,7 +27,8 @@ const PUBLIC_KEY_PEM = publicKey.export({ format: 'pem', type: 'spki' }).toStrin
 const ABI = 'a'.repeat(64);
 const SERVER = 'https://updates.test';
 const OBJECTS = 'https://cdn.test/cas';
-const PLATFORM = process.platform as CoreManifest['platform'];
+const ORIGINAL_PLATFORM = process.platform;
+const PLATFORM = 'linux' as CoreManifest['platform'];
 
 const BASE_FILES: Record<string, string> = {
   'dist/main/index.js': 'main-v1',
@@ -53,7 +55,7 @@ const { electronMock, loggerMock, updaterConfigState } = vi.hoisted(() => ({
       releaseSingleInstanceLock: vi.fn(),
     },
     BrowserWindow: { getAllWindows: vi.fn(() => []) },
-    net: { fetch: vi.fn() },
+    net: { fetch: vi.fn(), isOnline: vi.fn(() => true) },
   },
   loggerMock: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
   updaterConfigState: { enableAppUpdate: true },
@@ -77,17 +79,31 @@ const makeApp = () => ({
   browserManager: {
     broadcastToAllWindows: vi.fn(),
     browsers: new Map([
-      ['main', { browserWindow: { webContents: { reloadIgnoringCache: vi.fn() } } }],
+      [
+        'main',
+        {
+          browserWindow: { webContents: { id: 1, reloadIgnoringCache: vi.fn() } },
+          cancelUnloadConfirmation: vi.fn(),
+          reloadIgnoringCache: vi.fn(function (this: {
+            browserWindow: { webContents: { reloadIgnoringCache: () => void } };
+          }) {
+            this.browserWindow.webContents.reloadIgnoringCache();
+          }),
+        },
+      ],
     ]),
   },
   isQuiting: false,
   rendererUrlManager: {
-    activeDir: null as string | null,
-    getActiveRendererDir() {
-      return this.activeDir;
+    activeRenderer: null as RendererSource | null,
+    getActiveRenderer() {
+      return this.activeRenderer;
     },
-    setActiveRendererDir: vi.fn(function (this: { activeDir: string | null }, dir: string | null) {
-      this.activeDir = dir;
+    setActiveRenderer: vi.fn(function (
+      this: { activeRenderer: RendererSource | null },
+      source: RendererSource | null,
+    ) {
+      this.activeRenderer = source;
     }),
   },
   storeManager: { get: vi.fn(() => 'stable') },
@@ -193,11 +209,18 @@ const loadManager = async (app = makeApp(), shell: ShellGlobal | null = makeShel
   return { app, manager };
 };
 
-const flushGc = () => new Promise((resolve) => setTimeout(resolve, 20));
+const expectAppliedRenderer = (app: ReturnType<typeof makeApp>, indexContent: string) => {
+  const renderer = app.rendererUrlManager.setActiveRenderer.mock.calls.at(-1)?.[0];
+  expect(readFileSync(renderer!.resolve('assets/index.js')!, 'utf8')).toBe(indexContent);
+  expect(readFileSync(renderer!.resolve('assets/popup.js')!, 'utf8')).toBe('popup');
+};
+
+const flushGc = (manager: unknown) => (manager as { gcTask: Promise<void> }).gcTask;
 
 let builtinManifest: CoreManifest;
 
 beforeEach(() => {
+  Object.defineProperty(process, 'platform', { value: 'linux' });
   vi.clearAllMocks();
   updaterConfigState.enableAppUpdate = true;
   served = new Map();
@@ -209,6 +232,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  Object.defineProperty(process, 'platform', { value: ORIGINAL_PLATFORM });
   rmSync(userDataDir, { force: true, recursive: true });
   rmSync(builtinDir, { force: true, recursive: true });
 });
@@ -223,6 +247,33 @@ const mainChanged = (version: string, seq: number) =>
   buildManifest(version, seq, { ...BASE_FILES, 'dist/main/index.js': `main-${version}` });
 
 describe('CoreUpdateManager initialize', () => {
+  it('disables manual and scheduled OTA on macOS Stable', async () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    const { manager } = await loadManager();
+    manager.startScheduledChecks();
+    await manager.checkForUpdates({ manual: true });
+    expect(manager.enabled).toBe(false);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('enables Canary OTA after leaving macOS Stable and clears it when switching back', async () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    const { manager } = await loadManager();
+    manager.startScheduledChecks();
+    manager.switchChannel('canary');
+    expect(manager.enabled).toBe(true);
+    manager.switchChannel('stable');
+    expect(manager.enabled).toBe(false);
+    expect(readPointer(otaRoot(), ABI)).toMatchObject({
+      current: null,
+      previous: null,
+      staged: null,
+      channel: 'stable',
+    });
+    await manager.checkForUpdates({ manual: true });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('checks for updates in the background immediately after startup and hourly thereafter', async () => {
     vi.useFakeTimers();
     try {
@@ -239,6 +290,30 @@ describe('CoreUpdateManager initialize', () => {
       await vi.advanceTimersByTimeAsync(60 * 60 * 1000 - 1);
       expect(fetchImpl).toHaveBeenCalledTimes(2);
     } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('checks again as soon as the network comes back', async () => {
+    vi.useFakeTimers();
+    electronMock.net.isOnline.mockReturnValue(false);
+    try {
+      const { manager } = await loadManager();
+      manager.startScheduledChecks();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+      electronMock.net.isOnline.mockReturnValue(true);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    } finally {
+      electronMock.net.isOnline.mockReturnValue(true);
       vi.useRealTimers();
     }
   });
@@ -282,7 +357,7 @@ describe('CoreUpdateManager initialize', () => {
     });
 
     const { manager } = await loadManager();
-    await flushGc();
+    await flushGc(manager);
 
     expect(manager.getStatus().current).toBeNull();
     expect(readPointer(otaRoot(), ABI)).toMatchObject({ blacklist: [], current: null });
@@ -311,21 +386,20 @@ describe('CoreUpdateManager initialize', () => {
     }
     writeFileSync(path.join(userDataDir, 'app-data.json'), 'keep app data');
 
-    await loadManager();
-    await vi.waitFor(
-      () => {
-        expect(existsSync(path.join(storeDir(), 'f'.repeat(64)))).toBe(false);
-        expect(readdirSync(path.join(otaRoot(), 'cores'))).toEqual([]);
-        for (const dir of ['core-ota/staging', 'renderer-ota', 'renderer-ota-v2'])
-          expect(existsSync(path.join(userDataDir, dir))).toBe(false);
-        expect(readPointer(otaRoot(), ABI)).toMatchObject({
-          current: null,
-          previous: null,
-          staged: null,
-        });
-      },
-      { timeout: 5000 },
-    );
+    const { manager } = await loadManager();
+    await flushGc(manager);
+
+    expect(existsSync(path.join(storeDir(), 'f'.repeat(64)))).toBe(false);
+    expect(readdirSync(path.join(otaRoot(), 'cores'))).toEqual([]);
+    await vi.waitFor(() => {
+      for (const dir of ['core-ota/staging', 'renderer-ota', 'renderer-ota-v2'])
+        expect(existsSync(path.join(userDataDir, dir))).toBe(false);
+    });
+    expect(readPointer(otaRoot(), ABI)).toMatchObject({
+      current: null,
+      previous: null,
+      staged: null,
+    });
     expect(readFileSync(path.join(userDataDir, 'app-data.json'), 'utf8')).toBe('keep app data');
   });
 
@@ -404,19 +478,39 @@ describe('CoreUpdateManager initialize', () => {
       );
     };
 
+    it('keeps the validated pointer intact until cold boot succeeds, then immediately checks', async () => {
+      vi.useFakeTimers();
+      try {
+        serveLatest(mainChanged('1.0.2', 2));
+        const { manager } = await bootExternal({ failures: 1, version: '1.0.1' });
+        manager.startScheduledChecks();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(readPointer(otaRoot(), ABI)).toMatchObject({ current: '1.0.1', previous: null });
+        expect(fetchImpl).not.toHaveBeenCalled();
+        const resumedCheck = vi.spyOn(manager, 'checkForUpdates');
+        manager.handleBootPing('mounted');
+        expect(resumedCheck).toHaveBeenCalledOnce();
+        await resumedCheck.mock.results[0].value;
+        expect(readPointer(otaRoot(), ABI)).toMatchObject({ current: '1.0.2', previous: '1.0.1' });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('rolls back and relaunches when the first boot of a version never mounts', async () => {
       vi.useFakeTimers();
       try {
+        serveLatest(mainChanged('1.0.2', 2));
         const { app, manager } = await bootExternal({ failures: 1, version: '1.0.1' });
         manager.startScheduledChecks();
 
-        vi.advanceTimersByTime(30_000);
+        await vi.advanceTimersByTimeAsync(30_000);
         expect(electronMock.app.relaunch).not.toHaveBeenCalled();
-        vi.advanceTimersByTime(31_000);
+        await vi.advanceTimersByTimeAsync(31_000);
 
         expect(readPointer(otaRoot(), ABI)).toMatchObject({ blacklist: ['1.0.1'], current: null });
         expect(electronMock.app.relaunch).toHaveBeenCalled();
-        expect(app.rendererUrlManager.setActiveRendererDir).not.toHaveBeenCalled();
+        expect(app.rendererUrlManager.setActiveRenderer).not.toHaveBeenCalled();
       } finally {
         vi.useRealTimers();
       }
@@ -597,45 +691,99 @@ describe('CoreUpdateManager checkForUpdates', () => {
     expect(existsSync(coreDir('1.0.1'))).toBe(false);
   });
 
+  it('retains a healthy hot update and its active renderer version for late subscribers', async () => {
+    serveLatest(rendererOnly('1.0.1', 1));
+    const { app, manager } = await loadManager();
+    await manager.checkForUpdates();
+    expect(manager.getStatus().appliedVersion).toBeNull();
+    manager.applyStagedNow();
+    manager.handleBootPing('loaded');
+    expect(manager.getStatus().appliedVersion).toBeNull();
+    expect(app.browserManager.broadcastToAllWindows).not.toHaveBeenCalledWith(
+      'coreUpdateApplied',
+      expect.anything(),
+    );
+    manager.handleBootPing('mounted');
+    expect(manager.getStatus()).toMatchObject({
+      appliedVersion: '1.0.1',
+      running: '1.0.1',
+      staged: null,
+    });
+    expect(app.browserManager.broadcastToAllWindows).toHaveBeenCalledWith(
+      'coreUpdateApplied',
+      '1.0.1',
+    );
+    manager.handleBootPing('mounted');
+    expect(
+      app.browserManager.broadcastToAllWindows.mock.calls.filter(
+        ([event]) => event === 'coreUpdateApplied',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('does not announce a failed hot update as completed', async () => {
+    vi.useFakeTimers();
+    try {
+      serveLatest(rendererOnly('1.0.1', 1));
+      const { app, manager } = await loadManager();
+      await manager.checkForUpdates();
+      manager.applyStagedNow();
+      await vi.advanceTimersByTimeAsync(60_000);
+      manager.handleBootPing('mounted');
+      expect(manager.getStatus().appliedVersion).toBeNull();
+      expect(app.browserManager.broadcastToAllWindows).not.toHaveBeenCalledWith(
+        'coreUpdateApplied',
+        expect.anything(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('stages a renderer-only update as core-reload and applies it in place', async () => {
     const remote = rendererOnly('1.0.1', 1);
     serveLatest(remote);
     const { app, manager } = await loadManager();
-    app.rendererUrlManager.activeDir = path.join(builtinDir, 'dist/renderer');
+    app.rendererUrlManager.activeRenderer = { resolve: () => null };
 
     await manager.checkForUpdates();
 
-    expect(manager.getStatus()).toMatchObject({ applyMode: 'reload', staged: '1.0.1' });
+    expect(manager.getStatus()).toMatchObject({
+      applyMode: 'reload',
+      running: '1.0.0',
+      staged: '1.0.1',
+    });
     expect(app.browserManager.broadcastToAllWindows).toHaveBeenCalledWith('updateReady', {
       kind: 'core-reload',
       version: '1.0.1',
     });
     expect(readPointer(otaRoot(), ABI)).toMatchObject({ current: null, staged: '1.0.1' });
-    expect(existsSync(path.join(coreDir('1.0.1'), 'dist/renderer/assets/index.js'))).toBe(true);
+    expect(existsSync(path.join(coreDir('1.0.1'), 'dist/renderer'))).toBe(false);
+    expect(
+      readFileSync(path.join(storeDir(), sha256File(Buffer.from('index-1.0.1'))), 'utf8'),
+    ).toBe('index-1.0.1');
 
     expect(manager.applyStagedNow()).toBe(true);
 
-    expect(app.rendererUrlManager.setActiveRendererDir).toHaveBeenCalledWith(
-      path.join(coreDir('1.0.1'), 'dist/renderer'),
-    );
+    expectAppliedRenderer(app, 'index-1.0.1');
     expect(readPointer(otaRoot(), ABI)).toMatchObject({
       current: '1.0.1',
       previous: null,
       staged: null,
     });
-    expect(manager.getStatus().staged).toBeNull();
+    expect(manager.getStatus()).toMatchObject({ running: '1.0.1', staged: null });
     const reload =
       app.browserManager.browsers.get('main')!.browserWindow.webContents.reloadIgnoringCache;
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
-  it('reuses the active renderer version after a reload even without its object cache', async () => {
+  it('reuses the active renderer version content after a reload without downloading it', async () => {
     serveLatest(rendererOnly('1.0.1', 1));
     const { manager } = await loadManager();
     await manager.checkForUpdates();
     manager.applyStagedNow();
     manager.handleBootPing('mounted');
-    rmSync(storeDir(), { recursive: true, force: true });
+    await flushGc(manager);
     const reused = 'index-1.0.1';
     serveLatest(
       buildManifest('1.0.5', 5, {
@@ -650,7 +798,7 @@ describe('CoreUpdateManager checkForUpdates', () => {
     expect(
       fetchImpl.mock.calls.some(([url]) => url.includes(sha256File(Buffer.from(reused)))),
     ).toBe(false);
-    expect(readFileSync(path.join(coreDir('1.0.5'), 'dist/renderer/assets/index.js'), 'utf8')).toBe(
+    expect(readFileSync(path.join(storeDir(), sha256File(Buffer.from(reused))), 'utf8')).toBe(
       reused,
     );
   });
@@ -668,6 +816,63 @@ describe('CoreUpdateManager checkForUpdates', () => {
     expect(app.browserManager.broadcastToAllWindows).toHaveBeenCalledWith('updateReady', {
       kind: 'core-reload',
       version: '1.0.1',
+    });
+  });
+
+  it('replaces a staged reload core when a newer one is published', async () => {
+    serveLatest(rendererOnly('1.0.1', 1));
+    const { app, manager } = await loadManager();
+    await manager.checkForUpdates();
+
+    serveLatest(rendererOnly('1.0.2', 2));
+    await manager.checkForUpdates();
+
+    expect(manager.getStatus()).toMatchObject({ applyMode: 'reload', staged: '1.0.2' });
+    expect(readPointer(otaRoot(), ABI)).toMatchObject({ current: null, staged: '1.0.2' });
+    expect(app.browserManager.broadcastToAllWindows).toHaveBeenLastCalledWith('updateReady', {
+      kind: 'core-reload',
+      version: '1.0.2',
+    });
+
+    expect(manager.applyStagedNow()).toBe(true);
+    expectAppliedRenderer(app, 'index-1.0.2');
+  });
+
+  it('replaces a staged relaunch core without keeping the stale one as rollback', async () => {
+    serveLatest(mainChanged('1.0.1', 1));
+    const { app, manager } = await loadManager();
+    await manager.checkForUpdates();
+
+    serveLatest(mainChanged('1.0.2', 2));
+    await manager.checkForUpdates();
+    await flushGc(manager);
+
+    expect(manager.getStatus()).toMatchObject({ applyMode: 'relaunch', staged: '1.0.2' });
+    expect(readPointer(otaRoot(), ABI)).toMatchObject({
+      current: '1.0.2',
+      previous: null,
+      staged: null,
+    });
+    expect(existsSync(coreDir('1.0.1'))).toBe(false);
+    expect(app.browserManager.broadcastToAllWindows).toHaveBeenLastCalledWith('updateReady', {
+      kind: 'core-relaunch',
+      version: '1.0.2',
+    });
+  });
+
+  it('reverts a staged relaunch when the newer core only needs a reload', async () => {
+    serveLatest(mainChanged('1.0.1', 1));
+    const { manager } = await loadManager();
+    await manager.checkForUpdates();
+
+    serveLatest(rendererOnly('1.0.2', 2));
+    await manager.checkForUpdates();
+
+    expect(manager.getStatus()).toMatchObject({ applyMode: 'reload', staged: '1.0.2' });
+    expect(readPointer(otaRoot(), ABI)).toMatchObject({
+      current: null,
+      previous: null,
+      staged: '1.0.2',
     });
   });
 
@@ -695,21 +900,23 @@ describe('CoreUpdateManager checkForUpdates', () => {
     expect(electronMock.app.releaseSingleInstanceLock).toHaveBeenCalled();
     expect(electronMock.app.relaunch).toHaveBeenCalled();
     expect(electronMock.app.quit).toHaveBeenCalled();
-    expect(app.rendererUrlManager.setActiveRendererDir).not.toHaveBeenCalled();
+    expect(app.rendererUrlManager.setActiveRenderer).not.toHaveBeenCalled();
   });
 
   it('rolls back and blacklists the version when the boot check fails', async () => {
     serveLatest(rendererOnly('1.0.1', 1));
     const { app, manager } = await loadManager();
-    const builtinRenderer = path.join(builtinDir, 'dist/renderer');
-    app.rendererUrlManager.activeDir = builtinRenderer;
+    const builtinRenderer = { resolve: () => null };
+    app.rendererUrlManager.activeRenderer = builtinRenderer;
     await manager.checkForUpdates();
     manager.applyStagedNow();
 
+    expect(manager.getStatus().running).toBe('1.0.1');
     manager.handleRendererCrash();
     manager.handleRendererCrash();
+    expect(manager.getStatus().running).toBe('1.0.0');
 
-    expect(app.rendererUrlManager.activeDir).toBe(builtinRenderer);
+    expect(app.rendererUrlManager.activeRenderer).toBe(builtinRenderer);
     expect(readPointer(otaRoot(), ABI)).toMatchObject({
       blacklist: ['1.0.1'],
       current: null,
@@ -768,11 +975,11 @@ describe('CoreUpdateManager checkForUpdates', () => {
       makeApp(),
       makeShell({ coreDir: coreDir('1.0.1'), manifest: v1, source: 'external' }),
     );
-    await flushGc();
+    await flushGc(manager);
     expect(readdirSync(path.join(otaRoot(), 'cores')).sort()).toEqual(['0.9.5', '1.0.1']);
 
     await manager.checkForUpdates();
-    await flushGc();
+    await flushGc(manager);
 
     expect(manager.getStatus()).toMatchObject({ applyMode: 'reload', staged: '1.0.2' });
     expect(readPointer(otaRoot(), ABI)).toMatchObject({
@@ -783,18 +990,115 @@ describe('CoreUpdateManager checkForUpdates', () => {
     expect(readdirSync(path.join(otaRoot(), 'cores')).sort()).toEqual(['0.9.5', '1.0.1', '1.0.2']);
   });
 
-  it('cancels the boot check instead of blacklisting when the renderer vetoes reload', async () => {
+  it('waits for all mounted windows and retains retry when a later window vetoes', async () => {
+    serveLatest(rendererOnly('1.0.1', 1));
+    const app = makeApp();
+    app.browserManager.browsers.set('second', {
+      browserWindow: { webContents: { id: 2, reloadIgnoringCache: vi.fn() } },
+      cancelUnloadConfirmation: vi.fn(),
+      reloadIgnoringCache: vi.fn(function (this: {
+        browserWindow: { webContents: { reloadIgnoringCache: () => void } };
+      }) {
+        this.browserWindow.webContents.reloadIgnoringCache();
+      }),
+    });
+    const { manager } = await loadManager(app);
+    manager.handleBootPing('mounted', 1);
+    manager.handleBootPing('mounted', 2);
+    await manager.checkForUpdates();
+    manager.applyStagedNow();
+    manager.handleBootPing('mounted', 1);
+    expect(manager.getStatus().appliedVersion).toBeNull();
+    manager.handleUnloadPrevented();
+    expect(manager.getStatus()).toMatchObject({ appliedVersion: null, staged: '1.0.1' });
+    expect(app.browserManager.broadcastToAllWindows).not.toHaveBeenCalledWith(
+      'coreUpdateApplied',
+      expect.anything(),
+    );
+    manager.applyStagedNow();
+    manager.handleBootPing('mounted', 2);
+    expect(manager.getStatus().appliedVersion).toBeNull();
+    manager.handleBootPing('mounted', 1);
+    expect(manager.getStatus().appliedVersion).toBe('1.0.1');
+  });
+
+  it('does not roll back when a remaining update participant closes', async () => {
+    serveLatest(rendererOnly('1.0.1', 1));
+    const app = makeApp();
+    app.browserManager.browsers.set('second', {
+      browserWindow: { webContents: { id: 2, reloadIgnoringCache: vi.fn() } },
+      cancelUnloadConfirmation: vi.fn(),
+      reloadIgnoringCache: vi.fn(function (this: {
+        browserWindow: { webContents: { reloadIgnoringCache: () => void } };
+      }) {
+        this.browserWindow.webContents.reloadIgnoringCache();
+      }),
+    });
+    const { manager } = await loadManager(app);
+    manager.handleBootPing('mounted', 1);
+    manager.handleBootPing('mounted', 2);
+    await manager.checkForUpdates();
+    manager.applyStagedNow();
+    manager.handleBootPing('mounted', 1);
+    manager.handleRendererDestroyed(2);
+    expect(manager.getStatus().appliedVersion).toBe('1.0.1');
+    expect(readPointer(otaRoot(), ABI).blacklist).toEqual([]);
+  });
+
+  it('pauses the boot deadline while awaiting UI confirmation and restores staging on cancel', async () => {
     vi.useFakeTimers();
     try {
       serveLatest(rendererOnly('1.0.1', 1));
       const { manager } = await loadManager();
       await manager.checkForUpdates();
       manager.applyStagedNow();
+      expect(manager.pauseForUnloadConfirmation(1)).toBe(true);
+      vi.advanceTimersByTime(60_000);
+      expect(readPointer(otaRoot(), ABI).blacklist).toEqual([]);
+      expect(manager.resolveUnloadConfirmation(1, false)).toBe(false);
+      expect(manager.getStatus()).toMatchObject({
+        staged: '1.0.1',
+        appliedVersion: null,
+        running: '1.0.0',
+      });
+      expect(manager.resolveUnloadConfirmation(1, true)).toBe(false);
+      manager.applyStagedNow();
+      manager.pauseForUnloadConfirmation(1);
+      expect(manager.resolveUnloadConfirmation(1, true)).toBe(true);
+      manager.handleBootPing('mounted');
+      expect(manager.getStatus().appliedVersion).toBe('1.0.1');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
+  it('preserves the update for retry when the renderer vetoes reload', async () => {
+    vi.useFakeTimers();
+    try {
+      serveLatest(rendererOnly('1.0.1', 1));
+      const { app, manager } = await loadManager();
+      const originalRenderer = { resolve: () => null };
+      app.rendererUrlManager.activeRenderer = originalRenderer;
+      await manager.checkForUpdates();
+      const before = readPointer(otaRoot(), ABI);
+      manager.applyStagedNow();
       manager.handleUnloadPrevented();
       vi.advanceTimersByTime(20_000);
 
-      expect(readPointer(otaRoot(), ABI)).toMatchObject({ blacklist: [], current: '1.0.1' });
+      expect(app.browserManager.broadcastToAllWindows).toHaveBeenCalledWith(
+        'coreUpdateDeferred',
+        undefined,
+      );
+      expect(readPointer(otaRoot(), ABI)).toEqual(before);
+      expect(app.rendererUrlManager.activeRenderer).toBe(originalRenderer);
+      expect(manager.getStatus()).toMatchObject({
+        appliedVersion: null,
+        applyMode: 'reload',
+        staged: '1.0.1',
+      });
+      expect(manager.applyStagedNow()).toBe(true);
+      manager.handleBootPing('mounted');
+      expect(manager.getStatus()).toMatchObject({ appliedVersion: '1.0.1', staged: null });
     } finally {
       vi.useRealTimers();
     }
@@ -816,19 +1120,15 @@ describe('CoreUpdateManager checkForUpdates', () => {
     }
   });
 
-  it('refuses to apply when the staged renderer dir is unusable', async () => {
+  it('refuses to apply when the staged core manifest is unreadable', async () => {
     serveLatest(rendererOnly('1.0.1', 1));
     const { app, manager } = await loadManager();
     await manager.checkForUpdates();
-    rmSync(path.join(coreDir('1.0.1'), 'dist/renderer/apps/desktop/index.html'));
-    app.rendererUrlManager.setActiveRendererDir = vi.fn(function (
-      this: { activeDir: string | null },
-      dir,
-    ) {
-      this.activeDir = dir && existsSync(path.join(dir, 'apps/desktop/index.html')) ? dir : null;
-    });
+    rmSync(path.join(coreDir('1.0.1'), 'manifest.json'));
 
     expect(manager.applyStagedNow()).toBe(false);
+
+    expect(app.rendererUrlManager.getActiveRenderer()).toBeNull();
 
     expect(readPointer(otaRoot(), ABI)).toMatchObject({
       blacklist: ['1.0.1'],
@@ -845,10 +1145,10 @@ describe('CoreUpdateManager checkForUpdates', () => {
     expect(readPointer(otaRoot(), ABI).current).toBe('1.0.1');
 
     manager.switchChannel('canary');
-    await flushGc();
+    await flushGc(manager);
 
     expect(readPointer(otaRoot(), ABI)).toMatchObject({ current: null, previous: null });
-    expect(existsSync(coreDir('1.0.1'))).toBe(false);
+    await vi.waitFor(() => expect(existsSync(coreDir('1.0.1'))).toBe(false));
   });
 
   it('auto-applies a reload-mode stage after five idle minutes, even when staged while idle', async () => {
@@ -860,12 +1160,10 @@ describe('CoreUpdateManager checkForUpdates', () => {
       await manager.checkForUpdates();
 
       vi.advanceTimersByTime(5 * 60 * 1000 - 1);
-      expect(app.rendererUrlManager.setActiveRendererDir).not.toHaveBeenCalled();
+      expect(app.rendererUrlManager.setActiveRenderer).not.toHaveBeenCalled();
       vi.advanceTimersByTime(1);
 
-      expect(app.rendererUrlManager.setActiveRendererDir).toHaveBeenCalledWith(
-        path.join(coreDir('1.0.1'), 'dist/renderer'),
-      );
+      expectAppliedRenderer(app, 'index-1.0.1');
     } finally {
       vi.useRealTimers();
     }
@@ -887,12 +1185,12 @@ describe('CoreUpdateManager checkForUpdates', () => {
 
       focus();
       vi.advanceTimersByTime(6 * 60 * 1000);
-      expect(app.rendererUrlManager.setActiveRendererDir).not.toHaveBeenCalled();
+      expect(app.rendererUrlManager.setActiveRenderer).not.toHaveBeenCalled();
 
       manager.handleUnloadPrevented();
       blur();
       vi.advanceTimersByTime(6 * 60 * 1000);
-      expect(app.rendererUrlManager.setActiveRendererDir).not.toHaveBeenCalled();
+      expect(app.rendererUrlManager.setActiveRenderer).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
@@ -909,9 +1207,7 @@ describe('CoreUpdateManager checkForUpdates', () => {
 
       vi.advanceTimersByTime(5 * 60 * 1000);
 
-      expect(app.rendererUrlManager.setActiveRendererDir).toHaveBeenCalledWith(
-        path.join(coreDir('1.0.1'), 'dist/renderer'),
-      );
+      expectAppliedRenderer(app, 'index-1.0.1');
     } finally {
       vi.useRealTimers();
     }
@@ -943,10 +1239,47 @@ describe('CoreUpdateManager checkForUpdates', () => {
     expect(manager.getStatus().staged).toBe('1.0.1');
 
     manager.switchChannel('canary');
-    await flushGc();
+    await flushGc(manager);
 
     expect(manager.getStatus().staged).toBeNull();
     expect(readPointer(otaRoot(), ABI).staged).toBeNull();
     expect(existsSync(coreDir('1.0.1'))).toBe(false);
+  });
+});
+
+describe('first launch update gate', () => {
+  it('opens only after a verified up-to-date response', async () => {
+    serveLatest(builtinManifest);
+    const { manager } = await loadManager();
+    await expect(manager.checkBeforeFirstLaunch(vi.fn())).resolves.toBe('ready');
+  });
+
+  it('downloads and applies before opening, without broadcasting to business windows', async () => {
+    serveLatest(rendererOnly('1.0.1', 1));
+    const { manager, app } = await loadManager();
+    const progress = vi.fn();
+    await expect(manager.checkBeforeFirstLaunch(progress)).resolves.toBe('relaunch');
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'downloading', received: expect.any(Number) }),
+    );
+    expect(progress).toHaveBeenLastCalledWith({ phase: 'applying' });
+    expect(readPointer(otaRoot(), ABI).staged).toBe('1.0.1');
+    expect(app.browserManager.broadcastToAllWindows).not.toHaveBeenCalled();
+    await flushGc(manager);
+  });
+
+  it('fails closed on missing feed and invalid signature, and can retry', async () => {
+    const { manager } = await loadManager();
+    await expect(manager.checkBeforeFirstLaunch(vi.fn())).rejects.toThrow('feed-not-found');
+    serveLatest({ ...builtinManifest, signature: 'invalid' });
+    await expect(manager.checkBeforeFirstLaunch(vi.fn())).rejects.toThrow('signature');
+    serveLatest(builtinManifest);
+    await expect(manager.checkBeforeFirstLaunch(vi.fn())).resolves.toBe('ready');
+  });
+
+  it('requests a full installer when the signed update needs a different shell', async () => {
+    serveLatest(buildManifest('1.0.1', 1, BASE_FILES, { shellAbi: 'b'.repeat(64) }));
+    const { manager } = await loadManager();
+    await expect(manager.checkBeforeFirstLaunch(vi.fn())).resolves.toBe('full-update');
   });
 });

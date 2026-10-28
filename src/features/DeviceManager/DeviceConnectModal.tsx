@@ -1,10 +1,13 @@
 'use client';
 
-import { DESKTOP_APP_ENABLED } from '@lobechat/business-const';
+import {
+  CLI_INSTALL_COMMAND,
+  CLI_PRIMARY_BIN,
+  DESKTOP_APP_ENABLED,
+} from '@lobechat/business-const';
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import type { DeviceScope, DeviceVisibility } from '@lobechat/types';
-import { Flexbox, Icon } from '@lobehub/ui';
-import { Button, Tabs, Text } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+import { Button, createStaticStyles, cssVar, Flexbox, Icon, Tabs, Text } from '@lobehub/ui';
 import { DownloadIcon, MonitorDownIcon, ShieldCheckIcon, TerminalIcon } from 'lucide-react';
 import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -96,6 +99,7 @@ const DeviceConnectModal = memo<DeviceConnectModalProps>(
   ({ onClose, open, initialTab, scope, visibility }) => {
     const { t } = useTranslation('setting');
     const workspaceId = useActiveWorkspaceId();
+    const appBaseUrl = useAppBaseUrl();
     const isWorkspace = scope === 'workspace';
     // The desktop tab is entirely "download the app, then it enrolls itself".
     // With no desktop build to download there is nothing left in it, so drop the
@@ -111,19 +115,23 @@ const DeviceConnectModal = memo<DeviceConnectModalProps>(
       if (open) setActive(showDesktopTab ? (initialTab ?? 'desktop') : 'cli');
     }, [open, initialTab, showDesktopTab]);
 
+    // appBaseUrl is this tenant's own entry (`https://host/t/acme`); omitted
+    // only while it is not yet known (unconfigured desktop renderer), so the
+    // shown command falls back to the CLI's own default server.
+    const serverOption = appBaseUrl ? ` --server ${appBaseUrl}` : '';
     const connectCommand = isWorkspace
-      ? `lh connect --workspace ${workspaceId ?? '<workspace-id>'}${
+      ? `${CLI_PRIMARY_BIN} connect --workspace ${workspaceId ?? '<workspace-id>'}${
           visibility === 'public' ? ' --public' : ''
         } --daemon`
-      : 'lh connect --daemon';
+      : `${CLI_PRIMARY_BIN} connect --daemon`;
 
     const cliSteps = (
       <Flexbox>
         <Step index={1} title={t('devices.connectWizard.cli.installTitle')}>
-          <CommandLine command={'npm install -g @lobehub/cli'} />
+          <CommandLine command={CLI_INSTALL_COMMAND} />
         </Step>
         <Step index={2} title={t('devices.connectWizard.cli.loginTitle')}>
-          <CommandLine command={'lh login'} />
+          <CommandLine command={`${CLI_PRIMARY_BIN} login${serverOption}`} />
         </Step>
         <Step
           last

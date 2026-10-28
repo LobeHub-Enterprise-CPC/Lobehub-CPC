@@ -16,7 +16,17 @@ import {
   getAsarUnpackPatterns,
   getNativeModulesFilesConfig,
 } from './native-deps.config.mjs';
+import {
+  COMPUTER_USE_HELPER_BUNDLE_PATH,
+  COMPUTER_USE_HELPER_SIGN_IGNORE,
+  embedComputerUseHelper,
+  resolveComputerUseHelperVersion,
+  verifyComputerUseHelper,
+} from './scripts/computerUseHelper.mjs';
+import { notarizeMacApp } from './scripts/notarizeMacApp.mjs';
 import { packBuiltinCore } from './scripts/packBuiltinCore.mjs';
+import { toSparkleBuildVersion } from './scripts/sparkleBuildVersion.mjs';
+import { resolveSparklePackaging } from './scripts/sparklePackaging.mjs';
 import { verifyFontListSignature } from './scripts/verifyFontListSigning.mjs';
 
 dotenv.config();
@@ -24,6 +34,18 @@ dotenv.config();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const packageJSON = JSON.parse(await fs.readFile(path.join(__dirname, 'package.json'), 'utf8'));
+
+const computerUseHelperVersion = resolveComputerUseHelperVersion(packageJSON);
+
+/**
+ * Whether the macOS build embeds the upstream-signed Computer Use helper.
+ *
+ * The helper is built, signed and notarized under the upstream vendor's name
+ * and team; a distribution cannot rename it without breaking that signature,
+ * so a rebranded build that does not want another product's name in the
+ * user's Privacy & Security list leaves it out and loses computer use on macOS.
+ */
+const shipComputerUseHelper = process.env.DESKTOP_COMPUTER_USE_HELPER !== 'false';
 
 const channel = process.env.UPDATE_CHANNEL;
 const arch = os.arch();
@@ -99,6 +121,17 @@ const getPublishConfig = () => {
       {
         provider: 'generic',
         url: fullUrl,
+        // electron-builder names the emitted manifest `${publishConfig.channel}.yml`
+        // (app-builder-lib/out/publish/updateInfoBuilder.js: `publishConfig.channel || "latest"`),
+        // while electron-updater fetches `${autoUpdater.channel}.yml` — our shipped
+        // client runs with channel `stable`, so it asks for stable.yml. Without this
+        // the build ships a perfectly valid latest.yml that no client of ours ever
+        // requests, and updates fail with ERR_UPDATER_CHANNEL_FILE_NOT_FOUND while
+        // every artifact looks correct.
+        //
+        // It has to live on the provider: a top-level `channel` is rejected by the
+        // schema ("configuration has an unknown property 'channel'").
+        channel: channelPath,
       },
     ];
   }
@@ -194,6 +227,23 @@ const getProtocolScheme = () => {
 
 const protocolScheme = getProtocolScheme();
 
+const sparklePublicKey = process.env.SPARKLE_ED_PUBLIC_KEY;
+const { useSparkle } = resolveSparklePackaging({
+  channel,
+  hasAppleCertificate,
+  platform: process.platform,
+  sparklePublicKey,
+  updateServerUrl,
+  updatesDisabled: process.env.DESKTOP_DISABLE_UPDATES === '1',
+});
+const sparklePackageDir = useSparkle
+  ? await fs.realpath(path.join(__dirname, 'node_modules/electron-sparkle-updater'))
+  : null;
+const sparkleFeedUrl =
+  useSparkle && updateServerUrl
+    ? `${stripChannelSuffix(updateServerUrl).replace(/\/$/, '')}/${isCanary || channel === 'beta' ? 'canary' : 'stable'}/appcast-${arch}.xml`
+    : undefined;
+
 // Determine icon file based on version type
 const getIconFileName = () => {
   if (isStable || isCanary) return 'Icon';
@@ -212,6 +262,14 @@ const config = {
    */
   beforePack: async (context) => {
     buildFirstPartyNativeAddons();
+
+    if (sparklePackageDir) {
+      console.info('🔧 Building Sparkle bridge addon...');
+      execSync(
+        `node "${path.join(sparklePackageDir, 'bin/electron-sparkle-updater.js')}" rebuild --arch ${arch}`,
+        { cwd: __dirname, stdio: 'inherit' },
+      );
+    }
 
     await copyNativeModulesToSource();
     await copyExternalRuntimeModulesToSource();
@@ -257,6 +315,31 @@ const config = {
       console.info('📦 Building CLI for embedding...');
       execSync('npm run build:cli', { stdio: 'inherit', cwd: __dirname });
     }
+
+    // The shell window has no React/i18next runtime. Bundle only its translated strings.
+    const updateStrings = {};
+    for (const locale of ['en-US', 'zh-CN']) {
+      const messages = JSON.parse(
+        await fs.readFile(path.join(__dirname, '../../locales', locale, 'electron.json'), 'utf8'),
+      );
+      updateStrings[locale] = Object.fromEntries(
+        Object.entries(messages)
+          .filter(([key]) => key.startsWith('startupUpdate.'))
+          .map(([key, value]) => [
+            key.slice('startupUpdate.'.length),
+            // The shell window has no React/i18next runtime, so the brand
+            // post-processor that rewrites locale strings never sees these:
+            // substitute the product name here. It defaults to the upstream
+            // name, so an unbranded build ships the strings unchanged.
+            typeof value === 'string' ? value.replaceAll('LobeHub', productName) : value,
+          ]),
+      );
+    }
+    await fs.writeFile(
+      path.join(__dirname, 'shell/update/strings.json'),
+      JSON.stringify(updateStrings, null, 2) + '\n',
+    );
+
     execSync('node scripts/shellAbi.mjs --write', { stdio: 'inherit', cwd: __dirname });
     const { shellAbi } = JSON.parse(
       await fs.readFile(path.join(__dirname, 'shell/abi.json'), 'utf8'),
@@ -290,12 +373,19 @@ const config = {
       return;
     }
 
-    const resourcesPath = path.join(
-      context.appOutDir,
-      `${context.packager.appInfo.productFilename}.app`,
-      'Contents',
-      'Resources',
-    );
+    const appPath = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
+    const resourcesPath = path.join(appPath, 'Contents', 'Resources');
+
+    // The Mac App Store sandbox cannot register the helper's LaunchAgent.
+    if (context.electronPlatformName === 'darwin' && shipComputerUseHelper) {
+      await embedComputerUseHelper({
+        appPath,
+        arch: arch === 'arm64' ? 'arm64' : 'x64',
+        cacheDir: path.join(__dirname, 'node_modules', '.cache', 'lobehub-computer-use'),
+        version: computerUseHelperVersion,
+      });
+    }
+
     const iconFileName = getIconFileName();
     const assetsCarSource = path.join(__dirname, 'build', `${iconFileName}.Assets.car`);
     const assetsCarDest = path.join(resourcesPath, 'Assets.car');
@@ -310,13 +400,35 @@ const config = {
       console.info(`⏭️  Skipping Assets.car (not found or copy failed)`);
     }
   },
-  afterSign: verifyFontListSignature,
+  afterSign: async (context) => {
+    await verifyFontListSignature(context);
+
+    if (context.electronPlatformName === 'darwin') {
+      if (shipComputerUseHelper) {
+        verifyComputerUseHelper(
+          path.join(
+            context.appOutDir,
+            `${context.packager.appInfo.productFilename}.app`,
+            COMPUTER_USE_HELPER_BUNDLE_PATH,
+          ),
+          { version: computerUseHelperVersion },
+        );
+        console.info('✅ Computer Use helper kept its notarized signature');
+      } else {
+        console.info('⏭️  Computer Use helper not shipped (DESKTOP_COMPUTER_USE_HELPER=false)');
+      }
+
+      if (hasAppleCertificate) {
+        await notarizeMacApp(
+          path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`),
+        );
+      }
+    }
+  },
   appId,
   // Both derive from the same name, and `copyright` has to be explicit: left
   // unset, electron-builder falls back to `companyName || productName`, which
   // would put the product name where a legal entity belongs.
-  // Left unset, electron-builder falls back to `companyName || productName`,
-  // which would put the product name where a legal entity belongs.
   ...(companyName ? { copyright: `Copyright © ${new Date().getFullYear()} ${companyName}` } : {}),
   ...(Object.keys(extraMetadata).length > 0 ? { extraMetadata } : {}),
   appImage: {
@@ -330,6 +442,8 @@ const config = {
 
   // Native modules must be unpacked from asar to work correctly
   asarUnpack: getAsarUnpackPatterns(),
+
+  ...(useSparkle ? { buildVersion: toSparkleBuildVersion(packageJSON.version) } : {}),
 
   detectUpdateChannel: true,
 
@@ -362,6 +476,7 @@ const config = {
   files: [
     'shell/**',
     '!shell/__tests__',
+    ...(useSparkle ? ['!shell/rescue/electron-updater.cjs'] : []),
     'package.json',
     // Exclude all node_modules first
     '!node_modules',
@@ -391,6 +506,15 @@ const config = {
         }
       : {}),
     extendInfo: {
+      ...(useSparkle
+        ? {
+            SUDeltaChainHistory: 6,
+            SUEnableAutomaticChecks: false,
+            SUEnableInstallerLauncherService: false,
+            SUFeedURL: sparkleFeedUrl,
+            SUPublicEDKey: sparklePublicKey,
+          }
+        : {}),
       CFBundleIconName: 'AppIcon',
       CFBundleURLTypes: [
         {
@@ -405,6 +529,8 @@ const config = {
         "Application requests access to the user's Documents folder.",
       NSDownloadsFolderUsageDescription:
         "Application requests access to the user's Downloads folder.",
+      NSLocalNetworkUsageDescription:
+        'Application connects to self-hosted servers, model providers, and other services on your local network.',
       NSMicrophoneUsageDescription: "Application requests access to the device's microphone.",
       NSScreenCaptureUsageDescription:
         'Application requests access to record and analyze screen content for AI assistance.',
@@ -412,7 +538,10 @@ const config = {
     },
     gatekeeperAssess: false,
     hardenedRuntime: hasAppleCertificate,
-    notarize: hasAppleCertificate,
+    // Ship the notarized helper as built; re-signing drops its stapled ticket.
+    signIgnore: [COMPUTER_USE_HELPER_SIGN_IGNORE],
+    // Notarized in afterSign so a transient staple failure retries instead of failing the build.
+    notarize: false,
     ...(hasAppleCertificate ? {} : { identity: null }),
     target: [
       { arch: [arch === 'arm64' ? 'arm64' : 'x64'], target: 'dmg' },
@@ -449,10 +578,30 @@ const config = {
     releaseNotes: process.env.RELEASE_NOTES || undefined,
   },
 
+  ...(sparklePackageDir
+    ? {
+        extraFiles: [
+          {
+            from: path.join(sparklePackageDir, 'native/vendor/Sparkle.framework'),
+            to: 'Frameworks/Sparkle.framework',
+          },
+        ],
+      }
+    : {}),
   extraResources: [
     { from: 'resources/bin', to: 'bin' },
     { from: 'core.asar', to: 'core.asar' },
     { from: 'core.asar.unpacked', to: 'core.asar.unpacked' },
+    // The Sparkle bridge addon is loaded by an explicit path outside app.asar; pnpm's
+    // symlinked package dir cannot be matched by asarUnpack, so it ships as a resource.
+    ...(sparklePackageDir
+      ? [
+          {
+            from: path.join(sparklePackageDir, 'native/build/Release/sparkle_bridge.node'),
+            to: 'sparkle/sparkle_bridge.node',
+          },
+        ]
+      : []),
     // Local Sandbox helper binaries. The sandbox spawns these by path, so they
     // must be real files — not entries inside app.asar, and not something the
     // user is expected to install separately.

@@ -444,7 +444,9 @@ export class WechatAdapter implements Adapter<WechatThreadId, WechatRawMessage> 
   }
 
   constructor(config: WechatAdapterConfig & { userName?: string }) {
-    this.api = new WechatApiClient(config.botToken, config.botId, config.baseUrl);
+    this.api = new WechatApiClient(config.botToken, config.botId, config.baseUrl, {
+      fetch: config.fetch,
+    });
     this.formatConverter = new WechatFormatConverter();
     this.onBeforeSendMessage = config.onBeforeSendMessage;
     this._userName = config.userName || 'wechat-bot';

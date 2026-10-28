@@ -266,3 +266,7 @@ describe('AiAgentService.execAgent - agent builder editing target', () => {
     expect(mockCreateOperation.mock.calls[0][0].appContext.editingAgentId).toBeUndefined();
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

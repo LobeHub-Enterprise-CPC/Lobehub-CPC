@@ -1,9 +1,18 @@
 'use client';
 
-import { CLI_INSTALL_COMMAND, OFFICIAL_URL } from '@lobechat/business-const';
-import { CopyButton, Flexbox, Icon } from '@lobehub/ui';
-import { Button, TabsIndicator, TabsList, TabsRoot, TabsTab } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+import { CLI_INSTALL_COMMAND, CLI_PRIMARY_BIN, OFFICIAL_URL } from '@lobechat/business-const';
+import {
+  Button,
+  CopyButton,
+  createStaticStyles,
+  cssVar,
+  Flexbox,
+  Icon,
+  TabsIndicator,
+  TabsList,
+  TabsRoot,
+  TabsTab,
+} from '@lobehub/ui';
 import { ArrowLeft, Bot, ClipboardCheck, Terminal } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -221,10 +230,10 @@ const AcceptanceOnboarding = () => {
                     {t('acceptance.workspace.onboarding.agent.prompt', { url: OFFICIAL_URL })}
                   </span>
                   <CopyButton
+                    size={'small'}
                     content={t('acceptance.workspace.onboarding.agent.prompt', {
                       url: OFFICIAL_URL,
                     })}
-                    size={'small'}
                   />
                 </Flexbox>
               </Flexbox>
@@ -237,7 +246,7 @@ const AcceptanceOnboarding = () => {
                     title: t('acceptance.workspace.onboarding.install.title'),
                   },
                   {
-                    command: 'lh acceptance install',
+                    command: `${CLI_PRIMARY_BIN} acceptance install`,
                     description: t('acceptance.workspace.onboarding.enable.description'),
                     title: t('acceptance.workspace.onboarding.enable.title'),
                   },

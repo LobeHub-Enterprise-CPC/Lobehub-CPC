@@ -1,12 +1,12 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 
 import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { channelMigrationSql } from '../../../tests/channelMigrations';
 import * as schema from '../../privateSchemas/channel';
 import type { LobeChatDatabase } from '../../type';
 import { ChannelModel } from '../channel';
@@ -21,19 +21,7 @@ beforeAll(async () => {
   await client.exec(
     "create table users (id text primary key); insert into users values ('owner'), ('other');",
   );
-  // Migration ownership moved to the enterprise chain (see
-  // src/privateSchemas/channel.ts) after this test was written.
-  for (const migration of ['0009_channel_mvp.sql']) {
-    await client.exec(
-      readFileSync(
-        new URL(
-          `../../../../../../packages/enterprise/src/database/migrations/${migration}`,
-          import.meta.url,
-        ),
-        'utf8',
-      ).replaceAll('--> statement-breakpoint', ''),
-    );
-  }
+  await client.exec(channelMigrationSql());
   db = drizzle(client, { schema }) as unknown as LobeChatDatabase;
   model = new ChannelModel(db, 'owner');
 }, 30_000);
@@ -152,7 +140,7 @@ describe('Channel free collaboration regressions', () => {
       ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
   });
 
-  it('atomically gates simultaneous distinct publications and rejects cross-owner mutation', async () => {
+  it('serializes simultaneous same-round publications and rejects cross-owner mutation', async () => {
     const { channel } = await setup();
     await model.send(channel.id, {
       content: 'Concurrent proposals',
@@ -171,19 +159,21 @@ describe('Channel free collaboration regressions', () => {
     await expect(
       new ChannelModel(db, 'other').publish(channel.id, runs[0].id, 1),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    // Turns in a round are parallel: neither proposal holds the other.
     const publications = await Promise.all(runs.map((run) => model.publish(channel.id, run.id, 1)));
-    expect(publications.filter(Boolean)).toHaveLength(1);
-    expect(publications.filter((value) => value === null)).toHaveLength(1);
+    expect(publications).toEqual([expect.any(String), expect.any(String)]);
+    expect(new Set(publications).size).toBe(2);
     const reconnected = new ChannelModel(db, 'owner');
     expect(
       await Promise.all(runs.map((run) => reconnected.publish(channel.id, run.id, 1))),
     ).toEqual(publications);
-    expect((await model.detail(channel.id)).messages).toHaveLength(2);
+    const messages = (await model.detail(channel.id)).messages;
+    expect(messages.map((m) => m.sequence)).toEqual([1, 2, 3]);
   });
 
-  it('publishes only one concurrent cutoff draft and holds the other for one same-session revision', async () => {
+  it('publishes concurrent same-round drafts without holding or re-running a peer', async () => {
     const { channel, a, b } = await setup();
-    const request = await model.send(channel.id, {
+    await model.send(channel.id, {
       content: 'Review together',
       mode: 'discussion',
       mentions: [],
@@ -199,20 +189,68 @@ describe('Channel free collaboration regressions', () => {
     const beta = (await model.claim(channel.id, jobs.find((j) => j.memberId === b.id)!.id))!;
     expect(alpha.run.manifest.cutoffSequence).toBe(beta.run.manifest.cutoffSequence);
 
-    await model.accepted(channel.id, alpha.run.id, 1, 'alpha-native', 'alpha-turn');
+    expect(
+      await acceptDraftRelease(channel.id, alpha.run.id, 'Alpha proposal', 'alpha-native'),
+    ).toEqual(expect.any(String));
+    // Beta never saw Alpha's reply, but that reply belongs to the same round: Beta reads it in
+    // the next round instead of being held and executed again now.
+    expect(
+      await acceptDraftRelease(channel.id, beta.run.id, 'Beta proposal', 'beta-native'),
+    ).toEqual(expect.any(String));
+
+    let detail = await model.detail(channel.id);
+    expect(detail.messages.map((m) => m.content)).toEqual([
+      'Review together',
+      'Alpha proposal',
+      'Beta proposal',
+    ]);
+    expect(detail.discussions[0]).toMatchObject({ round: 1, turnsPublished: 2 });
+    expect(detail.jobs.filter((j) => j.task?.kind === 'revise')).toHaveLength(0);
+    expect(detail.jobs).toHaveLength(2);
+
+    await model.advanceDiscussions(channel.id);
+    detail = await model.detail(channel.id);
+    expect(detail.discussions[0]).toMatchObject({ round: 2, turnsPublished: 2 });
+    const next = (await model.claim(
+      channel.id,
+      detail.jobs.find((j) => j.memberId === a.id && j.deliveryKey === 'round:2')!.id,
+    ))!;
+    expect(next.run.manifest).toMatchObject({
+      source: 'incremental',
+      discussion: { kind: 'discuss', round: 2 },
+    });
+    expect(next.run.manifest.messages.map((m) => m.content)).toContain('Beta proposal');
+  });
+
+  it('still holds a draft that missed a reply from outside its round, for one same-session revision', async () => {
+    const { channel, a, b } = await setup();
+    await model.send(channel.id, {
+      content: 'Earlier task',
+      mentions: [a.id],
+      requestKey: randomUUID(),
+    });
+    const earlier = (await model.claim(channel.id, (await model.detail(channel.id)).jobs[0].id))!;
+    const request = await model.send(channel.id, {
+      content: 'Review together',
+      mode: 'discussion',
+      mentions: [b.id],
+      requestKey: randomUUID(),
+      maxDiscussionRounds: 6,
+    });
+    const beta = (await model.claim(
+      channel.id,
+      (await model.detail(channel.id)).jobs.find((j) => j.messageId === request.id)!.id,
+    ))!;
+    // An ordinary reply published after Beta's cutoff is not part of this discussion round.
+    await acceptDraftRelease(channel.id, earlier.run.id, 'Earlier answer');
     await model.accepted(channel.id, beta.run.id, 1, 'beta-native', 'beta-turn');
-    await model.saveDraft(channel.id, alpha.run.id, 1, 'Alpha proposal');
     await model.saveDraft(channel.id, beta.run.id, 1, 'Beta stale proposal');
-    await model.publish(channel.id, alpha.run.id, 1);
     expect(await model.publish(channel.id, beta.run.id, 1)).toBeNull();
     expect(await model.publish(channel.id, beta.run.id, 1)).toBeNull();
 
     const detail = await model.detail(channel.id);
-    expect(detail.messages.map((m) => m.content)).toEqual(['Review together', 'Alpha proposal']);
-    // Only Alpha's reply was published; Beta's held attempt keeps its turn open in round 1.
-    expect(detail.discussions[0]).toMatchObject({ round: 1, turnsPublished: 1 });
-    // Publishing wakes nobody: Alpha gets no extra job until the round ends.
-    expect(detail.jobs.filter((j) => j.memberId === a.id)).toHaveLength(1);
+    expect(detail.messages.map((m) => m.content)).not.toContain('Beta stale proposal');
+    expect(detail.discussions[0]).toMatchObject({ round: 1, turnsPublished: 0 });
     expect(
       (await db.select().from(schema.channelRuns).where(eq(schema.channelRuns.id, beta.run.id)))[0]
         .publicationStatus,
@@ -231,7 +269,7 @@ describe('Channel free collaboration regressions', () => {
       requestMessageId: request.id,
       discussion: { kind: 'revise', heldDraft: 'Beta stale proposal', round: 1, maxRounds: 6 },
     });
-    expect(continuation.run.manifest.messages.map((m) => m.content)).toContain('Alpha proposal');
+    expect(continuation.run.manifest.messages.map((m) => m.content)).toContain('Earlier answer');
     expect(continuation.run.manifest.messages.some((m) => m.id === request.id)).toBe(false);
     expect(
       (await db.select().from(schema.channelRuns).where(eq(schema.channelRuns.id, beta.run.id)))[0]
@@ -276,27 +314,18 @@ describe('Channel free collaboration regressions', () => {
     expect(await acceptDraftRelease(channel.id, first.id, 'First answer')).toEqual(
       expect.any(String),
     );
-    // The slower draft missed First answer, so it is held and revised, still inside round 1:
-    // a round is not over until every participant has had its turn.
-    expect(
-      await acceptDraftRelease(channel.id, late.id, 'Unaware answer', 'beta-native'),
-    ).toBeNull();
+    // A round is not over until every participant has had its turn.
     await model.advanceDiscussions(channel.id);
     let detail = await model.detail(channel.id);
     expect(detail.discussions[0]).toMatchObject({ status: 'active', round: 1, turnsPublished: 1 });
-    const revision = detail.jobs.find((j) => j.memberId === b.id && j.status === 'queued')!;
-    expect(revision.task).toMatchObject({ kind: 'revise', round: 1 });
-    const revised = (await model.claim(channel.id, revision.id))!.run;
-    expect(
-      await acceptDraftRelease(
-        channel.id,
-        revised.id,
-        'Second answer, after reading',
-        'beta-native',
-      ),
-    ).toEqual(expect.any(String));
+    // The slower draft missed First answer, but both are this round's parallel turns: it is
+    // published as is rather than held and executed again.
+    expect(await acceptDraftRelease(channel.id, late.id, 'Second answer', 'beta-native')).toEqual(
+      expect.any(String),
+    );
     await model.advanceDiscussions(channel.id);
     detail = await model.detail(channel.id);
+    expect(detail.jobs.filter((j) => j.task?.kind === 'revise')).toHaveLength(0);
     // Both spoke once and the only round is spent: no round 2 opens, the limit summary follows.
     expect(detail.discussions[0]).toMatchObject({
       status: 'summarizing',
@@ -325,7 +354,7 @@ describe('Channel free collaboration regressions', () => {
     expect(detail.messages.map((m) => m.content)).toEqual([
       'One round only',
       'First answer',
-      'Second answer, after reading',
+      'Second answer',
       'Final summary',
     ]);
     expect(detail.jobs.filter((j) => j.task?.kind === 'summarize')).toHaveLength(1);
@@ -497,20 +526,17 @@ describe('Channel free collaboration regressions', () => {
       round: 1,
       turnsPublished: 2,
     });
+    // Slow saw neither reply and has nothing to add: its yield ends its turn without a re-run.
     expect(
-      await acceptDraftRelease(channel.id, slower.id, 'Old slow draft', 'slow-native'),
+      await acceptDraftRelease(channel.id, slower.id, '[[CHANNEL_YIELD]]', 'slow-native'),
     ).toBeNull();
-    const revision = (await model.detail(channel.id)).jobs.find(
-      (j) => j.memberId === slow.id && j.status === 'queued',
-    )!;
-    expect(revision.task).toMatchObject({ kind: 'revise', round: 1 });
-    await model.advanceDiscussions(channel.id);
-    expect((await model.detail(channel.id)).discussions[0].round).toBe(1);
-    const revised = (await model.claim(channel.id, revision.id))!;
-    expect(revised.session.nativeSessionId).toBe('slow-native');
     expect(
-      await acceptDraftRelease(channel.id, revised.run.id, '[[CHANNEL_YIELD]]', 'slow-native'),
-    ).toBeNull();
+      (await db.select().from(schema.channelRuns).where(eq(schema.channelRuns.id, slower.id)))[0]
+        .publicationStatus,
+    ).toBe('yielded');
+    expect(
+      (await model.detail(channel.id)).jobs.filter((j) => j.memberId === slow.id),
+    ).toHaveLength(1);
 
     await model.advanceDiscussions(channel.id);
     let detail = await model.detail(channel.id);
@@ -544,14 +570,21 @@ describe('Channel free collaboration regressions', () => {
   it('session reset cancels a held continuation instead of replaying its private draft', async () => {
     const { channel, a, b } = await setup();
     await model.send(channel.id, {
-      content: 'Race',
-      mode: 'discussion',
-      mentions: [],
+      content: 'Side task',
+      mentions: [a.id],
       requestKey: randomUUID(),
     });
-    const jobs = (await model.detail(channel.id)).jobs;
-    const first = (await model.claim(channel.id, jobs.find((j) => j.memberId === a.id)!.id))!.run;
-    const held = (await model.claim(channel.id, jobs.find((j) => j.memberId === b.id)!.id))!.run;
+    const first = (await model.claim(channel.id, (await model.detail(channel.id)).jobs[0].id))!.run;
+    const race = await model.send(channel.id, {
+      content: 'Race',
+      mode: 'discussion',
+      mentions: [b.id],
+      requestKey: randomUUID(),
+    });
+    const held = (await model.claim(
+      channel.id,
+      (await model.detail(channel.id)).jobs.find((j) => j.messageId === race.id)!.id,
+    ))!.run;
     await acceptDraftRelease(channel.id, first.id, 'Winner');
     await model.accepted(channel.id, held.id, 1, 'held-native', 'held-turn');
     await model.saveDraft(channel.id, held.id, 1, 'Private held text');

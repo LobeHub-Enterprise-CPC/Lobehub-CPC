@@ -1,6 +1,9 @@
 import type { BriefArtifacts } from '../brief';
 import type { ChatFileItem } from '../message/ui/chat';
 
+export * from './archive';
+export * from './execution';
+
 // ── Task type aliases ──
 
 export type TaskStatus =
@@ -243,6 +246,11 @@ export interface TaskSchedulerContext {
   consecutiveFailures?: number;
   // ISO timestamp when the latest tick was scheduled. Informational only.
   scheduledAt?: string;
+  // ISO timestamp opening the current schedule window: `maxExecutions` counts
+  // schedule runs since it, and the dispatcher never fires an earlier occurrence.
+  scheduleStartedAt?: string;
+  /** Additional scheduled executions sharing an existing conversation, scoped to this window. */
+  reusedExecutions?: { window?: string; count: number };
   // QStash messageId (or LocalScheduler scheduleId) for the next tick. Used to
   // cancel when the user wants an interval change to take effect immediately.
   tickMessageId?: string;
@@ -325,6 +333,8 @@ export interface TaskSubtaskProgress {
 
 export interface TaskItem {
   accessedAt: Date;
+  /** Set when the user archives the task; archived tasks are hidden from lists by default. */
+  archivedAt: Date | null;
   assigneeAgentId: string | null;
   assigneeUserId: string | null;
   automationMode: TaskAutomationMode | null;
@@ -374,6 +384,7 @@ export type TaskListItem = TaskItem & {
 
 export interface NewTask {
   accessedAt?: Date;
+  archivedAt?: Date | null;
   assigneeAgentId?: string | null;
   assigneeUserId?: string | null;
   automationMode?: TaskAutomationMode | null;
@@ -425,6 +436,8 @@ export interface TaskDetailSubtaskRunningTopic {
 }
 
 export interface TaskDetailSubtask {
+  /** ISO time the subtask was archived; null when it is not archived. */
+  archivedAt?: string | null;
   assignee?: TaskDetailSubtaskAssignee | null;
   /** Human assignee (workspace member). Coexists with `assignee` (agent). */
   assigneeUserId?: string | null;
@@ -592,8 +605,11 @@ export interface TaskRunVerifySummary {
 }
 
 export interface TaskDetailData {
+  projectId?: string | null;
   activities?: TaskDetailActivity[];
   agentId?: string | null;
+  /** ISO time the user archived the task; null when it is not archived. */
+  archivedAt?: string | null;
   // null/undefined = no automation configured
   automationMode?: TaskAutomationMode | null;
   checkpoint?: CheckpointConfig;
@@ -608,6 +624,8 @@ export interface TaskDetailData {
   error?: string | null;
   /** Files attached to the task instruction (persistent context for every run). */
   files?: ChatFileItem[];
+  /** The goal this task (or its nearest goal-bound ancestor) belongs to; null when none. */
+  goal?: { id: string; title: string } | null;
   // heartbeat.interval: periodic execution interval | heartbeat.timeout+lastAt: watchdog monitoring (detects stuck tasks)
   heartbeat?: {
     interval?: number | null;

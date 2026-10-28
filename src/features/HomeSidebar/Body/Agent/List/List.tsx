@@ -1,3 +1,4 @@
+import { NAV_RAIL_ENABLED } from '@lobechat/business-const';
 import { type SidebarAgentItem } from '@lobechat/types';
 import { Flexbox } from '@lobehub/ui';
 import { MoreHorizontal } from 'lucide-react';
@@ -29,6 +30,7 @@ interface SessionListProps {
 const List = memo<SessionListProps>(
   ({ onMoreClick, dataSource, groupId, itemStyle, itemClassName, visibility }) => {
     const { t } = useTranslation('chat');
+    const { t: tCommon } = useTranslation('common');
 
     // Early return for empty state
     const isEmpty = useMemo(() => dataSource.length === 0, [dataSource.length]);
@@ -42,7 +44,8 @@ const List = memo<SessionListProps>(
 
     // Count what the sidebar can actually show (caller's unpins excluded) so
     // hidden items alone never surface a dangling "More" row.
-    const hasMore = isDefaultList && keep(ungroupedAgents).length > agentPageSize;
+    const listedCount = keep(ungroupedAgents).length;
+    const hasMore = isDefaultList && listedCount > agentPageSize;
 
     // Empty custom/default groups always show the Create button so the user can populate them.
     // Non-empty lists only show it at the bottom of the default group; custom groups rely on
@@ -66,13 +69,23 @@ const List = memo<SessionListProps>(
             <AgentItem className={itemClassName} item={item} key={item.id} style={itemStyle} />
           ),
         )}
-        {hasMore && (
-          <NavItem
-            icon={MoreHorizontal}
-            title={t('input.more')}
-            onClick={onMoreClick || openAllAgentsDrawer}
-          />
-        )}
+        {hasMore &&
+          (NAV_RAIL_ENABLED ? (
+            // The two-level layout says how many agents the list leaves out, as
+            // plain text in line with the names above it.
+            <NavItem
+              data-sidebar-row="more"
+              icon={<span aria-hidden />}
+              title={tCommon('navPanel.moreAgents', { count: listedCount - agentPageSize })}
+              onClick={onMoreClick || openAllAgentsDrawer}
+            />
+          ) : (
+            <NavItem
+              icon={MoreHorizontal}
+              title={t('input.more')}
+              onClick={onMoreClick || openAllAgentsDrawer}
+            />
+          ))}
         {showCreateButton && (
           <CreateAgentButton className={itemClassName} groupId={groupId} visibility={visibility} />
         )}

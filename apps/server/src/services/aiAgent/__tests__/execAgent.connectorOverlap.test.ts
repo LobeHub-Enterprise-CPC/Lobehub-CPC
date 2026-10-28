@@ -238,3 +238,7 @@ describe('AiAgentService.execAgent - connector/plugin overlap', () => {
     expect(installedPluginsArg().some((p) => p.identifier === 'plugin-a')).toBe(false);
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

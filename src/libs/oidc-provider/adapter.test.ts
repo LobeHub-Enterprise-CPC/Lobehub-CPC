@@ -1,3 +1,4 @@
+import { UnsecuredJWT } from 'jose';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DrizzleAdapter } from './adapter';
@@ -8,6 +9,9 @@ vi.mock('debug', () => ({
 
 const mockDecrypt = vi.hoisted(() => vi.fn());
 const mockEncrypt = vi.hoisted(() => vi.fn());
+const mockUserAuth = vi.hoisted(() => vi.fn(async () => ({})));
+
+vi.mock('@lobechat/utils/server', () => ({ getUserAuth: mockUserAuth }));
 
 vi.mock('@/server/modules/KeyVaultsEncrypt', () => ({
   KeyVaultsGateKeeper: {
@@ -37,7 +41,7 @@ const createUpsertDb = (options?: { updateRejects?: boolean }) => {
 
   const insertChain = {
     onConflictDoUpdate: vi.fn(() => Promise.resolve(undefined)),
-    values: vi.fn(() => insertChain),
+    values: vi.fn((_record: Record<string, unknown>) => insertChain),
   };
 
   const update = vi.fn(() => updateChain);
@@ -93,6 +97,20 @@ describe('OIDCAdapter (DrizzleAdapter)', () => {
       const result = await adapter.find('lca_client_1');
 
       expect(result).toBeUndefined();
+    });
+
+    it('returns undefined for a web app whose secret has not been generated yet', async () => {
+      const db = createSelectDb([
+        {
+          ...clientRow,
+          applicationType: 'web',
+          clientSecret: null,
+          tokenEndpointAuthMethod: 'client_secret_post',
+        },
+      ]);
+      const adapter = new DrizzleAdapter('Client', db as any);
+
+      expect(await adapter.find('lca_client_1')).toBeUndefined();
     });
 
     it('hands oidc-provider the decrypted client secret', async () => {
@@ -167,6 +185,117 @@ describe('OIDCAdapter (DrizzleAdapter)', () => {
       const [{ set }] = insertChain.onConflictDoUpdate.mock.calls.at(-1);
       expect(set).not.toHaveProperty('clientSecret');
     });
+  });
+
+  describe('pre-auth protocol artifacts', () => {
+    const requestFor = (claims: Record<string, unknown>) => new UnsecuredJWT(claims).encode();
+    const request = requestFor({ client_id: 'lobehub-desktop', iss: 'lobehub-desktop' });
+
+    it('stores the client index from the provider PAR request without changing its payload', async () => {
+      const { db } = createUpsertDb();
+      const insertChain = db.insert();
+      db.insert.mockClear();
+      const payload = { kind: 'PushedAuthorizationRequest', request, trusted: false };
+
+      await new DrizzleAdapter('PushedAuthorizationRequest', db as any).upsert(
+        'par-1',
+        payload,
+        60,
+      );
+
+      expect(insertChain.values).toHaveBeenCalledWith(
+        expect.objectContaining({ clientId: 'lobehub-desktop', data: payload }),
+      );
+      expect(insertChain.values.mock.calls[0][0]).not.toHaveProperty('userId');
+      expect(insertChain.onConflictDoUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          set: expect.objectContaining({ clientId: 'lobehub-desktop', data: payload }),
+        }),
+      );
+      expect(payload).toEqual({ kind: 'PushedAuthorizationRequest', request, trusted: false });
+      expect(mockUserAuth).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      undefined,
+      'not-a-jwt',
+      requestFor({ client_id: 'lobehub-desktop' }),
+      requestFor({ client_id: '', iss: 'lobehub-desktop' }),
+      requestFor({ iss: '' }),
+      requestFor({ iss: 42 }),
+      requestFor({ client_id: 42, iss: 'lobehub-desktop' }),
+      requestFor({ client_id: 'lobehub-desktop', iss: 'another-client' }),
+    ])('rejects invalid PAR client metadata before a write: %s', async (request) => {
+      const { db } = createUpsertDb();
+
+      await expect(
+        new DrizzleAdapter('PushedAuthorizationRequest', db as any).upsert(
+          'par-1',
+          { request },
+          60,
+        ),
+      ).rejects.toMatchObject({ error: 'invalid_request', statusCode: 400 });
+
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('indexes issuer-only PAR after confidential client authentication', async () => {
+      const { db } = createUpsertDb();
+      const insertChain = db.insert();
+      const payload = { request: requestFor({ iss: 'confidential-client' }), trusted: true };
+
+      await new DrizzleAdapter('PushedAuthorizationRequest', db as any).upsert(
+        'par-1',
+        payload,
+        60,
+      );
+
+      expect(insertChain.values).toHaveBeenCalledWith(
+        expect.objectContaining({ clientId: 'confidential-client', data: payload }),
+      );
+      expect(payload).not.toHaveProperty('clientId');
+      expect(payload).not.toHaveProperty('accountId');
+    });
+
+    it('rejects conflicting top-level PAR client metadata instead of indexing another client', async () => {
+      const { db } = createUpsertDb();
+
+      await expect(
+        new DrizzleAdapter('PushedAuthorizationRequest', db as any).upsert(
+          'par-1',
+          { clientId: 'another-client', request },
+          60,
+        ),
+      ).rejects.toMatchObject({ error: 'invalid_request', statusCode: 400 });
+
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('retains the authorization-code client and authenticated user indexes', async () => {
+      const { db } = createUpsertDb();
+      const insertChain = db.insert();
+      const payload = { accountId: 'user-1', clientId: 'desktop', grantId: 'grant-1' };
+
+      await new DrizzleAdapter('AuthorizationCode', db as any).upsert('code-1', payload, 60);
+
+      expect(insertChain.values).toHaveBeenCalledWith(
+        expect.objectContaining({ clientId: 'desktop', data: payload, userId: 'user-1' }),
+      );
+    });
+
+    it.each(['Session', 'Interaction'])(
+      'keeps anonymous %s artifacts unassociated',
+      async (name) => {
+        const { db } = createUpsertDb();
+        const insertChain = db.insert();
+        const payload = { uid: 'anonymous-1' };
+
+        await new DrizzleAdapter(name, db as any).upsert('anonymous-1', payload, 60);
+
+        expect(insertChain.values.mock.calls[0][0]).not.toHaveProperty('userId');
+        expect(payload).not.toHaveProperty('accountId');
+      },
+    );
   });
 
   describe('lastUsedAt stamping', () => {

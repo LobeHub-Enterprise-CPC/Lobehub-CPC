@@ -8,6 +8,7 @@ import {
   type BotRuntimeStatus,
   updateBotRuntimeStatus,
 } from '@/server/services/gateway/runtimeStatus';
+import { isBearerSecret } from '@/server/utils/bearerAuth';
 
 const log = debug('lobe-server:agent:gateway-callback');
 
@@ -44,7 +45,7 @@ export async function gatewayCallback(c: Context): Promise<Response> {
   }
 
   const authHeader = c.req.header('authorization');
-  if (authHeader !== `Bearer ${serviceToken}`) {
+  if (!isBearerSecret(authHeader, serviceToken)) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
 

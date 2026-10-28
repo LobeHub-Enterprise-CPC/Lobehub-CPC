@@ -11,6 +11,7 @@ import { getAppDisplayName } from '@/utils/appIdentity';
 
 import { buildTrayMenuTemplate } from '../trayMenu';
 import type { ContextMenuData, IMenuPlatform, MenuOptions } from '../types';
+import { updateDownloadUrl, vendorHelpItems } from '../vendorHelp';
 import { BaseMenuPlatform } from './BaseMenuPlatform';
 
 export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
@@ -117,12 +118,7 @@ export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
             },
             label: t('file.preferences'),
           },
-          {
-            click: () => {
-              this.app.updaterManager.checkForUpdates({ manual: true });
-            },
-            label: t('common.checkUpdates'),
-          },
+          this.getUpdateMenuItem(t),
           { type: 'separator' },
           {
             accelerator: 'CmdOrCtrl+W',
@@ -199,19 +195,20 @@ export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
       {
         label: t('help.title'),
         submenu: [
-          {
-            click: async () => {
-              await shell.openExternal(OFFICIAL_SITE);
+          ...vendorHelpItems([
+            {
+              click: async () => {
+                await shell.openExternal(OFFICIAL_SITE);
+              },
+              label: t('help.visitWebsite'),
             },
-            label: t('help.visitWebsite'),
-          },
-          {
-            click: async () => {
-              await shell.openExternal(GITHUB);
+            {
+              click: async () => {
+                await shell.openExternal(GITHUB);
+              },
+              label: t('help.githubRepo'),
             },
-            label: t('help.githubRepo'),
-          },
-          { type: 'separator' },
+          ]),
           {
             click: () => {
               this.app.browserManager.retrieveByIdentifier('processExplorer').show();
@@ -263,8 +260,8 @@ export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
       template.push({
         label: t('dev.title'),
         submenu: [
-          { label: t('dev.reload'), role: 'reload' },
-          { label: t('dev.forceReload'), role: 'forceReload' },
+          this.buildReloadMenuItem(t('dev.reload')),
+          this.buildReloadMenuItem(t('dev.forceReload'), true),
           this.buildDevToolsMenuItem(t('dev.devTools')),
           { type: 'separator' },
           {
@@ -278,6 +275,46 @@ export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
     }
 
     return template;
+  }
+
+  /**
+   * Mirrors the macOS/Windows menus: without this the Linux menu only ever
+   * offered "Check for updates" and never surfaced "Restart to update", so a
+   * downloaded update could not be installed from the menu bar at all.
+   */
+  private getUpdateMenuItem(t: (key: string, opts?: any) => string): MenuItemConstructorOptions {
+    const { stage } = this.app.updaterManager.getUpdaterState();
+
+    switch (stage) {
+      case 'checking': {
+        return { enabled: false, label: t('common.checkingUpdates') };
+      }
+      case 'downloading': {
+        return { enabled: false, label: t('common.downloadingUpdate') };
+      }
+      case 'downloaded': {
+        return {
+          click: () => this.app.updaterManager.installNow(),
+          label: t('common.restartToUpdate'),
+        };
+      }
+      case 'latest': {
+        return { enabled: false, label: t('common.isLatestVersion') };
+      }
+      // snap / tar.gz / a runtime-less AppImage cannot replace themselves.
+      case 'unsupported': {
+        return {
+          click: () => shell.openExternal(updateDownloadUrl()),
+          label: t('common.updateUnsupported'),
+        };
+      }
+      default: {
+        return {
+          click: () => this.app.updaterManager.checkForUpdates({ manual: true }),
+          label: t('common.checkUpdates'),
+        };
+      }
+    }
   }
 
   private getDefaultContextMenuTemplate(data?: ContextMenuData): MenuItemConstructorOptions[] {

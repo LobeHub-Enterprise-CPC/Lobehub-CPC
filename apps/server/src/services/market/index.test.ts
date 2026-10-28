@@ -1,9 +1,11 @@
 // @vitest-environment node
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { CacheRevalidate, CacheTag } from '@lobechat/types';
 import { MarketSDK } from '@lobehub/market-sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { generateTrustedClientToken, getTrustedClientTokenForSession } from '@/libs/trusted-client';
+import { TrustedClientIdentityError } from '@/libs/trusted-client/errors';
 
 import {
   extractAccessToken,
@@ -159,6 +161,104 @@ describe('MarketService', () => {
       );
     });
 
+    // R13: acting as an organization is closed inside a tenant. The header is
+    // refused explicitly, never dropped, so a caller does not end up writing
+    // as the person while believing it writes as the organization.
+    describe('acting as an organization', () => {
+      const inTenant = <T>(fn: () => T) =>
+        runWithTenantScope(
+          { session: {}, slug: 'a', tenantId: 'tenant-a' } as unknown as TenantScope,
+          fn,
+        );
+
+      it('refuses ownerAccountId inside a tenant scope', () => {
+        expect(() => inTenant(() => new MarketService({ ownerAccountId: 321 }))).toThrowError(
+          'MARKET_ACTING_AS_ORGANIZATION_UNAVAILABLE',
+        );
+        expect(MarketSDK).not.toHaveBeenCalled();
+      });
+
+      it('still passes ownerAccountId outside a tenant (community and single tenant)', () => {
+        new MarketService({ ownerAccountId: 321 });
+
+        expect(MarketSDK).toHaveBeenCalledWith(expect.objectContaining({ ownerAccountId: 321 }));
+      });
+
+      it('needs no ownerAccountId to build inside a tenant', () => {
+        expect(() =>
+          inTenant(() => new MarketService({ trustedClientToken: 'trust-token' })),
+        ).not.toThrow();
+      });
+    });
+
+    // A tenant request that cannot be signed must not leave: without the trust
+    // header Market serves the default instance, and the legacy Bearer is refused.
+    describe('in tenant mode without a trust token', () => {
+      const inTenant = <T>(fn: () => T) =>
+        runWithTenantScope(
+          { session: {}, slug: 'a', tenantId: 'tenant-a' } as unknown as TenantScope,
+          fn,
+        );
+
+      it('propagates a failure to sign and never builds the SDK', () => {
+        vi.mocked(generateTrustedClientToken).mockImplementationOnce(() => {
+          throw new TrustedClientIdentityError('TRUST_SIGNING_FAILED');
+        });
+
+        expect(() =>
+          inTenant(() => new MarketService({ userInfo: { userId: 'user-1' } })),
+        ).toThrowError(expect.objectContaining({ code: 'TRUST_SIGNING_FAILED' }));
+        expect(MarketSDK).not.toHaveBeenCalled();
+      });
+
+      it('refuses a user whose identity yields no token instead of sending the Bearer', () => {
+        vi.mocked(generateTrustedClientToken).mockReturnValueOnce(undefined);
+
+        expect(() =>
+          inTenant(
+            () =>
+              new MarketService({ accessToken: 'legacy-bearer', userInfo: { userId: 'user-1' } }),
+          ),
+        ).toThrowError(expect.objectContaining({ code: 'TRUST_TOKEN_REQUIRED' }));
+        expect(MarketSDK).not.toHaveBeenCalled();
+      });
+
+      it('refuses a bare legacy Bearer', () => {
+        expect(() =>
+          inTenant(() => new MarketService({ accessToken: 'legacy-bearer' })),
+        ).toThrowError(expect.objectContaining({ code: 'TRUST_TOKEN_REQUIRED' }));
+        expect(MarketSDK).not.toHaveBeenCalled();
+      });
+
+      it('lets a synthetic eval user through as before (Market is never asked to know it)', () => {
+        vi.mocked(generateTrustedClientToken).mockReturnValueOnce(undefined);
+
+        expect(() =>
+          inTenant(() => new MarketService({ userInfo: { userId: 'eval_1' } })),
+        ).not.toThrow();
+      });
+
+      it('still builds M2M and anonymous services', () => {
+        expect(() =>
+          inTenant(
+            () => new MarketService({ clientCredentials: { clientId: 'c', clientSecret: 's' } }),
+          ),
+        ).not.toThrow();
+        expect(() => inTenant(() => new MarketService())).not.toThrow();
+      });
+
+      it('keeps the Bearer path outside a tenant', () => {
+        vi.mocked(generateTrustedClientToken).mockReturnValueOnce(undefined);
+
+        expect(
+          () => new MarketService({ accessToken: 'legacy-bearer', userInfo: { userId: 'user-1' } }),
+        ).not.toThrow();
+        expect(MarketSDK).toHaveBeenCalledWith(
+          expect.objectContaining({ accessToken: 'legacy-bearer', trustedClientToken: undefined }),
+        );
+      });
+    });
+
     it('should pass clientCredentials to MarketSDK', () => {
       new MarketService({
         clientCredentials: { clientId: 'client-id', clientSecret: 'client-secret' },
@@ -188,6 +288,20 @@ describe('MarketService', () => {
           trustedClientToken: 'session-trusted-token',
         }),
       );
+    });
+
+    // The session lookup failing is not "no session": no SDK is built, so
+    // nothing reaches Market as an anonymous request.
+    it('propagates a failed session lookup and builds no SDK', async () => {
+      const req = { headers: { get: vi.fn().mockReturnValue('Bearer legacy') } } as any;
+      (getTrustedClientTokenForSession as any).mockRejectedValue(
+        new TrustedClientIdentityError('SESSION_UNAVAILABLE'),
+      );
+
+      await expect(MarketService.createFromRequest(req)).rejects.toMatchObject({
+        code: 'SESSION_UNAVAILABLE',
+      });
+      expect(MarketSDK).not.toHaveBeenCalled();
     });
 
     it('should work without an authorization header', async () => {
@@ -245,6 +359,84 @@ describe('MarketService', () => {
             'x-lobe-trust-token': 'trusted-user-token',
           },
           method: 'POST',
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
+
+  describe('proxyOAuthRequest in tenant mode', () => {
+    const inTenant = <T>(fn: () => T) =>
+      runWithTenantScope(
+        { session: {}, slug: 'a', tenantId: 'tenant-a' } as unknown as TenantScope,
+        fn,
+      );
+    const request = {
+      endpoint: '/user',
+      method: 'GET' as const,
+      provider: 'github',
+    };
+
+    /** @example A tenant request that cannot be signed never reaches the provider proxy. */
+    it('does not send when the identity cannot be signed', async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+      vi.mocked(generateTrustedClientToken).mockImplementationOnce(() => {
+        throw new TrustedClientIdentityError('TRUST_NOT_CONFIGURED');
+      });
+
+      try {
+        await expect(
+          (async () =>
+            inTenant(() => new MarketService({ userInfo: { userId: 'user-1' } })))().then(
+            (service) => service.proxyOAuthRequest(request),
+          ),
+        ).rejects.toMatchObject({ code: 'TRUST_NOT_CONFIGURED' });
+        expect(fetchMock).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('does not send an unauthenticated proxy request from a service without a trust token', async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      try {
+        const service = inTenant(() => new MarketService());
+        await expect(service.proxyOAuthRequest(request)).rejects.toMatchObject({
+          code: 'TRUST_TOKEN_REQUIRED',
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('still sends with the trust token', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      try {
+        const service = inTenant(() => new MarketService({ trustedClientToken: 'trust-token' }));
+        await service.proxyOAuthRequest(request);
+        expect(fetchMock.mock.calls[0][1].headers).toMatchObject({
+          'x-lobe-trust-token': 'trust-token',
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('keeps the old behaviour outside a tenant', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      try {
+        await new MarketService({ accessToken: 'legacy-bearer' }).proxyOAuthRequest(request);
+        expect(fetchMock.mock.calls[0][1].headers).toMatchObject({
+          Authorization: 'Bearer legacy-bearer',
         });
       } finally {
         vi.unstubAllGlobals();
@@ -524,7 +716,10 @@ describe('MarketService', () => {
       (service as any).market.skills.listLiveTools = vi.fn().mockResolvedValue(liveResponse);
       (service as any).market.skills.listTools = vi.fn().mockResolvedValue({ tools: [] });
 
-      await expect(service.listSkillTools('posthog')).resolves.toBe(liveResponse);
+      await expect(service.listSkillTools('posthog')).resolves.toEqual({
+        ...liveResponse,
+        source: 'live',
+      });
 
       expect((service as any).market.skills.listLiveTools).toHaveBeenCalledWith('posthog');
       expect((service as any).market.skills.listTools).not.toHaveBeenCalled();
@@ -538,7 +733,10 @@ describe('MarketService', () => {
       (service as any).market.skills.listLiveTools = vi.fn().mockRejectedValue(new Error('boom'));
       (service as any).market.skills.listTools = vi.fn().mockResolvedValue(staticResponse);
 
-      await expect(service.listSkillTools('posthog')).resolves.toBe(staticResponse);
+      await expect(service.listSkillTools('posthog')).resolves.toEqual({
+        ...staticResponse,
+        source: 'static',
+      });
 
       expect((service as any).market.skills.listLiveTools).toHaveBeenCalledWith('posthog');
       expect((service as any).market.skills.listTools).toHaveBeenCalledWith('posthog');
@@ -552,7 +750,10 @@ describe('MarketService', () => {
       (service as any).market.skills.listLiveTools = vi.fn().mockResolvedValue({ tools: [] });
       (service as any).market.skills.listTools = vi.fn().mockResolvedValue(staticResponse);
 
-      await expect(service.listSkillTools('posthog')).resolves.toBe(staticResponse);
+      await expect(service.listSkillTools('posthog')).resolves.toEqual({
+        ...staticResponse,
+        source: 'static',
+      });
 
       expect((service as any).market.skills.listTools).toHaveBeenCalledWith('posthog');
     });
@@ -565,7 +766,10 @@ describe('MarketService', () => {
       (service as any).market.skills.listLiveTools = vi.fn().mockResolvedValue(null);
       (service as any).market.skills.listTools = vi.fn().mockResolvedValue(staticResponse);
 
-      await expect(service.listSkillTools('posthog')).resolves.toBe(staticResponse);
+      await expect(service.listSkillTools('posthog')).resolves.toEqual({
+        ...staticResponse,
+        source: 'static',
+      });
 
       expect((service as any).market.skills.listTools).toHaveBeenCalledWith('posthog');
     });
@@ -662,6 +866,26 @@ describe('MarketService', () => {
       const manifests = await service.getLobehubSkillManifests();
       expect(manifests).toHaveLength(1);
       expect(manifests[0].identifier).toBe('linear');
+    });
+
+    it('lists tools only for the requested providers', async () => {
+      const service = new MarketService();
+      (service as any).market.connect.listConnections = vi.fn().mockResolvedValue({
+        connections: [
+          { icon: '🐦', providerId: 'twitter', providerName: 'Twitter' },
+          { icon: '📋', providerId: 'linear', providerName: 'Linear' },
+        ],
+      });
+      const listTools = vi.fn().mockResolvedValue({
+        tools: [{ description: 'Create', inputSchema: {}, name: 'create' }],
+      });
+      (service as any).market.skills.listTools = listTools;
+
+      const manifests = await service.getLobehubSkillManifests({ providerIds: ['linear'] });
+
+      expect(manifests.map((m) => m.identifier)).toEqual(['linear']);
+      expect(listTools).toHaveBeenCalledTimes(1);
+      expect(listTools.mock.calls[0][0]).toBe('linear');
     });
 
     it('should use the static Notion provider label for manifests', async () => {
@@ -950,6 +1174,69 @@ describe('MarketService', () => {
     });
   });
 
+  describe('sandbox receipt identity', () => {
+    it('keeps the tenant and entitlement, and nothing else', () => {
+      const sandboxStorage = { key: 'wt-x', quotaBytes: 1 };
+      const service = new MarketService({
+        userInfo: {
+          email: 'a@b.com',
+          sandboxStorage,
+          tenantId: 'tenant-a',
+          userId: 'user-1',
+          workspaceId: 'wsp-1',
+        },
+      });
+
+      // The replayed identity is re-signed later: a workspace carried here
+      // would bring acting-as-organization back into a tenant token.
+      expect(service.getSandboxReceiptIdentity()).toEqual({
+        sandboxStorage,
+        tenantId: 'tenant-a',
+        userId: 'user-1',
+      });
+    });
+
+    it('keeps the workspace outside a tenant, as before', () => {
+      const service = new MarketService({ userInfo: { userId: 'user-1', workspaceId: 'wsp-1' } });
+
+      expect(service.getSandboxReceiptIdentity()).toMatchObject({ workspaceId: 'wsp-1' });
+    });
+
+    // Operator reconciliation replays this identity outside any request; an
+    // identity that lost its tenant on the way would sign as nobody.
+    it('records the tenant of the running scope when the identity did not carry one', () => {
+      const service = runWithTenantScope(
+        { session: {}, slug: 'a', tenantId: 'tenant-a' } as unknown as TenantScope,
+        () => new MarketService({ userInfo: { userId: 'user-1' } }),
+      );
+
+      expect(service.getSandboxReceiptIdentity()).toMatchObject({ tenantId: 'tenant-a' });
+    });
+
+    it('is absent for a service built without an identity', () => {
+      expect(new MarketService().getSandboxReceiptIdentity()).toBeUndefined();
+    });
+  });
+
+  describe('proxy execution', () => {
+    it('refuses to publish Market content under an identity it only borrows', () => {
+      const service = new MarketService({
+        userInfo: { proxyExecution: true, tenantId: 'tenant-a', userId: 'creator' },
+      });
+
+      expect(() => service.market.agents.createEvent({} as never)).toThrowError(
+        'MARKET_CONTENT_WRITE_FORBIDDEN',
+      );
+    });
+
+    it('does not guard an interactive identity', () => {
+      const service = new MarketService({ userInfo: { tenantId: 'tenant-a', userId: 'user-1' } });
+
+      expect(() => service.market.agents.getAgentDetail('x')).not.toThrow();
+      expect(() => service.market.agents.createEvent({} as never)).not.toThrow();
+    });
+  });
+
   describe('getSDK', () => {
     it('should return the underlying MarketSDK instance', () => {
       const service = new MarketService();
@@ -987,4 +1274,35 @@ describe('MarketService.searchSkill', () => {
       }),
     );
   });
+
+  it('does not use the data cache for a tenant, whose catalogue includes its own content', async () => {
+    const service = new MarketService();
+    const getSkillList = service.market.marketSkills.getSkillList as ReturnType<typeof vi.fn>;
+    getSkillList.mockResolvedValue({ currentPage: 1, items: [], totalPages: 1 });
+
+    await runWithTenantScope(
+      { session: {}, slug: 'a', tenantId: 'tenant-a' } as unknown as TenantScope,
+      () => service.searchSkill({ page: 1 }),
+    );
+
+    expect(getSkillList).toHaveBeenCalledWith({ page: 1 }, { cache: 'no-store' });
+  });
+});
+
+describe('MarketService.getSkillCategories', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it.each([{ locale: 'zh-CN', q: 'meeting' }, undefined])(
+    'should forward category filters to Market: %j',
+    async (params) => {
+      const service = new MarketService();
+      const categories = [{ category: 'productivity-tasks', count: 2 }];
+      vi.mocked(service.market.marketSkills.getCategories).mockResolvedValue(categories);
+
+      expect(await service.getSkillCategories(params)).toEqual(categories);
+      if (params) expect(service.market.marketSkills.getCategories).toHaveBeenCalledWith(params);
+    },
+  );
 });

@@ -1,3 +1,4 @@
+import { PROJECT_FIRST_NAVIGATION } from '@lobechat/business-const';
 import { PROJECT_IDENTIFIER_REGEX } from '@lobechat/types';
 import { kebabCase } from 'es-toolkit';
 import { pinyin } from 'pinyin-pro';
@@ -57,3 +58,10 @@ export const getCreateProjectInput = (draft: CreateProjectDraft) => {
 
   return { identifier, name, ...(slug ? { slug } : {}) };
 };
+
+/**
+ * Where a project created from a plain "New project" leads: its page, or
+ * nowhere when projects lead the Home panel, which lists the new one at once.
+ */
+export const getCreatedProjectPath = (project: { id: string; slug?: string | null }) =>
+  PROJECT_FIRST_NAVIGATION ? undefined : `/project/${project.slug ?? project.id}`;

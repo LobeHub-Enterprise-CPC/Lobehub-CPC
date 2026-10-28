@@ -93,16 +93,13 @@ vi.mock('@/server/services/skill/parser', () => ({
   }),
 }));
 
-const mockMarketServiceInstance = {
-  getSkillDownloadUrl: vi.fn(),
-};
 vi.mock('@/server/services/market', () => ({
   MarketService: vi.fn().mockImplementation(function () {
-    return mockMarketServiceInstance;
+    return {};
   }),
 }));
 
-// User-supplied URLs (importFromUrl / importFromMarket download) must be fetched through
+// User-supplied URLs (importFromUrl) must be fetched through
 // ssrfSafeFetch (SSRF guard), never raw global fetch. Configure responses on mockSsrfSafeFetch;
 // the raw global fetch is stubbed to throw so any regression back to raw fetch fails loudly
 // (GHSA-53h9-fmjf-frwr / #16536).
@@ -672,6 +669,35 @@ describe('Skill Router Integration Tests', () => {
   });
 
   describe('convertDocumentToSkill', () => {
+    it('does not execute frontmatter when converting a document', async () => {
+      const executed = vi.fn();
+      vi.stubGlobal('__skillFrontmatterExecuted', executed);
+      try {
+        const caller = agentDocumentRouter.createCaller(createTestContext(userId));
+        const agentId = await createTestAgent(serverDB, userId);
+        const doc = await agentDocumentModel.create(
+          agentId,
+          'untrusted-document',
+          `---js
+(() => { globalThis.__skillFrontmatterExecuted(); throw new Error('Executed frontmatter'); })()
+---
+Body`,
+        );
+        await expect(
+          caller.convertDocumentToSkill({
+            agentId,
+            description: 'Description',
+            name: 'untrusted-skill',
+            sourceAgentDocumentId: doc!.id,
+            title: 'Skill',
+          }),
+        ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+        expect(executed).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
     it('should migrate an existing document into a managed skill in place', async () => {
       const caller = agentDocumentRouter.createCaller(createTestContext(userId));
       const agentId = await createTestAgent(serverDB, userId);
@@ -1037,58 +1063,6 @@ description: A skill from URL
         url: 'https://example.com/update-test.md',
       });
       expect(second!.skill.id).toBe(first!.skill.id); // Same skill updated
-      expect(second!.skill.name).toBe('Updated Name');
-      expect(second!.skill.content).toBe('# Updated');
-    });
-  });
-
-  describe('importFromMarket', () => {
-    beforeEach(() => {
-      mockSsrfSafeFetch.mockReset();
-      mockMarketServiceInstance.getSkillDownloadUrl.mockReset();
-    });
-
-    it('should keep the market identifier stable when re-importing from market', async () => {
-      mockMarketServiceInstance.getSkillDownloadUrl
-        .mockReturnValueOnce('https://market.lobehub.com/api/v1/skills/github.owner.repo/download')
-        .mockReturnValueOnce(
-          'https://market.lobehub.com/api/v1/skills/github.owner.repo/download?version=1.0.0',
-        );
-
-      mockSsrfSafeFetch.mockResolvedValue({
-        arrayBuffer: async () => new ArrayBuffer(8),
-        headers: {
-          get: (key: string) => (key === 'content-type' ? 'application/zip' : null),
-        },
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-      });
-
-      let callCount = 0;
-      mockParserInstance.parseZipPackage.mockImplementation(function () {
-        callCount++;
-        return {
-          content: callCount === 1 ? '# Original' : '# Updated',
-          manifest: {
-            description: callCount === 1 ? 'Original desc' : 'Updated desc',
-            name: callCount === 1 ? 'Original Name' : 'Updated Name',
-          },
-          resources: new Map(),
-          zipHash: undefined,
-        };
-      });
-
-      const caller = agentSkillsRouter.createCaller(createTestContext(userId));
-
-      const first = await caller.importFromMarket({ identifier: 'github.owner.repo' });
-      expect(first!.status).toBe('created');
-      expect(first!.skill.identifier).toBe('github.owner.repo');
-
-      const second = await caller.importFromMarket({ identifier: 'github.owner.repo' });
-      expect(second!.status).toBe('updated');
-      expect(second!.skill.id).toBe(first!.skill.id);
-      expect(second!.skill.identifier).toBe('github.owner.repo');
       expect(second!.skill.name).toBe('Updated Name');
       expect(second!.skill.content).toBe('# Updated');
     });

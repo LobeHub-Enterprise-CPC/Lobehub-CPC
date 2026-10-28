@@ -1,6 +1,5 @@
-import { Block, Flexbox, Icon } from '@lobehub/ui';
-import { Avatar, Tag, Text } from '@lobehub/ui/base-ui';
-import { createStaticStyles } from 'antd-style';
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
+import { Avatar, Block, createStaticStyles, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
 import { ClockIcon } from 'lucide-react';
 import qs from 'query-string';
 import React, { memo, useCallback } from 'react';
@@ -95,7 +94,7 @@ const AssistantItem = memo<DiscoverAssistantItem>(
         // Open the public author profile outside the current workspace scope.
         if (userName) {
           window.open(
-            resolveCommunityProfileLink(userName, ownerType),
+            withCurrentTenantPath(resolveCommunityProfileLink(userName, ownerType)),
             '_blank',
             'noopener,noreferrer',
           );

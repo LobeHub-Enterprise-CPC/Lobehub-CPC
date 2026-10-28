@@ -1,8 +1,13 @@
-import { createStaticStyles } from 'antd-style';
+import { createStaticStyles } from '@lobehub/ui';
 
 export const styles = createStaticStyles(({ css, cssVar }) => ({
-  divider: css`
-    height: 24px;
+  content: css`
+    overflow-y: auto;
+    min-height: 0;
+  `,
+
+  contentCenter: css`
+    margin-block: auto;
   `,
 
   innerContainerDark: css`

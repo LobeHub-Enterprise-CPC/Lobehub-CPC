@@ -80,19 +80,11 @@ const DEPRECATED_CHECKS = [
       'AUTH_URL is no longer needed. The authentication URL is now automatically detected from request headers.',
     name: 'Auth URL',
   },
+  // Provider variables that used to configure a sign-in provider for the whole deployment. Nothing
+  // reads them (nor their renamed forms): each tenant configures its SSO in Admin as OIDC or generic
+  // OAuth 2.0.
   {
-    docUrl: `${MIGRATION_DOC_BASE}/nextauth-to-betterauth`,
-    formatVar: (envVar) => {
-      const mapping = {
-        AUTH_AZURE_AD_ID: 'AUTH_MICROSOFT_ID',
-        AUTH_AZURE_AD_SECRET: 'AUTH_MICROSOFT_SECRET',
-        AUTH_AZURE_AD_TENANT_ID: 'AUTH_MICROSOFT_TENANT_ID',
-        AZURE_AD_CLIENT_ID: 'AUTH_MICROSOFT_ID',
-        AZURE_AD_CLIENT_SECRET: 'AUTH_MICROSOFT_SECRET',
-        AZURE_AD_TENANT_ID: 'AUTH_MICROSOFT_TENANT_ID',
-      };
-      return `${envVar} → ${mapping[envVar]}`;
-    },
+    formatVar: (envVar) => `${envVar} → not read; configure SSO per organization in Admin`,
     getVars: () =>
       [
         'AZURE_AD_CLIENT_ID',
@@ -101,26 +93,24 @@ const DEPRECATED_CHECKS = [
         'AUTH_AZURE_AD_ID',
         'AUTH_AZURE_AD_SECRET',
         'AUTH_AZURE_AD_TENANT_ID',
+        'AUTH_MICROSOFT_ENTRA_ID_ID',
+        'AUTH_MICROSOFT_ENTRA_ID_SECRET',
+        'AUTH_MICROSOFT_ENTRA_ID_TENANT_ID',
+        'AUTH_MICROSOFT_ENTRA_ID_BASE_URL',
       ].filter((key) => process.env[key]),
     message:
-      'Azure AD provider has been renamed to Microsoft. Please update your environment variables.',
-    name: 'Azure AD',
+      'Deployment-wide Azure AD / Microsoft Entra ID variables are no longer read. Each organization configures its SSO in Admin (OIDC or generic OAuth 2.0).',
+    name: 'Azure AD / Microsoft Entra ID',
   },
   {
-    formatVar: (envVar) => {
-      const mapping = {
-        ZITADEL_CLIENT_ID: 'AUTH_ZITADEL_ID',
-        ZITADEL_CLIENT_SECRET: 'AUTH_ZITADEL_SECRET',
-        ZITADEL_ISSUER: 'AUTH_ZITADEL_ISSUER',
-      };
-      return `${envVar} → Please use ${mapping[envVar]} instead`;
-    },
+    formatVar: (envVar) => `${envVar} → not read; configure SSO per organization in Admin`,
     getVars: () =>
       ['ZITADEL_CLIENT_ID', 'ZITADEL_CLIENT_SECRET', 'ZITADEL_ISSUER'].filter(
         (key) => process.env[key],
       ),
-    message: 'ZITADEL environment variables have been renamed.',
-    name: 'ZITADEL',
+    message:
+      'Deployment-wide ZITADEL variables are no longer read. Each organization configures its SSO in Admin (OIDC or generic OAuth 2.0).',
+    severity: 'warning',
   },
   {
     formatVar: () => 'OIDC_JWKS_KEY → Please use JWKS_KEY instead',
@@ -134,56 +124,6 @@ const DEPRECATED_CHECKS = [
     message:
       'APP_URL ends with a trailing slash which causes double slashes in redirect URLs (e.g., https://example.com//). Please remove the trailing slash.',
     name: 'APP_URL Trailing Slash',
-  },
-  {
-    docUrl: `${MIGRATION_DOC_BASE}/providers/casdoor`,
-    getVars: () => {
-      const providers = process.env['AUTH_SSO_PROVIDERS'] || '';
-      if (providers.includes('casdoor') && !process.env['CASDOOR_WEBHOOK_SECRET']) {
-        return ['CASDOOR_WEBHOOK_SECRET'];
-      }
-      return [];
-    },
-    message:
-      'Casdoor webhook is recommended for syncing user data (email, avatar, etc.) to LobeChat. This is especially important for users migrating from NextAuth to Better Auth - users without email configured in Casdoor will not be able to login. Consider configuring CASDOOR_WEBHOOK_SECRET following the documentation.',
-    name: 'Casdoor Webhook',
-    severity: 'warning',
-  },
-  {
-    docUrl: `${MIGRATION_DOC_BASE}/providers/logto`,
-    getVars: () => {
-      const providers = process.env['AUTH_SSO_PROVIDERS'] || '';
-      if (providers.includes('logto') && !process.env['LOGTO_WEBHOOK_SIGNING_KEY']) {
-        return ['LOGTO_WEBHOOK_SIGNING_KEY'];
-      }
-      return [];
-    },
-    message:
-      'Logto webhook is recommended for syncing user data (email, avatar, etc.) to LobeChat. This is especially important for users migrating from NextAuth to Better Auth - users without email configured in Logto will not be able to login. Consider configuring LOGTO_WEBHOOK_SIGNING_KEY following the documentation.',
-    name: 'Logto Webhook',
-    severity: 'warning',
-  },
-  {
-    docUrl: `${MIGRATION_DOC_BASE}/nextauth-to-betterauth`,
-    formatVar: (envVar) => {
-      const mapping = {
-        AUTH_MICROSOFT_ENTRA_ID_BASE_URL: 'AUTH_MICROSOFT_AUTHORITY_URL',
-        AUTH_MICROSOFT_ENTRA_ID_ID: 'AUTH_MICROSOFT_ID',
-        AUTH_MICROSOFT_ENTRA_ID_SECRET: 'AUTH_MICROSOFT_SECRET',
-        AUTH_MICROSOFT_ENTRA_ID_TENANT_ID: 'AUTH_MICROSOFT_TENANT_ID',
-      };
-      return `${envVar} → ${mapping[envVar]}`;
-    },
-    getVars: () =>
-      [
-        'AUTH_MICROSOFT_ENTRA_ID_ID',
-        'AUTH_MICROSOFT_ENTRA_ID_SECRET',
-        'AUTH_MICROSOFT_ENTRA_ID_TENANT_ID',
-        'AUTH_MICROSOFT_ENTRA_ID_BASE_URL',
-      ].filter((key) => process.env[key]),
-    message:
-      'Microsoft Entra ID provider has been renamed to Microsoft. Please update your environment variables.',
-    name: 'Microsoft Entra ID',
   },
   {
     docUrl: MIGRATION_DOC_BASE,

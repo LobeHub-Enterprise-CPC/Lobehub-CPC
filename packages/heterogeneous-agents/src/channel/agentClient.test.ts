@@ -339,6 +339,28 @@ describe('Channel uses the standalone Agent runtime', () => {
     },
   );
 
+  it('journals receipt transitions, not every streamed text delta or tool event', async () => {
+    const h = handle([
+      event('stream_start', { sessionId: 'native-session' }),
+      ...Array.from({ length: 50 }, (_, index) =>
+        event('tool_start', { toolCallId: `tool-${index}` }),
+      ),
+      ...Array.from({ length: 500 }, () =>
+        event('stream_chunk', { chunkType: 'text', content: 'x' }),
+      ),
+    ]);
+    vi.mocked(spawnAgent).mockResolvedValue({ ...h, events: h.events() });
+    const snapshot = receipt();
+    const persist = vi.fn(async () => {});
+    await new ChannelAgentClient().run(input, snapshot, persist);
+    expect(persist.mock.calls.length).toBeLessThanOrEqual(4);
+    expect(snapshot).toMatchObject({
+      acceptance: 'accepted',
+      content: 'x'.repeat(500),
+      toolCalls: 50,
+    });
+  });
+
   it('does not publish an error turn even if the native process exits zero', async () => {
     const h = handle([
       event('stream_chunk', { chunkType: 'text', content: 'unfinished' }),

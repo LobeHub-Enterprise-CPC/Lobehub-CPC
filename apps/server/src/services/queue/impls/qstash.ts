@@ -1,21 +1,12 @@
-import { createHash } from 'node:crypto';
-
 import debug from 'debug';
 
 import { OtelQstashClient } from '@/libs/qstash';
+import { toQStashDeduplicationId } from '@/libs/qstash/deduplicationId';
 
 import { type HealthCheckResult, type QueueMessage, type QueueStats } from '../types';
 import { type QueueServiceImpl } from './type';
 
 const log = debug('lobe-server:service:queue:qstash');
-
-/**
- * Keep the logical execution key intact in durable state and local queues, but
- * encode it at the provider boundary. QStash rejects characters such as `:`;
- * a SHA-256 hex digest is deterministic, alphanumeric, and exactly 64 chars.
- */
-const toQStashDeduplicationId = (logicalId: string): string =>
-  createHash('sha256').update(logicalId).digest('hex');
 
 /**
  * QStash's `delay` option is second-granularity — the `Duration` string form
@@ -114,6 +105,7 @@ export class QStashQueueServiceImpl implements QueueServiceImpl {
       const qstashDelay = toQStashDelaySeconds(delay);
       const request = {
         body: {
+          execution: message.execution,
           context,
           operationId,
           payload,

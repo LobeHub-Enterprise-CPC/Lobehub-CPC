@@ -1,3 +1,4 @@
+import { currentTenantScope } from '@lobechat/database/tenant';
 import { createEnv } from '@t3-oss/env-nextjs';
 import debug from 'debug';
 import { z } from 'zod';
@@ -50,7 +51,7 @@ export const getMessengerConfig = () => {
 
 export const messengerEnv = getMessengerConfig();
 
-export type MessengerPlatform = 'telegram' | 'slack' | 'discord' | 'wechat';
+export type MessengerPlatform = 'telegram' | 'slack' | 'discord' | 'wechat' | 'linq';
 
 export interface MessengerTelegramConfig {
   botToken: string;
@@ -86,6 +87,32 @@ export interface MessengerWechatConfig {
   enabled: true;
 }
 
+/**
+ * Linq (iMessage / SMS) — a pool of LobeHub-owned numbers shared by every
+ * user. No number belongs to a user or an agent: inbound routes by the
+ * sender's handle, and a person links their phone by texting a one-time code
+ * to any pool number.
+ */
+export interface MessengerLinqConfig {
+  /** REST base override; defaults to the Linq package's `https://api.linqapp.com/v3`. */
+  apiBaseUrl?: string;
+  apiKey: string;
+  /** Shared pool numbers in E.164. Never empty. */
+  numbers: string[];
+  /** Standard Webhooks signing secret (`whsec_…`) of the account-level webhook. */
+  webhookSecret: string;
+}
+
+/** Accept the pool as a JSON array or a comma / whitespace separated string. */
+export const parseLinqNumberPool = (raw: unknown): string[] => {
+  const values = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(/[\s,]+/) : [];
+  const numbers = values
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.trim())
+    .filter((value) => /^\+\d{8,15}$/.test(value));
+  return [...new Set(numbers)];
+};
+
 // ---------------------------------------------------------------------------
 // In-process cache.
 //
@@ -102,17 +129,33 @@ interface CacheEntry<T> {
   value: T | null;
 }
 
-const platformCache = new Map<MessengerPlatform, CacheEntry<unknown>>();
+// Keyed by tenant first: the value is read from the tenant's own database and
+// decrypted with its credentials, so it must never be served to another tenant.
+const platformCache = new Map<string, Map<MessengerPlatform, CacheEntry<unknown>>>();
 
-/** Drop the cached config for a platform (or all). Called by mutations after
- *  the dc-center admin saves new credentials. Best-effort: cross-process
- *  invalidation is not guaranteed (Vercel functions don't share memory), so
- *  the 30s TTL is the real backstop. */
-export const invalidateMessengerConfigCache = (platform?: MessengerPlatform): void => {
+/** Drop the cached config of one tenant (default: the current tenant) for a
+ *  platform (or all). Without a tenant (none passed, none in scope) every
+ *  tenant's entries are dropped. Called by mutations after the dc-center admin
+ *  saves new credentials. Best-effort: cross-process invalidation is not
+ *  guaranteed (Vercel functions don't share memory), so the 30s TTL is the
+ *  real backstop. */
+export const invalidateMessengerConfigCache = (
+  platform?: MessengerPlatform,
+  tenantId: string | undefined = currentTenantScope()?.tenantId,
+): void => {
+  if (!tenantId) {
+    if (platform) {
+      for (const entries of platformCache.values()) entries.delete(platform);
+    } else {
+      platformCache.clear();
+    }
+    return;
+  }
+
   if (platform) {
-    platformCache.delete(platform);
+    platformCache.get(tenantId)?.delete(platform);
   } else {
-    platformCache.clear();
+    platformCache.delete(tenantId);
   }
 };
 
@@ -120,7 +163,12 @@ const fetchAndCache = async <T>(
   platform: MessengerPlatform,
   decode: (decrypted: DecryptedSystemBotProvider) => T | null,
 ): Promise<T | null> => {
-  const cached = platformCache.get(platform) as CacheEntry<T> | undefined;
+  // Without a tenant scope the lookup fails closed (TENANT_REQUIRED → null);
+  // such a result has no owner to cache it under.
+  const tenantId = currentTenantScope()?.tenantId;
+  const cached = tenantId
+    ? (platformCache.get(tenantId)?.get(platform) as CacheEntry<T> | undefined)
+    : undefined;
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
   let value: T | null = null;
@@ -133,7 +181,14 @@ const fetchAndCache = async <T>(
     log('fetchAndCache: lookup failed for platform=%s: %O', platform, error);
   }
 
-  platformCache.set(platform, { expiresAt: Date.now() + CACHE_TTL_MS, value });
+  if (tenantId) {
+    let entries = platformCache.get(tenantId);
+    if (!entries) {
+      entries = new Map();
+      platformCache.set(tenantId, entries);
+    }
+    entries.set(platform, { expiresAt: Date.now() + CACHE_TTL_MS, value });
+  }
   return value;
 };
 
@@ -201,6 +256,28 @@ export const getMessengerWechatConfig = async (): Promise<MessengerWechatConfig 
   return fetchAndCache<MessengerWechatConfig>('wechat', () => ({ enabled: true }));
 };
 
+export const getMessengerLinqConfig = async (): Promise<MessengerLinqConfig | null> => {
+  // Link codes and webhook replay claims live in Redis; without it a person
+  // could never complete a link, so the platform is not advertised.
+  if (!redisEnv.REDIS_URL || process.env.DISABLE_REDIS) return null;
+
+  return fetchAndCache<MessengerLinqConfig>('linq', (row) => {
+    const c = row.credentials as Partial<
+      Record<'apiBaseUrl' | 'apiKey' | 'webhookSecret', string>
+    > & {
+      numbers?: unknown;
+    };
+    const numbers = parseLinqNumberPool(c.numbers);
+    if (!c.apiKey || !c.webhookSecret || numbers.length === 0) return null;
+    return {
+      apiBaseUrl: c.apiBaseUrl || undefined,
+      apiKey: c.apiKey,
+      numbers,
+      webhookSecret: c.webhookSecret,
+    };
+  });
+};
+
 export const isMessengerPlatformEnabled = async (platform: MessengerPlatform): Promise<boolean> => {
   switch (platform) {
     case 'telegram': {
@@ -215,6 +292,9 @@ export const isMessengerPlatformEnabled = async (platform: MessengerPlatform): P
     case 'wechat': {
       return !!(await getMessengerWechatConfig());
     }
+    case 'linq': {
+      return !!(await getMessengerLinqConfig());
+    }
     default: {
       return false;
     }
@@ -222,7 +302,7 @@ export const isMessengerPlatformEnabled = async (platform: MessengerPlatform): P
 };
 
 export const getEnabledMessengerPlatforms = async (): Promise<MessengerPlatform[]> => {
-  const platforms = ['telegram', 'slack', 'discord', 'wechat'] as const;
+  const platforms = ['telegram', 'slack', 'discord', 'wechat', 'linq'] as const;
   const checks = await Promise.all(
     platforms.map(async (p) => ((await isMessengerPlatformEnabled(p)) ? p : null)),
   );

@@ -18,6 +18,7 @@ import { expect } from '@playwright/test';
 
 import { llmMockManager, presetResponses } from '../../mocks/llm';
 import { classifyScrollTrace, startScrollTrace, stopScrollTrace } from '../../probes/scrollTrace';
+import { tenantPath } from '../../support/tenant';
 import type { CustomWorld } from '../../support/world';
 
 // How close to the scroll container's bottom is considered "at bottom".
@@ -216,7 +217,7 @@ After({ tags: '@scroll' }, async function (this: CustomWorld) {
 });
 
 async function setAutoScrollEnabled(world: CustomWorld, desired: boolean): Promise<void> {
-  await world.page.goto('/settings/chat-appearance');
+  await world.page.goto(tenantPath('/settings/chat-appearance'));
   // The first local dev compile can take a while, so keep an explicit timeout.
   // (Next.js builds the settings route on demand); a generous timeout avoids
   // flakes when the test suite warms up a cold server.

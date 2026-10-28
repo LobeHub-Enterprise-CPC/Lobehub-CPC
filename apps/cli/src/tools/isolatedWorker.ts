@@ -18,7 +18,9 @@ export async function executeToolCallInWorker(
   apiName: string,
   argsStr: string,
   timeout?: number,
+  executionSignal?: AbortSignal,
 ): Promise<ToolCallResult> {
+  executionSignal?.throwIfAborted();
   const entrypoint = process.argv[1];
   if (!entrypoint) {
     return {
@@ -59,11 +61,17 @@ export async function executeToolCallInWorker(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      executionSignal?.removeEventListener('abort', abort);
       resolve(result);
     };
 
     const summarizeOutput = () => stderr.trim() || stdout.trim() || 'No Output';
 
+    const abort = () => {
+      child.kill('SIGKILL');
+      finish({ content: '', error: 'GATEWAY_EXECUTION_STALE', success: false });
+    };
+    executionSignal?.addEventListener('abort', abort, { once: true });
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
       finish({

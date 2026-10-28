@@ -1,6 +1,13 @@
+import { BRANDING_NAME } from '@lobechat/const';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createWorkbenchI18n } from './createWorkbenchI18n';
+
+// Keep the white-label contract independent of the checkout's business override.
+vi.mock('@lobechat/const', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  BRANDING_NAME: 'Acme Workspace',
+}));
 
 vi.mock('@/utils/i18n/loadI18nNamespaceModule', () => ({
   loadI18nNamespaceModule: async ({ lng }: { lng: string }) => ({
@@ -74,5 +81,19 @@ describe('workbench live locale changes', () => {
 
     expect(i18n.instance.language).toBe('ja-JP');
     expect(i18n.instance.t('acceptance.tabs.checks')).toBe('チェックリスト');
+  });
+});
+
+// The workbench SPA owns its i18next instance and has no branding layer above the
+// translations, so the brand post-processor has to be registered here — the
+// `verify` namespace names the product inline ("Install LobeHub CLI").
+describe('workbench branding', () => {
+  it('rewrites upstream brand literals in translated copy', async () => {
+    const i18n = createWorkbenchI18n('en-US', { verify: { sample: 'Install the LobeHub CLI' } });
+    await i18n.init({ initAsync: false });
+
+    const value = i18n.instance.t('sample');
+    expect(value).not.toContain('LobeHub');
+    expect(value).toContain(BRANDING_NAME);
   });
 });

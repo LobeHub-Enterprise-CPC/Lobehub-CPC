@@ -17,7 +17,7 @@ interface ListModelsParams extends ListHeterogeneousAgentModelsParams {
 class HeterogeneousAgentCatalogService {
   listModels({ deviceId, ...params }: ListModelsParams): Promise<HeterogeneousAgentModelCatalog> {
     return deviceId
-      ? lambdaClient.device.listHeterogeneousAgentModels.query({ deviceId, ...params })
+      ? lambdaClient.device.listHeterogeneousAgentModels.mutate({ deviceId, ...params })
       : electronHeterogeneousAgentService.listModels(params);
   }
 }

@@ -23,12 +23,16 @@ import { UserModel } from '@/database/models/user';
 import { UserPersonaModel } from '@/database/models/userMemory/persona';
 import { WorkspaceModel } from '@/database/models/workspace';
 import { appEnv } from '@/envs/app';
+import { isTenantMarketMode } from '@/libs/trusted-client/config';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { loadConnectedComposioIds } from '@/server/modules/AgentRuntime/adapters/composioConnectedIds';
 import type { RuntimeContextBuilderContext } from '@/server/modules/AgentRuntime/context';
 import { buildPostProcessUrl, log } from '@/server/modules/AgentRuntime/executorHelpers';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 import { AgentDocumentsService } from '@/server/services/agentDocuments';
 import { MarketService } from '@/server/services/market';
 import { OnboardingService } from '@/server/services/onboarding';
+import { resolveSandboxSessionConfig } from '@/server/services/sandbox';
 import { toAgentContextDocuments } from '@/utils/agentDocumentContextMapping';
 
 export interface ServerContextFactSource {
@@ -45,13 +49,7 @@ export const resolveServerConnectorFeatures = (): ContextFactRequest['features']
 const toIsoString = (value: Date | string | null | undefined): string =>
   value instanceof Date ? value.toISOString() : (value ?? '');
 
-const getAppUrl = (): string | undefined => {
-  try {
-    return appEnv.APP_URL;
-  } catch {
-    return process.env.APP_URL;
-  }
-};
+const getAppUrl = (): string => tenantPublicBaseUrl();
 
 /**
  * How the server fetches the facts the shared context rules ask for. Every
@@ -218,6 +216,12 @@ export const createServerContextFactProviders = ({
       const frozen = state.operationCredentials;
       if (frozen && frozen.workspaceId === scopeWorkspaceId) return frozen.credentials;
 
+      // A tenant has no workspace organization (acting-as-organization is
+      // closed, R13): inside a workspace there are no shared credentials, and
+      // the personal ones are not shown there either. An empty list, not a
+      // failed run.
+      if (scopeWorkspaceId && isTenantMarketMode()) return [];
+
       // Read market accessToken from DB so the server-side runtime can
       // authenticate with the Market API instead of falling back to an
       // anonymous trustedClientToken (which 401s on creds endpoints).
@@ -230,7 +234,7 @@ export const createServerContextFactProviders = ({
       }
       const marketService = new MarketService({
         accessToken: marketAccessToken,
-        userInfo: { userId },
+        userInfo: await resolveMarketServiceIdentity({ serverDB: db, userId }),
       });
       // Inside a workspace, the agent must only see the workspace's shared
       // organization credentials — personal creds are not visible there.
@@ -330,6 +334,28 @@ export const createServerContextFactProviders = ({
 
     listSandboxFiles: async (topicId) =>
       new FileModel(db, userId).findFilesToInitInSandbox(topicId),
+
+    // Resolved from the same inputs the cloud-sandbox runtime uses, so the model
+    // is never told its files persist while its tools write to a directory that
+    // does not — or the reverse. Keyed on `ctx.workspaceId` for the same reason
+    // the runtime is: that is the workspace the trust token carries, and the
+    // entitlement has to agree with the token that presents it.
+    resolveSandboxPersistence: async () => {
+      const { mode, cwd, claim, workingDir } = await resolveSandboxSessionConfig({
+        isShareVisitorRun: Boolean(ctx.agentShareVisitor),
+        serverDB: db,
+        topicId: ctx.topicId ?? state.origin?.topicId,
+        userId,
+        // The run's workspace, the same one every other fact here is scoped to.
+        // Reading the raw context instead looked the topic up in the personal
+        // scope on any path that does not carry the id, found nothing, and
+        // described a disposable sandbox to a run that had a persistent one —
+        // so the model was told its files would not survive and worked in /tmp.
+        workspaceId,
+      });
+
+      return claim ? { cwd, mode, workingDir } : undefined;
+    },
 
     listTopicMessages: async (topic) => {
       const messages = await new MessageModel(db, userId, ctx.workspaceId).query(

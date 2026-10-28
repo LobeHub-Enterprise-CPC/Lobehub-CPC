@@ -1,10 +1,14 @@
 import { defaultUninstalledBuiltinTools } from '@lobechat/builtin-tools';
-import { describe, expect, it, vi } from 'vitest';
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 
 import { createServerContextFactProviders } from './index';
 
 const {
   agentDocumentsConstructor,
+  appEnv,
   credsList,
   findById,
   getAgentContextDocuments,
@@ -12,8 +16,14 @@ const {
   getUserSettings,
   loadConnectedComposioIds,
   pluginQuery,
+  userFindById,
 } = vi.hoisted(() => ({
   agentDocumentsConstructor: vi.fn(),
+  appEnv: {
+    APP_URL: 'https://app.test',
+    MARKET_TRUSTED_CLIENT_ID: undefined as string | undefined,
+    MARKET_TRUSTED_CLIENT_SECRET: undefined as string | undefined,
+  },
   credsList: vi.fn(),
   findById: vi.fn(),
   getAgentContextDocuments: vi.fn(),
@@ -21,6 +31,15 @@ const {
   getUserSettings: vi.fn(),
   loadConnectedComposioIds: vi.fn(),
   pluginQuery: vi.fn(),
+  userFindById: vi.fn(),
+}));
+
+const mockResolveSandboxSessionConfig = vi.hoisted(() =>
+  vi.fn(async () => ({ claim: null, mode: 'ephemeral' as const })),
+);
+
+vi.mock('@/server/services/sandbox', () => ({
+  resolveSandboxSessionConfig: mockResolveSandboxSessionConfig,
 }));
 
 vi.mock('@/database/models/user', () => ({
@@ -28,7 +47,7 @@ vi.mock('@/database/models/user', () => ({
     class {
       getUserSettings = getUserSettings;
     },
-    { getInfoForAIGeneration },
+    { findById: userFindById, getInfoForAIGeneration },
   ),
 }));
 vi.mock('@/database/models/plugin', () => ({
@@ -54,7 +73,7 @@ vi.mock('@/server/services/agentDocuments', () => ({
     getDocumentByFilename = vi.fn();
   },
 }));
-vi.mock('@/envs/app', () => ({ appEnv: { APP_URL: 'https://app.test' } }));
+vi.mock('@/envs/app', () => ({ appEnv }));
 vi.mock('@/server/services/market', () => ({
   MarketService: class {
     market = {
@@ -103,6 +122,60 @@ describe('createServerContextFactProviders', () => {
 
       await expect(providers.listCredentials!({ workspaceId: 'ws-1' })).resolves.toEqual([]);
       expect(credsList).toHaveBeenCalled();
+    });
+
+    // R13: a tenant has no workspace organization. "No credentials" is the
+    // answer: not the personal list, and not a failed run.
+    describe('in a tenant', () => {
+      const inTenant = <T>(fn: () => T) =>
+        runWithTenantScope(
+          { session: {}, slug: 'acme', tenantId: 'tenant-a' } as unknown as TenantScope,
+          fn,
+        );
+
+      it('answers an empty list for a workspace context, without asking Market', async () => {
+        credsList.mockResolvedValue({ data: [{ key: 'PERSONAL', name: 'P', type: 'apiKey' }] });
+        const providers = createServerContextFactProviders(source());
+
+        await expect(
+          inTenant(() => providers.listCredentials!({ workspaceId: 'ws-1' })),
+        ).resolves.toEqual([]);
+        expect(credsList).not.toHaveBeenCalled();
+      });
+
+      describe('with a trusted client configured', () => {
+        beforeEach(() => {
+          appEnv.MARKET_TRUSTED_CLIENT_ID = 'client-id';
+          appEnv.MARKET_TRUSTED_CLIENT_SECRET = 'client-secret';
+          userFindById.mockResolvedValue({ email: 'owner@example.com', fullName: 'Owner' });
+        });
+
+        afterEach(() => {
+          appEnv.MARKET_TRUSTED_CLIENT_ID = undefined;
+          appEnv.MARKET_TRUSTED_CLIENT_SECRET = undefined;
+        });
+
+        it('still reads the personal list when there is no workspace', async () => {
+          credsList.mockResolvedValue({ data: [{ key: 'MINE', name: 'Mine', type: 'apiKey' }] });
+          const providers = createServerContextFactProviders(source());
+
+          await expect(
+            inTenant(() => providers.listCredentials!({ workspaceId: undefined })),
+          ).resolves.toEqual([expect.objectContaining({ key: 'MINE' })]);
+        });
+      });
+
+      // A tenant request that cannot be signed fails; it is neither an empty
+      // list nor a read that reaches Market without the user's identity.
+      it('rejects, without asking Market, when no trusted client is configured', async () => {
+        credsList.mockResolvedValue({ data: [{ key: 'MINE', name: 'Mine', type: 'apiKey' }] });
+        const providers = createServerContextFactProviders(source());
+
+        await expect(
+          inTenant(() => providers.listCredentials!({ workspaceId: undefined })),
+        ).rejects.toMatchObject({ code: 'TRUST_NOT_CONFIGURED' });
+        expect(credsList).not.toHaveBeenCalled();
+      });
     });
   });
 
@@ -206,15 +279,15 @@ describe('createServerContextFactProviders', () => {
     const providers = createServerContextFactProviders(source());
 
     await expect(providers.getWorkspaceContext!(undefined)).resolves.toEqual({
-      appUrl: 'https://app.test',
+      appUrl: tenantPublicBaseUrl(),
     });
     await expect(providers.getWorkspaceContext!('ws-1')).resolves.toEqual({
-      appUrl: 'https://app.test',
+      appUrl: tenantPublicBaseUrl(),
       slug: 'team',
     });
     findById.mockResolvedValue({ slug: null });
     await expect(providers.getWorkspaceContext!('ws-1')).resolves.toEqual({
-      appUrl: 'https://app.test',
+      appUrl: tenantPublicBaseUrl(),
       slug: undefined,
     });
   });
@@ -249,5 +322,34 @@ describe('createServerContextFactProviders', () => {
         visitorUserId: 'visitor-1',
       },
     );
+  });
+
+  describe('resolveSandboxPersistence', () => {
+    // Regression: this provider read the raw context id while every other fact
+    // here is scoped to the run's workspace. On the paths that do not carry it,
+    // the topic was looked up in the personal scope and came back missing, so a
+    // run with a persistent instance was described to the model as disposable —
+    // and the model, told its files would not survive, worked in /tmp.
+    it('scopes the lookup to the run workspace, not the raw context', async () => {
+      mockResolveSandboxSessionConfig.mockResolvedValueOnce({
+        claim: { key: 'ws-org-ws-from-origin', quotaBytes: 1024 },
+        cwd: 'lobehub-dev',
+        mode: 'persistent',
+      } as never);
+
+      const providers = createServerContextFactProviders({
+        ctx: { serverDB: {}, topicId: 'tpc_1', userId: 'owner-1' } as never,
+        state: { origin: { workspaceId: 'ws-from-origin' } } as never,
+      });
+
+      await expect(providers.resolveSandboxPersistence!()).resolves.toEqual({
+        cwd: 'lobehub-dev',
+        mode: 'persistent',
+        workingDir: undefined,
+      });
+      expect(mockResolveSandboxSessionConfig).toHaveBeenLastCalledWith(
+        expect.objectContaining({ topicId: 'tpc_1', workspaceId: 'ws-from-origin' }),
+      );
+    });
   });
 });

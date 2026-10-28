@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { businessBody, transport } from './__tests__/httpFixtures';
 import { GatewayHttpClient } from './http';
+
+const headers = { 'X-LobeHub-Gateway-Tenancy': '1', 'X-LobeHub-Tenant-Id': 'tenant-test' };
 
 describe('GatewayHttpClient', () => {
   let client: GatewayHttpClient;
 
   beforeEach(() => {
     client = new GatewayHttpClient({
+      ...transport,
       gatewayUrl: 'https://gateway.test.com',
       serviceToken: 'test-service-token',
     });
@@ -32,7 +36,31 @@ describe('GatewayHttpClient', () => {
     if ('text' in response && typeof response.text === 'function') {
       res.text = response.text;
     }
-    vi.mocked(fetch).mockResolvedValue(res as any);
+    vi.mocked(fetch).mockImplementation(async (_url, options) => {
+      const body = JSON.parse((options?.body as string) || '{}');
+      if (!res.ok) return { ...res, headers: new Headers(headers) } as Response;
+      const payload = response.json ? await response.json() : {};
+      const value =
+        res.ok && body.intent
+          ? {
+              tenantId: 'tenant-test',
+              sourceAcceptedVersion: 7,
+              attemptId: body.intent.attemptId,
+              ...(body.intent.operationId ? { operationId: body.intent.operationId } : {}),
+              dispatchBinding: {
+                connectionId: 'actual-socket',
+                connectionGeneration: 1,
+                authorizationId: 'auth-test',
+              },
+              outcome: 'completed',
+              result: payload,
+            }
+          : payload;
+      return new Response(res.ok ? JSON.stringify(value) : await res.text(), {
+        status: res.status,
+        headers,
+      });
+    });
     return res;
   }
 
@@ -47,14 +75,13 @@ describe('GatewayHttpClient', () => {
 
       expect(result).toEqual({ deviceCount: 2, online: true });
       expect(fetch).toHaveBeenCalledWith(
-        'https://gateway.test.com/api/device/status',
+        'https://gateway.test.com/tenant/v1/api/device/status?userId=user-1',
         expect.objectContaining({
-          body: JSON.stringify({ userId: 'user-1' }),
-          headers: {
+          headers: expect.objectContaining({
             'Authorization': 'Bearer test-service-token',
             'Content-Type': 'application/json',
-          },
-          method: 'POST',
+          }),
+          method: 'GET',
         }),
       );
     });
@@ -109,8 +136,7 @@ describe('GatewayHttpClient', () => {
 
       await client.queryDeviceList('user-1');
 
-      // `post` applies no deadline unless asked, so an unanswered read would
-      // otherwise hang for as long as the socket stays open.
+      // Every device read must keep its request deadline.
       expect(vi.mocked(fetch).mock.calls[0][1]).toMatchObject({ signal: expect.anything() });
     });
 
@@ -468,9 +494,9 @@ describe('GatewayHttpClient', () => {
         { apiName: 'readFile', arguments: '{}', identifier: 'test' },
       );
 
-      expect(timeoutSpy).toHaveBeenCalledWith(35_000);
+      expect(timeoutSpy).toHaveBeenCalledWith(65_000);
       expect(fetch).toHaveBeenCalledWith(
-        'https://gateway.test.com/api/device/tool-call',
+        'https://gateway.test.com/tenant/v1/api/device/tool-call',
         expect.objectContaining({
           body: expect.stringContaining('"deviceId":"device-1"'),
           signal,
@@ -480,6 +506,40 @@ describe('GatewayHttpClient', () => {
       const init = vi.mocked(fetch).mock.calls[0][1];
       const body = JSON.parse((init as RequestInit).body as string);
       expect(body.toolCall.type).toBe('tool');
+    });
+
+    it("waits out the gateway's reconnect window so an offline device reads as offline", async () => {
+      // The gateway holds an undelivered call for `timeout + 45s` before it
+      // answers 503 DEVICE_OFFLINE. Aborting earlier turned every offline
+      // device into "timed out, the work may still be running".
+      const GATEWAY_RECOVERY_WINDOW_MS = 45_000;
+      mockFetch({
+        json: vi.fn().mockResolvedValue({ content: 'ok', success: true }),
+        ok: true,
+      });
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(AbortSignal.abort());
+
+      await client.executeToolCall(
+        { deviceId: 'device-1', timeout: 10_000, userId: 'user-1' },
+        { apiName: 'runCommand', arguments: '{}', identifier: 'test' },
+      );
+
+      expect(timeoutSpy.mock.calls[0][0]).toBeGreaterThan(10_000 + GATEWAY_RECOVERY_WINDOW_MS);
+    });
+
+    it('never pads a call past the agent function window', async () => {
+      mockFetch({
+        json: vi.fn().mockResolvedValue({ content: 'ok', success: true }),
+        ok: true,
+      });
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(AbortSignal.abort());
+
+      await client.executeToolCall(
+        { deviceId: 'device-1', timeout: 760_000, userId: 'user-1' },
+        { apiName: 'runCommand', arguments: '{}', identifier: 'test' },
+      );
+
+      expect(timeoutSpy).toHaveBeenCalledWith(800_000);
     });
 
     it('should pass optional operationId', async () => {
@@ -511,9 +571,9 @@ describe('GatewayHttpClient', () => {
         { apiName: 'readFile', arguments: '{}', identifier: 'test' },
       );
 
-      expect(timeoutSpy).toHaveBeenCalledWith(60_000);
+      expect(timeoutSpy).toHaveBeenCalledWith(90_000);
       expect(fetch).toHaveBeenCalledWith(
-        'https://gateway.test.com/api/device/tool-call',
+        'https://gateway.test.com/tenant/v1/api/device/tool-call',
         expect.objectContaining({ signal }),
       );
     });
@@ -538,30 +598,11 @@ describe('GatewayHttpClient', () => {
 
       expect(result).toEqual({ success: true });
       expect(fetch).toHaveBeenCalledWith(
-        'https://gateway.test.com/api/device/agent/run',
+        'https://gateway.test.com/tenant/v1/api/device/agent/run',
         expect.objectContaining({
           body: expect.stringContaining('"assistantMessageId":"asst-1"'),
         }),
       );
-    });
-
-    it('should preserve backward compatibility when accepted response has no JSON body', async () => {
-      mockFetch({
-        json: vi.fn().mockRejectedValue(new Error('empty body')),
-        ok: true,
-      });
-
-      const result = await client.dispatchAgentRun({
-        agentType: 'claude-code',
-        assistantMessageId: 'asst-1',
-        jwt: 'jwt',
-        operationId: 'op-1',
-        prompt: 'run',
-        topicId: 'tpc-1',
-        userId: 'user-1',
-      });
-
-      expect(result).toEqual({ success: true });
     });
 
     it('should surface rejected agent-run acks returned with HTTP 200', async () => {
@@ -691,7 +732,7 @@ describe('GatewayHttpClient', () => {
       // Rides the same endpoint as executeToolCall; the device routes on the
       // explicit `toolCall.type` discriminator, not on the shape of the payload.
       const [url, init] = vi.mocked(fetch).mock.calls[0];
-      expect(url).toBe('https://gateway.test.com/api/device/tool-call');
+      expect(url).toBe('https://gateway.test.com/tenant/v1/api/device/tool-call');
       const body = JSON.parse((init as RequestInit).body as string);
       expect(body.toolCall.type).toBe('mcp');
       expect(body.toolCall.identifier).toBe('kimi-datasource');
@@ -737,9 +778,9 @@ describe('GatewayHttpClient', () => {
 
       expect(result).toEqual({ content: '{"guid":"sent-1"}', error: undefined, success: true });
       expect(fetch).toHaveBeenCalledWith(
-        'https://gateway.test.com/api/device/message-api',
+        'https://gateway.test.com/tenant/v1/api/device/message-api',
         expect.objectContaining({
-          body: JSON.stringify({
+          body: businessBody({
             api: { apiName: 'sendText', payload: { chatGuid: 'chat-1' }, platform: 'imessage' },
             userId: 'user-1',
           }),
@@ -792,7 +833,7 @@ describe('GatewayHttpClient', () => {
       );
 
       expect(fetch).toHaveBeenCalledWith(
-        'https://gateway.test.com/api/device/message-api',
+        'https://gateway.test.com/tenant/v1/api/device/message-api',
         expect.objectContaining({
           body: expect.stringContaining('"deviceId":"device-1"'),
         }),
@@ -832,6 +873,17 @@ describe('GatewayHttpClient', () => {
       expect(result).toEqual({ success: false });
     });
 
+    it('keeps the gateway reason on a non-ok response', async () => {
+      mockFetch({
+        json: vi.fn().mockResolvedValue({ error: 'TIMEOUT', success: false }),
+        ok: false,
+      });
+
+      const result = await client.getDeviceSystemInfo('user-1', 'device-1');
+
+      expect(result).toEqual({ error: 'TIMEOUT', success: false });
+    });
+
     it('bounds the read with a timeout', async () => {
       mockFetch({ json: vi.fn().mockResolvedValue({ success: true, systemInfo: {} }), ok: true });
 
@@ -869,8 +921,8 @@ describe('GatewayHttpClient', () => {
 
       expect(result).toEqual({ data, error: undefined, success: true });
       const [url, init] = vi.mocked(fetch).mock.calls[0];
-      expect(url).toBe('https://gateway.test.com/api/device/rpc');
-      expect(JSON.parse((init as any).body)).toEqual({
+      expect(url).toBe('https://gateway.test.com/tenant/v1/api/device/rpc');
+      expect(JSON.parse((init as any).body)).toMatchObject({
         deviceId: 'device-1',
         method: 'initWorkspace',
         params: { scope: '/proj' },
@@ -913,89 +965,6 @@ describe('GatewayHttpClient', () => {
       );
 
       expect(result.success).toBe(false);
-    });
-  });
-
-  describe('tunnel registry', () => {
-    it('creates a tunnel and folds the hostname into the registration', async () => {
-      mockFetch({
-        json: vi.fn().mockResolvedValue({
-          hostname: '3000--abcdefgh.lobe.sh',
-          registration: {
-            createdAt: 1,
-            createdBy: 'user-1',
-            deviceId: 'device-1',
-            port: 3000,
-            principal: 'user:user-1',
-            slug: 'abcdefgh',
-          },
-        }),
-        ok: true,
-      });
-
-      const result = await client.createTunnel({
-        createdBy: 'user-1',
-        deviceId: 'device-1',
-        port: 3000,
-        principal: 'user:user-1',
-      });
-
-      expect(result).toMatchObject({ hostname: '3000--abcdefgh.lobe.sh', slug: 'abcdefgh' });
-      expect(fetch).toHaveBeenCalledWith(
-        'https://gateway.test.com/api/admin/tunnels',
-        expect.objectContaining({ method: 'POST' }),
-      );
-    });
-
-    it('surfaces a rejected creation instead of returning a broken link', async () => {
-      mockFetch({ ok: false, status: 400, text: vi.fn().mockResolvedValue('INVALID_PORT') });
-
-      await expect(
-        client.createTunnel({
-          createdBy: 'user-1',
-          deviceId: 'device-1',
-          port: 3000,
-          principal: 'user:user-1',
-        }),
-      ).rejects.toThrow('INVALID_PORT');
-    });
-
-    it('lists tunnels for one principal', async () => {
-      mockFetch({ json: vi.fn().mockResolvedValue({ tunnels: [{ slug: 'abcdefgh' }] }), ok: true });
-
-      const result = await client.listTunnels('workspace:ws-1');
-
-      expect(result).toEqual([{ slug: 'abcdefgh' }]);
-      expect(fetch).toHaveBeenCalledWith(
-        'https://gateway.test.com/api/admin/tunnels?principal=workspace%3Aws-1',
-        expect.objectContaining({
-          headers: { Authorization: 'Bearer test-service-token' },
-          method: 'GET',
-        }),
-      );
-    });
-
-    it('treats an unknown slug as absent, not as an error', async () => {
-      mockFetch({ ok: false, status: 404 });
-      expect(await client.resolveTunnel('zzzzzzzz')).toBeUndefined();
-
-      mockFetch({ ok: false, status: 404 });
-      expect(await client.revokeTunnel('zzzzzzzz')).toBe(false);
-    });
-
-    it('revokes a tunnel', async () => {
-      mockFetch({ json: vi.fn().mockResolvedValue({ success: true }), ok: true });
-
-      expect(await client.revokeTunnel('abcdefgh')).toBe(true);
-      expect(fetch).toHaveBeenCalledWith(
-        'https://gateway.test.com/api/admin/tunnels/abcdefgh',
-        expect.objectContaining({ method: 'DELETE' }),
-      );
-    });
-
-    it('raises a gateway failure rather than reporting an empty list', async () => {
-      mockFetch({ ok: false, status: 500 });
-      await expect(client.listTunnels('user:user-1')).rejects.toThrow('responded 500');
     });
   });
 });

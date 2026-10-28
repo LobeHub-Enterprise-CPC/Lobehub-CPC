@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { isWorkSkillProvider } from '@lobechat/types';
 
 import { type MCPToolCallResult } from '@/libs/mcp';
@@ -91,7 +92,7 @@ export const lobehubSkillExecutor: RemoteToolExecutor = async (p, context) => {
 
   if (!result.success) {
     return createFailedResult(
-      result.error || `LobeHub Skill tool ${provider} ${p.apiName} execution failed`,
+      result.error || `${BRANDING_NAME} Skill tool ${provider} ${p.apiName} execution failed`,
     );
   }
 

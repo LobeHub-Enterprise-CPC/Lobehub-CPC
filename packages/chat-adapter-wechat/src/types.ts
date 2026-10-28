@@ -5,6 +5,8 @@ export interface WechatAdapterConfig {
   botId?: string;
   /** Bot token obtained from iLink QR code authentication */
   botToken: string;
+  /** Transport for the iLink API host; servers inject an SSRF-safe one for a user-provided `baseUrl`. */
+  fetch?: typeof fetch;
   /** Called immediately before outbound `sendmessage` requests are attempted. */
   onBeforeSendMessage?: (event: WechatOutboundSendEvent) => Promise<void> | void;
 }

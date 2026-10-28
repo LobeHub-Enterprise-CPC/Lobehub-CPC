@@ -59,12 +59,12 @@ router/service -> createFtsSearchRepo -> FtsSearchRepo -> selected backend -> ex
 
 ## Changing a Searchable Entity
 
-### Scope for pg\_like
+### Scope for pg_like
 
 `pg_like` primarily serves individual users with small datasets. Review it for correct matching,
 permissions, and usable result ordering at that scale. For richer search quality or larger datasets,
 recommend self-hosted Elasticsearch or Elastic Cloud. Do not add indexes or change the database
-schema as part of pg\_like optimization. Keep repairs bounded; distinguish new implementation bugs
+schema as part of pg_like optimization. Keep repairs bounded; distinguish new implementation bugs
 from shared provider limitations and deliberate lightweight-search trade-offs. Do not infer a
 personal-user performance problem from large shared development datasets without representative
 measurements.
@@ -130,7 +130,8 @@ bun run scripts/pgSearchCleanup/index.ts --apply --yes
 
 ## Mapping Generations
 
-Docker startup runs `fts-search-elasticsearch-reindex.cjs --startup --yes` after PostgreSQL
+Docker startup runs `fts-search-elasticsearch-reindex-tenants.cjs --startup --yes` (the reindex once per tenant,
+each with its own `ES_INDEX_NAMESPACE`-plus-tenant-hash namespace and checkpoint directory) after PostgreSQL
 migrations when the selected provider is Elasticsearch. It blocks serving until index migration
 and catch-up succeed. Persist the same checkpoint volume across application and migration
 containers; failed namespace locks still require explicit recovery. Continuous sync remains a

@@ -1,8 +1,16 @@
 'use client';
 
-import { Flexbox, Icon, Image, Markdown } from '@lobehub/ui';
-import { Skeleton, Text } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar, cx } from 'antd-style';
+import {
+  createStaticStyles,
+  cssVar,
+  cx,
+  Flexbox,
+  Icon,
+  Image,
+  Markdown,
+  Skeleton,
+  Text,
+} from '@lobehub/ui';
 import {
   ChevronRight,
   CircleCheck,
@@ -11,10 +19,11 @@ import {
   FileText,
   Paperclip,
 } from 'lucide-react';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import AsyncError from '@/components/AsyncError';
+import { useEntityMarkdown } from '@/features/EntityLink';
 import { useChatStore } from '@/store/chat';
 
 import { SectionTitle } from './GoalResultFollowUps';
@@ -22,10 +31,10 @@ import type { CriterionOutcome, CriterionOutcomeState, EvidenceLike } from './go
 
 /**
  * 验收标准 × 结果 — each criterion the Goal was accepted against, next to what
- * the latest acceptance round found: met or not, one line of what the evidence
- * showed, and why when it was not. A row opens into its evidence — screenshots,
- * written evidence, the documents it cites — in place, without framing the
- * content in another card.
+ * the latest acceptance round found: met or not, and why when it was not. A row
+ * opens into its evidence — screenshots, written evidence, the documents it
+ * cites — in place, without framing the content in another card. The round's own
+ * write-up for a met criterion belongs to the acceptance, not to this summary.
  */
 
 const styles = createStaticStyles(({ css }) => ({
@@ -105,6 +114,7 @@ const IMAGE_TYPES = new Set(['screenshot', 'gif']);
 const EvidenceItem = ({ item }: { item: EvidenceLike }) => {
   const { t } = useTranslation('chat');
   const openDocument = useChatStore((s) => s.openDocument);
+  const markdownProps = useEntityMarkdown();
   const caption = item.description || item.fileName;
 
   if (IMAGE_TYPES.has(item.type) && item.fileUrl)
@@ -137,7 +147,7 @@ const EvidenceItem = ({ item }: { item: EvidenceLike }) => {
             {caption}
           </Text>
         )}
-        <Markdown fontSize={13} variant={'chat'}>
+        <Markdown fontSize={13} variant={'chat'} {...markdownProps}>
           {item.content}
         </Markdown>
       </Flexbox>
@@ -177,7 +187,7 @@ const EvidenceItem = ({ item }: { item: EvidenceLike }) => {
 const CriterionRow = ({ index, outcome }: { index: number; outcome: CriterionOutcome }) => {
   const { t } = useTranslation('chat');
   const [open, setOpen] = useState(false);
-  const { criterion, evidence, reason, state, summary } = outcome;
+  const { criterion, evidence, reason, state } = outcome;
   const openable = evidence.length > 0;
   const color = STATE_COLOR[state];
 
@@ -206,11 +216,6 @@ const CriterionRow = ({ index, outcome }: { index: number; outcome: CriterionOut
               {t(`goalProcess.result.criteria.state.${state}`)}
             </Text>
           </Flexbox>
-          {summary && (
-            <Text fontSize={13} style={{ wordBreak: 'break-word' }} type={'secondary'}>
-              {summary}
-            </Text>
-          )}
           {state === 'failed' && reason && (
             <Text className={styles.reason} fontSize={13} style={{ wordBreak: 'break-word' }}>
               {reason}
@@ -252,6 +257,8 @@ const CriterionRow = ({ index, outcome }: { index: number; outcome: CriterionOut
 };
 
 interface GoalCriteriaResultsProps {
+  /** The per-task acceptance group, rendered as this section's continuation. */
+  children?: ReactNode;
   /** The acceptance or criteria read failed: its outcomes are not a result. */
   error?: unknown;
   loading: boolean;
@@ -259,7 +266,13 @@ interface GoalCriteriaResultsProps {
   outcomes: CriterionOutcome[];
 }
 
-const GoalCriteriaResults = ({ error, loading, onRetry, outcomes }: GoalCriteriaResultsProps) => {
+const GoalCriteriaResults = ({
+  children,
+  error,
+  loading,
+  onRetry,
+  outcomes,
+}: GoalCriteriaResultsProps) => {
   const { t } = useTranslation('chat');
   const met = outcomes.filter((outcome) => outcome.state === 'passed').length;
 
@@ -296,6 +309,7 @@ const GoalCriteriaResults = ({ error, loading, onRetry, outcomes }: GoalCriteria
           ))}
         </Flexbox>
       )}
+      {children}
     </Flexbox>
   );
 };

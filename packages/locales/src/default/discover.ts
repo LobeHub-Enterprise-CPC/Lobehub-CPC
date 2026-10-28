@@ -115,6 +115,9 @@ export default {
   'category.plugin.tools': 'Utility Tools',
   'category.plugin.web-search': 'Web Search',
   'cleanFilter': 'Clear Filter',
+  'contentSync.detached': 'Detached from platform sync',
+  'contentSync.detachedDesc':
+    'This copy was changed independently, so it no longer receives updates from the platform original.',
   'create': 'Create',
   'createGuide.func1.desc1': 'In a conversation, open the Agent settings from the top-right menu.',
   'createGuide.func1.desc2': 'Then click Submit to Agent Community in the top-right corner.',
@@ -1126,6 +1129,8 @@ export default {
   'skills.sorts.stars': 'GitHub Stars',
 
   'skills.sorts.updatedAt': 'Recently Updated',
+
+  'toc.permalink': 'Permalink for this section',
 
   'tab.assistant': 'Agent',
 

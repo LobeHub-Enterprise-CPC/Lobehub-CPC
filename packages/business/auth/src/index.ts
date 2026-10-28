@@ -8,12 +8,10 @@ export const configureBusinessAuth = <T extends BetterAuthOptions>(options: T): 
  *
  * The slot exists because access policy is a property of the deployment, not of
  * the product: who may register, and on what evidence, is decided by whoever
- * runs the install. The built-in `emailWhitelist` covers the common case from
- * `AUTH_ALLOWED_EMAILS`, but an env var is a poor fit once the answer changes
- * during the deployment's life — every edit needs a config change and a
- * restart, and the whole list is rewritten to add one address. A distribution
- * that keeps its list in a database, a directory, or an upstream IdP has
- * nowhere to say so without this.
+ * runs the install. There is no deployment-wide allow list: an env var cannot
+ * differ per tenant, and every edit would need a config change and a restart.
+ * A distribution that keeps its list in a database, a directory, or an
+ * upstream IdP has nowhere to say so without this.
  *
  * Empty by default: the built-in plugins are the whole policy unless a
  * distribution adds to it.
@@ -21,6 +19,11 @@ export const configureBusinessAuth = <T extends BetterAuthOptions>(options: T): 
 export const businessAuthPlugins: BetterAuthPlugin[] = [];
 
 export const managedBusinessSSO = false;
+/** Optional distribution-owned signed login push receiver. */
+export const receiveBusinessBridgeResult = async (
+  _request: Request,
+  _providerId: string,
+): Promise<Response> => new Response(null, { status: 404 });
 export const getBusinessAuthOptions = async (
   _request: Request,
 ): Promise<BetterAuthOptions | null> => null;

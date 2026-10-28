@@ -1,8 +1,20 @@
 'use client';
 
-import { Flexbox, Icon, Tooltip, TooltipGroup } from '@lobehub/ui';
-import { ActionIcon, Avatar, Button, Tag, Text, toast } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar, useResponsive } from 'antd-style';
+import {
+  ActionIcon,
+  Avatar,
+  Button,
+  createStaticStyles,
+  cssVar,
+  Flexbox,
+  Icon,
+  Tag,
+  Text,
+  toast,
+  Tooltip,
+  TooltipGroup,
+  useResponsive,
+} from '@lobehub/ui';
 import { BookmarkCheckIcon, BookmarkIcon, DotIcon, GitBranchIcon, UsersIcon } from 'lucide-react';
 import qs from 'query-string';
 import { memo, useState } from 'react';
@@ -10,6 +22,7 @@ import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';
 
 import PublishedTime from '@/components/PublishedTime';
+import ContentSyncTag from '@/features/CommunityContentSyncTag';
 import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 import { useMarketAuth } from '@/layout/AuthProvider/MarketAuth';
 import { favoriteKeys } from '@/libs/swr/keys';
@@ -171,6 +184,7 @@ const Header = memo<{ mobile?: boolean }>(({ mobile: isMobile }) => {
             <Icon icon={DotIcon} />
             <PublishedTime className={styles.time} date={createdAt as string} />
             <GroupAgentForkTag />
+            <ContentSyncTag contentSync={data.contentSync} />
             {!!forkCount && forkCount > 0 && (
               <Tag color="default" icon={<Icon icon={GitBranchIcon} />}>
                 {forkCount} {t('fork.forks')}

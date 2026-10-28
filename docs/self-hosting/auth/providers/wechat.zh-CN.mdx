@@ -36,23 +36,27 @@ tags:
     回调域名格式：
 
     - **回调域名**: `your-domain.com`（不含协议和路径）
-    - **完整回调 URL**: `https://your-domain.com/api/auth/callback/wechat`
+    - **完整回调 URL**: `https://your-domain.com/t/<tenant>/api/auth/callback/wechat`
   </Callout>
 
   3. 记下 **AppID** 和 **AppSecret**
 
-  ### 配置环境变量
+  ### 在 Admin 中配置
 
-  | 环境变量                 | 类型 | 描述                                     |
-  | -------------------- | -- | -------------------------------------- |
-  | `AUTH_SECRET`        | 必选 | 会话加密密钥，使用 `openssl rand -base64 32` 生成 |
-  | `AUTH_SSO_PROVIDERS` | 必选 | 填写 `wechat`                            |
-  | `AUTH_WECHAT_ID`     | 必选 | 微信开放平台的 AppID                          |
-  | `AUTH_WECHAT_SECRET` | 必选 | 微信开放平台的 AppSecret                      |
+  SSO 由每个租户在 Admin 中配置，不再使用环境变量。在 Admin 中打开该租户的 SSO 提供商，新增一个提供商并填写：
 
-  <Callout type={'tip'}>
-    前往 [📘 环境变量](/zh/docs/self-hosting/environment-variables/auth#wechat)
-    可查阅相关变量详情。
+  | 字段            | 值                                              |
+  | ------------- | ---------------------------------------------- |
+  | 协议            | OIDC                                           |
+  | 提供商 ID        | 填 `wechat` 使用 wechat 预设；其他 ID 按普通 OIDC 处理      |
+  | Client ID     | 身份提供商的 Client ID                               |
+  | Client Secret | 身份提供商的 Client Secret；Admin 加密保存                |
+  | Issuer        | `https://open.weixin.qq.com`（Admin 要求填写，不用于发现） |
+
+  需要在身份提供商处登记的回调 URL 为 `https://your-domain.com/t/<租户>/api/auth/callback/<提供商 ID>`，Admin 会为每个提供商显示该地址。
+
+  <Callout type={'info'}>
+    Admin 没有微信的 OAuth 2.0 预设，所以以 OIDC 条目添加，提供商 ID 填 `wechat`；LobeHub 对这个 ID 使用内置的微信预设。
   </Callout>
 </Steps>
 

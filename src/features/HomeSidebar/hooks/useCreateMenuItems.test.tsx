@@ -1,7 +1,6 @@
 /**
  * @vitest-environment happy-dom
  */
-import { Menu } from '@lobehub/ui';
 import { act, render, renderHook, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -101,10 +100,7 @@ vi.mock('@/store/home', () => ({
 }));
 
 vi.mock('@/store/page', () => ({
-  usePageStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({
-      createNewPage: createNewPageMock,
-    }),
+  pageActions: { createNewPage: createNewPageMock },
 }));
 
 const isActionItem = (
@@ -165,9 +161,8 @@ describe('useCreateMenuItems', () => {
       'addAgentFromList',
     ]);
 
-    render(<Menu items={items} />);
-    expect(screen.queryByText('addAgentFromMarket')).toBeNull();
-    expect(screen.getByText('addAgentFromList')).toBeTruthy();
+    // No Market entry in a private deployment; the Agent list stays reachable.
+    expect(itemKeys).not.toContain('addAgentFromMarket');
 
     const listItem = items.find((item) => isActionItem(item) && item.key === 'addAgentFromList');
 

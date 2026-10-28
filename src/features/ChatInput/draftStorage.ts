@@ -1,3 +1,4 @@
+import { tenantStorageKey } from '@lobechat/business-tenant/client';
 import { useSyncExternalStore } from 'react';
 
 export const CHAT_INPUT_DRAFTS_STORAGE_KEY = 'lobechat:chat-input-drafts:v1';
@@ -22,7 +23,7 @@ const readAll = (): DraftMap => {
   if (typeof window === 'undefined') return {};
 
   try {
-    const raw = window.localStorage.getItem(CHAT_INPUT_DRAFTS_STORAGE_KEY);
+    const raw = window.localStorage.getItem(tenantStorageKey(CHAT_INPUT_DRAFTS_STORAGE_KEY));
     if (!raw) return {};
 
     const parsed = JSON.parse(raw);
@@ -42,7 +43,10 @@ const writeAll = (map: DraftMap): boolean => {
   if (typeof window === 'undefined') return false;
 
   try {
-    window.localStorage.setItem(CHAT_INPUT_DRAFTS_STORAGE_KEY, JSON.stringify(map));
+    window.localStorage.setItem(
+      tenantStorageKey(CHAT_INPUT_DRAFTS_STORAGE_KEY),
+      JSON.stringify(map),
+    );
     return true;
   } catch {
     return false;

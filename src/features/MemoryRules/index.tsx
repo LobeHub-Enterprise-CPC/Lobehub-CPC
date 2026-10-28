@@ -1,80 +1,125 @@
 'use client';
 
-import { Block, Empty, Flexbox, Icon, SortableList } from '@lobehub/ui';
-import { Button, Text, toast } from '@lobehub/ui/base-ui';
-import { cx } from 'antd-style';
-import { FlaskConicalIcon, PencilIcon, PlusIcon, ScaleIcon } from 'lucide-react';
+import { Block, Button, cx, Flexbox, Icon, SortableList, Text, toast } from '@lobehub/ui';
+import { ArrowDownIcon, ArrowUpIcon, FileSearchIcon, PencilIcon, PlusIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import AsyncBoundary from '@/components/AsyncBoundary';
 import Loading from '@/components/Loading/BrandTextLoading';
 import NavHeader from '@/features/NavHeader';
+import { SelfLearningLabOff, useSelfLearningSurface } from '@/features/SelfLearning/SurfaceGate';
 import WideScreenContainer from '@/features/WideScreenContainer';
-import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { expertiseService, type RuleItem, type UpdateRuleInput } from '@/services/expertise';
-import { useUserStore } from '@/store/user';
-import { labPreferSelectors } from '@/store/user/slices/preference/selectors/labPrefer';
 
 import { createComposeRuleModal } from './ComposeModal';
 import DetailPanel from './DetailPanel';
+import { createDistillModal } from './DistillModal';
 import { createGroupModal } from './GroupModal';
 import GroupSection from './GroupSection';
 import { useRules } from './hooks';
-import { findMove, mergedIntoId } from './labels';
+import {
+  findMove,
+  mergedIntoId,
+  nextRunsSort,
+  type RunsSort,
+  sectionsByOwner,
+  sortByRuns,
+} from './labels';
+import PartSwitcher from './PartSwitcher';
 import { buildRuleMenu } from './ruleMenu';
 import RuleRow from './RuleRow';
+import RulesOnboarding, { type RulesOnboardingAgents } from './RulesOnboarding';
 import { styles } from './styles';
-
-const LabOff = () => {
-  const { t } = useTranslation('memory');
-  const navigate = useWorkspaceAwareNavigate();
-  return (
-    <Flexbox align={'center'} flex={1} justify={'center'}>
-      <Empty
-        description={t('rules.labOff.description')}
-        icon={FlaskConicalIcon}
-        title={t('rules.labOff.title')}
-      >
-        <Button size={'small'} onClick={() => navigate('/settings/labs')}>
-          {t('rules.labOff.open')}
-        </Button>
-      </Empty>
-    </Flexbox>
-  );
-};
+import { useJudgeDirections } from './useJudgeDirections';
 
 /**
- * The reviewer's rules as one sheet: groups as full-width section rows, rules as draggable lines
- * under them, the archive at the foot, and the selected rule opened as a document on the right.
+ * Self-evolving, as one sheet per part: a switcher above it picks the reviewer's own rules (the
+ * default) or what one agent learned by itself. Within the part, groups are full-width section
+ * rows and lessons draggable lines under them; the archive sits at the foot and the selected one
+ * opens as a document on the right.
+ *
+ * Both parts are the same thing underneath — lessons in expertise domains, injected into runs —
+ * so they share every control. What differs is reach: a rule of the reviewer's reaches every run,
+ * an agent's lesson only that agent's, so a lesson can only be moved or merged within its part.
  *
  * Every write goes through the service and then re-reads the list; only the drag reorder and the
  * effect switch are applied optimistically, because both would visibly snap back otherwise.
  */
 const MemoryRules = () => {
   const { t } = useTranslation('memory');
-  const enabled = useUserStore(labPreferSelectors.enableMemoryRules);
+  const { enabled, ready } = useSelfLearningSurface();
   const { data, error, isLoading, mutate } = useRules();
   const [selectedId, setSelectedId] = useState<string>();
   const [titleEditing, setTitleEditing] = useState(false);
   const [mergeFrom, setMergeFrom] = useState<string>();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [partKey, setPartKey] = useState('mine');
+  const [runsSort, setRunsSort] = useState<RunsSort>(null);
 
   const groups = useMemo(() => data?.groups ?? [], [data]);
+  const sections = useMemo(() => sectionsByOwner(groups), [groups]);
+  // The part on screen: the switcher above the sheet picks one, "My rules" by default.
+  const part = sections.find((section) => section.key === partKey) ?? sections[0];
+  // Which part each group belongs to, so moves and merges never cross from one reach to another.
+  const sectionOf = useMemo(
+    () =>
+      new Map(
+        sections.flatMap((section) => section.groups.map((g) => [g.domain.id, section] as const)),
+      ),
+    [sections],
+  );
+  const sameSection = (domainId: string) => sectionOf.get(domainId)?.groups ?? [];
   const all = useMemo(() => groups.flatMap((group) => group.rules), [groups]);
   const live = useMemo(() => all.filter((rule) => rule.status === 'active'), [all]);
-  const archived = useMemo(() => all.filter((rule) => rule.status === 'retired'), [all]);
   const selected = all.find((rule) => rule.id === selectedId);
+  const partRules = useMemo(() => part.groups.flatMap((group) => group.rules), [part]);
+  const partLive = useMemo(() => partRules.filter((rule) => rule.status === 'active'), [partRules]);
+  const partArchived = useMemo(
+    () => partRules.filter((rule) => rule.status === 'retired'),
+    [partRules],
+  );
   const isEmpty = !isLoading && !error && all.length === 0;
 
-  // Display numbers follow the sheet order, not the per-group `P-nn` codes, which restart in
-  // every group and would repeat down the page.
+  // Display numbers follow the sheet order of the part on screen, not the per-group `P-nn` codes,
+  // which restart in every group and would repeat down the page.
   const codes = useMemo(() => {
     const map = new Map<string, string>();
     let n = 0;
-    for (const rule of [...live, ...archived]) map.set(rule.id, `R${String(++n).padStart(2, '0')}`);
+    for (const rule of [...partLive, ...partArchived])
+      map.set(rule.id, `R${String(++n).padStart(2, '0')}`);
     return map;
-  }, [live, archived]);
+  }, [partLive, partArchived]);
+
+  const ruleCount = live.filter((rule) => sectionOf.get(rule.domainId)?.key === 'mine').length;
+  const lessonCount = live.length - ruleCount;
+  // "My rules" with nothing in it is the reviewer's first screen there, not an empty table.
+  const mineOnboarding = !isLoading && !error && part.key === 'mine' && part.groups.length === 0;
+  const agentSections = sections.filter((section) => section.owner.kind === 'agent');
+  const onboardingAgents: RulesOnboardingAgents | undefined =
+    agentSections.length > 0 && agentSections[0].owner.kind === 'agent'
+      ? {
+          agentCount: agentSections.length,
+          lessonCount,
+          name: agentSections[0].owner.agent.title || t('rules.owner.untitledAgent'),
+          onOpen: () => switchPart(agentSections[0].key),
+        }
+      : undefined;
+
+  useJudgeDirections(
+    enabled,
+    live.filter((rule) => !rule.direction).map((rule) => rule.id),
+    mutate,
+  );
+
+  // A selection or a merge in progress belongs to the part it started in; switching drops both,
+  // so a merge can only ever pick a target within its own part.
+  const switchPart = (key: string) => {
+    setPartKey(key);
+    setSelectedId(undefined);
+    setTitleEditing(false);
+    setMergeFrom(undefined);
+  };
 
   const refresh = () => mutate();
 
@@ -102,6 +147,7 @@ const MemoryRules = () => {
   const updateRule = async (id: string, patch: UpdateRuleInput) => {
     try {
       if (patch.enforcement) await patchLocal(id, { enforcement: patch.enforcement });
+      if (patch.direction) await patchLocal(id, { direction: patch.direction });
       await expertiseService.updateRule(id, patch);
       await refresh();
       return true;
@@ -169,8 +215,12 @@ const MemoryRules = () => {
   const select = (id: string) => {
     setTitleEditing(false);
     if (mergeFrom && mergeFrom !== id) {
-      // Only a rule still in force can absorb another; archived rows are not targets.
-      if (all.find((rule) => rule.id === id)?.status !== 'active') return;
+      // Only a rule still in force can absorb another; archived rows are not targets, and a
+      // lesson cannot be folded into one with a different reach.
+      const into = all.find((rule) => rule.id === id);
+      const from = all.find((rule) => rule.id === mergeFrom);
+      if (into?.status !== 'active') return;
+      if (!from || sectionOf.get(into.domainId) !== sectionOf.get(from.domainId)) return;
       const target = id;
       const source = mergeFrom;
       // Leave merge mode whatever the outcome, so a failure does not strand the page in it.
@@ -184,10 +234,24 @@ const MemoryRules = () => {
     setSelectedId(selectedId === id ? undefined : id);
   };
 
+  // Distilling files into the part on screen, like writing: its groups, and a new group only in
+  // the reviewer's own part (a new group always mounts on the reviewer).
+  const distill = () =>
+    createDistillModal({
+      canOpenGroup: part.key === 'mine',
+      groups: part.groups,
+      onDone: (ids) => {
+        if (ids[0]) setSelectedId(ids[0]);
+        void refresh();
+      },
+    });
+
+  // Writing files into the part on screen: the header offers its groups, a group's `+` that group.
   const compose = (defaultGroupId?: string) =>
     createComposeRuleModal({
+      canOpenGroup: part.key === 'mine',
       defaultGroupId,
-      groups,
+      groups: part.groups,
       onCreated: (id) => {
         setSelectedId(id);
         void refresh();
@@ -201,22 +265,75 @@ const MemoryRules = () => {
     <RuleRow
       active={rule.id === selectedId}
       code={codes.get(rule.id) ?? ''}
-      menu={buildRuleMenu(t, rule, groups, handlers)}
+      draggable={!runsSort}
+      menu={buildRuleMenu(t, rule, sameSection(rule.domainId), handlers)}
       rule={rule}
+      taughtToAgent={part.owner.kind === 'agent'}
       archivedInto={(() => {
         const into = mergedIntoId(rule);
         return into ? (all.find((r) => r.id === into)?.title ?? into) : null;
       })()}
+      onDirection={(direction) => void updateRule(rule.id, { direction })}
       onEnforcement={(enforcement) => void updateRule(rule.id, { enforcement })}
       onSelect={() => select(rule.id)}
     />
   );
 
+  const renderGroup = (group: (typeof groups)[number]) => {
+    const items = group.rules.filter((rule) => rule.status === 'active');
+    const isCollapsed = Boolean(collapsed[group.domain.id]);
+    return (
+      <div key={group.domain.id}>
+        <GroupSection
+          collapsed={isCollapsed}
+          count={items.length}
+          group={group}
+          menu={[
+            {
+              disabled: true,
+              key: 'gate',
+              label: (
+                <span className={styles.muted} style={{ display: 'block', maxWidth: 280 }}>
+                  {t('rules.group.gate', { gate: group.domain.domainFilter })}
+                </span>
+              ),
+            },
+            { type: 'divider' },
+            {
+              icon: <Icon icon={PencilIcon} />,
+              key: 'rename',
+              label: t('rules.actions.renameGroup'),
+              onClick: () => openGroupModal(group),
+            },
+          ]}
+          onToggle={() => setCollapsed((c) => ({ ...c, [group.domain.id]: !c[group.domain.id] }))}
+          onWrite={() => compose(group.domain.id)}
+        />
+        {isCollapsed ? null : items.length === 0 ? (
+          <div className={styles.muted} style={{ padding: '10px 8px' }}>
+            {t('rules.group.empty')}
+          </div>
+        ) : (
+          <SortableList
+            gap={0}
+            items={sortByRuns(items, runsSort)}
+            renderItem={renderRow}
+            // A sorted view is not the reviewer's order, so it cannot be dragged into one.
+            onChange={(next) => {
+              if (!runsSort) void reorder(group.domain.id, next);
+            }}
+          />
+        )}
+      </div>
+    );
+  };
+
   if (!enabled) {
     return (
       <Flexbox height={'100%'} width={'100%'}>
         <NavHeader />
-        <LabOff />
+        {/* The Labs preference arrives with the user state; wait for it instead of flashing Labs. */}
+        {ready && <SelfLearningLabOff />}
       </Flexbox>
     );
   }
@@ -226,7 +343,9 @@ const MemoryRules = () => {
       <NavHeader />
       <Flexbox horizontal flex={1} height={'100%'} width={'100%'}>
         <Flexbox className={styles.body}>
-          <WideScreenContainer gap={18} paddingBlock={'24px 96px'}>
+          {/* Full width: with direction, effect, check and count columns the sheet needs the
+              room, and a centred reading column only squeezed the rule text. */}
+          <WideScreenContainer fullWidth gap={18} paddingBlock={'24px 96px'} paddingInline={32}>
             <Flexbox
               horizontal
               align={'flex-start'}
@@ -238,13 +357,31 @@ const MemoryRules = () => {
                 <Text fontSize={26} weight={700}>
                   {t('rules.title')}
                 </Text>
-                <Text type={'secondary'}>{t('rules.subtitle', { count: live.length })}</Text>
+                {/* A count of zero says nothing; with no rules yet, only what agents learned. */}
+                {!isEmpty && (
+                  <Text type={'secondary'}>
+                    {ruleCount > 0
+                      ? t('rules.subtitle', { lessons: lessonCount, rules: ruleCount })
+                      : t('rules.subtitleAgentsOnly', { lessons: lessonCount })}
+                  </Text>
+                )}
               </Flexbox>
               {/* One primary action. Writing a rule also opens the group when the reviewer has
                   none, so a separate "new group" button would be a second way to start. */}
-              <Button icon={<Icon icon={PlusIcon} />} type={'primary'} onClick={() => compose()}>
-                {t('rules.actions.write')}
-              </Button>
+              {!mineOnboarding && (
+                <Flexbox horizontal gap={8}>
+                  <Button icon={<Icon icon={FileSearchIcon} />} onClick={distill}>
+                    {t('rules.actions.distill')}
+                  </Button>
+                  <Button
+                    icon={<Icon icon={PlusIcon} />}
+                    type={'primary'}
+                    onClick={() => compose()}
+                  >
+                    {t('rules.actions.write')}
+                  </Button>
+                </Flexbox>
+              )}
             </Flexbox>
 
             {mergeFrom && (
@@ -270,92 +407,69 @@ const MemoryRules = () => {
               isLoading={isLoading}
               loading={<Loading debugId={'MemoryRules'} />}
               empty={
-                <Empty
-                  icon={ScaleIcon}
-                  title={t('rules.empty.title')}
-                  description={
-                    <Flexbox align={'center'} gap={8}>
-                      <span>{t('rules.empty.description')}</span>
-                      {Boolean(data?.backlogRounds) && (
-                        <Text fontSize={13} type={'secondary'}>
-                          {t('rules.backlog', { count: data!.backlogRounds })}
-                        </Text>
-                      )}
-                      <Button onClick={() => compose()}>{t('rules.empty.write')}</Button>
-                    </Flexbox>
-                  }
+                <RulesOnboarding
+                  backlogRounds={data?.backlogRounds}
+                  onDistill={distill}
+                  onWrite={() => compose()}
                 />
               }
               onRetry={() => void refresh()}
             >
               <div>
-                <div className={cx(styles.grid, styles.thead)}>
-                  <span />
-                  <span>{t('rules.columns.code')}</span>
-                  <span>{t('rules.columns.rule')}</span>
-                  <span>{t('rules.columns.enforcement')}</span>
-                  <span>{t('rules.columns.method')}</span>
-                  <span>{t('rules.columns.runs')}</span>
-                  <span />
-                </div>
-                {groups.map((group) => {
-                  const items = group.rules.filter((rule) => rule.status === 'active');
-                  const isCollapsed = Boolean(collapsed[group.domain.id]);
-                  return (
-                    <div key={group.domain.id}>
-                      <GroupSection
-                        collapsed={isCollapsed}
-                        count={items.length}
-                        group={group}
-                        menu={[
-                          {
-                            disabled: true,
-                            key: 'gate',
-                            label: (
-                              <span
-                                className={styles.muted}
-                                style={{ display: 'block', maxWidth: 280 }}
-                              >
-                                {t('rules.group.gate', { gate: group.domain.domainFilter })}
-                              </span>
-                            ),
-                          },
-                          { type: 'divider' },
-                          {
-                            icon: <Icon icon={PencilIcon} />,
-                            key: 'rename',
-                            label: t('rules.actions.renameGroup'),
-                            onClick: () => openGroupModal(group),
-                          },
-                        ]}
-                        onWrite={() => compose(group.domain.id)}
-                        onToggle={() =>
-                          setCollapsed((c) => ({ ...c, [group.domain.id]: !c[group.domain.id] }))
-                        }
-                      />
-                      {isCollapsed ? null : items.length === 0 ? (
-                        <div className={styles.muted} style={{ padding: '10px 8px' }}>
-                          {t('rules.group.empty')}
-                        </div>
-                      ) : (
-                        <SortableList
-                          gap={0}
-                          items={items}
-                          renderItem={renderRow}
-                          onChange={(next) => void reorder(group.domain.id, next)}
-                        />
+                {/* Whose sheet this is: the reviewer's own rules, or one agent's lessons. Only
+                    shown once some agent has learned something, so there is a choice to make. */}
+                {sections.length > 1 && (
+                  <Flexbox paddingBlock={'0 12px'} paddingInline={8}>
+                    <PartSwitcher sections={sections} value={part.key} onChange={switchPart} />
+                  </Flexbox>
+                )}
+                {!mineOnboarding && (
+                  <div className={cx(styles.grid, styles.thead)}>
+                    <span />
+                    <span>{t('rules.columns.code')}</span>
+                    <span>{t('rules.columns.rule')}</span>
+                    <span>{t('rules.columns.direction')}</span>
+                    <span>{t('rules.columns.enforcement')}</span>
+                    <span>{t('rules.columns.method')}</span>
+                    <button
+                      aria-pressed={runsSort !== null}
+                      title={t(`rules.columns.runsSort.${runsSort ?? 'off'}`)}
+                      type={'button'}
+                      className={cx(
+                        styles.sortHeader,
+                        runsSort !== null && styles.sortHeaderActive,
                       )}
-                    </div>
-                  );
-                })}
-                {archived.length > 0 && (
+                      onClick={() => setRunsSort(nextRunsSort(runsSort))}
+                    >
+                      {t('rules.columns.runs')}
+                      {runsSort && (
+                        <Icon icon={runsSort === 'desc' ? ArrowDownIcon : ArrowUpIcon} size={12} />
+                      )}
+                    </button>
+                    <span />
+                  </div>
+                )}
+                {/* The reviewer's part shows even before it holds anything: it is where they
+                    learn that their rejections become rules. */}
+                {mineOnboarding ? (
+                  <RulesOnboarding
+                    inline
+                    agents={onboardingAgents}
+                    backlogRounds={data?.backlogRounds}
+                    onDistill={distill}
+                    onWrite={() => compose()}
+                  />
+                ) : (
+                  part.groups.map(renderGroup)
+                )}
+                {partArchived.length > 0 && (
                   <>
                     <div className={styles.divider}>
-                      {t('rules.archived.group', { count: archived.length })}
+                      {t('rules.archived.group', { count: partArchived.length })}
                     </div>
                     <SortableList
                       gap={0}
-                      items={archived}
+                      items={sortByRuns(partArchived, runsSort)}
                       renderItem={renderRow}
                       onChange={() => {}}
                     />
@@ -370,9 +484,11 @@ const MemoryRules = () => {
             code={selected ? codes.get(selected.id) : undefined}
             group={groups.find((group) => group.domain.id === selected?.domainId)}
             groups={groups}
-            menu={selected ? buildRuleMenu(t, selected, groups, handlers) : []}
             rule={selected}
             titleEditing={titleEditing}
+            menu={
+              selected ? buildRuleMenu(t, selected, sameSection(selected.domainId), handlers) : []
+            }
             onTitleEditing={setTitleEditing}
             onClose={() => {
               setSelectedId(undefined);

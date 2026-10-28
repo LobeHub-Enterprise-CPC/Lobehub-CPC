@@ -31,6 +31,22 @@ describe('createVolcengineVideo', () => {
     };
   });
 
+  it.each([400, 401, 403, 422])(
+    'marks explicit HTTP %s submission rejection as not created',
+    async (status) => {
+      mockFetch.mockResolvedValue({ ok: false, status, text: async () => 'rejected' });
+      await expect(createVolcengineVideo(payload, options)).rejects.toMatchObject({
+        name: 'SubmissionRejectedError',
+        status,
+      });
+    },
+  );
+  it.each([408, 429, 500, 502, 504])('retains uncertainty for HTTP %s', async (status) => {
+    mockFetch.mockResolvedValue({ ok: false, status, text: async () => 'uncertain' });
+    await expect(createVolcengineVideo(payload, options)).rejects.not.toMatchObject({
+      name: 'SubmissionRejectedError',
+    });
+  });
   describe('successful creation', () => {
     it('should return inferenceId on success', async () => {
       mockFetch.mockResolvedValue({
@@ -291,6 +307,9 @@ describe('pollVolcengineVideoStatus', () => {
     expect(mockFetch).toHaveBeenCalledWith(`${baseURL}/contents/generations/tasks/task-123`, {
       headers: { Authorization: `Bearer ${apiKey}` },
       method: 'GET',
+      // The query is bounded so a hanging status endpoint cannot consume the caller's
+      // polling budget.
+      signal: expect.any(AbortSignal),
     });
   });
 

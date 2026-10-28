@@ -13,6 +13,8 @@ export interface AvailableAgentItem {
   description: string | null;
   heteroType?: string;
   id: string;
+  /** Product-owned inbox (Lobe AI). A builtin can never join a chat group. */
+  isInbox?: boolean;
   /** Personal name; resolve the label with `agentDisplayName(item, fallback)`. */
   name: string | null;
   title: string | null;
@@ -243,9 +245,14 @@ class AgentService {
     agentId: string,
     config: PartialDeep<LobeAgentConfig>,
     signal?: AbortSignal,
+    replaceWorkingDirDeviceIds: string[] = [],
   ) => {
     return lambdaClient.agent.updateAgentConfig.mutate(
-      { agentId, value: config },
+      {
+        agentId,
+        replaceWorkingDirDeviceIds,
+        value: config,
+      },
       { context: { showNotification: false }, signal },
     );
   };
@@ -305,6 +312,7 @@ class AgentService {
    */
   countAgents = async (params?: {
     endDate?: string;
+    includeInbox?: boolean;
     keyword?: string;
     range?: [string, string];
     startDate?: string;

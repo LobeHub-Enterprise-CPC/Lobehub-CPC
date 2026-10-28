@@ -1,6 +1,5 @@
-import { Flexbox } from '@lobehub/ui';
-import { ActionIcon } from '@lobehub/ui/base-ui';
-import { createStaticStyles } from 'antd-style';
+import { COMPOSER_AGENT_ONLY_LAYOUT } from '@lobechat/business-const';
+import { ActionIcon, createStaticStyles, Flexbox } from '@lobehub/ui';
 import { ArrowUpIcon, PlusIcon } from 'lucide-react';
 import { type ChangeEventHandler, type CompositionEventHandler, memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -120,7 +119,7 @@ const InputFallback = memo<InputFallbackProps>(
             justify="space-between"
           >
             <Flexbox horizontal align="center" gap={6}>
-              <ModeSelect value={mode} onChange={onModeChange} />
+              {!COMPOSER_AGENT_ONLY_LAYOUT && <ModeSelect value={mode} onChange={onModeChange} />}
               <ActionIcon disabled icon={PlusIcon} size={'small'} title={t('loading')} />
             </Flexbox>
             <ActionIcon

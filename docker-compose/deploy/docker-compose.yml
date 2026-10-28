@@ -56,7 +56,7 @@ services:
   #   `lh connect --gateway <url>`.
   # State is kept in memory: runs in flight are lost when this container restarts.
   gateway:
-    image: ghcr.io/lobehub/lobehub-gateway:0.3.2
+    image: ghcr.io/lobehub/lobehub-gateway:0.5.0
     container_name: lobe-gateway
     ports:
       - '${AGENT_GATEWAY_PORT:-8787}:8787'
@@ -256,7 +256,7 @@ services:
       - 'fts-search-reindex-state:/app/.elasticsearch-reindex'
     # The script lives in the entrypoint so that arguments given to
     # `docker compose run fts-search-reindex ...` replace only `--status`.
-    entrypoint: ['/bin/node', '/app/fts-search-elasticsearch-reindex.cjs']
+    entrypoint: ['/bin/node', '/app/fts-search-elasticsearch-reindex-tenants.cjs']
     command: ['--status']
     restart: 'no'
     networks:

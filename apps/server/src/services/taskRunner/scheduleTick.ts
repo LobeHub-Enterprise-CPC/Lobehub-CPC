@@ -9,6 +9,8 @@ import { tasks } from '@/database/schemas';
 import { getServerDB } from '@/database/server';
 import { notTrashed } from '@/database/utils/softDelete';
 
+import { reusedScheduleExecutions } from '../task/reusedScheduleExecutions';
+import { scheduleWindow } from '../task/scheduleWindow';
 import { TaskRunnerService } from './index';
 
 const log = debug('task-runner:schedule-tick');
@@ -20,6 +22,8 @@ export type ScheduleTickOutcome =
   { ran: true; taskIdentifier: string } | { ran: false; reason: ScheduleTickSkipReason };
 
 export type ScheduleTickSkipReason =
+  | 'archived'
+  | 'outside-window'
   | 'human-waiting'
   | 'in-flight'
   | 'max-executions-reached'
@@ -57,6 +61,11 @@ export async function runScheduleTick(
     log('skip task=%s reason=not-found', taskId);
     return { ran: false, reason: 'not-found' };
   }
+  // Archived tasks are hidden from every list; never run them out of sight.
+  if (task.archivedAt) {
+    log('skip task=%s reason=archived', taskId);
+    return { ran: false, reason: 'archived' };
+  }
   const wsId = task.workspaceId ?? undefined;
   if (task.automationMode !== 'schedule') {
     log('skip task=%s reason=mode-changed (mode=%s)', taskId, task.automationMode);
@@ -73,6 +82,15 @@ export async function runScheduleTick(
   if (task.status === 'paused') {
     log('skip task=%s reason=paused', taskId);
     return { ran: false, reason: 'paused' };
+  }
+
+  const window = scheduleWindow(task.config);
+  if (window !== 'open') {
+    if (window === 'expired')
+      await new TaskModel(db, userId, wsId).updateStatus(taskId, 'completed', {
+        completedAt: new Date(),
+      });
+    return { ran: false, reason: 'outside-window' };
   }
 
   const briefModel = new BriefModel(db, userId, wsId);
@@ -109,7 +127,7 @@ export async function runScheduleTick(
         since: startedAt,
         triggers: ['schedule'],
       });
-      if (runCount >= maxExecutions) {
+      if (runCount + reusedScheduleExecutions(task.context) >= maxExecutions) {
         log(
           'skip task=%s reason=max-executions-reached (%d/%d) — marking completed',
           taskId,

@@ -1,5 +1,6 @@
 import type { DiscordAdapter } from '@chat-adapter/discord';
 import { createDiscordAdapter } from '@chat-adapter/discord';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import type { Chat as ChatBot, Message } from 'chat';
 import debug from 'debug';
 
@@ -11,6 +12,7 @@ import {
 } from '@/server/services/gateway/runtimeStatus';
 
 import { warnAttachmentFailures } from '../attachmentDelivery';
+import { TrackedPlatformClient } from '../TrackedPlatformClient';
 import {
   type BotPlatformRuntimeContext,
   type BotProviderConfig,
@@ -74,6 +76,7 @@ class DiscordGatewayClient implements PlatformClient {
   private discord: DiscordApi;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  private readonly lifecycle = new TrackedPlatformClient();
 
   constructor(config: BotProviderConfig, context: BotPlatformRuntimeContext) {
     this.config = config;
@@ -85,6 +88,13 @@ class DiscordGatewayClient implements PlatformClient {
   // --- Lifecycle ---
 
   async start(options?: GatewayListenerOptions): Promise<void> {
+    return this.lifecycle.start(
+      () => this.startNow(options),
+      () => this.stop(),
+    );
+  }
+
+  private async startNow(options?: GatewayListenerOptions): Promise<void> {
     log('Starting DiscordBot appId=%s', this.applicationId);
 
     this.stopped = false;
@@ -102,15 +112,11 @@ class DiscordGatewayClient implements PlatformClient {
 
     try {
       if (this.bot) {
-        await this.bot.shutdown().catch(() => {});
+        await this.bot.shutdown();
         this.bot = null;
       }
 
-      const adapter = createDiscordAdapter({
-        applicationId: this.config.applicationId,
-        botToken: this.config.credentials.botToken,
-        publicKey: this.config.credentials.publicKey,
-      });
+      const adapter = this.buildAdapter();
 
       const { Chat, ConsoleLogger } = await import('chat');
 
@@ -132,7 +138,11 @@ class DiscordGatewayClient implements PlatformClient {
       await bot.initialize();
 
       const discordAdapter = (bot as any).adapters.get('discord') as DiscordAdapter;
-      const waitUntil = options?.waitUntil ?? ((task: Promise<any>) => task.catch(() => {}));
+      const waitUntil = (task: Promise<any>) => {
+        const tracked = trackTenantWork(() => task);
+        if (options?.waitUntil) options.waitUntil(tracked);
+        else void tracked.catch(() => undefined);
+      };
 
       const webhookUrl =
         options?.webhookUrl ??
@@ -163,7 +173,7 @@ class DiscordGatewayClient implements PlatformClient {
             durationMs / 3_600_000,
           );
           this.abort.abort();
-          this.start(refreshOptions).catch((err) => {
+          trackTenantWork(() => this.start(refreshOptions)).catch((err) => {
             log('Failed to refresh DiscordBot appId=%s: %O', this.applicationId, err);
           });
         }, durationMs);
@@ -194,6 +204,14 @@ class DiscordGatewayClient implements PlatformClient {
   }
 
   async stop(): Promise<void> {
+    return this.lifecycle.stop(() => this.stopNow());
+  }
+
+  private async stopNow(): Promise<void> {
+    this.stopped = true;
+    this.abort.abort();
+    await this.lifecycle.waitForStart();
+
     log('Stopping DiscordBot appId=%s', this.applicationId);
     this.stopped = true;
     if (this.refreshTimer) {
@@ -202,7 +220,7 @@ class DiscordGatewayClient implements PlatformClient {
     }
     this.abort.abort();
     if (this.bot) {
-      await this.bot.shutdown().catch(() => {});
+      await this.bot.shutdown();
       this.bot = null;
     }
     await updateBotRuntimeStatus(
@@ -223,12 +241,26 @@ class DiscordGatewayClient implements PlatformClient {
 
   createAdapter(): Record<string, any> {
     return {
-      discord: createDiscordAdapter({
-        applicationId: this.config.applicationId,
-        botToken: this.config.credentials.botToken,
-        publicKey: this.config.credentials.publicKey,
-      }),
+      discord: this.buildAdapter(),
     };
+  }
+
+  /**
+   * `@chat-adapter/discord` falls back to `userName: "bot"` and never resolves
+   * the real bot name, while chat-sdk's `detectMention` treats `@<userName>`
+   * in the message text as a mention. Without an explicit name, any message
+   * containing a literal "@bot" counts as an @-mention of EVERY Discord bot in
+   * the thread. Real mentions are matched by the adapter through
+   * `data.mentions` / `<@applicationId>`, so the text fallback only needs a
+   * per-bot name that natural text never contains.
+   */
+  private buildAdapter(): DiscordAdapter {
+    return createDiscordAdapter({
+      applicationId: this.config.applicationId,
+      botToken: this.config.credentials.botToken,
+      publicKey: this.config.credentials.publicKey,
+      userName: `lobehub-discord-${this.config.applicationId}`,
+    });
   }
 
   /**

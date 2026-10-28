@@ -5,16 +5,21 @@ const { middleware } = defineConfig();
 // required to be literal
 export const config = {
   matcher: [
-    // NOTE: `/api`, `/trpc`, `/webapi` are intentionally NOT matched. The
-    // middleware is a no-op for them — `defaultMiddleware` short-circuits the
-    // rewrite half via `backendApiEndpoints`, and they're all public routes, so
-    // the better-auth session lookup is skipped. Auth lives in the route
-    // handlers (`checkAuth`, trpc `protectedProcedure`), which return JSON 401s
-    // rather than the HTML redirect-to-signin. Skipping the matcher avoids a
-    // needless middleware invocation on the hottest backend traffic. (/oidc and
-    // /oauth stay matched below — their middleware pass is still load-bearing.)
+    // Backend surfaces ARE matched (spec A16, FR-RT-04): the proxy is the one
+    // place that reads the tenant from the URL. It rewrites `/t/{slug}/api/...`
+    // to `/api/...` with a signed tenant header, drops any client-sent copy of
+    // that header, and refuses tenantless business requests with
+    // `TENANT_REQUIRED` before they reach a route handler.
+    '/api/:path*',
+    '/trpc/:path*',
+    '/webapi/:path*',
+    '/f/:path*',
+    '/market/:path*',
     // include the /
     '/',
+    // Session entry of a custom authority; `/t/:slug/(.*)` below covers the path form. Without
+    // this entry the request never reaches the proxy on a custom authority and 404s.
+    '/__entry',
     '/acceptance',
     '/acceptance(.*)',
     '/channels',
@@ -23,6 +28,8 @@ export const config = {
     '/apps(.*)',
     '/community',
     '/community(.*)',
+    '/dashboard',
+    '/dashboard(.*)',
     '/labs',
     '/eval',
     '/eval(.*)',
@@ -47,6 +54,9 @@ export const config = {
     '/resource',
     '/resource(.*)',
     '/profile(.*)',
+    '/projects',
+    '/project',
+    '/project/(.*)',
     '/page',
     '/page(.*)',
     '/tasks',
@@ -68,6 +78,7 @@ export const config = {
     '/signin(.*)',
     '/verify-email(.*)',
     '/verify-im(.*)',
+    // Retired report links: the Workbench redirects them into Acceptance.
     '/verify',
     '/verify/(.*)',
     '/reset-password(.*)',
@@ -75,6 +86,19 @@ export const config = {
     '/oauth(.*)',
     '/oidc(.*)',
     '/market-auth-callback(.*)',
+
+    // Tenant-scoped mirrors of every client route above: `/t/{slug}/...`.
+    //
+    // One entry covers the whole subtree because the tenant prefix is handled as
+    // a router BASENAME (src/spa/appBasename.ts), not as a route segment — the
+    // SPA strips `/t/{slug}` before matching, so the paths underneath are the
+    // same ones already listed. Without this entry the middleware never runs for
+    // a tenant url, the rewrite to `/spa/<variant>/...` never happens, and App
+    // Router 404s on a path it has no page for.
+    //
+    // Backend paths under a tenant are covered by the same two entries.
+    '/t/:slug',
+    '/t/:slug/(.*)',
   ],
 };
 

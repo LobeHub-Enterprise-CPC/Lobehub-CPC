@@ -1,3 +1,9 @@
+import {
+  HOME_DEFAULT_HIDDEN_WIDGETS,
+  HOME_PORTRAIT_ENABLED,
+  NAV_PANEL_DEFAULT_WIDTH,
+  PROJECT_FIRST_NAVIGATION,
+} from '@lobechat/business-const';
 import { type NavigateFunction } from 'react-router';
 
 import { type LocaleMode } from '@/types/locale';
@@ -8,6 +14,8 @@ import { AsyncLocalStorage } from '@/utils/localStorage';
 export enum SidebarTabKey {
   Chat = 'chat',
   Community = 'community',
+  Dashboard = 'dashboard',
+  Goals = 'goals',
   Home = 'home',
   Image = 'image',
   Knowledge = 'knowledge',
@@ -26,7 +34,6 @@ export enum ChatSettingsTabs {
   Opening = 'opening',
   Plugin = 'plugin',
   Prompt = 'prompt',
-  SelfIteration = 'selfIteration',
 }
 
 export enum GroupSettingsTabs {
@@ -47,6 +54,11 @@ export type WorkingSidebarTab =
   | 'skills'
   | 'web'
   | (string & {});
+
+export const CANVAS_TAB_PREFIX = 'canvas:';
+export const canvasTabKey = (canvasId: string) => `${CANVAS_TAB_PREFIX}${canvasId}`;
+export const canvasIdOfTab = (tab: string) =>
+  tab.startsWith(CANVAS_TAB_PREFIX) ? tab.slice(CANVAS_TAB_PREFIX.length) : undefined;
 
 export const DEFAULT_RESOURCE_MANAGER_COLUMN_WIDTHS = {
   date: 160,
@@ -71,6 +83,7 @@ export enum SettingsTabs {
   Credits = 'credits',
   Creds = 'credential',
   Devices = 'devices',
+  Environments = 'environments',
   Hotkey = 'hotkey',
   /** @deprecated Use ServiceModel instead */
   Image = 'image',
@@ -141,13 +154,31 @@ export const MODEL_DETAIL_PANEL_EXPANDABLE_KEYS = [
 
 export type TaskViewMode = 'kanban' | 'list';
 
-export const DEFAULT_HOME_SIDEBAR_EXPANDED_KEYS = ['recents', 'agent', 'private'];
+/** How topics inside one byProject sidebar group are sectioned. */
+export type ProjectTopicSubGroupMode = 'none' | 'byDevice' | 'byTime' | 'byStatus';
+
+// Where projects lead navigation, their conversations are the point of the
+// section, so it starts open.
+export const DEFAULT_HOME_SIDEBAR_EXPANDED_KEYS = PROJECT_FIRST_NAVIGATION
+  ? ['agent', 'project', 'recents', 'private']
+  : ['recents', 'agent', 'private'];
+
+/** How the agent document tree orders sibling rows. */
+export interface AgentDocumentSort {
+  by: 'createdAt' | 'name' | 'updatedAt';
+  foldersFirst: boolean;
+  order: 'asc' | 'desc';
+}
 
 export interface SystemStatus {
   /**
    * Agent Builder panel width
    */
   agentBuilderPanelWidth?: number;
+  /**
+   * Sort order of the agent document tree (working panel 「文档」).
+   */
+  agentDocumentSort?: AgentDocumentSort;
   /**
    * Expanded group keys of the agent view-all page. Expanded (not collapsed)
    * keys are persisted because groups default to COLLAPSED (mirrors Linear) —
@@ -192,6 +223,12 @@ export interface SystemStatus {
    * so dismissing the current one does not hide future ones.
    */
   dismissedBannerIds?: string[];
+  /**
+   * Keys of goal asks (clarification rounds, gates, sign-offs) the user waved
+   * off the approval island. Only the island honours them — the same ask stays
+   * in the Home inbox. Append-only and capped, see `appendDismissedIslandKey`.
+   */
+  dismissedIslandItemKeys?: string[];
   /**
    * Per-agent expanded state of the agent sidebar's top-level sections
    * (Tasks / Topic), keyed by agentId. Lets each agent remember its own
@@ -292,6 +329,11 @@ export interface SystemStatus {
    * number of private agents (ungrouped) to display in the Private sidebar bucket
    */
   privateAgentPageSize?: number;
+  /**
+   * Per byProject group (keyed by the group id, e.g. `project-id:<id>`): how its
+   * topics are sectioned. Absent means `none`.
+   */
+  projectTopicSubGroupModeByGroup?: Record<string, ProjectTopicSubGroupMode>;
   readNotificationSlugs?: string[];
   /**
    * number of recent items to display
@@ -482,6 +524,12 @@ export interface GlobalState {
   isServerVersionOutdated?: boolean;
   isStatusInit?: boolean;
   latestVersion?: string;
+  /**
+   * The agent or group whose own workspace sidebar is open ("advanced mode")
+   * while the Home panel is the only everyday navigation. Not persisted: a
+   * reload, or leaving that agent or group, returns to the Home panel.
+   */
+  navAdvancedTargetId?: string;
   /** Imperative router navigate; see `NavigatorRegistrar` in `src/utils/router.tsx`. */
   navigationRef: GlobalNavigationRef;
   /**
@@ -529,7 +577,7 @@ export const INITIAL_STATUS = {
   fileManagerViewMode: 'list' as const,
   filePanelWidth: 320,
   groupAgentBuilderPanelWidth: 360,
-  hiddenHomeWidgets: [],
+  hiddenHomeWidgets: HOME_DEFAULT_HIDDEN_WIDGETS,
   hidePWAInstaller: false,
   hideThreadLimitAlert: false,
   hideTopicSharePrivacyWarning: false,
@@ -540,7 +588,7 @@ export const INITIAL_STATUS = {
   imageTopicViewMode: 'grid' as const,
   imageTopicPanelWidth: 80,
   knowledgeBaseModalViewMode: 'list' as const,
-  leftPanelWidth: 280,
+  leftPanelWidth: NAV_PANEL_DEFAULT_WIDTH,
   mobileShowTopic: false,
   modelDetailPanelCollapsedKeys: [],
   modelSwitchPanelWidth: 460,
@@ -553,7 +601,8 @@ export const INITIAL_STATUS = {
   resourceManagerColumnWidths: DEFAULT_RESOURCE_MANAGER_COLUMN_WIDTHS,
   showCommandMenu: false,
   showFilePanel: true,
-  showHomePortrait: true,
+  // A distribution without the portrait must not count it as a visible section.
+  showHomePortrait: HOME_PORTRAIT_ENABLED,
   showHotkeyHelper: false,
   showHomeRail: true,
   showImagePanel: true,
@@ -614,6 +663,18 @@ export const createInitialSystemStatus = (): SystemStatus => {
       typeof persistedStatus.showLeftPanel === 'boolean'
         ? persistedStatus.showLeftPanel
         : INITIAL_STATUS.showLeftPanel,
+    showRightPanel:
+      typeof persistedStatus.showRightPanel === 'boolean'
+        ? persistedStatus.showRightPanel
+        : INITIAL_STATUS.showRightPanel,
+    showWorkingOverview:
+      typeof persistedStatus.showWorkingOverview === 'boolean'
+        ? persistedStatus.showWorkingOverview
+        : undefined,
+    workingSidebarWidth:
+      typeof persistedStatus.workingSidebarWidth === 'number'
+        ? persistedStatus.workingSidebarWidth
+        : INITIAL_STATUS.workingSidebarWidth,
   };
 };
 

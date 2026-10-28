@@ -1,4 +1,6 @@
-import type { ChannelMemberConfig } from '@lobechat/types';
+import { currentTenantScope } from '@lobechat/database/tenant';
+import type { ChannelJobBlockCode, ChannelMemberConfig } from '@lobechat/types';
+import { CHANNEL_LIMITS } from '@lobechat/types';
 import debug from 'debug';
 import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import pMap from 'p-map';
@@ -15,7 +17,7 @@ import {
 import type { LobeChatDatabase } from '@/database/type';
 
 import { resolveChannelArtifactRunIds, saveChannelArtifact } from './artifact';
-import { ChannelDevice, ChannelDeviceStartError } from './device';
+import { ChannelDevice, ChannelDeviceOfflineError, ChannelDeviceStartError } from './device';
 import { isChannelEnabled } from './gate';
 import { checkChannelNativeAvailability } from './native/capabilities';
 import { runChannelNative } from './native/host';
@@ -23,6 +25,8 @@ import { routeChannelMessage } from './router';
 import { settleChannelServerDefaultOperation } from './serverDefault';
 
 const log = debug('lobe-server:channel:worker');
+/** A failed readiness probe is retried after this delay instead of every tick. */
+const PROBE_BACKOFF_MS = 10_000;
 
 /** Durable database queue consumer. No execution is tied to a browser or HTTP request. */
 export class ChannelWorker {
@@ -31,6 +35,7 @@ export class ChannelWorker {
   private readonly finalizing = new Map<string, () => Promise<void>>();
   private readonly publicationFences = new Map<string, number>();
   private jobCursor?: { createdAt: string; id: string };
+  private readonly probeBackoff = new Map<string, number>();
 
   constructor(
     private readonly db: LobeChatDatabase,
@@ -81,10 +86,24 @@ export class ChannelWorker {
             if (!config)
               throw new Error('Run execution environment is missing; migration is required');
             const model = new ChannelModel(this.db, channel.ownerId);
-            const enabled = isChannelEnabled();
+            const enabled = await isChannelEnabled(channel.ownerId);
             if (!run.publicationRevoked && (!enabled || channel.archived || !memberActive))
               await model.stop(channel.id, { runId: run.id });
-            const stopped = run.publicationRevoked || !enabled || channel.archived || !memberActive;
+            // A stuck device turn would otherwise hold the member queue and its discussion forever.
+            const expired =
+              !run.publicationRevoked &&
+              !run.writerReleased &&
+              config.runtime !== 'native' &&
+              Date.now() - new Date(run.createdAt).getTime() > CHANNEL_LIMITS.deviceExecutionMs;
+            if (expired)
+              await model.fail(
+                channel.id,
+                run.id,
+                run.fence,
+                `Agent execution exceeded ${CHANNEL_LIMITS.deviceExecutionMs / 60_000} minutes and was stopped`,
+              );
+            const stopped =
+              expired || run.publicationRevoked || !enabled || channel.archived || !memberActive;
             if (stopped) {
               this.active.get(run.id)?.abort.abort();
               this.publicationFences.delete(run.id);
@@ -150,7 +169,7 @@ export class ChannelWorker {
               }
             } else if (run.draft && !stopped) {
               await model.publish(channel.id, run.id, run.fence);
-            } else if (!this.active.has(run.id) && !run.writerReleased) {
+            } else if (!this.active.has(run.id) && !run.writerReleased && !run.isolatedAt) {
               // The operation ran headless inside a worker that is gone. Its tools
               // cannot be replayed or declared terminated by this one.
               await model.executionUnknown(
@@ -160,6 +179,27 @@ export class ChannelWorker {
                 'Native worker disconnected; execution requires inspection',
               );
             }
+            // Termination still unconfirmed well past the execution limit (an unreachable device,
+            // or a native executor that is gone) would hold the member forever. Isolate the writer
+            // logically so the member can run again; stop attempts above continue, and only a
+            // physical confirmation ever releases it.
+            const limit =
+              config.runtime === 'native'
+                ? CHANNEL_LIMITS.executionMs
+                : CHANNEL_LIMITS.deviceExecutionMs;
+            if (
+              !run.writerReleased &&
+              !run.isolatedAt &&
+              !this.active.has(run.id) &&
+              Date.now() - new Date(run.createdAt).getTime() >
+                limit + CHANNEL_LIMITS.terminationGraceMs
+            )
+              await model.isolate(
+                channel.id,
+                run.id,
+                run.fence,
+                `Termination was not confirmed ${CHANNEL_LIMITS.terminationGraceMs / 60_000} minutes after the ${limit / 60_000}-minute execution limit`,
+              );
           } catch (error) {
             log('Run reconciliation deferred: run=%s error=%s', entry.run.id, error);
           }
@@ -175,7 +215,7 @@ export class ChannelWorker {
         .limit(20);
       const routingResults = await Promise.allSettled(
         pending.map(async ({ message, ownerId }) => {
-          if (!isChannelEnabled()) return;
+          if (!(await isChannelEnabled(ownerId))) return;
           return routeChannelMessage(
             new ChannelModel(this.db, ownerId),
             message.channelId,
@@ -196,8 +236,13 @@ export class ChannelWorker {
           ),
         );
       for (const item of discussing) {
-        if (!isChannelEnabled()) continue;
-        await new ChannelModel(this.db, item.ownerId).advanceDiscussions(item.channelId);
+        if (!(await isChannelEnabled(item.ownerId))) continue;
+        // One broken discussion must not stall every other Channel's dispatch and health.
+        try {
+          await new ChannelModel(this.db, item.ownerId).advanceDiscussions(item.channelId);
+        } catch (error) {
+          log('Discussion advance deferred: channel=%s error=%s', item.channelId, error);
+        }
       }
       const jobs = await this.db
         .select({
@@ -217,6 +262,21 @@ export class ChannelWorker {
             eq(channels.archived, false),
             eq(channelMembers.active, true),
             eq(channelMembers.executionPaused, false),
+            // Only an idle member's FIFO head can be claimed; probing anything else is wasted
+            // device RPCs and Channel-row locks for every tick the member stays busy.
+            sql`${channelJobs.id} = (
+              SELECT head.id FROM channel_jobs head
+              INNER JOIN channel_messages request ON request.id = head.message_id
+              WHERE head.member_id = ${channelJobs.memberId} AND head.status = 'queued'
+              ORDER BY request.sequence ASC, head.created_at ASC
+              LIMIT 1
+            )`,
+            sql`NOT EXISTS (
+              SELECT 1 FROM channel_runs live
+              WHERE live.member_id = ${channelJobs.memberId}
+                AND (live.writer_released = false
+                  OR (live.cleanup_requested = true AND live.physical_stopped = false))
+            )`,
             this.jobCursor
               ? sql`(${channelJobs.createdAt}, ${channelJobs.id}) > (${this.jobCursor.createdAt}::timestamptz, ${this.jobCursor.id})`
               : undefined,
@@ -230,11 +290,15 @@ export class ChannelWorker {
         jobs.length === 40 && last
           ? { createdAt: last.cursorCreatedAt, id: last.job.id }
           : undefined;
+      const now = Date.now();
+      for (const [jobId, until] of this.probeBackoff)
+        if (until <= now) this.probeBackoff.delete(jobId);
       const jobResults = await Promise.allSettled(
         jobs.map(async ({ job, channel, config, revision }) => {
-          if (!isChannelEnabled()) return;
+          if (this.probeBackoff.has(job.id) || !(await isChannelEnabled(channel.ownerId))) return;
           const model = new ChannelModel(this.db, channel.ownerId);
           let agentId: string | undefined;
+          let block: { code: ChannelJobBlockCode; reason: string } | undefined;
           try {
             if (config.deviceId && config.workingDirectory) {
               const canonical = await new ChannelDevice(
@@ -243,22 +307,29 @@ export class ChannelWorker {
                 config.deviceId,
               ).probe(config.workingDirectory, config.runtime, config.agentId);
               if (canonical !== config.workingDirectory)
-                throw new Error(
-                  'WORKSPACE_CHANGED: The configured directory no longer resolves to its original workspace',
-                );
+                block = {
+                  code: 'workspace_changed',
+                  reason:
+                    'WORKSPACE_CHANGED: The configured directory no longer resolves to its original workspace',
+                };
             }
-            if (config.runtime === 'native')
+            if (!block && config.runtime === 'native')
               agentId = (await this.availability(this.db, channel.ownerId, config)).agentId;
           } catch (error) {
-            await model.unavailable(
-              channel.id,
-              job.id,
-              error instanceof Error ? error.message : String(error),
-            );
+            block = {
+              code: error instanceof ChannelDeviceOfflineError ? 'device_offline' : 'unavailable',
+              reason: error instanceof Error ? error.message : String(error),
+            };
+          }
+          if (block) {
+            this.probeBackoff.set(job.id, Date.now() + PROBE_BACKOFF_MS);
+            if (job.blockedReason !== block.reason || job.blockedCode !== block.code)
+              await model.unavailable(channel.id, job.id, block.reason, block.code);
             return; /* Unavailable before submission: leave the durable job queued. */
           }
           // Clear a previous availability failure even if the shared workspace is still busy.
-          await model.unavailable(channel.id, job.id, null);
+          if (job.blockedReason || job.blockedCode)
+            await model.unavailable(channel.id, job.id, null);
           const claim = await model.claim(channel.id, job.id, revision);
           if (!claim) return;
           config = claim.run.executionConfig!;
@@ -330,10 +401,23 @@ export class ChannelWorker {
   ) {
     const artifactRunIds = await resolveChannelArtifactRunIds(this.db, ownerId, run);
     const abort = new AbortController();
+    // The run outlives the tick (and its tenant scope). Registering it keeps the tenant's
+    // claim, so its later transactions are admitted, and lets a freeze or removal of the
+    // tenant abort it; the registration ends only once the run has fully settled.
+    let settle = () => {};
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    const untrack = currentTenantScope()?.trackWork?.({
+      close: () => abort.abort(),
+      settled,
+    });
     const done = this.native(model, ownerId, run, config, { agentId, artifactRunIds }, abort)
       .catch((error) => log('Native execution settlement deferred: run=%s error=%s', run.id, error))
       .finally(() => {
         this.active.delete(run.id);
+        settle();
+        untrack?.();
       });
     this.active.set(run.id, { abort, done });
   }
@@ -437,23 +521,6 @@ export class ChannelWorker {
       await model.setActivity(run.channelId, run.id, run.fence, snapshot.activity || 'running');
     if (!stopped && snapshot.acceptance === 'accepted' && snapshot.sessionId && snapshot.turnId)
       await model.accepted(run.channelId, run.id, run.fence, snapshot.sessionId, snapshot.turnId);
-    if (!stopped && snapshot.approval) {
-      const approval = await model.requestApproval(
-        run.channelId,
-        run.id,
-        run.fence,
-        `${run.id}:${snapshot.approval.id}`,
-        { method: snapshot.approval.method, request: snapshot.approval.request },
-        new Date(snapshot.approval.expiresAt),
-      );
-      if (approval.decision)
-        await device.approve(
-          run.id,
-          run.executionFence,
-          snapshot.approval.id,
-          approval.decision === 'approved',
-        );
-    }
     if (!stopped && snapshot.status === 'completed' && snapshot.content && settled) {
       await model.recordExecution(run.channelId, run.id, run.fence, {
         runtime: config.runtime,

@@ -1,0 +1,147 @@
+{
+  "cases": [
+    {
+      "h24": "e0bab8abe103e646d8c0907b",
+      "roles": {
+        "admin": {
+          "owner": "adm_e0bab8abe103e646d8c0907b_owner",
+          "run": "adm_e0bab8abe103e646d8c0907b_run"
+        },
+        "lobehub": {
+          "owner": "lh_e0bab8abe103e646d8c0907b_owner",
+          "run": "lh_e0bab8abe103e646d8c0907b_run"
+        },
+        "market": {
+          "owner": "mk_e0bab8abe103e646d8c0907b_owner",
+          "run": "mk_e0bab8abe103e646d8c0907b_run"
+        }
+      },
+      "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+      "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+    },
+    {
+      "h24": "db8055e0e0307d5a016bec4d",
+      "roles": {
+        "admin": {
+          "owner": "adm_db8055e0e0307d5a016bec4d_owner",
+          "run": "adm_db8055e0e0307d5a016bec4d_run"
+        },
+        "lobehub": {
+          "owner": "lh_db8055e0e0307d5a016bec4d_owner",
+          "run": "lh_db8055e0e0307d5a016bec4d_run"
+        },
+        "market": {
+          "owner": "mk_db8055e0e0307d5a016bec4d_owner",
+          "run": "mk_db8055e0e0307d5a016bec4d_run"
+        }
+      },
+      "schemaName": "tenant_db8055e0e0307d5a016bec4d",
+      "tenantId": "00000000-0000-4000-8000-000000000000"
+    },
+    {
+      "h24": "66c6a0d124855ac03a1a6aad",
+      "roles": {
+        "admin": {
+          "owner": "adm_66c6a0d124855ac03a1a6aad_owner",
+          "run": "adm_66c6a0d124855ac03a1a6aad_run"
+        },
+        "lobehub": {
+          "owner": "lh_66c6a0d124855ac03a1a6aad_owner",
+          "run": "lh_66c6a0d124855ac03a1a6aad_run"
+        },
+        "market": {
+          "owner": "mk_66c6a0d124855ac03a1a6aad_owner",
+          "run": "mk_66c6a0d124855ac03a1a6aad_run"
+        }
+      },
+      "schemaName": "tenant_66c6a0d124855ac03a1a6aad",
+      "tenantId": "ffffffff-ffff-4fff-bfff-ffffffffffff"
+    },
+    {
+      "h24": "38e4e4acfa60c81027a536d6",
+      "roles": {
+        "admin": {
+          "owner": "adm_38e4e4acfa60c81027a536d6_owner",
+          "run": "adm_38e4e4acfa60c81027a536d6_run"
+        },
+        "lobehub": {
+          "owner": "lh_38e4e4acfa60c81027a536d6_owner",
+          "run": "lh_38e4e4acfa60c81027a536d6_run"
+        },
+        "market": {
+          "owner": "mk_38e4e4acfa60c81027a536d6_owner",
+          "run": "mk_38e4e4acfa60c81027a536d6_run"
+        }
+      },
+      "schemaName": "tenant_38e4e4acfa60c81027a536d6",
+      "tenantId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+    },
+    {
+      "h24": "2272df623d4a44ed62a6dc9b",
+      "roles": {
+        "admin": {
+          "owner": "adm_2272df623d4a44ed62a6dc9b_owner",
+          "run": "adm_2272df623d4a44ed62a6dc9b_run"
+        },
+        "lobehub": {
+          "owner": "lh_2272df623d4a44ed62a6dc9b_owner",
+          "run": "lh_2272df623d4a44ed62a6dc9b_run"
+        },
+        "market": {
+          "owner": "mk_2272df623d4a44ed62a6dc9b_owner",
+          "run": "mk_2272df623d4a44ed62a6dc9b_run"
+        }
+      },
+      "schemaName": "tenant_2272df623d4a44ed62a6dc9b",
+      "tenantId": "7d444840-9dc0-41d7-a1b3-f3a14b6c2e90"
+    }
+  ],
+  "contract": "tenant-naming",
+  "description": "Console tenant_control._names (sql/tenant_control.sql) is authoritative: h24 = first 24 hex characters of sha256(utf8(tenantId)); schema = tenant_<h24>; roles = <prefix>_<h24>_owner | _run. Every implementation (Console TS, TITU Work, Admin, Enterprise, Deploy bash) asserts these cases.",
+  "h24Pattern": "^[0-9a-f]{24}$",
+  "invalidSchemaNames": [
+    "public",
+    "enterprise",
+    "tenant_",
+    "tenant_acme",
+    "tenant_aaaaaaaaaaaaaaaaaaaaaaa",
+    "tenant_aaaaaaaaaaaaaaaaaaaaaaaaa",
+    "tenant_AAAAAAAAAAAAAAAAAAAAAAAA",
+    "Tenant_aaaaaaaaaaaaaaaaaaaaaaaa",
+    " tenant_aaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "invalidTenantIds": [
+    "",
+    "tenant-a",
+    "acme",
+    "3F1C9A52-7B4E-4C1D-9E1A-0C2B8D7F6E5A",
+    "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5",
+    "3f1c9a527b4e4c1d9e1a0c2b8d7f6e5a",
+    "3f1c9a52-7b4e-0c1d-9e1a-0c2b8d7f6e5a",
+    "3f1c9a52-7b4e-4c1d-7e1a-0c2b8d7f6e5a",
+    " 3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+    "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a\n"
+  ],
+  "prefixes": {
+    "admin": "adm",
+    "lobehub": "lh",
+    "market": "mk"
+  },
+  "rolePatterns": {
+    "admin": {
+      "owner": "^adm_[0-9a-f]{24}_owner$",
+      "run": "^adm_[0-9a-f]{24}_run$"
+    },
+    "lobehub": {
+      "owner": "^lh_[0-9a-f]{24}_owner$",
+      "run": "^lh_[0-9a-f]{24}_run$"
+    },
+    "market": {
+      "owner": "^mk_[0-9a-f]{24}_owner$",
+      "run": "^mk_[0-9a-f]{24}_run$"
+    }
+  },
+  "schemaNamePattern": "^tenant_[0-9a-f]{24}$",
+  "tenantIdPattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+  "version": 1
+}

@@ -1,8 +1,8 @@
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { GROUP_CHAT_TOPIC_URL } from '@lobechat/const';
 import type { ChatTopicStatus } from '@lobechat/types';
-import { type MenuProps } from '@lobehub/ui';
-import { Icon } from '@lobehub/ui';
-import { toast } from '@lobehub/ui/base-ui';
+import { type DropdownItem } from '@lobehub/ui';
+import { Icon, toast } from '@lobehub/ui';
 import {
   Archive,
   ArchiveRestore,
@@ -23,7 +23,6 @@ import { isDesktop } from '@/const/version';
 import { confirmRemoveTopic } from '@/features/DeleteTopicConfirm';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { usePermission } from '@/hooks/usePermission';
 import { useAgentGroupStore } from '@/store/agentGroup';
 import { useChatStore } from '@/store/chat';
@@ -40,7 +39,7 @@ export const useTopicItemDropdownMenu = ({
   id,
   status,
   toggleEditing,
-}: TopicItemDropdownMenuProps): (() => MenuProps['items']) => {
+}: TopicItemDropdownMenuProps): (() => DropdownItem[]) => {
   const { t } = useTranslation(['topic', 'common']);
 
   const navigate = useWorkspaceAwareNavigate();
@@ -51,7 +50,7 @@ export const useTopicItemDropdownMenu = ({
   const openGroupTopicInNewWindow = useGlobalStore((s) => s.openGroupTopicInNewWindow);
   const activeGroupId = useAgentGroupStore((s) => s.activeGroupId);
   const addTab = useElectronStore((s) => s.addTab);
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
 
   const [
     autoRenameTopicTitle,
@@ -190,7 +189,7 @@ export const useTopicItemDropdownMenu = ({
         },
         sfSymbol: 'trash',
       },
-    ].filter(Boolean) as MenuProps['items'];
+    ].filter(Boolean) as DropdownItem[];
   }, [
     id,
     isCompleted,

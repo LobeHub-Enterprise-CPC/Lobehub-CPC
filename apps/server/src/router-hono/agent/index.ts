@@ -3,7 +3,6 @@ import { Hono } from 'hono';
 import { botCallback } from './handlers/botCallback';
 import { botReplay } from './handlers/botReplay';
 import { execAgent } from './handlers/execAgent';
-import { finalizeAbandoned } from './handlers/finalizeAbandoned';
 import { gatewayCallback } from './handlers/gatewayCallback';
 import { gatewayCron } from './handlers/gatewayCron';
 import { gatewayDesiredConnections } from './handlers/gatewayDesiredConnections';
@@ -16,11 +15,9 @@ import { platformWebhook } from './handlers/platformWebhook';
 import { reapOperations } from './handlers/reapOperations';
 import { runStep, runStepHealth } from './handlers/runStep';
 import { subAgentCallback } from './handlers/subAgentCallback';
-import { toolResult } from './handlers/toolResult';
 import { bearerSecretAuth } from './middlewares/bearerSecretAuth';
 import { qstashAuth } from './middlewares/qstashAuth';
 import { qstashOrApiKeyAuth } from './middlewares/qstashOrApiKeyAuth';
-import { serviceTokenAuth } from './middlewares/serviceTokenAuth';
 
 /**
  * Hono app for `/api/agent/*` endpoints. Mounted via the Next.js optional
@@ -40,10 +37,17 @@ app.post('/run', qstashAuth(), runStep);
 app.get('/run', runStepHealth);
 
 // POST /api/agent/tool-result — gateway-side tool result LPUSH'd to Redis
-app.post('/tool-result', serviceTokenAuth(), toolResult);
+app.post('/tool-result', (c) => c.json({ code: 'TENANCY_PROTOCOL_REQUIRED' }, 426));
+
+// LLM relay: the user's device runs one LLM attempt for a device-only model
+// provider. Auth is the per-call lease token carried by `llm_execute`.
+// GET  /api/agent/llm-relay/:callId/payload — request body of the attempt
+app.get('/llm-relay/:callId/payload', (c) => c.json({ code: 'LLM_RELAY_UNSUPPORTED' }, 501));
+// POST /api/agent/llm-relay/:callId/chunks — one batch of protocol chunks
+app.post('/llm-relay/:callId/chunks', (c) => c.json({ code: 'LLM_RELAY_UNSUPPORTED' }, 501));
 
 // POST /api/agent/finalize-abandoned — watchdog reverse-trigger finalize
-app.post('/finalize-abandoned', serviceTokenAuth(), finalizeAbandoned);
+app.post('/finalize-abandoned', (c) => c.json({ code: 'TENANCY_PROTOCOL_REQUIRED' }, 426));
 app.get('/finalize-abandoned', (c) =>
   c.json({
     healthy: true,
@@ -69,7 +73,12 @@ app.get(
 // POST /api/agent/gateway/start — non-Vercel ensureRunning (Bearer KEY_VAULTS_SECRET)
 app.post(
   '/gateway/start',
-  bearerSecretAuth(() => process.env.KEY_VAULTS_SECRET),
+  bearerSecretAuth(() => {
+    const activeSecret = process.env.KEY_VAULTS_SECRET;
+    return activeSecret?.trim()
+      ? [activeSecret, process.env.KEY_VAULTS_FALLBACK_SECRET]
+      : undefined;
+  }),
   gatewayStart,
 );
 

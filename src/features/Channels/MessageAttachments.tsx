@@ -1,5 +1,5 @@
 import type { ChatFileItem } from '@lobechat/types';
-import { createModal } from '@lobehub/ui/base-ui';
+import { createModal } from '@lobehub/ui';
 
 import FileListViewer from '@/features/Conversation/Messages/User/components/FileListViewer';
 import FileViewer from '@/features/FileViewer';

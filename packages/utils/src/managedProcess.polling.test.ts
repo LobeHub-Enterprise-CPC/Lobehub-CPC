@@ -70,6 +70,9 @@ describe('Windows process polling', () => {
     const { registry, child } = start();
     await vi.advanceTimersByTimeAsync(1000);
     await vi.advanceTimersByTimeAsync(1000);
+    // A finished sample is reused for 5s (slow Windows hosts); past that an
+    // explicit snapshot samples at once instead of waiting for the idle poll.
+    await vi.advanceTimersByTimeAsync(4000);
     await registry.snapshot();
     expect(enumerate).toHaveBeenCalledTimes(2);
     child.exitCode = null;
@@ -87,5 +90,40 @@ describe('Windows process polling', () => {
     expect(enumerate).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(2000);
     expect(enumerate).toHaveBeenCalledTimes(4);
+  });
+
+  it('gives a slow device room to answer instead of killing every sample', async () => {
+    start();
+    await vi.advanceTimersByTimeAsync(1000);
+    const [, , options] = enumerate.mock.calls[0] as [string, string[], { timeout: number }];
+    expect(options.timeout).toBe(9000);
+  });
+
+  it('reuses one sample across renderer polls instead of restarting PowerShell', async () => {
+    const registry = new ManagedProcessRegistry();
+    // A browser scope keeps enumeration alive without registering a root, so the
+    // background poll loop cannot interleave with the snapshots under test.
+    registry.environment({ topicId: 'topic' });
+    await registry.snapshot();
+    expect(enumerate).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2000);
+    await registry.snapshot();
+    expect(enumerate).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(4000);
+    await registry.snapshot();
+    expect(enumerate).toHaveBeenCalledTimes(2);
+  });
+
+  it('marks a sampling timeout so a slow device is not reported as unavailable', async () => {
+    const registry = new ManagedProcessRegistry();
+    registry.environment({ topicId: 'topic' });
+    enumerate.mockRejectedValue(
+      Object.assign(new Error('Command failed: powershell.exe'), {
+        code: null,
+        killed: true,
+        signal: 'SIGTERM',
+      }),
+    );
+    await expect(registry.snapshot()).rejects.toThrow('MANAGED_PROCESS_SAMPLE_TIMEOUT');
   });
 });

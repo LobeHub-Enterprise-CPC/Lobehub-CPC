@@ -1,6 +1,7 @@
 'use client';
 
-import { Button, confirmModal, Text } from '@lobehub/ui/base-ui';
+import { CLI_PRIMARY_BIN } from '@lobechat/business-const';
+import { Button, confirmModal, Text } from '@lobehub/ui';
 import type { CSSProperties, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -129,7 +130,7 @@ export const AppUpdateHint = ({ style, update }: AppUpdateHintProps) => {
         return t('devices.appUpdate.timedOut');
       }
       case 'unsupported': {
-        return t(`devices.appUpdate.unsupported.${current.reason}`);
+        return t(`devices.appUpdate.unsupported.${current.reason}`, { cliBin: CLI_PRIMARY_BIN });
       }
       default: {
         return null;

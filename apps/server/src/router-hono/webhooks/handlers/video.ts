@@ -26,7 +26,10 @@ import { GenerationModel } from '@/database/models/generation';
 import { generationBatches } from '@/database/schemas';
 import { getServerDB } from '@/database/server';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { confirmExternalTenantWork } from '@/server/modules/Tenant/externalWork';
+import { GenerationService } from '@/server/services/generation';
 import { VideoGenerationService } from '@/server/services/generation/video';
+import { measureVideoOutputUsage } from '@/server/services/generation/videoOutputUsage';
 import { sanitizeFileName } from '@/utils/sanitizeFileName';
 
 const log = debug('lobe-video:webhook');
@@ -93,6 +96,9 @@ export const videoWebhook = async (c: Context<BlankEnv, '/video/:provider'>) => 
     const asyncTask = await AsyncTaskModel.findByInferenceId(db, webhookResult.inferenceId);
     if (!asyncTask) {
       log('AsyncTask not found for inferenceId: %s', webhookResult.inferenceId);
+      console.warn(
+        `[video] webhook received for unknown inferenceId=${webhookResult.inferenceId} provider=${provider}`,
+      );
       return c.json(
         { error: `AsyncTask not found for inferenceId: ${webhookResult.inferenceId}` },
         404,
@@ -106,9 +112,17 @@ export const videoWebhook = async (c: Context<BlankEnv, '/video/:provider'>) => 
 
     if (!expectedToken || !token || !safeCompare(token, expectedToken)) {
       log('Webhook token verification failed for asyncTask: %s', asyncTask.id);
+      // Never log the token itself: it is the callback's only authentication.
+      console.warn(
+        `[video] webhook rejected: token verification failed asyncTask=${asyncTask.id} provider=${provider}`,
+      );
       return c.json({ error: 'Unauthorized' }, 401);
     }
     log('Webhook token verified for asyncTask: %s', asyncTask.id);
+
+    console.info(
+      `[video] webhook accepted asyncTask=${asyncTask.id} inferenceId=${webhookResult.inferenceId} provider=${provider} upstreamStatus=${webhookResult.status}`,
+    );
 
     asyncTaskId = asyncTask.id;
     asyncTaskUserId = asyncTask.userId;
@@ -225,6 +239,7 @@ export const videoWebhook = async (c: Context<BlankEnv, '/video/:provider'>) => 
       result = webhookResult;
     }
 
+    await confirmExternalTenantWork('video', asyncTask.id, { result });
     const claimed = await AsyncTaskModel.claimVideoCompletion(
       db,
       asyncTask.id,
@@ -238,6 +253,9 @@ export const videoWebhook = async (c: Context<BlankEnv, '/video/:provider'>) => 
     // Handle error result: refund precharge and mark task as error
     if (result.status === 'error') {
       log('Video generation failed: %s', result.error);
+      console.error(
+        `[video] webhook reported upstream failure asyncTask=${asyncTask.id} inferenceId=${result.inferenceId} provider=${provider}: ${result.error}`,
+      );
       await asyncTaskModel.update(asyncTask.id, {
         error: new AsyncTaskError(AsyncTaskErrorType.ServerError, result.error),
         status: AsyncTaskStatus.Error,
@@ -302,6 +320,15 @@ export const videoWebhook = async (c: Context<BlankEnv, '/video/:provider'>) => 
       FileSource.VideoGeneration,
     );
 
+    // Before marking Success so the client's post-success topic refresh sees it
+    if (batch?.generationTopicId) {
+      await new GenerationService(
+        db,
+        asyncTask.userId,
+        asyncTask.workspaceId ?? undefined,
+      ).ensureTopicCover(batch.generationTopicId, processResult.thumbnailKey);
+    }
+
     const duration = Date.now() - asyncTask.createdAt.getTime();
 
     await asyncTaskModel.update(asyncTask.id, {
@@ -326,6 +353,7 @@ export const videoWebhook = async (c: Context<BlankEnv, '/video/:provider'>) => 
     try {
       await chargeAfterGenerate({
         computePriceParams: {
+          duration: (batch?.config as RuntimeVideoGenParams)?.duration,
           generateAudio: (batch?.config as RuntimeVideoGenParams)?.generateAudio,
           resolution: (batch?.config as RuntimeVideoGenParams)?.resolution,
         },
@@ -340,7 +368,7 @@ export const videoWebhook = async (c: Context<BlankEnv, '/video/:provider'>) => 
         model: resolvedModelId,
         prechargeResult: metadata?.precharge as any,
         provider,
-        usage: result.usage,
+        usage: result.usage ?? measureVideoOutputUsage(resolvedModelId, processResult),
         userId: asyncTask.userId,
         workspaceId: asyncTask.workspaceId ?? undefined,
       });
@@ -350,9 +378,16 @@ export const videoWebhook = async (c: Context<BlankEnv, '/video/:provider'>) => 
 
     log('Video webhook processing completed successfully for generation: %s', generation.id);
 
+    console.info(
+      `[video] webhook result stored asyncTask=${asyncTask.id} inferenceId=${result.inferenceId} provider=${provider} durationMs=${duration}`,
+    );
+
     return c.json({ success: true });
   } catch (error) {
-    console.error('[video-webhook] Processing failed:', error);
+    console.error(
+      `[video] webhook processing failed asyncTask=${asyncTaskId ?? '-'} provider=${provider}:`,
+      error,
+    );
 
     // Mark asyncTask as Error so the user sees failure instead of stuck "processing"
     if (asyncTaskModel && asyncTaskId) {

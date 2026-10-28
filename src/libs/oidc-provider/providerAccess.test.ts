@@ -2,7 +2,12 @@ import { beforeEach, expect, it, vi } from 'vitest';
 
 import { createOIDCProvider } from './provider';
 
-const state = vi.hoisted(() => ({ config: undefined as any, access: vi.fn(), findUser: vi.fn() }));
+const state = vi.hoisted(() => ({
+  issuer: '',
+  config: undefined as any,
+  access: vi.fn(),
+  findUser: vi.fn(),
+}));
 vi.mock('@lobechat/business-auth', () => ({
   assertBusinessUserAccess: state.access,
   isBusinessAuthorizationError: (error: any) =>
@@ -10,7 +15,8 @@ vi.mock('@lobechat/business-auth', () => ({
 }));
 vi.mock('oidc-provider', () => ({
   default: class {
-    constructor(_issuer: string, config: unknown) {
+    constructor(issuer: string, config: unknown) {
+      state.issuer = issuer;
       state.config = config;
     }
     on() {}
@@ -18,21 +24,39 @@ vi.mock('oidc-provider', () => ({
   errors: {},
 }));
 vi.mock('@/database/models/user', () => ({ UserModel: { findById: state.findUser } }));
+vi.mock('@/server/services/tenantDiscovery/otherOrganizations', () => ({
+  hasOtherOrganizations: async () => undefined,
+}));
+vi.mock('@/server/modules/Tenant/endpoints', () => ({ findSlugEndpoint: async () => null }));
 vi.mock('@/envs/app', () => ({ appEnv: { APP_URL: 'http://localhost:3000' } }));
 vi.mock('@/libs/oidc-provider/jwt', () => ({ getJWKS: () => ({ keys: [] }) }));
 vi.mock('@/locales/resources', () => ({ normalizeLocale: (locale: string) => locale }));
 vi.mock('./adapter', () => ({ DrizzleAdapter: { createAdapterFactory: () => class {} } }));
 vi.mock('./config', () => ({
   defaultClaims: {},
-  defaultClients: [],
+  defaultClients: [
+    {
+      client_id: 'tituwork-desktop',
+      redirect_uris: [],
+      post_logout_redirect_uris: [],
+    },
+    { client_id: 'lobehub-mobile', redirect_uris: ['com.lobehub.app://auth/callback'] },
+    { client_id: 'toby', redirect_uris: [] },
+  ],
   defaultScopes: ['openid', 'email'],
 }));
 vi.mock('./cookies', () => ({ getOIDCCookieKeys: () => ['test-secret'] }));
 vi.mock('./interaction-policy', () => ({ createInteractionPolicy: () => [] }));
+const acme = {
+  slug: 'acme',
+  endpoint: { basePath: '/t/acme', publicUrl: 'http://localhost:3000/t/acme', version: 1 },
+  tenantId: 'tenant-acme',
+};
+
 beforeEach(async () => {
   state.access.mockResolvedValue(undefined);
   state.findUser.mockResolvedValue({ id: 'alice', email: 'current@example.com', banned: false });
-  await createOIDCProvider({} as never);
+  await createOIDCProvider({} as never, acme);
 });
 it.each([403, 503])(
   'findAccount preserves platform %s for provider token/refresh/userinfo consumers',
@@ -59,4 +83,78 @@ it('findAccount reports unavailable when the current user lookup fails', async (
   await expect(state.config.findAccount({ oidc: {} }, 'alice')).rejects.toMatchObject({
     statusCode: 503,
   });
+});
+
+it('keeps the issuer, device endpoints, cookies and redirects within a tenant', async () => {
+  await createOIDCProvider({} as never, acme);
+  expect(state.issuer).toBe('http://localhost:3000/t/acme/oidc');
+  expect(state.config.routes.device_authorization).toBe('/t/acme/oidc/device/auth');
+  expect(state.config.cookies.long.path).toBe('/t/acme');
+  expect(state.config.cookies.short.path).toBe('/t/acme');
+  const redirect = vi.fn();
+  await state.config.features.deviceFlow.successSource({ redirect });
+  expect(redirect).toHaveBeenCalledWith('/t/acme/oauth/device/success');
+  const consent = { prompt: { name: 'consent' }, uid: 'consent-1' };
+  expect(state.config.interactions.url({ oidc: {} }, consent)).toBe(
+    '/t/acme/oauth/consent/consent-1',
+  );
+  expect(
+    state.config.interactions.url({ oidc: {} }, { prompt: { name: 'login' }, uid: 'login-1' }),
+  ).toBe('/t/acme/oidc/interaction/login-1/login');
+});
+
+it('stamps the owning tenant id on every access token its provider issues', async () => {
+  await createOIDCProvider({} as never, acme);
+  expect(await state.config.extraTokenClaims({ oidc: {} }, {})).toEqual({ tid: 'tenant-acme' });
+});
+
+it.each([
+  {
+    basePath: '/t/acme',
+    publicUrl: 'https://app.example.com/t/acme',
+    version: 1,
+    cookiePath: '/t/acme',
+  },
+  { basePath: '', publicUrl: 'https://chat.example.com', version: 2, cookiePath: '/' },
+])('uses canonical issuer, cookie path and protocol routes on $publicUrl', async (endpoint) => {
+  await createOIDCProvider({} as never, { endpoint, slug: 'acme', tenantId: 'tenant-acme' });
+  expect(state.issuer).toBe(`${endpoint.publicUrl}/oidc`);
+  expect(state.config.cookies.long.path).toBe(endpoint.cookiePath);
+  expect(state.config.cookies.short.path).toBe(endpoint.cookiePath);
+  expect(state.config.routes.authorization).toBe(`${endpoint.basePath}/oidc/auth`);
+  expect(state.config.clients[0].redirect_uris).toEqual([
+    `${endpoint.publicUrl}/oidc/callback/desktop`,
+  ]);
+  expect(state.config.clients[0].post_logout_redirect_uris).toEqual([
+    `${endpoint.publicUrl}/oauth/logout`,
+  ]);
+  expect(state.config.clients[1].redirect_uris).toEqual(['com.lobehub.app://auth/callback']);
+  expect(state.config.clients[2].redirect_uris).toEqual([
+    `${endpoint.publicUrl}/oidc/callback/toby`,
+  ]);
+  expect(
+    state.config.interactions.url({ oidc: {} }, { prompt: { name: 'consent' }, uid: 'consent-1' }),
+  ).toBe(`${endpoint.basePath}/oauth/consent/consent-1`);
+  expect(
+    state.config.interactions.url(
+      { oidc: {} },
+      { params: { ui_locales: 'zh-CN' }, prompt: { name: 'login' }, uid: 'login-1' },
+    ),
+  ).toBe(`${endpoint.basePath}/oidc/interaction/login-1/login?hl=zh-CN`);
+});
+
+it('registers only the organization own desktop callbacks, without mutating another tenant provider', async () => {
+  const endpoint = { basePath: '', publicUrl: 'https://lobehub.com', version: 1 };
+  await createOIDCProvider({} as never, { endpoint, slug: 'acme', tenantId: 'tenant-acme' });
+  expect(state.config.clients[0].redirect_uris).toHaveLength(1);
+  await createOIDCProvider({} as never, acme);
+  expect(state.config.clients[0].redirect_uris).toEqual([
+    'http://localhost:3000/t/acme/oidc/callback/desktop',
+  ]);
+});
+
+it('registers only the organization own toby callback', async () => {
+  const endpoint = { basePath: '', publicUrl: 'https://lobehub.com', version: 1 };
+  await createOIDCProvider({} as never, { endpoint, slug: 'acme', tenantId: 'tenant-acme' });
+  expect(state.config.clients[2].redirect_uris).toEqual(['https://lobehub.com/oidc/callback/toby']);
 });

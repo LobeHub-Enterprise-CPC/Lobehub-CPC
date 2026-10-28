@@ -45,43 +45,45 @@ describe('OIDC Provider - Market Client Integration', () => {
           MARKET_BASE_URL: 'https://market.lobehub.com',
         },
       }));
+      vi.doMock('@lobechat/business-const', async (importOriginal) => ({
+        ...(await importOriginal<Record<string, unknown>>()),
+        BRANDING_NAME: 'Acme',
+      }));
 
       const { defaultClients } = await import('./config');
       const marketClient = defaultClients.find((c) => c.client_id === MARKET_CLIENT_ID);
 
       expect(marketClient).toBeDefined();
       expect(marketClient?.client_id).toBe('lobehub-market');
-      expect(marketClient?.client_name).toBe('LobeHub Marketplace');
+      expect(marketClient?.client_name).toBe('Acme Marketplace');
 
       vi.doUnmock('@/envs/app');
+      vi.doUnmock('@lobechat/business-const');
     });
   });
 
   describe('Provider Configuration', () => {
-    it('should accept both Cloud desktop callback origins during the apex migration', async () => {
-      vi.doMock('@/envs/app', () => ({
-        appEnv: {
-          APP_URL: 'https://app.lobehub.com',
-          MARKET_BASE_URL: undefined,
-        },
-      }));
-
-      const { default: Provider } = await import('oidc-provider');
+    it('should leave the desktop callbacks to the tenant provider', async () => {
+      // Callback and logout pages live under each organization's own address, so no
+      // deployment-root address (which serves no tenant) is registered by default.
       const { defaultClients } = await import('./config');
-      const provider = new Provider('https://app.lobehub.com/oidc', { clients: defaultClients });
-      const desktopClient = await provider.Client.find('lobehub-desktop');
+      const desktopClient = defaultClients.find((c) => c.client_id === 'tituwork-desktop');
 
-      expect(
-        desktopClient?.redirectUriAllowed('https://app.lobehub.com/oidc/callback/desktop'),
-      ).toBe(true);
-      expect(desktopClient?.redirectUriAllowed('https://lobehub.com/oidc/callback/desktop')).toBe(
-        true,
-      );
-      expect(desktopClient?.redirectUriAllowed('https://example.com/oidc/callback/desktop')).toBe(
-        false,
-      );
+      expect(desktopClient?.redirect_uris).toEqual([]);
+      expect(desktopClient?.post_logout_redirect_uris).toEqual([]);
+    });
 
-      vi.doUnmock('@/envs/app');
+    it('should register toby as a public native client with its callback left to the tenant provider', async () => {
+      const { defaultClients } = await import('./config');
+      const tobyClient = defaultClients.find((c) => c.client_id === 'toby');
+
+      expect(tobyClient?.application_type).toBe('native');
+      expect(tobyClient?.token_endpoint_auth_method).toBe('none');
+      expect(tobyClient?.grant_types).toEqual(['authorization_code', 'refresh_token']);
+      // The toby callback lives under each organization's own address, so no
+      // deployment-root address (which serves no tenant) is registered by default;
+      // the tenant provider adds `${publicUrl}/oidc/callback/toby` (see providerAccess.test.ts).
+      expect(tobyClient?.redirect_uris).toEqual([]);
     });
 
     it('should export API_AUDIENCE constant', async () => {
@@ -201,7 +203,7 @@ describe('OIDC Provider - Market Client Integration', () => {
   describe('Non-Market Client Logic (Default Path)', () => {
     it('should use UserModel for non-market clients (desktop client)', () => {
       // Desktop client should use the default user database lookup
-      const desktopClientId = 'lobehub-desktop';
+      const desktopClientId = 'tituwork-desktop';
       expect(desktopClientId).not.toBe(MARKET_CLIENT_ID);
     });
 
@@ -212,7 +214,7 @@ describe('OIDC Provider - Market Client Integration', () => {
     });
 
     it('should validate non-market client IDs are different from market client', () => {
-      const nonMarketClients = ['lobehub-desktop', 'lobehub-mobile'];
+      const nonMarketClients = ['tituwork-desktop', 'lobehub-mobile'];
 
       nonMarketClients.forEach((clientId) => {
         expect(clientId).not.toBe(MARKET_CLIENT_ID);
@@ -253,12 +255,12 @@ describe('OIDC Provider - Market Client Integration', () => {
       it('should use local UserModel for desktop client', () => {
         // Business: Desktop app uses local database for user management
         const scenario = {
-          client: 'lobehub-desktop',
+          client: 'tituwork-desktop',
           authProvider: 'UserModel (Local Database)',
           useCase: 'Desktop app with local/self-hosted user database',
         };
 
-        expect(scenario.client).toBe('lobehub-desktop');
+        expect(scenario.client).toBe('tituwork-desktop');
         expect(scenario.authProvider).toBe('UserModel (Local Database)');
       });
     });

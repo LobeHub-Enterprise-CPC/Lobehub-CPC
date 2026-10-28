@@ -1,5 +1,5 @@
-import { Flexbox } from '@lobehub/ui';
-import { ActionIcon } from '@lobehub/ui/base-ui';
+import { COMPOSER_AGENT_ONLY_LAYOUT } from '@lobechat/business-const';
+import { ActionIcon, Flexbox } from '@lobehub/ui';
 import { PlusIcon } from 'lucide-react';
 import { memo, type ReactNode, useMemo } from 'react';
 
@@ -10,14 +10,17 @@ import {
   type SendButtonHandler,
 } from '@/features/ChatInput';
 import ActionBar from '@/features/ChatInput/ActionBar';
+import FileUpload from '@/features/ChatInput/ActionBar/Upload';
 import { useChatStore } from '@/store/chat';
 
 import type { HomeMode } from '../types';
 import { HOME_INPUT_BODY_HEIGHT } from './constants';
 import ModeSelect from './ModeSelect';
 
-const leftActions: ActionKeys[] = ['plus'];
-const rightActions: ActionKeys[] = ['model'];
+const leftActions: ActionKeys[] = COMPOSER_AGENT_ONLY_LAYOUT ? ['plus', 'approvalMode'] : ['plus'];
+const rightActions: ActionKeys[] = COMPOSER_AGENT_ONLY_LAYOUT
+  ? ['model', 'voiceDictation']
+  : ['model'];
 
 const CONTAINER_RADIUS = 20;
 /** Clearance from the container edge to the round controls sitting in its corners. */
@@ -99,9 +102,11 @@ const HomeEditorInput = memo<HomeEditorInputProps>(
           showControlBar={false}
           leftContent={
             <Flexbox horizontal align={'center'} gap={2}>
-              <ModeSelect value={mode} onChange={onModeChange} />
-              {mode !== 'chat' ? null : isAgentConfigLoading ? (
+              {!COMPOSER_AGENT_ONLY_LAYOUT && <ModeSelect value={mode} onChange={onModeChange} />}
+              {isAgentConfigLoading ? (
                 <ActionIcon disabled icon={PlusIcon} size={'small'} />
+              ) : mode === 'task' ? (
+                <FileUpload includeKnowledge={false} />
               ) : (
                 <ActionBar disableCollapse dropdownPlacement="bottomLeft" />
               )}

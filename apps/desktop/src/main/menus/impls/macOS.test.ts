@@ -4,7 +4,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { App } from '@/core/App';
 import menuTranslations from '@/locales/default/menu';
 
+import type * as VendorHelp from '../vendorHelp';
 import { MacOSMenu } from './macOS';
+
+// The Help menu's vendor links depend on the build's branding; pin it per test.
+const branding = vi.hoisted(() => ({ rebranded: false }));
+vi.mock('../vendorHelp', async (importOriginal) => {
+  const actual = await importOriginal<typeof VendorHelp>();
+  return {
+    ...actual,
+    vendorHelpItems: (items: Parameters<typeof VendorHelp.vendorHelpItems>[0]) =>
+      actual.vendorHelpItems(items, branding.rebranded),
+    updateDownloadUrl: () =>
+      actual.updateDownloadUrl(branding.rebranded, 'https://app.example.com'),
+  };
+});
 
 // Mock Electron modules
 vi.mock('electron', () => ({
@@ -98,6 +112,7 @@ describe('MacOSMenu', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    branding.rebranded = false;
     mockApp = createMockApp();
     macOSMenu = new MacOSMenu(mockApp);
   });
@@ -205,6 +220,25 @@ describe('MacOSMenu', () => {
       const dockMenu = (app.dock.setMenu as any).mock.calls[0][0];
       expect(dockMenu.template.some((item: any) => item.label === 'Quick Composer')).toBe(true);
     });
+
+    it('should rebuild the dock menu with active topics and leave out system-provided items', () => {
+      macOSMenu.updateDockMenu({
+        activeTopics: [
+          { status: 'running', subtitle: 'Researcher', title: 'Refactor auth', url: '/agent/a/t1' },
+        ],
+        agents: [{ id: 'a', title: 'Researcher', url: '/agent/a' }],
+        pinned: [],
+        recent: [],
+      });
+
+      const labels = (app.dock.setMenu as any).mock.calls[0][0].template.map(
+        (item: any) => item.label,
+      );
+      expect(labels.slice(0, 2)).toEqual(['Running', 'Refactor auth']);
+      expect(labels).not.toContain('Recent Agents');
+      expect(labels).not.toContain('Quit');
+      expect(labels).not.toContain('Settings');
+    });
   });
 
   describe('refresh', () => {
@@ -219,6 +253,22 @@ describe('MacOSMenu', () => {
       macOSMenu.refresh({ showDevItems: true });
 
       expect(Menu.buildFromTemplate).toHaveBeenCalled();
+    });
+  });
+
+  describe('rebranded build', () => {
+    it('omits the vendor website, repository and issue links from Help', () => {
+      branding.rebranded = true;
+      macOSMenu.buildAndSetAppMenu();
+
+      const template = (Menu.buildFromTemplate as any).mock.calls[0][0];
+      const helpMenu = template.find((item: any) => item.label === 'Help');
+      const labels = helpMenu.submenu.map((item: any) => item.label);
+
+      for (const label of ['Open Website', 'GitHub Repository', 'Send Feedback'])
+        expect(labels).not.toContain(label);
+      expect(helpMenu.submenu[0].type).not.toBe('separator');
+      expect(shell.openExternal).not.toHaveBeenCalled();
     });
   });
 

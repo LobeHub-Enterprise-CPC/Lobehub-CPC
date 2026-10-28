@@ -10,7 +10,8 @@ import { createEditorFileUploadTracker } from './editorFileUploadTracker';
 import InternalEditor from './InternalEditor';
 import { LinearFileCard } from './LinearFilePlugin';
 
-vi.mock('@lobehub/ui/base-ui', () => ({
+vi.mock('@lobehub/ui', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   ActionIcon: ({ onClick, title }: { onClick?: () => void; title?: string }) => (
     <button aria-label={title} type="button" onClick={onClick} />
   ),
@@ -44,6 +45,7 @@ vi.mock('@lobehub/editor', () => ({
   ReactImagePlugin: vi.fn(),
   ReactLinkPlugin: vi.fn(),
   ReactLiteXmlPlugin: vi.fn(),
+  ReactMathPlugin: vi.fn(),
   ReactMentionPlugin: vi.fn(),
   ReactTablePlugin: vi.fn(),
   ReactToolbarPlugin: vi.fn(),
@@ -68,7 +70,8 @@ vi.mock('./useImageUpload', () => ({
   useImageUpload: () => vi.fn(),
 }));
 
-vi.mock('@lobechat/const', () => ({
+vi.mock('@lobechat/const', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   isDesktop: false,
 }));
 

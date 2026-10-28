@@ -8,5 +8,9 @@
     "dev": "vite-node --watch --config viteNodeServer.config.ts src/router-hono/dev.ts",
     "start": "node dist/standalone.js",
     "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lobechat/business-tenant": "workspace:*",
+    "lru-cache": "11.5.3"
   }
 }

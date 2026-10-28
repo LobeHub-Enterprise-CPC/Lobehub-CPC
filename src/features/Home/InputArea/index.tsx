@@ -1,6 +1,5 @@
-import { EXTERNAL_INTEGRATIONS_ENABLED } from '@lobechat/business-const';
-import { Flexbox } from '@lobehub/ui';
-import { createStaticStyles } from 'antd-style';
+import { EXTERNAL_INTEGRATIONS_ENABLED, HOME_COMPOSER_AGENT_DOCK } from '@lobechat/business-const';
+import { createStaticStyles, Flexbox } from '@lobehub/ui';
 import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -14,6 +13,7 @@ import { systemStatusSelectors } from '@/store/global/selectors';
 
 import { HOME_NEW_MODELS_BANNER_ID, NewModelShortcuts } from '../NewModelShortcuts';
 import type { HomeMode } from '../types';
+import AgentDock, { AgentDockAvatar } from './AgentDock';
 import { HOME_INPUT_RESERVED_HEIGHT } from './constants';
 import { EditorSlot } from './EditorSlot';
 import { stripMarkdownLinks } from './hintFormat';
@@ -46,10 +46,10 @@ const InputArea = ({
 }: InputAreaProps) => {
   const { t } = useTranslation('home');
   const { agentId, contextSelectionKey, loading, send } = useSend(mode);
-  // Subscribe to the SWR key so `internal_refreshAgentConfig`'s `mutate(...)`
-  // has a listener after toggleFile / toggleKnowledgeBase — otherwise the
-  // Library submenu doesn't reflect server-side toggles. Pass `agentId`
-  // explicitly so AgentSelect switches refetch too.
+  // Mount the config sync so `internal_refreshAgentConfig`'s revalidation has
+  // a listener after toggleFile / toggleKnowledgeBase — otherwise the Library
+  // submenu doesn't reflect server-side toggles. Pass `agentId` explicitly so
+  // AgentSelect switches refetch too.
   useInitAgentConfig(agentId);
   // Use the "config absent from agentMap" loading shape (same as Memory /
   // Search / History) instead of SWR's `isLoading`, which would flash on
@@ -101,18 +101,20 @@ const InputArea = ({
 
   return (
     <Flexbox>
-      <Flexbox ref={chatInputRef}>
-        {mode === 'chat' ? (
-          <InputDragUpload
-            radius={20}
-            style={{ position: 'relative', zIndex: 1 }}
-            onUploadFiles={handleUploadFiles}
-          >
-            {editorSlot}
-          </InputDragUpload>
-        ) : (
-          editorSlot
-        )}
+      <Flexbox
+        data-brand-slot={'home-composer'}
+        ref={chatInputRef}
+        style={HOME_COMPOSER_AGENT_DOCK ? { position: 'relative' } : undefined}
+      >
+        {HOME_COMPOSER_AGENT_DOCK && <AgentDockAvatar />}
+        <InputDragUpload
+          radius={20}
+          style={{ position: 'relative', zIndex: 1 }}
+          onUploadFiles={handleUploadFiles}
+        >
+          {editorSlot}
+        </InputDragUpload>
+        {HOME_COMPOSER_AGENT_DOCK && <AgentDock mode={mode} />}
         {showInputBanners && (
           <InputBannerQueue>
             {showNewModelShortcuts && (

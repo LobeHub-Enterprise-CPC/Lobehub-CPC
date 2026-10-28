@@ -280,6 +280,31 @@ describe('LobeSiliconCloudAI - custom features', () => {
     });
   });
 
+  describe('error body over an injected transport', () => {
+    // A user endpoint replaces the provider's own fetch with the SSRF-safe one; the
+    // flat SiliconCloud error body must still reach handleError intact.
+    it('keeps the flat SiliconCloud error body', async () => {
+      const runtime = new LobeSiliconCloudAI({
+        apiKey: 'test_api_key',
+        baseURL: 'https://silicon.example.com/v1',
+        fetch: async () =>
+          Response.json(
+            { code: 20015, data: null, message: 'model does not support `enable_thinking`' },
+            { status: 400 },
+          ),
+      });
+
+      const error: any = await runtime
+        .chat({ messages: [{ content: 'Hello', role: 'user' }], model: 'Qwen/Qwen3-8B' })
+        .catch((e) => e);
+
+      expect(error.error).toMatchObject({
+        code: 20015,
+        message: 'model does not support `enable_thinking`',
+      });
+    });
+  });
+
   describe('models', () => {
     it('should fetch and process model list correctly', async () => {
       const mockModelList: SiliconCloudModelCard[] = [

@@ -1,3 +1,4 @@
+import { CLI_PRIMARY_BIN } from '@lobechat/business-const';
 import type { UIChatMessage } from '@lobechat/types';
 
 import { agentService } from '@/services/agent';
@@ -114,7 +115,7 @@ export class ChatForwardActionImpl {
     const cliInstruction = [
       `Use the application CLI to read the full conversation history for topic ${topicId}:`,
       '',
-      `lh topic view ${topicId} -L 500`,
+      `${CLI_PRIMARY_BIN} topic view ${topicId} -L 500`,
       '',
       'Every message it prints is the context from the previous Agent. If the topic has more than 500 messages, page through the remainder with --from and --to. Continue the work from where it left off and handle the remaining request item by item.',
       'If the CLI is unavailable, continue using the conversation transcript included below.',

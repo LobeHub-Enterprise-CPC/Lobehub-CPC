@@ -4,6 +4,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { taskDetailPath } from '@/features/AgentTasks/shared/taskDetailPath';
 import type { SendButtonHandler } from '@/features/ChatInput/store/initialState';
 
 import { useSend } from './useSend';
@@ -22,6 +23,11 @@ const createTaskMock = vi.hoisted(() => vi.fn());
 const runTaskMock = vi.hoisted(() => vi.fn());
 const toggleTaskAgentPanelMock = vi.hoisted(() => vi.fn());
 const messageErrorMock = vi.hoisted(() => vi.fn());
+const messageSuccessMock = vi.hoisted(() => vi.fn());
+const createProjectTopicMock = vi.hoisted(() => vi.fn());
+const summaryTopicTitleMock = vi.hoisted(() => vi.fn());
+const setHomeSelectedProjectIdMock = vi.hoisted(() => vi.fn());
+const flags = vi.hoisted(() => ({ agentProfileNavigation: false, projectFirst: false }));
 
 const chatState = vi.hoisted(() => ({
   inputMessage: 'hello',
@@ -30,6 +36,7 @@ const chatState = vi.hoisted(() => ({
     getJSONState: vi.fn(() => ({ type: 'doc' })),
   },
   sendMessage: sendMessageMock,
+  summaryTopicTitle: summaryTopicTitleMock,
 }));
 
 const fileState = vi.hoisted(() => ({
@@ -40,19 +47,23 @@ const fileState = vi.hoisted(() => ({
   restoreChatContextSelections: restoreChatContextSelectionsMock,
 }));
 
+const refreshRecentsMock = vi.hoisted(() => vi.fn());
 const homeState = vi.hoisted(() => ({
   agentGroups: [],
   homeInputLoading: false,
+  homeSelectedProjectId: undefined as string | undefined,
   inputActiveMode: null as any,
   isAgentListInit: true,
   pinnedAgents: [],
   privateAgentGroups: [],
   privatePinnedAgents: [],
+  refreshRecents: refreshRecentsMock,
   privateUngroupedAgents: [],
   sendAsAgent: vi.fn(),
   sendAsGroup: vi.fn(),
   sendAsResearch: vi.fn(),
   sendAsWrite: vi.fn(),
+  setHomeSelectedProjectId: setHomeSelectedProjectIdMock,
   ungroupedAgents: [] as any[],
 }));
 
@@ -91,9 +102,24 @@ const activeWorkspaceIdMock = vi.hoisted(() => ({
   value: null as string | null,
 }));
 
-vi.mock('@lobehub/ui/base-ui', async (importOriginal) => ({
+// Distributions flip this slot constant; pin it so both layouts are covered.
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  toast: { error: messageErrorMock },
+  get AGENT_PROFILE_NAVIGATION() {
+    return flags.agentProfileNavigation;
+  },
+  get PROJECT_FIRST_NAVIGATION() {
+    return flags.projectFirst;
+  },
+}));
+
+vi.mock('@/store/projectWorkingDirectory', () => ({
+  useProjectDirectoryStore: { getState: () => ({ createProjectTopic: createProjectTopicMock }) },
+}));
+
+vi.mock('@lobehub/ui', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  toast: { error: messageErrorMock, success: messageSuccessMock },
 }));
 
 vi.mock('@/hooks/usePermission', () => ({
@@ -180,12 +206,28 @@ describe('Home InputArea useSend', () => {
     sendMessageMock.mockReset();
     clearContentMock.mockReset();
     clearChatUploadFileListMock.mockReset();
+    clearChatUploadFileListMock.mockImplementation((submittedIds?: string[]) => {
+      fileState.chatUploadFileList = submittedIds
+        ? fileState.chatUploadFileList.filter(
+            (file: { id: string }) => !submittedIds.includes(file.id),
+          )
+        : [];
+    });
     clearChatContextSelectionsMock.mockReset();
     restoreChatContextSelectionsMock.mockReset();
     createTaskMock.mockReset();
     runTaskMock.mockReset();
     toggleTaskAgentPanelMock.mockReset();
     messageErrorMock.mockReset();
+    messageSuccessMock.mockReset();
+    createProjectTopicMock.mockReset();
+    summaryTopicTitleMock.mockReset();
+    summaryTopicTitleMock.mockResolvedValue(undefined);
+    setHomeSelectedProjectIdMock.mockReset();
+    flags.projectFirst = false;
+    flags.agentProfileNavigation = false;
+    refreshRecentsMock.mockReset();
+    homeState.homeSelectedProjectId = undefined;
     homeDailyBriefState.advance.mockReset();
     homeDailyBriefState.currentPair = undefined;
     chatState.inputMessage = 'hello';
@@ -199,7 +241,7 @@ describe('Home InputArea useSend', () => {
     activeWorkspaceIdMock.value = null;
   });
 
-  it('creates and starts a private workspace task with the selected Agent', async () => {
+  it('creates a private workspace task without starting it', async () => {
     activeWorkspaceIdMock.value = 'workspace-1';
     globalState.systemStatus.homeSelectedAgentId = 'agt_custom';
     homeState.ungroupedAgents = [{ id: 'agt_custom', type: 'agent' }];
@@ -208,7 +250,6 @@ describe('Home InputArea useSend', () => {
       assigneeAgentId: 'agt_custom',
       identifier: 'T-26',
     });
-    runTaskMock.mockResolvedValue({ topicId: 'tpc-26' });
     const { result } = renderHook(() => useSend('task'));
     const params: Parameters<SendButtonHandler>[0] = {
       clearContent: vi.fn(),
@@ -228,10 +269,26 @@ describe('Home InputArea useSend', () => {
       name: 'Prepare the weekly report',
       visibility: 'private',
     });
-    expect(runTaskMock).toHaveBeenCalledWith('T-26', undefined, { throwOnError: true });
+    // Task mode records the task; it must not launch a run, open the task
+    // panel, or navigate away from Home.
+    expect(runTaskMock).not.toHaveBeenCalled();
+    expect(toggleTaskAgentPanelMock).not.toHaveBeenCalled();
+    expect(routerMock.push).not.toHaveBeenCalled();
     expect(sendMessageMock).not.toHaveBeenCalled();
-    expect(toggleTaskAgentPanelMock).toHaveBeenCalledWith(true);
-    expect(routerMock.push).toHaveBeenCalledWith('/tasks?agentId=agt_custom&topicId=tpc-26');
+    expect(messageSuccessMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'dashboard.task.created' }),
+    );
+    // The toast is the only handle on the task once the composer is cleared, so
+    // its action must open that task rather than just dismiss the toast.
+    const [{ actions }] = messageSuccessMock.mock.calls.at(-1) as [
+      { actions: { label: string; onClick: () => void }[] },
+    ];
+    expect(actions).toHaveLength(1);
+    expect(actions[0].label).toBe('taskIntent.openCreated');
+    actions[0].onClick();
+    expect(routerMock.push).toHaveBeenCalledWith(
+      taskDetailPath('T-26', 'agt_custom', 'Prepare the weekly report'),
+    );
     expect(clearContentMock).toHaveBeenCalledTimes(1);
   });
 
@@ -257,9 +314,16 @@ describe('Home InputArea useSend', () => {
     expect(messageErrorMock).toHaveBeenCalledWith('dashboard.submitFailed');
   });
 
-  it('keeps the draft and stays on Home when task execution fails', async () => {
-    createTaskMock.mockResolvedValue({ assigneeAgentId: 'agt_inbox', identifier: 'T-27' });
-    runTaskMock.mockRejectedValue(new Error('run failed'));
+  it('keeps the draft and stays on Home when task creation throws', async () => {
+    fileState.chatUploadFileList = [
+      {
+        id: 'file-1',
+        file: new File(['report'], 'report.pdf'),
+        fileUrl: 'https://example.com/f/file-1',
+        status: 'success',
+      },
+    ] as any;
+    createTaskMock.mockRejectedValue(new Error('create failed'));
     const { result } = renderHook(() => useSend('task'));
     const params: Parameters<SendButtonHandler>[0] = {
       clearContent: vi.fn(),
@@ -272,16 +336,24 @@ describe('Home InputArea useSend', () => {
       await result.current.send(params);
     });
 
+    expect(runTaskMock).not.toHaveBeenCalled();
     expect(routerMock.push).not.toHaveBeenCalled();
     expect(clearContentMock).not.toHaveBeenCalled();
+    expect(clearChatUploadFileListMock).not.toHaveBeenCalled();
+    expect(messageSuccessMock).not.toHaveBeenCalled();
     expect(messageErrorMock).toHaveBeenCalledWith('dashboard.submitFailed');
   });
 
-  it('reuses the created task when retrying after its first run fails', async () => {
-    createTaskMock.mockResolvedValue({ assigneeAgentId: 'agt_inbox', identifier: 'T-28' });
-    runTaskMock
-      .mockRejectedValueOnce(new Error('run failed'))
-      .mockResolvedValueOnce({ topicId: 'tpc-28' });
+  it('persists uploaded attachments when creating a task', async () => {
+    fileState.chatUploadFileList = [
+      {
+        id: 'file-1',
+        file: new File(['report'], 'report.pdf', { type: 'application/pdf' }),
+        fileUrl: 'https://example.com/f/file-1',
+        status: 'success',
+      },
+    ] as any;
+    createTaskMock.mockResolvedValue({ identifier: 'T-27' });
     const { result } = renderHook(() => useSend('task'));
     const params: Parameters<SendButtonHandler>[0] = {
       clearContent: vi.fn(),
@@ -291,39 +363,80 @@ describe('Home InputArea useSend', () => {
     };
 
     await act(async () => {
-      await result.current.send(params);
       await result.current.send(params);
     });
 
     expect(createTaskMock).toHaveBeenCalledTimes(1);
-    expect(runTaskMock).toHaveBeenCalledTimes(2);
-    expect(runTaskMock).toHaveBeenNthCalledWith(2, 'T-28', undefined, { throwOnError: true });
-    expect(toggleTaskAgentPanelMock).toHaveBeenCalledWith(true);
-    expect(routerMock.push).toHaveBeenCalledWith('/tasks?agentId=agt_inbox&topicId=tpc-28');
+    const created = createTaskMock.mock.calls[0][0];
+    expect(created.editorData.root.children).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          children: [
+            expect.objectContaining({
+              type: 'file',
+              fileUrl: 'https://example.com/f/file-1',
+              name: 'report.pdf',
+              status: 'uploaded',
+            }),
+          ],
+        }),
+      ]),
+    );
+    expect(clearChatUploadFileListMock).toHaveBeenCalledTimes(1);
+    expect(messageErrorMock).not.toHaveBeenCalled();
   });
 
-  it('does not discard attachments that Task mode cannot persist', async () => {
-    fileState.chatUploadFileList = [{ id: 'file-1' }] as any;
+  it('preserves uploads added while task creation is pending', async () => {
+    const submittedFile = {
+      id: 'submitted',
+      file: new File(['first'], 'first.txt'),
+      fileUrl: 'https://example.com/first',
+      status: 'success',
+    };
+    const newFile = {
+      id: 'new-upload',
+      file: new File(['second'], 'second.txt'),
+      status: 'uploading',
+    };
+    fileState.chatUploadFileList = [submittedFile] as any;
+    let completeCreation!: (value: { identifier: string }) => void;
+    createTaskMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          completeCreation = resolve;
+        }),
+    );
     const { result } = renderHook(() => useSend('task'));
     const params: Parameters<SendButtonHandler>[0] = {
       clearContent: vi.fn(),
       editor: {} as Parameters<SendButtonHandler>[0]['editor'],
-      getEditorData: () => ({ type: 'doc' }),
-      getMarkdownContent: () => 'Prepare the weekly report',
+      getEditorData: () => undefined,
+      getMarkdownContent: () => 'First task',
     };
-
-    await act(async () => {
-      await result.current.send(params);
+    let submission!: Promise<void>;
+    act(() => {
+      submission = Promise.resolve(result.current.send(params));
     });
-
-    expect(createTaskMock).not.toHaveBeenCalled();
-    expect(clearChatUploadFileListMock).not.toHaveBeenCalled();
-    expect(messageErrorMock).toHaveBeenCalledWith('dashboard.task.unsupportedContext');
+    fileState.chatUploadFileList = [submittedFile, newFile] as any;
+    await act(async () => {
+      completeCreation({ identifier: 'T-28' });
+      await submission;
+    });
+    expect(fileState.chatUploadFileList).toEqual([newFile]);
+    expect(JSON.stringify(createTaskMock.mock.calls[0][0].editorData)).not.toContain('second.txt');
   });
 
-  it('explains why an attachment-only Task submission cannot proceed', async () => {
+  it('creates a task from an attachment-only submission', async () => {
     chatState.inputMessage = '';
-    fileState.chatUploadFileList = [{ id: 'file-1' }] as any;
+    fileState.chatUploadFileList = [
+      {
+        id: 'file-1',
+        file: new File(['report'], 'report.pdf', { type: 'application/pdf' }),
+        fileUrl: 'https://example.com/f/file-1',
+        status: 'success',
+      },
+    ] as any;
+    createTaskMock.mockResolvedValue({ identifier: 'T-27' });
     const { result } = renderHook(() => useSend('task'));
     const params: Parameters<SendButtonHandler>[0] = {
       clearContent: vi.fn(),
@@ -336,10 +449,49 @@ describe('Home InputArea useSend', () => {
       await result.current.send(params);
     });
 
-    expect(createTaskMock).not.toHaveBeenCalled();
-    expect(clearChatUploadFileListMock).not.toHaveBeenCalled();
-    expect(messageErrorMock).toHaveBeenCalledWith('dashboard.task.unsupportedContext');
+    expect(createTaskMock).toHaveBeenCalledTimes(1);
+    const created = createTaskMock.mock.calls[0][0];
+    expect(created.instruction).toBe('report.pdf');
+    expect(created.name).toBe('report.pdf');
+    expect(created.editorData.root.children).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          children: [
+            expect.objectContaining({
+              type: 'file',
+              fileUrl: 'https://example.com/f/file-1',
+              name: 'report.pdf',
+              status: 'uploaded',
+            }),
+          ],
+        }),
+      ]),
+    );
+    expect(clearChatUploadFileListMock).toHaveBeenCalledTimes(1);
+    expect(messageErrorMock).not.toHaveBeenCalled();
   });
+
+  it.each(['pending', 'uploading', 'error'])(
+    'retains the attachment draft when upload is %s',
+    async (status) => {
+      fileState.chatUploadFileList = [
+        { id: 'file-1', file: new File(['report'], 'report.pdf'), status },
+      ] as any;
+      const { result } = renderHook(() => useSend('task'));
+      await act(async () => {
+        await result.current.send({
+          clearContent: vi.fn(),
+          editor: {} as Parameters<SendButtonHandler>[0]['editor'],
+          getMarkdownContent: () => 'Report',
+          getEditorData: () => undefined,
+        });
+      });
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(clearContentMock).not.toHaveBeenCalled();
+      expect(clearChatUploadFileListMock).not.toHaveBeenCalled();
+      expect(messageErrorMock).toHaveBeenCalledWith('dashboard.task.attachmentsNotReady');
+    },
+  );
 
   it('routes cold homepage sends to the created topic instead of relying on ChatHydration timing', async () => {
     const { result } = renderHook(() => useSend());
@@ -373,6 +525,110 @@ describe('Home InputArea useSend', () => {
     });
 
     expect(routerMock.replace).toHaveBeenCalledWith('/agent/agt_inbox/tpc_created');
+  });
+
+  it('lists the created conversation in "Recent" once the server has it', async () => {
+    flags.agentProfileNavigation = true;
+    const { result } = renderHook(() => useSend());
+
+    await act(async () => {
+      await result.current.send({
+        clearContent: vi.fn(),
+        editor: {} as Parameters<SendButtonHandler>[0]['editor'],
+        getEditorData: () => undefined,
+        getMarkdownContent: () => 'hello',
+      });
+    });
+    expect(refreshRecentsMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await sendMessageMock.mock.calls[0][0].onTopicCreated('tpc_created');
+    });
+
+    expect(refreshRecentsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('files a conversation under the project picked on Home', async () => {
+    flags.projectFirst = true;
+    homeState.homeSelectedProjectId = 'prj_1';
+    createProjectTopicMock.mockResolvedValue({ id: 'tpc_project' });
+
+    const { result } = renderHook(() => useSend());
+    const params: Parameters<SendButtonHandler>[0] = {
+      clearContent: vi.fn(),
+      editor: {} as Parameters<SendButtonHandler>[0]['editor'],
+      getEditorData: () => undefined,
+      getMarkdownContent: () => 'draft the proposal',
+    };
+
+    await act(async () => {
+      await result.current.send(params);
+    });
+
+    // The topic exists in the project before the message goes into it.
+    expect(createProjectTopicMock).toHaveBeenCalledWith({
+      agentId: 'agt_inbox',
+      projectId: 'prj_1',
+      title: 'draft the proposal',
+    });
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: { agentId: 'agt_inbox', topicId: 'tpc_project' },
+        message: 'draft the proposal',
+      }),
+    );
+    expect(sendMessageMock.mock.calls[0][0].context.isolatedTopic).toBeUndefined();
+    expect(summaryTopicTitleMock).toHaveBeenCalledWith('tpc_project', [
+      expect.objectContaining({ content: 'draft the proposal', role: 'user' }),
+    ]);
+    expect(routerMock.push).toHaveBeenCalledWith('/project/prj_1/conversation/tpc_project');
+    // The pick lasts for one conversation.
+    expect(setHomeSelectedProjectIdMock).toHaveBeenCalledWith(undefined);
+    expect(clearContentMock).toHaveBeenCalled();
+  });
+
+  it('keeps the draft when the project topic could not be created', async () => {
+    flags.projectFirst = true;
+    homeState.homeSelectedProjectId = 'prj_1';
+    createProjectTopicMock.mockRejectedValue(new Error('Project not found or access denied'));
+
+    const { result } = renderHook(() => useSend());
+    const params: Parameters<SendButtonHandler>[0] = {
+      clearContent: vi.fn(),
+      editor: {} as Parameters<SendButtonHandler>[0]['editor'],
+      getEditorData: () => undefined,
+      getMarkdownContent: () => 'draft the proposal',
+    };
+
+    await act(async () => {
+      await result.current.send(params);
+    });
+
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(routerMock.push).not.toHaveBeenCalled();
+    expect(setHomeSelectedProjectIdMock).not.toHaveBeenCalled();
+    expect(clearContentMock).not.toHaveBeenCalled();
+  });
+
+  it('ignores a picked project where projects do not lead navigation', async () => {
+    homeState.homeSelectedProjectId = 'prj_1';
+
+    const { result } = renderHook(() => useSend());
+    const params: Parameters<SendButtonHandler>[0] = {
+      clearContent: vi.fn(),
+      editor: {} as Parameters<SendButtonHandler>[0]['editor'],
+      getEditorData: () => undefined,
+      getMarkdownContent: () => 'hello',
+    };
+
+    await act(async () => {
+      await result.current.send(params);
+    });
+
+    expect(createProjectTopicMock).not.toHaveBeenCalled();
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({ context: { agentId: 'agt_inbox', isolatedTopic: true } }),
+    );
   });
 
   it('sends chat-mode messages to the Agent selected on Home', async () => {

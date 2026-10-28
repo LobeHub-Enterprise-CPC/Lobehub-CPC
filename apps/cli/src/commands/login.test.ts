@@ -148,6 +148,8 @@ describe('login command', () => {
       expect.objectContaining({
         accessToken: 'new-token',
         refreshToken: 'refresh-tok',
+        // The tokens are only ever sent back to the server that issued them.
+        serverUrl: 'https://app.lobehub.com',
       }),
     );
     expect(saveSettings).toHaveBeenCalledWith({ serverUrl: 'https://app.lobehub.com' });
@@ -248,7 +250,7 @@ describe('login command', () => {
     });
   });
 
-  it('should clear existing gateway when logging into a different server', async () => {
+  it("keeps the old server's gateway with it when logging into a different server", async () => {
     vi.mocked(loadSettings).mockReturnValueOnce({
       gatewayUrl: 'https://gateway.example.com',
       serverUrl: 'https://old.example.com',
@@ -260,7 +262,26 @@ describe('login command', () => {
     const program = createProgram();
     await runLoginAndAdvanceTimers(program, ['--server', 'https://new.example.com/']);
 
-    expect(saveSettings).toHaveBeenCalledWith({ serverUrl: 'https://new.example.com' });
+    // Bound to the old server, so the new login never connects to it.
+    expect(saveSettings).toHaveBeenCalledWith({
+      deviceGatewayUrls: { 'https://old.example.com': 'https://gateway.example.com' },
+      serverUrl: 'https://new.example.com',
+    });
+  });
+
+  it('keeps a gateway saved with official cloud for official cloud when logging in elsewhere', async () => {
+    vi.mocked(loadSettings).mockReturnValueOnce({ gatewayUrl: 'http://localhost:8788' });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(deviceAuthResponse())
+      .mockResolvedValueOnce(tokenSuccessResponse());
+
+    const program = createProgram();
+    await runLoginAndAdvanceTimers(program, ['--server', 'https://new.example.com/']);
+
+    expect(saveSettings).toHaveBeenCalledWith({
+      deviceGatewayUrls: { 'https://app.lobehub.com': 'http://localhost:8788' },
+      serverUrl: 'https://new.example.com',
+    });
   });
 
   it('should strip trailing slash from server URL', async () => {
@@ -272,6 +293,23 @@ describe('login command', () => {
     await runLoginAndAdvanceTimers(program, ['--server', 'https://test.com/']);
 
     expect(fetch).toHaveBeenCalledWith('https://test.com/oidc/device/auth', expect.any(Object));
+  });
+
+  it('should keep the tenant path of the server for every OIDC endpoint', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(deviceAuthResponse())
+      .mockResolvedValueOnce(tokenSuccessResponse());
+
+    const program = createProgram();
+    await runLoginAndAdvanceTimers(program, ['--server', 'https://host/t/acme/']);
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      'https://host/t/acme/oidc/device/auth',
+      expect.any(Object),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(2, 'https://host/t/acme/oidc/token', expect.any(Object));
+    expect(saveSettings).toHaveBeenCalledWith({ serverUrl: 'https://host/t/acme' });
   });
 
   it('should handle device auth failure', async () => {

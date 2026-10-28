@@ -82,6 +82,8 @@ vi.mock('@/database/models/file', () => ({
 vi.mock('@lobechat/observability-otel/modules/agent-runtime', () => ({
   tracer: {
     startActiveSpan: (_name: string, fn: (span: unknown) => unknown) => fn(discoverySpan),
+    // Marked blocks (`openStageMark`) open a plain span.
+    startSpan: () => discoverySpan,
   },
 }));
 
@@ -246,13 +248,6 @@ vi.mock('@/server/services/connector/refresh', () => ({
   scheduleStaleConnectorToolsRefresh: mockScheduleStaleConnectorToolsRefresh,
 }));
 
-// The share path's atomic cap reservations open real DB transactions — stub
-// them so this test can drive execAgent with a bare mock db.
-vi.mock('../../shareVisitorAbuseGuards', () => ({
-  reserveShareVisitorTopic: vi.fn().mockResolvedValue({ id: 'topic-1' }),
-  reserveShareVisitorTurn: vi.fn().mockResolvedValue({ id: 'msg-1' }),
-}));
-
 vi.mock('model-bank', async (importOriginal) => {
   const actual = await importOriginal<typeof ModelBankModule>();
   return {
@@ -371,3 +366,8 @@ describe('discoverTools - independent reads run together', () => {
     expect(installedIds).not.toContain('gmail');
   }, 15_000);
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite', () => ({
+  assertGatewayProviderCapability: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('@/server/services/gatewayAuthorization');
