@@ -1,6 +1,10 @@
 import { defineConfig } from 'tsdown';
 
 export default defineConfig({
+  // Shared packages import `buffer.js`, a root-only alias of the npm `buffer`
+  // polyfill that browser bundles need. The CLI runs on Node and may be built
+  // from an install without the root alias, so use the native module.
+  alias: { 'buffer.js': 'node:buffer' },
   banner: { js: '#!/usr/bin/env node' },
   clean: true,
   deps: {

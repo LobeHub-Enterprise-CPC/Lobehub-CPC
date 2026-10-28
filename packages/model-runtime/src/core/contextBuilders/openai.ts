@@ -1,6 +1,6 @@
 import { ssrfSafeFetch } from '@lobechat/ssrf-safe-fetch';
 import { imageUrlToBase64, videoUrlToBase64 } from '@lobechat/utils';
-import { Buffer } from 'buffer';
+import { Buffer } from 'buffer.js';
 import type OpenAI from 'openai';
 import { toFile } from 'openai';
 
