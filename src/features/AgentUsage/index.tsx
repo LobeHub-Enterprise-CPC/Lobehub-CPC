@@ -69,6 +69,7 @@ const AgentUsage = memo(() => {
   return (
     <Flexbox height={'100%'} width={'100%'}>
       <NavHeader
+        data-brand-slot={'agent-profile-nav'}
         // No section title — the Segmented beside it names the current tab.
         left={activeAgentId ? <AgentBreadcrumb agentId={activeAgentId} /> : null}
         // `relative` anchors the absolutely-centered switcher below.
