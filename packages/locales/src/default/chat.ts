@@ -1906,11 +1906,6 @@ export default {
   'shareModal.withPluginInfo': 'Include Skill Information',
   'shareModal.withRole': 'Include Message Role',
   'shareModal.withSystemRole': 'Include Agent Profile',
-  'sharePage.explain.action': 'Copy for AI',
-  'sharePage.explain.copied': 'Prompt copied. Paste it into any AI chat.',
-  'sharePage.explain.failed': 'Could not copy the prompt. Please try again.',
-  'sharePage.explain.prompt':
-    'Take a look at this conversation. Briefly tell me what it is about and what is worth noticing:\n{{url}}',
   'sharePage.actions.tryItYourself': 'Try it yourself',
   'sharePage.error.forbidden.subtitle': 'This share is private and not accessible.',
   'sharePage.error.forbidden.title': 'Access Denied',

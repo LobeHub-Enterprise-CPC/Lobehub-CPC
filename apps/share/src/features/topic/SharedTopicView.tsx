@@ -16,7 +16,6 @@ import { type SharedTopicData } from '@/types/topic';
 
 import { clientOnly } from '../../shell/clientOnly';
 import ShareLayout from '../../shell/ShareLayout';
-import ExplainTopic from './ExplainTopic';
 import {
   primeSharedTopicMessages,
   type SharedTopicFirstPage,
@@ -74,7 +73,6 @@ const SharedTopicView = memo<SharedTopicViewProps>(({ messageReadMode }) => {
 
   return (
     <ShareLayout
-      actions={id && data?.visibility === 'link' ? <ExplainTopic shareId={id} /> : undefined}
       aside={<SharedTopicAside />}
       contentWidth={wideScreen ? undefined : CONVERSATION_MIN_WIDTH}
       error={error}
