@@ -86,8 +86,13 @@ const runMigrations = async () => {
     async migrate(ctx: Parameters<PostgresTenantDatabaseExecutor['migrate']>[0]) {
       // After waiting for the startup lock, followers verify the journals and
       // runtime permissions without rerunning any completed migration chain.
+      // Lookup grants count too: a release that grants the lookup role another
+      // column has no pending migration, and only `migrate` applies owner grants.
       await migrateUnlessReady(
-        () => this.verify({ bundle: ctx.bundle, tenantId: ctx.tenantId }),
+        async () => {
+          await this.verify({ bundle: ctx.bundle, tenantId: ctx.tenantId });
+          await super.verifyDiscovery({ bundle: ctx.bundle, tenantId: ctx.tenantId });
+        },
         () => super.migrate(ctx),
       );
     }

@@ -501,7 +501,8 @@ export const useSignIn = () => {
 
   // A prefilled email (arriving from the organization lookup) carries on by itself, once.
   // Where SSO is offered the user still has a choice to make, so it only hands them the
-  // button; where the terms were not accepted on this origin the click has to be theirs.
+  // button; where the terms were not accepted on this origin it asks for them right away
+  // and carries on once the user agrees, exactly as clicking Continue would.
   const emailParam = searchParams.get('email')?.trim() ?? '';
   const emailSignInEnabled = !disableEmailPassword || enableMagicLink;
   const prefillSettled = mounted && ssoLoaded && !ssoError && !tenantUnavailable;
@@ -517,13 +518,15 @@ export const useSignIn = () => {
     // still holds: an edited address is the user's, and is theirs to submit.
     if (String(form.getValue('email') ?? '').trim() !== emailParam) return;
 
-    if (resolvedProviders.length > 0 || !agreementChecked) {
+    if (resolvedProviders.length > 0) {
       continueButtonRef.current?.focus();
       return;
     }
-    void checkUserRef.current({ email: emailParam });
+    continueWithAgreement(() => {
+      void checkUserRef.current({ email: emailParam });
+    });
   }, [
-    agreementChecked,
+    continueWithAgreement,
     emailParam,
     emailSignInEnabled,
     form,

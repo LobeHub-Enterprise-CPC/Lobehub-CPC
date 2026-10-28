@@ -1,4 +1,7 @@
-import { registerBusinessTenantMigrators } from '@lobechat/business-tenant';
+import {
+  businessTenantAllowList,
+  registerBusinessTenantMigrators,
+} from '@lobechat/business-tenant';
 import {
   getTenantMigrators,
   registerTenantMigrator,
@@ -202,6 +205,11 @@ export class PostgresTenantDatabaseExecutor implements TenantDatabaseExecutor {
       await client.query(
         `GRANT SELECT (email, banned, ban_expires) ON ${schema}.users TO ${ident(ACCOUNT_LOOKUP_ROLE)}`,
       );
+      // A listed address that has not signed up yet is found through the allow-list.
+      if (businessTenantAllowList)
+        await client.query(
+          `GRANT SELECT (${ident(businessTenantAllowList.column)}) ON ${schema}.${ident(businessTenantAllowList.table)} TO ${ident(ACCOUNT_LOOKUP_ROLE)}`,
+        );
       // A schema-level REVOKE cannot subtract the global default PUBLIC EXECUTE.
       // Each schema has its own owner role; remove its global default as well.
       await client.query(
