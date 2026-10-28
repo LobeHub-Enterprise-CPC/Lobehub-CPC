@@ -16,6 +16,7 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
     display: flex;
     flex: 0 0 248px;
     flex-direction: column;
+    min-width: 0;
 
     min-height: 0;
     border-inline-end: 1px solid ${cssVar.colorBorderSecondary};
@@ -73,6 +74,7 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
   `,
   taskItem: css`
     width: 100%;
+    min-width: 0;
     justify-content: flex-start;
     min-height: 56px;
     padding: 6px 8px;
