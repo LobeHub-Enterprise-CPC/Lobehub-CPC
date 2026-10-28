@@ -1,5 +1,11 @@
 import type { LoaderFunctionArgs } from 'react-router';
 
+import {
+  readScheduleFilters,
+  readSchedulePage,
+  scheduleFilterStatuses,
+} from '@/features/AgentTasks/ScheduledTasks/filters';
+
 import { getActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import { PRE_PAINT_HYDRATE_TIMEOUT, settleWithin } from '@/libs/replica/prePaint';
 import { getTaskStoreState } from '@/store/task';
@@ -13,7 +19,11 @@ export const scheduledTaskListLoader = async ({
   params,
   request,
 }: Pick<LoaderFunctionArgs, 'params' | 'request'>): Promise<null> => {
-  if (new URL(request.url).searchParams.get('collection') !== 'scheduled') return null;
+  const searchParams = new URL(request.url).searchParams;
+  if ((params.aid || params.projectId) && searchParams.get('collection') !== 'scheduled')
+    return null;
+  const filters = readScheduleFilters(searchParams);
+  if (!filters.length) return null;
   // The URL → workspace switch runs after the route commits, so while the URL
   // enters another workspace the active scope is still the one being left;
   // reading it would seed the wrong partition. Leave that to the page's sync.
@@ -23,7 +33,9 @@ export const scheduledTaskListLoader = async ({
     getTaskStoreState().preHydrateScheduledTaskList({
       agentId: params.aid,
       limit: TASK_COLLECTION_PAGE_SIZE,
-      offset: 0,
+      offset: (readSchedulePage(searchParams) - 1) * TASK_COLLECTION_PAGE_SIZE,
+      includeFinishedAutomation: true,
+      statuses: scheduleFilterStatuses(filters),
       projectId: params.projectId,
     }),
     PRE_PAINT_HYDRATE_TIMEOUT,

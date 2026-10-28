@@ -1,7 +1,7 @@
 import type { RouteObject } from 'react-router';
 
 import { goalDetailRouteMeta, goalsRouteMeta } from '@/features/AgentGoals/routeMeta';
-import { taskRouteMeta, tasksRouteMeta } from '@/features/AgentTasks/routeMeta';
+import { taskRouteMeta, scheduledTasksRouteMeta } from '@/features/AgentTasks/routeMeta';
 import { scheduledTaskListLoader } from '@/spa/router/scheduledTaskListLoader';
 import { dynamicElement, ErrorBoundary } from '@/utils/router';
 
@@ -17,9 +17,11 @@ export const taskWorkspaceChildren: RouteObject[] = [
         element: dynamicElement(() => import('@/routes/(main)/tasks'), 'Desktop > Tasks', {
           preloadId: 'tasks',
         }),
-        handle: { meta: tasksRouteMeta },
+        handle: { meta: scheduledTasksRouteMeta },
         index: true,
         loader: scheduledTaskListLoader,
+        // Pre-paint hydration is only needed on entry, not on selection/filter changes.
+        shouldRevalidate: ({ currentUrl, nextUrl }) => currentUrl.pathname !== nextUrl.pathname,
       },
     ],
     errorElement: <ErrorBoundary resetPath=".." />,

@@ -1,3 +1,3 @@
 'use client';
 
-export { default } from '@/features/AgentTasks/AgentTaskList/AgentTasksPage';
+export { ScheduledTasksPage as default } from '@/features/AgentTasks/ScheduledTasks/ScheduledTasksPage';

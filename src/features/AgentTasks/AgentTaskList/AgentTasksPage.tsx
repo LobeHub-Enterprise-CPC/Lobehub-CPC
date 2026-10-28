@@ -29,7 +29,7 @@ import { taskListSelectors } from '@/store/task/selectors';
 import { TASK_COLLECTION_PAGE_SIZE } from '@/store/task/slices/list/action';
 
 import { createTaskModal } from '../CreateTaskModal';
-import { ScheduledTasksWorkspace } from '../ScheduledTasks/ScheduledTasksWorkspace';
+import { ScheduledTasksPage } from '../ScheduledTasks/ScheduledTasksPage';
 import Breadcrumb from '../shared/Breadcrumb';
 import { taskDetailPath } from '../shared/taskDetailPath';
 import CreateTaskInlineEntry from './CreateTaskInlineEntry';
@@ -267,7 +267,7 @@ const AgentTasksPage = memo<AgentTasksPageProps>(({ agentId, projectId }) => {
   const scheduledSWR = useFetchScheduledTaskList({
     includeFinishedAutomation: true,
     agentId,
-    enabled: isScheduledCollection,
+    enabled: false,
     limit: COLLECTION_PAGE_SIZE,
     offset: (collectionPage - 1) * COLLECTION_PAGE_SIZE,
     projectId,
@@ -409,24 +409,7 @@ const AgentTasksPage = memo<AgentTasksPageProps>(({ agentId, projectId }) => {
     projectId,
   });
 
-  if (isScheduledCollection)
-    return (
-      <ScheduledTasksWorkspace
-        agentId={agentId}
-        error={scheduledSWR.error}
-        isLoading={scheduledSWR.isLoading}
-        items={collectionTasks}
-        page={collectionPage}
-        pageSize={COLLECTION_PAGE_SIZE}
-        projectId={projectId}
-        total={collectionTasksTotal}
-        onExit={() => handleCollectionChange('tasks')}
-        onPageChange={setCollectionPage}
-        onRefresh={() => {
-          void scheduledSWR.mutate();
-        }}
-      />
-    );
+  if (isScheduledCollection) return <ScheduledTasksPage agentId={agentId} projectId={projectId} />;
 
   const headerLeft = (
     <Flexbox horizontal align={'center'} gap={8}>
