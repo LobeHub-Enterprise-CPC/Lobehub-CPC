@@ -48,7 +48,7 @@ describe('OIDC JWT key rotation', () => {
   });
 
   const signToken = (key: (typeof keys)[keyof typeof keys], kid: string | null = key.kid) =>
-    new SignJWT({ client_id: 'lobehub-desktop' })
+    new SignJWT({ client_id: 'tituwork-desktop' })
       .setProtectedHeader(kid === null ? { alg: 'RS256' } : { alg: 'RS256', kid })
       .setSubject('user-1')
       .setIssuedAt()

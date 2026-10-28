@@ -32,6 +32,17 @@ describe('describeOIDCAuthFailure', () => {
     ).toBe('jwt_no_sub');
   });
 
+  it('names a token issued to a retired desktop client', () => {
+    expect(
+      describeOIDCAuthFailure(
+        new TRPCError({
+          code: 'UNAUTHORIZED',
+          message: 'JWT token was issued to a retired desktop client',
+        }),
+      ),
+    ).toBe('client_retired');
+  });
+
   it('falls back to jwt_invalid', () => {
     expect(describeOIDCAuthFailure(new Error('boom'))).toBe('jwt_invalid');
     expect(describeOIDCAuthFailure('string')).toBe('jwt_invalid');

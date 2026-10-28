@@ -23,6 +23,7 @@ export const describeOIDCAuthFailure = (error: unknown): string => {
   const message = error instanceof Error ? error.message : String(error);
   if (/JWKS/i.test(message)) return 'jwks_error';
   if (/missing user ID/i.test(message)) return 'jwt_no_sub';
+  if (/retired desktop client/i.test(message)) return 'client_retired';
   return 'jwt_invalid';
 };
 
