@@ -16,6 +16,7 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
     display: flex;
     flex: 0 0 248px;
     flex-direction: column;
+    min-width: 0;
 
     min-height: 0;
     border-inline-end: 1px solid ${cssVar.colorBorderSecondary};
@@ -26,8 +27,9 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
   `,
   list: css`
     overflow-y: auto;
+    flex: 1;
     min-height: 0;
-    padding: 12px;
+    padding: 0 12px 12px;
   `,
   detail: css`
     container-type: inline-size;
@@ -44,7 +46,6 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
     }
 
     @media (width <= 767px) {
-      --scheduled-back-display: inline-flex;
       padding-block: 20px;
       padding-inline: 16px;
     }
@@ -68,11 +69,12 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
     display: flex;
     align-items: center;
     justify-content: space-between;
-    min-height: 96px;
-    padding: 16px 20px 40px;
+    min-height: 64px;
+    padding: 16px 20px;
   `,
   taskItem: css`
     width: 100%;
+    min-width: 0;
     justify-content: flex-start;
     min-height: 56px;
     padding: 6px 8px;
@@ -100,6 +102,7 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
     color: ${cssVar.colorTextTertiary};
   `,
   pill: css`
+    font-size: 14px;
     border-radius: 999px;
     padding-inline: 18px;
     height: 40px;
@@ -130,9 +133,12 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
     -webkit-line-clamp: 3;
   `,
   run: css`
+    display: flex;
+    align-items: center;
+    gap: 4px;
     width: 100%;
     min-height: 56px;
-    padding: 16px;
+    padding: 8px 12px;
     border: 0;
     box-shadow: none;
     border-radius: ${cssVar.borderRadiusLG};
@@ -141,6 +147,115 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
     white-space: normal;
 
     background: ${cssVar.colorFillQuaternary};
+  `,
+  runOpen: css`
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    padding: 4px;
+    justify-content: space-between;
+    gap: 12px;
+    text-align: start;
+    height: auto;
+    > .lobe-flex {
+      flex: 1;
+      min-width: 0;
+    }
+    @media (width <= 767px) {
+      flex-wrap: wrap;
+    }
+  `,
+  runDate: css`
+    flex-shrink: 0;
+    margin-inline-start: auto;
+  `,
+  createEntry: css`
+    font-size: 14px;
+    justify-content: flex-start;
+    flex-shrink: 0;
+    height: 44px;
+    margin: 0 12px 24px;
+    padding-inline: 8px;
+  `,
+  listHeader: css`
+    padding: 0 20px 8px;
+    flex-shrink: 0;
+  `,
+  welcome: css`
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100%;
+    padding-block: 32px;
+  `,
+  welcomeContent: css`
+    width: 100%;
+    max-width: 720px;
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+  `,
+  welcomeHero: css`
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+    gap: 24px;
+  `,
+  welcomeTitle: css`
+    margin: 0;
+    font-size: 32px;
+    font-weight: 700;
+    text-align: center;
+    line-height: 1.3;
+  `,
+  clock: css`
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    color: ${cssVar.colorTextLightSolid};
+    background: radial-gradient(
+      circle at 35% 25%,
+      color-mix(in srgb, ${cssVar.colorPrimary} 50%, white),
+      ${cssVar.colorPrimary} 80%
+    );
+    box-shadow: inset 0 -3px 8px color-mix(in srgb, ${cssVar.colorPrimary} 65%, white);
+  `,
+  templates: css`
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    @container (width < 600px) {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  `,
+  template: css`
+    justify-content: flex-start;
+    gap: 16px;
+    padding: 16px;
+    min-height: 76px;
+    height: auto;
+    border: 1px dashed ${cssVar.colorBorderSecondary};
+    border-radius: ${cssVar.borderRadiusLG};
+    white-space: normal;
+    text-align: start;
+    font-size: 14px;
+    > .lobe-icon {
+      flex-shrink: 0;
+    }
+  `,
+  templateText: css`
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  `,
+  templateDescription: css`
+    font-size: 12px;
+    color: ${cssVar.colorTextTertiary};
+    line-height: 1.5;
   `,
   chat: css`
     display: flex;

@@ -1,4 +1,4 @@
-import { ListTodoIcon } from 'lucide-react';
+import { Clock3, ListTodoIcon } from 'lucide-react';
 
 import TasksSkeleton from '@/components/Skeleton/Tasks';
 import TaskDetailSkeleton from '@/features/AgentTasks/AgentTaskDetail/TaskDetailSkeleton';
@@ -13,6 +13,12 @@ export const tasksRouteMeta = routeMeta({
   icon: ListTodoIcon,
   Skeleton: TasksSkeleton,
   titleKey: 'navigation.tasks',
+});
+
+export const scheduledTasksRouteMeta = routeMeta({
+  icon: Clock3,
+  Skeleton: TasksSkeleton,
+  titleKey: 'navigation.scheduledTasks',
 });
 
 const TaskDynamicMeta = ({ onResolve, params }: DynamicRouteMetaProps) => {

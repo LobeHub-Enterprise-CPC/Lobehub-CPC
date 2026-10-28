@@ -1,5 +1,4 @@
 import type { TaskDetailActivity } from '@lobechat/types';
-import { formatDuration } from '@lobechat/utils';
 import {
   ActionIcon,
   Alert,
@@ -8,10 +7,8 @@ import {
   DropdownMenu,
   Flexbox,
   Skeleton,
-  Tag,
   Text,
 } from '@lobehub/ui';
-import dayjs from 'dayjs';
 import { ArrowLeft, MoreHorizontal, Play, Pencil } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -21,7 +18,7 @@ import { usePermission } from '@/hooks/usePermission';
 import { useTaskStore } from '@/store/task';
 import { taskDetailSelectors } from '@/store/task/selectors';
 
-import AssigneeAvatar from '../features/AssigneeAvatar';
+import { ScheduledRunRow } from './ScheduledRunRow';
 import { ScheduledTaskProperties } from './ScheduledTaskProperties';
 import { useActiveTaskDetail } from '../AgentTaskDetail/useActiveTaskDetail';
 import { createScheduledTaskModal } from './ScheduledTaskForm';
@@ -29,6 +26,7 @@ import { styles } from './style';
 
 export const ScheduledTaskDetail = ({
   compactActions = false,
+  onRunRemoved,
   onBack,
   onOpenRun,
   onSaved,
@@ -36,7 +34,8 @@ export const ScheduledTaskDetail = ({
   taskId,
 }: {
   compactActions?: boolean;
-  onBack: () => void;
+  onRunRemoved: (topicId: string) => void;
+  onBack?: () => void;
   onOpenRun: (run: TaskDetailActivity, agentId: string) => void;
   onSaved: () => void;
   projectName?: string;
@@ -76,13 +75,9 @@ export const ScheduledTaskDetail = ({
     <Flexbox gap={24}>
       <Flexbox horizontal align="start" gap={12} justify="space-between" wrap="wrap">
         <Flexbox horizontal align="center" gap={8} style={{ minWidth: 0 }}>
-          <ActionIcon
-            style={{ display: 'var(--scheduled-back-display, none)' }}
-            icon={ArrowLeft}
-            aria-label={t('scheduledTasks.back')}
-            title={t('scheduledTasks.back')}
-            onClick={onBack}
-          />
+          {onBack && (
+            <ActionIcon icon={ArrowLeft} aria-label={t('scheduledTasks.back')} onClick={onBack} />
+          )}
           <Text as="h1" fontSize={24} style={{ margin: 0, overflowWrap: 'anywhere' }} weight={600}>
             {detail.name || detail.identifier}
           </Text>
@@ -161,48 +156,15 @@ export const ScheduledTaskDetail = ({
           <Text type="secondary">{t('scheduledTasks.noRuns')}</Text>
         ) : (
           runs.map((run) => (
-            <Button
-              block
-              type="text"
-              className={styles.run}
+            <ScheduledRunRow
               key={run.id}
-              onClick={() => onOpenRun(run, run.agentId || detail.agentId || '')}
-            >
-              <Flexbox
-                horizontal
-                align="center"
-                gap={12}
-                justify="space-between"
-                style={{ width: '100%', minWidth: 0 }}
-                wrap="wrap"
-              >
-                <Flexbox horizontal align="center" gap={12} style={{ minWidth: 0 }} wrap="wrap">
-                  <AssigneeAvatar agentId={run.agentId || detail.agentId} size={28} />
-
-                  <Text ellipsis>{run.title || detail.name}</Text>
-                  <Text fontSize={12} type="secondary">
-                    #{run.seq}
-                  </Text>
-                  <Tag>
-                    {t(
-                      run.trigger === 'manual'
-                        ? 'scheduledTasks.manualTrigger'
-                        : 'scheduledTasks.scheduledTrigger',
-                    )}
-                  </Tag>
-                  {run.time && run.completedAt && (
-                    <Text fontSize={12} type="secondary">
-                      {formatDuration(
-                        new Date(run.completedAt).getTime() - new Date(run.time).getTime(),
-                      )}
-                    </Text>
-                  )}
-                </Flexbox>
-                <Text fontSize={12} type="secondary">
-                  {run.time ? dayjs(run.time).format('MM-DD HH:mm') : ''}
-                </Text>
-              </Flexbox>
-            </Button>
+              run={run}
+              agentId={detail.agentId || undefined}
+              taskName={detail.name || undefined}
+              onOpen={() => onOpenRun(run, run.agentId || detail.agentId || '')}
+              onRemoved={onRunRemoved}
+              onChanged={onSaved}
+            />
           ))
         )}
       </Flexbox>

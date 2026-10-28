@@ -1,4 +1,6 @@
 export default {
+  'tab.scheduledTasks': 'Scheduled tasks',
+
   'about': 'About',
   'advanceSettings': 'Advanced Settings',
   'alert.cloud.action': 'Try now',
