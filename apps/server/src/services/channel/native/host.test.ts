@@ -231,6 +231,20 @@ describe('runChannelNative', () => {
     await expect(runChannelNative(base())).rejects.toThrow('Provider quota exhausted');
   });
 
+  it('surfaces a nested model-runtime error with its type', async () => {
+    mocks.executeSync.mockResolvedValue(
+      done({
+        error: {
+          error: { message: 'empty providers' },
+          errorType: 'NoAvailableProvider',
+          provider: 'lobehub',
+        },
+        status: 'error',
+      }),
+    );
+    await expect(runChannelNative(base())).rejects.toThrow('NoAvailableProvider: empty providers');
+  });
+
   it.each([
     new Error('Provider quota exhausted'),
     {
