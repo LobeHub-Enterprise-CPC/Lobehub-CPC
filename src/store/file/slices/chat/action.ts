@@ -1,7 +1,7 @@
 import { type ChatContextContent } from '@lobechat/types';
 import { COMPRESSIBLE_IMAGE_TYPES, compressImageFile } from '@lobechat/utils/compressImage';
 import { toast } from '@lobehub/ui';
-import { Buffer } from 'buffer';
+import { Buffer } from 'buffer.js';
 import { t } from 'i18next';
 
 import { FILE_UPLOAD_BLACKLIST } from '@/const/file';
