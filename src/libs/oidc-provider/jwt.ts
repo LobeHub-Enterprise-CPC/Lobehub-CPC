@@ -8,6 +8,7 @@ import { authEnv } from '@/envs/auth';
 import { isBoundToCurrentTenant } from '@/libs/trpc/utils/tenantBinding';
 
 import { isAcceptanceReviewClient, isAcceptanceReviewIssued } from './acceptanceReview';
+import { RETIRED_DESKTOP_CLIENT_IDS } from './desktopClient';
 import { describeError } from './safe-log';
 
 const log = debug('oidc-jwt');
@@ -175,6 +176,13 @@ export const validateOIDCJWT = async (token: string) => {
       throw new TRPCError({
         code: 'UNAUTHORIZED',
         message: 'JWT token is missing user ID (sub)',
+      });
+    }
+
+    if (typeof clientId === 'string' && RETIRED_DESKTOP_CLIENT_IDS.has(clientId)) {
+      throw new TRPCError({
+        code: 'UNAUTHORIZED',
+        message: 'JWT token was issued to a retired desktop client',
       });
     }
 

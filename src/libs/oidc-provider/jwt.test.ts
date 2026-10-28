@@ -70,6 +70,37 @@ describe('validateOIDCJWT', () => {
   });
 });
 
+describe('tokens issued to a retired desktop client', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    createLocalJWKSetMock.mockReturnValue('public-key-set');
+    decodeProtectedHeaderMock.mockReturnValue({ kid: 'test-key' });
+    importJWKMock.mockResolvedValue('public-key');
+    tenantBound.mockReturnValue(true);
+  });
+
+  it('are refused as unauthenticated, so the desktop asks the user to sign in again', async () => {
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: { aud: 'urn:lobehub:chat', client_id: 'lobehub-desktop', sub: 'user-1' },
+    });
+    const { validateOIDCJWT } = await import('./jwt');
+    await expect(validateOIDCJWT('t')).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+      message: 'JWT token was issued to a retired desktop client',
+    });
+  });
+
+  it('leave tokens of the current desktop client and other clients alone', async () => {
+    const { validateOIDCJWT } = await import('./jwt');
+    for (const client_id of ['tituwork-desktop', 'lobehub-cli']) {
+      jwtVerifyMock.mockResolvedValueOnce({
+        payload: { aud: 'urn:lobehub:chat', client_id, sub: 'user-1' },
+      });
+      await expect(validateOIDCJWT('t')).resolves.toMatchObject({ userId: 'user-1' });
+    }
+  });
+});
+
 describe('acceptance review tokens', () => {
   const REVIEW_AUD = 'urn:lobehub:acceptance:7f0c9a7e-0000-4000-8000-000000000001';
 
@@ -101,7 +132,7 @@ describe('acceptance review tokens', () => {
 
   it('do not affect tokens for the app API', async () => {
     jwtVerifyMock.mockResolvedValueOnce({
-      payload: { aud: 'urn:lobehub:chat', client_id: 'lobehub-desktop', sub: 'user-1' },
+      payload: { aud: 'urn:lobehub:chat', client_id: 'tituwork-desktop', sub: 'user-1' },
     });
     const { validateOIDCJWT } = await import('./jwt');
     await expect(validateOIDCJWT('t')).resolves.toMatchObject({ userId: 'user-1' });
