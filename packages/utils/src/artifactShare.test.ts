@@ -4,8 +4,8 @@ import { artifactSharePath, artifactShareUrl } from './artifactShare';
 
 describe('artifactShareUrl', () => {
   it.each([
-    ['https://host/t/acme', 'https://host/t/acme/share/artifact/dep_1'],
-    ['https://host/t/acme/', 'https://host/t/acme/share/artifact/dep_1'],
+    ['https://host/orgs/acme', 'https://host/orgs/acme/share/artifact/dep_1'],
+    ['https://host/orgs/acme/', 'https://host/orgs/acme/share/artifact/dep_1'],
     ['https://custom.host', 'https://custom.host/share/artifact/dep_1'],
     ['https://custom.host/', 'https://custom.host/share/artifact/dep_1'],
   ])('mounts the share path under the server address %s', (serverUrl, expected) => {

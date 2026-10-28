@@ -27,7 +27,7 @@ const renderCard = (props: Partial<Parameters<typeof AuthorizationConfirmCard>[0
       request={{
         account: 'li@acme.example',
         confirmationId: 'c1',
-        entryUrl: 'https://work.example.com/t/acme',
+        entryUrl: 'https://work.example.com/orgs/acme',
         expiresAt: NOW + 90_000,
         generation: 'g1',
         name: 'Acme',
@@ -99,7 +99,7 @@ describe('AuthorizationConfirmCard', () => {
     const request = (extra: Record<string, unknown>) => ({
       account: 'li@acme.example',
       confirmationId: 'c1',
-      entryUrl: 'https://work.example.com/t/acme',
+      entryUrl: 'https://work.example.com/orgs/acme',
       expiresAt: NOW + 90_000,
       generation: 'g1',
       ...extra,
@@ -131,7 +131,7 @@ describe('AuthorizationConfirmCard', () => {
     const request = (hasOtherOrganizations?: boolean) => ({
       account: 'li@acme.example',
       confirmationId: 'c1',
-      entryUrl: 'https://work.example.com/t/acme',
+      entryUrl: 'https://work.example.com/orgs/acme',
       expiresAt: NOW + 90_000,
       generation: 'g1',
       ...(hasOtherOrganizations === undefined ? {} : { hasOtherOrganizations }),

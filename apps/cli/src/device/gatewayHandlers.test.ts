@@ -28,7 +28,7 @@ const setup = (run: GatewayHandlerContext['maintenance']['run']) => {
     recordRequest: vi.fn(),
     isDaemonChild: false,
     getAuth: () => ({
-      serverUrl: 'https://example.test/t/a',
+      serverUrl: 'https://example.test/orgs/a',
       token: 'test',
       tokenType: 'jwt',
       userId: 'same-sub',

@@ -34,7 +34,7 @@ useTenantMocks();
 const { middleware } = defineConfig();
 
 describe('document-only tenant navigation memory', () => {
-  it.each(['/t/acme/signin', '/t/acme/share/t/public', '/t/acme/settings'])(
+  it.each(['/orgs/acme/signin', '/orgs/acme/share/t/public', '/orgs/acme/settings'])(
     'records the explicit tenant for %s, including auth and public early returns',
     async (path) => {
       mocks.getSession.mockResolvedValue({ headers: new Headers(), response: null });
@@ -54,7 +54,7 @@ describe('document-only tenant navigation memory', () => {
         endpoints: [{ kind: 'default', host: null, active: false }],
       },
     });
-    for (const path of ['/t/acme/agent', '/t/acme/signin?email=private@example.com']) {
+    for (const path of ['/orgs/acme/agent', '/orgs/acme/signin?email=private@example.com']) {
       const response = await middleware(documentNavigation(path));
       expect([302, 409]).toContain(response.status);
       expect(response.headers.getSetCookie().join()).toContain('lobe-last-tenant=tenant-1;');
@@ -62,7 +62,7 @@ describe('document-only tenant navigation memory', () => {
   });
   it('marks an unchanged preference private without renewing the cookie', async () => {
     const response = await middleware(
-      documentNavigation('/t/acme/signin', { cookie: 'lobe-last-tenant=tenant-1' }),
+      documentNavigation('/orgs/acme/signin', { cookie: 'lobe-last-tenant=tenant-1' }),
     );
     expect(response.headers.getSetCookie()).toEqual([]);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
@@ -70,7 +70,7 @@ describe('document-only tenant navigation memory', () => {
   it.each([{ purpose: 'prefetch' }, { 'sec-purpose': 'prefetch;prerender' }])(
     'does not write or consume speculative request memory: %j',
     async (headers) => {
-      const response = await middleware(documentNavigation('/t/acme/signin', headers));
+      const response = await middleware(documentNavigation('/orgs/acme/signin', headers));
       expect(response.headers.getSetCookie()).toEqual([]);
       const root = await middleware(
         documentNavigation('/', { ...headers, cookie: 'lobe-last-tenant=tenant-1' }),
@@ -96,8 +96,8 @@ describe('document-only tenant navigation memory', () => {
     expect(mocks.remembered).not.toHaveBeenCalled();
   });
   it.each([
-    '/t/nope/settings?token=secret',
-    '/t/INVALID/signin?code=secret',
+    '/orgs/nope/settings?token=secret',
+    '/orgs/INVALID/signin?code=secret',
     '/signin?email=private@example.com',
     '/oauth/consent/code?state=secret',
     '/verify-email?token=secret',
@@ -198,7 +198,7 @@ describe('document-only tenant navigation memory', () => {
       }),
     );
     expect(custom.headers.getSetCookie()).toEqual([]);
-    const api = await middleware(documentNavigation('/t/acme/api/auth/get-session'));
+    const api = await middleware(documentNavigation('/orgs/acme/api/auth/get-session'));
     expect(api.headers.getSetCookie()).toEqual([]);
   });
 });
@@ -206,13 +206,13 @@ describe('document-only tenant navigation memory', () => {
 describe('navigation failure and protocol boundaries', () => {
   it('uses the normal synthesized default endpoint for ordinary remembered navigation', async () => {
     mocks.remembered.mockResolvedValueOnce({
-      activeUrl: 'http://localhost:3010/t/acme',
+      activeUrl: 'http://localhost:3010/orgs/acme',
       appliedVersion: 0,
     });
     const response = await middleware(
       documentNavigation('/', { cookie: 'lobe-last-tenant=tenant-1' }),
     );
-    await expectFragmentRedirect(response, 'http://localhost:3010/t/acme/__entry#');
+    await expectFragmentRedirect(response, 'http://localhost:3010/orgs/acme/__entry#');
     expect(response.headers.getSetCookie()).toEqual([]);
   });
   it('clears malformed memory without accessing the directory', async () => {
@@ -226,8 +226,8 @@ describe('navigation failure and protocol boundaries', () => {
     'rejects a tenantless %s page without reading or writing memory',
     async (method) => {
       for (const path of method === 'HEAD'
-        ? ['/signin', '/agent', '/t/nope/settings']
-        : ['/', '/signin', '/agent', '/t/nope/settings']) {
+        ? ['/signin', '/agent', '/orgs/nope/settings']
+        : ['/', '/signin', '/agent', '/orgs/nope/settings']) {
         const response = await middleware(
           documentNavigation(path, { cookie: 'lobe-last-tenant=tenant-1' }, method),
         );
@@ -239,8 +239,8 @@ describe('navigation failure and protocol boundaries', () => {
   );
   it('does not write memory for explicit page HEAD or fetch GET', async () => {
     for (const request of [
-      documentNavigation('/t/acme/signin', {}, 'HEAD'),
-      new NextRequest('http://localhost:3010/t/acme/signin'),
+      documentNavigation('/orgs/acme/signin', {}, 'HEAD'),
+      new NextRequest('http://localhost:3010/orgs/acme/signin'),
     ])
       expect((await middleware(request)).headers.getSetCookie()).toEqual([]);
   });
@@ -357,7 +357,7 @@ describe('dedicated desktop document navigation', () => {
   });
   it('keeps explicit tenant and custom host roots outside desktop discovery', async () => {
     const explicit = await middleware(
-      documentNavigation(`/t/acme${desktopPath}`, {
+      documentNavigation(`/orgs/acme${desktopPath}`, {
         cookie: 'lobe-last-tenant=other',
         [desktopMarker]: 'expired',
       }),
@@ -385,7 +385,12 @@ describe('dedicated desktop document navigation', () => {
     expect(mocks.remembered).not.toHaveBeenCalled();
   });
   it('strips a client marker from ordinary roots, auth pages and backend rewrites', async () => {
-    for (const path of ['/', '/t/acme/signin', '/api/version', '/t/acme/api/auth/get-session']) {
+    for (const path of [
+      '/',
+      '/orgs/acme/signin',
+      '/api/version',
+      '/orgs/acme/api/auth/get-session',
+    ]) {
       const response = await middleware(
         documentNavigation(path, { [desktopMarker]: 'unavailable' }),
       );
@@ -410,7 +415,7 @@ describe('ordinary navigation recovery', () => {
     mocks.enterSlug.mockRejectedValueOnce(
       Object.assign(new Error('gone'), { code: 'TENANT_NOT_FOUND' }),
     );
-    const response = await middleware(documentNavigation('/t/acme/agent'));
+    const response = await middleware(documentNavigation('/orgs/acme/agent'));
     await expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
     expect(response.headers.getSetCookie()).toEqual([]);
   });
@@ -514,7 +519,7 @@ describe('remembered-account root decision', () => {
           cookie: `${accountCookie()}; lobe-last-tenant=tenant-1`,
         }),
       );
-      await expectFragmentRedirect(entry, 'http://localhost:3010/t/acme/__entry#');
+      await expectFragmentRedirect(entry, 'http://localhost:3010/orgs/acme/__entry#');
       expect(headerOf(entry)).toBeNull();
     },
   );
@@ -552,7 +557,7 @@ describe('remembered-account root decision', () => {
           cookie: `${accountName}=not-a-value; lobe-last-tenant=tenant-1`,
         }),
       );
-      await expectFragmentRedirect(entry, 'http://localhost:3010/t/acme/__entry#');
+      await expectFragmentRedirect(entry, 'http://localhost:3010/orgs/acme/__entry#');
       expect(entry.headers.getSetCookie()).toContain(
         'lobe-last-account=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax',
       );
@@ -575,7 +580,7 @@ describe('remembered-account root decision', () => {
             cookie: `${accountCookie('private@example.com')}; lobe-last-tenant=tenant-1`,
           }),
         );
-        await expectFragmentRedirect(response, 'http://localhost:3010/t/acme/__entry#');
+        await expectFragmentRedirect(response, 'http://localhost:3010/orgs/acme/__entry#');
         const logged = JSON.stringify(warn.mock.calls);
         expect(logged).toContain('TENANT_ACCOUNT_MEMORY_UNAVAILABLE');
         expect(logged).not.toContain('private@example.com');
@@ -587,7 +592,12 @@ describe('remembered-account root decision', () => {
   );
 
   it('strips a client-supplied account-mode header on every proxy path', async () => {
-    for (const path of ['/', '/t/acme/signin', '/api/version', '/t/acme/api/auth/get-session']) {
+    for (const path of [
+      '/',
+      '/orgs/acme/signin',
+      '/api/version',
+      '/orgs/acme/api/auth/get-session',
+    ]) {
       const response = await middleware(documentNavigation(path, { 'x-lobe-root-account': '1' }));
       expect(headerOf(response)).toBeNull();
       expect(response.headers.get('x-middleware-request-x-lobe-root-account')).toBeNull();

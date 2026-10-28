@@ -35,7 +35,7 @@ const json = (body: unknown, init?: ResponseInit) =>
   });
 
 const acme = { id: 'tenant-acme', name: 'Acme' };
-const globex = { address: 'app.example.com/t/globex', id: 'tenant-globex', name: 'Globex' };
+const globex = { address: 'app.example.com/orgs/globex', id: 'tenant-globex', name: 'Globex' };
 
 const calls = () =>
   mockFetch.mock.calls.map(([url, init]) => ({
@@ -121,7 +121,7 @@ describe('useOrganizationDiscovery', () => {
       mockFetch
         .mockResolvedValueOnce(json({ tenants: [acme] }))
         .mockResolvedValueOnce(
-          json({ url: 'https://app.example.com/t/acme/signin?email=a%40acme.com' }),
+          json({ url: 'https://app.example.com/orgs/acme/signin?email=a%40acme.com' }),
         );
       const { result } = renderHook(() => useOrganizationDiscovery());
 
@@ -129,7 +129,7 @@ describe('useOrganizationDiscovery', () => {
 
       await waitFor(() =>
         expect(assign).toHaveBeenCalledWith(
-          'https://app.example.com/t/acme/signin?email=a%40acme.com&hl=zh-CN',
+          'https://app.example.com/orgs/acme/signin?email=a%40acme.com&hl=zh-CN',
         ),
       );
       expect(calls()[1]).toEqual({
@@ -180,7 +180,9 @@ describe('useOrganizationDiscovery', () => {
 
       await submit(result, 'a@acme.com');
       await waitFor(() => expect(calls()).toHaveLength(2));
-      await act(async () => resolveSelect(json({ url: 'https://app.example.com/t/acme/signin' })));
+      await act(async () =>
+        resolveSelect(json({ url: 'https://app.example.com/orgs/acme/signin' })),
+      );
       await waitFor(() => expect(assign).toHaveBeenCalled());
 
       const firstBusy = busy.indexOf(true);
@@ -220,7 +222,7 @@ describe('useOrganizationDiscovery', () => {
   it('hands the page back after returning through the back/forward cache mid-selection', async () => {
     mockFetch
       .mockResolvedValueOnce(json({ tenants: [acme] }))
-      .mockResolvedValueOnce(json({ url: 'https://app.example.com/t/acme/signin' }));
+      .mockResolvedValueOnce(json({ url: 'https://app.example.com/orgs/acme/signin' }));
     const { result } = renderHook(() => useOrganizationDiscovery());
     await submit(result, 'a@acme.com');
     await waitFor(() => expect(assign).toHaveBeenCalled());
@@ -306,10 +308,10 @@ describe('useOrganizationDiscovery', () => {
       expect(result.current.pickerOpen).toBe(true);
       expect(result.current.selectingId).toBeNull();
 
-      mockFetch.mockResolvedValueOnce(json({ url: 'https://app.example.com/t/globex/signin' }));
+      mockFetch.mockResolvedValueOnce(json({ url: 'https://app.example.com/orgs/globex/signin' }));
       await act(async () => result.current.choose(globex));
       await waitFor(() =>
-        expect(assign).toHaveBeenCalledWith('https://app.example.com/t/globex/signin?hl=zh-CN'),
+        expect(assign).toHaveBeenCalledWith('https://app.example.com/orgs/globex/signin?hl=zh-CN'),
       );
     });
 
@@ -346,7 +348,7 @@ describe('useOrganizationDiscovery', () => {
   describe('desktop sign-in', () => {
     it('sends the handoff parameters with select and follows the authorization URL as given', async () => {
       const authorizeUrl =
-        'https://app.example.com/t/acme/oidc/auth?client_id=lobehub-desktop&state=' + STATE;
+        'https://app.example.com/orgs/acme/oidc/auth?client_id=lobehub-desktop&state=' + STATE;
       mockFetch
         .mockResolvedValueOnce(json({ tenants: [acme] }))
         .mockResolvedValueOnce(json({ url: authorizeUrl }));
@@ -367,7 +369,7 @@ describe('useOrganizationDiscovery', () => {
     it('never sends a desktop block on an ordinary visit', async () => {
       mockFetch
         .mockResolvedValueOnce(json({ tenants: [acme] }))
-        .mockResolvedValueOnce(json({ url: 'https://app.example.com/t/acme/signin' }));
+        .mockResolvedValueOnce(json({ url: 'https://app.example.com/orgs/acme/signin' }));
       const { result } = renderHook(() => useOrganizationDiscovery({ kind: 'none' }));
 
       await submit(result, 'a@acme.com');

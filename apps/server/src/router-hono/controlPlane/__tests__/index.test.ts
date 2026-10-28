@@ -13,6 +13,15 @@ import { createControlPlaneApp } from '../index';
 
 vi.mock('@/envs/app', () => ({ appEnv: {} }));
 
+const invalidation = vi.hoisted(() => ({ auth: vi.fn(), endpoints: vi.fn(), runtime: vi.fn() }));
+vi.mock('@/auth', () => ({ invalidateTenantAuth: invalidation.auth }));
+vi.mock('@/server/modules/Tenant/endpointCache', () => ({
+  invalidateEndpointRouting: invalidation.endpoints,
+}));
+vi.mock('@/server/modules/Tenant/runtime', () => ({
+  getTenantRuntime: () => ({ invalidate: invalidation.runtime }),
+}));
+
 const TOKEN = 't'.repeat(32);
 const TENANT = '3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a';
 const BASE = 'http://lobehub.internal/api/internal/control-plane';
@@ -26,6 +35,7 @@ const endpoints = [
   { method: 'GET', path: '/tenant-overview' },
   { method: 'POST', path: '/tenant-destruction' },
   { method: 'GET', path: '/tenant-destruction' },
+  { method: 'POST', path: '/tenant-profile' },
 ];
 
 const setup = (configured = true) => {
@@ -331,6 +341,118 @@ describe('control-plane router', () => {
       method: 'POST',
     });
     expect(bad.status).toBe(400);
+  });
+});
+
+describe('tenant-profile', () => {
+  const profile = {
+    eventId: 'profile:abc',
+    formerSlugs: ['acme'],
+    name: 'Acme Corp',
+    slug: 'acme-corp',
+    tenantId: TENANT,
+    version: 2,
+  };
+  const post = (call: ReturnType<typeof setup>['call'], body: unknown) =>
+    call('/tenant-profile', { body: JSON.stringify(body), method: 'POST' });
+  const provisioned = async () => {
+    const context = setup();
+    await context.call('/tenant-provision', {
+      body: JSON.stringify(provisionBody),
+      method: 'POST',
+    });
+    await context.service.executeProvision(TENANT, 'root-1:lobehub');
+    invalidation.auth.mockClear();
+    invalidation.endpoints.mockClear();
+    invalidation.runtime.mockClear();
+    return context;
+  };
+
+  it('answers 404 TENANT_NOT_FOUND for a tenant not provisioned here', async () => {
+    const res = await post(setup().call, profile);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ code: 'TENANT_NOT_FOUND' });
+  });
+
+  it('applies a newer profile, answers the stored values and drops the slug-keyed caches', async () => {
+    const { call } = await provisioned();
+    const res = await post(call, profile);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    expect(await res.json()).toEqual({
+      acceptedVersion: 2,
+      appliedVersion: 2,
+      errorCode: null,
+      eventId: 'profile:abc',
+      name: 'Acme Corp',
+      observedAt: expect.any(String),
+      slug: 'acme-corp',
+      status: 'applied',
+      tenantId: TENANT,
+      version: 2,
+    });
+    expect(invalidation.auth).toHaveBeenCalledWith(TENANT);
+    expect(invalidation.runtime).toHaveBeenCalledWith(TENANT);
+    expect(invalidation.endpoints).toHaveBeenCalledTimes(1);
+
+    const overview = await call(`/tenant-overview?tenantId=${TENANT}`);
+    expect(await overview.json()).toMatchObject({ slug: 'acme-corp' });
+  });
+
+  it('leaves the caches alone for a superseded revision', async () => {
+    const { call } = await provisioned();
+    await post(call, { ...profile, version: 3 });
+    invalidation.auth.mockClear();
+    invalidation.endpoints.mockClear();
+    invalidation.runtime.mockClear();
+    const res = await post(call, {
+      ...profile,
+      eventId: 'profile:old',
+      name: 'Older',
+      slug: 'older',
+      version: 2,
+    });
+    expect(await res.json()).toMatchObject({ name: 'Acme Corp', status: 'superseded' });
+    expect(invalidation.auth).not.toHaveBeenCalled();
+    expect(invalidation.endpoints).not.toHaveBeenCalled();
+    expect(invalidation.runtime).not.toHaveBeenCalled();
+  });
+
+  it('answers 409 VERSION_CONFLICT for the same version with other content', async () => {
+    const { call } = await provisioned();
+    await post(call, profile);
+    const res = await post(call, { ...profile, name: 'Other' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ code: 'VERSION_CONFLICT' });
+  });
+
+  it('answers 409 SLUG_CONFLICT for another tenant slug and drops no cache', async () => {
+    const { call, repo } = await provisioned();
+    repo.aliases.set('taken', '9b1d4e6f-2222-4333-8444-a55566667777');
+    const res = await post(call, { ...profile, slug: 'taken' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ code: 'SLUG_CONFLICT' });
+    expect(invalidation.runtime).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['unknown fields', { ...profile, extra: 1 }],
+    ['version 1', { ...profile, version: 1 }],
+    ['the current slug among the former ones', { ...profile, formerSlugs: ['acme-corp'] }],
+    ['a missing alias set', { ...profile, formerSlugs: undefined }],
+  ])('rejects %s with 400', async (_label, body) => {
+    const res = await post(setup().call, body);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ code: 'INVALID_INPUT' });
+  });
+
+  it('never lets the header choose the tenant', async () => {
+    const res = await setup().call('/tenant-profile', {
+      body: JSON.stringify(profile),
+      headers: { 'x-tenant-id': 'tenant-b' },
+      method: 'POST',
+    });
+    expect(res.status).toBe(403);
   });
 });
 

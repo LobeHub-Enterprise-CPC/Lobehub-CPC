@@ -59,9 +59,9 @@ describe('buildCacheScope', () => {
   });
 
   it('isolates the same user and workspace ids across tenants', () => {
-    initializeTenant(new URL('https://app.test/t/acme/agent'));
+    initializeTenant(new URL('https://app.test/orgs/acme/agent'));
     const acme = buildCacheScope('u1', 'w1');
-    initializeTenant(new URL('https://app.test/t/other/agent'));
+    initializeTenant(new URL('https://app.test/orgs/other/agent'));
     const other = buildCacheScope('u1', 'w1');
     initializeTenant(new URL('https://app.test/'));
 
@@ -70,7 +70,7 @@ describe('buildCacheScope', () => {
     expect(buildCacheScope('u1', 'w1')).toBe('u1:w1');
   });
 
-  // The desktop renderer is not served under /t/{slug}; a subject id that repeats across
+  // The desktop renderer is not served under /orgs/{slug}; a subject id that repeats across
   // organizations must not address one cache.
   it('isolates the same user across the desktop renderer tenants', () => {
     setRemoteTenantId('tenant-a');

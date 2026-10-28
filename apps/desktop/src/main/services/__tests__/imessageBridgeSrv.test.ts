@@ -247,7 +247,7 @@ describe('ImessageBridgeService', () => {
     await service.stop();
   });
 
-  it.each(['https://lobehub.example.com/t/acme', 'https://lobehub.example.com/t/acme/'])(
+  it.each(['https://lobehub.example.com/orgs/acme', 'https://lobehub.example.com/orgs/acme/'])(
     'forwards the webhook under the tenant path prefix of %s',
     async (serverUrl) => {
       const { service } = createService(serverUrl);
@@ -260,7 +260,7 @@ describe('ImessageBridgeService', () => {
 
       expect(response.status).toBe(200);
       expect(String(fetchSpy.mock.calls[0][0])).toBe(
-        'https://lobehub.example.com/t/acme/api/agent/webhooks/imessage/home-mac-mini?secret=shared-secret',
+        'https://lobehub.example.com/orgs/acme/api/agent/webhooks/imessage/home-mac-mini?secret=shared-secret',
       );
 
       await service.stop();

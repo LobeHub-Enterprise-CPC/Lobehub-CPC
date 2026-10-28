@@ -22,7 +22,7 @@ vi.mock('@/database/server', () => ({ serverDB: {} }));
 
 // The success/error pages live under the tenant's active entry, not the origin root.
 vi.mock('@/server/modules/Tenant/callbackUrl', () => ({
-  tenantPublicPath: (path: string) => `/t/acme${path}`,
+  tenantPublicPath: (path: string) => `/orgs/acme${path}`,
 }));
 
 vi.mock('@/database/models/oauthHandoff', () => ({
@@ -50,7 +50,7 @@ describe('GET /oidc/callback/desktop', () => {
     const response = await GET(createRequest('?code=code-1&state=handoff-1'));
 
     expect(response.status).toBe(307);
-    expect(response.headers.get('location')).toBe('/t/acme/oauth/callback/success');
+    expect(response.headers.get('location')).toBe('/orgs/acme/oauth/callback/success');
     expect(mocks.create).toHaveBeenCalledWith({
       client: 'desktop',
       id: 'handoff-1',
@@ -67,7 +67,7 @@ describe('GET /oidc/callback/desktop', () => {
 
     expect(response.status).toBe(307);
     const location = new URL(response.headers.get('location')!, 'https://example.com');
-    expect(location.pathname).toBe('/t/acme/oauth/callback/error');
+    expect(location.pathname).toBe('/orgs/acme/oauth/callback/error');
     expect(location.searchParams.get('reason')).toBe('internal_error');
     expect(location.search).not.toContain('SENTINEL');
     expect(location.searchParams.has('errorMessage')).toBe(false);
@@ -78,7 +78,7 @@ describe('GET /oidc/callback/desktop', () => {
 
     expect(response.status).toBe(307);
     expect(response.headers.get('location')).toBe(
-      '/t/acme/oauth/callback/error?reason=invalid_request',
+      '/orgs/acme/oauth/callback/error?reason=invalid_request',
     );
     expect(mocks.create).not.toHaveBeenCalled();
   });
@@ -89,7 +89,9 @@ describe('GET /oidc/callback/desktop', () => {
       const response = await GET(createRequest(`?error=${error}&state=handoff-1`));
 
       expect(response.status).toBe(307);
-      expect(response.headers.get('location')).toBe(`/t/acme/oauth/callback/error?reason=${error}`);
+      expect(response.headers.get('location')).toBe(
+        `/orgs/acme/oauth/callback/error?reason=${error}`,
+      );
       expect(mocks.create).not.toHaveBeenCalled();
     },
   );
@@ -98,7 +100,7 @@ describe('GET /oidc/callback/desktop', () => {
     const response = await GET(createRequest('?error=server_error&state=handoff-1'));
 
     expect(response.headers.get('location')).toBe(
-      '/t/acme/oauth/callback/error?reason=invalid_request',
+      '/orgs/acme/oauth/callback/error?reason=invalid_request',
     );
   });
 
@@ -111,10 +113,10 @@ describe('GET /oidc/callback/desktop', () => {
     );
 
     expect(response.headers.get('location')).toBe(
-      '/t/acme/oauth/callback/error?reason=invalid_request',
+      '/orgs/acme/oauth/callback/error?reason=invalid_request',
     );
     expect(accessDenied.headers.get('location')).toBe(
-      '/t/acme/oauth/callback/error?reason=access_denied',
+      '/orgs/acme/oauth/callback/error?reason=access_denied',
     );
     expect(accessDenied.headers.get('location')).not.toContain('SENTINEL');
   });
@@ -123,7 +125,7 @@ describe('GET /oidc/callback/desktop', () => {
     const response = await GET(createRequest('?state=handoff-1'));
 
     expect(response.headers.get('location')).toBe(
-      '/t/acme/oauth/callback/error?reason=invalid_request',
+      '/orgs/acme/oauth/callback/error?reason=invalid_request',
     );
   });
 });

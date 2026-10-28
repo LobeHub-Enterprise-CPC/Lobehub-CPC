@@ -12,7 +12,7 @@ initializeTenant(new URL(window.location.href), window.__SERVER_CONFIG__?.tenant
 // In production the worker inlines this before the document is served. The dev
 // server has no such stage, so fetch it through vite's API proxy instead —
 // after hydration, which is when `AuthAppShell` first reads it either way. The
-// config belongs to the tenant of the page (`/t/{slug}/...`).
+// config belongs to the tenant of the page (`/orgs/{slug}/...`).
 const loadDevServerConfig = async () => {
   if (!import.meta.env.DEV) return;
 

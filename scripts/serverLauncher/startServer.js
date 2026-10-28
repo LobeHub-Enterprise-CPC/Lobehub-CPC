@@ -175,7 +175,7 @@ const startGateway = async () => {
 
 // Recurring QStash schedules this deployment needs. Each one hits a
 // deployment-wide `/api/cron/*` entry that fans the job out to every tenant
-// (one QStash message per tenant, addressed to `/t/{slug}/api/workflows/...`).
+// (one QStash message per tenant, addressed to `/orgs/{slug}/api/workflows/...`).
 //
 // The goal sweep is not an optimization: a Goal Graph advances on events, so a
 // dropped delivery or a process that dies after dispatch would strand the goal

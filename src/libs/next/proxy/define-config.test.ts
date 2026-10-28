@@ -43,19 +43,19 @@ const MOBILE_USER_AGENT =
 
 describe('defineConfig locale path-traversal hardening', () => {
   it('rewrites a normal locale into /spa-auth/<locale>', async () => {
-    const rewrite = await run('http://localhost:3010/t/acme/signin?hl=ja-JP');
+    const rewrite = await run('http://localhost:3010/orgs/acme/signin?hl=ja-JP');
     expect(new URL(rewrite!).pathname).toBe('/spa-auth/ja-JP/signin');
   });
 
   it('falls back to en-US for a traversal locale (plain)', async () => {
-    const rewrite = await run('http://localhost:3010/t/acme/signin?hl=../../api/dev/x');
+    const rewrite = await run('http://localhost:3010/orgs/acme/signin?hl=../../api/dev/x');
     const { pathname } = new URL(rewrite!);
     expect(pathname.startsWith('/spa-auth/')).toBe(true);
     expect(pathname).toBe('/spa-auth/en-US/signin');
   });
 
   it('falls back to en-US for a traversal locale (percent-encoded)', async () => {
-    const rewrite = await run('http://localhost:3010/t/acme/signin?hl=..%2F..%2Fapi%2Fdev%2Fx');
+    const rewrite = await run('http://localhost:3010/orgs/acme/signin?hl=..%2F..%2Fapi%2Fdev%2Fx');
     const { pathname } = new URL(rewrite!);
     expect(pathname.startsWith('/spa-auth/')).toBe(true);
     expect(pathname).toBe('/spa-auth/en-US/signin');
@@ -63,7 +63,7 @@ describe('defineConfig locale path-traversal hardening', () => {
 
   it('does not treat workspace slugs beginning with an auth route as auth SPA pages', async () => {
     const rewrite = await run(
-      'http://localhost:3010/t/acme/oauth-preview-e2e-20260716/settings/oauth-apps?hl=en-US',
+      'http://localhost:3010/orgs/acme/oauth-preview-e2e-20260716/settings/oauth-apps?hl=en-US',
     );
     expect(new URL(rewrite!).pathname).toMatch(
       /^\/spa\/[^/]+\/oauth-preview-e2e-20260716\/settings\/oauth-apps$/,
@@ -74,10 +74,10 @@ describe('defineConfig locale path-traversal hardening', () => {
 describe('defineConfig Workbench SPA rewrite', () => {
   it('routes verify through Workbench for every user agent', async () => {
     const mobileVerify = await run(
-      'http://localhost:3010/t/acme/verify/run-1?hl=en-US',
+      'http://localhost:3010/orgs/acme/verify/run-1?hl=en-US',
       MOBILE_USER_AGENT,
     );
-    const desktopVerify = await run('http://localhost:3010/t/acme/verify/run-1?hl=en-US');
+    const desktopVerify = await run('http://localhost:3010/orgs/acme/verify/run-1?hl=en-US');
 
     expect(new URL(mobileVerify!).pathname).toBe('/spa-workbench/en-US/verify/run-1');
     expect(new URL(desktopVerify!).pathname).toBe('/spa-workbench/en-US/verify/run-1');
@@ -85,11 +85,11 @@ describe('defineConfig Workbench SPA rewrite', () => {
 
   it('keeps acceptance on the main SPA', async () => {
     const mobileAcceptance = await run(
-      'http://localhost:3010/t/acme/acceptance/acceptance-1?hl=en-US',
+      'http://localhost:3010/orgs/acme/acceptance/acceptance-1?hl=en-US',
       MOBILE_USER_AGENT,
     );
     const desktopAcceptance = await run(
-      'http://localhost:3010/t/acme/acceptance/acceptance-1?hl=en-US',
+      'http://localhost:3010/orgs/acme/acceptance/acceptance-1?hl=en-US',
     );
 
     expect(new URL(mobileAcceptance!).pathname).toMatch(/^\/spa\/[^/]+\/acceptance\/acceptance-1$/);
@@ -100,11 +100,11 @@ describe('defineConfig Workbench SPA rewrite', () => {
 
   it('keeps the agent documents index in the Main Mobile SPA', async () => {
     const detail = await run(
-      'http://localhost:3010/t/acme/agent/agt_1/docs/doc_1?hl=en-US',
+      'http://localhost:3010/orgs/acme/agent/agt_1/docs/doc_1?hl=en-US',
       MOBILE_USER_AGENT,
     );
     const index = await run(
-      'http://localhost:3010/t/acme/agent/agt_1/docs?hl=en-US',
+      'http://localhost:3010/orgs/acme/agent/agt_1/docs?hl=en-US',
       MOBILE_USER_AGENT,
     );
 
@@ -116,12 +116,12 @@ describe('defineConfig Workbench SPA rewrite', () => {
 describe('defineConfig Share SPA rewrite', () => {
   it('routes share pages through the Share SPA for every user agent', async () => {
     const mobileTopic = await run(
-      'http://localhost:3010/t/acme/share/t/topic-1?hl=en-US',
+      'http://localhost:3010/orgs/acme/share/t/topic-1?hl=en-US',
       MOBILE_USER_AGENT,
     );
-    const desktopTopic = await run('http://localhost:3010/t/acme/share/t/topic-1?hl=en-US');
-    const desktopPage = await run('http://localhost:3010/t/acme/share/page/docs_1?hl=en-US');
-    const desktopArtifact = await run('http://localhost:3010/t/acme/share/artifact/42?hl=en-US');
+    const desktopTopic = await run('http://localhost:3010/orgs/acme/share/t/topic-1?hl=en-US');
+    const desktopPage = await run('http://localhost:3010/orgs/acme/share/page/docs_1?hl=en-US');
+    const desktopArtifact = await run('http://localhost:3010/orgs/acme/share/artifact/42?hl=en-US');
 
     expect(new URL(mobileTopic!).pathname).toBe('/spa-share/en-US/share/t/topic-1');
     expect(new URL(desktopTopic!).pathname).toBe('/spa-share/en-US/share/t/topic-1');
@@ -130,7 +130,7 @@ describe('defineConfig Share SPA rewrite', () => {
   });
 
   it('leaves non-share paths that merely start with the prefix in the main SPA', async () => {
-    const rewrite = await run('http://localhost:3010/t/acme/shared-workspace/settings?hl=en-US');
+    const rewrite = await run('http://localhost:3010/orgs/acme/shared-workspace/settings?hl=en-US');
 
     expect(new URL(rewrite!).pathname).toMatch(/^\/spa\/[^/]+\/shared-workspace\/settings$/);
   });

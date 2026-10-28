@@ -1,3 +1,4 @@
+import { currentTenantScope } from '@lobechat/database/tenant';
 import { EdgeConfig } from '@lobechat/edge-config';
 import debug from 'debug';
 
@@ -6,6 +7,7 @@ import { businessConfigEndpoints } from '@/business/server/lambda-routers/config
 import { publicProcedure, router } from '@/libs/trpc/lambda';
 import { getServerFeatureFlagsStateFromRuntimeConfig } from '@/server/featureFlags';
 import { getServerDefaultAgentConfig, getServerGlobalConfig } from '@/server/globalConfig';
+import { findSlugEndpoint } from '@/server/modules/Tenant/endpoints';
 import {
   type GlobalBillboard,
   type GlobalBillboardItem,
@@ -55,6 +57,14 @@ const getActiveBillboard = async (): Promise<GlobalBillboard | null> => {
   }
 };
 
+/** Every slug the request's tenant answers to: its current one first, then the former ones. */
+const getTenantSlugs = async (): Promise<string[] | undefined> => {
+  const tenant = currentTenantScope();
+  if (!tenant) return undefined;
+  const entry = await findSlugEndpoint(tenant.slug);
+  return entry ? [entry.slug, ...entry.formerSlugs] : undefined;
+};
+
 export const configRouter = router({
   getDefaultAgentConfig: publicProcedure.query(async () => {
     return getServerDefaultAgentConfig();
@@ -63,18 +73,20 @@ export const configRouter = router({
   getGlobalConfig: publicProcedure.query(async ({ ctx }): Promise<GlobalRuntimeConfig> => {
     log('[GlobalConfig] Starting global config retrieval for user:', ctx.userId || 'anonymous');
 
-    const [serverConfig, serverFeatureFlags, billboard, businessDevDockAccess] = await Promise.all([
-      getServerGlobalConfig(),
-      getServerFeatureFlagsStateFromRuntimeConfig(ctx.userId || undefined),
-      getActiveBillboard(),
-      getDevDockAccess(ctx.userId || undefined),
-    ]);
+    const [serverConfig, serverFeatureFlags, billboard, businessDevDockAccess, tenantSlugs] =
+      await Promise.all([
+        getServerGlobalConfig(),
+        getServerFeatureFlagsStateFromRuntimeConfig(ctx.userId || undefined),
+        getActiveBillboard(),
+        getDevDockAccess(ctx.userId || undefined),
+        getTenantSlugs(),
+      ]);
 
     log('[GlobalConfig] Server config retrieved');
 
     return {
       billboard,
-      serverConfig,
+      serverConfig: tenantSlugs ? { ...serverConfig, tenantSlugs } : serverConfig,
       serverFeatureFlags: {
         ...serverFeatureFlags,
         enableDevDock: serverFeatureFlags.enableDevDock || businessDevDockAccess,

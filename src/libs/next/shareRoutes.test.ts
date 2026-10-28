@@ -20,7 +20,7 @@ describe('isShareSpaRoute', () => {
     '/share/t',
     '/share/artifact',
     '/share/t/abc/extra',
-    '/shared/t/abc',
+    '/shared/orgs/abc',
     '/chat',
     '/verify/run-1',
   ])('does not match %s', (pathname) => {

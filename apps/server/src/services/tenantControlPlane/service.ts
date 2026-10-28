@@ -21,6 +21,8 @@ import {
   type LifecycleFailureCode,
   type LifecycleRequest,
   type LifecycleResult,
+  type ProfileRequest,
+  type ProfileResult,
   type ProvisionRequest,
   type ProvisionResult,
   type SafeErrorCode,
@@ -376,10 +378,12 @@ export class TenantControlPlaneService {
             {
               connectionVersion: ctx.bundle.connectionVersion,
               credentialBundleVersion: ctx.bundle.credentialBundleVersion,
-              name: ctx.name,
+              // A renamed tenant keeps the name and slug it was renamed to.
+              name: current && current.record.profileVersion > 1 ? current.record.name : ctx.name,
+              profileVersion: current?.record.profileVersion ?? 1,
               schemaName: ctx.bundle.schemaName,
               schemaVersion: ctx.bundle.schemaVersion,
-              slug: ctx.slug,
+              slug: current?.record.slug ?? ctx.slug,
               status: 'provisioning',
               tenantId: ctx.tenantId,
             },
@@ -675,6 +679,9 @@ export class TenantControlPlaneService {
 
       const now = this.now();
       const { reasons, state } = effectiveTenantState(lifecycle, now);
+      // The directory holds the slug the tenant is served under now; the operations only the one it
+      // was provisioned with.
+      const profile = await tx.getProfile(tenantId);
       return {
         acceptedVersion: lifecycle.acceptedVersion,
         appliedVersion: lifecycle.appliedVersion,
@@ -690,9 +697,60 @@ export class TenantControlPlaneService {
             : operations.every((op) => op.status === 'failed')
               ? 'failed'
               : 'pending',
-        slug: operations[0].slug,
+        slug: profile?.slug ?? operations[0].slug,
         tenantId,
       };
+    });
+  }
+
+  // ─── profile ─────────────────────────────────────────────────────────────
+
+  /**
+   * Name and slug edited after creation (tenant-profile). Revisions are ordered by `version`: an
+   * older one is superseded, the same one is acknowledged only with the same content, and a newer
+   * one is written in one transaction (name, slug, alias set, revision) or not at all.
+   */
+  async receiveProfile(request: ProfileRequest): Promise<ProfileResult> {
+    const { tenantId, version } = request;
+    return this.repository.transaction(tenantId, async (tx) => {
+      const current = await tx.getProfile(tenantId);
+      if (!current) throw new ControlPlaneError(404, 'TENANT_NOT_FOUND');
+      const result = (status: ProfileResult['status'], profile: typeof current): ProfileResult => ({
+        acceptedVersion: profile.profileVersion,
+        appliedVersion: profile.profileVersion,
+        errorCode: null,
+        eventId: request.eventId,
+        name: profile.name,
+        observedAt: this.now().toISOString(),
+        slug: profile.slug,
+        status,
+        tenantId,
+        version,
+      });
+
+      if (version < current.profileVersion) return result('superseded', current);
+      if (version === current.profileVersion) {
+        const aliases = new Set(await tx.listSlugAliases(tenantId));
+        const same =
+          current.name === request.name &&
+          current.slug === request.slug &&
+          aliases.size === request.formerSlugs.length &&
+          request.formerSlugs.every((slug) => aliases.has(slug));
+        if (!same) throw new ControlPlaneError(409, 'VERSION_CONFLICT');
+        return result('applied', current);
+      }
+
+      if (!this.options.isRegistrableSlug(request.slug))
+        throw new ControlPlaneError(400, 'INVALID_INPUT');
+      // Directory slugs and aliases are different tables: only this lock keeps a slug in one place.
+      await tx.lockSlugs();
+      for (const slug of [request.slug, ...request.formerSlugs]) {
+        const owner = await tx.findTenantBySlug(slug);
+        if (owner && owner !== tenantId) throw new ControlPlaneError(409, 'SLUG_CONFLICT');
+      }
+      const stored = { name: request.name, profileVersion: version, slug: request.slug };
+      await tx.putProfile(tenantId, { ...stored, formerSlugs: request.formerSlugs });
+      return result('applied', stored);
     });
   }
 

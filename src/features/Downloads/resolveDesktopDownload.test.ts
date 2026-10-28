@@ -53,12 +53,12 @@ describe('resolveDesktopDownload', () => {
     // reaches the proxy without a tenant and answers NOT_FOUND.
     expect(
       resolveDesktopDownload({
-        appBaseUrl: 'https://app.example.com/t/acme',
+        appBaseUrl: 'https://app.example.com/orgs/acme',
         fallbackUrl: HOSTED,
         isCustomBranding: true,
         urls: { windows: 'https://example.com/releases/stable/Setup.exe' },
       }),
-    ).toEqual({ available: true, href: 'https://app.example.com/t/acme/downloads' });
+    ).toEqual({ available: true, href: 'https://app.example.com/orgs/acme/downloads' });
   });
 
   it('tolerates a trailing slash on the app address', () => {
@@ -75,7 +75,7 @@ describe('resolveDesktopDownload', () => {
   it('does not put a tenant address on the hosted fallback', () => {
     expect(
       resolveDesktopDownload({
-        appBaseUrl: 'https://app.example.com/t/acme',
+        appBaseUrl: 'https://app.example.com/orgs/acme',
         fallbackUrl: HOSTED,
         isCustomBranding: false,
       }).href,

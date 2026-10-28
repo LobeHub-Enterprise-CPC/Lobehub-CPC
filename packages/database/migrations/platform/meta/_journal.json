@@ -43,6 +43,13 @@
       "when": 1792585535354,
       "tag": "0005_tenant_destruction_terminal",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793180253650,
+      "tag": "0006_tenant_profile",
+      "breakpoints": true
     }
   ]
 }

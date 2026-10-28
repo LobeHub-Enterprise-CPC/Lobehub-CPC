@@ -30,15 +30,15 @@ describe('electronSyncSelectors.remoteServerUrl', () => {
 
   // Regression: the renderer used to return the platform root for every cloud login, while the
   // main process talks to the committed tenant entry. Links, avatars and OAuth redirect URIs built
-  // from the platform root lose `/t/{slug}` and fail with TENANT_REQUIRED.
+  // from the platform root lose `/orgs/{slug}` and fail with TENANT_REQUIRED.
   it('names the committed tenant entry in cloud mode, not the platform origin', () => {
     process.env.OFFICIAL_CLOUD_SERVER = 'https://host';
 
     expect(
       electronSyncSelectors.remoteServerUrl(
-        stateWith({ cloudTenant: cloudTenant('https://host/t/acme/'), storageMode: 'cloud' }),
+        stateWith({ cloudTenant: cloudTenant('https://host/orgs/acme/'), storageMode: 'cloud' }),
       ),
-    ).toBe('https://host/t/acme');
+    ).toBe('https://host/orgs/acme');
   });
 
   it('has no business address in cloud mode before a tenant is committed', () => {
@@ -56,12 +56,12 @@ describe('electronSyncSelectors.remoteServerUrl', () => {
     expect(
       electronSyncSelectors.remoteServerUrl(
         stateWith({
-          cloudTenant: cloudTenant('https://host/t/acme'),
+          cloudTenant: cloudTenant('https://host/orgs/acme'),
           remoteServerUrl: 'https://host',
           storageMode: 'selfHost',
         }),
       ),
-    ).toBe('https://host/t/acme');
+    ).toBe('https://host/orgs/acme');
   });
 
   it('uses the configured address for a legacy self-hosted login', () => {
@@ -76,13 +76,13 @@ describe('electronSyncSelectors.remoteServerUrl', () => {
     expect(electronSyncSelectors.remoteServerUrl(stateWith({ storageMode: 'selfHost' }))).toBe('');
   });
 
-  // The configured address is a tenant address (`https://host/t/acme`) or a
+  // The configured address is a tenant address (`https://host/orgs/acme`) or a
   // custom-domain root. Consumers append app paths to it, so it has to keep the
   // tenant prefix and carry no trailing slash.
   it.each([
-    ['https://host/t/acme', 'https://host/t/acme'],
-    ['https://host/t/acme/', 'https://host/t/acme'],
-    ['https://host/t/acme//', 'https://host/t/acme'],
+    ['https://host/orgs/acme', 'https://host/orgs/acme'],
+    ['https://host/orgs/acme/', 'https://host/orgs/acme'],
+    ['https://host/orgs/acme//', 'https://host/orgs/acme'],
     ['https://custom.host/', 'https://custom.host'],
     ['https://custom.host', 'https://custom.host'],
   ])('keeps the tenant path of %s and drops trailing slashes', (configured, expected) => {
@@ -129,9 +129,13 @@ describe('electronSyncSelectors.serverConfigScope', () => {
       active: true,
       storageMode: 'cloud',
       cloudTenant: {
-        entryUrl: 'https://example.test/t/A',
+        entryUrl: 'https://example.test/orgs/A',
         generation: 'login-A',
-        identity: { tenantId: 'A', subject: 'same-sub', issuer: 'https://example.test/t/A/oidc' },
+        identity: {
+          tenantId: 'A',
+          subject: 'same-sub',
+          issuer: 'https://example.test/orgs/A/oidc',
+        },
         display: { account: 'same-sub' },
       },
     },
@@ -143,7 +147,7 @@ describe('electronSyncSelectors.serverConfigScope', () => {
     dataSyncConfig: {
       active: true,
       storageMode: 'selfHost',
-      remoteServerUrl: 'https://example.test/t/A',
+      remoteServerUrl: 'https://example.test/orgs/A',
     },
   };
 
@@ -154,20 +158,26 @@ describe('electronSyncSelectors.serverConfigScope', () => {
         ...legacy,
         dataSyncConfig: {
           ...legacy.dataSyncConfig,
-          remoteServerUrl: ' HTTPS://EXAMPLE.TEST/t/A/ ',
+          remoteServerUrl: ' HTTPS://EXAMPLE.TEST/orgs/A/ ',
         },
       }),
     ).toBe(scope(legacy));
     expect(
       scope({
         ...legacy,
-        dataSyncConfig: { ...legacy.dataSyncConfig, remoteServerUrl: 'http://localhost:3010/t/A' },
+        dataSyncConfig: {
+          ...legacy.dataSyncConfig,
+          remoteServerUrl: 'http://localhost:3010/orgs/A',
+        },
       }),
     ).not.toBeNull();
     expect(
       scope({
         ...legacy,
-        dataSyncConfig: { ...legacy.dataSyncConfig, remoteServerUrl: 'https://example.test/t/B' },
+        dataSyncConfig: {
+          ...legacy.dataSyncConfig,
+          remoteServerUrl: 'https://example.test/orgs/B',
+        },
       }),
     ).not.toBe(scope(legacy));
   });
@@ -213,7 +223,7 @@ describe('electronSyncSelectors.serverConfigScope', () => {
         dataSyncConfig: {
           ...committed.dataSyncConfig,
           storageMode: 'selfHost',
-          remoteServerUrl: 'https://example.test/t/A',
+          remoteServerUrl: 'https://example.test/orgs/A',
         },
       }),
     ).toBe(scope(committed));
@@ -242,10 +252,10 @@ describe('electronSyncSelectors.serverConfigScope', () => {
     const tenant = committed.dataSyncConfig.cloudTenant!;
     for (const changed of [
       { ...tenant, generation: 'login-A-2' },
-      { ...tenant, entryUrl: 'https://example.test/t/B' },
+      { ...tenant, entryUrl: 'https://example.test/orgs/B' },
       { ...tenant, identity: { ...tenant.identity, tenantId: 'B' } },
       { ...tenant, identity: { ...tenant.identity, subject: 'other-sub' } },
-      { ...tenant, identity: { ...tenant.identity, issuer: 'https://example.test/t/B/oidc' } },
+      { ...tenant, identity: { ...tenant.identity, issuer: 'https://example.test/orgs/B/oidc' } },
     ]) {
       expect(
         scope({
@@ -263,7 +273,7 @@ describe('electronSyncSelectors.serverConfigScope', () => {
         pendingAuthorizationConfirmation: {
           account: 'same-sub',
           confirmationId: 'B',
-          entryUrl: 'https://example.test/t/B',
+          entryUrl: 'https://example.test/orgs/B',
           expiresAt: 9999999999999,
           generation: 'login-B',
         },

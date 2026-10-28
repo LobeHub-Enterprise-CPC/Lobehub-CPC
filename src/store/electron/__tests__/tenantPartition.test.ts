@@ -12,7 +12,7 @@ const stateOf = (tenantId?: string, hydrated = true): ElectronState => ({
     ...(tenantId && {
       cloudTenant: {
         display: { account: 's' },
-        entryUrl: `https://host/t/${tenantId}`,
+        entryUrl: `https://host/orgs/${tenantId}`,
         generation: 'g',
         identity: { issuer: 'https://host/oidc', subject: 's', tenantId },
       },

@@ -14,7 +14,7 @@ const getNodeText = (node: any): string => {
 /**
  * The address file links should be classified against. On desktop the
  * renderer's own origin isn't the app's — exported files are absolute URLs
- * pointing at the remote server (`https://host/t/acme/f/:id` for a tenant), so
+ * pointing at the remote server (`https://host/orgs/acme/f/:id` for a tenant), so
  * its address, tenant path included, is what has to match (the tenant package's
  * app address, see getAppBaseUrl).
  */

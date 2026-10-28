@@ -78,30 +78,30 @@ describe('buildDocumentShareUrl', () => {
   });
 
   it('keeps the tenant path in the link a web tenant page shares', async () => {
-    initializeTenant(new URL(`${window.location.origin}/t/acme/agent`));
+    initializeTenant(new URL(`${window.location.origin}/orgs/acme/agent`));
     const { buildDocumentShareUrl } = await import('./lobe-agent-documents');
 
     expect(buildDocumentShareUrl('agt_1', 'docs_1')).toBe(
-      `${window.location.origin}/t/acme/agent/agt_1/docs/1`,
+      `${window.location.origin}/orgs/acme/agent/agt_1/docs/1`,
     );
   });
 
   it('puts the workspace slug after the tenant path', async () => {
-    initializeTenant(new URL(`${window.location.origin}/t/acme/agent`));
+    initializeTenant(new URL(`${window.location.origin}/orgs/acme/agent`));
     mockWorkspaceSlug.current = 'team';
     const { buildDocumentShareUrl } = await import('./lobe-agent-documents');
 
     expect(buildDocumentShareUrl('agt_1', 'docs_1')).toBe(
-      `${window.location.origin}/t/acme/team/agent/agt_1/docs/1`,
+      `${window.location.origin}/orgs/acme/team/agent/agt_1/docs/1`,
     );
   });
 
   it('uses the remote tenant address in the desktop renderer', async () => {
-    setRemoteAppAddress('https://host.example/t/acme');
+    setRemoteAppAddress('https://host.example/orgs/acme');
     const { buildDocumentShareUrl } = await import('./lobe-agent-documents');
 
     expect(buildDocumentShareUrl('agt_1', 'docs_1')).toBe(
-      'https://host.example/t/acme/agent/agt_1/docs/1',
+      'https://host.example/orgs/acme/agent/agt_1/docs/1',
     );
   });
 

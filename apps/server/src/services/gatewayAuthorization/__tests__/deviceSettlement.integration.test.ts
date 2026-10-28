@@ -71,7 +71,7 @@ const run = <T>(fn: () => T) =>
       tenantId,
       acceptedVersion: 7,
       slug: 'b12',
-      endpoint: { basePath: '/t/b12', publicUrl: 'http://test.invalid/t/b12', version: 1 },
+      endpoint: { basePath: '/orgs/b12', publicUrl: 'http://test.invalid/orgs/b12', version: 1 },
       session: { database: db },
     } as TenantScope,
     () => runWithGatewaySource(source, fn),

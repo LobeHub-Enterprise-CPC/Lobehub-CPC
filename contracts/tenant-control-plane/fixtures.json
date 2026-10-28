@@ -1296,6 +1296,187 @@
     },
     {
       "accepts": true,
+      "id": "profile-request",
+      "note": "rename: the previous slug becomes an alias",
+      "schema": "profileRequest",
+      "value": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": ["acme"],
+        "name": "Acme Group",
+        "slug": "acme-group",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2
+      }
+    },
+    {
+      "accepts": true,
+      "id": "profile-request-no-aliases",
+      "note": "name only: nothing retired yet",
+      "schema": "profileRequest",
+      "value": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": [],
+        "name": "Acme Group",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2
+      }
+    },
+    {
+      "accepts": false,
+      "id": "profile-request-version-one",
+      "note": "version 1 is the provision itself",
+      "schema": "profileRequest",
+      "value": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": ["acme"],
+        "name": "Acme Group",
+        "slug": "acme-group",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 1
+      }
+    },
+    {
+      "accepts": false,
+      "id": "profile-request-former-contains-slug",
+      "note": "the current slug is never its own alias",
+      "schema": "profileRequest",
+      "value": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": ["acme-group"],
+        "name": "Acme Group",
+        "slug": "acme-group",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2
+      }
+    },
+    {
+      "accepts": false,
+      "id": "profile-request-duplicate-former",
+      "note": "aliases are distinct",
+      "schema": "profileRequest",
+      "value": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": ["acme", "acme"],
+        "name": "Acme Group",
+        "slug": "acme-group",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2
+      }
+    },
+    {
+      "accepts": false,
+      "id": "profile-request-slug-format",
+      "note": "slug shape as at registration",
+      "schema": "profileRequest",
+      "value": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": ["acme"],
+        "name": "Acme Group",
+        "slug": "Acme_Group",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2
+      }
+    },
+    {
+      "accepts": false,
+      "id": "profile-request-blank-name",
+      "note": "name is trimmed and not empty",
+      "schema": "profileRequest",
+      "value": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": ["acme"],
+        "name": "   ",
+        "slug": "acme-group",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2
+      }
+    },
+    {
+      "accepts": false,
+      "id": "profile-request-extra-field",
+      "note": "strict",
+      "schema": "profileRequest",
+      "value": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": ["acme"],
+        "name": "Acme Group",
+        "slug": "acme-group",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2,
+        "activeUrl": "https://example.com"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "profile-request-tenant-not-uuid",
+      "note": "tenant id is the canonical UUID",
+      "schema": "profileRequest",
+      "value": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": ["acme"],
+        "name": "Acme Group",
+        "slug": "acme-group",
+        "tenantId": "acme",
+        "version": 2
+      }
+    },
+    {
+      "accepts": true,
+      "id": "profile-result",
+      "note": "applied",
+      "schema": "profileResult",
+      "value": {
+        "acceptedVersion": 2,
+        "appliedVersion": 2,
+        "errorCode": null,
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "name": "Acme Group",
+        "observedAt": "2026-10-13T00:00:01.000Z",
+        "slug": "acme-group",
+        "status": "applied",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2
+      }
+    },
+    {
+      "accepts": true,
+      "id": "profile-result-superseded",
+      "note": "the application already holds a newer profile and answers its values",
+      "schema": "profileResult",
+      "value": {
+        "acceptedVersion": 3,
+        "appliedVersion": 3,
+        "errorCode": null,
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "name": "Acme Holdings",
+        "observedAt": "2026-10-13T00:00:01.000Z",
+        "slug": "acme-holdings",
+        "status": "superseded",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2
+      }
+    },
+    {
+      "accepts": false,
+      "id": "profile-result-error-code",
+      "note": "errors are HTTP statuses, never a 200 body",
+      "schema": "profileResult",
+      "value": {
+        "acceptedVersion": 2,
+        "appliedVersion": 2,
+        "errorCode": "SLUG_CONFLICT",
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "name": "Acme Group",
+        "observedAt": "2026-10-13T00:00:01.000Z",
+        "slug": "acme-group",
+        "status": "applied",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2
+      }
+    },
+    {
+      "accepts": true,
       "id": "provision-result",
       "note": "TITU Work result",
       "schema": "provisionResult",

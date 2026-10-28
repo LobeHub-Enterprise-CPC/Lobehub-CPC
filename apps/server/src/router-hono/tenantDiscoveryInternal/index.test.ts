@@ -348,7 +348,7 @@ describe('tenant discovery internal lookup', () => {
 
     it('derives url and signinUrl for a single-app path tenant', async () => {
       const acmePath = {
-        activeUrl: 'https://work.example.com/t/acme',
+        activeUrl: 'https://work.example.com/orgs/acme',
         id: 'tenant-p',
         name: 'Acme Path',
         slug: 'acme',
@@ -361,9 +361,9 @@ describe('tenant discovery internal lookup', () => {
           {
             id: 'tenant-p',
             name: 'Acme Path',
-            signinUrl: 'https://work.example.com/t/acme/signin',
+            signinUrl: 'https://work.example.com/orgs/acme/signin',
             slug: 'acme',
-            url: 'https://work.example.com/t/acme',
+            url: 'https://work.example.com/orgs/acme',
           },
         ],
       });

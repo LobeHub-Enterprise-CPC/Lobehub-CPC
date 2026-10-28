@@ -14,6 +14,8 @@ export const getTenantPageBootstrap = async (request: Request) => {
   return {
     // The directory name is display text; the page falls back to the slug without it.
     ...(entry.name ? { name: entry.name } : {}),
+    // Links written before a rename carry these; the page still treats them as its own.
+    ...(entry.formerSlugs.length ? { formerSlugs: entry.formerSlugs } : {}),
     publicUrl: entry.state.activeUrl,
     version: entry.state.appliedVersion,
     basePath: url.pathname === '/' ? '' : url.pathname,

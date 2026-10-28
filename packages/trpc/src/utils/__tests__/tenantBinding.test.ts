@@ -47,7 +47,7 @@ const signProviderAccessToken = (claims: Record<string, unknown>) =>
     .setProtectedHeader({ alg: 'RS256', kid })
     .setSubject('user-1')
     .setAudience('urn:lobehub:chat')
-    .setIssuer('http://localhost:3000/t/tenant-a/oidc')
+    .setIssuer('http://localhost:3000/orgs/tenant-a/oidc')
     .setIssuedAt()
     .setExpirationTime('5m')
     .sign(privateKey);

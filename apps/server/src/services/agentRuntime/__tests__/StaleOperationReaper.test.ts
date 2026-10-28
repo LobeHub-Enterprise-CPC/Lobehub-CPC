@@ -105,7 +105,7 @@ describe('StaleOperationReaper', () => {
         context: { phase: 'tool_result' },
         // stepCount is the count of COMPLETED steps, so it is also the index
         // of the one that never finished.
-        endpoint: 'https://app.lobehub.test/t/acme/api/agent/run',
+        endpoint: 'https://app.lobehub.test/orgs/acme/api/agent/run',
         operationId: 'op_x',
         stepIndex: 7,
       }),

@@ -1,3 +1,4 @@
+import { hasTenantPrefix } from '@lobechat/business-tenant/routing';
 import { runWithTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 import { NextRequest, NextResponse } from 'next/server';
@@ -128,7 +129,7 @@ const routeTenantRequest = async (
       return rewriteTo(req, route.path, headers);
     }
     case 'tenant-discovery-page': {
-      return discoveryNavigation(deps, req, headers, /^\/t(?:\/|$)/.test(pathname));
+      return discoveryNavigation(deps, req, headers, hasTenantPrefix(pathname));
     }
   }
 

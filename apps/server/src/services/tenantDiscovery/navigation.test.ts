@@ -66,7 +66,7 @@ describe('tenant navigation preference', () => {
 
 describe('desktop URL privacy', () => {
   it('redacts desktop handoff state carried as id without hiding ordinary resource ids', () => {
-    for (const prefix of ['https://chat.example.com', 'https://app.example.com/t/acme']) {
+    for (const prefix of ['https://chat.example.com', 'https://app.example.com/orgs/acme']) {
       const logged = redactUrlEmail(`${prefix}/oidc/handoff?id=private-state&client=desktop`);
       expect(logged).not.toContain('private-state');
       expect(new URL(logged).searchParams.get('client')).toBe('desktop');
@@ -80,7 +80,7 @@ describe('desktop URL privacy', () => {
 
   it('redacts state, challenge, codes, tokens and nested callback URLs', () => {
     const nested =
-      'https://app.example.com/t/acme/oidc/auth?state=private-state&code_challenge=private-challenge';
+      'https://app.example.com/orgs/acme/oidc/auth?state=private-state&code_challenge=private-challenge';
     const url = new URL('https://app.example.com/signin?hl=en-US');
     for (const [key, value] of Object.entries({
       state: 'private-state',
@@ -101,10 +101,10 @@ describe('desktop URL privacy', () => {
   });
   it('redacts server-relative URLs with the same rules and keeps them relative', () => {
     const logged = redactUrlEmail(
-      '/t/acme/oidc/session/end?id_token_hint=private-id-token&state=private-state&hl=en-US#private-fragment',
+      '/orgs/acme/oidc/session/end?id_token_hint=private-id-token&state=private-state&hl=en-US#private-fragment',
     );
     expect(logged).not.toContain('private');
-    expect(logged.startsWith('/t/acme/oidc/session/end?')).toBe(true);
+    expect(logged.startsWith('/orgs/acme/oidc/session/end?')).toBe(true);
     expect(new URL(logged, 'http://x.invalid').searchParams.get('hl')).toBe('en-US');
     expect(redactUrlEmail('/oidc/auth/private-uid?state=private-state')).toBe(
       '[authorization-url-redacted]',
@@ -116,7 +116,7 @@ describe('desktop URL privacy', () => {
 
   it('redacts interaction ids carried in the path', () => {
     for (const value of [
-      'https://app.example.com/t/acme/oauth/consent/private-uid?hl=en-US',
+      'https://app.example.com/orgs/acme/oauth/consent/private-uid?hl=en-US',
       '/oidc/interaction/private-uid',
     ])
       expect(redactUrlEmail(value)).not.toContain('private');
@@ -140,7 +140,7 @@ describe('desktop URL privacy', () => {
   it('does not log authorization URLs, including tenant-prefixed requests', () => {
     expect(
       redactUrlEmail(
-        'https://app.example.com/t/acme/oidc/auth?client_id=lobehub-desktop&state=secret',
+        'https://app.example.com/orgs/acme/oidc/auth?client_id=lobehub-desktop&state=secret',
       ),
     ).toBe('[authorization-url-redacted]');
   });
@@ -207,13 +207,13 @@ describe('hideSessionDataCookies', () => {
 });
 
 describe('expiredCookieHeaders', () => {
-  const attributes = { httpOnly: true, path: '/t/acme', sameSite: 'lax', secure: false };
+  const attributes = { httpOnly: true, path: '/orgs/acme', sameSite: 'lax', secure: false };
   it('expires each name with the instance attributes, empty value and Max-Age=0', () => {
     expect(
       expiredCookieHeaders(['lh_x.session_data.0', 'lh_x.session_data.1'], [], attributes),
     ).toEqual([
-      'lh_x.session_data.0=; Max-Age=0; Path=/t/acme; HttpOnly; SameSite=Lax',
-      'lh_x.session_data.1=; Max-Age=0; Path=/t/acme; HttpOnly; SameSite=Lax',
+      'lh_x.session_data.0=; Max-Age=0; Path=/orgs/acme; HttpOnly; SameSite=Lax',
+      'lh_x.session_data.1=; Max-Age=0; Path=/orgs/acme; HttpOnly; SameSite=Lax',
     ]);
   });
   it('carries Domain, Secure and the other spellings of SameSite when configured', () => {
@@ -229,16 +229,16 @@ describe('expiredCookieHeaders', () => {
   });
   it('always secures a __Secure- cookie, whatever the instance attributes say', () => {
     expect(
-      expiredCookieHeaders(['__Secure-n.0'], [], { path: '/t/acme', secure: false })[0],
+      expiredCookieHeaders(['__Secure-n.0'], [], { path: '/orgs/acme', secure: false })[0],
     ).toContain('; Secure');
   });
   it('never overrides a cookie the response already sets or deletes, and does not repeat names', () => {
     expect(
       expiredCookieHeaders(
         ['a', 'b', 'a', 'c'],
-        ['b=; Max-Age=0; Path=/t/acme', 'c=new; Path=/t/acme; Max-Age=60'],
+        ['b=; Max-Age=0; Path=/orgs/acme', 'c=new; Path=/orgs/acme; Max-Age=60'],
         attributes,
       ),
-    ).toEqual(['a=; Max-Age=0; Path=/t/acme; HttpOnly; SameSite=Lax']);
+    ).toEqual(['a=; Max-Age=0; Path=/orgs/acme; HttpOnly; SameSite=Lax']);
   });
 });

@@ -53,7 +53,7 @@ const minter = (
 ) =>
   createGatewayIdentityMinter({
     assertCurrent: () => undefined,
-    entryUrl: 'https://example.test/t/a',
+    entryUrl: 'https://example.test/orgs/a',
     fetch: send,
     token: 'original',
     userId: 'sub',
@@ -62,10 +62,10 @@ const minter = (
 
 describe('createGatewayIdentityMinter', () => {
   it.each([
-    'http://example.test/t/a',
-    'https://user:pass@example.test/t/a',
-    'https://example.test/t/a?x=1',
-    'https://example.test/t/a#frag',
+    'http://example.test/orgs/a',
+    'https://user:pass@example.test/orgs/a',
+    'https://example.test/orgs/a?x=1',
+    'https://example.test/orgs/a#frag',
   ])('refuses the unsafe entry %s before any request', (entryUrl) => {
     const send = vi.fn();
     expect(() => minter(send, { entryUrl })).toThrow('GATEWAY_IDENTITY_ENTRY_INVALID');

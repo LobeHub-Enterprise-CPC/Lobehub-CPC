@@ -39,7 +39,7 @@ afterEach(() => {
 describe('signed navigation redirect handler', () => {
   it.each([
     'http://localhost:3010/?switch=1#',
-    'https://chat.example.com/t/acme/#',
+    'https://chat.example.com/orgs/acme/#',
     'https://chat.example.com/oidc/auth?state=authorized&a=b#',
   ])('answers a real 302 with the exact fragment-clearing target: %s', async (location) => {
     vi.stubEnv('KEY_VAULTS_SECRET', 'test-navigation-secret');

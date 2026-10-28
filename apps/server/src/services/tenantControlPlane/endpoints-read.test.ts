@@ -33,7 +33,7 @@ describe('endpoint projection absence', () => {
       acceptedVersion: 0,
       appliedVersion: 0,
       endpoints: [{ id: 'default', kind: 'default', host: null, active: true }],
-      activeUrl: 'https://app.example.com/t/acme',
+      activeUrl: 'https://app.example.com/orgs/acme',
       observedAt: updatedAt.toISOString(),
     });
   });

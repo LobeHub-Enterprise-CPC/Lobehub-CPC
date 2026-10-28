@@ -12,7 +12,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-const ENTRY = 'https://work.example.com/t/acme';
+const ENTRY = 'https://work.example.com/orgs/acme';
 
 afterEach(cleanup);
 

@@ -64,7 +64,7 @@ describe('UserUpdater', () => {
   );
 
   it('lets a user of an unavailable organization go back to the organization lookup', () => {
-    initializeTenant(new URL('https://app.example.com/t/acme/agent'));
+    initializeTenant(new URL('https://app.example.com/orgs/acme/agent'));
     try {
       useSessionMock.mockReturnValue({
         data: null,
@@ -112,7 +112,7 @@ describe('UserUpdater', () => {
   });
 
   it('offers no organization switch for failures that are not about the organization', () => {
-    initializeTenant(new URL('https://app.example.com/t/acme/agent'));
+    initializeTenant(new URL('https://app.example.com/orgs/acme/agent'));
     try {
       useSessionMock.mockReturnValue({
         data: null,

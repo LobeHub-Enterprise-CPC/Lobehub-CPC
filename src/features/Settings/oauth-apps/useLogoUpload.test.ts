@@ -51,7 +51,7 @@ describe('useLogoUpload', () => {
   });
 
   it('keeps the tenant path when turning a storage path into an absolute URL', async () => {
-    initializeTenant(new URL(`${window.location.origin}/t/acme/settings`));
+    initializeTenant(new URL(`${window.location.origin}/orgs/acme/settings`));
     mocks.uploadWithProgress.mockResolvedValue({ url: '/f/logo.png' });
     const { result } = renderHook(() => useLogoUpload());
 
@@ -61,7 +61,7 @@ describe('useLogoUpload', () => {
     });
     initializeTenant(new URL(window.location.href));
 
-    expect(url).toBe(`${window.location.origin}/t/acme/f/logo.png`);
+    expect(url).toBe(`${window.location.origin}/orgs/acme/f/logo.png`);
   });
 
   it('refuses a file over 2 MB without uploading it', async () => {

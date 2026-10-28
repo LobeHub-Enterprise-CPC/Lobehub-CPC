@@ -88,7 +88,7 @@ describe('GatewayService client lifecycle', () => {
         credentials: { botToken: 'bot-token' },
         platform: 'discord',
         userId: 'user-1',
-        webhookPath: '/t/acme/api/agent/webhooks/discord/app-1',
+        webhookPath: '/orgs/acme/api/agent/webhooks/discord/app-1',
       });
       expect(mockUpdateBotRuntimeStatus).toHaveBeenCalledWith({
         applicationId: 'app-1',

@@ -23,8 +23,8 @@ describe('app URLs', () => {
   });
 
   it.each([
-    ['https://host/t/acme', 'https://host/t/acme/goal/goal-1'],
-    ['https://host/t/acme/', 'https://host/t/acme/goal/goal-1'],
+    ['https://host/orgs/acme', 'https://host/orgs/acme/goal/goal-1'],
+    ['https://host/orgs/acme/', 'https://host/orgs/acme/goal/goal-1'],
     ['https://custom.host', 'https://custom.host/goal/goal-1'],
     ['https://custom.host/', 'https://custom.host/goal/goal-1'],
   ])('keeps the tenant path of the server %s', (serverUrl, expected) => {
@@ -36,10 +36,10 @@ describe('app URLs', () => {
     expect(
       buildAppUrl({
         pathname: '/goal/goal-1',
-        serverUrl: 'https://host/t/acme',
+        serverUrl: 'https://host/orgs/acme',
         workspaceSlug: 'lobehub',
       }),
-    ).toBe('https://host/t/acme/lobehub/goal/goal-1');
+    ).toBe('https://host/orgs/acme/lobehub/goal/goal-1');
   });
 
   it('does not fetch workspace context in personal mode', async () => {

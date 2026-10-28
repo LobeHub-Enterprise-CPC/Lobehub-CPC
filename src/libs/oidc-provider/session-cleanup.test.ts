@@ -156,10 +156,10 @@ describe('clearCurrentOIDCSession', () => {
 
 it.each([
   {
-    basePath: '/t/acme',
-    publicUrl: 'https://app.example.com/t/acme',
+    basePath: '/orgs/acme',
+    publicUrl: 'https://app.example.com/orgs/acme',
     version: 1,
-    expected: '/t/acme',
+    expected: '/orgs/acme',
   },
   { basePath: '', publicUrl: 'https://chat.example.com', version: 2, expected: '/' },
 ])('expires OIDC cookies on their canonical path $expected', async (endpoint) => {

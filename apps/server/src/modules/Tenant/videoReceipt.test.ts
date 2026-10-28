@@ -67,7 +67,7 @@ beforeEach(() => {
 describe('video receipt ingress', () => {
   it('accepts a prefixed URL retained by Next.js after tenant routing', async () => {
     expect(
-      (await receiveVideoReceipt(request('/t/beta/api/webhooks/video/volcengine?token=valid')))
+      (await receiveVideoReceipt(request('/orgs/beta/api/webhooks/video/volcengine?token=valid')))
         ?.status,
     ).toBe(200);
   });

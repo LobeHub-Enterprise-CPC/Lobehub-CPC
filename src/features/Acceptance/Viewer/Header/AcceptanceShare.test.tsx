@@ -41,14 +41,16 @@ afterEach(() => {
 
 describe('AcceptanceShare copy link', () => {
   it('keeps the tenant path of the page, so the link does not land on organization discovery', async () => {
-    initializeTenant(new URL(`${window.location.origin}/t/acme/acceptance/acc_1`));
+    initializeTenant(new URL(`${window.location.origin}/orgs/acme/acceptance/acc_1`));
 
-    await expect(copiedLink()).resolves.toBe(`${window.location.origin}/t/acme/acceptance/acc_1`);
+    await expect(copiedLink()).resolves.toBe(
+      `${window.location.origin}/orgs/acme/acceptance/acc_1`,
+    );
   });
 
   it('uses the remote tenant address in the desktop renderer, not an app:// origin', async () => {
-    setRemoteAppAddress('https://host.example/t/acme');
+    setRemoteAppAddress('https://host.example/orgs/acme');
 
-    await expect(copiedLink()).resolves.toBe('https://host.example/t/acme/acceptance/acc_1');
+    await expect(copiedLink()).resolves.toBe('https://host.example/orgs/acme/acceptance/acc_1');
   });
 });

@@ -35,7 +35,7 @@ vi.mock('@/utils/logger', () => {
 });
 
 const PLATFORM = 'https://platform.example';
-const ENTRY = `${PLATFORM}/t/acme`;
+const ENTRY = `${PLATFORM}/orgs/acme`;
 const ISSUER = `${ENTRY}/oidc`;
 const T0 = Date.parse('2026-10-15T08:00:00Z');
 
@@ -139,10 +139,10 @@ describe('AuthFlowManager', () => {
       requests.push({ init, url });
       if (url.pathname === '/api/tenant-discovery/desktop-handoff')
         return next(world.platformHandoff);
-      if (url.pathname === '/t/acme/oidc/handoff') return next(world.entryHandoff);
-      if (url.pathname === '/t/acme/oidc/token') return world.tokenResponse();
-      if (url.pathname === '/t/acme/oidc/jwks') return jsonResponse({ keys: [jwk] });
-      if (url.pathname === '/t/acme/oidc/.well-known/openid-configuration')
+      if (url.pathname === '/orgs/acme/oidc/handoff') return next(world.entryHandoff);
+      if (url.pathname === '/orgs/acme/oidc/token') return world.tokenResponse();
+      if (url.pathname === '/orgs/acme/oidc/jwks') return jsonResponse({ keys: [jwk] });
+      if (url.pathname === '/orgs/acme/oidc/.well-known/openid-configuration')
         return world.preflight();
       return new Response(null, { status: 404 });
     });
@@ -202,7 +202,7 @@ describe('AuthFlowManager', () => {
       expect(handoffPoll!.init.method).toBe('POST');
       // Moves on to the tenant stage against exactly the snapshot's entry.
       await vi.advanceTimersByTimeAsync(3100);
-      expect(requests.some((r) => r.url.pathname === '/t/acme/oidc/handoff')).toBe(true);
+      expect(requests.some((r) => r.url.pathname === '/orgs/acme/oidc/handoff')).toBe(true);
     });
 
     it('always asks for confirmation and never commits or reconnects before it', async () => {
@@ -501,7 +501,7 @@ describe('AuthFlowManager', () => {
     });
 
     it('treats a snapshot with a non-https entry as inconsistent', async () => {
-      world.platformHandoff = [() => snapshot({ entry: 'http://evil.example/t/acme' })];
+      world.platformHandoff = [() => snapshot({ entry: 'http://evil.example/orgs/acme' })];
       await startPlatformFlow();
       await vi.advanceTimersByTimeAsync(10);
 
@@ -518,7 +518,7 @@ describe('AuthFlowManager', () => {
       ['a fractional endpointVersion', { endpointVersion: 1.5 }],
       ['a zero endpointVersion', { endpointVersion: 0 }],
       ['a tenantId the server would never issue', { tenantId: 'bad id/with space' }],
-      ['an entry longer than the server allows', { entry: `${PLATFORM}/t/${'a'.repeat(2048)}` }],
+      ['an entry longer than the server allows', { entry: `${PLATFORM}/orgs/${'a'.repeat(2048)}` }],
     ])('treats a snapshot with %s as unusable', async (_name, overrides) => {
       world.platformHandoff = [() => snapshot(overrides)];
       await startPlatformFlow();
@@ -665,7 +665,7 @@ describe('AuthFlowManager', () => {
       expect(url.searchParams.get('scope')).toBe('openid profile email offline_access');
       expect(url.searchParams.get('redirect_uri')).toBe(`${ENTRY}/oidc/callback/desktop`);
       expect(url.searchParams.get('client_id')).toBe('tituwork-desktop');
-      expect(requests[0].url.pathname).toBe('/t/acme/oidc/.well-known/openid-configuration');
+      expect(requests[0].url.pathname).toBe('/orgs/acme/oidc/.well-known/openid-configuration');
 
       await vi.advanceTimersByTimeAsync(5000);
       expect(requests.some((r) => r.url.pathname === '/api/tenant-discovery/desktop-handoff')).toBe(
@@ -701,13 +701,13 @@ describe('AuthFlowManager', () => {
     it('rejects addresses that are not https', async () => {
       expect(
         await manager.start({
-          remoteServerUrl: 'http://platform.example/t/acme',
+          remoteServerUrl: 'http://platform.example/orgs/acme',
           storageMode: 'selfHost',
         }),
       ).toMatchObject({ code: 'INVALID_SERVER_ADDRESS' });
       expect(
         await manager.start({
-          remoteServerUrl: 'https://u:p@platform.example/t/acme',
+          remoteServerUrl: 'https://u:p@platform.example/orgs/acme',
           storageMode: 'selfHost',
         }),
       ).toMatchObject({ code: 'INVALID_SERVER_ADDRESS' });
@@ -786,7 +786,7 @@ describe('AuthFlowManager', () => {
         'a different issuer',
         { identity: { issuer: 'https://x.example/oidc', subject: 'user-1', tenantId: 'tenant-1' } },
       ],
-      ['a different entry', { entryUrl: 'https://platform.example/t/other' }],
+      ['a different entry', { entryUrl: 'https://platform.example/orgs/other' }],
       ['no previous record', undefined],
     ])('asks for confirmation for %s', async (_name, override) => {
       committed = override
@@ -820,7 +820,7 @@ describe('AuthFlowManager', () => {
 
       await manager.start({ storageMode: 'cloud' });
 
-      expect(openedUrl().pathname).toBe('/t/acme/oidc/auth');
+      expect(openedUrl().pathname).toBe('/orgs/acme/oidc/auth');
       expect(requests.some((r) => r.url.pathname.includes('desktop-handoff'))).toBe(false);
     });
 
@@ -845,7 +845,7 @@ describe('AuthFlowManager', () => {
   describe('409 TENANT_ENDPOINT_CHANGED', () => {
     const changed = () =>
       jsonResponse(
-        { activeUrl: 'https://elsewhere.example/t/acme', code: 'TENANT_ENDPOINT_CHANGED' },
+        { activeUrl: 'https://elsewhere.example/orgs/acme', code: 'TENANT_ENDPOINT_CHANGED' },
         { status: 409 },
       );
 
@@ -936,7 +936,7 @@ describe('AuthFlowManager', () => {
       await manager.start({ storageMode: 'cloud' }, { forceDiscovery: true });
 
       expect(openedUrl().origin + openedUrl().pathname).toBe(`${PLATFORM}/`);
-      expect(requests.some((r) => r.url.pathname.startsWith('/t/acme/'))).toBe(false);
+      expect(requests.some((r) => r.url.pathname.startsWith('/orgs/acme/'))).toBe(false);
 
       world.platformHandoff = [() => snapshot({ tenantId: 'tenant-other' })];
       await vi.advanceTimersByTimeAsync(3100);
@@ -1023,7 +1023,7 @@ describe('AuthFlowManager', () => {
       world.entryHandoff = [notFound({ error: 'Handoff record not found or expired' })];
       await vi.advanceTimersByTimeAsync(10_000);
 
-      expect(polls('/t/acme/oidc/handoff')).toBeGreaterThan(2);
+      expect(polls('/orgs/acme/oidc/handoff')).toBeGreaterThan(2);
       expect(broadcasts('authorizationFailed')).toHaveLength(0);
     });
 
@@ -1051,9 +1051,9 @@ describe('AuthFlowManager', () => {
       await vi.advanceTimersByTimeAsync(3100);
 
       expect(broadcasts('authorizationFailed')).toContainEqual(expect.objectContaining({ code }));
-      const count = polls('/t/acme/oidc/handoff');
+      const count = polls('/orgs/acme/oidc/handoff');
       await vi.advanceTimersByTimeAsync(10_000);
-      expect(polls('/t/acme/oidc/handoff')).toBe(count);
+      expect(polls('/orgs/acme/oidc/handoff')).toBe(count);
     });
   });
 
@@ -1075,7 +1075,7 @@ describe('AuthFlowManager', () => {
       await vi.advanceTimersByTimeAsync(10);
       await finishWithCode(state);
 
-      const tokenRequest = requests.find((r) => r.url.pathname === '/t/acme/oidc/token')!;
+      const tokenRequest = requests.find((r) => r.url.pathname === '/orgs/acme/oidc/token')!;
       const verifier = new URLSearchParams(tokenRequest.init.body as string).get('code_verifier')!;
       const output = logged.join('\n');
 

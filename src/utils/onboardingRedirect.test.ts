@@ -60,7 +60,7 @@ describe('tenant pages', () => {
   const authOrigin = 'https://auth.example.com';
 
   beforeEach(() => {
-    window.history.replaceState(null, '', '/t/acme/signin?callbackUrl=%2F');
+    window.history.replaceState(null, '', '/orgs/acme/signin?callbackUrl=%2F');
     initializeTenant(new URL(window.location.href));
   });
 
@@ -70,58 +70,58 @@ describe('tenant pages', () => {
   });
 
   it("should send post-login callbacks to the page's tenant, not the bare root", () => {
-    expect(toAbsoluteAuthCallbackUrl('/', authOrigin)).toBe(`${authOrigin}/t/acme`);
+    expect(toAbsoluteAuthCallbackUrl('/', authOrigin)).toBe(`${authOrigin}/orgs/acme`);
     expect(toAbsoluteAuthCallbackUrl('/onboarding?callbackUrl=%2Fagent', authOrigin)).toBe(
-      `${authOrigin}/t/acme/onboarding?callbackUrl=%2Fagent`,
+      `${authOrigin}/orgs/acme/onboarding?callbackUrl=%2Fagent`,
     );
     // Already addressed to the tenant: unchanged.
-    expect(toAbsoluteAuthCallbackUrl('/t/acme/agent', authOrigin)).toBe(
-      `${authOrigin}/t/acme/agent`,
+    expect(toAbsoluteAuthCallbackUrl('/orgs/acme/agent', authOrigin)).toBe(
+      `${authOrigin}/orgs/acme/agent`,
     );
   });
 
   it('should keep the tenant on full-page redirects, including the fallback', () => {
-    expect(sanitizeRedirectPath(null)).toBe('/t/acme');
-    expect(sanitizeRedirectPath('/agent/abc')).toBe('/t/acme/agent/abc');
-    expect(sanitizeRedirectPath('https://evil.com')).toBe('/t/acme');
+    expect(sanitizeRedirectPath(null)).toBe('/orgs/acme');
+    expect(sanitizeRedirectPath('/agent/abc')).toBe('/orgs/acme/agent/abc');
+    expect(sanitizeRedirectPath('https://evil.com')).toBe('/orgs/acme');
   });
 
   it('should keep default signup landings within the current tenant', () => {
-    expect(buildOnboardingRedirectUrl()).toBe('/t/acme/onboarding');
-    expect(buildOnboardingRedirectUrl('/')).toBe('/t/acme/onboarding');
-    expect(buildOnboardingRedirectUrl('/t/acme')).toBe('/t/acme/onboarding');
+    expect(buildOnboardingRedirectUrl()).toBe('/orgs/acme/onboarding');
+    expect(buildOnboardingRedirectUrl('/')).toBe('/orgs/acme/onboarding');
+    expect(buildOnboardingRedirectUrl('/orgs/acme')).toBe('/orgs/acme/onboarding');
   });
 
   it('should preserve scoped targets without nesting an existing onboarding callback', () => {
     expect(buildOnboardingRedirectUrl('/agent/abc?message=hi')).toBe(
-      '/t/acme/onboarding?callbackUrl=%2Ft%2Facme%2Fagent%2Fabc%3Fmessage%3Dhi',
+      '/orgs/acme/onboarding?callbackUrl=%2Forgs%2Facme%2Fagent%2Fabc%3Fmessage%3Dhi',
     );
     expect(
-      buildOnboardingRedirectUrl(`${window.location.origin}/t/acme/onboarding/agent?step=2`),
-    ).toBe('/t/acme/onboarding/agent?step=2');
+      buildOnboardingRedirectUrl(`${window.location.origin}/orgs/acme/onboarding/agent?step=2`),
+    ).toBe('/orgs/acme/onboarding/agent?step=2');
   });
 
   it.each([
-    '/t/other/agent',
-    '/t/acme/../other/agent',
-    '/t/acme/%2e%2e/other/agent',
-    '/../../t/other/agent',
+    '/orgs/other/agent',
+    '/orgs/acme/../other/agent',
+    '/orgs/acme/%2e%2e/other/agent',
+    '/../../orgs/other/agent',
     '/\n/evil.com',
     'https://evil.com',
   ])('should keep an unsafe or cross-tenant callback %s in the current tenant', (callbackUrl) => {
-    expect(sanitizeRedirectPath(callbackUrl)).toBe('/t/acme');
-    expect(buildOnboardingRedirectUrl(callbackUrl)).toBe('/t/acme/onboarding');
+    expect(sanitizeRedirectPath(callbackUrl)).toBe('/orgs/acme');
+    expect(buildOnboardingRedirectUrl(callbackUrl)).toBe('/orgs/acme/onboarding');
     if (isSafeRedirectPath(callbackUrl)) {
-      expect(toAbsoluteAuthCallbackUrl(callbackUrl, authOrigin)).toBe(`${authOrigin}/t/acme`);
+      expect(toAbsoluteAuthCallbackUrl(callbackUrl, authOrigin)).toBe(`${authOrigin}/orgs/acme`);
     }
   });
 
   it('should return router-relative targets after onboarding without repeating its basename', () => {
-    stashOnboardingCallbackUrl('?callbackUrl=%2Ft%2Facme%2Fagent%2Fabc%3Fmessage%3Dhi');
+    stashOnboardingCallbackUrl('?callbackUrl=%2Forgs%2Facme%2Fagent%2Fabc%3Fmessage%3Dhi');
     expect(resolvePostOnboardingTargetUrl()).toBe('/agent/abc?message=hi');
     expect(peekOnboardingCallbackUrl()).toBeUndefined();
 
-    stashOnboardingCallbackUrl('?callbackUrl=%2Ft%2Facme%3Fonboarding%3Dtask');
+    stashOnboardingCallbackUrl('?callbackUrl=%2Forgs%2Facme%3Fonboarding%3Dtask');
     expect(resolvePostOnboardingTargetUrl()).toBe('/?onboarding=task');
 
     stashOnboardingCallbackUrl('?callbackUrl=%2Ft%2Fother%2Fagent');
@@ -130,10 +130,10 @@ describe('tenant pages', () => {
 
   it('should clear abandoned callbacks on a fresh scoped entry while keeping step re-entries', () => {
     stashOnboardingCallbackUrl('?callbackUrl=%2Fagent');
-    clearStaleOnboardingCallbackUrl('/t/acme/onboarding', '?step=2');
+    clearStaleOnboardingCallbackUrl('/orgs/acme/onboarding', '?step=2');
     expect(peekOnboardingCallbackUrl()).toBe('/agent');
 
-    clearStaleOnboardingCallbackUrl('/t/acme/onboarding', '');
+    clearStaleOnboardingCallbackUrl('/orgs/acme/onboarding', '');
     expect(peekOnboardingCallbackUrl()).toBeUndefined();
   });
 });

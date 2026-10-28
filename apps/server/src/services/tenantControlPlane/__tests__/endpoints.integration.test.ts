@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import * as schema from '@lobechat/database/platform';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
@@ -124,7 +124,7 @@ suite('PostgreSQL endpoint projection and migration', () => {
     expect(await service.get(FIXTURE_TENANT)).toMatchObject({
       appliedVersion: 0,
       acceptedVersion: 0,
-      activeUrl: 'https://app.example.com/t/acme',
+      activeUrl: 'https://app.example.com/orgs/acme',
       endpoints: [{ id: 'default', kind: 'default', host: null, active: true }],
     });
     expect(await platform.select().from(schema.tenantEndpointState)).toEqual([]);
@@ -149,7 +149,7 @@ suite('PostgreSQL endpoint projection and migration', () => {
       status: 'applied',
       acceptedVersion: 1,
       appliedVersion: 1,
-      activeUrl: 'https://app.example.com/t/acme',
+      activeUrl: 'https://app.example.com/orgs/acme',
     });
     expect(await service.receive(request())).toEqual(first);
     expect(await loadTenantPublicEndpoint(FIXTURE_TENANT, platform)).toMatchObject({
@@ -218,7 +218,7 @@ suite('PostgreSQL endpoint projection and migration', () => {
     expect(result.every((r) => r.status === 'fulfilled')).toBe(true);
     expect(await service.get(FIXTURE_TENANT)).toMatchObject({
       appliedVersion: 4,
-      activeUrl: 'https://app.example.com/t/acme',
+      activeUrl: 'https://app.example.com/orgs/acme',
     });
     expect(await findHostEndpoint('chat.example.com', platform)).toBeNull();
     expect(await findHostEndpoint('other.example.com', platform)).toBeNull();
@@ -271,7 +271,18 @@ suite('PostgreSQL endpoint projection and migration', () => {
       db._.session,
       { migrationsFolder: migrateFolder },
     );
-    await db.insert(schema.tenantDirectory).values(directory(HISTORICAL_TENANT, 'history'));
+    // The historical schema predates later columns (profile_version): write only what it has.
+    const old = directory(HISTORICAL_TENANT, 'history');
+    await db.execute(sql`INSERT INTO tenant_directory (
+      tenant_id, slug, name, status, mode, host, port, database, deployment_ref, connection_version,
+      credential_bundle_version, runtime_secret, runtime_username, owner_secret, owner_username,
+      schema_name, schema_version, tls
+    ) VALUES (
+      ${old.tenantId}, ${old.slug}, ${old.name}, ${old.status}, ${old.mode}, ${old.host}, ${old.port},
+      ${old.database}, ${old.deploymentRef}, ${old.connectionVersion}, ${old.credentialBundleVersion},
+      ${old.runtimeSecret}, ${old.runtimeUsername}, ${old.ownerSecret}, ${old.ownerUsername},
+      ${old.schemaName}, ${old.schemaVersion}, ${JSON.stringify(old.tls)}::jsonb
+    )`);
     await migrate(db, { migrationsFolder: migrateFolder });
     await new TenantEndpointsService(db, 'https://app.example.com').receive(
       request({ tenantId: HISTORICAL_TENANT, eventId: 'historical-endpoint' }),
@@ -279,7 +290,7 @@ suite('PostgreSQL endpoint projection and migration', () => {
     await migrate(db, { migrationsFolder: migrateFolder });
     expect(
       await new TenantEndpointsService(db, 'https://app.example.com').get(HISTORICAL_TENANT),
-    ).toMatchObject({ appliedVersion: 1, activeUrl: 'https://app.example.com/t/history' });
+    ).toMatchObject({ appliedVersion: 1, activeUrl: 'https://app.example.com/orgs/history' });
     await db.insert(schema.tenantDirectory).values(directory(FIXTURE_TENANT, 'isolated'));
     expect(await loadTenantPublicEndpoint(FIXTURE_TENANT, db)).toMatchObject({
       version: 0,

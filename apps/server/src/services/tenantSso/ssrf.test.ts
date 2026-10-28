@@ -52,7 +52,7 @@ const provider = (overrides: Partial<TenantSsoProvider> = {}): TenantSsoProvider
   ...overrides,
 });
 
-const redirectURI = 'https://app.example.com/t/acme/api/auth/callback/custom-idp';
+const redirectURI = 'https://app.example.com/orgs/acme/api/auth/callback/custom-idp';
 
 describe('tenant SSO outbound requests', () => {
   it('does not exchange the authorization code against a private token endpoint', async () => {

@@ -44,9 +44,9 @@ useTenantMocks();
 const { middleware } = defineConfig();
 
 describe('session entry (/__entry)', () => {
-  const ACTIVE = 'http://localhost:3010/t/acme';
+  const ACTIVE = 'http://localhost:3010/orgs/acme';
   const entryUrl = `${ACTIVE}/__entry`;
-  const entryPath = '/t/acme/__entry';
+  const entryPath = '/orgs/acme/__entry';
   const memoryCookie = (response: Response) =>
     response.headers.getSetCookie().filter((cookie) => cookie.includes('lobe-last-tenant'));
   const releases = () => {
@@ -56,7 +56,7 @@ describe('session entry (/__entry)', () => {
       scope: {
         slug,
         tenantId: 'tenant-1',
-        endpoint: { basePath: '/t/acme', publicUrl: ACTIVE, version: 1 },
+        endpoint: { basePath: '/orgs/acme', publicUrl: ACTIVE, version: 1 },
       },
     }));
     return release;
@@ -135,8 +135,8 @@ describe('session entry (/__entry)', () => {
 
   it('carries the cookies Better Auth clears for a revoked session into the final response', async () => {
     const headers = new Headers();
-    headers.append('set-cookie', 'lh_x.session_token=; Max-Age=0; Path=/t/acme; HttpOnly');
-    headers.append('set-cookie', 'lh_x.session_data.0=; Max-Age=0; Path=/t/acme; HttpOnly');
+    headers.append('set-cookie', 'lh_x.session_token=; Max-Age=0; Path=/orgs/acme; HttpOnly');
+    headers.append('set-cookie', 'lh_x.session_data.0=; Max-Age=0; Path=/orgs/acme; HttpOnly');
     mocks.getSession.mockResolvedValue({ headers, response: null });
     const response = await middleware(documentNavigation(entryPath, { cookie: 'lh_x=1' }));
     await expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
@@ -145,7 +145,7 @@ describe('session entry (/__entry)', () => {
 
   it('also carries Better Auth cookies on a valid session', async () => {
     const headers = new Headers();
-    headers.append('set-cookie', 'lh_x.session_data=abc; Path=/t/acme; HttpOnly');
+    headers.append('set-cookie', 'lh_x.session_data=abc; Path=/orgs/acme; HttpOnly');
     mocks.getSession.mockResolvedValue({ headers, response: { user: { id: 'user-1' } } });
     const response = await middleware(documentNavigation(entryPath));
     await expectFragmentRedirect(response, `${ACTIVE}/#`);
@@ -218,8 +218,8 @@ describe('session entry (/__entry)', () => {
 
     it('adds expiry for the hidden chunks to the final navigation response, with the instance attributes', async () => {
       const headers = new Headers();
-      headers.append('set-cookie', 'lh_x.session_token=; Max-Age=0; Path=/t/acme; HttpOnly');
-      headers.append('set-cookie', 'lh_x.session_data=; Max-Age=0; Path=/t/acme; HttpOnly');
+      headers.append('set-cookie', 'lh_x.session_token=; Max-Age=0; Path=/orgs/acme; HttpOnly');
+      headers.append('set-cookie', 'lh_x.session_data=; Max-Age=0; Path=/orgs/acme; HttpOnly');
       mocks.getSession.mockResolvedValue({ headers, response: null });
       const response = await middleware(
         documentNavigation(entryPath, {
@@ -230,8 +230,8 @@ describe('session entry (/__entry)', () => {
       await expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
       expect(response.headers.getSetCookie()).toEqual([
         ...headers.getSetCookie(),
-        'lh_x.session_data.0=; Max-Age=0; Path=/t/acme; HttpOnly; SameSite=Lax',
-        'lh_x.session_data.1=; Max-Age=0; Path=/t/acme; HttpOnly; SameSite=Lax',
+        'lh_x.session_data.0=; Max-Age=0; Path=/orgs/acme; HttpOnly; SameSite=Lax',
+        'lh_x.session_data.1=; Max-Age=0; Path=/orgs/acme; HttpOnly; SameSite=Lax',
       ]);
     });
 
@@ -247,7 +247,7 @@ describe('session entry (/__entry)', () => {
 
     it('does not repeat or override a cookie Better Auth already answers', async () => {
       const headers = new Headers();
-      headers.append('set-cookie', 'lh_x.session_data.0=fresh; Path=/t/acme; Max-Age=300');
+      headers.append('set-cookie', 'lh_x.session_data.0=fresh; Path=/orgs/acme; Max-Age=300');
       mocks.getSession.mockResolvedValue({ headers, response: { user: { id: 'u' } } });
       const response = await middleware(
         documentNavigation(entryPath, {
@@ -255,8 +255,8 @@ describe('session entry (/__entry)', () => {
         }),
       );
       expect(response.headers.getSetCookie()).toEqual([
-        'lh_x.session_data.0=fresh; Path=/t/acme; Max-Age=300',
-        'lh_x.session_data.1=; Max-Age=0; Path=/t/acme; HttpOnly; SameSite=Lax',
+        'lh_x.session_data.0=fresh; Path=/orgs/acme; Max-Age=300',
+        'lh_x.session_data.1=; Max-Age=0; Path=/orgs/acme; HttpOnly; SameSite=Lax',
       ]);
     });
 
@@ -272,7 +272,7 @@ describe('session entry (/__entry)', () => {
     it('end to end with a real Better Auth instance: a revoked session leaves no cookie behind', async () => {
       const db = { account: [], session: [], user: [], verification: [] };
       const auth = betterAuth({
-        advanced: { cookiePrefix: 'lh_x', defaultCookieAttributes: { path: '/t/acme' } },
+        advanced: { cookiePrefix: 'lh_x', defaultCookieAttributes: { path: '/orgs/acme' } },
         baseURL: 'http://localhost:3010',
         database: memoryAdapter(db),
         emailAndPassword: { enabled: true },
@@ -309,7 +309,7 @@ describe('session entry (/__entry)', () => {
       );
       for (const cleared of revoked.headers.getSetCookie()) {
         expect(cleared).toContain('Max-Age=0');
-        expect(cleared).toContain('Path=/t/acme');
+        expect(cleared).toContain('Path=/orgs/acme');
       }
     });
   });
@@ -553,7 +553,7 @@ describe('session entry (/__entry)', () => {
     expect(unknown.status).toBe(404);
     mocks.findHost.mockResolvedValue(customActive);
     const prefixed = await middleware(
-      new NextRequest('https://chat.example.com/t/acme/__entry', {
+      new NextRequest('https://chat.example.com/orgs/acme/__entry', {
         headers: { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' },
       }),
     );
@@ -562,17 +562,17 @@ describe('session entry (/__entry)', () => {
   });
 
   it('sends an unknown slug to the organization finder without writing memory', async () => {
-    const response = await middleware(documentNavigation('/t/nope/__entry'));
+    const response = await middleware(documentNavigation('/orgs/nope/__entry'));
     await expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
     expect(response.headers.getSetCookie()).toEqual([]);
     expect(mocks.getSession).not.toHaveBeenCalled();
-    expect((await middleware(new NextRequest('http://localhost:3010/t/nope/__entry'))).status).toBe(
-      404,
-    );
+    expect(
+      (await middleware(new NextRequest('http://localhost:3010/orgs/nope/__entry'))).status,
+    ).toBe(404);
   });
 
   it('does not confuse a nested or look-alike path with the entry', async () => {
-    for (const path of ['/t/acme/__entry/x', '/t/acme/__entryx', '/t/acme/a/__entry']) {
+    for (const path of ['/orgs/acme/__entry/x', '/orgs/acme/__entryx', '/orgs/acme/a/__entry']) {
       mocks.getSession.mockClear();
       const response = await middleware(documentNavigation(path));
       expect(response.headers.get('location')).toBeNull();
@@ -582,8 +582,8 @@ describe('session entry (/__entry)', () => {
 });
 
 describe('sign-in entry flag (signin=1)', () => {
-  const ACTIVE = 'http://localhost:3010/t/acme';
-  const entryPath = '/t/acme/__entry';
+  const ACTIVE = 'http://localhost:3010/orgs/acme';
+  const entryPath = '/orgs/acme/__entry';
   const accountCookie = (email = 'user@example.com', iat?: number) =>
     serializeAccountCookie(email, 'tenant-1', 'http://localhost:3010', iat)!.split(';')[0];
 

@@ -202,25 +202,25 @@ describe('BackendProxyProtocolManager', () => {
       return { fetchMock, res };
     };
 
-    it.each(['https://remote.example.com/t/acme', 'https://remote.example.com/t/acme/'])(
+    it.each(['https://remote.example.com/orgs/acme', 'https://remote.example.com/orgs/acme/'])(
       'mounts renderer backend paths under the tenant prefix of %s',
       async (base) => {
         const { fetchMock, res } = await rewrite(base, 'app://renderer/trpc/hello?batch=1');
 
         expect(res).not.toBeNull();
         expect(fetchMock.mock.calls[0]![0]).toBe(
-          'https://remote.example.com/t/acme/trpc/hello?batch=1',
+          'https://remote.example.com/orgs/acme/trpc/hello?batch=1',
         );
         expect(res!.headers.get('X-Src-Url')).toBe(
-          'https://remote.example.com/t/acme/trpc/hello?batch=1',
+          'https://remote.example.com/orgs/acme/trpc/hello?batch=1',
         );
       },
     );
 
     it('does not rewrite a same-origin request that already targets the tenant address', async () => {
       const { fetchMock, res } = await rewrite(
-        'https://remote.example.com/t/acme',
-        'https://remote.example.com/t/acme/trpc/hello',
+        'https://remote.example.com/orgs/acme',
+        'https://remote.example.com/orgs/acme/trpc/hello',
       );
 
       expect(res).toBeNull();
@@ -229,21 +229,23 @@ describe('BackendProxyProtocolManager', () => {
 
     it('does not let a same-origin root path through to the tenant-less root', async () => {
       const { fetchMock, res } = await rewrite(
-        'https://remote.example.com/t/acme',
+        'https://remote.example.com/orgs/acme',
         'https://remote.example.com/trpc/hello?x=1',
       );
 
       expect(res).not.toBeNull();
-      expect(fetchMock.mock.calls[0]![0]).toBe('https://remote.example.com/t/acme/trpc/hello?x=1');
+      expect(fetchMock.mock.calls[0]![0]).toBe(
+        'https://remote.example.com/orgs/acme/trpc/hello?x=1',
+      );
     });
 
     it('does not add the prefix twice to a path that already carries it', async () => {
       const { fetchMock } = await rewrite(
-        'https://remote.example.com/t/acme',
-        'app://renderer/t/acme/trpc/hello',
+        'https://remote.example.com/orgs/acme',
+        'app://renderer/orgs/acme/trpc/hello',
       );
 
-      expect(fetchMock.mock.calls[0]![0]).toBe('https://remote.example.com/t/acme/trpc/hello');
+      expect(fetchMock.mock.calls[0]![0]).toBe('https://remote.example.com/orgs/acme/trpc/hello');
     });
 
     it('keeps the root behaviour for a custom-domain root address', async () => {
@@ -715,7 +717,7 @@ describe('BackendProxyProtocolManager', () => {
       vi.stubGlobal('fetch', vi.fn(async () => response) as any);
       manager.registerWithRemoteBaseUrl(session, {
         getAccessToken: async () => 'token',
-        getRemoteBaseUrl: async () => 'https://remote.example.com/t/acme',
+        getRemoteBaseUrl: async () => 'https://remote.example.com/orgs/acme',
         onEndpointChanged,
       });
 
@@ -728,7 +730,7 @@ describe('BackendProxyProtocolManager', () => {
 
     it('tells the session owner once and still returns the response untouched', async () => {
       const body = JSON.stringify({
-        activeUrl: 'https://elsewhere.example/t/acme',
+        activeUrl: 'https://elsewhere.example/orgs/acme',
         code: 'TENANT_ENDPOINT_CHANGED',
       });
 

@@ -42,6 +42,8 @@ export const tenantDirectory = pgTable(
     ownerSecret: text('owner_secret').notNull(),
     ownerUsername: text('owner_username').notNull(),
     port: integer('port').notNull(),
+    /** Profile (name, slug, aliases) revision; provision itself is version 1. */
+    profileVersion: integer('profile_version').notNull().default(1),
     runtimeSecret: text('runtime_secret').notNull(),
     runtimeUsername: text('runtime_username').notNull(),
     schemaName: text('schema_name').notNull(),
@@ -61,6 +63,23 @@ export const tenantDirectory = pgTable(
     uniqueIndex('tenant_directory_slug_idx').on(t.slug),
     uniqueIndex('tenant_directory_schema_name_idx').on(t.schemaName),
   ],
+);
+
+/**
+ * Slugs a tenant used to have. They keep resolving to the same tenant (pages are redirected to the
+ * current slug) and never belong to another one. A slug is either a directory slug or an alias, never
+ * both: the two unique indexes cannot see each other, so the control plane checks under a lock.
+ */
+export const tenantSlugAlias = pgTable(
+  'tenant_slug_alias',
+  {
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+    slug: text('slug').primaryKey(),
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => tenantDirectory.tenantId, { onDelete: 'cascade' }),
+  },
+  (t) => [index('tenant_slug_alias_tenant_idx').on(t.tenantId)],
 );
 
 export const tenantLifecycle = pgTable(

@@ -85,7 +85,7 @@ const candidate = (id = tenantId): DiscoveryCandidate => ({
   port: Number(base().port || 5432),
   database,
   mode: 'shared_schema',
-  activeUrl: 'https://app.example.com/t/acme',
+  activeUrl: 'https://app.example.com/orgs/acme',
 });
 
 beforeAll(async () => {
@@ -682,7 +682,7 @@ describe.skipIf(!enabled)(
       const other = { ...candidate('other'), activeUrl: 'https://other.example.com', name: 'Acme' };
       expect(discoveryResults([candidate(), other])).toEqual(
         expect.arrayContaining([
-          { id: tenantId, name: 'Acme', address: 'app.example.com/t/acme' },
+          { id: tenantId, name: 'Acme', address: 'app.example.com/orgs/acme' },
           { id: 'other', name: 'Acme', address: 'other.example.com' },
         ]),
       );

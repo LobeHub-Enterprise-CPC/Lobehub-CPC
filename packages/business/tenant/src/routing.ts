@@ -1,5 +1,5 @@
 /**
- * Backend surfaces the request proxy only serves under `/t/{slug}` (spec A16, FR-RT-04). The
+ * Backend surfaces the request proxy only serves under `/orgs/{slug}` (spec A16, FR-RT-04). The
  * proxy classifies requests with this table and the browser prefixes its own backend calls with
  * it, so both sides always agree on what is a backend path.
  */
@@ -21,6 +21,9 @@ export const isBackendPath = (pathname: string) =>
   BACKEND_PREFIXES.some((prefix) => startsWithSegment(pathname, prefix));
 
 export {
+  belowTenantPrefix,
+  hasTenantPrefix,
+  isLegacyTenantPath,
   isWellFormedTenantSlug,
   mapTenantAppPath,
   parseTenantPath,

@@ -60,7 +60,7 @@ export default class ConnectorOAuthCtr extends ControllerModule implements Conne
     if (pending.canceled) return 'dismissed';
     const remoteOrigin = new URL(remoteUrl).origin;
     // Official API and app origins differ; self-hosted servers trust only their own address.
-    // The self-hosted address may carry a tenant path prefix (`https://host/t/acme`), and the
+    // The self-hosted address may carry a tenant path prefix (`https://host/orgs/acme`), and the
     // server's callback is `<tenant public address>/oauth/connector/callback`.
     const callbackBases = [OFFICIAL_CLOUD_URL, OFFICIAL_URL].includes(remoteOrigin)
       ? [OFFICIAL_CLOUD_URL, OFFICIAL_URL]

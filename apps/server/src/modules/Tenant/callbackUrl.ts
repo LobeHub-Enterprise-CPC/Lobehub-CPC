@@ -19,7 +19,7 @@ import { getInternalApiUrl } from '@/envs/app';
  * signs the delivery, and the tenant id is never taken from the body.
  *
  * This is the one place that decides how a callback names its tenant. Today
- * that is the `/t/{slug}` prefix (slugs never change once created); if tenants
+ * that is the `/orgs/{slug}` prefix; if tenants
  * move to their own Host (spec A17), only this module and the proxy's
  * resolution change.
  */
@@ -27,7 +27,7 @@ import { getInternalApiUrl } from '@/envs/app';
 const trimTrailingSlash = (url: string) => url.replace(/\/+$/, '');
 
 /**
- * `path` under the current tenant, e.g. `/t/acme/api/workflows/goal/advance`.
+ * `path` under the current tenant, e.g. `/orgs/acme/api/workflows/goal/advance`.
  * Throws `TENANT_REQUIRED` outside a tenant scope: a callback scheduled
  * without a tenant could never be admitted.
  */
@@ -65,7 +65,7 @@ export const withTenantRequestUrl = (request: Request): Request => {
 };
 
 /**
- * The current tenant's public base (`APP_URL/t/{slug}`) for an external
+ * The current tenant's public base (`APP_URL/orgs/{slug}`) for an external
  * service that calls us back (bot platform webhooks, message gateway) or a
  * link a person opens from a bot message.
  */

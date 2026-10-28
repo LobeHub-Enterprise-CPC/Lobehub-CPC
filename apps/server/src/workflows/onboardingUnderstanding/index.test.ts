@@ -50,7 +50,7 @@ describe('OnboardingUnderstandingWorkflow', () => {
     expect(triggerMock).toHaveBeenCalledWith({
       body: payload,
       headers: { traceparent: 'trace-1' },
-      url: 'http://internal:3011/t/acme/api/workflows/onboarding/understanding/process-providers',
+      url: 'http://internal:3011/orgs/acme/api/workflows/onboarding/understanding/process-providers',
     });
   });
 
@@ -97,7 +97,7 @@ describe('OnboardingUnderstandingWorkflow', () => {
     expect(triggerMock).toHaveBeenCalledWith({
       body: payload,
       headers: { traceparent: 'trace-1' },
-      url: 'http://internal:3011/t/acme/api/workflows/onboarding/understanding/process-collected',
+      url: 'http://internal:3011/orgs/acme/api/workflows/onboarding/understanding/process-collected',
       workflowRunId: 'feedback-session-1-revision-2',
     });
   });

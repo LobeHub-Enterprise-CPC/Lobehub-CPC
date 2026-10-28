@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   getInteractionDetails: vi.fn(),
   getInteractionResult: vi.fn(),
   getSession: vi.fn(),
-  tenant: { basePath: '/t/acme', publicUrl: 'https://app.example.com/t/acme' },
+  tenant: { basePath: '/orgs/acme', publicUrl: 'https://app.example.com/orgs/acme' },
 }));
 
 vi.mock('debug', () => ({ default: () => vi.fn() }));
@@ -44,7 +44,7 @@ vi.mock('@/server/services/oidc', () => ({
 const SESSION_CREATED_AT_MS = 1_700_000_000_999;
 
 const createRequest = (uid: string, { headers = {}, query = '' } = {}) =>
-  new Request(`https://app.example.com/t/acme/oidc/interaction/${uid}/login${query}`, {
+  new Request(`https://app.example.com/orgs/acme/oidc/interaction/${uid}/login${query}`, {
     headers,
   }) as unknown as NextRequest;
 
@@ -80,10 +80,12 @@ describe('GET /oidc/interaction/[uid]/login', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.authEnv.ENABLE_OIDC = true;
-    mocks.tenant.basePath = '/t/acme';
-    mocks.tenant.publicUrl = 'https://app.example.com/t/acme';
+    mocks.tenant.basePath = '/orgs/acme';
+    mocks.tenant.publicUrl = 'https://app.example.com/orgs/acme';
     mocks.getInteractionDetails.mockResolvedValue(details());
-    mocks.getInteractionResult.mockResolvedValue('https://app.example.com/t/acme/oidc/auth/uid-1');
+    mocks.getInteractionResult.mockResolvedValue(
+      'https://app.example.com/orgs/acme/oidc/auth/uid-1',
+    );
     signedIn();
   });
 
@@ -146,7 +148,7 @@ describe('GET /oidc/interaction/[uid]/login', () => {
       const response = await call('uid-1', { query: '?hl=zh-CN' });
 
       expectGuardedRedirect(response);
-      expect(response.headers.get('location')).toBe('/t/acme/oauth/consent/uid-1?hl=zh-CN');
+      expect(response.headers.get('location')).toBe('/orgs/acme/oauth/consent/uid-1?hl=zh-CN');
       expect(mocks.getSession).not.toHaveBeenCalled();
       expect(mocks.getInteractionResult).not.toHaveBeenCalled();
     });
@@ -157,7 +159,7 @@ describe('GET /oidc/interaction/[uid]/login', () => {
       const response = await call();
 
       expectGuardedRedirect(response);
-      expect(response.headers.get('location')).toBe('/t/acme/oauth/consent/uid-1');
+      expect(response.headers.get('location')).toBe('/orgs/acme/oauth/consent/uid-1');
       expect(mocks.getInteractionResult).not.toHaveBeenCalled();
     });
 
@@ -171,7 +173,7 @@ describe('GET /oidc/interaction/[uid]/login', () => {
       const response = await call();
 
       expectGuardedRedirect(response);
-      expect(response.headers.get('location')).toBe('/t/acme/oauth/consent/uid-1');
+      expect(response.headers.get('location')).toBe('/orgs/acme/oauth/consent/uid-1');
       expect(response.headers.getSetCookie()).toEqual(cookies);
       expect(mocks.getInteractionResult).not.toHaveBeenCalled();
     });
@@ -180,9 +182,9 @@ describe('GET /oidc/interaction/[uid]/login', () => {
   describe('without a tenant session', () => {
     it.each([
       {
-        basePath: '/t/acme',
+        basePath: '/orgs/acme',
         layout: 'a path-based organization',
-        publicUrl: 'https://app.example.com/t/acme',
+        publicUrl: 'https://app.example.com/orgs/acme',
       },
       { basePath: '', layout: 'a custom domain', publicUrl: 'https://chat.example.com' },
     ])('redirects to the sign-in page of $layout and returns here afterwards', async (tenant) => {
@@ -209,7 +211,7 @@ describe('GET /oidc/interaction/[uid]/login', () => {
 
       expect(location.searchParams.has('hl')).toBe(false);
       expect(location.searchParams.get('callbackUrl')).toBe(
-        'https://app.example.com/t/acme/oidc/interaction/uid-1/login',
+        'https://app.example.com/orgs/acme/oidc/interaction/uid-1/login',
       );
     });
   });
@@ -223,7 +225,7 @@ describe('GET /oidc/interaction/[uid]/login', () => {
         login: { accountId: 'user-1', remember: true, ts: 1_700_000_000 },
       });
       expect(Number.isInteger(mocks.getInteractionResult.mock.calls[0][1].login.ts)).toBe(true);
-      expect(response.headers.get('location')).toBe('/t/acme/oidc/auth/uid-1');
+      expect(response.headers.get('location')).toBe('/orgs/acme/oidc/auth/uid-1');
     });
 
     it.each([[DESKTOP_CLIENT_ID], ['lobehub-mobile'], ['lobehub-market']])(
@@ -285,7 +287,7 @@ describe('GET /oidc/interaction/[uid]/login', () => {
 
       const response = await call();
 
-      expect(response.headers.get('location')).toBe('/t/acme/oauth/consent/uid-1');
+      expect(response.headers.get('location')).toBe('/orgs/acme/oauth/consent/uid-1');
       expect(mocks.getInteractionResult).not.toHaveBeenCalled();
     });
 
@@ -310,7 +312,7 @@ describe('GET /oidc/interaction/[uid]/login', () => {
         const response = await call('uid-1', { query: '?hl=en' });
 
         expectGuardedRedirect(response);
-        expect(response.headers.get('location')).toBe('/t/acme/oauth/consent/uid-1?hl=en');
+        expect(response.headers.get('location')).toBe('/orgs/acme/oauth/consent/uid-1?hl=en');
         expect(mocks.getInteractionResult).not.toHaveBeenCalled();
       },
     );
@@ -321,7 +323,7 @@ describe('GET /oidc/interaction/[uid]/login', () => {
       const response = await call();
 
       expectGuardedRedirect(response);
-      expect(response.headers.get('location')).toBe('/t/acme/oauth/consent/uid-1');
+      expect(response.headers.get('location')).toBe('/orgs/acme/oauth/consent/uid-1');
     });
   });
 

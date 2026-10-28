@@ -5,12 +5,12 @@ import { signInUrlFor } from './signInRedirect';
 
 describe('signInUrlFor', () => {
   it('signs in under the tenant path and returns to the consent page', () => {
-    const consent = new URL('http://localhost:3591/t/acme/oauth/consent/uid-1?hl=en-US');
+    const consent = new URL('http://localhost:3591/orgs/acme/oauth/consent/uid-1?hl=en-US');
     initializeTenant(consent);
 
     const url = new URL(signInUrlFor(consent), consent);
 
-    expect(url.pathname).toBe('/t/acme/signin');
+    expect(url.pathname).toBe('/orgs/acme/signin');
     expect(url.searchParams.get('callbackUrl')).toBe(consent.href);
   });
 

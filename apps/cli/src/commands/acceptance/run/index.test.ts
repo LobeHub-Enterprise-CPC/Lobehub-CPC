@@ -222,24 +222,24 @@ describe('acceptance publication with missing evidence', () => {
   });
 
   it('keeps the tenant path of the server in the acceptance links and recovery links', async () => {
-    vi.mocked(resolveServerUrl).mockReturnValue('https://host/t/acme/');
+    vi.mocked(resolveServerUrl).mockReturnValue('https://host/orgs/acme/');
     vi.mocked(uploadLocalFile).mockRejectedValue(new Error('storage_block:upgrade_required'));
     await report(['screenshot'], ["screen's shot.png"]);
 
     await run('ingest', h.dir, '--json');
 
     expect(result()).toMatchObject({
-      acceptanceUrl: 'https://host/t/acme/acceptance/acceptance-1',
+      acceptanceUrl: 'https://host/orgs/acme/acceptance/acceptance-1',
       recovery: {
-        cleanupUrl: 'https://host/t/acme/acceptance',
-        upgradeUrl: 'https://host/t/acme/settings/plans',
+        cleanupUrl: 'https://host/orgs/acme/acceptance',
+        upgradeUrl: 'https://host/orgs/acme/settings/plans',
       },
-      roundUrl: 'https://host/t/acme/acceptance/acceptance-1?r=2',
+      roundUrl: 'https://host/orgs/acme/acceptance/acceptance-1?r=2',
     });
   });
 
   it('keeps the tenant path of the server in the submitted result url', async () => {
-    vi.mocked(resolveServerUrl).mockReturnValue('https://host/t/acme');
+    vi.mocked(resolveServerUrl).mockReturnValue('https://host/orgs/acme');
     client.verify.submitCheckEvidence.mutate.mockResolvedValue({
       checkResult: { id: 'result-screen', verifyRunId: 'run-1' },
     });
@@ -257,7 +257,7 @@ describe('acceptance publication with missing evidence', () => {
       '--json',
     );
 
-    expect(result().acceptanceUrl).toBe('https://host/t/acme/acceptance/acceptance-1');
+    expect(result().acceptanceUrl).toBe('https://host/orgs/acme/acceptance/acceptance-1');
   });
 
   it.each([undefined, 'Upload failed: 503 Service Unavailable'])(
@@ -333,13 +333,13 @@ describe('acceptance publication with missing evidence', () => {
     });
 
     it('keeps the tenant path in the workspace links', async () => {
-      vi.mocked(resolveServerUrl).mockReturnValue('https://host/t/acme');
+      vi.mocked(resolveServerUrl).mockReturnValue('https://host/orgs/acme');
 
       await upload(true);
 
       expect(result().recovery).toMatchObject({
-        cleanupUrl: 'https://host/t/acme/design-team/resource',
-        upgradeUrl: 'https://host/t/acme/design-team/settings/plans',
+        cleanupUrl: 'https://host/orgs/acme/design-team/resource',
+        upgradeUrl: 'https://host/orgs/acme/design-team/settings/plans',
       });
     });
 

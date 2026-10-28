@@ -22,6 +22,7 @@ import {
   lifecycleQuerySchema,
   lifecycleRequestSchema,
   overviewQuerySchema,
+  profileRequestSchema,
   provisionQuerySchema,
   provisionRequestSchema,
 } from '@/server/services/tenantControlPlane/contracts';
@@ -184,6 +185,21 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
         },
       ),
     );
+  });
+
+  /**
+   * Name and slug edited after creation. A newer profile changes what every slug-keyed cache in this
+   * process knows; the other replicas converge within the routing TTL.
+   */
+  app.post('/tenant-profile', async (c) => {
+    const { input, service } = await prepare(c, profileRequestSchema, 'body');
+    const result = await service.receiveProfile(input);
+    if (result.status === 'applied') {
+      invalidateTenantAuth(input.tenantId);
+      getTenantRuntime().invalidate(input.tenantId);
+      invalidateEndpointRouting();
+    }
+    return c.json(result);
   });
 
   /**

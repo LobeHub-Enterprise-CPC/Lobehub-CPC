@@ -367,7 +367,7 @@ export default class ImessageBridgeService extends ServiceModule {
     ]);
     if (!serverUrl) throw new Error('Remote server URL is not configured');
 
-    // The server URL may carry a tenant path prefix (`/t/{slug}`) the webhook route lives under.
+    // The server URL may carry a tenant path prefix (`/orgs/{slug}`) the webhook route lives under.
     const target = buildRemoteUrl(
       `/api/agent/webhooks/imessage/${encodeURIComponent(config.applicationId)}`,
       serverUrl,

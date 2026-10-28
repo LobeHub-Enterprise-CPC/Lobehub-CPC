@@ -11,7 +11,7 @@ describe('installTenantAssets', () => {
   let restore: (() => void) | undefined;
 
   beforeEach(() => {
-    enterTenantPage('/t/acme/settings/profile');
+    enterTenantPage('/orgs/acme/settings/profile');
   });
 
   afterEach(() => {
@@ -29,18 +29,18 @@ describe('installTenantAssets', () => {
     install();
     const img = document.createElement('img');
     img.setAttribute('src', '/webapi/user/avatar/user_1/a.webp');
-    expect(img.getAttribute('src')).toBe('/t/acme/webapi/user/avatar/user_1/a.webp');
+    expect(img.getAttribute('src')).toBe('/orgs/acme/webapi/user/avatar/user_1/a.webp');
   });
 
   it('covers the src property as well as the attribute', () => {
     install();
     const img = document.createElement('img');
     img.src = '/webapi/user/avatar/user_1/a.webp';
-    expect(img.getAttribute('src')).toBe('/t/acme/webapi/user/avatar/user_1/a.webp');
+    expect(img.getAttribute('src')).toBe('/orgs/acme/webapi/user/avatar/user_1/a.webp');
 
     const image = new Image();
     image.src = '/f/file_1';
-    expect(image.getAttribute('src')).toBe('/t/acme/f/file_1');
+    expect(image.getAttribute('src')).toBe('/orgs/acme/f/file_1');
   });
 
   it.each([
@@ -57,20 +57,20 @@ describe('installTenantAssets', () => {
     install();
     const element = document.createElement(tag);
     element.setAttribute(attribute, '/f/file_1');
-    expect(element.getAttribute(attribute)).toBe('/t/acme/f/file_1');
+    expect(element.getAttribute(attribute)).toBe('/orgs/acme/f/file_1');
   });
 
   it('covers the href property of a link (download href)', () => {
     install();
     const anchor = document.createElement('a');
     anchor.href = '/f/file_1';
-    expect(anchor.getAttribute('href')).toBe('/t/acme/f/file_1');
+    expect(anchor.getAttribute('href')).toBe('/orgs/acme/f/file_1');
   });
 
   it.each([
     ['/images/logo.png'],
     ['/_next/static/a.js'],
-    ['/t/acme/webapi/user/avatar/user_1/a.webp'],
+    ['/orgs/acme/webapi/user/avatar/user_1/a.webp'],
     ['https://cdn.example.com/webapi/user/avatar/a.webp'],
     ['data:image/png;base64,AAAA'],
     ['blob:https://app.example.com/1234'],
@@ -131,7 +131,7 @@ describe('installTenantAssets', () => {
     second();
     const img = document.createElement('img');
     img.setAttribute('src', '/webapi/user/avatar/user_1/a.webp');
-    expect(img.getAttribute('src')).toBe('/t/acme/webapi/user/avatar/user_1/a.webp');
+    expect(img.getAttribute('src')).toBe('/orgs/acme/webapi/user/avatar/user_1/a.webp');
 
     restore!();
     restore = undefined;
@@ -148,20 +148,20 @@ describe('resolveTenantAssetUrl', () => {
   });
 
   it('prefixes a server-relative backend path for CSS url() and other non-DOM-attribute uses', () => {
-    enterTenantPage('/t/acme/agent');
-    expect(resolveTenantAssetUrl('/f/file_1')).toBe('/t/acme/f/file_1');
+    enterTenantPage('/orgs/acme/agent');
+    expect(resolveTenantAssetUrl('/f/file_1')).toBe('/orgs/acme/f/file_1');
     expect(resolveTenantAssetUrl('/webapi/user/avatar/u/a.webp')).toBe(
-      '/t/acme/webapi/user/avatar/u/a.webp',
+      '/orgs/acme/webapi/user/avatar/u/a.webp',
     );
   });
 
   it.each([
     ['/app-images/banner.png'],
     ['https://cdn.example.com/a.png'],
-    ['/t/acme/f/file_1'],
+    ['/orgs/acme/f/file_1'],
     ['data:image/png;base64,AAAA'],
   ])('keeps %s as it is', (value) => {
-    enterTenantPage('/t/acme/agent');
+    enterTenantPage('/orgs/acme/agent');
     expect(resolveTenantAssetUrl(value)).toBe(value);
   });
 

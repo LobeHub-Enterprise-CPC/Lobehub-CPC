@@ -89,10 +89,10 @@ describe('desktop server-version checks follow the committed organization', () =
         active: true,
         storageMode: 'cloud',
         cloudTenant: {
-          entryUrl: 'https://host/t/acme',
+          entryUrl: 'https://host/orgs/acme',
           generation: 'login-A',
           display: { account: 'sub' },
-          identity: { issuer: 'https://host/t/acme/oidc', subject: 'sub', tenantId: 'A' },
+          identity: { issuer: 'https://host/orgs/acme/oidc', subject: 'sub', tenantId: 'A' },
         },
       },
     });
@@ -110,11 +110,11 @@ describe('desktop server-version checks follow the committed organization', () =
         active: true,
         storageMode: 'cloud',
         cloudTenant: {
-          entryUrl: 'https://app.lobehub.com/t/acme',
+          entryUrl: 'https://app.lobehub.com/orgs/acme',
           generation: 'login-A',
           display: { account: 'sub' },
           identity: {
-            issuer: 'https://app.lobehub.com/t/acme/oidc',
+            issuer: 'https://app.lobehub.com/orgs/acme/oidc',
             subject: 'sub',
             tenantId: 'A',
           },
@@ -130,14 +130,14 @@ describe('desktop server-version checks follow the committed organization', () =
   });
 
   it('keeps the warning for an actual server without the version API', async () => {
-    connect('https://host/t/acme');
+    connect('https://host/orgs/acme');
     vi.mocked(globalService.getServerVersion).mockResolvedValue(null);
     renderCheck();
     await waitFor(() => expect(useGlobalStore.getState().isServerVersionOutdated).toBe(true));
   });
 
   it('clears the warning on logout and checks the next organization independently', async () => {
-    connect('https://host/t/old');
+    connect('https://host/orgs/old');
     vi.mocked(globalService.getServerVersion)
       .mockResolvedValueOnce('2.1.0')
       .mockResolvedValue('2.2.14');
@@ -145,7 +145,7 @@ describe('desktop server-version checks follow the committed organization', () =
     await waitFor(() => expect(useGlobalStore.getState().isServerVersionOutdated).toBe(true));
     act(() => useElectronStore.setState({ dataSyncConfig: { storageMode: 'cloud' } }));
     expect(useGlobalStore.getState().isServerVersionOutdated).toBe(false);
-    act(() => connect('https://host/t/current'));
+    act(() => connect('https://host/orgs/current'));
     await waitFor(() => expect(globalService.getServerVersion).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(useGlobalStore.getState().serverVersion).toBe('2.2.14'));
     expect(useGlobalStore.getState().isServerVersionOutdated).toBe(false);
@@ -153,7 +153,7 @@ describe('desktop server-version checks follow the committed organization', () =
 
   it('ignores an old organization response after switching', async () => {
     let completeOld!: (value: string | null) => void;
-    connect('https://host/t/slow');
+    connect('https://host/orgs/slow');
     vi.mocked(globalService.getServerVersion)
       .mockReturnValueOnce(
         new Promise((resolve) => {
@@ -163,7 +163,7 @@ describe('desktop server-version checks follow the committed organization', () =
       .mockResolvedValue('2.2.14');
     renderCheck();
     await waitFor(() => expect(globalService.getServerVersion).toHaveBeenCalledTimes(1));
-    act(() => connect('https://host/t/current'));
+    act(() => connect('https://host/orgs/current'));
     await waitFor(() => expect(useGlobalStore.getState().serverVersion).toBe('2.2.14'));
     await act(async () => completeOld('2.1.0'));
     expect(useGlobalStore.getState().serverVersion).toBe('2.2.14');

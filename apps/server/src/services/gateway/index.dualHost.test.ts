@@ -139,7 +139,7 @@ describe('GatewayService', () => {
           }),
           platform: 'wechat',
           userId: 'user-1',
-          webhookPath: '/t/acme/api/agent/messenger/webhooks/wechat',
+          webhookPath: '/orgs/acme/api/agent/messenger/webhooks/wechat',
         }),
         { ensure: true },
       );

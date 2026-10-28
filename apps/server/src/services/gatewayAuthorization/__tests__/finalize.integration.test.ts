@@ -47,7 +47,7 @@ const run = <T>(fn: () => T, version = state.version) =>
       tenantId,
       acceptedVersion: version,
       slug: 'e2',
-      endpoint: { basePath: '/t/e2', publicUrl: 'http://test.invalid/t/e2', version: 1 },
+      endpoint: { basePath: '/orgs/e2', publicUrl: 'http://test.invalid/orgs/e2', version: 1 },
       session: { database: db },
     } as TenantScope,
     fn,

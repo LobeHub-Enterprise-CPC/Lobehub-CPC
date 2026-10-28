@@ -1,5 +1,5 @@
 import { normalizeRemoteBaseUrl } from '@lobechat/utils/remoteUrl';
-import { parseTenantPath } from '@lobechat/utils/tenantPath';
+import { parseTenantPath, withTenantPath } from '@lobechat/utils/tenantPath';
 
 /** Hosts for which plain http is accepted, development builds only. */
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost']);
@@ -7,7 +7,7 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost']);
 export type EntryKind =
   /** Bare platform origin: needs the organization lookup page. */
   | 'platform'
-  /** A tenant address (custom domain, `/t/{slug}`, or a standalone server): direct OIDC. */
+  /** A tenant address (custom domain, `/orgs/{slug}`, or a standalone server): direct OIDC. */
   | 'tenant'
   /** Cannot be an organization address. */
   | 'invalid';
@@ -18,8 +18,9 @@ export const isSecureOrLoopbackUrl = (url: URL, allowLoopbackHttp: boolean): boo
 };
 
 /**
- * Canonical, credential-free https entry (`https://host[/t/slug]`), or `null` when the
- * input is not an acceptable address to ever send credentials to.
+ * Canonical, credential-free https entry (`https://host[/orgs/slug]`), or `null` when the
+ * input is not an acceptable address to ever send credentials to. A legacy `/t/slug` entry is
+ * respelled, so a login stored under it no longer validates and is made again.
  */
 export const normalizeEntryUrl = (raw: string, allowLoopbackHttp = false): string | null => {
   let url: URL;
@@ -33,7 +34,11 @@ export const normalizeEntryUrl = (raw: string, allowLoopbackHttp = false): strin
   if (url.username || url.password) return null;
 
   const normalized = normalizeRemoteBaseUrl(url.toString());
-  return normalized || null;
+  if (!normalized) return null;
+
+  const base = new URL(normalized);
+  const { tenantSlug } = parseTenantPath(base.pathname);
+  return tenantSlug ? `${base.origin}${withTenantPath(base.pathname, tenantSlug)}` : normalized;
 };
 
 export const buildExpectedIssuer = (entryUrl: string): string => `${entryUrl}/oidc`;
@@ -41,7 +46,7 @@ export const buildExpectedIssuer = (entryUrl: string): string => `${entryUrl}/oi
 /**
  * Decide whether a user-supplied address already names a tenant entry.
  *
- * - On the platform host only `/t/{slug}` is an entry; the bare origin is the platform.
+ * - On the platform host only `/orgs/{slug}` is an entry; the bare origin is the platform.
  * - On any other host the address is the user's chosen server (custom domain or a
  *   standalone deployment) and is tried directly; the preflight decides if it is real.
  *

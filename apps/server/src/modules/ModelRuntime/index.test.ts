@@ -1275,7 +1275,7 @@ describe('initModelRuntimeWithUserPayload method', () => {
       const runtime = await initModelRuntimeWithUserPayload(ModelProvider.ComfyUI, {});
 
       expect(runtime['_runtime']['serviceURL']).toMatch(
-        /\/t\/acme\/webapi\/create-image\/comfyui$/,
+        /\/orgs\/acme\/webapi\/create-image\/comfyui$/,
       );
     });
 

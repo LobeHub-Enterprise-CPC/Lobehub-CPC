@@ -17,4 +17,5 @@ export {
   tenantProvisionOperation,
   tenantRuntimeExternalWork,
   tenantRuntimeProcess,
+  tenantSlugAlias,
 } from './schemas';

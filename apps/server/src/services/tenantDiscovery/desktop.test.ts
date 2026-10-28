@@ -37,7 +37,7 @@ const headers = new Headers({ 'x-real-ip': '192.0.2.1' });
 const candidate = {
   id: 'tenant-1',
   name: 'Acme',
-  activeUrl: 'https://app.example.com/t/acme',
+  activeUrl: 'https://app.example.com/orgs/acme',
   endpointVersion: 7,
 };
 const snapshot = () => ({
@@ -91,13 +91,13 @@ describe('immutable desktop selection', () => {
   it('uses one selected candidate snapshot and constructs only the fixed authorization parameter whitelist', async () => {
     const result = await select();
     const url = new URL(result.url);
-    expect(url.origin + url.pathname).toBe('https://app.example.com/t/acme/oidc/auth');
+    expect(url.origin + url.pathname).toBe('https://app.example.com/orgs/acme/oidc/auth');
     expect(Object.fromEntries(url.searchParams)).toEqual({
       client_id: 'tituwork-desktop',
       code_challenge: flow.codeChallenge,
       code_challenge_method: 'S256',
       prompt: 'consent',
-      redirect_uri: 'https://app.example.com/t/acme/oidc/callback/desktop',
+      redirect_uri: 'https://app.example.com/orgs/acme/oidc/callback/desktop',
       resource: 'urn:lobehub:chat',
       response_type: 'code',
       scope: 'openid profile email offline_access',

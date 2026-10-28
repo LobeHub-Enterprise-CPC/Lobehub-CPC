@@ -24,12 +24,12 @@ afterEach(() => {
   vi.resetModules();
 });
 it('mounts the real auth entry under the tenant prefix without a route error', async () => {
-  window.history.replaceState(null, '', '/t/acme/signin');
+  window.history.replaceState(null, '', '/orgs/acme/signin');
   document.body.innerHTML = '<div id="root"></div>';
   await import('./entry.auth');
   const router = capture.mock.calls[0][0];
   expect(router.state.errors).toBeNull();
-  expect(router.basename).toBe('/t/acme');
+  expect(router.basename).toBe('/orgs/acme');
   expect(router.state.matches.at(-1).route.path).toBe('/signin');
   expect(render).toHaveBeenCalledOnce();
 });

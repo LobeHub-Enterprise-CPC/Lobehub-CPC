@@ -223,7 +223,7 @@ export const preprocessLhCommand = async (
   try {
     const jwt = await signUserJWT(userId);
 
-    // Every backend call must address the tenant (`/t/{slug}`); the CLI appends
+    // Every backend call must address the tenant (`/orgs/{slug}`); the CLI appends
     // `/trpc/...` to this base.
     const serverUrl = tenantPublicBaseUrl();
 

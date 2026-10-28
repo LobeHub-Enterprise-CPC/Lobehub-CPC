@@ -8,7 +8,7 @@ import type { Locales } from '@/locales/resources';
  * `define-config` can depend on this folder without a cycle.
  */
 export interface TenantMiddlewareDeps {
-  /** Upstream page rewrite; `pathname` is the path below `/t/{slug}`. */
+  /** Upstream page rewrite; `pathname` is the path below `/orgs/{slug}`. */
   defaultMiddleware: (
     request: NextRequest,
     pathname: string,

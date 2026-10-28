@@ -1,9 +1,9 @@
 import {
+  belowTenantPrefix,
   isBackendPath,
   resolveTenant,
   startsWithSegment,
   stripTenantPath,
-  TENANT_PREFIX,
 } from '@lobechat/business-tenant/routing';
 
 import { NAVIGATION_REDIRECT_PATH } from './navigationRedirect';
@@ -11,7 +11,7 @@ import { NAVIGATION_REDIRECT_PATH } from './navigationRedirect';
 /**
  * Where a request goes once its tenant is read from the URL (spec A16, A17,
  * FR-RT-04, FR-RT-06). The tenant comes from exactly one place — the
- * `/t/{slug}` prefix today; a Host → tenant mapping can replace this function
+ * `/orgs/{slug}` prefix (or the legacy `/t/{slug}`) today; a Host → tenant mapping can replace this function
  * later without anything downstream changing.
  */
 
@@ -57,12 +57,12 @@ export const resolveTenantRoute = (url: URL): TenantRoute => {
   const { pathname } = url;
   const tenantSlug = resolveTenant(url)?.slug ?? null;
   const rest = stripTenantPath(pathname);
-  const malformed = tenantSlug === null && new RegExp(`^/${TENANT_PREFIX}(?:/|$)`).test(pathname);
+  const afterPrefix = tenantSlug === null ? belowTenantPrefix(pathname) : null;
 
   if (tenantSlug) {
     if (isBackendPath(rest)) {
       // The control plane (FR-CP-01) and the schedules are root-only:
-      // `/t/{slug}/api/internal/**` and `/t/{slug}/api/cron/**` are 404.
+      // `/orgs/{slug}/api/internal/**` and `/orgs/{slug}/api/cron/**` are 404.
       if (ROOT_ONLY_BACKEND.some((prefix) => startsWithSegment(rest, prefix)))
         return { code: 'NOT_FOUND', kind: 'reject', status: 404 };
       return { kind: 'tenant-backend', path: rest, slug: tenantSlug };
@@ -70,8 +70,8 @@ export const resolveTenantRoute = (url: URL): TenantRoute => {
     return { kind: 'tenant-page', path: rest, slug: tenantSlug };
   }
 
-  if (malformed) {
-    const afterPrefix = pathname.replace(/^\/t\/[^/]*/, '') || '/';
+  // A tenant prefix with a malformed slug.
+  if (afterPrefix !== null) {
     return isBackendPath(afterPrefix)
       ? { code: 'TENANT_INVALID', kind: 'reject', status: 400 }
       : { kind: 'tenant-discovery-page' };

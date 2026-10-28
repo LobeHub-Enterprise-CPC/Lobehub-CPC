@@ -47,9 +47,9 @@ const persistLocaleCookie = (
 
 export function defineConfig() {
   /**
-   * Page rewrites for a tenant page. `pathname` is the path below `/t/{slug}`:
+   * Page rewrites for a tenant page. `pathname` is the path below `/orgs/{slug}`:
    * the SPA reads the tenant prefix from the address bar as its router
-   * basename, so the HTML served for `/t/acme/agent` is the one for `/agent`.
+   * basename, so the HTML served for `/orgs/acme/agent` is the one for `/agent`.
    */
   const defaultMiddleware = (request: NextRequest, pathname: string, routedHeaders?: Headers) => {
     const url = new URL(request.url);

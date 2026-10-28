@@ -21,9 +21,9 @@ const { default: app } = await import('../index');
 
 describe('deployment-wide schedule fan-out', () => {
   it.each([
-    ['goal-sweep', '/t/acme/api/workflows/goal/sweep'],
-    ['task-schedule-dispatch', '/t/acme/api/workflows/task/schedule-dispatch'],
-    ['widget-tick', '/t/acme/api/workflows/widget/tick'],
+    ['goal-sweep', '/orgs/acme/api/workflows/goal/sweep'],
+    ['task-schedule-dispatch', '/orgs/acme/api/workflows/task/schedule-dispatch'],
+    ['widget-tick', '/orgs/acme/api/workflows/widget/tick'],
   ])('publishes %s once per tenant to the tenant address', async (job, path) => {
     vi.stubEnv('APP_URL', 'https://app.example.com');
     mocks.publishJSON.mockClear();

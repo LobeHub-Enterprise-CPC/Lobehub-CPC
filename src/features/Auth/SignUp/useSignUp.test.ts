@@ -155,7 +155,7 @@ describe('useSignUp', () => {
     });
 
     it('should keep a successful tenant signup on its scoped onboarding page without a callback', async () => {
-      initializeTenant(new URL('/t/acme/signup', originalLocation.origin));
+      initializeTenant(new URL('/orgs/acme/signup', originalLocation.origin));
       mockSignUpEmail.mockResolvedValue({ error: null });
 
       const { result } = renderHook(() => useSignUp());
@@ -163,9 +163,9 @@ describe('useSignUp', () => {
         await result.current.onSubmit(validValues);
       });
 
-      expect(window.location.href).toBe('/t/acme/onboarding');
+      expect(window.location.href).toBe('/orgs/acme/onboarding');
       expect(mockSignUpEmail).toHaveBeenCalledWith(
-        expect.objectContaining({ callbackURL: `${originalLocation.origin}/t/acme/onboarding` }),
+        expect.objectContaining({ callbackURL: `${originalLocation.origin}/orgs/acme/onboarding` }),
       );
       expect(mockNavigate).not.toHaveBeenCalled();
     });

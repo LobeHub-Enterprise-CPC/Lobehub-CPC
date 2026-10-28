@@ -45,8 +45,8 @@ beforeAll(async () => {
 });
 
 const entryOf = (id: string) => ({
-  basePath: `/t/${id}`,
-  publicUrl: `http://localhost:3010/t/${id}`,
+  basePath: `/orgs/${id}`,
+  publicUrl: `http://localhost:3010/orgs/${id}`,
   version: 1,
 });
 
@@ -170,7 +170,7 @@ describe('tenant auth token endpoints', () => {
 
     const response = await inTenant('tenant-token', () =>
       auth.handler(
-        new Request(`http://localhost:3010/t/tenant-token/api/auth${path}`, {
+        new Request(`http://localhost:3010/orgs/tenant-token/api/auth${path}`, {
           body: JSON.stringify({ providerId: 'acme-oidc' }),
           headers: { 'content-type': 'application/json', 'cookie': cookieHeaderOf(signUp) },
           method: 'POST',

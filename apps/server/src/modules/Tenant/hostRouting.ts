@@ -1,4 +1,11 @@
-import { isBackendPath, parseTenantPath } from '@lobechat/business-tenant/routing';
+import {
+  belowTenantPrefix,
+  hasTenantPrefix,
+  isBackendPath,
+  isLegacyTenantPath,
+  parseTenantPath,
+  withTenantPath,
+} from '@lobechat/business-tenant/routing';
 
 import {
   GATEWAY_ROOT_INTERNAL,
@@ -42,7 +49,7 @@ export type HostTenantRoute =
   /** A redirect that must end with an empty fragment (see `navigationRedirect`). */
   | { kind: 'navigation-redirect'; url: string }
   /**
-   * A `/t/{slug}` request for a slug that does not exist. `fallback` is
+   * A `/orgs/{slug}` request for a slug that does not exist. `fallback` is
    * exactly what the same path gets without a tenant; callers serve it and
    * keep `slug` for server logs only (FR-RT-06).
    */
@@ -53,6 +60,7 @@ export type HostTenantRoute =
 // or browser auth through a second deployment host.
 const INTERNAL_CALLBACKS =
   /^\/(?:api\/workflows(?:\/|$)|trpc\/async(?:\/|$)|webapi\/create-image\/comfyui(?:\/|$)|api\/webhooks\/video(?:\/|$)|api\/governance(?:\/|$)|api\/agent(?:$|\/(?:run|tool-result|finalize-abandoned|llm-relay|gateway\/(?:callback|desired-connections|start)|webhooks\/(?:bot-callback|bot-replay|subagent-callback|group-member-callback))(?:\/|$)))/;
+const TENANT_DISCOVERY = /^\/api\/tenant-discovery(?:\/|$)/;
 const ROOT_INTERNAL = /^\/api\/(?:internal\/control-plane|cron)(?:\/|$)/;
 const reject = (code = 'NOT_FOUND', status = 404): HostTenantRoute => ({
   kind: 'reject',
@@ -75,8 +83,8 @@ export const resolveHostTenantRoute = async (
   const parsed = parseTenantPath(url.pathname);
   // Deployment discovery is never a tenant endpoint, including inactive custom authorities
   // and prefixed forms whose slug does not exist. Check before any endpoint redirect.
-  if (/^(?:\/t\/[^/]*)?\/api\/tenant-discovery(?:\/|$)/.test(url.pathname))
-    return defaultHost && /^\/api\/tenant-discovery(?:\/|$)/.test(url.pathname)
+  if (TENANT_DISCOVERY.test(belowTenantPrefix(url.pathname) ?? url.pathname))
+    return defaultHost && TENANT_DISCOVERY.test(url.pathname)
       ? { kind: 'tenantless-backend' }
       : reject();
   if (internalHost && !defaultHost) {
@@ -98,6 +106,22 @@ export const resolveHostTenantRoute = async (
       };
     }
     const defaultActive = entry.state.endpoints.find((e) => e.kind === 'default')?.active;
+    // The directory answers a former slug with the tenant's entry: from here on the tenant is
+    // `entry.slug`, whatever slug the URL carried.
+    const served = { ...route, slug: entry.slug };
+    // A page under the legacy prefix or a former slug moves to the current address on the same
+    // origin; backend calls, callbacks and other methods are still served where they arrive.
+    if (
+      route.kind === 'tenant-page' &&
+      defaultActive &&
+      ['GET', 'HEAD'].includes(method) &&
+      (isLegacyTenantPath(url.pathname) || route.slug !== entry.slug)
+    )
+      return {
+        kind: 'redirect',
+        status: 308,
+        url: `${platform.origin}${withTenantPath(route.path, entry.slug)}${url.search}`,
+      };
     if (route.kind === 'tenant-page') {
       // The session entry is decided before the visit is remembered and before an endpoint
       // move, so neither can see it.
@@ -105,7 +129,7 @@ export const resolveHostTenantRoute = async (
         route.path,
         entry,
         !!defaultActive,
-        `${platform.origin}/t/${entry.slug}`,
+        `${platform.origin}${withTenantPath('/', entry.slug)}`,
         deps,
       );
       if (sessionEntry) return sessionEntry;
@@ -115,13 +139,13 @@ export const resolveHostTenantRoute = async (
       defaultActive ||
       (route.kind === 'tenant-backend' && internalHost && INTERNAL_CALLBACKS.test(route.path))
     )
-      return route;
+      return served;
     return changed(route.path, entry.state.activeUrl, url.search, method);
   }
   // A non-default port is another authority, even if the hostname is registered.
   if (url.port && url.port !== '443') return reject();
   const entry = await deps.findHost(url.hostname.toLowerCase());
-  if (!entry || /^\/t(?:\/|$)/.test(url.pathname)) return reject();
+  if (!entry || hasTenantPrefix(url.pathname)) return reject();
   if (/^\/api\/(?:internal|cron)(?:\/|$)/.test(url.pathname)) return reject();
   const hostActive = !!entry.state.endpoints.find((e) => e.host === url.hostname.toLowerCase())
     ?.active;
@@ -154,7 +178,7 @@ const resolveSessionEntry = (
   path: string,
   entry: Entry,
   endpointActive: boolean,
-  /** This request's own, directory-verified origin and base path (`https://host[/t/slug]`). */
+  /** This request's own, directory-verified origin and base path (`https://host[/orgs/slug]`). */
   currentBase: string,
   deps: HostRoutingDeps,
 ): HostTenantRoute | null => {

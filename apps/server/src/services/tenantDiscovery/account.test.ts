@@ -17,7 +17,7 @@ vi.mock('./connection', () => ({ withLookupClient: deps.lookup }));
 vi.mock('./query', () => ({ queryTenantMembership: deps.query }));
 
 const candidate = {
-  activeUrl: 'https://app.example.com/t/acme',
+  activeUrl: 'https://app.example.com/orgs/acme',
   endpointVersion: 1,
   id: 'tenant-1',
   name: 'Acme',

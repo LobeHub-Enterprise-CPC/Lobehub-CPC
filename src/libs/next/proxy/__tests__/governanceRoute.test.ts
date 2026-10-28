@@ -16,16 +16,18 @@ vi.mock('@/server/router-hono/governance', () => ({
 /**
  * The contract Market's sandbox relies on to ask CPC whether a command may run
  * (`POST /api/governance/{check,log}`, service token). There is no tenantless entry: a call
- * names its tenant with the `/t/{slug}` prefix like every other backend path, and a call without
- * it is refused. Market must therefore address `<CPC origin>/t/<slug>/api/governance/...` and treat
+ * names its tenant with the `/orgs/{slug}` prefix like every other backend path, and a call without
+ * it is refused. Market must therefore address `<CPC origin>/orgs/<slug>/api/governance/...` and treat
  * any non-2xx answer as "not allowed" (fail closed).
  */
 describe('governance endpoints are addressed per tenant', () => {
   it.each(['check', 'log', 'rules', 'logs'])(
-    '/t/acme/api/governance/%s is routed to the acme tenant',
+    '/orgs/acme/api/governance/%s is routed to the acme tenant',
     (endpoint) => {
       expect(
-        resolveTenantRoute(new URL(`https://work.example.com/t/acme/api/governance/${endpoint}`)),
+        resolveTenantRoute(
+          new URL(`https://work.example.com/orgs/acme/api/governance/${endpoint}`),
+        ),
       ).toEqual({
         kind: 'tenant-backend',
         path: `/api/governance/${endpoint}`,
@@ -49,7 +51,7 @@ describe('governance endpoints are addressed per tenant', () => {
 
   it('refuses a malformed tenant prefix with 400, not a tenantless pass', () => {
     expect(
-      resolveTenantRoute(new URL('https://work.example.com/t/A_B/api/governance/check')),
+      resolveTenantRoute(new URL('https://work.example.com/orgs/A_B/api/governance/check')),
     ).toMatchObject({
       kind: 'reject',
       status: 400,

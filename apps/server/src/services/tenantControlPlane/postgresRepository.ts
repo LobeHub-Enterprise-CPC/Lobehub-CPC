@@ -12,6 +12,7 @@ import {
   tenantProvisionOperation,
   tenantRuntimeExternalWork,
   tenantRuntimeProcess,
+  tenantSlugAlias,
 } from '@lobechat/database/platform';
 import { isSafeReadinessDiagnosticCode } from '@lobechat/database/tenant';
 import { and, count, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
@@ -54,6 +55,10 @@ export { directorySecretAad } from '@/server/modules/Tenant/directorySecrets';
 
 type Tx = Parameters<Parameters<PlatformDatabase['transaction']>[0]>[0];
 
+/** Directory slugs and aliases are two tables; this lock is what keeps a slug in only one of them. */
+const lockSlugNamespace = (tx: Tx) =>
+  tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended('lobehub:tenant-slugs', 0))`);
+
 const pendingBundleAad = (tenantId: string, operationId: string) =>
   `${tenantId}|lobehub|operation|${operationId}`;
 
@@ -94,6 +99,7 @@ export const directoryRecordFromRow = (row: DirectoryRow): TenantDirectoryRecord
   connectionVersion: row.connectionVersion,
   credentialBundleVersion: row.credentialBundleVersion,
   name: row.name,
+  profileVersion: row.profileVersion,
   schemaName: row.schemaName,
   schemaVersion: row.schemaVersion,
   slug: row.slug,
@@ -358,6 +364,12 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
       .where(eq(tenantDirectory.slug, slug))
       .limit(1);
     if (directory) return directory.tenantId;
+    const [alias] = await tx
+      .select({ tenantId: tenantSlugAlias.tenantId })
+      .from(tenantSlugAlias)
+      .where(eq(tenantSlugAlias.slug, slug))
+      .limit(1);
+    if (alias) return alias.tenantId;
     const [operation] = await tx
       .select({ tenantId: tenantProvisionOperation.tenantId })
       .from(tenantProvisionOperation)
@@ -384,6 +396,19 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
       .where(eq(tenantLifecycleInbox.eventId, eventId))
       .limit(1);
     return row ? toEvent(row) : null;
+  },
+
+  getProfile: async (tenantId) => {
+    const [row] = await tx
+      .select({
+        name: tenantDirectory.name,
+        profileVersion: tenantDirectory.profileVersion,
+        slug: tenantDirectory.slug,
+      })
+      .from(tenantDirectory)
+      .where(eq(tenantDirectory.tenantId, tenantId))
+      .limit(1);
+    return row ?? null;
   },
 
   getLifecycle: async (tenantId) => {
@@ -432,6 +457,18 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
     return rows.map(toEvent);
   },
 
+  listSlugAliases: async (tenantId) => {
+    const rows = await tx
+      .select({ slug: tenantSlugAlias.slug })
+      .from(tenantSlugAlias)
+      .where(eq(tenantSlugAlias.tenantId, tenantId));
+    return rows.map((row) => row.slug);
+  },
+
+  lockSlugs: async () => {
+    await lockSlugNamespace(tx);
+  },
+
   listOperations: async (tenantId) => {
     const rows = await tx
       .select()
@@ -442,6 +479,8 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
   },
 
   putDirectory: async (record, bundle) => {
+    // A first registration claims a slug; it queues behind any profile edit checking the namespace.
+    await lockSlugNamespace(tx);
     const values = {
       connectionVersion: record.connectionVersion,
       credentialBundleVersion: record.credentialBundleVersion,
@@ -456,6 +495,7 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
       ),
       ownerUsername: bundle.schemaOwner.username,
       port: bundle.port,
+      profileVersion: record.profileVersion,
       runtimeSecret: sealDirectoryData(
         bundle.runtimeCredential.password,
         directorySecretAad(record.tenantId, record.credentialBundleVersion, 'runtime'),
@@ -468,12 +508,25 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
       tenantId: record.tenantId,
       tls: bundle.tls,
     };
-    // The slug is fixed once registered: an update never changes it.
-    const { slug: _slug, tenantId: _tenantId, ...update } = values;
+    // Slug and profile revision belong to `putProfile` once registered: an update never changes them.
+    const { profileVersion: _profileVersion, slug: _slug, tenantId: _tenantId, ...update } = values;
     await tx
       .insert(tenantDirectory)
       .values(values)
       .onConflictDoUpdate({ set: update, target: tenantDirectory.tenantId });
+  },
+
+  putProfile: async (tenantId, { formerSlugs, name, profileVersion, slug }) => {
+    // Aliases go first: the slug being taken may be one of this tenant's own aliases.
+    await tx.delete(tenantSlugAlias).where(eq(tenantSlugAlias.tenantId, tenantId));
+    await tx
+      .update(tenantDirectory)
+      .set({ name, profileVersion, slug })
+      .where(eq(tenantDirectory.tenantId, tenantId));
+    if (formerSlugs.length)
+      await tx
+        .insert(tenantSlugAlias)
+        .values(formerSlugs.map((former) => ({ slug: former, tenantId })));
   },
 
   putEvent: async (record) => {

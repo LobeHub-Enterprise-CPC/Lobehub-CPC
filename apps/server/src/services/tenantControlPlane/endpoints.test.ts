@@ -9,7 +9,7 @@ describe('endpoint snapshot contract', () => {
     expect(endpointRequestSchema.parse(fixture.customRequest)).toEqual(fixture.customRequest);
   });
   it.each([
-    { ...fixture.request, pathPrefix: '/t/other' },
+    { ...fixture.request, pathPrefix: '/orgs/other' },
     { ...fixture.request, version: 2147483648 },
     {
       ...fixture.customRequest,

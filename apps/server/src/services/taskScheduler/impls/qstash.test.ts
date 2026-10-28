@@ -47,7 +47,7 @@ describe('QStashTaskScheduler', () => {
       expect(publishJSON).toHaveBeenCalledWith({
         body: { taskId: 'task-1', tickToken: 'generation-1', userId: 'user-1' },
         delay: 60,
-        url: 'https://app.example.com/t/acme/api/workflows/task/heartbeat-tick',
+        url: 'https://app.example.com/orgs/acme/api/workflows/task/heartbeat-tick',
       });
     });
 
@@ -71,7 +71,7 @@ describe('QStashTaskScheduler', () => {
 
       expect(pj).toHaveBeenCalledWith(
         expect.objectContaining({
-          url: 'https://app.example.com/t/acme/api/workflows/task/heartbeat-tick',
+          url: 'https://app.example.com/orgs/acme/api/workflows/task/heartbeat-tick',
         }),
       );
     });

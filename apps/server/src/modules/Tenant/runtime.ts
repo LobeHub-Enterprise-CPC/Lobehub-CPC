@@ -42,7 +42,7 @@ type RouteEntry = TenantDirectoryEntry;
 /**
  * Tenant resolution and admission (spec FR-RT-04, FR-ID-07, FR-DI-02..05).
  *
- * Input is only a slug (today from the `/t/{slug}` path, later possibly from
+ * Input is only a slug (today from the `/orgs/{slug}` path, later possibly from
  * a Host mapping, spec A17) or a trusted tenant id (jobs). Output is a
  * {@link TenantScope}: the tenant id, its slug, and a database session bound
  * to the tenant's schema through its runtime role. Every failure is a

@@ -15,7 +15,7 @@ export const isSafeRedirectPath = (url: string): boolean =>
 
 /**
  * App paths (`/`, `/onboarding`, …) that leave the auth flow as full-page
- * destinations keep the `/t/{slug}` of the page the flow runs on: the app only
+ * destinations keep the `/orgs/{slug}` of the page the flow runs on: the app only
  * exists under its tenant, and a bare `/` lands on the no-tenant page.
  */
 const withPageTenant = (path: string): string => {

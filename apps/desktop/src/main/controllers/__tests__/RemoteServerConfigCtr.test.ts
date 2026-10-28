@@ -58,7 +58,7 @@ const mockApp = {
   storeManager: mockStoreManager,
 } as unknown as App;
 
-const ENTRY = 'https://platform.example/t/acme';
+const ENTRY = 'https://platform.example/orgs/acme';
 
 const cloudTenant = (overrides: Record<string, unknown> = {}) => ({
   display: { account: 'alice@example.com', organizationName: 'Acme' },
@@ -264,26 +264,26 @@ describe('RemoteServerConfigCtr', () => {
 
       await controller.setRemoteServerConfig({
         active: true,
-        remoteServerUrl: '  https://host.example/t/acme/  ',
+        remoteServerUrl: '  https://host.example/orgs/acme/  ',
         storageMode: 'selfHost',
       });
 
       expect(mockStoreManager.set).toHaveBeenCalledWith(
         'dataSyncConfig',
-        expect.objectContaining({ remoteServerUrl: 'https://host.example/t/acme' }),
+        expect.objectContaining({ remoteServerUrl: 'https://host.example/orgs/acme' }),
       );
     });
 
     it('normalizes previously stored addresses on read', async () => {
       mockStoreManager.get.mockReturnValue({
         active: true,
-        remoteServerUrl: 'https://host.example/t/acme/',
+        remoteServerUrl: 'https://host.example/orgs/acme/',
         storageMode: 'selfHost',
       });
 
-      expect(await controller.getRemoteServerUrl()).toBe('https://host.example/t/acme');
+      expect(await controller.getRemoteServerUrl()).toBe('https://host.example/orgs/acme');
       expect((await controller.getRemoteServerConfig()).remoteServerUrl).toBe(
-        'https://host.example/t/acme',
+        'https://host.example/orgs/acme',
       );
     });
 
@@ -291,7 +291,7 @@ describe('RemoteServerConfigCtr', () => {
       expect(
         await controller.isRemoteServerConfigured({
           active: true,
-          remoteServerUrl: 'https://host.example/t/acme',
+          remoteServerUrl: 'https://host.example/orgs/acme',
           storageMode: 'selfHost',
         }),
       ).toBe(true);
@@ -442,7 +442,7 @@ describe('RemoteServerConfigCtr', () => {
       vi.spyOn(controller, 'getAccessToken').mockImplementation(async () => {
         const token = await original();
         await controller.commitAuthorization(
-          login('https://platform.example/t/other', 'access-b', 'b'),
+          login('https://platform.example/orgs/other', 'access-b', 'b'),
         );
         return token;
       });
@@ -777,7 +777,7 @@ describe('RemoteServerConfigCtr', () => {
       expect(mockFetch.mock.calls[0][1].body).toContain('client_id=tituwork-desktop');
     });
 
-    it.each(['https://server.com/t/acme', 'https://server.com/t/acme/'])(
+    it.each(['https://server.com/orgs/acme', 'https://server.com/orgs/acme/'])(
       'should refresh the token under the tenant path prefix of %s',
       async (remoteServerUrl) => {
         const { safeStorage } = await import('electron');
@@ -809,7 +809,7 @@ describe('RemoteServerConfigCtr', () => {
 
         expect(result.success).toBe(true);
         expect(mockFetch).toHaveBeenCalledTimes(1);
-        expect(mockFetch.mock.calls[0][0]).toBe('https://server.com/t/acme/oidc/token');
+        expect(mockFetch.mock.calls[0][0]).toBe('https://server.com/orgs/acme/oidc/token');
       },
     );
 
@@ -1332,7 +1332,7 @@ describe('RemoteServerConfigCtr', () => {
           'another issuer',
           { identity: { ...previous.identity, issuer: 'https://x.example/oidc' } },
         ],
-        ['another entry', { entryUrl: 'https://platform.example/t/other' }],
+        ['another entry', { entryUrl: 'https://platform.example/orgs/other' }],
       ])('never carries the name over to %s', async (_name, overrides) => {
         const data = useStore({
           dataSyncConfig: { active: false, cloudTenant: previous, storageMode: 'cloud' },
@@ -1436,7 +1436,7 @@ describe('RemoteServerConfigCtr', () => {
           'another issuer',
           { identity: { ...previous.identity, issuer: 'https://x.example/oidc' } },
         ],
-        ['another entry', { entryUrl: 'https://platform.example/t/other' }],
+        ['another entry', { entryUrl: 'https://platform.example/orgs/other' }],
       ])('leaves them unknown for %s that delivers none', async (_name, overrides) => {
         const data = seed();
 
@@ -1647,7 +1647,7 @@ describe('RemoteServerConfigCtr', () => {
         mockFetch.mockResolvedValue(
           new Response(
             JSON.stringify({
-              activeUrl: 'https://elsewhere.example/t/acme',
+              activeUrl: 'https://elsewhere.example/orgs/acme',
               code: 'TENANT_ENDPOINT_CHANGED',
             }),
             { status: 409 },

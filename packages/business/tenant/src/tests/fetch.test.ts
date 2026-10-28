@@ -3,25 +3,28 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { initializeTenant, installTenantFetch, tenantRequestUrl } from '../client';
 
 const location = {
-  href: 'https://app.example.com/t/acme/agent',
+  href: 'https://app.example.com/orgs/acme/agent',
   origin: 'https://app.example.com',
 };
 
 describe('tenantRequestUrl', () => {
   it.each([
-    ['/trpc/lambda/user.get?batch=1', '/t/acme/trpc/lambda/user.get?batch=1'],
-    ['/api/auth/get-session', '/t/acme/api/auth/get-session'],
-    ['/webapi/chat/openai', '/t/acme/webapi/chat/openai'],
-    ['https://app.example.com/api/auth/sign-in', 'https://app.example.com/t/acme/api/auth/sign-in'],
-    ['/f/file-1', '/t/acme/f/file-1'],
-    ['/market/agent/x', '/t/acme/market/agent/x'],
-    ['/api', '/t/acme/api'],
+    ['/trpc/lambda/user.get?batch=1', '/orgs/acme/trpc/lambda/user.get?batch=1'],
+    ['/api/auth/get-session', '/orgs/acme/api/auth/get-session'],
+    ['/webapi/chat/openai', '/orgs/acme/webapi/chat/openai'],
+    [
+      'https://app.example.com/api/auth/sign-in',
+      'https://app.example.com/orgs/acme/api/auth/sign-in',
+    ],
+    ['/f/file-1', '/orgs/acme/f/file-1'],
+    ['/market/agent/x', '/orgs/acme/market/agent/x'],
+    ['/api', '/orgs/acme/api'],
   ])('prefixes backend call %s', (input, expected) => {
     expect(tenantRequestUrl(input, 'acme', location)).toBe(expected);
   });
 
   it.each([
-    ['/t/acme/trpc/x'],
+    ['/orgs/acme/trpc/x'],
     ['/agent/123'],
     ['/apiary'],
     ['/market-auth-callback'],
@@ -46,7 +49,7 @@ describe('installTenantFetch', () => {
   });
 
   it('sends same-origin backend calls under the tenant of the page', async () => {
-    window.history.replaceState(null, '', '/t/acme/agent');
+    window.history.replaceState(null, '', '/orgs/acme/agent');
     initializeTenant(new URL(window.location.href));
     const fetchMock = vi.fn(async () => new Response('ok'));
     window.fetch = fetchMock as typeof fetch;
@@ -55,7 +58,7 @@ describe('installTenantFetch', () => {
     await window.fetch('/trpc/lambda/x', { method: 'POST' });
     await window.fetch('/images/logo.png');
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, '/t/acme/trpc/lambda/x', { method: 'POST' });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/orgs/acme/trpc/lambda/x', { method: 'POST' });
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/images/logo.png', undefined);
   });
 
@@ -110,7 +113,7 @@ describe('installTenantFetch endpoint change', () => {
   afterEach(() => initializeTenant(new URL('https://app.example.com/')));
 
   it('re-resolves the tenant root once when a backend call reports the endpoint changed', async () => {
-    const win = setup('/t/acme/agent', changed);
+    const win = setup('/orgs/acme/agent', changed);
 
     const [first, second] = await Promise.all([
       win.fetch('/trpc/lambda/a'),
@@ -119,14 +122,14 @@ describe('installTenantFetch endpoint change', () => {
 
     expect(win.location.assign).toHaveBeenCalledTimes(1);
     // Never the address the response names: the server re-resolves the tenant itself.
-    expect(win.location.assign).toHaveBeenCalledWith(`${origin}/t/acme`);
+    expect(win.location.assign).toHaveBeenCalledWith(`${origin}/orgs/acme`);
     // The caller still reads the response it got.
     expect(first.status).toBe(409);
     expect((await second.json()).code).toBe('TENANT_ENDPOINT_CHANGED');
   });
 
   it('does not loop when the root keeps answering that the endpoint changed', async () => {
-    const win = setup('/t/acme/agent', changed);
+    const win = setup('/orgs/acme/agent', changed);
     await win.fetch('/trpc/lambda/a');
     await win.fetch('/trpc/lambda/b');
     expect(win.location.assign).toHaveBeenCalledTimes(1);
@@ -134,7 +137,7 @@ describe('installTenantFetch endpoint change', () => {
 
   it('leaves other 409 responses alone', async () => {
     const win = setup(
-      '/t/acme/agent',
+      '/orgs/acme/agent',
       () => new Response(JSON.stringify({ code: 'CONFLICT' }), { status: 409 }),
     );
     await win.fetch('/trpc/lambda/a');
@@ -159,13 +162,13 @@ describe('installTenantFetch endpoint change', () => {
       }
       open() {}
     }
-    const win = setup('/t/acme/agent', changed);
+    const win = setup('/orgs/acme/agent', changed);
     Object.assign(win, { XMLHttpRequest: FakeXhr });
     installTenantFetch(win as unknown as Window & typeof globalThis);
     const xhr = new FakeXhr();
     // The patched `open` registers the listener on the instance it opens.
     (xhr.open as (method: string, url: string) => void)('GET', '/trpc/x');
     xhr.listeners.forEach((listener) => listener());
-    expect(win.location.assign).toHaveBeenCalledWith(`${origin}/t/acme`);
+    expect(win.location.assign).toHaveBeenCalledWith(`${origin}/orgs/acme`);
   });
 });
