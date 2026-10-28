@@ -1,6 +1,7 @@
 import { currentTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 
+import { isDrainingAgentSteps } from '@/server/modules/AgentRuntime/stepDrain';
 import { tenantGateErrorOf } from '@/server/modules/Tenant/errors';
 import { runInTenant } from '@/server/modules/Tenant/gate';
 import { assertGatewayVersion } from '@/server/services/gatewayAuthorization';
@@ -108,6 +109,12 @@ export class LocalQueueServiceImpl implements QueueServiceImpl {
     // discarded. Nothing has run yet, so a deferred step replays no side effect.
     // `execute` handles its own failures, so a rejection here is the admission.
     const run = async () => {
+      // A process shutting down starts no further step: the operation goes stale
+      // and the stale-operation sweep redrives it on an instance that stays up.
+      if (isDrainingAgentSteps()) {
+        log('Dropping step %d of operation %s: process is draining', stepIndex, operationId);
+        return;
+      }
       try {
         await runInTenant(tenantId, async () => {
           await assertGatewayVersion(tenantId, execution.sourceAcceptedVersion);
