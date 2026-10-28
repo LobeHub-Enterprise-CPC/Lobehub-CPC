@@ -25,6 +25,23 @@ export type BrandIconKey =
   | 'chat.chevronDown'
   | 'chat.send'
   | 'chat.voice'
+  | 'community.agent'
+  | 'community.copy'
+  | 'community.install'
+  | 'community.mcp'
+  | 'community.overview'
+  | 'community.config'
+  | 'community.versions'
+  | 'community.skill'
+  | 'community.skillFile'
+  | 'community.prompts'
+  | 'community.resources'
+  | 'community.description'
+  | 'community.info'
+  | 'community.opening'
+  | 'community.questions'
+  | 'community.library'
+  | 'community.sort'
   | 'device.computer'
   | 'group.addMember'
   | 'group.members'
@@ -52,6 +69,8 @@ export type BrandIconKey =
   | 'topic.share'
   | 'topic.terminal'
   | 'workspace.document'
-  | 'workspace.skill';
+  | 'workspace.skill'
+  /** A market category's icon, by kind and category key, e.g. `category.agent.office`. */
+  | `category.${'agent' | 'mcp' | 'skill'}.${string}`;
 
 export const BRANDING_ICONS: Partial<Record<BrandIconKey, BrandIconSvg>> = {};

@@ -12,6 +12,12 @@ import {
 import NavPanelShell from './Shell';
 import SideBarLayout from './SideBarLayout';
 
+// Pinned so the suite tests this component, not the deployment it runs in.
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  COMMUNITY_SHOWCASE_LAYOUT: false,
+}));
+
 const panelRender = vi.fn();
 
 let pathname = '/lobe-team/settings/general';

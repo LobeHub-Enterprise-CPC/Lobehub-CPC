@@ -1,5 +1,6 @@
 'use client';
 
+import { COMMUNITY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { Icon, Tag } from '@lobehub/ui';
 import qs from 'query-string';
 import { memo, useMemo } from 'react';
@@ -15,6 +16,7 @@ import { skillSelectors } from '@/store/discover/selectors';
 import { SkillCategory, SkillSorts } from '@/types/discover';
 
 import CategoryMenu from '../../../../components/CategoryMenu';
+import { buildShowcaseCategoryItems } from '../../../../features/Showcase/categoryItems';
 
 const Category = memo(() => {
   const useSkillCategories = useDiscoverStore((s) => s.useSkillCategories);
@@ -47,6 +49,27 @@ const Category = memo(() => {
     scrollableElement.scrollTo({ behavior: 'smooth', top: 0 });
   };
   const total = useMemo(() => items.reduce((acc, item) => acc + (item.count || 0), 0), [items]);
+
+  // The showcase market lists only categories something is filed under.
+  if (COMMUNITY_SHOWCASE_LAYOUT) {
+    const showcaseUrl = genUrl;
+    return (
+      <CategoryMenu
+        mode={'inline'}
+        selectedKeys={[category]}
+        items={buildShowcaseCategoryItems(cates as any, items as any, {
+          exclude: [],
+          genUrl: showcaseUrl,
+          hideEmpty: true,
+          kind: 'skill',
+        })}
+        onClick={(v) => {
+          const key = v.key as SkillCategory;
+          navigate(showcaseUrl(key));
+        }}
+      />
+    );
+  }
 
   return (
     <CategoryMenu

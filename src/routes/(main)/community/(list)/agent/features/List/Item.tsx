@@ -1,3 +1,4 @@
+import { COMMUNITY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { Avatar, Block, createStaticStyles, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
 import { ClockIcon } from 'lucide-react';
@@ -14,6 +15,7 @@ import { resolveCommunityProfileLink } from '@/routes/(main)/community/(detail)/
 import { discoverService } from '@/services/discover';
 import { type AssistantMarketSource, type DiscoverAssistantItem } from '@/types/discover';
 
+import ShowcaseCard from '../../../../features/Showcase/ShowcaseCard';
 import TokenTag from './TokenTag';
 
 const styles = createStaticStyles(({ css, cssVar }) => {
@@ -114,6 +116,26 @@ const AssistantItem = memo<DiscoverAssistantItem>(
 
       navigate(link);
     }, [identifier, link, navigate]);
+
+    if (COMMUNITY_SHOWCASE_LAYOUT)
+      return (
+        <ShowcaseCard
+          category={t(`category.assistant.${category}` as any)}
+          description={description}
+          testId={'assistant-item'}
+          title={title}
+          to={link}
+          avatar={
+            <Avatar
+              avatar={avatar}
+              background={backgroundColor || 'transparent'}
+              shape={'square'}
+              size={32}
+            />
+          }
+          onClick={handleClick}
+        />
+      );
 
     return (
       <Block

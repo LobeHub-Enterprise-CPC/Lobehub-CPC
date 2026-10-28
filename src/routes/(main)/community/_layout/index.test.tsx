@@ -5,6 +5,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Layout from './index';
 
 let showMarket: boolean | undefined = true;
+let showcase = false;
+
+// Pinned so the suite tests the layout, not the deployment it runs in.
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  get COMMUNITY_SHOWCASE_LAYOUT() {
+    return showcase;
+  },
+}));
 
 vi.mock('@/store/serverConfig', () => ({
   featureFlagsSelectors: (state: { featureFlags: unknown }) => state.featureFlags,
@@ -20,7 +29,10 @@ const renderAt = (path: string) =>
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route element={<div data-testid={'home'} />} path={'/'} />
-        <Route element={<Layout />} path={'/community/*'} />
+        <Route element={<Layout />} path={'/community/*'}>
+          <Route element={<div data-testid={'agent-list'} />} path={'agent'} />
+          <Route element={<div data-testid={'mcp-detail'} />} path={'mcp/:slug'} />
+        </Route>
       </Routes>
     </MemoryRouter>,
   );
@@ -28,6 +40,7 @@ const renderAt = (path: string) =>
 describe('community layout', () => {
   beforeEach(() => {
     showMarket = true;
+    showcase = false;
   });
 
   it('renders the section when the market flag is on', () => {
@@ -62,5 +75,33 @@ describe('community layout', () => {
     renderAt('/community');
 
     expect(screen.getByTestId('home')).toBeInTheDocument();
+  });
+
+  describe('showcase market', () => {
+    beforeEach(() => {
+      showcase = true;
+    });
+
+    it('drops the section sidebar', () => {
+      renderAt('/community/agent');
+
+      expect(screen.getByTestId('agent-list')).toBeInTheDocument();
+      expect(screen.queryByTestId('community-sidebar')).not.toBeInTheDocument();
+    });
+
+    it.each(['/community', '/community/model', '/community/provider/openai'])(
+      'sends %s to the assistant list',
+      (path) => {
+        renderAt(path);
+
+        expect(screen.getByTestId('agent-list')).toBeInTheDocument();
+      },
+    );
+
+    it('keeps connector pages', () => {
+      renderAt('/community/mcp/some-plugin');
+
+      expect(screen.getByTestId('mcp-detail')).toBeInTheDocument();
+    });
   });
 });

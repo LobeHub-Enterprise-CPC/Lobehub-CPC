@@ -62,6 +62,8 @@ export interface DiscoverAssistantItem
   homepage: string;
   identifier: string;
   installCount?: number;
+  /** Marked by the Market's operators to lead the list. */
+  isFeatured?: boolean;
   isValidated?: boolean;
   knowledgeCount: number;
   /**

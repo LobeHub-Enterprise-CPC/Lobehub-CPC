@@ -1,5 +1,6 @@
 'use client';
 
+import { COMMUNITY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { Icon, Tag } from '@lobehub/ui';
 import qs from 'query-string';
 import { memo, useMemo } from 'react';
@@ -15,6 +16,7 @@ import { assistantSelectors } from '@/store/discover/selectors';
 import { AssistantCategory, type AssistantQueryParams, AssistantSorts } from '@/types/discover';
 
 import CategoryMenu from '../../../../components/CategoryMenu';
+import { buildShowcaseCategoryItems } from '../../../../features/Showcase/categoryItems';
 import { useCategory } from './useCategory';
 
 const Category = memo(() => {
@@ -60,6 +62,45 @@ const Category = memo(() => {
   };
 
   const total = useMemo(() => items.reduce((acc, item) => acc + item.count, 0), [items]);
+
+  // The showcase market has no "discover" entry: "all" is the default and lists
+  // everything in recommended order.
+  if (COMMUNITY_SHOWCASE_LAYOUT) {
+    const showcaseUrl = (key: AssistantCategory) =>
+      key === AssistantCategory.All ? genUrl(AssistantCategory.Discover) : genUrl(key);
+    return (
+      <CategoryMenu
+        mode={'inline'}
+        selectedKeys={[category === AssistantCategory.Discover ? AssistantCategory.All : category]}
+        items={buildShowcaseCategoryItems(cates as any, items as any, {
+          exclude: [AssistantCategory.Discover],
+          genUrl: showcaseUrl,
+          hideEmpty: false,
+          order: [
+            'office',
+            'marketing',
+            'programming',
+            'career',
+            'copywriting',
+            'design',
+            'academic',
+            'translation',
+            'general',
+            'education',
+            'life',
+            'emotions',
+            'entertainment',
+            'games',
+          ],
+          kind: 'agent',
+        })}
+        onClick={(v) => {
+          const key = v.key as AssistantCategory;
+          navigate(showcaseUrl(key));
+        }}
+      />
+    );
+  }
 
   return (
     <CategoryMenu

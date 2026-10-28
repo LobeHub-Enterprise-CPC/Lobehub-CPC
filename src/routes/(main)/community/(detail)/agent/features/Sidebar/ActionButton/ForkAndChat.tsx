@@ -3,7 +3,7 @@
 import { AGENT_CHAT_URL } from '@lobechat/const';
 import { Button, createStaticStyles, Flexbox, Select, toast } from '@lobehub/ui';
 import { customAlphabet } from 'nanoid/non-secure';
-import { memo, useState } from 'react';
+import { memo, type ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
@@ -74,7 +74,7 @@ const generateMarketIdentifier = () => {
 
 type ForkTarget = 'private' | 'public';
 
-const ForkAndChat = memo<{ mobile?: boolean }>(({ mobile }) => {
+const ForkAndChat = memo<{ label?: ReactNode; mobile?: boolean }>(({ label, mobile }) => {
   const { identifier, title, config, avatar, backgroundColor, description, tags, editorData } =
     useDetailContext();
   const [isLoading, setIsLoading] = useState(false);
@@ -228,7 +228,7 @@ const ForkAndChat = memo<{ mobile?: boolean }>(({ mobile }) => {
         type={'primary'}
         onClick={() => handleForkAndChat('private')}
       >
-        {t('fork.forkAndChat')}
+        {label ?? t('fork.forkAndChat')}
       </Button>
     );
   }
@@ -260,7 +260,7 @@ const ForkAndChat = memo<{ mobile?: boolean }>(({ mobile }) => {
         type={'primary'}
         onClick={() => handleForkAndChat(visibility)}
       >
-        {t('fork.forkAndChat')}
+        {label ?? t('fork.forkAndChat')}
       </Button>
     </Flexbox>
   );

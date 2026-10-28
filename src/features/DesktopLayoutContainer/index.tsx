@@ -2,7 +2,7 @@ import { Flexbox } from '@lobehub/ui';
 import { type FC, type PropsWithChildren } from 'react';
 import { useEffect, useMemo, useRef } from 'react';
 
-import { isScheduledTasksWorkspace } from '@/features/NavPanel/isScheduledTasksWorkspace';
+import { hidesNavPanel } from '@/features/NavPanel/hidesNavPanel';
 import { useActiveLocation } from '@/hooks/useActiveLocation';
 import { useIsDark } from '@/hooks/useIsDark';
 import { useGlobalStore } from '@/store/global';
@@ -18,8 +18,8 @@ const DesktopLayoutContainer: FC<PropsWithChildren> = ({ children }) => {
   const { pathname, search } = useActiveLocation();
   const [leftPanelExpanded] = useGlobalStore((s) => [systemStatusSelectors.showLeftPanel(s)]);
 
-  const scheduled = isScheduledTasksWorkspace(pathname, search);
-  const expand = leftPanelExpanded && !scheduled;
+  const panelHidden = hidesNavPanel(pathname, search);
+  const expand = leftPanelExpanded && !panelHidden;
 
   const outerCssVariables = useMemo(() => getOuterCssVariables({ expand }), [expand]);
 

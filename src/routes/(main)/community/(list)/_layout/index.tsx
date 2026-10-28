@@ -1,3 +1,4 @@
+import { COMMUNITY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { Flexbox } from '@lobehub/ui';
 import { Outlet } from 'react-router';
 
@@ -18,7 +19,11 @@ const Layout = () => {
           className={styles.contentContainer}
           gap={16}
           minWidth={MAX_WIDTH}
-          style={{ paddingBottom: 56, paddingTop: 16 }}
+          style={
+            COMMUNITY_SHOWCASE_LAYOUT
+              ? { paddingBottom: 48, paddingInline: 48, paddingTop: 32 }
+              : { paddingBottom: 56, paddingTop: 16 }
+          }
           wrapperStyle={{
             minHeight: '100%',
             position: 'relative',
@@ -30,7 +35,7 @@ const Layout = () => {
             </RouteSkeletonChromeProvider>
           </Flexbox>
           <div className={styles.spacer} />
-          <Footer />
+          {!COMMUNITY_SHOWCASE_LAYOUT && <Footer />}
         </WideScreenContainer>
       </Flexbox>
     </>

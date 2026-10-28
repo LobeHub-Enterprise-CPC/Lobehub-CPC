@@ -142,92 +142,94 @@ const StatBlock = memo<{
   );
 });
 
-const InstallButton = memo<{ identifier?: string; name?: string }>(({ identifier, name }) => {
-  const { t } = useTranslation('plugin');
-  const { t: tc } = useTranslation('common');
-  const { t: td } = useTranslation('discover');
-  const [installing, setInstalling] = useState(false);
-  const { allowed: canCreate } = usePermission('create_content');
-  const { allowed: canEdit } = usePermission('edit_own_content');
+export const InstallButton = memo<{ identifier?: string; label?: ReactNode; name?: string }>(
+  ({ identifier, label, name }) => {
+    const { t } = useTranslation('plugin');
+    const { t: tc } = useTranslation('common');
+    const { t: td } = useTranslation('discover');
+    const [installing, setInstalling] = useState(false);
+    const { allowed: canCreate } = usePermission('create_content');
+    const { allowed: canEdit } = usePermission('edit_own_content');
 
-  // Ensure agent skills are fetched so the install state is real on a direct
-  // visit — otherwise installed skills render as installable
-  const useFetchAgentSkills = useToolStore((s) => s.useFetchAgentSkills);
-  useFetchAgentSkills(true);
+    // Ensure agent skills are fetched so the install state is real on a direct
+    // visit — otherwise installed skills render as installable
+    const useFetchAgentSkills = useToolStore((s) => s.useFetchAgentSkills);
+    useFetchAgentSkills(true);
 
-  const installed = useToolStore(agentSkillsSelectors.isAgentSkill(identifier || ''));
-  const installedSkill = useToolStore(
-    agentSkillsSelectors.getAgentSkillByIdentifier(identifier || ''),
-  );
-  const [refreshAgentSkills, deleteAgentSkill] = useToolStore((s) => [
-    s.refreshAgentSkills,
-    s.deleteAgentSkill,
-  ]);
-
-  const handleInstall = useCallback(async () => {
-    if (!identifier || !canCreate || installing || installed) return;
-    setInstalling(true);
-    try {
-      await agentSkillService.importFromMarket(identifier);
-      await refreshAgentSkills();
-    } catch {
-      // The button falls back to Install (clicking again retries) — say why
-      toast.error(t('error.installError', { name: name || identifier }));
-    } finally {
-      setInstalling(false);
-    }
-  }, [canCreate, identifier, installing, installed, name, refreshAgentSkills, t]);
-
-  const handleUninstall = useCallback(() => {
-    if (!canEdit || !installedSkill) return;
-    confirmModal({
-      cancelText: tc('cancel'),
-      content: t('store.actions.confirmUninstall'),
-      okButtonProps: { danger: true },
-      okText: t('store.actions.uninstall'),
-      onOk: async () => {
-        await deleteAgentSkill(installedSkill.id);
-      },
-      title: t('store.actions.uninstall'),
-    });
-  }, [canEdit, installedSkill, deleteAgentSkill, t, tc]);
-
-  if (installed)
-    return (
-      <DropdownMenu
-        nativeButton={false}
-        placement="bottomRight"
-        items={[
-          {
-            danger: true,
-            disabled: !canEdit,
-            icon: <Icon icon={Trash2} />,
-            key: 'uninstall',
-            label: t('store.actions.uninstall'),
-            onClick: handleUninstall,
-          },
-        ]}
-      >
-        <Button icon={CheckIcon} size={'middle'} style={{ borderRadius: 999 }}>
-          {td('skills.details.header.installed')}
-          <Icon icon={ChevronDown} size={14} />
-        </Button>
-      </DropdownMenu>
+    const installed = useToolStore(agentSkillsSelectors.isAgentSkill(identifier || ''));
+    const installedSkill = useToolStore(
+      agentSkillsSelectors.getAgentSkillByIdentifier(identifier || ''),
     );
+    const [refreshAgentSkills, deleteAgentSkill] = useToolStore((s) => [
+      s.refreshAgentSkills,
+      s.deleteAgentSkill,
+    ]);
 
-  return (
-    <Button
-      disabled={!canCreate}
-      loading={installing}
-      size={'middle'}
-      style={{ borderRadius: 999, fontWeight: 600, paddingInline: 18 }}
-      type={'primary'}
-      onClick={handleInstall}
-    >
-      {t('store.actions.install')}
-    </Button>
-  );
-});
+    const handleInstall = useCallback(async () => {
+      if (!identifier || !canCreate || installing || installed) return;
+      setInstalling(true);
+      try {
+        await agentSkillService.importFromMarket(identifier);
+        await refreshAgentSkills();
+      } catch {
+        // The button falls back to Install (clicking again retries) — say why
+        toast.error(t('error.installError', { name: name || identifier }));
+      } finally {
+        setInstalling(false);
+      }
+    }, [canCreate, identifier, installing, installed, name, refreshAgentSkills, t]);
+
+    const handleUninstall = useCallback(() => {
+      if (!canEdit || !installedSkill) return;
+      confirmModal({
+        cancelText: tc('cancel'),
+        content: t('store.actions.confirmUninstall'),
+        okButtonProps: { danger: true },
+        okText: t('store.actions.uninstall'),
+        onOk: async () => {
+          await deleteAgentSkill(installedSkill.id);
+        },
+        title: t('store.actions.uninstall'),
+      });
+    }, [canEdit, installedSkill, deleteAgentSkill, t, tc]);
+
+    if (installed)
+      return (
+        <DropdownMenu
+          nativeButton={false}
+          placement="bottomRight"
+          items={[
+            {
+              danger: true,
+              disabled: !canEdit,
+              icon: <Icon icon={Trash2} />,
+              key: 'uninstall',
+              label: t('store.actions.uninstall'),
+              onClick: handleUninstall,
+            },
+          ]}
+        >
+          <Button icon={CheckIcon} size={'middle'} style={{ borderRadius: 999 }}>
+            {td('skills.details.header.installed')}
+            <Icon icon={ChevronDown} size={14} />
+          </Button>
+        </DropdownMenu>
+      );
+
+    return (
+      <Button
+        disabled={!canCreate}
+        loading={installing}
+        size={'middle'}
+        style={{ borderRadius: 999, fontWeight: 600, paddingInline: 18 }}
+        type={'primary'}
+        onClick={handleInstall}
+      >
+        {label ?? t('store.actions.install')}
+      </Button>
+    );
+  },
+);
 
 const Header = memo<{ mobile?: boolean }>(({ mobile: isMobile }) => {
   const {

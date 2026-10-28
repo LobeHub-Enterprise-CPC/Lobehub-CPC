@@ -331,6 +331,16 @@ export const HOME_COMPOSER_BODY_HEIGHT = 108;
 export const GROUP_PROFILE_SHOWCASE_LAYOUT = false;
 
 /**
+ * The community market as a catalogue of three kinds — assistants, skills and
+ * connectors (MCP). On: no section sidebar, home, models or providers; the
+ * kinds lead the top bar as tabs beside the search; each list opens with its
+ * featured items; cards and detail pages drop ratings, recommendations and
+ * favourites for the description, configuration and version history, with an
+ * install action and a "copy prompt" card beside them.
+ */
+export const COMMUNITY_SHOWCASE_LAYOUT = false;
+
+/**
  * Whether the home dashboard shows the Chief Agent portrait and the speech
  * bubble beside it.
  *

@@ -1,3 +1,4 @@
+import { COMMUNITY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { Flexbox } from '@lobehub/ui';
 import { Outlet } from 'react-router';
 
@@ -7,7 +8,12 @@ import { styles } from './style';
 
 const Layout = () => {
   return (
-    <Flexbox horizontal className={styles.mainContainer} gap={24} width={'100%'}>
+    <Flexbox
+      horizontal
+      className={styles.mainContainer}
+      gap={COMMUNITY_SHOWCASE_LAYOUT ? 32 : 24}
+      width={'100%'}
+    >
       <CategoryContainer>
         <Category />
       </CategoryContainer>
