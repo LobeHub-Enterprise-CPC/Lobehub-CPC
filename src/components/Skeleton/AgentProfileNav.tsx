@@ -28,6 +28,7 @@ const AgentProfileNavSkeleton = ({
   <Flexbox
     horizontal
     align={'center'}
+    data-brand-slot={'agent-profile-nav'}
     flex={'none'}
     height={44}
     justify={'space-between'}
@@ -52,7 +53,9 @@ const AgentProfileNavSkeleton = ({
           transform: 'translate(-50%, -50%)',
         }}
       >
-        <SkeletonBar height={34} radius={cssVar.borderRadiusLG} width={244} />
+        <div data-brand-slot={'agent-profile-tabs'}>
+          <SkeletonBar height={34} radius={cssVar.borderRadiusLG} width={244} />
+        </div>
       </Flexbox>
     )}
     {actions > 0 && (

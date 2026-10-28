@@ -1,5 +1,6 @@
 'use client';
 
+import { AGENT_PROFILE_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { Flexbox } from '@lobehub/ui';
 import { type FC } from 'react';
 import { memo, Suspense } from 'react';
@@ -74,7 +75,11 @@ const ProfileArea = memo(() => {
             width={'100%'}
             onClick={handleContentClick}
           >
-            <WideScreenContainer>
+            {/* The showcase layout lines the profile up with the tabs above it: the
+                full width of the page, 48px in from either edge. */}
+            <WideScreenContainer
+              {...(AGENT_PROFILE_SHOWCASE_LAYOUT ? { fullWidth: true, paddingInline: 48 } : {})}
+            >
               <ProfileEditor />
             </WideScreenContainer>
           </Flexbox>

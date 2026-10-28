@@ -6,6 +6,7 @@ import { type CSSProperties } from 'react';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { brandIcon } from '@/components/BrandIcon';
 import NavItem from '@/features/NavPanel/components/NavItem';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
@@ -81,7 +82,7 @@ const List = memo<SessionListProps>(
             />
           ) : (
             <NavItem
-              icon={MoreHorizontal}
+              icon={brandIcon('action.more', MoreHorizontal)}
               title={t('input.more')}
               onClick={onMoreClick || openAllAgentsDrawer}
             />

@@ -280,7 +280,14 @@ const ProfileEditor = memo(() => {
                 </div>
                 <RunPriorityHint agentId={agentId} />
               </Flexbox>
-              <Flexbox horizontal align={'center'} gap={12} justify={'flex-start'} wrap={'wrap'}>
+              <Flexbox
+                horizontal
+                align={'center'}
+                data-brand-slot={'agent-runtime-row'}
+                gap={12}
+                justify={'flex-start'}
+                wrap={'wrap'}
+              >
                 <ModelSwitchPanel
                   enabledList={enabledList}
                   model={config?.model}

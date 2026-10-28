@@ -292,6 +292,55 @@ export const AGENT_PROFILE_NAVIGATION = false;
 export const HOME_DEFAULT_HIDDEN_WIDGETS: string[] = [];
 
 /**
+ * Whether viewers may customize Home. Off pins every viewer to the deployment's
+ * defaults (`HOME_DEFAULT_HIDDEN_WIDGETS`, `HOME_PORTRAIT_ENABLED`): the
+ * Customize button leaves the header and choices stored before the switch are
+ * ignored, so nobody is left on a layout they can no longer change back.
+ */
+export const HOME_CUSTOMIZE_ENABLED = true;
+
+/**
+ * The voice of Home and the composers. `default` greets by time of day and
+ * invites any kind of request; `workspace` greets with a two-line "hi" and a
+ * line about the day's work, and every composer (Home and conversations) hints
+ * at describing the work and handing it to an assistant with `@`.
+ */
+export const PRODUCT_COPY_VARIANT: 'default' | 'workspace' = 'default';
+
+/**
+ * The navigation rail's page entries, in order, by `SidebarTabKey`. Unset keeps
+ * every entry `useNavLayout` offers in its own order. Entries still disappear
+ * when their own feature is off (Community without the market, for example),
+ * and a page left out stays reachable by its URL.
+ */
+export const NAV_RAIL_ITEMS: string[] | undefined = undefined;
+
+/**
+ * Height of the home composer's text area before the user types, in px. The
+ * default leaves room for about four lines; a deployment whose Home is just
+ * the greeting and the composer can set it lower.
+ */
+export const HOME_COMPOSER_BODY_HEIGHT = 108;
+
+/**
+ * The group profile as one page: the title row carries "add members", "open
+ * the group chat" and the more menu; the members follow as cards, then the
+ * shared instructions in an outlined field. Off keeps the avatar-led header
+ * with a single start button.
+ */
+export const GROUP_PROFILE_SHOWCASE_LAYOUT = false;
+
+/**
+ * The community market as a catalogue of three kinds — assistants, skills and
+ * connectors (MCP). On: no section sidebar, home, models or providers; the
+ * kinds lead the top bar as tabs beside the search; each list opens with its
+ * featured items; cards and detail pages drop ratings, recommendations and
+ * favourites for the description, configuration and version history, with an
+ * install action and a "copy prompt" card beside them.
+ */
+export const COMMUNITY_SHOWCASE_LAYOUT = false;
+
+/**
  * Whether the home dashboard shows the Chief Agent portrait and the speech
  * bubble beside it.
  *

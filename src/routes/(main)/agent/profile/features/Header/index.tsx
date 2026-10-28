@@ -406,6 +406,7 @@ const Header = memo(() => {
   return (
     // `relative` anchors the absolutely-centered switcher below.
     <NavHeader
+      data-brand-slot={'agent-profile-nav'}
       style={{ position: 'relative' }}
       left={
         <Flexbox horizontal align={'center'} gap={8}>

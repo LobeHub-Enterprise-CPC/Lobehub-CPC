@@ -1,7 +1,7 @@
 'use client';
 
 import { EDITOR_DEBOUNCE_TIME } from '@lobechat/const';
-import { Block, Flexbox, Icon, Input, Skeleton, toast, Tooltip } from '@lobehub/ui';
+import { Block, Flexbox, Icon, Input, Skeleton, Text, toast, Tooltip } from '@lobehub/ui';
 import { debounce } from 'es-toolkit/compat';
 import isEqual from 'fast-deep-equal';
 import { PaletteIcon } from 'lucide-react';
@@ -21,7 +21,16 @@ import { globalGeneralSelectors } from '@/store/global/selectors';
 
 const MAX_AVATAR_SIZE = 1024 * 1024; // 1MB limit for server actions
 
-const GroupHeader = memo(() => {
+interface GroupHeaderProps {
+  /**
+   * Title-only header for the showcase layout: no avatar, a 24px title and the
+   * group's description under it. The avatar stays editable from the more menu
+   * of the agent sidebar and the group settings.
+   */
+  compact?: boolean;
+}
+
+const GroupHeader = memo<GroupHeaderProps>(({ compact }) => {
   const { t } = useTranslation('agentGroup');
   const { allowed: canEdit } = usePermission('edit_own_content');
   const locale = useGlobalStore(globalGeneralSelectors.currentLanguage);
@@ -110,6 +119,38 @@ const GroupHeader = memo(() => {
       updateGroupMetaById(gid, { backgroundColor: color });
     }
   };
+
+  if (compact)
+    return (
+      <Flexbox flex={1} gap={4} style={{ minWidth: 0 }}>
+        <Input
+          data-brand-slot={'group-profile-title'}
+          disabled={!canEdit}
+          placeholder={t('name.placeholder')}
+          value={localTitle}
+          variant={'borderless'}
+          style={{
+            fontSize: 24,
+            fontWeight: 600,
+            height: 'auto',
+            lineHeight: '36px',
+            padding: 0,
+            width: '100%',
+          }}
+          onChange={(e) => {
+            setLocalTitle(e.target.value);
+            if (!canEdit || !gid) return;
+
+            debouncedSaveTitle(gid, e.target.value);
+          }}
+        />
+        {groupMeta.description && (
+          <Text ellipsis fontSize={14} type={'secondary'}>
+            {groupMeta.description}
+          </Text>
+        )}
+      </Flexbox>
+    );
 
   return (
     <Flexbox

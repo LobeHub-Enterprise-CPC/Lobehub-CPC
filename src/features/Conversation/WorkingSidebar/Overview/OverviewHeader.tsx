@@ -4,6 +4,8 @@ import { FolderGit2Icon, FolderIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { brandIcon } from '@/components/BrandIcon';
+
 const styles = createStaticStyles(({ css, cssVar }) => ({
   dot: css`
     flex-shrink: 0;
@@ -99,7 +101,10 @@ const OverviewHeader = memo<OverviewHeaderProps>(
           {repoType === 'github' ? (
             <Github size={18} />
           ) : (
-            <Icon icon={repoType ? FolderGit2Icon : FolderIcon} size={18} />
+            <Icon
+              icon={repoType ? FolderGit2Icon : brandIcon('project.folder', FolderIcon)}
+              size={18}
+            />
           )}
         </span>
         <span className={styles.identity}>

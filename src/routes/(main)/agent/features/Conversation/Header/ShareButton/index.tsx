@@ -5,6 +5,7 @@ import { Share2 } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { brandIcon } from '@/components/BrandIcon';
 import { withSuspense } from '@/components/withSuspense';
 import { DESKTOP_HEADER_ICON_SMALL_SIZE, MOBILE_HEADER_ICON_SIZE } from '@/const/layoutTokens';
 import { useAgentContext } from '@/features/Conversation/useAgentContext';
@@ -33,7 +34,7 @@ const ShareButton = memo<ShareButtonProps>(({ mobile, setOpen, open }) => {
   const iconButton = (
     <ActionIcon
       disabled={!canShare}
-      icon={Share2}
+      icon={brandIcon('topic.share', Share2)}
       size={mobile ? MOBILE_HEADER_ICON_SIZE : DESKTOP_HEADER_ICON_SMALL_SIZE}
       title={canShare ? t('share') : reason}
       tooltipProps={{

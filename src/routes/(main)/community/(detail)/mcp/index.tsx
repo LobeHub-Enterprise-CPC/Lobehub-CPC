@@ -1,5 +1,6 @@
 'use client';
 
+import { COMMUNITY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { Flexbox } from '@lobehub/ui';
 import { memo } from 'react';
 import { useParams } from 'react-router';
@@ -16,6 +17,7 @@ import { mcpSelectors } from '@/store/discover/selectors';
 import NotFound from '../components/NotFound';
 import { TocProvider } from '../features/Toc/useToc';
 import Details from './features/Details';
+import ShowcaseDetail from './ShowcaseDetail';
 
 interface McpDetailPageProps {
   mobile?: boolean;
@@ -40,10 +42,14 @@ const McpDetailPage = memo<McpDetailPageProps>(({ mobile }) => {
   return (
     <TocProvider>
       <DetailProvider config={data}>
-        <Flexbox data-testid="mcp-detail-content" gap={16}>
-          <Header mobile={mobile} />
-          <Details mobile={mobile} />
-        </Flexbox>
+        {COMMUNITY_SHOWCASE_LAYOUT && !mobile ? (
+          <ShowcaseDetail data={data} />
+        ) : (
+          <Flexbox data-testid="mcp-detail-content" gap={16}>
+            <Header mobile={mobile} />
+            <Details mobile={mobile} />
+          </Flexbox>
+        )}
       </DetailProvider>
     </TocProvider>
   );

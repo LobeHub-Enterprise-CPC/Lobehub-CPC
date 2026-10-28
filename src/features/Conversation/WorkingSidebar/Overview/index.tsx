@@ -30,6 +30,7 @@ import {
 import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { brandIcon } from '@/components/BrandIcon';
 import RingLoadingIcon from '@/components/RingLoading';
 import {
   getCiVisual,
@@ -477,7 +478,7 @@ const Overview = memo<OverviewProps>(
           <Empty
             className={cx(sectionStyles.section, styles.emptyWorkspace)}
             description={t('workingPanel.overview.workspace.emptyDesc')}
-            icon={LaptopIcon}
+            icon={brandIcon('device.computer', LaptopIcon)}
             title={t('workingPanel.overview.workspace.empty')}
           />
         )}
@@ -537,7 +538,7 @@ const Overview = memo<OverviewProps>(
           )}
           <OverviewRow
             weak
-            icon={SkillsIcon}
+            icon={brandIcon('workspace.skill', SkillsIcon)}
             iconSize={15}
             trailing={<ChevronRight />}
             value={t('workingPanel.resources.filter.skills')}
@@ -546,7 +547,7 @@ const Overview = memo<OverviewProps>(
           {!isHetero && (
             <OverviewRow
               weak
-              icon={FileTextIcon}
+              icon={brandIcon('workspace.document', FileTextIcon)}
               iconSize={15}
               trailing={<ChevronRight />}
               value={t('workingPanel.resources.filter.documents')}

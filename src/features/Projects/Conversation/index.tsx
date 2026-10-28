@@ -120,7 +120,10 @@ const ProjectConversation = memo(() => {
         header={
           // The agent conversation header's frame, so the title, its "..." and
           // the message stream below sit where they do in an agent conversation.
-          <div className={conversationHeaderStyles.container}>
+          <div
+            className={conversationHeaderStyles.container}
+            data-brand-slot={'conversation-header'}
+          >
             <NavHeader
               left={
                 <Flexbox

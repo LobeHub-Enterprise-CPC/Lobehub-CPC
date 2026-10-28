@@ -2,7 +2,7 @@
 
 import { Button, createStaticStyles, Flexbox, Icon } from '@lobehub/ui';
 import { Trash2Icon } from 'lucide-react';
-import { memo, useState } from 'react';
+import { memo, type ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import MCPInstallProgress from '@/features/MCP/MCPInstallProgress';
@@ -20,7 +20,7 @@ const styles = createStaticStyles(({ css }) => ({
   `,
 }));
 
-const ActionButton = memo(() => {
+const ActionButton = memo<{ label?: ReactNode }>(({ label }) => {
   const { t } = useTranslation(['discover', 'plugin']);
   const detailContext = useDetailContext();
   const { identifier, haveCloudEndpoint } = detailContext;
@@ -102,7 +102,7 @@ const ActionButton = memo(() => {
         type={'primary'}
         onClick={installPlugin}
       >
-        {t('plugins.install')}
+        {label ?? t('plugins.install')}
       </Button>
       <MCPInstallProgress identifier={identifier!} />
     </>

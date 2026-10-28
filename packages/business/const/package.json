@@ -5,7 +5,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./branding": "./src/branding.ts",
-    "./heterogeneousAgent": "./src/heterogeneousAgent.ts"
+    "./heterogeneousAgent": "./src/heterogeneousAgent.ts",
+    "./icons": "./src/icons.ts"
   },
   "main": "./src/index.ts"
 }

@@ -11,6 +11,7 @@ import {
 import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { brandIcon } from '@/components/BrandIcon';
 import FlatMode from '@/features/AgentSidebar/Topic/TopicListContent/FlatMode';
 import {
   TopicListRevealContext,
@@ -67,7 +68,7 @@ const ProjectGroupItem = memo<ProjectGroupItemProps>(({ project }) => {
           <Flexbox horizontal align={'center'} gap={2}>
             <DropdownMenu items={items}>
               <ActionIcon
-                icon={MoreHorizontalIcon}
+                icon={brandIcon('action.more', MoreHorizontalIcon)}
                 loading={deleting}
                 size={'small'}
                 title={t('list.moreActions')}
@@ -91,9 +92,9 @@ const ProjectGroupItem = memo<ProjectGroupItemProps>(({ project }) => {
           project.avatar ? (
             <Avatar avatar={project.avatar} shape={'square'} size={18} />
           ) : expanded ? (
-            FolderOpenIcon
+            brandIcon('project.folderOpen', brandIcon('project.folder', FolderOpenIcon))
           ) : (
-            FolderClosedIcon
+            brandIcon('project.folder', FolderClosedIcon)
           )
         }
         onClick={() => setExpanded((value) => !value)}

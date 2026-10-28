@@ -1,5 +1,6 @@
 'use client';
 
+import { COMMUNITY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { Flexbox } from '@lobehub/ui';
 import { memo } from 'react';
 import { useParams } from 'react-router';
@@ -16,6 +17,7 @@ import { TocProvider } from '../features/Toc/useToc';
 import { DetailProvider } from './features/DetailProvider';
 import Details from './features/Details';
 import Header from './features/Header';
+import ShowcaseDetail from './features/ShowcaseDetail';
 import StatusPage from './features/StatusPage';
 
 interface AssistantDetailPageProps {
@@ -48,10 +50,14 @@ const AssistantDetailPage = memo<AssistantDetailPageProps>(({ mobile }) => {
   return (
     <TocProvider>
       <DetailProvider config={data}>
-        <Flexbox data-testid="assistant-detail-content" gap={16}>
-          <Header mobile={mobile} />
-          <Details mobile={mobile} />
-        </Flexbox>
+        {COMMUNITY_SHOWCASE_LAYOUT && !mobile ? (
+          <ShowcaseDetail />
+        ) : (
+          <Flexbox data-testid="assistant-detail-content" gap={16}>
+            <Header mobile={mobile} />
+            <Details mobile={mobile} />
+          </Flexbox>
+        )}
       </DetailProvider>
     </TocProvider>
   );

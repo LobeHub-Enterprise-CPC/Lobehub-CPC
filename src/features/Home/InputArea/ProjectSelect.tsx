@@ -1,11 +1,12 @@
 'use client';
 
-import type { DropdownItem} from '@lobehub/ui';
+import type { DropdownItem } from '@lobehub/ui';
 import { Button, createStaticStyles, DropdownMenu, Icon, Text } from '@lobehub/ui';
 import { FolderClosedIcon, FolderOpenIcon, PlusIcon } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { brandIcon } from '@/components/BrandIcon';
 import { openCreateProjectModal } from '@/features/Projects/CreateProjectModal';
 import { useHomeStore } from '@/store/home';
 import { useCurrentProjectList, useProjectStore } from '@/store/project';
@@ -51,7 +52,7 @@ const ProjectSelect = memo(() => {
     () => [
       ...projects.map((project) => ({
         checked: project.id === projectId,
-        icon: <Icon icon={FolderClosedIcon} />,
+        icon: <Icon icon={brandIcon('project.folder', FolderClosedIcon)} />,
         key: project.id,
         label: project.name,
         onCheckedChange: () => setProjectId(project.id),
@@ -76,8 +77,17 @@ const ProjectSelect = memo(() => {
       <Button
         className={selected ? `${styles.trigger} ${styles.triggerSelected}` : styles.trigger}
         data-brand-slot={'home-project-select'}
-        icon={<Icon icon={selected ? FolderOpenIcon : FolderClosedIcon} size={16} />}
         type={'text'}
+        icon={
+          <Icon
+            size={16}
+            icon={
+              selected
+                ? brandIcon('project.folderOpen', brandIcon('project.folder', FolderOpenIcon))
+                : brandIcon('project.folder', FolderClosedIcon)
+            }
+          />
+        }
       >
         <Text ellipsis style={{ color: 'inherit', minWidth: 0 }}>
           {selected?.name ?? t('picker.placeholder')}

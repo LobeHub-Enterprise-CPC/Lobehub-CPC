@@ -264,6 +264,7 @@ export const getAssistantList = async (
         homepage: item.homepage || discoverUrl('assistant', item.identifier),
         identifier: item.identifier,
         installCount: item.installCount,
+        isFeatured: item.isFeatured,
         knowledgeCount: item.knowledgeCount ?? item.config?.knowledgeBases?.length ?? 0,
         pluginCount: item.pluginCount ?? item.config?.plugins?.length ?? 0,
         schemaVersion: item.schemaVersion ?? 1,

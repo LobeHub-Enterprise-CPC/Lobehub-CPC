@@ -1,5 +1,6 @@
 'use client';
 
+import { COMMUNITY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { type SearchBarProps } from '@lobehub/ui';
 import { createStaticStyles, SearchBar } from '@lobehub/ui';
 import { memo, useState } from 'react';
@@ -47,10 +48,13 @@ const Search = memo<StoreSearchBarProps>(() => {
       defaultValue={q}
       placeholder={t('search.placeholder')}
       value={word}
-      variant={'borderless'}
-      style={{
-        width: '100%',
-      }}
+      // The showcase market's search is an outlined pill in the top bar.
+      variant={COMMUNITY_SHOWCASE_LAYOUT ? 'outlined' : 'borderless'}
+      style={
+        COMMUNITY_SHOWCASE_LAYOUT
+          ? { borderRadius: 9999, height: 38, width: '100%' }
+          : { width: '100%' }
+      }
       onSearch={handleSearch}
       onInputChange={(v) => {
         setWord(v);

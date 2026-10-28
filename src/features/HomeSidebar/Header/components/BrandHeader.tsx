@@ -5,6 +5,7 @@ import { PencilLineIcon, SearchIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { brandIcon } from '@/components/BrandIcon';
 import { ProductLogo } from '@/components/Branding';
 import { DESKTOP_HEADER_ICON_SMALL_SIZE } from '@/const/layoutTokens';
 import { startNewHomeChat } from '@/features/Home/startNewHomeChat';
@@ -41,7 +42,7 @@ const BrandHeader = memo(() => {
           <>
             <InboxButton />
             <ActionIcon
-              icon={SearchIcon}
+              icon={brandIcon('action.search', SearchIcon)}
               size={DESKTOP_HEADER_ICON_SMALL_SIZE}
               title={t('tab.search')}
               onClick={() => toggleCommandMenu(true)}
@@ -59,7 +60,10 @@ const BrandHeader = memo(() => {
             startNewHomeChat(navigate);
           }}
         >
-          <NavItem icon={PencilLineIcon} title={tElectron('navigation.newChat')} />
+          <NavItem
+            icon={brandIcon('topic.new', PencilLineIcon)}
+            title={tElectron('navigation.newChat')}
+          />
         </WorkspaceLink>
       </Flexbox>
     </div>

@@ -151,7 +151,7 @@ const Header = memo(() => {
   const { data: transferJob } = useAgentTransferJob({ agentId });
 
   return (
-    <div className={conversationHeaderStyles.container}>
+    <div className={conversationHeaderStyles.container} data-brand-slot={'conversation-header'}>
       <NavHeader
         left={
           <Flexbox

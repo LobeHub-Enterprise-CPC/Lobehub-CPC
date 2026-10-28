@@ -1,5 +1,6 @@
 'use client';
 
+import { COMMUNITY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { Icon, Tag } from '@lobehub/ui';
 import qs from 'query-string';
 import { memo, useMemo } from 'react';
@@ -15,6 +16,7 @@ import { mcpSelectors } from '@/store/discover/selectors';
 import { McpCategory, McpSorts } from '@/types/discover';
 
 import CategoryMenu from '../../../../components/CategoryMenu';
+import { buildShowcaseCategoryItems } from '../../../../features/Showcase/categoryItems';
 
 const Category = memo(() => {
   const useMcpCategories = useDiscoverStore((s) => s.useMcpCategories);
@@ -47,6 +49,46 @@ const Category = memo(() => {
     scrollableElement.scrollTo({ behavior: 'smooth', top: 0 });
   };
   const total = useMemo(() => items.reduce((acc, item) => acc + item.count, 0), [items]);
+
+  // The showcase market has no "discover" entry: "all" is the default and lists
+  // everything in recommended order.
+  if (COMMUNITY_SHOWCASE_LAYOUT) {
+    const showcaseUrl = (key: McpCategory) =>
+      key === McpCategory.All ? genUrl(McpCategory.Discover) : genUrl(key);
+    return (
+      <CategoryMenu
+        mode={'inline'}
+        selectedKeys={[category === McpCategory.Discover ? McpCategory.All : category]}
+        items={buildShowcaseCategoryItems(cates as any, items as any, {
+          exclude: [McpCategory.Discover],
+          genUrl: showcaseUrl,
+          hideEmpty: false,
+          order: [
+            'developer',
+            'productivity',
+            'tools',
+            'web-search',
+            'media-generate',
+            'business',
+            'science-education',
+            'stocks-finance',
+            'news',
+            'social',
+            'gaming-entertainment',
+            'lifestyle',
+            'health-wellness',
+            'travel-transport',
+            'weather',
+          ],
+          kind: 'mcp',
+        })}
+        onClick={(v) => {
+          const key = v.key as McpCategory;
+          navigate(showcaseUrl(key));
+        }}
+      />
+    );
+  }
 
   return (
     <CategoryMenu

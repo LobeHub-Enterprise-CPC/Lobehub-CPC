@@ -7,6 +7,12 @@ import type { DiscoverAssistantItem } from '@/types/discover';
 
 import AssistantItem from './Item';
 
+// Pinned so the suite tests this component, not the deployment it runs in.
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  COMMUNITY_SHOWCASE_LAYOUT: false,
+}));
+
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
 }));

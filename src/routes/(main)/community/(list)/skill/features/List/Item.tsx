@@ -1,5 +1,6 @@
 'use client';
 
+import { COMMUNITY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { Github } from '@lobehub/icons';
 import {
   ActionIcon,
@@ -21,10 +22,13 @@ import urlJoin from 'url-join';
 
 import PublishedTime from '@/components/PublishedTime';
 import { createSkillDetailModal } from '@/features/CommunitySkillDetail';
+import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
+import { useSkillCategory } from '@/hooks/useSkillCategory';
 import { discoverService } from '@/services/discover';
 import { type DiscoverSkillItem } from '@/types/discover';
 
+import ShowcaseCard from '../../../../features/Showcase/ShowcaseCard';
 import MetaInfo from './MetaInfo';
 
 const styles = createStaticStyles(({ css, cssVar }) => {
@@ -76,6 +80,8 @@ const SkillItem = memo<DiscoverSkillItem>(
   }) => {
     const { t } = useTranslation('discover');
     const link = urlJoin('/community/skill', identifier);
+    const categoryLabel = useSkillCategory().find((item) => item.key === category)?.label;
+    const navigate = useWorkspaceAwareNavigate();
 
     const handleClick = useCallback(() => {
       discoverService
@@ -88,6 +94,25 @@ const SkillItem = memo<DiscoverSkillItem>(
 
       createSkillDetailModal({ identifier });
     }, [identifier]);
+
+    // The showcase market opens a skill's own page rather than the detail modal.
+    if (COMMUNITY_SHOWCASE_LAYOUT)
+      return (
+        <ShowcaseCard
+          avatar={<Avatar avatar={icon || name} shape={'square'} size={32} />}
+          category={categoryLabel}
+          description={description}
+          testId={'skill-item'}
+          title={name}
+          to={link}
+          onClick={() => {
+            discoverService
+              .reportSkillEvent({ event: 'click', identifier, source: location.pathname })
+              .catch(() => {});
+            navigate(link);
+          }}
+        />
+      );
 
     return (
       <Block

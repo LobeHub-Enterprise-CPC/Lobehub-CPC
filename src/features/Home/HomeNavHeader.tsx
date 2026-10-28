@@ -1,3 +1,4 @@
+import { HOME_CUSTOMIZE_ENABLED } from '@lobechat/business-const';
 import { createStaticStyles, Flexbox } from '@lobehub/ui';
 import { memo } from 'react';
 
@@ -39,7 +40,7 @@ const HomeNavHeader = memo(() => {
       right={
         isLogin && isStatusInit ? (
           <Flexbox horizontal align={'center'} gap={4}>
-            <CustomizeButton />
+            {HOME_CUSTOMIZE_ENABLED && <CustomizeButton />}
             {canHostRail(hiddenWidgets, usageActive) && (
               <RailToggle railVisible={showHomeRail} onToggle={toggleHomeRail} />
             )}

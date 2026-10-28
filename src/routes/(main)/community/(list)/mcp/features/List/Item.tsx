@@ -1,5 +1,6 @@
 'use client';
 
+import { COMMUNITY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { Github } from '@lobehub/icons';
 import {
   ActionIcon,
@@ -29,6 +30,8 @@ import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 import { discoverService } from '@/services/discover';
 import { type DiscoverMcpItem } from '@/types/discover';
 
+import ConnectorStats from '../../../../features/Showcase/ConnectorStats';
+import ShowcaseCard from '../../../../features/Showcase/ShowcaseCard';
 import ConnectionTypeTag from './ConnectionTypeTag';
 import MetaInfo from './MetaInfo';
 
@@ -102,6 +105,28 @@ const McpItem = memo<DiscoverMcpItem>(
 
       navigate(link);
     }, [identifier, link, navigate]);
+
+    if (COMMUNITY_SHOWCASE_LAYOUT)
+      return (
+        <ShowcaseCard
+          avatar={<Avatar avatar={icon} shape={'square'} size={32} />}
+          category={t(`mcp.categories.${category}.name` as any)}
+          description={description}
+          descriptionRows={3}
+          subtitle={author}
+          testId={'mcp-item'}
+          title={name}
+          to={link}
+          meta={
+            <ConnectorStats
+              promptsCount={promptsCount}
+              resourcesCount={resourcesCount}
+              toolsCount={toolsCount}
+            />
+          }
+          onClick={handleClick}
+        />
+      );
 
     return (
       <Block

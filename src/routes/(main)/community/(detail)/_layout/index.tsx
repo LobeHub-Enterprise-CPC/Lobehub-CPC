@@ -1,5 +1,6 @@
 'use client';
 
+import { COMMUNITY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { Flexbox } from '@lobehub/ui';
 import { memo } from 'react';
 import { Outlet } from 'react-router';
@@ -17,6 +18,23 @@ import { styles } from './style';
  * Layout for detail pages (assistant, model, provider, mcp details)
  */
 const DesktopDiscoverDetailLayout = memo(() => {
+  // The showcase detail page carries its own breadcrumb back to the list, so
+  // the search bar and the footer stay with the lists.
+  if (COMMUNITY_SHOWCASE_LAYOUT)
+    return (
+      <Flexbox
+        className={styles.mainContainer}
+        height={'100%'}
+        id={SCROLL_PARENT_ID}
+        paddingInline={48}
+        width={'100%'}
+      >
+        <RouteSkeletonChromeProvider>
+          <Outlet />
+        </RouteSkeletonChromeProvider>
+      </Flexbox>
+    );
+
   return (
     <>
       <Header />

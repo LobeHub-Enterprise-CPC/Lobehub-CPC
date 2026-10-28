@@ -29,6 +29,7 @@ import { useSearchParams } from 'react-router';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useWorkspaceMembers } from '@/business/client/hooks/useWorkspaceMembers';
+import { brandIcon } from '@/components/BrandIcon';
 import {
   AgentViewAllRowsSkeleton,
   AgentViewAllSidebarSectionSkeleton,
@@ -552,7 +553,15 @@ const AgentViewAllPage = memo(() => {
             </Text>
             {canCreate ? (
               <DropdownMenu items={createMenuItems}>
-                <Button icon={PlusIcon} loading={isMutatingAgent} shape={'round'} type={'primary'}>
+                {/* data-no-highlight: the trigger's open-state tint would replace the
+                    primary fill and leave white text on a near-white button. */}
+                <Button
+                  data-no-highlight
+                  icon={brandIcon('action.add', PlusIcon)}
+                  loading={isMutatingAgent}
+                  shape={'round'}
+                  type={'primary'}
+                >
                   {t('addNew')}
                 </Button>
               </DropdownMenu>

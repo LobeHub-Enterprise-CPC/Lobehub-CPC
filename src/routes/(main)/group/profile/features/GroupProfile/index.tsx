@@ -1,8 +1,18 @@
 'use client';
 
-import { DropdownMenu, Flexbox, Icon, useTheme } from '@lobehub/ui';
+import { GROUP_PROFILE_SHOWCASE_LAYOUT } from '@lobechat/business-const';
+import { DropdownMenu, Flexbox, Icon, Text, useTheme } from '@lobehub/ui';
 import { ActionIcon, Button, Divider, type ModalInstance } from '@lobehub/ui';
-import { MoreHorizontalIcon, PlayIcon, Settings2Icon, UsersIcon } from 'lucide-react';
+import { cssVar } from '@lobehub/ui/stylex/cssVar.stylex';
+import * as stylex from '@stylexjs/stylex';
+import {
+  MessageSquarePlusIcon,
+  MoreHorizontalIcon,
+  PlayIcon,
+  Settings2Icon,
+  UserPlusIcon,
+  UsersIcon,
+} from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router';
@@ -11,6 +21,8 @@ import urlJoin from 'url-join';
 import { useAgentGroupTransferMenuItem } from '@/business/client/hooks/useAgentGroupTransferMenuItem';
 import { useAgentGroupTransferToMemberMenuItem } from '@/business/client/hooks/useAgentGroupTransferToMemberMenuItem';
 import { useHasActiveWorkspace } from '@/business/client/hooks/useHasActiveWorkspace';
+import { brandIcon } from '@/components/BrandIcon';
+import AddGroupMemberModal from '@/features/AddAgentMemberModal';
 import { EditingIndicator, type EditLockClient, useEditLock } from '@/features/EditLock';
 import { EditorCanvas } from '@/features/EditorCanvas';
 import { useAdvancedModeMenuItem } from '@/features/NavPanel/useAdvancedModeMenuItem';
@@ -28,8 +40,23 @@ import { openGroupAgentSettingsModal } from '../AgentSettings';
 import AutoSaveHint from '../Header/AutoSaveHint';
 import GroupForkTag from './GroupForkTag';
 import GroupHeader from './GroupHeader';
+import GroupMembersGrid from './GroupMembersGrid';
 import GroupStatusTag from './GroupStatusTag';
 import GroupVersionReviewTag from './GroupVersionReviewTag';
+
+const styles = stylex.create({
+  // The shared instructions as an outlined field, like the agent's core prompt.
+  promptFrame: {
+    backgroundColor: cssVar.colorBgContainer,
+    borderColor: cssVar.colorBorderSecondary,
+    borderRadius: cssVar.borderRadiusLG,
+    borderStyle: 'solid',
+    borderWidth: 1,
+    minHeight: 400,
+    paddingBlock: 16,
+    paddingInline: 18,
+  },
+});
 
 // Stable lock RPC binding for the chatGroup resource.
 const groupLockClient: EditLockClient = {
@@ -110,6 +137,11 @@ const GroupProfile = memo(() => {
     transferToMemberItem,
   ]);
 
+  const [showAddModal, setShowAddModal] = useState(false);
+  const members = useAgentGroupStore((s) => agentGroupSelectors.getGroupAgents(gid ?? '')(s));
+  const addAgentsToGroup = useAgentGroupStore((s) => s.addAgentsToGroup);
+  const existingMemberIds = useMemo(() => members.map((member) => member.id), [members]);
+
   const settingsModalRef = useRef<ModalInstance | null>(null);
   useEffect(
     () => () => {
@@ -184,6 +216,130 @@ const GroupProfile = memo(() => {
     // Clear the update after processing to prevent re-applying
     setAgentBuilderContent('', '');
   }, [editor, agentBuilderContentUpdate, groupId, setAgentBuilderContent]);
+
+  const openSettings = () => {
+    if (!canEdit) return;
+
+    settingsModalRef.current?.close();
+    settingsModalRef.current = openGroupAgentSettingsModal();
+  };
+
+  const statusTags = (
+    <>
+      <AutoSaveHint />
+      <GroupStatusTag />
+      <GroupVersionReviewTag />
+      <GroupForkTag />
+      <AccessLevelTag
+        resourceType={'agentGroup'}
+        resourceId={
+          hasActiveWorkspace && currentGroup?.visibility !== 'private'
+            ? (groupId ?? undefined)
+            : undefined
+        }
+      />
+    </>
+  );
+
+  const editorCanvas = (
+    <>
+      <EditingIndicator
+        holderId={lock.lockedByOther ? lock.holderId : null}
+        pending={canEdit && lock.pending}
+      />
+      <EditorCanvas
+        disabled={!canEdit}
+        editable={!lock.lockedByOther && !lock.pending}
+        editor={editor}
+        editorData={editorData}
+        entityId={groupId}
+        placeholder={t('group.profile.contentPlaceholder', { ns: 'chat' })}
+        onContentChange={onContentChange}
+      />
+    </>
+  );
+
+  if (GROUP_PROFILE_SHOWCASE_LAYOUT)
+    return (
+      <>
+        <Flexbox
+          gap={24}
+          style={{ cursor: 'default', marginBottom: 24, paddingTop: 24 }}
+          onClick={(e) => {
+            e.stopPropagation();
+          }}
+        >
+          <Flexbox horizontal align={'center'} gap={8} wrap={'wrap'}>
+            {statusTags}
+          </Flexbox>
+          <Flexbox horizontal align={'flex-start'} gap={16} justify={'space-between'}>
+            <GroupHeader compact />
+            <Flexbox horizontal align={'center'} flex={'none'} gap={12}>
+              <Button
+                data-brand-slot={'group-profile-add-member'}
+                disabled={!canEdit}
+                icon={brandIcon('group.addMember', UserPlusIcon)}
+                shape={'round'}
+                size={'large'}
+                onClick={() => setShowAddModal(true)}
+              >
+                {t('group.profile.addMember.title', { ns: 'chat' })}
+              </Button>
+              <Button
+                icon={brandIcon('topic.new', MessageSquarePlusIcon)}
+                shape={'round'}
+                size={'large'}
+                type={'primary'}
+                onClick={() => {
+                  if (!groupId) return;
+                  router.push(urlJoin('/group', groupId));
+                }}
+              >
+                {t('group.profile.enterChat', { ns: 'chat' })}
+              </Button>
+              <DropdownMenu
+                items={[
+                  {
+                    disabled: !canEdit,
+                    icon: <Icon icon={Settings2Icon} />,
+                    key: 'advancedSettings',
+                    label: t('advancedSettings'),
+                    onClick: openSettings,
+                  },
+                  ...(moreMenuItems.length > 0 ? [{ type: 'divider' as const }] : []),
+                  ...(moreMenuItems as any[]),
+                ]}
+              >
+                <ActionIcon
+                  icon={brandIcon('action.more', MoreHorizontalIcon)}
+                  size={'small'}
+                  style={{ color: theme.colorTextSecondary }}
+                />
+              </DropdownMenu>
+            </Flexbox>
+          </Flexbox>
+          <GroupMembersGrid />
+        </Flexbox>
+        <Text strong fontSize={14} style={{ marginBottom: 12 }}>
+          {t('settingAgent.prompt.title')}
+        </Text>
+        <div data-brand-slot={'group-profile-prompt'} {...stylex.props(styles.promptFrame)}>
+          {editorCanvas}
+        </div>
+        {groupId && (
+          <AddGroupMemberModal
+            existingMembers={existingMemberIds}
+            groupId={groupId}
+            open={showAddModal}
+            onCancel={() => setShowAddModal(false)}
+            onConfirm={async (agentIds) => {
+              await addAgentsToGroup(groupId, agentIds);
+              setShowAddModal(false);
+            }}
+          />
+        )}
+      </>
+    );
 
   return (
     <>

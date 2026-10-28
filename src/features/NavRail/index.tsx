@@ -1,8 +1,11 @@
 'use client';
 
-import { createStaticStyles, cx,Flexbox, Icon, Tooltip } from '@lobehub/ui';
+import { NAV_RAIL_ITEMS } from '@lobechat/business-const';
+import type { BrandIconKey } from '@lobechat/business-const/icons';
+import { createStaticStyles, cx, Flexbox, Icon, Tooltip } from '@lobehub/ui';
 import { memo, Suspense, useMemo } from 'react';
 
+import { brandIcon } from '@/components/BrandIcon';
 import Footer from '@/features/HomeSidebar/Footer';
 import User from '@/features/HomeSidebar/Header/components/User';
 import { useActiveNavKey } from '@/features/NavPanel/useActiveNavKey';
@@ -64,6 +67,24 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
 
 const HOME_PANEL_ROUTE_TABS = new Set<string>(['agent', 'group', 'project']);
 
+// The brand's icon for each rail entry, and the filled one it shows while active.
+const RAIL_BRAND_ICONS: Partial<Record<string, [BrandIconKey, BrandIconKey?]>> = {
+  [SidebarTabKey.Community]: ['nav.community', 'nav.communityActive'],
+  [SidebarTabKey.Home]: ['nav.home', 'nav.homeActive'],
+  [SidebarTabKey.Image]: ['nav.image', 'nav.imageActive'],
+  [SidebarTabKey.Memory]: ['nav.memory'],
+  [SidebarTabKey.Pages]: ['nav.pages'],
+  [SidebarTabKey.Resource]: ['nav.resource', 'nav.resourceActive'],
+  [SidebarTabKey.Tasks]: ['nav.tasks', 'nav.tasksActive'],
+};
+
+const railIcon = (key: string, fallback: any, active: boolean) => {
+  const [icon, activeIcon] = RAIL_BRAND_ICONS[key] ?? [];
+  if (!icon) return fallback;
+  const base = brandIcon(icon, fallback);
+  return active && activeIcon ? brandIcon(activeIcon, base) : base;
+};
+
 /**
  * Outer level of the two-level navigation (`NAV_RAIL_ENABLED`): page links on
  * top, help and account at the bottom. The entries come from `useNavLayout`, so
@@ -78,10 +99,14 @@ const NavRail = memo(() => {
   const navigate = useWorkspaceAwareNavigate();
   const { bottomMenuItems, topNavItems } = useNavLayout();
 
-  const items = useMemo(
-    () => [...topNavItems, ...bottomMenuItems].filter((item) => item.url && !item.hidden),
-    [bottomMenuItems, topNavItems],
-  );
+  const items = useMemo(() => {
+    const available = [...topNavItems, ...bottomMenuItems].filter(
+      (item) => item.url && !item.hidden,
+    );
+    if (!NAV_RAIL_ITEMS) return available;
+
+    return NAV_RAIL_ITEMS.flatMap((key) => available.find((item) => item.key === key) ?? []);
+  }, [bottomMenuItems, topNavItems]);
 
   return (
     <Flexbox
@@ -109,7 +134,7 @@ const NavRail = memo(() => {
                   navigate(item.url!);
                 }}
               >
-                <Icon icon={item.icon} size={20} />
+                <Icon icon={railIcon(item.key, item.icon, active)} size={20} />
               </WorkspaceLink>
             </Tooltip>
           );

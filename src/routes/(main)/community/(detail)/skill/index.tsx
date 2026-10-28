@@ -1,5 +1,6 @@
 'use client';
 
+import { COMMUNITY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { Flexbox } from '@lobehub/ui';
 import { memo, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router';
@@ -12,6 +13,7 @@ import { useDiscoverStore } from '@/store/discover';
 import { skillSelectors } from '@/store/discover/selectors';
 
 import NotFound from '../components/NotFound';
+import ShowcaseDetail from './ShowcaseDetail';
 
 interface SkillDetailPageProps {
   mobile?: boolean;
@@ -58,6 +60,8 @@ const SkillDetailPage = memo<SkillDetailPageProps>(({ mobile }) => {
     if (error) return <AsyncError error={error} variant={'page'} onRetry={() => void mutate()} />;
     return <NotFound />;
   }
+
+  if (COMMUNITY_SHOWCASE_LAYOUT && !mobile) return <ShowcaseDetail data={data} />;
 
   return (
     <Flexbox data-testid="skill-detail-content" gap={16}>

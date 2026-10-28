@@ -10,6 +10,7 @@ import { PlusIcon } from 'lucide-react';
 import React, { memo, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { brandIcon } from '@/components/BrandIcon';
 import ActionDropdown from '@/features/ChatInput/ActionBar/components/ActionDropdown';
 import ComposioServerItem from '@/features/ChatInput/ActionBar/Tools/ComposioServerItem';
 import ComposioSkillIcon, {
@@ -733,7 +734,7 @@ const AgentTool = memo<AgentToolProps>(
     const button = (
       <Button
         disabled={!canEdit}
-        icon={PlusIcon}
+        icon={brandIcon('action.add', PlusIcon)}
         loading={updating}
         size={'small'}
         style={{ color: cssVar.colorTextSecondary }}

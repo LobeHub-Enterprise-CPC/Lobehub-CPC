@@ -3,6 +3,8 @@ import { ChevronDownIcon, ZapIcon } from 'lucide-react';
 import type { ComponentPropsWithRef } from 'react';
 import { memo } from 'react';
 
+import { brandIcon } from '@/components/BrandIcon';
+
 const styles = createStaticStyles(({ css }) => ({
   label: css`
     overflow: hidden;
@@ -88,7 +90,7 @@ const SelectorTrigger = memo<TriggerProps>(
           {secondaryText}
         </span>
       )}
-      <Icon icon={ChevronDownIcon} size={12} />
+      <Icon icon={brandIcon('chat.chevronDown', ChevronDownIcon)} size={12} />
     </div>
   ),
 );

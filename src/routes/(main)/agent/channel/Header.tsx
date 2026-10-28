@@ -297,6 +297,7 @@ const Header = memo<HeaderProps>(
           onChange={handleFileChange}
         />
         <NavHeader
+          data-brand-slot={'agent-profile-nav'}
           style={{ position: 'relative' }}
           right={
             <Flexbox horizontal align="center" gap={8}>

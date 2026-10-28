@@ -1,4 +1,4 @@
-import { HOME_COMPOSER_AGENT_DOCK } from '@lobechat/business-const';
+import { HOME_COMPOSER_AGENT_DOCK, PRODUCT_COPY_VARIANT } from '@lobechat/business-const';
 import { createStaticStyles, Flexbox, Text } from '@lobehub/ui';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -50,7 +50,8 @@ const HomeHeader = memo<HomeHeaderProps>(({ centered }) => {
   const displayName = useUserStore(userProfileSelectors.displayUserName);
   const isLogin = useUserStore(authSelectors.isLogin);
 
-  const greetingKey = getGreetingKey(new Date().getHours());
+  const greetingKey =
+    PRODUCT_COPY_VARIANT === 'workspace' ? 'workspace' : getGreetingKey(new Date().getHours());
   const greeting = isLogin
     ? t(`dashboard.greeting.${greetingKey}`, { name: displayName })
     : t(`dashboard.greeting.${greetingKey}Guest`);
@@ -70,6 +71,12 @@ const HomeHeader = memo<HomeHeaderProps>(({ centered }) => {
       )}
       <Text as={'h1'} className={styles.greeting} data-brand-slot="home-greeting" weight={600}>
         {greeting}
+        {PRODUCT_COPY_VARIANT === 'workspace' && (
+          <>
+            <br />
+            {t('dashboard.greeting.workspaceSubtitle')}
+          </>
+        )}
       </Text>
     </Flexbox>
   );

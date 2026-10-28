@@ -1,3 +1,4 @@
+import { PRODUCT_COPY_VARIANT } from '@lobechat/business-const';
 import { KeyEnum } from '@lobechat/const/hotkeys';
 import { combineKeys, Flexbox, Hotkey } from '@lobehub/ui';
 import { memo } from 'react';
@@ -36,6 +37,11 @@ const Placeholder = memo<PlaceholderProps>(
           {t(isHeterogeneous ? 'followUpPlaceholderHeterogeneous' : 'followUpPlaceholder')}
         </span>
       );
+    }
+
+    // The workspace voice names the one thing a composer is for, whatever runs it.
+    if (PRODUCT_COPY_VARIANT === 'workspace' && !isHeterogeneous) {
+      return <span>{t('sendPlaceholderMention')}</span>;
     }
 
     const i18nKey = isHeterogeneous

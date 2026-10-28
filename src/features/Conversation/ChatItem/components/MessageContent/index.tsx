@@ -104,6 +104,7 @@ const MessageContent = memo<MessageContentProps>(
 
     return (
       <Flexbox
+        data-brand-slot={variant === 'bubble' ? 'message-bubble' : undefined}
         gap={16}
         className={cx(
           MSG_CONTENT_CLASSNAME,
