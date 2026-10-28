@@ -12,7 +12,7 @@ type RouteHandler = (request: Request) => Promise<Response>;
 
 const mocks = vi.hoisted(() => ({
   handler: vi.fn<RouteHandler>(async () => Response.json({ ok: true })),
-  endpoint: { basePath: '/t/acme', publicUrl: 'https://localhost/t/acme', version: 1 } as {
+  endpoint: { basePath: '/orgs/acme', publicUrl: 'https://localhost/orgs/acme', version: 1 } as {
     basePath: string;
     publicUrl: string;
     version: number;
@@ -44,7 +44,11 @@ describe('/api/auth/[...all] route', () => {
     vi.clearAllMocks();
     mocks.handler.mockResolvedValue(Response.json({ ok: true }));
     mocks.providers = [];
-    mocks.endpoint = { basePath: '/t/acme', publicUrl: 'https://localhost/t/acme', version: 1 };
+    mocks.endpoint = {
+      basePath: '/orgs/acme',
+      publicUrl: 'https://localhost/orgs/acme',
+      version: 1,
+    };
   });
 
   it('returns 400 for malformed JSON auth requests before Better Auth handles them', async () => {
@@ -85,50 +89,50 @@ describe('/api/auth/[...all] route', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(forwardedPath()).toBe('/t/acme/api/auth/sign-in/email');
+    expect(forwardedPath()).toBe('/orgs/acme/api/auth/sign-in/email');
   });
 
   it('delegates GET requests to the tenant Better Auth', async () => {
     const response = await GET(new Request('https://localhost/api/auth/get-session?x=1'));
 
     expect(response.status).toBe(200);
-    expect(forwardedPath()).toBe('/t/acme/api/auth/get-session');
+    expect(forwardedPath()).toBe('/orgs/acme/api/auth/get-session');
     expect(new URL(mocks.handler.mock.lastCall![0].url).search).toBe('?x=1');
   });
 
   it('preserves the auth mount when Next retains the original tenant URL after rewriting', async () => {
     const response = await POST(
-      new Request('https://localhost/t/acme/api/auth/sign-in/email', {
+      new Request('https://localhost/orgs/acme/api/auth/sign-in/email', {
         body: JSON.stringify({ email: 'user@example.com', password: 'secret' }),
         headers: { 'Content-Type': 'application/json' },
         method: 'POST',
       }) as NextRequest,
     );
     expect(response.status).toBe(200);
-    expect(forwardedPath()).toBe('/t/acme/api/auth/sign-in/email');
+    expect(forwardedPath()).toBe('/orgs/acme/api/auth/sign-in/email');
   });
 
   it('recognizes tenant-prefixed provider discovery and generic SSO callbacks', async () => {
     mocks.providers = [{ providerId: 'okta', protocol: 'oidc' }];
-    const response = await GET(new Request('https://localhost/t/acme/api/auth/providers'));
+    const response = await GET(new Request('https://localhost/orgs/acme/api/auth/providers'));
     expect(await response.json()).toMatchObject({ providers: [{ providerId: 'okta' }] });
     expect(mocks.handler).not.toHaveBeenCalled();
 
-    await GET(new Request('https://localhost/t/acme/api/auth/callback/okta?code=c'));
-    expect(forwardedPath()).toBe('/t/acme/api/auth/oauth2/callback/okta');
+    await GET(new Request('https://localhost/orgs/acme/api/auth/callback/okta?code=c'));
+    expect(forwardedPath()).toBe('/orgs/acme/api/auth/oauth2/callback/okta');
     expect(new URL(mocks.handler.mock.lastCall![0].url).search).toBe('?code=c');
   });
 
   it.each(['/sign-up/email', '/get-session', '/oauth2/callback/okta'])(
     'preserves the auth endpoint when Next retains the original tenant URL: %s',
     async (endpoint) => {
-      await GET(new Request(`https://localhost/t/acme/api/auth${endpoint}?x=1`));
-      expect(forwardedPath()).toBe(`/t/acme/api/auth${endpoint}`);
+      await GET(new Request(`https://localhost/orgs/acme/api/auth${endpoint}?x=1`));
+      expect(forwardedPath()).toBe(`/orgs/acme/api/auth${endpoint}`);
     },
   );
 
   it('lists providers when the request retains its tenant prefix', async () => {
-    const response = await GET(new Request('https://localhost/t/acme/api/auth/providers'));
+    const response = await GET(new Request('https://localhost/orgs/acme/api/auth/providers'));
     expect(await response.json()).toEqual({ providers: [] });
     expect(mocks.handler).not.toHaveBeenCalled();
   });
@@ -138,7 +142,7 @@ describe('/api/auth/[...all] route', () => {
 
     await GET(new Request('https://localhost/api/auth/callback/okta?code=c'));
 
-    expect(forwardedPath()).toBe('/t/acme/api/auth/oauth2/callback/okta');
+    expect(forwardedPath()).toBe('/orgs/acme/api/auth/oauth2/callback/okta');
   });
 
   it('serves a provider named after a former built-in preset from the generic OAuth callback', async () => {
@@ -146,7 +150,7 @@ describe('/api/auth/[...all] route', () => {
 
     await GET(new Request('https://localhost/api/auth/callback/google?code=c'));
 
-    expect(forwardedPath()).toBe('/t/acme/api/auth/oauth2/callback/google');
+    expect(forwardedPath()).toBe('/orgs/acme/api/auth/oauth2/callback/google');
   });
 
   it('lists enabled providers without their configuration', async () => {
@@ -201,10 +205,10 @@ describe('/api/auth/[...all] route', () => {
       Response.json({ code: 'EMAIL_NOT_ALLOWED' }, { status: 403 }),
     );
     const response = await GET(
-      new Request('https://localhost/t/acme/api/auth/callback/okta?code=private'),
+      new Request('https://localhost/orgs/acme/api/auth/callback/okta?code=private'),
     );
     expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe('/t/acme/auth-error?error=EMAIL_NOT_ALLOWED');
+    expect(response.headers.get('location')).toBe('/orgs/acme/auth-error?error=EMAIL_NOT_ALLOWED');
   });
 
   it.each(['oauth2/callback', 'sso/callback', 'callback'])(
@@ -220,7 +224,9 @@ describe('/api/auth/[...all] route', () => {
         new Request(`https://localhost/api/auth/${path}/provider?code=private&state=private`),
       );
       expect(response.status).toBe(303);
-      expect(response.headers.get('location')).toBe('/t/acme/auth-error?error=EMAIL_NOT_ALLOWED');
+      expect(response.headers.get('location')).toBe(
+        '/orgs/acme/auth-error?error=EMAIL_NOT_ALLOWED',
+      );
       expect(response.headers.get('cache-control')).toBe('no-store');
       expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
     },
@@ -230,7 +236,7 @@ describe('/api/auth/[...all] route', () => {
     vi.mocked(getAuthForRequest).mockRejectedValueOnce(new Error('private database error'));
     const response = await GET(new Request('https://localhost/api/auth/sso/callback/provider'));
     expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe('/t/acme/auth-error?error=SSO_UNAVAILABLE');
+    expect(response.headers.get('location')).toBe('/orgs/acme/auth-error?error=SSO_UNAVAILABLE');
   });
 
   it('uses a GET redirect when a SAML POST callback is denied', async () => {
@@ -245,7 +251,7 @@ describe('/api/auth/[...all] route', () => {
       }) as NextRequest,
     );
     expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe('/t/acme/auth-error?error=SSO_ACCESS_DENIED');
+    expect(response.headers.get('location')).toBe('/orgs/acme/auth-error?error=SSO_ACCESS_DENIED');
   });
 
   it('keeps API sign-in failures as JSON', async () => {
@@ -259,7 +265,7 @@ describe('/api/auth/[...all] route', () => {
   });
 
   it('preserves successful callback redirects', async () => {
-    const redirect = new Response(null, { headers: { Location: '/t/acme' }, status: 302 });
+    const redirect = new Response(null, { headers: { Location: '/orgs/acme' }, status: 302 });
     mocks.handler.mockResolvedValueOnce(redirect);
     expect(await GET(new Request('https://localhost/api/auth/oauth2/callback/provider'))).toBe(
       redirect,
@@ -269,7 +275,7 @@ describe('/api/auth/[...all] route', () => {
 
 describe('canonical auth mount', () => {
   it.each([
-    { basePath: '/t/acme', publicUrl: 'https://app.example.com/t/acme', version: 1 },
+    { basePath: '/orgs/acme', publicUrl: 'https://app.example.com/orgs/acme', version: 1 },
     { basePath: '', publicUrl: 'https://chat.example.com', version: 2 },
   ])('restores the active auth origin and basePath', async (endpoint) => {
     mocks.endpoint = endpoint;

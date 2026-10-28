@@ -1,6 +1,7 @@
 import { isIP } from 'node:net';
 import { domainToASCII } from 'node:url';
 
+import { withTenantPath } from '@lobechat/utils/tenantPath';
 import { isTenantId } from '@lobechat/database/tenant';
 import { z } from 'zod';
 
@@ -92,5 +93,7 @@ export const canonicalEndpointUrl = (
   }
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password)
     throw new TenantEndpointError('ENDPOINTS_NOT_READY', 503);
-  return endpoint.kind === 'custom' ? `https://${endpoint.host}` : `${url.origin}/t/${slug}`;
+  return endpoint.kind === 'custom'
+    ? `https://${endpoint.host}`
+    : `${url.origin}${withTenantPath('/', slug)}`;
 };

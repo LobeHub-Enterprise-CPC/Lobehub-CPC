@@ -47,7 +47,7 @@ vi.mock('./cookies', () => ({ getOIDCCookieKeys: () => ['test-secret'] }));
 vi.mock('./interaction-policy', () => ({ createInteractionPolicy: () => [] }));
 
 const scope = {
-  endpoint: { basePath: '/t/acme', publicUrl: 'http://localhost:3000/t/acme', version: 1 },
+  endpoint: { basePath: '/orgs/acme', publicUrl: 'http://localhost:3000/orgs/acme', version: 1 },
   slug: 'acme',
   tenantId: 'tenant-acme',
 };

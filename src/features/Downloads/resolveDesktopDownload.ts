@@ -9,7 +9,7 @@ export interface DesktopDownloadTarget {
 
 interface ResolveOptions {
   /**
-   * The address this app is served under (`https://host/t/acme`). The offer is
+   * The address this app is served under (`https://host/orgs/acme`). The offer is
    * opened as a plain link, outside the router, so the page's own tenant prefix
    * has to be part of it. Omitted, the link stays a root-relative `/downloads`.
    */

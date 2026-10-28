@@ -58,16 +58,16 @@ describe('editor image rehosting', () => {
   });
 
   it("does not transfer this tenant's own file proxy images", () => {
-    initializeTenant(new URL('/t/acme/agent', window.location.origin));
-    expect(needsImageRehost('/t/acme/f/image-id')).toBe(false);
-    expect(needsImageRehost(`${window.location.origin}/t/acme/f/image-id`)).toBe(false);
-    expect(needsImageRehost('https://external.example/t/acme/f/image-id')).toBe(true);
+    initializeTenant(new URL('/orgs/acme/agent', window.location.origin));
+    expect(needsImageRehost('/orgs/acme/f/image-id')).toBe(false);
+    expect(needsImageRehost(`${window.location.origin}/orgs/acme/f/image-id`)).toBe(false);
+    expect(needsImageRehost('https://external.example/orgs/acme/f/image-id')).toBe(true);
   });
 
   it("transfers another tenant's file proxy images into this tenant", () => {
-    initializeTenant(new URL('/t/acme/agent', window.location.origin));
-    expect(needsImageRehost('/t/beta/f/image-id')).toBe(true);
-    expect(needsImageRehost(`${window.location.origin}/t/beta/f/image-id`)).toBe(true);
+    initializeTenant(new URL('/orgs/acme/agent', window.location.origin));
+    expect(needsImageRehost('/orgs/beta/f/image-id')).toBe(true);
+    expect(needsImageRehost(`${window.location.origin}/orgs/beta/f/image-id`)).toBe(true);
   });
 
   it('registers the returned file for document persistence and prevents repeat rehosting', async () => {

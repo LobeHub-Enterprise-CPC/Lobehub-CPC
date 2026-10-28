@@ -301,15 +301,19 @@ describe('login command', () => {
       .mockResolvedValueOnce(tokenSuccessResponse());
 
     const program = createProgram();
-    await runLoginAndAdvanceTimers(program, ['--server', 'https://host/t/acme/']);
+    await runLoginAndAdvanceTimers(program, ['--server', 'https://host/orgs/acme/']);
 
     expect(fetch).toHaveBeenNthCalledWith(
       1,
-      'https://host/t/acme/oidc/device/auth',
+      'https://host/orgs/acme/oidc/device/auth',
       expect.any(Object),
     );
-    expect(fetch).toHaveBeenNthCalledWith(2, 'https://host/t/acme/oidc/token', expect.any(Object));
-    expect(saveSettings).toHaveBeenCalledWith({ serverUrl: 'https://host/t/acme' });
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      'https://host/orgs/acme/oidc/token',
+      expect.any(Object),
+    );
+    expect(saveSettings).toHaveBeenCalledWith({ serverUrl: 'https://host/orgs/acme' });
   });
 
   it('should handle device auth failure', async () => {

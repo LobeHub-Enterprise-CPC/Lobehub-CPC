@@ -31,6 +31,8 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
   /** Items the Postgres repository also removes: stored here so a test can seed and inspect them. */
   endpointRecords = new Set<string>();
   externalWork = new Set<string>();
+  /** Former slug -> tenant id. */
+  aliases = new Map<string, string>();
   destructions = new Map<string, DestructionRecord>();
   directory = new Map<string, DirectoryEntry>();
   events = new Map<string, LifecycleEventRecord>();
@@ -56,6 +58,7 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
         throw new ControlPlaneError(409, 'TENANT_DESTROYED');
       const endpointRecords = new Set(this.endpointRecords);
       const externalWork = new Set(this.externalWork);
+      const aliases = new Map(this.aliases);
       const directory = cloneMap(this.directory);
       const events = cloneMap(this.events);
       const lifecycles = cloneMap(this.lifecycles);
@@ -111,6 +114,7 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
           const ownEvents = [...events.values()].filter((event) => event.tenantId === id);
           const hadPending = ownOperations.some((op) => operationBundles.has(op.operationId));
           const hadDirectory = directory.delete(id);
+          for (const [slug, owner] of aliases) if (owner === id) aliases.delete(slug);
           const hadLifecycle = lifecycles.delete(id);
           for (const op of ownOperations) {
             operations.delete(op.operationId);
@@ -140,12 +144,21 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
           [...events.values()].find((e) => e.tenantId === tenantId && e.version === version) ??
           null,
         findTenantBySlug: async (slug) =>
-          [...operations.values()].find((o) => o.slug === slug)?.tenantId ?? null,
+          [...directory.values()].find((d) => d.record.slug === slug)?.record.tenantId ??
+          aliases.get(slug) ??
+          [...operations.values()].find((o) => o.slug === slug)?.tenantId ??
+          null,
         getDirectory: async (tenantId) => {
           const entry = directory.get(tenantId);
           return entry ? clone(entry) : null;
         },
         getEvent: async (eventId) => events.get(eventId) ?? null,
+        getProfile: async (tenantId) => {
+          const record = directory.get(tenantId)?.record;
+          return record
+            ? { name: record.name, profileVersion: record.profileVersion, slug: record.slug }
+            : null;
+        },
         getLifecycle: async (tenantId) => lifecycles.get(tenantId) ?? null,
         getOperation: async (operationId) => operations.get(operationId) ?? null,
         getOperationBundle: async (operationId) => {
@@ -158,10 +171,24 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
               e.tenantId === tenantId &&
               (e.status === 'received' || e.status === 'applying' || e.status === 'failed'),
           ),
+        listSlugAliases: async (tenantId) =>
+          [...aliases].filter(([, owner]) => owner === tenantId).map(([slug]) => slug),
+        // Transactions already run one at a time.
+        lockSlugs: async () => {},
         listOperations: async (tenantId) =>
           [...operations.values()].filter((o) => o.tenantId === tenantId),
-        putDirectory: async (record, bundle) =>
-          void directory.set(record.tenantId, { bundle: clone(bundle), record: clone(record) }),
+        // Like the Postgres upsert: slug and profile revision belong to `putProfile` once registered.
+        putDirectory: async (record, bundle) => {
+          const existing = directory.get(record.tenantId)?.record;
+          directory.set(record.tenantId, {
+            bundle: clone(bundle),
+            record: {
+              ...clone(record),
+              profileVersion: existing?.profileVersion ?? record.profileVersion,
+              slug: existing?.slug ?? record.slug,
+            },
+          });
+        },
         putEvent: async (record) => {
           const existing = events.get(record.eventId);
           if (
@@ -183,6 +210,12 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
             throw new ControlPlaneError(409, 'VERSION_CONFLICT');
           operations.set(record.operationId, clone(record));
         },
+        putProfile: async (tenantId, { formerSlugs, ...profile }) => {
+          const entry = directory.get(tenantId)!;
+          Object.assign(entry.record, profile);
+          for (const [slug, owner] of aliases) if (owner === tenantId) aliases.delete(slug);
+          for (const slug of formerSlugs) aliases.set(slug, tenantId);
+        },
         putOperationBundle: async (operationId, bundle) =>
           void (bundle
             ? operationBundles.set(operationId, clone(bundle))
@@ -192,6 +225,7 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
       this.destructions = destructions;
       this.endpointRecords = endpointRecords;
       this.externalWork = externalWork;
+      this.aliases = aliases;
       this.directory = directory;
       this.events = events;
       this.lifecycles = lifecycles;

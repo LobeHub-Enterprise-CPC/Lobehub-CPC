@@ -40,11 +40,11 @@ const binding = (name: string, generation = name) => ({
   storageMode: 'cloud' as const,
   cloudTenant: {
     generation,
-    entryUrl: `https://example.test/t/${name}`,
+    entryUrl: `https://example.test/orgs/${name}`,
     identity: {
       tenantId: name,
       subject: 'same-sub',
-      issuer: `https://example.test/t/${name}/oidc`,
+      issuer: `https://example.test/orgs/${name}/oidc`,
     },
     display: { account: 'same-sub' },
   },
@@ -52,7 +52,7 @@ const binding = (name: string, generation = name) => ({
 const pending = (name: string) => ({
   account: 'same-sub',
   confirmationId: `pending-${name}`,
-  entryUrl: `https://example.test/t/${name}`,
+  entryUrl: `https://example.test/orgs/${name}`,
   expiresAt: 9999999999999,
   generation: `pending-${name}`,
 });
@@ -82,7 +82,7 @@ const commit = (name: string) =>
 const legacyBinding = (name: string) => ({
   active: true,
   storageMode: 'selfHost' as const,
-  remoteServerUrl: `https://example.test/t/${name}`,
+  remoteServerUrl: `https://example.test/orgs/${name}`,
 });
 const restoreLegacy = (name: string) =>
   act(() =>
@@ -321,7 +321,7 @@ describe('server config reads through the actual SWR hook', () => {
           dataSyncConfig: {
             ...binding('A'),
             storageMode,
-            remoteServerUrl: 'https://example.test/t/A',
+            remoteServerUrl: 'https://example.test/orgs/A',
           },
         }),
       );

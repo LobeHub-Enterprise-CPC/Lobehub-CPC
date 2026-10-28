@@ -383,7 +383,7 @@ describe('AgentRuntimeService', () => {
         operationId: 'test-operation-1',
         stepIndex: 2,
         context: mockParams.context,
-        endpoint: 'http://localhost:3010/t/acme/api/agent/run',
+        endpoint: 'http://localhost:3010/orgs/acme/api/agent/run',
         priority: 'high',
         delay: 500,
       });
@@ -411,7 +411,7 @@ describe('AgentRuntimeService', () => {
             messageCount: 1,
           }),
         }),
-        endpoint: 'http://localhost:3010/t/acme/api/agent/run',
+        endpoint: 'http://localhost:3010/orgs/acme/api/agent/run',
         priority: 'high', // Uses the provided priority from params
         delay: 500, // Uses the provided delay from params
       });
@@ -491,7 +491,7 @@ describe('AgentRuntimeService', () => {
         operationId: 'test-operation-1',
         stepIndex: 2,
         context: undefined,
-        endpoint: 'http://localhost:3010/t/acme/api/agent/run',
+        endpoint: 'http://localhost:3010/orgs/acme/api/agent/run',
         priority: 'high',
         delay: 100,
         payload: {

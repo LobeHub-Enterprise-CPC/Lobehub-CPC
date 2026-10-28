@@ -16,7 +16,7 @@ describe('CredsExecutionRuntime.initiateOAuthConnect', () => {
   it('returns to the callback page on the tenant app address it was given', async () => {
     const creds = service();
     const runtime = new CredsExecutionRuntime(creds, {
-      appUrl: 'https://host.example/t/acme/',
+      appUrl: 'https://host.example/orgs/acme/',
     });
 
     const result = await runtime.initiateOAuthConnect({ provider: 'linear' });
@@ -24,7 +24,7 @@ describe('CredsExecutionRuntime.initiateOAuthConnect', () => {
     expect(result.success).toBe(true);
     expect(creds.getOAuthAuthorizeUrl).toHaveBeenCalledWith(
       'linear',
-      'https://host.example/t/acme/oauth/callback/success?provider=linear',
+      'https://host.example/orgs/acme/oauth/callback/success?provider=linear',
     );
   });
 });

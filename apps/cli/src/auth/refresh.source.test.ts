@@ -4,7 +4,7 @@ import { loadCredentials, saveCredentials } from './credentials';
 import { getValidToken } from './refresh';
 
 vi.mock('./credentials', () => ({ loadCredentials: vi.fn(), saveCredentials: vi.fn() }));
-vi.mock('../settings', () => ({ resolveServerUrl: () => 'https://example.test/t/a' }));
+vi.mock('../settings', () => ({ resolveServerUrl: () => 'https://example.test/orgs/a' }));
 afterEach(() => vi.restoreAllMocks());
 
 describe('stored source during asynchronous refresh', () => {

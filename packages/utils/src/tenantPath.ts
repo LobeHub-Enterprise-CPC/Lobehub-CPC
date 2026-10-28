@@ -1,11 +1,25 @@
 /**
- * The literal first segment that marks a tenant-scoped url: `/t/{slug}/...`.
+ * The literal first segment that marks a tenant-scoped url: `/orgs/{slug}/...`.
+ * Every url the app builds uses it.
  *
  * The tenant lives in the URL rather than the session on purpose: a session-held
  * "current tenant" makes two browser tabs on two tenants impossible, and the bug
  * it produces is silent — the second tab quietly acts on the first tab's tenant.
  */
-export const TENANT_PREFIX = 't';
+export const TENANT_PREFIX = 'orgs';
+
+/**
+ * The former prefix (`/t/{slug}/...`). Incoming urls may still use it (bookmarks, registered
+ * callbacks, older desktop builds); nothing builds it any more. Retiring it means deleting this
+ * constant and the legacy page redirect.
+ */
+export const LEGACY_TENANT_PREFIX = 't';
+
+const PREFIX_PATTERN = `(?:${TENANT_PREFIX}|${LEGACY_TENANT_PREFIX})`;
+const HAS_PREFIX_REGEX = new RegExp(`^/${PREFIX_PATTERN}(?:/|$)`);
+
+/** Whether the first segment is a tenant prefix, whether or not a well-formed slug follows. */
+export const hasTenantPrefix = (pathname: string): boolean => HAS_PREFIX_REGEX.test(pathname);
 
 /**
  * Slug syntax only. Whether a syntactically valid slug is *allowed* to be
@@ -13,8 +27,8 @@ export const TENANT_PREFIX = 't';
  * imported here without a cycle (it needs the workspace segment list, and
  * `workspaceAwarePath` needs this module).
  *
- * Parsing deliberately does not consult the reserved list: `/t/agent` is
- * unambiguous precisely because the `/t/` prefix is explicit, so a tenant named
+ * Parsing deliberately does not consult the reserved list: `/orgs/agent` is
+ * unambiguous precisely because the `/orgs/` prefix is explicit, so a tenant named
  * `agent` shadows nothing once it is prefixed. The reserved list exists to stop
  * such a slug being registered, since the same name at the root WOULD shadow.
  */
@@ -31,16 +45,16 @@ export const isWellFormedTenantSlug = (slug: string): boolean =>
   slug.length >= SLUG_MIN_LENGTH && slug.length <= SLUG_MAX_LENGTH && SLUG_REGEX.test(slug);
 
 export interface ParsedTenantPath {
-  /** The path with the `/t/{slug}` prefix removed; always starts with `/`. */
+  /** The path with the `/orgs/{slug}` prefix removed; always starts with `/`. */
   rest: string;
   /** `null` when the path carries no tenant prefix. */
   tenantSlug: string | null;
 }
 
-const TENANT_PATH_REGEX = new RegExp(`^/${TENANT_PREFIX}/([^/?#]+)(?=[/?#]|$)`);
+const TENANT_PATH_REGEX = new RegExp(`^/${PREFIX_PATTERN}/([^/?#]+)(?=[/?#]|$)`);
 
 /**
- * Split `/t/{slug}/rest` into its tenant and the rest.
+ * Split `/orgs/{slug}/rest` into its tenant and the rest.
  *
  * A malformed slug is reported as `tenantSlug: null` with `rest` left whole, so
  * the url falls through to normal routing and 404s visibly instead of being
@@ -57,7 +71,18 @@ export const parseTenantPath = (pathname: string): ParsedTenantPath => {
 };
 
 /**
- * Prefix an absolute path with `/t/{slug}`, idempotently.
+ * The path below a tenant prefix and the segment after it, well-formed slug or not (`'/'` when
+ * nothing follows); `null` when the path has no tenant prefix.
+ */
+export const belowTenantPrefix = (pathname: string): string | null =>
+  hasTenantPrefix(pathname) ? pathname.replace(/^\/[^/]+(?:\/[^/]*)?/, '') || '/' : null;
+
+/** A tenant url still spelled with the legacy prefix; pages under it move to {@link TENANT_PREFIX}. */
+export const isLegacyTenantPath = (pathname: string): boolean =>
+  pathname.startsWith(`/${LEGACY_TENANT_PREFIX}/`) && parseTenantPath(pathname).tenantSlug !== null;
+
+/**
+ * Prefix an absolute path with `/orgs/{slug}`, idempotently.
  *
  * Returns `to` unchanged for a relative path (react-router resolves those
  * itself) and when the path already carries this tenant's prefix.
@@ -66,19 +91,20 @@ export const withTenantPath = (to: string, tenantSlug: string | null | undefined
   if (!tenantSlug) return to;
   if (!to.startsWith('/')) return to;
 
-  const { tenantSlug: existing } = parseTenantPath(to);
-  if (existing === tenantSlug) return to;
-
+  const { rest, tenantSlug: existing } = parseTenantPath(to);
   const base = `/${TENANT_PREFIX}/${tenantSlug}`;
+  // Already this tenant's path: keep it, only respelling a legacy prefix.
+  if (existing === tenantSlug) return rest === '/' ? base : `${base}${rest}`;
+
   return to === '/' ? base : `${base}${to}`;
 };
 
-/** Strip any `/t/{slug}` prefix. Inverse of {@link withTenantPath}. */
+/** Strip any `/orgs/{slug}` prefix. Inverse of {@link withTenantPath}. */
 export const stripTenantPath = (to: string): string => parseTenantPath(to).rest;
 
 /**
- * Rewrite the app path below `to`'s `/t/{slug}` prefix and put the same prefix
- * back (`('/t/acme/agent', p => '/ws' + p)` -> `/t/acme/ws/agent`), so app-path
+ * Rewrite the app path below `to`'s `/orgs/{slug}` prefix and put the same prefix
+ * back (`('/orgs/acme/agent', p => '/ws' + p)` -> `/orgs/acme/ws/agent`), so app-path
  * logic never parses or rebuilds the tenant prefix itself.
  */
 export const mapTenantAppPath = (to: string, map: (appPath: string) => string): string => {

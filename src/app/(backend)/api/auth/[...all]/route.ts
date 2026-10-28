@@ -34,7 +34,7 @@ const CALLBACK_PATH = /^\/callback\/([^/]+)$/;
 /**
  * Next may retain the original tenant URL after its route rewrite. Normalize
  * either form before mounting the endpoint once under the tenant's
- * better-auth is mounted at `/t/{slug}/api/auth`, so the request goes back to
+ * better-auth is mounted at `/orgs/{slug}/api/auth`, so the request goes back to
  * its tenant path. A tenant SSO callback arrives at `/callback/{providerId}`
  * (the URL registered with the identity provider, spec FR-ID-09); every tenant
  * provider is generic OAuth, which better-auth serves at `/oauth2/callback/{id}`.

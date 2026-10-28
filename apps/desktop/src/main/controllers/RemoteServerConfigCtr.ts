@@ -112,7 +112,7 @@ export default class RemoteServerConfigCtr extends ControllerModule {
    * Persistence belongs to explicit configuration updates, not reads.
    */
   private normalizeConfig = (rawConfig: DataSyncConfig): DataSyncConfig => {
-    // The remote URL is a tenant address that may carry a path prefix (`https://host/t/acme`):
+    // The remote URL is a tenant address that may carry a path prefix (`https://host/orgs/acme`):
     // keep the prefix, drop trailing slashes / query / hash so every `${url}/path` join is exact.
     const remoteServerUrl = normalizeRemoteBaseUrl(rawConfig.remoteServerUrl);
     const config =

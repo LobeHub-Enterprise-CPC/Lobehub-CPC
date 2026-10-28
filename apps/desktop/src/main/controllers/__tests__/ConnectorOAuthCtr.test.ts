@@ -167,14 +167,14 @@ describe('ConnectorOAuthCtr', () => {
   });
 
   describe('tenant address with a path prefix', () => {
-    const tenantCallback = 'https://server.example/t/acme/oauth/connector/callback';
+    const tenantCallback = 'https://server.example/orgs/acme/oauth/connector/callback';
     const withRedirect = (redirectUri: string) => {
       const url = new URL(authorizationUrl);
       url.searchParams.set('redirect_uri', redirectUri);
       return url.href;
     };
 
-    it.each(['https://server.example/t/acme', 'https://server.example/t/acme/'])(
+    it.each(['https://server.example/orgs/acme', 'https://server.example/orgs/acme/'])(
       'accepts the tenant callback of %s and binds completion to it',
       async (server) => {
         remoteUrl = server;
@@ -199,9 +199,9 @@ describe('ConnectorOAuthCtr', () => {
 
     it.each([
       'https://server.example/oauth/connector/callback',
-      'https://server.example/t/other/oauth/connector/callback',
+      'https://server.example/orgs/other/oauth/connector/callback',
     ])('rejects %s as the callback of a tenant address', async (redirectUri) => {
-      remoteUrl = 'https://server.example/t/acme';
+      remoteUrl = 'https://server.example/orgs/acme';
       await expect(
         controller.authorize({ ...params, authorizationUrl: withRedirect(redirectUri) }),
       ).resolves.toBe('failed');

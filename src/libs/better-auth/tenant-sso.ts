@@ -31,7 +31,7 @@ export interface TenantSsoProviderSet {
 /**
  * better-auth providers for the tenant's enabled `sso_providers`.
  * `redirectURI(providerId)` is the tenant callback registered with the
- * identity provider (`/t/{slug}/api/auth/callback/{providerId}`).
+ * identity provider (`/orgs/{slug}/api/auth/callback/{providerId}`).
  */
 export const buildTenantSsoProviders = (
   providers: TenantSsoProvider[],

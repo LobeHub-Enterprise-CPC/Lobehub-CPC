@@ -16,7 +16,7 @@ bootTiming.mark('bundle-eval');
 startAppInitialization();
 
 // Mobile had no basename at all, so a tenant-prefixed url would have had its
-// `/t/{slug}` eaten by the `:workspaceSlug` segment and rendered the wrong page
+// `/orgs/{slug}` eaten by the `:workspaceSlug` segment and rendered the wrong page
 // without erroring. Same resolver as web.
 const { basename } = resolveAppBasename({
   debugProxy: window.__DEBUG_PROXY__,

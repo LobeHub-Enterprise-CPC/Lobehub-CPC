@@ -129,7 +129,7 @@ describe('GET /api/agent/messenger/:platform/install', () => {
       expect(parsed.searchParams.get('client_id')).toBe('cid');
       expect(parsed.searchParams.get('state')).toBe('state-nonce-1');
       expect(parsed.searchParams.get('redirect_uri')).toBe(
-        'https://app.example.com/t/acme/api/agent/messenger/slack/oauth/callback',
+        'https://app.example.com/orgs/acme/api/agent/messenger/slack/oauth/callback',
       );
       expect(parsed.searchParams.get('scope')).toContain('chat:write');
       expect(parsed.searchParams.get('scope')).toContain('users:read.email');
@@ -174,7 +174,7 @@ describe('GET /api/agent/messenger/:platform/install', () => {
       expect(parsed.searchParams.get('scope')).toContain('applications.commands');
       expect(parsed.searchParams.get('permissions')).toMatch(/^\d+$/);
       expect(parsed.searchParams.get('redirect_uri')).toBe(
-        'https://app.example.com/t/acme/api/agent/messenger/discord/oauth/callback',
+        'https://app.example.com/orgs/acme/api/agent/messenger/discord/oauth/callback',
       );
     });
   });

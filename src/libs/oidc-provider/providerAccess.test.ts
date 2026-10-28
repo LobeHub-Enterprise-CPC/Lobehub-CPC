@@ -49,7 +49,7 @@ vi.mock('./cookies', () => ({ getOIDCCookieKeys: () => ['test-secret'] }));
 vi.mock('./interaction-policy', () => ({ createInteractionPolicy: () => [] }));
 const acme = {
   slug: 'acme',
-  endpoint: { basePath: '/t/acme', publicUrl: 'http://localhost:3000/t/acme', version: 1 },
+  endpoint: { basePath: '/orgs/acme', publicUrl: 'http://localhost:3000/orgs/acme', version: 1 },
   tenantId: 'tenant-acme',
 };
 
@@ -87,20 +87,20 @@ it('findAccount reports unavailable when the current user lookup fails', async (
 
 it('keeps the issuer, device endpoints, cookies and redirects within a tenant', async () => {
   await createOIDCProvider({} as never, acme);
-  expect(state.issuer).toBe('http://localhost:3000/t/acme/oidc');
-  expect(state.config.routes.device_authorization).toBe('/t/acme/oidc/device/auth');
-  expect(state.config.cookies.long.path).toBe('/t/acme');
-  expect(state.config.cookies.short.path).toBe('/t/acme');
+  expect(state.issuer).toBe('http://localhost:3000/orgs/acme/oidc');
+  expect(state.config.routes.device_authorization).toBe('/orgs/acme/oidc/device/auth');
+  expect(state.config.cookies.long.path).toBe('/orgs/acme');
+  expect(state.config.cookies.short.path).toBe('/orgs/acme');
   const redirect = vi.fn();
   await state.config.features.deviceFlow.successSource({ redirect });
-  expect(redirect).toHaveBeenCalledWith('/t/acme/oauth/device/success');
+  expect(redirect).toHaveBeenCalledWith('/orgs/acme/oauth/device/success');
   const consent = { prompt: { name: 'consent' }, uid: 'consent-1' };
   expect(state.config.interactions.url({ oidc: {} }, consent)).toBe(
-    '/t/acme/oauth/consent/consent-1',
+    '/orgs/acme/oauth/consent/consent-1',
   );
   expect(
     state.config.interactions.url({ oidc: {} }, { prompt: { name: 'login' }, uid: 'login-1' }),
-  ).toBe('/t/acme/oidc/interaction/login-1/login');
+  ).toBe('/orgs/acme/oidc/interaction/login-1/login');
 });
 
 it('stamps the owning tenant id on every access token its provider issues', async () => {
@@ -110,10 +110,10 @@ it('stamps the owning tenant id on every access token its provider issues', asyn
 
 it.each([
   {
-    basePath: '/t/acme',
-    publicUrl: 'https://app.example.com/t/acme',
+    basePath: '/orgs/acme',
+    publicUrl: 'https://app.example.com/orgs/acme',
     version: 1,
-    cookiePath: '/t/acme',
+    cookiePath: '/orgs/acme',
   },
   { basePath: '', publicUrl: 'https://chat.example.com', version: 2, cookiePath: '/' },
 ])('uses canonical issuer, cookie path and protocol routes on $publicUrl', async (endpoint) => {
@@ -149,7 +149,7 @@ it('registers only the organization own desktop callbacks, without mutating anot
   expect(state.config.clients[0].redirect_uris).toHaveLength(1);
   await createOIDCProvider({} as never, acme);
   expect(state.config.clients[0].redirect_uris).toEqual([
-    'http://localhost:3000/t/acme/oidc/callback/desktop',
+    'http://localhost:3000/orgs/acme/oidc/callback/desktop',
   ]);
 });
 

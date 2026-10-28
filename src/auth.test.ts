@@ -63,7 +63,7 @@ describe('auth', () => {
   it('builds one instance per tenant, keyed and cookied by the tenant id', async () => {
     const database = {};
     mocks.scope = {
-      endpoint: { basePath: '/t/acme', publicUrl: 'https://app.example/t/acme', version: 1 },
+      endpoint: { basePath: '/orgs/acme', publicUrl: 'https://app.example/orgs/acme', version: 1 },
       session: { database },
       slug: 'acme',
       tenantId: 'tenant-a',
@@ -72,7 +72,7 @@ describe('auth', () => {
     expect(await getTenantAuth()).toBe(first);
 
     mocks.scope = {
-      endpoint: { basePath: '/t/beta', publicUrl: 'https://app.example/t/beta', version: 1 },
+      endpoint: { basePath: '/orgs/beta', publicUrl: 'https://app.example/orgs/beta', version: 1 },
       session: { database },
       slug: 'beta',
       tenantId: 'tenant-b',
@@ -88,7 +88,11 @@ describe('auth', () => {
         database,
         secondaryStorageNamespace: 't:tenant-a',
         tenant: {
-          endpoint: { basePath: '/t/acme', publicUrl: 'https://app.example/t/acme', version: 1 },
+          endpoint: {
+            basePath: '/orgs/acme',
+            publicUrl: 'https://app.example/orgs/acme',
+            version: 1,
+          },
           id: 'tenant-a',
           slug: 'acme',
         },
@@ -101,7 +105,7 @@ describe('auth', () => {
   it('rebuilds the instance when the runtime replaces the tenant database session', async () => {
     // A datasource update yields a new session; the old one's pool is retired.
     mocks.scope = {
-      endpoint: { basePath: '/t/acme', publicUrl: 'https://app.example/t/acme', version: 1 },
+      endpoint: { basePath: '/orgs/acme', publicUrl: 'https://app.example/orgs/acme', version: 1 },
       session: { database: {} },
       slug: 'acme',
       tenantId: 'tenant-a',
@@ -110,7 +114,7 @@ describe('auth', () => {
 
     const database = {};
     mocks.scope = {
-      endpoint: { basePath: '/t/acme', publicUrl: 'https://app.example/t/acme', version: 1 },
+      endpoint: { basePath: '/orgs/acme', publicUrl: 'https://app.example/orgs/acme', version: 1 },
       session: { database },
       slug: 'acme',
       tenantId: 'tenant-a',
@@ -124,7 +128,11 @@ describe('auth', () => {
 
   it("rebuilds only that tenant's instance when its login methods change", async () => {
     const scopeOf = (tenantId: string, slug: string) => ({
-      endpoint: { basePath: `/t/${slug}`, publicUrl: `https://app.example/t/${slug}`, version: 1 },
+      endpoint: {
+        basePath: `/orgs/${slug}`,
+        publicUrl: `https://app.example/orgs/${slug}`,
+        version: 1,
+      },
       session: { database: {} },
       slug,
       tenantId,
@@ -153,7 +161,11 @@ describe('auth', () => {
   it('bounds the cached SSO snapshots like the instances', async () => {
     const database = {};
     const scopeOf = (n: number) => ({
-      endpoint: { basePath: `/t/t${n}`, publicUrl: `https://app.example/t/t${n}`, version: 1 },
+      endpoint: {
+        basePath: `/orgs/t${n}`,
+        publicUrl: `https://app.example/orgs/t${n}`,
+        version: 1,
+      },
       session: { database },
       slug: `t${n}`,
       tenantId: `bounded-${n}`,

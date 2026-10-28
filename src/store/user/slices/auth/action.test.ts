@@ -58,14 +58,14 @@ describe('createAuthSlice', () => {
 
   it.each(['logout', 'openLogin'] as const)('keeps the tenant on %s redirects', async (action) => {
     // The page's tenant context, as the app entry initializes it at boot.
-    initializeTenant(new URL('http://localhost/t/acme/agent'));
+    initializeTenant(new URL('http://localhost/orgs/acme/agent'));
     const originalLocation = window.location;
     Object.defineProperty(window, 'location', {
       configurable: true,
       value: {
         href: '',
-        pathname: '/t/acme/agent',
-        toString: () => 'http://localhost/t/acme/agent',
+        pathname: '/orgs/acme/agent',
+        toString: () => 'http://localhost/orgs/acme/agent',
       },
       writable: true,
     });
@@ -77,7 +77,7 @@ describe('createAuthSlice', () => {
       await act(async () => {
         await useUserStore.getState()[action]();
       });
-      expect(window.location.href).toMatch(/^\/t\/acme\/signin(?:\?|$)/);
+      expect(window.location.href).toMatch(/^\/orgs\/acme\/signin(?:\?|$)/);
     } finally {
       Object.defineProperty(window, 'location', {
         configurable: true,
@@ -90,7 +90,7 @@ describe('createAuthSlice', () => {
 
   describe('logout', () => {
     it('shares an in-progress sign-out and retains its original tenant redirect', async () => {
-      initializeTenant(new URL('http://localhost/t/acme/agent'));
+      initializeTenant(new URL('http://localhost/orgs/acme/agent'));
       let resolveCleanup!: (response: Response) => void;
       const fetch = vi.spyOn(globalThis, 'fetch').mockImplementationOnce(
         () =>
@@ -101,7 +101,7 @@ describe('createAuthSlice', () => {
       const originalLocation = window.location;
       Object.defineProperty(window, 'location', {
         configurable: true,
-        value: { href: '', pathname: '/t/acme/agent' },
+        value: { href: '', pathname: '/orgs/acme/agent' },
         writable: true,
       });
       mockBetterAuthClient.signOut.mockImplementationOnce(async ({ fetchOptions }) => {
@@ -119,7 +119,7 @@ describe('createAuthSlice', () => {
         expect(isSigningOut).toBe(true);
         expect(fetch).toHaveBeenCalledTimes(1);
         expect(mockBetterAuthClient.signOut).toHaveBeenCalledTimes(1);
-        expect(window.location.href).toBe('/t/acme/signin');
+        expect(window.location.href).toBe('/orgs/acme/signin');
       } finally {
         Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
       }

@@ -82,7 +82,7 @@ describe('desktop discovery presentation state', () => {
       params: Promise.resolve({ locale: 'en-US', path: ['signin'] }),
     });
     expect(await signIn.text()).not.toContain('desktopFlow');
-    mocks.tenant = { basePath: '/t/acme', slug: 'acme' };
+    mocks.tenant = { basePath: '/orgs/acme', slug: 'acme' };
     try {
       const tenantPage = await GET(request, {
         params: Promise.resolve({ locale: 'en-US', path: [] }),
@@ -109,7 +109,7 @@ describe('remembered-account presentation flag', () => {
 
   it.each([
     ['a sign-in page', ['signin'] as string[], undefined, '1'],
-    ['a tenant page', [] as string[], { basePath: '/t/acme', slug: 'acme' }, '1'],
+    ['a tenant page', [] as string[], { basePath: '/orgs/acme', slug: 'acme' }, '1'],
     ['an absent flag', [] as string[], undefined, undefined],
     ['a forged flag', [] as string[], undefined, 'true'],
   ])('does not expose rootAccount on %s', async (_name, path, tenant, flag) => {

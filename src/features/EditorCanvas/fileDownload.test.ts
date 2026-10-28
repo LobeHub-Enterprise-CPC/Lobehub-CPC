@@ -80,32 +80,32 @@ describe('fileDownload', () => {
 
   describe('under a tenant address', () => {
     it('requests attachment delivery for tenant file proxy URLs', () => {
-      openPage('https://app.lobehub.com/t/acme/agent');
+      openPage('https://app.lobehub.com/orgs/acme/agent');
 
       expect(
-        getFileDownloadUrl('https://app.lobehub.com/t/acme/f/file_123', {
-          baseUrl: 'https://app.lobehub.com/t/acme/tasks/T-201',
+        getFileDownloadUrl('https://app.lobehub.com/orgs/acme/f/file_123', {
+          baseUrl: 'https://app.lobehub.com/orgs/acme/tasks/T-201',
         }),
-      ).toBe('https://app.lobehub.com/t/acme/f/file_123?download=1');
+      ).toBe('https://app.lobehub.com/orgs/acme/f/file_123?download=1');
     });
 
     it("leaves another tenant's file proxy URL as it is", () => {
-      openPage('https://app.lobehub.com/t/acme/agent');
+      openPage('https://app.lobehub.com/orgs/acme/agent');
 
       expect(
-        getFileDownloadUrl('https://app.lobehub.com/t/beta/f/file_123', {
-          baseUrl: 'https://app.lobehub.com/t/acme/tasks/T-201',
+        getFileDownloadUrl('https://app.lobehub.com/orgs/beta/f/file_123', {
+          baseUrl: 'https://app.lobehub.com/orgs/acme/tasks/T-201',
         }),
-      ).toBe('https://app.lobehub.com/t/beta/f/file_123');
+      ).toBe('https://app.lobehub.com/orgs/beta/f/file_123');
     });
 
     it('builds the stable download proxy under the current tenant', () => {
       expect(
         getFileDownloadUrl('https://storage.example.com/video.mp4?sig=1', {
-          appUrl: 'https://app.lobehub.com/t/acme',
+          appUrl: 'https://app.lobehub.com/orgs/acme',
           fileId: 'file_video',
         }),
-      ).toBe('https://app.lobehub.com/t/acme/f/file_video?download=1');
+      ).toBe('https://app.lobehub.com/orgs/acme/f/file_video?download=1');
     });
   });
 
@@ -121,19 +121,19 @@ describe('fileDownload', () => {
   });
 
   describe('on desktop (the app address is the remote tenant address)', () => {
-    const appUrl = 'https://host.example/t/acme';
+    const appUrl = 'https://host.example/orgs/acme';
 
     it('requests attachment delivery for the tenant file proxy URL the server returned', () => {
       expect(
-        getFileDownloadUrl('https://host.example/t/acme/f/file_123', {
+        getFileDownloadUrl('https://host.example/orgs/acme/f/file_123', {
           appUrl,
           baseUrl: 'app://desktop/agent',
         }),
-      ).toBe('https://host.example/t/acme/f/file_123?download=1');
+      ).toBe('https://host.example/orgs/acme/f/file_123?download=1');
     });
 
     it("leaves another tenant's file URL as it is", () => {
-      const url = 'https://host.example/t/beta/f/file_123';
+      const url = 'https://host.example/orgs/beta/f/file_123';
 
       expect(getFileDownloadUrl(url, { appUrl, baseUrl: 'app://desktop/agent' })).toBe(url);
     });
@@ -144,7 +144,7 @@ describe('fileDownload', () => {
           appUrl,
           fileId: 'file_video',
         }),
-      ).toBe('https://host.example/t/acme/f/file_video?download=1');
+      ).toBe('https://host.example/orgs/acme/f/file_video?download=1');
     });
   });
 });

@@ -32,7 +32,7 @@ const json = (body: unknown, init?: ResponseInit) =>
   });
 
 const acme = { id: 'tenant-acme', name: 'Acme' };
-const globex = { address: 'app.example.com/t/globex', id: 'tenant-globex', name: 'Globex' };
+const globex = { address: 'app.example.com/orgs/globex', id: 'tenant-globex', name: 'Globex' };
 const globexTwin = { address: 'globex.example.org', id: 'tenant-globex-2', name: 'Globex' };
 
 const accountBody = (overrides = {}) => ({
@@ -109,12 +109,12 @@ describe('TenantDiscovery in account mode', () => {
     await screen.findByText('A@Acme.com');
 
     mockFetch.mockResolvedValueOnce(
-      json({ url: 'https://app.example.com/t/globex/__entry?signin=1' }),
+      json({ url: 'https://app.example.com/orgs/globex/__entry?signin=1' }),
     );
     await user.click(screen.getByRole('button', { name: 'organization.account.continue' }));
 
     await waitFor(() =>
-      expect(window.location.href).toBe('https://app.example.com/t/globex/__entry?signin=1'),
+      expect(window.location.href).toBe('https://app.example.com/orgs/globex/__entry?signin=1'),
     );
     expect(accountCalls()[1]).toEqual({
       body: { id: 'tenant-globex' },
@@ -168,9 +168,11 @@ describe('TenantDiscovery in account mode', () => {
       'true',
     );
 
-    await act(async () => resolveSelect(json({ url: 'https://app.example.com/t/globex/__entry' })));
+    await act(async () =>
+      resolveSelect(json({ url: 'https://app.example.com/orgs/globex/__entry' })),
+    );
     await waitFor(() =>
-      expect(window.location.href).toBe('https://app.example.com/t/globex/__entry'),
+      expect(window.location.href).toBe('https://app.example.com/orgs/globex/__entry'),
     );
   });
 

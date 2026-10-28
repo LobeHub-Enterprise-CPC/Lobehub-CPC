@@ -38,7 +38,7 @@ describe('withTenantRequest', () => {
       release: async () => {},
       scope: { session: {}, slug: 'acme', tenantId: 't-proxy' },
     });
-    const original = new Request('http://localhost/t/acme/api', {
+    const original = new Request('http://localhost/orgs/acme/api', {
       method: 'POST',
       body: '{"ok":true}',
       headers: { [TENANT_ROUTE_HEADER]: signTenantRoute('acme')! },
@@ -154,7 +154,7 @@ describe('tenant request routing', () => {
       fetchRequestHandler({ createContext: () => ({}), endpoint: '/trpc/lambda', req, router }),
     );
     const response = await handler(
-      new NextRequest('https://app.test/t/acme/trpc/lambda/ping', { headers: headers() }),
+      new NextRequest('https://app.test/orgs/acme/trpc/lambda/ping', { headers: headers() }),
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ result: { data: 'pong' } });
@@ -171,7 +171,7 @@ describe('tenant request routing', () => {
       }),
     );
     const response = await handler(
-      new NextRequest('https://app.test/t/acme/api/test?x=1', {
+      new NextRequest('https://app.test/orgs/acme/api/test?x=1', {
         body: JSON.stringify({ value: 1 }),
         headers: { ...headers(), cookie: 'session=value' },
         method: 'POST',
@@ -201,7 +201,7 @@ describe('tenant request routing', () => {
     });
 
     const response = await handler(
-      new NextRequest('https://app.test/t/acme/trpc/lambda/a,b?batch=1&input={}', {
+      new NextRequest('https://app.test/orgs/acme/trpc/lambda/a,b?batch=1&input={}', {
         headers: headers(),
       }),
     );
@@ -228,7 +228,7 @@ describe('tenant request routing', () => {
     });
 
     const response = await handler(
-      new NextRequest('https://app.test/t/acme/trpc/lambda/a', { headers: headers() }),
+      new NextRequest('https://app.test/orgs/acme/trpc/lambda/a', { headers: headers() }),
     );
 
     expect(response.status).toBe(503);
@@ -251,7 +251,7 @@ describe('tenant request routing', () => {
     );
 
     const response = await handler(
-      new NextRequest('https://app.test/t/acme/trpc/lambda/a', {
+      new NextRequest('https://app.test/orgs/acme/trpc/lambda/a', {
         body: JSON.stringify({ json: { x: 1 } }),
         headers: { ...headers(), 'content-type': 'application/json' },
         method: 'POST',
@@ -266,7 +266,7 @@ describe('tenant request routing', () => {
   it('refuses requests without the signed routing header', async () => {
     const handler = vi.fn(() => Response.json({ ok: true }));
     const response = await withTenantRequest(handler)(
-      new Request('https://app.test/t/acme/api/test'),
+      new Request('https://app.test/orgs/acme/api/test'),
     );
     expect(response.status).toBe(400);
     expect(handler).not.toHaveBeenCalled();

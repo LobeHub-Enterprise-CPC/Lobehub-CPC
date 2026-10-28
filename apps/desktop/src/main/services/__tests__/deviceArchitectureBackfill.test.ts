@@ -46,12 +46,12 @@ describe('backfillDeviceArchitecture', () => {
 
     await backfillDeviceArchitecture({
       ...options,
-      serverUrl: 'https://server.example.com/t/acme/',
+      serverUrl: 'https://server.example.com/orgs/acme/',
     });
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      'https://server.example.com/t/acme/trpc/lambda/device.listDevices',
-      'https://server.example.com/t/acme/trpc/lambda/device.updateDeviceInfo',
+      'https://server.example.com/orgs/acme/trpc/lambda/device.listDevices',
+      'https://server.example.com/orgs/acme/trpc/lambda/device.updateDeviceInfo',
     ]);
   });
 

@@ -25,7 +25,7 @@ export const mocks = {
 export const sessionDataCookie = (name: string) => ({
   sessionData: {
     name,
-    attributes: { httpOnly: true, path: '/t/acme', sameSite: 'lax', secure: false },
+    attributes: { httpOnly: true, path: '/orgs/acme', sameSite: 'lax', secure: false },
   },
 });
 
@@ -59,14 +59,14 @@ export const useTenantMocks = () => {
     mocks.findHost.mockReset().mockResolvedValue(null);
     mocks.remembered
       .mockReset()
-      .mockResolvedValue({ activeUrl: 'http://localhost:3010/t/acme', appliedVersion: 1 });
+      .mockResolvedValue({ activeUrl: 'http://localhost:3010/orgs/acme', appliedVersion: 1 });
     mocks.findSlug.mockReset().mockImplementation(async (slug: string) =>
       slug === 'acme'
         ? {
             slug,
             tenantId: 'tenant-1',
             state: {
-              activeUrl: 'http://localhost:3010/t/acme',
+              activeUrl: 'http://localhost:3010/orgs/acme',
               endpoints: [{ kind: 'default', host: null, active: true }],
             },
           }
@@ -88,8 +88,8 @@ export const useTenantMocks = () => {
             slug,
             tenantId: 'tenant-1',
             endpoint: {
-              basePath: '/t/acme',
-              publicUrl: 'http://localhost:3010/t/acme',
+              basePath: '/orgs/acme',
+              publicUrl: 'http://localhost:3010/orgs/acme',
               version: 1,
             },
           },

@@ -37,7 +37,7 @@ describe('CLI original credential HTTP entry', () => {
     });
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
-    const entry = `http://127.0.0.1:${(server.address() as AddressInfo).port}/t/a`;
+    const entry = `http://127.0.0.1:${(server.address() as AddressInfo).port}/orgs/a`;
     state.entry = entry;
     try {
       let acceptedKey = false;

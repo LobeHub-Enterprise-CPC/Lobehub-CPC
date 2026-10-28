@@ -4,10 +4,10 @@ import { E2E_TENANT, tenantClientConfig, tenantPath } from './tenant';
 
 describe('E2E tenant addressing', () => {
   it('addresses pages and auth endpoints inside the same tenant', () => {
-    expect(tenantPath('/')).toBe('/t/e2e');
-    expect(tenantPath('/api/auth/sign-in/email')).toBe('/t/e2e/api/auth/sign-in/email');
-    expect(tenantPath('/page?sort=updated')).toBe('/t/e2e/page?sort=updated');
-    expect(tenantPath('/t/e2e/page')).toBe('/t/e2e/page');
+    expect(tenantPath('/')).toBe('/orgs/e2e');
+    expect(tenantPath('/api/auth/sign-in/email')).toBe('/orgs/e2e/api/auth/sign-in/email');
+    expect(tenantPath('/page?sort=updated')).toBe('/orgs/e2e/page?sort=updated');
+    expect(tenantPath('/orgs/e2e/page')).toBe('/orgs/e2e/page');
     expect(tenantPath('https://example.com/callback')).toBe('https://example.com/callback');
   });
 

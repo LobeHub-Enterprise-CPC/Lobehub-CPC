@@ -30,7 +30,7 @@ class GlobalService extends BusinessGlobalService {
    * @throws Error for other failures (network errors, 500s, etc.) to allow SWR retry
    */
   getServerVersion = async (): Promise<string | null> => {
-    // The remote server address is a tenant address (`https://host/t/acme`) or a
+    // The remote server address is a tenant address (`https://host/orgs/acme`) or a
     // custom-domain root; `/api/version` is a tenant endpoint under it, so the
     // path is mounted under the address rather than resolved against its origin.
     const url = (() => {

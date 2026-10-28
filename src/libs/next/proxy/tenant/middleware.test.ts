@@ -106,7 +106,7 @@ describe('tenant routing', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const response = await middleware(
-        new NextRequest('http://localhost:3010/t/nope/settings?hl=en-US'),
+        new NextRequest('http://localhost:3010/orgs/nope/settings?hl=en-US'),
       );
       expect(response.status).toBe(404);
       expect(mocks.getSession).not.toHaveBeenCalled();
@@ -130,7 +130,7 @@ describe('tenant routing', () => {
 
   it('rewrites tenant backend requests and replaces any client-sent tenant header', async () => {
     const response = await middleware(
-      new NextRequest('http://localhost:3010/t/acme/trpc/lambda/x?batch=1', {
+      new NextRequest('http://localhost:3010/orgs/acme/trpc/lambda/x?batch=1', {
         headers: { [TENANT_ROUTE_HEADER]: 'other.forged' },
       }),
     );
@@ -144,7 +144,7 @@ describe('tenant routing', () => {
 
   it('refuses the control plane under a tenant prefix', async () => {
     const response = await middleware(
-      new NextRequest('http://localhost:3010/t/acme/api/internal/control-plane/v1/tenants/x'),
+      new NextRequest('http://localhost:3010/orgs/acme/api/internal/control-plane/v1/tenants/x'),
     );
     expect(response?.status).toBe(404);
   });
@@ -160,7 +160,7 @@ describe('tenant routing', () => {
 
   it('refuses the landing tenant lookup under a tenant prefix', async () => {
     const response = await middleware(
-      new NextRequest('http://localhost:3010/t/acme/api/internal/tenant-discovery/lookup', {
+      new NextRequest('http://localhost:3010/orgs/acme/api/internal/tenant-discovery/lookup', {
         method: 'POST',
       }),
     );
@@ -197,14 +197,16 @@ describe('tenant routing', () => {
 
   it('refuses the schedules under a tenant prefix', async () => {
     const response = await middleware(
-      new NextRequest('http://localhost:3010/t/acme/api/cron/goal-sweep', { method: 'POST' }),
+      new NextRequest('http://localhost:3010/orgs/acme/api/cron/goal-sweep', { method: 'POST' }),
     );
     expect(response?.status).toBe(404);
   });
 
   it('routes a tenant workflow callback to the tenant', async () => {
     const response = await middleware(
-      new NextRequest('http://internal:3210/t/acme/api/workflows/goal/advance', { method: 'POST' }),
+      new NextRequest('http://internal:3210/orgs/acme/api/workflows/goal/advance', {
+        method: 'POST',
+      }),
     );
     const rewrite = new URL(response!.headers.get('x-middleware-rewrite')!);
     expect(rewrite.pathname).toBe('/api/workflows/goal/advance');
@@ -214,11 +216,11 @@ describe('tenant routing', () => {
 
   it('redirects a signed-out visitor to the tenant sign-in page', async () => {
     mocks.getSession.mockResolvedValue({ headers: new Headers(), response: null });
-    const response = await middleware(new NextRequest('http://localhost:3010/t/acme/settings'));
+    const response = await middleware(new NextRequest('http://localhost:3010/orgs/acme/settings'));
 
     const location = new URL(response!.headers.get('location')!);
-    expect(location.pathname).toBe('/t/acme/signin');
-    expect(location.searchParams.get('callbackUrl')).toContain('/t/acme/settings');
+    expect(location.pathname).toBe('/orgs/acme/signin');
+    expect(location.searchParams.get('callbackUrl')).toContain('/orgs/acme/settings');
   });
 });
 
@@ -267,7 +269,7 @@ describe('unknown tenant is indistinguishable from no tenant (FR-RT-06)', () => 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const withoutTenant = await observe(path, method);
-      const unknown = await observe(`/t/nope${path}`, method);
+      const unknown = await observe(`/orgs/nope${path}`, method);
       expect(unknown).toEqual(withoutTenant);
       expect(JSON.stringify(unknown)).not.toContain('nope');
       expect(unknown.tenantHeader).toBeNull();
@@ -281,7 +283,7 @@ describe('unknown tenant is indistinguishable from no tenant (FR-RT-06)', () => 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const response = await middleware(
-        new NextRequest(`${origin}/t/nope/trpc/lambda/config.getGlobalConfig`),
+        new NextRequest(`${origin}/orgs/nope/trpc/lambda/config.getGlobalConfig`),
       );
       expect(response?.status).toBe(400);
       await expect(response!.json()).resolves.toEqual({ code: 'TENANT_REQUIRED' });
@@ -293,7 +295,7 @@ describe('unknown tenant is indistinguishable from no tenant (FR-RT-06)', () => 
   it('records the real reason on the server only', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      await middleware(new NextRequest(`${origin}/t/nope/api/auth/get-session`));
+      await middleware(new NextRequest(`${origin}/orgs/nope/api/auth/get-session`));
       expect(warn).toHaveBeenCalledWith('TENANT_NOT_FOUND', { slug: 'nope' });
     } finally {
       warn.mockRestore();
@@ -305,7 +307,7 @@ describe('unknown tenant is indistinguishable from no tenant (FR-RT-06)', () => 
       expect(
         (
           await middleware(
-            new NextRequest(`${origin}/t/${slug}/api/internal/control-plane/v1/tenants/x`),
+            new NextRequest(`${origin}/orgs/${slug}/api/internal/control-plane/v1/tenants/x`),
           )
         )?.status,
       ).toBe(404);
@@ -315,28 +317,28 @@ describe('unknown tenant is indistinguishable from no tenant (FR-RT-06)', () => 
 describe('session cookies and OIDC endpoints under a tenant', () => {
   it('clears revoked authorization cookies on the protected-page redirect', async () => {
     const headers = new Headers();
-    headers.append('set-cookie', 'lh_x.session_token=; Max-Age=0; Path=/t/acme; HttpOnly');
-    headers.append('set-cookie', 'lh_x.session_data.0=; Max-Age=0; Path=/t/acme; HttpOnly');
+    headers.append('set-cookie', 'lh_x.session_token=; Max-Age=0; Path=/orgs/acme; HttpOnly');
+    headers.append('set-cookie', 'lh_x.session_data.0=; Max-Age=0; Path=/orgs/acme; HttpOnly');
     mocks.getSession.mockResolvedValueOnce({ headers, response: null });
 
-    const response = await middleware(new NextRequest('http://localhost:3010/t/acme/settings'));
+    const response = await middleware(new NextRequest('http://localhost:3010/orgs/acme/settings'));
 
     expect(response?.status).toBe(302);
-    expect(new URL(response!.headers.get('location')!).pathname).toBe('/t/acme/signin');
+    expect(new URL(response!.headers.get('location')!).pathname).toBe('/orgs/acme/signin');
     expect(response?.headers.getSetCookie()).toEqual(headers.getSetCookie());
   });
 
   it.each([
-    '/t/acme/oidc/.well-known/openid-configuration',
-    '/t/acme/oidc/jwks',
-    '/t/acme/oidc/me',
+    '/orgs/acme/oidc/.well-known/openid-configuration',
+    '/orgs/acme/oidc/jwks',
+    '/orgs/acme/oidc/me',
   ])('serves %s as a tenant backend endpoint without a session lookup', async (path) => {
     const response = await middleware(new NextRequest(`http://localhost:3010${path}`));
 
     expect(mocks.getSession).not.toHaveBeenCalled();
     expect(response?.headers.get('location')).toBeNull();
     expect(new URL(response!.headers.get('x-middleware-rewrite')!).pathname).toBe(
-      path.replace('/t/acme', ''),
+      path.replace('/orgs/acme', ''),
     );
   });
 });
@@ -345,7 +347,7 @@ describe('project deep links', () => {
   const paths = ['/projects', '/project/environment-demo', '/project/environment-demo/tasks'];
 
   it.each(paths)('routes tenant %s into the SPA on a direct request', async (path) => {
-    const request = new NextRequest(`http://localhost:3010/t/acme${path}`);
+    const request = new NextRequest(`http://localhost:3010/orgs/acme${path}`);
     expect(unstable_doesMiddlewareMatch({ config: proxyConfig, url: request.url })).toBe(true);
     const response = await middleware(request);
     const rewrite = response!.headers.get('x-middleware-rewrite')!;
@@ -387,7 +389,7 @@ describe('actual Host authority', () => {
   });
   it('uses an explicit configured default port instead of the deployment URL port', async () => {
     const response = await middleware(
-      new NextRequest('http://localhost:3392/t/acme/api/auth/get-session', {
+      new NextRequest('http://localhost:3392/orgs/acme/api/auth/get-session', {
         headers: { 'host': 'localhost:3010', 'x-forwarded-host': 'evil.example.com' },
       }),
     );
@@ -409,7 +411,9 @@ describe('actual Host authority', () => {
     'localhost::3010',
   ])('refuses malformed authority %s without falling back to the URL host', async (host) => {
     const response = await middleware(
-      new NextRequest('http://localhost:3010/t/acme/api/auth/get-session', { headers: { host } }),
+      new NextRequest('http://localhost:3010/orgs/acme/api/auth/get-session', {
+        headers: { host },
+      }),
     );
     expect(response?.status).toBe(404);
     await expect(response!.json()).resolves.toEqual({ code: 'NOT_FOUND' });
@@ -420,7 +424,7 @@ describe('actual Host authority', () => {
 
 it('preserves routed headers when a tenant page reaches the local dev proxy bypass', async () => {
   const response = await middleware(
-    new NextRequest('http://localhost:3010/t/acme/_dangerous_local_dev_proxy'),
+    new NextRequest('http://localhost:3010/orgs/acme/_dangerous_local_dev_proxy'),
   );
   expect(response.headers.get('x-middleware-next')).toBe('1');
   expect(
@@ -436,7 +440,11 @@ describe('scope release on a tenant page', () => {
       scope: {
         slug: 'acme',
         tenantId: 'tenant-1',
-        endpoint: { basePath: '/t/acme', publicUrl: 'http://localhost:3010/t/acme', version: 1 },
+        endpoint: {
+          basePath: '/orgs/acme',
+          publicUrl: 'http://localhost:3010/orgs/acme',
+          version: 1,
+        },
       },
     });
     return release;
@@ -448,9 +456,9 @@ describe('scope release on a tenant page', () => {
       throw new Error('rewrite failed');
     });
 
-    await expect(middleware(new NextRequest('http://localhost:3010/t/acme/agent'))).rejects.toThrow(
-      'rewrite failed',
-    );
+    await expect(
+      middleware(new NextRequest('http://localhost:3010/orgs/acme/agent')),
+    ).rejects.toThrow('rewrite failed');
     expect(release).toHaveBeenCalledTimes(1);
   });
 
@@ -458,19 +466,19 @@ describe('scope release on a tenant page', () => {
     const release = holdScope();
     mocks.getSession.mockRejectedValue(new Error('session store down'));
 
-    await expect(middleware(new NextRequest('http://localhost:3010/t/acme/agent'))).rejects.toThrow(
-      'session store down',
-    );
+    await expect(
+      middleware(new NextRequest('http://localhost:3010/orgs/acme/agent')),
+    ).rejects.toThrow('session store down');
     expect(release).toHaveBeenCalledTimes(1);
   });
 
   it('releases the scope once on a public page and on a signed-out redirect', async () => {
     const release = holdScope();
-    await middleware(new NextRequest('http://localhost:3010/t/acme/signin'));
+    await middleware(new NextRequest('http://localhost:3010/orgs/acme/signin'));
     expect(release).toHaveBeenCalledTimes(1);
 
     mocks.getSession.mockResolvedValue({ headers: new Headers(), response: null });
-    const redirect = await middleware(new NextRequest('http://localhost:3010/t/acme/agent'));
+    const redirect = await middleware(new NextRequest('http://localhost:3010/orgs/acme/agent'));
     expect(redirect.status).toBe(302);
     expect(release).toHaveBeenCalledTimes(2);
   });
@@ -496,7 +504,7 @@ describe('signed navigation redirect transport', () => {
     },
   );
 
-  it.each(['/t/acme', '/t/nope'])(
+  it.each(['/orgs/acme', '/orgs/nope'])(
     'refuses the internal route under the tenant prefix %s',
     async (prefix) => {
       const response = await middleware(
@@ -512,7 +520,7 @@ describe('signed navigation redirect transport', () => {
 
   it('drops a client copy of the signed header from every forwarded request', async () => {
     const response = await middleware(
-      new NextRequest('http://localhost:3010/t/acme/api/auth/get-session', {
+      new NextRequest('http://localhost:3010/orgs/acme/api/auth/get-session', {
         headers: { [NAVIGATION_REDIRECT_HEADER]: 'forged' },
       }),
     );

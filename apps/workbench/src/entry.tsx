@@ -1,4 +1,4 @@
-// Tenant fetch/asset prefixing (`/t/{slug}`) and the StyleX sheet, like the main SPA.
+// Tenant fetch/asset prefixing (`/orgs/{slug}`) and the StyleX sheet, like the main SPA.
 import '@/initialize';
 import '@/spa/initialize';
 

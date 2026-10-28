@@ -116,7 +116,7 @@ export default class RemoteServerSyncCtr extends ControllerModule {
       remoteServerUrl,
       requestId,
     } = args;
-    // The remote URL may carry a tenant path prefix (`/t/{slug}`) that urlPath lacks.
+    // The remote URL may carry a tenant path prefix (`/orgs/{slug}`) that urlPath lacks.
     const targetUrl = buildRemoteUrl(urlPath, remoteServerUrl);
     const logPrefix = `[ForwardStream ${method} ${targetUrl.pathname}][${requestId}]`;
 

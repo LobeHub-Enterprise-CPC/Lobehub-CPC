@@ -15,10 +15,10 @@ const config = (tenantId = 'tenant-A', generation = 'login-A'): DataSyncConfig =
     storageMode: 'cloud',
     cloudTenant: {
       generation,
-      entryUrl: `https://example.test/t/${tenantId}`,
+      entryUrl: `https://example.test/orgs/${tenantId}`,
       display: { account: 'same-sub' },
       identity: {
-        issuer: `https://example.test/t/${tenantId}/oidc`,
+        issuer: `https://example.test/orgs/${tenantId}/oidc`,
         subject: 'same-sub',
         tenantId,
       },

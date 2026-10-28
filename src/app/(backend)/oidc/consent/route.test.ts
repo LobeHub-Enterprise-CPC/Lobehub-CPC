@@ -31,7 +31,7 @@ vi.mock('@/auth', () => ({
 
 // The organization is served from its own origin; the form must be submitted from there.
 vi.mock('@/server/modules/Tenant/callbackUrl', () => ({
-  buildTenantPublicUrl: (path: string) => `https://lobehub.com/t/acme${path}`,
+  buildTenantPublicUrl: (path: string) => `https://lobehub.com/orgs/acme${path}`,
 }));
 
 vi.mock('@/server/services/oidc', () => ({

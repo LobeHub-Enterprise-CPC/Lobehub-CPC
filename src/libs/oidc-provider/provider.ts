@@ -68,7 +68,7 @@ export const oidcArtifactTTL = {
  * desktop client reads a missing value as "unknown"), and the identity claims go out regardless.
  *
  * The organization name is read live rather than captured when the provider is created: providers
- * are cached per tenant, slug and endpoint version, none of which change on a rename.
+ * are cached per tenant, slug and endpoint version, and a name edit changes none of them.
  *
  * Work still running at the deadline: the cross-organization lookup is cancelled (its connections
  * are released and destroyed). The directory read is a shared, de-duplicated routing-cache fetch

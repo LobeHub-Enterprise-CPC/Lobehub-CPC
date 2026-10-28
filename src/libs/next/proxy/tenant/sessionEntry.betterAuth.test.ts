@@ -23,7 +23,7 @@ const build = (cookieCache: boolean, lifetime?: { expiresIn: number; updateAge: 
   const db: Db = { account: [], session: [], user: [], verification: [] };
   const auth = betterAuth({
     // The tenant instance scopes its cookies to the organization path (src/auth.ts).
-    advanced: { cookiePrefix: PREFIX, defaultCookieAttributes: { path: '/t/acme' } },
+    advanced: { cookiePrefix: PREFIX, defaultCookieAttributes: { path: '/orgs/acme' } },
     baseURL: 'http://localhost:3010',
     database: memoryAdapter(db),
     emailAndPassword: { enabled: true },
@@ -145,7 +145,7 @@ describe('session entry cleanup of hidden cache cookies, real Better Auth', () =
     );
     for (const cookie of result.setCookies) {
       expect(cookie).toMatch(/Max-Age=0/);
-      expect(cookie).toContain('Path=/t/acme');
+      expect(cookie).toContain('Path=/orgs/acme');
       expect(cookie).toMatch(/^[^=]+=;/);
     }
   });
@@ -160,7 +160,7 @@ describe('session entry cleanup of hidden cache cookies, real Better Auth', () =
       `${PREFIX}.session_data.1`,
     ]);
     expect(deletion(result.setCookies, `${PREFIX}.session_token`)).toBeUndefined();
-    for (const cookie of result.setCookies) expect(cookie).toContain('Path=/t/acme');
+    for (const cookie of result.setCookies) expect(cookie).toContain('Path=/orgs/acme');
   });
 
   it("emits nothing for cookies it did not hide, and never touches another tenant's names", async () => {
@@ -190,7 +190,7 @@ describe('session entry cleanup of hidden cache cookies, real Better Auth', () =
     const result = await entry(auth, `${token}; __Secure-${PREFIX}.session_data.0=junk`);
     expect(result.setCookies).toEqual([
       expect.stringMatching(
-        new RegExp(`^__Secure-${PREFIX}\\.session_data\\.0=; Max-Age=0; Path=/t/acme; .*Secure`),
+        new RegExp(`^__Secure-${PREFIX}\\.session_data\\.0=; Max-Age=0; Path=/orgs/acme; .*Secure`),
       ),
     ]);
   });

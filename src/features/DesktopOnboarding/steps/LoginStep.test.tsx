@@ -197,7 +197,7 @@ const cloudTenantConfig = (display: CloudTenantDisplay): DataSyncConfig => ({
   active: true,
   cloudTenant: {
     display,
-    entryUrl: 'https://work.example.com/t/acme',
+    entryUrl: 'https://work.example.com/orgs/acme',
     generation: 'gen-1',
     identity: { issuer: 'https://work.example.com', subject: 'sub-1', tenantId: 'tenant-1' },
   },
@@ -208,7 +208,7 @@ const pendingRequest = (overrides: Partial<AuthorizationConfirmRequest> = {}) =>
   ({
     account: 'li@acme.example',
     confirmationId: 'confirm-1',
-    entryUrl: 'https://work.example.com/t/acme',
+    entryUrl: 'https://work.example.com/orgs/acme',
     expiresAt: Date.now() + 5 * 60_000,
     generation: 'gen-1',
     name: 'Acme Corp',
@@ -284,7 +284,7 @@ describe('Desktop onboarding LoginStep', () => {
       await renderLoginStep({ mode: 'status' });
 
       expect(screen.getByText('Acme Corp')).toBeInTheDocument();
-      expect(screen.getByText('https://work.example.com/t/acme')).toBeInTheDocument();
+      expect(screen.getByText('https://work.example.com/orgs/acme')).toBeInTheDocument();
       expect(screen.getByText('li@acme.example')).toBeInTheDocument();
     });
 
@@ -340,7 +340,7 @@ describe('Desktop onboarding LoginStep', () => {
       await renderLoginStep({ mode: 'status' });
 
       expect(screen.queryByText('Organization')).not.toBeInTheDocument();
-      expect(screen.getByText('https://work.example.com/t/acme')).toBeInTheDocument();
+      expect(screen.getByText('https://work.example.com/orgs/acme')).toBeInTheDocument();
     });
 
     it('switches organization through the store and shows the new sign-in as in progress', async () => {
@@ -380,7 +380,7 @@ describe('Desktop onboarding LoginStep', () => {
 
       expect(screen.getByText('Sign in to this organization?')).toBeInTheDocument();
       expect(screen.getByText('Acme Corp')).toBeInTheDocument();
-      expect(screen.getByText('https://work.example.com/t/acme')).toBeInTheDocument();
+      expect(screen.getByText('https://work.example.com/orgs/acme')).toBeInTheDocument();
       expect(screen.getByText('li@acme.example')).toBeInTheDocument();
     });
 
@@ -390,7 +390,7 @@ describe('Desktop onboarding LoginStep', () => {
       await renderLoginStep();
 
       expect(screen.queryByText('Organization')).not.toBeInTheDocument();
-      expect(screen.getByText('https://work.example.com/t/acme')).toBeInTheDocument();
+      expect(screen.getByText('https://work.example.com/orgs/acme')).toBeInTheDocument();
       expect(screen.getByText('li@acme.example')).toBeInTheDocument();
     });
 
@@ -634,7 +634,7 @@ describe('Desktop onboarding LoginStep', () => {
 
     const expectSessionStillShown = () => {
       expect(screen.getByText('Acme Corp (acme)')).toBeInTheDocument();
-      expect(screen.getByText('https://work.example.com/t/acme')).toBeInTheDocument();
+      expect(screen.getByText('https://work.example.com/orgs/acme')).toBeInTheDocument();
       expect(screen.getByText('li@acme.example')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();

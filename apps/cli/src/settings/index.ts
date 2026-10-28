@@ -54,7 +54,7 @@ const WORKSPACE_ID_PATTERN = /^[\w-]{1,64}$/;
 
 /**
  * Drop trailing slashes. The path is kept: the server URL may be a tenant address
- * (`https://host/t/acme`) whose prefix every request path is appended to.
+ * (`https://host/orgs/acme`) whose prefix every request path is appended to.
  */
 export function normalizeUrl(url: string | undefined): string | undefined {
   return url ? url.replace(/\/+$/, '') : undefined;

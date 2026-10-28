@@ -17,6 +17,7 @@ import {
 import {
   datasourceRequestSchema,
   lifecycleRequestSchema,
+  profileRequestSchema,
   provisionRequestSchema,
 } from './contracts';
 import { validateDatasourceBundle } from './datasource';
@@ -49,6 +50,7 @@ const published = read('schemas.json') as {
  * the wire schema (a 400), then the derivation against the tenant (a recorded DATASOURCE_INVALID).
  */
 const takes: Record<string, (value: any) => boolean> = {
+  profileRequest: (value) => profileRequestSchema.safeParse(value).success,
   lifecycleRequest: (value) => lifecycleRequestSchema.safeParse(value).success,
   lobehubDatasourceRequest: (value) => {
     const parsed = datasourceRequestSchema.safeParse(value);
@@ -125,6 +127,20 @@ describe('what TITU Work answers is what Console parses', () => {
     await provisionApplied();
     conforms('lifecycleResult', await service.receiveLifecycle(lifecycle()));
     conforms('overview', await service.getOverview(TENANT));
+  });
+
+  it('answers tenant-profile, applied and superseded', async () => {
+    await provisionApplied();
+    const request = {
+      eventId: 'profile:1',
+      formerSlugs: ['acme'],
+      name: 'Acme Group',
+      slug: 'acme-group',
+      tenantId: TENANT,
+      version: 3,
+    };
+    conforms('profileResult', await service.receiveProfile(request));
+    conforms('profileResult', await service.receiveProfile({ ...request, version: 2 }));
   });
 
   it('keeps the fixtures the contract publishes for these answers valid too', () => {

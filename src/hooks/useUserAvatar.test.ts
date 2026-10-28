@@ -120,10 +120,10 @@ describe('useUserAvatar', () => {
         dataSyncConfig: {
           cloudTenant: {
             display: { account: 'sub' },
-            entryUrl: 'https://app.lobehub.com/t/acme',
+            entryUrl: 'https://app.lobehub.com/orgs/acme',
             generation: 'login-A',
             identity: {
-              issuer: 'https://app.lobehub.com/t/acme/oidc',
+              issuer: 'https://app.lobehub.com/orgs/acme/oidc',
               subject: 'sub',
               tenantId: 'A',
             },
@@ -136,7 +136,7 @@ describe('useUserAvatar', () => {
 
     const { result } = renderHook(() => useUserAvatar());
 
-    expect(result.current).toBe('https://app.lobehub.com/t/acme/api/avatar.png');
+    expect(result.current).toBe('https://app.lobehub.com/orgs/acme/api/avatar.png');
   });
 
   it('should leave the avatar untouched in cloud mode before a tenant is committed', () => {
@@ -186,14 +186,14 @@ describe('useUserAvatar', () => {
     };
 
     it('keeps the tenant path prefix of the remote server address', () => {
-      expect(renderAvatar('/webapi/user/avatar/u1/a.png', 'https://host/t/acme')).toBe(
-        'https://host/t/acme/webapi/user/avatar/u1/a.png',
+      expect(renderAvatar('/webapi/user/avatar/u1/a.png', 'https://host/orgs/acme')).toBe(
+        'https://host/orgs/acme/webapi/user/avatar/u1/a.png',
       );
     });
 
     it('does not double the slash of an address entered with a trailing slash', () => {
-      expect(renderAvatar('/webapi/user/avatar/u1/a.png', 'https://host/t/acme/')).toBe(
-        'https://host/t/acme/webapi/user/avatar/u1/a.png',
+      expect(renderAvatar('/webapi/user/avatar/u1/a.png', 'https://host/orgs/acme/')).toBe(
+        'https://host/orgs/acme/webapi/user/avatar/u1/a.png',
       );
     });
 
@@ -204,19 +204,19 @@ describe('useUserAvatar', () => {
     });
 
     it('does not prefix an avatar path the server already prefixed', () => {
-      expect(renderAvatar('/t/acme/webapi/user/avatar/u1/a.png', 'https://host/t/acme')).toBe(
-        'https://host/t/acme/webapi/user/avatar/u1/a.png',
+      expect(renderAvatar('/orgs/acme/webapi/user/avatar/u1/a.png', 'https://host/orgs/acme')).toBe(
+        'https://host/orgs/acme/webapi/user/avatar/u1/a.png',
       );
     });
 
     it('uses an absolute avatar url as is', () => {
-      expect(renderAvatar('https://cdn.example.com/a.png', 'https://host/t/acme')).toBe(
+      expect(renderAvatar('https://cdn.example.com/a.png', 'https://host/orgs/acme')).toBe(
         'https://cdn.example.com/a.png',
       );
     });
 
     it('never turns a protocol-relative avatar into a link on the remote server', () => {
-      expect(renderAvatar('//cdn.example.com/a.png', 'https://host/t/acme')).toBe(
+      expect(renderAvatar('//cdn.example.com/a.png', 'https://host/orgs/acme')).toBe(
         '//cdn.example.com/a.png',
       );
     });

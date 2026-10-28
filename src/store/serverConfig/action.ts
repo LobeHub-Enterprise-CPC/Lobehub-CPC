@@ -1,3 +1,4 @@
+import { setRemoteTenantSlugs } from '@lobechat/business-tenant/client';
 import { isDesktop } from '@lobechat/const';
 import { useLayoutEffect, useSyncExternalStore } from 'react';
 import { type SWRResponse } from 'swr';
@@ -73,6 +74,7 @@ export class ServerConfigActionImpl {
       this.#appliedDesktopRevision = desktopContext.revision;
       const initial = this.#getInitialState();
       setDesktopBusinessFeaturesFlag(false);
+      setRemoteTenantSlugs(undefined);
       this.#set(
         {
           _featureFlagOverrides: {},
@@ -107,6 +109,7 @@ export class ServerConfigActionImpl {
           // a later render. A previous binding never commits into this store.
           if (!isCurrent()) return data;
           setDesktopBusinessFeaturesFlag(data.serverConfig.enableBusinessFeatures);
+          if (isDesktop) setRemoteTenantSlugs(data.serverConfig.tenantSlugs);
           this.#set(
             {
               billboard: data.billboard ?? null,

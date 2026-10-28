@@ -1,3 +1,4 @@
+import { hasTenantPrefix } from '@lobechat/business-tenant/routing';
 import { type AnchorHTMLAttributes } from 'react';
 import React, { memo } from 'react';
 import { Link as RouterLink } from 'react-router';
@@ -10,11 +11,12 @@ interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
 /**
  * Smart Link component for global use.
  * - External links (http://, https://) → native <a> tag
+ * - Paths that already name a tenant (/orgs/{slug}/…) → native <a> tag, so the
+ *   router's tenant basename is not put in front of them again
  * - Internal routes → React Router Link
  */
 const Link = memo<LinkProps>(({ href, children, ...props }) => {
-  // External links use native <a> tag
-  if (href?.startsWith('http://') || href?.startsWith('https://')) {
+  if (href?.startsWith('http://') || href?.startsWith('https://') || hasTenantPrefix(href ?? '')) {
     return (
       <a href={href} rel="noreferrer" {...props}>
         {children}

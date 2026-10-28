@@ -34,7 +34,7 @@ describe('isDesktopClientId', () => {
 describe('isDesktopAuthorizeCallback', () => {
   it('recognises the desktop authorization request, with or without a tenant prefix', () => {
     expect(isDesktopAuthorizeCallback(authorize('tituwork-desktop'))).toBe(true);
-    expect(isDesktopAuthorizeCallback(authorize('tituwork-desktop', '/t/acme'))).toBe(true);
+    expect(isDesktopAuthorizeCallback(authorize('tituwork-desktop', '/orgs/acme'))).toBe(true);
     expect(isDesktopAuthorizeCallback('/oidc/auth?client_id=tituwork-desktop')).toBe(true);
   });
 
@@ -54,19 +54,19 @@ describe('isDesktopAuthorizeCallback', () => {
 
 describe('interactionUidOf', () => {
   it('extracts the interaction id of a consent page address', () => {
-    expect(interactionUidOf('https://app.example.com/t/acme/oauth/consent/abc123?hl=zh-CN')).toBe(
-      'abc123',
-    );
+    expect(
+      interactionUidOf('https://app.example.com/orgs/acme/oauth/consent/abc123?hl=zh-CN'),
+    ).toBe('abc123');
     expect(interactionUidOf('/oauth/consent/abc123')).toBe('abc123');
   });
 
   it('extracts the interaction id of a login-prompt page address, with any tenant prefix', () => {
     expect(interactionUidOf('/oidc/interaction/abc123/login')).toBe('abc123');
-    expect(interactionUidOf('/t/acme/oidc/interaction/abc123/login')).toBe('abc123');
+    expect(interactionUidOf('/orgs/acme/oidc/interaction/abc123/login')).toBe('abc123');
     expect(
-      interactionUidOf('https://app.example.com/t/acme/oidc/interaction/abc123/login?hl=zh-CN'),
+      interactionUidOf('https://app.example.com/orgs/acme/oidc/interaction/abc123/login?hl=zh-CN'),
     ).toBe('abc123');
-    expect(interactionUidOf('/t/acme/oidc/interaction/abc123/login/')).toBe('abc123');
+    expect(interactionUidOf('/orgs/acme/oidc/interaction/abc123/login/')).toBe('abc123');
   });
 
   it('is null for anything else', () => {
@@ -95,7 +95,7 @@ describe('useDesktopAuthContext', () => {
     interaction.data = { clientId: 'tituwork-desktop' };
 
     const { result } = renderHook(() =>
-      useDesktopAuthContext('https://app.example.com/t/acme/oauth/consent/abc123'),
+      useDesktopAuthContext('https://app.example.com/orgs/acme/oauth/consent/abc123'),
     );
 
     expect(interaction.uid).toBe('abc123');
@@ -106,7 +106,7 @@ describe('useDesktopAuthContext', () => {
     interaction.data = { clientId: 'tituwork-desktop' };
 
     const { result } = renderHook(() =>
-      useDesktopAuthContext('/t/acme/oidc/interaction/abc123/login'),
+      useDesktopAuthContext('/orgs/acme/oidc/interaction/abc123/login'),
     );
 
     expect(interaction.uid).toBe('abc123');

@@ -13,20 +13,23 @@ describe('resolveAppBasename', () => {
   it('uses the tenant context as a basename', () => {
     expect(
       resolveAppBasename({
-        pathname: '/t/acme/agent/123',
-        tenant: { basePath: '/t/acme', slug: 'acme' },
+        pathname: '/orgs/acme/agent/123',
+        tenant: { basePath: '/orgs/acme', slug: 'acme' },
       }),
     ).toEqual({
-      basename: '/t/acme',
+      basename: '/orgs/acme',
       tenantSlug: 'acme',
     });
   });
 
   it('handles the tenant root', () => {
     expect(
-      resolveAppBasename({ pathname: '/t/acme', tenant: { basePath: '/t/acme', slug: 'acme' } }),
+      resolveAppBasename({
+        pathname: '/orgs/acme',
+        tenant: { basePath: '/orgs/acme', slug: 'acme' },
+      }),
     ).toEqual({
-      basename: '/t/acme',
+      basename: '/orgs/acme',
       tenantSlug: 'acme',
     });
   });
@@ -45,11 +48,11 @@ describe('resolveAppBasename', () => {
   it('composes the proxy prefix with the tenant prefix, proxy outermost', () => {
     expect(
       resolveAppBasename({
-        pathname: `${DEBUG_PROXY_BASE}/t/acme/agent`,
-        tenant: { basePath: '/t/acme', slug: 'acme' },
+        pathname: `${DEBUG_PROXY_BASE}/orgs/acme/agent`,
+        tenant: { basePath: '/orgs/acme', slug: 'acme' },
       }),
     ).toEqual({
-      basename: `${DEBUG_PROXY_BASE}/t/acme`,
+      basename: `${DEBUG_PROXY_BASE}/orgs/acme`,
       tenantSlug: 'acme',
     });
   });
@@ -58,11 +61,11 @@ describe('resolveAppBasename', () => {
     expect(
       resolveAppBasename({
         debugProxy: true,
-        pathname: '/t/acme/agent',
-        tenant: { basePath: '/t/acme', slug: 'acme' },
+        pathname: '/orgs/acme/agent',
+        tenant: { basePath: '/orgs/acme', slug: 'acme' },
       }),
     ).toEqual({
-      basename: `${DEBUG_PROXY_BASE}/t/acme`,
+      basename: `${DEBUG_PROXY_BASE}/orgs/acme`,
       tenantSlug: 'acme',
     });
   });
@@ -70,7 +73,7 @@ describe('resolveAppBasename', () => {
   it('does not treat a malformed tenant slug as a basename', () => {
     // Better to 404 visibly than to boot a router whose basename does not match
     // the url — that renders an empty app with no error.
-    expect(resolveAppBasename({ pathname: '/t/UPPER/agent', tenant: null })).toEqual({
+    expect(resolveAppBasename({ pathname: '/orgs/UPPER/agent', tenant: null })).toEqual({
       basename: undefined,
       tenantSlug: null,
     });
@@ -84,9 +87,9 @@ describe('resolveAppBasename', () => {
     // The workspace subtree must still see its own segment; only the tenant
     // prefix is lifted out.
     const { basename } = resolveAppBasename({
-      pathname: '/t/acme/my-workspace/agent',
-      tenant: { basePath: '/t/acme', slug: 'acme' },
+      pathname: '/orgs/acme/my-workspace/agent',
+      tenant: { basePath: '/orgs/acme', slug: 'acme' },
     });
-    expect(basename).toBe('/t/acme');
+    expect(basename).toBe('/orgs/acme');
   });
 });

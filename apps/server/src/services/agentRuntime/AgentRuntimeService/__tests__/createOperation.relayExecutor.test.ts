@@ -326,7 +326,7 @@ describe('AgentRuntimeService', () => {
         operationId: 'test-operation-1',
         stepIndex: 0,
         context: mockParams.initialContext,
-        endpoint: 'http://localhost:3010/t/acme/api/agent/run',
+        endpoint: 'http://localhost:3010/orgs/acme/api/agent/run',
         priority: 'high',
         delay: 50,
       });

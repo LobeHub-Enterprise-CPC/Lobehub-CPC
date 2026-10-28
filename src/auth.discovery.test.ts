@@ -72,7 +72,7 @@ beforeEach(() => {
   };
   const query = { from: () => query, orderBy: async () => [row], where: () => query };
   mocks.scope = {
-    endpoint: { basePath: '/t/acme', publicUrl: 'https://app.example/t/acme', version: 1 },
+    endpoint: { basePath: '/orgs/acme', publicUrl: 'https://app.example/orgs/acme', version: 1 },
     session: { database: { select: () => query } },
     slug: 'acme',
     tenantId: 'tenant-discovery',

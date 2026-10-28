@@ -1034,7 +1034,7 @@ describe('HeterogeneousAgentService', () => {
 
       expect(mockPublishJSON).toHaveBeenCalledTimes(1);
       const arg = mockPublishJSON.mock.calls[0][0];
-      expect(arg.url).toContain('/t/acme/api/workflows/task/on-topic-complete');
+      expect(arg.url).toContain('/orgs/acme/api/workflows/task/on-topic-complete');
       expect(arg.body).toMatchObject({
         hookId: 'task-on-complete',
         hookType: 'onComplete',

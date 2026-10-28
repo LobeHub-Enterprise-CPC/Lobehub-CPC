@@ -122,7 +122,7 @@ async function provisionTenant() {
       tenantId: E2E_TENANT.id,
       version: 1,
     });
-    console.log(`E2E tenant ready: /t/${E2E_TENANT.slug}`);
+    console.log(`E2E tenant ready: /orgs/${E2E_TENANT.slug}`);
   } finally {
     await admin.end();
     await pool.end();

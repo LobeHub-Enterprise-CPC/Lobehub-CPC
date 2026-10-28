@@ -197,7 +197,7 @@ export class BackendProxyProtocolManager {
         if (!remoteBaseUrl) return null;
         lastRemoteBaseUrl = remoteBaseUrl;
 
-        // The remote base may carry a tenant path prefix (`https://host/t/acme`) that the
+        // The remote base may carry a tenant path prefix (`https://host/orgs/acme`) that the
         // renderer's backend paths (`/trpc/...`) do not, so the path is mounted under it.
         const remoteBase = new URL(remoteBaseUrl);
         // A same-origin request already under the base path is addressed to the tenant

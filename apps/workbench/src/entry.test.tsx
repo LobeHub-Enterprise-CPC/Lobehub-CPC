@@ -29,12 +29,12 @@ afterEach(() => {
   vi.resetModules();
 });
 it('mounts the workbench entry under the tenant prefix', async () => {
-  window.history.replaceState(null, '', '/t/acme/agent/agt_1/docs/doc_1');
+  window.history.replaceState(null, '', '/orgs/acme/agent/agt_1/docs/doc_1');
   document.body.innerHTML = '<div id="root"></div>';
   await import('./entry');
   const router = capture.mock.calls[0][0];
   expect(router.state.errors).toBeNull();
-  expect(router.basename).toBe('/t/acme');
+  expect(router.basename).toBe('/orgs/acme');
   expect(router.state.matches.at(-1).route.path).toBe('/agent/:aid/docs/:docId');
   expect(render).toHaveBeenCalledOnce();
 });

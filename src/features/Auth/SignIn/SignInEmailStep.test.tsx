@@ -163,7 +163,7 @@ describe('switch organization entry', () => {
   });
 
   it('offers the way out from the unavailable organization alert, even without an appUrl', () => {
-    initializeTenant(new URL('https://app.example.com/t/acme/signin'));
+    initializeTenant(new URL('https://app.example.com/orgs/acme/signin'));
 
     render(<EmailStep tenantUnavailable oAuthSSOProviders={[]} />);
 
@@ -184,7 +184,7 @@ describe('switch organization in a desktop authorization', () => {
   });
 
   const arrive = () => {
-    initializeTenant(new URL('https://app.example.com/t/acme/signin'));
+    initializeTenant(new URL('https://app.example.com/orgs/acme/signin'));
     Object.defineProperty(window, '__SERVER_CONFIG__', {
       configurable: true,
       value: { appUrl: 'https://app.example.com' },

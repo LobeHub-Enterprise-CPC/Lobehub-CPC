@@ -5,11 +5,11 @@
  * consumer joins paths onto a tenant address with the same rules. Pure and
  * dependency free on purpose: it is bundled into all three.
  *
- * The configured remote server URL is a tenant address: `https://host/t/{slug}`
+ * The configured remote server URL is a tenant address: `https://host/orgs/{slug}`
  * (default entry) or a custom-domain root such as `https://custom.host`. Every
  * tenant endpoint (/oidc, /trpc, /webapi, /api/auth, /market, ...) lives under
  * that address. `new URL('/oidc/token', remoteUrl)` and `new URL(path, remoteUrl)`
- * resolve a rooted path against the origin and silently drop `/t/{slug}`, which
+ * resolve a rooted path against the origin and silently drop `/orgs/{slug}`, which
  * the server rejects with TENANT_REQUIRED, so code that talks to a remote server joins
  * paths with the helpers here instead.
  */
@@ -32,22 +32,22 @@ const underBasePath = (pathname: string, basePath: string) =>
 
 /**
  * Whether an app path (or a URL pathname on the same origin) already sits under
- * the base path of the remote address. Compares whole segments, so `/t/acme-x`
- * is not under `/t/acme`. Every path is under a root base.
+ * the base path of the remote address. Compares whole segments, so `/orgs/acme-x`
+ * is not under `/orgs/acme`. Every path is under a root base.
  */
 export const isUnderRemoteBase = (pathname: string, remoteBase: string | URL): boolean =>
   underBasePath(pathname, basePathOf(parseHttpBase(remoteBase)));
 
 /**
  * Mount an in-app absolute path (query/hash allowed) under the remote address,
- * keeping its path prefix: `('/oidc/token', 'https://host/t/acme/')` ->
- * `https://host/t/acme/oidc/token`.
+ * keeping its path prefix: `('/oidc/token', 'https://host/orgs/acme/')` ->
+ * `https://host/orgs/acme/oidc/token`.
  *
  * - A path that already starts with the base path is not prefixed twice.
  * - Only rooted paths (or `''` / `?query`) are accepted. Protocol-relative
  *   (`//evil`), backslash and absolute URLs throw, so a caller can never be
  *   steered to another origin.
- * - Dot segments that would climb out of the base path (`/../t/other`) throw, so
+ * - Dot segments that would climb out of the base path (`/../orgs/other`) throw, so
  *   a path can never address another tenant.
  */
 export const buildRemoteUrl = (path: string, remoteBase: string | URL): URL => {
@@ -78,7 +78,7 @@ export const buildRemoteUrl = (path: string, remoteBase: string | URL): URL => {
 /**
  * Canonical form of a user-entered remote server address: trimmed, lowercase
  * origin, path prefix kept, duplicate and trailing slashes, query and hash
- * dropped (`https://host/t/acme/` -> `https://host/t/acme`, `https://host/` ->
+ * dropped (`https://host/orgs/acme/` -> `https://host/orgs/acme`, `https://host/` ->
  * `https://host`). Empty and unparsable / non-http(s) input is returned as is
  * (trimmed) for the existing validators to reject.
  */
@@ -99,9 +99,9 @@ export function normalizeRemoteBaseUrl(raw: string | undefined): string | undefi
 
 /**
  * The app path of `pathname` below the base path of the remote address
- * (`('/t/acme/f/x', 'https://host/t/acme')` -> `/f/x`, the base itself -> `/`),
+ * (`('/orgs/acme/f/x', 'https://host/orgs/acme')` -> `/f/x`, the base itself -> `/`),
  * or `null` when the pathname is outside it: another tenant, a sibling slug
- * (`/t/acme-x`), or a path the server did not prefix. Every path is below a root
+ * (`/orgs/acme-x`), or a path the server did not prefix. Every path is below a root
  * base and is returned unchanged.
  */
 export const relativeToRemoteBase = (pathname: string, remoteBase: string | URL): string | null => {

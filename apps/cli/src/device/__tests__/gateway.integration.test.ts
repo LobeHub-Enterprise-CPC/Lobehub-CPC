@@ -67,7 +67,7 @@ describe('CLI gateway transport through local execution', () => {
     receivedIdentityBodies.length = 0;
     server = createServer(async (req, res) => {
       if (
-        req.url !== '/t/a/api/v1/gateway/identity' ||
+        req.url !== '/orgs/a/api/v1/gateway/identity' ||
         extractBearerToken(req.headers.authorization) !== 'TEST-ONLY'
       ) {
         res.writeHead(404).end();
@@ -146,7 +146,7 @@ describe('CLI gateway transport through local execution', () => {
     run: GatewayHandlerContext['maintenance']['run'] = async (action) => action(),
   ) => {
     const auth = {
-      serverUrl: `${entry}/t/a`,
+      serverUrl: `${entry}/orgs/a`,
       token: 'TEST-ONLY',
       tokenType: 'apiKey' as const,
       userId: 'same-sub',

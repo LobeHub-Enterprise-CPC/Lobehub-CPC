@@ -101,9 +101,9 @@ describe('GlobalService', () => {
     };
 
     it.each([
-      ['https://host/t/acme', 'https://host/t/acme/api/version'],
-      ['https://host/t/acme/', 'https://host/t/acme/api/version'],
-      ['http://127.0.0.1:3210/t/acme', 'http://127.0.0.1:3210/t/acme/api/version'],
+      ['https://host/orgs/acme', 'https://host/orgs/acme/api/version'],
+      ['https://host/orgs/acme/', 'https://host/orgs/acme/api/version'],
+      ['http://127.0.0.1:3210/orgs/acme', 'http://127.0.0.1:3210/orgs/acme/api/version'],
       ['https://custom.host', 'https://custom.host/api/version'],
       ['https://custom.host/', 'https://custom.host/api/version'],
     ])('asks the tenant address %s, keeping its path prefix', async (remote, expectedUrl) => {
@@ -123,7 +123,7 @@ describe('GlobalService', () => {
     });
 
     it('does not ask a remote server outside the desktop app', async () => {
-      connect('https://host/t/acme');
+      connect('https://host/orgs/acme');
       mockConstEnv.isDesktop = false;
 
       await expect(globalService.getServerVersion()).resolves.toBeNull();

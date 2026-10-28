@@ -1,3 +1,4 @@
+import { isWellFormedTenantSlug } from '@lobechat/utils/tenantPath';
 import type { SafeReadinessDiagnosticCode } from '@lobechat/database/tenant';
 import { isTenantId, isTenantSchemaName } from '@lobechat/database/tenant';
 import { z } from 'zod';
@@ -30,6 +31,7 @@ export const SAFE_ERROR_CODES = [
   'TENANT_NOT_READY',
   'TENANT_NOT_FOUND',
   'VERSION_CONFLICT',
+  'SLUG_CONFLICT',
   'DATASOURCE_INVALID',
   'DATASOURCE_VERSION_CONFLICT',
   'CREDENTIALS_UNAVAILABLE',
@@ -215,6 +217,40 @@ export interface LifecycleResult {
   eventId: string;
   observedAt: string;
   status: LifecycleStatus;
+  tenantId: string;
+  version: number;
+}
+
+const slugShape = z.string().refine(isWellFormedTenantSlug, 'SLUG_INVALID');
+
+/**
+ * Name and slug edited after creation (`tenant-profile`). Version 1 is the provision itself, so a
+ * revision starts at 2. `formerSlugs` is the tenant's whole alias set: they keep resolving to it.
+ */
+export const profileRequestSchema = z
+  .object({
+    eventId: id,
+    formerSlugs: z.array(slugShape),
+    name: z.string().trim().min(1).max(256),
+    slug: slugShape,
+    tenantId,
+    version: version.min(2),
+  })
+  .strict()
+  .refine((v) => new Set(v.formerSlugs).size === v.formerSlugs.length, 'DUPLICATE_FORMER_SLUG')
+  .refine((v) => !v.formerSlugs.includes(v.slug), 'SLUG_IS_FORMER_SLUG');
+export type ProfileRequest = z.output<typeof profileRequestSchema>;
+
+export interface ProfileResult {
+  acceptedVersion: number;
+  appliedVersion: number;
+  errorCode: null;
+  eventId: string;
+  /** The receiver's name and slug after handling, whatever the request asked. */
+  name: string;
+  observedAt: string;
+  slug: string;
+  status: 'applied' | 'superseded';
   tenantId: string;
   version: number;
 }

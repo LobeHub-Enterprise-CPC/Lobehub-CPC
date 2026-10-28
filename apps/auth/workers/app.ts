@@ -40,7 +40,7 @@ const stripTrailingSlash = (pathname: string) =>
 
 /**
  * The tenant's auth config: accounts belong to a tenant and its pages live under
- * `/t/{slug}`, so the config request carries the same prefix (the endpoint
+ * `/orgs/{slug}`, so the config request carries the same prefix (the endpoint
  * refuses a request without a tenant).
  */
 const loadServerConfig = async (
@@ -100,7 +100,7 @@ const serveDocument = async (
 export default {
   fetch(request: Request, env: Env) {
     const url = new URL(request.url);
-    // Pages and API calls of a tenant arrive as `/t/{slug}/...`; route on the rest.
+    // Pages and API calls of a tenant arrive as `/orgs/{slug}/...`; route on the rest.
     const tenant = resolveTenant(url);
     const pathname = stripTrailingSlash(stripTenantPath(url.pathname));
 
@@ -117,7 +117,7 @@ export default {
     if (!matchesPrefix(pathname, AUTH_PATH_PREFIXES))
       return Response.redirect(env.AUTH_APP_HOME || 'https://lobehub.com', 302);
 
-    // This independent static worker only supports the established /t/slug deployment.
+    // This independent static worker only supports the established /orgs/slug (or legacy /t/slug) deployment.
     // Custom root auth is served by the main server, which owns trusted Host resolution and
     // injects its bootstrap. No cross-zone Host spoofing or unsigned tenant headers here.
     if (!tenant)

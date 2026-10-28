@@ -166,7 +166,7 @@ describe('useSignIn', () => {
       );
 
     it('is recognised from a callback that is the desktop authorization request', () => {
-      callbackFor('https://app.example.com/t/acme/oidc/auth?client_id=tituwork-desktop&x=1');
+      callbackFor('https://app.example.com/orgs/acme/oidc/auth?client_id=tituwork-desktop&x=1');
 
       const { result } = renderHook(() => useSignIn());
 
@@ -480,17 +480,17 @@ describe('useSignIn', () => {
         value: {
           ...originalLocation,
           get href() {
-            return `${originalLocation.origin}/t/acme/signin`;
+            return `${originalLocation.origin}/orgs/acme/signin`;
           },
           set href(value: string) {
             navigate(value);
           },
           origin: originalLocation.origin,
-          pathname: '/t/acme/signin',
+          pathname: '/orgs/acme/signin',
         },
       });
       mockSearchParamsGet.mockImplementation((key: string) =>
-        key === 'callbackUrl' ? '/t/acme' : null,
+        key === 'callbackUrl' ? '/orgs/acme' : null,
       );
       mockSignInEmail.mockImplementation(completeEmailSignInWithSdk);
       mockFetch.mockResolvedValueOnce({
@@ -504,7 +504,7 @@ describe('useSignIn', () => {
       await act(async () => {
         await result.current.handleSignIn({ password: 'password123' });
       });
-      expect(navigate).toHaveBeenCalledExactlyOnceWith(`${originalLocation.origin}/t/acme`);
+      expect(navigate).toHaveBeenCalledExactlyOnceWith(`${originalLocation.origin}/orgs/acme`);
     });
 
     it('should call signIn.email and redirect on success', async () => {

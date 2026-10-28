@@ -7,7 +7,7 @@ import { isWellFormedTenantSlug } from '@lobechat/business-tenant/routing';
  * the backend route handlers, which only see the rewritten, unprefixed path.
  *
  * The proxy is the single place that reads the tenant from the request
- * (`/t/{slug}` today, a Host mapping later, spec A17). It always strips any
+ * (`/orgs/{slug}` today, a Host mapping later, spec A17). It always strips any
  * incoming value of this header, then sets `<slug>.<mac>` for a tenant path.
  * The MAC (HMAC-SHA256 under a key derived from `KEY_VAULTS_SECRET`) means a
  * route reached without going through the proxy cannot be handed a tenant by

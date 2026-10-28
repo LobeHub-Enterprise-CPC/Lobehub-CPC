@@ -250,14 +250,14 @@ describe('LobeComfyUI Runtime', () => {
         apiKey: 'test-key',
         authType: 'bearer',
         baseURL: 'https://test.comfyui.com',
-        serviceURL: 'http://internal-service:3210/t/acme/webapi/create-image/comfyui',
+        serviceURL: 'http://internal-service:3210/orgs/acme/webapi/create-image/comfyui',
       });
       mockFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue({}), ok: true });
 
       await runtime.createImage({ model: 'flux1-dev.safetensors', params: { prompt: 'p' } });
 
       const [url, init] = mockFetch.mock.calls[0];
-      expect(url).toBe('http://internal-service:3210/t/acme/webapi/create-image/comfyui');
+      expect(url).toBe('http://internal-service:3210/orgs/acme/webapi/create-image/comfyui');
       expect(JSON.parse(init.body).options).toEqual({
         apiKey: 'test-key',
         authType: 'bearer',

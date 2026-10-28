@@ -24,12 +24,12 @@ afterEach(() => {
   vi.resetModules();
 });
 it('mounts the share entry under the tenant prefix instead of exiting the share', async () => {
-  window.history.replaceState(null, '', '/t/acme/share/t/abc');
+  window.history.replaceState(null, '', '/orgs/acme/share/t/abc');
   document.body.innerHTML = '<div id="root"></div>';
   await import('./entry');
   const router = capture.mock.calls[0][0];
   expect(router.state.errors).toBeNull();
-  expect(router.basename).toBe('/t/acme');
+  expect(router.basename).toBe('/orgs/acme');
   expect(router.state.matches.at(-1).route.path).toBe('/share/t/:id');
   expect(render).toHaveBeenCalledOnce();
 });

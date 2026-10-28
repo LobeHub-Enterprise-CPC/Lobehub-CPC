@@ -19,7 +19,7 @@ const entryPath = path.join(tmpDir, 'lh.js');
 const execFileSyncMock = vi.hoisted(() => vi.fn());
 const getRunningDaemonPidMock = vi.hoisted(() => vi.fn());
 const loadCredentialsMock = vi.hoisted(() => vi.fn());
-const SERVER_URL = 'https://app.test/t/a';
+const SERVER_URL = 'https://app.test/orgs/a';
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<Record<string, any>>();
@@ -154,7 +154,7 @@ describe('connect service', () => {
   it('does not install a stored login that another server issued', () => {
     loadCredentialsMock.mockReturnValue({
       accessToken: 'jwt',
-      serverUrl: 'https://other.example/t/a',
+      serverUrl: 'https://other.example/orgs/a',
     });
 
     expect(() => installConnectService()).toThrow(`login --server ${SERVER_URL}`);

@@ -15,7 +15,7 @@ import {
 const { mockFetch } = vi.hoisted(() => ({ mockFetch: vi.fn() }));
 vi.mock('@/utils/net-fetch', () => ({ netFetch: mockFetch }));
 
-const ISSUER = 'https://platform.example/t/acme/oidc';
+const ISSUER = 'https://platform.example/orgs/acme/oidc';
 const NOW = 1_800_000_000_000;
 const START = NOW - 60_000;
 
@@ -162,7 +162,7 @@ describe('tokenVerifier', () => {
   });
 
   it('refuses a JWKS over http (outside development loopback) and a redirecting JWKS', async () => {
-    const insecure = 'http://platform.example/t/acme/oidc';
+    const insecure = 'http://platform.example/orgs/acme/oidc';
     await expect(
       verifyIdToken({
         expectedIssuer: insecure,

@@ -49,7 +49,7 @@ vi.mock('./interaction-policy', () => ({ createInteractionPolicy: () => [] }));
 
 const tenant = {
   slug: 'acme',
-  endpoint: { basePath: '/t/acme', publicUrl: 'http://localhost:3000/t/acme', version: 1 },
+  endpoint: { basePath: '/orgs/acme', publicUrl: 'http://localhost:3000/orgs/acme', version: 1 },
   tenantId: 'tenant-acme',
 };
 
@@ -76,11 +76,11 @@ describe('OIDC provider logs never carry credentials', () => {
     };
 
     expect(state.config.interactions.url({ oidc: {} }, interaction)).toBe(
-      `/t/acme/oauth/consent/${SENTINELS.uid}?hl=en-US`,
+      `/orgs/acme/oauth/consent/${SENTINELS.uid}?hl=en-US`,
     );
     expect(
       state.config.interactions.url({ oidc: {} }, { ...interaction, prompt: { name: 'login' } }),
-    ).toBe(`/t/acme/oidc/interaction/${SENTINELS.uid}/login?hl=en-US`);
+    ).toBe(`/orgs/acme/oidc/interaction/${SENTINELS.uid}/login?hl=en-US`);
 
     expect(capturedLogs()).not.toBe('');
     expectNoSecretsLogged();

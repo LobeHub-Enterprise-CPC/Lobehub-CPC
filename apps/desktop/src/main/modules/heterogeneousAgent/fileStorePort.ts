@@ -50,7 +50,7 @@ export const callLambdaMutation = async <T>(
   // local-execution only — `selectRuntimeType` rejects API-mode runs for any
   // workspace agent (including the author, who otherwise CAN spawn one
   // in-process) — so a workspace scope must never leak in here.
-  // serverUrl may carry a tenant path prefix (`/t/{slug}`); buildRemoteUrl keeps it.
+  // serverUrl may carry a tenant path prefix (`/orgs/{slug}`); buildRemoteUrl keeps it.
   const response = await fetch(buildRemoteUrl(`/trpc/lambda/${procedure}`, serverUrl).toString(), {
     body: JSON.stringify(superjson.serialize(input)),
     headers: {

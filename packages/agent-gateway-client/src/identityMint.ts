@@ -14,7 +14,7 @@ export interface GatewayIdentityMinterOptions {
   /** Checked before the request and again before the response is trusted; throws to abandon. */
   assertCurrent: (signal: AbortSignal) => Promise<void> | undefined;
   audience?: IdentityAudience;
-  /** Tenant address the identity is minted at (`https://host[/t/slug]`). */
+  /** Tenant address the identity is minted at (`https://host[/orgs/slug]`). */
   entryUrl: string;
   /** Transport for the identity request; never follow redirects. Defaults to global `fetch`. */
   fetch?: (url: string, init: RequestInit) => Promise<Response>;

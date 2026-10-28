@@ -1212,7 +1212,7 @@ describe('widget + dashboard routers integration', () => {
           // QStash rejects `:` in a deduplication id, so the logical
           // `widget:<id>:<slot>` key is encoded before it is published.
           deduplicationId: expect.stringMatching(/^[a-f0-9]{64}$/),
-          url: 'https://app.test/t/acme/api/workflows/widget/run-widget',
+          url: 'https://app.test/orgs/acme/api/workflows/widget/run-widget',
         });
         expect(publish.mock.calls[0][0].deduplicationId).not.toContain(':');
         // Not claimed and nothing ran in the tick: the slot is still due.
@@ -1323,7 +1323,7 @@ describe('widget + dashboard routers integration', () => {
           body: resumeMessage,
           // Same QStash-safe encoding as a due slot's publish.
           deduplicationId: expect.stringMatching(/^[a-f0-9]{64}$/),
-          url: 'https://app.test/t/acme/api/workflows/widget/run-widget',
+          url: 'https://app.test/orgs/acme/api/workflows/widget/run-widget',
         });
 
         expect(await post('/run-widget', resumeMessage)).toEqual({

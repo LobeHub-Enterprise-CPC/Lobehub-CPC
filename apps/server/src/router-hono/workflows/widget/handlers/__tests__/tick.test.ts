@@ -35,8 +35,8 @@ describe('widget scheduler tick in queue mode', () => {
     await tick({ json, req: { json: async () => ({}) } } as any);
 
     expect(mocks.publishJSON.mock.calls.map(([request]: any[]) => request.url)).toEqual([
-      'https://app.example.com/t/acme/api/workflows/widget/run-widget',
-      'https://app.example.com/t/acme/api/workflows/widget/run-widget',
+      'https://app.example.com/orgs/acme/api/workflows/widget/run-widget',
+      'https://app.example.com/orgs/acme/api/workflows/widget/run-widget',
     ]);
     vi.unstubAllEnvs();
   });

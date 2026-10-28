@@ -3,6 +3,7 @@ import {
   type PlatformDatabase,
   tenantDirectory,
   tenantEndpoints,
+  tenantSlugAlias,
 } from '@lobechat/database/platform';
 import { eq } from 'drizzle-orm';
 
@@ -14,6 +15,8 @@ import { TenantGateError } from './errors';
 
 export const getTenantEndpoints = () => new TenantEndpointsService(getPlatformDB());
 type EndpointEntry = {
+  /** Slugs the tenant was renamed from; they still resolve to it. */
+  formerSlugs: string[];
   /** The organization's display name in the platform directory. */
   name: string;
   routingFetchedAt: number;
@@ -36,7 +39,7 @@ const repository = (platform: PlatformDatabase) => {
           slug: tenantDirectory.slug,
           tenantId: tenantDirectory.tenantId,
         };
-        const [entry] =
+        let [entry] =
           kind === 'host'
             ? await platform
                 .select(columns)
@@ -51,11 +54,24 @@ const repository = (platform: PlatformDatabase) => {
                     ? eq(tenantDirectory.slug, value)
                     : eq(tenantDirectory.tenantId, value),
                 );
+        // A slug the tenant used to have resolves to the tenant itself: the entry carries the
+        // current slug, which is how callers tell the two apart.
+        if (!entry && kind === 'slug')
+          [entry] = await platform
+            .select(columns)
+            .from(tenantSlugAlias)
+            .innerJoin(tenantDirectory, eq(tenantDirectory.tenantId, tenantSlugAlias.tenantId))
+            .where(eq(tenantSlugAlias.slug, value));
         if (!entry) return null;
         // Each key reads a fresh snapshot; never wrap an older tenant-key cache entry and
         // accidentally extend its TTL while resolving a slug or authority.
+        const aliases = await platform
+          .select({ slug: tenantSlugAlias.slug })
+          .from(tenantSlugAlias)
+          .where(eq(tenantSlugAlias.tenantId, entry.tenantId));
         return {
           ...entry,
+          formerSlugs: aliases.map(({ slug }) => slug).sort(),
           routingFetchedAt,
           state: await new TenantEndpointsService(platform).get(entry.tenantId),
         };
@@ -83,6 +99,7 @@ export const loadTenantPublicEndpoint = async (
 };
 export const findHostEndpoint = (host: string, platform: PlatformDatabase = getPlatformDB()) =>
   repository(platform).get(`host:${host}`);
+/** By current slug or by a former one (then `entry.slug` is not `slug`). */
 export const findSlugEndpoint = (slug: string, platform: PlatformDatabase = getPlatformDB()) =>
   repository(platform).get(`slug:${slug}`);
 export const endpointHosts = () => ({

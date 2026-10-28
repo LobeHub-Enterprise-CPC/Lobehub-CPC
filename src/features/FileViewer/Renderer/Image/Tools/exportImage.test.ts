@@ -181,19 +181,19 @@ describe('loadReadableImage', () => {
     );
   });
 
-  it('resolves a tenant-prefixed /t/{slug}/f/:id proxy file the same way', async () => {
+  it('resolves a tenant-prefixed /orgs/{slug}/f/:id proxy file the same way', async () => {
     const fetchMock = vi.fn(async () => new Response(new Blob(['png'], { type: 'image/png' })));
     vi.stubGlobal('fetch', fetchMock);
     const resolveProxyUrl = vi.fn(async () => 'https://s3/files/a.png?sig=2');
 
-    initializeTenant(new URL('https://app.lobehub.com/t/acme/agent'));
+    initializeTenant(new URL('https://app.lobehub.com/orgs/acme/agent'));
 
-    await loadReadableImage('https://app.lobehub.com/t/acme/f/file_abc', { resolveProxyUrl });
+    await loadReadableImage('https://app.lobehub.com/orgs/acme/f/file_abc', { resolveProxyUrl });
     expect(resolveProxyUrl).toHaveBeenCalledWith('file_abc');
 
     // Another tenant's file id does not exist in this tenant.
     resolveProxyUrl.mockClear();
-    await loadReadableImage('https://app.lobehub.com/t/beta/f/file_abc', { resolveProxyUrl });
+    await loadReadableImage('https://app.lobehub.com/orgs/beta/f/file_abc', { resolveProxyUrl });
     expect(resolveProxyUrl).not.toHaveBeenCalled();
     initializeTenant(new URL('https://app.lobehub.com/'));
   });

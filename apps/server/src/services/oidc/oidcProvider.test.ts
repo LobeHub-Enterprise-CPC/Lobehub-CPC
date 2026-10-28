@@ -13,8 +13,8 @@ vi.mock('@/libs/oidc-provider/provider', () => ({
 }));
 
 const entryOf = (slug: string) => ({
-  basePath: `/t/${slug}`,
-  publicUrl: `https://app.example.com/t/${slug}`,
+  basePath: `/orgs/${slug}`,
+  publicUrl: `https://app.example.com/orgs/${slug}`,
   version: 1,
 });
 
@@ -46,7 +46,11 @@ it('rebuilds a tenant provider when the active endpoint revision changes', async
   const scope = {
     slug: 'acme',
     tenantId: 'endpoint-cache-tenant',
-    endpoint: { basePath: '/t/acme', publicUrl: 'https://app.example.com/t/acme', version: 1 },
+    endpoint: {
+      basePath: '/orgs/acme',
+      publicUrl: 'https://app.example.com/orgs/acme',
+      version: 1,
+    },
   } as TenantScope;
   const first = await runWithTenantScope(scope, getOIDCProvider);
   const next = {

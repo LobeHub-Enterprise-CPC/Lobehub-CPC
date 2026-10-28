@@ -60,12 +60,20 @@ export interface TenantDirectoryRecord {
   connectionVersion: number;
   credentialBundleVersion: number;
   name: string;
+  /** Revision of name and slug; they change only through `putProfile` (tenant-profile). */
+  profileVersion: number;
   schemaName: string;
   schemaVersion: number;
-  /** URL name; fixed once registered (FR-CP-09). */
   slug: string;
   status: 'provisioning' | 'active' | 'disabled';
   tenantId: string;
+}
+
+/** What `tenant-profile` edits, with the revision that wrote it (1 until the first edit). */
+export interface TenantProfileRecord {
+  name: string;
+  profileVersion: number;
+  slug: string;
 }
 
 export interface TenantLifecycleRecord {
@@ -118,7 +126,10 @@ export interface ControlPlaneTx {
   /** Revokes the execution leases of in-flight operations and events, so none can still own a write. */
   fenceInFlight: (tenantId: string) => Promise<void>;
   findEventByVersion: (tenantId: string, version: number) => Promise<LifecycleEventRecord | null>;
-  /** The tenant that registered `slug`, if any. Slugs never move between tenants. */
+  /**
+   * The tenant that holds `slug` as its slug, an alias or a pending provision, if any. Slugs never
+   * move between tenants.
+   */
   findTenantBySlug: (slug: string) => Promise<string | null>;
   /** Sets the drain result once; a result already set never changes. */
   finishDrain: (tenantId: string, result: DrainResult) => Promise<DestructionRecord>;
@@ -132,8 +143,17 @@ export interface ControlPlaneTx {
   getOperation: (operationId: string) => Promise<ProvisionOperationRecord | null>;
   /** The bundle a provision operation was received with, until the operation applies. */
   getOperationBundle: (operationId: string) => Promise<DatasourceBundle | null>;
+  /** The directory's name, slug and profile revision, without opening the sealed credentials. */
+  getProfile: (tenantId: string) => Promise<TenantProfileRecord | null>;
   listOpenEvents: (tenantId: string) => Promise<LifecycleEventRecord[]>;
   listOperations: (tenantId: string) => Promise<ProvisionOperationRecord[]>;
+  /** Slugs this tenant used to have. */
+  listSlugAliases: (tenantId: string) => Promise<string[]>;
+  /**
+   * Serialises every writer of the slug namespace (directory slugs and aliases are two tables, so
+   * no unique index spans them). Take it before checking a slug for conflicts.
+   */
+  lockSlugs: () => Promise<void>;
   observeDrain: (tenantId: string, now: Date) => Promise<DrainObservation>;
   putDirectory: (record: TenantDirectoryRecord, bundle: DatasourceBundle) => Promise<void>;
   putEvent: (record: LifecycleEventRecord) => Promise<void>;
@@ -141,6 +161,14 @@ export interface ControlPlaneTx {
   putOperation: (record: ProvisionOperationRecord) => Promise<void>;
   /** Stores (`bundle`) or drops (`null`) the operation's pending bundle. */
   putOperationBundle: (operationId: string, bundle: DatasourceBundle | null) => Promise<void>;
+  /**
+   * Stores a newer profile: name, slug and revision on the directory row, and the alias set replaced
+   * by `formerSlugs`. The only writer that changes a directory slug.
+   */
+  putProfile: (
+    tenantId: string,
+    profile: TenantProfileRecord & { formerSlugs: string[] },
+  ) => Promise<void>;
   /** Checked under the tenant control lock immediately before applied. */
   /** Why the tenant cannot be certified stopped yet, or null when it is. */
   tenantStopBlocker: (tenantId: string) => Promise<'LIFECYCLE_STOP_UNCONFIRMED' | null>;

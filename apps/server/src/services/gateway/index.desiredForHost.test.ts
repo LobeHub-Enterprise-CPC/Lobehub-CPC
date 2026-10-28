@@ -205,7 +205,7 @@ describe('GatewayService', () => {
           botToken: 'tok-1',
           webhookToken: 'gateway-service-token',
         },
-        webhookPath: '/t/acme/api/agent/messenger/webhooks/wechat',
+        webhookPath: '/orgs/acme/api/agent/messenger/webhooks/wechat',
       });
     });
 
