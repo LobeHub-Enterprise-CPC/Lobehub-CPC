@@ -26,6 +26,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useHasActiveWorkspace } from '@/business/client/hooks/useHasActiveWorkspace';
 import { useHelpMenuBugReportItem } from '@/business/client/hooks/useHelpMenuBugReportItem';
+import { brandIcon } from '@/components/BrandIcon';
 import { openChangelogModal } from '@/components/ChangelogModal';
 import { openFeedbackModal } from '@/components/FeedbackModal';
 import { DOCUMENTS_REFER_URL, GITHUB } from '@/const/url';
@@ -369,7 +370,11 @@ const Footer = memo(() => {
               placement="topLeft"
               onOpenChange={handleMenuOpenChange}
             >
-              <ActionIcon aria-label={t('userPanel.help')} icon={CircleHelp} size={16} />
+              <ActionIcon
+                aria-label={t('userPanel.help')}
+                icon={brandIcon('nav.help', CircleHelp)}
+                size={16}
+              />
             </DropdownMenu>
           )}
           {isDevMode && (

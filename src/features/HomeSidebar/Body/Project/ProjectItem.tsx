@@ -4,6 +4,7 @@ import { ActionIcon, Avatar, DropdownMenu } from '@lobehub/ui';
 import { FolderClosedIcon, MoreHorizontalIcon } from 'lucide-react';
 import { memo } from 'react';
 
+import { brandIcon } from '@/components/BrandIcon';
 import NavItem from '@/features/NavPanel/components/NavItem';
 import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 import type { ProjectListItem } from '@/store/project';
@@ -26,7 +27,11 @@ const ProjectItem = memo<ProjectItemProps>(({ project }) => {
         actions={
           canManage ? (
             <DropdownMenu items={menuItems}>
-              <ActionIcon icon={MoreHorizontalIcon} loading={deleting} size={'small'} />
+              <ActionIcon
+                icon={brandIcon('action.more', MoreHorizontalIcon)}
+                loading={deleting}
+                size={'small'}
+              />
             </DropdownMenu>
           ) : undefined
         }
@@ -36,7 +41,7 @@ const ProjectItem = memo<ProjectItemProps>(({ project }) => {
           project.avatar ? (
             <Avatar avatar={project.avatar} shape={'square'} size={18} />
           ) : (
-            FolderClosedIcon
+            brandIcon('project.folder', FolderClosedIcon)
           )
         }
       />

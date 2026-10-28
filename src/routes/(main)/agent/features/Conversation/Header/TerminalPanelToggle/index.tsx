@@ -6,6 +6,7 @@ import { SquareTerminalIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { brandIcon } from '@/components/BrandIcon';
 import { DESKTOP_HEADER_ICON_SMALL_SIZE } from '@/const/layoutTokens';
 import { isDesktop } from '@/const/version';
 import { deviceSelectors, useDeviceStore } from '@/store/device';
@@ -33,7 +34,7 @@ const TerminalPanelToggle = memo(() => {
   return (
     <ActionIcon
       active={showTerminalPanel}
-      icon={SquareTerminalIcon}
+      icon={brandIcon('topic.terminal', SquareTerminalIcon)}
       size={DESKTOP_HEADER_ICON_SMALL_SIZE}
       title={t('terminalPanel.title')}
       tooltipProps={{ hotkey, placement: 'bottom' }}

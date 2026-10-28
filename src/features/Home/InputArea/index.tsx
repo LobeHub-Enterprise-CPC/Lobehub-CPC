@@ -1,4 +1,8 @@
-import { EXTERNAL_INTEGRATIONS_ENABLED, HOME_COMPOSER_AGENT_DOCK } from '@lobechat/business-const';
+import {
+  EXTERNAL_INTEGRATIONS_ENABLED,
+  HOME_COMPOSER_AGENT_DOCK,
+  PRODUCT_COPY_VARIANT,
+} from '@lobechat/business-const';
 import { createStaticStyles, Flexbox } from '@lobehub/ui';
 import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -79,7 +83,12 @@ const InputArea = ({
   const dailyHint = currentPair?.hint ? stripMarkdownLinks(currentPair.hint) : undefined;
   const placeholder =
     mode === 'chat'
-      ? dailyHint || t('dashboard.placeholder.chat')
+      ? dailyHint ||
+        t(
+          PRODUCT_COPY_VARIANT === 'workspace'
+            ? 'dashboard.placeholder.mention'
+            : 'dashboard.placeholder.chat',
+        )
       : t(`dashboard.placeholder.${mode}`);
 
   const editorSlot = (

@@ -1,4 +1,5 @@
 import {
+  HOME_CUSTOMIZE_ENABLED,
   HOME_DEFAULT_HIDDEN_WIDGETS,
   HOME_PORTRAIT_ENABLED,
   PROJECT_FIRST_NAVIGATION,
@@ -409,9 +410,11 @@ const mobileShowTopic = (s: GlobalState) => s.status.mobileShowTopic;
 const mobileShowPortal = (s: GlobalState) => s.status.mobileShowPortal;
 const showAgentBuilderPanel = (s: GlobalState) => s.status.showAgentBuilderPanel;
 const showHomeRail = (s: GlobalState) => s.status.showHomeRail ?? true;
-const showHomePortrait = (s: GlobalState) => s.status.showHomePortrait ?? HOME_PORTRAIT_ENABLED;
+// With Customize off, a layout stored before the switch must not outlive it.
+const showHomePortrait = (s: GlobalState) =>
+  (HOME_CUSTOMIZE_ENABLED ? s.status.showHomePortrait : undefined) ?? HOME_PORTRAIT_ENABLED;
 const hiddenHomeWidgets = (s: GlobalState): string[] =>
-  s.status.hiddenHomeWidgets ?? HOME_DEFAULT_HIDDEN_WIDGETS;
+  (HOME_CUSTOMIZE_ENABLED ? s.status.hiddenHomeWidgets : undefined) ?? HOME_DEFAULT_HIDDEN_WIDGETS;
 const homeGoalsCollapsed = (s: GlobalState): boolean => s.status.homeGoalsCollapsed ?? false;
 const homeRecentsCount = (s: GlobalState): number => s.status.homeRecentsCount ?? 8;
 const homeTaskCount = (s: GlobalState): number => s.status.homeTaskCount ?? 8;

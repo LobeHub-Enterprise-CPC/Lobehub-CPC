@@ -13,6 +13,7 @@ import { type LucideIcon } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { brandIcon } from '@/components/BrandIcon';
 import { useChatInputResourceAccess } from '@/features/ChatInput/hooks/useChatInputResourceAccess';
 import { usePermission } from '@/hooks/usePermission';
 import { useUserStore } from '@/store/user';
@@ -67,7 +68,7 @@ const ModeItemLabel = memo<{ desc: string; icon: LucideIcon; title: string }>(
 const MODE_ICONS: Record<ApprovalMode, LucideIcon> = {
   'allow-list': ListChecks,
   'auto-run': Zap,
-  'manual': Hand,
+  'manual': brandIcon('chat.approvalManual', Hand),
 };
 
 interface ModeSelectorProps {

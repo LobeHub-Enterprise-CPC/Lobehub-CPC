@@ -7,6 +7,7 @@ import { type ReactNode } from 'react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { brandIcon } from '@/components/BrandIcon';
 import { DESKTOP_HEADER_ICON_SMALL_SIZE } from '@/const/layoutTokens';
 import { isDesktop } from '@/const/version';
 import { useGlobalStore } from '@/store/global';
@@ -55,7 +56,7 @@ const ToggleLeftPanelButton = memo<ToggleLeftPanelButtonProps>(
     return (
       <ActionIcon
         active={showActive ? expand : undefined}
-        icon={icon || (expand ? PanelLeftClose : PanelLeftOpen)}
+        icon={icon || brandIcon('panel.toggle', expand ? PanelLeftClose : PanelLeftOpen)}
         id={id ?? undefined}
         size={size || DESKTOP_HEADER_ICON_SMALL_SIZE}
         title={title || t('toggleLeftPanel.title', { ns: 'hotkey' })}

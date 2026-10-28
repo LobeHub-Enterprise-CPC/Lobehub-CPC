@@ -7,6 +7,7 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router';
 
+import { brandIcon } from '@/components/BrandIcon';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
 
@@ -42,7 +43,7 @@ const WorkingPanelToggle = memo(() => {
       <ActionIcon
         active={showWorkingOverview}
         aria-label={t('workingPanel.overview.title')}
-        icon={LayoutDashboardIcon}
+        icon={brandIcon('topic.overview', LayoutDashboardIcon)}
         size={DESKTOP_HEADER_ICON_SMALL_SIZE}
         title={t('workingPanel.overview.title')}
         onClick={() => {
@@ -57,7 +58,7 @@ const WorkingPanelToggle = memo(() => {
       {!showRightPanel && (
         <ActionIcon
           aria-label={t('workingPanel.title')}
-          icon={PanelRightOpenIcon}
+          icon={brandIcon('panel.toggle', PanelRightOpenIcon)}
           size={DESKTOP_HEADER_ICON_SMALL_SIZE}
           title={t('workingPanel.title')}
           onClick={() => openWorkingSidebar()}

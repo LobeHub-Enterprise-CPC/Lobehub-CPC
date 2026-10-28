@@ -15,6 +15,7 @@ import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import useSWRMutation from 'swr/mutation';
 
+import { brandIcon } from '@/components/BrandIcon';
 import { useGroupTemplates } from '@/components/ChatGroupWizard/templates';
 import { DEFAULT_CHAT_GROUP_CHAT_CONFIG } from '@/const/settings';
 import { openConnectAgentModal } from '@/features/ConnectAgent';
@@ -234,7 +235,7 @@ export const useCreateMenuItems = () => {
    */
   const createAgentMenuItem = useCallback(
     (options?: CreateAgentOptions): MenuItem => ({
-      icon: <Icon icon={BotIcon} />,
+      icon: <Icon icon={brandIcon('agent.create', BotIcon)} />,
       disabled: !canCreate,
       // Key needs to vary by visibility so the public and private "New
       // Agent" entries can coexist (e.g. if a future menu lists both).
@@ -263,7 +264,7 @@ export const useCreateMenuItems = () => {
    */
   const createMarketAgentMenuItem = useCallback(
     (): MenuItem => ({
-      icon: <Icon icon={Store} />,
+      icon: <Icon icon={brandIcon('agent.market', Store)} />,
       disabled: !canCreate,
       key: 'addAgentFromMarket',
       label: t('addAgentFromMarket'),
@@ -304,7 +305,7 @@ export const useCreateMenuItems = () => {
   const createConnectAgentMenuItem = useCallback(
     (options?: CreateAgentOptions): MenuItem | null => {
       return {
-        icon: <Icon icon={MonitorSmartphone} />,
+        icon: <Icon icon={brandIcon('agent.connectExternal', MonitorSmartphone)} />,
         disabled: !canCreate,
         key: 'newPlatformAgent',
         label: (
@@ -336,7 +337,7 @@ export const useCreateMenuItems = () => {
    */
   const createGroupChatMenuItem = useCallback(
     (options?: CreateAgentOptions): MenuItem => ({
-      icon: <Icon icon={GroupBotSquareIcon} />,
+      icon: <Icon icon={brandIcon('group.members', GroupBotSquareIcon)} />,
       disabled: !canCreate,
       key: options?.visibility === 'private' ? 'newPrivateGroupChat' : 'newGroupChat',
       label: t('newGroupChat'),
@@ -363,7 +364,7 @@ export const useCreateMenuItems = () => {
    */
   const createSessionGroupMenuItem = useCallback(
     (options?: { visibility?: 'private' | 'public' }): MenuItem => ({
-      icon: <Icon icon={FolderPlus} />,
+      icon: <Icon icon={brandIcon('project.create', FolderPlus)} />,
       disabled: !canCreate,
       key: options?.visibility === 'private' ? 'addPrivateSessionGroup' : 'addSessionGroup',
       label: t('sessionGroup.createGroup'),

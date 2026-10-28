@@ -1,4 +1,6 @@
-export const HOME_INPUT_BODY_HEIGHT = 108;
+import { HOME_COMPOSER_BODY_HEIGHT } from '@lobechat/business-const';
+
+export const HOME_INPUT_BODY_HEIGHT = HOME_COMPOSER_BODY_HEIGHT;
 export const HOME_INPUT_ACTION_BAR_HEIGHT = 40;
 // The rich ChatInput adds a one-pixel border on both block edges.
 export const HOME_INPUT_FRAME_HEIGHT = HOME_INPUT_BODY_HEIGHT + HOME_INPUT_ACTION_BAR_HEIGHT + 2;

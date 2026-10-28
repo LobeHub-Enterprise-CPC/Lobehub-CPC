@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useIsWorkspaceOwner } from '@/business/client/hooks/useIsWorkspaceOwner';
+import { brandIcon } from '@/components/BrandIcon';
 import { createAgentSkillStoreModal } from '@/features/AgentSkillStore';
 import PluginTag from '@/features/ProfileEditor/PluginTag';
 import { usePermission } from '@/hooks/usePermission';
@@ -71,7 +72,7 @@ const AgentToolsSection = memo<{ agentId: string; onStartCopy: () => void }>(
     ];
 
     return (
-      <Flexbox gap={8}>
+      <Flexbox data-brand-slot={'agent-tools-section'} gap={8}>
         <Text
           data-brand-slot={'agent-config-label'}
           style={{ fontSize: 12, fontWeight: 500 }}
@@ -84,7 +85,7 @@ const AgentToolsSection = memo<{ agentId: string; onStartCopy: () => void }>(
             <Button
               data-brand-slot={'agent-tools-add'}
               disabled={!canEdit}
-              icon={<Icon icon={PlusIcon} />}
+              icon={<Icon icon={brandIcon('action.add', PlusIcon)} />}
               size={'small'}
               type={'text'}
             >

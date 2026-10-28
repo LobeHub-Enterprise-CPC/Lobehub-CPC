@@ -5,6 +5,7 @@ import { BellIcon } from 'lucide-react';
 import { memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { brandIcon } from '@/components/BrandIcon';
 import { DESKTOP_HEADER_ICON_SMALL_SIZE } from '@/const/layoutTokens';
 
 import { openInboxModal } from './InboxModal';
@@ -21,7 +22,7 @@ const InboxButton = memo(() => {
   return (
     <Badge dot={unreadCount > 0} offset={[-6, 6]} size="small">
       <ActionIcon
-        icon={BellIcon}
+        icon={brandIcon('nav.notification', BellIcon)}
         size={DESKTOP_HEADER_ICON_SMALL_SIZE}
         title={t('inbox.title')}
         onClick={handleOpen}

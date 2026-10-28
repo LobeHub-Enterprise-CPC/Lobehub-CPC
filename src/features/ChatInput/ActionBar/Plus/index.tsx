@@ -18,6 +18,7 @@ import type { ReactNode } from 'react';
 import { memo, Suspense, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { brandIcon } from '@/components/BrandIcon';
 import { imageUrl } from '@/const/url';
 import { openAttachKnowledgeModal } from '@/features/LibraryModal';
 import { useIsDark } from '@/hooks/useIsDark';
@@ -580,7 +581,7 @@ const PlusAction = memo(() => {
 
   return (
     <ChatInputAction
-      icon={PlusIcon}
+      icon={brandIcon('action.add', PlusIcon)}
       size={{ blockSize: 32, borderRadius: 16, size: 18 }}
       title={t('plus.tooltip')}
       tooltipProps={{ placement: 'top' }}
@@ -600,7 +601,7 @@ const Plus = () => (
     fallback={
       <ChatInputAction
         disabled
-        icon={PlusIcon}
+        icon={brandIcon('action.add', PlusIcon)}
         size={{ blockSize: 32, borderRadius: 16, size: 18 }}
         title=""
       />
