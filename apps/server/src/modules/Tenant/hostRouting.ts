@@ -106,13 +106,16 @@ export const resolveHostTenantRoute = async (
       };
     }
     const defaultActive = entry.state.endpoints.find((e) => e.kind === 'default')?.active;
-    // A page under the legacy prefix moves to the current one on the same origin; backend
-    // calls, callbacks and other methods are still served where they arrive.
+    // The directory answers a former slug with the tenant's entry: from here on the tenant is
+    // `entry.slug`, whatever slug the URL carried.
+    const served = { ...route, slug: entry.slug };
+    // A page under the legacy prefix or a former slug moves to the current address on the same
+    // origin; backend calls, callbacks and other methods are still served where they arrive.
     if (
       route.kind === 'tenant-page' &&
       defaultActive &&
       ['GET', 'HEAD'].includes(method) &&
-      isLegacyTenantPath(url.pathname)
+      (isLegacyTenantPath(url.pathname) || route.slug !== entry.slug)
     )
       return {
         kind: 'redirect',
@@ -136,7 +139,7 @@ export const resolveHostTenantRoute = async (
       defaultActive ||
       (route.kind === 'tenant-backend' && internalHost && INTERNAL_CALLBACKS.test(route.path))
     )
-      return route;
+      return served;
     return changed(route.path, entry.state.activeUrl, url.search, method);
   }
   // A non-default port is another authority, even if the hostname is registered.

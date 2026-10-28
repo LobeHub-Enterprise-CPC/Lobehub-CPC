@@ -20,6 +20,8 @@ interface TenantState {
   remoteAddress: string | undefined;
   /** The committed tenant id of a client the app server does not serve (the desktop renderer). */
   remoteTenantId: string | undefined;
+  /** Every slug of the remote tenant (current and former) of the desktop renderer. */
+  remoteTenantSlugs: readonly string[];
   tenant: TenantContext | null;
 }
 
@@ -28,6 +30,7 @@ interface TenantState {
 const tenantStore = createStore<TenantState>(() => ({
   remoteAddress: undefined,
   remoteTenantId: undefined,
+  remoteTenantSlugs: [],
   tenant: null,
 }));
 
@@ -71,6 +74,15 @@ export const setRemoteTenantId = (tenantId: string | undefined): void => {
 };
 
 /**
+ * Called by the desktop renderer with every slug its remote tenant answers to (from the server
+ * config); `undefined` to unset. Its address keeps the slug it signed in with after a rename, while
+ * links the server writes carry the current one.
+ */
+export const setRemoteTenantSlugs = (slugs: readonly string[] | undefined): void => {
+  tenantStore.setState({ remoteTenantSlugs: slugs ?? [] });
+};
+
+/**
  * Namespace a `localStorage` key that holds tenant business data (drafts, input
  * history, cached transcripts). Every tenant shares one origin, hence one
  * `localStorage`; an unscoped key would show tenant A's draft to tenant B in the
@@ -89,11 +101,18 @@ export const tenantStorageKey = (key: string): string => {
  * The path below the current document's tenant prefix, or `null` when the path
  * belongs to another tenant (or carries a tenant prefix outside a tenant
  * document). Same-origin URLs of another tenant are not this tenant's resources.
+ * A slug the tenant was renamed from (and, in the desktop renderer, any slug of
+ * its remote tenant) still names this tenant.
  */
 export const currentTenantRelativePath = (pathname: string): string | null => {
   const { rest, tenantSlug } = parseTenantPath(pathname);
-  if (getTenant()?.basePath === '') return hasTenantPrefix(pathname) ? null : pathname;
-  return tenantSlug === (getTenant()?.slug ?? null) ? rest : null;
+  const { remoteTenantSlugs, tenant } = tenantStore.getState();
+  if (tenant?.basePath === '') return hasTenantPrefix(pathname) ? null : pathname;
+  if (tenantSlug === (tenant?.slug ?? null)) return rest;
+  return tenantSlug !== null &&
+    (tenant?.formerSlugs?.includes(tenantSlug) || remoteTenantSlugs.includes(tenantSlug))
+    ? rest
+    : null;
 };
 
 // ---------------------------------------------------------------------------

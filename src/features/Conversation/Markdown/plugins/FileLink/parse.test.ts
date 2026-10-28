@@ -1,9 +1,14 @@
-import { initializeTenant } from '@lobechat/business-tenant/client';
-import { describe, expect, it } from 'vitest';
+import { initializeTenant, setRemoteTenantSlugs } from '@lobechat/business-tenant/client';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { getFileLinkOpenAction, parseFileLinkHref } from './parse';
 
 const ORIGIN = 'https://app.lobehub.com';
+
+afterEach(() => {
+  initializeTenant(new URL(ORIGIN));
+  setRemoteTenantSlugs(undefined);
+});
 
 describe('parseFileLinkHref', () => {
   it('matches a same-origin absolute file proxy link', () => {
@@ -24,7 +29,19 @@ describe('parseFileLinkHref', () => {
       fileId: 'file_abc123',
     });
     expect(parseFileLinkHref('/orgs/acme/f/file_xyz')).toEqual({ fileId: 'file_xyz' });
-    initializeTenant(new URL(ORIGIN));
+  });
+
+  it('matches a file proxy link written under a former slug of the current tenant', () => {
+    initializeTenant(new URL(`${ORIGIN}/orgs/acme/agent`), {
+      basePath: '/orgs/acme',
+      formerSlugs: ['acme-old'],
+      slug: 'acme',
+    });
+    expect(parseFileLinkHref(`${ORIGIN}/orgs/acme-old/f/file_abc123`, ORIGIN)).toEqual({
+      fileId: 'file_abc123',
+    });
+    expect(parseFileLinkHref('/t/acme-old/f/file_xyz')).toEqual({ fileId: 'file_xyz' });
+    expect(parseFileLinkHref(`${ORIGIN}/orgs/beta/f/file_abc123`, ORIGIN)).toBeNull();
   });
 
   it('decodes an encoded file id', () => {
@@ -108,6 +125,17 @@ describe('parseFileLinkHref', () => {
 
     it('rejects a link to another origin', () => {
       expect(parseFileLinkHref('https://evil.example/orgs/acme/f/file_1', TENANT)).toBeNull();
+    });
+
+    // A desktop keeps the address it signed in with after a rename; links carry the new slug.
+    it('matches the other slugs of the remote tenant', () => {
+      setRemoteTenantSlugs(['acme-new', 'acme']);
+      expect(parseFileLinkHref('https://host/orgs/acme-new/f/file_1', TENANT)).toEqual({
+        fileId: 'file_1',
+      });
+      expect(parseFileLinkHref('/orgs/acme-new/f/file_1', TENANT)).toEqual({ fileId: 'file_1' });
+      expect(parseFileLinkHref('https://host/orgs/other/f/file_1', TENANT)).toBeNull();
+      expect(parseFileLinkHref('https://evil.example/orgs/acme-new/f/file_1', TENANT)).toBeNull();
     });
 
     it('matches the root address of a custom domain', () => {

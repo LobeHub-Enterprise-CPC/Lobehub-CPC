@@ -1,0 +1,139 @@
+{
+  "$comment": "Console-to-application tenant profile message. Owned by Console; TITU Work and Admin keep a byte-identical copy (`bun run contracts:check`), Market's samples live in market-control-plane.json. The request and response schemas are published in schemas.json (profileRequest, profileResult) with accepted and refused samples in fixtures.json.",
+  "appliedResponse": {
+    "acceptedVersion": 2,
+    "appliedVersion": 2,
+    "errorCode": null,
+    "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+    "name": "Acme Group",
+    "observedAt": "2026-10-13T00:00:01.000Z",
+    "slug": "acme-group",
+    "status": "applied",
+    "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+    "version": 2
+  },
+  "contract": "tenant-profile",
+  "errors": {
+    "INVALID_INPUT": 400,
+    "SLUG_CONFLICT": 409,
+    "TENANT_NOT_FOUND": 404,
+    "TENANT_NOT_READY": 503,
+    "VERSION_CONFLICT": 409
+  },
+  "method": "POST",
+  "nameOnlyRequest": {
+    "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000001",
+    "formerSlugs": [],
+    "name": "Acme Holdings",
+    "slug": "acme",
+    "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+    "version": 2
+  },
+  "path": "/api/internal/control-plane/tenant-profile",
+  "refusedRequests": [
+    {
+      "name": "version-one",
+      "note": "version 1 is the provision itself",
+      "request": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": ["acme"],
+        "name": "Acme Group",
+        "slug": "acme-group",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 1
+      },
+      "status": 400,
+      "code": "INVALID_INPUT"
+    },
+    {
+      "name": "former-slug-is-current",
+      "note": "the current slug is never its own alias",
+      "request": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": ["acme", "acme-group"],
+        "name": "Acme Group",
+        "slug": "acme-group",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2
+      },
+      "status": 400,
+      "code": "INVALID_INPUT"
+    },
+    {
+      "name": "former-slugs-repeat",
+      "note": "retired slugs are distinct",
+      "request": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": ["acme", "acme"],
+        "name": "Acme Group",
+        "slug": "acme-group",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2
+      },
+      "status": 400,
+      "code": "INVALID_INPUT"
+    },
+    {
+      "name": "reserved-slug",
+      "note": "a reserved word (reserved-slugs.json) is a registration rule: the shape is valid, the receiver still refuses it",
+      "request": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": ["acme"],
+        "name": "Acme Group",
+        "slug": "orgs",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2
+      },
+      "status": 400,
+      "code": "INVALID_INPUT"
+    },
+    {
+      "name": "unknown-field",
+      "note": "the request is strict",
+      "request": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": ["acme"],
+        "name": "Acme Group",
+        "slug": "acme-group",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2,
+        "activeUrl": "https://example.com"
+      },
+      "status": 400,
+      "code": "INVALID_INPUT"
+    }
+  ],
+  "request": {
+    "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+    "formerSlugs": ["acme"],
+    "name": "Acme Group",
+    "slug": "acme-group",
+    "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+    "version": 2
+  },
+  "semantics": {
+    "version": "profile_version of the tenant in Console. Provisioning is implicitly version 1, so a profile event is version 2 or later.",
+    "eventId": "profile:<sha256 of the Console operation id>, fixed length.",
+    "formerSlugs": "Every slug the tenant has retired, distinct, never containing slug. The receiver replaces the tenant's alias set with it.",
+    "notProvisioned": "TITU Work and Admin: 404 TENANT_NOT_FOUND for a tenant they have not provisioned. Market: 404 TENANT_NOT_FOUND for an unknown tenant, 503 TENANT_NOT_READY for one that exists but is not ready. Console only sends the event after the application applied the tenant's provisioning, and retries a 503.",
+    "olderVersion": "version lower than the stored one: status superseded, the stored name and slug are answered, nothing changes.",
+    "sameVersion": "Idempotent when name, slug and formerSlugs equal the stored ones (status applied); 409 VERSION_CONFLICT otherwise.",
+    "newerVersion": "In one transaction: set name and slug, replace the alias set with formerSlugs, store the version (status applied). If slug or any formerSlug is another tenant's slug or alias: 409 SLUG_CONFLICT and nothing is written.",
+    "answer": "acceptedVersion and appliedVersion are the receiver's stored profile version after handling and are always equal; name and slug are the receiver's current values.",
+    "overview": "tenant-overview and tenant-status report the receiver's current slug. Console also accepts a slug the tenant retired while the application has not applied a rename.",
+    "invalid": "400 INVALID_INPUT for a body that fails the strict schema (version below 2, formerSlugs repeating or containing slug, unknown field) and for a slug that is a reserved word. Console stops retrying it."
+  },
+  "supersededResponse": {
+    "acceptedVersion": 3,
+    "appliedVersion": 3,
+    "errorCode": null,
+    "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+    "name": "Acme Holdings",
+    "observedAt": "2026-10-13T00:00:02.000Z",
+    "slug": "acme-holdings",
+    "status": "superseded",
+    "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+    "version": 2
+  },
+  "version": 1
+}

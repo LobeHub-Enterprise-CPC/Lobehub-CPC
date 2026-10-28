@@ -6,6 +6,7 @@ import {
   getTenantScopeId,
   initializeTenant,
   setRemoteTenantId,
+  setRemoteTenantSlugs,
   tenantStorageKey,
   withCurrentTenantPath,
 } from '../client';
@@ -13,6 +14,7 @@ import { resolveTenant } from '../resolve';
 
 afterEach(() => {
   setRemoteTenantId(undefined);
+  setRemoteTenantSlugs(undefined);
   initializeTenant(new URL('https://app.test/'));
 });
 
@@ -110,5 +112,31 @@ describe('custom host bootstrap', () => {
     expect(
       resolveTenant(new URL('https://chat.example.com/orgs/beta'), { slug: 'acme', basePath: '' }),
     ).toBeNull();
+  });
+});
+
+describe('former slugs', () => {
+  // Links written before a rename keep the slug the tenant had then; they still address it.
+  it('treats a former slug of the page tenant as its own', () => {
+    initializeTenant(new URL('https://app.test/orgs/acme/agent'), {
+      basePath: '/orgs/acme',
+      formerSlugs: ['acme-old'],
+      slug: 'acme',
+    });
+    expect(currentTenantRelativePath('/orgs/acme-old/f/file_1')).toBe('/f/file_1');
+    expect(currentTenantRelativePath('/t/acme-old/f/file_1')).toBe('/f/file_1');
+    expect(currentTenantRelativePath('/orgs/acme/f/file_1')).toBe('/f/file_1');
+    expect(currentTenantRelativePath('/orgs/beta/f/file_1')).toBeNull();
+    expect(currentTenantRelativePath('/f/file_1')).toBeNull();
+  });
+
+  it('treats every slug of the desktop remote tenant as its own', () => {
+    setRemoteTenantSlugs(['acme', 'acme-old']);
+    expect(currentTenantRelativePath('/orgs/acme/f/file_1')).toBe('/f/file_1');
+    expect(currentTenantRelativePath('/orgs/acme-old/f/file_1')).toBe('/f/file_1');
+    expect(currentTenantRelativePath('/orgs/beta/f/file_1')).toBeNull();
+
+    setRemoteTenantSlugs(undefined);
+    expect(currentTenantRelativePath('/orgs/acme/f/file_1')).toBeNull();
   });
 });

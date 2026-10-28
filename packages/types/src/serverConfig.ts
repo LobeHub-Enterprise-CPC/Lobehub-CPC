@@ -193,6 +193,12 @@ export interface GlobalServerConfig {
     langfuse?: boolean;
   };
   /**
+   * Every slug the tenant answers to, current first, then the ones it was renamed from. The
+   * desktop renderer keeps the address it signed in with, so it tells its own tenant's links by
+   * these rather than by its address alone.
+   */
+  tenantSlugs?: string[];
+  /**
    * `BUILTIN_TOOL_ID_NAMESPACE`: rewrites the `lobe-` prefix on builtin tool
    * identifiers before they reach the model. Same reason as
    * `toolNameMaxLength` above — the client-driven chat path generates tool

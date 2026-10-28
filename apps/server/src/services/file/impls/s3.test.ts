@@ -74,6 +74,18 @@ vi.mock('@lobechat/database/tenant', async (importOriginal) => ({
   requireTenantScope: () => ({ slug: 'acme', tenantId: 'tenant-1' }),
 }));
 
+// Slugs the platform directory knows: `acme-old` is a former slug of this tenant.
+const directory = vi.hoisted(() => ({
+  findSlugEndpoint: vi.fn(async (slug: string) =>
+    slug === 'acme-old'
+      ? { slug: 'acme', tenantId: 'tenant-1' }
+      : slug === 'other'
+        ? { slug: 'other', tenantId: 'tenant-9' }
+        : null,
+  ),
+}));
+vi.mock('@/server/modules/Tenant/endpoints', () => directory);
+
 // Mock db
 const mockDb = {} as any;
 
@@ -418,11 +430,37 @@ describe('S3StaticFileImpl', () => {
       ).resolves.toBeNull();
     });
 
+    it.each(['orgs', 't'])(
+      'resolves a proxy URL written under a former slug of this tenant (/%s/{former})',
+      async (prefix) => {
+        vi.spyOn(FileModel, 'getFileById').mockResolvedValue({
+          url: 'ppp/491067/image.jpg',
+        } as any);
+
+        const result = await fileService.getKeyFromFullUrl(
+          `http://localhost:3010/${prefix}/acme-old/f/abc123`,
+        );
+
+        expect(FileModel.getFileById).toHaveBeenCalledWith(mockDb, 'abc123');
+        expect(result).toBe('ppp/491067/image.jpg');
+      },
+    );
+
+    it('does not consult the directory for the current slug', async () => {
+      vi.spyOn(FileModel, 'getFileById').mockResolvedValue({ url: 'k' } as any);
+      directory.findSlugEndpoint.mockClear();
+      await fileService.getKeyFromFullUrl('http://localhost:3010/orgs/acme/f/abc123');
+      expect(directory.findSlugEndpoint).not.toHaveBeenCalled();
+    });
+
     it('should not resolve a file proxy URL of another tenant or without a tenant', async () => {
       const spy = vi.spyOn(FileModel, 'getFileById');
 
       await expect(
         fileService.getKeyFromFullUrl('https://example.com/orgs/other/f/file456'),
+      ).resolves.toBeNull();
+      await expect(
+        fileService.getKeyFromFullUrl('https://example.com/orgs/never-heard-of/f/file456'),
       ).resolves.toBeNull();
       await expect(
         fileService.getKeyFromFullUrl('https://example.com/f/file456'),

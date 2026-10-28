@@ -481,3 +481,127 @@ describe('legacy /t prefix', () => {
     expect(await route('https://chat.example.com/t/acme/agent')).toMatchObject({ kind: 'reject' });
   });
 });
+
+describe('former slug (alias) of a renamed tenant', () => {
+  // The directory answers an alias with the tenant's entry, whose slug is the current one.
+  const aliasDeps = {
+    ...deps,
+    findSlug: async (slug: string) =>
+      ['beta-old', 'beta-older'].includes(slug) ? defaultEntry : deps.findSlug(slug),
+  };
+  const viaAlias = (url: string, method = 'GET') =>
+    resolveHostTenantRoute(new URL(url), method, aliasDeps);
+
+  it.each(['/orgs', '/t'])(
+    'moves a page under %s/{former} to the current slug, query kept',
+    async (prefix) => {
+      for (const method of ['GET', 'HEAD'])
+        expect(
+          await viaAlias(`https://app.example.com${prefix}/beta-old/agent?topic=1&code=x`, method),
+        ).toEqual({
+          kind: 'redirect',
+          status: 308,
+          url: 'https://app.example.com/orgs/beta/agent?topic=1&code=x',
+        });
+      expect(await viaAlias(`https://app.example.com${prefix}/beta-older`)).toEqual({
+        kind: 'redirect',
+        status: 308,
+        url: 'https://app.example.com/orgs/beta',
+      });
+    },
+  );
+
+  it('moves the session entry too, before anything is remembered or checked', async () => {
+    const onDefaultTenantPage = vi.fn();
+    expect(
+      await resolveHostTenantRoute(
+        new URL('https://app.example.com/orgs/beta-old/__entry'),
+        'GET',
+        {
+          ...aliasDeps,
+          documentNavigation: true,
+          onDefaultTenantPage,
+        },
+      ),
+    ).toEqual({
+      kind: 'redirect',
+      status: 308,
+      url: 'https://app.example.com/orgs/beta/__entry',
+    });
+    expect(onDefaultTenantPage).not.toHaveBeenCalled();
+  });
+
+  it('serves backend calls under the former slug for the tenant, with the current slug', async () => {
+    expect(
+      await viaAlias('https://app.example.com/orgs/beta-old/api/auth/callback/x?code=1'),
+    ).toEqual({
+      kind: 'tenant-backend',
+      path: '/api/auth/callback/x',
+      slug: 'beta',
+    });
+    expect(await viaAlias('https://app.example.com/t/beta-old/trpc/lambda/x', 'POST')).toEqual({
+      kind: 'tenant-backend',
+      path: '/trpc/lambda/x',
+      slug: 'beta',
+    });
+    expect(await viaAlias('https://app.example.com/orgs/beta-old/f/file-1')).toEqual({
+      kind: 'tenant-backend',
+      path: '/f/file-1',
+      slug: 'beta',
+    });
+  });
+
+  it('serves a non-GET page request in place, as the current tenant', async () => {
+    expect(await viaAlias('https://app.example.com/orgs/beta-old/agent', 'POST')).toEqual({
+      kind: 'tenant-page',
+      path: '/agent',
+      slug: 'beta',
+    });
+  });
+
+  it('answers internal callbacks with the current slug', async () => {
+    expect(await viaAlias('http://internal:3010/orgs/beta-old/api/workflows/x', 'POST')).toEqual({
+      kind: 'tenant-backend',
+      path: '/api/workflows/x',
+      slug: 'beta',
+    });
+    expect(await viaAlias('http://internal:3010/orgs/beta-old/agent')).toMatchObject({
+      kind: 'reject',
+    });
+  });
+
+  it('leaves the current slug and unknown slugs exactly as they were', async () => {
+    expect(await viaAlias('https://app.example.com/orgs/beta/agent')).toEqual({
+      kind: 'tenant-page',
+      path: '/agent',
+      slug: 'beta',
+    });
+    expect(await viaAlias('https://app.example.com/orgs/nope/agent')).toEqual(
+      await route('https://app.example.com/orgs/nope/agent'),
+    );
+    expect(await viaAlias('https://app.example.com/orgs/nope/agent')).toMatchObject({
+      kind: 'unknown-tenant',
+      slug: 'nope',
+    });
+  });
+
+  it('sends a page of a tenant whose default endpoint moved to its active address', async () => {
+    const moved = {
+      ...aliasDeps,
+      findSlug: async (slug: string) => (slug === 'acme-old' ? custom : deps.findSlug(slug)),
+    };
+    expect(
+      await resolveHostTenantRoute(
+        new URL('https://app.example.com/orgs/acme-old/agent'),
+        'GET',
+        moved,
+      ),
+    ).toEqual({ kind: 'redirect', url: 'https://chat.example.com/agent' });
+  });
+
+  it('does not reach the tenant through a custom host with a prefix', async () => {
+    expect(await viaAlias('https://chat.example.com/orgs/beta-old/agent')).toMatchObject({
+      kind: 'reject',
+    });
+  });
+});

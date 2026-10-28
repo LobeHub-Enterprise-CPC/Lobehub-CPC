@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import * as schema from '@lobechat/database/platform';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
@@ -271,7 +271,18 @@ suite('PostgreSQL endpoint projection and migration', () => {
       db._.session,
       { migrationsFolder: migrateFolder },
     );
-    await db.insert(schema.tenantDirectory).values(directory(HISTORICAL_TENANT, 'history'));
+    // The historical schema predates later columns (profile_version): write only what it has.
+    const old = directory(HISTORICAL_TENANT, 'history');
+    await db.execute(sql`INSERT INTO tenant_directory (
+      tenant_id, slug, name, status, mode, host, port, database, deployment_ref, connection_version,
+      credential_bundle_version, runtime_secret, runtime_username, owner_secret, owner_username,
+      schema_name, schema_version, tls
+    ) VALUES (
+      ${old.tenantId}, ${old.slug}, ${old.name}, ${old.status}, ${old.mode}, ${old.host}, ${old.port},
+      ${old.database}, ${old.deploymentRef}, ${old.connectionVersion}, ${old.credentialBundleVersion},
+      ${old.runtimeSecret}, ${old.runtimeUsername}, ${old.ownerSecret}, ${old.ownerUsername},
+      ${old.schemaName}, ${old.schemaVersion}, ${JSON.stringify(old.tls)}::jsonb
+    )`);
     await migrate(db, { migrationsFolder: migrateFolder });
     await new TenantEndpointsService(db, 'https://app.example.com').receive(
       request({ tenantId: HISTORICAL_TENANT, eventId: 'historical-endpoint' }),

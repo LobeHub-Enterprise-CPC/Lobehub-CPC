@@ -1499,6 +1499,124 @@
         ]
       }
     },
+    "profileRequest": {
+      "apps": ["admin", "lobehub"],
+      "direction": "request",
+      "jsonSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[\\w.:-]+$"
+          },
+          "formerSlugs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 63,
+              "pattern": "^[a-z][\\da-z]*(?:-[\\da-z]+)*$"
+            }
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 63,
+            "pattern": "^[a-z][\\da-z]*(?:-[\\da-z]+)*$"
+          },
+          "tenantId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 2147483647
+          }
+        },
+        "required": ["eventId", "formerSlugs", "name", "slug", "tenantId", "version"],
+        "additionalProperties": false
+      }
+    },
+    "profileResult": {
+      "apps": ["admin", "lobehub"],
+      "direction": "response",
+      "jsonSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "acceptedVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647
+          },
+          "appliedVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647
+          },
+          "errorCode": {
+            "type": "null"
+          },
+          "eventId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[\\w.:-]+$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 63,
+            "pattern": "^[a-z][\\da-z]*(?:-[\\da-z]+)*$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["applied", "superseded"]
+          },
+          "tenantId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 2147483647
+          }
+        },
+        "required": [
+          "acceptedVersion",
+          "appliedVersion",
+          "errorCode",
+          "eventId",
+          "name",
+          "observedAt",
+          "slug",
+          "status",
+          "tenantId",
+          "version"
+        ],
+        "additionalProperties": false
+      }
+    },
     "provisionResult": {
       "apps": ["lobehub"],
       "direction": "response",

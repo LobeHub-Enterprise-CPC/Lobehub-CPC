@@ -10,6 +10,7 @@ import { getRedisConfig } from '@/envs/redis';
 import { initializeRedis, isRedisEnabled } from '@/server/modules/Redis';
 import { FileS3 } from '@/server/modules/S3';
 import { logicalObjectKey, tenantObjectKey } from '@/server/modules/S3/tenantKey';
+import { findSlugEndpoint } from '@/server/modules/Tenant/endpoints';
 
 import type { FileServiceImpl, PreSignedUpload } from './type';
 
@@ -195,10 +196,21 @@ export class S3StaticFileImpl implements FileServiceImpl {
   }
 
   /**
+   * Links in old messages keep the slug the tenant had when they were written: a former slug of
+   * the current tenant is still its own, any other tenant's is not.
+   */
+  private async isOwnTenantSlug(slug: string | null): Promise<boolean> {
+    if (!slug) return false;
+    const scope = requireTenantScope();
+    if (slug === scope.slug) return true;
+    return (await findSlugEndpoint(slug))?.tenantId === scope.tenantId;
+  }
+
+  /**
    * The logical key behind a file URL of the current tenant, or `null`.
    *
-   * - File proxy URL `/orgs/{slug}/f/{fileId}`: looked up in the tenant database;
-   *   another tenant's slug is not resolved.
+   * - File proxy URL `/orgs/{slug}/f/{fileId}` (the slug may be a former one of this tenant):
+   *   looked up in the tenant database; another tenant's slug is not resolved.
    * - Public object URL `…/[bucket/]t/{tenantId}/{key}`: the tenant root is
    *   stripped; an object outside the current tenant's root is not resolved.
    */
@@ -208,7 +220,7 @@ export class S3StaticFileImpl implements FileServiceImpl {
 
       const { rest, tenantSlug } = parseTenantPath(pathname);
       if (rest.startsWith('/f/')) {
-        if (tenantSlug !== requireTenantScope().slug) return null;
+        if (!(await this.isOwnTenantSlug(tenantSlug))) return null;
         const fileId = rest.slice(3);
         const file = await FileModel.getFileById(this.db, fileId);
         return file?.url ?? null;

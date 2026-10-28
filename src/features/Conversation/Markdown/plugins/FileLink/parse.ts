@@ -36,9 +36,11 @@ const appRelativePath = (
   const below = relativeToRemoteBase(pathname, appUrl);
   if (below !== null) return below;
 
-  // A root-relative link without a prefix is relative to the app address itself;
-  // one that names another tenant is not ours.
-  return isRootRelative && !hasTenantPrefix(pathname) ? pathname : null;
+  // A link that names another slug of the same tenant (the address may predate a
+  // rename) is ours; one that names another tenant is not. A root-relative link
+  // without a prefix is relative to the app address itself.
+  if (hasTenantPrefix(pathname)) return currentTenantRelativePath(pathname);
+  return isRootRelative ? pathname : null;
 };
 
 /**

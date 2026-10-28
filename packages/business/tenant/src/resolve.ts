@@ -3,6 +3,8 @@ import { hasTenantPrefix, parseTenantPath, withTenantPath } from './path';
 /** Public routing context only; server admission establishes the trusted tenant identity. */
 export interface TenantContext {
   readonly basePath: string;
+  /** Slugs the tenant was renamed from, when bootstrapped by the server; links written under them are still its own. */
+  readonly formerSlugs?: readonly string[];
   /** The organization's display name from the platform directory; absent when the server did not bootstrap it. */
   readonly name?: string;
   /** The tenant's active public address (`https://host/orgs/acme` or a custom domain), when bootstrapped by the server. */
