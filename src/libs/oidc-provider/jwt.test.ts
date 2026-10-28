@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/envs/auth', () => ({
   authEnv: {
+    ENABLE_OIDC: true,
     JWKS_KEY: JSON.stringify({
       keys: [
         {
@@ -21,6 +22,12 @@ vi.mock('@/envs/auth', () => ({
 // Tokens are bound to the tenant of the request by their signed `tid` claim.
 const tenantBound = vi.hoisted(() => vi.fn());
 vi.mock('@/libs/trpc/utils/tenantBinding', () => ({ isBoundToCurrentTenant: tenantBound }));
+
+// The tenant's OIDC provider decides which clients still exist.
+const findClient = vi.hoisted(() => vi.fn());
+vi.mock('@/server/services/oidc/oidcProvider', () => ({
+  getOIDCProvider: async () => ({ Client: { find: findClient } }),
+}));
 
 const importJWKMock = vi.fn();
 const createLocalJWKSetMock = vi.fn();
@@ -41,6 +48,49 @@ describe('validateOIDCJWT', () => {
     decodeProtectedHeaderMock.mockReturnValue({ kid: 'test-key' });
     importJWKMock.mockResolvedValue('public-key');
     tenantBound.mockReturnValue(true);
+    findClient.mockImplementation(async (clientId: string) => ({ clientId }));
+  });
+
+  it('accepts a token of a client the provider still serves', async () => {
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: { client_id: 'tituwork-desktop', sub: 'user-1' },
+    });
+    const { validateOIDCJWT } = await import('./jwt');
+    await expect(validateOIDCJWT('t')).resolves.toMatchObject({
+      clientId: 'tituwork-desktop',
+      userId: 'user-1',
+    });
+  });
+
+  it('refuses a token whose client was renamed, removed or disabled', async () => {
+    findClient.mockResolvedValue(undefined);
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: { client_id: 'lobehub-desktop', sub: 'user-1' },
+    });
+    const { validateOIDCJWT } = await import('./jwt');
+    await expect(validateOIDCJWT('t')).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+      message: 'JWT token was issued to a retired client',
+    });
+    expect(findClient).toHaveBeenCalledWith('lobehub-desktop');
+  });
+
+  it('reports a provider that cannot answer as a server fault, not a rejected token', async () => {
+    findClient.mockRejectedValueOnce(new Error('provider init failed'));
+    jwtVerifyMock.mockResolvedValueOnce({
+      payload: { client_id: 'tituwork-desktop', sub: 'user-1' },
+    });
+    const { validateOIDCJWT } = await import('./jwt');
+    const error = await validateOIDCJWT('t').catch((error_) => error_);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(TRPCError);
+  });
+
+  it('does not ask the provider about server-minted tokens, which name no client', async () => {
+    findClient.mockResolvedValue(undefined);
+    jwtVerifyMock.mockResolvedValueOnce({ payload: { purpose: 'cli-sandbox', sub: 'user-1' } });
+    const { validateOIDCJWT } = await import('./jwt');
+    await expect(validateOIDCJWT('t')).resolves.toMatchObject({ userId: 'user-1' });
   });
 
   it('should preserve the original jose error as TRPCError cause', async () => {
@@ -70,37 +120,6 @@ describe('validateOIDCJWT', () => {
   });
 });
 
-describe('tokens issued to a retired desktop client', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    createLocalJWKSetMock.mockReturnValue('public-key-set');
-    decodeProtectedHeaderMock.mockReturnValue({ kid: 'test-key' });
-    importJWKMock.mockResolvedValue('public-key');
-    tenantBound.mockReturnValue(true);
-  });
-
-  it('are refused as unauthenticated, so the desktop asks the user to sign in again', async () => {
-    jwtVerifyMock.mockResolvedValueOnce({
-      payload: { aud: 'urn:lobehub:chat', client_id: 'lobehub-desktop', sub: 'user-1' },
-    });
-    const { validateOIDCJWT } = await import('./jwt');
-    await expect(validateOIDCJWT('t')).rejects.toMatchObject({
-      code: 'UNAUTHORIZED',
-      message: 'JWT token was issued to a retired desktop client',
-    });
-  });
-
-  it('leave tokens of the current desktop client and other clients alone', async () => {
-    const { validateOIDCJWT } = await import('./jwt');
-    for (const client_id of ['tituwork-desktop', 'lobehub-cli']) {
-      jwtVerifyMock.mockResolvedValueOnce({
-        payload: { aud: 'urn:lobehub:chat', client_id, sub: 'user-1' },
-      });
-      await expect(validateOIDCJWT('t')).resolves.toMatchObject({ userId: 'user-1' });
-    }
-  });
-});
-
 describe('acceptance review tokens', () => {
   const REVIEW_AUD = 'urn:lobehub:acceptance:7f0c9a7e-0000-4000-8000-000000000001';
 
@@ -110,6 +129,7 @@ describe('acceptance review tokens', () => {
     decodeProtectedHeaderMock.mockReturnValue({ kid: 'test-key' });
     importJWKMock.mockResolvedValue('public-key');
     tenantBound.mockReturnValue(true);
+    findClient.mockImplementation(async (clientId: string) => ({ clientId }));
   });
 
   it('are refused as an app session', async () => {
@@ -162,7 +182,7 @@ describe('acceptance review tokens', () => {
   it('reject any other token as a review token', async () => {
     const { verifyAcceptanceReviewJWT } = await import('./jwt');
     jwtVerifyMock.mockResolvedValueOnce({
-      payload: { aud: 'urn:lobehub:chat', client_id: 'lobehub-desktop', sub: 'user-1' },
+      payload: { aud: 'urn:lobehub:chat', client_id: 'tituwork-desktop', sub: 'user-1' },
     });
     await expect(verifyAcceptanceReviewJWT('t')).rejects.toThrow();
     jwtVerifyMock.mockResolvedValueOnce({

@@ -35,12 +35,16 @@ vi.mock('@/server/modules/KeyVaultsEncrypt', () => ({
 
 vi.mock('@/envs/auth', () => ({
   authEnv: {
+    ENABLE_OIDC: true,
     JWKS_KEY: JSON.stringify({
       keys: [{ alg: 'RS256', e: 'AQAB', kid: 'k', kty: 'RSA', n: 'modulus', use: 'sig' }],
     }),
   },
 }));
 vi.mock('@/libs/trpc/utils/tenantBinding', () => ({ isBoundToCurrentTenant: mocks.tenantBound }));
+vi.mock('@/server/services/oidc/oidcProvider', () => ({
+  getOIDCProvider: async () => ({ Client: { find: async (clientId: string) => ({ clientId }) } }),
+}));
 vi.mock('jose', () => ({
   createLocalJWKSet: () => 'public-key-set',
   decodeProtectedHeader: () => ({ kid: 'k' }),

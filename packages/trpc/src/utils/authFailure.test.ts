@@ -32,12 +32,12 @@ describe('describeOIDCAuthFailure', () => {
     ).toBe('jwt_no_sub');
   });
 
-  it('names a token issued to a retired desktop client', () => {
+  it('names a token issued to a retired client', () => {
     expect(
       describeOIDCAuthFailure(
         new TRPCError({
           code: 'UNAUTHORIZED',
-          message: 'JWT token was issued to a retired desktop client',
+          message: 'JWT token was issued to a retired client',
         }),
       ),
     ).toBe('client_retired');
