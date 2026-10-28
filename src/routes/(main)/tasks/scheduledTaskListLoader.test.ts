@@ -33,9 +33,11 @@ describe('scheduledTaskListLoader', () => {
 
     expect(preHydrateScheduledTaskList).toHaveBeenCalledWith({
       agentId: 'agt_1',
+      includeFinishedAutomation: true,
       limit: 50,
       offset: 0,
       projectId: undefined,
+      statuses: undefined,
     });
   });
 
@@ -50,11 +52,28 @@ describe('scheduledTaskListLoader', () => {
     );
   });
 
-  it('reads nothing for the other tabs', async () => {
+  it('reads nothing for the scoped ordinary tabs', async () => {
+    await scheduledTaskListLoader({
+      params: { aid: 'agt_1' },
+      request: request('/agent/agt_1/tasks?collection=mine'),
+    });
+    await scheduledTaskListLoader({
+      params: { aid: 'agt_1' },
+      request: request('/agent/agt_1/tasks'),
+    });
+    await scheduledTaskListLoader({
+      params: { projectId: 'proj_1' },
+      request: request('/project/proj_1/tasks?collection=mine'),
+    });
+
+    expect(preHydrateScheduledTaskList).not.toHaveBeenCalled();
+  });
+
+  it('seeds the global workspace even when the tab param is not scheduled', async () => {
     await scheduledTaskListLoader({ params: {}, request: request('/tasks') });
     await scheduledTaskListLoader({ params: {}, request: request('/tasks?collection=mine') });
 
-    expect(preHydrateScheduledTaskList).not.toHaveBeenCalled();
+    expect(preHydrateScheduledTaskList).toHaveBeenCalledTimes(2);
   });
 
   it('seeds the page when the URL opens the workspace already active', async () => {

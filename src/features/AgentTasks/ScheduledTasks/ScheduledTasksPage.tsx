@@ -7,9 +7,9 @@ import { TASK_COLLECTION_PAGE_SIZE } from '@/store/task/slices/list/action';
 import {
   readScheduleFilters,
   readSchedulePage,
-  scheduleFilterStatuses,
   SCHEDULE_FILTERS,
   type ScheduleFilter,
+  scheduleFilterStatuses,
 } from './filters';
 import { ScheduledTasksWorkspace } from './ScheduledTasksWorkspace';
 
@@ -56,15 +56,15 @@ export const ScheduledTasksPage = ({
   return (
     <ScheduledTasksWorkspace
       agentId={agentId}
-      projectId={projectId}
-      filters={filters}
-      onFiltersChange={changeFilters}
       error={filters.length ? sync.error : undefined}
+      filters={filters}
       isLoading={filters.length > 0 && sync.isLoading}
       items={items}
       page={page}
       pageSize={TASK_COLLECTION_PAGE_SIZE}
+      projectId={projectId}
       total={total}
+      onFiltersChange={changeFilters}
       onPageChange={setPage}
       onRefresh={() => {
         void sync.mutate();

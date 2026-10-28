@@ -14,8 +14,8 @@ import type { ScheduleFrequency } from './scheduleForm';
 import { styles } from './style';
 
 export interface SchedulePreset {
-  instruction: string;
   frequency?: ScheduleFrequency;
+  instruction: string;
 }
 
 const templates = [
@@ -52,10 +52,10 @@ export const ScheduledTasksWelcome = ({
           </div>
           <h1 className={styles.welcomeTitle}>{t('scheduledTasks.welcome')}</h1>
           <Button
-            type="primary"
             className={styles.pill}
-            icon={PencilLine}
             disabled={disabled}
+            icon={PencilLine}
+            type="primary"
             onClick={() => onCreate()}
           >
             {t('scheduledTasks.newTask')}
@@ -64,10 +64,10 @@ export const ScheduledTasksWelcome = ({
         <div className={styles.templates}>
           {templates.map((template) => (
             <Button
-              key={template.key}
-              type="text"
               className={styles.template}
               disabled={disabled}
+              key={template.key}
+              type="text"
               onClick={() =>
                 onCreate({
                   instruction: t(`scheduledTasks.templates.${template.key}.instruction`),

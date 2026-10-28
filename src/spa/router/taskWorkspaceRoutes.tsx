@@ -1,7 +1,7 @@
 import type { RouteObject } from 'react-router';
 
 import { goalDetailRouteMeta, goalsRouteMeta } from '@/features/AgentGoals/routeMeta';
-import { taskRouteMeta, scheduledTasksRouteMeta } from '@/features/AgentTasks/routeMeta';
+import { scheduledTasksRouteMeta, taskRouteMeta } from '@/features/AgentTasks/routeMeta';
 import { scheduledTaskListLoader } from '@/spa/router/scheduledTaskListLoader';
 import { dynamicElement, ErrorBoundary } from '@/utils/router';
 

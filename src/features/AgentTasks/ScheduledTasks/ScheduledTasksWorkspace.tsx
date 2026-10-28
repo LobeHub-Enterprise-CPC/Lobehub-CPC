@@ -22,19 +22,19 @@ import { useCurrentProjectList, useProjectStore } from '@/store/project';
 import type { TaskListItem } from '@/store/task/slices/list/initialState';
 
 import { TopicChatDrawerBody } from '../AgentTaskDetail/TopicChatDrawer';
+import { SCHEDULE_FILTERS, type ScheduleFilter } from './filters';
 import { ScheduledTaskDetail } from './ScheduledTaskDetail';
 import { createScheduledTaskModal } from './ScheduledTaskForm';
+import { ScheduledTasksWelcome, type SchedulePreset } from './ScheduledTasksWelcome';
 import { formatScheduledDate, nextScheduledDate, scheduleSummary } from './scheduleSummary';
 import { styles } from './style';
-import { SCHEDULE_FILTERS, type ScheduleFilter } from './filters';
-import { ScheduledTasksWelcome, type SchedulePreset } from './ScheduledTasksWelcome';
 
 interface ScheduledTasksWorkspaceProps {
   agentId?: string;
   error?: unknown;
+  filters: ScheduleFilter[];
   isLoading: boolean;
   items: TaskListItem[];
-  filters: ScheduleFilter[];
   onFiltersChange: (filters: ScheduleFilter[]) => void;
   onPageChange: (page: number) => void;
   onRefresh: () => void;
@@ -115,8 +115,8 @@ export const ScheduledTasksWorkspace = ({
             <Flexbox horizontal align="center" gap={4}>
               {nativeMobile && (
                 <ActionIcon
-                  icon={ArrowLeft}
                   aria-label={t('tab.home', { ns: 'common' })}
+                  icon={ArrowLeft}
                   onClick={() => navigate('/')}
                 />
               )}
@@ -125,22 +125,22 @@ export const ScheduledTasksWorkspace = ({
               </Text>
             </Flexbox>
             <ActionIcon
-              icon={Search}
               aria-label={t('tab.search', { ns: 'common' })}
+              icon={Search}
               title={t('tab.search', { ns: 'common' })}
               onClick={() => toggleCommandMenu(true)}
             />
           </div>
           <Button
             className={styles.createEntry}
+            disabled={!allowed}
             icon={PencilLine}
             type="text"
-            disabled={!allowed}
             onClick={() => create()}
           >
             {t('scheduledTasks.newTask')}
           </Button>
-          <Flexbox horizontal align="center" justify="space-between" className={styles.listHeader}>
+          <Flexbox horizontal align="center" className={styles.listHeader} justify="space-between">
             <Text fontSize={12} type="secondary">
               {t('scheduledTasks.upcoming')}
             </Text>
@@ -161,8 +161,8 @@ export const ScheduledTasksWorkspace = ({
               }))}
             >
               <ActionIcon
-                icon={MoreHorizontal}
                 aria-label={t('scheduledTasks.filterBy')}
+                icon={MoreHorizontal}
                 title={t('scheduledTasks.filterBy')}
               />
             </DropdownMenu>
@@ -229,8 +229,8 @@ export const ScheduledTasksWorkspace = ({
                           <Text
                             ellipsis
                             fontSize={14}
-                            title={task.name || task.identifier}
                             style={{ color: 'inherit' }}
+                            title={task.name || task.identifier}
                           >
                             {task.name || task.identifier}
                           </Text>
@@ -279,9 +279,9 @@ export const ScheduledTasksWorkspace = ({
               key={selectedId}
               projectName={projects.find((project) => project.id === selected?.projectId)?.name}
               taskId={selectedId}
+              onBack={mobile || nativeMobile ? () => select(undefined) : undefined}
               onOpenRun={(activity, runAgentId) => setRun({ activity, agentId: runAgentId })}
               onSaved={onRefresh}
-              onBack={nativeMobile ? () => select(undefined) : undefined}
               onRunRemoved={(topicId) => {
                 if (run?.activity.id === topicId) setRun(undefined);
               }}
@@ -302,18 +302,18 @@ export const ScheduledTasksWorkspace = ({
               {run.activity.title}
             </Text>
             <ActionIcon
-              icon={X}
               aria-label={t('scheduledTasks.closeChat')}
+              icon={X}
               title={t('scheduledTasks.closeChat')}
               onClick={() => setRun(undefined)}
             />
           </Flexbox>
           <Flexbox flex={1} style={{ minHeight: 0 }}>
             <TopicChatDrawerBody
-              agentId={run.agentId}
-              operationId={run.activity.operationId}
               defaultInputExpanded
               disableInputCollapse
+              agentId={run.agentId}
+              operationId={run.activity.operationId}
               runningOperation={run.activity.runningOperation}
               topicId={run.activity.id!}
             />

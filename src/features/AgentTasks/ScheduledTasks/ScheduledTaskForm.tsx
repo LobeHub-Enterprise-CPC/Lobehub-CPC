@@ -5,10 +5,10 @@ import {
   Button,
   createModal,
   Flexbox,
+  Icon,
   Input,
   Select,
   Switch,
-  Icon,
   Text,
   TextArea,
   useModalContext,
@@ -25,9 +25,9 @@ import { agentByIdSelectors, builtinAgentSelectors } from '@/store/agent/selecto
 import { useCurrentProjectList, useProjectStore } from '@/store/project';
 import { useTaskStore } from '@/store/task';
 
+import { TIMEZONE_OPTIONS } from '../AgentTaskDetail/scheduler/CronConfig';
 import AssigneeAgentSelector from '../features/AssigneeAgentSelector';
 import TaskDeviceChip from '../features/TaskDeviceChip';
-import { TIMEZONE_OPTIONS } from '../AgentTaskDetail/scheduler/CronConfig';
 import { useAgentDisplayMeta } from '../shared/useAgentDisplayMeta';
 import { FieldRow } from './FieldRow';
 import { ScheduleFields } from './ScheduleFields';
@@ -36,9 +36,9 @@ import { buildSchedule, initialSchedule, validateScheduleForm } from './schedule
 import { styles } from './style';
 
 interface ScheduledTaskFormProps {
-  initialInstruction?: string;
-  initialFrequency?: ScheduleFrequency;
   agentId?: string;
+  initialFrequency?: ScheduleFrequency;
+  initialInstruction?: string;
   lockAssignee?: boolean;
   onSaved?: (task: { identifier: string; agentId?: string; name?: string }) => void;
   projectId?: string;
@@ -208,8 +208,8 @@ export const ScheduledTaskForm = ({
             disabled={busy}
             id="schedule-instruction"
             placeholder={t('scheduledTasks.placeholder')}
-            style={{ minHeight: 92, resize: 'vertical' }}
             rows={3}
+            style={{ minHeight: 92, resize: 'vertical' }}
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
           />
@@ -236,8 +236,8 @@ export const ScheduledTaskForm = ({
         </fieldset>
         <Flexbox gap={8}>
           <Button
-            aria-expanded={advanced}
             aria-controls="schedule-advanced"
+            aria-expanded={advanced}
             className={styles.advancedToggle}
             type="text"
             onClick={() => setAdvanced(!advanced)}
@@ -266,11 +266,11 @@ export const ScheduledTaskForm = ({
               <FieldRow id="schedule-project" label={t('scheduledTasks.project')}>
                 <Select
                   disabled={!!task || !!projectId || busy}
-                  style={{ width: 'auto', maxWidth: '70%', minWidth: 120 }}
                   id="schedule-project"
+                  style={{ width: 'auto', maxWidth: '70%', minWidth: 120 }}
+                  suffixIcon={null}
                   value={project || 'none'}
                   variant="borderless"
-                  suffixIcon={null}
                   options={[
                     { label: t('scheduledTasks.none'), value: 'none' },
                     ...projects.map((p) => ({ label: p.name, value: p.id })),
@@ -312,9 +312,10 @@ export const ScheduledTaskForm = ({
               </AssigneeAgentSelector>
               <FieldRow id="schedule-model" label={t('scheduledTasks.model')}>
                 <ModelSelect
-                  id="schedule-model"
-                  disabled={busy}
                   initialWidth
+                  disabled={busy}
+                  id="schedule-model"
+                  placeholder={t('scheduledTasks.inheritModel')}
                   variant="borderless"
                   value={
                     model ||
@@ -322,7 +323,6 @@ export const ScheduledTaskForm = ({
                       ? { model: agentModel, provider: agentProvider }
                       : undefined)
                   }
-                  placeholder={t('scheduledTasks.inheritModel')}
                   onChange={setModel}
                 />
               </FieldRow>
@@ -330,10 +330,10 @@ export const ScheduledTaskForm = ({
                 <Select
                   showSearch
                   id="schedule-timezone"
-                  variant="borderless"
-                  suffixIcon={null}
                   style={{ maxWidth: '70%', textAlign: 'end' }}
+                  suffixIcon={null}
                   value={schedule.timezone}
+                  variant="borderless"
                   options={
                     TIMEZONE_OPTIONS.some((tz) => tz.value === schedule.timezone)
                       ? TIMEZONE_OPTIONS

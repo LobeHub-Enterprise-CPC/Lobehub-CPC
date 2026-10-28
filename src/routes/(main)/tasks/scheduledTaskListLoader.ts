@@ -1,12 +1,11 @@
 import type { LoaderFunctionArgs } from 'react-router';
 
+import { getActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import {
   readScheduleFilters,
   readSchedulePage,
   scheduleFilterStatuses,
 } from '@/features/AgentTasks/ScheduledTasks/filters';
-
-import { getActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import { PRE_PAINT_HYDRATE_TIMEOUT, settleWithin } from '@/libs/replica/prePaint';
 import { getTaskStoreState } from '@/store/task';
 import { TASK_COLLECTION_PAGE_SIZE } from '@/store/task/slices/list/action';

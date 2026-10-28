@@ -4,9 +4,8 @@ import { Flexbox } from '@lobehub/ui';
 import { memo } from 'react';
 import { Outlet, useLocation } from 'react-router';
 
-import { isScheduledTasksWorkspace } from '@/features/NavPanel/isScheduledTasksWorkspace';
-
 import AgentTaskManager from '@/features/AgentTaskManager';
+import { isScheduledTasksWorkspace } from '@/features/NavPanel/isScheduledTasksWorkspace';
 import MobilePortal from '@/features/Portal/Mobile';
 import { WorkspaceSidePanelProvider } from '@/features/RightPanel/WorkspaceSidePanel';
 import { useIsMobile } from '@/hooks/useIsMobile';
