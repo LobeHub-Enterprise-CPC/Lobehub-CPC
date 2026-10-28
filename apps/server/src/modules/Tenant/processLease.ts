@@ -35,12 +35,26 @@ export class TenantProcessLease {
       terminate();
     });
   };
+  /**
+   * SIGTERM lets work already running here finish under a still-valid lease
+   * before deregistering. The platform's grace period bounds the wait, and
+   * expiry keeps fencing immediately meanwhile.
+   */
+  private draining = false;
+  private readonly onSigterm = () => {
+    if (this.stopping || this.draining) return;
+    this.draining = true;
+    void this.drainBeforeStop()
+      .catch((error) => console.error('[TenantLease] drain failed', error))
+      .finally(this.onTerminate);
+  };
 
   constructor(
     private readonly store: TenantLeaseStore,
     private readonly now = () => performance.now(),
     private readonly signals: Pick<EventEmitter, 'on' | 'removeListener'> = process,
     private readonly terminate = () => process.kill(process.pid, 'SIGTERM'),
+    private readonly drainBeforeStop: () => Promise<void> = async () => {},
   ) {}
 
   assertValid() {
@@ -53,7 +67,7 @@ export class TenantProcessLease {
     if (this.stopping) throw new TenantGateError('TENANT_UNAVAILABLE');
     if (!this.started) {
       this.started = true;
-      this.signals.on('SIGTERM', this.onTerminate);
+      this.signals.on('SIGTERM', this.onSigterm);
       this.timer = setInterval(() => {
         void this.heartbeat().catch((error) =>
           console.error('[TenantLease] renewal failed', error),
@@ -98,7 +112,7 @@ export class TenantProcessLease {
     this.validUntil = 0;
     if (this.timer) clearInterval(this.timer);
     if (this.expiryTimer) clearTimeout(this.expiryTimer);
-    this.signals.removeListener('SIGTERM', this.onTerminate);
+    this.signals.removeListener('SIGTERM', this.onSigterm);
     // Serialize removal after any outstanding upsert so it cannot resurrect the lease.
     await this.renewal?.catch((error) =>
       console.error('[TenantLease] final renewal failed', error),
