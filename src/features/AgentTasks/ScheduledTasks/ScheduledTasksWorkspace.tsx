@@ -1,12 +1,23 @@
 import type { TaskDetailActivity } from '@lobechat/types';
-import { ActionIcon, Alert, Button, Flexbox, Pagination, Skeleton, Text } from '@lobehub/ui';
-import { ArrowLeft, Plus, X } from 'lucide-react';
+import {
+  ActionIcon,
+  Alert,
+  Button,
+  DropdownMenu,
+  Flexbox,
+  Pagination,
+  Skeleton,
+  Text,
+} from '@lobehub/ui';
+import { ArrowLeft, MoreHorizontal, PencilLine, Search, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
 
+import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { usePermission } from '@/hooks/usePermission';
+import { useGlobalStore } from '@/store/global';
 import { useCurrentProjectList, useProjectStore } from '@/store/project';
 import type { TaskListItem } from '@/store/task/slices/list/initialState';
 
@@ -15,13 +26,16 @@ import { ScheduledTaskDetail } from './ScheduledTaskDetail';
 import { createScheduledTaskModal } from './ScheduledTaskForm';
 import { formatScheduledDate, nextScheduledDate, scheduleSummary } from './scheduleSummary';
 import { styles } from './style';
+import { SCHEDULE_FILTERS, type ScheduleFilter } from './filters';
+import { ScheduledTasksWelcome, type SchedulePreset } from './ScheduledTasksWelcome';
 
 interface ScheduledTasksWorkspaceProps {
   agentId?: string;
   error?: unknown;
   isLoading: boolean;
   items: TaskListItem[];
-  onExit: () => void;
+  filters: ScheduleFilter[];
+  onFiltersChange: (filters: ScheduleFilter[]) => void;
   onPageChange: (page: number) => void;
   onRefresh: () => void;
   page: number;
@@ -35,7 +49,8 @@ export const ScheduledTasksWorkspace = ({
   error,
   isLoading,
   items,
-  onExit,
+  filters,
+  onFiltersChange,
   onPageChange,
   onRefresh,
   page,
@@ -46,11 +61,14 @@ export const ScheduledTasksWorkspace = ({
   const { t, i18n } = useTranslation('chat');
   const { allowed } = usePermission('create_content');
   const mobile = useIsMobile();
+  const navigate = useWorkspaceAwareNavigate();
+  const nativeMobile = typeof __MOBILE__ !== 'undefined' && __MOBILE__;
   const [params, setParams] = useSearchParams();
   const requestedId = params.get('scheduledTask');
-  const [mobileDetail, setMobileDetail] = useState(!!requestedId);
+  const mobileDetail = !!requestedId;
+  const toggleCommandMenu = useGlobalStore((s) => s.toggleCommandMenu);
   const [run, setRun] = useState<{ activity: TaskDetailActivity; agentId: string }>();
-  const selectedId = requestedId || (!mobile ? items[0]?.identifier : undefined);
+  const selectedId = requestedId || undefined;
   const selected = items.find((task) => task.identifier === selectedId);
   const projects = useCurrentProjectList();
   useProjectStore((s) => s.useFetchProjectList)();
@@ -62,16 +80,21 @@ export const ScheduledTasksWorkspace = ({
     if (id) next.set('scheduledTask', id);
     else next.delete('scheduledTask');
     setParams(next, { replace: true });
-    setMobileDetail(!!id);
   };
-  const create = () =>
+  const create = (preset?: SchedulePreset) =>
     createScheduledTaskModal({
       agentId,
       lockAssignee: !!agentId,
       projectId,
+      initialInstruction: preset?.instruction,
+      initialFrequency: preset?.frequency,
       onSaved: ({ identifier }) => {
         onRefresh();
-        select(identifier);
+        const next = new URLSearchParams(params);
+        next.set('scheduledTask', identifier);
+        next.delete('scheduledStatus');
+        next.delete('scheduledPage');
+        setParams(next, { replace: true });
       },
     });
   const terminalLabel = (status: string) =>
@@ -90,22 +113,60 @@ export const ScheduledTasksWorkspace = ({
         <aside aria-label={t('scheduledTasks.title')} className={styles.sidebar}>
           <div className={styles.sidebarHeader}>
             <Flexbox horizontal align="center" gap={4}>
-              <ActionIcon
-                icon={ArrowLeft}
-                aria-label={t('taskList.title')}
-                title={t('taskList.title')}
-                onClick={onExit}
-              />
-              <Text weight={500}>{t('scheduledTasks.title')}</Text>
+              {nativeMobile && (
+                <ActionIcon
+                  icon={ArrowLeft}
+                  aria-label={t('tab.home', { ns: 'common' })}
+                  onClick={() => navigate('/')}
+                />
+              )}
+              <Text fontSize={16} weight={600}>
+                {t('scheduledTasks.title')}
+              </Text>
             </Flexbox>
             <ActionIcon
-              disabled={!allowed}
-              icon={Plus}
-              aria-label={t('scheduledTasks.create')}
-              title={t('scheduledTasks.create')}
-              onClick={create}
+              icon={Search}
+              aria-label={t('tab.search', { ns: 'common' })}
+              title={t('tab.search', { ns: 'common' })}
+              onClick={() => toggleCommandMenu(true)}
             />
           </div>
+          <Button
+            className={styles.createEntry}
+            icon={PencilLine}
+            type="text"
+            disabled={!allowed}
+            onClick={() => create()}
+          >
+            {t('scheduledTasks.newTask')}
+          </Button>
+          <Flexbox horizontal align="center" justify="space-between" className={styles.listHeader}>
+            <Text fontSize={12} type="secondary">
+              {t('scheduledTasks.upcoming')}
+            </Text>
+            <DropdownMenu
+              header={t('scheduledTasks.filterBy')}
+              items={SCHEDULE_FILTERS.map((key) => ({
+                key,
+                type: 'checkbox',
+                checked: filters.includes(key),
+                closeOnClick: false,
+                label: t(`scheduledTasks.filters.${key}`),
+                onCheckedChange: (checked) =>
+                  onFiltersChange(
+                    SCHEDULE_FILTERS.filter((value) =>
+                      value === key ? checked : filters.includes(value),
+                    ),
+                  ),
+              }))}
+            >
+              <ActionIcon
+                icon={MoreHorizontal}
+                aria-label={t('scheduledTasks.filterBy')}
+                title={t('scheduledTasks.filterBy')}
+              />
+            </DropdownMenu>
+          </Flexbox>
           <div className={styles.list}>
             {error ? (
               <Alert
@@ -117,18 +178,17 @@ export const ScheduledTasksWorkspace = ({
             ) : isLoading && items.length === 0 ? (
               <Skeleton.Text rows={5} />
             ) : items.length === 0 ? (
-              <Flexbox gap={16} paddingBlock={32}>
-                <Text weight={500}>{t('scheduledTasks.empty')}</Text>
-                <Text type="secondary">{t('scheduledTasks.emptyDescription')}</Text>
-                <Button disabled={!allowed} icon={Plus} onClick={create}>
-                  {t('scheduledTasks.create')}
-                </Button>
+              <Flexbox gap={8} padding={8}>
+                <Text type="secondary">
+                  {t(
+                    filters.length === SCHEDULE_FILTERS.length
+                      ? 'scheduledTasks.empty'
+                      : 'scheduledTasks.noFilterMatches',
+                  )}
+                </Text>
               </Flexbox>
             ) : (
               <Flexbox gap={8}>
-                <Text fontSize={12} style={{ paddingInline: 8 }} type="secondary">
-                  {t('scheduledTasks.upcoming')}
-                </Text>
                 {[...items]
                   .sort(
                     (a, b) =>
@@ -192,7 +252,7 @@ export const ScheduledTasksWorkspace = ({
               </Flexbox>
             )}
           </div>
-          {total > pageSize && (
+          {total > 0 && (total > pageSize || page > 1) && (
             <Flexbox padding={12}>
               <Pagination
                 simple
@@ -203,6 +263,11 @@ export const ScheduledTasksWorkspace = ({
                 onChange={onPageChange}
               />
             </Flexbox>
+          )}
+          {total === 0 && page > 1 && !isLoading && (
+            <Button onClick={() => onPageChange(page - 1)}>
+              {t('scheduledTasks.previousPage')}
+            </Button>
           )}
         </aside>
       )}
@@ -216,23 +281,13 @@ export const ScheduledTasksWorkspace = ({
               taskId={selectedId}
               onOpenRun={(activity, runAgentId) => setRun({ activity, agentId: runAgentId })}
               onSaved={onRefresh}
-              onBack={() => {
-                select(undefined);
-                if (!mobile) onExit();
+              onBack={nativeMobile ? () => select(undefined) : undefined}
+              onRunRemoved={(topicId) => {
+                if (run?.activity.id === topicId) setRun(undefined);
               }}
             />
           ) : (
-            !error &&
-            !isLoading && (
-              <Flexbox align="center" gap={16} justify="center" style={{ minHeight: '60vh' }}>
-                <Text type="secondary">
-                  {t(total === 0 ? 'scheduledTasks.emptyDescription' : 'scheduledTasks.selectTask')}
-                </Text>
-                <Button disabled={!allowed} icon={Plus} onClick={create}>
-                  {t('scheduledTasks.create')}
-                </Button>
-              </Flexbox>
-            )
+            <ScheduledTasksWelcome disabled={!allowed} onCreate={create} />
           )}
         </main>
       )}

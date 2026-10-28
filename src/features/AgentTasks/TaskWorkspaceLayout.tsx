@@ -2,7 +2,9 @@
 
 import { Flexbox } from '@lobehub/ui';
 import { memo } from 'react';
-import { Outlet, useSearchParams } from 'react-router';
+import { Outlet, useLocation } from 'react-router';
+
+import { isScheduledTasksWorkspace } from '@/features/NavPanel/isScheduledTasksWorkspace';
 
 import AgentTaskManager from '@/features/AgentTaskManager';
 import MobilePortal from '@/features/Portal/Mobile';
@@ -11,8 +13,8 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 
 const TaskWorkspaceLayout = memo(() => {
   const isMobile = useIsMobile();
-  const [params] = useSearchParams();
-  const scheduled = params.get('collection') === 'scheduled';
+  const { pathname, search } = useLocation();
+  const scheduled = isScheduledTasksWorkspace(pathname, search);
 
   // This layout owns the side panel: the task manager or the mobile portal is
   // the one host for every route under it, so the routed page must not mount a
