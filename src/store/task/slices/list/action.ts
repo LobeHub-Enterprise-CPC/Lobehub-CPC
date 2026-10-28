@@ -61,12 +61,12 @@ export const COMPLETE_TASK_LIST_PAGE_SIZE = 100;
 export const TASK_COLLECTION_PAGE_SIZE = 50;
 
 export interface ScheduledTaskListOptions {
-  statuses?: TaskStatus[];
-  includeFinishedAutomation?: boolean;
   agentId?: string;
+  includeFinishedAutomation?: boolean;
   limit?: number;
   offset?: number;
   projectId?: string;
+  statuses?: TaskStatus[];
 }
 
 /**

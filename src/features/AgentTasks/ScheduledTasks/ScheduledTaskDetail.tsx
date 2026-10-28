@@ -9,7 +9,7 @@ import {
   Skeleton,
   Text,
 } from '@lobehub/ui';
-import { ArrowLeft, MoreHorizontal, Play, Pencil } from 'lucide-react';
+import { ArrowLeft, MoreHorizontal, Pencil, Play } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -18,10 +18,10 @@ import { usePermission } from '@/hooks/usePermission';
 import { useTaskStore } from '@/store/task';
 import { taskDetailSelectors } from '@/store/task/selectors';
 
-import { ScheduledRunRow } from './ScheduledRunRow';
-import { ScheduledTaskProperties } from './ScheduledTaskProperties';
 import { useActiveTaskDetail } from '../AgentTaskDetail/useActiveTaskDetail';
+import { ScheduledRunRow } from './ScheduledRunRow';
 import { createScheduledTaskModal } from './ScheduledTaskForm';
+import { ScheduledTaskProperties } from './ScheduledTaskProperties';
 import { styles } from './style';
 
 export const ScheduledTaskDetail = ({
@@ -76,7 +76,7 @@ export const ScheduledTaskDetail = ({
       <Flexbox horizontal align="start" gap={12} justify="space-between" wrap="wrap">
         <Flexbox horizontal align="center" gap={8} style={{ minWidth: 0 }}>
           {onBack && (
-            <ActionIcon icon={ArrowLeft} aria-label={t('scheduledTasks.back')} onClick={onBack} />
+            <ActionIcon aria-label={t('scheduledTasks.back')} icon={ArrowLeft} onClick={onBack} />
           )}
           <Text as="h1" fontSize={24} style={{ margin: 0, overflowWrap: 'anywhere' }} weight={600}>
             {detail.name || detail.identifier}
@@ -84,22 +84,22 @@ export const ScheduledTaskDetail = ({
         </Flexbox>
         <Flexbox horizontal gap={8} wrap="wrap">
           <Button
-            disabled={!allowed || busy || running}
-            className={styles.pill}
-            icon={Play}
             aria-label={t('scheduledTasks.runNow')}
-            style={compactActions ? { width: 40, padding: 0 } : undefined}
+            className={styles.pill}
+            disabled={!allowed || busy || running}
+            icon={Play}
             loading={busy}
+            style={compactActions ? { width: 40, padding: 0 } : undefined}
             onClick={() => void act(true)}
           >
             {!compactActions && t('scheduledTasks.runNow')}
           </Button>
           <Button
-            className={styles.pill}
-            icon={Pencil}
             aria-label={t('scheduledTasks.edit')}
-            style={compactActions ? { width: 40, padding: 0 } : undefined}
+            className={styles.pill}
             disabled={!allowed || running}
+            icon={Pencil}
+            style={compactActions ? { width: 40, padding: 0 } : undefined}
             onClick={() => createScheduledTaskModal({ task: detail, onSaved })}
           >
             {!compactActions && t('scheduledTasks.edit')}
@@ -157,13 +157,13 @@ export const ScheduledTaskDetail = ({
         ) : (
           runs.map((run) => (
             <ScheduledRunRow
+              agentId={detail.agentId || undefined}
               key={run.id}
               run={run}
-              agentId={detail.agentId || undefined}
               taskName={detail.name || undefined}
+              onChanged={onSaved}
               onOpen={() => onOpenRun(run, run.agentId || detail.agentId || '')}
               onRemoved={onRunRemoved}
-              onChanged={onSaved}
             />
           ))
         )}

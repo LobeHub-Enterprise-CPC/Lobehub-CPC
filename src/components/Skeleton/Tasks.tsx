@@ -3,14 +3,14 @@
 import { Block, Divider, Flexbox } from '@lobehub/ui';
 import { Fragment } from 'react';
 import { useLocation } from 'react-router';
-import ScheduledTasksSkeleton from './ScheduledTasks';
-
-import { isScheduledTasksWorkspace } from '@/features/NavPanel/isScheduledTasksWorkspace';
 
 import TaskItemSkeleton from '@/features/AgentTasks/AgentTaskList/TaskItemSkeleton';
 import NavHeader from '@/features/NavHeader';
+import { isScheduledTasksWorkspace } from '@/features/NavPanel/isScheduledTasksWorkspace';
 import WideScreenContainer from '@/features/WideScreenContainer';
 import type { RouteSkeletonProps } from '@/spa/router/routeMeta';
+
+import ScheduledTasksSkeleton from './ScheduledTasks';
 
 const TasksSkeleton = ({ chrome = 'page' }: RouteSkeletonProps) => {
   const { pathname, search } = useLocation();

@@ -11,6 +11,7 @@ import TaskWorkspaceLayout from './TaskWorkspaceLayout';
 
 const mocks = vi.hoisted(() => ({
   isMobile: false,
+  location: { pathname: '/agent/agt_1/tasks', search: '' },
   portalView: null as null | string,
   showArtifactInTopicDrawer: false,
   showPortal: false,
@@ -31,6 +32,7 @@ vi.mock('react-router', async () => {
   return {
     ...actual,
     Outlet,
+    useLocation: () => mocks.location,
   };
 });
 
@@ -94,6 +96,7 @@ const SidePanelProbe = () => (
 describe('TaskWorkspaceLayout', () => {
   beforeEach(() => {
     mocks.isMobile = false;
+    mocks.location = { pathname: '/agent/agt_1/tasks', search: '' };
     mocks.portalView = null;
     mocks.showArtifactInTopicDrawer = false;
     mocks.showPortal = false;
@@ -139,6 +142,23 @@ describe('TaskWorkspaceLayout', () => {
     render(<TaskWorkspaceLayout />);
 
     expect(screen.getByTestId('mobile-task-portal')).toBeInTheDocument();
+    expect(screen.queryByTestId('task-agent-manager')).not.toBeInTheDocument();
+  });
+
+  it('hides the desktop task manager on the global scheduled workspace', () => {
+    mocks.location = { pathname: '/tasks', search: '' };
+
+    render(<TaskWorkspaceLayout />);
+
+    expect(screen.getByTestId('task-workspace-outlet')).toBeInTheDocument();
+    expect(screen.queryByTestId('task-agent-manager')).not.toBeInTheDocument();
+  });
+
+  it('hides the desktop task manager on a scoped scheduled tab', () => {
+    mocks.location = { pathname: '/agent/agt_1/tasks', search: '?collection=scheduled' };
+
+    render(<TaskWorkspaceLayout />);
+
     expect(screen.queryByTestId('task-agent-manager')).not.toBeInTheDocument();
   });
 

@@ -1,4 +1,4 @@
-import { Flexbox, Skeleton, cssVar } from '@lobehub/ui';
+import { cssVar, Flexbox, Skeleton } from '@lobehub/ui';
 
 const ScheduledTasksSkeleton = ({ showWelcome = false }: { showWelcome?: boolean }) => (
   <Flexbox aria-busy horizontal flex={1} style={{ minWidth: 0, minHeight: 0 }}>
@@ -16,11 +16,11 @@ const ScheduledTasksSkeleton = ({ showWelcome = false }: { showWelcome?: boolean
     </Flexbox>
     <Flexbox flex={1} gap={32} padding={40} style={{ minWidth: 0 }}>
       {showWelcome ? (
-        <Flexbox flex={1} align="center" justify="center" gap={32}>
+        <Flexbox align="center" flex={1} gap={32} justify="center">
           <Skeleton style={{ width: 64, height: 64, borderRadius: '50%' }} />
           <Skeleton.Text width={240} />
           <Skeleton style={{ width: 120, height: 40, borderRadius: 24 }} />
-          <Flexbox horizontal wrap="wrap" gap={16} style={{ width: '100%', maxWidth: 720 }}>
+          <Flexbox horizontal gap={16} style={{ width: '100%', maxWidth: 720 }} wrap="wrap">
             {Array.from({ length: 6 }, (_, i) => (
               <Skeleton key={i} style={{ width: 'calc(50% - 8px)', height: 76 }} />
             ))}
