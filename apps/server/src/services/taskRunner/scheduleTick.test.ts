@@ -88,6 +88,27 @@ describe('runScheduleTick', () => {
     });
   });
 
+  it('does not dispatch a queued execution outside its persisted date window', async () => {
+    mockSelectTask.mockResolvedValue([
+      baseTask({ config: { schedule: { onceAt: '2099-01-01T00:00:00Z' } } }),
+    ]);
+    expect(await runScheduleTick(taskId, userId)).toEqual({ ran: false, reason: 'outside-window' });
+    expect(mockRunner.runTask).not.toHaveBeenCalled();
+  });
+
+  it('completes an expired schedule without running the agent', async () => {
+    mockSelectTask.mockResolvedValue([
+      baseTask({ config: { schedule: { endsAt: '2000-01-01T00:00:00Z' } } }),
+    ]);
+    expect(await runScheduleTick(taskId, userId)).toEqual({ ran: false, reason: 'outside-window' });
+    expect(mockTaskModel.updateStatus).toHaveBeenCalledWith(
+      taskId,
+      'completed',
+      expect.objectContaining({ completedAt: expect.any(Date) }),
+    );
+    expect(mockRunner.runTask).not.toHaveBeenCalled();
+  });
+
   it('skips not-found tasks', async () => {
     mockSelectTask.mockResolvedValue([]);
 
@@ -111,6 +132,15 @@ describe('runScheduleTick', () => {
     const outcome = await runScheduleTick(taskId, userId);
 
     expect(outcome).toEqual({ ran: false, reason: 'mode-changed' });
+    expect(mockRunner.runTask).not.toHaveBeenCalled();
+  });
+
+  it('skips an archived task without running it', async () => {
+    mockSelectTask.mockResolvedValue([baseTask({ archivedAt: new Date() })]);
+
+    const outcome = await runScheduleTick(taskId, userId);
+
+    expect(outcome).toEqual({ ran: false, reason: 'archived' });
     expect(mockRunner.runTask).not.toHaveBeenCalled();
   });
 

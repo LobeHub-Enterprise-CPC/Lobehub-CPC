@@ -27,7 +27,7 @@ export async function saveChannelArtifact(
       throw new Error('Workspace snapshot changed after publication');
     return;
   }
-  await new ChannelModel(db, ownerId).detail(channelId);
+  await new ChannelModel(db, ownerId).assertActive(channelId);
   const key = `channel-artifacts/${ownerId}/${runId}/${sha256}.json`;
   await new FileService(db, ownerId).uploadBuffer(key, Buffer.from(content), 'application/json');
   await db.transaction(async (tx) => {
@@ -74,7 +74,7 @@ export async function getChannelArtifactUrl(
   channelId: string,
   runId: string,
 ) {
-  await new ChannelModel(db, ownerId).detail(channelId);
+  await new ChannelModel(db, ownerId).assertActive(channelId);
   const [artifact] = await db
     .select({ details: channelAudit.details })
     .from(channelAudit)

@@ -1,4 +1,4 @@
-import { createStaticStyles } from 'antd-style';
+import { createStaticStyles } from '@lobehub/ui';
 
 export const styles = createStaticStyles(({ css, cssVar }) => ({
   layout: css`
@@ -79,19 +79,6 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
     border: 1px solid ${cssVar.colorBorderSecondary};
     border-radius: 12px;
     background: ${cssVar.colorBgContainer};
-  `,
-  approvals: css`
-    overflow: auto;
-    max-height: 45%;
-  `,
-  approvalPayload: css`
-    overflow: auto;
-
-    max-height: 180px;
-    margin: 0;
-
-    overflow-wrap: anywhere;
-    white-space: pre-wrap;
   `,
   activity: css`
     overflow: auto;

@@ -124,13 +124,6 @@ vi.mock('@/server/modules/ModelRuntime', () => ({
   initModelRuntimeFromDB: vi.fn(),
 }));
 
-// The share path's atomic cap reservations open real DB transactions — stub
-// them so the forced-headless test below can drive execAgent with a bare mock db.
-vi.mock('../shareVisitorAbuseGuards', () => ({
-  reserveShareVisitorTopic: vi.fn().mockResolvedValue({ id: 'topic-1' }),
-  reserveShareVisitorTurn: vi.fn().mockResolvedValue({ id: 'msg-1' }),
-}));
-
 vi.mock('model-bank', async (importOriginal) => {
   const actual = await importOriginal<typeof ModelBankModule>();
   return {
@@ -221,35 +214,6 @@ describe('AiAgentService.execAgent - headless approval default', () => {
     expect(appContext.userAgent).toBeUndefined();
   });
 
-  const shareGate = {
-    agentId: 'agent-1',
-    shareConfig: { toolGrants: [] },
-    shareId: 'share-1',
-    visitorUserId: 'visitor-1',
-  };
-
-  it('honors the visitor-selected approval mode on a share-visitor run', async () => {
-    // The visitor is the approver of a share run, so their own mode drives it.
-    await service.execAgent({
-      agentId: 'agent-1',
-      prompt: 'Hello',
-      shareGate,
-      userInterventionConfig: { approvalMode: 'auto-run' },
-    });
-
-    const callArgs = mockCreateOperation.mock.calls[0][0];
-    expect(callArgs.userInterventionConfig).toEqual({ approvalMode: 'auto-run' });
-  });
-
-  it('falls back to manual, never headless, for a share-visitor run without a config', async () => {
-    // `headless` would auto-run `'required'` calls, granting consent the
-    // visitor never gave.
-    await service.execAgent({ agentId: 'agent-1', prompt: 'Hello', shareGate });
-
-    const callArgs = mockCreateOperation.mock.calls[0][0];
-    expect(callArgs.userInterventionConfig).toEqual({ approvalMode: 'manual' });
-  });
-
   it('should respect explicit allow-list approval mode with allowList', async () => {
     const config = { allowList: ['tool-a', 'tool-b'], approvalMode: 'allow-list' as const };
 
@@ -264,3 +228,7 @@ describe('AiAgentService.execAgent - headless approval default', () => {
     expect(callArgs.userInterventionConfig).toEqual(config);
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

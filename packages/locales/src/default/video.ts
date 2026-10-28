@@ -54,6 +54,8 @@ export default {
   'generation.version.sourceDeleted': 'Edited from a deleted video',
   'notice.modelRemoved':
     'The current model is no longer available from {{name}}. Please switch to an available model.',
+  'notice.noModelAvailable':
+    'No video generation model is available. Contact your administrator to add one.',
   'notice.providerDisabled':
     'The provider {{name}} for the current model is disabled. Please enable it or switch to an available model.',
   'topic.createNew': 'Create New Topic',

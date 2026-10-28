@@ -4,10 +4,13 @@ import debug from 'debug';
 
 import { UserModel } from '@/database/models/user';
 import { WorkspaceMemberModel } from '@/database/models/workspaceMember';
-import { MarketService } from '@/server/services/market';
+import { isTenantMarketMode } from '@/libs/trusted-client/config';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
+import type { MarketService } from '@/server/services/market';
 import { resolveSandboxSessionConfig } from '@/server/services/sandbox';
 
 import { resolveContentWorkspaceId } from './resolveWorkspaceScope';
+import { createSandboxMarketService } from './sandboxMarket';
 import { type ServerRuntimeRegistration } from './types';
 
 const log = debug('lobe-server:creds-runtime');
@@ -42,11 +45,27 @@ export class ServerCredsService implements ICredsService {
   }
 
   /**
+   * A tenant has no workspace organization (acting-as-organization is closed,
+   * R13), so there are no workspace credentials to read, write or inject.
+   * Failing this one tool call with a reason is the answer; the personal
+   * credentials must not stand in, because the caller believes it is working
+   * on the workspace's.
+   */
+  private assertWorkspaceCredsAvailable() {
+    if (this.workspaceId && isTenantMarketMode()) {
+      throw new Error(
+        'Workspace credentials are not available in an organization deployment. No credential was read or injected; use your personal credentials outside a workspace.',
+      );
+    }
+  }
+
+  /**
    * Inside a workspace, reads/writes must hit the workspace's shared organization
    * credentials, never the operator's personal creds. Falls back to
    * the personal `market.creds` namespace outside a workspace.
    */
   private credsAccessor() {
+    this.assertWorkspaceCredsAvailable();
     return this.workspaceId
       ? this.marketService.market.organizations.creds({ workspaceId: this.workspaceId })
       : this.marketService.market.creds;
@@ -137,6 +156,10 @@ export class ServerCredsService implements ICredsService {
         'Credential injection into the sandbox is unavailable in shared conversations.',
       );
     }
+
+    // Checked before the Market call: without the workspaceId in the token the
+    // endpoint would inject the personal credentials into the workspace sandbox.
+    this.assertWorkspaceCredsAvailable();
 
     // Market's generic inject endpoint resolves organization credentials from
     // the workspaceId signed into this service's trusted-client token, and —
@@ -234,14 +257,12 @@ export const credsRuntime: ServerRuntimeRegistration = {
       workspaceId,
     });
 
-    const marketService = new MarketService({
+    const marketService = await createSandboxMarketService(
+      context,
       accessToken,
-      userInfo: {
-        sandboxStorage: sandbox.claim,
-        userId: context.userId,
-        workspaceId,
-      },
-    });
+      workspaceId,
+      sandbox.claim,
+    );
 
     const credsService = new ServerCredsService(
       marketService,
@@ -250,6 +271,7 @@ export const credsRuntime: ServerRuntimeRegistration = {
     );
 
     return new CredsExecutionRuntime(credsService, {
+      appUrl: tenantPublicBaseUrl(),
       topicId: context.topicId,
       userId: context.userId,
     });

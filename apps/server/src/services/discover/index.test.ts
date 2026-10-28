@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AssistantStore } from '@/server/modules/AssistantStore';
@@ -340,6 +341,205 @@ describe('DiscoverService', () => {
       ]);
     });
 
+    describe('in a tenant', () => {
+      const inTenant = <T>(fn: () => T) =>
+        runWithTenantScope(
+          { session: {}, slug: 'acme', tenantId: 'tenant-a' } as unknown as TenantScope,
+          fn,
+        );
+
+      // Each tenant has its own schema, so "public" there is already visible to
+      // that tenant only; Market's group list has no viewer filter, so the
+      // parameter stays on in a tenant too.
+      it('still narrows the catalogue to public content', async () => {
+        await inTenant(() => service.getAssistantList({}));
+
+        const [query] = mockMarket.agents.getAgentList.mock.calls[0];
+        expect(query).toMatchObject({ status: 'published', visibility: 'public' });
+      });
+
+      it('narrows the group catalogue to public content as well', async () => {
+        mockMarket.agentGroups = {
+          ...mockMarket.agentGroups,
+          getAgentGroupList: vi.fn().mockResolvedValue({ items: [], totalCount: 0 }),
+        };
+
+        await inTenant(() => service.getGroupAgentList({}));
+
+        expect(mockMarket.agentGroups.getAgentGroupList).toHaveBeenCalledWith(
+          expect.objectContaining({ status: 'published', visibility: 'public' }),
+        );
+      });
+
+      it('keeps asking for public content outside a tenant', async () => {
+        await service.getAssistantList({});
+
+        expect(mockMarket.agents.getAgentList).toHaveBeenCalledWith(
+          expect.objectContaining({ visibility: 'public' }),
+        );
+      });
+
+      it('passes through what Market says the requester may do, and nothing it did not say', async () => {
+        mockMarket.agents.getAgentList.mockResolvedValue({
+          currentPage: 1,
+          items: [
+            { ...mockMarketAssistantList[0], canEdit: true, canUnpublish: false },
+            { ...mockMarketAssistantList[1] },
+          ],
+          pageSize: 20,
+          totalCount: 2,
+          totalPages: 1,
+        });
+
+        const result = await inTenant(() => service.getAssistantList({}));
+
+        expect(result.items[0]).toMatchObject({ canEdit: true, canUnpublish: false });
+        expect(result.items[1]).not.toHaveProperty('canEdit');
+        expect(result.items[1]).not.toHaveProperty('canUnpublish');
+      });
+
+      it('reads the rights off the detail response too', async () => {
+        mockMarket.agents.getAgentDetail.mockResolvedValue({
+          ...mockMarketAgentDetail,
+          canEdit: true,
+          canUnpublish: true,
+        });
+
+        const detail = await inTenant(() =>
+          service.getAssistantDetail({ identifier: 'market-assistant-1' }),
+        );
+
+        expect(detail).toMatchObject({ canEdit: true, canUnpublish: true });
+      });
+    });
+
+    // Market's `contentSync` (A2): null = no local sync binding, {detached:false}
+    // = still following the platform, {detached:true} = cut loose. The three
+    // states differ in what the UI says, so none may collapse into another, and
+    // a response without the field says nothing at all.
+    describe('contentSync', () => {
+      const states = [
+        ['no binding', null],
+        ['still syncing', { detached: false }],
+        ['detached', { detached: true }],
+      ] as const;
+
+      it.each(states)('keeps %s on agent list items', async (_name, contentSync) => {
+        mockMarket.agents.getAgentList.mockResolvedValue({
+          currentPage: 1,
+          items: [{ ...mockMarketAssistantList[0], contentSync }],
+          pageSize: 20,
+          totalCount: 1,
+          totalPages: 1,
+        });
+
+        const result = await service.getAssistantList({});
+
+        expect(result.items[0].contentSync).toEqual(contentSync);
+      });
+
+      it.each(states)('keeps %s on the agent detail', async (_name, contentSync) => {
+        mockMarket.agents.getAgentDetail.mockResolvedValue({
+          ...mockMarketAgentDetail,
+          contentSync,
+        });
+
+        const detail = await service.getAssistantDetail({ identifier: 'market-assistant-1' });
+
+        expect(detail?.contentSync).toEqual(contentSync);
+      });
+
+      it('leaves the field out when Market did not report it', async () => {
+        const detail = await service.getAssistantDetail({ identifier: 'market-assistant-1' });
+
+        expect(detail).not.toHaveProperty('contentSync');
+      });
+
+      it('never forwards what else the sync binding knows (source, hash)', async () => {
+        mockMarket.agents.getAgentDetail.mockResolvedValue({
+          ...mockMarketAgentDetail,
+          contentSync: { detached: true, hash: 'abc', sourceId: 7 },
+        });
+
+        const detail = await service.getAssistantDetail({ identifier: 'market-assistant-1' });
+
+        expect(detail?.contentSync).toEqual({ detached: true });
+      });
+
+      it('ignores a value that is not one of the three states', async () => {
+        mockMarket.agents.getAgentDetail.mockResolvedValue({
+          ...mockMarketAgentDetail,
+          contentSync: 'detached',
+        });
+
+        const detail = await service.getAssistantDetail({ identifier: 'market-assistant-1' });
+
+        expect(detail).not.toHaveProperty('contentSync');
+      });
+
+      it('keeps it on every resource of a user profile', async () => {
+        const sync = { detached: true };
+        mockMarket.user = {
+          getUserInfo: vi.fn().mockResolvedValue({
+            agentGroups: [{ contentSync: sync, identifier: 'g1', name: 'G1' }],
+            agents: [{ contentSync: sync, identifier: 'a1', name: 'A1' }],
+            favoriteAgentGroups: [{ contentSync: sync, identifier: 'g3', name: 'G3' }],
+            favoriteAgents: [{ contentSync: sync, identifier: 'a3', name: 'A3' }],
+            forkedAgentGroups: [{ contentSync: sync, identifier: 'g2', name: 'G2' }],
+            forkedAgents: [{ contentSync: sync, identifier: 'a2', name: 'A2' }],
+            plugins: [{ contentSync: null, identifier: 'p1' }],
+            skills: [{ contentSync: { detached: false }, identifier: 's1' }],
+            user: { id: 1, userName: 'u' },
+          }),
+        };
+
+        const profile = await service.getUserInfo({ username: 'u' });
+
+        expect(profile?.agents[0].contentSync).toEqual(sync);
+        expect(profile?.agentGroups[0].contentSync).toEqual(sync);
+        expect(profile?.forkedAgents?.[0].contentSync).toEqual(sync);
+        expect(profile?.forkedAgentGroups?.[0].contentSync).toEqual(sync);
+        expect(profile?.favoriteAgents?.[0].contentSync).toEqual(sync);
+        expect(profile?.favoriteAgentGroups?.[0].contentSync).toEqual(sync);
+        expect(profile?.plugins?.[0].contentSync).toBeNull();
+        expect(profile?.skills?.[0].contentSync).toEqual({ detached: false });
+      });
+
+      it('keeps it on MCP list and detail, and on the MCP behind a plugin detail', async () => {
+        const mcp = { category: 'tools', contentSync: { detached: true }, identifier: 'mcp-x' };
+        mockMarket.plugins.getPluginList.mockResolvedValue({ ...mockMarket.plugins, items: [mcp] });
+        mockMarket.plugins.getPluginDetail.mockResolvedValue(mcp);
+
+        const list = await service.getMcpList({});
+        const detail = await service.getMcpDetail({ identifier: 'mcp-x' });
+        const asPlugin = await service.getPluginDetail({ identifier: 'mcp-x' });
+
+        expect((list.items[0] as any).contentSync).toEqual({ detached: true });
+        expect((detail as any).contentSync).toEqual({ detached: true });
+        expect((asPlugin as any)?.contentSync).toEqual({ detached: true });
+      });
+
+      it('reads a group detail from .group and passes it through', async () => {
+        const response = {
+          currentVersion: {},
+          group: { contentSync: { detached: true }, identifier: 'g1' },
+        };
+        mockMarket.agentGroups = {
+          getAgentGroupDetail: vi.fn().mockResolvedValue(response),
+          getAgentGroupList: vi.fn().mockResolvedValue({
+            items: [{ contentSync: { detached: false }, identifier: 'g1' }],
+          }),
+        };
+
+        const detail = (await service.getGroupAgentDetail({ identifier: 'g1' })) as any;
+        const list = (await service.getGroupAgentList()) as any;
+
+        expect(detail.group.contentSync).toEqual({ detached: true });
+        expect(detail).not.toHaveProperty('contentSync');
+        expect(list.items[0].contentSync).toEqual({ detached: false });
+      });
+    });
+
     it('getAssistantList should preserve a successful empty response in strict mode', async () => {
       mockMarket.agents.getAgentList.mockResolvedValue({
         currentPage: 1,
@@ -591,30 +791,6 @@ describe('DiscoverService', () => {
         expect(result.items[1].identifier).toBe('plugin-1');
       });
     });
-
-    describe('getPluginDetail', () => {
-      it('should return plugin detail with related items', async () => {
-        const result = await service.getPluginDetail({
-          identifier: 'plugin-1',
-        });
-
-        expect(result).toEqual(
-          expect.objectContaining({
-            identifier: 'plugin-1',
-            title: 'Test Plugin 1',
-            related: expect.any(Array),
-          }),
-        );
-      });
-
-      it('should return undefined for non-existent plugin', async () => {
-        const result = await service.getPluginDetail({
-          identifier: 'non-existent',
-        });
-
-        expect(result).toBeUndefined();
-      });
-    });
   });
 
   describe('MCP Market', () => {
@@ -629,6 +805,59 @@ describe('DiscoverService', () => {
           expect.any(Object),
         );
       });
+    });
+
+    // A tenant's catalogue includes its own content, so the data cache (keyed on
+    // URL and headers, not on who asks) is not used for any MCP read in a tenant.
+    describe('data cache', () => {
+      beforeEach(() => {
+        mockMarket.plugins.getPluginDetail.mockResolvedValue({
+          category: 'tools',
+          identifier: 'mcp-1',
+        });
+      });
+
+      const inTenant = <T>(fn: () => T) =>
+        runWithTenantScope(
+          { session: {}, slug: 'acme', tenantId: 'tenant-a' } as unknown as TenantScope,
+          fn,
+        );
+
+      it.each([
+        ['getMcpList', () => service.getMcpList({ locale: 'en-US' }), 'getPluginList', 1],
+        [
+          'getMcpCategories',
+          () => service.getMcpCategories({ locale: 'en-US' }),
+          'getCategories',
+          1,
+        ],
+        [
+          'getMcpDetail',
+          () => service.getMcpDetail({ identifier: 'mcp-1', locale: 'en-US' }),
+          'getPluginDetail',
+          1,
+        ],
+        [
+          'getMcpManifest',
+          () => service.getMcpManifest({ identifier: 'mcp-1', locale: 'en-US' }),
+          'getPluginManifest',
+          1,
+        ],
+      ] as const)(
+        '%s skips the data cache in a tenant and keeps it outside one',
+        async (_name, call, method, argIndex) => {
+          await inTenant(call);
+          expect((mockMarket.plugins as any)[method].mock.calls[0][argIndex]).toEqual({
+            cache: 'no-store',
+          });
+
+          (mockMarket.plugins as any)[method].mockClear();
+          await call();
+          expect((mockMarket.plugins as any)[method].mock.calls[0][argIndex]).toEqual({
+            next: expect.objectContaining({ revalidate: expect.any(Number) }),
+          });
+        },
+      );
     });
 
     describe('getMcpDetail', () => {

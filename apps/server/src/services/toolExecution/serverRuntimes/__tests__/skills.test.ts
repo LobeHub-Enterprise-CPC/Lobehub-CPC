@@ -419,6 +419,8 @@ describe('skillsRuntime', () => {
       'user-1',
       'workspace-1',
       false,
+      // These runtimes carry no run context, so there is no operation to forward.
+      undefined,
     );
     expect(mocks.sandboxService.callTool).toHaveBeenCalledWith('runCommand', {
       command: 'LOBEHUB_WORKSPACE_ID=workspace-1 npx -y @lobehub/cli agent edit agt_123',
@@ -453,6 +455,8 @@ describe('skillsRuntime', () => {
       'user-1',
       'workspace-1',
       false,
+      // These runtimes carry no run context, so there is no operation to forward.
+      undefined,
     );
   });
 
@@ -460,6 +464,38 @@ describe('skillsRuntime', () => {
   // execScript too; on Cloud, where gateway mode routes through this runtime
   // instead, `lh` inside execScript reached the sandbox raw — no CLI, no
   // credentials, no workspace scope.
+  it('forwards the run operation id so a sandbox dispatch can be attributed', async () => {
+    mocks.preprocessLhCommand.mockResolvedValueOnce({
+      command: 'lh agent run -a agt_123',
+      isLhCommand: true,
+      skipSkillLookup: true,
+    });
+
+    const { skillsRuntime } = await import('../skills');
+    const runtime = await skillsRuntime.factory({
+      operationId: 'op-abc',
+      serverDB: {} as never,
+      toolManifestMap: {},
+      topicId: 'topic-1',
+      userId: 'user-1',
+      workspaceId: 'workspace-1',
+    });
+
+    await runtime.execScript({
+      activatedSkills: [],
+      command: 'lh agent run -a agt_123',
+      description: 'Delegate',
+    });
+
+    expect(mocks.preprocessLhCommand).toHaveBeenCalledWith(
+      'lh agent run -a agt_123',
+      'user-1',
+      'workspace-1',
+      false,
+      'op-abc',
+    );
+  });
+
   it('preprocesses lh commands passed to execScript, not just runCommand', async () => {
     mocks.preprocessLhCommand.mockResolvedValueOnce({
       command:
@@ -488,6 +524,9 @@ describe('skillsRuntime', () => {
       'user-1',
       'workspace-1',
       false,
+      // No run context here, so there is no operation for a dispatch to be
+      // attributed to.
+      undefined,
     );
     expect(mocks.sandboxService.callTool).toHaveBeenCalledWith(
       'execScript',
@@ -1409,9 +1448,10 @@ describe('skillsRuntime', () => {
 
     expect(MarketService).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        userInfo: expect.objectContaining({ userId: 'user-1', workspaceId: undefined }),
+        userInfo: expect.objectContaining({ userId: 'user-1' }),
       }),
     );
+    expect(vi.mocked(MarketService).mock.lastCall?.[0]?.userInfo?.workspaceId).toBeUndefined();
   });
 
   // The dispatch and resume paths reach this runtime without `workspaceId`, and

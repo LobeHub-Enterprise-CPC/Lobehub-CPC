@@ -1,6 +1,42 @@
-import { describe, expect, it } from 'vitest';
+import { initializeTenant } from '@lobechat/business-tenant/client';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { isBareLinkLabel, isEntityIdLabel, parseInternalLink } from './internalLink';
+
+afterEach(() => initializeTenant(new URL('https://app.lobehub.com/')));
+
+describe('parseInternalLink under a tenant address', () => {
+  it('strips the current tenant prefix so the router basename can re-add it', () => {
+    initializeTenant(new URL('https://app.lobehub.com/t/acme/agent'));
+
+    expect(
+      parseInternalLink('https://app.lobehub.com/t/acme/agent/agent-1/task/T-199?x=1#h'),
+    ).toEqual({
+      agentId: 'agent-1',
+      pathname: '/agent/agent-1/task/T-199?x=1#h',
+      taskId: 'T-199',
+      type: 'task',
+    });
+    expect(parseInternalLink('/t/acme/agent/agent-1', 'https://app.lobehub.com')).toEqual({
+      agentId: 'agent-1',
+      pathname: '/agent/agent-1',
+      type: 'agent',
+    });
+  });
+
+  it('keeps links to another tenant, or a tenant prefix outside a tenant, as plain anchors', () => {
+    initializeTenant(new URL('https://app.lobehub.com/t/acme/agent'));
+    expect(parseInternalLink('/t/other/agent/agent-1')).toBeNull();
+
+    initializeTenant(new URL('https://app.lobehub.com/'));
+    expect(parseInternalLink('/t/acme/agent/agent-1')).toBeNull();
+  });
+
+  it('never treats the file proxy under a tenant prefix as a route', () => {
+    initializeTenant(new URL('https://app.lobehub.com/t/acme/agent'));
+    expect(parseInternalLink('/t/acme/f/file_1')).toBeNull();
+  });
+});
 
 describe('parseInternalLink', () => {
   it('parses official agent document links', () => {
@@ -119,6 +155,32 @@ describe('parseInternalLink', () => {
       type: 'document',
       workspaceSlug: 'lobe-team',
     });
+  });
+
+  it('normalizes away the active workspace slug so the link opens in-context', () => {
+    expect(
+      parseInternalLink(
+        'https://app.lobehub.com/lobehub/page/docs_LgOiA6TLUUKQro6L',
+        'app://renderer',
+        ['lobehub'],
+        'lobehub',
+      ),
+    ).toEqual({
+      documentId: 'docs_LgOiA6TLUUKQro6L',
+      pathname: '/page/docs_LgOiA6TLUUKQro6L',
+      type: 'document',
+    });
+  });
+
+  it('keeps the slug of a workspace other than the active one', () => {
+    expect(
+      parseInternalLink(
+        '/lobe-team/page/docs_document',
+        undefined,
+        ['lobe-team', 'lobehub'],
+        'lobehub',
+      ),
+    ).toMatchObject({ pathname: '/lobe-team/page/docs_document', workspaceSlug: 'lobe-team' });
   });
 
   it('accepts the current self-hosted origin', () => {

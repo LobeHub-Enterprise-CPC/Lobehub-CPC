@@ -1,4 +1,4 @@
-import { toolsEnv } from '@/envs/tools';
+import { getServerSystemModels } from '@/server/globalConfig/systemModels';
 
 export const getMediaAvailabilityFromFileTypes = (fileTypes: string[]) => ({
   hasAudios: fileTypes.some((fileType) => fileType.startsWith('audio')),
@@ -25,11 +25,9 @@ export const getMediaAvailabilityFromMessages = (messages: MediaAvailabilityMess
   ),
 });
 
-export const isMultimodalUnderstandingConfigured = () => {
+export const isMultimodalUnderstandingConfigured = async () => {
   try {
-    return (
-      !!toolsEnv.MULTIMODAL_UNDERSTANDING_PROVIDER && !!toolsEnv.MULTIMODAL_UNDERSTANDING_MODEL
-    );
+    return !!(await getServerSystemModels()).multimodalUnderstanding;
   } catch {
     // The env proxy rejects server-only keys in client-like runtimes; treat that as disabled.
     return false;

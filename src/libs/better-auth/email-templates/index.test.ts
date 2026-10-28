@@ -1,4 +1,12 @@
+/**
+ * @vitest-environment node
+ */
+import { BRANDING_NAME } from '@lobechat/business-const';
+import { isCustomBranding } from '@lobechat/const';
 import { describe, expect, it } from 'vitest';
+
+import { getEmailBrandHeaderHtml } from '@/libs/email/brandHeader';
+import { getEmailSupportHtml, getEmailSupportText } from '@/libs/email/support';
 
 import {
   getChangeEmailVerificationTemplate,
@@ -38,13 +46,15 @@ const templates = [
 ];
 
 describe('email templates', () => {
-  it.each(templates)(
-    'includes support email and Discord links in HTML and plain text',
-    (template) => {
-      expect(template.html).toContain('href="mailto:support@lobehub.com"');
-      expect(template.html).toContain('https://discord.gg/');
-      expect(template.text).toContain('support@lobehub.com');
-      expect(template.text).toContain('https://discord.gg/');
-    },
-  );
+  // Support channels and the brand come from the deployment's branding slots; a
+  // white-label build may have no support mailbox or community server at all.
+  it.each(templates)('carries the branded name and support channels', (template) => {
+    expect(template.html).toContain(BRANDING_NAME);
+    expect(template.html).toContain(getEmailBrandHeaderHtml());
+    // The emoji is upstream's mark; a rebranded deployment must never mail it.
+    if (isCustomBranding) expect(template.html).not.toContain('🤯');
+    expect(template.html).toContain(getEmailSupportHtml());
+    expect(template.text).toContain(getEmailSupportText());
+    expect(template.html).not.toMatch(/href="(?:mailto:)?(?:undefined)?"/);
+  });
 });

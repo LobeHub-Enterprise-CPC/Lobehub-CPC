@@ -16,18 +16,33 @@ export default {
   'authorizeError.title': "Authorization Can't Continue",
   'consent.buttons.accept': 'Authorize',
   'consent.buttons.deny': 'Deny',
+  'consent.desktop.notice':
+    'Continue only if you just started this sign-in from your own desktop app.',
   'consent.description':
     'The application {{clientName}} is requesting authorization for your account',
+  'consent.error.sessionChanged.message':
+    'The signed-in account has changed. Please go back to the client and start the authorization again.',
+  'consent.error.sessionChanged.title': 'Sign-in Account Changed',
   'consent.error.sessionInvalid.message':
     'The authorization session has expired or is invalid. Please restart the authorization process.',
   'consent.error.sessionInvalid.title': 'Invalid Authorization Session',
+  'consent.error.sessionUnavailable.message':
+    'We could not check your sign-in status right now. Please try again.',
+  'consent.error.sessionUnavailable.title': 'Unable to Verify Sign-in',
   'consent.error.title': 'An Error Occurred',
   'consent.error.unknown.message': 'An unknown error occurred while loading authorization details.',
   'consent.error.unsupportedInteraction.message': 'Unsupported interaction type: {{promptName}}',
   'consent.error.unsupportedInteraction.title': 'Unsupported Interaction Type',
+  'consent.acceptanceReview.denied':
+    'You do not have access to this acceptance, so it cannot be reviewed from this page.',
+  'consent.acceptanceReview.target': 'Review the acceptance: {{title}}',
+  'consent.account.label': 'Authorized Account',
+  'consent.account.unavailable': 'Unable to show the authorizing account right now. Please retry.',
   'consent.permissionsTitle': 'Requesting the following permissions:',
   'consent.redirectUri': 'You will be redirected to after successful authorization',
   'consent.redirecting': 'Authorization successful, redirecting...',
+  'consent.scope.acceptance-review':
+    'Comment on this acceptance and accept or send it back from its preview page',
   'consent.scope.email': 'Access your email address',
   'consent.scope.offline_access': 'Allow the client to access your data',
   'consent.scope.openid': 'Authenticate using your LobeHub account',
@@ -60,8 +75,16 @@ export default {
   'device.success.title': 'Authorization Successful',
   'error.backToHome': 'Back to Home',
   'error.desc': 'OAuth authorization failed, reason: {{reason}}',
+  'error.reason.access_denied':
+    'Authorization was denied. Please go back to the desktop app and start again.',
+  'error.reason.consent_required':
+    'You need to confirm the authorization in the browser. Please go back to the desktop app and start again.',
+  'error.reason.interaction_required':
+    'An action is required in the browser. Please go back to the desktop app and start again.',
   'error.reason.internal_error': 'Internal Server Error',
   'error.reason.invalid_request': 'Invalid Request Parameters',
+  'error.reason.login_required':
+    'You need to sign in again, which is not supported here. Please go back to the desktop app and start again.',
   'error.title': 'Authorization Failed',
   'handoff.desc.processing':
     'The application is processing the authorization and will redirect to the next page soon...',
@@ -72,6 +95,7 @@ export default {
   'login.button': 'Confirm Sign In',
   'login.description':
     'The application {{clientName}} is requesting to use your account for sign-in',
+  'login.error.message': "Couldn't check your sign-in status. Please try again.",
   'login.title': 'Sign in to {{clientName}}',
   'login.userWelcome': 'Welcome back, ',
   'success.subTitle':

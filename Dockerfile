@@ -97,7 +97,12 @@ RUN rm -rf src/app/desktop "src/app/(backend)/trpc/desktop"
 
 # run build standalone for docker version
 RUN npm run build:docker
+# Startup migration: the platform chain, then every active tenant's chains
+# (same script as `db:migrate`, bundled because the image has no tsx).
+RUN pnpm exec esbuild scripts/migrateServerDB/index.ts --bundle --platform=node --format=cjs --outfile=/app/docker.cjs --external:pg --external:drizzle-orm '--external:drizzle-orm/*'
 RUN pnpm exec esbuild scripts/elasticsearchReindex/index.ts --bundle --platform=node --format=cjs --outfile=/app/fts-search-elasticsearch-reindex.cjs --external:pg --external:drizzle-orm '--external:drizzle-orm/*'
+# Runs the reindex above once per tenant (its database, index namespace and checkpoints).
+RUN pnpm exec esbuild scripts/elasticsearchReindex/tenants.ts --bundle --platform=node --format=cjs --outfile=/app/fts-search-elasticsearch-reindex-tenants.cjs --external:pg --external:drizzle-orm '--external:drizzle-orm/*'
 RUN pnpm exec esbuild scripts/elasticsearchSync/cli.ts --bundle --platform=node --format=cjs --outfile=/app/fts-search-elasticsearch-sync.cjs --external:pg --external:drizzle-orm '--external:drizzle-orm/*'
 RUN pnpm exec esbuild scripts/elasticsearchCleanupIneligibleMessages/cli.ts --bundle --platform=node --format=cjs --outfile=/app/fts-search-ineligible-message-cleanup.cjs --external:pg --external:drizzle-orm '--external:drizzle-orm/*'
 RUN pnpm exec esbuild scripts/pgSearchCleanup/index.ts --bundle --platform=node --format=cjs --outfile=/app/fts-search-pg-search-cleanup.cjs --external:pg
@@ -120,9 +125,9 @@ COPY --from=builder /app/public/_spa-share /app/public/_spa-share
 COPY --from=builder /app/public/_spa-workbench /app/public/_spa-workbench
 # Copy database migrations
 COPY --from=builder /app/packages/database/migrations /app/migrations
-COPY --from=builder /app/scripts/migrateServerDB/docker.cjs /app/docker.cjs
-COPY --from=builder /app/scripts/migrateServerDB/errorHint.js /app/errorHint.js
+COPY --from=builder /app/docker.cjs /app/docker.cjs
 COPY --from=builder /app/fts-search-elasticsearch-reindex.cjs /app/fts-search-elasticsearch-reindex.cjs
+COPY --from=builder /app/fts-search-elasticsearch-reindex-tenants.cjs /app/fts-search-elasticsearch-reindex-tenants.cjs
 COPY --from=builder /app/fts-search-elasticsearch-sync.cjs /app/fts-search-elasticsearch-sync.cjs
 COPY --from=builder /app/fts-search-ineligible-message-cleanup.cjs /app/fts-search-ineligible-message-cleanup.cjs
 COPY --from=builder /app/fts-search-pg-search-cleanup.cjs /app/fts-search-pg-search-cleanup.cjs
@@ -182,24 +187,11 @@ ENV KEY_VAULTS_SECRET="" \
 
 # Better Auth
 ENV AUTH_SECRET="" \
-    AUTH_SSO_PROVIDERS="" \
-    AUTH_ALLOWED_EMAILS="" \
     AUTH_ADDITIONAL_TRUSTED_ORIGINS="" \
     AUTH_TRUSTED_ORIGINS="" \
     AUTH_DISABLE_EMAIL_PASSWORD="" \
     AUTH_EMAIL_VERIFICATION="" \
-    AUTH_ENABLE_MAGIC_LINK="" \
-    # Google
-    AUTH_GOOGLE_ID="" \
-    AUTH_GOOGLE_SECRET="" \
-    # GitHub
-    AUTH_GITHUB_ID="" \
-    AUTH_GITHUB_SECRET="" \
-    # Microsoft
-    AUTH_MICROSOFT_ID="" \
-    AUTH_MICROSOFT_SECRET="" \
-    AUTH_MICROSOFT_AUTHORITY_URL="" \
-    AUTH_MICROSOFT_TENANT_ID=""
+    AUTH_ENABLE_MAGIC_LINK=""
 
 # Redis
 ENV REDIS_URL="" \

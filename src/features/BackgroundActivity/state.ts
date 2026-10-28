@@ -83,15 +83,35 @@ export const processTree = (processes: ProcessRow[]) => {
   return ordered;
 };
 
+export type ActivityError = 'slow' | 'unavailable';
+
+/**
+ * Keep in sync with SAMPLE_TIMEOUT_MARK in @lobechat/utils/managedProcess. The renderer
+ * cannot import that module: it pulls in node:child_process and node:fs.
+ */
+const SAMPLE_TIMEOUT_MARK = 'MANAGED_PROCESS_SAMPLE_TIMEOUT';
+
+/**
+ * A sampling timeout means the device is slow, not that the data channel is broken. The IPC
+ * error envelope preserves `code`, and `message` still carries the mark if a layer rethrows.
+ */
+const classifySampleError = (error: unknown): ActivityError => {
+  const failure = error as { code?: unknown; message?: unknown };
+  const marked =
+    failure?.code === SAMPLE_TIMEOUT_MARK ||
+    String(failure?.message ?? '').includes(SAMPLE_TIMEOUT_MARK);
+  return marked ? 'slow' : 'unavailable';
+};
+
 interface State {
   activities: Activity[];
-  error: boolean;
+  error: ActivityError | null;
   loaded: boolean;
   sampledAt: number;
   selected?: string;
   totalMemoryMB: number;
 }
-let state: State = { activities: [], error: false, loaded: false, sampledAt: 0, totalMemoryMB: 0 };
+let state: State = { activities: [], error: null, loaded: false, sampledAt: 0, totalMemoryMB: 0 };
 const listeners = new Set<() => void>();
 let timer: ReturnType<typeof setInterval> | undefined;
 let pending: Promise<void> | undefined;
@@ -111,13 +131,13 @@ export const refreshActivities = () => {
         activities: groupActivities(snapshot),
         sampledAt: snapshot.sampledAt,
         totalMemoryMB: snapshot.totalMemoryMB,
-        error: false,
+        error: null,
         loaded: true,
       };
     })
     .catch((error) => {
       console.error('Cannot sample background processes:', error);
-      state = { ...state, error: true, loaded: true };
+      state = { ...state, error: classifySampleError(error), loaded: true };
     })
     .finally(() => {
       pending = undefined;

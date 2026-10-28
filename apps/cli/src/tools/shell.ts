@@ -1,3 +1,6 @@
+import { spawn } from 'node:child_process';
+
+import { withExecutionSignal } from '@lobechat/device-gateway-client';
 import {
   type GetCommandOutputParams,
   type KillCommandParams,
@@ -18,6 +21,8 @@ import { ensureSandboxWorkspace } from './sandboxWorkspace';
 import { applySandboxHostPaths } from './srtWin';
 
 const processManager = new ShellProcessManager();
+
+export const getActiveShellCount = () => processManager.activeCount;
 
 export function cleanupAllProcesses() {
   processManager.cleanupAll();
@@ -62,7 +67,12 @@ export const resetSandboxCapabilityCache = () => {
  * policy that could not be built. `createLocalSandboxPolicy` carries
  * `onUnavailable: 'deny'` for the same reason one layer further down.
  */
-export async function runCommand(params: RunCommandParams): Promise<RunCommandResult> {
+export async function runCommand(
+  params: RunCommandParams,
+  executionSignal?: AbortSignal,
+): Promise<RunCommandResult> {
+  executionSignal?.throwIfAborted();
+  const spawnProcess = withExecutionSignal(spawn, executionSignal);
   const pushedCommandMode = await resolvePushedCommandMode();
 
   const decision = decideSandbox({
@@ -77,7 +87,7 @@ export async function runCommand(params: RunCommandParams): Promise<RunCommandRe
   }
 
   if (decision.kind === 'host') {
-    return runCommandCore(params, { logger: log, processManager });
+    return runCommandCore(params, { logger: log, processManager, spawnProcess });
   }
 
   const capability = await probeSandbox();
@@ -112,6 +122,7 @@ export async function runCommand(params: RunCommandParams): Promise<RunCommandRe
     {
       logger: log,
       processManager,
+      spawnProcess,
       sandboxPolicy: createLocalSandboxPolicy(cwd, {
         allowNetwork: decision.allowNetwork,
         overlay,

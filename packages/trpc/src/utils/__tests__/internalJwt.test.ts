@@ -25,6 +25,12 @@ vi.mock('@/envs/auth', () => ({
   },
 }));
 
+// The tenant binding itself is covered with real keys in tenantBinding.test.ts;
+// here the signer just needs a tenant to stamp.
+vi.mock('@lobechat/database/tenant/requestScope', () => ({
+  requireTenantScope: () => ({ slug: 'acme', tenantId: 'tenant-a' }),
+}));
+
 // Mock jose so we never need real RSA keys.
 // SignJWT is a class with a fluent builder API — every setter must return `this`
 // so the chain (.setProtectedHeader().setSubject()…) doesn't break.
@@ -60,10 +66,12 @@ const buildSignJWTChain = () => {
 };
 
 const SignJWTMock = vi.fn();
+const createLocalJWKSetMock = vi.fn().mockReturnValue('mock-key-set');
 const importJWKMock = vi.fn().mockResolvedValue('mock-crypto-key');
 
 vi.mock('jose', () => ({
   SignJWT: SignJWTMock,
+  createLocalJWKSet: (...args: unknown[]) => createLocalJWKSetMock(...args),
   importJWK: (...args: unknown[]) => importJWKMock(...args),
   jwtVerify: vi.fn(),
 }));
@@ -85,7 +93,7 @@ describe('internalJwt', () => {
       const token = await signUserJWT('user-123');
 
       expect(token).toBe('signed.jwt.token');
-      expect(SignJWTMock).toHaveBeenCalledWith({ purpose: 'cli-sandbox' });
+      expect(SignJWTMock).toHaveBeenCalledWith({ purpose: 'cli-sandbox', tid: 'tenant-a' });
       expect(setSubjectMock).toHaveBeenCalledWith('user-123');
       expect(setExpirationTimeMock).toHaveBeenCalledWith('5m');
       expect(signMock).toHaveBeenCalledWith('mock-crypto-key');
@@ -114,7 +122,7 @@ describe('internalJwt', () => {
 
       expect(setExpirationTimeMock).toHaveBeenCalledWith('4h');
       // Still a user-scoped token, just longer-lived.
-      expect(SignJWTMock).toHaveBeenCalledWith({ purpose: 'cli-sandbox' });
+      expect(SignJWTMock).toHaveBeenCalledWith({ purpose: 'cli-sandbox', tid: 'tenant-a' });
     });
   });
 
@@ -136,6 +144,7 @@ describe('internalJwt', () => {
         operation_id: 'op-server',
         provider_id: 'openai',
         purpose: 'hetero-operation',
+        tid: 'tenant-a',
       });
     });
 
@@ -149,6 +158,7 @@ describe('internalJwt', () => {
         capabilities: ['hetero:ingest', 'hetero:finish', 'hetero:intervention:read'],
         operation_id: 'op-123',
         purpose: 'hetero-operation',
+        tid: 'tenant-a',
       });
       expect(setAudienceMock).toHaveBeenCalledWith('urn:lobehub:hetero-operation');
       expect(setIssuerMock).toHaveBeenCalledWith('urn:lobehub:internal');
@@ -167,6 +177,7 @@ describe('internalJwt', () => {
         capabilities: ['hetero:ingest', 'hetero:finish', 'hetero:intervention:read'],
         operation_id: 'op-workspace',
         purpose: 'hetero-operation',
+        tid: 'tenant-a',
         workspace_id: 'workspace-123',
       });
     });
@@ -212,6 +223,7 @@ describe('internalJwt', () => {
       operation_id: 'op-1',
       purpose: 'hetero-operation',
       sub: 'user-1',
+      tid: 'tenant-a',
     };
 
     it('accepts the typed operation contract', async () => {
@@ -235,7 +247,7 @@ describe('internalJwt', () => {
       ).toBeNull();
     });
 
-    it.each(['aud', 'iss', 'purpose', 'operation_id', 'capabilities'])(
+    it.each(['aud', 'iss', 'purpose', 'operation_id', 'capabilities', 'tid'])(
       'rejects invalid %s',
       async (field) => {
         const { validateHeteroOperationClaims } = await import('../internalJwt');
@@ -248,10 +260,11 @@ describe('internalJwt', () => {
     it('signs a JWT with the internal purpose from env expiry', async () => {
       const { signInternalJWT } = await import('../internalJwt');
 
-      const token = await signInternalJWT();
+      const token = await signInternalJWT('user-1');
 
       expect(token).toBe('signed.jwt.token');
-      expect(SignJWTMock).toHaveBeenCalledWith({ purpose: 'lobe-internal-call' });
+      expect(SignJWTMock).toHaveBeenCalledWith({ purpose: 'lobe-internal-call', tid: 'tenant-a' });
+      expect(setSubjectMock).toHaveBeenCalledWith('user-1');
       expect(setExpirationTimeMock).toHaveBeenCalledWith('30s');
     });
   });

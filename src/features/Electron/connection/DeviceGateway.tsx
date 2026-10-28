@@ -1,7 +1,6 @@
-import { useWatchBroadcast } from '@lobechat/electron-client-ipc';
-import { Flexbox } from '@lobehub/ui';
-import { ActionIcon, Popover, Switch } from '@lobehub/ui/base-ui';
-import { createStaticStyles } from 'antd-style';
+import { DESKTOP_DEVICE_GATEWAY_ALWAYS_ON } from '@lobechat/business-const';
+import { type GatewayConnectionErrorCode, useWatchBroadcast } from '@lobechat/electron-client-ipc';
+import { ActionIcon, Button, createStaticStyles, Flexbox, Popover, Switch } from '@lobehub/ui';
 import { HardDrive, SettingsIcon } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,12 +10,37 @@ import {
   getScopedConnectionCount,
   getWorkspaceConnectionState,
 } from '@/features/DeviceManager/connectionCount';
-import { useDeviceList } from '@/features/DeviceManager/useDeviceList';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
+import { useDeviceList } from '@/store/device';
 import { useElectronStore } from '@/store/electron';
 import { electronSyncSelectors } from '@/store/electron/selectors';
 
+/** Why the last attempt ended, phrased with the next step. */
+const ERROR_MESSAGE_KEYS = {
+  auth_failed: 'gateway.error.authRejected',
+  config_unavailable: 'gateway.error.configUnavailable',
+  invalid_gateway_url: 'gateway.error.invalidAddress',
+  not_signed_in: 'gateway.error.notSignedIn',
+} as const satisfies Record<GatewayConnectionErrorCode, string>;
+
 const styles = createStaticStyles(({ css, cssVar }) => ({
+  errorDot: css`
+    position: absolute;
+    inset-block-end: 0;
+    inset-inline-end: 0;
+
+    width: 8px;
+    height: 8px;
+    border: 1.5px solid ${cssVar.colorBgContainer};
+    border-radius: 50%;
+
+    background: ${cssVar.colorError};
+  `,
+  errorHint: css`
+    font-size: 12px;
+    line-height: 1.5;
+    color: ${cssVar.colorError};
+  `,
   greenDot: css`
     position: absolute;
     inset-block-end: 0;
@@ -49,31 +73,39 @@ interface DeviceGatewayProps {
   workspaceScoped: boolean;
 }
 
+/**
+ * Loads the gateway status and this device's identity, and follows status
+ * broadcasts. Many features read `gatewayDeviceInfo` to recognise the current
+ * computer, so this runs app-wide even when the title-bar entry is hidden.
+ */
+const useGatewayStateSync = () => {
+  const setGatewayConnectionState = useElectronStore((s) => s.setGatewayConnectionState);
+
+  useElectronStore((s) => s.useFetchGatewayStatus)();
+  useElectronStore((s) => s.useFetchGatewayDeviceInfo)();
+  useWatchBroadcast('gatewayConnectionStatusChanged', setGatewayConnectionState);
+};
+
+const DeviceGatewayStateSync = memo(() => {
+  useGatewayStateSync();
+
+  return null;
+});
+
 const DeviceGateway = memo<DeviceGatewayProps>(({ workspaceScoped }) => {
   const { t } = useTranslation('electron');
   const navigate = useWorkspaceAwareNavigate();
-  const [
-    gatewayStatus,
-    connectGateway,
-    disconnectGateway,
-    setGatewayConnectionStatus,
-    useFetchGatewayStatus,
-  ] = useElectronStore((s) => [
+  const [gatewayStatus, gatewayError, connectGateway, disconnectGateway] = useElectronStore((s) => [
     s.gatewayConnectionStatus,
+    s.gatewayConnectionError,
     s.connectGateway,
     s.disconnectGateway,
-    s.setGatewayConnectionStatus,
-    s.useFetchGatewayStatus,
   ]);
 
-  useFetchGatewayStatus();
-  useElectronStore((s) => s.useFetchGatewayDeviceInfo)();
+  useGatewayStateSync();
   const gatewayDeviceInfo = useElectronStore((s) => s.gatewayDeviceInfo);
-  const { data: devices, error: deviceListError, isLoading: isDeviceListLoading } = useDeviceList();
-
-  useWatchBroadcast('gatewayConnectionStatusChanged', ({ status }) => {
-    setGatewayConnectionStatus(status);
-  });
+  const deviceList = useDeviceList();
+  const devices = deviceList.data;
 
   const isConnected = gatewayStatus === 'connected';
   const isConnecting =
@@ -81,7 +113,15 @@ const DeviceGateway = memo<DeviceGatewayProps>(({ workspaceScoped }) => {
     gatewayStatus === 'connecting' ||
     gatewayStatus === 'reconnecting';
 
+  // Only the personal connection is toggled from here; workspace rows have their own status.
+  const failure = !workspaceScoped && !isConnected && !isConnecting ? gatewayError : undefined;
+
   const [open, setOpen] = useState(false);
+
+  const openDeviceSettings = () => {
+    setOpen(false);
+    navigate('/settings/devices');
+  };
 
   const handleSwitchChange = useCallback(
     async (checked: boolean) => {
@@ -99,11 +139,7 @@ const DeviceGateway = memo<DeviceGatewayProps>(({ workspaceScoped }) => {
     workspaceScoped ? 'workspace' : 'personal',
     workspaceScoped ? undefined : gatewayDeviceInfo?.deviceId,
   );
-  const workspaceConnectionState = getWorkspaceConnectionState(
-    devices,
-    isDeviceListLoading,
-    deviceListError,
-  );
+  const workspaceConnectionState = getWorkspaceConnectionState(deviceList);
   const scopeConnected = workspaceScoped ? workspaceConnectionState === 'connected' : isConnected;
   const connectionHint = workspaceScoped
     ? workspaceConnectionState === 'unavailable'
@@ -129,10 +165,7 @@ const DeviceGateway = memo<DeviceGatewayProps>(({ workspaceScoped }) => {
             icon={SettingsIcon}
             size="small"
             title={t('gateway.manageDevices')}
-            onClick={() => {
-              setOpen(false);
-              navigate('/settings/devices');
-            }}
+            onClick={openDeviceSettings}
           />
           {!workspaceScoped && (
             <Switch
@@ -146,6 +179,20 @@ const DeviceGateway = memo<DeviceGatewayProps>(({ workspaceScoped }) => {
         </Flexbox>
       </Flexbox>
       <span className={styles.scopeHint}>{connectionHint}</span>
+      {failure && (
+        <Flexbox align="flex-start" gap={4}>
+          <span className={styles.errorHint} title={failure.detail}>
+            {t(ERROR_MESSAGE_KEYS[failure.code])}
+          </span>
+          <Flexbox horizontal gap={4}>
+            {failure.code !== 'not_signed_in' && failure.code !== 'invalid_gateway_url' && (
+              <Button outdent size="small" type="text" onClick={() => void connectGateway()}>
+                {t('gateway.retry')}
+              </Button>
+            )}
+          </Flexbox>
+        </Flexbox>
+      )}
     </Flexbox>
   );
 
@@ -167,7 +214,11 @@ const DeviceGateway = memo<DeviceGatewayProps>(({ workspaceScoped }) => {
           title={t('gateway.title')}
           tooltipProps={{ placement: 'bottomRight' }}
         />
-        {scopeConnected && <div className={styles.greenDot} />}
+        {scopeConnected ? (
+          <div className={styles.greenDot} />
+        ) : (
+          failure && <div className={styles.errorDot} />
+        )}
       </div>
     </Popover>
   );
@@ -178,6 +229,9 @@ const DeviceGatewayWithAuth = memo(() => {
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
 
   if (!isSyncActive) return null;
+
+  // Always-on builds keep the connection without any user-facing control.
+  if (DESKTOP_DEVICE_GATEWAY_ALWAYS_ON) return <DeviceGatewayStateSync />;
 
   return <DeviceGateway workspaceScoped={!!activeWorkspaceSlug} />;
 });

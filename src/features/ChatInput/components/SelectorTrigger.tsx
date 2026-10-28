@@ -1,5 +1,4 @@
-import { Icon } from '@lobehub/ui';
-import { createStaticStyles, cssVar, cx } from 'antd-style';
+import { createStaticStyles, cssVar, cx, Icon } from '@lobehub/ui';
 import { ChevronDownIcon, ZapIcon } from 'lucide-react';
 import type { ComponentPropsWithRef } from 'react';
 import { memo } from 'react';
@@ -76,7 +75,12 @@ interface TriggerProps extends ComponentPropsWithRef<'div'> {
 
 const SelectorTrigger = memo<TriggerProps>(
   ({ ariaLabel, className, fast, secondaryText, text, ...rest }) => (
-    <div {...rest} aria-label={ariaLabel} className={cx(styles.trigger, className)}>
+    <div
+      {...rest}
+      aria-label={ariaLabel}
+      className={cx(styles.trigger, className)}
+      data-brand-slot={'composer-selector-trigger'}
+    >
       {fast && <Icon icon={ZapIcon} size={12} />}
       <span className={styles.label}>{text}</span>
       {secondaryText && (

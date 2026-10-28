@@ -2,6 +2,7 @@ import type {
   ChannelDiscussionStatus,
   ChannelDiscussionTask,
   ChannelInputManifest,
+  ChannelJobBlockCode,
   ChannelJobStatus,
   ChannelMemberConfig,
   ChannelPublicationStatus,
@@ -19,6 +20,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
@@ -27,34 +29,33 @@ import {
  *
  * ## Why this lives here and not in `packages/database/src/schemas`
  *
- * These tables are ours (CPC-only), not upstream's. They were first added
- * straight into the submodule's own schema barrel, which put their migrations
- * in the submodule's drizzle chain — the same namespace canary's own
- * migrations use. That collides on every canary merge (the exact failure mode
- * `command_governance`'s tables hit twice, `0158`/`0159` renumbered to
- * `0161`/`0162`, each time costing a hand-rebuilt snapshot chain).
+ * These tables are ours (CPC-only), not upstream's. Declared in the shared
+ * schema barrel, their migrations would land in the shared drizzle chain — the
+ * same namespace canary's own migrations use. That collides on every canary
+ * merge (the exact failure mode `command_governance`'s tables hit twice,
+ * `0158`/`0159` renumbered to `0161`/`0162`, each time costing a hand-rebuilt
+ * snapshot chain).
  *
- * Ownership sits with the shell repo's enterprise chain
- * (`packages/enterprise/src/database/migrations`, bookkeeping in
- * `__drizzle_enterprise_migrations`), which has its own journal and snapshot
- * chain and therefore cannot collide with canary's. This file is the single
- * definition of the tables: the shell's `packages/enterprise/drizzle.config.ts`
- * lists it alongside its own schemas, so `drizzle-kit generate` picks it up
- * from here. `packages/database/migrations` is once again byte-identical to
- * canary.
+ * Ownership sits with the tenant-only chain (`migrations/tenant`, bookkeeping
+ * in `__lobehub_tenant_migrations`), which canary does not have and therefore
+ * cannot collide with. `src/tenant/schemas.ts` re-exports this file as the
+ * entry of that chain's drizzle config, so `drizzle-kit generate` with
+ * `DRIZZLE_TARGET=tenant` picks it up from here, and `packages/database/migrations`
+ * stays byte-identical to canary (outside `tenant` and `platform`).
  *
  * Two consequences worth knowing before editing:
  *
  * 1. **Self-contained on purpose.** No `./_helpers` import, and no path alias
- *    of any kind: `drizzle-kit` reads this file from the shell root, where the
- *    submodule's tsconfig aliases do not resolve. The timestamp column is
- *    spelled out below instead of importing `createdAt`/`timestamptz`.
- * 2. **No `.references(() => users.id)`.** `users` belongs to the submodule's
- *    chain; importing it would pull it into the enterprise config's schema
- *    graph and `drizzle-kit generate` would try to create `users` there too.
+ *    of any kind: the models are kept free of the shared schema graph. The
+ *    timestamp column is spelled out below instead of importing
+ *    `createdAt`/`timestamptz`.
+ * 2. **No `.references(() => users.id)`.** `users` belongs to the shared
+ *    chain; importing it would pull it into the tenant chain's schema graph and
+ *    `drizzle-kit generate` would try to create `users` there too.
  *    `channels.owner_id`'s foreign key to `users` still exists in the
- *    database — it is written by hand in `0009_channel_mvp.sql`. Keep it in
- *    sync if this column changes.
+ *    database — it is written by hand in `0004_governance_channel_tables.sql`,
+ *    together with the revision triggers. Keep it in sync if this column
+ *    changes.
  */
 
 const createdAtColumn = () =>
@@ -98,6 +99,12 @@ export const channels = pgTable(
     ownerId: text('owner_id').notNull(),
     title: text('title').notNull(),
     sequence: integer('sequence').notNull().default(0),
+    /**
+     * Bumped by database triggers whenever this Channel or its members, threads, messages,
+     * jobs, runs or discussions change (see 0017_channel_revision.sql). Watchers compare it
+     * instead of serializing and hashing every live row.
+     */
+    revision: integer('revision').notNull().default(0),
     archived: boolean('archived').notNull().default(false),
     createdAt: createdAtColumn(),
   },
@@ -122,7 +129,9 @@ export const channelMembers = pgTable(
     createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [
-    uniqueIndex('channel_members_scope_idx').on(t.channelId, t.id),
+    // Composite foreign keys reference (channel_id, id). A table constraint is
+    // created with the table, so generated migrations have it before those keys.
+    unique('channel_members_scope_idx').on(t.channelId, t.id),
   ],
 );
 
@@ -140,7 +149,7 @@ export const channelThreads = pgTable(
   },
   (t): PgTableExtraConfigValue[] => [
     uniqueIndex('channel_threads_root_idx').on(t.channelId, t.rootMessageId),
-    uniqueIndex('channel_threads_scope_idx').on(t.channelId, t.id),
+    unique('channel_threads_scope_idx').on(t.channelId, t.id),
     foreignKey({
       columns: [t.channelId, t.rootMessageId],
       foreignColumns: [channelMessages.channelId, channelMessages.id],
@@ -172,7 +181,7 @@ export const channelMessages = pgTable(
     createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [
-    uniqueIndex('channel_messages_scope_idx').on(t.channelId, t.id),
+    unique('channel_messages_scope_idx').on(t.channelId, t.id),
     uniqueIndex('channel_messages_seq_idx').on(t.channelId, t.sequence),
     index('channel_messages_thread_sequence_idx').on(t.channelId, t.threadId, t.sequence),
     index('channel_messages_request_sequence_idx')
@@ -240,11 +249,13 @@ export const channelJobs = pgTable(
     deliveryKey: text('delivery_key').notNull().default('initial'),
     status: text('status').$type<ChannelJobStatus>().notNull().default('queued'),
     blockedReason: text('blocked_reason'),
+    /** Machine-readable cause for blockedReason; clients must not parse the text. */
+    blockedCode: text('blocked_code').$type<ChannelJobBlockCode>(),
     createdAt: createdAtColumn(),
   },
   (t): PgTableExtraConfigValue[] => [
     uniqueIndex('channel_jobs_delivery_idx').on(t.messageId, t.memberId, t.deliveryKey),
-    uniqueIndex('channel_jobs_scope_idx').on(t.channelId, t.id),
+    unique('channel_jobs_scope_idx').on(t.channelId, t.id),
     index('channel_jobs_queue_idx').on(t.status, t.createdAt),
     index('channel_jobs_channel_status_idx').on(t.channelId, t.status),
     foreignKey({
@@ -320,6 +331,12 @@ export const channelRuns = pgTable(
     publicationRevoked: boolean('publication_revoked').notNull().default(false),
     /** Only physical confirmation releases this; leases/idle/interrupt do not. */
     writerReleased: boolean('writer_released').notNull().default(false),
+    /**
+     * Logical isolation of a writer whose termination could not be confirmed in time. Its
+     * publication is revoked and its native session retired, so the member may run again;
+     * `writerReleased`/`physicalStopped` still record only physical confirmation.
+     */
+    isolatedAt: timestamptzColumn('isolated_at'),
     draft: text('draft'),
     publicationStatus: text('publication_status')
       .$type<ChannelPublicationStatus>()
@@ -337,7 +354,7 @@ export const channelRuns = pgTable(
       .where(sql`${t.writerReleased} = false OR ${t.physicalStopped} = false`),
     uniqueIndex('channel_runs_active_member_idx')
       .on(t.memberId)
-      .where(sql`${t.writerReleased} = false`),
+      .where(sql`${t.writerReleased} = false AND ${t.isolatedAt} IS NULL`),
     foreignKey({
       columns: [t.channelId, t.jobId],
       foreignColumns: [channelJobs.channelId, channelJobs.id],

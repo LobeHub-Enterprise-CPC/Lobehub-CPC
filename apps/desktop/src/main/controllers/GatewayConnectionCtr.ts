@@ -5,10 +5,20 @@ import path from 'node:path';
 
 import { BRANDING_NAME } from '@lobechat/business-const';
 import type { DeviceControlDeps } from '@lobechat/device-control';
+import {
+  COMPUTER_USE_IDENTIFIER as AuvIdentifier,
+  toAuvToolOutput,
+} from '@lobechat/device-control/computer-use';
 import type { AgentRunRequestMessage, GatewayMcpParams } from '@lobechat/device-gateway-client';
-import type { GatewayConnectionStatus } from '@lobechat/electron-client-ipc';
+import { deviceGatewayServerKey } from '@lobechat/device-gateway-client/endpoint';
+import type {
+  GatewayConnectionState,
+  GatewayConnectResult,
+  GatewayEndpointInfo,
+} from '@lobechat/electron-client-ipc';
 import type { CodexChannelHost } from '@lobechat/heterogeneous-agents/channel';
 import type { HeterogeneousAgentCancellationSignal } from '@lobechat/heterogeneous-agents/protocol';
+import { stripInheritedRunIdentity } from '@lobechat/heterogeneous-agents/protocol';
 import type { RemotePlatformCommandRuntime } from '@lobechat/heterogeneous-agents/scanHost';
 import {
   resolveRemotePlatformCommand,
@@ -17,13 +27,19 @@ import {
 import { type ILocalSystemService, LocalSystemExecutionRuntime } from '@lobechat/tool-runtime';
 import type { HeterogeneousProviderConfig } from '@lobechat/types';
 import { managedProcessEnvironment, spawnManaged } from '@lobechat/utils/managedProcess';
+import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import { app as electronApp } from 'electron';
 
+import { resolveGatewayEnabled } from '@/const/store';
+import { withEmbeddedCliEnv } from '@/modules/cliEmbedding';
+import { createDesktopGatewayIdentityProvider } from '@/modules/tenantAuth/gatewayIdentity';
 import { updaterConfig } from '@/modules/updater/configs';
 import { createRemoteAppUpdateDeps } from '@/modules/updater/remoteUpdate';
 import AuvService, { type AuvRunCommandParams } from '@/services/auvSrv';
 import { backfillDeviceArchitecture } from '@/services/deviceArchitectureBackfill';
-import GatewayConnectionService from '@/services/gatewayConnectionSrv';
+import GatewayConnectionService, {
+  type WorkspaceDeviceRegistration,
+} from '@/services/gatewayConnectionSrv';
 import ImessageBridgeService from '@/services/imessageBridgeSrv';
 import { findHeteroExecProcesses } from '@/utils/heteroExecProcess';
 import { createLogger } from '@/utils/logger';
@@ -53,7 +69,6 @@ type AvailableRemotePlatformRuntime = Extract<RemotePlatformCommandRuntime, { av
 // Hardcoded (not imported) so the desktop main process keeps zero builtin-tool
 // package deps — importing one risks the @lobechat/types stub runtime leak.
 const BrowserIdentifier = 'lobe-browser';
-const AuvIdentifier = 'lobe-computer-use';
 
 function parseHermesSessionId(stderr: string): string | undefined {
   for (const line of stderr.split(/\r?\n/).reverse()) {
@@ -104,9 +119,8 @@ interface PlatformTaskEntry {
   pid: number;
   topicId: string;
   /**
-   * Workspace that owns the dispatched topic — used at exit time so the
-   * cleanup notify still scopes to the workspace agentNotify resolves the
-   * topic in (the server seeds this via the `runHeteroTask` args).
+   * Workspace owning the dispatched topic (seeded by `runHeteroTask`), so the
+   * exit-time cleanup notify scopes to the workspace agentNotify resolves it in.
    */
   workspaceId?: string;
 }
@@ -223,39 +237,41 @@ export default class GatewayConnectionCtr extends ControllerModule {
 
     srv.loadOrCreateDeviceId();
 
-    // Wire up token provider and refresher
+    srv.setIdentityProviderFactory((workspaceId, initialTicket) =>
+      createDesktopGatewayIdentityProvider(
+        {
+          getAccessToken: () => this.remoteServerConfigCtr.getAccessToken(),
+          getConfig: () => this.remoteServerConfigCtr.getRemoteServerConfig(),
+          isPaused: () => this.remoteServerConfigCtr.isRemoteActivityPaused(),
+        },
+        workspaceId,
+        initialTicket,
+      ),
+    );
+    srv.setServerUrlProvider(() => this.getConfiguredServerUrl());
     srv.setTokenProvider(() => this.remoteServerConfigCtr.getAccessToken());
-    srv.setTokenRefresher(() => this.remoteServerConfigCtr.refreshAccessToken());
 
     // Wire up tool call handler
-    srv.setToolCallHandler((identifier, apiName, args) =>
-      this.executeToolCall(identifier, apiName, args),
+    srv.setToolCallHandler((identifier, apiName, args, signal) =>
+      this.executeToolCall(identifier, apiName, args, signal),
     );
 
-    // Wire up MCP call handler (tunneled stdio MCP calls from the cloud server)
-    srv.setMcpCallHandler((mcpCall) => this.executeMcpCall(mcpCall));
+    srv.setMcpCallHandler((mcpCall, signal) => this.executeMcpCall(mcpCall, signal));
 
     // Wire up message API handler
-    srv.setMessageApiHandler((platform, apiName, payload) =>
-      this.executeMessageApi(platform, apiName, payload),
+    srv.setMessageApiHandler((platform, apiName, payload, signal) =>
+      this.executeMessageApi(platform, apiName, payload, signal),
     );
 
     // Wire up agent run handler
     srv.setAgentRunHandler((request) => this.executeAgentRun(request));
 
-    // Wire up generic device RPC handler (server-internal method forwarding,
-    // e.g. workspace-init scans — never surfaced to the agent)
-    srv.setRpcHandler((method, params) => this.executeDeviceRpc(method, params));
+    srv.setRpcHandler((method, params, signal) => this.executeDeviceRpc(method, params, signal));
 
-    // Wire up device registrar (persists this device to the server registry)
     srv.setDeviceRegistrar((info) => this.registerDevice(info));
 
-    // Wire up the workspace-share hooks: connect-token minting (startup restore
-    // + token expiry) and the "row still registered?" probe that keeps a share
-    // revoked while offline from resurrecting as a ghost device.
-    srv.setWorkspaceTokenProvider((workspaceId) => this.mintWorkspaceConnectToken(workspaceId));
-    srv.setWorkspaceDeviceChecker((workspaceId, deviceId) =>
-      this.checkWorkspaceDeviceRegistered(workspaceId, deviceId),
+    srv.setWorkspaceDeviceChecker((workspaceId, deviceId, expectedServerUrl) =>
+      this.checkWorkspaceDeviceRegistered(workspaceId, deviceId, expectedServerUrl),
     );
 
     this.resolveGatewayReady?.();
@@ -267,7 +283,7 @@ export default class GatewayConnectionCtr extends ControllerModule {
   // ─── IPC Methods (Renderer → Main) ───
 
   @IpcMethod()
-  async connect(): Promise<{ error?: string; success: boolean }> {
+  async connect(): Promise<GatewayConnectResult> {
     this.app.storeManager.set('gatewayEnabled', true);
     return this.service.connect();
   }
@@ -279,8 +295,14 @@ export default class GatewayConnectionCtr extends ControllerModule {
   }
 
   @IpcMethod()
-  async getConnectionStatus(): Promise<{ status: GatewayConnectionStatus }> {
-    return { status: this.service.getDisplayedStatus() };
+  async getConnectionStatus(): Promise<GatewayConnectionState> {
+    return this.service.getDisplayedState();
+  }
+
+  /** Which gateway this login uses, and the address saved in settings. */
+  @IpcMethod()
+  async getGatewayEndpoint(): Promise<GatewayEndpointInfo> {
+    return this.service.getEndpointInfo();
   }
 
   @IpcMethod()
@@ -294,26 +316,32 @@ export default class GatewayConnectionCtr extends ControllerModule {
     return { enabled: this.service.getKeepAwake() };
   }
 
+  /** Stable device id for persisted topic pins — local only, no backfill request. */
+  @IpcMethod()
+  async getStableDeviceId(): Promise<string | undefined> {
+    return this.service.resolveCurrentDeviceId();
+  }
+
   @IpcMethod()
   async getDeviceInfo(): Promise<{
     deviceId: string;
     hostname: string;
     platform: string;
   }> {
-    const info = this.service.getDeviceInfo();
+    // Signed in, report the stable id the gateway registers — not the pre-connect
+    // fallback — so the renderer's "this device" matches the pins it writes.
+    const stableId = await this.service.resolveCurrentDeviceId().catch(() => undefined);
+    const info = { ...this.service.getDeviceInfo(), ...(stableId && { deviceId: stableId }) };
     try {
-      const [serverUrl, token] = await Promise.all([
-        this.remoteServerConfigCtr.getRemoteServerUrl(),
-        this.remoteServerConfigCtr.getAccessToken(),
-      ]);
-      if (serverUrl && token && info.deviceId !== 'unknown') {
-        const headers = { 'Content-Type': 'application/json', 'Oidc-Auth': token };
+      const credentials = await this.remoteServerConfigCtr.getRemoteCredentials();
+      if (credentials && info.deviceId !== 'unknown') {
+        const headers = { 'Content-Type': 'application/json', 'Oidc-Auth': credentials.token };
         setDesktopUserAgentHeader(headers);
         await backfillDeviceArchitecture({
           architecture: os.arch(),
           deviceId: info.deviceId,
           headers,
-          serverUrl,
+          serverUrl: credentials.serverUrl,
         });
       }
     } catch (error) {
@@ -323,10 +351,8 @@ export default class GatewayConnectionCtr extends ControllerModule {
   }
 
   /**
-   * Let the web app wake this desktop and restore its gateway connection from
-   * an offline device row. The device id guard matters when the user has more
-   * than one registered computer: opening the deep link on a different machine
-   * must not silently connect that machine instead.
+   * Wake this desktop from an offline device row. The device id guard keeps a
+   * deep link opened on another registered computer from connecting it instead.
    */
   @deviceProtocolHandler('reconnect')
   async reconnectFromProtocol({ deviceId }: { deviceId?: string }): Promise<boolean> {
@@ -340,11 +366,17 @@ export default class GatewayConnectionCtr extends ControllerModule {
     return result.success;
   }
 
+  /** The signed-in server, or undefined when the desktop has no active login. */
+  private async getConfiguredServerUrl(): Promise<string | undefined> {
+    const config = await this.remoteServerConfigCtr.getRemoteServerConfig();
+    if (!(await this.remoteServerConfigCtr.isRemoteServerConfigured(config))) return undefined;
+    return this.remoteServerConfigCtr.getRemoteServerUrl(config);
+  }
+
   // ─── Auto Connect ───
 
   private async tryAutoConnect() {
-    const gatewayEnabled = this.app.storeManager.get('gatewayEnabled');
-    if (!gatewayEnabled) return;
+    if (!resolveGatewayEnabled(this.app.storeManager.get('gatewayEnabled'))) return;
 
     const isConfigured = await this.remoteServerConfigCtr.isRemoteServerConfigured();
     if (!isConfigured) return;
@@ -366,25 +398,15 @@ export default class GatewayConnectionCtr extends ControllerModule {
         return { reason: 'Remote server URL not configured', status: 'rejected' };
       }
 
-      // Reuse this device's own logged-in session as the run identity. The
-      // access token is a full user OIDC token (7-day TTL, longer than any run),
-      // which heteroIngest/heteroFinish now accept (ownership-gated), AND which
-      // gives the spawned Claude Code's nested `lh` calls a real login state —
-      // unlike the narrow `hetero-operation` token, which only works for the
-      // ingest endpoints. We deliberately do NOT pass the refresh token to the
-      // CLI: the device stays the single refresher (refresh tokens rotate), and
-      // the 7-day access token outlives the run so no mid-run refresh is needed.
-      //
-      // Fall back to the dispatched `request.jwt` when the device has no access
-      // token (e.g. not logged in), preserving the prior behavior gracefully.
-      const accessToken = await this.remoteServerConfigCtr.getAccessToken();
-      const jwt = accessToken || request.jwt;
+      request.executionSignal?.throwIfAborted();
+      const jwt = request.jwt;
 
       // The embedded CLI handles spawn -> adapt -> BatchIngester ->
       // heteroIngest/heteroFinish -> server -> Gateway -> clients. Wait until
       // the process has actually spawned (or emitted an early error) before
       // acknowledging the server request.
       return await this.heterogeneousAgentCtr.spawnLhHeteroExec({
+        executionSignal: request.executionSignal,
         agentId: request.agentId,
         agentType: request.agentType,
         assistantMessageId: request.assistantMessageId,
@@ -433,17 +455,8 @@ export default class GatewayConnectionCtr extends ControllerModule {
 
   // ─── Tool Call Routing ───
 
-  /**
-   * Lazy-construct the LocalSystemExecutionRuntime backed by a thin service
-   * adapter over the existing controllers. The runtime is the same one the
-   * renderer uses, so remote tool calls produce identical
-   * `{ content, state, success }` envelopes — `content` is the LLM-facing
-   * prompt text, `state` is the structured payload, both flow downstream
-   * intact (the gateway / DeviceGateway / RuntimeExecutors paths preserve them
-   * and write `state` to the tool message's `pluginState`).
-   */
-  private getLocalSystemRuntime(): LocalSystemExecutionRuntime {
-    if (!this.localSystemRuntime) {
+  private getLocalSystemRuntime(executionSignal?: AbortSignal): LocalSystemExecutionRuntime {
+    if (!this.localSystemRuntime || executionSignal) {
       const local = this.localFileCtr;
       const shell = this.shellCommandCtr;
       const service: ILocalSystemService = {
@@ -457,20 +470,31 @@ export default class GatewayConnectionCtr extends ControllerModule {
         readLocalFile: (p) => local.readFile(p),
         readLocalFiles: (p) => local.readFiles(p),
         renameLocalFile: (p) => local.handleRenameFile(p),
-        runCommand: (p) => shell.handleRunCommand(p),
+        runCommand: (p) => shell.handleRunCommand(p, executionSignal),
         searchLocalFiles: (p) => local.handleLocalFilesSearch(p),
         writeFile: (p) => local.handleWriteFile(p),
       };
-      this.localSystemRuntime = new LocalSystemExecutionRuntime(service);
+      const guarded = executionSignal
+        ? (Object.fromEntries(
+            Object.entries(service).map(([key, fn]) => [
+              key,
+              (...args: unknown[]) => {
+                executionSignal.throwIfAborted();
+                return Reflect.apply(fn, service, args);
+              },
+            ]),
+          ) as unknown as ILocalSystemService)
+        : service;
+      const runtime = new LocalSystemExecutionRuntime(guarded);
+      if (executionSignal) return runtime;
+      this.localSystemRuntime = runtime;
     }
     return this.localSystemRuntime;
   }
 
   /**
-   * Platform-specific handlers the shared `@lobechat/device-control` dispatcher
-   * delegates to. Git + workspace-scan methods run inside device-control over
-   * `@lobechat/local-file-shell`; only file preview / index (and preview
-   * approval) are desktop-specific and routed back to the controllers here.
+   * Desktop handlers for the shared `@lobechat/device-control` dispatcher: only
+   * file preview / index (and preview approval) route back to controllers here.
    */
   private get deviceControlDeps(): DeviceControlDeps {
     return {
@@ -508,36 +532,26 @@ export default class GatewayConnectionCtr extends ControllerModule {
   }
 
   /**
-   * Dispatch a generic server-internal device RPC (not an agent tool call) by
-   * method name. The dispatch logic lives in `@lobechat/device-control` so the
-   * desktop main process and the CLI daemon share one device RPC surface.
+   * Dispatch a server-internal device RPC by method name, via the dispatcher
+   * the desktop and the CLI daemon share (`@lobechat/device-control`).
    */
-  private async executeDeviceRpc(method: string, params: unknown): Promise<unknown> {
+  private async executeDeviceRpc(
+    method: string,
+    params: unknown,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     const { executeDeviceRpc: runDeviceRpc } = await import('@lobechat/device-control');
+    signal?.throwIfAborted();
     return runDeviceRpc(method, params, this.deviceControlDeps);
   }
 
-  /**
-   * Dispatches a device-gateway tool call to its desktop-owned runtime.
-   *
-   * Triggering workflow:
-   *
-   * {@link GatewayConnectionService.setToolCallHandler}
-   *   -> `tool_call_request`
-   *     -> {@link GatewayConnectionCtr.executeToolCall}
-   *
-   * Upstream:
-   * - {@link GatewayConnectionService.setToolCallHandler}
-   *
-   * Downstream:
-   * - {@link GatewayConnectionCtr.executeAuvToolCall}
-   * - {@link LocalSystemExecutionRuntime.executeToolCall}
-   */
   private async executeToolCall(
     identifier: string | undefined,
     apiName: string,
     args: unknown,
+    signal?: AbortSignal,
   ): Promise<BuiltinServerRuntimeOutput> {
+    signal?.throwIfAborted();
     if (identifier === AuvIdentifier) return this.executeAuvToolCall(apiName, args);
 
     // Browser is a renderer-resident tool: forward to the client executor via
@@ -560,18 +574,15 @@ export default class GatewayConnectionCtr extends ControllerModule {
     // `cwd`/`scope` into `args` (see its `WORKING_DIR_ARG` map), so the values
     // here are server-controlled — `trustArgsCwd` lets them ride through to the
     // IPC layer instead of being dropped like the previous per-tool switch did.
-    const localSystemOutput = await this.getLocalSystemRuntime().executeToolCall(
+    const localSystemOutput = await this.getLocalSystemRuntime(signal).executeToolCall(
       apiName,
       (args ?? {}) as Record<string, unknown>,
       { trustArgsCwd: true },
     );
     if (localSystemOutput) return localSystemOutput;
+    signal?.throwIfAborted();
 
-    if (
-      ['channelProbe', 'channelStart', 'channelInspect', 'channelStop', 'channelApprove'].includes(
-        apiName,
-      )
-    )
+    if (['channelProbe', 'channelStart', 'channelInspect', 'channelStop'].includes(apiName))
       logger.debug('Channel device operation', { apiName });
 
     switch (apiName) {
@@ -600,19 +611,6 @@ export default class GatewayConnectionCtr extends ControllerModule {
             ? await host.stop(input.ownerId, input.runId, input.fence)
             : await host.inspect(input.ownerId, input.runId);
         return { content: JSON.stringify(result), success: true };
-      }
-      case 'channelApprove': {
-        const input = args as {
-          ownerId: string;
-          runId: string;
-          fence: number;
-          approvalId: string;
-          approved: boolean;
-        };
-        await (
-          await this.getChannelHost()
-        ).approve(input.ownerId, input.runId, input.fence, input.approvalId, input.approved);
-        return { content: '{}', success: true };
       }
       // ─── Platform agent tools (openclaw / hermes) ───
       // These don't go through LocalSystemExecutionRuntime — they return raw
@@ -694,30 +692,23 @@ export default class GatewayConnectionCtr extends ControllerModule {
       throw new Error(`AUV tool "${apiName}" is not available on this device`);
     }
 
-    const result = await this.auvService.runCommand(args as AuvRunCommandParams);
-    return {
-      content: JSON.stringify(result),
-      ...(result.exitCode !== 0 && {
-        error: result.stderr || `Computer Use exited with code ${result.exitCode}`,
-      }),
-      state: result,
-      success: result.exitCode === 0,
-    };
+    return toAuvToolOutput(await this.auvService.runCommand(args as AuvRunCommandParams));
   }
 
   /**
-   * Execute an MCP tool call tunneled from the cloud server, for MCP servers
-   * only this machine can reach: stdio (the server can't spawn the user's
-   * local binary) and localhost / LAN HTTP endpoints (the server's fetch
-   * can't reach them). The connection params ride along; we run the call
-   * through the local MCP client.
+   * Run a tunneled MCP call through the local MCP client, for servers only this
+   * machine can reach: stdio binaries and localhost / LAN HTTP endpoints.
    */
-  private async executeMcpCall(mcpCall: {
-    apiName: string;
-    arguments: string;
-    identifier: string;
-    params: GatewayMcpParams;
-  }): Promise<BuiltinServerRuntimeOutput> {
+  private async executeMcpCall(
+    mcpCall: {
+      apiName: string;
+      arguments: string;
+      identifier: string;
+      params: GatewayMcpParams;
+    },
+    signal?: AbortSignal,
+  ): Promise<BuiltinServerRuntimeOutput> {
+    signal?.throwIfAborted();
     const { apiName, arguments: args, params } = mcpCall;
 
     if (params.type === 'http') {
@@ -725,26 +716,32 @@ export default class GatewayConnectionCtr extends ControllerModule {
         { auth: params.auth, headers: params.headers, name: params.name, url: params.url },
         apiName,
         args,
+        signal,
       );
     }
 
-    return this.mcpCtr.runStdioMcpTool({
-      args,
-      env: params.env,
-      params: {
-        args: params.args,
-        command: params.command,
-        name: params.name,
+    return this.mcpCtr.runStdioMcpTool(
+      {
+        args,
+        env: params.env,
+        params: {
+          args: params.args,
+          command: params.command,
+          name: params.name,
+        },
+        toolName: apiName,
       },
-      toolName: apiName,
-    });
+      signal,
+    );
   }
 
   private async executeMessageApi(
     platform: string,
     apiName: string,
     payload: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<unknown> {
+    signal?.throwIfAborted();
     if (platform === 'imessage') {
       return this.imessageBridgeSrv.handleGatewayMessageApi(apiName, payload);
     }
@@ -935,20 +932,23 @@ export default class GatewayConnectionCtr extends ControllerModule {
     } = args;
     const workDir = cwd || process.cwd();
 
-    const [serverUrl, accessToken] = await Promise.all([
-      this.remoteServerConfigCtr.getRemoteServerUrl(),
-      this.remoteServerConfigCtr.getAccessToken(),
-    ]);
+    const credentials = await this.remoteServerConfigCtr.getRemoteCredentials();
+    const serverUrl = credentials?.serverUrl;
+    const accessToken = credentials?.token;
 
-    // Inject auth + workspace scope into child env so `lh notify` can
-    // authenticate AND target the same workspace as the dispatched topic
-    // (without LOBEHUB_WORKSPACE_ID, the CLI's notify falls back to personal
-    // mode and the workspace topic 404s).
+    // Never inherit the launcher's run identity (or JWT file) for a dispatched run.
+    const inheritedEnv = stripInheritedRunIdentity(process.env);
+
+    // Inject auth + workspace scope so `lh notify` authenticates AND targets the
+    // dispatched topic's workspace (without it, the CLI falls back to personal
+    // mode and the workspace topic 404s), plus the bundled `lh` ahead of PATH.
     const childEnv: NodeJS.ProcessEnv = {
-      ...process.env,
+      ...withEmbeddedCliEnv(inheritedEnv),
+      ...(agentId && { LOBEHUB_AGENT_ID: agentId }),
       ...(accessToken && { LOBEHUB_JWT: accessToken }),
       LOBEHUB_OPERATION_ID: operationId,
       ...(serverUrl && { LOBEHUB_SERVER: serverUrl }),
+      LOBEHUB_TOPIC_ID: topicId,
       ...(workspaceId && { LOBEHUB_WORKSPACE_ID: workspaceId }),
     };
     const sessionKey = parentOperationId ? operationId : topicId;
@@ -1364,25 +1364,26 @@ export default class GatewayConnectionCtr extends ControllerModule {
     workspaceId?: string;
   }): Promise<void> {
     try {
-      const [serverUrl, token] = await Promise.all([
-        this.remoteServerConfigCtr.getRemoteServerUrl(),
-        this.remoteServerConfigCtr.getAccessToken(),
-      ]);
-      if (!serverUrl || !token) return;
+      const credentials = await this.remoteServerConfigCtr.getRemoteCredentials();
+      if (!credentials) return;
 
       const { workspaceId, ...body } = params;
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        'Oidc-Auth': token,
+        'Oidc-Auth': credentials.token,
       };
       if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
       setDesktopUserAgentHeader(headers);
 
-      await fetch(`${serverUrl}/trpc/lambda/agentNotify.notify`, {
-        body: JSON.stringify({ json: body }),
-        headers,
-        method: 'POST',
-      });
+      await fetch(
+        buildRemoteUrl('/trpc/lambda/agentNotify.notify', credentials.serverUrl).toString(),
+        {
+          body: JSON.stringify({ json: body }),
+          headers,
+          method: 'POST',
+          redirect: 'error',
+        },
+      );
     } catch {
       // Fire-and-forget: openclaw's own `lh notify` calls are the primary channel.
     }
@@ -1400,22 +1401,20 @@ export default class GatewayConnectionCtr extends ControllerModule {
     identitySource: string;
     platform: string;
   }): Promise<void> {
-    const [serverUrl, token] = await Promise.all([
-      this.remoteServerConfigCtr.getRemoteServerUrl(),
-      this.remoteServerConfigCtr.getAccessToken(),
-    ]);
-    if (!serverUrl || !token) return;
+    const credentials = await this.remoteServerConfigCtr.getRemoteCredentials();
+    if (!credentials) return;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'Oidc-Auth': token,
+      'Oidc-Auth': credentials.token,
     };
     setDesktopUserAgentHeader(headers);
 
-    await fetch(`${serverUrl}/trpc/lambda/device.register`, {
+    await fetch(buildRemoteUrl('/trpc/lambda/device.register', credentials.serverUrl).toString(), {
       body: JSON.stringify({ json: info }),
       headers,
       method: 'POST',
+      redirect: 'error',
     });
   }
 
@@ -1423,23 +1422,30 @@ export default class GatewayConnectionCtr extends ControllerModule {
    * Build the auth headers for a workspace-scoped server call. The
    * `X-Workspace-Id` header is what routes the request through the workspace
    * (member+) procedures — same convention as `sendNotify` above.
+   *
+   * `expectedServerUrl` is the server the gateway session belongs to; when the
+   * desktop has since signed out or moved to another server there is no auth
+   * to use for that session, so the call is skipped.
    */
   private async buildWorkspaceHeaders(
     workspaceId: string,
+    expectedServerUrl: string,
   ): Promise<{ headers: Record<string, string>; serverUrl: string } | null> {
-    const [serverUrl, token] = await Promise.all([
-      this.remoteServerConfigCtr.getRemoteServerUrl(),
-      this.remoteServerConfigCtr.getAccessToken(),
-    ]);
-    if (!serverUrl || !token) return null;
+    const credentials = await this.remoteServerConfigCtr.getRemoteCredentials();
+    if (!credentials) return null;
+    if (
+      deviceGatewayServerKey(credentials.serverUrl) !== deviceGatewayServerKey(expectedServerUrl)
+    ) {
+      return null;
+    }
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'Oidc-Auth': token,
+      'Oidc-Auth': credentials.token,
       'X-Workspace-Id': workspaceId,
     };
     setDesktopUserAgentHeader(headers);
-    return { headers, serverUrl };
+    return { headers, serverUrl: credentials.serverUrl };
   }
 
   /**
@@ -1448,17 +1454,24 @@ export default class GatewayConnectionCtr extends ControllerModule {
    * when a workspace connection's token expires. Returns null when the desktop
    * has no usable auth (logged out) — the service treats that as "skip".
    */
-  private async mintWorkspaceConnectToken(workspaceId: string): Promise<string | null> {
-    const auth = await this.buildWorkspaceHeaders(workspaceId);
+  private async mintWorkspaceConnectToken(
+    workspaceId: string,
+    expectedServerUrl: string,
+  ): Promise<string | null> {
+    const auth = await this.buildWorkspaceHeaders(workspaceId, expectedServerUrl);
     if (!auth) return null;
 
-    const res = await fetch(`${auth.serverUrl}/trpc/lambda/device.mintWorkspaceConnectToken`, {
-      // The mutation takes no input; `{json: null}` is the superjson-encoded
-      // empty payload the tRPC HTTP handler expects.
-      body: JSON.stringify({ json: null }),
-      headers: auth.headers,
-      method: 'POST',
-    });
+    const res = await fetch(
+      buildRemoteUrl('/trpc/lambda/device.mintWorkspaceConnectToken', auth.serverUrl).toString(),
+      {
+        // The mutation takes no input; `{json: null}` is the superjson-encoded
+        // empty payload the tRPC HTTP handler expects.
+        body: JSON.stringify({ json: null }),
+        headers: auth.headers,
+        method: 'POST',
+        redirect: 'error',
+      },
+    );
     if (!res.ok) throw new Error(`mintWorkspaceConnectToken failed: HTTP ${res.status}`);
 
     const payload = (await res.json()) as { result?: { data?: { json?: { token?: unknown } } } };
@@ -1468,31 +1481,42 @@ export default class GatewayConnectionCtr extends ControllerModule {
 
   /**
    * Probe whether the workspace-scoped deviceId still has a registered row via
-   * `device.listDevices`. Returns `false` only on a definitive "row gone"
-   * answer; `undefined` on any failure — the service must not clear persisted
-   * enrollments off an inconclusive check.
+   * `device.listDevices`, and who enrolled it. `registered: false` is a
+   * definitive "row gone" answer; `undefined` on any failure — the service must
+   * not clear persisted enrollments off an inconclusive check.
    */
   private async checkWorkspaceDeviceRegistered(
     workspaceId: string,
     deviceId: string,
-  ): Promise<boolean | undefined> {
+    expectedServerUrl: string,
+  ): Promise<WorkspaceDeviceRegistration | undefined> {
     try {
-      const auth = await this.buildWorkspaceHeaders(workspaceId);
+      const auth = await this.buildWorkspaceHeaders(workspaceId, expectedServerUrl);
       if (!auth) return undefined;
 
-      const res = await fetch(`${auth.serverUrl}/trpc/lambda/device.listDevices`, {
-        headers: auth.headers,
-      });
+      const res = await fetch(
+        buildRemoteUrl('/trpc/lambda/device.listDevices', auth.serverUrl).toString(),
+        {
+          headers: auth.headers,
+          redirect: 'error',
+        },
+      );
       if (!res.ok) return undefined;
 
       const payload = (await res.json()) as { result?: { data?: { json?: unknown } } };
       const devices = payload?.result?.data?.json;
       if (!Array.isArray(devices)) return undefined;
 
-      return devices.some(
+      const row = devices.find(
         (d: { deviceId?: unknown; registered?: unknown }) =>
           d?.deviceId === deviceId && d?.registered === true,
-      );
+      ) as { enroller?: { userId?: unknown } | null } | undefined;
+      if (!row) return { registered: false };
+
+      const enrollerUserId = row.enroller?.userId;
+      return typeof enrollerUserId === 'string'
+        ? { enrollerUserId, registered: true }
+        : { registered: true };
     } catch {
       return undefined;
     }

@@ -1,53 +1,29 @@
 'use client';
 
-import { isDesktop } from '@lobechat/const';
 import type { WorkingDirEntry } from '@lobechat/types';
 import { getWorkingDirSourcePath } from '@lobechat/types';
-import { Flexbox, Icon, Popover, Tooltip } from '@lobehub/ui';
-import { ActionIcon, Input, toast } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar, cx } from 'antd-style';
 import {
-  CheckIcon,
-  ChevronDownIcon,
-  FolderOpenIcon,
-  FolderPlusIcon,
-  SearchIcon,
-  StarIcon,
-  XIcon,
-} from 'lucide-react';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+  ActionIcon,
+  createStaticStyles,
+  cssVar,
+  cx,
+  Flexbox,
+  Icon,
+  Input,
+  Popover,
+  Tooltip,
+} from '@lobehub/ui';
+import { CheckIcon, ChevronDownIcon, SearchIcon, StarIcon, XIcon } from 'lucide-react';
+import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { useConversationStore } from '@/features/Conversation/store';
-import { openAddWorkingDirModal } from '@/features/WorkingDirectory';
-import {
-  resolveAgentWorkingDirectorySource,
-  resolveTargetDeviceId,
-} from '@/helpers/agentWorkingDirectory';
-import {
-  getWorkingDirectoryName,
-  getWorkingDirectoryPathString,
-} from '@/helpers/workingDirectoryPath';
-import { useEffectiveAgencyConfig } from '@/hooks/useEffectiveAgencyConfig';
-import { deviceService } from '@/services/device';
-import { electronSystemService } from '@/services/electron/system';
-import { useAgentStore } from '@/store/agent';
-import { useChatStore } from '@/store/chat';
-import { topicSelectors } from '@/store/chat/selectors';
-import { deviceSelectors, useDeviceStore } from '@/store/device';
-import { useElectronStore } from '@/store/electron';
-import { useUserStore } from '@/store/user';
-import { authSelectors } from '@/store/user/selectors';
+import { getWorkingDirectoryName } from '@/helpers/workingDirectoryPath';
 
 import DashedFolderIcon from './DashedFolderIcon';
 import DirIcon from './DirIcon';
-import { useCommitWorkingDirectory } from './useCommitWorkingDirectory';
-import { useMigrateDeviceRecents } from './useMigrateDeviceRecents';
+import { AddRemoteFolderRow, ChooseLocalFolderRow } from './folderRows';
+import { useWorkingDirectoryController } from './useWorkingDirectoryController';
 import { workingDirectoryChipStyles } from './workingDirectoryChipStyles';
-
-// Show the in-place search box only once the list is long enough that scanning
-// gets tedious — a short list doesn't need the extra chrome.
-const SEARCH_THRESHOLD = 8;
 
 const styles = createStaticStyles(({ css }) => ({
   badge: css`
@@ -61,23 +37,6 @@ const styles = createStaticStyles(({ css }) => ({
     color: ${cssVar.colorTextTertiary};
 
     background: ${cssVar.colorFillSecondary};
-  `,
-  chooseFolderItem: css`
-    cursor: pointer;
-
-    padding-block: 8px;
-    padding-inline: 8px;
-    border-radius: ${cssVar.borderRadius};
-
-    font-size: 13px;
-    color: ${cssVar.colorTextSecondary};
-
-    transition: background-color 0.2s;
-
-    &:hover {
-      color: ${cssVar.colorText};
-      background: ${cssVar.colorFillTertiary};
-    }
   `,
   clearText: css`
     cursor: pointer;
@@ -158,84 +117,6 @@ const styles = createStaticStyles(({ css }) => ({
   `,
 }));
 
-const isValidWorkingDirEntry = (entry: WorkingDirEntry): boolean =>
-  !!getWorkingDirectoryPathString(entry.path);
-
-type FolderEntry = { path: string; repoType?: 'git' | 'github' };
-
-/** This machine: browse the filesystem via the native Electron folder dialog. */
-const ChooseLocalFolderRow = memo<{ defaultPath?: string; onPick: (entry: FolderEntry) => void }>(
-  ({ defaultPath, onPick }) => {
-    const { t } = useTranslation('device');
-    const handleClick = async () => {
-      const result = await electronSystemService.selectFolder({
-        defaultPath: defaultPath || undefined,
-        title: t('workingDirectory.selectFolder'),
-      });
-      if (result) onPick({ path: result.path, repoType: result.repoType });
-    };
-    return (
-      <Flexbox
-        horizontal
-        align={'center'}
-        className={styles.chooseFolderItem}
-        gap={8}
-        onClick={handleClick}
-      >
-        <Icon icon={FolderOpenIcon} size={14} />
-        <span>{t('workingDirectory.chooseDifferentFolder')}</span>
-      </Flexbox>
-    );
-  },
-);
-ChooseLocalFolderRow.displayName = 'ChooseLocalFolderRow';
-
-/** Browse the target device through its directory RPC. */
-const AddRemoteFolderRow = memo<{
-  defaultCwd?: string;
-  deviceId?: string;
-  onBeforeOpen: () => void;
-  onPick: (entry: FolderEntry) => void;
-}>(({ defaultCwd, deviceId, onBeforeOpen, onPick }) => {
-  const { t } = useTranslation('device');
-
-  // Validate the selected or manually entered path on the target device: block
-  // on a definitive negative, otherwise commit with the detected repoType so the
-  // recent entry shows the right (git / github) icon. An unreachable device
-  // (null) is treated as "can't verify" and allowed through without a repoType.
-  const handleSubmit = async (path: string): Promise<string | undefined> => {
-    const result = deviceId ? await deviceService.statPath(deviceId, path) : undefined;
-    if (result) {
-      if (!result.exists) return t('workingDirectory.pathNotExist');
-      if (!result.isDirectory) return t('workingDirectory.pathNotDirectory');
-    }
-    onPick({ path, repoType: result?.repoType });
-    return undefined;
-  };
-
-  const handleClick = () => {
-    onBeforeOpen();
-    openAddWorkingDirModal({
-      defaultPath: defaultCwd || undefined,
-      deviceId,
-      onSubmit: handleSubmit,
-    });
-  };
-  return (
-    <Flexbox
-      horizontal
-      align={'center'}
-      className={styles.chooseFolderItem}
-      gap={8}
-      onClick={handleClick}
-    >
-      <Icon icon={FolderPlusIcon} size={14} />
-      <span>{t('workingDirectory.addFolder')}</span>
-    </Flexbox>
-  );
-});
-AddRemoteFolderRow.displayName = 'AddRemoteFolderRow';
-
 interface WorkingDirectoryPickerProps {
   agentId: string;
 }
@@ -253,148 +134,29 @@ interface WorkingDirectoryPickerProps {
  * runs in when nothing is picked is never invisible.
  */
 const WorkingDirectoryPicker = memo<WorkingDirectoryPickerProps>(({ agentId }) => {
-  const topicId = useConversationStore((s) => s.context.topicId);
   const { t } = useTranslation('device');
   const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const activeRowRef = useRef<HTMLDivElement>(null);
-
-  // Populate the device store (SWR dedupes across callers). Devices sit behind an
-  // authed lambda procedure, so only fetch once signed in (desktop always fetches).
-  const isLogin = useUserStore(authSelectors.isLogin);
-  useDeviceStore((s) => s.useFetchDevices)(isLogin || isDesktop);
-  // One-time fold of legacy localStorage recents into device.workingDirs.
-  useMigrateDeviceRecents();
-
-  // Effective config (shared row + this member's device override)
-  // so recents / default cwd / the selected-repo label all resolve against the
-  // device THIS member's run actually targets.
-  const { agencyConfig, workspaceScoped } = useEffectiveAgencyConfig(agentId);
-  const currentDeviceId = useElectronStore((s) => s.gatewayDeviceInfo?.deviceId);
-  const targetDeviceId = resolveTargetDeviceId(agencyConfig, currentDeviceId, {
-    workspaceScoped,
-  });
-  // The local machine's filesystem is browsable; a remote device's is not.
-  const isLocalDevice = isDesktop && !!targetDeviceId && targetDeviceId === currentDeviceId;
-
-  const rawRecents = useDeviceStore(deviceSelectors.getDeviceWorkingDirs(targetDeviceId));
-  const recents = useMemo(() => rawRecents.filter(isValidWorkingDirEntry), [rawRecents]);
-  const rawDeviceDefaultCwd = useDeviceStore(deviceSelectors.getDeviceDefaultCwd(targetDeviceId));
-  const deviceDefaultCwd = getWorkingDirectoryPathString(rawDeviceDefaultCwd);
-  const rawTopicWorkingDirectory = useChatStore(topicSelectors.getTopicWorkingDirectory(topicId));
-  const topicWorkingDirectory = getWorkingDirectoryPathString(rawTopicWorkingDirectory);
-  const topicWorkingDirectoryConfig = useChatStore((s) =>
-    topicId ? topicSelectors.getTopicById(topicId)(s)?.metadata?.workingDirectoryConfig : undefined,
-  );
-  const rawLegacyAgentWorkingDirectory = useAgentStore(
-    (s) => s.localAgentWorkingDirectoryMap[agentId],
-  );
-  const legacyAgentWorkingDirectory = getWorkingDirectoryPathString(rawLegacyAgentWorkingDirectory);
-
-  // The explicitly-selected REPO (no home fallback) — drives the directory label,
-  // the active check, and the Reset affordance. Resolves to the SOURCE path
-  // (repo root), never the active worktree: the label shows the repo the agent is
-  // bound to, while the worktree switcher in git status tracks the active
-  // worktree separately.
-  const resolvedSelectedDir = resolveAgentWorkingDirectorySource({
-    agencyConfig,
-    currentDeviceId,
+  const {
+    activeRowRef,
+    clear,
+    commit,
     deviceDefaultCwd,
-    legacyAgentWorkingDirectory,
-    topicWorkingDirectory,
-    topicWorkingDirectoryConfig,
-    workspaceScoped,
-  });
-  const selectedDir = getWorkingDirectoryPathString(resolvedSelectedDir);
-
-  // Reset only makes sense when an agent-level override exists. The device-wide
-  // `deviceDefaultCwd` isn't clearable from here (it's the fallback itself), so
-  // gating on it would render a dead button when the cwd comes from the default.
-  const agentChoice = targetDeviceId
-    ? agencyConfig?.workingDirByDevice?.[targetDeviceId]
-    : undefined;
-  const hasClearableSelection = !!(
-    topicWorkingDirectory ||
-    agentChoice ||
-    legacyAgentWorkingDirectory
-  );
-
-  const { clear, commit } = useCommitWorkingDirectory(agentId, topicId);
-  const clearDeviceDefaultCwd = useDeviceStore((s) => s.clearDeviceDefaultCwd);
-  const removeDeviceWorkingDir = useDeviceStore((s) => s.removeDeviceWorkingDir);
-  const updateDeviceCwd = useDeviceStore((s) => s.updateDeviceCwd);
-
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return recents;
-    return recents.filter(
-      (entry) =>
-        getWorkingDirectoryName(entry.path)?.toLowerCase().includes(query) ||
-        entry.path.toLowerCase().includes(query),
-    );
-  }, [recents, search]);
-
-  const showSearch = recents.length > SEARCH_THRESHOLD;
-
-  // Reset the query each time the picker closes.
-  useEffect(() => {
-    if (!open) setSearch('');
-  }, [open]);
-
-  // Scroll the current selection into view every time the picker opens — the
-  // popover re-mounts its list at scrollTop=0, so a selected dir below the fold
-  // would otherwise read as "nothing selected". Re-run when the filtered rows
-  // change (search) so the active row, if still present, stays visible.
-  useEffect(() => {
-    if (!open) return;
-    const raf = requestAnimationFrame(() => {
-      activeRowRef.current?.scrollIntoView({ block: 'nearest' });
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [open, filtered.length]);
+    filtered,
+    handleRemoveRecent,
+    handleToggleDefault,
+    hasClearableSelection,
+    isLocalDevice,
+    recents,
+    search,
+    selectedDir,
+    setSearch,
+    showSearch,
+    targetDeviceId,
+  } = useWorkingDirectoryController(agentId, open);
 
   const pick = async (entry: WorkingDirEntry) => {
     await commit(entry);
     setOpen(false);
-  };
-
-  const handleRemoveRecent = (e: React.MouseEvent, entry: WorkingDirEntry) => {
-    e.stopPropagation();
-    if (!targetDeviceId) return;
-    // Both remove and the undo re-add persist the *whole* `workingDirs` array, so
-    // an undo fired before the remove settles would race it — a late-finishing
-    // remove would clobber the re-added entry and the undo would silently fail.
-    // Chain the undo behind the remove promise so the re-add always writes last.
-    const removed = removeDeviceWorkingDir(targetDeviceId, entry.path);
-    toast.success({
-      actions: [
-        {
-          label: t('workingDirectory.undo'),
-          onClick: () =>
-            void removed.then(() => updateDeviceCwd(targetDeviceId, entry, { setDefault: false })),
-          variant: 'text',
-        },
-      ],
-      title: t('workingDirectory.removed', {
-        name: getWorkingDirectoryName(entry.path) ?? entry.path,
-      }),
-    });
-  };
-
-  const handleToggleDefault = async (
-    e: React.MouseEvent,
-    entry: WorkingDirEntry,
-    isDefault: boolean,
-  ) => {
-    e.stopPropagation();
-    if (!targetDeviceId) return;
-
-    try {
-      if (isDefault) await clearDeviceDefaultCwd(targetDeviceId);
-      else await updateDeviceCwd(targetDeviceId, entry, { setDefault: true });
-    } catch {
-      toast.error(t('workingDirectory.defaultUpdateFailed'));
-    }
   };
 
   const renderRow = (entry: WorkingDirEntry) => {

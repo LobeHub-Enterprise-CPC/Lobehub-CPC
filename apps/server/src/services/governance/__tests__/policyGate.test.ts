@@ -1,16 +1,19 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  appEnv: { COMMAND_GOVERNANCE_ENABLED: false },
+  flags: { command_governance: false } as Record<string, boolean | string[]>,
+  getServerFeatureFlagsFromRuntimeConfig: vi.fn(),
   listEnabledRulesForTarget: vi.fn(),
 }));
 
-vi.mock('@/envs/app', () => ({ appEnv: mocks.appEnv }));
+vi.mock('@/server/featureFlags', () => ({
+  getServerFeatureFlagsFromRuntimeConfig: mocks.getServerFeatureFlagsFromRuntimeConfig,
+}));
 vi.mock('../rulesRepository', () => ({
   listEnabledRulesForTarget: mocks.listEnabledRulesForTarget,
 }));
 
-const { checkCommand, COMMAND_BLOCKED_MESSAGE, isGovernanceEnabled } =
+const { checkCommand, COMMAND_BLOCKED_MESSAGE, GovernanceUnavailableError, isGovernanceEnabled } =
   await import('../policyGate');
 
 const baseCtx = {
@@ -23,20 +26,63 @@ const baseCtx = {
 
 const db = {} as any;
 
+afterEach(() => vi.restoreAllMocks());
+
 describe('policyGate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.appEnv.COMMAND_GOVERNANCE_ENABLED = false;
+    mocks.flags = { command_governance: false };
+    mocks.getServerFeatureFlagsFromRuntimeConfig.mockImplementation(async () => mocks.flags);
   });
 
   describe('isGovernanceEnabled', () => {
-    it('is false by default', () => {
-      expect(isGovernanceEnabled()).toBe(false);
+    it.each([{}, { command_governance: null }, { command_governance: 'false' }])(
+      'rejects missing or invalid switch configuration %j',
+      async (flags) => {
+        mocks.getServerFeatureFlagsFromRuntimeConfig.mockResolvedValueOnce(flags);
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        await expect(isGovernanceEnabled('user-1')).rejects.toBeInstanceOf(
+          GovernanceUnavailableError,
+        );
+      },
+    );
+    it('is false when the command_governance flag is off', async () => {
+      expect(await isGovernanceEnabled('user-1')).toBe(false);
     });
 
-    it('is true when the flag is set', () => {
-      mocks.appEnv.COMMAND_GOVERNANCE_ENABLED = true;
-      expect(isGovernanceEnabled()).toBe(true);
+    it('is true when the flag is on', async () => {
+      mocks.flags = { command_governance: true };
+      expect(await isGovernanceEnabled('user-1')).toBe(true);
+    });
+
+    it("follows the flag's user allowlist", async () => {
+      mocks.flags = { command_governance: ['user-1'] };
+      expect(await isGovernanceEnabled('user-1')).toBe(true);
+      expect(await isGovernanceEnabled('user-2')).toBe(false);
+    });
+
+    it('fails closed when the flags cannot be read: the state is unknown, not off', async () => {
+      mocks.getServerFeatureFlagsFromRuntimeConfig.mockRejectedValueOnce(new Error('Redis down'));
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(isGovernanceEnabled('user-1')).rejects.toBeInstanceOf(
+        GovernanceUnavailableError,
+      );
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('does not leak the underlying error message into the thrown error', async () => {
+      mocks.getServerFeatureFlagsFromRuntimeConfig.mockRejectedValueOnce(
+        new Error('connect ECONNREFUSED postgres://user:secret@db/runtime'),
+      );
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const error = await isGovernanceEnabled('user-1').catch((e) => e);
+
+      expect(error.code).toBe('GOVERNANCE_UNAVAILABLE');
+      expect(error.message).not.toContain('secret');
+      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -49,9 +95,21 @@ describe('policyGate', () => {
     });
   });
 
+  describe('checkCommand — flag unreadable', () => {
+    it('rejects instead of allowing, and never queries the rules', async () => {
+      mocks.getServerFeatureFlagsFromRuntimeConfig.mockRejectedValueOnce(new Error('Redis down'));
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(checkCommand(baseCtx, db)).rejects.toBeInstanceOf(GovernanceUnavailableError);
+      expect(mocks.listEnabledRulesForTarget).not.toHaveBeenCalled();
+
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
   describe('checkCommand — flag on, pattern matching', () => {
     beforeEach(() => {
-      mocks.appEnv.COMMAND_GOVERNANCE_ENABLED = true;
+      mocks.flags = { command_governance: true };
     });
 
     it('denies on an exact match', async () => {
@@ -104,14 +162,12 @@ describe('policyGate', () => {
       expect(decision).toEqual({ allowed: false, ruleId: 'rule-3' });
     });
 
-    it('treats an invalid regex as a non-match instead of throwing', async () => {
+    it('rejects when a configured regex cannot be evaluated', async () => {
       mocks.listEnabledRulesForTarget.mockResolvedValueOnce([
         { id: 'rule-bad', pattern: '(unterminated', patternType: 'regex' },
       ]);
 
-      const decision = await checkCommand(baseCtx, db);
-
-      expect(decision).toEqual({ allowed: true });
+      await expect(checkCommand(baseCtx, db)).rejects.toBeInstanceOf(GovernanceUnavailableError);
     });
 
     it('evaluates rules in order and denies on the first match', async () => {
@@ -126,18 +182,16 @@ describe('policyGate', () => {
     });
   });
 
-  describe('checkCommand — fail open', () => {
+  describe('checkCommand — fail closed', () => {
     beforeEach(() => {
-      mocks.appEnv.COMMAND_GOVERNANCE_ENABLED = true;
+      mocks.flags = { command_governance: true };
     });
 
-    it('returns allowed=true when the rules lookup throws', async () => {
+    it('rejects when the rules lookup throws', async () => {
       mocks.listEnabledRulesForTarget.mockRejectedValueOnce(new Error('DB is down'));
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const decision = await checkCommand(baseCtx, db);
-
-      expect(decision).toEqual({ allowed: true });
+      await expect(checkCommand(baseCtx, db)).rejects.toBeInstanceOf(GovernanceUnavailableError);
       expect(consoleErrorSpy).toHaveBeenCalled();
 
       consoleErrorSpy.mockRestore();

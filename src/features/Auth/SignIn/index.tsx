@@ -1,6 +1,5 @@
 'use client';
 
-import DevSeedSignIn from './DevSeedSignIn';
 import { SignInEmailSentStep } from './SignInEmailSentStep';
 import { SignInEmailStep } from './SignInEmailStep';
 import { SignInPasswordStep } from './SignInPasswordStep';
@@ -9,9 +8,12 @@ import { useSignIn } from './useSignIn';
 const SignIn = () => {
   const {
     agreementChecked,
+    continueButtonRef,
     continueWithAgreement,
+    desktopAuth,
     disableEmailPassword,
     email,
+    enableMagicLink,
     form,
     handleBackFromSent,
     handleBackToEmail,
@@ -33,6 +35,7 @@ const SignIn = () => {
     socialLoading,
     ssoError,
     step,
+    tenantUnavailable,
   } = useSignIn();
 
   if (step === 'emailSent' && sentInfo)
@@ -46,7 +49,7 @@ const SignIn = () => {
       />
     );
 
-  if (step === 'password')
+  if (step === 'password' && !disableEmailPassword)
     return (
       <SignInPasswordStep
         email={email}
@@ -59,30 +62,31 @@ const SignIn = () => {
     );
 
   return (
-    <>
-      <SignInEmailStep
-        agreementChecked={agreementChecked}
-        continueWithAgreement={continueWithAgreement}
-        disableEmailPassword={disableEmailPassword}
-        form={form as any}
-        isSocialOnly={isSocialOnly}
-        lastAuthProvider={lastAuthProvider}
-        loading={loading}
-        oAuthSSOProviders={oAuthSSOProviders}
-        providerDetails={providerDetails}
-        reloadSSO={reloadSSO}
-        serverConfigInit={serverConfigInit}
-        sessionExpired={sessionExpired}
-        setAgreementChecked={setAgreementChecked}
-        socialLoading={socialLoading}
-        ssoError={ssoError}
-        onGoToSignup={handleGoToSignup}
-        onResetEmail={handleBackToEmail}
-        onSetPassword={handleForgotPassword}
-        onSocialSignIn={handleSocialSignIn}
-      />
-      <DevSeedSignIn />
-    </>
+    <SignInEmailStep
+      agreementChecked={agreementChecked}
+      continueButtonRef={continueButtonRef}
+      continueWithAgreement={continueWithAgreement}
+      desktopAuth={desktopAuth}
+      disableEmailPassword={disableEmailPassword}
+      enableMagicLink={enableMagicLink}
+      form={form as any}
+      isSocialOnly={isSocialOnly}
+      lastAuthProvider={lastAuthProvider}
+      loading={loading}
+      oAuthSSOProviders={oAuthSSOProviders}
+      providerDetails={providerDetails}
+      reloadSSO={reloadSSO}
+      serverConfigInit={serverConfigInit}
+      sessionExpired={sessionExpired}
+      setAgreementChecked={setAgreementChecked}
+      socialLoading={socialLoading}
+      ssoError={ssoError}
+      tenantUnavailable={tenantUnavailable}
+      onGoToSignup={handleGoToSignup}
+      onResetEmail={handleBackToEmail}
+      onSetPassword={handleForgotPassword}
+      onSocialSignIn={handleSocialSignIn}
+    />
   );
 };
 

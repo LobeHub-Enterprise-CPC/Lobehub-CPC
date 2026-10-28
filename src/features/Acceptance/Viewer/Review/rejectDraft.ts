@@ -1,3 +1,4 @@
+import { tenantStorageKey } from '@lobechat/business-tenant/client';
 import type { AcceptanceReviewAnnotation, VerifyEvidenceChapter } from '@lobechat/types';
 
 import type { PendingAttachment } from '../Evidence/attachments';
@@ -67,7 +68,7 @@ export const restoreDraftAnnotations = (
       time: entry.time,
     }));
 
-const draftStorageKey = (key: string) => `acceptance-reject-draft:${key}`;
+const draftStorageKey = (key: string) => tenantStorageKey(`acceptance-reject-draft:${key}`);
 
 export const readDraft = (key: string | undefined): RejectDraft | null => {
   if (!key) return null;

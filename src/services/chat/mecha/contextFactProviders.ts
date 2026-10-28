@@ -1,10 +1,10 @@
-import { AGENT_PLAN_FILE_TYPE, isDesktop } from '@lobechat/const';
+import { getAppBaseUrl } from '@lobechat/business-tenant/client';
+import { AGENT_PLAN_FILE_TYPE } from '@lobechat/const';
 import type { ContextFactProviders, ContextFactRequest, CredentialSummary } from '@lobechat/mecha';
 import { type AgentShareVisitorContext, getActivePluginIds } from '@lobechat/types';
 
 import { getActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import { lambdaClient } from '@/libs/trpc/client';
-import { agentService } from '@/services/agent';
 import { messageService } from '@/services/message';
 import { notebookService } from '@/services/notebook';
 import { sandboxStorageService } from '@/services/sandboxStorage';
@@ -16,8 +16,6 @@ import { agentGroupSelectors } from '@/store/agentGroup/selectors';
 import { getAiInfraStoreState } from '@/store/aiInfra';
 import { getChatStoreState } from '@/store/chat';
 import { chatSelectors, topicSelectors } from '@/store/chat/selectors';
-import { getElectronStoreState } from '@/store/electron';
-import { electronSyncSelectors } from '@/store/electron/selectors';
 import { getServerConfigStoreState } from '@/store/serverConfig';
 import { serverConfigSelectors } from '@/store/serverConfig/selectors';
 import { getToolStoreState } from '@/store/tool';
@@ -61,12 +59,6 @@ export const resolveBrowserConnectorFeatures = (): ContextFactRequest['features'
     composio: serverConfigSelectors.enableComposio(serverConfig),
     lobehubSkill: serverConfigSelectors.enableLobehubSkill(serverConfig),
   };
-};
-
-const resolveClientAppOrigin = (): string | undefined => {
-  if (isDesktop) return electronSyncSelectors.remoteServerUrl(getElectronStoreState()) || undefined;
-  if (typeof window === 'undefined') return undefined;
-  return window.location.origin || undefined;
 };
 
 const toIsoString = (value: Date | string | null | undefined): string =>
@@ -167,7 +159,8 @@ export const createBrowserContextFactProviders = ({
   },
 
   getWorkspaceContext: async () => ({
-    appUrl: resolveClientAppOrigin(),
+    // The tenant's app address: links the model composes must open the same organization.
+    appUrl: getAppBaseUrl() || undefined,
     slug: getActiveWorkspaceSlug() ?? undefined,
   }),
 
@@ -214,9 +207,9 @@ export const createBrowserContextFactProviders = ({
       name: provider.name,
     })),
 
-  // The prefetched list is reused when present so sending never waits on it.
-  listRecentAgents: async (limit) =>
-    getAgentStoreState().availableAgents ?? (await agentService.queryAgents({ limit })),
+  // The local copy is reused when present so sending never waits on it; after
+  // the agents change it is fetched fresh.
+  listRecentAgents: () => getAgentStoreState().getAvailableAgents(),
 
   // Non-recommended builtins are uninstalled by default; the builder must
   // not present them as installed and pin unusable identifiers.

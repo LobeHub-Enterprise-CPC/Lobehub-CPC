@@ -34,7 +34,6 @@ describe('discoverTools serverToolManifests', () => {
         prompt: 'review',
         provider: 'test-provider',
         resolvedAgentId: 'agent',
-        shareGate: undefined,
       } as never,
       {
         disableTools: true,

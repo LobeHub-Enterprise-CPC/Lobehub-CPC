@@ -78,12 +78,6 @@ export interface UploadFileItem {
    */
   previewUrl?: string;
   /**
-   * Set when the draft was uploaded as an agent-share VISITOR: the file lives
-   * under the creator's account, so remove/retry must go through the
-   * share-scoped endpoints instead of the visitor's own file API.
-   */
-  shareId?: string;
-  /**
    * marks a draft entry that references an already-persisted file still backing
    * an existing message (e.g. restored via "restore to input"). Removing such
    * an entry from the draft must only drop the draft item — it must NOT delete

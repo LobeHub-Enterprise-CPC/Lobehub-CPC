@@ -14,6 +14,7 @@ interface MockGlobalState {
 
 const mocks = vi.hoisted(() => ({
   globalState: undefined as unknown as MockGlobalState,
+  navRailEnabled: false,
   navLayout: {
     bottomMenuItems: [] as { key: string; title: string; url: string }[],
     topNavItems: [] as { key: string; title: string; url: string }[],
@@ -21,30 +22,51 @@ const mocks = vi.hoisted(() => ({
   updateSystemStatus: vi.fn(),
 }));
 
-vi.mock('@lobehub/ui', async (importOriginal) => ({
+// Distributions flip this slot constant; pin it so both layouts are covered
+// whichever business-const package the workspace resolves.
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  Flexbox: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="sidebar-body">{children}</div>
-  ),
+  get NAV_RAIL_ENABLED() {
+    return mocks.navRailEnabled;
+  },
+  // Stock section layout; the project-first layout is covered by the store defaults.
+  PROJECT_FIRST_NAVIGATION: false,
 }));
 
-vi.mock('@lobehub/ui/base-ui', async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  AccordionRoot: ({
-    children,
-    value,
-    onValueChange,
-  }: {
-    children: React.ReactNode;
-    onValueChange?: (keys: string[]) => void;
-    value?: string[];
-  }) => (
-    <div data-expanded-keys={JSON.stringify(value)} data-testid="sidebar-accordion">
-      <button aria-label="collapse recents" onClick={() => onValueChange?.(['agent'])} />
-      {children}
-    </div>
-  ),
-}));
+vi.mock('@lobehub/ui', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  const factories: ((original: typeof importOriginal) => unknown)[] = [
+    async (importOriginal) => ({
+      ...(await importOriginal<object>()),
+      Flexbox: ({ children }: { children: React.ReactNode }) => (
+        <div data-testid="sidebar-body">{children}</div>
+      ),
+    }),
+    async (importOriginal) => ({
+      ...(await importOriginal<object>()),
+      AccordionRoot: ({
+        children,
+        value,
+        onValueChange,
+      }: {
+        children: React.ReactNode;
+        onValueChange?: (keys: string[]) => void;
+        value?: string[];
+      }) => (
+        <div data-expanded-keys={JSON.stringify(value)} data-testid="sidebar-accordion">
+          <button aria-label="collapse recents" onClick={() => onValueChange?.(['agent'])} />
+          {children}
+        </div>
+      ),
+    }),
+  ];
+  const merged: Record<string, unknown> = { ...actual };
+  for (const factory of factories) {
+    const part = (await factory(importOriginal)) as Record<string, unknown>;
+    for (const [key, value] of Object.entries(part)) if (value !== actual[key]) merged[key] = value;
+  }
+  return merged;
+});
 
 vi.mock('react-router', () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
@@ -95,6 +117,7 @@ vi.mock('@/store/global', () => ({
 
 beforeEach(() => {
   mocks.updateSystemStatus.mockReset();
+  mocks.navRailEnabled = false;
   mocks.navLayout = {
     bottomMenuItems: [],
     topNavItems: [],
@@ -168,6 +191,24 @@ describe('Home sidebar body', () => {
     expect(children[4]).toHaveTextContent('Image');
     expect(children[5]).toHaveTextContent('Tasks');
     expect(children[6]).toHaveTextContent('Resource');
+  });
+
+  it('leaves page links and the spacer to the rail when the nav rail is on', () => {
+    mocks.navRailEnabled = true;
+    mocks.navLayout = {
+      bottomMenuItems: [{ key: 'image', title: 'Image', url: '/image' }],
+      topNavItems: [{ key: 'tasks', title: 'Tasks', url: '/tasks' }],
+    };
+    mocks.globalState.status.sidebarItems = ['tasks', 'recents', 'agent', '__spacer__', 'image'];
+
+    render(<Body />);
+
+    const children = Array.from(screen.getByTestId('sidebar-body').children);
+
+    expect(children.some((child) => child.hasAttribute('data-sidebar-bottom-spacer'))).toBe(false);
+    expect(screen.queryByText('Tasks')).toBeNull();
+    expect(screen.queryByText('Image')).toBeNull();
+    expect(children[0]).toHaveAttribute('data-testid', 'sidebar-accordion');
   });
 
   it('keeps a top item that was dragged past the spacer in its new position', () => {

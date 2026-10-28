@@ -58,6 +58,17 @@ export class StoreManager {
   }
 
   /**
+   * Set several configuration items in one write. electron-store persists the whole
+   * object in a single atomic file replacement, so either every key lands or none does.
+   */
+  setMany(entries: Partial<ElectronMainStore>): void {
+    logger.debug('Setting configuration values for keys:', Object.keys(entries).join(','));
+    // conf types the object overload as PartialObjectDeep<T>, which collapses to T for
+    // interfaces without an index signature; at runtime only the given keys are written.
+    this.store.set(entries as ElectronMainStore);
+  }
+
+  /**
    * Delete configuration item
    * @param key Configuration key
    */

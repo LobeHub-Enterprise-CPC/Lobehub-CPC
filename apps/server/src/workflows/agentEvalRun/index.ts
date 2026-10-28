@@ -3,7 +3,9 @@ import debug from 'debug';
 
 import { AgentEvalRunTopicModel } from '@/database/models/agentEval';
 import type { LobeChatDatabase } from '@/database/type';
+import { getInternalApiUrl } from '@/envs/app';
 import { workflowClient } from '@/libs/qstash';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 
 const log = debug('lobe-server:workflows:agent-eval-run');
 
@@ -129,9 +131,9 @@ export interface OnThreadCompletePayload {
  * Get workflow URL using APP_URL
  */
 const getWorkflowUrl = (path: string): string => {
-  const baseUrl = process.env.APP_URL;
+  const baseUrl = getInternalApiUrl();
   if (!baseUrl) throw new Error('APP_URL is required to trigger workflows');
-  return new URL(path, baseUrl).toString();
+  return buildTenantCallbackUrl(path, baseUrl);
 };
 
 /**

@@ -85,6 +85,41 @@ export const applyBrandStrings = (value: string): string => {
   return value.replaceAll(pattern, (match) => lookup.get(match) ?? match);
 };
 
+const isRebranded = (BRANDING_NAME as string) !== 'LobeHub';
+
+/** `Acme Work` → `ACME_WORK`: the brand spelled as an environment-variable prefix. */
+const BRAND_ENV_PREFIX = BRANDING_NAME.toUpperCase()
+  .replaceAll(/[^\dA-Z]+/g, '_')
+  .replaceAll(/^_+|_+$/g, '');
+
+/**
+ * `Acme Work` → `ACME`: an example task prefix in the brand's name. Must pass
+ * PROJECT_IDENTIFIER_REGEX (a letter, then 2–5 letters or digits); a brand too
+ * short to yield one falls back to a neutral example.
+ */
+const BRAND_TASK_PREFIX = (() => {
+  const letters = BRANDING_NAME.toUpperCase().replaceAll(/[^\dA-Z]/g, '');
+  return /^[A-Z][\dA-Z]{2}/.test(letters) ? letters.slice(0, 4) : 'PROJ';
+})();
+
+/**
+ * Upper-case upstream tokens that the name rewrite cannot see, scoped to the
+ * copy that carries them so an identically spelled real identifier elsewhere
+ * is never touched:
+ *
+ * - The OAuth app "integration prompt" tells a coding agent to read the client
+ *   secret from `LOBEHUB_CLIENT_SECRET`. Nothing reads that variable — it is a
+ *   name the user's own project adopts — so it follows the brand.
+ * - The project form gives `LOBE` / `LOBE-123` as the example task prefix.
+ */
+const rewriteKeyedTokens = (value: string, keys: string[]): string => {
+  if (keys.some((key) => key.startsWith('oauthApp.integration.prompt')))
+    return value.replaceAll('LOBEHUB_CLIENT_SECRET', `${BRAND_ENV_PREFIX}_CLIENT_SECRET`);
+  if (keys.some((key) => /(?:^|\.)create\.identifier(?:Placeholder|Description)$/.test(key)))
+    return value.replaceAll(/\bLOBE\b/g, BRAND_TASK_PREFIX);
+  return value;
+};
+
 /**
  * Rewrite hardcoded brand strings in translated copy so white-label
  * deployments never surface the upstream product's names. A no-op (and never
@@ -94,14 +129,15 @@ export const brandPostProcessor: PostProcessorModule = {
   name: BRAND_POST_PROCESSOR,
   process: (value, keys) => {
     if (typeof value !== 'string') return value;
+    const keyList = Array.isArray(keys) ? keys : [keys];
     // Keep the capability bundle's proper name identical across locales, even
     // where older translations localized or reordered the words in its title.
     if (
       (BRANDING_AGENT_TITLE as string) !== 'Lobe Agent' &&
-      (Array.isArray(keys) ? keys : [keys]).some((key) => key.endsWith('builtins.lobe-agent.title'))
+      keyList.some((key) => key.endsWith('builtins.lobe-agent.title'))
     )
       return BRANDING_AGENT_TITLE;
-    return applyBrandStrings(value);
+    return applyBrandStrings(isRebranded ? rewriteKeyedTokens(value, keyList) : value);
   },
   type: 'postProcessor',
 };

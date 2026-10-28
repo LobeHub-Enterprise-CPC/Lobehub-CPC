@@ -1,3 +1,4 @@
+import { requireTenantScope } from '@lobechat/database/tenant';
 import type {
   OnboardingGenerationProgressEvent,
   OnboardingTaskRecommendationPollingResult,
@@ -6,7 +7,7 @@ import type {
 
 import { getServerDB } from '@/database/server';
 import { getRedisConfig } from '@/envs/redis';
-import { isRedisEnabled } from '@/libs/redis';
+import { isRedisEnabled } from '@/server/modules/Redis';
 import {
   createTaskRecommendationService,
   TaskRecommendationNotFoundError,
@@ -110,8 +111,12 @@ export const onboardingProgressEventId = (
     taskRecommendations?.updatedAt ?? '',
   ].join('|');
 
+/**
+ * Redis is shared by every tenant, so the channel carries the tenant of the current scope:
+ * publisher (workflow) and subscriber (SSE request) must run in the same tenant to meet.
+ */
 const progressChannel = (prefix: string, topicId: string) =>
-  `${prefix}:${PROGRESS_CHANNEL_PREFIX}:${topicId}`;
+  `${prefix}:${PROGRESS_CHANNEL_PREFIX}:${requireTenantScope().tenantId}:${topicId}`;
 
 const isProgressEnvelope = (value: unknown): value is ProgressEnvelope => {
   if (!value || typeof value !== 'object') return false;

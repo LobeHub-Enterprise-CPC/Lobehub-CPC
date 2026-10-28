@@ -9,9 +9,12 @@ import { AgentSkillModel } from '@/database/models/agentSkill';
 import { FileModel } from '@/database/models/file';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { FileService } from '@/server/services/file';
 import { MarketService } from '@/server/services/market';
 import {
+  ensureMarketSkills,
+  ensureMarketSkillsInputSchema,
   SkillImporter,
   SkillImportError,
   SkillResourceError,
@@ -72,7 +75,12 @@ const skillProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) =>
     ctx: {
       fileModel: new FileModel(ctx.serverDB, ctx.userId, workspaceId),
       fileService: new FileService(ctx.serverDB, ctx.userId, workspaceId),
-      marketService: new MarketService({ userInfo: { userId: ctx.userId } }),
+      marketService: new MarketService({
+        userInfo: await resolveMarketServiceIdentity({
+          serverDB: ctx.serverDB,
+          userId: ctx.userId,
+        }),
+      }),
       skillImporter: new SkillImporter(ctx.serverDB, ctx.userId, workspaceId),
       skillModel,
     },
@@ -155,6 +163,10 @@ export const agentSkillsRouter = router({
       return ctx.skillModel.delete(input.id);
     }),
 
+  ensureFromMarket: skillWriteProcedure
+    .input(ensureMarketSkillsInputSchema)
+    .mutation(async ({ ctx, input }) => ensureMarketSkills(input.identifiers, ctx)),
+
   // ===== Query =====
 
   getById: skillProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
@@ -231,13 +243,11 @@ export const agentSkillsRouter = router({
     .input(z.object({ identifier: z.string() }))
     .mutation(async ({ ctx, input }) => {
       try {
-        // Get download URL from market service
-        const downloadUrl = ctx.marketService.getSkillDownloadUrl(input.identifier);
-        // Import using the download URL
-        return await ctx.skillImporter.importFromUrl(
-          { url: downloadUrl },
-          { identifier: input.identifier, source: 'market' },
-        );
+        const { buffer } = await ctx.marketService.downloadSkill(input.identifier);
+        return await ctx.skillImporter.importFromMarketZip(Buffer.from(buffer), {
+          identifier: input.identifier,
+          sourceUrl: ctx.marketService.getSkillDownloadUrl(input.identifier),
+        });
       } catch (error) {
         handleSkillImportError(error);
       }

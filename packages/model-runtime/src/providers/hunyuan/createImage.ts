@@ -73,7 +73,7 @@ export async function createHunyuanImage(
       log('Submitting lite image task to: %s', submitUrl);
       log('Submit body: %O', requestBody);
 
-      const submitResponse = await fetch(submitUrl, {
+      const submitResponse = await (options.fetch ?? fetch)(submitUrl, {
         body: JSON.stringify(requestBody),
         headers: {
           'Authorization': `Bearer ${apiKey}`,
@@ -126,7 +126,7 @@ export async function createHunyuanImage(
     log('Submitting task to: %s', submitUrl);
     log('Submit body: %O', requestBody);
 
-    const submitResponse = await fetch(submitUrl, {
+    const submitResponse = await (options.fetch ?? fetch)(submitUrl, {
       body: JSON.stringify(requestBody),
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -235,7 +235,7 @@ export async function createHunyuanImage(
       pollingQuery: async () => {
         log('Polling task status for job id: %s', jobId);
 
-        const queryResponse = await fetch(queryUrl, {
+        const queryResponse = await (options.fetch ?? fetch)(queryUrl, {
           body: JSON.stringify({ model, id: jobId }),
           headers: {
             'Authorization': `Bearer ${apiKey}`,

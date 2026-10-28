@@ -1,18 +1,30 @@
+import '@/server/test-utils/serverTestConfig';
+
 import type { ChatToolPayload } from '@lobechat/types';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { createGatewayAttempt } from '@/server/services/gatewayAuthorization/attempts';
+import { waitForGatewayResult } from '@/server/services/gatewayAuthorization/waiter';
 
 import { dispatchClientTool } from '../dispatchClientTool';
+import { GLOBAL_DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS, MIN_TIMEOUT_MS } from '../resolveToolTimeout';
 import type { IStreamEventManager } from '../types';
 
-// Mock Redis before importing the SUT so the module-level getter sees it.
-const mockBlpop = vi.fn();
-const mockDisconnect = vi.fn();
-const mockDuplicate = vi.fn();
-let currentRedis: any;
-
-vi.mock('../redis', () => ({
-  getAgentRuntimeRedisClient: () => currentRedis,
+vi.mock('@/server/services/gatewayAuthorization/attempts', () => ({
+  createGatewayAttempt: vi.fn(),
 }));
+vi.mock('@/server/services/gatewayAuthorization/context', () => ({
+  operationGatewaySource: (subject: string, operationId: string) => ({
+    kind: 'operation',
+    subject,
+    operationId,
+  }),
+}));
+vi.mock('@/server/services/gatewayAuthorization/operationAuthority', () => ({
+  operationExecutionContext: async () => ({ tenantId: 'test-tenant', sourceAcceptedVersion: 1 }),
+  loadGatewayOperation: async () => ({ userId: 'test-user' }),
+}));
+vi.mock('@/server/services/gatewayAuthorization/waiter', () => ({ waitForGatewayResult: vi.fn() }));
 
 function makePayload(overrides: Partial<ChatToolPayload> = {}): ChatToolPayload {
   return {
@@ -45,316 +57,117 @@ function makeStreamManager(
 
 describe('dispatchClientTool', () => {
   beforeEach(() => {
-    mockBlpop.mockReset();
-    mockDisconnect.mockReset();
-    mockDuplicate.mockReset();
+    vi.resetAllMocks();
+    vi.mocked(createGatewayAttempt).mockImplementation(
+      async (input) =>
+        ({
+          attemptId: 'attempt-1',
+          attemptExpiresAt: input.attemptExpiresAt,
+        }) as Awaited<ReturnType<typeof createGatewayAttempt>>,
+    );
+    vi.mocked(waitForGatewayResult).mockResolvedValue({
+      outcome: 'completed',
+      result: { content: 'file contents', success: true },
+    } as Awaited<ReturnType<typeof waitForGatewayResult>>);
+  });
 
-    const blockingClient = {
-      blpop: mockBlpop,
-      disconnect: mockDisconnect,
+  const dispatch = (send = vi.fn(), options = {}) =>
+    dispatchClientTool(makePayload(), {
+      operationId: 'op-1',
+      streamManager: makeStreamManager(send),
+      ...options,
+    });
+
+  it('returns gateway_unsupported without a notifier', async () => {
+    const result = await dispatchClientTool(makePayload(), {
+      operationId: 'op-1',
+      streamManager: makeStreamManager(),
+    });
+    expect(result).toMatchObject({ success: false, error: { type: 'gateway_unsupported' } });
+    expect(createGatewayAttempt).not.toHaveBeenCalled();
+  });
+
+  it('dispatches an authorized attempt and returns the matching callback', async () => {
+    const send = vi.fn();
+    expect(await dispatch(send)).toMatchObject({ success: true, content: 'file contents' });
+    expect(send).toHaveBeenCalledWith(
+      'op-1',
+      expect.objectContaining({
+        intent: expect.objectContaining({ attemptId: 'attempt-1' }),
+        toolCallId: 'call-1',
+      }),
+    );
+    expect(waitForGatewayResult).toHaveBeenCalledWith(
+      { operationId: 'op-1', toolCallId: 'call-1', attemptId: 'attempt-1' },
+      expect.objectContaining({ execution: { tenantId: 'test-tenant', sourceAcceptedVersion: 1 } }),
+    );
+  });
+
+  it('preserves state, Work registration and device timing in a callback', async () => {
+    const result = {
+      success: true,
+      content: 'created',
+      state: { cursor: 7 },
+      workRegistration: { action: 'create', targets: [{ taskId: 'task-9' }], type: 'task' },
+      executionTimeMs: 5,
     };
-    mockDuplicate.mockReturnValue(blockingClient);
-
-    currentRedis = {
-      duplicate: mockDuplicate,
-      pipeline: vi.fn(() => ({
-        exec: vi.fn().mockResolvedValue([]),
-        expire: vi.fn().mockReturnThis(),
-        lpush: vi.fn().mockReturnThis(),
-      })),
-    };
+    vi.mocked(waitForGatewayResult).mockResolvedValue({ outcome: 'completed', result } as never);
+    expect(await dispatch()).toMatchObject({
+      content: result.content,
+      state: result.state,
+      workRegistration: result.workRegistration,
+      success: true,
+      deviceExecutionTime: 5,
+      executionTime: expect.any(Number),
+    });
   });
 
-  afterEach(() => {
-    vi.clearAllMocks();
+  it('reports timeout when a completed wait has no tool result', async () => {
+    vi.mocked(waitForGatewayResult).mockResolvedValue({
+      outcome: 'completed',
+      result: undefined,
+    } as never);
+    expect(await dispatch()).toMatchObject({ success: false, error: { type: 'timeout' } });
   });
 
-  it('returns gateway_unsupported when streamManager.sendToolExecute is missing', async () => {
-    const streamManager = makeStreamManager(undefined);
-
-    const result = await dispatchClientTool(makePayload(), {
-      assistantMessageId: 'msg-assistant',
-      operationId: 'op-1',
-      streamManager,
-    });
-
-    expect(result.success).toBe(false);
-    expect(result.error?.type).toBe('gateway_unsupported');
-    expect(mockDuplicate).not.toHaveBeenCalled();
+  it('keeps an unconfirmed execution distinct from a completed tool failure', async () => {
+    vi.mocked(waitForGatewayResult).mockResolvedValue({ outcome: 'executionUnknown' } as never);
+    expect(await dispatch()).toMatchObject({ success: false, error: { type: 'executionUnknown' } });
   });
 
-  it('returns redis_unavailable when Redis is not configured', async () => {
-    currentRedis = null;
-    const streamManager = makeStreamManager(vi.fn());
-
-    const result = await dispatchClientTool(makePayload(), {
-      agentId: 'agent-1',
-      assistantMessageId: 'msg-assistant',
-      documentId: 'doc-1',
-      groupId: 'group-1',
-      operationId: 'op-1',
-      rootOperationId: 'op-root',
-      scope: 'thread',
-      sourceMessageId: 'msg-user',
-      streamManager,
-      taskId: 'task-1',
-      threadId: 'thread-1',
-      topicId: 'topic-1',
+  it('preserves a device-reported failure', async () => {
+    vi.mocked(waitForGatewayResult).mockResolvedValue({
+      outcome: 'completed',
+      result: {
+        success: false,
+        content: '',
+        error: { type: 'permission_denied', message: 'denied' },
+      },
+    } as never);
+    expect(await dispatch()).toMatchObject({
+      success: false,
+      error: { type: 'permission_denied' },
     });
-
-    expect(result.success).toBe(false);
-    expect(result.error?.type).toBe('redis_unavailable');
   });
 
-  it('sends tool_execute, BLPOPs, and returns the parsed result on success', async () => {
-    const sendToolExecute = vi.fn().mockResolvedValue(undefined);
-    const streamManager = makeStreamManager(sendToolExecute);
-
-    mockBlpop.mockResolvedValue([
-      'tool_result:call-1',
-      JSON.stringify({
-        content: 'file contents',
-        success: true,
-        toolCallId: 'call-1',
-      }),
-    ]);
-
-    const result = await dispatchClientTool(makePayload(), {
-      agentId: 'agent-1',
-      assistantMessageId: 'msg-assistant',
-      documentId: 'doc-1',
-      groupId: 'group-1',
-      operationId: 'op-1',
-      rootOperationId: 'op-root',
-      scope: 'thread',
-      sourceMessageId: 'msg-user',
-      streamManager,
-      taskId: 'task-1',
-      threadId: 'thread-1',
-      topicId: 'topic-1',
+  it('returns dispatch_failed and does not wait after a send failure', async () => {
+    expect(await dispatch(vi.fn().mockRejectedValue(new Error('send failed')))).toMatchObject({
+      success: false,
+      error: { type: 'dispatch_failed', message: 'send failed' },
     });
-
-    expect(sendToolExecute).toHaveBeenCalledTimes(1);
-    const sendCall = sendToolExecute.mock.calls[0];
-    expect(sendCall[0]).toBe('op-1');
-    expect(sendCall[1]).toMatchObject({
-      apiName: 'readFile',
-      agentId: 'agent-1',
-      assistantMessageId: 'msg-assistant',
-      documentId: 'doc-1',
-      groupId: 'group-1',
-      identifier: 'local-system',
-      rootOperationId: 'op-root',
-      scope: 'thread',
-      sourceMessageId: 'msg-user',
-      taskId: 'task-1',
-      threadId: 'thread-1',
-      toolCallId: 'call-1',
-      topicId: 'topic-1',
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.content).toBe('file contents');
-    expect(result.error).toBeUndefined();
-    expect(mockDisconnect).toHaveBeenCalled();
+    expect(waitForGatewayResult).not.toHaveBeenCalled();
   });
 
-  it('forwards pluginState (state field) from the BLPOP payload to the execution result', async () => {
-    const sendToolExecute = vi.fn().mockResolvedValue(undefined);
-    const streamManager = makeStreamManager(sendToolExecute);
-
-    const state = { cursor: 7, mode: 'preview' };
-    mockBlpop.mockResolvedValue([
-      'tool_result:call-1',
-      JSON.stringify({
-        content: 'file contents',
-        state,
-        success: true,
-        toolCallId: 'call-1',
-      }),
-    ]);
-
-    const result = await dispatchClientTool(makePayload(), {
-      operationId: 'op-1',
-      streamManager,
-    });
-
-    expect(result.state).toEqual(state);
-  });
-
-  it('forwards workRegistration from the BLPOP payload onto the execution result', async () => {
-    const sendToolExecute = vi.fn().mockResolvedValue(undefined);
-    const streamManager = makeStreamManager(sendToolExecute);
-
-    const workRegistration = {
-      action: 'create',
-      targets: [{ taskId: 'task-9' }],
-      type: 'task',
-    };
-    mockBlpop.mockResolvedValue([
-      'tool_result:call-1',
-      JSON.stringify({
-        content: 'created',
-        success: true,
-        toolCallId: 'call-1',
-        workRegistration,
-      }),
-    ]);
-
-    const result = await dispatchClientTool(makePayload(), {
-      operationId: 'op-1',
-      streamManager,
-    });
-
-    expect(result.workRegistration).toEqual(workRegistration);
-  });
-
-  it('reports the device clock alongside the server-observed span', async () => {
-    const sendToolExecute = vi.fn().mockResolvedValue(undefined);
-    const streamManager = makeStreamManager(sendToolExecute);
-
-    mockBlpop.mockResolvedValue([
-      'tool_result:call-1',
-      JSON.stringify({
-        content: 'done',
-        executionTimeMs: 42,
-        success: true,
-        toolCallId: 'call-1',
-      }),
-    ]);
-
-    const result = await dispatchClientTool(makePayload(), {
-      operationId: 'op-1',
-      streamManager,
-    });
-
-    // `executionTime` is the round trip this process measured; the device's own
-    // number rides beside it. Without both, a slow tool and slow transport are
-    // indistinguishable — which is the whole reason the device reports one.
-    expect(result.deviceExecutionTime).toBe(42);
-    expect(result.executionTime).toBeGreaterThanOrEqual(0);
-  });
-
-  it('leaves the device clock undefined when the payload omits it', async () => {
-    const sendToolExecute = vi.fn().mockResolvedValue(undefined);
-    const streamManager = makeStreamManager(sendToolExecute);
-
-    // An older device, or a gateway that drops the field.
-    mockBlpop.mockResolvedValue([
-      'tool_result:call-1',
-      JSON.stringify({ content: 'done', success: true, toolCallId: 'call-1' }),
-    ]);
-
-    const result = await dispatchClientTool(makePayload(), {
-      operationId: 'op-1',
-      streamManager,
-    });
-
-    expect(result.deviceExecutionTime).toBeUndefined();
-    expect(result.executionTime).toBeGreaterThanOrEqual(0);
-  });
-
-  it('leaves workRegistration undefined when the BLPOP payload omits it', async () => {
-    const sendToolExecute = vi.fn().mockResolvedValue(undefined);
-    const streamManager = makeStreamManager(sendToolExecute);
-
-    mockBlpop.mockResolvedValue([
-      'tool_result:call-1',
-      JSON.stringify({ content: 'ok', success: true, toolCallId: 'call-1' }),
-    ]);
-
-    const result = await dispatchClientTool(makePayload(), {
-      operationId: 'op-1',
-      streamManager,
-    });
-
-    expect(result.workRegistration).toBeUndefined();
-  });
-
-  it('returns a timeout result and still disconnects when BLPOP times out', async () => {
-    const sendToolExecute = vi.fn().mockResolvedValue(undefined);
-    const streamManager = makeStreamManager(sendToolExecute);
-
-    mockBlpop.mockResolvedValue(null);
-
-    const result = await dispatchClientTool(makePayload(), {
-      operationId: 'op-1',
-      streamManager,
-    });
-
-    expect(result.success).toBe(false);
-    expect(result.error?.type).toBe('timeout');
-    expect(mockDisconnect).toHaveBeenCalled();
-  });
-
-  it('returns a dispatch_failed result when sendToolExecute rejects', async () => {
-    const sendToolExecute = vi.fn().mockRejectedValue(new Error('gateway down'));
-    const streamManager = makeStreamManager(sendToolExecute);
-
-    const result = await dispatchClientTool(makePayload(), {
-      operationId: 'op-1',
-      streamManager,
-    });
-
-    expect(result.success).toBe(false);
-    expect(result.error?.type).toBe('dispatch_failed');
-    expect(result.error?.message).toBe('gateway down');
-    expect(mockDisconnect).toHaveBeenCalled();
-  });
-
-  it('forwards the caller-provided timeoutMs to both sendToolExecute and waitForResult', async () => {
-    const sendToolExecute = vi.fn().mockResolvedValue(undefined);
-    const streamManager = makeStreamManager(sendToolExecute);
-
-    mockBlpop.mockResolvedValue([
-      'tool_result:call-1',
-      JSON.stringify({ content: 'ok', success: true, toolCallId: 'call-1' }),
-    ]);
-
-    await dispatchClientTool(makePayload(), {
-      operationId: 'op-1',
-      streamManager,
-      timeoutMs: 240_000,
-    });
-
-    expect(sendToolExecute.mock.calls[0][1]).toMatchObject({ executionTimeoutMs: 240_000 });
-    // BLPOP signature: (key1, ..., timeoutSeconds). 240_000ms → 240s.
-    const blpopArgs = mockBlpop.mock.calls[0];
-    expect(blpopArgs.at(-1)).toBe(240);
-  });
-
-  it('clamps caller-supplied timeoutMs above the MAX_TIMEOUT_MS ceiling', async () => {
-    const sendToolExecute = vi.fn().mockResolvedValue(undefined);
-    const streamManager = makeStreamManager(sendToolExecute);
-
-    mockBlpop.mockResolvedValue([
-      'tool_result:call-1',
-      JSON.stringify({ content: 'ok', success: true, toolCallId: 'call-1' }),
-    ]);
-
-    await dispatchClientTool(makePayload(), {
-      operationId: 'op-1',
-      streamManager,
-      timeoutMs: 10_000_000,
-    });
-
-    expect(sendToolExecute.mock.calls[0][1]).toMatchObject({ executionTimeoutMs: 800_000 });
-  });
-
-  it('falls back to the 120s global default when ctx.timeoutMs is omitted', async () => {
-    const sendToolExecute = vi.fn().mockResolvedValue(undefined);
-    const streamManager = makeStreamManager(sendToolExecute);
-
-    mockBlpop.mockResolvedValue([
-      'tool_result:call-1',
-      JSON.stringify({ content: 'ok', success: true, toolCallId: 'call-1' }),
-    ]);
-
-    await dispatchClientTool(makePayload(), {
-      operationId: 'op-1',
-      streamManager,
-    });
-
-    expect(sendToolExecute.mock.calls[0][1]).toMatchObject({ executionTimeoutMs: 120_000 });
+  it.each([
+    [undefined, GLOBAL_DEFAULT_TIMEOUT_MS],
+    [0, MIN_TIMEOUT_MS],
+    [MAX_TIMEOUT_MS + 1, MAX_TIMEOUT_MS],
+  ])('applies the execution budget %s as %s', async (timeoutMs, expected) => {
+    const send = vi.fn();
+    await dispatch(send, { timeoutMs });
+    expect(send).toHaveBeenCalledWith(
+      'op-1',
+      expect.objectContaining({ executionTimeoutMs: expected }),
+    );
   });
 });

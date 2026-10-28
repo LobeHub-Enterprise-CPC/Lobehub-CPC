@@ -150,6 +150,20 @@ Business builds enable Gateway Mode automatically. Self-hosted deployments can s
 - Default: -
 - Example: `dev-secret`
 
+### `DEVICE_GATEWAY_URL`
+
+- Type: Optional
+- Description: Device Gateway address for server requests. This internal address is not sent to clients.
+- Default: -
+- Example: `http://gateway:8788`
+
+### `DEVICE_GATEWAY_PUBLIC_URL`
+
+- Type: Optional
+- Description: Device Gateway address that desktop and CLI clients can discover automatically. Leave unset to specify the address on each client. Use an HTTP or HTTPS base URL without the `/ws` suffix, credentials, query parameters or a `#` fragment.
+- Default: -
+- Example: `https://device-gateway.example.com` or `http://your_server_ip:8788`
+
 ### `PROXY_URL`
 
 - Type: Optional
@@ -277,8 +291,6 @@ MULTIMODAL_UNDERSTANDING_PROVIDER=google
 MULTIMODAL_UNDERSTANDING_MODEL=gemini-2.5-flash
 MULTIMODAL_UNDERSTANDING_IMAGE_FORMATS=png,jpeg,webp
 ```
-
-For migration compatibility, `VISUAL_UNDERSTANDING_PROVIDER` and `VISUAL_UNDERSTANDING_MODEL` remain supported as legacy aliases. When both old and new variables are set, `MULTIMODAL_UNDERSTANDING_*` takes precedence.
 
 When this feature is enabled, users can upload audio, images, or videos while using a model that does not have the corresponding native multimodal capability, as long as the active model supports tool use. File upload still requires the normal file storage configuration for your deployment.
 

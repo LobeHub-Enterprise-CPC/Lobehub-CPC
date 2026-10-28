@@ -5,7 +5,20 @@ import type { ChatMethodOptions } from '../types/chat';
 const log = debug('model-runtime:helpers:mergeChatMethodOptions');
 
 export const mergeMultipleChatMethodOptions = (options: ChatMethodOptions[]): ChatMethodOptions => {
+  const headers = options.reduce<Record<string, string>>((acc, option) => {
+    if (option) return { ...acc, ...option.headers };
+
+    return acc;
+  }, {});
+  const requestHeaders = options.reduce<Record<string, string>>((acc, option) => {
+    if (option) return { ...acc, ...option.requestHeaders };
+
+    return acc;
+  }, {});
+
   const completionOptions: ChatMethodOptions = {
+    headers,
+    requestHeaders,
     callback: {
       onCompletion: async (data) => {
         for (const option of options) {
@@ -105,21 +118,5 @@ export const mergeMultipleChatMethodOptions = (options: ChatMethodOptions[]): Ch
       },
     },
   };
-  completionOptions.headers = options.reduce((acc, option) => {
-    if (option)
-      return {
-        ...acc,
-        ...option.headers,
-      };
-    return acc;
-  }, {});
-  completionOptions.requestHeaders = options.reduce((acc, option) => {
-    if (option)
-      return {
-        ...acc,
-        ...option.requestHeaders,
-      };
-    return acc;
-  }, {});
   return completionOptions;
 };

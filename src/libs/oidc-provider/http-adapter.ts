@@ -1,12 +1,15 @@
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { Readable } from 'node:stream';
 
+import { stripTenantPath } from '@lobechat/business-tenant/routing';
 import debug from 'debug';
 import { cookies } from 'next/headers';
 import { type NextRequest } from 'next/server';
 import urlJoin from 'url-join';
 
-import { appEnv } from '@/envs/app';
+import { OIDC_DISCOVERY_PATH } from '@/libs/oidc-provider/routes';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
+import { redactUrlEmail } from '@/server/services/tenantDiscovery/navigation';
 
 const log = debug('lobe-oidc:http-adapter');
 
@@ -27,7 +30,6 @@ export const convertHeadersToNodeHeaders = (nextHeaders: Headers): Record<string
  * Create a Node.js HTTP request object for OIDC Provider
  * @param req Next.js request object
  */
-const DISCOVERY_PUBLIC_PATH = '/oidc/.well-known/openid-configuration';
 const DISCOVERY_PROVIDER_PATH = '/.well-known/openid-configuration';
 
 export const createNodeRequest = async (req: NextRequest): Promise<IncomingMessage> => {
@@ -46,12 +48,16 @@ export const createNodeRequest = async (req: NextRequest): Promise<IncomingMessa
   // under the `/oidc` prefix the way every other route is. The document lives
   // where clients look for it (`/oidc/.well-known/openid-configuration`, the
   // issuer plus the well-known suffix) and is translated back here.
-  if (providerPath === DISCOVERY_PUBLIC_PATH) {
+  if (stripTenantPath(providerPath) === OIDC_DISCOVERY_PATH) {
     providerPath = DISCOVERY_PROVIDER_PATH;
   }
 
   log('Creating Node.js request from Next.js request');
-  log('Original path: %s, Provider path: %s', url.pathname, providerPath);
+  log(
+    'Original URL: %s, Provider path: %s',
+    redactUrlEmail(url.href),
+    redactUrlEmail(providerPath + url.search),
+  );
 
   const bodyStream =
     methodsWithBody.has(req.method) && req.body && req.headers.get('content-length') !== '0'
@@ -74,7 +80,11 @@ export const createNodeRequest = async (req: NextRequest): Promise<IncomingMessa
     url: providerPath + url.search,
   });
 
-  log('Node.js request created with method %s and path %s', nodeRequest.method, nodeRequest.url);
+  log(
+    'Node.js request created with method %s and path %s',
+    nodeRequest.method,
+    redactUrlEmail(nodeRequest.url),
+  );
   // Cast back to IncomingMessage for the function's return signature
   return nodeRequest as unknown as IncomingMessage;
 };
@@ -109,7 +119,8 @@ export const createNodeResponse = (resolvePromise: () => void): ResponseCollecto
     end: (chunk?: string | Buffer) => {
       log('NodeResponse.end called');
       if (chunk) {
-        log('NodeResponse.end chunk: %s', typeof chunk === 'string' ? chunk : '(Buffer)');
+        // Bodies carry tokens and codes: only their kind and size are worth a diagnostic.
+        log('NodeResponse.end chunk: %s, %d bytes', typeof chunk, chunk.length);
         // @ts-ignore
         state.responseBody += chunk;
       }
@@ -150,7 +161,8 @@ export const createNodeResponse = (resolvePromise: () => void): ResponseCollecto
 
     setHeader: (name: string, value: string | string[]) => {
       const lowerName = name.toLowerCase();
-      log('Setting header: %s = %s', lowerName, value);
+      // Values carry Set-Cookie, Location and Authorization secrets: log the name only.
+      log('Setting header: %s', lowerName);
       state.responseHeaders[lowerName] = value;
     },
 
@@ -210,8 +222,8 @@ export const createNodeResponse = (resolvePromise: () => void): ResponseCollecto
 export const createContextForInteractionDetails = async (
   uid: string,
 ): Promise<{ req: IncomingMessage; res: ServerResponse }> => {
-  log('Creating context for interaction details for uid: %s', uid);
-  const baseUrl = appEnv.APP_URL!;
+  log('Creating context for interaction details');
+  const baseUrl = tenantPublicBaseUrl();
   log('Using base URL: %s', baseUrl);
 
   // Extract hostname and protocol from baseUrl for headers
@@ -225,14 +237,15 @@ export const createContextForInteractionDetails = async (
   cookieStore.getAll().forEach((cookie) => {
     realCookies[cookie.name] = cookie.value;
   });
-  log('Real cookies found: %o', Object.keys(realCookies));
+  // Cookie names embed the interaction id, so only their number is logged.
+  log('Real cookies found: %d', Object.keys(realCookies).length);
 
   // Specifically check for interaction session cookie
   const interactionCookieName = `_interaction_${uid}`;
   if (realCookies[interactionCookieName]) {
-    log('Found interaction session cookie: %s', interactionCookieName);
+    log('Found interaction session cookie');
   } else {
-    log('Warning: Interaction session cookie not found: %s', interactionCookieName);
+    log('Warning: Interaction session cookie not found');
   }
 
   // 2. Build headers containing real cookies
@@ -255,7 +268,7 @@ export const createContextForInteractionDetails = async (
   // Note: IP, geo, ua and other fields here may be required by certain oidc-provider features.
   // If related issues arise, they may need to be extracted from real request headers (e.g., 'x-forwarded-for', 'user-agent')
   const interactionUrl = urlJoin(baseUrl, `/oauth/consent/${uid}`);
-  log('Creating interaction URL: %s', interactionUrl);
+  log('Creating interaction URL');
 
   const mockNextRequest = {
     cookies: {
@@ -273,7 +286,7 @@ export const createContextForInteractionDetails = async (
     ua: undefined,
     url: new URL(interactionUrl),
   } as unknown as NextRequest;
-  log('Mock NextRequest created for url: %s', mockNextRequest.url);
+  log('Mock NextRequest created');
 
   // 4. Use createNodeRequest to create a mock Node.js IncomingMessage
   // pathPrefix is set to '/' because our URL is already in the path format expected by the Provider: /interaction/:uid

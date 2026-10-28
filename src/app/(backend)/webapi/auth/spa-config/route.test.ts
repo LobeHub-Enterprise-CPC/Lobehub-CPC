@@ -13,13 +13,26 @@ const mocks = vi.hoisted(() => ({
     disableEmailPassword: false,
     enableEmailVerification: true,
     enableMagicLink: false,
-    oAuthSSOProviders: ['github'],
   })),
-  getServerFeatureFlagsValue: vi.fn(() => ({ auth_captcha: true })),
+  getServerFeatureFlagsFromRuntimeConfig: vi.fn(async () => ({ auth_captcha: true })),
+  getTenantSsoProviders: vi.fn(async () => [
+    { clientSecret: 'secret', displayName: 'Okta', providerId: 'okta' },
+  ]),
 }));
 
-vi.mock('@/config/featureFlags', () => ({
-  getServerFeatureFlagsValue: mocks.getServerFeatureFlagsValue,
+vi.mock('@/auth', () => ({ getTenantSsoProviders: mocks.getTenantSsoProviders }));
+
+vi.mock('@lobechat/database/tenant', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  requireTenantScope: () => ({
+    endpoint: { basePath: '', publicUrl: 'https://chat.acme.example', version: 2 },
+    slug: 'acme',
+    tenantId: 'tenant-acme',
+  }),
+}));
+
+vi.mock('@/server/featureFlags', () => ({
+  getServerFeatureFlagsFromRuntimeConfig: mocks.getServerFeatureFlagsFromRuntimeConfig,
 }));
 
 vi.mock('@/envs/app', () => ({ appEnv: mocks.appEnv }));
@@ -39,11 +52,25 @@ describe('GET /webapi/auth/spa-config', () => {
     vi.clearAllMocks();
   });
 
-  it('includes the env-level feature flags the auth shell maps onto state', async () => {
-    const response = await GET();
+  it("includes the tenant's feature flags the auth shell maps onto state", async () => {
+    const response = await GET(new Request('http://localhost/webapi/auth/spa-config'));
     const body = await response.json();
 
-    expect(mocks.getServerFeatureFlagsValue).toHaveBeenCalled();
+    expect(mocks.getServerFeatureFlagsFromRuntimeConfig).toHaveBeenCalled();
     expect(body.featureFlags).toEqual({ auth_captcha: true });
+  });
+
+  it("lists the tenant's SSO provider ids only and keeps the answer out of shared caches", async () => {
+    const response = await GET(new Request('http://localhost/webapi/auth/spa-config'));
+    const body = await response.json();
+
+    expect(body.config.oAuthSSOProviders).toEqual(['okta']);
+    expect(body.tenant).toEqual({
+      basePath: '',
+      publicUrl: 'https://chat.acme.example',
+      slug: 'acme',
+    });
+    expect(JSON.stringify(body)).not.toContain('secret');
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
   });
 });

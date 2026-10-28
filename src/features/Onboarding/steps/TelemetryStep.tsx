@@ -3,11 +3,19 @@
 import { BRANDING_NAME } from '@lobechat/business-const';
 import { DEFAULT_INBOX_TITLE } from '@lobechat/const';
 import { type IconProps } from '@lobehub/ui';
-import { Block, Flexbox, Icon } from '@lobehub/ui';
+import {
+  Block,
+  Button,
+  createStaticStyles,
+  cssVar,
+  Flexbox,
+  Icon,
+  Steps,
+  Switch,
+  Text,
+} from '@lobehub/ui';
 import { TypewriterEffect } from '@lobehub/ui/awesome';
-import { Button, Steps, Switch, Text } from '@lobehub/ui/base-ui';
 import { LoadingDots } from '@lobehub/ui/chat';
-import { createStaticStyles, cssVar } from 'antd-style';
 import { BrainIcon, HeartHandshakeIcon, PencilRulerIcon, ShieldCheck } from 'lucide-react';
 import { memo, useCallback, useRef, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
@@ -15,6 +23,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import { ProductLogo } from '@/components/Branding';
 import { PRIVACY_URL, TERMS_URL } from '@/const/url';
 import { useUserStore } from '@/store/user';
+import { vendorLink } from '@/utils/vendorLink';
 
 // `&&` outranks base-ui's own vertical connector rule so the rail centres under the 32px icons.
 const styles = createStaticStyles(({ css }) => ({
@@ -29,6 +38,20 @@ const styles = createStaticStyles(({ css }) => ({
 interface TelemetryStepProps {
   onNext: () => void;
 }
+
+/**
+ * A rebranded build has no terms of its own behind PRIVACY_URL / TERMS_URL, so
+ * the label stays as text instead of linking to the vendor's. `Trans` still
+ * needs an element for the tag, or the sentence loses its words.
+ */
+const legalLink = (href: string | undefined, label: string) =>
+  href ? (
+    <a href={href} style={{ color: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}>
+      {label}
+    </a>
+  ) : (
+    <span>{label}</span>
+  );
 
 const TelemetryStep = memo<TelemetryStepProps>(({ onNext }) => {
   const { t, i18n } = useTranslation('onboarding');
@@ -170,22 +193,8 @@ const TelemetryStep = memo<TelemetryStepProps>(({ onNext }) => {
               i18nKey={'telemetry.agreement'}
               ns={'onboarding'}
               components={{
-                privacy: (
-                  <a
-                    href={PRIVACY_URL}
-                    style={{ color: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}
-                  >
-                    {t('telemetry.terms')}
-                  </a>
-                ),
-                terms: (
-                  <a
-                    href={TERMS_URL}
-                    style={{ color: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}
-                  >
-                    {t('telemetry.privacy')}
-                  </a>
-                ),
+                privacy: legalLink(vendorLink(PRIVACY_URL), t('telemetry.terms')),
+                terms: legalLink(vendorLink(TERMS_URL), t('telemetry.privacy')),
               }}
             />
           </Text>

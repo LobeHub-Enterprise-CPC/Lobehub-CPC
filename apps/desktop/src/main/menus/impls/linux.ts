@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { DOWNLOAD_URL, GITHUB, OFFICIAL_SITE } from '@lobechat/const/url';
+import { GITHUB, OFFICIAL_SITE } from '@lobechat/const/url';
 import type { TrayNavigationSnapshot } from '@lobechat/electron-client-ipc';
 import type { MenuItemConstructorOptions } from 'electron';
 import { app, clipboard, dialog, Menu, shell } from 'electron';
@@ -11,6 +11,7 @@ import { getAppDisplayName } from '@/utils/appIdentity';
 
 import { buildTrayMenuTemplate } from '../trayMenu';
 import type { ContextMenuData, IMenuPlatform, MenuOptions } from '../types';
+import { updateDownloadUrl, vendorHelpItems } from '../vendorHelp';
 import { BaseMenuPlatform } from './BaseMenuPlatform';
 
 export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
@@ -194,19 +195,20 @@ export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
       {
         label: t('help.title'),
         submenu: [
-          {
-            click: async () => {
-              await shell.openExternal(OFFICIAL_SITE);
+          ...vendorHelpItems([
+            {
+              click: async () => {
+                await shell.openExternal(OFFICIAL_SITE);
+              },
+              label: t('help.visitWebsite'),
             },
-            label: t('help.visitWebsite'),
-          },
-          {
-            click: async () => {
-              await shell.openExternal(GITHUB);
+            {
+              click: async () => {
+                await shell.openExternal(GITHUB);
+              },
+              label: t('help.githubRepo'),
             },
-            label: t('help.githubRepo'),
-          },
-          { type: 'separator' },
+          ]),
           {
             click: () => {
               this.app.browserManager.retrieveByIdentifier('processExplorer').show();
@@ -258,8 +260,8 @@ export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
       template.push({
         label: t('dev.title'),
         submenu: [
-          { label: t('dev.reload'), role: 'reload' },
-          { label: t('dev.forceReload'), role: 'forceReload' },
+          this.buildReloadMenuItem(t('dev.reload')),
+          this.buildReloadMenuItem(t('dev.forceReload'), true),
           this.buildDevToolsMenuItem(t('dev.devTools')),
           { type: 'separator' },
           {
@@ -302,7 +304,7 @@ export class LinuxMenu extends BaseMenuPlatform implements IMenuPlatform {
       // snap / tar.gz / a runtime-less AppImage cannot replace themselves.
       case 'unsupported': {
         return {
-          click: () => shell.openExternal(DOWNLOAD_URL.default),
+          click: () => shell.openExternal(updateDownloadUrl()),
           label: t('common.updateUnsupported'),
         };
       }

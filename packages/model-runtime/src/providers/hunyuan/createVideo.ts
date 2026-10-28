@@ -76,7 +76,7 @@ export async function createHunyuanVideo(
   log('Submitting Hunyuan video task to: %s', submitUrl);
   log('Submit body: %O', requestBody);
 
-  const submitResponse = await fetch(submitUrl, {
+  const submitResponse = await (options.fetch ?? fetch)(submitUrl, {
     body: JSON.stringify(requestBody),
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -126,6 +126,7 @@ export async function queryHunyuanVideoStatus(
   inferenceId: string,
   apiKey: string,
   baseUrl: string,
+  customFetch?: typeof fetch,
 ): Promise<HunyuanVideoQueryResponse> {
   const { model, id } = parseInferenceId(inferenceId);
   const queryUrl = `${baseUrl || 'https://tokenhub.tencentmaas.com/v1'}/api/video/query`;
@@ -137,7 +138,7 @@ export async function queryHunyuanVideoStatus(
     queryBody.model = model;
   }
 
-  const response = await fetch(queryUrl, {
+  const response = await (customFetch ?? fetch)(queryUrl, {
     body: JSON.stringify(queryBody),
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -171,8 +172,9 @@ export async function pollHunyuanVideoStatus(
   inferenceId: string,
   apiKey: string,
   baseUrl: string,
+  customFetch?: typeof fetch,
 ): Promise<PollVideoStatusResult> {
-  const response = await queryHunyuanVideoStatus(inferenceId, apiKey, baseUrl);
+  const response = await queryHunyuanVideoStatus(inferenceId, apiKey, baseUrl, customFetch);
 
   if (response.error?.message) {
     return { status: 'failed', error: response.error.message };

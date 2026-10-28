@@ -1,6 +1,8 @@
 import { Given, Then } from '@cucumber/cucumber';
 import { expect, type Locator } from '@playwright/test';
 
+import { seedHomeRailBrief } from '../../support/homeRail';
+import { tenantPath } from '../../support/tenant';
 import type { CustomWorld } from '../../support/world';
 import { WAIT_TIMEOUT } from '../../support/world';
 
@@ -66,10 +68,18 @@ const scrollToTop = async (world: CustomWorld) => {
 Given('用户在受限宽度下打开 Home 页面', async function (this: CustomWorld) {
   // Keep the desktop width while constraining the height so a fresh E2E account's
   // single rail card still overflows and exposes the real ScrollArea scrollbar.
+  await seedHomeRailBrief();
   await this.page.setViewportSize({ height: 360, width: 1500 });
-  await this.page.goto('/');
+  await this.page.goto(tenantPath('/'));
 
-  await expect(this.page.locator('[data-testid="home-rail"]:visible')).toBeVisible({
+  const rail = this.page.locator('[data-testid="home-rail"]:visible');
+
+  await expect(rail).toBeVisible({
+    timeout: WAIT_TIMEOUT,
+  });
+  // The card assertions below measure a card, not a transient suggestions
+  // skeleton. Wait for the seeded news card before the scenario starts moving.
+  await expect(rail.getByTestId('home-rail-card').first()).toBeVisible({
     timeout: WAIT_TIMEOUT,
   });
 });

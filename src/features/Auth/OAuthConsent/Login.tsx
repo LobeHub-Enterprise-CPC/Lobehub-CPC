@@ -1,15 +1,16 @@
 'use client';
 
-import { Block, Flexbox } from '@lobehub/ui';
-import { Avatar, Button, Skeleton, Text } from '@lobehub/ui/base-ui';
-import React, { memo } from 'react';
+import { Alert, Avatar, Block, Button, Flexbox, Skeleton, Text } from '@lobehub/ui';
+import React, { memo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useHref } from 'react-router';
 
 import AuthCard from '@/features/AuthCard';
 import { useSession } from '@/libs/better-auth/auth-client';
 import type { OidcClientMetadata } from '@/types/oidc';
 
 import OAuthApplicationLogo from './OAuthApplicationLogo';
+import { redirectToSignIn } from './signInRedirect';
 
 interface LoginConfirmProps {
   clientMetadata: OidcClientMetadata;
@@ -17,14 +18,23 @@ interface LoginConfirmProps {
 }
 
 const LoginConfirmClient = memo<LoginConfirmProps>(({ uid, clientMetadata }) => {
-  const { t } = useTranslation('oauth'); // Assuming translations are in 'oauth'
+  const { t } = useTranslation(['oauth', 'common']);
+  const action = useHref('/oidc/consent');
 
   const clientDisplayName = clientMetadata?.clientName || 'the application';
 
-  const { data: session, isPending } = useSession();
-  const isUserStateInit = !isPending && !!session;
+  const { data: session, error: sessionError, isPending, refetch: refetchSession } = useSession();
+  const isUserStateInit = !isPending && !sessionError && !!session;
   const avatar = session?.user?.image || '';
   const nickName = session?.user?.name || '';
+
+  // The login prompt can only be confirmed by a signed-in user; a visitor from a
+  // client (e.g. Desktop) signs in first and comes back to this interaction. A
+  // failed session lookup is not "signed out" — bounce nowhere and let the user
+  // retry, otherwise an error would look like a sign-in wall.
+  useEffect(() => {
+    if (!isPending && !sessionError && !session) redirectToSignIn();
+  }, [isPending, sessionError, session]);
 
   const [isLoading, setIsLoading] = React.useState(false);
 
@@ -45,7 +55,7 @@ const LoginConfirmClient = memo<LoginConfirmProps>(({ uid, clientMetadata }) => 
         title={titleText}
         footer={
           <form
-            action="/oidc/consent"
+            action={action}
             method="post"
             style={{ width: '100%' }}
             onSubmit={() => setIsLoading(true)}
@@ -69,7 +79,17 @@ const LoginConfirmClient = memo<LoginConfirmProps>(({ uid, clientMetadata }) => 
         }
       >
         <Block padding={16} variant={'outlined'}>
-          {isUserStateInit ? (
+          {sessionError ? (
+            <Alert
+              description={t('login.error.message')}
+              type={'error'}
+              action={
+                <Button size={'small'} onClick={() => refetchSession()}>
+                  {t('common:retry')}
+                </Button>
+              }
+            />
+          ) : isUserStateInit ? (
             <Flexbox horizontal align={'center'} gap={16}>
               <Avatar alt={nickName || ''} avatar={avatar} shape={'square'} size={40} />
               <Text fontSize={18} weight={500}>

@@ -13,6 +13,7 @@ import { detectTruncatedJSON, safeParseJSON } from '@lobechat/utils';
 import debug from 'debug';
 
 import { UserModel } from '@/database/models/user';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { isShareBlockedBuiltinDispatch } from '@/server/services/aiAgent/shareGate';
 import { ComposioService } from '@/server/services/composio';
 import {
@@ -22,6 +23,8 @@ import {
   type CommandExecutionTarget,
   type CommandGovernanceContext,
   FILE_BLOCKED_MESSAGE,
+  GOVERNANCE_UNAVAILABLE_MESSAGE,
+  GovernanceUnavailableError,
   logCommandExecution,
   type PathGovernanceContext,
 } from '@/server/services/governance';
@@ -65,6 +68,7 @@ const COMMAND_EXECUTION_IDENTIFIERS = new Set<string>([
 const COMMAND_EXECUTION_API_NAMES = new Set<string>([
   LocalSystemApiName.runCommand,
   CloudSandboxApiName.runCommand,
+  CloudSandboxApiName.executeCode,
 ]);
 
 const FILE_GOVERNANCE_API_NAMES = new Set<string>([
@@ -105,7 +109,18 @@ const buildCommandGovernanceContext = (
 
   const executionTarget = resolveCommandExecutionTarget(identifier, context);
 
-  const commandText = typeof args?.command === 'string' ? args.command : JSON.stringify(args ?? {});
+  // The exact payload that will execute: `executeCode` runs `code` in
+  // python/javascript/typescript (never the sibling `command` field, which an
+  // attacker can attach as a decoy); the shell APIs run `command`. A missing
+  // field still gates on the JSON so governance is never skipped.
+  const commandText =
+    apiName === CloudSandboxApiName.executeCode
+      ? typeof args?.code === 'string'
+        ? args.code
+        : JSON.stringify(args ?? {})
+      : typeof args?.command === 'string'
+        ? args.command
+        : JSON.stringify(args ?? {});
 
   return {
     apiName,
@@ -236,7 +251,10 @@ export class BuiltinToolsExecutor implements IToolExecutor {
     this.userId = userId;
   }
 
-  private async getMarketService({ fresh }: { fresh?: boolean } = {}): Promise<MarketService> {
+  private async getMarketService({
+    fresh,
+    proxyExecution,
+  }: { fresh?: boolean; proxyExecution?: boolean } = {}): Promise<MarketService> {
     if (
       !fresh &&
       this._marketService &&
@@ -255,7 +273,11 @@ export class BuiltinToolsExecutor implements IToolExecutor {
 
     const service = new MarketService({
       accessToken,
-      userInfo: { userId: this.userId },
+      userInfo: await resolveMarketServiceIdentity({
+        proxyExecution,
+        serverDB: this.db,
+        userId: this.userId,
+      }),
     });
     this._marketService = { createdAt: Date.now(), service };
     return service;
@@ -294,20 +316,26 @@ export class BuiltinToolsExecutor implements IToolExecutor {
     // When JSON.parse fails, return a dedicated error rather than silently
     // falling back to `{}`. Passing `{}` to the tool produced generic
     // "required field missing" errors, which led the model to retry with the
-    // same broken payload. Distinguish a truncated payload (typical when
-    // max_tokens is exhausted mid-tool-call) from plain malformed JSON, and
-    // echo the raw arguments string so the model can verify it is exactly
-    // what it produced.
+    // same broken payload. Distinguish a truncated payload from plain
+    // malformed JSON, and echo the raw arguments string so the model can
+    // verify it is exactly what it produced.
+    //
+    // The truncation cause is unknown at this point: an exhausted output
+    // budget and an upstream that closed the stream early look identical.
+    // Naming max_tokens made models tell users the platform caps output and
+    // that they should raise a setting, which was wrong for interrupted streams
+    // so the message lists both causes and asks the model not to
+    // assert either one.
     if (parsed === undefined && argsStr?.trim()) {
       const truncationReason = detectTruncatedJSON(argsStr);
       const explanation = truncationReason
         ? `The tool call arguments JSON appears to be truncated (${truncationReason}), ` +
-          `likely because the model's max_tokens budget was exhausted ` +
-          `(possibly by extended-thinking tokens). ` +
-          `Either reduce the size of the content you are about to write, ` +
-          `or ask the user to increase the model's max_tokens ` +
-          `(and/or disable extended thinking or set a separate thinking budget). ` +
-          `Do not retry with the same payload.`
+          `so the tool was not invoked. The output was cut off before the call was complete, ` +
+          `either because the output length limit was reached or because the response stream ` +
+          `was interrupted; the cause cannot be determined here, so do not tell the user it ` +
+          `was a specific limit or setting. ` +
+          `If the arguments carry large content, split it into smaller pieces across several calls. ` +
+          `Do not resend the same truncated arguments.`
         : `The tool call arguments string is not valid JSON and could not be parsed, ` +
           `so the tool was not invoked. Fix the JSON syntax and try again.`;
       const content = `${explanation}\n\nThe received arguments string was:\n${argsStr}`;
@@ -365,13 +393,14 @@ export class BuiltinToolsExecutor implements IToolExecutor {
           toolName: apiName,
         });
 
-      let result = await callSkill(await this.getMarketService());
+      const proxyExecution = Boolean(context.agentShareVisitor);
+      let result = await callSkill(await this.getMarketService({ proxyExecution }));
 
       // Market refuses the token at its auth middleware, before the skill runs,
       // so re-minting and retrying once cannot repeat a side effect.
       if (result.error?.code === INVALID_TRUST_TOKEN) {
         log('Trust token rejected for %s:%s, retrying with a fresh token', identifier, apiName);
-        result = await callSkill(await this.getMarketService({ fresh: true }));
+        result = await callSkill(await this.getMarketService({ fresh: true, proxyExecution }));
       }
 
       if (result.success && isWorkSkillProvider(identifier)) {
@@ -469,9 +498,9 @@ export class BuiltinToolsExecutor implements IToolExecutor {
 
     // Command governance: gate command-shaped calls only (see
     // `buildCommandGovernanceContext`). `checkCommand` itself no-ops to
-    // `{ allowed: true }` with zero DB access when the feature is disabled
-    // (`COMMAND_GOVERNANCE_ENABLED`), so this is a no-op in the default
-    // configuration.
+    // `{ allowed: true }` without touching governance rules when the feature
+    // is disabled (`command_governance` flag, off by default), so this is a
+    // no-op in the default configuration.
     const commandGovernance = buildCommandGovernanceContext(
       identifier,
       apiName,
@@ -481,7 +510,20 @@ export class BuiltinToolsExecutor implements IToolExecutor {
     );
 
     if (commandGovernance) {
-      const decision = await checkCommand(commandGovernance, this.db);
+      let decision;
+      try {
+        decision = await checkCommand(commandGovernance, this.db);
+      } catch (error) {
+        // Governance could not be evaluated: the command is not run, and it is not reported as
+        // blocked by a rule (that message tells the model never to retry).
+        if (!(error instanceof GovernanceUnavailableError)) throw error;
+        log('Command governance unavailable for %s:%s', identifier, apiName);
+        return {
+          content: GOVERNANCE_UNAVAILABLE_MESSAGE,
+          error: { code: 'GOVERNANCE_UNAVAILABLE', message: GOVERNANCE_UNAVAILABLE_MESSAGE },
+          success: false,
+        };
+      }
 
       if (!decision.allowed) {
         log(
@@ -493,7 +535,7 @@ export class BuiltinToolsExecutor implements IToolExecutor {
         );
 
         // logCommandExecution never throws by design (it fails open and only
-        // debug-logs internally) — wrapped anyway so a future change to that
+        // reports errors internally) — wrapped anyway so a future change to that
         // contract can never turn an audit-log bug into a masked tool result.
         try {
           await logCommandExecution(
@@ -502,7 +544,7 @@ export class BuiltinToolsExecutor implements IToolExecutor {
             this.db,
           );
         } catch (auditError) {
-          log('Failed to record blocked-command audit log: %O', auditError);
+          console.error('[governance] Failed to record blocked-command audit log: %O', auditError);
         }
 
         return {
@@ -522,7 +564,17 @@ export class BuiltinToolsExecutor implements IToolExecutor {
     );
 
     for (const candidate of fileGovernanceContexts) {
-      const decision = await checkPath(candidate, this.db);
+      let decision;
+      try {
+        decision = await checkPath(candidate, this.db);
+      } catch (error) {
+        if (!(error instanceof GovernanceUnavailableError)) throw error;
+        return {
+          content: GOVERNANCE_UNAVAILABLE_MESSAGE,
+          error: { code: 'GOVERNANCE_UNAVAILABLE', message: GOVERNANCE_UNAVAILABLE_MESSAGE },
+          success: false,
+        };
+      }
 
       if (!decision.allowed) {
         log(
@@ -540,7 +592,10 @@ export class BuiltinToolsExecutor implements IToolExecutor {
             this.db,
           );
         } catch (auditError) {
-          log('Failed to record blocked-file-access audit log: %O', auditError);
+          console.error(
+            '[governance] Failed to record blocked-file-access audit log: %O',
+            auditError,
+          );
         }
 
         return {
@@ -579,7 +634,10 @@ export class BuiltinToolsExecutor implements IToolExecutor {
             this.db,
           );
         } catch (auditError) {
-          log('Failed to record command execution audit log: %O', auditError);
+          console.error(
+            '[governance] Failed to record command execution audit log: %O',
+            auditError,
+          );
         }
       }
 
@@ -595,7 +653,7 @@ export class BuiltinToolsExecutor implements IToolExecutor {
             this.db,
           );
         } catch (auditError) {
-          log('Failed to record file access audit log: %O', auditError);
+          console.error('[governance] Failed to record file access audit log: %O', auditError);
         }
       }
 
@@ -641,7 +699,10 @@ export class BuiltinToolsExecutor implements IToolExecutor {
             this.db,
           );
         } catch (auditError) {
-          log('Failed to record command execution audit log: %O', auditError);
+          console.error(
+            '[governance] Failed to record command execution audit log: %O',
+            auditError,
+          );
         }
       }
 
@@ -658,7 +719,7 @@ export class BuiltinToolsExecutor implements IToolExecutor {
             this.db,
           );
         } catch (auditError) {
-          log('Failed to record file access audit log: %O', auditError);
+          console.error('[governance] Failed to record file access audit log: %O', auditError);
         }
       }
 

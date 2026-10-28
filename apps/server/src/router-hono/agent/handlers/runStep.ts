@@ -1,3 +1,4 @@
+import { requireTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 import { eq } from 'drizzle-orm';
 import type { Context } from 'hono';
@@ -10,15 +11,16 @@ import {
   AbandonOperationService,
   type AgentExecutionResult,
   type AgentStepContinuation,
+  scheduleOpportunisticStaleSweep,
 } from '@/server/services/agentRuntime';
+import { resumeAbandonedParent } from '@/server/services/agentRuntime/resumeAbandonedParent';
 import { AiAgentService } from '@/server/services/aiAgent';
+import { assertGatewayVersion } from '@/server/services/gatewayAuthorization';
 import { runWithInvocationDeadline } from '@/server/utils/invocationDeadline';
 import {
   flushScheduledWork,
   runWithScheduledWorkScope,
 } from '@/server/utils/scheduleAfterResponse';
-
-import { resumeAbandonedParent } from './resumeAbandonedParent';
 
 const log = debug('lobe-server:agent:run-step');
 
@@ -113,8 +115,13 @@ async function getOperationRowDiagnostic(operationId: string) {
 /**
  * How long a `running` row may go without a lease refresh before a delivery
  * that finds no coordinator metadata treats the run as dead. A live step
- * refreshes the lease every 90s (see `touchRunning`), and this matches the
- * agent-gateway idle watchdog window.
+ * refreshes the lease every 90s (see `touchRunning`).
+ *
+ * This is NOT the gateway's inactivity window and does not track it: the
+ * gateway judges silence in the *event stream* (30 min, see
+ * `INACTIVITY_WATCHDOG_TIMEOUT`), while this judges the outright absence of the
+ * coordinator metadata every step needs. Missing metadata is far stronger
+ * evidence than a quiet stream, so this stays far shorter than that window.
  */
 const ORPHANED_RUNNING_LEASE_MS = 10 * 60 * 1000;
 
@@ -191,6 +198,9 @@ export async function runStep(c: Context): Promise<Response> {
 
   try {
     // QStash nests resume/intervention fields under `body.payload` (see
+    if (body.execution?.tenantId !== requireTenantScope().tenantId)
+      return c.json({ error: 'TENANT_MISMATCH' }, 403);
+    await assertGatewayVersion(body.execution.tenantId, body.execution.sourceAcceptedVersion);
     // QStashQueueServiceImpl.scheduleMessage), while `operationId`/`stepIndex`/
     // `context` stay at the top level. Merge so both shapes work — without this
     // the QStash path reads `resumeAsyncTool`/`approvedToolCall`/… as undefined
@@ -219,6 +229,14 @@ export async function runStep(c: Context): Promise<Response> {
     }
 
     log(`[${operationId}] Starting step ${stepIndex}`);
+
+    // Ride the always-exercised step path to run the stale-operation sweep, at
+    // most once a minute cluster-wide. The sweep's only other entry point is a
+    // Vercel cron this deployment does not schedule, so without this a run
+    // whose next step never dispatched is left to the gateway's destructive
+    // inactivity watchdog. Fire-and-forget: it is background repair and must
+    // not add latency to, or fail, this delivery.
+    scheduleOpportunisticStaleSweep();
 
     // Get userId from operation metadata stored in Redis
     const coordinator = new AgentRuntimeCoordinator();

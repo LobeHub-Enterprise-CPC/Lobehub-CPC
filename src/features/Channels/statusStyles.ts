@@ -1,4 +1,4 @@
-import { createStaticStyles } from 'antd-style';
+import { createStaticStyles } from '@lobehub/ui';
 
 export const statusStyles = createStaticStyles(({ css, cssVar }) => ({
   receipts: css`

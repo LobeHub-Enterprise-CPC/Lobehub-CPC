@@ -1,7 +1,7 @@
 /**
  * @vitest-environment happy-dom
  */
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -21,7 +21,7 @@ vi.mock('@/components/Branding', () => ({
   ProviderIcon: ({ provider }: { provider: string }) => <span>{provider}</span>,
 }));
 
-vi.mock('@lobehub/ui/base-ui', async (importOriginal) => {
+vi.mock('@lobehub/ui', async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
 
   return {
@@ -34,9 +34,23 @@ vi.mock('@lobehub/ui/base-ui', async (importOriginal) => {
   };
 });
 
+// The real modal animates in through a portal; render the table it hosts as soon
+// as it is open.
+vi.mock('@/components/ImperativeModal', () => ({
+  default: ({ children, open }: { children?: ReactNode; open?: boolean }) =>
+    open ? <div>{children}</div> : null,
+}));
+
 vi.mock('@/components/StatisticCard', () => ({
-  default: ({ statistic }: { statistic: { description?: ReactNode; value?: ReactNode } }) => (
+  default: ({
+    extra,
+    statistic,
+  }: {
+    extra?: ReactNode;
+    statistic: { description?: ReactNode; value?: ReactNode };
+  }) => (
     <div>
+      {extra}
       <span>{statistic.value}</span>
       {statistic.description}
     </div>
@@ -83,5 +97,24 @@ describe('ActiveModels', () => {
     );
 
     expect(screen.getByTestId('active-user-avatar')).toHaveTextContent('Ada Lovelace');
+  });
+
+  // A provider row reads as the provider's name, never its id — for the branded
+  // provider the id is the upstream `lobehub`.
+  // The table lives in the modal the card's maximize button opens.
+  const openTable = () => fireEvent.click(screen.getAllByRole('button')[0]);
+
+  it('names the provider of a provider row', async () => {
+    render(<ActiveModels data={usageLog} groupBy={GroupBy.Provider} />);
+    openTable();
+
+    expect((await screen.findAllByText('OpenAI')).length).toBeGreaterThan(0);
+  });
+
+  it("names the provider in a model's provider rows", async () => {
+    render(<ActiveModels data={usageLog} groupBy={GroupBy.Model} />);
+    openTable();
+
+    expect((await screen.findAllByText('OpenAI')).length).toBeGreaterThan(0);
   });
 });

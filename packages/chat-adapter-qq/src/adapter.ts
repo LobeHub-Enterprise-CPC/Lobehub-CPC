@@ -205,9 +205,13 @@ export class QQAdapter implements Adapter<QQThreadId, QQRawMessage> {
       webhookUrl,
     });
 
-    const gatewayTask = gateway.connect();
-    options.waitUntil(gatewayTask);
-    await gatewayTask;
+    options.waitUntil(gateway.settled);
+    try {
+      await gateway.connect();
+    } catch (error) {
+      await gateway.close();
+      throw error;
+    }
   }
 
   // ------------------------------------------------------------------

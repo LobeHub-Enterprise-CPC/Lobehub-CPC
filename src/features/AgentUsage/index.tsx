@@ -1,7 +1,6 @@
 'use client';
 
-import { Block, Flexbox } from '@lobehub/ui';
-import { Segmented, Text } from '@lobehub/ui/base-ui';
+import { Block, Flexbox, Segmented, Text } from '@lobehub/ui';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -85,8 +84,20 @@ const AgentUsage = memo(() => {
       <Flexbox flex={1} style={styles.body} width={'100%'}>
         <WideScreenContainer>
           <Flexbox gap={16} paddingBlock={16}>
-            <Block gap={16} padding={20} variant={'outlined'}>
-              <Flexbox horizontal align={'center'} gap={16} justify={'space-between'} wrap={'wrap'}>
+            <Block
+              data-brand-slot={'agent-usage-summary'}
+              gap={16}
+              padding={20}
+              variant={'outlined'}
+            >
+              <Flexbox
+                horizontal
+                align={'center'}
+                data-brand-slot={'agent-usage-filters'}
+                gap={16}
+                justify={'space-between'}
+                wrap={'wrap'}
+              >
                 <Flexbox horizontal align={'center'} gap={8}>
                   <Text fontSize={13} type={'secondary'}>
                     {t('usageStats.dimension')}
@@ -136,10 +147,10 @@ const AgentUsage = memo(() => {
             </Block>
             {!showError && (
               <>
-                <Block padding={20} variant={'outlined'}>
+                <Block data-brand-slot={'agent-usage-card'} padding={20} variant={'outlined'}>
                   <UsageTrendChart buckets={data?.buckets} isLoading={isLoading} />
                 </Block>
-                <Block padding={20} variant={'outlined'}>
+                <Block data-brand-slot={'agent-usage-card'} padding={20} variant={'outlined'}>
                   <ModelBreakdown isLoading={isLoading} rows={data?.byModel ?? []} />
                 </Block>
               </>

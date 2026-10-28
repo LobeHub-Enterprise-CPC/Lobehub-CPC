@@ -7,7 +7,10 @@ interface GlobalStateMock {
 
 const mocks = vi.hoisted(() => ({
   activeWorkspaceSlug: null as string | null,
+  enableDashboard: false,
+  enableGoals: false,
   showMarket: true,
+  showAiImage: true,
 }));
 
 vi.mock('@/config/routes', () => ({
@@ -21,12 +24,23 @@ vi.mock('@/store/global', () => ({
     selector({ toggleCommandMenu: vi.fn() }),
 }));
 
+const ENABLE_DASHBOARD = 'enableDashboard';
 vi.mock('@/store/serverConfig', () => ({
-  featureFlagsSelectors: {},
-  useServerConfigStore: () => ({
-    hideGitHub: false,
-    showMarket: mocks.showMarket,
-  }),
+  featureFlagsSelectors: 'featureFlags',
+  serverConfigSelectors: { enableDashboard: ENABLE_DASHBOARD },
+  useServerConfigStore: (selector: unknown) =>
+    selector === ENABLE_DASHBOARD
+      ? mocks.enableDashboard
+      : { hideGitHub: false, showMarket: mocks.showMarket, showAiImage: mocks.showAiImage },
+}));
+
+const ENABLE_GOALS = 'enableGoals';
+vi.mock('@/store/user', () => ({
+  useUserStore: (selector: unknown) => (selector === ENABLE_GOALS ? mocks.enableGoals : undefined),
+}));
+
+vi.mock('@/store/user/selectors', () => ({
+  labPreferSelectors: { enableGoals: ENABLE_GOALS },
 }));
 
 vi.mock('@/business/client/hooks/useActiveWorkspaceSlug', () => ({
@@ -37,6 +51,58 @@ describe('useNavLayout', () => {
   beforeEach(() => {
     mocks.activeWorkspaceSlug = null;
     mocks.showMarket = true;
+    mocks.enableDashboard = false;
+    mocks.showAiImage = true;
+    mocks.enableGoals = false;
+  });
+
+  it.each([true, false])('keeps generation navigation available (ai_image=%s)', async (enabled) => {
+    mocks.showAiImage = enabled;
+    const { useNavLayout } = await import('./useNavLayout');
+    const { result } = renderHook(() => useNavLayout());
+    const item = result.current.bottomMenuItems.find((item) => item.key === 'image');
+    expect(item?.hidden).not.toBe(true);
+    expect(item?.url).toBe(enabled ? '/image' : '/video');
+  });
+
+  const dashboardItem = async () => {
+    const { useNavLayout } = await import('./useNavLayout');
+    const { result } = renderHook(() => useNavLayout());
+    return result.current.topNavItems.find((item) => item.key === 'dashboard');
+  };
+
+  it('hides Dashboards while the dashboard feature flag is off', async () => {
+    expect((await dashboardItem())?.hidden).toBe(true);
+  });
+
+  it('shows Dashboards in personal mode once the flag is on', async () => {
+    mocks.enableDashboard = true;
+    expect((await dashboardItem())?.hidden).toBe(false);
+
+    mocks.activeWorkspaceSlug = 'lobe-team';
+    expect((await dashboardItem())?.hidden).toBe(true);
+  });
+
+  const goalsItem = async () => {
+    const { useNavLayout } = await import('./useNavLayout');
+    const { result } = renderHook(() => useNavLayout());
+    return result.current.topNavItems.find((item) => item.key === 'goals');
+  };
+
+  it('hides Goals while the goals lab is off', async () => {
+    expect((await goalsItem())?.hidden).toBe(true);
+  });
+
+  it('shows Goals next to Tasks once the goals lab is on', async () => {
+    mocks.enableGoals = true;
+    const item = await goalsItem();
+    expect(item?.hidden).toBe(false);
+    expect(item?.url).toBe('/goals');
+
+    const { useNavLayout } = await import('./useNavLayout');
+    const { result } = renderHook(() => useNavLayout());
+    const keys = result.current.topNavItems.map((navItem) => navItem.key);
+    expect(keys.indexOf('goals')).toBe(keys.indexOf('tasks') + 1);
   });
 
   it('keeps Memory visible in personal mode', async () => {

@@ -1,6 +1,4 @@
 // @vitest-environment node
-import { readFileSync } from 'node:fs';
-
 import { PGlite } from '@electric-sql/pglite';
 import type { AgentState } from '@lobechat/agent-runtime';
 import type { UIChatMessage } from '@lobechat/types';
@@ -13,6 +11,7 @@ import type { LobeChatDatabase } from '@/database/type';
 import type { RuntimeMessageStore } from '@/server/modules/AgentRuntime/context';
 
 import { runChannelNative } from '../../../../apps/server/src/services/channel/native/host';
+import { channelMigrationSql } from '../../tests/channelMigrations';
 import * as schema from '../privateSchemas/channel';
 
 /**
@@ -93,24 +92,7 @@ it('runs a Channel member through execAgent against the private transcript only'
     await client.exec(
       "create table users (id text primary key); insert into users values ('owner');",
     );
-    await client.exec(
-      readFileSync(
-        new URL(
-          '../../../../../packages/enterprise/src/database/migrations/0009_channel_mvp.sql',
-          import.meta.url,
-        ),
-        'utf8',
-      ).replaceAll('--> statement-breakpoint', ''),
-    );
-    await client.exec(
-      readFileSync(
-        new URL(
-          '../../../../../packages/enterprise/src/database/migrations/0010_channel_attachments.sql',
-          import.meta.url,
-        ),
-        'utf8',
-      ),
-    );
+    await client.exec(channelMigrationSql());
     const db = drizzle(client, { schema }) as unknown as LobeChatDatabase;
     const model = new ChannelModel(db, 'owner');
     const config = {

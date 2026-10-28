@@ -39,6 +39,15 @@ if (distributionName && !electronIs.dev()) {
   app.setPath('userData', path.join(app.getPath('appData'), userDataName));
 }
 
+// The Windows sandbox stages under C:\ProgramData\<name>\sandbox, named by
+// LOBE_SANDBOX_STAGING_NAME (packages/device-sandbox/src/srtWinStaging.ts) and
+// defaulting to upstream's product. The CLI already sets it to its own product
+// name; the desktop has to as well, or a rebranded install leaves a directory
+// named after a different product on the user's machine.
+if (distributionName && !process.env.LOBE_SANDBOX_STAGING_NAME) {
+  process.env.LOBE_SANDBOX_STAGING_NAME = distributionName;
+}
+
 // Dev uses the same `app://renderer/` origin as prod, so localStorage / cookies /
 // IndexedDB would collide if both shared the packaged app's userData dir. Pin dev
 // to a sibling directory so prod sessions stay clean.

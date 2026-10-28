@@ -1,17 +1,17 @@
 'use client';
 
-import { Flexbox } from '@lobehub/ui';
-import { Alert, Button } from '@lobehub/ui/base-ui';
-import { cssVar } from 'antd-style';
+import { Alert, Button, cssVar, Flexbox } from '@lobehub/ui';
 import { memo, type PropsWithChildren, useEffect, useLayoutEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { DEFAULT_PREFERENCE } from '@/const/user';
+import { isTenantUnavailableCode } from '@/features/Auth/utils/tenantUnavailable';
+import { SwitchOrganizationLink } from '@/features/TenantDiscovery/SwitchOrganizationLink';
 import { useSession } from '@/libs/better-auth/auth-client';
 import { useAppPainted } from '@/spa/atoms/app';
 import { removeStaticLoadingScreen } from '@/spa/loadingScreen';
 import { useUserStore } from '@/store/user';
-import { readUserDisplaySnapshot } from '@/store/user/displaySnapshot';
+import { readUserDisplaySnapshot, userFromDisplaySnapshot } from '@/store/user/displaySnapshot';
 import { type LobeUser } from '@/types/user';
 
 /**
@@ -26,11 +26,14 @@ const UserUpdater = memo(({ children }: PropsWithChildren) => {
   /** Background session failures must not block an identity that already resolved. */
   const isInitialIdentityUnresolved = !useUserStore((state) => state.isLoaded);
   const status = error?.status;
+  const tenantUnavailable =
+    !!error && isTenantUnavailableCode('code' in error ? error.code : undefined);
   const retryable = !!error && (!status || status >= 500 || status === 408 || status === 429);
   const failed =
     isInitialIdentityUnresolved && !!error && status !== 401 && (!retryable || retryAttempt >= 3);
   /** A confirmed sign-out still needs a painted destination after recovery removed the splash. */
   const showRecovery =
+    tenantUnavailable ||
     failed ||
     (recoveryVisible && ((!!error && status !== 401) || isPending || isRefetching || !appPainted));
 
@@ -90,7 +93,8 @@ const UserUpdater = memo(({ children }: PropsWithChildren) => {
           isLoaded: true,
           isSignedIn: true,
           preference: baseUser ? state.preference : (snapshot?.preference ?? DEFAULT_PREFERENCE),
-          user: {
+          ...(snapshot?.settings && { settings: snapshot.settings }),
+          user: userFromDisplaySnapshot(snapshot, {
             ...baseUser,
             // Preserve avatar from settings, don't override with auth provider value
             avatar: baseUser?.avatar ?? snapshot?.avatar ?? '',
@@ -105,7 +109,7 @@ const UserUpdater = memo(({ children }: PropsWithChildren) => {
             fullName: baseUser?.fullName || betterAuthUser.name,
             id: betterAuthUser.id,
             username: betterAuthUser.username,
-          } as LobeUser,
+          } as LobeUser),
         };
       });
       return;
@@ -141,19 +145,32 @@ const UserUpdater = memo(({ children }: PropsWithChildren) => {
         >
           <Alert
             showIcon
-            description={t('auth:session.checkFailed.description')}
-            title={t('auth:session.checkFailed.title')}
             type="error"
+            description={t(
+              tenantUnavailable
+                ? 'auth:tenant.unavailable.description'
+                : 'auth:session.checkFailed.description',
+            )}
+            title={t(
+              tenantUnavailable
+                ? 'auth:tenant.unavailable.title'
+                : 'auth:session.checkFailed.title',
+            )}
           />
-          <Button
-            loading={isPending || isRefetching || (!failed && recoveryVisible)}
-            onClick={() => {
-              setRetryAttempt(0);
-              void refetch();
-            }}
-          >
-            {t('common:retry')}
-          </Button>
+          <Flexbox horizontal gap={8}>
+            <Button
+              loading={
+                isPending || isRefetching || (!failed && !tenantUnavailable && recoveryVisible)
+              }
+              onClick={() => {
+                setRetryAttempt(0);
+                void refetch();
+              }}
+            >
+              {t('common:retry')}
+            </Button>
+            {tenantUnavailable && <SwitchOrganizationLink originFallback appearance={'button'} />}
+          </Flexbox>
         </Flexbox>
       )}
     </>

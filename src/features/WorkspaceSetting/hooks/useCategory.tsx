@@ -1,5 +1,5 @@
-import { isDesktop } from '@lobechat/const';
-import { Avatar } from '@lobehub/ui/base-ui';
+import { useAppAssetUrl } from '@lobechat/business-tenant/client';
+import { Avatar } from '@lobehub/ui';
 import { SkillsIcon } from '@lobehub/ui/icons';
 import {
   AppWindowIcon,
@@ -22,19 +22,19 @@ import {
   KeyRound,
   Map,
   MessageCircleIcon,
+  MessagesSquareIcon,
   MonitorSmartphoneIcon,
   PaletteIcon,
   ScrollText,
   Sparkles,
   TagIcon,
   Users,
+  UsersRound,
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { usePermission } from '@/hooks/usePermission';
-import { useElectronStore } from '@/store/electron';
-import { electronSyncSelectors } from '@/store/electron/selectors';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useUserStore } from '@/store/user';
 import { labPreferSelectors, userProfileSelectors } from '@/store/user/selectors';
@@ -84,15 +84,9 @@ export const useWorkspaceSettingCategory = (): WorkspaceSettingCategoryGroup[] =
     userProfileSelectors.userAvatar(s),
     userProfileSelectors.nickName(s),
   ]);
-  const remoteServerUrl = useElectronStore(electronSyncSelectors.remoteServerUrl);
 
-  const avatarUrl = useMemo(() => {
-    if (!avatar) return undefined;
-    if (isDesktop && avatar.startsWith('/') && remoteServerUrl) {
-      return remoteServerUrl + avatar;
-    }
-    return avatar;
-  }, [avatar, remoteServerUrl]);
+  // On desktop a server-relative avatar is mounted under the remote server address
+  const avatarUrl = useAppAssetUrl(avatar || undefined);
 
   return useMemo(
     () =>
@@ -121,6 +115,14 @@ export const useWorkspaceSettingCategory = (): WorkspaceSettingCategoryGroup[] =
               icon: KeyboardIcon,
               key: WorkspaceSettingsTabs.Hotkey,
               label: t('tab.hotkey'),
+            },
+            // Follow-up chips / input completion act on the member's own chat
+            // surface, so every role configures them here — the workspace
+            // Service Model page stays admin-only.
+            {
+              icon: MessagesSquareIcon,
+              key: WorkspaceSettingsTabs.ChatPreference,
+              label: t('tab.chatPreference'),
             },
             // The System Bot binding is a per-user identity (owned by userId,
             // not the workspace); reaching a workspace's agents happens via the
@@ -157,6 +159,11 @@ export const useWorkspaceSettingCategory = (): WorkspaceSettingCategoryGroup[] =
               icon: Users,
               key: WorkspaceSettingsTabs.Members,
               label: t('workspaceSetting.tab.members'),
+            },
+            {
+              icon: UsersRound,
+              key: WorkspaceSettingsTabs.Teams,
+              label: t('workspaceSetting.tab.teams'),
             },
             {
               icon: MonitorSmartphoneIcon,

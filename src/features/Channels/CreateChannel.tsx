@@ -1,5 +1,13 @@
-import { EditableText, Flexbox, Icon } from '@lobehub/ui';
-import { Button, createModal, Input, Text, useModalContext } from '@lobehub/ui/base-ui';
+import {
+  Button,
+  createModal,
+  EditableText,
+  Flexbox,
+  Icon,
+  Input,
+  Text,
+  useModalContext,
+} from '@lobehub/ui';
 import { t } from 'i18next';
 import { Hash } from 'lucide-react';
 import { type RefObject, useEffect, useRef } from 'react';

@@ -1,5 +1,10 @@
 import type { DeviceMetricSample } from '@lobechat/types';
 
+import type {
+  GatewayCommandBinding,
+  GatewayConfirmation,
+} from '../../agent-gateway-client/src/tenancy';
+
 // ─── Device Info ───
 
 /** A single live gateway WebSocket connection belonging to a device. */
@@ -40,6 +45,10 @@ export interface DeviceSystemInfo {
   homePath: string;
   musicPath?: string;
   picturesPath?: string;
+  /** Native agent protocol versions supported by this live connection; absent on older clients.
+   * `codex-app-server-v1` runs `lh hetero exec --codex-app-server` with native turn provenance.
+   */
+  supportedAgentRuntimes?: string[];
   /** Opt-in tool identifiers supported by this client; absent on older clients. */
   supportedTools?: string[];
   userDataPath: string;
@@ -52,6 +61,7 @@ export interface DeviceSystemInfo {
 // Client → Server
 export interface AuthMessage {
   serverUrl?: string;
+  tenancyProtocol: 1;
   token: string;
   tokenType?: 'apiKey' | 'jwt' | 'serviceToken';
   type: 'auth';
@@ -61,7 +71,9 @@ export interface HeartbeatMessage {
   type: 'heartbeat';
 }
 
-export interface ToolCallResponseMessage {
+export interface ToolCallResponseMessage extends Partial<GatewayCommandBinding> {
+  executionSignal?: AbortSignal;
+  isExecutionCurrent?: () => boolean;
   requestId: string;
   result: {
     content: string;
@@ -83,7 +95,9 @@ export interface ToolCallResponseMessage {
   type: 'tool_call_response';
 }
 
-export interface MessageApiResponseMessage {
+export interface MessageApiResponseMessage extends Partial<GatewayCommandBinding> {
+  executionSignal?: AbortSignal;
+  isExecutionCurrent?: () => boolean;
   requestId: string;
   result: {
     content: string;
@@ -165,7 +179,9 @@ export type GatewayMcpParams = GatewayMcpStdioParams | GatewayMcpHttpParams;
  */
 export type GatewayToolCallType = 'tool' | 'mcp';
 
-export interface ToolCallRequestMessage {
+export interface ToolCallRequestMessage extends Partial<GatewayCommandBinding> {
+  executionSignal?: AbortSignal;
+  isExecutionCurrent?: () => boolean;
   /** Operation that triggered the call, propagated by the gateway for tracing. */
   operationId?: string;
   requestId: string;
@@ -187,24 +203,30 @@ export interface ToolCallRequestMessage {
   type: 'tool_call_request';
 }
 
-export interface MessageApiRequestMessage {
+export interface MessageApiRequestMessage extends Partial<GatewayCommandBinding> {
   api: {
     apiName: string;
     payload: Record<string, unknown>;
     platform: string;
   };
+  executionSignal?: AbortSignal;
+  isExecutionCurrent?: () => boolean;
   requestId: string;
   type: 'message_api_request';
 }
 
 // Server → Client
-export interface SystemInfoRequestMessage {
+export interface SystemInfoRequestMessage extends Partial<GatewayCommandBinding> {
+  executionSignal?: AbortSignal;
+  isExecutionCurrent?: () => boolean;
   requestId: string;
   type: 'system_info_request';
 }
 
 // Client → Server
-export interface SystemInfoResponseMessage {
+export interface SystemInfoResponseMessage extends Partial<GatewayCommandBinding> {
+  executionSignal?: AbortSignal;
+  isExecutionCurrent?: () => boolean;
   requestId: string;
   result: {
     success: boolean;
@@ -220,7 +242,9 @@ export interface SystemInfoResponseMessage {
 // new entry in the device-side RPC dispatcher.
 
 // Server → Client
-export interface RpcRequestMessage {
+export interface RpcRequestMessage extends Partial<GatewayCommandBinding> {
+  executionSignal?: AbortSignal;
+  isExecutionCurrent?: () => boolean;
   /** Name of the device-side method to invoke (e.g. `initWorkspace`). */
   method: string;
   /** JSON-serializable arguments for the method. */
@@ -232,7 +256,9 @@ export interface RpcRequestMessage {
 }
 
 // Client → Server
-export interface RpcResponseMessage {
+export interface RpcResponseMessage extends Partial<GatewayCommandBinding> {
+  executionSignal?: AbortSignal;
+  isExecutionCurrent?: () => boolean;
   requestId: string;
   result: {
     /** Method return value, present when `success`. */
@@ -244,7 +270,7 @@ export interface RpcResponseMessage {
 }
 
 /** Server → Client: request the desktop to spawn `lh hetero exec`. */
-export interface AgentRunRequestMessage {
+export interface AgentRunRequestMessage extends Partial<GatewayCommandBinding> {
   agentId?: string;
   agentType: string;
   /**
@@ -256,6 +282,7 @@ export interface AgentRunRequestMessage {
   /** Seed assistant message that receives terminal state from the CLI run. */
   assistantMessageId?: string;
   cwd?: string;
+  executionSignal?: AbortSignal;
   /**
    * Image attachments from the user message, as URLs the device can fetch
    * (signed S3 URLs). Appended as image content blocks after the prompt so
@@ -269,6 +296,7 @@ export interface AgentRunRequestMessage {
    * Naive gateways forward the POST body as-is; devices accept either field.
    */
   ingestWorkspaceId?: string;
+  isExecutionCurrent?: () => boolean;
   jwt: string;
   operationId: string;
   prompt: string;
@@ -470,7 +498,9 @@ export type TunnelClientFrame =
   | TunnelWsOpenAckMessage;
 
 /** Client → Server: acknowledgement for an agent_run_request. */
-export interface AgentRunAckMessage {
+export interface AgentRunAckMessage extends Partial<GatewayCommandBinding> {
+  executionSignal?: AbortSignal;
+  isExecutionCurrent?: () => boolean;
   operationId: string;
   reason?: string;
   status: 'accepted' | 'rejected';
@@ -488,6 +518,7 @@ export type ClientMessage =
   | ToolCallResponseMessage
   | TunnelClientFrame;
 export type ServerMessage =
+  | GatewayConfirmation
   | AgentRunRequestMessage
   | AuthExpiredMessage
   | AuthFailedMessage

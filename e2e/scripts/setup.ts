@@ -251,7 +251,14 @@ async function runMigration(): Promise<void> {
     KEY_VAULTS_SECRET: CONFIG.secrets.keyVaultsSecret,
   });
 
-  log('✅', 'Database migration completed');
+  await execAsync('bunx', ['tsx', 'e2e/scripts/provisionTenant.ts'], {
+    DATABASE_DRIVER: CONFIG.databaseDriver,
+    DATABASE_URL: CONFIG.databaseUrl,
+    E2E_ISOLATED_DATABASE: '1',
+    KEY_VAULTS_SECRET: CONFIG.secrets.keyVaultsSecret,
+  });
+
+  log('✅', 'Database migration and E2E tenant provisioning completed');
 }
 
 // ============================================================================

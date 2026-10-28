@@ -1,0 +1,1063 @@
+{
+  "$comment": "Console-owned statement rewrite contract for tenant migration chains. Each case is one migration statement written for `sourceSchema` (public by default, or the placeholder `tenant_template` an Enterprise chain is generated against), run into `targetSchema`; `expected` is what the runner must send (`sql`), skip (`dropped`) or refuse (`rejected`, always before anything is sent). Applications keep byte-identical copies (`bun run contracts:check`) and replay every case against their own rewrite. `expected` comes from running CPC's materializeTenantMigrations (the whole pipeline: rewrite, extension and transaction rules, safety preflight, leftover-placeholder check) over a one-statement migration; nothing is written by hand except the cases with `expectedFrom: \"contract\"`, which CPC does not satisfy yet (`pendingAlignment` lists the applications that still have to be aligned; `cpcCurrently` is what CPC returns today). Cases with `marketDefault: true` target `public` and only apply to Market's default instance. `marketOnlyDivergence` marks a statement Market accepts although the generic rule refuses it: replays skip it for Market.",
+  "cases": [
+    {
+      "name": "qualifier-bare",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "ALTER TABLE public.users ADD COLUMN label text",
+      "expected": {
+        "kind": "sql",
+        "sql": "ALTER TABLE \"tenant_0123456789abcdef01234567\".users ADD COLUMN label text"
+      }
+    },
+    {
+      "name": "qualifier-quoted-in-reference",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "ALTER TABLE \"files\" ADD CONSTRAINT \"fk\" FOREIGN KEY (\"user_id\") REFERENCES \"public\".\"users\"(\"id\")",
+      "expected": {
+        "kind": "sql",
+        "sql": "ALTER TABLE \"files\" ADD CONSTRAINT \"fk\" FOREIGN KEY (\"user_id\") REFERENCES \"tenant_0123456789abcdef01234567\".\"users\"(\"id\")"
+      }
+    },
+    {
+      "name": "qualifier-quoted-at-statement-start",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "\"public\".users",
+      "expected": {
+        "kind": "sql",
+        "sql": "\"tenant_0123456789abcdef01234567\".users"
+      }
+    },
+    {
+      "name": "qualifier-second-target",
+      "targetSchema": "tenant_e0bab8abe103e646d8c0907b",
+      "statement": "CREATE INDEX idx_a ON public.users (name)",
+      "expected": {
+        "kind": "sql",
+        "sql": "CREATE INDEX idx_a ON \"tenant_e0bab8abe103e646d8c0907b\".users (name)"
+      }
+    },
+    {
+      "name": "qualifier-inside-do-body",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $$ BEGIN ALTER TABLE public.users ADD COLUMN x text; END $$",
+      "expected": {
+        "kind": "sql",
+        "sql": "DO $$ BEGIN ALTER TABLE \"tenant_0123456789abcdef01234567\".users ADD COLUMN x text; END $$"
+      }
+    },
+    {
+      "name": "qualifier-multiple-in-one-statement",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "INSERT INTO public.a SELECT * FROM public.b JOIN \"public\".\"c\" ON true",
+      "expected": {
+        "kind": "sql",
+        "sql": "INSERT INTO \"tenant_0123456789abcdef01234567\".a SELECT * FROM \"tenant_0123456789abcdef01234567\".b JOIN \"tenant_0123456789abcdef01234567\".\"c\" ON true"
+      }
+    },
+    {
+      "name": "qualifier-after-dot-is-not-a-qualifier",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT a.public.b FROM t",
+      "expected": {
+        "kind": "sql",
+        "sql": "SELECT a.public.b FROM t"
+      }
+    },
+    {
+      "name": "qualifier-word-boundary",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT is_public.x, xpublic.y FROM t",
+      "expected": {
+        "kind": "sql",
+        "sql": "SELECT is_public.x, xpublic.y FROM t"
+      }
+    },
+    {
+      "name": "qualifier-dollar-prefixed-is-not-a-qualifier",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT $public.x FROM t",
+      "expected": {
+        "kind": "sql",
+        "sql": "SELECT $public.x FROM t"
+      }
+    },
+    {
+      "name": "qualifier-multiline-statement",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "CREATE TABLE public.t (\n  id text PRIMARY KEY,\n  owner_id text REFERENCES public.users (id)\n)",
+      "expected": {
+        "kind": "sql",
+        "sql": "CREATE TABLE \"tenant_0123456789abcdef01234567\".t (\n  id text PRIMARY KEY,\n  owner_id text REFERENCES \"tenant_0123456789abcdef01234567\".users (id)\n)"
+      }
+    },
+    {
+      "name": "data-single-quoted-strings-and-comments-untouched",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "UPDATE public.users SET name = 'hello public.Foo', avatar = '\"public\".photo' -- public.comment\nWHERE name = 'public.users';",
+      "expected": {
+        "kind": "sql",
+        "sql": "UPDATE \"tenant_0123456789abcdef01234567\".users SET name = 'hello public.Foo', avatar = '\"public\".photo' -- public.comment\nWHERE name = 'public.users';"
+      }
+    },
+    {
+      "name": "data-block-comment-untouched",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "ALTER TABLE public.t /* public.x and \"public\".y */ ADD COLUMN z int",
+      "expected": {
+        "kind": "sql",
+        "sql": "ALTER TABLE \"tenant_0123456789abcdef01234567\".t /* public.x and \"public\".y */ ADD COLUMN z int"
+      }
+    },
+    {
+      "name": "data-dollar-quoted-data-untouched",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "INSERT INTO public.users (name) VALUES ($data$public.Foo$data$)",
+      "expected": {
+        "kind": "sql",
+        "sql": "INSERT INTO \"tenant_0123456789abcdef01234567\".users (name) VALUES ($data$public.Foo$data$)"
+      }
+    },
+    {
+      "name": "data-escape-string-untouched",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "INSERT INTO public.t (v) VALUES (E'it\\'s public.x')",
+      "expected": {
+        "kind": "sql",
+        "sql": "INSERT INTO \"tenant_0123456789abcdef01234567\".t (v) VALUES (E'it\\'s public.x')"
+      }
+    },
+    {
+      "name": "data-doubled-quote-untouched",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "INSERT INTO public.t (v) VALUES ('it''s public.x')",
+      "expected": {
+        "kind": "sql",
+        "sql": "INSERT INTO \"tenant_0123456789abcdef01234567\".t (v) VALUES ('it''s public.x')"
+      }
+    },
+    {
+      "name": "data-quoted-identifier-containing-public-dot-untouched",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT \"public.x\" FROM public.t",
+      "expected": {
+        "kind": "sql",
+        "sql": "SELECT \"public.x\" FROM \"tenant_0123456789abcdef01234567\".t"
+      }
+    },
+    {
+      "name": "data-word-public-as-value",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "ALTER TABLE \"agents\" ADD COLUMN \"visibility\" text DEFAULT 'public' NOT NULL; SELECT is_public.x FROM t",
+      "expected": {
+        "kind": "sql",
+        "sql": "ALTER TABLE \"agents\" ADD COLUMN \"visibility\" text DEFAULT 'public' NOT NULL; SELECT is_public.x FROM t"
+      }
+    },
+    {
+      "name": "unsafe-quoted-public-as-column-name",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT \"a\".\"public\".y FROM t",
+      "expected": {
+        "kind": "rejected"
+      },
+      "note": "A quoted \"public\" that is not a qualifier is neither rewritten nor accepted: the safety check refuses any remaining \"public\"."
+    },
+    {
+      "name": "regclass-to_regclass-literal-rewritten",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT to_regclass('public.topic_comments')",
+      "expected": {
+        "kind": "sql",
+        "sql": "SELECT to_regclass('\"tenant_0123456789abcdef01234567\".topic_comments')"
+      }
+    },
+    {
+      "name": "regclass-cast-literal-rewritten",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT 'public.goal_nodes'::regclass",
+      "expected": {
+        "kind": "sql",
+        "sql": "SELECT '\"tenant_0123456789abcdef01234567\".goal_nodes'::regclass"
+      }
+    },
+    {
+      "name": "regclass-quoted-schema-literal-rewritten",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT to_regclass('\"public\".topic_comments'), '\"public\".goal_nodes'::regclass",
+      "expected": {
+        "kind": "sql",
+        "sql": "SELECT to_regclass('\"tenant_0123456789abcdef01234567\".topic_comments'), '\"tenant_0123456789abcdef01234567\".goal_nodes'::regclass"
+      }
+    },
+    {
+      "name": "regclass-pg_catalog-cast-rewritten",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT 'public.a'::pg_catalog.regclass",
+      "expected": {
+        "kind": "sql",
+        "sql": "SELECT '\"tenant_0123456789abcdef01234567\".a'::pg_catalog.regclass"
+      }
+    },
+    {
+      "name": "regclass-cast-with-spaces-rewritten",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT 'public.a' :: regclass",
+      "expected": {
+        "kind": "sql",
+        "sql": "SELECT '\"tenant_0123456789abcdef01234567\".a' :: regclass"
+      }
+    },
+    {
+      "name": "regclass-to_regclass-with-space-rewritten",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT to_regclass ( 'public.a' )",
+      "expected": {
+        "kind": "sql",
+        "sql": "SELECT to_regclass ( '\"tenant_0123456789abcdef01234567\".a' )"
+      }
+    },
+    {
+      "name": "regclass-exception-only-for-relation-contexts",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT 'public.a'::text, format('%s', 'public.b'), to_regclass(concat('public.c', 'x'))",
+      "expected": {
+        "kind": "sql",
+        "sql": "SELECT 'public.a'::text, format('%s', 'public.b'), to_regclass(concat('public.c', 'x'))"
+      }
+    },
+    {
+      "name": "regclass-literal-without-schema-untouched",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT to_regclass('users'), 'users'::regclass",
+      "expected": {
+        "kind": "sql",
+        "sql": "SELECT to_regclass('users'), 'users'::regclass"
+      }
+    },
+    {
+      "name": "regclass-literal-inside-do-body",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $$ BEGIN IF to_regclass('public.t') IS NULL THEN CREATE TABLE public.t (id int); END IF; END $$",
+      "expected": {
+        "kind": "sql",
+        "sql": "DO $$ BEGIN IF to_regclass('\"tenant_0123456789abcdef01234567\".t') IS NULL THEN CREATE TABLE \"tenant_0123456789abcdef01234567\".t (id int); END IF; END $$"
+      }
+    },
+    {
+      "name": "transaction-begin-dropped",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "\nBEGIN;",
+      "expected": {
+        "kind": "dropped"
+      }
+    },
+    {
+      "name": "transaction-commit-dropped",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "\n\nCOMMIT;",
+      "expected": {
+        "kind": "dropped"
+      }
+    },
+    {
+      "name": "transaction-begin-without-semicolon-dropped",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "begin",
+      "expected": {
+        "kind": "dropped"
+      }
+    },
+    {
+      "name": "transaction-commit-with-header-comment-dropped",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "-- Custom SQL migration file, put your code below! --\nCOMMIT;",
+      "expected": {
+        "kind": "dropped"
+      }
+    },
+    {
+      "name": "transaction-comment-only-dropped",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "-- only a comment\n",
+      "expected": {
+        "kind": "dropped"
+      }
+    },
+    {
+      "name": "transaction-empty-dropped",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "",
+      "expected": {
+        "kind": "dropped"
+      }
+    },
+    {
+      "name": "transaction-whitespace-only-dropped",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": " \n\t ",
+      "expected": {
+        "kind": "dropped"
+      }
+    },
+    {
+      "name": "transaction-begin-with-body-is-not-control",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "BEGIN; SELECT 1;",
+      "expected": {
+        "kind": "sql",
+        "sql": "BEGIN; SELECT 1;"
+      },
+      "note": "Only a bare BEGIN/COMMIT statement is dropped; BEGIN followed by anything else runs (and is later refused only if unsafe)."
+    },
+    {
+      "name": "extension-create-if-not-exists-becomes-installed-check",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "CREATE EXTENSION IF NOT EXISTS vector;",
+      "expected": {
+        "kind": "sql",
+        "sql": "DO $ext$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN RAISE EXCEPTION 'extension vector is not installed'; END IF; END $ext$"
+      }
+    },
+    {
+      "name": "extension-with-header-comment",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "-- Custom SQL migration file, put your code below! --\nCREATE EXTENSION IF NOT EXISTS vector;",
+      "expected": {
+        "kind": "sql",
+        "sql": "DO $ext$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN RAISE EXCEPTION 'extension vector is not installed'; END IF; END $ext$"
+      }
+    },
+    {
+      "name": "extension-quoted-name",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "CREATE EXTENSION IF NOT EXISTS \"pg_trgm\"",
+      "expected": {
+        "kind": "sql",
+        "sql": "DO $ext$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN RAISE EXCEPTION 'extension pg_trgm is not installed'; END IF; END $ext$"
+      }
+    },
+    {
+      "name": "extension-lowercase-keywords-no-semicolon",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "create extension if not exists hstore",
+      "expected": {
+        "kind": "sql",
+        "sql": "DO $ext$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'hstore') THEN RAISE EXCEPTION 'extension hstore is not installed'; END IF; END $ext$"
+      }
+    },
+    {
+      "name": "extension-without-if-not-exists-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "CREATE EXTENSION vector",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "extension-with-schema-clause-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "extension-with-other-statement-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "CREATE EXTENSION IF NOT EXISTS vector; SELECT 1",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "extension-alter-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "ALTER EXTENSION vector SET SCHEMA other",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "extension-drop-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DROP EXTENSION vector",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "extension-inside-do-body-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $$ BEGIN CREATE EXTENSION pg_search; END $$",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "extension-comment-obfuscated-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $$ BEGIN CREATE /* c */ EXTENSION IF NOT EXISTS pg_search; END $$;",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "extension-line-comment-obfuscated-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $body$ BEGIN CREATE -- c\nEXTENSION pg_search; END $body$;",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "extension-carriage-return-comment-obfuscated-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $body$ BEGIN CREATE -- c\rEXTENSION pg_search; END $body$;",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "extension-in-nested-dollar-body-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $$ BEGIN EXECUTE $sql$CREATE /* c */ EXTENSION pg_search$sql$; END $$;",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "extension-words-in-string-literal-rejected-conservatively",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT 'CREATE EXTENSION pg_search'",
+      "expected": {
+        "kind": "rejected"
+      },
+      "note": "The safety check looks at code with comments removed but data kept: forbidden words inside a literal are refused."
+    },
+    {
+      "name": "pg_search-reviewed-wrapper",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $$\nBEGIN\n  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search') THEN\n    CREATE EXTENSION IF NOT EXISTS pg_search;\n  ELSE\n    RAISE NOTICE 'pg_search is not available on this database; skipping BM25 search setup';\n  END IF;\nEND $$;",
+      "expected": {
+        "kind": "sql",
+        "sql": "DO $ext$ BEGIN\n      IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search')\n        AND NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_search') THEN\n        RAISE EXCEPTION 'extension pg_search is not installed';\n      END IF;\n    END $ext$"
+      }
+    },
+    {
+      "name": "pg_search-wrapper-with-header-comment-and-whitespace",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "-- header\n\n\tDO $$\nBEGIN   \n\t  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search') THEN\n    CREATE EXTENSION IF NOT EXISTS pg_search;\n  ELSE\n    RAISE NOTICE 'pg_search is not available on this database; skipping BM25 search setup';\n  END IF;\nEND $$;",
+      "expected": {
+        "kind": "sql",
+        "sql": "DO $ext$ BEGIN\n      IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search')\n        AND NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_search') THEN\n        RAISE EXCEPTION 'extension pg_search is not installed';\n      END IF;\n    END $ext$"
+      }
+    },
+    {
+      "name": "pg_search-wrapper-changed-condition-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $$\nBEGIN\n  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector') THEN\n    CREATE EXTENSION IF NOT EXISTS pg_search;\n  ELSE\n    RAISE NOTICE 'pg_search is not available on this database; skipping BM25 search setup';\n  END IF;\nEND $$;",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "pg_search-wrapper-extra-branch-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $$\nBEGIN\n  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search') THEN\n    CREATE EXTENSION IF NOT EXISTS pg_search;\n  ELSE\n    RAISE NOTICE 'pg_search is not available on this database; skipping BM25 search setup';\n  END IF; PERFORM 1;\nEND $$;",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "pg_search-wrapper-block-comment-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $$\nBEGIN\n  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search') THEN\n    CREATE /* c */ EXTENSION IF NOT EXISTS pg_search;\n  ELSE\n    RAISE NOTICE 'pg_search is not available on this database; skipping BM25 search setup';\n  END IF;\nEND $$;",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "pg_search-wrapper-line-comment-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $$\nBEGIN\n  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search') THEN\n    CREATE -- c\nEXTENSION IF NOT EXISTS pg_search;\n  ELSE\n    RAISE NOTICE 'pg_search is not available on this database; skipping BM25 search setup';\n  END IF;\nEND $$;",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "pg_search-wrapper-changed-literal-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $$\nBEGIN\n  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search') THEN\n    CREATE EXTENSION IF NOT EXISTS pg_search;\n  ELSE\n    RAISE NOTICE 'pg_search is not available on this database; skipping BM25  search setup';\n  END IF;\nEND $$;",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "pg_search-wrapper-notice-injection-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $$\nBEGIN\n  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search') THEN\n    CREATE EXTENSION IF NOT EXISTS pg_search;\n  ELSE\n    RAISE NOTICE 'pg_search\n-- extra'; PERFORM 1; RAISE NOTICE '\nis not available on this database; skipping BM25 search setup';\n  END IF;\nEND $$;",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "unsafe-create-schema",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "CREATE SCHEMA other",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "unsafe-create-schema-if-not-exists",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "CREATE SCHEMA IF NOT EXISTS other",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "unsafe-drop-schema",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DROP SCHEMA other",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "unsafe-alter-schema",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "ALTER SCHEMA other RENAME TO another",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "unsafe-alter-database",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "ALTER DATABASE app SET search_path TO other",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "unsafe-set-search_path",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SET search_path TO other",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "unsafe-set-local-search_path",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SET LOCAL search_path TO other",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "unsafe-set-session-search_path",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SET SESSION search_path TO other",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "unsafe-set-role",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SET ROLE other",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "unsafe-set-local-role",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SET LOCAL ROLE other",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "unsafe-set-session-authorization",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SET SESSION AUTHORIZATION other",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "unsafe-set-config-search_path",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT set_config('search_path', 'other', true)",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "unsafe-set-config-with-comment",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT set_config(/* c */'search_path', 'other', true)",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "unsafe-set-schema",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "ALTER TABLE users SET SCHEMA other",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "unsafe-set-with-nested-comments",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SET /* nested /* c */ comment */ LOCAL -- c\nROLE other",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "unsafe-public-qualifier-split-by-comment",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT * FROM public /* c */ . users",
+      "expected": {
+        "kind": "rejected"
+      },
+      "note": "Not rewritten (the qualifier is not adjacent) and then refused because public is still named."
+    },
+    {
+      "name": "unsafe-search_path-pin-in-function-with-quoted-public",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "ALTER FUNCTION f() SET search_path = pg_catalog, \"public\", pg_temp",
+      "expected": {
+        "kind": "rejected"
+      },
+      "marketOnlyDivergence": true,
+      "note": "CPC refuses a quoted public that is not a qualifier. Market additionally rewrites this reviewed pin form; that is a Market-only rule and is not part of this contract (see divergences)."
+    },
+    {
+      "name": "lexical-unterminated-single-quote",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT 'unterminated",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "lexical-unterminated-double-quote",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT \"unterminated",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "lexical-unterminated-block-comment",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT 1 /* unterminated",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "lexical-unterminated-dollar-quote",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $body$ BEGIN NULL;",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "lexical-unterminated-unicode-dollar-quote",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $体$ BEGIN NULL;",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "lexical-unterminated-quote-inside-dollar-body",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $$ BEGIN RAISE NOTICE 'unterminated; END $$",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "allowed-ordinary-ddl-and-extension-read",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "ALTER TABLE users ADD COLUMN label text; SELECT 1 FROM pg_extension",
+      "expected": {
+        "kind": "sql",
+        "sql": "ALTER TABLE users ADD COLUMN label text; SELECT 1 FROM pg_extension"
+      }
+    },
+    {
+      "name": "allowed-comment-markers-inside-quoted-values",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $body$ BEGIN RAISE NOTICE 'it''s /* literal -- */ $$'; END $body$;\n       SELECT \"a--b/*c*/\", E'quote\\'--literal';",
+      "expected": {
+        "kind": "sql",
+        "sql": "DO $body$ BEGIN RAISE NOTICE 'it''s /* literal -- */ $$'; END $body$;\n       SELECT \"a--b/*c*/\", E'quote\\'--literal';"
+      }
+    },
+    {
+      "name": "allowed-unqualified-statement-unchanged",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "CREATE TABLE users (id text PRIMARY KEY)",
+      "expected": {
+        "kind": "sql",
+        "sql": "CREATE TABLE users (id text PRIMARY KEY)"
+      }
+    },
+    {
+      "name": "concurrently-create-index-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "CREATE INDEX CONCURRENTLY idx_a ON public.users (name)",
+      "expected": {
+        "kind": "rejected"
+      },
+      "note": "The whole chain runs in one transaction, which CONCURRENTLY cannot run in, so it is refused before anything is sent."
+    },
+    {
+      "name": "concurrently-drop-index-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DROP INDEX CONCURRENTLY public.idx_a",
+      "expected": {
+        "kind": "rejected"
+      },
+      "note": "See concurrently-create-index-rejected."
+    },
+    {
+      "name": "concurrently-lowercase-with-comment-rejected",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "create index /* c */ concurrently idx_b on public.users (name)",
+      "expected": {
+        "kind": "rejected"
+      },
+      "note": "See concurrently-create-index-rejected."
+    },
+    {
+      "name": "placeholder-quoted-and-bare-qualifiers",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "CREATE TABLE \"tenant_template\".\"a\" (\"id\" text);\n-- \"tenant_template\".\"comment\"\nALTER TABLE tenant_template.a ADD COLUMN note text DEFAULT 'tenant_template.x';",
+      "expected": {
+        "kind": "sql",
+        "sql": "CREATE TABLE \"tenant_0123456789abcdef01234567\".\"a\" (\"id\" text);\n-- \"tenant_template\".\"comment\"\nALTER TABLE \"tenant_0123456789abcdef01234567\".a ADD COLUMN note text DEFAULT 'tenant_template.x';"
+      }
+    },
+    {
+      "name": "placeholder-in-reference",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "ALTER TABLE \"t\" ADD CONSTRAINT \"f\" FOREIGN KEY (\"u\") REFERENCES \"tenant_template\".\"users\"(\"id\")",
+      "expected": {
+        "kind": "sql",
+        "sql": "ALTER TABLE \"t\" ADD CONSTRAINT \"f\" FOREIGN KEY (\"u\") REFERENCES \"tenant_0123456789abcdef01234567\".\"users\"(\"id\")"
+      }
+    },
+    {
+      "name": "placeholder-regclass-literals",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT to_regclass('\"tenant_template\".a'), 'tenant_template.b'::regclass",
+      "expected": {
+        "kind": "sql",
+        "sql": "SELECT to_regclass('\"tenant_0123456789abcdef01234567\".a'), '\"tenant_0123456789abcdef01234567\".b'::regclass"
+      }
+    },
+    {
+      "name": "placeholder-literal-is-schema-name-in-any-context",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $h$ BEGIN PERFORM to_regclass(format('%I.%I', 'tenant_template', 'a')); RAISE NOTICE 'tenant_template.x'; END $h$",
+      "expected": {
+        "kind": "sql",
+        "sql": "DO $h$ BEGIN PERFORM to_regclass(format('%I.%I', 'tenant_0123456789abcdef01234567', 'a')); RAISE NOTICE 'tenant_template.x'; END $h$"
+      }
+    },
+    {
+      "name": "placeholder-literal-in-plain-function-call",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT format('%I.%I', 'tenant_template', 'a')",
+      "expected": {
+        "kind": "sql",
+        "sql": "SELECT format('%I.%I', 'tenant_0123456789abcdef01234567', 'a')"
+      }
+    },
+    {
+      "name": "placeholder-literal-with-more-text-untouched",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT 'tenant_template.x', 'my tenant_template'",
+      "expected": {
+        "kind": "sql",
+        "sql": "SELECT 'tenant_template.x', 'my tenant_template'"
+      }
+    },
+    {
+      "name": "placeholder-inside-do-body",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $$ BEGIN ALTER TABLE tenant_template.users ADD COLUMN x text; END $$",
+      "expected": {
+        "kind": "sql",
+        "sql": "DO $$ BEGIN ALTER TABLE \"tenant_0123456789abcdef01234567\".users ADD COLUMN x text; END $$"
+      }
+    },
+    {
+      "name": "placeholder-data-and-comments-untouched",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "UPDATE tenant_template.users SET name = 'hello tenant_template.Foo' -- tenant_template.comment\nWHERE name = 'tenant_template.users' AND \"tenant_template.x\" IS NULL",
+      "expected": {
+        "kind": "sql",
+        "sql": "UPDATE \"tenant_0123456789abcdef01234567\".users SET name = 'hello tenant_template.Foo' -- tenant_template.comment\nWHERE name = 'tenant_template.users' AND \"tenant_template.x\" IS NULL"
+      }
+    },
+    {
+      "name": "placeholder-after-dot-and-word-boundary",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT a.tenant_template.b, xtenant_template.c FROM t",
+      "expected": {
+        "kind": "sql",
+        "sql": "SELECT a.tenant_template.b, xtenant_template.c FROM t"
+      }
+    },
+    {
+      "name": "placeholder-second-target",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_e0bab8abe103e646d8c0907b",
+      "statement": "CREATE INDEX i ON tenant_template.users (name)",
+      "expected": {
+        "kind": "sql",
+        "sql": "CREATE INDEX i ON \"tenant_e0bab8abe103e646d8c0907b\".users (name)"
+      }
+    },
+    {
+      "name": "placeholder-bare-quoted-identifier-survives-rejected",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT \"tenant_template\" FROM t",
+      "expected": {
+        "kind": "rejected"
+      },
+      "note": "A quoted placeholder that is not a qualifier is neither rewritten nor allowed to remain."
+    },
+    {
+      "name": "placeholder-bare-qualifier-split-by-comment-rejected",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT * FROM tenant_template /* c */ . users",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "placeholder-set-schema-rejected",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "ALTER TABLE \"a\" SET SCHEMA \"tenant_template\"",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "placeholder-public-quoted-qualifier-rejected",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "CREATE TABLE \"public\".\"a\" (id text)",
+      "expected": {
+        "kind": "rejected"
+      },
+      "note": "In a placeholder chain public is real data of another schema: never rewritten, always refused."
+    },
+    {
+      "name": "placeholder-public-bare-qualifier-rejected",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DROP TABLE public.a",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "placeholder-transaction-dropped",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "BEGIN;",
+      "expected": {
+        "kind": "dropped"
+      }
+    },
+    {
+      "name": "placeholder-commit-dropped",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "COMMIT;",
+      "expected": {
+        "kind": "dropped"
+      }
+    },
+    {
+      "name": "placeholder-extension-installed-check",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "CREATE EXTENSION IF NOT EXISTS vector;",
+      "expected": {
+        "kind": "sql",
+        "sql": "DO $ext$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN RAISE EXCEPTION 'extension vector is not installed'; END IF; END $ext$"
+      }
+    },
+    {
+      "name": "placeholder-pg_search-reviewed-wrapper",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DO $$\nBEGIN\n  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search') THEN\n    CREATE EXTENSION IF NOT EXISTS pg_search;\n  ELSE\n    RAISE NOTICE 'pg_search is not available on this database; skipping BM25 search setup';\n  END IF;\nEND $$;",
+      "expected": {
+        "kind": "sql",
+        "sql": "DO $ext$ BEGIN\n      IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search')\n        AND NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_search') THEN\n        RAISE EXCEPTION 'extension pg_search is not installed';\n      END IF;\n    END $ext$"
+      }
+    },
+    {
+      "name": "placeholder-create-schema-rejected",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "CREATE SCHEMA \"tenant_template\"",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "placeholder-set-search_path-rejected",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SET search_path TO \"tenant_template\"",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "placeholder-drop-schema-rejected",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "DROP SCHEMA \"tenant_template\" CASCADE",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "placeholder-unqualified-unchanged",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "CREATE TABLE users (id text PRIMARY KEY)",
+      "expected": {
+        "kind": "sql",
+        "sql": "CREATE TABLE users (id text PRIMARY KEY)"
+      }
+    },
+    {
+      "name": "placeholder-lexical-unterminated-rejected",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "SELECT 'unterminated",
+      "expected": {
+        "kind": "rejected"
+      }
+    },
+    {
+      "name": "placeholder-concurrently-rejected",
+      "sourceSchema": "tenant_template",
+      "targetSchema": "tenant_0123456789abcdef01234567",
+      "statement": "CREATE INDEX CONCURRENTLY i ON tenant_template.users (name)",
+      "expected": {
+        "kind": "rejected"
+      },
+      "note": "See concurrently-create-index-rejected."
+    },
+    {
+      "name": "market-default-bare-qualifier",
+      "targetSchema": "public",
+      "statement": "ALTER TABLE public.users ADD COLUMN label text",
+      "expected": {
+        "kind": "sql",
+        "sql": "ALTER TABLE \"public\".users ADD COLUMN label text"
+      },
+      "marketDefault": true,
+      "note": "Market's default instance runs the same chain in `public`: the rewrite names the target, which is `public` itself. CPC's tenant runner refuses a non-tenant target name, so these expected values are CPC's `materializeTenantStatement` output for target `public` (rewrite, extension and transaction rules; the safety preflight that rejects a remaining `public` does not apply to a `public` target)."
+    },
+    {
+      "name": "market-default-quoted-qualifier",
+      "targetSchema": "public",
+      "statement": "ALTER TABLE \"files\" ADD CONSTRAINT \"fk\" FOREIGN KEY (\"user_id\") REFERENCES \"public\".\"users\"(\"id\")",
+      "expected": {
+        "kind": "sql",
+        "sql": "ALTER TABLE \"files\" ADD CONSTRAINT \"fk\" FOREIGN KEY (\"user_id\") REFERENCES \"public\".\"users\"(\"id\")"
+      },
+      "marketDefault": true,
+      "note": "Market's default instance runs the same chain in `public`: the rewrite names the target, which is `public` itself. CPC's tenant runner refuses a non-tenant target name, so these expected values are CPC's `materializeTenantStatement` output for target `public` (rewrite, extension and transaction rules; the safety preflight that rejects a remaining `public` does not apply to a `public` target)."
+    },
+    {
+      "name": "market-default-regclass-literals",
+      "targetSchema": "public",
+      "statement": "SELECT to_regclass('public.a'), '\"public\".b'::regclass, 'public.not_a_relation'",
+      "expected": {
+        "kind": "sql",
+        "sql": "SELECT to_regclass('\"public\".a'), '\"public\".b'::regclass, 'public.not_a_relation'"
+      },
+      "marketDefault": true,
+      "note": "Market's default instance runs the same chain in `public`: the rewrite names the target, which is `public` itself. CPC's tenant runner refuses a non-tenant target name, so these expected values are CPC's `materializeTenantStatement` output for target `public` (rewrite, extension and transaction rules; the safety preflight that rejects a remaining `public` does not apply to a `public` target)."
+    },
+    {
+      "name": "market-default-data-untouched",
+      "targetSchema": "public",
+      "statement": "UPDATE public.users SET name = 'public.Foo' -- public.comment",
+      "expected": {
+        "kind": "sql",
+        "sql": "UPDATE \"public\".users SET name = 'public.Foo' -- public.comment"
+      },
+      "marketDefault": true,
+      "note": "Market's default instance runs the same chain in `public`: the rewrite names the target, which is `public` itself. CPC's tenant runner refuses a non-tenant target name, so these expected values are CPC's `materializeTenantStatement` output for target `public` (rewrite, extension and transaction rules; the safety preflight that rejects a remaining `public` does not apply to a `public` target)."
+    },
+    {
+      "name": "market-default-transaction-dropped",
+      "targetSchema": "public",
+      "statement": "BEGIN;",
+      "expected": {
+        "kind": "dropped"
+      },
+      "marketDefault": true,
+      "note": "Market's default instance runs the same chain in `public`: the rewrite names the target, which is `public` itself. CPC's tenant runner refuses a non-tenant target name, so these expected values are CPC's `materializeTenantStatement` output for target `public` (rewrite, extension and transaction rules; the safety preflight that rejects a remaining `public` does not apply to a `public` target)."
+    },
+    {
+      "name": "market-default-extension-installed-check",
+      "targetSchema": "public",
+      "statement": "CREATE EXTENSION IF NOT EXISTS vector;",
+      "expected": {
+        "kind": "sql",
+        "sql": "DO $ext$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN RAISE EXCEPTION 'extension vector is not installed'; END IF; END $ext$"
+      },
+      "marketDefault": true,
+      "note": "Market's default instance runs the same chain in `public`: the rewrite names the target, which is `public` itself. CPC's tenant runner refuses a non-tenant target name, so these expected values are CPC's `materializeTenantStatement` output for target `public` (rewrite, extension and transaction rules; the safety preflight that rejects a remaining `public` does not apply to a `public` target)."
+    }
+  ],
+  "contract": "statement-rewrite",
+  "generatedFrom": {
+    "commit": "2f40f63217c22f60690ca1bf58918be79c417cc2",
+    "files": [
+      "packages/database/src/tenant/migrator.ts",
+      "packages/database/src/tenant/migrationSql.ts",
+      "packages/database/src/tenant/migrationSafety.ts"
+    ],
+    "repository": "lobehub-cpc"
+  },
+  "version": 1
+}

@@ -10,8 +10,10 @@
     "preview": "wrangler dev",
     "type-check": "tsc --noEmit"
   },
+  "dependencies": {
+    "@lobechat/business-tenant": "workspace:*"
+  },
   "devDependencies": {
-    "@ant-design/cssinjs": "^2.1.2",
     "@react-router/dev": "^8.3.0",
     "isbot": "^5.1.32",
     "vite-tsconfig-paths": "^6.1.1",

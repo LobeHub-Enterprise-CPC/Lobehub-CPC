@@ -262,7 +262,7 @@ describe('KnowledgeBaseSearchService', () => {
 
   describe('semanticSearchForChat', () => {
     beforeEach(() => {
-      vi.mocked(getServerDefaultFilesConfig).mockReturnValue({
+      vi.mocked(getServerDefaultFilesConfig).mockResolvedValue({
         embeddingModel: { model: 'text-embedding-3-small', provider: 'openai' },
       } as any);
       vi.mocked(initModelRuntimeFromDB).mockResolvedValue({

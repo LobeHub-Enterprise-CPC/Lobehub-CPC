@@ -1,12 +1,17 @@
 import type { ChatToolPayload } from '@lobechat/types';
 import debug from 'debug';
 
+import { createGatewayAttempt } from '@/server/services/gatewayAuthorization/attempts';
+import { operationGatewaySource } from '@/server/services/gatewayAuthorization/context';
+import {
+  loadGatewayOperation,
+  operationExecutionContext,
+} from '@/server/services/gatewayAuthorization/operationAuthority';
+import { waitForGatewayResult } from '@/server/services/gatewayAuthorization/waiter';
 import type { ToolExecutionResultResponse } from '@/server/services/toolExecution/types';
 
-import { getAgentRuntimeRedisClient } from './redis';
 import { GLOBAL_DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS, MIN_TIMEOUT_MS } from './resolveToolTimeout';
 import type { ToolResultPayload } from './ToolResultWaiter';
-import { ToolResultWaiter } from './ToolResultWaiter';
 import type { IStreamEventManager } from './types';
 
 const log = debug('lobe-server:agent-runtime:dispatch-client-tool');
@@ -20,6 +25,7 @@ interface DispatchContext {
   operationId: string;
   rootOperationId?: string;
   scope?: string | null;
+  signal?: AbortSignal;
   sourceMessageId?: string | null;
   streamManager: IStreamEventManager;
   taskId?: string | null;
@@ -82,20 +88,6 @@ export async function dispatchClientTool(
     );
   }
 
-  const redis = getAgentRuntimeRedisClient();
-  if (!redis) {
-    return buildErrorResult(
-      0,
-      'Redis is not available for tool result waiting',
-      'redis_unavailable',
-    );
-  }
-
-  // BLPOP holds the underlying socket, so we need a dedicated connection per
-  // dispatch. Cleanup in `finally` so we never leak on the error path.
-  const blockingClient = redis.duplicate();
-  const waiter = new ToolResultWaiter(blockingClient, redis);
-
   const timeoutMs = clampTimeout(ctx.timeoutMs ?? GLOBAL_DEFAULT_TIMEOUT_MS);
 
   try {
@@ -108,7 +100,20 @@ export async function dispatchClientTool(
       timeoutMs,
     );
 
+    const execution = await operationExecutionContext(operationId);
+    const row = await loadGatewayOperation(operationId);
+    const intent = await createGatewayAttempt({
+      ...execution,
+      source: operationGatewaySource(row.userId, operationId),
+      targetPrincipal: { kind: 'user', id: row.userId },
+      action: 'operations.tool-execute',
+      operationId,
+      toolCallId: chatToolPayload.id,
+      resourceId: operationId,
+      attemptExpiresAt: startedAt + timeoutMs,
+    });
     await streamManager.sendToolExecute(operationId, {
+      intent,
       agentId: ctx.agentId,
       apiName: chatToolPayload.apiName,
       arguments: chatToolPayload.arguments,
@@ -126,7 +131,17 @@ export async function dispatchClientTool(
       topicId: ctx.topicId,
     });
 
-    const result = await waiter.waitForResult(chatToolPayload.id, timeoutMs);
+    const callback = await waitForGatewayResult(
+      { operationId, toolCallId: chatToolPayload.id, attemptId: intent.attemptId },
+      {
+        execution,
+        expiresAt: intent.attemptExpiresAt,
+        signal: ctx.signal ?? new AbortController().signal,
+      },
+    );
+    if (callback.outcome !== 'completed')
+      return buildErrorResult(Date.now() - startedAt, callback.outcome, 'executionUnknown');
+    const result = callback.result as ToolResultPayload;
     const executionTime = Date.now() - startedAt;
 
     if (!result) {
@@ -144,8 +159,6 @@ export async function dispatchClientTool(
     const executionTime = Date.now() - startedAt;
     log('[%s] client tool dispatch failed: %O', operationId, error);
     return buildErrorResult(executionTime, error);
-  } finally {
-    blockingClient.disconnect();
   }
 }
 

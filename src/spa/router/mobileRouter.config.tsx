@@ -14,8 +14,10 @@ import { acceptanceRouteMeta } from '@/features/Acceptance/routeMeta';
 import { mobileAgentSettingsRouteMeta } from '@/features/RouteMeta/mobileRouteMeta';
 import WorkspaceProviderRedirect from '@/features/WorkspaceSetting/ProviderRedirect';
 import { agentRouteMeta } from '@/routes/(main)/agent/features/routeMeta';
+import { groupRouteMeta } from '@/routes/(main)/group/features/routeMeta';
 import { loadRouteWithBuiltinToolSurfaces } from '@/spa/initialize/toolSurfaces';
 import { agentChatTopicListLoader } from '@/spa/router/agentChatTopicListLoader';
+import { agentGroupAccessLoader } from '@/spa/router/resourceAccessLoader';
 import { routeMeta } from '@/spa/router/routeMeta';
 import { dynamicElement, dynamicLayout, ErrorBoundary, redirectElement } from '@/utils/router';
 
@@ -71,6 +73,40 @@ export const sharedMainAreaChildren: RouteObject[] = [
       },
     ],
     path: 'agent',
+  },
+
+  {
+    path: 'group',
+    children: [
+      { index: true, element: redirectElement('..') },
+      {
+        path: ':gid',
+        loader: agentGroupAccessLoader,
+        element: dynamicLayout(
+          () => import('@/routes/(mobile)/group/_layout'),
+          'Mobile > Group > Layout',
+          { preloadId: 'mobile-group' },
+        ),
+        handle: { meta: groupRouteMeta },
+        errorElement: <ErrorBoundary />,
+        children: [
+          {
+            index: true,
+            element: dynamicElement(
+              () => loadRouteWithBuiltinToolSurfaces(() => import('@/routes/(mobile)/group')),
+              'Mobile > Group',
+            ),
+          },
+          {
+            path: ':topicId',
+            element: dynamicElement(
+              () => loadRouteWithBuiltinToolSurfaces(() => import('@/routes/(mobile)/group')),
+              'Mobile > Group > Topic',
+            ),
+          },
+        ],
+      },
+    ],
   },
 
   // Discover routes with nested structure
@@ -509,6 +545,13 @@ export const mobileRoutes: RouteObject[] = [
               },
               {
                 element: dynamicElement(
+                  () => import('@/routes/(main)/[workspaceSlug]/settings/chat-preference'),
+                  'Mobile > Workspace > Settings > Chat Preference',
+                ),
+                path: 'chat-preference',
+              },
+              {
+                element: dynamicElement(
                   () => import('@/routes/(main)/[workspaceSlug]/settings/messenger'),
                   'Mobile > Workspace > Settings > Messenger',
                 ),
@@ -548,6 +591,20 @@ export const mobileRoutes: RouteObject[] = [
                   'Mobile > Workspace > Settings > Members',
                 ),
                 path: 'members',
+              },
+              {
+                element: dynamicElement(
+                  () => import('@/routes/(main)/[workspaceSlug]/settings/teams'),
+                  'Mobile > Workspace > Settings > Teams',
+                ),
+                path: 'teams',
+              },
+              {
+                element: dynamicElement(
+                  () => import('@/routes/(main)/[workspaceSlug]/settings/teams'),
+                  'Mobile > Workspace > Settings > Teams > Detail',
+                ),
+                path: 'teams/:teamId',
               },
               {
                 element: dynamicElement(

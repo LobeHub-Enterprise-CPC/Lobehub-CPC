@@ -37,7 +37,7 @@ export const businessFileExternalReferenceGuard: FileExternalReferenceGuard = as
   fileId: string,
 ) => {
   const table = await trx.execute<{ exists: boolean }>(sql`
-    SELECT to_regclass('public.channel_messages') IS NOT NULL AS exists
+    SELECT to_regclass('channel_messages') IS NOT NULL AS exists
   `);
   if (!table.rows[0]?.exists) return false;
 

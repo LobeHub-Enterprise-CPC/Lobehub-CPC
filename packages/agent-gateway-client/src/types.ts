@@ -1,5 +1,8 @@
 import type { UIChatMessage } from '@lobechat/types';
 
+import type { GatewayIdentityProvider } from '../../types/src/gateway';
+import type { GatewayCommandBinding, GatewayConfirmation } from './tenancy';
+
 // ─── Agent Stream Event (mirrors server StreamEvent) ───
 
 /**
@@ -9,8 +12,11 @@ import type { UIChatMessage } from '@lobechat/types';
  *
  * - `member_runtime_end`: a mirrored group member's terminal arrives on the
  *   supervisor's channel as `member_runtime_end` instead of `agent_runtime_end`.
+ * - `file_works`: pushed message snapshots and patches may carry `file` Work
+ *   summaries. Released desktop builds predate that Work type and crash on it,
+ *   so the server keeps it out of the push unless the client declares this.
  */
-export type AgentStreamClientFeature = 'member_runtime_end';
+export type AgentStreamClientFeature = 'file_works' | 'member_runtime_end';
 
 export type AgentStreamEventType =
   | 'agent_runtime_init'
@@ -329,7 +335,7 @@ export interface AgentInterventionResponseData {
 /**
  * Server → Client: request the client to execute a tool locally and return the result.
  */
-export interface ToolExecuteData {
+export interface ToolExecuteData extends Partial<GatewayCommandBinding> {
   /** Agent currently running the tool. */
   agentId?: string | null;
   /** Tool function name (e.g. "readFile"). */
@@ -340,12 +346,14 @@ export interface ToolExecuteData {
   assistantMessageId?: string;
   /** Current page document ID for page-scoped conversations. */
   documentId?: string | null;
+  executionSignal?: AbortSignal;
   /** Per-invocation deadline. Server caps against its own function budget. */
   executionTimeoutMs: number;
   /** Group chat ID, when the run belongs to a group conversation. */
   groupId?: string | null;
   /** Tool plugin identifier (e.g. "local-system"). */
   identifier: string;
+  isExecutionCurrent?: () => boolean;
   /** Root server-side runtime operation ID for this assistant run. */
   rootOperationId?: string;
   /** Conversation scope captured by the server runtime. */
@@ -377,6 +385,14 @@ export interface LlmRelayDeadlines {
 }
 
 /**
+ * Model-runtime method a relayed call runs on the device. `chat` streams the
+ * normalized protocol chunks; `generateObject` and `models` upload their
+ * return value as JSON text split into `result_part` chunks; `pullModel`
+ * uploads the provider's raw progress stream as `progress` chunks (text).
+ */
+export type LlmRelayMethod = 'chat' | 'generateObject' | 'models' | 'pullModel';
+
+/**
  * Server → Client (`llm_execute`): run one LLM attempt locally and stream its
  * normalized protocol chunks back. Carries no messages and no credentials: the
  * request body is fetched from `GET /api/agent/llm-relay/:callId/payload`, and
@@ -394,6 +410,8 @@ export interface LlmExecuteData {
    * sent as the `x-llm-relay-lease` header. Expires with the attempt.
    */
   leaseToken: string;
+  /** Runtime method to call; absent ⇒ `chat` (servers before one-shot relay). */
+  method?: LlmRelayMethod;
   model: string;
   operationId: string;
   /**
@@ -445,7 +463,9 @@ export interface AuthMessage {
    * that started the run (`preferredClientId`); older gateways ignore it.
    */
   clientId?: string;
+  tenancyProtocol: 1;
   token: string;
+  tokenType: 'jwt';
   type: 'auth';
 }
 
@@ -467,7 +487,7 @@ export interface HeartbeatMessage {
 /**
  * Client → Server: tool execution result, correlated by toolCallId.
  */
-export interface ToolResultMessage {
+export interface ToolResultMessage extends Partial<GatewayCommandBinding> {
   content: string | null;
   error?: {
     message: string;
@@ -493,7 +513,15 @@ export interface ToolResultMessage {
  * processes, settling the operation and topic rows). Cancellation therefore
  * goes through `aiAgent.interruptTask`, and no client here ever sends one.
  */
-export type ClientMessage = AuthMessage | HeartbeatMessage | ResumeMessage | ToolResultMessage;
+export type ClientMessage =
+  | (
+      | (GatewayCommandBinding & { type: 'tool_confirmation'; approved: boolean })
+      | (GatewayCommandBinding & { type: 'user_input'; content: string })
+    )
+  | AuthMessage
+  | HeartbeatMessage
+  | ResumeMessage
+  | ToolResultMessage;
 
 // Server → Client
 export interface AuthSuccessMessage {
@@ -574,6 +602,11 @@ export interface ResumeCompleteMessage {
 }
 
 export type ServerMessage =
+  | (GatewayCommandBinding & {
+      type: 'tool_execute' | 'tool_confirmation_request' | 'input_request';
+      data: unknown;
+    })
+  | GatewayConfirmation
   | AgentEventMessage
   | AuthExpiredMessage
   | AuthFailedMessage
@@ -601,9 +634,11 @@ export interface AgentStreamClientEvents {
   connected: () => void;
   disconnected: () => void;
   error: (error: Error) => void;
+  input_request: (request: GatewayCommandBinding & { data: unknown }) => void;
   reconnecting: (delay: number) => void;
   session_complete: (completion: AgentStreamSessionCompletion) => void;
   status_changed: (status: ConnectionStatus) => void;
+  tool_confirmation_request: (request: GatewayCommandBinding & { data: unknown }) => void;
 }
 
 // ─── Client Options ───
@@ -616,8 +651,11 @@ export interface AgentStreamClientOptions {
    * client-targeted events (`llm_execute`) to it. Absent ⇒ not sent.
    */
   clientId?: string;
+  /** Socket deduplication hint, stable across reconnects. Defaults to a UUID per client instance. */
+  connectionId?: string;
   /** Gateway WebSocket URL base (e.g. https://gateway.lobehub.com) */
   gatewayUrl: string;
+  identityProvider?: GatewayIdentityProvider;
   /**
    * Last event id this operation has already applied, when the stream is being
    * picked up from another transport (the v1 fallback after the multiplexed

@@ -1,3 +1,6 @@
+import { z } from 'zod';
+
+import type { ReviewAnchor } from './acceptanceReview';
 import type { DocumentCommentJson } from './documentComment';
 import type { AcceptanceAttachment, AcceptanceReviewAnnotation } from './verify';
 
@@ -5,7 +8,7 @@ import type { AcceptanceAttachment, AcceptanceReviewAnnotation } from './verify'
  * Where a discussion thread hangs on the acceptance page.
  *
  * - `acceptance`: the delivery as a whole (the global discussion under the checklist).
- * - `evidence`: a region circled on one evidence image of one check.
+ * - `evidence`: a region on one image or video frame of one check.
  */
 export type AcceptanceCommentAnchorType = 'acceptance' | 'evidence';
 
@@ -33,33 +36,22 @@ export interface AcceptanceCommentAttachmentRef {
   fileId: string;
 }
 
-/**
- * Where a remark was written when it did not come from the acceptance viewer:
- * a reviewer pointing at a page of the delivered product through the embedded
- * review toolbar. It is the reproduction recipe the repair agent reads — the
- * page, the element, what the page itself reported, and any product-specific
- * facts (e.g. which sandbox data scenario was loaded).
- */
-export interface AcceptanceCommentSource {
-  /** Build / commit the page was served from, when the product exposes one. */
-  commit?: string;
-  /** Recent front-end errors on that page, newest last. */
-  consoleErrors?: string[];
-  /** Visible text of the element, trimmed — a way to find it when the selector drifts. */
-  elementText?: string;
-  /** Product-defined facts, e.g. `{ scenario: 'training-mixed', seed: 7 }`. */
-  extra?: Record<string, boolean | number | string>;
-  kind: 'product-page';
-  /** Element box in viewport pixels at the time of the remark. */
-  rect?: { height: number; width: number; x: number; y: number };
-  /** A CSS selector for the element the reviewer pointed at. */
-  selector?: string;
-  /** Document title of the page. */
-  title?: string;
-  /** Full page URL. */
-  url: string;
-  userAgent?: string;
-  viewport?: { height: number; width: number };
+export type AcceptanceCommentSource = ReviewAnchor;
+
+/** A video comment is anchored to a single frame. */
+export const acceptanceCommentTimeSchema = z
+  .object({
+    start: z.number().finite().nonnegative(),
+  })
+  .strict();
+
+export type AcceptanceCommentTime = z.infer<typeof acceptanceCommentTimeSchema>;
+
+/** Server-owned facts; other comment producers may retain their own keys. */
+export interface AcceptanceCommentMetadata extends Record<string, unknown> {
+  evidenceAnchor?: {
+    time: AcceptanceCommentTime;
+  };
 }
 
 /** One emoji on one comment, already tallied for display. */
@@ -98,6 +90,8 @@ export interface AcceptanceCommentAnchor {
   evidenceId?: string | null;
   /** Normalized (0–1) region on the evidence image. */
   rect?: AcceptanceReviewAnnotation['rect'] | null;
+  /** Video time in seconds, pinned to this evidence version. */
+  time?: AcceptanceCommentTime | null;
 }
 
 export interface AcceptanceCommentItem extends AcceptanceCommentAnchor {
@@ -138,6 +132,7 @@ export interface AcceptanceCommentItem extends AcceptanceCommentAnchor {
   reactions: AcceptanceCommentReaction[];
   resolvedAt: Date | null;
   resolvedByUserId: string | null;
+  source: AcceptanceCommentSource | null;
   updatedAt: Date;
 }
 
@@ -168,6 +163,7 @@ export interface CreateAcceptanceCommentInput {
     checkItemId: string;
     evidenceId: string;
     rect: AcceptanceReviewAnnotation['rect'];
+    time?: AcceptanceCommentTime;
   };
   /** Files to hang on the remark, already uploaded. */
   attachments?: AcceptanceCommentAttachmentRef[];

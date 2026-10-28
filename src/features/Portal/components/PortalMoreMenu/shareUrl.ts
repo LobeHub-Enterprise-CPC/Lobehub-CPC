@@ -1,6 +1,7 @@
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
+
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 
 /**
  * Absolute link for the menu's copy-link capability. Not `window.location`:
@@ -20,7 +21,7 @@ export const buildPortalShareUrl = (
 };
 
 export const usePortalShareUrl = (path: string | null | undefined): string | undefined => {
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
   const workspaceSlug = useActiveWorkspaceSlug();
 
   return buildPortalShareUrl(appOrigin, path, workspaceSlug);

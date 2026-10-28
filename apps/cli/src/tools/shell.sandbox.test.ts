@@ -26,6 +26,7 @@ const resolveCommandMode = vi.fn(() => 'auto');
 const resolveSandboxNetwork = vi.fn(() => false);
 
 vi.mock('../settings', () => ({
+  SETTINGS_DIR: '/tmp/lobehub-cli-test-settings',
   resolveCommandMode: () => resolveCommandMode(),
   resolveSandboxNetwork: () => resolveSandboxNetwork(),
 }));

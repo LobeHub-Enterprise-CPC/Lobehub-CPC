@@ -27,7 +27,7 @@ vi.mock('../codex/CodexAppServerClient', async (importOriginal) => {
 const options = {
   commandPath: '/custom/codex',
   cwd: '/repo',
-  env: { CODEX_HOME: '/custom/config' },
+  env: { ...process.env, CODEX_HOME: '/custom/config' },
   timeoutMs: 100,
 };
 

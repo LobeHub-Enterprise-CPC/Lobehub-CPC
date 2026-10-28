@@ -2,6 +2,7 @@ import { Given, Then, When } from '@cucumber/cucumber';
 import { expect } from '@playwright/test';
 
 import { TEST_USER } from '../../support/seedTestUser';
+import { tenantClientConfig, tenantPath } from '../../support/tenant';
 import type { CustomWorld } from '../../support/world';
 
 const CLIENT_ID = 'lobehub-cli';
@@ -49,7 +50,7 @@ const resetOidcAuthorizationState = async (): Promise<void> => {
   if (!databaseUrl) throw new Error('DATABASE_URL is required for the OIDC E2E scenario');
 
   const { default: pg } = await import('pg');
-  const client = new pg.Client({ connectionString: databaseUrl });
+  const client = new pg.Client(tenantClientConfig(databaseUrl));
 
   await client.connect();
 
@@ -95,7 +96,7 @@ const decodeAccessToken = (accessToken: string): AccessTokenClaims => {
 Given('CLI 已发起 OIDC Device Flow', async function (this: CustomWorld) {
   await resetOidcAuthorizationState();
 
-  const response = await this.browserContext.request.post('/oidc/device/auth', {
+  const response = await this.browserContext.request.post(tenantPath('/oidc/device/auth'), {
     form: {
       client_id: CLIENT_ID,
       resource: RESOURCE,
@@ -133,13 +134,15 @@ Then('页面应显示待授权的设备码', async function (this: CustomWorld) 
 
   await expect(this.page.getByText(userCode, { exact: true })).toBeVisible();
   await expect(
-    this.page.locator('form[action="/oidc/device"] button[type="submit"]:not([name="abort"])'),
+    this.page.locator(
+      `form[action="${tenantPath('/oidc/device')}"] button[type="submit"]:not([name="abort"])`,
+    ),
   ).toBeEnabled();
 });
 
 When('用户授权该设备', async function (this: CustomWorld) {
   const authorizeButton = this.page.locator(
-    'form[action="/oidc/device"] button[type="submit"]:not([name="abort"])',
+    `form[action="${tenantPath('/oidc/device')}"] button[type="submit"]:not([name="abort"])`,
   );
 
   await expect(authorizeButton).toBeVisible();
@@ -148,14 +151,14 @@ When('用户授权该设备', async function (this: CustomWorld) {
 });
 
 Then('应进入 OIDC 授权交互', async function (this: CustomWorld) {
-  const consentForm = this.page.locator('form[action="/oidc/consent"]');
+  const consentForm = this.page.locator(`form[action="${tenantPath('/oidc/consent')}"]`);
 
   await expect(consentForm.getByTestId('oauth-consent-accept')).toBeVisible();
   await expect(consentForm.locator('input[name="consent"]')).toHaveValue('accept');
 });
 
 When('用户同意 CLI 的权限请求', async function (this: CustomWorld) {
-  const consentForm = this.page.locator('form[action="/oidc/consent"]');
+  const consentForm = this.page.locator(`form[action="${tenantPath('/oidc/consent')}"]`);
   const consentInput = consentForm.locator('input[name="consent"]');
   const acceptButton = consentForm.getByTestId('oauth-consent-accept');
   const denyButton = consentForm.getByTestId('oauth-consent-deny');
@@ -181,7 +184,7 @@ Then('应显示设备授权成功页面', async function (this: CustomWorld) {
 
 Then('CLI 应取得 access token 与 refresh token', async function (this: CustomWorld) {
   const { device_code: deviceCode } = getDeviceAuthorization(this);
-  const response = await this.browserContext.request.post('/oidc/token', {
+  const response = await this.browserContext.request.post(tenantPath('/oidc/token'), {
     form: {
       client_id: CLIENT_ID,
       device_code: deviceCode,
@@ -203,6 +206,6 @@ Then('CLI 应取得 access token 与 refresh token', async function (this: Custo
   const claims = decodeAccessToken(token.access_token!);
   const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
   expect(audiences).toContain(RESOURCE);
-  expect(claims.iss).toBe(`${new URL(this.page.url()).origin}/oidc`);
+  expect(claims.iss).toBe(`${new URL(this.page.url()).origin}${tenantPath('/oidc')}`);
   expect(claims.sub).toBe(TEST_USER.id);
 });

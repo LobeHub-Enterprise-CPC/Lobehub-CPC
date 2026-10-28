@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto';
 
-import { CUSTOM_DOCUMENT_FILE_TYPE, CUSTOM_FOLDER_FILE_TYPE } from '@lobechat/const';
+import {
+  CUSTOM_DOCUMENT_FILE_TYPE,
+  CUSTOM_FOLDER_FILE_TYPE,
+  HTML_DOCUMENT_FILE_TYPE,
+} from '@lobechat/const';
 import { type LobeChatDatabase } from '@lobechat/database';
 import { type DocumentItem } from '@lobechat/database/schemas';
 import { documents, files } from '@lobechat/database/schemas';
+import { trackTenantWork } from '@lobechat/database/tenant';
 import { loadFile, UnsupportedFileTypeError } from '@lobechat/file-loaders';
 import { sliceHead } from '@lobechat/prompts/textWindow';
 import type { DocumentAccessScope, FileAccessScope } from '@lobechat/types';
@@ -227,9 +232,11 @@ export class DocumentService {
     // Resolve visibility upfront so the KB mirror file uses the same policy
     // as the document. A library-root document inherits the KB visibility;
     // parent documents remain navigation-only and do not pass visibility or
-    // ACL to children. Personal mode leaves it undefined — the ownership
-    // filter ignores the column there — but still checks the library exists,
-    // so a wrong id fails as NOT_FOUND instead of a foreign-key violation.
+    // ACL to children. Without a library or an explicit value it stays
+    // undefined, so the row takes the schema default (`'public'` — workspace
+    // documents are shared unless asked otherwise). Personal mode ignores the
+    // column but still checks the library exists, so a wrong id fails as
+    // NOT_FOUND instead of a foreign-key violation.
     let resolvedVisibility: 'private' | 'public' | undefined = visibility;
     if (knowledgeBaseId) {
       const knowledgeBase = await this.knowledgeBaseModel.findById(
@@ -244,7 +251,6 @@ export class DocumentService {
       }
       if (this.workspaceId) resolvedVisibility = knowledgeBase.visibility;
     }
-    if (!resolvedVisibility && this.workspaceId) resolvedVisibility = 'private';
 
     let fileId: string | null = null;
 
@@ -319,9 +325,11 @@ export class DocumentService {
     const result = await this.documentModel.setVisibility(documentId, visibility);
 
     if (this.workspaceId) {
-      void publishResourceEvent(
-        { id: documentId, type: 'document' },
-        { actorId: this.userId, type: 'doc.updated' },
+      void trackTenantWork(() =>
+        publishResourceEvent(
+          { id: documentId, type: 'document' },
+          { actorId: this.userId, type: 'doc.updated' },
+        ),
       );
     }
 
@@ -404,17 +412,19 @@ export class DocumentService {
       (result.holderId ?? null) !== (prevHolder?.userId ?? null) ||
       (result.ownerId ?? null) !== (prevHolder?.ownerId ?? null)
     ) {
-      void publishResourceEvent(
-        { id, type: 'document' },
-        {
-          actorId: this.userId,
-          data: {
-            expiresAt: result.expiresAt?.toISOString() ?? null,
-            holderId: result.holderId,
-            ownerId: result.ownerId,
+      void trackTenantWork(() =>
+        publishResourceEvent(
+          { id, type: 'document' },
+          {
+            actorId: this.userId,
+            data: {
+              expiresAt: result.expiresAt?.toISOString() ?? null,
+              holderId: result.holderId,
+              ownerId: result.ownerId,
+            },
+            type: 'lock.changed',
           },
-          type: 'lock.changed',
-        },
+        ),
       );
     }
 
@@ -462,13 +472,15 @@ export class DocumentService {
     // a bogus holderId:null would wrongly flip their viewers to editable.
     const released = await this.editLockService.release('document', id, ownerId);
     if (!released) return;
-    void publishResourceEvent(
-      { id, type: 'document' },
-      {
-        actorId: this.userId,
-        data: { expiresAt: null, holderId: null, ownerId: null },
-        type: 'lock.changed',
-      },
+    void trackTenantWork(() =>
+      publishResourceEvent(
+        { id, type: 'document' },
+        {
+          actorId: this.userId,
+          data: { expiresAt: null, holderId: null, ownerId: null },
+          type: 'lock.changed',
+        },
+      ),
     );
   }
 
@@ -745,6 +757,14 @@ export class DocumentService {
         }
       }
 
+      // An HTML document's body is its content alone: rich-text editorData sent
+      // with it (or with the write that makes it HTML) is never persisted, and
+      // any the page carried before is cleared. Left behind, that pre-HTML JSON
+      // is what the editor would load and save if the page turned rich-text again.
+      const isHtmlDocument =
+        (params.fileType ?? currentDocument.fileType) === HTML_DOCUMENT_FILE_TYPE;
+      const editorDataParam = isHtmlDocument ? undefined : params.editorData;
+
       // Accepted-view projections used only for historyAppended comparison and
       // for the "before" snapshot written into history. The persisted editorData
       // keeps any pending diff nodes — they're only normalized when the user
@@ -753,9 +773,7 @@ export class DocumentService {
         (currentDocument.editorData ?? {}) as Record<string, any>,
       );
       const nextEditorDataAccepted =
-        params.editorData === undefined
-          ? undefined
-          : normalizeEditorDataDiffNodes(params.editorData);
+        editorDataParam === undefined ? undefined : normalizeEditorDataDiffNodes(editorDataParam);
       const historyAppended =
         nextEditorDataAccepted !== undefined &&
         !isEqual(nextEditorDataAccepted, currentEditorDataAccepted);
@@ -771,8 +789,13 @@ export class DocumentService {
       // (title/emoji) pass through, since the autosave always re-sends the
       // unchanged body. The lease auto-expires in Redis; when Redis is down this
       // returns null (fail-open) so the lock can't block saving.
+      // Switching a page into or out of HTML replaces the body other members see
+      // (and clears its editorData), so it is a body change even with no content.
+      const htmlTypeChanged =
+        isHtmlDocument !== (currentDocument.fileType === HTML_DOCUMENT_FILE_TYPE);
       const contentChanged =
         historyAppended ||
+        htmlTypeChanged ||
         (params.content !== undefined && params.content !== currentDocument.content);
       if (contentChanged && this.isCollaborativeDocument(currentDocument)) {
         const canWrite = await this.editLockService.canWrite('document', id, params.lockOwnerId);
@@ -793,8 +816,10 @@ export class DocumentService {
         updates.totalLineCount = params.content.split('\n').length;
       }
 
-      if (params.editorData !== undefined) {
-        updates.editorData = params.editorData;
+      if (editorDataParam !== undefined) {
+        updates.editorData = editorDataParam;
+      } else if (isHtmlDocument && currentDocument.editorData != null) {
+        updates.editorData = null;
       }
 
       if (params.fileType !== undefined) {
@@ -857,9 +882,11 @@ export class DocumentService {
     // Notify other workspace members that the document changed so their open
     // editor refreshes immediately (best-effort; the heartbeat is the fallback).
     if (this.workspaceId && changed) {
-      void publishResourceEvent(
-        { id, type: 'document' },
-        { actorId: this.userId, type: 'doc.updated' },
+      void trackTenantWork(() =>
+        publishResourceEvent(
+          { id, type: 'document' },
+          { actorId: this.userId, type: 'doc.updated' },
+        ),
       );
     }
 

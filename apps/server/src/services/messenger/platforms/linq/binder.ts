@@ -10,6 +10,7 @@ import {
   MessengerAccountLinkRelinkRequiredError,
 } from '@/database/models/messengerAccountLink';
 import { appEnv } from '@/envs/app';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 import type { PlatformClient } from '@/server/services/bot/platforms';
 
 import {
@@ -25,7 +26,7 @@ const log = debug('lobe-server:messenger:linq:binder');
 
 const settingsUrl = (): string | undefined => {
   if (!appEnv.APP_URL) return undefined;
-  return new URL('/settings/messenger/linq', appEnv.APP_URL).toString();
+  return `${tenantPublicBaseUrl()}/settings/messenger/linq`;
 };
 
 /** Replies are deliberately short: they arrive as iMessage / SMS bubbles. */

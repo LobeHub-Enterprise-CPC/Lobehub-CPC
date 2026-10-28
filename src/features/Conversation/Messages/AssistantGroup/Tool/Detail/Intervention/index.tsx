@@ -43,6 +43,9 @@ const Intervention = memo<InterventionProps>(
     const approvalMode = useUserStore(toolInterventionSelectors.approvalMode);
     const { canUseResource } = useConversationResourceAccess();
     const [isEditing, setIsEditing] = useState(false);
+    // Raised by an intervention that cannot show what is being approved yet
+    // (review data loading or failed); the approve action waits on it.
+    const [approvalBlocked, setApprovalBlocked] = useState(false);
     const updatePluginArguments = useConversationStore((s) => s.updatePluginArguments);
     const message = useConversationStore((s) => dataSelectors.getDbMessageById(id)(s));
     const usesDurableServerClaim = Boolean(
@@ -124,6 +127,13 @@ const Intervention = memo<InterventionProps>(
 
     const topicId = message?.topicId;
     const interventionResolving = message?.pluginIntervention?.resolving === true;
+    const isServerQuestion =
+      apiName === 'askUserQuestion' && ['lobe-agent', 'lobe-user-interaction'].includes(identifier);
+    const questionResolved = Boolean(
+      isServerQuestion &&
+      message?.pluginIntervention &&
+      message.pluginIntervention.status !== 'pending',
+    );
     const submitToolInteraction = useConversationStore((s) => s.submitToolInteraction);
     const skipToolInteraction = useConversationStore((s) => s.skipToolInteraction);
     const cancelToolInteraction = useConversationStore((s) => s.cancelToolInteraction);
@@ -144,7 +154,7 @@ const Intervention = memo<InterventionProps>(
           | { type: 'skip'; payload?: Record<string, unknown>; reason?: string }
           | { type: 'cancel'; payload?: Record<string, unknown> },
       ) => {
-        if (!canUseResource || interventionResolving) return;
+        if (!canUseResource || interventionResolving || questionResolved) return;
         if (isHeteroInteractionIdentifier(identifier)) {
           await submitHeteroIntervention(id, action.type, action.payload);
           return;
@@ -238,6 +248,7 @@ const Intervention = memo<InterventionProps>(
         identifier,
         interventionResolving,
         parsedArgs,
+        questionResolved,
         rejectAndContinueToolCall,
         skipToolInteraction,
         submitHeteroIntervention,
@@ -253,8 +264,7 @@ const Intervention = memo<InterventionProps>(
       (action: Parameters<typeof executeInteractionAction>[0]) => {
         if (
           usesDurableServerClaim &&
-          apiName === 'askUserQuestion' &&
-          ['lobe-agent', 'lobe-user-interaction'].includes(identifier) &&
+          isServerQuestion &&
           (action.type === 'submit' || action.type === 'skip')
         ) {
           return runQuestionSubmission(id, context, () => executeInteractionAction(action));
@@ -262,11 +272,10 @@ const Intervention = memo<InterventionProps>(
         return executeInteractionAction(action);
       },
       [
-        apiName,
         context,
         executeInteractionAction,
         id,
-        identifier,
+        isServerQuestion,
         runQuestionSubmission,
         usesDurableServerClaim,
       ],
@@ -293,9 +302,9 @@ const Intervention = memo<InterventionProps>(
               actionsPortalTarget={actionsPortalTarget}
               apiName={apiName}
               args={parsedArgs}
-              disabled={interventionResolving || !canUseResource}
+              disabled={interventionResolving || questionResolved || !canUseResource}
               identifier={identifier}
-              interactionMode="custom"
+              interactionMode={questionResolved ? 'approval' : 'custom'}
               messageId={id}
               registerBeforeApprove={registerBeforeApprove}
               onArgsChange={handleArgsChange}
@@ -310,6 +319,7 @@ const Intervention = memo<InterventionProps>(
           <ApprovalActions
             apiName={apiName}
             approvalMode={approvalMode}
+            approveDisabled={approvalBlocked}
             assistantGroupId={assistantGroupId}
             identifier={identifier}
             messageId={id}
@@ -328,6 +338,7 @@ const Intervention = memo<InterventionProps>(
             identifier={identifier}
             messageId={id}
             registerBeforeApprove={registerBeforeApprove}
+            onApprovalBlockedChange={setApprovalBlocked}
             onArgsChange={handleArgsChange}
           />
           {actionsPortalTarget ? createPortal(actions, actionsPortalTarget) : actions}

@@ -1,15 +1,37 @@
 import type { DataSyncConfig } from '@lobechat/electron-client-ipc';
 import { BrowserWindow, shell } from 'electron';
-import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { App } from '@/core/App';
+import type { AuthFlowHost } from '@/modules/tenantAuth/AuthFlowManager';
+import GatewayConnectionService from '@/services/gatewayConnectionSrv';
 
 import AuthCtr from '../AuthCtr';
 import RemoteServerConfigCtr from '../RemoteServerConfigCtr';
 
-const { ipcMainHandleMock } = vi.hoisted(() => ({
+const { flowManagerMock, hostRef, ipcMainHandleMock } = vi.hoisted(() => ({
+  flowManagerMock: {
+    cancel: vi.fn(() => true),
+    cancelConfirmation: vi.fn(() => ({ success: true })),
+    confirm: vi.fn(async () => ({ success: true })),
+    dispose: vi.fn(),
+    getPendingRequest: vi.fn(() => null),
+    hasActiveFlow: vi.fn(() => false),
+    start: vi.fn(async () => ({ success: true })),
+    startPlatform: vi.fn(async () => ({ success: true })),
+    switchFromConfirmation: vi.fn(async () => ({ success: true })),
+  },
+  hostRef: { current: undefined as unknown },
   ipcMainHandleMock: vi.fn(),
+}));
+
+vi.mock('@/modules/tenantAuth/AuthFlowManager', () => ({
+  AuthFlowManager: class {
+    constructor(host: unknown) {
+      hostRef.current = host;
+      return flowManagerMock;
+    }
+  },
 }));
 
 // Mock electron
@@ -45,7 +67,6 @@ vi.mock('@/utils/platform', () => ({
   linux: vi.fn(() => false),
 }));
 
-// Mock OFFICIAL_CLOUD_SERVER
 vi.mock('@/const/env', () => ({
   OFFICIAL_CLOUD_SERVER: 'https://lobehub-cloud.com',
   isMac: false,
@@ -54,40 +75,31 @@ vi.mock('@/const/env', () => ({
   isDev: false,
 }));
 
-// Mock crypto
-let randomBytesCounter = 0;
-vi.mock('node:crypto', () => ({
-  default: {
-    randomBytes: vi.fn((_size: number) => {
-      randomBytesCounter++;
-      return {
-        toString: vi.fn(() => `mock-random-${randomBytesCounter}`),
-      };
-    }),
-    subtle: {
-      digest: vi.fn(() => Promise.resolve(new ArrayBuffer(32))),
-    },
-  },
-}));
+const mockGatewaySrv = {
+  connect: vi.fn().mockResolvedValue({ success: true }),
+  disconnect: vi.fn().mockResolvedValue({ success: true }),
+  // The real `restart` drops the previous identity's socket, then connects.
+  restart: vi.fn(async () => {
+    await mockGatewaySrv.disconnect();
+    return mockGatewaySrv.connect();
+  }),
+};
 
-// Create mock App and RemoteServerConfigCtr
 const mockRemoteServerConfigCtr = {
+  clearRemoteServerConfig: vi.fn().mockResolvedValue(true),
   clearTokens: vi.fn().mockResolvedValue(undefined),
+  commitAuthorization: vi.fn().mockResolvedValue(undefined),
   getAccessToken: vi.fn().mockResolvedValue('mock-access-token'),
   getLastTokenRefreshAt: vi.fn().mockReturnValue(Date.now()),
+  getPlatformOrigin: vi.fn().mockReturnValue('https://lobehub-cloud.com'),
   getRemoteServerConfig: vi.fn().mockResolvedValue({ active: true, storageMode: 'cloud' }),
-  getRemoteServerUrl: vi.fn().mockImplementation(async (config?: DataSyncConfig) => {
-    if (config?.storageMode === 'selfHost') {
-      return config.remoteServerUrl || 'https://mock-server.com';
-    }
-    return 'https://lobehub-cloud.com'; // OFFICIAL_CLOUD_SERVER
-  }),
   getTokenExpiresAt: vi.fn().mockReturnValue(Date.now() + 3600000),
   isNonRetryableError: vi.fn().mockReturnValue(false),
+  isRemoteActivityPaused: vi.fn().mockReturnValue(false),
   isRemoteServerConfigured: vi.fn().mockResolvedValue(true),
   isTokenExpiringSoon: vi.fn().mockReturnValue(false),
+  onLogout: vi.fn(),
   refreshAccessToken: vi.fn().mockResolvedValue({ success: true }),
-  saveTokens: vi.fn().mockResolvedValue(undefined),
   setRemoteServerConfig: vi.fn().mockResolvedValue(true),
 } as unknown as RemoteServerConfigCtr;
 
@@ -98,31 +110,26 @@ const mockApp = {
     }
     return null;
   }),
-  getService: vi.fn(() => null),
+  getService: vi.fn((ServiceClass) =>
+    ServiceClass === GatewayConnectionService ? mockGatewaySrv : null,
+  ),
 } as unknown as App;
 
 describe('AuthCtr', () => {
   let authCtr: AuthCtr;
-  let mockFetch: Mock<(...args: any[]) => Promise<any>>;
   let mockWindow: any;
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     ipcMainHandleMock.mockClear();
-    randomBytesCounter = 0; // Reset counter for each test
+    hostRef.current = undefined;
+    flowManagerMock.hasActiveFlow.mockReturnValue(false);
+    vi.mocked(mockRemoteServerConfigCtr.isRemoteActivityPaused).mockReturnValue(false);
+    vi.mocked(mockRemoteServerConfigCtr.isTokenExpiringSoon).mockReturnValue(false);
 
-    // Reset shell.openExternal to default successful behavior
-    vi.mocked(shell.openExternal).mockResolvedValue(undefined);
-
-    // Create fresh instance for each test
     authCtr = new AuthCtr(mockApp);
 
-    // Mock global fetch
-    mockFetch = vi.fn();
-    global.fetch = mockFetch;
-
-    // Mock BrowserWindow with send spy
     mockWindow = {
       isDestroyed: vi.fn(() => false),
       webContents: {
@@ -133,585 +140,183 @@ describe('AuthCtr', () => {
   });
 
   afterEach(() => {
-    // Stop polling before restoring the real clock.
     authCtr?.cleanup?.();
     vi.clearAllTimers();
     vi.useRealTimers();
   });
 
-  describe('Basic functionality', () => {
-    describe('requestAuthorization', () => {
-      it('should generate PKCE parameters and open authorization URL', async () => {
-        const config: DataSyncConfig = {
-          active: false,
-          storageMode: 'cloud',
-        };
+  const host = async () => {
+    await authCtr.getPendingAuthorizationConfirmation();
+    return hostRef.current as AuthFlowHost;
+  };
 
-        mockFetch.mockResolvedValue({
-          status: 404,
-          ok: false,
-        });
+  describe('authorization requests', () => {
+    it('starts the flow from the given config', async () => {
+      const config: DataSyncConfig = { storageMode: 'cloud' };
 
-        const result = await authCtr.requestAuthorization(config);
+      const result = await authCtr.requestAuthorization(config);
 
-        // Verify success response
-        expect(result).toEqual({ success: true });
+      expect(result).toEqual({ success: true });
+      expect(flowManagerMock.start).toHaveBeenCalledWith(config, { forceDiscovery: false });
+    });
 
-        // Verify shell.openExternal was called with correct URL
-        expect(shell.openExternal).toHaveBeenCalledWith(
-          expect.stringContaining('https://lobehub-cloud.com/oidc/auth'),
-        );
+    it('forces a fresh discovery after a 409 paused the logged-in session', async () => {
+      vi.mocked(mockRemoteServerConfigCtr.isRemoteActivityPaused).mockReturnValue(true);
 
-        // Verify URL contains required parameters
-        const authUrl = vi.mocked(shell.openExternal).mock.calls[0][0];
-        expect(authUrl).toContain('client_id=lobehub-desktop');
-        expect(authUrl).toContain('response_type=code');
-        expect(authUrl).toContain('code_challenge_method=S256');
-        expect(authUrl).toContain('scope=profile%20email%20offline_access');
-      });
+      await authCtr.requestAuthorization({ storageMode: 'cloud' });
 
-      it('should start polling after authorization request', async () => {
-        const config: DataSyncConfig = {
-          active: false,
-          storageMode: 'cloud',
-        };
+      expect(flowManagerMock.start).toHaveBeenCalledWith(
+        { storageMode: 'cloud' },
+        { forceDiscovery: true },
+      );
+    });
 
-        mockFetch.mockResolvedValue({
-          status: 404,
-          ok: false,
-        });
+    it('reports an unexpected failure as a result, not an exception', async () => {
+      flowManagerMock.start.mockRejectedValueOnce(new Error('boom'));
 
-        const result = await authCtr.requestAuthorization(config);
-        expect(result.success).toBe(true);
-
-        // Wait a bit for polling to start
-        await vi.advanceTimersByTimeAsync(3500);
-
-        // Verify fetch was called for polling
-        const pollingCalls = mockFetch.mock.calls.filter((call) =>
-          (call[0] as string).includes('/oidc/handoff'),
-        );
-        expect(pollingCalls.length).toBeGreaterThan(0);
-        expect(pollingCalls[0][1]).toEqual(
-          expect.objectContaining({
-            headers: expect.objectContaining({ 'User-Agent': 'LobeHub Desktop/1.2.3' }),
-          }),
-        );
-      });
-
-      it('should use self-hosted server URL when storageMode is selfHost', async () => {
-        const config: DataSyncConfig = {
-          active: false,
-          storageMode: 'selfHost',
-          remoteServerUrl: 'https://my-custom-server.com',
-        };
-
-        mockFetch.mockResolvedValue({
-          status: 404,
-          ok: false,
-        });
-
-        await authCtr.requestAuthorization(config);
-
-        // Verify shell.openExternal was called with custom URL
-        expect(shell.openExternal).toHaveBeenCalledWith(
-          expect.stringContaining('https://my-custom-server.com/oidc/auth'),
-        );
-      });
-
-      it('should handle authorization request error gracefully', async () => {
-        const config: DataSyncConfig = {
-          active: false,
-          storageMode: 'cloud',
-        };
-
-        vi.mocked(shell.openExternal).mockRejectedValue(new Error('Failed to open browser'));
-
-        const result = await authCtr.requestAuthorization(config);
-
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('Failed to open browser');
+      expect(await authCtr.requestAuthorization({ storageMode: 'cloud' })).toEqual({
+        code: 'UNKNOWN',
+        error: 'boom',
+        success: false,
       });
     });
 
-    describe('polling mechanism', () => {
-      it('should poll every 3 seconds', async () => {
-        const config: DataSyncConfig = {
-          active: false,
-          storageMode: 'cloud',
-        };
+    it('switching organization only starts a new platform flow in switch mode', async () => {
+      await authCtr.switchOrganization();
 
-        mockFetch.mockResolvedValue({
-          status: 404,
-          ok: false,
-        });
+      expect(flowManagerMock.startPlatform).toHaveBeenCalledWith({ switchOrganization: true });
+      // The signed-in session keeps running until the new login is confirmed.
+      expect(mockRemoteServerConfigCtr.clearRemoteServerConfig).not.toHaveBeenCalled();
+      expect(mockRemoteServerConfigCtr.clearTokens).not.toHaveBeenCalled();
+      expect(mockRemoteServerConfigCtr.setRemoteServerConfig).not.toHaveBeenCalled();
+      expect(mockGatewaySrv.disconnect).not.toHaveBeenCalled();
+    });
 
-        await authCtr.requestAuthorization(config);
+    it('does not stop the refresh timer when a new organization is being chosen', async () => {
+      await authCtr.afterAppReady();
+      await vi.advanceTimersByTimeAsync(0);
+      vi.mocked(mockRemoteServerConfigCtr.isTokenExpiringSoon).mockReturnValue(true);
 
-        // Wait for first poll
-        await vi.advanceTimersByTimeAsync(3100);
+      await authCtr.switchOrganization();
+      await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
 
-        const firstCallCount = mockFetch.mock.calls.filter((call) =>
-          (call[0] as string).includes('/oidc/handoff'),
-        ).length;
-        expect(firstCallCount).toBeGreaterThanOrEqual(1);
+      expect(mockRemoteServerConfigCtr.refreshAccessToken).toHaveBeenCalled();
+    });
 
-        // Wait for second poll
-        await vi.advanceTimersByTimeAsync(3000);
+    it('requestAuthorization takes the config as flow input and never persists it', async () => {
+      const config: DataSyncConfig = {
+        remoteServerUrl: 'https://other.example.com/t/b',
+        storageMode: 'selfHost',
+      };
 
-        const secondCallCount = mockFetch.mock.calls.filter((call) =>
-          (call[0] as string).includes('/oidc/handoff'),
-        ).length;
-        expect(secondCallCount).toBeGreaterThanOrEqual(2);
+      await authCtr.requestAuthorization(config);
+
+      expect(mockRemoteServerConfigCtr.setRemoteServerConfig).not.toHaveBeenCalled();
+      expect(mockRemoteServerConfigCtr.clearRemoteServerConfig).not.toHaveBeenCalled();
+      expect(mockRemoteServerConfigCtr.clearTokens).not.toHaveBeenCalled();
+    });
+
+    it('requestPlatformAuthorization forwards the switch flag', async () => {
+      await authCtr.requestPlatformAuthorization({ switchOrganization: true });
+      await authCtr.requestPlatformAuthorization();
+
+      expect(flowManagerMock.startPlatform).toHaveBeenNthCalledWith(1, {
+        switchOrganization: true,
       });
-
-      it('should stop polling when credentials are received', async () => {
-        const config: DataSyncConfig = {
-          active: false,
-          storageMode: 'cloud',
-        };
-
-        let pollCount = 0;
-        mockFetch.mockImplementation((url: string) => {
-          const urlObj = new URL(url);
-
-          // Return success on third poll
-          if (urlObj.pathname.includes('/oidc/handoff')) {
-            pollCount++;
-            if (pollCount >= 3) {
-              return Promise.resolve({
-                status: 200,
-                ok: true,
-                json: () =>
-                  Promise.resolve({
-                    success: true,
-                    data: {
-                      payload: {
-                        code: 'mock-auth-code',
-                        state: 'mock-random-2', // Second randomBytes call is for state
-                      },
-                    },
-                  }),
-                text: () => Promise.resolve('mock response'),
-              });
-            }
-          }
-
-          // Token exchange endpoint
-          if (urlObj.pathname.includes('/oidc/token')) {
-            return Promise.resolve({
-              status: 200,
-              ok: true,
-              json: () =>
-                Promise.resolve({
-                  access_token: 'new-access-token',
-                  refresh_token: 'new-refresh-token',
-                  expires_in: 3600,
-                }),
-              text: () => Promise.resolve('mock response'),
-              clone: () => ({
-                json: () =>
-                  Promise.resolve({
-                    access_token: 'new-access-token',
-                    refresh_token: 'new-refresh-token',
-                    expires_in: 3600,
-                  }),
-              }),
-            });
-          }
-
-          return Promise.resolve({
-            status: 404,
-            ok: false,
-          });
-        });
-
-        await authCtr.requestAuthorization(config);
-
-        // Wait for polling to complete
-        await vi.advanceTimersByTimeAsync(10000);
-
-        const pollCountBefore = pollCount;
-
-        // Wait more time and verify no more polling
-        await vi.advanceTimersByTimeAsync(3500);
-        expect(pollCount).toBe(pollCountBefore);
-      });
-
-      it('should broadcast authorizationSuccessful when credentials are exchanged', async () => {
-        const config: DataSyncConfig = {
-          active: false,
-          storageMode: 'cloud',
-        };
-
-        mockFetch.mockImplementation((url: string) => {
-          const urlObj = new URL(url);
-
-          if (urlObj.pathname.includes('/oidc/handoff')) {
-            return Promise.resolve({
-              status: 200,
-              ok: true,
-              json: () =>
-                Promise.resolve({
-                  success: true,
-                  data: {
-                    payload: {
-                      code: 'mock-auth-code',
-                      state: 'mock-random-2', // Second randomBytes call is for state
-                    },
-                  },
-                }),
-              text: () => Promise.resolve('mock response'),
-            });
-          }
-
-          if (urlObj.pathname.includes('/oidc/token')) {
-            return Promise.resolve({
-              status: 200,
-              ok: true,
-              json: () =>
-                Promise.resolve({
-                  access_token: 'new-access-token',
-                  refresh_token: 'new-refresh-token',
-                  expires_in: 3600,
-                }),
-              text: () => Promise.resolve('mock response'),
-              clone: () => ({
-                json: () =>
-                  Promise.resolve({
-                    access_token: 'new-access-token',
-                    refresh_token: 'new-refresh-token',
-                    expires_in: 3600,
-                  }),
-              }),
-            });
-          }
-
-          return Promise.resolve({ status: 404, ok: false });
-        });
-
-        await authCtr.requestAuthorization(config);
-
-        // Wait for polling to complete and token exchange
-        await vi.advanceTimersByTimeAsync(4000);
-
-        // Verify authorizationSuccessful was broadcast
-        expect(mockWindow.webContents.send).toHaveBeenCalledWith('authorizationSuccessful');
-      });
-
-      it('should validate state parameter and reject mismatched state', async () => {
-        const config: DataSyncConfig = {
-          active: false,
-          storageMode: 'cloud',
-        };
-
-        mockFetch.mockImplementation((url: string) => {
-          const urlObj = new URL(url);
-
-          if (urlObj.pathname.includes('/oidc/handoff')) {
-            return Promise.resolve({
-              status: 200,
-              ok: true,
-              json: () =>
-                Promise.resolve({
-                  success: true,
-                  data: {
-                    payload: {
-                      code: 'mock-auth-code',
-                      state: 'wrong-state', // Mismatched state
-                    },
-                  },
-                }),
-            });
-          }
-
-          return Promise.resolve({ status: 404, ok: false });
-        });
-
-        await authCtr.requestAuthorization(config);
-
-        // Wait for polling and state validation
-        await vi.advanceTimersByTimeAsync(4000);
-
-        // Verify authorizationFailed was broadcast with state error
-        expect(mockWindow.webContents.send).toHaveBeenCalledWith('authorizationFailed', {
-          error: 'Invalid state parameter',
-        });
+      expect(flowManagerMock.startPlatform).toHaveBeenNthCalledWith(2, {
+        switchOrganization: false,
       });
     });
 
-    describe('token refresh', () => {
-      it('should start auto-refresh after successful authorization', async () => {
-        const config: DataSyncConfig = {
-          active: false,
-          storageMode: 'cloud',
-        };
+    it('cancelAuthorization reports whether a flow was active', async () => {
+      expect(await authCtr.cancelAuthorization()).toMatchObject({ success: false });
 
-        mockFetch.mockImplementation((url: string) => {
-          const urlObj = new URL(url);
+      flowManagerMock.hasActiveFlow.mockReturnValue(true);
+      expect(await authCtr.cancelAuthorization()).toEqual({ success: true });
+      expect(flowManagerMock.cancel).toHaveBeenCalled();
+    });
 
-          if (urlObj.pathname.includes('/oidc/handoff')) {
-            return Promise.resolve({
-              status: 200,
-              ok: true,
-              json: () =>
-                Promise.resolve({
-                  success: true,
-                  data: {
-                    payload: {
-                      code: 'mock-auth-code',
-                      state: 'mock-random-2', // Second randomBytes call is for state
-                    },
-                  },
-                }),
-              text: () => Promise.resolve('mock response'),
-            });
-          }
+    it('hands the confirmation calls to the flow manager unchanged', async () => {
+      const params = { confirmationId: 'c', generation: 'g' };
 
-          if (urlObj.pathname.includes('/oidc/token')) {
-            return Promise.resolve({
-              status: 200,
-              ok: true,
-              json: () =>
-                Promise.resolve({
-                  access_token: 'new-access-token',
-                  refresh_token: 'new-refresh-token',
-                  expires_in: 3600,
-                }),
-              text: () => Promise.resolve('mock response'),
-              clone: () => ({
-                json: () =>
-                  Promise.resolve({
-                    access_token: 'new-access-token',
-                    refresh_token: 'new-refresh-token',
-                    expires_in: 3600,
-                  }),
-              }),
-            });
-          }
+      await authCtr.confirmAuthorization(params);
+      await authCtr.cancelAuthorizationConfirmation(params);
+      await authCtr.switchAuthorizationOrganization(params);
 
-          return Promise.resolve({ status: 404, ok: false });
-        });
+      expect(flowManagerMock.confirm).toHaveBeenCalledWith(params);
+      expect(flowManagerMock.cancelConfirmation).toHaveBeenCalledWith(params);
+      expect(flowManagerMock.switchFromConfirmation).toHaveBeenCalledWith(params);
+    });
 
-        await authCtr.requestAuthorization(config);
-
-        // Wait for polling and token exchange
-        await vi.advanceTimersByTimeAsync(4000);
-
-        // Verify saveTokens was called
-        expect(mockRemoteServerConfigCtr.saveTokens).toHaveBeenCalledWith(
-          'new-access-token',
-          'new-refresh-token',
-          3600,
-        );
-
-        // Verify remote server was set to active
-        expect(mockRemoteServerConfigCtr.setRemoteServerConfig).toHaveBeenCalledWith({
-          active: true,
-        });
+    it('opens market authorization URLs in the browser', async () => {
+      expect(
+        await authCtr.requestMarketAuthorization({ authUrl: 'https://market.example/auth' }),
+      ).toEqual({
+        success: true,
+      });
+      expect(shell.openExternal).toHaveBeenCalledWith('https://market.example/auth');
+      expect(await authCtr.requestMarketAuthorization({ authUrl: '' })).toMatchObject({
+        success: false,
       });
     });
   });
 
-  describe('Scenario: Authorization Timeout and Retry', () => {
-    it('Step 1: User requests authorization but does not complete it within 5 minutes', async () => {
-      const config: DataSyncConfig = {
-        active: false,
-        storageMode: 'cloud',
-      };
+  describe('flow host wiring', () => {
+    it('commits through the remote server config controller', async () => {
+      const flowHost = await host();
+      const params = { generation: 'g' } as Parameters<AuthFlowHost['commit']>[0];
 
-      // Mock: User never completes authorization, so polling always returns 404
-      mockFetch.mockResolvedValue({
-        status: 404,
-        ok: false,
-      });
+      await flowHost.commit(params);
 
-      // User clicks "Connect to Cloud" button
-      await authCtr.requestAuthorization(config);
-
-      // Wait for some polling to happen
-      await vi.advanceTimersByTimeAsync(10000);
-
-      const handoffCallsBeforeTimeout = mockFetch.mock.calls.filter((call) =>
-        (call[0] as string).includes('/oidc/handoff'),
-      ).length;
-      expect(handoffCallsBeforeTimeout).toBeGreaterThan(0);
-
-      await vi.advanceTimersByTimeAsync(5 * 60_000);
-      expect(mockWindow.webContents.send).toHaveBeenCalledWith('authorizationFailed', {
-        error: 'Authorization timed out',
-      });
-      const callsAtTimeout = mockFetch.mock.calls.length;
-      await vi.advanceTimersByTimeAsync(6000);
-      expect(mockFetch).toHaveBeenCalledTimes(callsAtTimeout);
+      expect(mockRemoteServerConfigCtr.commitAuthorization).toHaveBeenCalledWith(params);
     });
 
-    it('Step 2: User clicks retry button after previous attempt', async () => {
-      const config: DataSyncConfig = {
-        active: false,
-        storageMode: 'cloud',
-      };
+    it('only after the commit: starts auto-refresh and reconnects the gateway from scratch', async () => {
+      const flowHost = await host();
+      vi.mocked(mockRemoteServerConfigCtr.isTokenExpiringSoon).mockReturnValue(true);
 
-      mockFetch.mockResolvedValue({
-        status: 404,
-        ok: false,
-      });
+      // Nothing refreshes or connects before the commit callback runs.
+      await vi.advanceTimersByTimeAsync(3 * 60 * 1000);
+      expect(mockRemoteServerConfigCtr.refreshAccessToken).not.toHaveBeenCalled();
+      expect(mockGatewaySrv.connect).not.toHaveBeenCalled();
 
-      // First attempt
-      await authCtr.requestAuthorization(config);
-      await vi.advanceTimersByTimeAsync(3500);
+      flowHost.afterCommit();
+      await vi.advanceTimersByTimeAsync(2 * 60 * 1000 + 100);
 
-      // Reset mock to track retry
-      mockFetch.mockClear();
-
-      // User clicks retry button - should start fresh authorization
-      await authCtr.requestAuthorization(config);
-
-      // Verify: New polling started
-      await vi.advanceTimersByTimeAsync(3500);
-
-      const handoffCalls = mockFetch.mock.calls.filter((call) =>
-        (call[0] as string).includes('/oidc/handoff'),
+      expect(mockGatewaySrv.disconnect.mock.invocationCallOrder[0]).toBeLessThan(
+        mockGatewaySrv.connect.mock.invocationCallOrder[0],
       );
-      expect(handoffCalls.length).toBeGreaterThan(0);
+      expect(mockRemoteServerConfigCtr.refreshAccessToken).toHaveBeenCalled();
     });
 
-    it('Step 3: Retry generates new state parameter (not reusing old state)', async () => {
-      const config: DataSyncConfig = {
-        active: false,
-        storageMode: 'cloud',
-      };
+    it('stops refreshing once a 409 paused the session', async () => {
+      const flowHost = await host();
+      vi.mocked(mockRemoteServerConfigCtr.isTokenExpiringSoon).mockReturnValue(true);
+      vi.mocked(mockRemoteServerConfigCtr.isRemoteActivityPaused).mockReturnValue(true);
 
-      const capturedStates: string[] = [];
+      flowHost.afterCommit();
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
 
-      mockFetch.mockImplementation((url: string) => {
-        const urlObj = new URL(url);
-        const stateParam = urlObj.searchParams.get('id');
-        if (stateParam && !capturedStates.includes(stateParam)) {
-          capturedStates.push(stateParam);
-        }
-        return Promise.resolve({ status: 404, ok: false });
+      expect(mockRemoteServerConfigCtr.refreshAccessToken).not.toHaveBeenCalled();
+    });
+
+    it('broadcasts to every live window', async () => {
+      const flowHost = await host();
+
+      flowHost.broadcast('authorizationConfirmRequired', { confirmationId: 'c' });
+
+      expect(mockWindow.webContents.send).toHaveBeenCalledWith('authorizationConfirmRequired', {
+        confirmationId: 'c',
       });
-
-      // First authorization attempt
-      await authCtr.requestAuthorization(config);
-      await vi.advanceTimersByTimeAsync(3500);
-      const firstState = capturedStates[0];
-
-      // Clear for second attempt tracking
-      const firstAttemptStates = [...capturedStates];
-      capturedStates.length = 0;
-
-      // Retry - should generate NEW state
-      await authCtr.requestAuthorization(config);
-      await vi.advanceTimersByTimeAsync(3500);
-      const secondState = capturedStates[0];
-
-      // CRITICAL: States must be different
-      expect(firstState).toBeDefined();
-      expect(secondState).toBeDefined();
-      expect(secondState).not.toBe(firstState);
-      expect(firstAttemptStates).not.toContain(secondState);
     });
 
-    it('Step 4: User completes authorization on retry successfully', async () => {
-      const config: DataSyncConfig = {
-        active: false,
-        storageMode: 'cloud',
-      };
+    it('cancels an in-flight authorization when the user logs out', () => {
+      authCtr.afterAppReady();
+      const [listener] = vi.mocked(mockRemoteServerConfigCtr.onLogout).mock.calls[0];
 
-      // First attempt - incomplete
-      mockFetch.mockResolvedValue({ status: 404, ok: false });
-      await authCtr.requestAuthorization(config);
-      await vi.advanceTimersByTimeAsync(3500);
+      listener();
 
-      // Second attempt - user completes it this time
-      mockFetch.mockImplementation((url: string) => {
-        const urlObj = new URL(url);
-
-        // Handoff returns credentials immediately
-        if (urlObj.pathname.includes('/oidc/handoff')) {
-          return Promise.resolve({
-            status: 200,
-            ok: true,
-            json: () =>
-              Promise.resolve({
-                success: true,
-                data: {
-                  payload: {
-                    code: 'authorization-code',
-                    state: 'mock-random-4', // Matches second request's state (3rd and 4th randomBytes calls)
-                  },
-                },
-              }),
-            text: () => Promise.resolve('mock response'),
-          });
-        }
-
-        // Token exchange succeeds
-        if (urlObj.pathname.includes('/oidc/token')) {
-          return Promise.resolve({
-            status: 200,
-            ok: true,
-            json: () =>
-              Promise.resolve({
-                access_token: 'access-token',
-                refresh_token: 'refresh-token',
-                expires_in: 3600,
-              }),
-            text: () => Promise.resolve('mock response'),
-            clone: () => ({
-              json: () =>
-                Promise.resolve({
-                  access_token: 'access-token',
-                  refresh_token: 'refresh-token',
-                  expires_in: 3600,
-                }),
-            }),
-          });
-        }
-
-        return Promise.resolve({ status: 404, ok: false });
-      });
-
-      await authCtr.requestAuthorization(config);
-
-      // Wait longer for polling and token exchange
-      await vi.advanceTimersByTimeAsync(4000);
-
-      // Verify: Success message shown
-      const successCall = mockWindow.webContents.send.mock.calls.find(
-        (call: any[]) => call[0] === 'authorizationSuccessful',
-      );
-      expect(successCall).toBeDefined();
-
-      // Verify: Tokens saved
-      expect(mockRemoteServerConfigCtr.saveTokens).toHaveBeenCalled();
-    });
-
-    it('Edge case: Rapid retry clicks should not create multiple polling intervals', async () => {
-      const config: DataSyncConfig = {
-        active: false,
-        storageMode: 'cloud',
-      };
-
-      mockFetch.mockResolvedValue({ status: 404, ok: false });
-
-      // User rapidly clicks retry multiple times
-      await authCtr.requestAuthorization(config);
-      await authCtr.requestAuthorization(config);
-      await authCtr.requestAuthorization(config);
-
-      // Wait for some polling to happen
-      await vi.advanceTimersByTimeAsync(9000);
-
-      // Count handoff requests
-      const handoffCalls = mockFetch.mock.calls.filter((call) =>
-        (call[0] as string).includes('/oidc/handoff'),
-      );
-
-      // Exactly one active interval: one request per 3 seconds.
-      expect(handoffCalls).toHaveLength(3);
+      expect(flowManagerMock.cancel).toHaveBeenCalled();
     });
   });
 

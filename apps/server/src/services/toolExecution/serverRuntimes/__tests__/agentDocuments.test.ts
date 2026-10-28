@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TaskModel } from '@/database/models/task';
 import { WorkspaceModel } from '@/database/models/workspace';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 import { AgentDocumentsService } from '@/server/services/agentDocuments';
 
 import type { ToolExecutionContext } from '../../types';
@@ -77,6 +78,7 @@ describe('agentDocumentsRuntime auto-pin to task', () => {
     agentDocumentToolOutcomeMocks.emitAgentDocumentToolOutcomeSafely.mockClear();
     serviceImpl = {
       copyDocumentById: vi.fn().mockResolvedValue(newDoc),
+      countChildren: vi.fn().mockResolvedValue(new Map()),
       createDocument: vi.fn().mockResolvedValue(newDoc),
       createForTopic: vi.fn().mockResolvedValue(newDoc),
       getDocumentSnapshotById: vi.fn().mockResolvedValue(newDoc),
@@ -296,7 +298,7 @@ describe('agentDocumentsRuntime auto-pin to task', () => {
 
     expect(findWorkspaceById).toHaveBeenCalledWith('workspace-1');
     expect(result.content).toContain(
-      'https://app.example.com/lobe-team/agent/agent-1/docs/documents-row-id',
+      `${tenantPublicBaseUrl()}/lobe-team/agent/agent-1/docs/documents-row-id`,
     );
   });
 

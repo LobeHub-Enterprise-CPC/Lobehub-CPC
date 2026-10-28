@@ -1,5 +1,6 @@
 import type {
   ISandboxService,
+  SandboxCallToolResult,
   SandboxExportFileResult,
   SandboxMode,
 } from '@lobechat/builtin-tool-cloud-sandbox';
@@ -96,10 +97,12 @@ export interface SandboxProviderCapabilities {
 
 export interface SandboxProvider extends Pick<ISandboxService, 'callTool'> {
   readonly capabilities: SandboxProviderCapabilities;
-
   exportFileToUploadUrl: (
     request: SandboxProviderFileExportRequest,
   ) => Promise<SandboxProviderFileExportResult>;
+
+  /** Non-secret, allowlisted routing facts for querying this exact remote task after restart. */
+  getReceiptContext?: (workId: string) => Record<string, unknown> | undefined;
 
   readonly kind: SandboxProviderKind;
 }
@@ -133,10 +136,25 @@ export interface SandboxProviderFileExportResult {
 }
 
 export interface SandboxCommandResult {
-  exitCode: number;
+  /**
+   * Why the command produced no shell observation. Present when the command
+   * never ran (governance denial/outage, transport failure) — the error
+   * kind (`COMMAND_GOVERNANCE_DENIED`, `COMMAND_GOVERNANCE_UNAVAILABLE`, …)
+   * is the source of truth there, not `exitCode`. Absent when a shell
+   * actually executed.
+   */
+  error?: SandboxCallToolResult['error'];
+  /**
+   * The real shell exit status. Absent when the command never executed or is
+   * still running past the observation window — never synthesized as 0 or 1,
+   * because those are valid real statuses and would misreport the outcome.
+   */
+  exitCode?: number;
   output: string;
   /** The provider recreated the workspace before executing this command. */
   sessionExpiredAndRecreated?: boolean;
+  /** Pollable handle when the command outlived the observation window. */
+  shellId?: string;
   stderr?: string;
   success: boolean;
 }

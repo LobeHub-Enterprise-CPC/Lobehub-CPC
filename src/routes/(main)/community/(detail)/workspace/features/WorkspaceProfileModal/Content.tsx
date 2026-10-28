@@ -1,20 +1,24 @@
 'use client';
 
+import { resolveAppUrl } from '@lobechat/business-tenant/client';
 import { OFFICIAL_URL } from '@lobechat/const';
-import { Center, Flexbox, Icon, Tooltip } from '@lobehub/ui';
 import {
   Accordion,
   Button,
+  Center,
+  cssVar,
+  Flexbox,
+  Icon,
   Input,
   Spin,
   Text,
   TextArea,
   toast,
+  Tooltip,
   Upload,
   useModalContext,
-} from '@lobehub/ui/base-ui';
-import { Form, useForm, useWatch } from '@lobehub/ui/base-ui/form';
-import { cssVar } from 'antd-style';
+} from '@lobehub/ui';
+import { Form, useForm, useWatch } from '@lobehub/ui/form';
 import { CircleHelp, Globe, ImagePlus, Trash2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -28,6 +32,8 @@ import {
 import AvatarUpload from '@/components/AvatarUpload';
 import { useFileStore } from '@/store/file';
 import type { DiscoverUserInfo } from '@/types/discover';
+
+import { getNamespaceError, isNamespaceFormatValid, isWebsiteUrlValid } from './validation';
 
 interface FormValues {
   description?: string;
@@ -57,14 +63,6 @@ const normalizeNamespace = (value: string) =>
     .replaceAll(/-+/g, '-')
     .replaceAll(/^-|-$/g, '')
     .slice(0, 32);
-
-// Mirrors the namespace Form rules below — only run the live availability check
-// once the handle is well-formed, so we don't probe Market for invalid input.
-const NAMESPACE_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
-const isNamespaceFormatValid = (value: string) =>
-  value.length >= 3 && value.length <= 32 && NAMESPACE_PATTERN.test(value);
-
-const URL_PATTERN = /^(?:(?:[a-z]+:)?\/\/|www\.)\S+$/i;
 
 type NamespaceAvailability = 'available' | 'checking' | 'idle' | 'taken';
 
@@ -148,9 +146,7 @@ export const Content = memo<ContentProps>(({ user, onSuccess }) => {
           toast.error(t('user.workspaceProfile.errors.uploadFailed'));
           return;
         }
-        setAvatarUrl(
-          result.url.startsWith('/') ? `${window.location.origin}${result.url}` : result.url,
-        );
+        setAvatarUrl(resolveAppUrl(result.url));
       } catch (error) {
         console.error('[WorkspaceProfileModal] Avatar upload failed:', error);
         toast.error(t('user.workspaceProfile.errors.uploadFailed'));
@@ -175,10 +171,7 @@ export const Content = memo<ContentProps>(({ user, onSuccess }) => {
           toast.error(t('user.workspaceProfile.errors.uploadFailed'));
           return;
         }
-        const url = result.url.startsWith('/')
-          ? `${window.location.origin}${result.url}`
-          : result.url;
-        setBannerUrl(url);
+        setBannerUrl(resolveAppUrl(result.url));
       } catch (error) {
         console.error('[WorkspaceProfileModal] Banner upload failed:', error);
         toast.error(t('user.workspaceProfile.errors.uploadFailed'));
@@ -249,7 +242,7 @@ export const Content = memo<ContentProps>(({ user, onSuccess }) => {
           label={t('user.workspaceProfile.fields.websiteUrl')}
           name="websiteUrl"
           validate={(value?: string) =>
-            value && !URL_PATTERN.test(value) ? t('user.workspaceProfile.errors.url') : undefined
+            value && !isWebsiteUrlValid(value) ? t('user.workspaceProfile.errors.url') : undefined
           }
         >
           <Input
@@ -392,10 +385,8 @@ export const Content = memo<ContentProps>(({ user, onSuccess }) => {
             required={t('user.workspaceProfile.errors.namespace.required')}
             validate={(value?: string) => {
               if (!value) return;
-              if (value.length < 3 || value.length > 32)
-                return t('user.workspaceProfile.errors.namespace.length');
-              if (!NAMESPACE_PATTERN.test(value))
-                return t('user.workspaceProfile.errors.namespace.pattern');
+              const error = getNamespaceError(value);
+              if (error) return t(`user.workspaceProfile.errors.namespace.${error}`);
             }}
           >
             <Input

@@ -295,3 +295,7 @@ describe('AiAgentService.execAgent - appContext.newThread', () => {
     expect(mockMessageCreate).not.toHaveBeenCalled();
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

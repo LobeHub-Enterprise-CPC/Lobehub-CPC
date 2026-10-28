@@ -1,4 +1,5 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { createAuthClient } from 'better-auth/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useSignIn } from './useSignIn';
@@ -7,7 +8,7 @@ const mockNavigate = vi.hoisted(() => vi.fn());
 const mockSearchParamsGet = vi.hoisted(() => vi.fn().mockReturnValue(null));
 const mockMessageError = vi.hoisted(() => vi.fn());
 const mockMessageSuccess = vi.hoisted(() => vi.fn());
-const mockSignInSocial = vi.hoisted(() => vi.fn());
+const mockConfirmModal = vi.hoisted(() => vi.fn());
 const mockSignInOauth2 = vi.hoisted(() => vi.fn());
 const mockSignInSSO = vi.hoisted(() => vi.fn());
 const mockSignInEmail = vi.hoisted(() => vi.fn());
@@ -23,7 +24,7 @@ const mockBusinessSignin = vi.hoisted(() => ({
     id: string;
     displayName: string;
     logoUrl: null;
-    protocol: 'oidc' | 'oauth2';
+    protocol: 'oidc' | 'oauth2' | 'bridge';
   }>,
 }));
 const mockLocalStorage = vi.hoisted(() => {
@@ -42,8 +43,9 @@ vi.mock('react-router', () => ({
   useSearchParams: () => [{ get: mockSearchParamsGet }],
 }));
 
-vi.mock('@lobehub/ui/base-ui', async (importOriginal) => ({
+vi.mock('@lobehub/ui', async (importOriginal) => ({
   ...(await importOriginal<object>()),
+  confirmModal: mockConfirmModal,
   toast: { error: mockMessageError, success: mockMessageSuccess },
 }));
 
@@ -53,14 +55,8 @@ vi.mock('@/libs/better-auth/auth-client', () => ({
     email: mockSignInEmail,
     magicLink: mockSignInMagicLink,
     oauth2: mockSignInOauth2,
-    social: mockSignInSocial,
     sso: mockSignInSSO,
   },
-}));
-
-vi.mock('@/libs/better-auth/utils/client', () => ({
-  isBuiltinProvider: (p: string) => ['google', 'github', 'apple'].includes(p),
-  normalizeProviderId: (p: string) => p,
 }));
 
 vi.mock('@/business/client/hooks/useBusinessSignin', () => ({
@@ -74,14 +70,16 @@ vi.mock('@/business/client/hooks/useBusinessSignin', () => ({
 
 let mockEnableBusinessFeatures = false;
 let mockEnableMagicLink = false;
+let mockDisableEmailPassword = false;
+let mockOAuthProviders: string[] = ['google', 'github'];
 vi.mock('@/features/AuthShell/AuthServerConfigProvider', () => ({
   useAuthServerConfigStore: (selector: (s: any) => any) =>
     selector({
       serverConfig: {
-        disableEmailPassword: false,
+        disableEmailPassword: mockDisableEmailPassword,
         enableBusinessFeatures: mockEnableBusinessFeatures,
         enableMagicLink: mockEnableMagicLink,
-        oAuthSSOProviders: ['google', 'github'],
+        oAuthSSOProviders: mockOAuthProviders,
       },
       serverConfigInit: true,
     }),
@@ -95,7 +93,7 @@ const mockForm = vi.hoisted(() => ({
   setValue: vi.fn(),
   validate: vi.fn(),
 }));
-vi.mock('@lobehub/ui/base-ui/form', () => ({
+vi.mock('@lobehub/ui/form', () => ({
   useForm: () => mockForm,
 }));
 
@@ -105,6 +103,18 @@ vi.stubGlobal('localStorage', mockLocalStorage);
 
 const originalLocation = window.location;
 
+// Exercise the SDK's default redirect plugin rather than mocking its success behavior.
+const completeEmailSignInWithSdk = (data: any, options: any) => {
+  const client = createAuthClient({
+    baseURL: originalLocation.origin,
+    fetchOptions: {
+      customFetchImpl: async () =>
+        Response.json({ redirect: true, token: 'fixture-session', url: data.callbackURL }),
+    },
+  });
+  return client.signIn.email(data, options);
+};
+
 describe('useSignIn', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -112,6 +122,8 @@ describe('useSignIn', () => {
     mockSearchParamsGet.mockReturnValue(null);
     mockEnableBusinessFeatures = false;
     mockEnableMagicLink = false;
+    mockDisableEmailPassword = false;
+    mockOAuthProviders = ['google', 'github'];
     mockBusinessSignin.ssoProviders = [];
     mockBusinessSignin.managedSSO = false;
     mockBusinessSignin.ssoLoaded = true;
@@ -144,6 +156,233 @@ describe('useSignIn', () => {
       expect(result.current.socialLoading).toBeNull();
       expect(result.current.isSocialOnly).toBe(false);
       expect(result.current.disableEmailPassword).toBe(false);
+    });
+  });
+
+  describe('desktop authorization', () => {
+    const callbackFor = (callbackUrl: string | null) =>
+      mockSearchParamsGet.mockImplementation((key: string) =>
+        key === 'callbackUrl' ? callbackUrl : null,
+      );
+
+    it('is recognised from a callback that is the desktop authorization request', () => {
+      callbackFor('https://app.example.com/t/acme/oidc/auth?client_id=tituwork-desktop&x=1');
+
+      const { result } = renderHook(() => useSignIn());
+
+      expect(result.current.desktopAuth).toBe(true);
+    });
+
+    it.each([
+      ['another client', 'https://app.example.com/oidc/auth?client_id=lobehub-mobile'],
+      ['a plain page', '/agent'],
+      ['no callback', null],
+    ])('is not set for %s', (_, callbackUrl) => {
+      callbackFor(callbackUrl);
+
+      const { result } = renderHook(() => useSignIn());
+
+      expect(result.current.desktopAuth).toBe(false);
+    });
+  });
+
+  describe('email prefill from the organization lookup', () => {
+    it('fills the email field from ?email= without leaving the email step', () => {
+      mockSearchParamsGet.mockImplementation((key: string) =>
+        key === 'email' ? 'member@example.com' : null,
+      );
+
+      const { result } = renderHook(() => useSignIn());
+
+      expect(mockForm.setValue).toHaveBeenCalledWith('email', 'member@example.com');
+      // Prefilling is a convenience; it must not skip the step that offers SSO.
+      expect(result.current.step).toBe('email');
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('leaves the field alone when no ?email= is present', () => {
+      renderHook(() => useSignIn());
+
+      expect(mockForm.setValue).not.toHaveBeenCalled();
+    });
+
+    describe('continuing by itself', () => {
+      const AGREEMENT_KEY = 'lobehub:auth:agreement-accepted:v1';
+      const checkUserCalls = () =>
+        mockFetch.mock.calls.filter(([url]) => url === '/api/auth/check-user');
+      const arrive = (email: string | null = 'member@example.com') => {
+        mockSearchParamsGet.mockImplementation((key: string) => (key === 'email' ? email : null));
+        // The field holds what the URL prefilled until the user changes it.
+        mockForm.getValue.mockImplementation(() => email ?? '');
+      };
+      const continueButton = () => {
+        const button = document.createElement('button');
+        document.body.append(button);
+        return button;
+      };
+
+      beforeEach(() => {
+        mockOAuthProviders = [];
+        localStorage.setItem(AGREEMENT_KEY, 'true');
+        mockFetch.mockResolvedValue({
+          json: async () => ({ exists: true, hasPassword: true }),
+          ok: true,
+        });
+      });
+
+      afterEach(() => document.body.replaceChildren());
+
+      it('runs the same check as clicking Continue when the organization offers no SSO', async () => {
+        arrive();
+
+        const { result } = renderHook(() => useSignIn());
+
+        await waitFor(() => expect(result.current.step).toBe('password'));
+        expect(checkUserCalls()).toHaveLength(1);
+        expect(JSON.parse(checkUserCalls()[0][1].body)).toEqual({ email: 'member@example.com' });
+        expect(result.current.email).toBe('member@example.com');
+      });
+
+      it('does it once: coming back to the email step does not repeat it', async () => {
+        arrive();
+        const { result, rerender } = renderHook(() => useSignIn());
+        await waitFor(() => expect(result.current.step).toBe('password'));
+
+        act(() => result.current.handleBackToEmail());
+        rerender();
+
+        expect(result.current.step).toBe('email');
+        expect(checkUserCalls()).toHaveLength(1);
+      });
+
+      it('stops on the email step with the usual error when the check fails', async () => {
+        arrive();
+        mockFetch.mockResolvedValue({ json: async () => ({}), ok: false });
+
+        const { result } = renderHook(() => useSignIn());
+
+        await waitFor(() =>
+          expect(mockMessageError).toHaveBeenCalledWith('betterAuth.signin.error'),
+        );
+        expect(result.current.step).toBe('email');
+        expect(checkUserCalls()).toHaveLength(1);
+      });
+
+      it('only prefills and focuses Continue when SSO providers are offered', async () => {
+        mockOAuthProviders = ['google'];
+        arrive();
+        mockBusinessSignin.ssoLoaded = false;
+        const { result, rerender } = renderHook(() => useSignIn());
+        const button = continueButton();
+        result.current.continueButtonRef.current = button;
+
+        mockBusinessSignin.ssoLoaded = true;
+        rerender();
+
+        await waitFor(() => expect(document.activeElement).toBe(button));
+        expect(mockForm.setValue).toHaveBeenCalledWith('email', 'member@example.com');
+        expect(checkUserCalls()).toHaveLength(0);
+        expect(result.current.step).toBe('email');
+      });
+
+      it('drops the auto-continue when the user edits the email while SSO config loads', async () => {
+        arrive();
+        mockBusinessSignin.ssoLoaded = false;
+        const { result, rerender } = renderHook(() => useSignIn());
+        const button = continueButton();
+        result.current.continueButtonRef.current = button;
+
+        // Typed over the prefilled address before the configuration came back.
+        mockForm.getValue.mockImplementation(() => 'other@example.com');
+        mockBusinessSignin.ssoLoaded = true;
+        rerender();
+        await act(async () => {});
+
+        expect(checkUserCalls()).toHaveLength(0);
+        expect(document.activeElement).not.toBe(button);
+        expect(result.current.step).toBe('email');
+      });
+
+      it('does not race a manual submit that is already in flight', async () => {
+        arrive();
+        mockBusinessSignin.ssoLoaded = false;
+        let finishManual!: (value: unknown) => void;
+        mockFetch.mockReturnValueOnce(new Promise((resolve) => (finishManual = resolve)));
+        const { result, rerender } = renderHook(() => useSignIn());
+
+        let manual!: Promise<void>;
+        act(() => {
+          manual = result.current.handleCheckUser({ email: 'typed@example.com' });
+        });
+        mockBusinessSignin.ssoLoaded = true;
+        rerender();
+        await act(async () => {});
+
+        // Only the user's own submission exists; the URL's address was never sent.
+        expect(checkUserCalls()).toHaveLength(1);
+        expect(JSON.parse(checkUserCalls()[0][1].body)).toEqual({ email: 'typed@example.com' });
+
+        await act(async () => {
+          finishManual({ json: async () => ({ exists: true, hasPassword: true }), ok: true });
+          await manual;
+        });
+        expect(result.current.email).toBe('typed@example.com');
+      });
+
+      it('waits for the SSO configuration before deciding anything', async () => {
+        arrive();
+        mockBusinessSignin.ssoLoaded = false;
+
+        const { result } = renderHook(() => useSignIn());
+        await act(async () => {});
+
+        expect(checkUserCalls()).toHaveLength(0);
+        expect(result.current.step).toBe('email');
+      });
+
+      it('asks for the terms by itself when they are not accepted on this origin, then continues', async () => {
+        arrive();
+        localStorage.removeItem(AGREEMENT_KEY);
+        const { result } = renderHook(() => useSignIn());
+
+        // Nothing is checked or remembered before the user agrees (or if they cancel).
+        await waitFor(() => expect(mockConfirmModal).toHaveBeenCalledOnce());
+        expect(checkUserCalls()).toHaveLength(0);
+        expect(localStorage.getItem(AGREEMENT_KEY)).toBeNull();
+
+        act(() => mockConfirmModal.mock.calls[0][0].onOk());
+        await waitFor(() => expect(result.current.step).toBe('password'));
+        expect(checkUserCalls()).toHaveLength(1);
+        expect(localStorage.getItem(AGREEMENT_KEY)).toBe('true');
+      });
+
+      it.each([
+        ['an invalid email', () => arrive('not-an-email')],
+        ['no email', () => arrive(null)],
+        [
+          'email sign-in turned off',
+          () => {
+            arrive();
+            mockDisableEmailPassword = true;
+          },
+        ],
+        [
+          'a closed organization',
+          () => {
+            arrive();
+            (mockBusinessSignin as { tenantUnavailable?: boolean }).tenantUnavailable = true;
+          },
+        ],
+      ])('does nothing with %s', async (_, arrange) => {
+        arrange();
+
+        const { result } = renderHook(() => useSignIn());
+        await act(async () => {});
+
+        expect(checkUserCalls()).toHaveLength(0);
+        expect(result.current.step).toBe('email');
+        delete (mockBusinessSignin as { tenantUnavailable?: boolean }).tenantUnavailable;
+      });
     });
   });
 
@@ -234,11 +473,42 @@ describe('useSignIn', () => {
   });
 
   describe('handleSignIn', () => {
-    it('should call signIn.email and redirect on success', async () => {
-      mockSignInEmail.mockImplementation(async (_data: any, opts: any) => {
-        opts.onSuccess();
-        return { error: null };
+    it('performs one full-page tenant redirect when the SDK handles a successful login', async () => {
+      const navigate = vi.fn();
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: {
+          ...originalLocation,
+          get href() {
+            return `${originalLocation.origin}/t/acme/signin`;
+          },
+          set href(value: string) {
+            navigate(value);
+          },
+          origin: originalLocation.origin,
+          pathname: '/t/acme/signin',
+        },
       });
+      mockSearchParamsGet.mockImplementation((key: string) =>
+        key === 'callbackUrl' ? '/t/acme' : null,
+      );
+      mockSignInEmail.mockImplementation(completeEmailSignInWithSdk);
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({ exists: true, hasPassword: true }),
+        ok: true,
+      });
+      const { result } = renderHook(() => useSignIn());
+      await act(async () => {
+        await result.current.handleCheckUser({ email: 'user@example.com' });
+      });
+      await act(async () => {
+        await result.current.handleSignIn({ password: 'password123' });
+      });
+      expect(navigate).toHaveBeenCalledExactlyOnceWith(`${originalLocation.origin}/t/acme`);
+    });
+
+    it('should call signIn.email and redirect on success', async () => {
+      mockSignInEmail.mockImplementation(completeEmailSignInWithSdk);
 
       mockFetch.mockResolvedValueOnce({
         json: async () => ({ exists: true, hasPassword: true }),
@@ -264,7 +534,7 @@ describe('useSignIn', () => {
         }),
         expect.any(Object),
       );
-      expect(window.location.href).toBe('/');
+      expect(window.location.href).toBe(`${originalLocation.origin}/`);
     });
 
     it.each(['javascript:alert(1)', 'https://evil.com', '//evil.com'])(
@@ -273,10 +543,7 @@ describe('useSignIn', () => {
         mockSearchParamsGet.mockImplementation((key: string) =>
           key === 'callbackUrl' ? hostileUrl : null,
         );
-        mockSignInEmail.mockImplementation(async (_data: any, opts: any) => {
-          opts.onSuccess();
-          return { error: null };
-        });
+        mockSignInEmail.mockImplementation(completeEmailSignInWithSdk);
         mockFetch.mockResolvedValueOnce({
           json: async () => ({ exists: true, hasPassword: true }),
           ok: true,
@@ -292,7 +559,7 @@ describe('useSignIn', () => {
           await result.current.handleSignIn({ password: 'password123' });
         });
 
-        expect(window.location.href).toBe('/');
+        expect(window.location.href).toBe(`${originalLocation.origin}/`);
       },
     );
 
@@ -348,6 +615,49 @@ describe('useSignIn', () => {
     });
   });
 
+  describe('tenant unavailable', () => {
+    it('explains an unavailable workspace instead of sending a user to sign up', async () => {
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({ code: 'TENANT_FROZEN', reasons: ['manual'] }),
+        ok: false,
+        status: 403,
+      });
+
+      const { result } = renderHook(() => useSignIn());
+
+      await act(async () => {
+        await result.current.handleCheckUser({ email: 'user@example.com' });
+      });
+
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockMessageError).toHaveBeenCalledWith('tenant.unavailable.description');
+      expect(result.current.step).toBe('email');
+    });
+
+    it('does not send a frozen workspace sign-in to email verification', async () => {
+      mockSignInEmail.mockImplementation(async (_data: any, opts: any) => {
+        opts.onError({ error: { code: 'TENANT_FROZEN', status: 403 } });
+        return { error: { code: 'TENANT_FROZEN', status: 403 } };
+      });
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({ exists: true, hasPassword: true }),
+        ok: true,
+      });
+
+      const { result } = renderHook(() => useSignIn());
+
+      await act(async () => {
+        await result.current.handleCheckUser({ email: 'user@example.com' });
+      });
+      await act(async () => {
+        await result.current.handleSignIn({ password: 'password' });
+      });
+
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockMessageError).toHaveBeenCalledWith('tenant.unavailable.description');
+    });
+  });
+
   describe('handleSocialSignIn', () => {
     it('should bind relative OAuth callbacks to the current auth origin', async () => {
       const authOrigin = 'https://auth.example.com';
@@ -359,7 +669,7 @@ describe('useSignIn', () => {
       mockSearchParamsGet.mockImplementation((key: string) =>
         key === 'callbackUrl' ? '/workspace?tab=members' : null,
       );
-      mockSignInSocial.mockResolvedValue({ url: 'https://google.com/auth' });
+      mockSignInOauth2.mockResolvedValue({ url: 'https://google.com/auth' });
 
       const { result } = renderHook(() => useSignIn());
 
@@ -367,7 +677,7 @@ describe('useSignIn', () => {
         await result.current.handleSocialSignIn('google');
       });
 
-      expect(mockSignInSocial).toHaveBeenCalledWith(
+      expect(mockSignInOauth2).toHaveBeenCalledWith(
         expect.objectContaining({
           callbackURL: `${authOrigin}/workspace?tab=members`,
           newUserCallbackURL: `${authOrigin}/onboarding?callbackUrl=%2Fworkspace%3Ftab%3Dmembers`,
@@ -375,23 +685,26 @@ describe('useSignIn', () => {
       );
     });
 
-    it('should call signIn.social for builtin providers', async () => {
-      mockSignInSocial.mockResolvedValue({ url: 'https://google.com/auth' });
+    it.each(['google', 'github', 'apple', 'microsoft', 'microsoft-entra-id', 'cognito'])(
+      'should sign in a tenant provider named %s through signIn.oauth2, never signIn.social',
+      async (providerId) => {
+        mockSignInOauth2.mockResolvedValue({ url: 'https://google.com/auth' });
 
-      const { result } = renderHook(() => useSignIn());
+        const { result } = renderHook(() => useSignIn());
 
-      await act(async () => {
-        await result.current.handleSocialSignIn('google');
-      });
+        await act(async () => {
+          await result.current.handleSocialSignIn(providerId);
+        });
 
-      expect(mockSignInSocial).toHaveBeenCalledWith(
-        expect.objectContaining({
-          newUserCallbackURL: `${originalLocation.origin}/onboarding`,
-          provider: 'google',
-        }),
-      );
-      expect(mockMessageError).not.toHaveBeenCalled();
-    });
+        expect(mockSignInOauth2).toHaveBeenCalledWith(
+          expect.objectContaining({
+            newUserCallbackURL: `${originalLocation.origin}/onboarding`,
+            providerId,
+          }),
+        );
+        expect(mockMessageError).not.toHaveBeenCalled();
+      },
+    );
 
     it('should call signIn.oauth2 for custom providers', async () => {
       mockSignInOauth2.mockResolvedValue({ url: 'https://custom.com/auth' });
@@ -415,7 +728,7 @@ describe('useSignIn', () => {
       mockSearchParamsGet.mockImplementation((key: string) =>
         key === 'callbackUrl' ? mobileCallbackUrl : null,
       );
-      mockSignInSocial.mockResolvedValue({ url: 'https://google.com/auth' });
+      mockSignInOauth2.mockResolvedValue({ url: 'https://google.com/auth' });
 
       const { result } = renderHook(() => useSignIn());
 
@@ -423,13 +736,13 @@ describe('useSignIn', () => {
         await result.current.handleSocialSignIn('google');
       });
 
-      expect(mockSignInSocial).toHaveBeenCalledWith(
+      expect(mockSignInOauth2).toHaveBeenCalledWith(
         expect.objectContaining({ callbackURL: mobileCallbackUrl }),
       );
     });
 
     it('should NOT throw when result has error: null (redirect case)', async () => {
-      mockSignInSocial.mockResolvedValue({
+      mockSignInOauth2.mockResolvedValue({
         error: null,
         redirect: true,
         url: 'https://google.com/auth',
@@ -446,7 +759,7 @@ describe('useSignIn', () => {
     });
 
     it('should show error when result has a real error', async () => {
-      mockSignInSocial.mockResolvedValue({
+      mockSignInOauth2.mockResolvedValue({
         error: { message: 'OAuth failed', status: 500 },
       });
 
@@ -460,7 +773,7 @@ describe('useSignIn', () => {
     });
 
     it('should not retry social sign in when captcha is returned unexpectedly', async () => {
-      mockSignInSocial.mockResolvedValue({
+      mockSignInOauth2.mockResolvedValue({
         error: { code: 'CAPTCHA_REQUIRED', message: 'Missing CAPTCHA response', status: 400 },
       });
 
@@ -470,12 +783,12 @@ describe('useSignIn', () => {
         await result.current.handleSocialSignIn('google');
       });
 
-      expect(mockSignInSocial).toHaveBeenCalledTimes(1);
+      expect(mockSignInOauth2).toHaveBeenCalledTimes(1);
       expect(mockMessageError).toHaveBeenCalled();
     });
 
     it('should save last auth provider to localStorage', async () => {
-      mockSignInSocial.mockResolvedValue({ url: 'https://google.com/auth' });
+      mockSignInOauth2.mockResolvedValue({ url: 'https://google.com/auth' });
 
       const { result } = renderHook(() => useSignIn());
 
@@ -497,7 +810,7 @@ describe('useSignIn', () => {
       });
 
       expect(mockBusinessSignin.preSocialSigninCheck).toHaveBeenCalled();
-      expect(mockSignInSocial).not.toHaveBeenCalled();
+      expect(mockSignInOauth2).not.toHaveBeenCalled();
     });
   });
 
@@ -715,6 +1028,115 @@ describe('useSignIn', () => {
     });
   });
 
+  describe('enabled email login methods', () => {
+    it.each([true, false])(
+      'uses magic link when password is disabled (hasPassword=%s)',
+      async (hasPassword) => {
+        mockDisableEmailPassword = true;
+        mockEnableMagicLink = true;
+        mockSignInMagicLink.mockResolvedValue({ error: null });
+        mockFetch.mockResolvedValueOnce({
+          json: async () => ({ exists: true, hasPassword }),
+          ok: true,
+        });
+        const { result } = renderHook(() => useSignIn());
+        await act(async () => {
+          await result.current.handleCheckUser({ email: 'user@example.com' });
+        });
+        expect(mockSignInMagicLink).toHaveBeenCalledWith(
+          expect.objectContaining({ email: 'user@example.com' }),
+        );
+        expect(mockSignInEmail).not.toHaveBeenCalled();
+        expect(result.current.step).toBe('emailSent');
+      },
+    );
+
+    it('sends unknown email through magic-link admission instead of disabled signup', async () => {
+      mockDisableEmailPassword = true;
+      mockEnableMagicLink = true;
+      mockSignInMagicLink.mockResolvedValue({ error: null });
+      mockFetch.mockResolvedValueOnce({ json: async () => ({ exists: false }), ok: true });
+      const { result } = renderHook(() => useSignIn());
+      await act(async () => {
+        await result.current.handleCheckUser({ email: 'new@example.com' });
+      });
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockSignInMagicLink).toHaveBeenCalledWith(
+        expect.objectContaining({ email: 'new@example.com' }),
+      );
+      expect(result.current.step).toBe('emailSent');
+    });
+
+    it('keeps a denied magic-link admission on email entry for retry', async () => {
+      mockDisableEmailPassword = true;
+      mockEnableMagicLink = true;
+      mockSignInMagicLink.mockResolvedValue({ error: { message: 'Registration closed' } });
+      mockFetch.mockResolvedValueOnce({ json: async () => ({ exists: false }), ok: true });
+      const { result } = renderHook(() => useSignIn());
+      await act(async () => {
+        await result.current.handleCheckUser({ email: 'new@example.com' });
+      });
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockMessageError).toHaveBeenCalledWith('Registration closed');
+      expect(result.current.step).toBe('email');
+      expect(result.current.sentInfo).toBeNull();
+    });
+
+    it('makes no email credential request when both email methods are disabled', async () => {
+      mockDisableEmailPassword = true;
+      const { result } = renderHook(() => useSignIn());
+      await act(async () => {
+        await result.current.handleCheckUser({ email: 'user@example.com' });
+        await result.current.handleSignIn({ password: 'fixture-password' });
+        result.current.handleGoToSignup();
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(mockSignInEmail).not.toHaveBeenCalled();
+      expect(mockSignInMagicLink).not.toHaveBeenCalled();
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(result.current.step).toBe('email');
+    });
+
+    it('does not reset passwords after the password method is disabled', async () => {
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({ exists: true, hasPassword: true }),
+        ok: true,
+      });
+      const { result, rerender } = renderHook(() => useSignIn());
+      await act(async () => {
+        await result.current.handleCheckUser({ email: 'user@example.com' });
+      });
+      mockDisableEmailPassword = true;
+      rerender();
+      await act(async () => {
+        await result.current.handleForgotPassword();
+      });
+      expect(mockRequestPasswordReset).not.toHaveBeenCalled();
+      expect(result.current.sentInfo).toBeNull();
+    });
+
+    it('does not resend a magic link after that method is disabled', async () => {
+      mockEnableMagicLink = true;
+      mockSignInMagicLink.mockResolvedValue({ error: null });
+      mockFetch.mockResolvedValueOnce({
+        json: async () => ({ exists: true, hasPassword: false }),
+        ok: true,
+      });
+      const { result, rerender } = renderHook(() => useSignIn());
+      await act(async () => {
+        await result.current.handleCheckUser({ email: 'user@example.com' });
+      });
+      mockEnableMagicLink = false;
+      rerender();
+      mockSignInMagicLink.mockClear();
+      await act(async () => {
+        await result.current.handleResendEmail();
+      });
+      expect(mockSignInMagicLink).not.toHaveBeenCalled();
+      expect(mockMessageSuccess).not.toHaveBeenCalled();
+    });
+  });
+
   describe('provider sorting', () => {
     it('should sort last used provider first', () => {
       localStorage.setItem('lobehub:auth:last-provider:v1', 'github');
@@ -724,6 +1146,14 @@ describe('useSignIn', () => {
       expect(result.current.oAuthSSOProviders[0]).toBe('github');
 
       localStorage.removeItem('lobehub:auth:last-provider:v1');
+    });
+
+    it('keeps tenant OAuth providers alongside the Bridge provider', () => {
+      mockBusinessSignin.ssoProviders = [
+        { id: 'bridge-id', displayName: 'Bridge', logoUrl: null, protocol: 'bridge' },
+      ];
+      const { result } = renderHook(() => useSignIn());
+      expect(result.current.oAuthSSOProviders).toEqual(['google', 'github', 'bridge-id']);
     });
 
     it('uses managed provider IDs instead of environment providers', () => {
@@ -764,7 +1194,6 @@ describe('useSignIn', () => {
             providerId: 'managed-id',
           }),
         );
-        expect(mockSignInSocial).not.toHaveBeenCalled();
       },
     );
   });

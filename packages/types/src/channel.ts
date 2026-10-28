@@ -2,6 +2,27 @@
 export type ChannelRuntime = (typeof CHANNEL_RUNTIMES)[number];
 export type ChannelMode = 'normal' | 'discussion';
 export type ChannelJobStatus = 'queued' | 'running' | 'completed' | 'cancelled' | 'failed';
+/** Why a queued job cannot start yet. Typed so clients never infer it from error text. */
+export type ChannelJobBlockCode = 'device_offline' | 'workspace_changed' | 'unavailable';
+/** Server-derived presentation of a job and its latest run; the only state clients render. */
+export type ChannelJobState =
+  | 'queued'
+  | 'paused'
+  | 'starting'
+  | 'running'
+  | 'typing'
+  | 'awaiting_approval'
+  | 'stop_requested'
+  | 'execution_unknown'
+  | 'offline'
+  | 'unavailable'
+  | 'failed'
+  | 'publishing'
+  | 'replied'
+  | 'yielded'
+  | 'held'
+  | 'completed'
+  | 'cancelled';
 export type ChannelDiscussionStatus = 'active' | 'summarizing' | 'completed' | 'stopped';
 export interface ChannelDiscussionTask {
   kind: 'discuss' | 'revise' | 'summarize';
@@ -75,8 +96,14 @@ export const CHANNEL_LIMITS = {
   /** Default number of discussion rounds when the sender sets no explicit limit. */
   discussionRounds: 3,
   maxDiscussionRounds: 10,
-  approvalMs: 24 * 60 * 60 * 1000,
   executionMs: 10 * 60 * 1000,
+  /** Wall-clock budget for a device-hosted Agent turn before the worker stops it. */
+  deviceExecutionMs: 30 * 60 * 1000,
+  /**
+   * How long past its execution limit a writer may stay unconfirmed before the worker isolates
+   * it logically, so its member can run again. Physical confirmation is still sought afterwards.
+   */
+  terminationGraceMs: 5 * 60 * 1000,
   members: 6,
   minMembers: 2,
   modelCalls: 32,

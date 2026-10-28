@@ -1,8 +1,6 @@
 'use client';
 
-import { Flexbox } from '@lobehub/ui';
-import { Button, Select, toast } from '@lobehub/ui/base-ui';
-import { createStaticStyles } from 'antd-style';
+import { Button, createStaticStyles, Flexbox, Select, toast } from '@lobehub/ui';
 import { customAlphabet } from 'nanoid/non-secure';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -254,7 +252,7 @@ const ForkGroupAndChat = memo<{ mobile?: boolean }>(() => {
       await loadGroups();
 
       // Step 7: Report fork event (using 'add' event type)
-      discoverService.reportAgentEvent({
+      discoverService.reportGroupAgentEvent({
         event: 'add',
         identifier: forkResult.group.identifier,
         source: location.pathname,

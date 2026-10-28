@@ -19,12 +19,20 @@ import {
   topics,
   users,
 } from '@/database/schemas';
+import type * as TenantBinding from '@/libs/trpc/utils/tenantBinding';
 import { goalRouter } from '@/server/routers/lambda/goal';
 import { AiAgentService } from '@/server/services/aiAgent';
 
 import { GoalService } from './index';
 import { GoalManagerService } from './manager';
 import * as scheduler from './scheduler';
+
+// Operation tokens are bound to the tenant of the request by their `tid` claim
+// (covered in heteroOperationAuth.test.ts); these tests run outside a tenant scope.
+vi.mock('@/libs/trpc/utils/tenantBinding', async (importOriginal) => ({
+  ...(await importOriginal<typeof TenantBinding>()),
+  isBoundToCurrentTenant: () => true,
+}));
 
 vi.mock('@/database/core/db-adaptor', () => ({ getServerDB: () => db }));
 vi.mock('@/libs/oidc-provider/access-control', () => ({ assertOIDCUserActive: async () => {} }));
@@ -204,6 +212,19 @@ describe('GoalService.bindTopic', () => {
       operationId: runOpId,
     });
     expect(event.reason).toContain(boundTopicId);
+  });
+
+  it("drops the previous agent's model overrides when binding moves the goal to another agent", async () => {
+    const { id } = await standaloneGoalMidRun(otherAgentId);
+    await service().setModel(id, { model: 'gemini-3.8-flash', provider: 'google' });
+    await service().setTaskModel(id, { model: 'gpt-5.6-luna', provider: 'openai' });
+
+    await service().bindTopic(id, runOpId);
+
+    const goal = (await model().findById(id))!;
+    expect(goal.agentId).toBe(agentId);
+    expect(goal.config).not.toHaveProperty('model');
+    expect(goal.config).not.toHaveProperty('taskModel');
   });
 
   it('dispatches the next planning turn into the bound topic', async () => {

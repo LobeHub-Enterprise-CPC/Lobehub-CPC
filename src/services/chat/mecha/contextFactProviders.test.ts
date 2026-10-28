@@ -1,3 +1,4 @@
+import { initializeTenant, setRemoteAppAddress } from '@lobechat/business-tenant/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { lambdaClient } from '@/libs/trpc/client';
@@ -17,11 +18,16 @@ vi.mock('@/libs/trpc/client', () => ({
 }));
 
 vi.mock('@/services/agent', () => ({
+  AVAILABLE_AGENTS_CONTEXT_QUERY_LIMIT: 12,
   agentService: { queryAgents: vi.fn() },
 }));
 
 beforeEach(() => {
-  useAgentStore.setState({ agentDocumentsMap: {}, availableAgents: undefined } as any);
+  useAgentStore.setState({
+    agentDocumentsMap: {},
+    availableAgents: undefined,
+    availableAgentsStale: false,
+  } as any);
   useToolStore.setState({
     composioServers: [],
     installedPlugins: [],
@@ -35,6 +41,37 @@ afterEach(() => {
 });
 
 describe('createBrowserContextFactProviders', () => {
+  describe('getWorkspaceContext', () => {
+    afterEach(() => {
+      setRemoteAppAddress(undefined);
+      initializeTenant(new URL(window.location.href));
+    });
+
+    it('anchors links on the tenant address of the page, not the bare origin', async () => {
+      initializeTenant(new URL(`${window.location.origin}/t/acme/agent`));
+
+      await expect(createBrowserContextFactProviders().getWorkspaceContext!()).resolves.toEqual(
+        expect.objectContaining({ appUrl: `${window.location.origin}/t/acme` }),
+      );
+    });
+
+    it('anchors links on the remote tenant address in the desktop renderer', async () => {
+      setRemoteAppAddress('https://host.example/t/acme');
+
+      await expect(createBrowserContextFactProviders().getWorkspaceContext!()).resolves.toEqual(
+        expect.objectContaining({ appUrl: 'https://host.example/t/acme' }),
+      );
+    });
+
+    it('has no app url before the desktop remote address is configured', async () => {
+      setRemoteAppAddress('');
+
+      await expect(createBrowserContextFactProviders().getWorkspaceContext!()).resolves.toEqual(
+        expect.objectContaining({ appUrl: undefined }),
+      );
+    });
+  });
+
   it('reports no connector features when the server config store is not mounted', () => {
     expect(resolveBrowserConnectorFeatures()).toEqual({ composio: false, lobehubSkill: false });
   });
@@ -50,6 +87,17 @@ describe('createBrowserContextFactProviders', () => {
     useAgentStore.setState({ availableAgents: undefined } as any);
     await expect(providers.listRecentAgents!(12)).resolves.toEqual([{ id: 'agent-2' }]);
     expect(agentService.queryAgents).toHaveBeenCalledWith({ limit: 12 });
+  });
+
+  it('reads a fresh agent list once the agents changed', async () => {
+    const providers = createBrowserContextFactProviders();
+    vi.mocked(agentService.queryAgents).mockResolvedValue([{ id: 'agent-new' }] as any);
+
+    useAgentStore.setState({ availableAgents: [{ id: 'agent-1' }] } as any);
+    useAgentStore.getState().invalidateAvailableAgents();
+
+    await expect(providers.listRecentAgents!(12)).resolves.toEqual([{ id: 'agent-new' }]);
+    expect(agentService.queryAgents).toHaveBeenCalledTimes(1);
   });
 
   it('treats only active Composio connections and every installed LobeHub skill provider as connected', async () => {

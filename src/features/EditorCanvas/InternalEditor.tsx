@@ -12,7 +12,7 @@ import {
   ReactToolbarPlugin,
 } from '@lobehub/editor';
 import { Editor, useEditorState } from '@lobehub/editor/react';
-import { createStaticStyles } from 'antd-style';
+import { createStaticStyles } from '@lobehub/ui';
 import isEqual from 'fast-deep-equal';
 import type { CSSProperties, RefObject } from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
@@ -26,6 +26,7 @@ import InlineToolbar from './InlineToolbar';
 import LinearFilePlugin from './LinearFilePlugin';
 import { registerAttachmentClickOpen } from './registerAttachmentClickOpen';
 import { registerBlockDecoratorCaretGuard } from './registerBlockDecoratorCaretGuard';
+import { registerImageFilePastePreference } from './registerImageFilePastePreference';
 import { needsImageRehost, rehostImage } from './rehostImage';
 import { useFileUpload, useImageUpload } from './useImageUpload';
 
@@ -265,6 +266,14 @@ const InternalEditor = memo<InternalEditorProps>(
       return () => unregister?.();
     }, [editor]);
 
+    // Copy Image from apps like Discord puts an image-only HTML flavor next to
+    // the bitmap; upload the bitmap instead of rehosting the remote URL.
+    useEffect(() => {
+      if (!editor) return;
+      const unregister = registerImageFilePastePreference(editor);
+      return () => unregister?.();
+    }, [editor]);
+
     // Opt-in (comment editors): keep the caret out of the root node around
     // block images by pushing an empty paragraph next to the image instead of
     // showing Lexical's horizontal root-level caret.
@@ -378,6 +387,7 @@ const InternalEditor = memo<InternalEditorProps>(
           slashOption={slashItems ? { items: slashItems } : undefined}
           type={'text'}
           style={{
+            display: 'flow-root',
             paddingBottom: 32,
             ...style,
             ...contentStyle,

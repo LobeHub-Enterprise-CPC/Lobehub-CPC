@@ -10,15 +10,21 @@ const mocks = vi.hoisted(() => ({
   publishJSON: vi.fn(),
   runScheduleTick: vi.fn(),
   swapDispatchedScheduleOccurrence: vi.fn(),
+  updateStatus: vi.fn(),
 }));
 
 vi.mock('@/database/server', () => ({ getServerDB: mocks.getServerDB }));
 
 vi.mock('@/database/models/task', () => ({
-  TaskModel: {
-    getScheduledTasks: mocks.getScheduledTasks,
-    swapDispatchedScheduleOccurrence: mocks.swapDispatchedScheduleOccurrence,
-  },
+  TaskModel: Object.assign(
+    vi.fn(function () {
+      return { updateStatus: mocks.updateStatus };
+    }),
+    {
+      getScheduledTasks: mocks.getScheduledTasks,
+      swapDispatchedScheduleOccurrence: mocks.swapDispatchedScheduleOccurrence,
+    },
+  ),
 }));
 
 vi.mock('@/envs/app', () => ({ appEnv: mocks.appEnv }));
@@ -60,6 +66,21 @@ describe('scheduleDispatch', () => {
     // The 09:10 tick, right after a 09:00 slot.
     vi.setSystemTime(new Date('2026-09-21T09:10:00Z'));
     mocks.getServerDB.mockResolvedValue({});
+  });
+
+  it('skips a future single run and retires an expired schedule without dispatching', async () => {
+    mocks.getScheduledTasks.mockResolvedValue([
+      { ...dailyNineTask(null), config: { schedule: { onceAt: '2030-01-01T09:00:00Z' } } },
+      {
+        ...dailyNineTask(null),
+        id: 'expired',
+        config: { schedule: { endsAt: '2026-09-20T23:59:59Z' } },
+      },
+    ]);
+    const result = await dispatch(false);
+    expect(result.due).toBe(0);
+    expect(mocks.updateStatus).toHaveBeenCalledWith('expired', 'completed', expect.any(Object));
+    expect(mocks.runScheduleTick).not.toHaveBeenCalled();
   });
 
   afterEach(() => {

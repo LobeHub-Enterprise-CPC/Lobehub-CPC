@@ -515,3 +515,7 @@ describe('AiAgentService.execAgent - supersede running foreground operation', ()
     expect(interruptTask).not.toHaveBeenCalled();
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

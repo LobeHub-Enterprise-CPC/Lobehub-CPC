@@ -174,6 +174,7 @@ describe('FollowUpActionService.extract', () => {
       dbMock,
       TEST_USER,
       'custom-provider',
+      undefined,
     );
     expect(runtimeMock.generateObject).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -353,3 +354,7 @@ describe('FollowUpActionService.extract', () => {
     expect(sysContent).toContain('Phase tip:');
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite', () => ({
+  resolveProviderRelay: vi.fn().mockResolvedValue(undefined),
+}));

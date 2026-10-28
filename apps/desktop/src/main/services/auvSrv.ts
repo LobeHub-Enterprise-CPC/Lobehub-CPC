@@ -1,4 +1,4 @@
-import { execFile, type ExecFileException } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { access, chmod, mkdtemp, rmdir } from 'node:fs/promises';
 import os from 'node:os';
@@ -14,6 +14,12 @@ import type {
   RunnerClass,
   startAuv,
 } from '@auv-js/sdk/node';
+import {
+  type AuvRunCommandParams,
+  type AuvRunCommandResult,
+  normalizeAuvArgv,
+  runAuvCommand,
+} from '@lobechat/device-control/computer-use';
 
 import type { App } from '@/core/App';
 import { createLogger } from '@/utils/logger';
@@ -45,17 +51,7 @@ export interface AuvRunnerClassInfo {
   supportedLifecycles: RunnerClass['supportedLifecycles'];
 }
 
-export interface AuvRunCommandParams {
-  argv: string[];
-}
-
-export interface AuvRunCommandResult {
-  argv: string[];
-  /** Process exit status, not verification of the requested UI effect. */
-  exitCode: number;
-  output: unknown;
-  stderr?: string;
-}
+export type { AuvRunCommandParams, AuvRunCommandResult };
 
 export interface AuvCliExecutionOptions {
   argv: string[];
@@ -312,37 +308,20 @@ export default class AuvService extends ServiceModule {
    * -> private app-owned CLI invocation; preserve output on nonzero exits.
    */
   async runCommand(params: AuvRunCommandParams): Promise<AuvRunCommandResult> {
-    const argv = normalizeCliArgv(params);
+    const argv = normalizeAuvArgv(params);
     await this.getClient();
-    if (!this.binaryPath || !this.ipcEndpoint) throw new Error('AUV is not connected');
+    const binaryPath = this.binaryPath;
+    const endpoint = this.ipcEndpoint;
+    if (!binaryPath || !endpoint) throw new Error('AUV is not connected');
 
-    let stdout: string;
-    let stderr: string;
-    let exitCode = 0;
-    try {
-      ({ stderr, stdout } = await this.dependencies.runCli({
-        argv,
-        binaryPath: this.binaryPath,
-        endpoint: this.ipcEndpoint,
+    return runAuvCommand(params, argv, (cliArgv) =>
+      this.dependencies.runCli({
+        argv: cliArgv,
+        binaryPath,
+        endpoint,
         storeRoot: path.join(this.app.appStoragePath, 'auv', 'runs'),
-      }));
-    } catch (error) {
-      // execFile rejects nonzero exits even when stdout contains AUV's structured
-      // failure. Return that envelope over IPC; spawn/timeout failures still throw.
-      const failure = error as ExecFileException & { stdout?: string; stderr?: string };
-      if (typeof failure?.code !== 'number' || failure.killed) throw error;
-      exitCode = failure.code;
-      stdout = failure.stdout ?? '';
-      stderr = failure.stderr ?? '';
-    }
-    const stderrOutput = stderr.trim();
-
-    return {
-      argv: [...params.argv],
-      exitCode,
-      output: parseCliOutput(stdout),
-      ...(stderrOutput && { stderr: stderrOutput }),
-    };
+      }),
+    );
   }
 
   destroy() {
@@ -363,7 +342,7 @@ export default class AuvService extends ServiceModule {
       daemon = await sdk.startAuv({
         binaryPath,
         listeners: [privateIpc.listener],
-        noDiscovery: true,
+        noRegister: true,
         storeRoot: path.join(auvRoot, 'store'),
       });
 

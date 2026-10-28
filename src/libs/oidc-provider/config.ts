@@ -1,14 +1,10 @@
 import { BRANDING_LOGO_URL, BRANDING_NAME } from '@lobechat/business-const';
+import { ACCEPTANCE_REVIEW_CLIENT_ID, ACCEPTANCE_REVIEW_SCOPE } from '@lobechat/const';
 import { type ClientMetadata } from 'oidc-provider';
 import urlJoin from 'url-join';
 
 import { appEnv } from '@/envs/app';
 
-const cloudAppOrigins = ['https://app.lobehub.com', 'https://lobehub.com'];
-const appUrl = appEnv.APP_URL!;
-const desktopAppOrigins = cloudAppOrigins.includes(new URL(appUrl).origin)
-  ? cloudAppOrigins
-  : [appUrl];
 const marketBaseUrl = new URL(appEnv.MARKET_BASE_URL ?? 'https://market.lobehub.com').origin;
 
 /**
@@ -51,22 +47,15 @@ const clientDisplay = (suffix: string, defaultLogoUri: string) => ({
 export const defaultClients: ClientMetadata[] = [
   {
     application_type: 'web',
-    client_id: 'lobehub-desktop',
+    client_id: 'tituwork-desktop',
     ...clientDisplay('Desktop', 'https://hub-apac-1.lobeobjects.space/lobehub-desktop-icon.png'),
     // Only supports authorization code flow
     grant_types: ['authorization_code', 'refresh_token'],
 
-    post_logout_redirect_uris: [
-      // Keep the legacy subdomain working while Cloud moves to the apex domain.
-      ...desktopAppOrigins.map((origin) => urlJoin(origin, '/oauth/logout')),
-      'http://localhost:3210/oauth/logout',
-    ],
-
-    // Desktop authorization callback - changed to web page path
-    redirect_uris: [
-      ...desktopAppOrigins.map((origin) => urlJoin(origin, '/oidc/callback/desktop')),
-      'http://localhost:3210/oidc/callback/desktop',
-    ],
+    // The desktop callback and logout pages live under each organization's own address, so the
+    // tenant provider adds them (`provider.ts`). A deployment-root address serves no tenant.
+    post_logout_redirect_uris: [],
+    redirect_uris: [],
 
     // Supports authorization code for obtaining tokens and refresh tokens
     response_types: ['code'],
@@ -94,9 +83,34 @@ export const defaultClients: ClientMetadata[] = [
   },
   {
     application_type: 'native',
+    client_id: 'toby',
+    ...clientDisplay('Toby', 'https://hub-apac-1.lobeobjects.space/lobehub-desktop-icon.png'),
+    grant_types: ['authorization_code', 'refresh_token'],
+    post_logout_redirect_uris: [],
+    // Like the desktop client, the toby callback lives under each organization's own
+    // address, so the tenant provider adds `${publicUrl}/oidc/callback/toby`
+    // (`provider.ts`). A deployment-root address serves no tenant.
+    // Universal-link callback: iOS only hands it to the app listed in the AASA
+    // webcredentials, so another app cannot impersonate toby the way it could
+    // with a custom scheme.
+    redirect_uris: [],
+    response_types: ['code'],
+    token_endpoint_auth_method: 'none',
+  },
+  {
+    application_type: 'native',
     client_id: 'lobehub-cli',
     ...clientDisplay('CLI', 'https://hub-apac-1.lobeobjects.space/lobehub-desktop-icon.png'),
     grant_types: ['urn:ietf:params:oauth:grant-type:device_code', 'refresh_token'],
+    response_types: [],
+    token_endpoint_auth_method: 'none',
+  },
+  {
+    application_type: 'native',
+    client_id: ACCEPTANCE_REVIEW_CLIENT_ID,
+    ...clientDisplay('Review', 'https://hub-apac-1.lobeobjects.space/lobehub-desktop-icon.png'),
+    grant_types: ['urn:ietf:params:oauth:grant-type:device_code'],
+    scope: ACCEPTANCE_REVIEW_SCOPE,
     response_types: [],
     token_endpoint_auth_method: 'none',
   },
@@ -129,6 +143,7 @@ export const defaultScopes = [
   'profile',
   'email',
   'offline_access', // Allows obtaining refresh_token
+  ACCEPTANCE_REVIEW_SCOPE,
 ];
 
 /**
@@ -136,7 +151,8 @@ export const defaultScopes = [
  */
 export const defaultClaims = {
   email: ['email', 'email_verified'],
-  openid: ['sub'],
-  // subject (unique user identifier)
+  // `sub` is the subject (unique user identifier). `tenant_name` / `tenant_slug` / `has_other_organizations` are
+  // display values for the desktop confirmation; the provider only fills them in for the id_token.
+  openid: ['sub', 'tenant_name', 'tenant_slug', 'has_other_organizations'],
   profile: ['name', 'picture'],
 };

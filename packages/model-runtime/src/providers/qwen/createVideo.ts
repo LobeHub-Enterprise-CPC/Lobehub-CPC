@@ -44,12 +44,13 @@ export async function queryQwenVideoStatus(
   taskId: string,
   apiKey: string,
   baseUrl: string,
+  customFetch?: typeof fetch,
 ): Promise<QwenVideoTaskResponse> {
   const endpoint = `${baseUrl}/api/v1/tasks/${taskId}`;
 
   log('Querying task status for: %s', taskId);
 
-  const response = await fetch(endpoint, {
+  const response = await (customFetch ?? fetch)(endpoint, {
     headers: {
       Authorization: `Bearer ${apiKey}`,
     },
@@ -78,12 +79,13 @@ export async function pollQwenVideoStatus(
   taskId: string,
   apiKey: string,
   baseUrl: string,
+  customFetch?: typeof fetch,
 ): Promise<
   | { status: 'success'; videoUrl: string }
   | { status: 'failed'; error: string }
   | { status: 'pending' }
 > {
-  const response = await queryQwenVideoStatus(taskId, apiKey, baseUrl);
+  const response = await queryQwenVideoStatus(taskId, apiKey, baseUrl, customFetch);
 
   if (response.output.task_status === 'SUCCEEDED') {
     const videoUrl = response.output.video_url;
@@ -115,6 +117,7 @@ async function createVideoTask(
   taskType: 'video-generation' | 'image2video',
   provider: string,
   baseUrl: string,
+  customFetch?: typeof fetch,
 ): Promise<string> {
   const { model, params } = payload;
   const { prompt, imageUrl, imageUrls, endImageUrl } = params;
@@ -323,7 +326,7 @@ async function createVideoTask(
     parameters.watermark = params.watermark;
   }
 
-  const response = await fetch(url, {
+  const response = await (customFetch ?? fetch)(url, {
     body: JSON.stringify({
       input,
       model,
@@ -369,7 +372,7 @@ export async function createQwenVideo(
   payload: CreateVideoPayload,
   options: CreateVideoOptions,
 ): Promise<CreateVideoResult> {
-  const { apiKey, baseURL, provider } = options;
+  const { apiKey, baseURL, fetch: customFetch, provider } = options;
   const { model, params } = payload;
 
   // Check if URL has /compatible-mode/v1 suffix and remove it
@@ -395,7 +398,14 @@ export async function createQwenVideo(
     }
 
     // Create the video task
-    const taskId = await createVideoTask(payload, apiKey, taskType, provider, dashscopeURL);
+    const taskId = await createVideoTask(
+      payload,
+      apiKey,
+      taskType,
+      provider,
+      dashscopeURL,
+      customFetch,
+    );
 
     log('Video task created with id: %s, returning immediately for frontend polling', taskId);
 

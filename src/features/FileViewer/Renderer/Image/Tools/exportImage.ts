@@ -1,3 +1,5 @@
+import { currentTenantRelativePath } from '@lobechat/business-tenant/client';
+
 import type { NormalizedRect, Size } from '../geometry';
 import { type AnnotationShape, drawShapes } from './Annotate/shapes';
 import { drawCommentMarkers, type MarkupComment } from './markup';
@@ -24,7 +26,9 @@ const FILE_PROXY_PATH = /^\/f\/([^/]+)$/;
 /** File id of a `/f/:id` proxy URL, whatever host serves it. */
 export const fileIdFromProxyUrl = (src: string): string | undefined => {
   try {
-    const match = new URL(src, globalThis.location?.href).pathname.match(FILE_PROXY_PATH);
+    const match = currentTenantRelativePath(
+      new URL(src, globalThis.location?.href).pathname,
+    )?.match(FILE_PROXY_PATH);
     return match ? decodeURIComponent(match[1]) : undefined;
   } catch {
     return undefined;

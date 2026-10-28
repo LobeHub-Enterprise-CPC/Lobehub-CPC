@@ -1,5 +1,6 @@
 'use client';
 
+import { buildAppUrl } from '@lobechat/business-tenant/client';
 import { COMPOSIO_APP_TYPES, getLobehubSkillProviderById } from '@lobechat/const';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -179,7 +180,7 @@ export const useSkillConnect = ({ identifier, serverName, type }: UseSkillConnec
 
       // Skip redirectUri on desktop (app:// protocol) since the system browser can't navigate to it
       const redirectUri = window.location.protocol.startsWith('http')
-        ? `${window.location.origin}/oauth/callback/success?provider=${encodeURIComponent(identifier)}`
+        ? buildAppUrl(`/oauth/callback/success?provider=${encodeURIComponent(identifier)}`)
         : undefined;
       const { authorizeUrl } = await getAuthorizeUrl(identifier, { redirectUri });
       openOAuthWindow(authorizeUrl, identifier);
@@ -234,9 +235,11 @@ export const useSkillConnect = ({ identifier, serverName, type }: UseSkillConnec
       const provider = lobehubServer.identifier;
       await revokeLobehubConnect(provider);
 
-      const latestServer = useToolStore
-        .getState()
-        .lobehubSkillServers.find((server) => server.identifier === provider);
+      // The list is a replica view: `undefined` means "not loaded yet", which
+      // reads the same as an empty list here (no row ⇒ not connected).
+      const latestServer = (useToolStore.getState().lobehubSkillServers ?? []).find(
+        (server) => server.identifier === provider,
+      );
 
       return latestServer?.status !== LobehubSkillStatus.CONNECTED;
     } else if (type === 'composio' && composioServer) {

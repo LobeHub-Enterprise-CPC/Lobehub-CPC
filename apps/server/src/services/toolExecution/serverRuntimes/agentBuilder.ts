@@ -16,6 +16,7 @@ import { getHiddenBuiltinModelsForUser } from '@/business/server/aiProvider';
 import { AgentModel } from '@/database/models/agent';
 import { ConnectorModel } from '@/database/models/connector';
 import { PluginModel } from '@/database/models/plugin';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { AgentService } from '@/server/services/agent';
 import { createAiInfraRepos } from '@/server/services/aiInfra/servableModels';
 import { DiscoverService } from '@/server/services/discover';
@@ -68,11 +69,18 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
      * without one it sends no credentials at all and every market read fails as
      * `unauthorized`, which `searchMarketTools` surfaces as a plain tool failure
      * the model silently works around. `workspaceId` additionally attributes the
-     * read to the workspace rather than the personal account.
+     * read to the workspace rather than the personal account. The identity is
+     * assembled asynchronously (tenant, email, name), so the client is built on
+     * first use rather than when the runtime is created.
      */
-    const discoverService = new DiscoverService({
-      userInfo: { userId, workspaceId: context.workspaceId },
-    });
+    const getDiscoverService = async () =>
+      new DiscoverService({
+        userInfo: await resolveMarketServiceIdentity({
+          serverDB,
+          userId,
+          workspaceId: context.workspaceId,
+        }),
+      });
 
     return {
       getAvailableModels: async (
@@ -167,7 +175,9 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
 
       searchMarketTools: async (params: SearchMarketToolsParams): Promise<ToolExecutionResult> => {
         try {
-          const response = await discoverService.getMcpList({
+          const response = await (
+            await getDiscoverService()
+          ).getMcpList({
             category: params.category,
             pageSize: params.pageSize || 10,
             q: params.query,
@@ -293,6 +303,16 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
         if (!agentId) return noEditingTargetResult;
 
         try {
+          // Existence guard: a Drizzle UPDATE on a missing/foreign agent row is a
+          // silent 0-row no-op, so the prompt write would "succeed" without
+          // persisting anything. updateConfig already fails loudly; align it.
+          // Lightweight existsById probe — getAgentConfigById would needlessly
+          // enrich the row with knowledge associations just to test existence.
+          const exists = await agentModel.existsById(agentId);
+          if (!exists) {
+            return { content: `Agent "${agentId}" not found.`, success: false };
+          }
+
           await agentModel.update(agentId, {
             editorData: null,
             systemRole: params.prompt,
@@ -362,7 +382,7 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
 
           const { installedNow, resolution } = await resolveOrInstallMarketPlugin(
             identifier,
-            { connectorModel, discoverService, pluginModel },
+            { connectorModel, discoverService: await getDiscoverService(), pluginModel },
             { agentId, source: 'market' },
           );
           if (resolution.status !== 'loadable')

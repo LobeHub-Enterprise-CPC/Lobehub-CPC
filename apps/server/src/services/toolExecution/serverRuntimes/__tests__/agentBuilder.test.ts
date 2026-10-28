@@ -11,6 +11,7 @@ const {
   mockQueryPlugins,
   mockResolveConnectors,
   mockUpdatePlugin,
+  mockExistsById,
   mockGetAgentConfigById,
   mockGetAiProviderList,
   mockGetAiProviderModelList,
@@ -25,6 +26,7 @@ const {
   mockQueryPlugins: vi.fn(),
   mockResolveConnectors: vi.fn(),
   mockUpdatePlugin: vi.fn(),
+  mockExistsById: vi.fn(),
   mockGetAgentConfigById: vi.fn(),
   mockGetAiProviderList: vi.fn(),
   mockGetAiProviderModelList: vi.fn(),
@@ -48,6 +50,7 @@ vi.mock('@/server/services/agent', () => ({
 vi.mock('@/database/models/agent', () => ({
   AgentModel: vi.fn(function () {
     return {
+      existsById: mockExistsById,
       getAgentConfigById: mockGetAgentConfigById,
       update: mockUpdateAgent,
       updateConfig: mockUpdateConfig,
@@ -81,9 +84,22 @@ vi.mock('@/database/repositories/aiInfra', () => ({
   }),
 }));
 
+vi.mock('@/libs/trusted-client/resolveIdentity', () => ({
+  resolveMarketServiceIdentity: vi.fn(
+    async ({ userId, workspaceId }: { userId: string; workspaceId?: string }) => ({
+      tenantId: 'tenant-a',
+      userId,
+      ...(workspaceId ? { workspaceId } : {}),
+    }),
+  ),
+}));
+
 vi.mock('@/server/services/discover', () => ({
   DiscoverService: vi.fn(function () {
-    return { getMcpManifest: mockGetMcpManifest };
+    return {
+      getMcpList: vi.fn().mockRejectedValue(new Error('offline')),
+      getMcpManifest: mockGetMcpManifest,
+    };
   }),
 }));
 
@@ -107,6 +123,7 @@ const createWorkspaceRuntime = () =>
 describe('agentBuilderRuntime', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockExistsById.mockResolvedValue(true);
     mockServiceUpdateConfig.mockImplementation((...args) => mockUpdateConfig(...args));
     mockGetHiddenBuiltinModelsForUser.mockResolvedValue(undefined);
     mockResolveConnectors.mockResolvedValue([]);
@@ -387,6 +404,38 @@ describe('agentBuilderRuntime', () => {
     });
   });
 
+  describe('existence guard (0-row silent no-op)', () => {
+    it('updatePrompt fails loudly when the editing agent no longer exists', async () => {
+      mockExistsById.mockResolvedValue(false);
+
+      const result = await createRuntime().updatePrompt(
+        { prompt: 'orphan prompt' },
+        { editingAgentId: 'agent-missing', toolManifestMap: {} },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('not found');
+      expect(mockUpdateAgent).not.toHaveBeenCalled();
+    });
+
+    // updateConfig's own entry guard (pre-existing) resolves via
+    // getAgentConfigById — that read stays functionally needed for
+    // togglePlugin, so this test exercises that path, not existsById.
+    it('updateConfig meta-only writes fail loudly when the editing agent no longer exists', async () => {
+      mockGetAgentConfigById.mockResolvedValue(undefined);
+
+      const result = await createRuntime().updateConfig(
+        { meta: { title: 'Ghost' } },
+        { editingAgentId: 'agent-missing', toolManifestMap: {} },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('not found');
+      expect(mockUpdateConfig).not.toHaveBeenCalled();
+      expect(mockUpdateAgent).not.toHaveBeenCalled();
+    });
+  });
+
   describe('installPlugin', () => {
     it('flips an existing disabled builtin-tool entry back to pinned, without duplicating it', async () => {
       mockGetAgentConfigById.mockResolvedValue({
@@ -529,20 +578,26 @@ describe('agentBuilderRuntime', () => {
   // tool failure and silently works around, leaving the built agent with no
   // market tool.
   describe('market identity', () => {
-    it('passes the run identity to DiscoverService', () => {
-      createRuntime();
+    it('signs the market read with the run identity, tenant included', async () => {
+      await createRuntime().searchMarketTools({ query: 'ads' } as never, {} as never);
 
       expect(DiscoverService).toHaveBeenCalledWith({
-        userInfo: { userId: 'user-1', workspaceId: undefined },
+        userInfo: { tenantId: 'tenant-a', userId: 'user-1' },
       });
     });
 
-    it('scopes the market identity to the run workspace', () => {
-      createWorkspaceRuntime();
+    it('scopes the market identity to the run workspace', async () => {
+      await createWorkspaceRuntime().searchMarketTools({ query: 'ads' } as never, {} as never);
 
       expect(DiscoverService).toHaveBeenCalledWith({
-        userInfo: { userId: 'user-1', workspaceId: 'workspace-1' },
+        userInfo: { tenantId: 'tenant-a', userId: 'user-1', workspaceId: 'workspace-1' },
       });
+    });
+
+    it('does not build a market client for a run that never reads the market', () => {
+      createRuntime();
+
+      expect(DiscoverService).not.toHaveBeenCalled();
     });
   });
 });

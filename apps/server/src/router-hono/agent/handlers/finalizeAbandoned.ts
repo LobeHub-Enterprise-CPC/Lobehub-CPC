@@ -3,8 +3,7 @@ import type { Context } from 'hono';
 
 import { getServerDB } from '@/database/core/db-adaptor';
 import { AbandonOperationService } from '@/server/services/agentRuntime';
-
-import { resumeAbandonedParent } from './resumeAbandonedParent';
+import { resumeAbandonedParent } from '@/server/services/agentRuntime/resumeAbandonedParent';
 
 const log = debug('lobe-server:agent:finalize-abandoned');
 

@@ -2,6 +2,14 @@ import type { DeviceUnavailableErrorData } from '@lobechat/types';
 
 export type { DeviceUnavailableErrorData } from '@lobechat/types';
 
+/** The Device HTTP result arrived, but trusted Work settlement did not complete. */
+export class DeviceDispatchSettlementError extends Error {
+  constructor(cause: unknown) {
+    super('DEVICE_DISPATCH_SETTLEMENT_UNKNOWN', { cause });
+    this.name = 'DeviceDispatchSettlementError';
+  }
+}
+
 /**
  * Human- and model-readable descriptions for device-channel transport
  * failures.
@@ -29,6 +37,11 @@ export const DeviceTransportErrorCode = {
   DeviceChannelUnavailable: 'DEVICE_CHANNEL_UNAVAILABLE',
   /** The gateway has no record of the addressed device. */
   DeviceNotFound: 'DEVICE_NOT_FOUND',
+  /**
+   * The device is online, but none of its connections belongs to a client that
+   * can serve the request (e.g. only `lh connect` while the desktop app is needed).
+   */
+  NoCapableClient: 'DEVICE_NO_CAPABLE_CLIENT',
   /** Delivered to the device, but no answer before the deadline. */
   DeviceResponseTimeout: 'DEVICE_RESPONSE_TIMEOUT',
   /** The gateway itself failed (5xx that is not a routing failure). */
@@ -55,6 +68,7 @@ export interface DeviceTransportFailure {
   data?: DeviceUnavailableErrorData;
   /** Machine-facing detail: the gateway's own body when it sent one. */
   error: string;
+  executionUnknown?: boolean;
 }
 
 /** What the failed hop was carrying, used to open the sentence. */
@@ -65,7 +79,7 @@ interface DeviceTransportTarget {
   workspaceId?: string;
 }
 
-const RECONNECT_HINT = `Tell the user to check that the LobeHub desktop app (or the \`lh\` CLI) is running and shows as connected.`;
+const RECONNECT_HINT = `Tell the user to check that the desktop app (or the \`lh\` CLI) is running and shows as connected.`;
 
 const describeStatus = (
   status: number,
@@ -127,6 +141,49 @@ const describeStatus = (
   }
 };
 
+const CLIENT_LABEL: Record<string, string> = {
+  cli: 'the `lh connect` CLI',
+  desktop: 'the desktop app',
+};
+
+const describeClients = (kinds: unknown[]) =>
+  kinds.map((kind) => CLIENT_LABEL[String(kind)] ?? `\`${String(kind)}\``).join(' or ');
+
+/**
+ * A 503 `NO_CAPABLE_CONNECTION` is not a connection drop: the device is online,
+ * but no connected client can run this request. Retrying cannot help until the
+ * right client connects, so it must not get the generic "retry up to 8 times".
+ */
+const describeNoCapableClient = (
+  status: number,
+  detail: string | undefined,
+  operation: DeviceTransportOperation,
+): DeviceTransportFailure | undefined => {
+  if (status !== 503 || !detail) return undefined;
+  let body: { channels?: unknown; clientKinds?: unknown; error?: unknown };
+  try {
+    body = JSON.parse(detail);
+  } catch {
+    return undefined;
+  }
+  if (body?.error !== 'NO_CAPABLE_CONNECTION') return undefined;
+
+  const needed = Array.isArray(body.clientKinds) ? describeClients(body.clientKinds) : '';
+  const connected = Array.isArray(body.channels)
+    ? body.channels.filter((channel): channel is string => typeof channel === 'string')
+    : [];
+  return {
+    code: DeviceTransportErrorCode.NoCapableClient,
+    content:
+      `The device is online, but none of its connected clients can run this ${operation}` +
+      (needed ? ` — it needs ${needed}` : '') +
+      (connected.length > 0 ? ` and only ${connected.join(', ')} is connected` : '') +
+      `. Nothing ran on the device, and retrying will not help until that client connects: ` +
+      `tell the user to open ${needed || 'the required client'} on that machine, then retry.`,
+    error: detail,
+  };
+};
+
 /**
  * Describe a non-ok gateway HTTP response.
  *
@@ -150,8 +207,11 @@ export const describeGatewayResponseFailure = (
   operation: DeviceTransportOperation,
   target?: DeviceTransportTarget,
 ): DeviceTransportFailure => {
-  const { code, content } = describeStatus(status, operation);
   const detail = body?.trim();
+  const noCapableClient = describeNoCapableClient(status, detail, operation);
+  if (noCapableClient) return noCapableClient;
+
+  const { code, content } = describeStatus(status, operation);
   const data =
     code === DeviceTransportErrorCode.DeviceNotFound && target?.deviceId
       ? {
@@ -217,6 +277,15 @@ export const describeGatewayRequestFailure = (
   operation: DeviceTransportOperation,
 ): DeviceTransportFailure => {
   const message = error instanceof Error ? error.message : String(error);
+
+  if (error instanceof DeviceDispatchSettlementError) {
+    return {
+      code: DeviceTransportErrorCode.GatewayError,
+      content: `The device gateway returned this ${operation}'s result, but Work could not confirm its settlement. Execution is unknown: do NOT automatically repeat the call; check the current state before attempting any operation with side effects.`,
+      error: `${DeviceTransportErrorCode.GatewayError}: ${message}`,
+      executionUnknown: true,
+    };
+  }
 
   if (isTimeoutError(error)) {
     return {

@@ -1,3 +1,4 @@
+import { tenantStorageKey } from '@lobechat/business-tenant/client';
 import { useCallback, useEffect, useState } from 'react';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
@@ -24,9 +25,15 @@ const writeIds = (key: string, ids: string[]) => {
   window.localStorage.setItem(key, JSON.stringify(ids));
 };
 
+// Recent ids are tenant business data: tenants on one browser origin must not see each other's.
+export const recentsStorageKey = (
+  workspaceId: string | null | undefined,
+  kind: 'agent' | 'project',
+) => tenantStorageKey(`${STORAGE_PREFIX}:${workspaceId ?? 'personal'}:${kind}`);
+
 export const useSwitcherRecents = (kind: 'agent' | 'project') => {
   const workspaceId = useActiveWorkspaceId();
-  const key = `${STORAGE_PREFIX}:${workspaceId ?? 'personal'}:${kind}`;
+  const key = recentsStorageKey(workspaceId, kind);
   const [ids, setIds] = useState<string[]>(() => readIds(key));
 
   useEffect(() => {

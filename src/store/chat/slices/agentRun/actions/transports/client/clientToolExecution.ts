@@ -99,6 +99,12 @@ export class ClientToolExecutionActionImpl {
       executionTimeoutMs,
     );
 
+    const originalClient = this.#get().gatewayConnections[operationId]?.client;
+    if (!originalClient) return;
+    const assertCurrent = () => {
+      if (data.isExecutionCurrent && !data.isExecutionCurrent())
+        throw new Error('GATEWAY_AUTHORIZATION_EXPIRED');
+    };
     this.#setPending(toolCallId, true);
 
     let sent = false;
@@ -109,20 +115,8 @@ export class ClientToolExecutionActionImpl {
       }
       sent = true;
 
-      // Look up the gateway connection at send-time, not at action-entry time.
-      // Reconnects between dispatch and result land a new entry in
-      // `gatewayConnections`; using a captured reference would silently
-      // sendToolResult into a dead socket.
-      const conn = this.#get().gatewayConnections[operationId];
-      if (!conn) {
-        log(
-          '[internal_executeClientTool] no gateway connection for op=%s toolCallId=%s — server will timeout',
-          operationId,
-          toolCallId,
-        );
-        return;
-      }
-      const ok = conn.client.sendToolResult(payload);
+      if (!originalClient || (data.isExecutionCurrent && !data.isExecutionCurrent())) return;
+      const ok = originalClient.sendToolResult({ ...payload, attemptId: data.attemptId });
       if (!ok) {
         log(
           '[internal_executeClientTool] sendToolResult returned false (socket closed) for toolCallId=%s',
@@ -132,6 +126,7 @@ export class ClientToolExecutionActionImpl {
     };
 
     try {
+      assertCurrent();
       // ─── Parse arguments ───
       let params: any = {};
       if (argsString) {
@@ -166,7 +161,10 @@ export class ClientToolExecutionActionImpl {
           operationId,
           rootOperationId: rootOperationId ?? operationId,
           scope: scope ?? operation?.context?.scope,
-          signal: operation?.abortController?.signal,
+          signal:
+            data.executionSignal && operation?.abortController?.signal
+              ? AbortSignal.any([data.executionSignal, operation.abortController.signal])
+              : (data.executionSignal ?? operation?.abortController?.signal),
           sourceMessageId: sourceMessageId ?? operation?.context?.messageId,
           taskId,
           threadId: threadId ?? operation?.context?.threadId,
@@ -202,7 +200,10 @@ export class ClientToolExecutionActionImpl {
         });
 
         const result = await this.#raceAgainstDeadline(
-          () => invokeExecutor(identifier, apiName, params, ctx),
+          () => {
+            assertCurrent();
+            return invokeExecutor(identifier, apiName, params, ctx);
+          },
           executionTimeoutMs,
           () => operation?.abortController?.abort(),
         );
@@ -246,6 +247,7 @@ export class ClientToolExecutionActionImpl {
       }
 
       // ─── MCP fallback — unified dispatch, mirrors invokeMCPTypePlugin shape ───
+      assertCurrent();
       const mcpResult = await this.#raceAgainstDeadline(
         () =>
           mcpService
@@ -258,7 +260,10 @@ export class ClientToolExecutionActionImpl {
                 type: 'default',
               },
               {
-                signal: operation?.abortController?.signal,
+                signal:
+                  data.executionSignal && operation?.abortController?.signal
+                    ? AbortSignal.any([data.executionSignal, operation.abortController.signal])
+                    : (data.executionSignal ?? operation?.abortController?.signal),
                 topicId: operation?.context?.topicId ?? undefined,
               },
             )

@@ -1,8 +1,17 @@
 'use client';
 
-import { Block, Flexbox, Icon } from '@lobehub/ui';
-import { Avatar, confirmModal, Skeleton, Text, toast } from '@lobehub/ui/base-ui';
-import { createStaticStyles } from 'antd-style';
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
+import {
+  Avatar,
+  Block,
+  confirmModal,
+  createStaticStyles,
+  Flexbox,
+  Icon,
+  Skeleton,
+  Text,
+  toast,
+} from '@lobehub/ui';
 import { ArrowLeftIcon, BookOpenIcon } from 'lucide-react';
 import { memo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -10,7 +19,6 @@ import { useTranslation } from 'react-i18next';
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import AsyncError from '@/components/AsyncError';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { scmService } from '@/services/scm';
 import { vendorLink } from '@/utils/vendorLink';
 
@@ -90,7 +98,7 @@ interface GithubIntegrationProps {
  */
 const GithubIntegration = memo<GithubIntegrationProps>(({ onBack }) => {
   const { t, ready } = useTranslation('integration');
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
   const workspaceSlug = useActiveWorkspaceSlug();
   const workspaceId = useActiveWorkspaceId();
   const scope = workspaceSlug ? 'workspace' : 'personal';

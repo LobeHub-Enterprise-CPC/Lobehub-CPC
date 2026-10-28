@@ -1,7 +1,7 @@
-import { devicePrincipal, GatewayHttpClient } from '@lobechat/device-gateway-client';
+import type { GatewayHttpClient } from '@lobechat/device-gateway-client';
+import { devicePrincipal } from '@lobechat/device-gateway-client';
+import { TRPCError } from '@trpc/server';
 import debug from 'debug';
-
-import { gatewayEnv } from '@/envs/gateway';
 
 const log = debug('lobe-server:device-tunnels');
 
@@ -54,8 +54,6 @@ const toLink = (registration: {
 };
 
 export class DeviceTunnelRegistry {
-  private client: GatewayHttpClient | null = null;
-
   /** Open a link to `port` on `deviceId`. Returns undefined when unconfigured. */
   async create(params: {
     deviceId: string;
@@ -114,15 +112,8 @@ export class DeviceTunnelRegistry {
     return revoked ? 'revoked' : 'not-found';
   }
 
-  private getClient(): GatewayHttpClient | null {
-    const url = gatewayEnv.DEVICE_GATEWAY_URL;
-    const token = gatewayEnv.DEVICE_GATEWAY_SERVICE_TOKEN;
-    if (!url || !token) return null;
-
-    if (!this.client) {
-      this.client = new GatewayHttpClient({ gatewayUrl: url, serviceToken: token });
-    }
-    return this.client;
+  private getClient(): GatewayHttpClient {
+    throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'TUNNEL_UNSUPPORTED' });
   }
 }
 

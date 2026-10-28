@@ -1,5 +1,4 @@
-import { type MenuProps } from '@lobehub/ui';
-import { ContextMenuTrigger, DropdownMenu, Flexbox, Icon } from '@lobehub/ui';
+import { AGENT_PROFILE_NAVIGATION } from '@lobechat/business-const';
 import {
   AccordionHeader,
   AccordionItem,
@@ -7,10 +6,15 @@ import {
   accordionStyles,
   AccordionTrigger,
   ActionIcon,
+  ContextMenuTrigger,
+  cx,
+  type DropdownItem,
+  DropdownMenu,
+  Flexbox,
+  Icon,
   Spin,
   Text,
-} from '@lobehub/ui/base-ui';
-import { cx } from 'antd-style';
+} from '@lobehub/ui';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -20,12 +24,14 @@ import {
   MoreHorizontalIcon,
   SlidersHorizontalIcon,
 } from 'lucide-react';
-import { memo, Suspense, useCallback, useMemo } from 'react';
+import { memo, Suspense, useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { openCustomizeSidebarModal } from '@/features/HomeSidebar/Body/CustomizeSidebarModal';
 import SkeletonList from '@/features/NavPanel/components/SkeletonList';
+import { useChatStore } from '@/store/chat';
+import { topicSelectors } from '@/store/chat/selectors';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
 import { reorderSidebarItems } from '@/store/global/selectors/systemStatus';
@@ -51,6 +57,16 @@ const Recents = memo<RecentsProps>(({ itemKey }) => {
   const useFetchRecents = useHomeStore((s) => s.useFetchRecents);
   const syncStatus = useFetchRecents(isLogin, recentPageSize);
   const refreshRecents = useHomeStore((s) => s.refreshRecents);
+  // Conversations live in "Recent" here, so a new one, its generated title and
+  // its finished run show without waiting for the next revalidation.
+  const activeTopicSignature = useChatStore((s) => {
+    if (!AGENT_PROFILE_NAVIGATION) return undefined;
+    const topic = topicSelectors.currentActiveTopic(s);
+    return topic ? `${topic.id}:${topic.title}:${topic.status}` : undefined;
+  });
+  useEffect(() => {
+    if (activeTopicSignature) void refreshRecents();
+  }, [activeTopicSignature, refreshRecents]);
   const sidebarItems = useGlobalStore(systemStatusSelectors.sidebarItems(activeWorkspaceId));
   const hiddenSections = useGlobalStore(
     systemStatusSelectors.hiddenSidebarSections(activeWorkspaceId),
@@ -124,7 +140,7 @@ const Recents = memo<RecentsProps>(({ itemKey }) => {
         label: t('navPanel.customizeSidebar'),
         onClick: () => openCustomizeSidebarModal(),
       },
-    ] as MenuProps['items'];
+    ] as DropdownItem[];
   }, [recentPageSize, updateSystemStatus, t, isFirst, isLast, moveSection, hideSection]);
 
   if (!isLogin) return null;

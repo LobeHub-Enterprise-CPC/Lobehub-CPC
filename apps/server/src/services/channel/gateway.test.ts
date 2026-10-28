@@ -1,9 +1,15 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { getChannelGatewayUrl, isChannelGatewayReady } from './gateway';
+import {
+  getChannelGatewayUrl,
+  isChannelGatewayReady,
+  resetChannelGatewayReadiness,
+} from './gateway';
 
 afterEach(() => {
+  resetChannelGatewayReadiness();
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
@@ -50,5 +56,19 @@ describe('Channel service address', () => {
     vi.stubEnv('CHANNEL_GATEWAY_URL', 'http://channel-worker:3211');
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('connection refused')));
     expect(await isChannelGatewayReady()).toBe(false);
+  });
+
+  it('shares concurrent health requests and caches the result briefly', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('CHANNEL_GATEWAY_URL', 'http://channel-worker:3211');
+    const fetch = vi.fn().mockImplementation(async () => Response.json({ status: 'ready' }));
+    vi.stubGlobal('fetch', fetch);
+    const results = await Promise.all(Array.from({ length: 20 }, () => isChannelGatewayReady()));
+    expect(results.every(Boolean)).toBe(true);
+    expect(await isChannelGatewayReady()).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(2001);
+    expect(await isChannelGatewayReady()).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });

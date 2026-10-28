@@ -1,7 +1,10 @@
+import type { ChannelJobState } from '@lobechat/types';
+
 import type { channelService } from '@/services/channel';
 
 type Detail = Awaited<ReturnType<typeof channelService.detail>>;
-export type ActivityState =
+export type ActivityState = Extract<
+  ChannelJobState,
   | 'queued'
   | 'paused'
   | 'starting'
@@ -12,7 +15,23 @@ export type ActivityState =
   | 'execution_unknown'
   | 'failed'
   | 'offline'
-  | 'unavailable';
+  | 'unavailable'
+>;
+
+const ACTIVITY_STATES: ReadonlySet<ChannelJobState> = new Set<ActivityState>([
+  'queued',
+  'paused',
+  'starting',
+  'typing',
+  'running',
+  'awaiting_approval',
+  'stop_requested',
+  'execution_unknown',
+  'failed',
+  'offline',
+  'unavailable',
+]);
+const isActivity = (state: ChannelJobState): state is ActivityState => ACTIVITY_STATES.has(state);
 
 /** Execution state is scoped to a conversation; old errors must not linger over new requests. */
 export function channelActivity(data: Detail, threadId: string | null) {
@@ -25,37 +44,18 @@ export function channelActivity(data: Detail, threadId: string | null) {
       const jobs = data.jobs.filter(
         (job) => job.memberId === member.id && job.threadId === threadId,
       );
+      // An isolated writer may still be unconfirmed, but it no longer occupies the member.
       const job =
         jobs.find((item) =>
-          data.runs.some((run) => run.jobId === item.id && !run.writerReleased),
+          data.runs.some((run) => run.jobId === item.id && !run.writerReleased && !run.isolatedAt),
         ) ||
         jobs.find((item) => item.status === 'running') ||
         jobs.find((item) => item.status === 'queued') ||
         jobs.find(
           (item) => item.messageId === latest?.id && ['cancelled', 'failed'].includes(item.status),
         );
-      if (!job) return [];
-      const run = data.runs.find((item) => item.jobId === job.id);
-      const cancelled =
-        job.status === 'cancelled' || ['stop_requested', 'stopped'].includes(run?.status || '');
-      if (cancelled && (!run || (run.writerReleased && run.physicalStopped))) return [];
-      let state: ActivityState = 'queued';
-      if (member.executionPaused && (!run || run.writerReleased)) state = 'paused';
-      else if (job.blockedReason)
-        state = /DEVICE_OFFLINE|device.*offline/i.test(job.blockedReason)
-          ? 'offline'
-          : 'unavailable';
-      else if (run) {
-        if (cancelled) state = 'stop_requested';
-        else if (
-          ['starting', 'running', 'awaiting_approval', 'execution_unknown', 'failed'].includes(
-            run.status,
-          )
-        )
-          state = run.status as ActivityState;
-        else return [];
-      } else if (job.status === 'failed') state = 'failed';
-      if (state === 'running' && run?.activity === 'typing') state = 'typing';
-      return [{ memberId: member.id, name: member.name, state }];
+      // Settled outcomes (replied, cancelled, ...) are receipts, not live activity.
+      if (!job || !isActivity(job.state)) return [];
+      return [{ memberId: member.id, name: member.name, state: job.state }];
     });
 }

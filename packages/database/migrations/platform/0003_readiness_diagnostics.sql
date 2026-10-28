@@ -1,0 +1,1 @@
+ALTER TABLE "tenant_provision_operation" ADD COLUMN "diagnostic_code" text;

@@ -1,11 +1,18 @@
 // @vitest-environment node
+import { tenantHash } from '@lobechat/database/tenant';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   ftsSearchEnv: {} as Record<string, string | undefined>,
+  scope: undefined as { tenantId: string } | undefined,
 }));
 
 vi.mock('@/envs/ftsSearch', () => ({ ftsSearchEnv: mocks.ftsSearchEnv }));
+vi.mock('@lobechat/database/tenant/requestScope', () => ({
+  currentTenantScope: () => mocks.scope,
+}));
+
+const TENANT_NAMESPACE = `lobehub-${tenantHash('tenant-a')}`;
 
 const loadConfig = async () => {
   vi.resetModules();
@@ -18,6 +25,16 @@ describe('loadElasticsearchFtsSearchConfig', () => {
     for (const key of Object.keys(mocks.ftsSearchEnv)) delete mocks.ftsSearchEnv[key];
     mocks.ftsSearchEnv.ES_INDEX_NAMESPACE = 'lobehub';
     mocks.ftsSearchEnv.ES_URL = 'https://search.example.com';
+    mocks.scope = { tenantId: 'tenant-a' };
+  });
+
+  it("uses the tenant's own index namespace and nothing outside a tenant", async () => {
+    mocks.ftsSearchEnv.ES_API_KEY = 'test-api-key';
+
+    await expect(loadConfig()).resolves.toMatchObject({ indexNamespace: TENANT_NAMESPACE });
+
+    mocks.scope = undefined;
+    await expect(loadConfig()).resolves.toBeUndefined();
   });
 
   it('loads the Elastic Cloud configuration with an API key', async () => {
@@ -26,7 +43,7 @@ describe('loadElasticsearchFtsSearchConfig', () => {
     await expect(loadConfig()).resolves.toEqual({
       allowInsecureHttp: false,
       apiKey: 'test-api-key',
-      indexNamespace: 'lobehub',
+      indexNamespace: TENANT_NAMESPACE,
       url: 'https://search.example.com',
     });
   });
@@ -45,7 +62,7 @@ describe('loadElasticsearchFtsSearchConfig', () => {
     await expect(loadConfig()).resolves.toEqual({
       allowInsecureHttp: true,
       apiKey: undefined,
-      indexNamespace: 'lobehub',
+      indexNamespace: TENANT_NAMESPACE,
       url: 'http://elasticsearch:9200',
     });
   });

@@ -6,6 +6,8 @@
  */
 import type { Page } from 'playwright';
 
+import { tenantPath } from '../../support/tenant';
+
 // ============================================
 // Types
 // ============================================
@@ -228,7 +230,7 @@ export class LLMMockManager {
             const request = new Request(normalizedInput, init);
             const url = new URL(request.url);
 
-            if (!url.pathname.startsWith('/webapi/chat/')) {
+            if (!url.pathname.startsWith(${JSON.stringify(tenantPath('/webapi/chat/'))})) {
               return originalFetch(input, init);
             }
 

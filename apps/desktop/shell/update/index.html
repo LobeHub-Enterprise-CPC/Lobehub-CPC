@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'" />
+<title>Update</title>
+<link rel="stylesheet" href="style.css" />
+<script src="renderer.js" defer></script>
+</head>
+<body>
+<div class="drag-bar" aria-hidden="true"></div>
+<main aria-busy="true">
+<div class="required" id="required" hidden><h1 id="title"></h1><p id="description"></p></div>
+<div class="status" role="status" aria-live="polite"><span id="status"></span><span id="amount"></span></div>
+<div class="slot">
+<progress id="progress" aria-label="Update progress"></progress>
+<div id="actions" hidden><button id="quit" class="secondary" type="button"></button><button id="retry" type="button"></button></div>
+</div>
+</main>
+</body>
+</html>

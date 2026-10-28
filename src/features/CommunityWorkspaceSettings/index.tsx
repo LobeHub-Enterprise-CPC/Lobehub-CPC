@@ -1,7 +1,8 @@
 'use client';
 
+import { resolveAppUrl } from '@lobechat/business-tenant/client';
 import { OFFICIAL_URL } from '@lobechat/const';
-import { Block, Center, Flexbox, Icon, Tooltip } from '@lobehub/ui';
+import { Block, Center, createStaticStyles, cssVar, Flexbox, Icon, Tooltip } from '@lobehub/ui';
 import {
   Avatar,
   Button,
@@ -14,8 +15,7 @@ import {
   TextArea,
   toast,
   Upload,
-} from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+} from '@lobehub/ui';
 import {
   ArrowLeft,
   CircleHelp,
@@ -263,11 +263,13 @@ const MembersCard = memo<{ canManage: boolean }>(({ canManage }) => {
         pagination={false}
         rowKey={'accountId'}
         size={'middle'}
-        emptyText={
-          <Text style={{ fontSize: 13 }} type="secondary">
-            {t('user.workspaceProfile.settings.members.empty')}
-          </Text>
-        }
+        locale={{
+          emptyText: (
+            <Text style={{ fontSize: 13 }} type="secondary">
+              {t('user.workspaceProfile.settings.members.empty')}
+            </Text>
+          ),
+        }}
       />
     </SettingCard>
   );
@@ -427,9 +429,7 @@ const CommunityWorkspaceSettings = memo(() => {
           toast.error(t('user.workspaceProfile.errors.uploadFailed'));
           return;
         }
-        setAvatarUrl(
-          result.url.startsWith('/') ? `${window.location.origin}${result.url}` : result.url,
-        );
+        setAvatarUrl(resolveAppUrl(result.url));
       } catch (error) {
         console.error('[CommunityWorkspaceSettings] Avatar upload failed:', error);
         toast.error(t('user.workspaceProfile.errors.uploadFailed'));
@@ -454,10 +454,7 @@ const CommunityWorkspaceSettings = memo(() => {
           toast.error(t('user.workspaceProfile.errors.uploadFailed'));
           return;
         }
-        const url = result.url.startsWith('/')
-          ? `${window.location.origin}${result.url}`
-          : result.url;
-        setBannerUrl(url);
+        setBannerUrl(resolveAppUrl(result.url));
       } catch (error) {
         console.error('[CommunityWorkspaceSettings] Banner upload failed:', error);
         toast.error(t('user.workspaceProfile.errors.uploadFailed'));

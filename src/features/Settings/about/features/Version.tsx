@@ -4,10 +4,8 @@ import {
   type UpdaterState,
   useWatchBroadcast,
 } from '@lobechat/electron-client-ipc';
-import { Block, Flexbox, Tooltip } from '@lobehub/ui';
-import { Button, Skeleton, Tag } from '@lobehub/ui/base-ui';
-import { createStaticStyles } from 'antd-style';
-import { memo, Suspense, use, useEffect, useMemo, useRef, useState } from 'react';
+import { Block, Button, createStaticStyles, Flexbox, Tag, Tooltip } from '@lobehub/ui';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ProductLogo } from '@/components/Branding';
@@ -23,23 +21,28 @@ import {
   INITIAL_DEV_DOCK_CLICK_SEQUENCE,
   toggleDevDockUnlocked,
 } from '@/utils/devDockUnlock';
+import { vendorLink } from '@/utils/vendorLink';
 
 import { APP_VERSION } from './appVersion';
 import { formatOtaVersionLabel, getDisplayedOtaVersion } from './otaVersion';
 
-let otaVersionPromise: Promise<string | null> | undefined;
-
-const getOtaVersion = () => {
-  otaVersionPromise ??= rendererOtaService.getStatus().then(getDisplayedOtaVersion);
-
-  return otaVersionPromise;
-};
-
 const OtaVersionTag = memo(() => {
-  const otaVersion = use(getOtaVersion());
+  const [otaVersion, setOtaVersion] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    rendererOtaService
+      .getStatus()
+      .then((status) => {
+        if (active) setOtaVersion((version) => version ?? getDisplayedOtaVersion(status));
+      })
+      .catch(console.error);
+    return () => {
+      active = false;
+    };
+  }, []);
+  useWatchBroadcast('coreUpdateApplied', setOtaVersion);
 
   if (!otaVersion) return null;
-
   return <Tag style={{ minWidth: 60 }}>{formatOtaVersionLabel(otaVersion)}</Tag>;
 });
 
@@ -187,6 +190,32 @@ const Version = memo<{ mobile?: boolean }>(({ mobile }) => {
     }
   };
 
+  /*
+    OFFICIAL_SITE is the upstream product's own homepage, and the product mark
+    here was pointing at it unconditionally — so a rebranded distribution opened
+    another company's marketing site from its own logo.
+
+    Dropping the link rather than repointing it: a deployment either publishes a
+    site of its own or it does not, and until then there is nowhere of its own to
+    send anyone. The mark itself stays — a logo that is not a link is honest.
+  */
+  const officialSite = vendorLink(OFFICIAL_SITE);
+
+  // `clickable` follows the link, so a rebranded build shows no hover affordance
+  // for the link it does not have.
+  const productMark = (
+    <Block
+      align={'center'}
+      className={styles.logo}
+      clickable={!!officialSite}
+      height={64}
+      justify={'center'}
+      width={64}
+    >
+      <ProductLogo size={52} />
+    </Block>
+  );
+
   return (
     <Flexbox
       align={mobile ? 'stretch' : 'center'}
@@ -196,18 +225,13 @@ const Version = memo<{ mobile?: boolean }>(({ mobile }) => {
       width={'100%'}
     >
       <Flexbox horizontal align={'center'} flex={'none'} gap={16}>
-        <a href={OFFICIAL_SITE} rel="noreferrer" target="_blank">
-          <Block
-            clickable
-            align={'center'}
-            className={styles.logo}
-            height={64}
-            justify={'center'}
-            width={64}
-          >
-            <ProductLogo size={52} />
-          </Block>
-        </a>
+        {officialSite ? (
+          <a href={officialSite} rel="noreferrer" target="_blank">
+            {productMark}
+          </a>
+        ) : (
+          productMark
+        )}
         <Flexbox align={'flex-start'} gap={6}>
           <div style={{ fontSize: 18, fontWeight: 'bolder' }}>{BRANDING_NAME}</div>
           <Flexbox gap={6} horizontal={!mobile}>
@@ -218,11 +242,7 @@ const Version = memo<{ mobile?: boolean }>(({ mobile }) => {
               v{APP_VERSION}
             </Tag>
 
-            {isDesktop && (
-              <Suspense fallback={<Skeleton height={22} radius={6} width={60} />}>
-                <OtaVersionTag />
-              </Suspense>
-            )}
+            {isDesktop && <OtaVersionTag />}
 
             {buildChannel && buildChannel !== 'stable' && (
               <Tag color={'gold'}>

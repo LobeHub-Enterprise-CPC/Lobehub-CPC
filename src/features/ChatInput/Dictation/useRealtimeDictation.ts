@@ -5,11 +5,12 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react';
 
 import { BrowserAudioWorkletCapture, requestDictationMicrophone } from './audio';
 import { RealtimeDictationClient } from './client';
+import type { RealtimeDictationSnapshot } from './contract';
 import { LexicalDictationEditor } from './editor';
 import { createRealtimeAsrSession } from './service';
 
 const createSocket = (url: string) => new WebSocket(url);
-const FALLBACK_SNAPSHOT = { retryable: false, status: 'idle' as const };
+const FALLBACK_SNAPSHOT: RealtimeDictationSnapshot = { retryable: false, status: 'idle' };
 const getFallbackSnapshot = () => FALLBACK_SNAPSHOT;
 const subscribeFallback = () => () => undefined;
 

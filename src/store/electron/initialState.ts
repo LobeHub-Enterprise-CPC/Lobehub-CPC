@@ -1,8 +1,13 @@
 import {
+  type AuthorizationConfirmRequest,
+  type AuthorizationConfirmResult,
+  type AuthorizationErrorCode,
   type DataSyncConfig,
   type ElectronAppState,
+  type GatewayConnectionError,
   type GatewayConnectionStatus,
   type NetworkProxySettings,
+  type TenantEndpointChangedKind,
 } from '@lobechat/electron-client-ipc';
 
 import { type CurrentRouteMetaState } from './actions/currentRouteMeta';
@@ -14,6 +19,10 @@ import { type TabPagesState } from './actions/tabPages';
 import { tabPagesInitialState } from './actions/tabPages';
 
 export type RemoteServerError = 'CONFIG_ERROR' | 'AUTH_ERROR' | 'DISCONNECT_ERROR';
+
+/** Authorization failure codes the UI maps to copy: the broadcast codes plus confirm-step failures. */
+export type AuthorizationUiErrorCode =
+  AuthorizationErrorCode | Extract<AuthorizationConfirmResult, { success: false }>['code'];
 
 export const defaultProxySettings: NetworkProxySettings = {
   enableProxy: false,
@@ -29,6 +38,8 @@ export interface ElectronState extends CurrentRouteMetaState, RecentPagesState, 
   appTrayVisible: boolean;
   dataSyncConfig: DataSyncConfig;
   desktopHotkeys: Record<string, string>;
+  /** Why the last connection attempt ended, as reported by the main process. */
+  gatewayConnectionError?: GatewayConnectionError;
   gatewayConnectionStatus: GatewayConnectionStatus;
   gatewayDeviceInfo?: GatewayDeviceInfo;
   isAppStateInit?: boolean;
@@ -37,8 +48,17 @@ export interface ElectronState extends CurrentRouteMetaState, RecentPagesState, 
   isDesktopHotkeysInit: boolean;
   isInitRemoteServerConfig: boolean;
   isSyncActive?: boolean;
+  /** Verified login waiting for the user to confirm organization and account. */
+  pendingAuthorizationConfirmation?: AuthorizationConfirmRequest;
   proxySettings: NetworkProxySettings;
-  remoteServerSyncError?: { message?: string; type: RemoteServerError };
+  remoteServerSyncError?: {
+    /** Stable code from the main process; the UI maps it to copy. */
+    code?: AuthorizationUiErrorCode;
+    message?: string;
+    type: RemoteServerError;
+  };
+  /** The signed-in organization entry moved (409); remote activity is paused. */
+  tenantEndpointChanged?: TenantEndpointChangedKind;
 }
 
 export const initialState: ElectronState = {

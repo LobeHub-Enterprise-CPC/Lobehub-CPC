@@ -10,11 +10,14 @@ export {
   describeGatewayResponseFailure,
   DeviceTransportErrorCode,
 } from './deviceTransportError';
+export * from './endpoint';
+export { withExecutionSignal } from './executionSignal';
 export type {
   DeviceMessageApiResult,
   DeviceRpcResult,
   DeviceStatusResult,
   DeviceToolCallResult,
+  GatewayDispatchTarget,
   GatewayHttpClientOptions,
 } from './http';
 export { GatewayHttpClient } from './http';

@@ -1,5 +1,9 @@
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import {
+  ActionIcon,
   Block,
+  cssVar,
+  cx,
   DropdownMenuPopup,
   DropdownMenuPortal,
   DropdownMenuPositioner,
@@ -9,8 +13,6 @@ import {
   Icon,
   menuSharedStyles,
 } from '@lobehub/ui';
-import { ActionIcon } from '@lobehub/ui/base-ui';
-import { cssVar, cx } from 'antd-style';
 import { LucideArrowRight, LucideBolt } from 'lucide-react';
 import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -121,7 +123,10 @@ export const ListItemRenderer = memo<ListItemRendererProps>(
                 e.stopPropagation();
                 const url = urlJoin('/settings/provider', item.provider.id || 'all');
                 if (e.ctrlKey || e.metaKey) {
-                  window.open(buildWorkspaceAwarePath(url, activeSlug), '_blank');
+                  window.open(
+                    withCurrentTenantPath(buildWorkspaceAwarePath(url, activeSlug)),
+                    '_blank',
+                  );
                 } else {
                   navigate(url);
                 }

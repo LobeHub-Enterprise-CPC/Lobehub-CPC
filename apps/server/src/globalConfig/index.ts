@@ -1,18 +1,19 @@
 import { ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
 import { parseToolNameMaxLength } from '@lobechat/const/plugin';
+import { currentTenantScope } from '@lobechat/database/tenant';
 import { ModelProvider } from 'model-bank';
 
+import { loadModels } from '@/business/client/model-bank/loadModels';
 import { composioEnv } from '@/config/composio';
 import { isDesktop } from '@/const/version';
 import { appEnv, getAppConfig } from '@/envs/app';
-import { authEnv } from '@/envs/auth';
 import { fileEnv } from '@/envs/file';
+import { gatewayEnv } from '@/envs/gateway';
 import { imageEnv } from '@/envs/image';
-import { knowledgeEnv } from '@/envs/knowledge';
 import { langfuseEnv } from '@/envs/langfuse';
+import { sandboxEnv } from '@/envs/sandbox';
 import { toolsEnv } from '@/envs/tools';
-import { parseSSOProviders } from '@/libs/better-auth/utils/server';
-import { parseSystemAgent } from '@/server/globalConfig/parseSystemAgent';
+import { OIDC_ISSUER_PATH } from '@/libs/oidc-provider/routes';
 import { type GlobalServerConfig } from '@/types/serverConfig';
 import { cleanObject } from '@/utils/object';
 
@@ -20,18 +21,11 @@ import {
   genServerAiProvidersConfig,
   type ProviderSpecificConfig,
 } from './genServerAiProviderConfig';
+import { getLoginMethods } from './loginMethods';
 import { parseAgentConfig } from './parseDefaultAgent';
-import { parseFilesConfig } from './parseFilesConfig';
 import { getPublicMemoryExtractionConfig } from './parseMemoryExtractionConfig';
 import { getServerFetchOnClientOverride } from './serverFetchOnClient';
-
-/**
- * Get Better-Auth SSO providers list
- * Parses AUTH_SSO_PROVIDERS and returns enabled providers
- */
-const getBetterAuthSSOProviders = () => {
-  return parseSSOProviders(authEnv.AUTH_SSO_PROVIDERS);
-};
+import { getServerSystemModels } from './systemModels';
 
 /**
  * Which Agent Gateway wire protocol the client may dial.
@@ -44,16 +38,9 @@ const getBetterAuthSSOProviders = () => {
  * overrides both guesses, which is what an on-prem business deployment sitting
  * in front of a v1 gateway needs.
  */
-const resolveAgentGatewayProtocol = (): 1 | 2 => {
-  if (appEnv.AGENT_GATEWAY_PROTOCOL === 2) return 2;
-  if (appEnv.AGENT_GATEWAY_PROTOCOL === 1) return 1;
+const resolveAgentGatewayProtocol = (): 1 => 1;
 
-  return ENABLE_BUSINESS_FEATURES ? 2 : 1;
-};
-
-export const getServerGlobalConfig = async () => {
-  const { DEFAULT_AGENT_CONFIG } = getAppConfig();
-
+const getAiProviderSpecificConfig = () => {
   const aiProviderSpecificConfig: Record<string, ProviderSpecificConfig> = {
     azure: {
       enabledKey: 'ENABLED_AZURE_OPENAI',
@@ -119,14 +106,45 @@ export const getServerGlobalConfig = async () => {
     }
   }
 
+  return aiProviderSpecificConfig;
+};
+
+/** Resolve one provider without rebuilding the global config or reloading its catalog. */
+export const getServerAiProviderConfig = async (provider: ModelProvider) => {
+  const models = await loadModels();
+  const configs = await genServerAiProvidersConfig(
+    getAiProviderSpecificConfig(),
+    [provider],
+    models,
+  );
+  const config = configs[provider];
+
+  return {
+    ...config,
+    serverModelLists:
+      config.serverModelLists ?? models.filter((model) => model.providerId === provider),
+  };
+};
+
+export const getServerGlobalConfig = async () => {
+  const { DEFAULT_AGENT_CONFIG } = getAppConfig();
+
+  const tenant = currentTenantScope();
+  const systemModels = await getServerSystemModels();
+  const loginMethods = await getLoginMethods();
   const config: GlobalServerConfig = {
-    aiProvider: await genServerAiProvidersConfig(aiProviderSpecificConfig),
+    aiProvider: await genServerAiProvidersConfig(getAiProviderSpecificConfig()),
     defaultAgent: {
       config: parseAgentConfig(DEFAULT_AGENT_CONFIG),
     },
-    disableEmailPassword: authEnv.AUTH_DISABLE_EMAIL_PASSWORD,
+    deviceGatewayConfigured: !!gatewayEnv.DEVICE_GATEWAY_URL,
+    // Never fall back to the server-internal DEVICE_GATEWAY_URL.
+    ...(gatewayEnv.DEVICE_GATEWAY_PUBLIC_URL
+      ? { deviceGatewayUrl: gatewayEnv.DEVICE_GATEWAY_PUBLIC_URL }
+      : undefined),
+    disableEmailPassword: !loginMethods.emailPassword,
     enableBusinessFeatures: ENABLE_BUSINESS_FEATURES,
-    enableEmailVerification: authEnv.AUTH_EMAIL_VERIFICATION,
+    enableEmailVerification: loginMethods.requireEmailVerification,
     enableComposio: !!composioEnv.COMPOSIO_API_KEY,
     enableGatewayMode:
       ENABLE_BUSINESS_FEATURES || (!!appEnv.ENABLE_AGENT_GATEWAY && !!appEnv.AGENT_GATEWAY_URL),
@@ -139,19 +157,17 @@ export const getServerGlobalConfig = async () => {
     enableLobehubSkill:
       !ENABLE_BUSINESS_FEATURES &&
       !!(appEnv.MARKET_TRUSTED_CLIENT_SECRET && appEnv.MARKET_TRUSTED_CLIENT_ID),
-    enableMagicLink: authEnv.AUTH_ENABLE_MAGIC_LINK,
+    enableMagicLink: loginMethods.magicLink,
     enableMarketTrustedClient: !!(
       appEnv.MARKET_TRUSTED_CLIENT_SECRET && appEnv.MARKET_TRUSTED_CLIENT_ID
     ),
     enableUploadFileToServer: !!fileEnv.S3_SECRET_ACCESS_KEY,
-    enableMultimodalUnderstanding: !!(
-      toolsEnv.MULTIMODAL_UNDERSTANDING_PROVIDER && toolsEnv.MULTIMODAL_UNDERSTANDING_MODEL
-    ),
-    ...(toolsEnv.MULTIMODAL_UNDERSTANDING_PROVIDER && toolsEnv.MULTIMODAL_UNDERSTANDING_MODEL
+    enableMultimodalUnderstanding: !!systemModels.multimodalUnderstanding,
+    ...(systemModels.multimodalUnderstanding
       ? {
           multimodalUnderstanding: {
-            model: toolsEnv.MULTIMODAL_UNDERSTANDING_MODEL,
-            provider: toolsEnv.MULTIMODAL_UNDERSTANDING_PROVIDER,
+            model: systemModels.multimodalUnderstanding.model,
+            provider: systemModels.multimodalUnderstanding.provider,
           },
         }
       : undefined),
@@ -159,6 +175,9 @@ export const getServerGlobalConfig = async () => {
     // Expose Agent Gateway URL to client (used by hetero agents; also required for queue mode)
     ...(appEnv.AGENT_GATEWAY_URL ? { agentGatewayUrl: appEnv.AGENT_GATEWAY_URL } : undefined),
     agentGatewayProtocol: resolveAgentGatewayProtocol(),
+    // Whether the server can relay an LLM call to a tab (gateway + Redis): only
+    // then does the browser drop its own provider fallback for the one-shot relay.
+    llmRelayAvailable: false,
 
     // Where this deployment serves its own installers. Omitted entirely when
     // none are configured, so the client can tell "we publish builds" from
@@ -178,8 +197,15 @@ export const getServerGlobalConfig = async () => {
     memory: {
       userMemory: cleanObject(getPublicMemoryExtractionConfig()),
     },
-    oAuthSSOProviders: getBetterAuthSSOProviders(),
-    systemAgent: parseSystemAgent(appEnv.SYSTEM_AGENT),
+    // SSO providers belong to a tenant (`sso_providers`, spec A8): the auth
+    // config endpoint lists the ones of the tenant being signed in to.
+    oAuthSSOProviders: [],
+    ...(appEnv.APP_URL && tenant
+      ? {
+          oidcIssuer: `${tenant.endpoint.publicUrl}${OIDC_ISSUER_PATH}`,
+        }
+      : undefined),
+    systemAgent: systemModels.systemAgent,
     telemetry: {
       langfuse: langfuseEnv.ENABLE_LANGFUSE,
     },
@@ -194,6 +220,10 @@ export const getServerGlobalConfig = async () => {
     // effect in gateway (server-run) mode, and the browser-generated tool
     // names on the client-driven chat path would still say `lobe-*`.
     toolIdNamespace: toolsEnv.BUILTIN_TOOL_ID_NAMESPACE,
+    // Lets the widget publish review match the sandbox's real egress contract:
+    // unless the Worker enforces per-host allowlists, declared hosts are
+    // advisory and the review must say any host is reachable.
+    widgetSandboxNetworkFormat: sandboxEnv.WIDGET_SANDBOX_NETWORK_FORMAT,
   };
 
   return config;
@@ -205,6 +235,8 @@ export const getServerDefaultAgentConfig = () => {
   return parseAgentConfig(DEFAULT_AGENT_CONFIG) || {};
 };
 
-export const getServerDefaultFilesConfig = () => {
-  return parseFilesConfig(knowledgeEnv.DEFAULT_FILES_CONFIG);
+export const getServerDefaultFilesConfig = async () => {
+  const { filesConfig } = await getServerSystemModels();
+
+  return filesConfig;
 };

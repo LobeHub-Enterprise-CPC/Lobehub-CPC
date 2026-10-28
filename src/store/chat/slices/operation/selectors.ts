@@ -9,6 +9,7 @@ import {
   isQueueBlockingOperation,
   QUEUE_BLOCKING_OPERATION_TYPES,
   SEND_NOW_CANCEL_REASON,
+  TOPIC_VISIBLY_RUNNING_OPERATION_TYPES,
 } from './types';
 
 // === Basic Queries ===
@@ -489,20 +490,40 @@ const isAgentVisiblyRunning =
     return false;
   };
 
+/** Check visible runtime loading across all agents and topics in a chat group. */
+const isGroupVisiblyRunning =
+  (groupId: string) =>
+  (s: ChatStoreState): boolean => {
+    for (const type of AI_RUNTIME_OPERATION_TYPES) {
+      const operationIds = s.operationsByType[type] || [];
+      if (
+        operationIds.some((id) => {
+          const op = s.operations[id];
+          return op && isVisiblyRunningOperation(op) && op.context.groupId === groupId;
+        })
+      )
+        return true;
+    }
+    return false;
+  };
+
 /**
  * Whether a turn is visibly in progress for a topic on THIS client — the whole
- * send → run pipeline (see INPUT_LOADING_OPERATION_TYPES), matched by the
- * operation context's topicId regardless of agent/group/thread.
+ * send → run pipeline (see TOPIC_VISIBLY_RUNNING_OPERATION_TYPES), matched by
+ * the operation context's topicId regardless of agent/group/thread.
  *
  * Drives the sidebar topic spinner. Persisted `topic.status === 'running'`
  * covers runs owned by other clients / the server; this covers what status
  * cannot: client-mode runs (which never persist a status) and the startup
  * window of gateway/hetero runs before the server writes `running`.
+ *
+ * Whatever this reports as running must also be retirable by
+ * `settleAllUnbackedTopicRuns` — see TOPIC_VISIBLY_RUNNING_OPERATION_TYPES.
  */
 const isTopicVisiblyRunning =
   (topicId: string) =>
   (s: ChatStoreState): boolean => {
-    for (const type of INPUT_LOADING_OPERATION_TYPES) {
+    for (const type of TOPIC_VISIBLY_RUNNING_OPERATION_TYPES) {
       const operationIds = s.operationsByType[type] || [];
       const hasRunning = operationIds.some((id) => {
         const op = s.operations[id];
@@ -521,7 +542,7 @@ const isTopicVisiblyRunning =
  */
 const visiblyRunningTopicIds = (s: ChatStoreState): Set<string> => {
   const ids = new Set<string>();
-  for (const type of INPUT_LOADING_OPERATION_TYPES) {
+  for (const type of TOPIC_VISIBLY_RUNNING_OPERATION_TYPES) {
     for (const id of s.operationsByType[type] || []) {
       const op = s.operations[id];
       if (op && isVisiblyRunningOperation(op) && op.context.topicId) {
@@ -530,6 +551,21 @@ const visiblyRunningTopicIds = (s: ChatStoreState): Set<string> => {
     }
   }
   return ids;
+};
+
+/**
+ * Whether ANY topic row is visibly running on this client. Backs the sidebar's
+ * candidate gate for the stale-run sweep: without a candidate there is nothing
+ * to retire, so the sweep must not poll the server at all.
+ */
+const hasVisiblyRunningTopic = (s: ChatStoreState): boolean => {
+  for (const type of TOPIC_VISIBLY_RUNNING_OPERATION_TYPES) {
+    for (const id of s.operationsByType[type] || []) {
+      const op = s.operations[id];
+      if (op && isVisiblyRunningOperation(op) && op.context.topicId) return true;
+    }
+  }
+  return false;
 };
 
 /**
@@ -946,14 +982,17 @@ const getIdleQueueHost = (context: MessageMapKeyInput) => (s: ChatStoreState) =>
 
 // A successful top-level run always drains its queue into a steered send, so a
 // queue sitting behind a completed run is the hand-off window, not a stale queue.
+const isDrainingQueueHost = (host?: Operation): boolean =>
+  host?.status === 'completed' && !host.metadata.endedWithoutCompletion;
+
 const isQueueDrainPending = (context: MessageMapKeyInput) => (s: ChatStoreState) =>
-  getIdleQueueHost(context)(s)?.status === 'completed';
+  isDrainingQueueHost(getIdleQueueHost(context)(s));
 
 // Send now keeps its item queued until the interrupt is confirmed; that wait is
 // part of the hand-off too, but its own send must not be re-queued.
 const isSteerHandoffPending = (context: MessageMapKeyInput) => (s: ChatStoreState) => {
   const host = getIdleQueueHost(context)(s);
-  if (host?.status === 'completed') return true;
+  if (isDrainingQueueHost(host)) return true;
 
   return host?.status === 'cancelled' && host.metadata.cancelReason === SEND_NOW_CANCEL_REASON;
 };
@@ -995,6 +1034,7 @@ export const operationSelectors = {
 
   isAgentRunning,
   isAgentVisiblyRunning,
+  isGroupVisiblyRunning,
   isAgentRuntimeRunning,
   isAgentRuntimeVisiblyRunning,
   isAgentUnreadCompleted,
@@ -1019,12 +1059,14 @@ export const operationSelectors = {
   isQueueDrainPending,
   isSendingMessage,
   isSteerHandoffPending,
+  hasVisiblyRunningTopic,
   isTopicUnreadCompleted,
   isTopicVisiblyRunning,
   unreadCompletedCountForTopics,
   visiblyRunningTopicIds,
 
   // Message Queue
+  getIdleQueueHost,
   getQueuedMessages,
   queuedMessageCount,
 };

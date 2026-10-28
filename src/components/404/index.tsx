@@ -1,7 +1,7 @@
 'use client';
 
-import { Flexbox, FluentEmoji } from '@lobehub/ui';
-import { Button } from '@lobehub/ui/base-ui';
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
+import { Button, Flexbox, FluentEmoji } from '@lobehub/ui';
 import { type ReactNode } from 'react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -42,7 +42,10 @@ const NotFound = memo<{
         <div style={{ marginTop: '0.5em' }}>{t('notFound.check')}</div>
       </div>
       {extra || (
-        <Button type={'primary'} onClick={() => (window.location.href = '/')}>
+        <Button
+          type={'primary'}
+          onClick={() => (window.location.href = withCurrentTenantPath('/'))}
+        >
           {t('notFound.backHome')}
         </Button>
       )}

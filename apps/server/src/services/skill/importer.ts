@@ -309,7 +309,7 @@ export class SkillImporter {
    */
   async importFromUrl(
     input: ImportUrlInput,
-    options?: { identifier?: string; source?: 'market' | 'user' },
+    options?: { identifier?: string; overwrite?: boolean; source?: 'market' | 'user' },
   ): Promise<SkillImportResult> {
     log('importFromUrl: starting with url=%s', input.url);
 
@@ -410,7 +410,51 @@ export class SkillImporter {
       );
     }
 
-    log('importFromUrl: parsed manifest=%o', manifest);
+    return this.saveUrlImport(
+      input,
+      { content: skillContent, manifest, resources, zipHash },
+      options,
+      zipBuffer,
+    );
+  }
+
+  /** Import bytes already downloaded by the request's authenticated Market client. */
+  async importFromMarketZip(
+    buffer: Buffer,
+    input: { identifier: string; sourceUrl: string },
+  ): Promise<SkillImportResult> {
+    let parsed;
+    try {
+      parsed = await this.parser.parseZipPackage(buffer, { fallbackName: input.identifier });
+    } catch (error) {
+      if (error instanceof SkillManifestError) throw error;
+      throw new SkillImportError('Failed to parse Market skill ZIP', 'DOWNLOAD_FAILED');
+    }
+    return this.saveUrlImport(
+      { url: input.sourceUrl },
+      parsed,
+      { identifier: input.identifier, source: 'market' },
+      buffer,
+    );
+  }
+
+  private async saveUrlImport(
+    input: ImportUrlInput,
+    {
+      content: skillContent,
+      manifest,
+      resources,
+      zipHash,
+    }: {
+      content: string;
+      manifest: SkillManifest;
+      resources?: Map<string, Buffer>;
+      zipHash?: string;
+    },
+    options?: { identifier?: string; overwrite?: boolean; source?: 'market' | 'user' },
+    zipBuffer?: Buffer,
+  ): Promise<SkillImportResult> {
+    const url = new URL(input.url);
 
     // 4. Generate identifier based on URL host and path
     const pathPart = url.pathname
@@ -423,6 +467,17 @@ export class SkillImporter {
 
     // 5. Check for existing skill
     let existing = await this.skillModel.findByIdentifier(identifier);
+
+    // Dependency installation never updates an installed row, including user
+    // imports that happen to carry the same source URL. Recheck here after the
+    // download as another request may have installed the skill in the meantime.
+    if (existing && options?.overwrite === false) {
+      if (existing.source === 'market') return { skill: existing, status: 'unchanged' };
+      throw new SkillImportError(
+        `A skill with identifier "${identifier}" is already installed from another source`,
+        'CONFLICT',
+      );
+    }
 
     // A user may have authored a skill under this very identifier. Only treat
     // the row as this import when it came from the market or from this same
@@ -439,7 +494,7 @@ export class SkillImporter {
     // since then is still updated in place rather than installed twice. Only
     // take it when it was fetched from this same URL: a user skill may carry
     // that identifier explicitly and must not be overwritten.
-    if (!existing && identifier !== urlIdentifier) {
+    if (!existing && identifier !== urlIdentifier && options?.overwrite !== false) {
       const legacy = await this.skillModel.findByIdentifier(urlIdentifier);
       if (legacy?.manifest?.sourceUrl === input.url) existing = legacy;
     }
@@ -451,7 +506,7 @@ export class SkillImporter {
     if (!existing) {
       const sameName = await this.skillModel.findByName(manifest.name);
       if (sameName) {
-        if (sameName.manifest?.sourceUrl !== input.url) {
+        if (options?.overwrite === false || sameName.manifest?.sourceUrl !== input.url) {
           throw new SkillImportError(
             `A skill named "${manifest.name}" is already installed (identifier: ${sameName.identifier}). Use the installed skill, or delete it before importing this one.`,
             'CONFLICT',
@@ -459,6 +514,14 @@ export class SkillImporter {
         }
         existing = sameName;
       }
+    }
+
+    if (existing) {
+      const isSameContent =
+        existing.content === skillContent && (existing.zipFileHash ?? undefined) === zipHash;
+      if (isSameContent) return { skill: existing, status: 'unchanged' };
+      // Refuse overwrites before storing any resources or ZIP bytes.
+      this.assertCanOverwrite(existing);
     }
 
     // 6. Build manifest with source URL
@@ -502,16 +565,6 @@ export class SkillImporter {
 
     // 9. Update existing skill or create new
     if (existing) {
-      // Check if content is the same (simple deduplication based on content and zipHash)
-      // Use nullish coalescing to handle null/undefined comparison correctly
-      const existingHash = existing.zipFileHash ?? undefined;
-      const isSameContent = existing.content === skillContent && existingHash === zipFileHash;
-      if (isSameContent) {
-        log('importFromUrl: skill unchanged, skipping update id=%s', existing.id);
-        return { skill: existing, status: 'unchanged' };
-      }
-
-      this.assertCanOverwrite(existing);
       log('importFromUrl: skill exists but content changed, updating id=%s', existing.id);
       const skill = await this.skillModel.update(existing.id, {
         content: skillContent,

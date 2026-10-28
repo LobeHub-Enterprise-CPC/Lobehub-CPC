@@ -1,9 +1,21 @@
 'use client';
 
 import { Github } from '@lobehub/icons';
-import { Flexbox, Icon, stopPropagation, Tooltip } from '@lobehub/ui';
-import { ActionIcon, Avatar, Button, Tag, Text, toast } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar, useResponsive } from 'antd-style';
+import {
+  ActionIcon,
+  Avatar,
+  Button,
+  createStaticStyles,
+  cssVar,
+  Flexbox,
+  Icon,
+  stopPropagation,
+  Tag,
+  Text,
+  toast,
+  Tooltip,
+  useResponsive,
+} from '@lobehub/ui';
 import {
   BookmarkIcon,
   BookmarkMinusIcon,
@@ -29,6 +41,7 @@ import { socialService } from '@/services/social';
 
 import InstallationIcon from '../../components/MCPDepsIcon';
 import PublishedTime from '../../components/PublishedTime';
+import ContentSyncTag from '../CommunityContentSyncTag';
 import { useDetailContext } from './DetailProvider';
 
 const styles = createStaticStyles(({ css }) => {
@@ -69,6 +82,7 @@ const Header = memo<{ inModal?: boolean; mobile?: boolean }>(({ mobile: isMobile
     overview,
     isClaimed,
     isOfficial,
+    contentSync,
   } = useDetailContext();
   const { mobile = isMobile } = useResponsive();
   const { isAuthenticated, signIn, session } = useMarketAuth();
@@ -221,6 +235,7 @@ const Header = memo<{ inModal?: boolean; mobile?: boolean }>(({ mobile: isMobile
               <span>{author?.name}</span>
             )}
             {isClaimed && <Tag size={'small'}>{t('isClaimed')}</Tag>}
+            <ContentSyncTag contentSync={contentSync} />
             <Icon icon={DotIcon} />
             <PublishedTime className={styles.time} date={(updatedAt || createdAt) as string} />
           </Flexbox>

@@ -1,0 +1,349 @@
+{
+  "contractVersion": 1,
+  "cases": [
+    {
+      "id": "lease-request-start-normal",
+      "schema": "leaseUpdate",
+      "validation": "lease",
+      "input": {
+        "type": "lease_update",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "requestStartMonoMs": 0,
+        "requestStartWallMs": 1900000000000,
+        "arrivalMonoMs": 1000,
+        "skewBudgetMs": 0,
+        "expectedDeadlineMonoMs": 30000,
+        "expectedRemainingMs": 29000
+      }
+    },
+    {
+      "id": "lease-delayed-25s-only-5s-remain",
+      "schema": "leaseUpdate",
+      "validation": "lease",
+      "input": {
+        "type": "lease_update",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "requestStartMonoMs": 0,
+        "requestStartWallMs": 1900000000000,
+        "arrivalMonoMs": 25000,
+        "skewBudgetMs": 0,
+        "expectedDeadlineMonoMs": 30000,
+        "expectedRemainingMs": 5000
+      }
+    },
+    {
+      "id": "lease-delayed-30s-expired",
+      "schema": "leaseUpdate",
+      "validation": "lease",
+      "input": {
+        "type": "lease_update",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "LEASE_EXPIRED"
+      },
+      "context": {
+        "requestStartMonoMs": 0,
+        "requestStartWallMs": 1900000000000,
+        "arrivalMonoMs": 30000,
+        "skewBudgetMs": 0,
+        "expectedDeadlineMonoMs": 30000,
+        "expectedRemainingMs": 0
+      }
+    },
+    {
+      "id": "lease-delayed-31s-expired",
+      "schema": "leaseUpdate",
+      "validation": "lease",
+      "input": {
+        "type": "lease_update",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "LEASE_EXPIRED"
+      },
+      "context": {
+        "requestStartMonoMs": 0,
+        "requestStartWallMs": 1900000000000,
+        "arrivalMonoMs": 31000,
+        "skewBudgetMs": 0,
+        "expectedDeadlineMonoMs": 30000,
+        "expectedRemainingMs": -1000
+      }
+    },
+    {
+      "id": "lease-source-shorter-than-ticket",
+      "schema": "leaseUpdate",
+      "validation": "lease",
+      "input": {
+        "type": "lease_update",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000010000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "requestStartMonoMs": 0,
+        "requestStartWallMs": 1900000000000,
+        "arrivalMonoMs": 1000,
+        "skewBudgetMs": 1000,
+        "expectedDeadlineMonoMs": 9000,
+        "expectedRemainingMs": 8000
+      }
+    },
+    {
+      "id": "lease-sleep-past-deadline",
+      "schema": "leaseUpdate",
+      "validation": "lease",
+      "input": {
+        "type": "lease_update",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "LEASE_EXPIRED"
+      },
+      "context": {
+        "requestStartMonoMs": 0,
+        "requestStartWallMs": 1900000000000,
+        "arrivalMonoMs": 1000,
+        "executionMonoMs": 45000,
+        "sleepResumeObserved": true,
+        "queuedCommandMayExecute": false
+      }
+    },
+    {
+      "id": "lease-backward-wall-clock",
+      "schema": "leaseUpdate",
+      "validation": "lease",
+      "input": {
+        "type": "lease_update",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "LEASE_EXPIRED"
+      },
+      "context": {
+        "clockAnomaly": true,
+        "wallClockMovedBackMs": 60000,
+        "queuedCommandMayExecute": false,
+        "grantNew30sOnReception": false
+      }
+    },
+    {
+      "id": "lease-suspend-uncertain-monotonic",
+      "schema": "leaseUpdate",
+      "validation": "lease",
+      "input": {
+        "type": "lease_update",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "LEASE_EXPIRED"
+      },
+      "context": {
+        "sleepResumeObserved": true,
+        "monotonicContinuityKnown": false,
+        "queuedCommandMayExecute": false
+      }
+    },
+    {
+      "id": "lease-update-old-socket",
+      "schema": "leaseUpdate",
+      "validation": "binding",
+      "input": {
+        "type": "lease_update",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 3,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      },
+      "context": {
+        "socketIsCurrent": false
+      }
+    },
+    {
+      "id": "lease-update-new-source-not-old-queue",
+      "schema": "leaseUpdate",
+      "validation": "binding",
+      "input": {
+        "type": "lease_update",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "audience": "urn:lobehub:gateway:agent",
+        "roles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "acceptedVersion": 7,
+        "connectionGeneration": 4,
+        "ticketExpiresAt": 1900000300000,
+        "authRecordExpiresAt": 1900000240000,
+        "leaseExpiresAt": 1900000030000
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "previousGeneration": 3,
+        "candidateSourceRevalidated": true,
+        "sameIdentityPrincipalAndVersion": true,
+        "discardOldQueuedCommands": true
+      }
+    }
+  ]
+}

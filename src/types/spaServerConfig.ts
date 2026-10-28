@@ -1,3 +1,5 @@
+import type { TenantContext } from '@lobechat/business-tenant/routing';
+
 import type { IFeatureFlags } from '@/config/featureFlags';
 import type { GlobalServerConfig } from '@/types/serverConfig';
 
@@ -19,23 +21,33 @@ export interface AnalyticsConfig {
 
 export interface SPAClientEnv {
   marketBaseUrl?: string;
+  marketSkillInstallBaseUrl?: string;
   pyodideIndexUrl?: string;
   pyodidePipIndexUrl?: string;
   s3FilePath?: string;
 }
 
+export type DesktopFlowStatus = 'ready' | 'invalid' | 'expired' | 'unavailable';
+
 export interface AuthSPAServerConfig {
   analyticsConfig: AnalyticsConfig;
+  appUrl: string;
   config: GlobalServerConfig;
+  desktopFlow?: { status: DesktopFlowStatus };
   enableOIDC: boolean;
   featureFlags: Partial<IFeatureFlags>;
   globalCDN?: boolean;
+  rootAccount?: true;
+  tenant?: TenantContext;
 }
 
 export interface SPAServerConfig {
   analyticsConfig: AnalyticsConfig;
+  appUrl?: string;
   clientEnv: SPAClientEnv;
   config: GlobalServerConfig;
   featureFlags: Partial<IFeatureFlags>;
   isMobile: boolean;
+  rootAccount?: true;
+  tenant?: TenantContext;
 }

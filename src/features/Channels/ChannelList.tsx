@@ -1,4 +1,3 @@
-import { ContextMenuTrigger, copyToClipboard, Flexbox, ScrollShadow } from '@lobehub/ui';
 import {
   AccordionHeader,
   AccordionItem,
@@ -9,23 +8,26 @@ import {
   ActionIcon,
   Button,
   confirmModal,
+  ContextMenuTrigger,
+  copyToClipboard,
+  cx,
   DropdownMenu,
+  Flexbox,
   Text,
   toast,
-} from '@lobehub/ui/base-ui';
-import { cx } from 'antd-style';
+} from '@lobehub/ui';
 import { Copy, Hash, MoreHorizontal, PencilLine, Plus, Trash } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import useSWR, { useSWRConfig } from 'swr';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { openRenameModal } from '@/components/RenameModal';
+import CappedNavList from '@/features/NavPanel/components/CappedNavList';
 import NavItem from '@/features/NavPanel/components/NavItem';
 import SkeletonList from '@/features/NavPanel/components/SkeletonList';
 import ThreadNavItem from '@/features/NavPanel/components/ThreadNavItem';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { useActiveLocation } from '@/hooks/useActiveLocation';
-import { useScrollActiveThreadIntoView } from '@/hooks/useScrollActiveThreadIntoView';
 import { channelService } from '@/services/channel';
 
 import { openCreateChannelModal } from './CreateChannel';
@@ -42,18 +44,12 @@ function ChannelThreads({
   const navigate = useWorkspaceAwareNavigate();
   const activeThreadId =
     pathname === `/channels/${channelId}` ? new URLSearchParams(search).get('thread') : null;
-  const containerRef = useScrollActiveThreadIntoView(activeThreadId, threads.length);
   if (!threads.length) return null;
 
+  // Threads scroll with their channel inside the capped channel list rather
+  // than in a nested scroll area of their own.
   return (
-    <ScrollShadow
-      aria-label={t('thread')}
-      gap={1}
-      paddingBlock={1}
-      ref={containerRef}
-      size={12}
-      style={{ maxHeight: 9 * 37 }}
-    >
+    <Flexbox aria-label={t('thread')} gap={1} role="group">
       {threads.map((thread, index) => {
         const title = thread.title || `${t('thread')} ${index + 1}`;
         const href = `/channels/${channelId}?thread=${encodeURIComponent(thread.id)}`;
@@ -70,7 +66,7 @@ function ChannelThreads({
           />
         );
       })}
-    </ScrollShadow>
+    </Flexbox>
   );
 }
 
@@ -216,37 +212,39 @@ export default function ChannelList() {
           </Flexbox>
         </AccordionHeader>
         <AccordionPanel>
-          <Flexbox gap={1} paddingBlock={1}>
-            {!channels && !error && <SkeletonList rows={2} />}
-            {error && (
-              <Button size="small" onClick={() => mutate()}>
-                {t('reload')}
-              </Button>
-            )}
-            {channels?.map((channel) => (
-              <Flexbox key={channel.id}>
-                <ContextMenuTrigger items={() => menuItems(channel)}>
-                  <NavItem
-                    data-channel-id={channel.id}
-                    href={`/channels/${channel.id}`}
-                    icon={Hash}
-                    title={channel.title}
-                    actions={
-                      <DropdownMenu items={() => menuItems(channel)}>
-                        <ActionIcon icon={MoreHorizontal} size="small" title={commonT('more')} />
-                      </DropdownMenu>
-                    }
-                    active={
-                      pathname === `/channels/${channel.id}` &&
-                      !new URLSearchParams(search).get('thread')
-                    }
-                    onClick={() => navigate(`/channels/${channel.id}`, { escape: true })}
-                  />
-                </ContextMenuTrigger>
-                <ChannelThreads channelId={channel.id} threads={channel.threads} />
-              </Flexbox>
-            ))}
-          </Flexbox>
+          {!channels && !error && <SkeletonList rows={2} />}
+          {error && (
+            <Button size="small" onClick={() => mutate()}>
+              {t('reload')}
+            </Button>
+          )}
+          {!!channels?.length && (
+            <CappedNavList ready={channels.length}>
+              {channels.map((channel) => (
+                <Flexbox gap={1} key={channel.id}>
+                  <ContextMenuTrigger items={() => menuItems(channel)}>
+                    <NavItem
+                      data-channel-id={channel.id}
+                      href={`/channels/${channel.id}`}
+                      icon={Hash}
+                      title={channel.title}
+                      actions={
+                        <DropdownMenu items={() => menuItems(channel)}>
+                          <ActionIcon icon={MoreHorizontal} size="small" title={commonT('more')} />
+                        </DropdownMenu>
+                      }
+                      active={
+                        pathname === `/channels/${channel.id}` &&
+                        !new URLSearchParams(search).get('thread')
+                      }
+                      onClick={() => navigate(`/channels/${channel.id}`, { escape: true })}
+                    />
+                  </ContextMenuTrigger>
+                  <ChannelThreads channelId={channel.id} threads={channel.threads} />
+                </Flexbox>
+              ))}
+            </CappedNavList>
+          )}
         </AccordionPanel>
       </AccordionItem>
     </AccordionRoot>

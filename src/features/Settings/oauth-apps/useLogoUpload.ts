@@ -1,4 +1,5 @@
-import { toast } from '@lobehub/ui/base-ui';
+import { resolveAppUrl } from '@lobechat/business-tenant/client';
+import { toast } from '@lobehub/ui';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -33,7 +34,7 @@ export const useLogoUpload = () => {
       }
 
       // Local storage returns a path; the provider needs an absolute URL.
-      return result.url.startsWith('/') ? `${window.location.origin}${result.url}` : result.url;
+      return resolveAppUrl(result.url);
     } catch (error) {
       console.error('[OAuthApps] Logo upload failed:', error);
       toast.error(t('oauthApp.form.logo.uploadFailed'));

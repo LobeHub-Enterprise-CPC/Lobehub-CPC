@@ -17,10 +17,12 @@ import {
   parsePluginEntry,
   upsertPluginMode,
 } from '@lobechat/types';
+import debug from 'debug';
 
 import { AgentModel } from '@/database/models/agent';
 import { ConnectorModel } from '@/database/models/connector';
 import { PluginModel } from '@/database/models/plugin';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { AgentService } from '@/server/services/agent';
 import {
   createAiInfraRepos,
@@ -45,6 +47,8 @@ const handleError = (error: unknown, message: string): ToolExecutionResult => {
 /** Max results per searchAgent call (mirrored in the tool manifest: "max: 20") */
 const MAX_SEARCH_AGENT_LIMIT = 20;
 
+const log = debug('lobe-server:agent-management-runtime');
+
 export const agentManagementRuntime: ServerRuntimeRegistration = {
   factory: (context) => {
     if (!context.userId || !context.serverDB) {
@@ -62,9 +66,17 @@ export const agentManagementRuntime: ServerRuntimeRegistration = {
     // Same identity requirement as the Agent Builder runtime: built without an
     // identity, DiscoverService sends no credentials and every market read fails
     // as `unauthorized`.
-    const discoverService = new DiscoverService({
-      userInfo: { userId: context.userId, workspaceId: context.workspaceId },
-    });
+    const { serverDB, userId } = context;
+    // The Market identity (tenant, email, name) is assembled asynchronously, so
+    // the client is built on first use rather than when the runtime is created.
+    const getDiscoverService = async () =>
+      new DiscoverService({
+        userInfo: await resolveMarketServiceIdentity({
+          serverDB,
+          userId,
+          workspaceId: context.workspaceId,
+        }),
+      });
 
     /**
      * The injected context lists the servable models, but a model that ignores
@@ -231,7 +243,18 @@ export const agentManagementRuntime: ServerRuntimeRegistration = {
       getAgentDetail: async (params: GetAgentDetailParams): Promise<ToolExecutionResult> => {
         try {
           const agent = await agentModel.getAgentConfigById(params.agentId);
+
           if (!agent) {
+            // searchAgent can surface marketplace agents (short-code ids) that
+            // have no local agents row; read their detail through the market
+            // fallback instead of reporting a false "not found" (same behavior
+            // as the client AgentManagerRuntime).
+            const marketDetail = await getMarketAgentDetail(
+              await getDiscoverService(),
+              params.agentId,
+            );
+            if (marketDetail) return marketDetail;
+
             return { content: `Agent "${params.agentId}" not found.`, success: false };
           }
 
@@ -298,7 +321,7 @@ export const agentManagementRuntime: ServerRuntimeRegistration = {
           // success for ids that never produced a tool.
           const { installedNow, resolution } = await resolveOrInstallMarketPlugin(
             identifier,
-            { connectorModel, discoverService, pluginModel },
+            { connectorModel, discoverService: await getDiscoverService(), pluginModel },
             { agentId, source },
           );
           if (resolution.status !== 'loadable')
@@ -365,7 +388,9 @@ export const agentManagementRuntime: ServerRuntimeRegistration = {
 
           // Marketplace search returns the first page only — offset does not apply
           if (source === 'market' || source === 'all') {
-            const marketResult = await discoverService.getAssistantList({
+            const marketResult = await (
+              await getDiscoverService()
+            ).getAssistantList({
               pageSize: limit,
               q: params.keyword,
               ...(params.category && { category: params.category }),
@@ -429,6 +454,17 @@ export const agentManagementRuntime: ServerRuntimeRegistration = {
           const { agentId } = params;
           let { config, meta } = params;
 
+          // Existence guard: a Drizzle UPDATE on a missing/foreign agent row is a
+          // silent 0-row no-op, so writes would "succeed" without persisting
+          // anything. Fail loudly like the config path already does. Uses the
+          // lightweight existsById probe instead of getAgentConfigById, which
+          // needlessly enriches the row with knowledge associations just to
+          // test existence.
+          const exists = await agentModel.existsById(agentId);
+          if (!exists) {
+            return { content: `Agent "${agentId}" not found.`, success: false };
+          }
+
           // Guard against LLM double-encoding: parse strings if needed
           if (typeof config === 'string') {
             try {
@@ -480,6 +516,14 @@ export const agentManagementRuntime: ServerRuntimeRegistration = {
       updatePrompt: async (params: UpdatePromptParams): Promise<ToolExecutionResult> => {
         try {
           const { agentId, prompt } = params;
+
+          // Existence guard: same 0-row silent no-op hazard as updateAgent.
+          // Lightweight existsById probe (see updateAgent note).
+          const exists = await agentModel.existsById(agentId);
+          if (!exists) {
+            return { content: `Agent "${agentId}" not found.`, success: false };
+          }
+
           await agentModel.update(agentId, { editorData: null, systemRole: prompt } as Record<
             string,
             unknown
@@ -499,4 +543,92 @@ export const agentManagementRuntime: ServerRuntimeRegistration = {
     };
   },
   identifier: AgentManagementIdentifier,
+};
+
+/**
+ * Best-effort marketplace detail lookup for ids that have no local agents row.
+ * Mirrors the client `AgentManagerRuntime.getMarketAgentDetail`; market config
+ * almost never carries `agencyConfig`, so the hetero runtime descriptor is
+ * intentionally not mirrored here (apps/server does not depend on
+ * `@lobechat/agent-manager-runtime`).
+ */
+const getMarketAgentDetail = async (
+  discoverService: DiscoverService,
+  agentId: string,
+): Promise<ToolExecutionResult | null> => {
+  let detail: Awaited<ReturnType<DiscoverService['getAssistantDetail']>>;
+  try {
+    detail = await discoverService.getAssistantDetail({
+      identifier: agentId,
+      source: 'new',
+    });
+  } catch (error) {
+    // Market lookup is best-effort: fall through to the local "not found",
+    // but keep the failure observable instead of silent.
+    log(
+      'getAgentDetail: market fallback lookup failed for identifier=%s: %s',
+      agentId,
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
+
+  const config = detail?.config as Record<string, any> | undefined;
+  if (!detail || !config) return null;
+
+  const plugins = config.plugins?.map((entry: any) => {
+    const { identifier, mode } = parsePluginEntry(entry);
+    return mode === 'pinned' ? identifier : `${identifier} (${mode})`;
+  }) as string[] | undefined;
+
+  // Marketplace configs can carry the model as an object
+  // ({ model, provider, parameters }) — extract the nested model/provider so
+  // the LLM-facing summary and GetAgentDetailRender never see "[object
+  // Object]" (same normalization as src/services/agent.ts).
+  let provider = config.provider as string | undefined;
+  let model = config.model as string | undefined;
+  if (model !== null && typeof model === 'object') {
+    const { model: modelName, provider: modelProvider } = model as {
+      model?: string;
+      provider?: string;
+    };
+    model = modelName;
+    provider = provider ?? modelProvider;
+  }
+  const systemRole = config.systemRole as string | undefined;
+
+  const parts: string[] = [];
+  if (detail.title) parts.push(`**${detail.title}**`);
+  if (detail.description) parts.push(detail.description);
+  if (model) parts.push(`Model: ${provider ? `${provider}/` : ''}${model}`);
+  if (plugins?.length) parts.push(`Plugins: ${plugins.join(', ')}`);
+  if (systemRole) parts.push(`System Prompt: ${systemRole}`);
+  parts.push(
+    'ℹ️ This is a marketplace agent (read-only). Install it into a workspace before editing.',
+  );
+
+  return {
+    content: parts.join('\n'),
+    state: {
+      agentId,
+      config: {
+        model,
+        openingMessage: config.openingMessage as string | undefined,
+        openingQuestions: config.openingQuestions as string[] | undefined,
+        plugins,
+        provider,
+        systemRole,
+      },
+      isMarket: true,
+      meta: {
+        avatar: detail.avatar,
+        backgroundColor: detail.backgroundColor,
+        description: detail.description,
+        tags: detail.tags,
+        title: detail.title,
+      },
+      success: true,
+    },
+    success: true,
+  };
 };

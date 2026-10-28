@@ -88,7 +88,7 @@ export const fileRouter = router({
       const asyncTask = await asyncTaskModel.findById(input.taskId);
 
       const { model, provider } =
-        getServerDefaultFilesConfig().embeddingModel || DEFAULT_FILE_EMBEDDING_MODEL_ITEM;
+        (await getServerDefaultFilesConfig()).embeddingModel || DEFAULT_FILE_EMBEDDING_MODEL_ITEM;
 
       if (!asyncTask) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Async Task not found' });
 

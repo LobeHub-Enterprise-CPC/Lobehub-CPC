@@ -1,3 +1,4 @@
+import { tenantStorageKey } from '@lobechat/business-tenant/client';
 import type { AskUserDraft } from '@lobechat/shared-tool-ui/ask-user';
 
 const KEY_PREFIX = 'lobechat:clarification:draft:v1:';
@@ -19,7 +20,7 @@ export const accountDraftKey = (
 export const readClarificationDraft = (key: string): AskUserDraft | undefined => {
   if (typeof window === 'undefined') return undefined;
   try {
-    const raw = window.localStorage.getItem(KEY_PREFIX + key);
+    const raw = window.localStorage.getItem(tenantStorageKey(KEY_PREFIX + key));
     return raw ? (JSON.parse(raw) as AskUserDraft) : undefined;
   } catch {
     return undefined;
@@ -29,7 +30,7 @@ export const readClarificationDraft = (key: string): AskUserDraft | undefined =>
 export const writeClarificationDraft = (key: string, draft: AskUserDraft): void => {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(KEY_PREFIX + key, JSON.stringify(draft));
+    window.localStorage.setItem(tenantStorageKey(KEY_PREFIX + key), JSON.stringify(draft));
   } catch {
     // Storage full or blocked: the draft still lives in the form for now.
   }
@@ -38,7 +39,7 @@ export const writeClarificationDraft = (key: string, draft: AskUserDraft): void 
 export const clearClarificationDraft = (key: string): void => {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.removeItem(KEY_PREFIX + key);
+    window.localStorage.removeItem(tenantStorageKey(KEY_PREFIX + key));
   } catch {
     // Nothing to clean up if storage is unavailable.
   }

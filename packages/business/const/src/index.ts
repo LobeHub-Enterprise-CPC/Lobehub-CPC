@@ -64,6 +64,18 @@ export const EXTERNAL_INTEGRATIONS_ENABLED = true;
 export const DESKTOP_APP_ENABLED = true;
 
 /**
+ * Whether the desktop device gateway stays on with no user-facing control.
+ *
+ * When on, the title bar does not render the gateway entry (status dot,
+ * connect switch, or the jump to device settings), and a persisted
+ * `gatewayEnabled: false` — including one saved by an older build — is still
+ * treated as on, because the user can no longer turn it back on. Login,
+ * organization switch and reconnect keep their existing timing. Logout still
+ * closes the socket. Off keeps the entry and honors the stored flag.
+ */
+export const DESKTOP_DEVICE_GATEWAY_ALWAYS_ON = false;
+
+/**
  * Whether this distribution reaches the hosted skill marketplace.
  *
  * Governs the prompt, not a button. The activator's `<skill_store_discovery>`
@@ -98,6 +110,18 @@ export const CLI_CONNECT_ENABLED = true;
  * command install (and its users run) somebody else's package otherwise.
  */
 export const CLI_INSTALL_COMMAND = 'npm install -g @lobehub/cli';
+
+/**
+ * The command name a distribution's CLI installs as — the token shown ahead of
+ * every example command in the connect wizard, device-offline/no-devices
+ * hints, and anywhere else the app tells a user what to type.
+ *
+ * A slot for the same reason as CLI_INSTALL_COMMAND: a distribution publishing
+ * its own CLI under its own binary name has every shown example still say
+ * `lh`, which either runs nothing or runs somebody else's CLI if one happens
+ * to be on PATH.
+ */
+export const CLI_PRIMARY_BIN = 'lh';
 
 /**
  * Whether this distribution has a changelog to point users at.
@@ -186,6 +210,85 @@ export const BUILTIN_SKILLS_HIDDEN: readonly string[] = [];
  * anything already made with it.
  */
 export const AGENT_GROUP_CREATION_ENABLED = true;
+
+/**
+ * Agent directory (`/agents`) presentation. When on, the page leads with a
+ * title and a primary create button, the list toolbar shows the total and the
+ * search box, and each row carries the agent's description under its name.
+ * Off keeps the dense single-line list.
+ */
+export const AGENT_DIRECTORY_SHOWCASE_LAYOUT = false;
+
+/**
+ * Composer presentation for distributions where every agent runs in Agent
+ * mode. When on, the Chat/Agent and home mode switches are not rendered and the
+ * agent-mode preference always resolves to Agent; the tool approval mode moves
+ * into the composer next to the "+" menu, dictation sits beside Send, and the
+ * model menu leads with a reasoning-effort slider. Off keeps the stock layout.
+ */
+export const COMPOSER_AGENT_ONLY_LAYOUT = false;
+
+/**
+ * Where the home page puts its agent switcher. When on, the switcher leaves
+ * the header above the greeting and docks under the composer, and the selected
+ * agent's avatar peeks over the composer's top edge.
+ */
+export const HOME_COMPOSER_AGENT_DOCK = false;
+
+/**
+ * Agent profile presentation. When on, the profile group's tabs lead the top
+ * bar in place of the agent breadcrumb, the profile header lays the avatar,
+ * name and role out in one row with a "chat" action, the cover banner is left
+ * out, and copying user tools confirms below the picked tools. Off keeps the
+ * stock profile layout.
+ */
+export const AGENT_PROFILE_SHOWCASE_LAYOUT = false;
+
+/**
+ * Two-level navigation. When on, the app shell renders an icon rail outside
+ * the navigation panel: page links, the help menu and the account entry move
+ * to the rail, and the Home panel keeps the brand header and the lists (agents,
+ * projects, recents) — the agent list titled for agents and groups, its "add"
+ * and "view all" actions always shown, and its overflow row counting the agents
+ * left out. Off keeps the single-panel layout.
+ */
+export const NAV_RAIL_ENABLED = false;
+
+/**
+ * Width the navigation panel opens at before the viewer resizes it. A width the
+ * viewer set by dragging is kept.
+ */
+export const NAV_PANEL_DEFAULT_WIDTH = 280;
+
+/**
+ * Projects as a top-level way to organize conversations. When on, projects are
+ * always enabled (no Labs toggle); the Home panel lists each project with its
+ * conversations nested under it and a "+" that starts a conversation in it; the
+ * home composer can pick a project for the next conversation; and a project
+ * conversation keeps the Home panel instead of switching to the project's own
+ * sidebar. The project page itself moves into the row's "..." menu. Off keeps
+ * the Labs-gated project list.
+ */
+export const PROJECT_FIRST_NAVIGATION = false;
+
+/**
+ * The Home panel as the only everyday navigation. When on, the Home panel's
+ * agent group is a row of avatars; an avatar opens the agent's (or group's)
+ * profile, whose chat button starts a home conversation with that agent; a
+ * conversation with any agent or group keeps the Home panel; and "Recent" lists
+ * the viewer's conversations outside projects. The agent's own workspace
+ * sidebar (topics, tasks, profile) opens only in "advanced mode", toggled from
+ * the profile's "..." menu. Off keeps the agent and group sidebars.
+ */
+export const AGENT_PROFILE_NAVIGATION = false;
+
+/**
+ * Home sections hidden for a viewer who has not customized Home yet. Listing
+ * every widget key (see `HOME_WIDGET_KEYS`) together with
+ * `HOME_PORTRAIT_ENABLED = false` makes the centered greeting-and-composer
+ * layout the default. The viewer's own choice in Customize still wins.
+ */
+export const HOME_DEFAULT_HIDDEN_WIDGETS: string[] = [];
 
 /**
  * Whether the home dashboard shows the Chief Agent portrait and the speech

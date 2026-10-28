@@ -43,7 +43,6 @@ export default {
 
   'screen3.actions.grantAccess': 'Grant Access',
   'screen3.actions.granted': 'Access Granted',
-  'screen3.actions.openSettings': 'Open Settings',
   'screen3.badge': 'Permissions',
   'screen3.description':
     'Grant permissions to unlock the full potential of Agents and Groups. You can manage these anytime in settings.',
@@ -53,12 +52,18 @@ export default {
   'screen3.permissions.2.description':
     'Access files and folders to enable document analysis, knowledge base creation, and file processing workflows',
   'screen3.permissions.2.title': 'File Access',
-  'screen3.permissions.3.description':
-    'Capture screen content and audio for voice interactions, screen analysis, and multimodal assistance',
-  'screen3.permissions.3.title': 'Screen & Audio',
   'screen3.permissions.4.description':
     'Enable system-level automation for seamless workflow execution across applications',
   'screen3.permissions.4.title': 'Accessibility',
+  'screen3.actions.continue': 'Continue',
+  'screen3.actions.waiting': 'Waiting for access',
+  'screen3.hint.guide': 'Drag LobeHub into the list in System Settings',
+  'screen3.hint.incomplete': 'Not finished yet. You can try again.',
+  'screen3.hint.prompt': 'Choose Allow in the system dialog',
+  'screen3.permissions.microphone.description': 'Use voice input and voice conversations',
+  'screen3.permissions.microphone.title': 'Microphone',
+  'screen3.permissions.screen.description': 'Analyze your screen and ask about screenshots',
+  'screen3.permissions.screen.title': 'Screen Recording',
   'screen3.title': 'Grant Permissions',
   'screen3.title2': 'Enable access to unlock full features',
   'screen3.title3': 'You can manage these anytime in settings',
@@ -74,6 +79,7 @@ export default {
   'screen4.privacy.items.2': 'No usage analytics',
   'screen4.privacy.items.3': 'All processing stays local',
   'screen4.privacy.title': 'Privacy Mode',
+  'screen4.saveError': 'Could not save your data preference. Please try again.',
   'screen4.share.description':
     'Share anonymized usage data to help us improve LobeHub. This helps us understand how Agents are used and make them better.',
   'screen4.share.items.1': 'Performance metrics',
@@ -88,30 +94,79 @@ export default {
   'screen5.actions.connectToServer': 'Connect to Server',
   'screen5.actions.connecting': 'Connecting...',
   'screen5.actions.done': 'Done',
-  'screen5.actions.signInCloud': 'Sign in to LobeHub Cloud',
+  'screen5.actions.findByOrganizationEmail': 'Find by organization email',
+  'screen5.actions.signInAgain': 'Sign in again',
+  'screen5.actions.signInCloud': 'Sign in with your organization account',
   'screen5.actions.signOut': 'Sign out',
   'screen5.actions.signingIn': 'Signing in...',
   'screen5.actions.signingOut': 'Signing out...',
+  'screen5.actions.switchOrganization': 'Switch organization',
   'screen5.actions.tryAgain': 'Try Again',
+  'screen5.auth.phase.awaitingConfirmation': 'Waiting for your confirmation...',
   'screen5.auth.phase.browserOpened': 'Browser opened, please sign in...',
+  'screen5.auth.phase.restarting':
+    'The organization address changed, reconnecting ({{attempt}}/{{max}})...',
   'screen5.auth.phase.verifying': 'Verifying credentials...',
   'screen5.auth.phase.waitingForAuth': 'Waiting for authorization...',
+  'screen5.auth.phase.waitingForOrganization': 'Choose your organization in the browser...',
   'screen5.auth.remaining': 'Remaining: {{time}}s',
   'screen5.badge': 'Sign in',
+  'screen5.confirm.confirm': 'Confirm',
+  'screen5.confirm.description':
+    'Check that this is the organization and account you want to use. Nothing is synced until you confirm.',
+  'screen5.confirm.expired': 'This confirmation has expired. Sign in again to continue.',
+  'screen5.confirm.remaining': 'Expires in {{time}}',
+  'screen5.confirm.switchOrganization': 'Choose another organization',
+  'screen5.confirm.title': 'Sign in to this organization?',
   'screen5.description':
     'Sign in to sync Agents, Groups, settings, and Context across all devices.',
+  'screen5.endpointChanged.relogin.description':
+    'The address of your organization has changed, so syncing is paused. Sign in again to continue.',
+  'screen5.endpointChanged.relogin.title': 'Organization address changed',
+  'screen5.endpointChanged.updateAddress.description':
+    'This server is no longer available at the saved address, so syncing is paused. Update the server address or choose a server again.',
+  'screen5.endpointChanged.updateAddress.title': 'Server address changed',
+  'screen5.errors.commitFailed': 'Sign-in could not be completed. Please sign in again.',
+  'screen5.errors.confirmationInvalid':
+    'This confirmation is no longer valid. Please sign in again.',
+  'screen5.errors.confirmationTimeout':
+    'The confirmation timed out and this sign-in was discarded. Please sign in again.',
   'screen5.errors.desktopOnlyOidc':
     'OIDC authorization is only available in the desktop app runtime.',
+  'screen5.errors.endpointChangedRestartLimit':
+    'The organization address kept changing during sign-in. Please try again later.',
+  'screen5.errors.endpointChangedUpdateAddress':
+    'The server address has changed. Update the address or choose a server again.',
+  'screen5.errors.generic': 'Sign-in could not be completed. Please try again.',
+  'screen5.errors.identityVerificationFailed':
+    'We could not verify your identity, so this sign-in was discarded.',
+  'screen5.errors.invalidOrganizationAddress':
+    'This is not a valid organization address. Check it, or find your organization by email instead.',
+  'screen5.errors.invalidServerAddress':
+    'The server address is not valid. Enter a full https:// address.',
+  'screen5.errors.organizationChangedSwitchRequired':
+    'The organization has changed. To continue, choose Switch organization explicitly.',
+  'screen5.errors.platformHandoffRejected':
+    'The sign-in request was rejected. Please start again from the app.',
+  'screen5.errors.platformMisconfigured':
+    'This server address does not support desktop sign-in. Check the server configuration.',
+  'screen5.errors.platformUnavailable':
+    'The service is temporarily unavailable. Please try again later.',
   'screen5.errors.timedOut': 'Authorization timed out, please try again',
+  'screen5.identity.account': 'Account',
+  'screen5.identity.address': 'Address',
+  'screen5.identity.organization': 'Organization',
+  'screen5.identity.organizationWithSlug': '{{name}} ({{slug}})',
   'screen5.legacyLocalDb.link': 'Migrate legacy local database',
   'screen5.methods.cloud.description':
-    'Sign in with your LobeHub Cloud account to sync everything seamlessly',
-  'screen5.methods.cloud.name': 'LobeHub Cloud',
+    'Sign in with your organization account to sync everything seamlessly',
+  'screen5.methods.cloud.name': 'Organization account',
   'screen5.methods.selfhost.description': 'Connect to your own LobeHub server instance',
   'screen5.methods.selfhost.name': 'Self-hosted Instance',
   'screen5.navigation.next': 'Get Started',
+  'screen5.notice.sessionKept': 'Your current sign-in is still active.',
   'screen5.selfhost.endpointPlaceholder': 'Enter your server URL (e.g., https://your-server.com)',
-  'screen5.status.cloud.title': 'Connected to LobeHub Cloud',
+  'screen5.status.cloud.title': 'Connected to your organization',
   'screen5.status.description':
     'Agents, Groups, settings, and Context are syncing across all your devices.',
   'screen5.status.selfhost.description':

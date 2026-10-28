@@ -1,5 +1,6 @@
 import { request } from 'node:http';
 
+import { BOT_CREDENTIAL_MASK } from '@lobechat/const/bot';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { App } from '@/core/App';
@@ -47,7 +48,7 @@ const config = {
   webhookSecret: 'shared-secret',
 };
 
-function createService() {
+function createService(serverUrl = 'https://lobehub.example.com') {
   const store = new Map<string, unknown>([['imessageBridgeConfigs', []]]);
   const app = {
     storeManager: {
@@ -59,7 +60,7 @@ function createService() {
   const service = new ImessageBridgeService(app);
   service.setRemoteServerProvider({
     getAccessToken: vi.fn().mockResolvedValue('access-token'),
-    getServerUrl: vi.fn().mockResolvedValue('https://lobehub.example.com'),
+    getServerUrl: vi.fn().mockResolvedValue(serverUrl),
   });
 
   return { app, service, store };
@@ -70,6 +71,8 @@ function postLocal(path: string, body: unknown): Promise<{ body: string; status:
     const payload = JSON.stringify(body);
     const req = request(
       {
+        // Fresh socket per request: the loopback server restarts on the same port between tests.
+        agent: false,
         headers: {
           'Content-Length': Buffer.byteLength(payload),
           'Content-Type': 'application/json',
@@ -153,6 +156,51 @@ describe('ImessageBridgeService', () => {
     await service.stop();
   });
 
+  it('keeps the stored webhook secret when an update carries the replica mask', async () => {
+    const { service, store } = createService();
+    await service.upsertConfig(config);
+
+    // A cache-first save hands back the masked replica copy, not the secret.
+    await service.upsertConfig({
+      applicationId: 'home-mac-mini',
+      blueBubblesServerUrl: 'http://127.0.0.1:5678',
+      enabled: true,
+      webhookSecret: BOT_CREDENTIAL_MASK,
+    });
+
+    expect(store.get('imessageBridgeConfigs')).toEqual([
+      {
+        applicationId: 'home-mac-mini',
+        blueBubblesPassword: 'local-password',
+        blueBubblesServerUrl: 'http://127.0.0.1:5678',
+        enabled: true,
+        webhookSecret: 'shared-secret',
+      },
+    ]);
+    // The registered loopback webhook keeps using the real shared secret, so
+    // forwarding to the cloud stays authenticated.
+    expect(MockBlueBubblesApiClient.instances.at(-1)?.registerWebhook).toHaveBeenCalledWith(
+      'http://127.0.0.1:43210/webhooks/bluebubbles/home-mac-mini?secret=shared-secret',
+      ['new-message'],
+    );
+
+    await service.stop();
+  });
+
+  it('refuses to persist a mask when no real secret is stored yet', async () => {
+    const { service } = createService();
+
+    await expect(
+      service.upsertConfig({
+        applicationId: 'home-mac-mini',
+        blueBubblesPassword: 'local-password',
+        blueBubblesServerUrl: 'http://127.0.0.1:1234',
+        enabled: true,
+        webhookSecret: BOT_CREDENTIAL_MASK,
+      }),
+    ).rejects.toThrow('webhookSecret is required');
+  });
+
   it('executes outbound iMessage sends from device-gateway message API calls', async () => {
     const { service } = createService();
     await service.upsertConfig(config);
@@ -198,6 +246,26 @@ describe('ImessageBridgeService', () => {
 
     await service.stop();
   });
+
+  it.each(['https://lobehub.example.com/t/acme', 'https://lobehub.example.com/t/acme/'])(
+    'forwards the webhook under the tenant path prefix of %s',
+    async (serverUrl) => {
+      const { service } = createService(serverUrl);
+      await service.upsertConfig(config);
+
+      const response = await postLocal('/webhooks/bluebubbles/home-mac-mini?secret=shared-secret', {
+        data: { guid: 'msg-1' },
+        type: 'new-message',
+      });
+
+      expect(response.status).toBe(200);
+      expect(String(fetchSpy.mock.calls[0][0])).toBe(
+        'https://lobehub.example.com/t/acme/api/agent/webhooks/imessage/home-mac-mini?secret=shared-secret',
+      );
+
+      await service.stop();
+    },
+  );
 
   it('stops the loopback server when the last enabled config is disabled', async () => {
     const { service } = createService();

@@ -1,8 +1,8 @@
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { AGENT_CHAT_TOPIC_URL } from '@lobechat/const';
 import type { ChatTopicStatus } from '@lobechat/types';
-import type { MenuProps } from '@lobehub/ui';
-import { Icon } from '@lobehub/ui';
-import { toast } from '@lobehub/ui/base-ui';
+import type { DropdownItem } from '@lobehub/ui';
+import { Icon, toast } from '@lobehub/ui';
 import {
   Archive,
   ArchiveRestore,
@@ -27,7 +27,6 @@ import { confirmRemoveTopic } from '@/features/DeleteTopicConfirm';
 import { openShareModal } from '@/features/ShareModal';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { usePermission } from '@/hooks/usePermission';
 import { useChatStore } from '@/store/chat';
 import { useElectronStore } from '@/store/electron';
@@ -51,10 +50,10 @@ export const useDropdownMenu = ({
   status,
   topicId,
   topicTitle,
-}: UseDropdownMenuProps): (() => MenuProps['items']) => {
+}: UseDropdownMenuProps): (() => DropdownItem[]) => {
   const { t } = useTranslation(['common', 'topic']);
 
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
   const navigate = useWorkspaceAwareNavigate();
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
   const { allowed: canCreateTopic } = usePermission('create_content');
@@ -203,7 +202,10 @@ export const useDropdownMenu = ({
           label: t('actions.copyLink', { ns: 'topic' }),
           onClick: () => {
             if (!agentId) return;
-            const url = `${appOrigin}${AGENT_CHAT_TOPIC_URL(agentId, topicId)}`;
+            const url = `${appOrigin}${buildWorkspaceAwarePath(
+              AGENT_CHAT_TOPIC_URL(agentId, topicId),
+              activeWorkspaceSlug,
+            )}`;
             void navigator.clipboard.writeText(url);
             toast.success(t('actions.copyLinkSuccess', { ns: 'topic' }));
           },
@@ -249,7 +251,7 @@ export const useDropdownMenu = ({
           },
           sfSymbol: 'trash',
         },
-      ].filter(Boolean) as MenuProps['items'],
+      ].filter(Boolean) as DropdownItem[],
     [
       addTab,
       activeWorkspaceSlug,

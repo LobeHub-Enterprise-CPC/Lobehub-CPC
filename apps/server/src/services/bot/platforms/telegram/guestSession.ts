@@ -1,3 +1,5 @@
+import { currentTenantScope } from '@lobechat/database/tenant';
+
 import { getAgentRuntimeRedisClient } from '@/server/modules/AgentRuntime/redis';
 
 import type { BotReplyLocale } from '../const';
@@ -47,6 +49,13 @@ const memory = new Map<string, { expiresAt: number; session: TelegramGuestSessio
 const buildKey = (sessionScope: string, threadId: string): string =>
   `bot:telegram-guest:${sessionScope}:${threadId}`;
 
+/**
+ * The Redis client already routes every command to the current tenant, but this
+ * process-wide map does not: two tenants running the same bot application id
+ * would otherwise read each other's reply state (`lastText`, inline message).
+ */
+const memoryKey = (key: string): string => `${currentTenantScope()?.tenantId ?? ''}|${key}`;
+
 const pruneExpiredMemory = (now: number): void => {
   for (const [key, entry] of memory) {
     if (entry.expiresAt <= now) memory.delete(key);
@@ -56,7 +65,7 @@ const pruneExpiredMemory = (now: number): void => {
 const readMemory = (key: string): TelegramGuestSession | undefined => {
   const now = Date.now();
   pruneExpiredMemory(now);
-  const entry = memory.get(key);
+  const entry = memory.get(memoryKey(key));
   if (!entry) return undefined;
   return entry.session;
 };
@@ -64,7 +73,7 @@ const readMemory = (key: string): TelegramGuestSession | undefined => {
 const writeMemory = (key: string, session: TelegramGuestSession): void => {
   const now = Date.now();
   pruneExpiredMemory(now);
-  memory.set(key, { expiresAt: now + TTL_SECONDS * 1000, session });
+  memory.set(memoryKey(key), { expiresAt: now + TTL_SECONDS * 1000, session });
 };
 
 const writeMemoryIfAbsent = (key: string, session: TelegramGuestSession): void => {

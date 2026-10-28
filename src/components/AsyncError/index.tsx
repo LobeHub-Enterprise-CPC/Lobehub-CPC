@@ -1,13 +1,11 @@
 'use client';
 
-import { Center, Flexbox, Icon } from '@lobehub/ui';
-import { Button, Text } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+import { Button, Center, createStaticStyles, cssVar, Flexbox, Icon, Text } from '@lobehub/ui';
 import { RotateCwIcon, TriangleAlertIcon } from 'lucide-react';
 import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { normalizeAsyncError } from '@/libs/swr/normalizeError';
+import { isMarketIdentityUnavailable, normalizeAsyncError } from '@/libs/swr/normalizeError';
 
 /**
  * The error counterpart to the loading family (`Spin`,
@@ -77,10 +75,17 @@ const AsyncError = memo<AsyncErrorProps>(
     const { status, retryable } = normalizeAsyncError(error);
 
     // Status-specific copy when we recovered a status, else the generic reason.
+    // Market could not tell who is asking: say that, not "failed to load".
+    const marketIdentityFailed = isMarketIdentityUnavailable(error);
     const reason =
       description ??
-      (status ? t(`response.${status}` as any, t('asyncState.desc')) : t('asyncState.desc'));
-    const heading = title ?? t('asyncState.title');
+      (marketIdentityFailed
+        ? t('marketIdentity.desc')
+        : status
+          ? t(`response.${status}` as any, t('asyncState.desc'))
+          : t('asyncState.desc'));
+    const heading =
+      title ?? (marketIdentityFailed ? t('marketIdentity.title') : t('asyncState.title'));
     const showRetry = !!onRetry && retryable;
 
     // ─── metric: a failed marker where a number would render (never a fake $0) ───

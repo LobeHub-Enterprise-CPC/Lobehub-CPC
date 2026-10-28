@@ -1,6 +1,6 @@
 'use client';
 
-import { Segmented } from '@lobehub/ui/base-ui';
+import { Segmented } from '@lobehub/ui';
 import { type CSSProperties, memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -90,15 +90,18 @@ const AgentProfileTabs = memo<AgentProfileTabsProps>(({ active, agentId }) => {
   if (options.length < 2) return null;
 
   return (
-    <Segmented
-      options={options}
-      size={'small'}
-      value={active}
-      // `Segmented` only fires on a *change*, so the active segment is inert —
-      // notably on `/channel/:platform`, where Channels stays selected. Going
-      // back to the platform list is the breadcrumb's job, not this switcher's.
-      onChange={(value) => navigate(buildAgentProfileTabPath(agentId, value as AgentProfileTab))}
-    />
+    // Wrapped so a distribution theme can restyle and reposition the switcher.
+    <div data-brand-slot={'agent-profile-tabs'}>
+      <Segmented
+        options={options}
+        size={'small'}
+        value={active}
+        // `Segmented` only fires on a *change*, so the active segment is inert —
+        // notably on `/channel/:platform`, where Channels stays selected. Going
+        // back to the platform list is the breadcrumb's job, not this switcher's.
+        onChange={(value) => navigate(buildAgentProfileTabPath(agentId, value as AgentProfileTab))}
+      />
+    </div>
   );
 });
 

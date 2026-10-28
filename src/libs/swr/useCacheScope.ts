@@ -1,10 +1,14 @@
+import { getTenantScopeId, tenantStorageKey } from '@lobechat/business-tenant/client';
 import { isDesktop } from '@lobechat/const';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 
 import {
   getActiveWorkspaceId,
   useActiveWorkspaceId,
 } from '@/business/client/hooks/useActiveWorkspaceId';
+// Leaf import on purpose: `@/libs/replica` imports this module, so going
+// through its index would be a cycle.
+import { broadcastCacheScope } from '@/libs/replica/cacheScopeEvents';
 import { getUserStoreState, type UserStore, useUserStore } from '@/store/user';
 import { authSelectors, userProfileSelectors } from '@/store/user/selectors';
 
@@ -23,21 +27,25 @@ const PERSONAL = 'personal';
  */
 const ACTIVE_SCOPE_STORAGE_KEY = 'lobehub:active-scope';
 
+// Tenants share one origin: the last-known scope of tenant A must not be read as tenant B's.
+const activeScopeStorageKey = () => tenantStorageKey(ACTIVE_SCOPE_STORAGE_KEY);
+
 const isBrowser = () => typeof localStorage !== 'undefined';
 
-const readActiveScope = (): string | null => {
+/** The last-known resolved cache scope, or `null` when none is persisted. */
+export const readActiveScope = (): string | null => {
   if (!isBrowser()) return null;
   try {
-    return localStorage.getItem(ACTIVE_SCOPE_STORAGE_KEY);
+    return localStorage.getItem(activeScopeStorageKey());
   } catch {
     return null;
   }
 };
 
-const writeActiveScope = (scope: string): void => {
+export const writeActiveScope = (scope: string): void => {
   if (!isBrowser()) return;
   try {
-    localStorage.setItem(ACTIVE_SCOPE_STORAGE_KEY, scope);
+    localStorage.setItem(activeScopeStorageKey(), scope);
   } catch {
     // best-effort
   }
@@ -50,7 +58,7 @@ const writeActiveScope = (scope: string): void => {
 export const clearActiveScopeKey = (): void => {
   if (!isBrowser()) return;
   try {
-    localStorage.removeItem(ACTIVE_SCOPE_STORAGE_KEY);
+    localStorage.removeItem(activeScopeStorageKey());
   } catch {
     // best-effort
   }
@@ -66,11 +74,18 @@ export const clearActiveScopeKey = (): void => {
  *
  * Personal mode (no active workspace) collapses to `${userId}:personal`;
  * logged-out / SSR / first-ever boot collapses to `anon:personal`.
+ *
+ * Tenants share one browser origin, so a tenant document appends `@${slug}` (the desktop
+ * renderer, its committed tenant id): the same partition name in two tenants must never address
+ * one cache.
  */
 export const buildCacheScope = (
   userId: string | null | undefined,
   workspaceId: string | null | undefined,
-): string => `${userId || ANON}:${workspaceId || PERSONAL}`;
+): string => {
+  const tenantScope = getTenantScopeId();
+  return `${userId || ANON}:${workspaceId || PERSONAL}${tenantScope ? `@${tenantScope}` : ''}`;
+};
 
 /**
  * Whether a scope belongs to the anonymous (identity-unresolved) partition.
@@ -132,6 +147,13 @@ export const useCacheScope = (): string => {
 
   const scope = resolveScope(userId, workspaceId, persisted, identityResolved);
 
+  // Before paint, so an imperative replica can drop the previous identity's
+  // views in the same frame the switch commits — a passive effect would leave
+  // one paintable frame of the old scope on screen.
+  useLayoutEffect(() => {
+    broadcastCacheScope(scope);
+  }, [scope]);
+
   useEffect(() => {
     if (userId && !isAnonymousScope(scope)) writeActiveScope(scope);
     // The identity round-trip landed on "nobody": the persisted scope belongs to
@@ -169,3 +191,9 @@ export const getCacheScope = (): string => {
  * anonymous scope is a legitimate durable context there).
  */
 export const isScopeTrusted = (): boolean => isIdentityResolved(getUserStoreState());
+
+/**
+ * Reactive form of {@link isScopeTrusted}: re-renders the caller when the
+ * identity round-trip lands, even if the scope string itself did not change.
+ */
+export const useIsScopeTrusted = (): boolean => useUserStore(isIdentityResolved);

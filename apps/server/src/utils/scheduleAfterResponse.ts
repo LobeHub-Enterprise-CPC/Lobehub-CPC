@@ -1,6 +1,9 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
+import { currentTenantScope, runWithTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
+
+import { getTenantLiveResources } from '@/server/modules/Tenant/liveResources';
 
 const log = debug('lobe-server:schedule-after-response');
 
@@ -52,17 +55,49 @@ const drain = async (scope: ScheduledWorkScope) => {
   }
 };
 
+/**
+ * Like {@link after}, but never captured by a step's scheduled-work scope.
+ *
+ * Inside the inline step loop (`runStep`), `after()` work is collected and
+ * flushed at every step boundary with a short budget, because settlement
+ * there must land before the next step reserves again. Work that is neither
+ * part of the step's settlement nor bounded — a background rescan that may
+ * take tens of seconds — would stall that flush and push the continuation
+ * back onto the queue. Hand such work straight to the host instead: it still
+ * runs after the response, just not on the step's clock.
+ */
+export const afterUnscoped = (work: ScheduleAfterResponseWork): void => {
+  scheduleOnHost(() => runWork(work));
+};
+
 export const after = (work: ScheduleAfterResponseWork): void => {
   const scope = scopeStorage.getStore();
+  const tenant = currentTenantScope();
+  let tracked = work;
+  if (tenant) {
+    let finish!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const unbind = getTenantLiveResources().bind(tenant.tenantId, { close: () => {}, settled });
+    tracked = async () => {
+      try {
+        return await runWithTenantScope(tenant, work);
+      } finally {
+        finish();
+        unbind();
+      }
+    };
+  }
 
   if (scope) {
-    const task = runWork(work);
+    const task = runWork(tracked);
     scope.pending.add(task);
     void task.finally(() => scope.pending.delete(task));
     return;
   }
 
-  scheduleOnHost(() => runWork(work));
+  scheduleOnHost(() => runWork(tracked));
 };
 
 /**

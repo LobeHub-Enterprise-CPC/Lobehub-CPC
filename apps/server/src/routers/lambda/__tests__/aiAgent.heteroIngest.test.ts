@@ -7,8 +7,17 @@ import { LOCAL_HETEROGENEOUS_AGENT_TYPES } from '@lobechat/types';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as TenantBinding from '@/libs/trpc/utils/tenantBinding';
+
 import { aiAgentRouter } from '../aiAgent';
 import { cleanupTestUser, createTestUser } from './integration/setup';
+
+// Operation tokens are bound to the tenant of the request by their `tid` claim
+// (covered in heteroOperationAuth.test.ts); these tests run outside a tenant scope.
+vi.mock('@/libs/trpc/utils/tenantBinding', async (importOriginal) => ({
+  ...(await importOriginal<typeof TenantBinding>()),
+  isBoundToCurrentTenant: () => true,
+}));
 
 // Mock getServerDB to return our test database instance
 let testDB: LobeChatDatabase;

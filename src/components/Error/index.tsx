@@ -1,7 +1,7 @@
 'use client';
 
-import { Block, Flexbox, FluentEmoji } from '@lobehub/ui';
-import { Accordion, Button } from '@lobehub/ui/base-ui';
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
+import { Accordion, Block, Button, Flexbox, FluentEmoji } from '@lobehub/ui';
 import { lazy, Suspense, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -46,7 +46,10 @@ const ErrorCapture = ({ error, resetPath = '/' }: ErrorCaptureProps) => {
       <p style={{ marginBottom: '2em' }}>{t('error.desc')}</p>
       <Flexbox horizontal gap={12} style={{ marginBottom: '2em' }}>
         <Button onClick={() => window.location.reload()}>{t('error.retry')}</Button>
-        <Button type={'primary'} onClick={() => (window.location.href = resetPath)}>
+        <Button
+          type={'primary'}
+          onClick={() => (window.location.href = withCurrentTenantPath(resetPath))}
+        >
           {t('error.backHome')}
         </Button>
       </Flexbox>

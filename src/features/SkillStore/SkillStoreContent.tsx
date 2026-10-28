@@ -1,7 +1,7 @@
 'use client';
 
 import { Flexbox } from '@lobehub/ui';
-import { Tabs, type TabsItem } from '@lobehub/ui/base-ui';
+import { Tabs, type TabsItem } from '@lobehub/ui';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -42,7 +42,7 @@ export const SkillStoreContent = () => {
   const isMCP = activeTab === SkillStoreTab.MCP;
 
   return (
-    <Flexbox gap={8} style={{ maxHeight: '75vh' }} width={'100%'}>
+    <Flexbox data-brand-slot={'skill-store'} gap={8} style={{ maxHeight: '75vh' }} width={'100%'}>
       <Flexbox gap={8}>
         <Flexbox horizontal align={'center'} gap={8}>
           <Tabs

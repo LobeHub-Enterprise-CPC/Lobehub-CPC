@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { DOWNLOAD_URL, GITHUB, GITHUB_ISSUES, OFFICIAL_SITE } from '@lobechat/const/url';
+import { GITHUB, GITHUB_ISSUES, OFFICIAL_SITE } from '@lobechat/const/url';
 import type { TrayNavigationSnapshot } from '@lobechat/electron-client-ipc';
 import type { MenuItemConstructorOptions } from 'electron';
 import { app, clipboard, Menu, shell } from 'electron';
@@ -11,14 +11,16 @@ import NotificationCtr from '@/controllers/NotificationCtr';
 import SystemController from '@/controllers/SystemCtr';
 import { getAppDisplayName } from '@/utils/appIdentity';
 
-import { buildTrayMenuTemplate } from '../trayMenu';
+import { buildDockMenuTemplate, buildTrayMenuTemplate } from '../trayMenu';
 import type { ContextMenuData, IMenuPlatform, MenuOptions } from '../types';
+import { updateDownloadUrl, vendorHelpItems } from '../vendorHelp';
 import { BaseMenuPlatform } from './BaseMenuPlatform';
 
 export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
   private appMenu: Menu | null = null;
   private dockMenu: Menu | null = null;
   private trayMenu: Menu | null = null;
+  private navigationSnapshot: TrayNavigationSnapshot = { agents: [], pinned: [], recent: [] };
 
   buildAndSetAppMenu(options?: MenuOptions): Menu {
     const template = this.getAppMenuTemplate(options);
@@ -53,6 +55,11 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
     const template = buildTrayMenuTemplate(this.app, snapshot);
     this.trayMenu = Menu.buildFromTemplate(template);
     return this.trayMenu;
+  }
+
+  updateDockMenu(snapshot: TrayNavigationSnapshot): void {
+    this.navigationSnapshot = snapshot;
+    this.buildAndSetDockMenu();
   }
 
   refresh(options?: MenuOptions): void {
@@ -197,8 +204,8 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
       {
         label: t('view.title'),
         submenu: [
-          { label: t('view.reload'), role: 'reload' },
-          { label: t('view.forceReload'), role: 'forceReload' },
+          this.buildReloadMenuItem(t('view.reload')),
+          this.buildReloadMenuItem(t('view.forceReload'), true),
           this.buildDevToolsMenuItem(t('dev.devTools'), 'F12'),
           { type: 'separator' },
           this.buildZoomMenuItem('reset', t('view.resetZoom'), 'CmdOrCtrl+0'),
@@ -257,25 +264,26 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
         label: t('help.title'),
         role: 'help',
         submenu: [
-          {
-            click: async () => {
-              await shell.openExternal(OFFICIAL_SITE);
+          ...vendorHelpItems([
+            {
+              click: async () => {
+                await shell.openExternal(OFFICIAL_SITE);
+              },
+              label: t('help.visitWebsite'),
             },
-            label: t('help.visitWebsite'),
-          },
-          {
-            click: async () => {
-              await shell.openExternal(GITHUB);
+            {
+              click: async () => {
+                await shell.openExternal(GITHUB);
+              },
+              label: t('help.githubRepo'),
             },
-            label: t('help.githubRepo'),
-          },
-          {
-            click: async () => {
-              await shell.openExternal(GITHUB_ISSUES);
+            {
+              click: async () => {
+                await shell.openExternal(GITHUB_ISSUES);
+              },
+              label: t('help.reportIssue'),
             },
-            label: t('help.reportIssue'),
-          },
-          { type: 'separator' },
+          ]),
           {
             click: () => {
               this.app.browserManager.retrieveByIdentifier('processExplorer').show();
@@ -466,7 +474,7 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
       // snap / tar.gz / a runtime-less AppImage cannot replace themselves.
       case 'unsupported': {
         return {
-          click: () => shell.openExternal(DOWNLOAD_URL.default),
+          click: () => shell.openExternal(updateDownloadUrl()),
           label: t('common.updateUnsupported'),
         };
       }
@@ -740,23 +748,9 @@ export class MacOSMenu extends BaseMenuPlatform implements IMenuPlatform {
   private buildAndSetDockMenu() {
     if (!app.dock?.setMenu) return;
 
-    this.dockMenu = Menu.buildFromTemplate(this.getDockMenuTemplate());
+    this.dockMenu = Menu.buildFromTemplate(
+      buildDockMenuTemplate(this.app, this.navigationSnapshot),
+    );
     app.dock.setMenu(this.dockMenu);
-  }
-
-  private getDockMenuTemplate(): MenuItemConstructorOptions[] {
-    const t = this.app.i18n.ns('menu');
-    const appName = getAppDisplayName();
-
-    return [
-      {
-        click: () => this.app.browserManager.showMainWindow(),
-        label: t('tray.show', { appName }),
-      },
-      {
-        click: () => this.app.screenCaptureManager.startSession(),
-        label: t('tray.openMiniToolbar'),
-      },
-    ];
   }
 }

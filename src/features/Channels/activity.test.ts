@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
+import { presentChannelJobs } from '@/database/models/channelRead';
 import type { channelService } from '@/services/channel';
 
 import { channelActivity } from './activity';
 
 type Detail = Awaited<ReturnType<typeof channelService.detail>>;
+/** Mirror the server page: job state is derived by the read model, not the client. */
+const present = (data: Detail): Detail => ({
+  ...data,
+  jobs: presentChannelJobs(data.jobs, data.runs, data.members),
+});
+
 const fixture = (overrides: Record<string, unknown> = {}) =>
   ({
     contextMessages: [],
@@ -23,40 +30,43 @@ const fixture = (overrides: Record<string, unknown> = {}) =>
 
 describe('Channel activity', () => {
   it('keeps queued members distinct from typing and scopes both to their conversation', () => {
-    expect(channelActivity(fixture(), null)).toEqual([
+    expect(channelActivity(present(fixture()), null)).toEqual([
       { memberId: 'a', name: 'Codex', state: 'queued' },
     ]);
-    expect(channelActivity(fixture(), 'thread')).toEqual([
+    expect(channelActivity(present(fixture()), 'thread')).toEqual([
       { memberId: 'b', name: 'Amp', state: 'typing' },
     ]);
   });
   it('shows offline members independently from peers and clears completed activity', () => {
     const data = fixture();
+    // Free-form text is never classified; only the typed code means "offline".
     data.jobs[0].blockedReason = 'DEVICE_OFFLINE';
-    expect(channelActivity(data, null)[0].state).toBe('offline');
+    expect(channelActivity(present(data), null)[0].state).toBe('unavailable');
+    data.jobs[0].blockedCode = 'device_offline';
+    expect(channelActivity(present(data), null)[0].state).toBe('offline');
     data.jobs[1].status = 'completed';
     data.runs[0].writerReleased = true;
-    expect(channelActivity(data, 'thread')).toEqual([]);
+    expect(channelActivity(present(data), 'thread')).toEqual([]);
   });
   it('gives approval precedence over a previous output event', () => {
     const data = fixture();
     data.runs[0].status = 'awaiting_approval';
-    expect(channelActivity(data, 'thread')[0].state).toBe('awaiting_approval');
+    expect(channelActivity(present(data), 'thread')[0].state).toBe('awaiting_approval');
   });
   it('keeps a cancelled run visible until physical stop is confirmed', () => {
     const data = fixture();
     data.jobs[1].status = 'cancelled';
     data.runs[0].status = 'stop_requested';
     data.runs[0].writerReleased = false;
-    expect(channelActivity(data, 'thread')[0].state).toBe('stop_requested');
+    expect(channelActivity(present(data), 'thread')[0].state).toBe('stop_requested');
     data.runs[0].writerReleased = true;
-    expect(channelActivity(data, 'thread')).toEqual([]);
+    expect(channelActivity(present(data), 'thread')).toEqual([]);
   });
   it('does not show a historic failure over a newer request', () => {
     const data = fixture();
     data.jobs[0].status = 'failed';
     data.jobs[0].messageId = 'old';
-    expect(channelActivity(data, null)).toEqual([]);
+    expect(channelActivity(present(data), null)).toEqual([]);
   });
   it('derives cancellation from durable stop state, not publication revocation', () => {
     const data = fixture();
@@ -66,9 +76,9 @@ describe('Channel activity', () => {
     data.runs[0].publicationRevoked = true;
     data.runs[0].writerReleased = true;
     data.runs[0].physicalStopped = false;
-    expect(channelActivity(data, 'thread')[0].state).toBe('stop_requested');
+    expect(channelActivity(present(data), 'thread')[0].state).toBe('stop_requested');
     data.runs[0].physicalStopped = true;
-    expect(channelActivity(data, 'thread')).toEqual([]);
+    expect(channelActivity(present(data), 'thread')).toEqual([]);
   });
   it.each(['failed', 'execution_unknown'] as const)(
     'shows genuine %s execution even when publication is revoked',
@@ -80,7 +90,7 @@ describe('Channel activity', () => {
       data.runs[0].publicationRevoked = true;
       data.runs[0].writerReleased = true;
       data.runs[0].physicalStopped = status === 'failed';
-      expect(channelActivity(data, 'thread')[0].state).toBe(status);
+      expect(channelActivity(present(data), 'thread')[0].state).toBe(status);
     },
   );
   it('keeps a heterogeneous cancellation active until physical stop is observed', () => {
@@ -91,7 +101,7 @@ describe('Channel activity', () => {
     data.runs[0].publicationRevoked = true;
     data.runs[0].writerReleased = true;
     data.runs[0].physicalStopped = false;
-    expect(channelActivity(data, 'thread')[0].state).toBe('stop_requested');
+    expect(channelActivity(present(data), 'thread')[0].state).toBe('stop_requested');
   });
   it('shows a durable pause for queued work without hiding a still-stopping thread run', () => {
     const data = fixture();
@@ -100,7 +110,29 @@ describe('Channel activity', () => {
     data.jobs[1].status = 'cancelled';
     data.runs[0].status = 'stop_requested';
     data.runs[0].writerReleased = false;
-    expect(channelActivity(data, null)[0].state).toBe('paused');
-    expect(channelActivity(data, 'thread')[0].state).toBe('stop_requested');
+    expect(channelActivity(present(data), null)[0].state).toBe('paused');
+    expect(channelActivity(present(data), 'thread')[0].state).toBe('stop_requested');
+  });
+  it('shows the next run instead of an isolated writer that still awaits confirmation', () => {
+    const data = fixture({
+      jobs: [
+        { id: 'old', memberId: 'a', messageId: 'earlier', threadId: null, status: 'failed' },
+        { id: 'j1', memberId: 'a', messageId: 'request', threadId: null, status: 'running' },
+      ],
+      runs: [
+        {
+          jobId: 'old',
+          status: 'execution_unknown',
+          writerReleased: false,
+          physicalStopped: false,
+          publicationRevoked: true,
+          isolatedAt: '2026-10-21T00:00:00Z',
+        },
+        { jobId: 'j1', status: 'running', activity: 'running', writerReleased: false },
+      ],
+    });
+    expect(channelActivity(present(data), null)).toEqual([
+      { memberId: 'a', name: 'Codex', state: 'running' },
+    ]);
   });
 });

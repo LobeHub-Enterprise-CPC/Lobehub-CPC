@@ -1,11 +1,11 @@
-import { confirmModal } from '@lobehub/ui/base-ui';
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
+import { confirmModal } from '@lobehub/ui';
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
-import { useAppOrigin } from '@/hooks/useAppOrigin';
 import { useGoalStore } from '@/store/goal';
 
 interface GoalRef {
@@ -20,7 +20,7 @@ interface GoalRef {
  * active tab) — the URL is built from the app origin and the goal route.
  */
 export const useGoalShareUrl = ({ agentId, goalId }: GoalRef): string | undefined => {
-  const appOrigin = useAppOrigin();
+  const appOrigin = useAppBaseUrl();
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
   if (!appOrigin) return;
 
@@ -59,7 +59,11 @@ export const useConfirmDeleteGoal = ({
           return;
         }
         navigate(
-          agentId ? `/agent/${agentId}/goals` : projectId ? `/project/${projectId}/goals` : '/',
+          agentId
+            ? `/agent/${agentId}/goals`
+            : projectId
+              ? `/project/${projectId}/goals`
+              : '/goals',
         );
       },
       title: t('goalDetail.deleteConfirm.title'),

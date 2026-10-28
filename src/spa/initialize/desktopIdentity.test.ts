@@ -1,21 +1,59 @@
 /**
  * @vitest-environment happy-dom
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getTenantScopeId, setRemoteTenantId } from '@lobechat/business-tenant/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { DEFAULT_PREFERENCE } from '@/const/user';
 import { useUserStore } from '@/store/user';
+import { writeUserDisplaySnapshot } from '@/store/user/displaySnapshot';
 
 import { applyDesktopBootstrapIdentity } from './desktopIdentity';
 
 describe('applyDesktopBootstrapIdentity', () => {
   beforeEach(() => {
     delete window.electronAPI;
+    localStorage.clear();
     useUserStore.setState({
       isIdentityResolved: undefined,
       isLoaded: undefined,
       isSignedIn: undefined,
+      preference: DEFAULT_PREFERENCE,
+      settings: {},
       user: undefined,
     });
+  });
+
+  it("restores the signed-in user's saved profile and settings before the network answers", () => {
+    writeUserDisplaySnapshot('user-1', {
+      avatar: 'avatar-1',
+      fullName: 'Ada',
+      preference: { lab: { enableProjects: true } },
+      settings: { general: { fontSize: 15 } },
+      username: 'ada',
+    });
+
+    applyDesktopBootstrapIdentity({ isIdentityResolved: true, userId: 'user-1' });
+
+    expect(useUserStore.getState()).toMatchObject({
+      isSignedIn: true,
+      preference: { lab: { enableProjects: true } },
+      settings: { general: { fontSize: 15 } },
+      user: { avatar: 'avatar-1', fullName: 'Ada', id: 'user-1', username: 'ada' },
+    });
+    expect(useUserStore.getState().isUserStateInit).toBe(false);
+  });
+
+  it("never restores another user's saved profile", () => {
+    writeUserDisplaySnapshot('user-2', {
+      fullName: 'Other',
+      settings: { general: { fontSize: 20 } },
+    });
+
+    applyDesktopBootstrapIdentity({ isIdentityResolved: true, userId: 'user-1' });
+
+    expect(useUserStore.getState().user).toEqual({ id: 'user-1' });
+    expect(useUserStore.getState().settings).toEqual({});
   });
 
   it('selects the signed-in cache identity before full user state is loaded', () => {
@@ -56,5 +94,23 @@ describe('applyDesktopBootstrapIdentity', () => {
 
     expect(getDesktopBootstrapIdentity).toHaveBeenCalledOnce();
     expect(useUserStore.getState().user?.id).toBe('bridge-user');
+  });
+});
+
+describe('applyDesktopBootstrapIdentity tenant partition', () => {
+  afterEach(() => setRemoteTenantId(undefined));
+
+  it('partitions local state by the organization of the stored token before first render', () => {
+    applyDesktopBootstrapIdentity({ isIdentityResolved: true, tenantId: 'tenant-a', userId: 'u1' });
+
+    expect(getTenantScopeId()).toBe('tenant-a');
+  });
+
+  it('keeps the partition while the stored token cannot be resolved', () => {
+    setRemoteTenantId('tenant-a');
+
+    applyDesktopBootstrapIdentity({ isIdentityResolved: false });
+
+    expect(getTenantScopeId()).toBe('tenant-a');
   });
 });

@@ -2,9 +2,7 @@
 
 import { type ChatInputProps } from '@lobehub/editor/react';
 import { ChatInput, ChatInputActionBar } from '@lobehub/editor/react';
-import { Center, Flexbox } from '@lobehub/ui';
-import { Skeleton, Text } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cx } from 'antd-style';
+import { Center, createStaticStyles, cx, Flexbox, Skeleton, Text } from '@lobehub/ui';
 import { type ReactNode, use } from 'react';
 import { memo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
@@ -31,6 +29,7 @@ import { useWorkspaceFileDrop } from '../InputEditor/useWorkspaceFileDrop';
 import SendArea from '../SendArea';
 import TypoBar from '../TypoBar';
 import ContextContainer from './ContextContainer';
+import { focusEditorOnBodyClick } from './focusEditorOnBodyClick';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
   container: css`
@@ -234,6 +233,7 @@ const DesktopChatInput = memo<DesktopChatInputProps>(
         onDrop={handleDrop}
       >
         <ChatInput
+          data-brand-slot={'composer'}
           data-testid="chat-input"
           defaultHeight={chatInputHeight || 32}
           fullscreen={expand}
@@ -268,6 +268,7 @@ const DesktopChatInput = memo<DesktopChatInputProps>(
               {contextContainerNode}
             </Flexbox>
           }
+          onBodyClick={focusEditorOnBodyClick(editor)}
           onSizeChange={(height) => {
             updateSystemStatus({ chatInputHeight: height });
           }}

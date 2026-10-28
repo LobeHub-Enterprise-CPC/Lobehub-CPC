@@ -1,18 +1,17 @@
 import { DEFAULT_INBOX_TITLE } from '@lobechat/const';
 import { agentDisplayName, type ConversationContext, type UIChatMessage } from '@lobechat/types';
-import { Flexbox, Markdown } from '@lobehub/ui';
-import { Avatar, Text } from '@lobehub/ui/base-ui';
-import { cx } from 'antd-style';
+import { Avatar, cx, Flexbox, Markdown, Text } from '@lobehub/ui';
 import { memo } from 'react';
 
 import { ProductLogo } from '@/components/Branding';
 import { ModelTag } from '@/components/LobeIcons';
+import { isCustomBranding } from '@/const/version';
 import PluginTag from '@/features/PluginTag';
 import { filterToolIds } from '@/helpers/toolFilters';
 import { useAgentStore } from '@/store/agent';
 import { agentByIdSelectors, agentSelectors, builtinAgentSelectors } from '@/store/agent/selectors';
 
-import pkg from '../../../../package.json';
+import { homepage } from '../../../../package.json';
 import { containerStyles } from '../style';
 import ChatList from './ChatList';
 import { styles } from './style';
@@ -131,7 +130,18 @@ const Preview = memo<PreviewProps>(
             {withFooter ? (
               <Flexbox align={'center'} className={styles.footer} gap={4}>
                 <ProductLogo type={'combine'} />
-                <div className={styles.url}>{pkg.homepage}</div>
+                {/* Printed on an image the user sends onward, so it has to name
+                    where the conversation came from. `homepage` is the
+                    vendor's GitHub repository; on a rebranded build the
+                    deployment's own origin is the only honest answer, and there
+                    is no origin at build time. Same rule as the stats share. */}
+                <div className={styles.url}>
+                  {isCustomBranding
+                    ? typeof window === 'undefined'
+                      ? ''
+                      : window.location.origin
+                    : homepage}
+                </div>
               </Flexbox>
             ) : (
               <div />

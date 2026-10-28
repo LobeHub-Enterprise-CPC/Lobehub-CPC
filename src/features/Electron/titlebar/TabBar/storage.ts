@@ -1,3 +1,5 @@
+import { tenantStorageKey } from '@lobechat/business-tenant/client';
+
 import { type TabScope, tabScopeKey } from './scope';
 import { type TabItem } from './types';
 
@@ -12,8 +14,10 @@ export interface TabPagesStorageData {
 
 const EMPTY: TabPagesStorageData = { activeTabId: null, tabs: [] };
 
+// The renderer keeps one `localStorage` across organizations: tabs of organization A must not
+// reappear (with A's agent ids and titles) after switching to B.
 export const tabPagesStorageKey = (scope: TabScope): string =>
-  `${TAB_PAGES_STORAGE_KEY_PREFIX}:${tabScopeKey(scope)}`;
+  tenantStorageKey(`${TAB_PAGES_STORAGE_KEY_PREFIX}:${tabScopeKey(scope)}`);
 
 const isTabItem = (item: unknown): item is TabItem =>
   !!item &&

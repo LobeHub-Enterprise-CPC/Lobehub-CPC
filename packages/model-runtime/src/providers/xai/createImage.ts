@@ -107,7 +107,7 @@ export async function createXAIImage(
 
     log('Calling XAI image API: %s with body: %O', endpoint, requestBody);
 
-    const response = await fetch(endpoint, {
+    const response = await (options.fetch ?? fetch)(endpoint, {
       body: JSON.stringify(requestBody),
       headers: {
         'Authorization': `Bearer ${apiKey}`,

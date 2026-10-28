@@ -1,4 +1,5 @@
-import { confirmModal, toast } from '@lobehub/ui/base-ui';
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
+import { confirmModal, toast } from '@lobehub/ui';
 
 import { isDesktop } from '@/const/version';
 import { getUserStoreState } from '@/store/user';
@@ -21,7 +22,7 @@ export const triggerResetOnboarding = () => {
       if (isDesktop) {
         toast.success({ title: 'User onboarding reset' });
       } else {
-        window.location.href = '/onboarding';
+        window.location.href = withCurrentTenantPath('/onboarding');
       }
     },
     title: 'Reset user onboarding?',

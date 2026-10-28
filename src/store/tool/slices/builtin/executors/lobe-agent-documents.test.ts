@@ -1,6 +1,7 @@
 import { AgentDocumentsApiName } from '@lobechat/builtin-tool-agent-documents';
+import { initializeTenant, setRemoteAppAddress } from '@lobechat/business-tenant/client';
 import type { ToolAfterCallContext } from '@lobechat/types';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { invalidateSpy, getDocumentStoreStateSpy } = vi.hoisted(() => ({
   getDocumentStoreStateSpy: vi.fn(),
@@ -18,10 +19,11 @@ vi.mock('@/services/work', () => ({ workService: {} }));
 vi.mock('@/store/agent', () => ({
   useAgentStore: { getState: () => ({ activeAgentId: 'agent-1' }) },
 }));
-vi.mock('@/store/electron', () => ({ useElectronStore: { getState: () => ({}) } }));
 vi.mock('@/business/client/hooks/useActiveWorkspaceSlug', () => ({
-  getActiveWorkspaceSlug: () => undefined,
+  getActiveWorkspaceSlug: () => mockWorkspaceSlug.current,
 }));
+
+const mockWorkspaceSlug = vi.hoisted(() => ({ current: undefined as string | undefined }));
 
 const afterCall = (apiName: string, documentId: string): ToolAfterCallContext =>
   ({
@@ -65,5 +67,48 @@ describe('agentDocumentsExecutor host invalidation', () => {
       cause: 'agent-document',
       documentId: undefined,
     });
+  });
+});
+
+describe('buildDocumentShareUrl', () => {
+  afterEach(() => {
+    setRemoteAppAddress(undefined);
+    initializeTenant(new URL(window.location.href));
+    mockWorkspaceSlug.current = undefined;
+  });
+
+  it('keeps the tenant path in the link a web tenant page shares', async () => {
+    initializeTenant(new URL(`${window.location.origin}/t/acme/agent`));
+    const { buildDocumentShareUrl } = await import('./lobe-agent-documents');
+
+    expect(buildDocumentShareUrl('agt_1', 'docs_1')).toBe(
+      `${window.location.origin}/t/acme/agent/agt_1/docs/1`,
+    );
+  });
+
+  it('puts the workspace slug after the tenant path', async () => {
+    initializeTenant(new URL(`${window.location.origin}/t/acme/agent`));
+    mockWorkspaceSlug.current = 'team';
+    const { buildDocumentShareUrl } = await import('./lobe-agent-documents');
+
+    expect(buildDocumentShareUrl('agt_1', 'docs_1')).toBe(
+      `${window.location.origin}/t/acme/team/agent/agt_1/docs/1`,
+    );
+  });
+
+  it('uses the remote tenant address in the desktop renderer', async () => {
+    setRemoteAppAddress('https://host.example/t/acme');
+    const { buildDocumentShareUrl } = await import('./lobe-agent-documents');
+
+    expect(buildDocumentShareUrl('agt_1', 'docs_1')).toBe(
+      'https://host.example/t/acme/agent/agt_1/docs/1',
+    );
+  });
+
+  it('has no link before the desktop remote address is configured', async () => {
+    setRemoteAppAddress('');
+    const { buildDocumentShareUrl } = await import('./lobe-agent-documents');
+
+    expect(buildDocumentShareUrl('agt_1', 'docs_1')).toBeUndefined();
   });
 });

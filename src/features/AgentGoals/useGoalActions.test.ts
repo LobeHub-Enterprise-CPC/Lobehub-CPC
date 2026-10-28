@@ -8,7 +8,10 @@ const mocks = vi.hoisted(() => ({
   slug: null as string | null,
 }));
 
-vi.mock('@/hooks/useAppOrigin', () => ({ useAppOrigin: () => mocks.origin }));
+vi.mock('@lobechat/business-tenant/client', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useAppBaseUrl: () => mocks.origin,
+}));
 vi.mock('@/business/client/hooks/useActiveWorkspaceSlug', () => ({
   useActiveWorkspaceSlug: () => mocks.slug,
 }));

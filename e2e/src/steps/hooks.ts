@@ -3,6 +3,7 @@ import { type Cookie, request } from 'playwright';
 
 import { mockManager } from '../mocks';
 import { seedTestUser, TEST_USER } from '../support/seedTestUser';
+import { tenantPath } from '../support/tenant';
 import { startWebServer, stopWebServer } from '../support/webServer';
 import { closeSharedBrowser, type CustomWorld } from '../support/world';
 
@@ -39,7 +40,7 @@ BeforeAll({ timeout: 600_000 }, async function () {
   const api = await request.newContext({ baseURL: baseUrl });
 
   try {
-    const response = await api.post('/api/auth/sign-in/email', {
+    const response = await api.post(tenantPath('/api/auth/sign-in/email'), {
       data: {
         email: TEST_USER.email,
         password: TEST_USER.password,

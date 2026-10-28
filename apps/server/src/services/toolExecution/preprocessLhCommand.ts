@@ -1,10 +1,8 @@
 import { BRANDING_NAME } from '@lobechat/business-const';
-import { OFFICIAL_URL } from '@lobechat/const';
 import debug from 'debug';
 
-import { appEnv } from '@/envs/app';
 import { signUserJWT } from '@/libs/trpc/utils/internalJwt';
-import { isDev } from '@/utils/env';
+import { tenantPublicBaseUrl } from '@/server/modules/Tenant/callbackUrl';
 
 const log = debug('lobe-server:lh-command');
 
@@ -192,6 +190,14 @@ export const preprocessLhCommand = async (
    * remembering to keep re-checking it.
    */
   shareVisitorBlocked = false,
+  /**
+   * The run this command belongs to (`context.operationId`). Every other runtime
+   * hands its process its own `LOBEHUB_OPERATION_ID`; without it here, an agent
+   * running in the sandbox that reaches another agent through `lh agent run`
+   * cannot be attributed as the sender, and the feature silently works only on
+   * the device and heterogeneous runtimes.
+   */
+  operationId?: string,
 ): Promise<PreprocessResult> => {
   if (!isLhCommand(command)) {
     return { command, isLhCommand: false, skipSkillLookup: false };
@@ -217,12 +223,15 @@ export const preprocessLhCommand = async (
   try {
     const jwt = await signUserJWT(userId);
 
-    const serverUrl = isDev ? OFFICIAL_URL : appEnv.APP_URL;
+    // Every backend call must address the tenant (`/t/{slug}`); the CLI appends
+    // `/trpc/...` to this base.
+    const serverUrl = tenantPublicBaseUrl();
 
     const envAssignments = [
       `LOBEHUB_JWT=${shellSingleQuote(jwt)}`,
       `LOBEHUB_SERVER=${shellSingleQuote(serverUrl)}`,
       ...(workspaceId ? [`LOBEHUB_WORKSPACE_ID=${shellSingleQuote(workspaceId)}`] : []),
+      ...(operationId ? [`LOBEHUB_OPERATION_ID=${shellSingleQuote(operationId)}`] : []),
     ].join(' ');
 
     const dir = `"$${LH_SHIM_DIR_VAR}"`;

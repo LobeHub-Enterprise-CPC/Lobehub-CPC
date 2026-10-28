@@ -44,6 +44,19 @@ describe('resolveSparklePackaging', () => {
     ).toEqual({ useSparkle: false });
   });
 
+  it('builds signed macOS releases without Sparkle when the distribution disables updates', () => {
+    expect(
+      resolveSparklePackaging({
+        channel: 'stable',
+        hasAppleCertificate: true,
+        platform: 'darwin',
+        sparklePublicKey: 'public-key',
+        updateServerUrl: '',
+        updatesDisabled: true,
+      }),
+    ).toEqual({ useSparkle: false });
+  });
+
   it('rejects signed stable/canary/beta macOS builds that are missing Sparkle settings', () => {
     expect(() =>
       resolveSparklePackaging({

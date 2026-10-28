@@ -1,4 +1,4 @@
-import { getWechatTextSendCount, WechatApiClient } from '@lobechat/chat-adapter-wechat';
+import { getWechatTextSendCount, type WechatApiClient } from '@lobechat/chat-adapter-wechat';
 import type { MessengerOversizeImageStrategy } from '@lobechat/const';
 import debug from 'debug';
 
@@ -14,6 +14,7 @@ import {
   splitFallbackMessages,
   summarizeDegradations,
 } from '@/server/services/bot/platforms/attachmentBudget';
+import { createWechatApiClient } from '@/server/services/bot/platforms/wechat/apiClient';
 import {
   consumeSendCredits,
   drainPendingPushes,
@@ -103,7 +104,7 @@ const resolveWechatTarget = async (
   }
 
   return {
-    api: new WechatApiClient(blob.botToken, blob.botId, blob.baseUrl),
+    api: createWechatApiClient(blob.botToken, blob.botId, blob.baseUrl),
     applicationId: link.applicationId!,
     platformUserId: link.platformUserId,
   };
@@ -533,7 +534,7 @@ export const flushPendingWechatPushes = async (params: {
   redis: WechatWindowRedis;
 }): Promise<number> =>
   drainQueuedPushes({
-    api: new WechatApiClient(params.botToken, params.botId, params.baseUrl),
+    api: createWechatApiClient(params.botToken, params.botId, params.baseUrl),
     applicationId: params.applicationId,
     platformUserId: params.platformUserId,
     redis: params.redis,

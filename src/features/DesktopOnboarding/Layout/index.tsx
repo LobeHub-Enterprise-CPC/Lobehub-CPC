@@ -2,9 +2,7 @@
 
 import { COPYRIGHT_FULL } from '@lobechat/business-const';
 import { TITLE_BAR_HEIGHT } from '@lobechat/desktop-bridge';
-import { Center, Flexbox } from '@lobehub/ui';
-import { Divider, Text } from '@lobehub/ui/base-ui';
-import { css, cx } from 'antd-style';
+import { Center, css, cx, Divider, Flexbox, Text } from '@lobehub/ui';
 import { type FC, type PropsWithChildren } from 'react';
 
 import SimpleTitleBar from '@/features/Electron/titlebar/SimpleTitleBar';

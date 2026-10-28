@@ -1,6 +1,8 @@
+import { currentTenantScope, trackTenantWork } from '@lobechat/database/tenant';
 import debug from 'debug';
 
-import { appEnv } from '@/envs/app';
+import { appEnv, getInternalApiUrl } from '@/envs/app';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 
 import { runExpertiseHistoryWorkflow } from './run';
 import type {
@@ -15,7 +17,12 @@ export class ExpertiseHistoryWorkflow {
   static async trigger(payload: ExpertiseHistoryWorkflowPayload) {
     const runId = `expertise-history-${payload.userId}-${payload.agentId}-${Date.now()}`;
     if (!appEnv.enableQueueAgentRuntime) {
-      const key = `${payload.userId}:${payload.workspaceId ?? 'personal'}:${payload.agentId}`;
+      const key = JSON.stringify([
+        currentTenantScope()?.tenantId ?? null,
+        payload.userId,
+        payload.workspaceId,
+        payload.agentId,
+      ]);
       const previous = localRuns.get(key) ?? Promise.resolve();
       const current = previous
         .catch(() => undefined)
@@ -36,11 +43,13 @@ export class ExpertiseHistoryWorkflow {
           }
         });
       localRuns.set(key, current);
-      void current.finally(() => localRuns.get(key) === current && localRuns.delete(key));
+      void trackTenantWork(() => current).finally(
+        () => localRuns.get(key) === current && localRuns.delete(key),
+      );
       return { workflowRunId: `local-${runId}` };
     }
 
-    const baseUrl = appEnv.INTERNAL_APP_URL || appEnv.APP_URL;
+    const baseUrl = getInternalApiUrl();
     if (!baseUrl) throw new Error('INTERNAL_APP_URL or APP_URL is required');
     const { workflowClient } = await import('@/libs/qstash');
     return workflowClient.trigger({
@@ -49,18 +58,18 @@ export class ExpertiseHistoryWorkflow {
         key: `expertise-history.${payload.userId}.${payload.agentId}`,
         parallelism: 1,
       },
-      url: new URL('/api/workflows/expertise-history/run', baseUrl).toString(),
+      url: buildTenantCallbackUrl('/api/workflows/expertise-history/run', baseUrl),
     });
   }
 
   static async triggerTopic(payload: ExpertiseHistoryTopicWorkflowPayload) {
-    const baseUrl = appEnv.INTERNAL_APP_URL || appEnv.APP_URL;
+    const baseUrl = getInternalApiUrl();
     if (!baseUrl) throw new Error('INTERNAL_APP_URL or APP_URL is required');
     const { workflowClient } = await import('@/libs/qstash');
     return workflowClient.trigger({
       body: payload,
       flowControl: { key: 'expertise-history-topics', parallelism: 5 },
-      url: new URL('/api/workflows/expertise-history/topic', baseUrl).toString(),
+      url: buildTenantCallbackUrl('/api/workflows/expertise-history/topic', baseUrl),
     });
   }
 }

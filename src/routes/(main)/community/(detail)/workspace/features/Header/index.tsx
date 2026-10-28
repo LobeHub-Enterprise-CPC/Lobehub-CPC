@@ -1,8 +1,17 @@
 'use client';
 
-import { Flexbox, Tooltip, TooltipGroup } from '@lobehub/ui';
-import { ActionIcon, Avatar, Button, Skeleton, Text } from '@lobehub/ui/base-ui';
-import { cssVar } from 'antd-style';
+import { resolveAppUrl, withCurrentTenantPath } from '@lobechat/business-tenant/client';
+import {
+  ActionIcon,
+  Avatar,
+  Button,
+  cssVar,
+  Flexbox,
+  Skeleton,
+  Text,
+  Tooltip,
+  TooltipGroup,
+} from '@lobehub/ui';
 import { ExternalLink, Globe, Settings } from 'lucide-react';
 import { memo, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -12,8 +21,7 @@ import Banner from './Banner';
 
 const normalizeUrl = (input?: string | null) => {
   if (!input) return undefined;
-  if (input.startsWith('/')) return `${window.location.origin}${input}`;
-  return input;
+  return resolveAppUrl(input);
 };
 
 const getWorkspacePublicProfileUrl = (username: string) => `/community/org/${username}`;
@@ -33,7 +41,7 @@ const WorkspaceHeader = memo(() => {
   const handleOpenPublicProfile = useCallback(() => {
     if (!publicProfileUrl) return;
 
-    window.open(publicProfileUrl, '_blank', 'noopener,noreferrer');
+    window.open(withCurrentTenantPath(publicProfileUrl), '_blank', 'noopener,noreferrer');
   }, [publicProfileUrl]);
 
   return (

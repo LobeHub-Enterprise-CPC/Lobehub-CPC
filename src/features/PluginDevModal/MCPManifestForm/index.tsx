@@ -1,7 +1,7 @@
+import { buildAppUrl } from '@lobechat/business-tenant/client';
 import { type LobeToolCustomPlugin } from '@lobechat/types';
-import { Flexbox } from '@lobehub/ui';
-import { Alert, Button, Divider, Input, InputPassword, RadioGroup } from '@lobehub/ui/base-ui';
-import { type FieldPath, Form, type FormInstance, useWatch } from '@lobehub/ui/base-ui/form';
+import { Alert, Button, Divider, Flexbox, Input, InputPassword, RadioGroup } from '@lobehub/ui';
+import { type FieldPath, Form, type FormInstance, useWatch } from '@lobehub/ui/form';
 import isEqual from 'fast-deep-equal';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -74,7 +74,7 @@ const MCPManifestForm = ({
       .then((r) => setRedirectUri(r.redirectUri))
       .catch(() => {
         if (typeof window !== 'undefined') {
-          setRedirectUri(`${window.location.origin}/oauth/connector/callback`);
+          setRedirectUri(buildAppUrl('/oauth/connector/callback'));
         }
       });
   }, [enableOAuth, authType, redirectUri]);

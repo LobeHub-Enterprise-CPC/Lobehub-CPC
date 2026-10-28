@@ -40,6 +40,7 @@
   "errors.general": "An error occurred during authorization. Please try again.",
   "errors.handoffFailed": "Failed to retrieve authorization result. Please try again.",
   "errors.handoffTimeout": "Authorization timed out. Please complete the process in your browser and try again.",
+  "errors.identityUnavailable": "Could not confirm your identity in this organization, so the community is unavailable. Reload the page, or contact your administrator if it keeps happening.",
   "errors.oidcNotReady": "Authorization service is not ready. Please try again later.",
   "errors.openBrowserFailed": "Failed to open the system browser. Please try again.",
   "errors.openPopupFailed": "Failed to open authorization popup. Please check your browser's popup blocker settings.",

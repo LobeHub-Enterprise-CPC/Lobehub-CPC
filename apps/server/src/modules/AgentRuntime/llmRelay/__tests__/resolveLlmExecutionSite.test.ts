@@ -47,8 +47,10 @@ describe('resolveLlmExecutionSite', () => {
       enableLlmRelay: false,
     } as any);
 
-    expect(await resolve('ollama', executor(['ollama']))).toEqual({ site: 'server' });
-    expect(getAiProviderById).not.toHaveBeenCalled();
+    expect(await resolve('ollama', executor(['ollama']))).toEqual({
+      reason: 'relay_unsupported',
+      site: 'unavailable',
+    });
   });
 
   it('never relays the platform provider or a shared-agent visitor run', async () => {
@@ -63,16 +65,25 @@ describe('resolveLlmExecutionSite', () => {
 
   it('relays Ollama (fetchOnClient by default) to the client that declared it', async () => {
     expect(await resolve('ollama', executor(['ollama']))).toEqual({
-      preferredClientId: 'tab-a',
-      runtimeProvider: 'ollama',
-      site: 'client',
+      reason: 'relay_unsupported',
+      site: 'unavailable',
+    });
+  });
+
+  it('relays an inherited executor on the channel its client subscribed to', async () => {
+    const inherited = executor(['ollama']);
+    (inherited.host.llmExecutor as any).channelOperationId = 'parent-op';
+
+    expect(await resolve('ollama', inherited)).toEqual({
+      reason: 'relay_unsupported',
+      site: 'unavailable',
     });
   });
 
   it('reports unavailable when no client declared it can run the provider', async () => {
-    expect(await resolve('ollama')).toEqual({ reason: 'no_executor', site: 'unavailable' });
+    expect(await resolve('ollama')).toEqual({ reason: 'relay_unsupported', site: 'unavailable' });
     expect(await resolve('ollama', executor(['lmstudio']))).toEqual({
-      reason: 'no_executor',
+      reason: 'relay_unsupported',
       site: 'unavailable',
     });
     expect(
@@ -81,7 +92,7 @@ describe('resolveLlmExecutionSite', () => {
           llmExecutor: { capabilities: ['llm_relay@9'], clientId: 'tab-a', providers: ['ollama'] },
         },
       }),
-    ).toEqual({ reason: 'no_executor', site: 'unavailable' });
+    ).toEqual({ reason: 'relay_unsupported', site: 'unavailable' });
   });
 
   it('follows an explicit fetchOnClient: false for a provider that defaults to the client', async () => {
@@ -95,7 +106,10 @@ describe('resolveLlmExecutionSite', () => {
       expect(await resolve('ollama', executor(['ollama']))).toEqual({ site: 'server' });
 
       providerRow.current = { fetchOnClient: true, keyVaults: {} };
-      expect(await resolve('ollama', executor(['ollama']))).toMatchObject({ site: 'client' });
+      expect(await resolve('ollama', executor(['ollama']))).toMatchObject({
+        reason: 'relay_unsupported',
+        site: 'unavailable',
+      });
     } finally {
       vi.unstubAllEnvs();
     }
@@ -109,18 +123,38 @@ describe('resolveLlmExecutionSite', () => {
     };
 
     expect(await resolve('my-local-llm', executor(['my-local-llm']))).toEqual({
-      preferredClientId: 'tab-a',
-      runtimeProvider: 'openai',
-      site: 'client',
+      reason: 'relay_unsupported',
+      site: 'unavailable',
     });
   });
 
-  it('keeps a provider without client requests on the server, whatever its endpoint', async () => {
+  it('keeps a provider without client requests on the server', async () => {
+    providerRow.current = {
+      fetchOnClient: false,
+      keyVaults: { apiKey: 'sk-local', baseURL: 'http://127.0.0.1:1234/v1' },
+    };
+
+    expect(await resolve('my-local-llm', executor(['my-local-llm']))).toEqual({ site: 'server' });
+  });
+
+  // The client store sends a provider with only a base URL from the device
+  // whatever `fetchOnClient` says; the server must relay it the same way, or the
+  // client prepares no executor and the call fails as `no_executor`.
+  it('relays a provider with only a base URL, like the client store does', async () => {
     providerRow.current = {
       fetchOnClient: false,
       keyVaults: { baseURL: 'http://127.0.0.1:1234/v1' },
     };
 
-    expect(await resolve('my-local-llm', executor(['my-local-llm']))).toEqual({ site: 'server' });
+    expect(await resolve('my-local-llm', executor(['my-local-llm']))).toMatchObject({
+      reason: 'relay_unsupported',
+      site: 'unavailable',
+    });
+  });
+
+  it('keeps a provider whose card disables browser requests on the server', async () => {
+    providerRow.current = { fetchOnClient: true, keyVaults: { baseURL: 'http://127.0.0.1:1/v1' } };
+
+    expect(await resolve('cloudflare', executor(['cloudflare']))).toEqual({ site: 'server' });
   });
 });

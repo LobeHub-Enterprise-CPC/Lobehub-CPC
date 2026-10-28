@@ -12,7 +12,7 @@ import { resolveRemotePlatformRuntime } from '@lobechat/heterogeneous-agents/sca
 import { sleep } from '@lobechat/utils/sleep';
 
 import { getTrpcClient } from '../api/client';
-import { CLI_PRODUCT_NAME, resolveCliDirName } from '../constants/identity';
+import { CLI_PRIMARY_BIN, CLI_PRODUCT_NAME, resolveCliDirName } from '../constants/identity';
 import { getTask, listTasks, removeTask, saveTask } from '../daemon/taskRegistry';
 import { cancelAgentRun } from '../device/agentRunRegistry';
 import { log } from '../utils/logger';
@@ -57,12 +57,12 @@ function saveHermesSessionId(topicId: string, sessionId: string): void {
   fs.writeFileSync(HERMES_SESSIONS_FILE, JSON.stringify(data), 'utf8');
 }
 
-/** Resolve the absolute path to the `lh` binary to avoid PATH issues in child processes. */
+/** Resolve the absolute path to this CLI's binary to avoid PATH issues in child processes. */
 function resolveLhPath(): string {
   try {
-    return execFileSync('which', ['lh'], { encoding: 'utf8' }).trim();
+    return execFileSync('which', [CLI_PRIMARY_BIN], { encoding: 'utf8' }).trim();
   } catch {
-    return 'lh';
+    return CLI_PRIMARY_BIN;
   }
 }
 
@@ -206,12 +206,24 @@ export async function runHeteroTask(params: RunHeteroTaskParams): Promise<string
   } = params;
   const workDir = cwd || process.cwd();
   const lhPath = resolveLhPath();
+  // A connector may run inside another agent's conversation. Never reuse that identity.
+  const inheritedEnv = { ...process.env };
+  for (const key of [
+    'LOBEHUB_AGENT_ID',
+    'LOBEHUB_ASSISTANT_MESSAGE_ID',
+    'LOBEHUB_TASK_ID',
+    'LOBEHUB_WORKSPACE_ID',
+  ]) {
+    delete inheritedEnv[key];
+  }
   // Propagate workspace scope into the spawned child so its own `lh notify`
   // invocations (and any grandchildren it shells out) inherit the same scope
   // via getTrpcClient → resolveWorkspaceId.
   const childEnv: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...inheritedEnv,
+    ...(agentId && { LOBEHUB_AGENT_ID: agentId }),
     LOBEHUB_OPERATION_ID: operationId,
+    LOBEHUB_TOPIC_ID: topicId,
     ...(workspaceId && { LOBEHUB_WORKSPACE_ID: workspaceId }),
   };
   const sessionKey = parentOperationId ? operationId : topicId;

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ChannelModel } from '@/database/models/channel';
@@ -152,5 +153,63 @@ describe('Channel Native worker settlement', () => {
     );
     expect(model.fail).not.toHaveBeenCalled();
     expect(model.releaseWriter).toHaveBeenCalled();
+  });
+
+  describe('inside a tenant scope', () => {
+    const track = () => {
+      const bound: { close: () => unknown; settled: Promise<void> }[] = [];
+      const unbind = vi.fn();
+      const scope = {
+        tenantId: 'tenant',
+        trackWork: (resource: (typeof bound)[number]) => {
+          bound.push(resource);
+          return unbind;
+        },
+      } as unknown as TenantScope;
+      return { bound, scope, unbind };
+    };
+
+    it('registers a detached native run as tenant work until it has fully settled', async () => {
+      let finish!: (value: unknown) => void;
+      native.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const { bound, scope, unbind } = track();
+      const worker = new ChannelWorker({} as LobeChatDatabase);
+      await runWithTenantScope(scope, () => start(worker));
+      // The tick's scope ends here; the run keeps the tenant claim through its registration.
+      expect(bound).toHaveLength(1);
+      expect(unbind).not.toHaveBeenCalled();
+      let settled = false;
+      void bound[0].settled.then(() => (settled = true));
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      finish({ content: 'Reply', budget: {}, state: {} });
+      await worker['active'].get(run.id)?.done;
+      await bound[0].settled;
+      expect(unbind).toHaveBeenCalledTimes(1);
+      expect(model.releaseWriter).toHaveBeenCalledTimes(1);
+    });
+
+    it('aborts the run when the tenant stops being admitted', async () => {
+      let signal!: AbortSignal;
+      native.mockImplementation(
+        (input) =>
+          new Promise((_resolve, reject) => {
+            signal = input.signal;
+            signal.addEventListener('abort', () => reject(new Error('stopped')));
+          }),
+      );
+      const { bound, scope } = track();
+      const worker = new ChannelWorker({} as LobeChatDatabase);
+      await runWithTenantScope(scope, () => start(worker));
+      await bound[0].close();
+      expect(signal.aborted).toBe(true);
+      await bound[0].settled;
+      expect(model.fail).toHaveBeenCalledWith('channel', 'run', 1, 'stopped');
+    });
   });
 });

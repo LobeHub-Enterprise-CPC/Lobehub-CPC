@@ -1,4 +1,6 @@
 import { BUILTIN_AGENT_SLUGS } from '@lobechat/builtin-agents';
+import { getTenant } from '@lobechat/business-tenant/client';
+import { parseTenantPath } from '@lobechat/business-tenant/routing';
 import { OFFICIAL_SITE, OFFICIAL_URL } from '@lobechat/const';
 
 import { getIdFromIdentifier } from '@/utils/identifier';
@@ -96,11 +98,38 @@ export const isBareLinkLabel = (label: string, href: string) => label === href;
 export const isEntityIdLabel = (label: string, reference: InternalLinkReference) =>
   reference.type === 'goal' && label === reference.goalId;
 
-/** Parse a LobeHub route into a semantic entity reference. */
+/**
+ * Parse a LobeHub route into a semantic entity reference.
+ *
+ * A link scoped to the active workspace (`/lobehub/page/...` while `lobehub`
+ * is active) addresses the same scope as an unprefixed one, so its slug is
+ * normalized away: it then opens in-context like any same-scope entity instead
+ * of escaping to a full-page navigation.
+ */
 export const parseInternalLink = (
   href: string | undefined,
   currentOrigin?: string,
   workspaceSlugs: readonly string[] = [],
+  activeWorkspaceSlug?: string | null,
+): InternalLinkReference | null => {
+  const reference = parseInternalLinkReference(href, currentOrigin, workspaceSlugs);
+  if (!reference?.workspaceSlug || reference.workspaceSlug !== activeWorkspaceSlug) {
+    return reference;
+  }
+
+  const { workspaceSlug, ...rest } = reference;
+  const prefix = `/${workspaceSlug}`;
+  const pathname = rest.pathname.startsWith(`${prefix}/`)
+    ? rest.pathname.slice(prefix.length)
+    : rest.pathname;
+
+  return { ...rest, pathname } as InternalLinkReference;
+};
+
+const parseInternalLinkReference = (
+  href: string | undefined,
+  currentOrigin: string | undefined,
+  workspaceSlugs: readonly string[],
 ): InternalLinkReference | null => {
   if (!href) return null;
 
@@ -115,11 +144,18 @@ export const parseInternalLink = (
 
   if (!isRootRelative && !isInternalHost(url, currentOrigin)) return null;
 
-  const route = getRouteSegments(url.pathname, new Set(workspaceSlugs));
-  const pathname = `${url.pathname}${url.search}${url.hash}`;
+  // `/t/{slug}` is the address the router mounts as its basename, so a route
+  // reference is tenant-relative: strip the prefix here and `navigate` re-emits
+  // it. A link to another tenant (or any tenant prefix outside a tenant
+  // document) is not this app's route and stays a plain anchor.
+  const { rest: routePath, tenantSlug } = parseTenantPath(url.pathname);
+  if (tenantSlug && tenantSlug !== getTenant()?.slug) return null;
+
+  const route = getRouteSegments(routePath, new Set(workspaceSlugs));
+  const pathname = `${routePath}${url.search}${url.hash}`;
 
   if (!route) {
-    const rootSegment = url.pathname.split('/').find(Boolean);
+    const rootSegment = routePath.split('/').find(Boolean);
 
     if (
       !rootSegment ||

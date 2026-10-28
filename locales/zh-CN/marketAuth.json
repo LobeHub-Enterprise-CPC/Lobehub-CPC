@@ -40,6 +40,7 @@
   "errors.general": "授权出现错误，请重试。",
   "errors.handoffFailed": "无法获取授权结果，请重试。",
   "errors.handoffTimeout": "授权超时，请在浏览器中完成操作后重试。",
+  "errors.identityUnavailable": "无法确认你在当前组织中的身份，社区暂不可用。请刷新页面；如果问题持续出现，请联系管理员。",
   "errors.oidcNotReady": "授权服务尚未就绪，请稍后再试。",
   "errors.openBrowserFailed": "无法打开系统浏览器，请重试。",
   "errors.openPopupFailed": "无法打开授权弹窗，请检查浏览器的弹窗拦截设置。",

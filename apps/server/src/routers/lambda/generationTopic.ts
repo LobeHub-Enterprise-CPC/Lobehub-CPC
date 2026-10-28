@@ -11,6 +11,7 @@ import { FileService } from '@/server/services/file';
 import { GenerationService } from '@/server/services/generation';
 
 import { assertWorkspaceRowManageable } from './_helpers/assertWorkspaceRowManageable';
+import { assertImageGenerationEnabled } from './_helpers/imageGenerationFeatureGate';
 
 const generationTopicProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
@@ -28,8 +29,11 @@ const generationTopicProcedure = wsCompatProcedure.use(serverDatabase).use(async
 // Define input schemas
 const updateTopicSchema = z.object({
   id: z.string(),
+  // No `coverUrl`: it must only reference cover objects the server created
+  // (`updateTopicCover` / generation success), because cover replacement and
+  // topic deletion delete that key from storage. An arbitrary key here would
+  // let a caller delete objects they do not own.
   value: z.object({
-    coverUrl: z.string().nullish(),
     title: z.string().nullish(),
   }),
 });
@@ -52,6 +56,7 @@ export const generationTopicRouter = router({
         .optional(),
     )
     .mutation(async ({ ctx, input }) => {
+      if ((input?.type ?? 'image') === 'image') await assertImageGenerationEnabled(ctx.userId);
       const data = await ctx.generationTopicModel.create(
         input?.title ?? '',
         input?.type,
@@ -124,7 +129,22 @@ export const generationTopicRouter = router({
       const newCoverKey = await ctx.generationService.createCoverFromUrl(input.coverUrl);
 
       // Update the topic with the new cover key
-      return ctx.generationTopicModel.update(input.id, { coverUrl: newCoverKey });
+      const replaced = await ctx.generationTopicModel.replaceCover(input.id, newCoverKey);
+      const previousCoverUrl = replaced?.previousCoverUrl;
+
+      // Each cover is a dedicated object, so a replaced one is unreachable once the
+      // topic points elsewhere (e.g. an older client overwriting a server-set cover).
+      // Use the cover the update displaced, not the one read before the upload:
+      // another cover may have been set in between.
+      if (previousCoverUrl && previousCoverUrl !== newCoverKey) {
+        try {
+          await ctx.fileService.deleteFile(previousCoverUrl);
+        } catch (error) {
+          console.error('[generationTopic] Failed to delete replaced cover:', error);
+        }
+      }
+
+      return replaced?.topic;
     }),
 
   /**

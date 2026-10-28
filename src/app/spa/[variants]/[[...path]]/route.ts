@@ -1,35 +1,24 @@
 import { APPLE_APP_STORE_ID, BRANDING_NAME } from '@lobechat/business-const';
 import { OG_URL } from '@lobechat/const';
 
-import { getServerFeatureFlagsValue } from '@/config/featureFlags';
 import { OFFICIAL_URL } from '@/const/url';
-import { isCustomORG, isDesktop } from '@/const/version';
+import { isCustomORG } from '@/const/version';
 import { appEnv } from '@/envs/app';
 import { fileEnv } from '@/envs/file';
 import { pythonEnv } from '@/envs/python';
 import { translation } from '@/libs/i18n/serverTranslation';
 import { buildAnalyticsConfig, fetchViteDevTemplate, renderSpaHtml } from '@/libs/spaHtml';
-import { type Locales } from '@/locales/resources';
+import { getServerFeatureFlagsFromRuntimeConfig } from '@/server/featureFlags';
 import { getServerGlobalConfig } from '@/server/globalConfig';
+import { getTenantPageBootstrap } from '@/server/modules/Tenant/pageBootstrap';
 import { type SPAClientEnv, type SPAServerConfig } from '@/types/spaServerConfig';
 import { RouteVariants } from '@/utils/server/routeVariants';
 
-export function generateStaticParams() {
-  const mobileOptions = isDesktop ? [false] : [true, false];
-  const staticLocales: Locales[] = ['en-US', 'zh-CN'];
-
-  const variants: { variants: string }[] = [];
-
-  for (const locale of staticLocales) {
-    for (const isMobile of mobileOptions) {
-      variants.push({
-        variants: RouteVariants.serializeVariants({ isMobile, locale }),
-      });
-    }
-  }
-
-  return variants;
-}
+// The shell is rendered per request: tenant bootstrap, login methods and feature
+// flags come from the signed tenant route header, which a prerendered route
+// handler cannot read (production build: DYNAMIC_SERVER_USAGE -> 500). Hence no
+// static params; the proxy rewrite supplies any locale/variant.
+export const dynamic = 'force-dynamic';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -44,6 +33,7 @@ async function getTemplate(isMobile: boolean): Promise<string> {
 function buildClientEnv(): SPAClientEnv {
   return {
     marketBaseUrl: appEnv.MARKET_BASE_URL,
+    marketSkillInstallBaseUrl: appEnv.MARKET_SKILL_INSTALL_BASE_URL,
     pyodideIndexUrl: pythonEnv.NEXT_PUBLIC_PYODIDE_INDEX_URL,
     pyodidePipIndexUrl: pythonEnv.NEXT_PUBLIC_PYODIDE_PIP_INDEX_URL,
     s3FilePath: fileEnv.NEXT_PUBLIC_S3_FILE_PATH,
@@ -80,17 +70,25 @@ async function buildSeoMeta(locale: string, isMobile: boolean): Promise<string> 
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ path?: string[]; variants: string }> },
 ) {
   const { variants } = await params;
   const { locale, isMobile } = RouteVariants.deserializeVariants(variants);
 
-  const spaConfig: SPAServerConfig = {
+  const tenant = await getTenantPageBootstrap(request);
+  const spaConfig: SPAServerConfig & { appUrl: string } = {
+    tenant,
+    appUrl: new URL(appEnv.APP_URL).origin,
     analyticsConfig: buildAnalyticsConfig({ desktop: true }),
     clientEnv: buildClientEnv(),
-    config: await getServerGlobalConfig(),
-    featureFlags: getServerFeatureFlagsValue(),
+    config: {
+      ...(await getServerGlobalConfig()),
+      ...(tenant ? { oidcIssuer: `${tenant.publicUrl}/oidc` } : {}),
+    },
+    // Rendered outside any tenant scope: business builds embed the product
+    // defaults here, and the tenant's own flags arrive with the server config.
+    featureFlags: await getServerFeatureFlagsFromRuntimeConfig(),
     isMobile,
   };
 

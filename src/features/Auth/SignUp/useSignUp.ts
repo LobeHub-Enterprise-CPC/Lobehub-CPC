@@ -1,5 +1,5 @@
-import { toast } from '@lobehub/ui/base-ui';
-import { useForm } from '@lobehub/ui/base-ui/form';
+import { toast } from '@lobehub/ui';
+import { useForm } from '@lobehub/ui/form';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router';
@@ -8,6 +8,7 @@ import type { BusinessSignupFomData } from '@/business/client/hooks/useBusinessS
 import { useBusinessSignup } from '@/business/client/hooks/useBusinessSignup';
 import type { AuthFetchOptions } from '@/features/Auth/utils/authFetchOptions';
 import { withCaptchaToken } from '@/features/Auth/utils/authFetchOptions';
+import { isTenantUnavailableCode } from '@/features/Auth/utils/tenantUnavailable';
 import { useAuthAgreement } from '@/features/AuthShell/AuthAgreement';
 import { useAuthServerConfigStore } from '@/features/AuthShell/AuthServerConfigProvider';
 import { trackLoginOrSignupClicked } from '@/features/User/UserLoginOrSignup/trackLoginOrSignupClicked';
@@ -26,6 +27,7 @@ interface SignUpErrorLike {
     };
   };
   message?: string;
+  retryAfterDays?: number;
 }
 
 export const useSignUp = () => {
@@ -92,6 +94,11 @@ export const useSignUp = () => {
           signUpError.code === 'FAILED_TO_CREATE_USER' &&
           signUpError.details?.cause?.code === '23505';
 
+        if (isTenantUnavailableCode(signUpError.code)) {
+          toast.error(t('tenant.unavailable.description'));
+          return;
+        }
+
         if (isEmailDuplicate) {
           toast.error(t('betterAuth.errors.emailExists'));
           return;
@@ -102,9 +109,20 @@ export const useSignUp = () => {
           return;
         }
 
-        const translated = signUpError.code
-          ? t(`authError:codes.${signUpError.code}`, { defaultValue: '' })
-          : '';
+        const retryAfterDays = signUpError.retryAfterDays;
+        const retryAfterTranslated =
+          signUpError.code &&
+          typeof retryAfterDays === 'number' &&
+          Number.isSafeInteger(retryAfterDays) &&
+          retryAfterDays > 0
+            ? t(`authError:codes.${signUpError.code}_WITH_RETRY_AFTER_DAYS`, {
+                count: retryAfterDays,
+                defaultValue: '',
+              })
+            : '';
+        const translated =
+          retryAfterTranslated ||
+          (signUpError.code ? t(`authError:codes.${signUpError.code}`, { defaultValue: '' }) : '');
         toast.error(translated || signUpError.message || t('betterAuth.signup.error'));
         return;
       }

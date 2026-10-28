@@ -27,7 +27,7 @@ tags:
      - Redirect URIs: Add your callback URL
 
   <Callout type={'info'}>
-    **Callback URL Format**: `https://your-domain.com/api/auth/callback/authentik`
+    **Callback URL Format**: `https://your-domain.com/t/<tenant>/api/auth/callback/authentik`
   </Callout>
 
   ### Create Application
@@ -40,21 +40,19 @@ tags:
 
   The issuer URL is typically: `https://your-authentik-domain/application/o/your-app-slug/`
 
-  ### Configure Environment Variables
+  ### Configure in Admin
 
-  When deploying LobeHub, you need to configure the following environment variables:
+  SSO is configured per tenant in Admin, not with environment variables. In Admin, open the tenant's SSO providers, add a provider and fill in:
 
-  | Environment Variable    | Type     | Description                                                                   |
-  | ----------------------- | -------- | ----------------------------------------------------------------------------- |
-  | `AUTH_SECRET`           | Required | Key used to encrypt session tokens. Generate using: `openssl rand -base64 32` |
-  | `AUTH_SSO_PROVIDERS`    | Required | SSO provider for LobeHub. Use `authentik` for Authentik                       |
-  | `AUTH_AUTHENTIK_ID`     | Required | Client ID from Authentik provider                                             |
-  | `AUTH_AUTHENTIK_SECRET` | Required | Client Secret from Authentik provider                                         |
-  | `AUTH_AUTHENTIK_ISSUER` | Required | Authentik issuer URL                                                          |
+  | Field         | Value                                                                |
+  | ------------- | -------------------------------------------------------------------- |
+  | Protocol      | OIDC                                                                 |
+  | Provider ID   | `authentik` selects the authentik preset; any other ID is plain OIDC |
+  | Client ID     | Client ID from the provider                                          |
+  | Client Secret | Client secret from the provider; Admin stores it encrypted           |
+  | Issuer        | `https://authentik.example.com/application/o/<app-slug>/`            |
 
-  <Callout type={'tip'}>
-    Go to [📘 Environment Variables](/docs/self-hosting/environment-variables/auth#authentik) for detailed information on these variables.
-  </Callout>
+  The callback URL to register with the provider is `https://your-domain.com/t/<tenant>/api/auth/callback/<provider-id>`; Admin shows it for each provider.
 </Steps>
 
 <Callout type={'info'}>

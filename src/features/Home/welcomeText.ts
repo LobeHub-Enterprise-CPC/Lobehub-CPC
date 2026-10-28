@@ -1,3 +1,5 @@
+import { isCustomBranding } from '@/const/version';
+
 export interface GreetingLink {
   end: number;
   href: string;
@@ -15,13 +17,21 @@ export interface ParsedGreeting {
 
 const MARKDOWN_LINK_RE = /\[([^\]]+)\]\(([^)\s]+)\)/g;
 
-/** Bare references the generator emits without the markdown link form. */
-const AUTO_LINK_PATTERNS = [
-  {
-    build: (match: string) => `https://github.com/lobehub/lobehub/issues/${match.slice(1)}`,
-    regex: /#\d+/g,
-  },
-];
+/**
+ * Bare references the generator emits without the markdown link form.
+ *
+ * `#123` means an issue in the vendor's own repository. A rebranded build has
+ * no tracker to resolve it against, so the reference stays plain text there
+ * rather than sending the reader to a different product's GitHub.
+ */
+const AUTO_LINK_PATTERNS = isCustomBranding
+  ? []
+  : [
+      {
+        build: (match: string) => `https://github.com/lobehub/lobehub/issues/${match.slice(1)}`,
+        regex: /#\d+/g,
+      },
+    ];
 
 /**
  * Whitespace is collapsed *before* link offsets are computed — doing it after

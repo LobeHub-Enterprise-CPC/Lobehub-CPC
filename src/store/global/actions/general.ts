@@ -1,5 +1,7 @@
+import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
 import { AGENT_CHAT_TOPIC_URL, GROUP_CHAT_TOPIC_URL } from '@lobechat/const';
 import isEqual from 'fast-deep-equal';
+import { useLayoutEffect } from 'react';
 import { gt, parse, valid } from 'semver';
 import type { SWRResponse } from 'swr';
 
@@ -11,7 +13,7 @@ import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath
 import { useOnlyFetchOnceSWR } from '@/libs/swr';
 import { globalKeys } from '@/libs/swr/keys';
 import { globalService } from '@/services/global';
-import { getElectronStoreState } from '@/store/electron';
+import { useElectronStore } from '@/store/electron';
 import { electronSyncSelectors } from '@/store/electron/selectors';
 import type { SystemStatus } from '@/store/global/initialState';
 import {
@@ -67,7 +69,9 @@ export class GlobalGeneralActionImpl {
       }
     } else {
       // Open in popup window for browser
-      const browserUrl = buildWorkspaceAwarePath(`/agent/${agentId}`, getActiveWorkspaceSlug());
+      const browserUrl = withCurrentTenantPath(
+        buildWorkspaceAwarePath(`/agent/${agentId}`, getActiveWorkspaceSlug()),
+      );
       const width = 1200;
       const height = 800;
       const left = (window.screen.width - width) / 2;
@@ -98,9 +102,8 @@ export class GlobalGeneralActionImpl {
       }
     } else {
       // Open in popup window for browser
-      const browserUrl = buildWorkspaceAwarePath(
-        AGENT_CHAT_TOPIC_URL(agentId, topicId),
-        getActiveWorkspaceSlug(),
+      const browserUrl = withCurrentTenantPath(
+        buildWorkspaceAwarePath(AGENT_CHAT_TOPIC_URL(agentId, topicId), getActiveWorkspaceSlug()),
       );
       const width = 1200;
       const height = 800;
@@ -131,9 +134,8 @@ export class GlobalGeneralActionImpl {
         console.error('Error opening group topic in new window:', error);
       }
     } else {
-      const browserUrl = buildWorkspaceAwarePath(
-        GROUP_CHAT_TOPIC_URL(groupId, topicId),
-        getActiveWorkspaceSlug(),
+      const browserUrl = withCurrentTenantPath(
+        buildWorkspaceAwarePath(GROUP_CHAT_TOPIC_URL(groupId, topicId), getActiveWorkspaceSlug()),
       );
       const width = 1200;
       const height = 800;
@@ -212,6 +214,12 @@ export class GlobalGeneralActionImpl {
     this.#get().statusStorage.saveToLocalStorage(nextStatus);
   };
 
+  /** Open (an id) or close (undefined) an agent's or group's advanced mode. */
+  setNavAdvancedTarget = (id?: string): void => {
+    if (this.#get().navAdvancedTargetId === id) return;
+    this.#set({ navAdvancedTargetId: id }, false, n('setNavAdvancedTarget'));
+  };
+
   resetSidebarCustomization = (): void => {
     this.#get().updateSystemStatus(
       {
@@ -271,51 +279,37 @@ export class GlobalGeneralActionImpl {
   };
 
   useCheckServerVersion = (): SWRResponse<string | null> => {
-    return useOnlyFetchOnceSWR(
-      isDesktop && !electronSyncSelectors.isOfficialServer(getElectronStoreState())
-        ? globalKeys.serverVersion()
-        : null,
-      async () => globalService.getServerVersion(),
-      {
-        onSuccess: (data: string | null) => {
-          if (data === null) {
-            this.#set({ isServerVersionOutdated: true }, false);
-            return;
-          }
+    const scope = useElectronStore(electronSyncSelectors.serverConfigScope);
+    const official = useElectronStore(electronSyncSelectors.isOfficialServer);
 
-          this.#set({ serverVersion: data }, false);
-
-          if (!valid(CURRENT_VERSION) || !valid(data)) return;
-
-          const clientVersion = parse(CURRENT_VERSION);
-          const serverVersion = parse(data);
-
-          if (!clientVersion || !serverVersion) return;
-
-          const DIFF_THRESHOLD = 5;
-          //         Version difference calculation rules
-          // ┌─────────────────┬────────┬───────────┐
-          // │ Client → Server │  Diff  │  Result   │
-          // ├─────────────────┼────────┼───────────┤
-          // │ 1.0.5 → 1.0.0   │ 5      │ ⚠️ Too old│
-          // ├─────────────────┼────────┼───────────┤
-          // │ 1.1.0 → 1.0.5   │ 5      │ ⚠️ Too old│
-          // ├─────────────────┼────────┼───────────┤
-          // │ 2.0.0 → 1.9.9   │ 91     │ ⚠️ Too old│
-          // ├─────────────────┼────────┼───────────┤
-          // │ 1.0.4 → 1.0.0   │ 4      │ ✅ Normal │
-          // └─────────────────┴────────┴───────────┘
-          const versionDiff =
-            (clientVersion.major - serverVersion.major) * 100 +
-            (clientVersion.minor - serverVersion.minor) * 10 +
-            (clientVersion.patch - serverVersion.patch);
-
-          if (versionDiff >= DIFF_THRESHOLD) {
-            this.#set({ isServerVersionOutdated: true }, false);
-          }
-        },
-      },
+    // SWR keeps responses per committed binding, including when an old request finishes late.
+    const response = useOnlyFetchOnceSWR<string | null>(
+      isDesktop && scope && !official ? globalKeys.serverVersion(scope) : null,
+      () => globalService.getServerVersion(),
     );
+
+    useLayoutEffect(() => {
+      const data = response.data;
+      if (!isDesktop || !scope || official || data === undefined) {
+        this.#set({ isServerVersionOutdated: false, serverVersion: undefined }, false);
+        return;
+      }
+      if (data === null) {
+        this.#set({ isServerVersionOutdated: true, serverVersion: undefined }, false);
+        return;
+      }
+      const clientVersion = valid(CURRENT_VERSION) ? parse(CURRENT_VERSION) : null;
+      const serverVersion = valid(data) ? parse(data) : null;
+      // Preserve the existing compatibility threshold (major*100 + minor*10 + patch).
+      const versionDiff =
+        clientVersion && serverVersion
+          ? (clientVersion.major - serverVersion.major) * 100 +
+            (clientVersion.minor - serverVersion.minor) * 10 +
+            (clientVersion.patch - serverVersion.patch)
+          : 0;
+      this.#set({ serverVersion: data, isServerVersionOutdated: versionDiff >= 5 }, false);
+    }, [scope, official, response.data]);
+    return response;
   };
 
   useInitSystemStatus = (): SWRResponse => {

@@ -5,6 +5,7 @@ import type { Context } from 'hono';
 import urlJoin from 'url-join';
 
 import { fileEnv } from '@/envs/file';
+import { tenantObjectKey } from '@/server/modules/S3/tenantKey';
 
 /**
  * Add URL prefix to a file
@@ -24,9 +25,12 @@ export function addFileUrlPrefix<T extends { url?: string }>(file: T): T {
     return file;
   }
 
+  if (!file.url) return file;
+
+  // Objects are stored under the current tenant's root (`t/{tenantId}/`).
   return {
     ...file,
-    url: urlJoin(publicDomain, file.url || ''),
+    url: urlJoin(publicDomain, tenantObjectKey(file.url)),
   };
 }
 
@@ -61,7 +65,9 @@ export async function parseFormData(c: Context): Promise<FormData> {
     const nodeReadable =
       typeof Readable?.fromWeb === 'function' ? Readable.fromWeb(webBody as any) : null;
     if (!nodeReadable) {
-      throw new Error('Parse failed: Readable.fromWeb is not supported in this runtime, no fallback applied');
+      throw new Error(
+        'Parse failed: Readable.fromWeb is not supported in this runtime, no fallback applied',
+      );
     }
 
     // Construct a minimal Node-like IncomingMessage for formidable

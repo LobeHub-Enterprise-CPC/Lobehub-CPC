@@ -2,7 +2,13 @@ import type { Context } from 'hono';
 import { z } from 'zod';
 
 import { getServerDB } from '@/database/core/db-adaptor';
-import { isGovernanceEnabled, logCommandExecution } from '@/server/services/governance';
+import {
+  GovernanceUnavailableError,
+  isGovernanceEnabled,
+  logCommandExecution,
+} from '@/server/services/governance';
+
+import { governanceUnavailable } from './unavailable';
 
 const LogBodySchema = z.object({
   apiName: z.string().min(1),
@@ -27,7 +33,9 @@ const LogBodySchema = z.object({
  *
  * No response body (`204`) — this is a fire-and-forget write, same shape as
  * `POST /api/agent/tool-result`. No-ops (still `204`) when governance is
- * disabled, matching `logCommandExecution`'s own short-circuit.
+ * disabled for the user, matching `logCommandExecution`'s own short-circuit. When the flag cannot be
+ * read it is unknown whether the entry should exist, so the caller gets 503 `GOVERNANCE_UNAVAILABLE`
+ * instead of a 204 that claims it was handled.
  */
 export async function log(c: Context): Promise<Response> {
   let parsed;
@@ -41,8 +49,13 @@ export async function log(c: Context): Promise<Response> {
     return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   }
 
-  if (!isGovernanceEnabled()) {
-    return c.body(null, 204);
+  try {
+    if (!(await isGovernanceEnabled(parsed.data.userId))) {
+      return c.body(null, 204);
+    }
+  } catch (error) {
+    if (error instanceof GovernanceUnavailableError) return governanceUnavailable(c);
+    throw error;
   }
 
   const { outcome, ...ctx } = parsed.data;

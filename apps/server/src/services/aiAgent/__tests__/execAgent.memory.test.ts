@@ -10,10 +10,12 @@ import { agents, userSettings } from '@lobechat/database/schemas';
 import { getTestDB } from '@lobechat/database/test-utils';
 import { eq } from 'drizzle-orm';
 import OpenAI from 'openai';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, vi } from 'vitest';
 
 import { inMemoryAgentStateManager } from '@/server/modules/AgentRuntime/InMemoryAgentStateManager';
 import { inMemoryStreamEventManager } from '@/server/modules/AgentRuntime/InMemoryStreamEventManager';
+import type * as GatewayAuthorizationModule from '@/server/services/gatewayAuthorization';
+import { tenantTest } from '@/server/test-utils/tenantHarness';
 
 import {
   createMockResponsesAPIStream,
@@ -98,6 +100,8 @@ const createTestAgent = async (chatConfig: Record<string, any> = {}) => {
   return agent;
 };
 
+const it = tenantTest(() => serverDB);
+
 describe('execAgent - memory enabled priority', () => {
   it('should disable memory tools when agent config sets memory.enabled = false, even if user enables it', async () => {
     await setUserMemorySettings(true);
@@ -146,3 +150,17 @@ describe('execAgent - memory enabled priority', () => {
     expect(hasMemoryTools(callArgs.tools ?? [])).toBe(true);
   });
 });
+
+vi.mock('@/server/modules/Tenant/runtime', async () => {
+  const { testTenantRuntime } = await import('@/server/test-utils/tenantHarness');
+  return { getTenantRuntime: () => testTenantRuntime };
+});
+vi.mock('@/server/modules/Tenant/postgresClaims', async () => ({
+  tenantClaims: (await import('@/server/test-utils/tenantHarness')).testTenantClaims,
+  heartbeatTenantProcess: async () => {},
+}));
+vi.mock('@/server/modules/Tenant/gate', async (importOriginal) => importOriginal());
+vi.mock('@/server/services/gatewayAuthorization', async (importOriginal) => ({
+  ...(await importOriginal<typeof GatewayAuthorizationModule>()),
+  mintOperationGatewayTicket: async () => ({ token: 'test-operation-ticket' }),
+}));

@@ -1,9 +1,7 @@
 'use client';
 
 import { BRANDING_EMAIL } from '@lobechat/business-const';
-import { Flexbox, Icon } from '@lobehub/ui';
-import { Button, Text } from '@lobehub/ui/base-ui';
-import { cssVar } from 'antd-style';
+import { Button, cssVar, Flexbox, Icon, Text } from '@lobehub/ui';
 import { Mail } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';

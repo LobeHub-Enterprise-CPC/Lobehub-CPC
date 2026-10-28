@@ -1,3 +1,4 @@
+import { tenantStorageKey } from '@lobechat/business-tenant/client';
 import type { UnknownRecord } from '@lobechat/utils/object';
 import { isRecord } from '@lobechat/utils/object';
 
@@ -32,13 +33,15 @@ export const getInputHistoryStorageKey = ({
   agentId,
   userId,
 }: ChatInputHistoryScope = {}): string =>
-  [
-    CHAT_INPUT_HISTORY_STORAGE_KEY,
-    'user',
-    encodeURIComponent(userId || ANONYMOUS_INPUT_HISTORY_SCOPE),
-    'agent',
-    encodeURIComponent(agentId || GLOBAL_AGENT_INPUT_HISTORY_SCOPE),
-  ].join(':');
+  tenantStorageKey(
+    [
+      CHAT_INPUT_HISTORY_STORAGE_KEY,
+      'user',
+      encodeURIComponent(userId || ANONYMOUS_INPUT_HISTORY_SCOPE),
+      'agent',
+      encodeURIComponent(agentId || GLOBAL_AGENT_INPUT_HISTORY_SCOPE),
+    ].join(':'),
+  );
 
 const isHistoryEntry = (value: unknown): value is ChatInputHistoryEntry => {
   if (!isRecord(value)) return false;

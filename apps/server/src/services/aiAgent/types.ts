@@ -1,3 +1,4 @@
+import type { AgentRunLlmExecutor } from '@lobechat/agent-runtime';
 import type { BotPlatformContext, LobeToolManifest } from '@lobechat/context-engine';
 import type {
   BotSenderMetadata,
@@ -6,6 +7,7 @@ import type {
   ExecAgentParams,
   ExternalOriginMetadata,
   LobeAgentChatConfig,
+  MessageMetadata,
   RuntimeMentionedAgent,
   UIChatMessage,
   UserInterventionConfig,
@@ -21,7 +23,6 @@ import type { EvalRuntimeContext } from '@/server/services/agentRuntime/types';
 
 import type { DeviceAccessReason } from './deviceAccessPolicy';
 import type { RunFacts } from './runFacts';
-import type { AgentShareGate } from './shareGate';
 
 /**
  * Resolved run state shared by the {@link AiAgentService.execAgent} pipeline
@@ -59,13 +60,6 @@ export interface ExecRunContext {
    * shared by every stage of the send window.
    */
   runFacts: RunFacts;
-  /**
-   * Shared-agent visitor gate for this run, mirrored from
-   * {@link InternalExecAgentParams.shareGate} so every extracted pipeline stage
-   * can enforce it without threading a separate argument. Undefined for every
-   * ordinary (non-share) run.
-   */
-  shareGate?: AgentShareGate;
   /** The group a reused Group Agent Builder topic was opened on — see `TurnSetupResult`. */
   topicEditingGroupId?: string;
   /**
@@ -80,6 +74,13 @@ export interface ExecRunContext {
    * For a transcript run this is the host's delivery row id.
    */
   userMessageId?: string;
+  /**
+   * Metadata the user turn row was persisted with (attached content, steer,
+   * trigger, …); undefined when no row was created. Stages read attached content
+   * from here rather than from request fields, so a field persisted on the row
+   * is also the field the run sees.
+   */
+  userMessageMetadata?: MessageMetadata;
 }
 
 /**
@@ -118,6 +119,12 @@ export interface ExecAgentTranscript {
  * This extends the public ExecAgentParams with server-side only options
  */
 export interface InternalExecAgentParams extends ExecAgentParams {
+  /**
+   * The calling client renders `file` Works in pushed snapshots, derived from
+   * the `streamFeatures` it declared on `aiAgent.execAgent`. See
+   * `OperationCreationParams.acceptsFileWorks`.
+   */
+  acceptsFileWorks?: boolean;
   /**
    * The calling client handles `member_runtime_end`, derived from the
    * `streamFeatures` it declared on `aiAgent.execAgent`. See
@@ -230,6 +237,11 @@ export interface InternalExecAgentParams extends ExecAgentParams {
    * and a refusal here destroys the message before it is ever persisted.
    */
   interactiveStart?: boolean;
+  /**
+   * The client's relay executor. Server callers may also set the channel it
+   * relays on (`channelOperationId`), which a client never can.
+   */
+  llmExecutor?: AgentRunLlmExecutor;
   /** Maximum steps for the agent operation */
   maxSteps?: number;
   /**
@@ -298,6 +310,13 @@ export interface InternalExecAgentParams extends ExecAgentParams {
     toolCallId: string;
   };
   /**
+   * Skill identifiers the user selected for this message. Persisted on the
+   * user message (`metadata.selectedSkillIds`) and, together with the ones
+   * earlier turns of the topic selected, injected with their bodies like a
+   * pinned skill. Never widens what the skill pool already allows.
+   */
+  selectedSkillIds?: string[];
+  /**
    * Tool identifiers the user @-mentioned in this message. Merged into the
    * agent's plugin set for this run (alongside `additionalPluginIds`) so a
    * mentioned tool that isn't pinned to the agent — e.g. a custom MCP connector
@@ -313,12 +332,7 @@ export interface InternalExecAgentParams extends ExecAgentParams {
    * already decided (Channel's `channel-artifact`). Internal-only.
    */
   serverToolManifests?: LobeToolManifest[];
-  /**
-   * Shared-agent visitor gate. Set ONLY by the shareChat router after the
-   * share access check — never client-passable. Restricts tools/memory/files at
-   * operation-build time, denies device access, and scopes the visitor's rows.
-   */
-  shareGate?: AgentShareGate;
+
   /** Abort startup before the agent runtime operation is created */
   signal?: AbortSignal;
   /**

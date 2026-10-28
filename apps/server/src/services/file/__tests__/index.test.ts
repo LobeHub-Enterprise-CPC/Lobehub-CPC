@@ -8,6 +8,9 @@ import { FileSource } from '@/types/files';
 
 import { FileService } from '../index';
 
+// Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 vi.mock('@/config/db', () => ({
   serverDBEnv: {
     REMOVE_GLOBAL_FILE: false,
@@ -519,7 +522,7 @@ describe('FileService', () => {
 
       expect(result).toEqual({
         fileId: 'new-file-id',
-        url: 'https://lobehub.com/f/new-file-id',
+        url: 'https://lobehub.com/t/acme/f/new-file-id',
       });
     });
 
@@ -538,7 +541,7 @@ describe('FileService', () => {
 
       expect(result).toEqual({
         fileId: 'custom-id',
-        url: 'https://lobehub.com/f/custom-id',
+        url: 'https://lobehub.com/t/acme/f/custom-id',
       });
     });
 

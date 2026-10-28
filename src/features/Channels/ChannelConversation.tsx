@@ -1,5 +1,4 @@
-import { Empty, Flexbox } from '@lobehub/ui';
-import { ActionIcon, Button } from '@lobehub/ui/base-ui';
+import { ActionIcon, Button, Empty, Flexbox } from '@lobehub/ui';
 import { GitBranch, MessageSquare } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -16,8 +15,8 @@ import { useUserStore } from '@/store/user';
 import { userProfileSelectors } from '@/store/user/selectors';
 
 import { channelActivity } from './activity';
-import { getApprovalContent } from './approvalContent';
 import { Composer } from './Composer';
+import { getMemberAvatar } from './memberAvatar';
 import { MessageAttachments } from './MessageAttachments';
 import { MessageReceipts } from './MessageReceipts';
 import type { ChannelReceipts } from './receipts';
@@ -137,8 +136,7 @@ export function ChannelConversation({
         }
         avatar={{
           avatar: message.authorMemberId
-            ? data.members.find((member) => member.id === message.authorMemberId)?.config.avatar ||
-              '🤖'
+            ? getMemberAvatar(data.members.find((member) => member.id === message.authorMemberId))
             : selfAvatar,
           title: message.authorMemberId
             ? data.members.find((member) => member.id === message.authorMemberId)?.name
@@ -213,49 +211,6 @@ export function ChannelConversation({
           {error}
         </p>
       )}
-      <Flexbox className={styles.approvals} gap={8}>
-        {data.approvals
-          .filter(
-            (approval) =>
-              !approval.decision &&
-              data.runs.some(
-                (run) =>
-                  run.manifest.threadId === threadId &&
-                  run.id === approval.runId &&
-                  !run.publicationRevoked &&
-                  !run.writerReleased,
-              ),
-          )
-          .map((approval) => (
-            <Flexbox className={styles.message} gap={8} key={approval.id}>
-              <strong>
-                {t('permissionRequest', {
-                  name:
-                    data.members.find(
-                      (member) =>
-                        member.id === data.runs.find((run) => run.id === approval.runId)?.memberId,
-                    )?.name || 'Agent',
-                })}
-              </strong>
-              <pre className={styles.approvalPayload}>{getApprovalContent(approval.request)}</pre>
-              <Flexbox horizontal gap={8}>
-                <Button
-                  onClick={() =>
-                    action(() => channelService.approve(channelId, approval.id, false))
-                  }
-                >
-                  {t('reject')}
-                </Button>
-                <Button
-                  type="primary"
-                  onClick={() => action(() => channelService.approve(channelId, approval.id, true))}
-                >
-                  {t('approve')}
-                </Button>
-              </Flexbox>
-            </Flexbox>
-          ))}
-      </Flexbox>
       <Provider
         createStore={() =>
           createStore({

@@ -70,3 +70,75 @@ export const APPLE_APP_STORE_ID = '';
 
 export const COPYRIGHT = `© ${new Date().getFullYear()} ${ORG_NAME}`;
 export const COPYRIGHT_FULL = `${COPYRIGHT}. All rights reserved.`;
+
+/** A 13-step colour ramp in the shape `@lobehub/ui` builds every colour role from. */
+export type BrandingColorRamp = [
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+];
+
+export interface BrandingColorScale {
+  dark: BrandingColorRamp;
+  darkA: BrandingColorRamp;
+  light: BrandingColorRamp;
+  lightA: BrandingColorRamp;
+}
+
+export interface BrandingTheme {
+  /**
+   * Raw CSS appended to the global stylesheet. Reads lobe-ui CSS variables
+   * (`var(--lobe-…)`) and targets the stable `data-brand-slot` hooks the app
+   * shell exposes, so a distribution can restyle the frame without forking
+   * component code.
+   */
+  globalStyle?: string;
+  /** Replaces the neutral family (surfaces, borders, fills, text). */
+  neutralScale?: BrandingColorScale;
+  /** Replaces the primary, info and link families. */
+  primaryScale?: BrandingColorScale;
+  /** Alias-token overrides (radius, control height, …) applied to both appearances. */
+  token?: Record<string, number | string>;
+}
+
+// White-label distributions supply their theme through the business package
+// override. `undefined` keeps the stock LobeHub theme.
+export const BRANDING_THEME: BrandingTheme | undefined = undefined;
+
+export interface AgentAvatarGalleryChoice {
+  color: string;
+  shape: string;
+}
+
+/**
+ * A fixed avatar set an agent picks from by combining a body shape with a
+ * colour, instead of an emoji or an uploaded image. Every combination is a
+ * static image; the chosen one is stored as its URL in the agent's `avatar`
+ * field, so every surface that already renders an avatar URL shows it.
+ */
+export interface AgentAvatarGallery {
+  /** Avatars for built-in agents the distribution draws from the gallery. */
+  builtinAvatars?: { agentBuilder?: string };
+  /** `swatch` is a CSS `background` value previewing the colour. */
+  colors: { key: string; swatch: string }[];
+  /** Shown for an agent with no avatar of its own. */
+  defaultAvatar: string;
+  /** The combination behind a stored avatar, or `undefined` for any other avatar. */
+  parse: (avatar?: string | null) => AgentAvatarGalleryChoice | undefined;
+  resolve: (choice: AgentAvatarGalleryChoice) => string;
+  /** `preview` is the colour-neutral image of the shape. */
+  shapes: { key: string; preview: string }[];
+}
+
+// `undefined` keeps the emoji / upload / generated avatar picker.
+export const AGENT_AVATAR_GALLERY: AgentAvatarGallery | undefined = undefined;

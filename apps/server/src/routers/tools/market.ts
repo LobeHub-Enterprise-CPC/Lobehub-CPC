@@ -1,4 +1,5 @@
 import { MARKET_AUTH_REQUIRED_MESSAGE } from '@lobechat/desktop-bridge';
+import { MarketAPIError } from '@lobehub/market-sdk';
 import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 import { z } from 'zod';
@@ -25,8 +26,9 @@ import {
 } from '@/server/services/mcp/contentProcessor';
 import { createSandboxService, resolveSandboxSessionConfig } from '@/server/services/sandbox';
 import { preprocessLhCommand } from '@/server/services/toolExecution/preprocessLhCommand';
+import { SkillConnectionErrorCode } from '@/types/skillConnectionError';
 
-import { scheduleToolCallReport } from './_helpers';
+import { beginToolCallReport } from './_helpers';
 import {
   isMarketConnectionsTimeoutError,
   listOptionalMarketConnectionsWithTimeout,
@@ -119,6 +121,8 @@ const metaSchema = z
         name: z.string().optional(),
       })
       .optional(),
+    // The client's id for this invocation, kept across transport retries
+    executionId: z.string().min(1).max(200).optional(),
     isCustomPlugin: z.boolean().optional(),
     sessionId: z.string().optional(),
     version: z.string().optional(),
@@ -378,11 +382,16 @@ export const marketRouter = router({
     .mutation(async ({ input, ctx }) => {
       log('callCloudMcpEndpoint input: %O', input);
 
-      const startTime = Date.now();
-      let success = true;
-      let errorCode: string | undefined;
-      let errorMessage: string | undefined;
+      const telemetry = beginToolCallReport({
+        context: ctx,
+        identifier: input.identifier,
+        mcpType: 'cloud',
+        meta: input.meta,
+        requestPayload: input.apiParams,
+        toolName: input.toolName,
+      });
       let result: { content: string; state: any; success: boolean } | undefined;
+      let thrown: unknown;
 
       try {
         // Check if trusted client is enabled - if so, we don't need user's accessToken
@@ -429,10 +438,7 @@ export const marketRouter = router({
         result = { content, state, success: true };
         return result;
       } catch (error) {
-        success = false;
-        const err = error as Error;
-        errorCode = 'CALL_FAILED';
-        errorMessage = err.message;
+        thrown = error;
 
         log('Error calling cloud MCP endpoint: %O', error);
 
@@ -446,20 +452,8 @@ export const marketRouter = router({
           message: 'Failed to call cloud MCP endpoint',
         });
       } finally {
-        scheduleToolCallReport({
-          errorCode,
-          errorMessage,
-          identifier: input.identifier,
-          marketAccessToken: ctx.marketAccessToken,
-          mcpType: 'cloud',
-          meta: input.meta,
-          requestPayload: input.apiParams,
-          result,
-          startTime,
-          success,
-          telemetryEnabled: ctx.telemetryEnabled,
-          toolName: input.toolName,
-        });
+        // The cloud gateway answers `isError` inside a successful response; it counts.
+        telemetry.complete({ result, thrown });
       }
     }),
 
@@ -508,17 +502,22 @@ export const marketRouter = router({
         const errorMessage = (error as Error).message;
         log('connectCallTool error: %s', errorMessage);
 
-        if (errorMessage.includes('NOT_CONNECTED')) {
+        // The SDK carries the machine code in `error.code`; the message is human text.
+        // Not UNAUTHORIZED: that code opens the LobeHub / Market re-login flows (see
+        // createResponseMeta), and a provider connection is neither. The client tells
+        // these apart by `errorData.code`.
+        const connectionCode =
+          error instanceof MarketAPIError
+            ? Object.values(SkillConnectionErrorCode).find((code) => error.isErrorCode(code))
+            : undefined;
+        if (connectionCode) {
           throw new TRPCError({
-            code: 'UNAUTHORIZED',
-            message: 'Provider not connected. Please authorize first.',
-          });
-        }
-
-        if (errorMessage.includes('TOKEN_EXPIRED')) {
-          throw new TRPCError({
-            code: 'UNAUTHORIZED',
-            message: 'Token expired. Please re-authorize.',
+            cause: { data: { code: connectionCode } },
+            code: 'PRECONDITION_FAILED',
+            message:
+              connectionCode === SkillConnectionErrorCode.NotConnected
+                ? 'Provider not connected. Please authorize first.'
+                : 'Token expired. Please re-authorize.',
           });
         }
 

@@ -1,4 +1,4 @@
-import { DEFAULT_MINI_PROVIDER } from '@lobechat/business-const';
+import { DEFAULT_MINI_PROVIDER, ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
 import { DEFAULT_MINI_MODEL, DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM } from '@lobechat/const';
 
 import {
@@ -24,6 +24,14 @@ const DEFAULT_WORKFLOW_PROCESS_USER_TOPICS_PARALLELISM = 25;
 // so this count cap is the actual backlog guard. Remaining topics stay "un-extracted" and are
 // picked up by later hourly runs, so the cap self-drains without dropping data.
 const DEFAULT_WORKFLOW_MAX_TOPICS_PER_USER_PER_RUN = 100;
+
+/**
+ * Reads a variable that picks a memory agent's model or endpoint. Business
+ * builds take memory models from the tenant's `system_models` (spec FR-TS-04),
+ * so these deployment variables are ignored there and the code defaults apply.
+ */
+const modelSelectionEnv = (name: string) =>
+  ENABLE_BUSINESS_FEATURES ? undefined : process.env[name];
 
 const parseTokenLimitEnv = (value?: string) => {
   if (value === undefined) return undefined;
@@ -104,10 +112,11 @@ export interface MemoryExtractionPrivateConfig {
 }
 
 const parseGateKeeperAgent = (): MemoryAgentConfig => {
-  const apiKey = process.env.MEMORY_USER_MEMORY_GATEKEEPER_API_KEY;
-  const baseURL = process.env.MEMORY_USER_MEMORY_GATEKEEPER_BASE_URL;
-  const model = process.env.MEMORY_USER_MEMORY_GATEKEEPER_MODEL || DEFAULT_MINI_MODEL;
-  const provider = process.env.MEMORY_USER_MEMORY_GATEKEEPER_PROVIDER || DEFAULT_MINI_PROVIDER;
+  const apiKey = modelSelectionEnv('MEMORY_USER_MEMORY_GATEKEEPER_API_KEY');
+  const baseURL = modelSelectionEnv('MEMORY_USER_MEMORY_GATEKEEPER_BASE_URL');
+  const model = modelSelectionEnv('MEMORY_USER_MEMORY_GATEKEEPER_MODEL') || DEFAULT_MINI_MODEL;
+  const provider =
+    modelSelectionEnv('MEMORY_USER_MEMORY_GATEKEEPER_PROVIDER') || DEFAULT_MINI_PROVIDER;
   const language = process.env.MEMORY_USER_MEMORY_GATEKEEPER_LANGUAGE || 'English';
 
   return {
@@ -136,10 +145,11 @@ const parseBenchmarkLoCoMoAgent = (fallback: MemoryAgentConfig): MemoryAgentConf
 };
 
 const parseLayerExtractorAgent = (fallbackModel: string): MemoryLayerExtractorConfig => {
-  const apiKey = process.env.MEMORY_USER_MEMORY_LAYER_EXTRACTOR_API_KEY;
-  const baseURL = process.env.MEMORY_USER_MEMORY_LAYER_EXTRACTOR_BASE_URL;
-  const model = process.env.MEMORY_USER_MEMORY_LAYER_EXTRACTOR_MODEL || fallbackModel;
-  const provider = process.env.MEMORY_USER_MEMORY_LAYER_EXTRACTOR_PROVIDER || DEFAULT_MINI_PROVIDER;
+  const apiKey = modelSelectionEnv('MEMORY_USER_MEMORY_LAYER_EXTRACTOR_API_KEY');
+  const baseURL = modelSelectionEnv('MEMORY_USER_MEMORY_LAYER_EXTRACTOR_BASE_URL');
+  const model = modelSelectionEnv('MEMORY_USER_MEMORY_LAYER_EXTRACTOR_MODEL') || fallbackModel;
+  const provider =
+    modelSelectionEnv('MEMORY_USER_MEMORY_LAYER_EXTRACTOR_PROVIDER') || DEFAULT_MINI_PROVIDER;
   // Keep this below the model hard limit; see the headroom notice above.
   const contextLimit = parseTokenLimitEnv(
     process.env.MEMORY_USER_MEMORY_LAYER_EXTRACTOR_CONTEXT_LIMIT,
@@ -148,7 +158,7 @@ const parseLayerExtractorAgent = (fallbackModel: string): MemoryLayerExtractorCo
   const layers = MEMORY_LAYERS.reduce<Record<GlobalMemoryLayer, string>>(
     (acc, layer) => {
       const envKey = `MEMORY_USER_MEMORY_LAYER_EXTRACTOR_${layer.toUpperCase()}_MODEL`;
-      const override = (process.env as Record<string, string | undefined>)[envKey];
+      const override = modelSelectionEnv(envKey);
       acc[layer] = override || model;
 
       return acc;
@@ -173,16 +183,17 @@ const parseEmbeddingAgent = (
 ): MemoryAgentConfig => {
   const { model: defaultModel, provider: defaultProvider } =
     DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM;
-  const model = process.env.MEMORY_USER_MEMORY_EMBEDDING_MODEL || fallbackModel || defaultModel;
+  const model =
+    modelSelectionEnv('MEMORY_USER_MEMORY_EMBEDDING_MODEL') || fallbackModel || defaultModel;
   const provider =
-    process.env.MEMORY_USER_MEMORY_EMBEDDING_PROVIDER ||
+    modelSelectionEnv('MEMORY_USER_MEMORY_EMBEDDING_PROVIDER') ||
     fallbackProvider ||
     defaultProvider ||
     DEFAULT_MINI_PROVIDER;
 
   return {
-    apiKey: process.env.MEMORY_USER_MEMORY_EMBEDDING_API_KEY ?? fallbackApiKey,
-    baseURL: process.env.MEMORY_USER_MEMORY_EMBEDDING_BASE_URL,
+    apiKey: modelSelectionEnv('MEMORY_USER_MEMORY_EMBEDDING_API_KEY') ?? fallbackApiKey,
+    baseURL: modelSelectionEnv('MEMORY_USER_MEMORY_EMBEDDING_BASE_URL'),
     // Embedding providers often have a smaller per-input limit than chat models.
     // Keep this below the provider's single-input embedding window.
     contextLimit: parseTokenLimitEnv(process.env.MEMORY_USER_MEMORY_EMBEDDING_CONTEXT_LIMIT),
@@ -196,15 +207,15 @@ const parsePersonaWriterAgent = (
   fallbackProvider?: string,
   fallbackApiKey?: string,
 ): MemoryAgentConfig => {
-  const model = process.env.MEMORY_USER_MEMORY_PERSONA_WRITER_MODEL || fallbackModel;
+  const model = modelSelectionEnv('MEMORY_USER_MEMORY_PERSONA_WRITER_MODEL') || fallbackModel;
   const provider =
-    process.env.MEMORY_USER_MEMORY_PERSONA_WRITER_PROVIDER ||
+    modelSelectionEnv('MEMORY_USER_MEMORY_PERSONA_WRITER_PROVIDER') ||
     fallbackProvider ||
     DEFAULT_MINI_PROVIDER;
 
   return {
-    apiKey: process.env.MEMORY_USER_MEMORY_PERSONA_WRITER_API_KEY ?? fallbackApiKey,
-    baseURL: process.env.MEMORY_USER_MEMORY_PERSONA_WRITER_BASE_URL,
+    apiKey: modelSelectionEnv('MEMORY_USER_MEMORY_PERSONA_WRITER_API_KEY') ?? fallbackApiKey,
+    baseURL: modelSelectionEnv('MEMORY_USER_MEMORY_PERSONA_WRITER_BASE_URL'),
     // Keep this below the model hard limit; see the headroom notice above.
     contextLimit: parseTokenLimitEnv(process.env.MEMORY_USER_MEMORY_PERSONA_WRITER_CONTEXT_LIMIT),
     model,

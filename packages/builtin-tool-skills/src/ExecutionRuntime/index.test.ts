@@ -75,6 +75,75 @@ describe('SkillsExecutionRuntime', () => {
         expect(result.state).toEqual({ command: 'echo hello', exitCode: 1, success: false });
       });
 
+      it('should report a command that never ran without a fabricated exit code', async () => {
+        const service = createMockService({
+          execScript: vi.fn().mockResolvedValue({
+            error: {
+              code: 'COMMAND_GOVERNANCE_UNAVAILABLE',
+              message: 'governance temporarily unavailable',
+              name: 'COMMAND_GOVERNANCE_UNAVAILABLE',
+            },
+            output: '',
+            success: false,
+          } satisfies CommandResult),
+        });
+        const runtime = new SkillsExecutionRuntime({ service });
+
+        const result = await runtime.execScript(args);
+
+        expect(result.success).toBe(false);
+        expect(result.content).toBe('Command failed: governance temporarily unavailable');
+        expect(result.content).not.toContain('exit code');
+        expect(result.state).not.toHaveProperty('exitCode');
+        expect(result.state).toMatchObject({
+          error: {
+            code: 'COMMAND_GOVERNANCE_UNAVAILABLE',
+            name: 'COMMAND_GOVERNANCE_UNAVAILABLE',
+          },
+          success: false,
+        });
+        expect(result.error).toMatchObject({ name: 'COMMAND_GOVERNANCE_UNAVAILABLE' });
+      });
+
+      it('should keep a real non-zero exit code and both output streams', async () => {
+        const service = createMockService({
+          execScript: vi.fn().mockResolvedValue({
+            exitCode: 7,
+            output: 'partial output',
+            stderr: 'permission denied',
+            success: false,
+          } satisfies CommandResult),
+        });
+        const runtime = new SkillsExecutionRuntime({ service });
+
+        const result = await runtime.execScript(args);
+
+        expect(result.success).toBe(false);
+        expect(result.content).toBe(
+          'Command failed with exit code 7\n\nStdout:\npartial output\n\nStderr:\npermission denied',
+        );
+        expect(result.state).toMatchObject({ exitCode: 7, success: false });
+      });
+
+      it('should keep a running observation without claiming exit code 0', async () => {
+        const service = createMockService({
+          execScript: vi.fn().mockResolvedValue({
+            output: 'partial output',
+            shellId: 'shell-9',
+            success: true,
+          } satisfies CommandResult),
+        });
+        const runtime = new SkillsExecutionRuntime({ service });
+
+        const result = await runtime.execScript(args);
+
+        expect(result.success).toBe(true);
+        expect(result.content).toContain('still running');
+        expect(result.content).toContain('shell-9');
+        expect(result.content).not.toContain('completed successfully');
+        expect(result.state).not.toHaveProperty('exitCode');
+      });
+
       it('should combine output and stderr', async () => {
         const service = createMockService({
           execScript: vi.fn().mockResolvedValue({
@@ -485,6 +554,38 @@ describe('SkillsExecutionRuntime', () => {
       const result = await runtime.readReference({ id: 'LobeHub', path: 'references/kb' });
       expect(result.success).toBe(true);
       expect(result.content).toBe('kb body');
+    });
+  });
+
+  describe('resolveSkill', () => {
+    const userSkill = {
+      content: 'PLAN BODY',
+      description: 'How each unit is done',
+      identifier: 'user-skills:goal-plan-x',
+      name: 'user-skills:goal-plan-x',
+      resources: {
+        'scripts/check.sh': { content: 'echo ok', fileHash: 'h', size: 7 },
+      },
+      source: 'builtin' as const,
+      title: 'Plan',
+    };
+
+    it('reads a skill that was not preloaded, once, only when it is asked for', async () => {
+      const resolveSkill = vi.fn().mockResolvedValue(userSkill);
+      const runtime = new SkillsExecutionRuntime({ resolveSkill, service: createMockService() });
+      expect(resolveSkill).not.toHaveBeenCalled();
+
+      const activated = await runtime.activateSkill({ name: 'user-skills:goal-plan-x' });
+      expect(activated.success).toBe(true);
+      expect(activated.content).toContain('PLAN BODY');
+      expect(activated.state).toMatchObject({ source: 'user' });
+
+      const script = await runtime.readReference({
+        id: 'user-skills:goal-plan-x',
+        path: 'scripts/check.sh',
+      } as never);
+      expect(script.content).toContain('echo ok');
+      expect(resolveSkill).toHaveBeenCalledTimes(1);
     });
   });
 });

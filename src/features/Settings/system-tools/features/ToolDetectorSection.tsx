@@ -1,15 +1,16 @@
 'use client';
 
+import { CLI_PRIMARY_BIN } from '@lobechat/business-const';
 import { type BinaryStatus } from '@lobechat/electron-client-ipc';
-import { CopyButton, Flexbox, Icon, Tooltip } from '@lobehub/ui';
-import { Button, Spin, Tag, Text } from '@lobehub/ui/base-ui';
-import { Form, type FormGroupItem, useForm } from '@lobehub/ui/base-ui/form';
+import { Button, CopyButton, Flexbox, Icon, Spin, Tag, Text, Tooltip } from '@lobehub/ui';
+import { Form, type FormGroupItem, useForm } from '@lobehub/ui/form';
 import { CheckCircle2, RefreshCw, XCircle } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import AsyncError from '@/components/AsyncError';
 import { FORM_STYLE } from '@/const/layoutTokens';
+import { isCustomBranding } from '@/const/version';
 import { binaryService } from '@/services/electron/binary';
 
 /**
@@ -21,7 +22,12 @@ const TOOL_CATEGORIES = {
     descKey: 'settingSystemTools.category.runtimeEnvironment.desc',
     titleKey: 'settingSystemTools.category.runtimeEnvironment',
     tools: [
-      { descKey: 'settingSystemTools.tools.lobehub.desc', name: 'lobehub' },
+      {
+        descKey: 'settingSystemTools.tools.lobehub.desc',
+        // `lobehub` is the detector's key; a rebranded build shows its own command.
+        label: isCustomBranding ? CLI_PRIMARY_BIN : undefined,
+        name: 'lobehub',
+      },
       { descKey: 'settingSystemTools.tools.node.desc', name: 'node' },
       { descKey: 'settingSystemTools.tools.python.desc', name: 'python' },
       { descKey: 'settingSystemTools.tools.npm.desc', name: 'npm' },
@@ -90,7 +96,7 @@ const ToolStatusDisplay = memo<ToolStatusDisplayProps>(({ status, isDetecting })
   if (!status) {
     return (
       <Flexbox horizontal align="center" gap={8}>
-        <Icon color="var(--ant-color-text-quaternary)" icon={XCircle} size={16} />
+        <Icon color="var(--lobe-color-text-quaternary)" icon={XCircle} size={16} />
         <Text type="secondary">{t('settingSystemTools.status.notDetected')}</Text>
       </Flexbox>
     );
@@ -99,7 +105,7 @@ const ToolStatusDisplay = memo<ToolStatusDisplayProps>(({ status, isDetecting })
   if (!status.available) {
     return (
       <Flexbox horizontal align="center" gap={8} justify="center">
-        <Icon color="var(--ant-color-error)" icon={XCircle} size={16} />
+        <Icon color="var(--lobe-color-error)" icon={XCircle} size={16} />
         <Text type="secondary">{t('settingSystemTools.status.unavailable')}</Text>
       </Flexbox>
     );
@@ -108,7 +114,7 @@ const ToolStatusDisplay = memo<ToolStatusDisplayProps>(({ status, isDetecting })
   return (
     <Flexbox align="flex-end" gap={4}>
       <Flexbox horizontal align="center" gap={8} justify="flex-end">
-        <Icon color="var(--ant-color-success)" icon={CheckCircle2} size={16} />
+        <Icon color="var(--lobe-color-success)" icon={CheckCircle2} size={16} />
         <Text type="success">{t('settingSystemTools.status.available')}</Text>
       </Flexbox>
       {status.path && (
@@ -162,7 +168,7 @@ const ToolDetectorSection = memo(() => {
       const status = toolStatuses[tool.name];
       const label = (
         <Flexbox horizontal align="center" gap={8}>
-          <Text>{tool.name}</Text>
+          <Text>{'label' in tool && tool.label ? tool.label : tool.name}</Text>
           {status?.version && (
             <Tag color="processing" style={{ marginInlineStart: 0 }}>
               {status.version}

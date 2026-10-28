@@ -13,6 +13,7 @@ export enum WorkspaceSettingsTabs {
   AuditLog = 'audit-log',
   Billing = 'billing',
   Budget = 'budget',
+  ChatPreference = 'chat-preference',
   Connector = 'connector',
   Credits = 'credits',
   Creds = 'credential',
@@ -34,6 +35,7 @@ export enum WorkspaceSettingsTabs {
   Skill = 'skill',
   Stats = 'statistics',
   Storage = 'storage',
+  Teams = 'teams',
   Usage = 'usage',
 }
 

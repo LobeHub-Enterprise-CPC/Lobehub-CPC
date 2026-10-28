@@ -8,7 +8,7 @@ import { xSync } from 'tinyexec';
 
 import { credentialsPath } from '../../auth/source';
 import { detectPackageManager, fetchLatestVersion, isNewerVersion } from '../../commands/update';
-import { resolveCliDirName } from '../../constants/identity';
+import { CLI_PRIMARY_BIN, resolveCliDirName } from '../../constants/identity';
 import { cliNodeEngine, cliPackageName, cliVersion } from '../../pkg';
 import type { CheckOutcome, DoctorCheck } from '../types';
 
@@ -106,7 +106,7 @@ function listInstalls(): string[] {
   try {
     const { stdout } = xSync(
       process.platform === 'win32' ? 'where' : 'which',
-      [...(process.platform === 'win32' ? [] : ['-a']), 'lh'],
+      [...(process.platform === 'win32' ? [] : ['-a']), CLI_PRIMARY_BIN],
       { nodeOptions: { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }, nodePath: false },
     );
 

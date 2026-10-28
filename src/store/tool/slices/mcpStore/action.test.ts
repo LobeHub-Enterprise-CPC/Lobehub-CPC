@@ -10,9 +10,11 @@ import { pluginService } from '@/services/plugin';
 import { globalHelpers } from '@/store/global/helpers';
 import { type CheckMcpInstallResult } from '@/types/plugins';
 import { MCPInstallStep } from '@/types/plugins';
+import * as connectorOAuth from '@/utils/connectorOAuth';
 import type * as PlatformModule from '@/utils/platform';
 
 import { useToolStore } from '../../store';
+import { type MCPPluginListData } from './initialState';
 
 vi.mock('@/utils/platform', async (importOriginal) => ({
   ...(await importOriginal<typeof PlatformModule>()),
@@ -33,7 +35,7 @@ vi.mock('@/libs/trpc/client', () => ({
           clientSecret: 'test-client-secret',
         }),
       },
-      registerM2MToken: { query: vi.fn().mockResolvedValue({ success: true }) },
+      registerM2MToken: { mutate: vi.fn().mockResolvedValue({ success: true }) },
       reportCall: { mutate: vi.fn().mockResolvedValue(undefined) },
       reportMcpEvent: { mutate: vi.fn().mockResolvedValue(undefined) },
       reportMcpInstallResult: { mutate: vi.fn().mockResolvedValue(undefined) },
@@ -45,7 +47,7 @@ vi.mock('@/libs/trpc/client', () => ({
     },
     mcp: {
       callTool: { mutate: vi.fn() },
-      getStreamableMcpServerManifest: { query: vi.fn() },
+      getStreamableMcpServerManifest: { mutate: vi.fn() },
     },
   },
 }));
@@ -56,6 +58,15 @@ vi.mock('@/utils/sleep', () => ({
 }));
 
 vi.mock('zustand/traditional');
+
+/** Seed the `mcpPluginList` replica view with one loaded head page. */
+const pagedPluginList = (items: PluginItem[]): MCPPluginListData => ({
+  currentPage: 0,
+  hasMore: false,
+  items,
+  pageSize: 20,
+  total: items.length,
+});
 
 const bootstrapToolStoreWithDesktop = async (isDesktopEnv: boolean) => {
   vi.resetModules();
@@ -99,15 +110,13 @@ beforeEach(() => {
   act(() => {
     useToolStore.setState(
       {
-        mcpPluginItems: [],
+        mcpPluginList: undefined,
         mcpInstallProgress: {},
         mcpInstallAbortControllers: {},
         mcpTestAbortControllers: {},
         mcpTestLoading: {},
         mcpTestErrors: {},
-        currentPage: 1,
-        totalCount: 0,
-        categories: [],
+        mcpSearchKeywords: undefined,
         refreshPlugins: vi.fn(),
         updateInstallLoadingState: vi.fn(),
       },
@@ -441,70 +450,94 @@ describe('mcpStore actions', () => {
     });
   });
 
-  describe('uninstallMCPPlugin', () => {
-    it('should uninstall plugin and refresh plugins', async () => {
-      const { result } = renderHook(() => useToolStore());
-      const uninstallSpy = vi.spyOn(pluginService, 'uninstallPlugin').mockResolvedValue(undefined);
+  describe('loadMoreMCPPlugins', () => {
+    it('appends the next page of the loaded query', async () => {
+      const headItems = Array.from({ length: 20 }, (_, i) => ({
+        identifier: `plugin-${i}`,
+        name: `Plugin ${i}`,
+      })) as PluginItem[];
+      const nextItems = Array.from({ length: 20 }, (_, i) => ({
+        identifier: `plugin-${i + 20}`,
+        name: `Plugin ${i + 20}`,
+      })) as PluginItem[];
+
+      vi.spyOn(globalHelpers, 'getCurrentLanguage').mockReturnValue('en-US');
+      const fetchSpy = vi.spyOn(discoverService, 'getMCPPluginList').mockResolvedValue({
+        categories: [],
+        currentPage: 1,
+        items: headItems,
+        pageSize: 20,
+        totalCount: 40,
+        totalPages: 2,
+      });
+
+      const { result } = renderHook(() => ({
+        loadMore: useToolStore((s) => s.loadMoreMCPPlugins),
+        sync: useToolStore((s) => s.useFetchMCPPluginList)({ pageSize: 20 }),
+      }));
+
+      await waitFor(() => {
+        expect(useToolStore.getState().mcpPluginList?.items).toHaveLength(20);
+      });
+      expect(useToolStore.getState().mcpPluginList).toMatchObject({ hasMore: true, total: 40 });
+
+      fetchSpy.mockResolvedValue({
+        categories: [],
+        currentPage: 2,
+        items: nextItems,
+        pageSize: 20,
+        totalCount: 40,
+        totalPages: 2,
+      });
 
       await act(async () => {
-        await result.current.uninstallMCPPlugin('test-plugin');
+        await result.current.loadMore();
       });
 
-      expect(uninstallSpy).toHaveBeenCalledWith('test-plugin');
-      expect(result.current.refreshPlugins).toHaveBeenCalled();
-    });
-  });
-
-  describe('loadMoreMCPPlugins', () => {
-    it('should increment current page when more items available', () => {
-      const { result } = renderHook(() => useToolStore());
-
-      act(() => {
-        useToolStore.setState({
-          mcpPluginItems: Array.from({ length: 10 }, (_, i) => ({
-            identifier: `plugin-${i}`,
-          })) as PluginItem[],
-          totalCount: 50,
-          currentPage: 1,
-        });
-      });
-
-      act(() => {
-        result.current.loadMoreMCPPlugins();
-      });
-
-      expect(result.current.currentPage).toBe(2);
+      const list = useToolStore.getState().mcpPluginList!;
+      expect(list.items).toHaveLength(40);
+      expect(list.items[20].identifier).toBe('plugin-20');
+      expect(list.currentPage).toBe(1);
+      expect(list.hasMore).toBe(false);
+      expect(fetchSpy).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2, pageSize: 20 }));
     });
 
-    it('should not increment page when all items loaded', () => {
-      const { result } = renderHook(() => useToolStore());
-
-      act(() => {
-        useToolStore.setState({
-          mcpPluginItems: Array.from({ length: 50 }, (_, i) => ({
-            identifier: `plugin-${i}`,
-          })) as PluginItem[],
-          totalCount: 50,
-          currentPage: 5,
-        });
+    it('does not fetch another page when the head page is the last one', async () => {
+      vi.spyOn(globalHelpers, 'getCurrentLanguage').mockReturnValue('en-US');
+      const fetchSpy = vi.spyOn(discoverService, 'getMCPPluginList').mockResolvedValue({
+        categories: [],
+        currentPage: 1,
+        items: [{ identifier: 'only-plugin', name: 'Only Plugin' }] as PluginItem[],
+        pageSize: 20,
+        totalCount: 1,
+        totalPages: 1,
       });
 
-      act(() => {
-        result.current.loadMoreMCPPlugins();
+      const { result } = renderHook(() => ({
+        loadMore: useToolStore((s) => s.loadMoreMCPPlugins),
+        sync: useToolStore((s) => s.useFetchMCPPluginList)({ pageSize: 20 }),
+      }));
+
+      await waitFor(() => {
+        expect(useToolStore.getState().mcpPluginList?.items).toHaveLength(1);
+      });
+      expect(useToolStore.getState().mcpPluginList?.hasMore).toBe(false);
+
+      await act(async () => {
+        await result.current.loadMore();
       });
 
-      expect(result.current.currentPage).toBe(5);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('resetMCPPluginList', () => {
-    it('should reset plugin list and page', () => {
+    it('drops the painted page set and remembers the new keywords', () => {
       const { result } = renderHook(() => useToolStore());
 
       act(() => {
         useToolStore.setState({
-          mcpPluginItems: [{ identifier: 'plugin-1' }] as PluginItem[],
-          currentPage: 5,
+          mcpPluginList: pagedPluginList([{ identifier: 'plugin-1' } as PluginItem]),
           mcpSearchKeywords: 'old-keyword',
         });
       });
@@ -513,18 +546,16 @@ describe('mcpStore actions', () => {
         result.current.resetMCPPluginList('new-keyword');
       });
 
-      expect(result.current.mcpPluginItems).toEqual([]);
-      expect(result.current.currentPage).toBe(1);
+      expect(result.current.mcpPluginList).toBeUndefined();
       expect(result.current.mcpSearchKeywords).toBe('new-keyword');
     });
 
-    it('should reset without keywords', () => {
+    it('resets without keywords', () => {
       const { result } = renderHook(() => useToolStore());
 
       act(() => {
         useToolStore.setState({
-          mcpPluginItems: [{ identifier: 'plugin-1' }] as PluginItem[],
-          currentPage: 3,
+          mcpPluginList: pagedPluginList([{ identifier: 'plugin-1' } as PluginItem]),
         });
       });
 
@@ -532,14 +563,13 @@ describe('mcpStore actions', () => {
         result.current.resetMCPPluginList();
       });
 
-      expect(result.current.mcpPluginItems).toEqual([]);
-      expect(result.current.currentPage).toBe(1);
+      expect(result.current.mcpPluginList).toBeUndefined();
       expect(result.current.mcpSearchKeywords).toBeUndefined();
     });
   });
 
   describe('useFetchMCPPluginList', () => {
-    it('should fetch MCP plugin list and update state', async () => {
+    it('fetches the head page and folds it into the replica view', async () => {
       const mockData = {
         items: [
           { identifier: 'plugin-1', name: 'Plugin 1' },
@@ -555,78 +585,23 @@ describe('mcpStore actions', () => {
       vi.spyOn(discoverService, 'getMCPPluginList').mockResolvedValue(mockData);
       vi.spyOn(globalHelpers, 'getCurrentLanguage').mockReturnValue('en-US');
 
-      const { result } = renderHook(() =>
-        useToolStore.getState().useFetchMCPPluginList({ page: 1, pageSize: 20 }),
-      );
+      renderHook(() => useToolStore((s) => s.useFetchMCPPluginList)({ pageSize: 20 }));
 
       await waitFor(() => {
-        expect(result.current.data).toEqual(mockData);
+        expect(useToolStore.getState().mcpPluginList?.items).toEqual(mockData.items);
       });
 
       expect(discoverService.getMCPPluginList).toHaveBeenCalledWith(
-        expect.objectContaining({ page: 1, pageSize: 20, connectionType: 'http' }),
+        expect.objectContaining({ connectionType: 'http', locale: 'en-US', page: 1, pageSize: 20 }),
       );
 
-      const state = useToolStore.getState();
-      expect(state.mcpPluginItems).toEqual(mockData.items);
-      expect(state.categories).toEqual(mockData.categories);
-      expect(state.totalCount).toBe(2);
-      expect(state.totalPages).toBe(1);
-      expect(state.searchLoading).toBe(false);
+      const list = useToolStore.getState().mcpPluginList!;
+      expect(list.total).toBe(2);
+      expect(list.pageSize).toBe(20);
+      expect(list.hasMore).toBe(false);
     });
 
-    it('should set active identifier on first init', async () => {
-      const mockData = {
-        items: [{ identifier: 'first-plugin', name: 'First Plugin' }] as PluginItem[],
-        categories: [],
-        totalCount: 1,
-        totalPages: 1,
-        currentPage: 1,
-        pageSize: 20,
-      };
-
-      vi.spyOn(discoverService, 'getMCPPluginList').mockResolvedValue(mockData);
-      vi.spyOn(globalHelpers, 'getCurrentLanguage').mockReturnValue('en-US');
-
-      act(() => {
-        useToolStore.setState({ isMcpListInit: false });
-      });
-
-      const { result } = renderHook(() =>
-        useToolStore.getState().useFetchMCPPluginList({ page: 1 }),
-      );
-
-      await waitFor(() => {
-        expect(result.current.data).toEqual(mockData);
-      });
-
-      const state = useToolStore.getState();
-      expect(state.activeMCPIdentifier).toBe('first-plugin');
-      expect(state.isMcpListInit).toBe(true);
-    });
-
-    it('should convert page to number', async () => {
-      vi.spyOn(globalHelpers, 'getCurrentLanguage').mockReturnValue('en-US');
-      vi.spyOn(discoverService, 'getMCPPluginList').mockResolvedValue({
-        items: [],
-        categories: [],
-        totalCount: 0,
-        totalPages: 0,
-        currentPage: 1,
-        pageSize: 20,
-      });
-
-      const params = { page: 2, pageSize: 15 } as any;
-      renderHook(() => useToolStore.getState().useFetchMCPPluginList(params));
-
-      await waitFor(() => {
-        expect(discoverService.getMCPPluginList).toHaveBeenCalledWith(
-          expect.objectContaining({ ...params, connectionType: 'http' }),
-        );
-      });
-    });
-
-    it('should include locale and parameters in SWR key', async () => {
+    it('sends the search term as the query `q`', async () => {
       vi.spyOn(globalHelpers, 'getCurrentLanguage').mockReturnValue('zh-CN');
       vi.spyOn(discoverService, 'getMCPPluginList').mockResolvedValue({
         items: [],
@@ -634,20 +609,19 @@ describe('mcpStore actions', () => {
         totalCount: 0,
         totalPages: 0,
         currentPage: 1,
-        pageSize: 20,
+        pageSize: 15,
       });
 
-      const params = { page: 3, pageSize: 15, q: 'test' } as any;
-      renderHook(() => useToolStore.getState().useFetchMCPPluginList(params));
+      renderHook(() => useToolStore((s) => s.useFetchMCPPluginList)({ pageSize: 15, q: 'test' }));
 
       await waitFor(() => {
         expect(discoverService.getMCPPluginList).toHaveBeenCalledWith(
-          expect.objectContaining({ ...params, connectionType: 'http' }),
+          expect.objectContaining({ locale: 'zh-CN', page: 1, pageSize: 15, q: 'test' }),
         );
       });
     });
 
-    it('should not append connectionType in desktop environment', async () => {
+    it('does not pin a connection type in the desktop environment', async () => {
       const {
         useToolStore: desktopStore,
         discoverService: desktopDiscoverService,
@@ -670,15 +644,12 @@ describe('mcpStore actions', () => {
           .spyOn(desktopDiscoverService, 'getMCPPluginList')
           .mockResolvedValue(mockData);
 
-        const { result } = renderHook(() =>
-          desktopStore.getState().useFetchMCPPluginList({ page: 1, pageSize: 20 }),
-        );
+        renderHook(() => desktopStore((s) => s.useFetchMCPPluginList)({ pageSize: 20 }));
 
         await waitFor(() => {
-          expect(result.current.data).toEqual(mockData);
+          expect(fetchSpy).toHaveBeenCalledTimes(1);
         });
 
-        expect(fetchSpy).toHaveBeenCalledTimes(1);
         const [firstCallArgs] = fetchSpy.mock.calls[0];
         expect(firstCallArgs).toMatchObject({ page: 1, pageSize: 20 });
         expect(firstCallArgs.connectionType).toBeUndefined();
@@ -742,13 +713,212 @@ describe('mcpStore actions', () => {
       vi.spyOn(discoverService, 'getMcpDetail').mockResolvedValue(mockPlugin as any);
     });
 
+    describe('marketplace OAuth via installationDetails', () => {
+      const originalActions = {
+        createConnector: useToolStore.getState().createConnector,
+        deleteConnector: useToolStore.getState().deleteConnector,
+        startConnectorOAuth: useToolStore.getState().startConnectorOAuth,
+        fetchConnectors: useToolStore.getState().fetchConnectors,
+      };
+      afterEach(() => useToolStore.setState(originalActions));
+      const oauthManifest = {
+        name: 'Tencent Docs',
+        version: '1.0.0',
+        deploymentOptions: [
+          {
+            connection: { type: 'http', url: 'https://docs.example.test/mcp' },
+            installationDetails: {
+              mcpAuth: { version: 1, type: 'oauth2', registration: 'dcr', scopes: ['docs:read'] },
+            },
+          },
+        ],
+      };
+
+      beforeEach(() => {
+        vi.mocked(discoverService.getMCPPluginManifest).mockResolvedValue(oauthManifest as any);
+        useToolStore.setState({ mcpPluginList: pagedPluginList([mockPlugin]), connectors: [] });
+        vi.spyOn(connectorOAuth, 'waitForConnectorOAuth').mockResolvedValue();
+      });
+
+      it('pauses for a user gesture without probing the unauthenticated MCP or installing', async () => {
+        const probe = vi.spyOn(mcpService, 'getStreamableMcpServerManifest');
+        const success = await useToolStore.getState().installMCPPlugin('test-plugin');
+        expect(success).toBe(false);
+        expect(useToolStore.getState().mcpInstallProgress['test-plugin']?.step).toBe(
+          MCPInstallStep.AUTHORIZATION_REQUIRED,
+        );
+        expect(probe).not.toHaveBeenCalled();
+        expect(pluginService.installPlugin).not.toHaveBeenCalled();
+      });
+
+      it('fails closed for malformed or unsupported auth declarations', async () => {
+        vi.mocked(discoverService.getMCPPluginManifest).mockResolvedValue({
+          ...oauthManifest,
+          deploymentOptions: [
+            {
+              ...oauthManifest.deploymentOptions[0],
+              installationDetails: { mcpAuth: { type: 'oauth2', registration: 'unknown' } },
+            },
+          ],
+        } as any);
+        await useToolStore.getState().installMCPPlugin('test-plugin');
+        expect(useToolStore.getState().mcpInstallProgress['test-plugin']?.step).toBe(
+          MCPInstallStep.ERROR,
+        );
+        expect(pluginService.installPlugin).not.toHaveBeenCalled();
+      });
+
+      it('reuses connector OAuth and installs only a non-secret marker after tool sync', async () => {
+        const createConnector = vi.fn().mockResolvedValue({ id: 'oauth-conn', isNew: true });
+        const startConnectorOAuth = vi.fn().mockResolvedValue('https://provider.test/authorize');
+        const fetchConnectors = vi.fn().mockResolvedValue(undefined);
+        vi.mocked(connectorOAuth.waitForConnectorOAuth).mockImplementation(async () => {
+          useToolStore.setState({ connectors: [{ id: 'oauth-conn', status: 'connected' }] as any });
+        });
+        useToolStore.setState({ createConnector, startConnectorOAuth, fetchConnectors });
+        await useToolStore.getState().installMCPPlugin('test-plugin');
+        expect(
+          await useToolStore.getState().installMCPPlugin('test-plugin', {
+            authorize: true,
+            resume: true,
+          }),
+        ).toBe(true);
+        expect(createConnector).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sourceType: 'marketplace',
+            mcpServerUrl: 'https://docs.example.test/mcp',
+            oidcConfig: { scheme: 'dcr', scopes: ['docs:read'] },
+          }),
+        );
+        expect(startConnectorOAuth).toHaveBeenCalledWith('oauth-conn');
+        expect(pluginService.installPlugin).toHaveBeenCalledWith(
+          expect.objectContaining({
+            customParams: { oauthConnectorId: 'oauth-conn' },
+            manifest: expect.objectContaining({ api: [] }),
+          }),
+        );
+      });
+
+      it('does not install when authorization succeeds but tool synchronization fails', async () => {
+        useToolStore.setState({
+          createConnector: vi.fn().mockResolvedValue({ id: 'oauth-conn', isNew: true }),
+          startConnectorOAuth: vi.fn().mockResolvedValue('https://provider.test/authorize'),
+          fetchConnectors: vi.fn().mockResolvedValue(undefined),
+        });
+        await useToolStore.getState().installMCPPlugin('test-plugin');
+        await useToolStore
+          .getState()
+          .installMCPPlugin('test-plugin', { authorize: true, resume: true });
+        expect(pluginService.installPlugin).not.toHaveBeenCalled();
+        expect(useToolStore.getState().mcpInstallProgress['test-plugin']?.step).toBe(
+          MCPInstallStep.ERROR,
+        );
+      });
+
+      it('updates retry configuration through the server’s registration-preserving upsert', async () => {
+        const existing = {
+          id: 'oauth-conn',
+          identifier: 'test-plugin',
+          status: 'connected',
+          sourceType: 'marketplace',
+          mcpServerUrl: 'https://docs.example.test/mcp',
+          metadata: { marketplaceOAuth: true },
+        };
+        const createConnector = vi.fn().mockResolvedValue({ id: 'oauth-conn', isNew: false });
+        useToolStore.setState({
+          connectors: [existing] as any,
+          createConnector,
+          startConnectorOAuth: vi.fn().mockResolvedValue('https://provider.test/authorize'),
+          fetchConnectors: vi.fn().mockResolvedValue(undefined),
+        });
+        await useToolStore.getState().installMCPPlugin('test-plugin');
+        expect(
+          await useToolStore.getState().installMCPPlugin('test-plugin', {
+            authorize: true,
+            resume: true,
+          }),
+        ).toBe(true);
+        expect(createConnector).toHaveBeenCalledWith(
+          expect.objectContaining({
+            oidcConfig: { scheme: 'dcr', scopes: ['docs:read'] },
+          }),
+        );
+      });
+
+      it('rolls back only a new connector if DCR is rejected and does not mark installed', async () => {
+        const deleteConnector = vi.fn().mockResolvedValue(undefined);
+        useToolStore.setState({
+          deleteConnector,
+          createConnector: vi.fn().mockResolvedValue({ id: 'new-conn', isNew: true }),
+          startConnectorOAuth: vi.fn().mockRejectedValue(new Error('redirect_uri not trusted')),
+          fetchConnectors: vi.fn().mockResolvedValue(undefined),
+        });
+        await useToolStore.getState().installMCPPlugin('test-plugin');
+        await useToolStore
+          .getState()
+          .installMCPPlugin('test-plugin', { authorize: true, resume: true });
+        expect(deleteConnector).toHaveBeenCalledWith('new-conn');
+        expect(pluginService.installPlugin).not.toHaveBeenCalled();
+        expect(useToolStore.getState().mcpInstallProgress['test-plugin']?.errorInfo?.type).toBe(
+          'AUTHORIZATION_ERROR',
+        );
+      });
+
+      it('does not install after the user cancels an in-flight authorization', async () => {
+        let complete!: () => void;
+        let entered!: () => void;
+        const waiting = new Promise<void>((resolve) => {
+          entered = resolve;
+        });
+        vi.mocked(connectorOAuth.waitForConnectorOAuth).mockImplementation(() => {
+          entered();
+          return new Promise<void>((resolve) => {
+            complete = resolve;
+          });
+        });
+        useToolStore.setState({
+          createConnector: vi.fn().mockResolvedValue({ id: 'new-conn', isNew: true }),
+          startConnectorOAuth: vi.fn().mockResolvedValue('https://provider.test/authorize'),
+          fetchConnectors: vi.fn().mockResolvedValue(undefined),
+        });
+        await useToolStore.getState().installMCPPlugin('test-plugin');
+        const pending = useToolStore
+          .getState()
+          .installMCPPlugin('test-plugin', { authorize: true, resume: true });
+        await waiting;
+        await useToolStore.getState().cancelInstallMCPPlugin('test-plugin');
+        complete();
+        await pending;
+        expect(pluginService.installPlugin).not.toHaveBeenCalled();
+        expect(useToolStore.getState().mcpInstallProgress['test-plugin']).toBeUndefined();
+      });
+
+      it('does not overwrite an unrelated same-name connector', async () => {
+        const createConnector = vi.fn();
+        const startConnectorOAuth = vi.fn();
+        useToolStore.setState({
+          connectors: [{ identifier: 'test-plugin', sourceType: 'custom' }] as any,
+          createConnector,
+          startConnectorOAuth,
+          fetchConnectors: vi.fn().mockResolvedValue(undefined),
+        });
+        await useToolStore.getState().installMCPPlugin('test-plugin');
+        await useToolStore
+          .getState()
+          .installMCPPlugin('test-plugin', { authorize: true, resume: true });
+        expect(createConnector).not.toHaveBeenCalled();
+        expect(startConnectorOAuth).not.toHaveBeenCalled();
+        expect(pluginService.installPlugin).not.toHaveBeenCalled();
+      });
+    });
+
     describe('normal installation flow', () => {
       it('should successfully install MCP plugin', async () => {
         const { result } = renderHook(() => useToolStore());
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
           });
         });
 
@@ -772,7 +942,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
           });
         });
 
@@ -812,7 +982,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [],
+            mcpPluginList: pagedPluginList([]),
           });
         });
 
@@ -830,7 +1000,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [],
+            mcpPluginList: pagedPluginList([]),
           });
         });
 
@@ -862,7 +1032,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
           });
         });
 
@@ -885,7 +1055,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
           });
         });
 
@@ -918,7 +1088,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
           });
         });
 
@@ -990,7 +1160,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPluginWithCloudEndpoint],
+            mcpPluginList: pagedPluginList([mockPluginWithCloudEndpoint]),
           });
         });
 
@@ -1052,7 +1222,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
           });
         });
 
@@ -1079,7 +1249,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
             mcpInstallProgress: {
               'test-plugin': {
                 progress: 50,
@@ -1114,7 +1284,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
             mcpInstallProgress: {},
           });
         });
@@ -1146,7 +1316,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
           });
         });
 
@@ -1195,7 +1365,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
           });
         });
 
@@ -1219,7 +1389,7 @@ describe('mcpStore actions', () => {
       it('should handle cancellation during installation', async () => {
         const { result } = renderHook(() => useToolStore());
 
-        vi.spyOn(mcpService, 'checkInstallation').mockImplementation(async (manifest, signal) => {
+        vi.spyOn(mcpService, 'checkInstallation').mockImplementation(async (_manifest, _signal) => {
           // Cancel after check
           setTimeout(() => {
             result.current.cancelInstallMCPPlugin('test-plugin');
@@ -1232,7 +1402,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
           });
         });
 
@@ -1266,7 +1436,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
           });
         });
 
@@ -1294,7 +1464,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
           });
         });
 
@@ -1318,7 +1488,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
           });
         });
 
@@ -1341,7 +1511,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
           });
         });
 
@@ -1363,7 +1533,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
           });
         });
 
@@ -1373,8 +1543,11 @@ describe('mcpStore actions', () => {
 
         expect(discoverService.reportMcpInstallResult).toHaveBeenCalledWith(
           expect.objectContaining({
-            success: false,
-            errorMessage: 'Installation failed',
+            execution: expect.objectContaining({
+              errorMessage: 'Installation failed',
+              eventType: 'install',
+              success: false,
+            }),
             identifier: 'test-plugin',
           }),
         );
@@ -1387,7 +1560,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
           });
         });
 
@@ -1397,12 +1570,40 @@ describe('mcpStore actions', () => {
 
         expect(discoverService.reportMcpInstallResult).toHaveBeenCalledWith(
           expect.objectContaining({
-            success: true,
+            execution: expect.objectContaining({
+              durationMs: expect.any(Number),
+              eventId: expect.stringMatching(/^v1:install:.+:1$/),
+              success: true,
+            }),
             identifier: 'test-plugin',
             platform: 'darwin',
             version: '1.0.0',
           }),
         );
+      });
+
+      // One install is one execution with one identity. The installation report
+      // already carries the full snapshot, so a second `install` interaction
+      // event for the same install would be counted as another install that
+      // cannot be de-duplicated against it.
+      it('counts one install once: the installation report only, no extra install event', async () => {
+        const { result } = renderHook(() => useToolStore());
+
+        act(() => {
+          useToolStore.setState({
+            mcpPluginList: pagedPluginList([mockPlugin]),
+          });
+        });
+
+        await act(async () => {
+          await result.current.installMCPPlugin('test-plugin');
+        });
+
+        expect(discoverService.reportMcpInstallResult).toHaveBeenCalledTimes(1);
+        const installEvents = vi
+          .mocked(discoverService.reportMcpEvent)
+          .mock.calls.filter(([event]) => event.event === 'install');
+        expect(installEvents).toHaveLength(0);
       });
 
       it('should fall back to the browser platform when the check result has none', async () => {
@@ -1414,7 +1615,7 @@ describe('mcpStore actions', () => {
 
         act(() => {
           useToolStore.setState({
-            mcpPluginItems: [mockPlugin],
+            mcpPluginList: pagedPluginList([mockPlugin]),
           });
         });
 
@@ -1425,7 +1626,10 @@ describe('mcpStore actions', () => {
 
         expect(installResult).toBe(true);
         expect(discoverService.reportMcpInstallResult).toHaveBeenCalledWith(
-          expect.objectContaining({ platform: 'Mac OS', success: true }),
+          expect.objectContaining({
+            execution: expect.objectContaining({ success: true }),
+            platform: 'Mac OS',
+          }),
         );
       });
     });

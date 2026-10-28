@@ -1,12 +1,11 @@
 'use client';
 
-import { type AuthorizationPhase, type AuthorizationProgress } from '@lobechat/electron-client-ipc';
+import { type AuthorizationProgress } from '@lobechat/electron-client-ipc';
 import { useWatchBroadcast } from '@lobechat/electron-client-ipc';
-import { Center, Flexbox, Icon } from '@lobehub/ui';
-import { Alert, Button, Divider, Input, Text } from '@lobehub/ui/base-ui';
-import { cssVar } from 'antd-style';
-import { Cloud, LogOutIcon, Server, Undo2Icon } from 'lucide-react';
-import { memo, useEffect, useState } from 'react';
+import { normalizeRemoteBaseUrl } from '@lobechat/utils/remoteUrl';
+import { Alert, Button, Center, cssVar, Divider, Flexbox, Icon, Input, Text } from '@lobehub/ui';
+import { ArrowRightLeftIcon, Cloud, LogOutIcon, Server, Undo2Icon } from 'lucide-react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import urlJoin from 'url-join';
 
@@ -18,9 +17,24 @@ import { useSignOut } from '@/hooks/useSignOut';
 import { remoteServerService } from '@/services/electron/remoteServer';
 import { electronSystemService } from '@/services/electron/system';
 import { useElectronStore } from '@/store/electron';
+import { type AuthorizationUiErrorCode } from '@/store/electron/initialState';
 import { setDesktopAutoOidcFirstOpenHandled } from '@/utils/electron/autoOidc';
 
+import {
+  authorizationPhaseI18nKeyMap,
+  canFindByOrganizationEmail,
+  getAuthorizationErrorI18nKey,
+  isSupersededAuthorization,
+  requiresExplicitSwitch,
+} from '../authorizationErrors';
+import AuthorizationConfirmCard from '../components/AuthorizationConfirmCard';
+import { AuthError, AuthNotice, AuthProgress } from '../components/AuthProgressPanel';
 import LobeMessage from '../components/LobeMessage';
+import OrganizationIdentity from '../components/OrganizationIdentity';
+import ReloginRequiredPanel from '../components/ReloginRequiredPanel';
+import { useAuthorizationConfirmation } from '../hooks/useAuthorizationConfirmation';
+import { useAuthorizationEventsSync } from '../hooks/useAuthorizationEventsSync';
+import { canOfferOrganizationSwitch } from '../organization';
 
 const LEGACY_LOCAL_DB_MIGRATION_GUIDE_URL = urlJoin(
   OFFICIAL_SITE,
@@ -32,13 +46,6 @@ type LoginMethod = 'cloud' | 'selfhost';
 
 // Login status type
 type LoginStatus = 'idle' | 'loading' | 'success' | 'error';
-
-const authorizationPhaseI18nKeyMap: Record<AuthorizationPhase, string> = {
-  browser_opened: 'screen5.auth.phase.browserOpened',
-  cancelled: 'screen5.actions.cancel',
-  verifying: 'screen5.auth.phase.verifying',
-  waiting_for_auth: 'screen5.auth.phase.waitingForAuth',
-};
 
 const loginMethodMetas = {
   cloud: {
@@ -74,6 +81,11 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
   const [pendingLoginMethod, setPendingLoginMethod] = useState<LoginMethod | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [remoteError, setRemoteError] = useState<string | null>(null);
+  const [remoteErrorCode, setRemoteErrorCode] = useState<AuthorizationUiErrorCode | undefined>();
+  const [restarting, setRestarting] = useState<{ attempt: number; maxAttempts: number } | null>(
+    null,
+  );
+  const [isSwitchingOrganization, setIsSwitchingOrganization] = useState(false);
   const [showEndpoint, setShowEndpoint] = useState(false);
   const [hasLegacyLocalDb, setHasLegacyLocalDb] = useState(false);
   const [localRemainingSeconds, setLocalRemainingSeconds] = useState<number | null>(null);
@@ -87,6 +99,9 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
     connectRemoteServer,
     refreshServerConfig,
     clearRemoteServerSyncError,
+    requestPlatformAuthorization,
+    switchOrganization,
+    endpointNotice,
   ] = useElectronStore((s) => [
     s.dataSyncConfig,
     s.isConnectingServer,
@@ -95,11 +110,15 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
     s.connectRemoteServer,
     s.refreshServerConfig,
     s.clearRemoteServerSyncError,
+    s.requestPlatformAuthorization,
+    s.switchOrganization,
+    s.tenantEndpointChanged,
   ]);
 
   const signOut = useSignOut();
 
   useDataSyncConfig();
+  useAuthorizationEventsSync();
 
   useEffect(() => {
     if (!isDesktop) return;
@@ -127,7 +146,10 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
   const isSelfHostEndpointVerified =
     isSelfHostAuthed &&
     !!endpoint.trim() &&
-    endpoint.trim() === (dataSyncConfig?.remoteServerUrl ?? '');
+    // The main process stores the normalized address (no trailing slash, tenant
+    // path kept), so compare the typed endpoint in the same form.
+    normalizeRemoteBaseUrl(endpoint) ===
+      normalizeRemoteBaseUrl(dataSyncConfig?.remoteServerUrl ?? '');
 
   const statusSuccessLoginMethod: LoginMethod | null =
     cloudLoginStatus === 'success' && selfhostLoginStatus === 'success'
@@ -139,14 +161,87 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
           : null;
   const hasLocalLoginResult = cloudLoginStatus !== 'idle' || selfhostLoginStatus !== 'idle';
 
+  const isLoginInFlight = cloudLoginStatus === 'loading' || selfhostLoginStatus === 'loading';
+  // After the entry moved (409) the old session is paused: the "signed in" summary would be
+  // misleading, so the notice replaces it until the user signs in again or updates the address.
+  const showEndpointNotice = !!endpointNotice && !isLoginInFlight;
+
+  // A switch / reconnect that failed (or was rejected, timed out, cancelled) never touched the
+  // committed session, so the signed-in content stays and the failure becomes a notice on top.
+  const hasLoginError = cloudLoginStatus === 'error' || selfhostLoginStatus === 'error';
+  const keepsCommittedSession = !!authorizedLoginMethod && hasLoginError && !isLoginInFlight;
+
   const successLoginMethod =
-    statusSuccessLoginMethod ??
-    (!hasLocalLoginResult && !pendingLoginMethod ? authorizedLoginMethod : null);
+    showEndpointNotice && endpointNotice === 'update_address_required'
+      ? null
+      : (statusSuccessLoginMethod ??
+        (keepsCommittedSession || (!hasLocalLoginResult && !pendingLoginMethod)
+          ? authorizedLoginMethod
+          : null));
 
   // Determine if user can proceed (either method succeeding is sufficient)
   const canStart = () => {
     return !!successLoginMethod;
   };
+
+  const resetAuthError = () => {
+    setRemoteError(null);
+    setRemoteErrorCode(undefined);
+    clearRemoteServerSyncError();
+  };
+
+  // Close a failure notice: the signed-in content underneath was never replaced.
+  const dismissAuthError = () => {
+    resetAuthError();
+    setCloudLoginStatus('idle');
+    setSelfhostLoginStatus('idle');
+  };
+
+  // A login that was started elsewhere (or before this panel mounted) is still ours to show.
+  const adoptLoginInFlight = () => {
+    if (cloudLoginStatus !== 'idle' || selfhostLoginStatus !== 'idle') return;
+    if (isCloudAuthed || isSelfHostAuthed) return;
+
+    const method: LoginMethod = dataSyncConfig?.storageMode === 'selfHost' ? 'selfhost' : 'cloud';
+    setPendingLoginMethod(method);
+    if (method === 'cloud') setCloudLoginStatus('loading');
+    else {
+      setShowEndpoint(true);
+      setSelfhostLoginStatus('loading');
+    }
+  };
+
+  // The login ended without becoming active: show the reason the store recorded, if any.
+  const handleAuthAborted = useCallback(() => {
+    const failure = useElectronStore.getState().remoteServerSyncError;
+    const method: LoginMethod =
+      pendingLoginMethod ??
+      (useElectronStore.getState().dataSyncConfig?.storageMode === 'selfHost'
+        ? 'selfhost'
+        : 'cloud');
+    setPendingLoginMethod(null);
+    setAuthProgress(null);
+    setRestarting(null);
+
+    if (failure?.message || failure?.code) {
+      setRemoteError(failure.message ?? '');
+      setRemoteErrorCode(failure.code);
+      if (method === 'cloud') {
+        setCloudLoginStatus('error');
+        setSelfhostLoginStatus('idle');
+      } else {
+        setShowEndpoint(true);
+        setSelfhostLoginStatus('error');
+        setCloudLoginStatus('idle');
+      }
+      return;
+    }
+
+    setCloudLoginStatus('idle');
+    setSelfhostLoginStatus('idle');
+  }, [pendingLoginMethod]);
+
+  const confirmation = useAuthorizationConfirmation({ onAborted: handleAuthAborted });
 
   // Handle cloud login
   const handleCloudLogin = async () => {
@@ -156,8 +251,7 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
       return;
     }
 
-    setRemoteError(null);
-    clearRemoteServerSyncError();
+    resetAuthError();
     setPendingLoginMethod('cloud');
     setCloudLoginStatus('loading');
     setSelfhostLoginStatus('idle');
@@ -169,22 +263,56 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
   };
 
   // Handle self-hosted server connection
-  const handleSelfhostConnect = async () => {
+  const handleSelfhostConnect = async (urlOverride?: string) => {
     if (!isDesktop) {
       setRemoteError(t('screen5.errors.desktopOnlyOidc'));
       setSelfhostLoginStatus('error');
       return;
     }
 
-    const url = endpoint.trim();
+    const url = (urlOverride ?? endpoint).trim();
     if (!url) return;
 
-    setRemoteError(null);
-    clearRemoteServerSyncError();
+    resetAuthError();
     setPendingLoginMethod('selfhost');
     setCloudLoginStatus('idle');
     setSelfhostLoginStatus('loading');
     await connectRemoteServer({ remoteServerUrl: url, storageMode: 'selfHost' });
+  };
+
+  // Sign in again after the organization entry moved; main re-discovers the entry itself.
+  const handleReloginAfterEndpointChange = async () => {
+    if (dataSyncConfig?.storageMode === 'selfHost' && dataSyncConfig.remoteServerUrl) {
+      setShowEndpoint(true);
+      setEndpoint(dataSyncConfig.remoteServerUrl);
+      await handleSelfhostConnect(dataSyncConfig.remoteServerUrl);
+      return;
+    }
+
+    await handleCloudLogin();
+  };
+
+  // The typed address was not an organization: look the organization up by email instead.
+  const handleFindByOrganizationEmail = async () => {
+    resetAuthError();
+    setPendingLoginMethod('cloud');
+    setCloudLoginStatus('loading');
+    setSelfhostLoginStatus('idle');
+    await requestPlatformAuthorization();
+  };
+
+  // Sign out and pick an organization again, for both the status panel and recoverable errors.
+  const handleSwitchOrganization = async () => {
+    resetAuthError();
+    setIsSwitchingOrganization(true);
+    setPendingLoginMethod('cloud');
+    setCloudLoginStatus('loading');
+    setSelfhostLoginStatus('idle');
+    try {
+      await switchOrganization();
+    } finally {
+      setIsSwitchingOrganization(false);
+    }
   };
 
   const handleSignOut = async () => {
@@ -214,6 +342,13 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
     setEndpoint(dataSyncConfig?.remoteServerUrl ?? '');
   }, [dataSyncConfig?.remoteServerUrl, endpoint, isSelfHostAuthed]);
 
+  // The server moved and the saved address is dead: start from it so only the part that
+  // changed needs editing.
+  useEffect(() => {
+    if (endpointNotice !== 'update_address_required' || endpoint.trim()) return;
+    setEndpoint(dataSyncConfig?.remoteServerUrl ?? '');
+  }, [dataSyncConfig?.remoteServerUrl, endpoint, endpointNotice]);
+
   // If user changes self-host endpoint after success, require re-authorization.
   useEffect(() => {
     if (selfhostLoginStatus !== 'success') return;
@@ -226,16 +361,22 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
     const message = remoteServerSyncError?.message;
     if (!message) return;
     setRemoteError(message);
+    setRemoteErrorCode(remoteServerSyncError?.code);
     setPendingLoginMethod(null);
     if (cloudLoginStatus === 'loading') setCloudLoginStatus('error');
     if (selfhostLoginStatus === 'loading') setSelfhostLoginStatus('error');
-  }, [remoteServerSyncError?.message, cloudLoginStatus, selfhostLoginStatus]);
+  }, [
+    remoteServerSyncError?.message,
+    remoteServerSyncError?.code,
+    cloudLoginStatus,
+    selfhostLoginStatus,
+  ]);
 
   // Watch broadcasts from main process (polling result)
   useWatchBroadcast('authorizationSuccessful', async () => {
-    setRemoteError(null);
-    clearRemoteServerSyncError();
+    resetAuthError();
     setAuthProgress(null);
+    setRestarting(null);
     if (pendingLoginMethod === 'cloud') {
       setCloudLoginStatus('success');
       setSelfhostLoginStatus('idle');
@@ -247,9 +388,14 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
     await refreshServerConfig();
   });
 
-  useWatchBroadcast('authorizationFailed', ({ error }) => {
+  useWatchBroadcast('authorizationFailed', ({ code, error }) => {
+    // An older flow lost to a newer one: the newer one is still running.
+    if (isSupersededAuthorization(code)) return;
+
     setRemoteError(error);
+    setRemoteErrorCode(code);
     setAuthProgress(null);
+    setRestarting(null);
     setPendingLoginMethod(null);
     if (cloudLoginStatus === 'loading') setCloudLoginStatus('error');
     if (selfhostLoginStatus === 'loading') setSelfhostLoginStatus('error');
@@ -262,7 +408,18 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
       setSelfhostLoginStatus('idle');
       setPendingLoginMethod(null);
       setAuthProgress(null);
+      setRestarting(null);
+      return;
     }
+
+    setRestarting(null);
+    adoptLoginInFlight();
+  });
+
+  // Entry moved mid-login: main restarts the flow itself, so keep the loading state with a hint.
+  useWatchBroadcast('authorizationRestarting', ({ attempt, maxAttempts }) => {
+    setRestarting({ attempt, maxAttempts });
+    adoptLoginInFlight();
   });
 
   // Sync local countdown from authProgress
@@ -293,19 +450,36 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
   }, [localRemainingSeconds]);
 
   const handleCancelAuth = async () => {
-    setRemoteError(null);
-    clearRemoteServerSyncError();
+    resetAuthError();
 
     setCloudLoginStatus('idle');
     setSelfhostLoginStatus('idle');
     setPendingLoginMethod(null);
     setAuthProgress(null);
+    setRestarting(null);
     await remoteServerService.cancelAuthorization();
+  };
+
+  const getAuthErrorMessage = () => {
+    const codeKey = getAuthorizationErrorI18nKey(remoteErrorCode);
+
+    return codeKey
+      ? t(codeKey)
+      : remoteError?.toLowerCase().includes('timed out')
+        ? t('screen5.errors.timedOut')
+        : remoteError || t('authResult.failed.desc');
   };
 
   const renderSuccessContent = (method: LoginMethod) => {
     const isStatusMode = mode === 'status';
     const serverUrl = dataSyncConfig?.remoteServerUrl;
+    const cloudTenant = dataSyncConfig?.cloudTenant;
+    const isBusy = isSigningOut || isSwitchingOrganization;
+    const showFailureNotice = keepsCommittedSession && method === authorizedLoginMethod;
+    // An explicit switch demanded by the failure lives in the notice; otherwise the regular
+    // switch button below is the way to retry.
+    const noticeOffersSwitch =
+      showFailureNotice && method === 'cloud' && requiresExplicitSwitch(remoteErrorCode);
 
     const title = isStatusMode
       ? [method === 'cloud' ? t('screen5.status.cloud.title') : t('screen5.status.selfhost.title')]
@@ -325,25 +499,56 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
         </Flexbox>
 
         <Flexbox gap={16} style={{ width: '100%' }}>
+          {showFailureNotice && (
+            <AuthNotice
+              isBusy={!!isConnectingServer || isBusy}
+              message={getAuthErrorMessage()}
+              onDismiss={dismissAuthError}
+              onSwitchOrganization={noticeOffersSwitch ? handleSwitchOrganization : undefined}
+            />
+          )}
           <UserInfo
             style={{
               background: cssVar.colorFillSecondary,
               borderRadius: 8,
             }}
           />
+          {cloudTenant && (
+            <OrganizationIdentity
+              account={cloudTenant.display.account}
+              entryUrl={cloudTenant.entryUrl}
+              organizationName={cloudTenant.display.organizationName}
+              organizationSlug={cloudTenant.display.organizationSlug}
+            />
+          )}
         </Flexbox>
 
         <Flexbox horizontal justify={'space-between'} style={{ marginTop: 32 }}>
           {isStatusMode ? (
-            <Button
-              disabled={isSigningOut}
-              icon={LogOutIcon}
-              style={{ color: cssVar.colorTextDescription }}
-              type={'text'}
-              onClick={handleSignOut}
-            >
-              {isSigningOut ? t('screen5.actions.signingOut') : t('screen5.actions.signOut')}
-            </Button>
+            <Flexbox horizontal gap={4}>
+              <Button
+                disabled={isBusy}
+                icon={LogOutIcon}
+                style={{ color: cssVar.colorTextDescription }}
+                type={'text'}
+                onClick={handleSignOut}
+              >
+                {isSigningOut ? t('screen5.actions.signingOut') : t('screen5.actions.signOut')}
+              </Button>
+              {method === 'cloud' &&
+                !noticeOffersSwitch &&
+                canOfferOrganizationSwitch(cloudTenant?.display.hasOtherOrganizations) && (
+                  <Button
+                    disabled={isBusy}
+                    icon={ArrowRightLeftIcon}
+                    style={{ color: cssVar.colorTextDescription }}
+                    type={'text'}
+                    onClick={handleSwitchOrganization}
+                  >
+                    {t('screen5.actions.switchOrganization')}
+                  </Button>
+                )}
+            </Flexbox>
           ) : (
             <Button
               icon={Undo2Icon}
@@ -362,61 +567,60 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
     );
   };
 
+  const renderPhaseText = (fallback: string) =>
+    restarting
+      ? t('screen5.auth.phase.restarting', {
+          attempt: restarting.attempt,
+          max: restarting.maxAttempts,
+        })
+      : t(authorizationPhaseI18nKeyMap[authProgress?.phase ?? 'browser_opened'], {
+          defaultValue: fallback,
+        });
+
+  // Failure reason by code; unknown or code-less errors keep the previous behaviour.
+  const renderAuthError = (method: LoginMethod) => {
+    const errorMessage = getAuthErrorMessage();
+
+    const retry = () => {
+      resetAuthError();
+      if (method === 'cloud') setCloudLoginStatus('idle');
+      else setSelfhostLoginStatus('idle');
+    };
+
+    return (
+      <AuthError
+        canFindByEmail={canFindByOrganizationEmail(remoteErrorCode)}
+        isBusy={!!isConnectingServer || isSwitchingOrganization}
+        message={errorMessage}
+        method={method}
+        requiresSwitch={requiresExplicitSwitch(remoteErrorCode)}
+        retryLabel={
+          remoteErrorCode === 'COMMIT_FAILED'
+            ? t('screen5.actions.signInAgain')
+            : t('screen5.actions.tryAgain')
+        }
+        onFindByEmail={handleFindByOrganizationEmail}
+        onRetry={retry}
+        onSwitchOrganization={handleSwitchOrganization}
+      />
+    );
+  };
+
   // Render Cloud login content
   const renderCloudContent = () => {
-    if (cloudLoginStatus === 'error') {
-      const errorMessage = remoteError?.toLowerCase().includes('timed out')
-        ? t('screen5.errors.timedOut')
-        : remoteError || t('authResult.failed.desc');
-
-      return (
-        <Flexbox gap={16} style={{ width: '100%' }}>
-          <Alert
-            description={errorMessage}
-            title={t('authResult.failed.title')}
-            type={'secondary'}
-          />
-          <Button
-            block
-            icon={Cloud}
-            size={'large'}
-            type={'primary'}
-            onClick={() => setCloudLoginStatus('idle')}
-          >
-            {t('screen5.actions.tryAgain')}
-          </Button>
-        </Flexbox>
-      );
-    }
+    if (cloudLoginStatus === 'error') return renderAuthError('cloud');
 
     if (cloudLoginStatus === 'loading') {
-      const phaseText = t(authorizationPhaseI18nKeyMap[authProgress?.phase ?? 'browser_opened'], {
-        defaultValue: t('screen5.actions.signingIn'),
-      });
+      const phaseText = renderPhaseText(t('screen5.actions.signingIn'));
 
       return (
-        <Flexbox gap={8} style={{ width: '100%' }}>
-          <Button block disabled={true} icon={Cloud} loading={true} size={'large'} type={'primary'}>
-            {t('screen5.actions.signingIn')}
-          </Button>
-          <Text style={{ color: cssVar.colorTextDescription }} type={'secondary'}>
-            {phaseText}
-          </Text>
-          <Flexbox horizontal align={'center'} justify={'space-between'}>
-            {localRemainingSeconds !== null ? (
-              <Text style={{ color: cssVar.colorTextDescription }} type={'secondary'}>
-                {t('screen5.auth.remaining', {
-                  time: localRemainingSeconds,
-                })}
-              </Text>
-            ) : (
-              <div />
-            )}
-            <Button size={'small'} type={'text'} onClick={handleCancelAuth}>
-              {t('screen5.actions.cancel')}
-            </Button>
-          </Flexbox>
-        </Flexbox>
+        <AuthProgress
+          label={t('screen5.actions.signingIn')}
+          method={'cloud'}
+          phaseText={phaseText}
+          remainingSeconds={localRemainingSeconds}
+          onCancel={handleCancelAuth}
+        />
       );
     }
 
@@ -437,60 +641,19 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
 
   // Render Self-host login content
   const renderSelfhostContent = () => {
-    if (selfhostLoginStatus === 'error') {
-      const errorMessage = remoteError?.toLowerCase().includes('timed out')
-        ? t('screen5.errors.timedOut')
-        : remoteError || t('authResult.failed.desc');
-
-      return (
-        <Flexbox gap={16} style={{ width: '100%' }}>
-          <Alert
-            description={errorMessage}
-            title={t('authResult.failed.title')}
-            type={'secondary'}
-          />
-          <Button icon={Server} type={'primary'} onClick={() => setSelfhostLoginStatus('idle')}>
-            {t('screen5.actions.tryAgain')}
-          </Button>
-        </Flexbox>
-      );
-    }
+    if (selfhostLoginStatus === 'error') return renderAuthError('selfhost');
 
     if (selfhostLoginStatus === 'loading') {
-      const phaseText = t(authorizationPhaseI18nKeyMap[authProgress?.phase ?? 'browser_opened'], {
-        defaultValue: t('screen5.actions.connecting'),
-      });
+      const phaseText = renderPhaseText(t('screen5.actions.connecting'));
 
       return (
-        <Flexbox gap={8} style={{ width: '100%' }}>
-          <Button
-            block
-            disabled={true}
-            icon={Server}
-            loading={true}
-            size={'large'}
-            type={'primary'}
-          >
-            {t('screen5.actions.connecting')}
-          </Button>
-          <Text style={{ color: cssVar.colorTextDescription }} type={'secondary'}>
-            {phaseText}
-          </Text>
-          <Flexbox horizontal align={'center'} justify={'space-between'}>
-            {localRemainingSeconds !== null ? (
-              <Text style={{ color: cssVar.colorTextDescription }} type={'secondary'}>
-                {t('screen5.auth.remaining', {
-                  time: localRemainingSeconds,
-                })}
-              </Text>
-            ) : (
-              <div />
-            )}
-            <Button size={'small'} type={'text'} onClick={handleCancelAuth}>
-              {t('screen5.actions.cancel')}
-            </Button>
-          </Flexbox>
-        </Flexbox>
+        <AuthProgress
+          label={t('screen5.actions.connecting')}
+          method={'selfhost'}
+          phaseText={phaseText}
+          remainingSeconds={localRemainingSeconds}
+          onCancel={handleCancelAuth}
+        />
       );
     }
 
@@ -530,7 +693,7 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
           size={'large'}
           style={{ width: '100%' }}
           type={'primary'}
-          onClick={handleSelfhostConnect}
+          onClick={() => handleSelfhostConnect()}
         >
           {t('screen5.actions.connectToServer')}
         </Button>
@@ -538,13 +701,60 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
     );
   };
 
+  if (confirmation.request) {
+    return (
+      <Center gap={32} style={{ height: '100%', minHeight: '100%' }}>
+        <AuthorizationConfirmCard
+          busy={confirmation.busy}
+          request={confirmation.request}
+          onCancel={confirmation.cancel}
+          onConfirm={confirmation.confirm}
+          onSwitchOrganization={confirmation.switchOrganization}
+        />
+      </Center>
+    );
+  }
+
+  if (showEndpointNotice && endpointNotice === 'relogin_required') {
+    return (
+      <ReloginRequiredPanel
+        cloudTenant={dataSyncConfig?.cloudTenant}
+        isConnecting={!!isConnectingServer}
+        isSigningOut={isSigningOut}
+        failure={
+          hasLoginError
+            ? { message: getAuthErrorMessage(), onDismiss: dismissAuthError }
+            : undefined
+        }
+        onRelogin={handleReloginAfterEndpointChange}
+        onSignOut={handleSignOut}
+      />
+    );
+  }
+
   if (successLoginMethod) return renderSuccessContent(successLoginMethod);
+
+  const mustUpdateAddress = showEndpointNotice && endpointNotice === 'update_address_required';
 
   return (
     <Center gap={32} style={{ height: '100%', minHeight: '100%' }}>
-      <Flexbox align={'flex-start'} justify={'flex-start'} style={{ width: '100%' }}>
-        <LobeMessage sentences={[t('screen5.title'), t('screen5.title2'), t('screen5.title3')]} />
-        <Text as={'p'}>{t('screen5.description')}</Text>
+      <Flexbox align={'flex-start'} gap={8} justify={'flex-start'} style={{ width: '100%' }}>
+        {mustUpdateAddress ? (
+          <>
+            <LobeMessage sentences={[t('screen5.endpointChanged.updateAddress.title')]} />
+            <Alert
+              description={t('screen5.endpointChanged.updateAddress.description')}
+              type={'warning'}
+            />
+          </>
+        ) : (
+          <>
+            <LobeMessage
+              sentences={[t('screen5.title'), t('screen5.title2'), t('screen5.title3')]}
+            />
+            <Text as={'p'}>{t('screen5.description')}</Text>
+          </>
+        )}
       </Flexbox>
 
       <Flexbox align={'flex-start'} gap={16} style={{ width: '100%' }} width={'100%'}>
@@ -562,7 +772,7 @@ const LoginStep = memo<LoginStepProps>(({ mode = 'onboarding', onBack, onNext })
             </Button>
           )}
         </Flexbox>
-        {!showEndpoint ? (
+        {!showEndpoint && !mustUpdateAddress ? (
           <Center width={'100%'}>
             <Button
               type={'text'}

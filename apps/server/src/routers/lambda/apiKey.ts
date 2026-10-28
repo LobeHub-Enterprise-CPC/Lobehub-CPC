@@ -148,7 +148,7 @@ export const apiKeyRouter = router({
   getApiKey: apiKeyProcedure
     .use(withScopedPermission('api_key:read'))
     .input(z.object({ apiKey: z.string() }))
-    .query(async ({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const apiKey = await ctx.apiKeyModel.findByKey(input.apiKey);
       if (!apiKey) return apiKey;
       const { key: _, keyHash: __, ...safeApiKey } = apiKey;
@@ -222,7 +222,7 @@ export const apiKeyRouter = router({
 
   validateApiKey: apiKeyProcedure
     .input(z.object({ key: z.string() }))
-    .query(async ({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       return ctx.apiKeyModel.validateKey(input.key);
     }),
 });

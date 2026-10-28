@@ -1,5 +1,6 @@
 'use client';
 
+import { buildAppUrl } from '@lobechat/business-tenant/client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { lambdaClient, toolsClient } from '@/libs/trpc/client';
@@ -254,7 +255,9 @@ export const useSocialConnect = ({
     setError(null);
 
     try {
-      const redirectUri = `${window.location.origin}/oauth/callback/social?provider=${encodeURIComponent(provider)}`;
+      const redirectUri = buildAppUrl(
+        `/oauth/callback/social?provider=${encodeURIComponent(provider)}`,
+      );
       const result = await toolsClient.market.connectGetAuthorizeUrl.query({
         provider,
         redirectUri,

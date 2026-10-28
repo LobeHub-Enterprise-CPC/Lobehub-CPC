@@ -1,9 +1,18 @@
+import type * as BusinessConst from '@lobechat/business-const';
 import { Children, type FC, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-const { nullComponent, passthrough } = vi.hoisted(() => ({
+const { nullComponent, passthrough, flags } = vi.hoisted(() => ({
+  flags: { navRailEnabled: true },
   nullComponent: () => ({ default: () => null }),
   passthrough: () => ({ default: ({ children }: { children?: unknown }) => children }),
+}));
+
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
+  ...(await importOriginal<typeof BusinessConst>()),
+  get NAV_RAIL_ENABLED() {
+    return flags.navRailEnabled;
+  },
 }));
 
 vi.mock('@/const/version', () => ({ isDesktop: true }));
@@ -43,6 +52,11 @@ vi.mock('@/features/Electron/titlebar/TabBar/TabCacheBridges', nullComponent);
 vi.mock('@/features/Electron/titlebar/TitleBar', nullComponent);
 vi.mock('@/features/HotkeyHelperPanel', nullComponent);
 vi.mock('@/features/NavPanel/Shell', nullComponent);
+vi.mock('@/features/NavRail', () => ({
+  default: function NavRail() {
+    return null;
+  },
+}));
 vi.mock('@/layout/GlobalProvider/CmdkLazy', nullComponent);
 vi.mock('./GatewayMuxWarmup', nullComponent);
 vi.mock('./ClientLlmWaitResume', nullComponent);
@@ -92,4 +106,18 @@ describe.each(layouts)('main layout (%s)', (_name, load) => {
       }
     },
   );
+});
+
+// Both entry variants must mount the shared rail when the downstream flag is on.
+describe.each(layouts)('navigation rail (%s)', (_name, load) => {
+  it.each([true, false])('honors NAV_RAIL_ENABLED=%s', async (enabled) => {
+    flags.navRailEnabled = enabled;
+    try {
+      const { default: Layout } = await load();
+      const tree = await (Layout as FC)({});
+      expect(Boolean(findByName(tree, 'NavRail'))).toBe(enabled);
+    } finally {
+      flags.navRailEnabled = true;
+    }
+  });
 });

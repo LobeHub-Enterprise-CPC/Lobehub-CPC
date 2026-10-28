@@ -41,7 +41,6 @@ export interface CodexChannelStart {
 export interface CodexChannelSnapshot {
   acceptance: 'pending' | 'accepted' | 'unknown';
   activity?: 'running' | 'typing';
-  approval?: { expiresAt: number; id: string; method: string; request: unknown };
   bindingKey?: string;
   content?: string;
   cwd: string;
@@ -300,17 +299,6 @@ export class CodexChannelHost {
         execution.snapshot.error = 'Could not persist Agent receipt';
       });
     return structuredClone(execution.snapshot);
-  }
-
-  // Older receipts may contain a Channel-owned approval; never silently approve it.
-  async approve(
-    _ownerId: string,
-    _runId: string,
-    _fence: number,
-    _approvalId: string,
-    _approved: boolean,
-  ) {
-    throw new Error('Approval is no longer active; use the Agent native permission flow');
   }
 
   async stop(ownerId: string, runId: string, fence: number) {

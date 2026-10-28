@@ -3,6 +3,8 @@ import type {
   ContextBuildInput,
   ContextBuildOutput,
 } from '@lobechat/agent-runtime';
+import { pick } from 'es-toolkit';
+import type { LLMParams } from 'model-bank';
 
 import type { RuntimeContextBuilderContext } from '../context';
 import { buildServerCallLlmContext } from './serverCallLlmContextBuilder';
@@ -33,6 +35,14 @@ export class ServerContextBuilder implements ContextBuilder {
     return {
       messages: result.processedMessages,
       modelParameters: {
+        ...pick<LLMParams, keyof LLMParams>(input.state.world?.agent?.params ?? {}, [
+          'frequency_penalty',
+          'max_tokens',
+          'presence_penalty',
+          'reasoning_effort',
+          'temperature',
+          'top_p',
+        ]),
         ...result.resolvedExtendParams,
         ...(typeof result.stream === 'boolean' && { stream: result.stream }),
       },

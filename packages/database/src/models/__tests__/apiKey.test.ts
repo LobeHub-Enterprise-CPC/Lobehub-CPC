@@ -1,14 +1,25 @@
 // @vitest-environment node
 import { API_KEY_PREFIX, validateApiKeyFormat } from '@lobechat/utils/apiKey';
 import { eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { hashApiKey } from '@/utils/server/apiKeyHash';
+import type * as KeyVaultsModule from '@/server/modules/KeyVaultsEncrypt';
+import { hashApiKey, hashApiKeyWithSecret } from '@/utils/server/apiKeyHash';
 
 import { getTestDB } from '../../core/getTestDB';
 import { apiKeys, users, workspaces } from '../../schemas';
 import type { LobeChatDatabase } from '../../type';
 import { ApiKeyModel } from '../apiKey';
+
+// Model tests run outside a request, so there is no tenant scope: pin the
+// gatekeeper to one test tenant's derived key.
+vi.mock('@/server/modules/KeyVaultsEncrypt', async (importOriginal) => {
+  const actual = await importOriginal<typeof KeyVaultsModule>();
+  class KeyVaultsGateKeeper extends actual.KeyVaultsGateKeeper {
+    static initWithEnvKey = async () => actual.KeyVaultsGateKeeper.forTenant('test-tenant');
+  }
+  return { ...actual, KeyVaultsGateKeeper };
+});
 
 const serverDB: LobeChatDatabase = await getTestDB();
 
@@ -16,10 +27,13 @@ const userId = 'api-key-model-test-user-id';
 const validKeyVaultsSecret = 'ofQiJCXLF8mYemwfMWLOHoHimlPu91YmLfU7YZ4lreQ=';
 
 let apiKeyModel: ApiKeyModel;
+let originalFallbackSecret: string | undefined;
 let originalKeyVaultsSecret: string | undefined;
 
 beforeEach(async () => {
+  originalFallbackSecret = process.env.KEY_VAULTS_FALLBACK_SECRET;
   originalKeyVaultsSecret = process.env.KEY_VAULTS_SECRET;
+  delete process.env.KEY_VAULTS_FALLBACK_SECRET;
   process.env.KEY_VAULTS_SECRET = validKeyVaultsSecret;
   apiKeyModel = new ApiKeyModel(serverDB, userId);
   await serverDB.delete(users);
@@ -29,7 +43,10 @@ beforeEach(async () => {
 afterEach(async () => {
   await serverDB.delete(users).where(eq(users.id, userId));
   await serverDB.delete(apiKeys).where(eq(apiKeys.userId, userId));
-  process.env.KEY_VAULTS_SECRET = originalKeyVaultsSecret;
+  if (originalFallbackSecret === undefined) delete process.env.KEY_VAULTS_FALLBACK_SECRET;
+  else process.env.KEY_VAULTS_FALLBACK_SECRET = originalFallbackSecret;
+  if (originalKeyVaultsSecret === undefined) delete process.env.KEY_VAULTS_SECRET;
+  else process.env.KEY_VAULTS_SECRET = originalKeyVaultsSecret;
 });
 
 describe('ApiKeyModel', () => {
@@ -53,7 +70,7 @@ describe('ApiKeyModel', () => {
         where: eq(apiKeys.id, result.id),
       });
       expect(apiKey).toMatchObject({ ...params, userId });
-      expect(apiKey?.key).toContain(':');
+      expect(apiKey?.key).toMatch(/^v1\.[\w-]+\.[\w-]+\.[\w-]+$/);
       expect(apiKey?.keyHash).toMatch(/^[\da-f]{64}$/);
     });
 
@@ -78,7 +95,7 @@ describe('ApiKeyModel', () => {
 
       const stored = await apiKeyModel.findById(created.id);
       expect(stored?.key).not.toBe(created.key);
-      expect(stored?.key).toContain(':');
+      expect(stored?.key).toMatch(/^v1\.[\w-]+\.[\w-]+\.[\w-]+$/);
     });
   });
 
@@ -166,7 +183,7 @@ describe('ApiKeyModel', () => {
       const [metadata] = await apiKeyModel.queryMetadata();
 
       expect(metadata.key).not.toBe(created.key);
-      expect(metadata.key).toContain(':');
+      expect(metadata.key).toMatch(/^v1\.[\w-]+\.[\w-]+\.[\w-]+$/);
     });
 
     it('should query API keys ordered by updatedAt desc', async () => {
@@ -277,6 +294,26 @@ describe('ApiKeyModel', () => {
       expect(found).toBeDefined();
       expect(found?.key).toBe(validKey);
       expect(found?.name).toBe('Test Key');
+    });
+
+    it('finds a key hashed with the rotation fallback in static and scoped lookups', async () => {
+      const validKey = `${API_KEY_PREFIX}1234567890abcdef`;
+      const fallbackSecret = 'fallback-hash-secret';
+      process.env.KEY_VAULTS_FALLBACK_SECRET = fallbackSecret;
+      await serverDB.insert(apiKeys).values({
+        enabled: true,
+        key: validKey,
+        keyHash: hashApiKeyWithSecret(validKey, fallbackSecret),
+        name: 'Fallback Key',
+        userId,
+      });
+
+      await expect(ApiKeyModel.findByKey(serverDB, validKey)).resolves.toMatchObject({
+        name: 'Fallback Key',
+      });
+      await expect(apiKeyModel.findByKey(validKey)).resolves.toMatchObject({
+        name: 'Fallback Key',
+      });
     });
 
     it('should return null for invalid key format', async () => {

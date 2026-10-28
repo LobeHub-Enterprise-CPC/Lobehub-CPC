@@ -2,10 +2,26 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import os from 'node:os';
 
-import type { DeviceMetricSample } from '@lobechat/types';
+import type { DeviceMetricSample, GatewayIdentityProvider } from '@lobechat/types';
 import WebSocket from 'ws';
 
-import { DeviceTunnelHost } from './tunnel';
+import {
+  assertGatewayIdentityContinuity,
+  gatewayCloseFailure,
+  gatewayIdentityFailure,
+} from '../../agent-gateway-client/src/identity';
+import { GatewayIdentityRenewal } from '../../agent-gateway-client/src/identityRenewal';
+import type { GatewayCommandBinding } from '../../agent-gateway-client/src/tenancy';
+import {
+  gatewayIdentityHint,
+  GatewaySocketAuthority,
+  strictGatewayUrl,
+} from '../../agent-gateway-client/src/tenancy';
+import {
+  assertDeviceCommandPayload,
+  attachGatewaySocket,
+  describeGatewayTokenExpiry,
+} from './socket';
 import type {
   AgentRunAckMessage,
   AgentRunRequestMessage,
@@ -23,8 +39,6 @@ import type {
   ToolCallResponseMessage,
 } from './types';
 
-// ─── Constants ───
-
 const DEFAULT_GATEWAY_URL = 'https://device-gateway.lobehub.com';
 const HEARTBEAT_INTERVAL = 30_000; // 30s
 const INITIAL_RECONNECT_DELAY = 1000; // 1s
@@ -37,7 +51,6 @@ const MAX_MISSED_HEARTBEATS = 3; // Force reconnect after 3 missed acks
  * stalling a reconnect for 15+ minutes while the device sat offline.
  */
 const CONNECT_TIMEOUT = 15_000; // 15s
-const METRICS_ACK_TIMEOUT_MS = 15_000;
 /**
  * Close reason the gateway sends when a newer socket with the same
  * `connectionId` takes over. `connectionId` is persisted per install, so this
@@ -45,8 +58,6 @@ const METRICS_ACK_TIMEOUT_MS = 15_000;
  * home) shows up.
  */
 const REPLACED_CLOSE_REASON = 'Replaced by new connection';
-
-// ─── Logger Interface ───
 
 export interface GatewayClientLogger {
   debug: (msg: string, ...args: unknown[]) => void;
@@ -86,6 +97,7 @@ export interface GatewayClientOptions {
   connectTimeoutMs?: number;
   deviceId?: string;
   gatewayUrl?: string;
+  identityProvider?: GatewayIdentityProvider;
   logger?: GatewayClientLogger;
   serverUrl?: string;
   token: string;
@@ -111,7 +123,13 @@ export interface GatewayClientOptions {
 
 export class GatewayClient extends EventEmitter {
   private ws: WebSocket | null = null;
-  private tunnelHost: DeviceTunnelHost | null = null;
+  private detachSocket?: () => void;
+  private authority?: GatewaySocketAuthority;
+  private renewal?: GatewayIdentityRenewal;
+  private identityProvider?: GatewayIdentityProvider;
+  private dialController?: AbortController;
+  private dialEpoch = 0;
+  private expiryTimer?: ReturnType<typeof setInterval>;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private connectWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
@@ -149,6 +167,7 @@ export class GatewayClient extends EventEmitter {
   constructor(options: GatewayClientOptions) {
     super();
     this.token = options.token;
+    this.identityProvider = options.identityProvider;
     this.tokenType = options.tokenType;
     this.userAgent = options.userAgent;
     this.gatewayUrl = options.gatewayUrl || DEFAULT_GATEWAY_URL;
@@ -161,16 +180,7 @@ export class GatewayClient extends EventEmitter {
     this.logger = options.logger || noopLogger;
     this.autoReconnect = options.autoReconnect ?? true;
     this.connectTimeoutMs = options.connectTimeoutMs ?? CONNECT_TIMEOUT;
-    if (options.tunnel !== false) {
-      this.tunnelHost = new DeviceTunnelHost({
-        backlog: () => this.ws?.bufferedAmount ?? 0,
-        logger: this.logger,
-        send: (frame) => this.sendMessage(frame),
-      });
-    }
   }
-
-  // ─── Public API ───
 
   get connectionStatus(): ConnectionStatus {
     return this.status;
@@ -255,28 +265,8 @@ export class GatewayClient extends EventEmitter {
    * drops mid-flight, or when no ack arrives in time — the caller keeps the
    * batch and retries later.
    */
-  reportMetrics(samples: DeviceMetricSample[]): Promise<void> {
-    if (this.status !== 'connected' || this.ws?.readyState !== WebSocket.OPEN) {
-      return Promise.reject(new Error('Gateway not connected'));
-    }
-    const batchId = randomUUID();
-    return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pendingMetricAcks.delete(batchId);
-        reject(new Error('Timed out waiting for device_metrics_ack'));
-      }, METRICS_ACK_TIMEOUT_MS);
-      this.pendingMetricAcks.set(batchId, {
-        reject: (error) => {
-          clearTimeout(timer);
-          reject(error);
-        },
-        resolve: () => {
-          clearTimeout(timer);
-          resolve();
-        },
-      });
-      this.sendMessage({ batchId, samples, type: 'device_metrics' });
-    });
+  reportMetrics(_samples: DeviceMetricSample[]): Promise<void> {
+    return Promise.reject(new Error('DEVICE_METRICS_UNSUPPORTED'));
   }
 
   sendSystemInfoResponse(response: Omit<SystemInfoResponseMessage, 'type'>): void {
@@ -300,14 +290,36 @@ export class GatewayClient extends EventEmitter {
     });
   }
 
-  // ─── Connection Logic ───
-
-  private doConnect() {
+  private async doConnect() {
     this.clearReconnectTimer();
 
     this.setStatus('connecting');
-
+    this.renewal?.dispose();
+    this.authority?.invalidate();
+    this.dialController?.abort();
+    const controller = new AbortController();
+    this.dialController = controller;
+    const epoch = ++this.dialEpoch;
     try {
+      if (this.tokenType && this.tokenType !== 'jwt' && !this.identityProvider)
+        throw new Error('SOURCE_UNVERIFIABLE');
+      const identity = this.identityProvider
+        ? await this.askIdentity({
+            signal: controller.signal,
+            renewAuthorizationId: this.authority?.identity.authorizationId,
+          })
+        : gatewayIdentityHint(this.token, 'urn:lobehub:gateway:device');
+      if (controller.signal.aborted || epoch !== this.dialEpoch) return;
+      assertGatewayIdentityContinuity(
+        this.authority?.identity,
+        identity,
+        this.workspaceId
+          ? { kind: 'workspace', id: this.workspaceId }
+          : { kind: 'user', id: this.userId ?? identity.userId },
+      );
+      this.token = identity.gatewayTicket;
+      this.tokenType = 'jwt';
+      this.authority = new GatewaySocketAuthority(identity, 'urn:lobehub:gateway:device');
       const wsUrl = this.buildWsUrl();
       this.logger.debug(`Connecting to: ${wsUrl}`);
 
@@ -321,28 +333,64 @@ export class GatewayClient extends EventEmitter {
       };
       const ws = new WebSocket(wsUrl, wsOptions);
 
-      ws.on('open', this.handleOpen);
-      ws.on('message', this.handleMessage);
-      ws.on('close', this.handleClose);
-      ws.on('error', this.handleError);
+      this.detachSocket = attachGatewaySocket(ws, () => this.ws === ws, {
+        open: this.handleOpen,
+        message: this.handleMessage,
+        close: this.handleClose,
+        error: this.handleError,
+      });
 
       this.ws = ws;
+      this.renewal = new GatewayIdentityRenewal({
+        authority: this.authority,
+        provider: this.identityProvider && ((input) => this.askIdentity(input)),
+        isCurrent: () => this.ws === ws && epoch === this.dialEpoch && !controller.signal.aborted,
+        sendAuth: (next) =>
+          this.sendMessage({
+            type: 'auth',
+            tenancyProtocol: 1,
+            tokenType: 'jwt',
+            token: next.gatewayTicket,
+            serverUrl: this.serverUrl,
+          }),
+        onFailed: (code) => {
+          void this.disconnect();
+          this.emit('auth_failed', code);
+        },
+        onTemporary: (code) => {
+          if (this.listenerCount('error')) this.emit('error', new Error(code));
+        },
+        onExpired: this.handleAuthExpired,
+      });
       this.startConnectWatchdog();
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      this.logger.error('Failed to create WebSocket:', msg);
-      this.setStatus('disconnected');
-      if (this.autoReconnect) {
-        this.scheduleReconnect();
-      } else {
-        this.emit('disconnected');
+      if (controller.signal.aborted || epoch !== this.dialEpoch) return;
+      const failure = gatewayIdentityFailure(error);
+      this.logger.error('Gateway identity connection failed:', failure.code);
+      if (!failure.retryable) {
+        await this.disconnect();
+        this.emit('auth_failed', failure.code);
+        return;
       }
+      this.setStatus('disconnected');
+      if (this.listenerCount('error')) this.emit('error', new Error(failure.code));
+      if (this.autoReconnect) this.scheduleReconnect();
+      else this.emit('disconnected');
     }
   }
 
+  /** Work signs this client's own device and connection into the ticket; the URL values are only hints. */
+  private askIdentity(input: Parameters<GatewayIdentityProvider>[0]) {
+    return this.identityProvider!({
+      ...input,
+      connectionId: this.connectionId,
+      deviceId: this.deviceId,
+    });
+  }
+
   private buildWsUrl(): string {
-    const wsProtocol = this.gatewayUrl.startsWith('https') ? 'wss' : 'ws';
-    const host = this.gatewayUrl.replace(/^https?:\/\//, '');
+    const url = strictGatewayUrl(this.gatewayUrl, 'ws');
+    url.protocol = ['https:', 'wss:'].includes(url.protocol) ? 'wss:' : 'ws:';
     const params = new URLSearchParams({
       connectionId: this.connectionId,
       deviceId: this.deviceId,
@@ -363,35 +411,19 @@ export class GatewayClient extends EventEmitter {
       params.set('userId', this.userId);
     }
 
-    return `${wsProtocol}://${host}/ws?${params.toString()}`;
+    url.search = params.toString();
+    return url.toString();
   }
-
-  /**
-   * Best-effort JWT `exp` readout for auth logs. Internal backoff/heartbeat
-   * reconnects reuse `this.token`, so whether the token was already expired
-   * at auth time is the deciding fact when diagnosing auth failures from
-   * logs. Never logs the token itself.
-   */
-  private describeTokenExpiry(): string {
-    try {
-      const payload = JSON.parse(Buffer.from(this.token.split('.')[1], 'base64url').toString());
-      if (typeof payload.exp !== 'number') return 'token exp: none';
-      const expired = Date.now() >= payload.exp * 1000;
-      return `token exp: ${new Date(payload.exp * 1000).toISOString()}${expired ? ' (EXPIRED)' : ''}`;
-    } catch {
-      return 'token exp: unparsable';
-    }
-  }
-
-  // ─── WebSocket Event Handlers ───
 
   private handleOpen = () => {
-    this.logger.info(`WebSocket connected, sending auth... (${this.describeTokenExpiry()})`);
-    this.reconnectDelay = INITIAL_RECONNECT_DELAY;
+    this.logger.info(
+      `WebSocket connected, sending auth... (${describeGatewayTokenExpiry(this.token)})`,
+    );
     this.setStatus('authenticating');
 
     // Send token as first message instead of in URL
     this.sendMessage({
+      tenancyProtocol: 1,
       serverUrl: this.serverUrl,
       token: this.token,
       tokenType: this.tokenType,
@@ -402,22 +434,64 @@ export class GatewayClient extends EventEmitter {
   private handleMessage = (data: WebSocket.Data) => {
     try {
       const message = JSON.parse(String(data)) as ServerMessage;
+      if (['auth_failed', 'tenant_unavailable', 'capability_failed'].includes(message.type)) {
+        const failure = message as { code?: string; reason?: string };
+        const code = failure.code ?? failure.reason ?? 'UNAUTHORIZED';
+        if (gatewayIdentityFailure({ code }).retryable) this.forceReconnect(code);
+        else {
+          this.logger.error(`Authentication failed: ${code}`);
+          void this.disconnect();
+          this.emit('auth_failed', code);
+        }
+        return;
+      }
+      if (message.type === 'lease_update') {
+        this.authority!.confirm(message);
+        return;
+      }
+      if (
+        !['auth_success', 'auth_failed', 'auth_expired'].includes(message.type) &&
+        (this.status !== 'connected' || !this.authority?.alive())
+      )
+        return;
+      if (
+        [
+          'tool_call_request',
+          'system_info_request',
+          'rpc_request',
+          'message_api_request',
+          'agent_run_request',
+        ].includes(message.type)
+      ) {
+        assertDeviceCommandPayload(message);
+        const frame = message as unknown as GatewayCommandBinding;
+        this.authority!.admit(frame, frame.requestId!, 'device:respond');
+        const authority = this.authority!;
+        Object.assign(message, {
+          executionSignal: authority.signal,
+          isExecutionCurrent: () =>
+            this.authority === authority && authority.alive('device:respond'),
+        });
+      }
 
       switch (message.type) {
         case 'auth_success': {
+          const renewed = this.renewal!.confirm(message);
+          this.authority = this.renewal!.authority;
+          this.token = this.authority.identity.gatewayTicket;
+          if (renewed) return;
+          this.reconnectDelay = INITIAL_RECONNECT_DELAY;
+          if (this.expiryTimer) clearInterval(this.expiryTimer);
+          this.expiryTimer = setInterval(() => {
+            if (!this.authority?.alive()) {
+              this.handleAuthExpired();
+            }
+          }, 250);
           this.logger.info('Authentication successful');
           this.clearConnectWatchdog();
           this.setStatus('connected');
           this.startHeartbeat();
           this.emit('connected');
-          break;
-        }
-
-        case 'auth_failed': {
-          const reason = (message as any).reason || 'Unknown reason';
-          this.logger.error(`Authentication failed: ${reason}`);
-          this.emit('auth_failed', reason);
-          this.disconnect();
           break;
         }
 
@@ -454,32 +528,7 @@ export class GatewayClient extends EventEmitter {
 
         case 'auth_expired': {
           this.logger.warn('Received auth_expired from gateway');
-          this.emit('auth_expired');
-          break;
-        }
-
-        case 'device_metrics_ack': {
-          const pending = this.pendingMetricAcks.get(message.batchId);
-          this.pendingMetricAcks.delete(message.batchId);
-          pending?.resolve();
-          break;
-        }
-
-        case 'tunnel_open':
-        case 'tunnel_data':
-        case 'tunnel_ack':
-        case 'tunnel_close':
-        case 'tunnel_ws_open':
-        case 'tunnel_ws_message':
-        case 'tunnel_ws_close': {
-          if (this.tunnelHost) this.tunnelHost.handleFrame(message);
-          else if (message.type === 'tunnel_open' || message.type === 'tunnel_ws_open')
-            this.sendMessage({
-              connId: message.connId,
-              error: 'TUNNEL_DISABLED',
-              ok: false,
-              type: message.type === 'tunnel_open' ? 'tunnel_open_ack' : 'tunnel_ws_open_ack',
-            });
+          this.handleAuthExpired();
           break;
         }
 
@@ -489,15 +538,42 @@ export class GatewayClient extends EventEmitter {
       }
     } catch (error) {
       this.logger.error('Failed to parse WebSocket message:', error as string);
+      this.authority?.invalidate();
+      this.emit('auth_failed', gatewayIdentityFailure(error).code);
+      void this.disconnect();
+    }
+  };
+
+  private handleAuthExpired = (): void => {
+    this.cleanup();
+    this.setStatus('authenticating');
+    this.emit('auth_expired');
+    // A listener may already have disconnected or started its own refresh.
+    if (
+      this.identityProvider &&
+      this.autoReconnect &&
+      !this.intentionalDisconnect &&
+      this.connectionStatus === 'authenticating'
+    ) {
+      this.setStatus('reconnecting');
+      this.scheduleReconnect();
     }
   };
 
   private handleClose = (code: number, reason: Buffer) => {
+    const failure = gatewayCloseFailure(code, reason.toString());
+    if (failure) {
+      void this.disconnect();
+      this.emit('auth_failed', failure);
+      return;
+    }
+    this.renewal?.dispose();
+    if (this.expiryTimer) clearInterval(this.expiryTimer);
     this.logger.info(`WebSocket closed: code=${code} reason=${reason.toString()}`);
     this.stopHeartbeat();
     // In-flight tunnels can't survive the socket: their frames have nowhere to
     // go and the browser side is already being failed by the gateway.
-    this.tunnelHost?.closeAll('DEVICE_DISCONNECTED');
+    this.authority?.invalidate();
     this.rejectPendingMetricAcks();
     // `handshakeTimeout` closes the socket on its own, so the watchdog must be
     // disarmed here or it would fire later and force a SECOND reconnect on top
@@ -540,12 +616,16 @@ export class GatewayClient extends EventEmitter {
     return this.inFlightAbandons.shift() !== undefined;
   }
 
-  private handleError = (error: Error) => {
+  private handleError = async (error: Error) => {
+    const failure = gatewayIdentityFailure(error, true);
+    if (!failure.retryable) {
+      await this.disconnect();
+      this.emit('auth_failed', failure.code);
+      return;
+    }
     this.logger.error('WebSocket error:', error.message);
-    this.emit('error', error);
+    if (this.listenerCount('error')) this.emit('error', error);
   };
-
-  // ─── Heartbeat ───
 
   private startHeartbeat() {
     this.stopHeartbeat();
@@ -566,8 +646,6 @@ export class GatewayClient extends EventEmitter {
       this.heartbeatTimer = null;
     }
   }
-
-  // ─── Connect watchdog ───
 
   private startConnectWatchdog() {
     this.clearConnectWatchdog();
@@ -606,14 +684,12 @@ export class GatewayClient extends EventEmitter {
     }
   }
 
-  // ─── Reconnection (exponential backoff) ───
-
   private scheduleReconnect() {
     this.clearReconnectTimer();
 
-    const delay = this.reconnectDelay;
+    // Equal jitter keeps retries spread out even after the 30s cap is reached.
+    const delay = Math.round(this.reconnectDelay * (0.5 + Math.random() * 0.5));
     this.logger.info(`Scheduling reconnect in ${delay}ms`);
-    this.emit('reconnecting', delay);
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -623,6 +699,7 @@ export class GatewayClient extends EventEmitter {
 
     // Exponential backoff: 1s → 2s → 4s → 8s → ... → 30s
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, MAX_RECONNECT_DELAY);
+    this.emit('reconnecting', delay);
   }
 
   private clearReconnectTimer() {
@@ -632,8 +709,6 @@ export class GatewayClient extends EventEmitter {
     }
   }
 
-  // ─── Status ───
-
   private setStatus(status: ConnectionStatus) {
     if (this.status === status) return;
 
@@ -641,9 +716,16 @@ export class GatewayClient extends EventEmitter {
     this.emit('status_changed', status);
   }
 
-  // ─── Helpers ───
-
   private sendMessage(data: ClientMessage) {
+    if (data.type !== 'auth') {
+      if (this.status !== 'connected' || !this.authority?.alive()) return;
+      if (data.type !== 'heartbeat') {
+        const result = data as unknown as GatewayCommandBinding;
+        const binding = this.authority.response(result.requestId!, result.attemptId);
+        if (!binding) return;
+        data = { ...data, ...binding } as ClientMessage;
+      }
+    }
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
     }
@@ -658,10 +740,12 @@ export class GatewayClient extends EventEmitter {
   }
 
   private closeWebSocket() {
+    this.renewal?.dispose();
+    if (this.expiryTimer) clearInterval(this.expiryTimer);
     // Every teardown funnels through here — including `forceReconnect`, which
     // detaches `handleClose` — so tunnels must be released here or a forced
     // reconnect would leave loopback fetches running and slots consumed.
-    this.tunnelHost?.closeAll('DEVICE_DISCONNECTED');
+    this.authority?.invalidate();
     this.rejectPendingMetricAcks();
     if (!this.ws) {
       return;
@@ -679,10 +763,8 @@ export class GatewayClient extends EventEmitter {
     // Remove only listeners registered by this client.
     // Keep a temporary error handler while closing to avoid unhandled
     // "WebSocket was closed before the connection was established" errors.
-    ws.off('open', this.handleOpen);
-    ws.off('message', this.handleMessage);
-    ws.off('close', this.handleClose);
-    ws.off('error', this.handleError);
+    this.detachSocket?.();
+    this.detachSocket = undefined;
     ws.on('error', suppressCloseError);
     ws.once('close', cleanupCloseErrorSuppression);
 
@@ -699,6 +781,11 @@ export class GatewayClient extends EventEmitter {
   }
 
   private cleanup() {
+    this.renewal?.dispose();
+    this.dialEpoch++;
+    this.dialController?.abort();
+    this.authority?.invalidate();
+    if (this.expiryTimer) clearInterval(this.expiryTimer);
     this.stopHeartbeat();
     this.clearReconnectTimer();
     this.clearConnectWatchdog();

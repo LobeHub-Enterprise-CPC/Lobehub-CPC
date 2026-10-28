@@ -4,7 +4,8 @@
 import { type IEditor } from '@lobehub/editor';
 import { moment } from '@lobehub/editor';
 import { useEditor } from '@lobehub/editor/react';
-import { act, cleanup, render, waitFor } from '@testing-library/react';
+import { Popover, Tooltip, TooltipGroup } from '@lobehub/ui';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { memo, useEffect, useRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -23,8 +24,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  console.warn = originalWarn;
   cleanup();
+  vi.restoreAllMocks();
+  console.warn = originalWarn;
 });
 
 /**
@@ -821,4 +823,94 @@ describe('InternalEditor', () => {
       );
     });
   });
+});
+
+describe('editor control Popover React 19 trigger refs', () => {
+  it('preserves the child and popover refs without a deprecated element access', async () => {
+    const childRef: { current: HTMLButtonElement | null } = { current: null };
+    const popoverRef: { current: HTMLButtonElement | null } = { current: null };
+    const errors = vi.spyOn(console, 'error');
+    const warnings = vi.spyOn(console, 'warn');
+
+    render(
+      <Popover content={<span>Account details</span>} ref={popoverRef} trigger="click">
+        <button ref={childRef}>Open account details</button>
+      </Popover>,
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Open account details' });
+    expect(childRef.current).toBe(trigger);
+    expect(popoverRef.current).toBe(trigger);
+    expect(errors).not.toHaveBeenCalled();
+    expect(warnings).not.toHaveBeenCalled();
+    fireEvent.click(trigger);
+    expect(await screen.findByText('Account details')).toBeInTheDocument();
+    fireEvent.keyDown(document.activeElement ?? trigger, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByText('Account details')).not.toBeInTheDocument());
+    expect(childRef.current).toBe(trigger);
+    expect(popoverRef.current).toBe(trigger);
+    expect(errors).not.toHaveBeenCalled();
+    expect(warnings).not.toHaveBeenCalled();
+  });
+
+  it('releases a callback child ref when the popover unmounts', () => {
+    const childRef = vi.fn<(node: HTMLButtonElement | null) => void>();
+    const { unmount } = render(
+      <Popover content="Account details" trigger="click">
+        <button ref={childRef}>Open account details</button>
+      </Popover>,
+    );
+
+    expect(childRef).toHaveBeenLastCalledWith(
+      screen.getByRole('button', { name: 'Open account details' }),
+    );
+    unmount();
+    expect(childRef).toHaveBeenLastCalledWith(null);
+  });
+});
+
+describe('editor control Tooltip React 19 trigger refs', () => {
+  it.each(['standalone', 'grouped'] as const)(
+    'keeps child and %s tooltip refs on the trigger without deprecated ref warnings',
+    (mode) => {
+      const childRef: { current: HTMLButtonElement | null } = { current: null };
+      const tooltipRef: { current: HTMLButtonElement | null } = { current: null };
+      const errors = vi.spyOn(console, 'error');
+      const warnings = vi.spyOn(console, 'warn');
+
+      const tooltip = (
+        <Tooltip ref={tooltipRef} standalone={mode === 'standalone'} title="Editor settings">
+          <button ref={childRef}>Open editor settings</button>
+        </Tooltip>
+      );
+      render(mode === 'grouped' ? <TooltipGroup>{tooltip}</TooltipGroup> : tooltip);
+
+      const trigger = screen.getByRole('button', { name: 'Open editor settings' });
+      expect(childRef.current).toBe(trigger);
+      expect(tooltipRef.current).toBe(trigger);
+      expect(errors).not.toHaveBeenCalled();
+      expect(warnings).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['standalone', 'grouped'] as const)(
+    'releases a callback child ref when the %s tooltip unmounts',
+    (mode) => {
+      const childRef = vi.fn<(node: HTMLButtonElement | null) => void>();
+      const tooltip = (
+        <Tooltip standalone={mode === 'standalone'} title="Editor settings">
+          <button ref={childRef}>Open editor settings</button>
+        </Tooltip>
+      );
+      const { unmount } = render(
+        mode === 'grouped' ? <TooltipGroup>{tooltip}</TooltipGroup> : tooltip,
+      );
+
+      expect(childRef).toHaveBeenLastCalledWith(
+        screen.getByRole('button', { name: 'Open editor settings' }),
+      );
+      unmount();
+      expect(childRef).toHaveBeenLastCalledWith(null);
+    },
+  );
 });

@@ -1,5 +1,5 @@
 import { discoverUrl } from '@lobechat/const';
-import { TRPCError } from '@trpc/server';
+import { currentTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 import { customAlphabet } from 'nanoid/non-secure';
 import { z } from 'zod';
@@ -10,6 +10,13 @@ import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { marketSDK, marketUserInfo, serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { type TrustedClientUserInfo } from '@/libs/trusted-client';
 import { generateTrustedClientToken } from '@/libs/trusted-client';
+import { TrustedClientIdentityError } from '@/libs/trusted-client/errors';
+import { pickMarketResourceState } from '@/server/services/discover/marketResourceState';
+import type { MarketEditCapabilities } from '@/types/discover';
+
+import { actAsInput } from './actingAs';
+import { resolveEditRights } from './editRights';
+import { isMarketNotFound, mapMarketError } from './marketError';
 
 const MARKET_BASE_URL = process.env.MARKET_BASE_URL || 'https://market.lobehub.com';
 
@@ -80,6 +87,9 @@ const fetchMarketUserInfo = async (
 
     return (await response.json()) as MarketUserInfo;
   } catch (error) {
+    // Not "no user": the caller would read null as "not the owner" and, for a
+    // publish, create a second group under a different identity.
+    if (error instanceof TrustedClientIdentityError) throw error;
     log('Error fetching Market user info: %O', error);
     return null;
   }
@@ -146,7 +156,7 @@ const memberAgentSchema = z.object({
 });
 
 const publishOrCreateGroupSchema = z.object({
-  actAs: z.number().int().positive().optional(),
+  actAs: actAsInput,
   avatar: z.string().nullish(),
   backgroundColor: z.string().nullish(),
   category: z.string().optional(),
@@ -172,7 +182,7 @@ export const agentGroupRouter = router({
    * Check if current user owns the specified group
    */
   checkOwnership: agentGroupProcedure
-    .input(z.object({ actAs: z.number().int().positive().optional(), identifier: z.string() }))
+    .input(z.object({ actAs: actAsInput, identifier: z.string() }))
     .query(async ({ input, ctx }) => {
       log('checkOwnership input: %O', input);
 
@@ -191,12 +201,21 @@ export const agentGroupRouter = router({
         const accessToken = (ctx as { marketOidcAccessToken?: string }).marketOidcAccessToken;
         let currentAccountId: number | null = null;
 
-        const marketUserInfoResult = await fetchMarketUserInfo({ accessToken, userInfo });
-        currentAccountId = marketUserInfoResult?.accountId ?? null;
+        // In a tenant Market answers "may this requester edit it" itself, so the
+        // requester's account is only needed for the single-tenant comparison.
+        if (!currentTenantScope()) {
+          const marketUserInfoResult = await fetchMarketUserInfo({ accessToken, userInfo });
+          currentAccountId = marketUserInfoResult?.accountId ?? null;
+        }
 
         const ownerId = groupDetail.group.ownerId;
         const actingAccountId = input.actAs ?? currentAccountId;
-        const isOwner = actingAccountId !== null && `${ownerId}` === `${actingAccountId}`;
+        const { canEdit: isOwner } = resolveEditRights(
+          // The requester's rights ride the group object itself, and only there;
+          // a `canEdit` beside it is not read.
+          groupDetail.group as MarketEditCapabilities,
+          () => actingAccountId !== null && `${ownerId}` === `${actingAccountId}`,
+        );
 
         log(
           'checkOwnership result: isOwner=%s, currentAccountId=%s, actingAccountId=%s, ownerId=%s',
@@ -221,17 +240,23 @@ export const agentGroupRouter = router({
         };
       } catch (error) {
         log('Error checking ownership: %O', error);
-        return {
-          exists: false,
-          isOwner: false,
-          originalGroup: null,
-        };
+        // Only "not in this scope" means the group does not exist; a refusal, a
+        // missing credential or an instance that is not ready says nothing about
+        // it, and must not send the caller on to publish a second group.
+        if (isMarketNotFound(error)) {
+          return {
+            exists: false,
+            isOwner: false,
+            originalGroup: null,
+          };
+        }
+        throw mapMarketError(error, 'Failed to check group ownership', { exposeMessage: true });
       }
     }),
 
   /**
-   * Deprecate agent group
-   * POST /market/agent-group/:identifier/deprecate
+   * Deprecate agent group (permanently hide, cannot be republished)
+   * POST /api/v1/agent-groups/modify with { identifier, status: 'deprecated' }
    */
   deprecateAgentGroup: agentGroupWriteProcedure
     .input(z.object({ identifier: z.string() }))
@@ -239,51 +264,11 @@ export const agentGroupRouter = router({
       log('deprecateAgentGroup input: %O', input);
 
       try {
-        const deprecateUrl = `${MARKET_BASE_URL}/api/v1/agent-groups/${input.identifier}/deprecate`;
-
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-        };
-
-        const userInfo = ctx.marketUserInfo as TrustedClientUserInfo | undefined;
-        const accessToken = (ctx as { marketOidcAccessToken?: string }).marketOidcAccessToken;
-
-        if (userInfo) {
-          const trustedClientToken = generateTrustedClientToken(userInfo);
-          if (trustedClientToken) {
-            headers['x-lobe-trust-token'] = trustedClientToken;
-          }
-        }
-
-        if (!headers['x-lobe-trust-token'] && accessToken) {
-          headers['Authorization'] = `Bearer ${accessToken}`;
-        }
-
-        const response = await fetch(deprecateUrl, {
-          headers,
-          method: 'POST',
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          log(
-            'Deprecate agent group failed: %s %s - %s',
-            response.status,
-            response.statusText,
-            errorText,
-          );
-          throw new Error(`Failed to deprecate agent group: ${response.statusText}`);
-        }
-
-        log('Deprecate agent group success');
-        return { success: true };
+        const response = await ctx.marketSDK.agentGroups.deprecate(input.identifier);
+        return response ?? { success: true };
       } catch (error) {
         log('Error deprecating agent group: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to deprecate agent group',
-        });
+        throw mapMarketError(error, 'Failed to deprecate agent group', { exposeMessage: true });
       }
     }),
 
@@ -294,7 +279,7 @@ export const agentGroupRouter = router({
   forkAgentGroup: agentGroupWriteProcedure
     .input(
       z.object({
-        actAs: z.number().int().positive().optional(),
+        actAs: actAsInput,
         identifier: z.string(),
         name: z.string().optional(),
         sourceIdentifier: z.string(),
@@ -361,11 +346,7 @@ export const agentGroupRouter = router({
         return result;
       } catch (error) {
         log('Error forking agent group: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to fork agent group',
-        });
+        throw mapMarketError(error, 'Failed to fork agent group', { exposeMessage: true });
       }
     }),
 
@@ -383,11 +364,7 @@ export const agentGroupRouter = router({
         return response;
       } catch (error) {
         log('Error getting agent group detail: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to get agent group detail',
-        });
+        throw mapMarketError(error, 'Failed to get agent group detail', { exposeMessage: true });
       }
     }),
 
@@ -441,10 +418,8 @@ export const agentGroupRouter = router({
         return result;
       } catch (error) {
         log('Error getting agent group fork source: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to get agent group fork source',
+        throw mapMarketError(error, 'Failed to get agent group fork source', {
+          exposeMessage: true,
         });
       }
     }),
@@ -499,11 +474,7 @@ export const agentGroupRouter = router({
         return result;
       } catch (error) {
         log('Error getting agent group forks: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to get agent group forks',
-        });
+        throw mapMarketError(error, 'Failed to get agent group forks', { exposeMessage: true });
       }
     }),
 
@@ -583,6 +554,7 @@ export const agentGroupRouter = router({
 
         // Transform items to match getGroupAgentList format from DiscoverService
         const transformedItems = (result.items || []).map((group: any) => ({
+          ...pickMarketResourceState(group),
           author: group.author || '',
           avatar: group.avatar || '👥',
           category: group.category,
@@ -611,69 +583,7 @@ export const agentGroupRouter = router({
         };
       } catch (error) {
         log('Error getting agent group list: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to get agent group list',
-        });
-      }
-    }),
-
-  /**
-   * Publish agent group
-   * POST /market/agent-group/:identifier/publish
-   */
-  publishAgentGroup: agentGroupWriteProcedure
-    .input(z.object({ identifier: z.string() }))
-    .mutation(async ({ input, ctx }) => {
-      log('publishAgentGroup input: %O', input);
-
-      try {
-        const publishUrl = `${MARKET_BASE_URL}/api/v1/agent-groups/${input.identifier}/publish`;
-
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-        };
-
-        const userInfo = ctx.marketUserInfo as TrustedClientUserInfo | undefined;
-        const accessToken = (ctx as { marketOidcAccessToken?: string }).marketOidcAccessToken;
-
-        if (userInfo) {
-          const trustedClientToken = generateTrustedClientToken(userInfo);
-          if (trustedClientToken) {
-            headers['x-lobe-trust-token'] = trustedClientToken;
-          }
-        }
-
-        if (!headers['x-lobe-trust-token'] && accessToken) {
-          headers['Authorization'] = `Bearer ${accessToken}`;
-        }
-
-        const response = await fetch(publishUrl, {
-          headers,
-          method: 'POST',
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          log(
-            'Publish agent group failed: %s %s - %s',
-            response.status,
-            response.statusText,
-            errorText,
-          );
-          throw new Error(`Failed to publish agent group: ${response.statusText}`);
-        }
-
-        log('Publish agent group success');
-        return { success: true };
-      } catch (error) {
-        log('Error publishing agent group: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to publish agent group',
-        });
+        throw mapMarketError(error, 'Failed to get agent group list', { exposeMessage: true });
       }
     }),
 
@@ -704,9 +614,12 @@ export const agentGroupRouter = router({
             const accessToken = (ctx as { marketOidcAccessToken?: string }).marketOidcAccessToken;
             let currentAccountId: number | null = null;
 
-            const marketUserInfoResult = await fetchMarketUserInfo({ accessToken, userInfo });
-            currentAccountId = marketUserInfoResult?.accountId ?? null;
-            log('Market user info: accountId=%s', currentAccountId);
+            // In a tenant Market says whether this requester may add a version.
+            if (!currentTenantScope()) {
+              const marketUserInfoResult = await fetchMarketUserInfo({ accessToken, userInfo });
+              currentAccountId = marketUserInfoResult?.accountId ?? null;
+              log('Market user info: accountId=%s', currentAccountId);
+            }
 
             const ownerId = groupDetail?.group.ownerId;
 
@@ -714,15 +627,22 @@ export const agentGroupRouter = router({
 
             const actingAccountId = actAs ?? currentAccountId;
 
-            if (!actingAccountId || `${ownerId}` !== `${actingAccountId}`) {
+            const { canEdit } = resolveEditRights(
+              groupDetail?.group as MarketEditCapabilities | undefined,
+              () => !!actingAccountId && `${ownerId}` === `${actingAccountId}`,
+            );
+
+            if (!canEdit) {
               // Not the owner, need to create a new group
               log('User is not owner, will create new group');
               finalIdentifier = undefined;
               isNewGroup = true;
             }
           } catch (detailError) {
-            // Group not found or error, create new
-            log('Group not found or error, will create new: %O', detailError);
+            // Only a group that is not in this scope becomes a new one; see agent.ts.
+            if (!isMarketNotFound(detailError)) throw detailError;
+
+            log('Group not found, will create new: %O', detailError);
             finalIdentifier = undefined;
             isNewGroup = true;
           }
@@ -769,69 +689,7 @@ export const agentGroupRouter = router({
         };
       } catch (error) {
         log('Error in publishOrCreate: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to publish group',
-        });
-      }
-    }),
-
-  /**
-   * Unpublish agent group
-   * POST /market/agent-group/:identifier/unpublish
-   */
-  unpublishAgentGroup: agentGroupWriteProcedure
-    .input(z.object({ identifier: z.string() }))
-    .mutation(async ({ input, ctx }) => {
-      log('unpublishAgentGroup input: %O', input);
-
-      try {
-        const unpublishUrl = `${MARKET_BASE_URL}/api/v1/agent-groups/${input.identifier}/unpublish`;
-
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-        };
-
-        const userInfo = ctx.marketUserInfo as TrustedClientUserInfo | undefined;
-        const accessToken = (ctx as { marketOidcAccessToken?: string }).marketOidcAccessToken;
-
-        if (userInfo) {
-          const trustedClientToken = generateTrustedClientToken(userInfo);
-          if (trustedClientToken) {
-            headers['x-lobe-trust-token'] = trustedClientToken;
-          }
-        }
-
-        if (!headers['x-lobe-trust-token'] && accessToken) {
-          headers['Authorization'] = `Bearer ${accessToken}`;
-        }
-
-        const response = await fetch(unpublishUrl, {
-          headers,
-          method: 'POST',
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          log(
-            'Unpublish agent group failed: %s %s - %s',
-            response.status,
-            response.statusText,
-            errorText,
-          );
-          throw new Error(`Failed to unpublish agent group: ${response.statusText}`);
-        }
-
-        log('Unpublish agent group success');
-        return { success: true };
-      } catch (error) {
-        log('Error unpublishing agent group: %O', error);
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to unpublish agent group',
-        });
+        throw mapMarketError(error, 'Failed to publish group', { exposeMessage: true });
       }
     }),
 });

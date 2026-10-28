@@ -9,10 +9,17 @@ vi.mock('node:module', () => ({
 }));
 vi.mock('node:fs/promises', () => ({
   default: {
-    readFile: vi.fn(async () => JSON.stringify({ version: '0.9.20', shellAbi: 'abi' })),
+    readFile: vi.fn(async () =>
+      JSON.stringify({
+        dependencies: { '@auv-js/cli': '0.0.33' },
+        shellAbi: 'abi',
+        version: '0.9.20',
+      }),
+    ),
     mkdir: vi.fn(),
     rm: vi.fn(),
     copyFile: vi.fn(),
+    writeFile: vi.fn(),
     chmod: vi.fn(),
   },
 }));

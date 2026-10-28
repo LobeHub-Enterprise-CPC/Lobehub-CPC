@@ -128,7 +128,7 @@ export const chunkRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { model, provider } =
-        getServerDefaultFilesConfig().embeddingModel || DEFAULT_FILE_EMBEDDING_MODEL_ITEM;
+        (await getServerDefaultFilesConfig()).embeddingModel || DEFAULT_FILE_EMBEDDING_MODEL_ITEM;
       // Read user's provider config from database
       const agentRuntime = await initModelRuntimeFromDB(
         ctx.serverDB,

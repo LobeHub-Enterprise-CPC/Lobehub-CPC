@@ -1,7 +1,14 @@
+import { acceptanceIdFromReviewResource } from '@lobechat/const';
 import { TRPCError } from '@trpc/server';
 import debug from 'debug';
+import type { JSONWebKeySet, JWK, JWK_RSA_Public } from 'jose';
+import { calculateJwkThumbprint } from 'jose';
 
 import { authEnv } from '@/envs/auth';
+import { isBoundToCurrentTenant } from '@/libs/trpc/utils/tenantBinding';
+
+import { isAcceptanceReviewClient, isAcceptanceReviewIssued } from './acceptanceReview';
+import { describeError } from './safe-log';
 
 const log = debug('oidc-jwt');
 
@@ -43,12 +50,27 @@ export const getJWKS = (): object => {
 
     return jwks;
   } catch (error) {
-    console.error('Failed to parse JWKS:', error);
+    console.error('Failed to parse JWKS: %s', describeError(error));
     throw new Error(`JWKS_KEY parse error: ${(error as Error).message}`, { cause: error });
   }
 };
 
-const getVerificationKey = async () => {
+const isRsaSigningKey = (key: JWK): key is JWK_RSA_Public =>
+  key.alg === 'RS256' &&
+  key.kty === 'RSA' &&
+  typeof key.e === 'string' &&
+  typeof key.n === 'string';
+
+const toPublicRsaKey = async (key: JWK_RSA_Public): Promise<JWK_RSA_Public> => ({
+  alg: 'RS256',
+  e: key.e,
+  kid: key.kid ?? (await calculateJwkThumbprint(key)),
+  kty: 'RSA',
+  n: key.n,
+  ...(key.use ? { use: key.use } : {}),
+});
+
+const getVerificationKeys = async () => {
   try {
     const jwksString = getJwksKeyString();
 
@@ -56,67 +78,75 @@ const getVerificationKey = async () => {
       throw new Error('JWKS_KEY environment variable is not set');
     }
 
-    const jwks = JSON.parse(jwksString);
+    const jwks = JSON.parse(jwksString) as JSONWebKeySet;
 
     if (!jwks.keys || !Array.isArray(jwks.keys) || jwks.keys.length === 0) {
       throw new Error('Invalid JWKS format: missing or empty keys array');
     }
 
-    const privateRsaKey = jwks.keys.find((key: any) => key.alg === 'RS256' && key.kty === 'RSA');
-    if (!privateRsaKey) {
+    const publicKeys = await Promise.all(jwks.keys.filter(isRsaSigningKey).map(toPublicRsaKey));
+    if (publicKeys.length === 0) {
       throw new Error('No RSA key with RS256 algorithm found in JWKS');
     }
 
-    // Create a “clean” JWK object containing only public key components.
-    // The key fields of an RSA public key are kty, n, e. Others like kid, alg, use are also public.
-    const publicKeyJwk = {
-      alg: privateRsaKey.alg,
-      e: privateRsaKey.e,
-      kid: privateRsaKey.kid,
-      kty: privateRsaKey.kty,
-      n: privateRsaKey.n,
-      use: privateRsaKey.use,
-    };
-
-    // Remove any undefined fields to keep the object clean
-    Object.keys(publicKeyJwk).forEach(
-      (key) => (publicKeyJwk as any)[key] === undefined && delete (publicKeyJwk as any)[key],
-    );
-
     const { importJWK } = await import('jose');
 
-    // Now, in any environment, `importJWK` will correctly identify this object as a public key.
-    return await importJWK(publicKeyJwk, 'RS256');
+    // Validate configuration before token verification so a malformed JWK remains an
+    // infrastructure error (500) instead of being misreported as invalid user auth (401).
+    await Promise.all(publicKeys.map((key) => importJWK(key, 'RS256')));
+
+    return publicKeys;
   } catch (error) {
-    log('Failed to get JWKS public key: %O', error);
+    log('Failed to get JWKS public key: %s', describeError(error));
     throw new Error(`JWKS_KEY public key retrieval failed: ${(error as Error).message}`, {
       cause: error,
     });
   }
 };
 
-/**
- * Validate OIDC JWT Access Token
- * @param token - JWT access token
- * @returns Parsed token payload and user information
- */
-export const validateOIDCJWT = async (token: string) => {
-  log('Starting OIDC JWT token validation');
+const isSignatureVerificationError = (error: unknown) =>
+  typeof error === 'object' &&
+  error !== null &&
+  'code' in error &&
+  error.code === 'ERR_JWS_SIGNATURE_VERIFICATION_FAILED';
 
-  // JWKS / signing key retrieval is an infrastructure concern (misconfigured
-  // env, malformed JWKS, key import failure). Let these errors propagate as
-  // plain Error so upstream middleware maps them to 500 and triggers ops
-  // alerts — treating them as 401 would incorrectly ask clients to re-auth
-  // while the real problem is server-side.
-  const publicKey = await getVerificationKey();
+const verifyJwt = async (token: string, publicKeys: JWK_RSA_Public[]) => {
+  const { createLocalJWKSet, decodeProtectedHeader, importJWK, jwtVerify } = await import('jose');
+  const options = { algorithms: ['RS256'] };
 
+  if (decodeProtectedHeader(token).kid) {
+    return jwtVerify(token, createLocalJWKSet({ keys: publicKeys }), options);
+  }
+
+  // Tokens issued before this rotation support landed did not include `kid`.
+  // Try each retained key only for those in-flight tokens; newly issued tokens
+  // keep the exact-key lookup above and avoid ambiguous JWKS selection.
+  let signatureError: unknown;
+  for (const publicKey of publicKeys) {
+    try {
+      return await jwtVerify(token, await importJWK(publicKey, 'RS256'), options);
+    } catch (error) {
+      if (!isSignatureVerificationError(error)) throw error;
+      signatureError = error;
+    }
+  }
+
+  throw signatureError ?? new Error('No RSA key available for JWT verification');
+};
+
+const parseOIDCJWT = async (token: string, publicKeys: JWK_RSA_Public[]) => {
   try {
-    const { jwtVerify } = await import('jose');
-    const { payload } = await jwtVerify(token, publicKey, {
-      algorithms: ['RS256'],
-    });
+    const { payload } = await verifyJwt(token, publicKeys);
 
-    log('JWT validation successful, payload: %O', payload);
+    if (payload.purpose === 'gateway-connect' || payload.iss === 'urn:lobehub:gateway-session') {
+      throw new TRPCError({
+        code: 'UNAUTHORIZED',
+        message: 'Gateway tickets are not business credentials',
+      });
+    }
+
+    // Claims (jti, email, scope) are not logged.
+    log('JWT validation successful');
 
     const userId = payload.sub;
     const clientId = payload.client_id;
@@ -126,6 +156,21 @@ export const validateOIDCJWT = async (token: string) => {
       throw new TRPCError({
         code: 'UNAUTHORIZED',
         message: 'JWT token is missing user ID (sub)',
+      });
+    }
+
+    if (!isBoundToCurrentTenant(payload)) {
+      throw new TRPCError({
+        code: 'UNAUTHORIZED',
+        message: 'JWT token was not issued for this tenant',
+      });
+    }
+
+    // Review tokens live on third-party preview pages; they only open the review API.
+    if (isAcceptanceReviewIssued(payload)) {
+      throw new TRPCError({
+        code: 'UNAUTHORIZED',
+        message: 'Acceptance review tokens are not accepted here',
       });
     }
 
@@ -149,7 +194,7 @@ export const validateOIDCJWT = async (token: string) => {
       throw error;
     }
 
-    log('JWT validation failed: %O', error);
+    log('JWT validation failed: %s', describeError(error));
 
     // Preserve the original jose error via `cause` so upstream middleware
     // can still inspect specific codes like `ERR_JWT_EXPIRED`.
@@ -159,4 +204,61 @@ export const validateOIDCJWT = async (token: string) => {
       message: `JWT token validation failed: ${(error as Error).message}`,
     });
   }
+};
+
+const isClientServed = async (clientId: unknown) => {
+  if (typeof clientId !== 'string') return false;
+  // Loaded on demand: the provider pulls in the whole OIDC server stack.
+  const { getOIDCProvider } = await import('@/server/services/oidc/oidcProvider');
+  return Boolean(await (await getOIDCProvider()).Client.find(clientId));
+};
+
+/**
+ * Validate OIDC JWT Access Token
+ *
+ * All tenants sign with the same JWKS, so beyond the signature the token must
+ * carry the `tid` claim of the tenant this request runs in (set by the tenant's
+ * OIDC provider and by the server-minted CLI/operation tokens). A token minted
+ * for another tenant, or without the claim, is rejected.
+ * @param token - JWT access token
+ * @returns Parsed token payload and user information
+ */
+export const validateOIDCJWT = async (token: string) => {
+  log('Starting OIDC JWT token validation');
+
+  // JWKS / signing key retrieval is an infrastructure concern (misconfigured
+  // env, malformed JWKS, key import failure). Let these errors propagate as
+  // plain Error so upstream middleware maps them to 500 and triggers ops
+  // alerts — treating them as 401 would incorrectly ask clients to re-auth
+  // while the real problem is server-side.
+  const publicKeys = await getVerificationKeys();
+
+  const validated = await parseOIDCJWT(token, publicKeys);
+
+  // Access tokens are stateless, so retiring the client is what retires them: a
+  // client renamed, removed or disabled at the provider no longer vouches for
+  // the tokens it issued, and their holders sign in again. Server-minted
+  // tokens name no client. Kept out of `parseOIDCJWT`'s catch: a provider that
+  // cannot load is a server fault, not a rejected token.
+  const { clientId } = validated;
+  if (clientId !== undefined && !(authEnv.ENABLE_OIDC && (await isClientServed(clientId)))) {
+    throw new TRPCError({
+      code: 'UNAUTHORIZED',
+      message: 'JWT token was issued to a retired client',
+    });
+  }
+
+  return validated;
+};
+
+export const verifyAcceptanceReviewJWT = async (token: string) => {
+  const publicKeys = await getVerificationKeys();
+  const { payload } = await verifyJwt(token, publicKeys);
+  // Same `tid` binding as access tokens: all tenants share the signing keys.
+  if (!isBoundToCurrentTenant(payload))
+    throw new Error('Review token was not issued for this tenant');
+  const acceptanceId = acceptanceIdFromReviewResource(payload.aud);
+  if (!isAcceptanceReviewClient(payload.client_id as string) || !acceptanceId || !payload.sub)
+    throw new Error('Not an acceptance review token');
+  return { acceptanceId, expiresAt: payload.exp, userId: payload.sub };
 };

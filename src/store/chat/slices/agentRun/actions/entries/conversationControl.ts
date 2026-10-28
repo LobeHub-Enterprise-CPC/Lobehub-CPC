@@ -27,7 +27,6 @@ import {
   aiAgentService,
   type ResolveAgentInterventionBySourceResult,
 } from '@/services/aiAgent';
-import { shareChatService } from '@/services/shareChat';
 import { getAgentStoreState } from '@/store/agent';
 import { agentByIdSelectors, agentSelectors } from '@/store/agent/selectors';
 import { displayMessageSelectors, topicSelectors } from '@/store/chat/selectors';
@@ -190,18 +189,7 @@ export class ConversationControlActionImpl {
       resolutionRequestId,
       targets: sourceTargets,
     };
-    // A share visitor answers their own share run through the share-authorized
-    // mirror; the owner-scoped endpoint would reject them.
-    const agentShareId = params.context?.agentShareId;
-    const result = agentShareId
-      ? params.context?.topicId
-        ? await shareChatService.resolveInterventionBySource(
-            agentShareId,
-            params.context.topicId,
-            sourceParams,
-          )
-        : ({ handled: false } as const)
-      : await aiAgentService.resolveAgentInterventionBySource(sourceParams);
+    const result = await aiAgentService.resolveAgentInterventionBySource(sourceParams);
     if (result.handled) {
       this.#interventionResolutionRequestIds.delete(resolutionKey);
       if (result.state === 'claimed' && params.context) {
@@ -679,6 +667,11 @@ export class ConversationControlActionImpl {
     branchIndex: number,
     context?: OptimisticUpdateContext,
   ): Promise<void> => {
+    const store = this.#get();
+    const messageContext = store.internal_getConversationContext(context);
+    // A branch change only changes the displayed reply; it does not authorize
+    // recovery of an old failure when its card mounts.
+    store.revokeHeteroAutoRetry(messageContext);
     await this.#get().optimisticUpdateMessageMetadata(
       messageId,
       { activeBranchIndex: branchIndex },
@@ -1035,9 +1028,7 @@ export class ConversationControlActionImpl {
 
       if (!sourceResolution.handled) {
         const stopParams = { batchId, operationId, toolMessageIds: addressable, topicId };
-        await (effectiveContext.agentShareId
-          ? shareChatService.stopPendingApproval(effectiveContext.agentShareId, stopParams)
-          : aiAgentService.stopPendingApproval(stopParams));
+        await aiAgentService.stopPendingApproval(stopParams);
       }
       // Settle the cards locally. A group member's stop ends no stream this
       // client still listens on, so no refetch would ever land the aborted rows
@@ -1959,20 +1950,29 @@ export class ConversationControlActionImpl {
             : { cancelReason: 'user_cancelled', cancelled: true, operationId, toolCallId },
         );
       } else {
+        // The producer long-polls the server operation's stream. A gateway run's
+        // local op id is client-only, so an answer published under it never
+        // reaches the producer.
+        const remoteOperationId = operation?.metadata?.serverOperationId ?? operationId;
         const resolutionIntent = JSON.stringify(
           canonicalizeResolutionPayload({ actionType, payload: payload ?? {} }),
         );
-        const resolutionKey = `${operationId}:${toolCallId}:${resolutionIntent}`;
+        const resolutionKey = `${remoteOperationId}:${toolCallId}:${resolutionIntent}`;
         const resolutionRequestId =
           this.#heteroResolutionRequestIds.get(resolutionKey) ?? globalThis.crypto.randomUUID();
         this.#heteroResolutionRequestIds.set(resolutionKey, resolutionRequestId);
         await lambdaClient.aiAgent.submitHeteroIntervention.mutate(
           actionType === 'submit'
-            ? { operationId, resolutionRequestId, result: payload ?? {}, toolCallId }
+            ? {
+                operationId: remoteOperationId,
+                resolutionRequestId,
+                result: payload ?? {},
+                toolCallId,
+              }
             : {
                 cancelReason: 'user_cancelled',
                 cancelled: true,
-                operationId,
+                operationId: remoteOperationId,
                 resolutionRequestId,
                 toolCallId,
               },

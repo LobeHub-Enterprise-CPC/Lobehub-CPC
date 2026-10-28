@@ -5,12 +5,14 @@ import {
   ORG_NAME,
 } from '@lobechat/business-const';
 
-import pkg from '../../../package.json';
+// Named, not default: a default JSON import ships the whole manifest —
+// repository, bugs and author URLs — into every client bundle.
+import { version } from '../../../package.json';
 // type-only: loads ./global.d.ts so `__ELECTRON__` exists even when this
 // package is compiled from a workspace without the app's ambient declarations
 import type {} from './global';
 
-export const CURRENT_VERSION = pkg.version;
+export const CURRENT_VERSION = version;
 
 export const isDesktop = typeof __ELECTRON__ !== 'undefined' && !!__ELECTRON__;
 

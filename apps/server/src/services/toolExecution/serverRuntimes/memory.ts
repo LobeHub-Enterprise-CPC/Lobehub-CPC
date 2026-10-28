@@ -4,7 +4,6 @@ import {
   type MemoryRuntimeService,
 } from '@lobechat/builtin-tool-memory/executionRuntime';
 import { BRANDING_PROVIDER, ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
-import { DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM } from '@lobechat/const';
 import type { LobeChatDatabase } from '@lobechat/database';
 import type {
   ActivityMemoryItemSchema,
@@ -41,7 +40,6 @@ import {
   UserMemoryModel,
 } from '@/database/models/userMemory';
 import { userSettings } from '@/database/schemas';
-import { getServerDefaultFilesConfig } from '@/server/globalConfig';
 import {
   initModelRuntimeFromDB,
   initModelRuntimeWithUserPayload,
@@ -55,6 +53,7 @@ import { createFtsSearchRepo } from '@/server/services/ftsSearch';
 import { recordUserMemoryLexicalSearchDecision } from '@/server/services/ftsSearch/observability';
 import type { UserMemoryEmbeddingRuntime } from '@/server/services/memory/userMemory/embedding';
 import { embedUserMemoryTexts } from '@/server/services/memory/userMemory/embedding';
+import { resolveUserMemoryEmbeddingModel } from '@/server/services/memory/userMemory/embeddingModel';
 import {
   normalizeSearchMemoryParams,
   resolveMemorySearchTopK,
@@ -75,8 +74,11 @@ const getEmbeddingRuntime = async (
   userId: string,
   workspaceId?: string,
 ) => {
-  const { provider, model: embeddingModel } =
-    getServerDefaultFilesConfig().embeddingModel || DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM;
+  // Same model the extractor writes memory vectors with, never the file embedding model.
+  const { provider, model: embeddingModel } = await resolveUserMemoryEmbeddingModel(
+    serverDB,
+    userId,
+  );
 
   const agentRuntime = await initModelRuntimeFromDB(
     serverDB,
@@ -204,21 +206,16 @@ class MemoryServerRuntimeService implements MemoryRuntimeService {
 
   searchMemory = async (params: SearchMemoryParams): Promise<SearchMemoryResult> => {
     const normalizedParams = normalizeSearchMemoryParams(params);
-    const defaultEmbeddingConfig =
-      getServerDefaultFilesConfig().embeddingModel || DEFAULT_USER_MEMORY_EMBEDDING_MODEL_ITEM;
-    const embeddingModel = this.memoryEmbeddingRuntime?.model ?? defaultEmbeddingConfig.model;
-    const modelRuntime = this.memoryEmbeddingRuntime
-      ? initModelRuntimeWithUserPayload(
-          this.memoryEmbeddingRuntime.provider,
-          this.memoryEmbeddingRuntime.payload,
-          { userId: this.userId },
-        )
-      : await initModelRuntimeFromDB(
-          this.serverDB,
-          this.userId,
-          defaultEmbeddingConfig.provider,
-          this.workspaceId,
-        );
+    const { agentRuntime: modelRuntime, embeddingModel } = this.memoryEmbeddingRuntime
+      ? {
+          agentRuntime: initModelRuntimeWithUserPayload(
+            this.memoryEmbeddingRuntime.provider,
+            this.memoryEmbeddingRuntime.payload,
+            { userId: this.userId },
+          ),
+          embeddingModel: this.memoryEmbeddingRuntime.model,
+        }
+      : await getEmbeddingRuntime(this.serverDB, this.userId, this.workspaceId);
     const normalizedQueries = normalizeUserMemorySearchQueries(normalizedParams.queries);
 
     const queryEmbeddings =

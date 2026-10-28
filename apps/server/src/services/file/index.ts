@@ -1,4 +1,5 @@
 import { type LobeChatDatabase, type Transaction } from '@lobechat/database';
+import { ssrfSafeFetch } from '@lobechat/ssrf-safe-fetch';
 import type { FileAccessScope, FileSource } from '@lobechat/types';
 import { ordinaryFileAccessScope } from '@lobechat/types';
 import { inferContentTypeFromImageUrl, nanoid, uuid } from '@lobechat/utils';
@@ -8,14 +9,15 @@ import { sha256 } from 'js-sha256';
 import { serverDBEnv } from '@/config/db';
 import { FileModel } from '@/database/models/file';
 import { type FileItem } from '@/database/schemas';
-import { appEnv } from '@/envs/app';
+import { buildTenantPublicUrl } from '@/server/modules/Tenant/callbackUrl';
 import { TempFileManager } from '@/server/utils/tempFileManager';
 import { isDev } from '@/utils/env';
 
 import { createFileServiceModule } from './impls';
 import type { FileServiceImpl, PreSignedUpload } from './impls/type';
 
-export const getFileProxyUrl = (fileId: string): string => `${appEnv.APP_URL}/f/${fileId}`;
+/** The file proxy of the current tenant: `/f/{id}` is a tenant backend route. */
+export const getFileProxyUrl = (fileId: string): string => buildTenantPublicUrl(`/f/${fileId}`);
 
 export interface FileAccessUrlItem {
   fileId?: string | null;
@@ -493,7 +495,8 @@ export class FileService {
     externalUrl: string,
     pathname: string,
   ): Promise<{ fileId: string; key: string; url: string }> {
-    const response = await fetch(externalUrl);
+    // `externalUrl` is caller-provided: keep it off private and metadata addresses.
+    const response = await ssrfSafeFetch(externalUrl);
 
     if (!response.ok) {
       throw new TRPCError({

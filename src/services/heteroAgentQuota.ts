@@ -23,7 +23,7 @@ export const fetchClaudeCodeQuotaSnapshot = ({
   force,
 }: FetchClaudeCodeQuotaSnapshotParams): Promise<ClaudeCodeQuotaSnapshot | null> =>
   deviceId
-    ? lambdaClient.device.getClaudeCodeQuota.query({
+    ? lambdaClient.device.getClaudeCodeQuota.mutate({
         deviceId,
         env,
         ...(force ? { force: true } : {}),

@@ -5,6 +5,7 @@ import {
   parseOperationId,
   type StepSnapshot,
 } from '@lobechat/agent-tracing';
+import { currentTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 
 import { buildFinalSnapshotKey } from '@/server/modules/AgentTracing';
@@ -53,6 +54,19 @@ const num = (v: unknown): number | undefined => (typeof v === 'number' ? v : und
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
 /**
+ * Every hetero step is one model turn: a turn that calls tools is retyped
+ * `call_tool` but still made the LLM call, so counting `call_llm` steps alone
+ * reported one call for a 284-step run.
+ */
+const isModelTurn = (step: StepSnapshot): boolean =>
+  step.stepType === 'call_llm' ||
+  !!step.toolsCalling?.length ||
+  !!step.content ||
+  !!step.reasoning ||
+  step.inputTokens !== undefined ||
+  step.outputTokens !== undefined;
+
+/**
  * Hetero-native execution-trace recorder. Unlike the built-in
  * {@link OperationTraceRecorder} — which is coupled to the homogeneous runtime's
  * `AgentState` / `StepPresentationData` — this folds the raw `AgentStreamEvent`
@@ -74,6 +88,9 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : und
  */
 const partialCache = new Map<string, { partial: Partial<ExecutionSnapshot>; token: string }>();
 
+/** Operation ids come from the device: the partial of one tenant must never seed another's. */
+const cacheKey = (operationId: string) => `${currentTenantScope()?.tenantId ?? ''}|${operationId}`;
+
 /** Bounded so a long-lived instance cannot accumulate finished operations. */
 const PARTIAL_CACHE_MAX = 32;
 
@@ -84,10 +101,10 @@ const rememberPartial = (
 ) => {
   // Without a token the next write could not be fenced, so there is nothing
   // safe to remember.
-  if (!token) return partialCache.delete(operationId);
+  if (!token) return partialCache.delete(cacheKey(operationId));
 
-  partialCache.delete(operationId);
-  partialCache.set(operationId, { partial, token });
+  partialCache.delete(cacheKey(operationId));
+  partialCache.set(cacheKey(operationId), { partial, token });
   if (partialCache.size > PARTIAL_CACHE_MAX) {
     const oldest = partialCache.keys().next().value;
     if (oldest !== undefined) partialCache.delete(oldest);
@@ -107,7 +124,7 @@ export class HeteroTraceRecorder {
     if (!this.store || events.length === 0) return;
 
     try {
-      const cached = partialCache.get(operationId);
+      const cached = partialCache.get(cacheKey(operationId));
       const fold = (partial: Partial<ExecutionSnapshot>) => {
         if (!partial.steps) partial.steps = [];
         if (!partial.startedAt) partial.startedAt = events[0].timestamp;
@@ -126,7 +143,7 @@ export class HeteroTraceRecorder {
       if (result?.conflict) {
         // Another instance wrote this partial while we held a copy. Drop ours,
         // read theirs, and fold this batch's events into it instead.
-        partialCache.delete(operationId);
+        partialCache.delete(cacheKey(operationId));
         const fresh = fold((await this.store.loadPartial(operationId)) ?? {});
         const retry = await this.store.savePartial(operationId, fresh);
         rememberPartial(operationId, fresh, retry?.token);
@@ -135,7 +152,7 @@ export class HeteroTraceRecorder {
 
       rememberPartial(operationId, partial, result?.token);
     } catch (e) {
-      partialCache.delete(operationId);
+      partialCache.delete(cacheKey(operationId));
       log('[%s] appendBatch failed (non-fatal): %O', operationId, e);
     }
   }
@@ -155,7 +172,7 @@ export class HeteroTraceRecorder {
       // snapshot missing every batch another instance recorded, and then delete
       // the partial that had them. The per-batch write is fenced against that;
       // this one write is not, so it does not get to guess.
-      partialCache.delete(operationId);
+      partialCache.delete(cacheKey(operationId));
       const partial = await this.store.loadPartial(operationId);
       if (!partial) return null;
 
@@ -209,7 +226,7 @@ export class HeteroTraceRecorder {
       await this.store.removePartial(operationId);
 
       return {
-        llmCalls: steps.filter((s) => s.stepType === 'call_llm').length,
+        llmCalls: steps.filter(isModelTurn).length,
         model: partial.model ?? null,
         provider: partial.provider ?? null,
         stepCount: steps.length,

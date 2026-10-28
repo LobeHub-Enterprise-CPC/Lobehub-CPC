@@ -1,13 +1,13 @@
 'use client';
 
-import { Flexbox, Icon } from '@lobehub/ui';
-import { Segmented, type SegmentedOptions, Select, type SelectProps } from '@lobehub/ui/base-ui';
-import { createStaticStyles } from 'antd-style';
+import { createStaticStyles, Flexbox, Icon } from '@lobehub/ui';
+import { Segmented, type SegmentedOptions, Select, type SelectProps } from '@lobehub/ui';
 import { ImageIcon, Video } from 'lucide-react';
 import { memo, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
+import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 
 export interface GenerationMediaModeSegmentProps {
   /** `hero`: large labeled headline select. `toolbar`: compact icon-only toggle group. */
@@ -40,18 +40,23 @@ const GenerationMediaModeSegment = memo<GenerationMediaModeSegmentProps>(
   ({ mode, layout = 'toolbar' }) => {
     const { t } = useTranslation('common');
     const navigate = useWorkspaceAwareNavigate();
+    const { showAiImage } = useServerConfigStore(featureFlagsSelectors);
     const isHero = layout === 'hero';
 
     const heroOptions = useMemo<SelectProps['options']>(
       () => [
-        {
-          label: (
-            <Flexbox horizontal align="center" gap={8}>
-              <span className={styles.heroText}>{t('tab.image')}</span>
-            </Flexbox>
-          ),
-          value: 'image',
-        },
+        ...(showAiImage
+          ? [
+              {
+                label: (
+                  <Flexbox horizontal align="center" gap={8}>
+                    <span className={styles.heroText}>{t('tab.image')}</span>
+                  </Flexbox>
+                ),
+                value: 'image',
+              },
+            ]
+          : []),
         {
           label: (
             <Flexbox horizontal align="center" gap={8}>
@@ -61,17 +66,21 @@ const GenerationMediaModeSegment = memo<GenerationMediaModeSegmentProps>(
           value: 'video',
         },
       ],
-      [t],
+      [t, showAiImage],
     );
 
     const toolbarOptions = useMemo<SegmentedOptions<'image' | 'video'>>(
       () => [
-        {
-          icon: <Icon icon={ImageIcon} size={16} />,
-          label: t('tab.image'),
-          title: t('tab.image'),
-          value: 'image',
-        },
+        ...(showAiImage
+          ? [
+              {
+                icon: <Icon icon={ImageIcon} size={16} />,
+                label: t('tab.image'),
+                title: t('tab.image'),
+                value: 'image' as const,
+              },
+            ]
+          : []),
         {
           icon: <Icon icon={Video} size={16} />,
           label: t('tab.video'),
@@ -79,7 +88,7 @@ const GenerationMediaModeSegment = memo<GenerationMediaModeSegmentProps>(
           value: 'video',
         },
       ],
-      [t],
+      [t, showAiImage],
     );
 
     const labelRender: SelectProps['labelRender'] = useCallback(

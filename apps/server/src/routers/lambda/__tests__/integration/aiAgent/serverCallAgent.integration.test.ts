@@ -16,10 +16,12 @@ import { agentOperations, agents, messagePlugins, messages } from '@lobechat/dat
 import { getTestDB } from '@lobechat/database/test-utils';
 import { and, eq } from 'drizzle-orm';
 import OpenAI from 'openai';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, vi } from 'vitest';
 
 import { inMemoryAgentStateManager } from '@/server/modules/AgentRuntime/InMemoryAgentStateManager';
 import { inMemoryStreamEventManager } from '@/server/modules/AgentRuntime/InMemoryStreamEventManager';
+import type * as GatewayAuthorizationModule from '@/server/services/gatewayAuthorization';
+import { tenantTest } from '@/server/test-utils/tenantHarness';
 
 import { aiAgentRouter } from '../../../aiAgent';
 import { cleanupTestUser, createTestUser } from '../setup';
@@ -28,6 +30,9 @@ import { createMockResponsesStream, waitForOperationComplete } from './helpers';
 process.env.OPENAI_API_KEY = 'sk-test-fake-api-key-for-testing';
 
 let testDB: LobeChatDatabase;
+// Agent step callbacks are addressed to the current tenant.
+vi.mock('@/server/modules/Tenant/callbackUrl');
+
 vi.mock('@/database/core/db-adaptor', () => ({
   getServerDB: vi.fn(function () {
     return testDB;
@@ -218,6 +223,8 @@ afterEach(async () => {
   inMemoryStreamEventManager.clear();
 });
 
+const it = tenantTest(() => serverDB);
+
 describe('Server callAgent deferred execution', () => {
   it('parks the parent, runs the target agent, backfills the tool message and resumes', async () => {
     let callCount = 0;
@@ -290,3 +297,17 @@ describe('Server callAgent deferred execution', () => {
     });
   }, 30_000);
 });
+
+vi.mock('@/server/modules/Tenant/runtime', async () => {
+  const { testTenantRuntime } = await import('@/server/test-utils/tenantHarness');
+  return { getTenantRuntime: () => testTenantRuntime };
+});
+vi.mock('@/server/modules/Tenant/postgresClaims', async () => ({
+  tenantClaims: (await import('@/server/test-utils/tenantHarness')).testTenantClaims,
+  heartbeatTenantProcess: async () => {},
+}));
+vi.mock('@/server/modules/Tenant/gate', async (importOriginal) => importOriginal());
+vi.mock('@/server/services/gatewayAuthorization', async (importOriginal) => ({
+  ...(await importOriginal<typeof GatewayAuthorizationModule>()),
+  mintOperationGatewayTicket: async () => ({ token: 'test-operation-ticket' }),
+}));

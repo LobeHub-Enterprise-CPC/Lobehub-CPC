@@ -1,6 +1,8 @@
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 
+import acceptanceReview from './acceptance-review';
+
 const app = new Hono();
 
 const fetchWith = async (
@@ -19,9 +21,15 @@ app.get('/health', (c) =>
 
 app.all('/api/agent', (c) => fetchWith(c, () => import('./agent')));
 app.all('/api/agent/*', (c) => fetchWith(c, () => import('./agent')));
+app.all('/api/acceptance-review/*', (c) => acceptanceReview.fetch(c.req.raw));
 app.all('/api/workflows', (c) => fetchWith(c, () => import('./workflows')));
 app.all('/api/workflows/*', (c) => fetchWith(c, () => import('./workflows')));
 app.all('/api/governance', (c) => fetchWith(c, () => import('./governance')));
 app.all('/api/governance/*', (c) => fetchWith(c, () => import('./governance')));
+app.all('/api/internal/control-plane/*', (c) => fetchWith(c, () => import('./controlPlane')));
+app.all('/api/internal/tenant-discovery/*', (c) =>
+  fetchWith(c, () => import('./tenantDiscoveryInternal')),
+);
+app.all('/api/internal/gateway/*', (c) => fetchWith(c, () => import('./gatewayInternal')));
 
 export default app;

@@ -75,7 +75,6 @@ export const channelService = {
     await lambdaClient.channel.updateEnvironment.mutate({ ...memberEnvironment, ...canonical });
     return { confirmationRequired: false };
   },
-  archive: (channelId: string) => lambdaClient.channel.archive.mutate({ channelId }),
   remove: (channelId: string) => lambdaClient.channel.remove.mutate({ channelId }),
   removeMember: (channelId: string, memberId: string) =>
     lambdaClient.channel.removeMember.mutate({ channelId, memberId }),
@@ -178,8 +177,6 @@ export const channelService = {
     lambdaClient.channel.removeThreadFollower.mutate({ channelId, threadId, memberId }),
   retryRouting: (channelId: string, messageId: string) =>
     lambdaClient.channel.retryRouting.mutate({ channelId, messageId }),
-  approve: (channelId: string, approvalId: string, approved: boolean) =>
-    lambdaClient.channel.approve.mutate({ channelId, approvalId, approved }),
   stop: (channelId: string, scope: { runId: string } | { threadId: string | null }) =>
     lambdaClient.channel.stop.mutate({ channelId, scope }),
 };

@@ -1,4 +1,7 @@
+import { COMPOSER_AGENT_ONLY_LAYOUT } from '@lobechat/business-const';
 import {
+  createStaticStyles,
+  cssVar,
   DropdownMenuItem,
   DropdownMenuItemContent,
   DropdownMenuItemExtra,
@@ -12,8 +15,7 @@ import {
   DropdownMenuSubmenuTrigger,
   DropdownMenuTrigger,
   renderDropdownMenuItems,
-} from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+} from '@lobehub/ui';
 import type { ReactNode } from 'react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -26,6 +28,7 @@ import type { SelectorSubmenuItem } from '../../components/buildSelectorSubmenu'
 import { buildSelectorSubmenu } from '../../components/buildSelectorSubmenu';
 import type { ReasoningEffortControl } from '../../hooks/useReasoningEffortControl';
 import { type DropdownPlacement } from '../context';
+import EffortCard from './EffortCard';
 
 const styles = createStaticStyles(({ css }) => ({
   meta: css`
@@ -46,6 +49,11 @@ const styles = createStaticStyles(({ css }) => ({
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  `,
+  modelRow: css`
+    justify-content: center;
+    width: auto;
+    color: ${cssVar.colorTextTertiary};
   `,
   popup: css`
     width: 240px;
@@ -126,7 +134,7 @@ const SelectorMenu = memo<SelectorMenuProps>(
     const items = useMemo(() => {
       const rows: SelectorSubmenuItem[] = [];
 
-      if (effortKey)
+      if (effortKey && !COMPOSER_AGENT_ONLY_LAYOUT)
         rows.push(
           buildSelectorSubmenu({
             current: effortValue ?? '',
@@ -164,13 +172,48 @@ const SelectorMenu = memo<SelectorMenuProps>(
       </DropdownMenuItemExtra>
     );
 
+    const modelPanel = (
+      <ModelSwitchSubmenuPopup
+        activeSecondaryText={effortValue ? t(`reasoningEffort.levels.${effortValue}`) : undefined}
+        enabledList={enabledList}
+        model={model}
+        notice={modelNotice}
+        provider={provider}
+        onModelChange={onModelChange}
+        onOpenChange={handleModelPanelOpenChange}
+      />
+    );
+
     return (
       <DropdownMenuRoot open={open} onOpenChange={setOpen}>
         <DropdownMenuTrigger openOnHover={openOnHover}>{children}</DropdownMenuTrigger>
         <DropdownMenuPortal>
           <DropdownMenuPositioner hoverTrigger={openOnHover} placement={placement} sideOffset={8}>
             <DropdownMenuPopup className={styles.popup}>
-              {canSelectModel ? (
+              {COMPOSER_AGENT_ONLY_LAYOUT ? (
+                <EffortCard
+                  effort={effort}
+                  model={model}
+                  modelSlot={
+                    canSelectModel ? (
+                      <DropdownMenuSubmenuRoot>
+                        <DropdownMenuSubmenuTrigger
+                          className={styles.modelRow}
+                          label={t('modelSelector.model')}
+                        >
+                          <span className={styles.name}>{displayName}</span>
+                          <DropdownMenuSubmenuArrow>
+                            <SubmenuArrow />
+                          </DropdownMenuSubmenuArrow>
+                        </DropdownMenuSubmenuTrigger>
+                        {modelPanel}
+                      </DropdownMenuSubmenuRoot>
+                    ) : (
+                      <span className={styles.modelRow}>{displayName}</span>
+                    )
+                  }
+                />
+              ) : canSelectModel ? (
                 <DropdownMenuSubmenuRoot>
                   <DropdownMenuSubmenuTrigger label={t('modelSelector.model')}>
                     <DropdownMenuItemContent>
@@ -181,17 +224,7 @@ const SelectorMenu = memo<SelectorMenuProps>(
                       </DropdownMenuSubmenuArrow>
                     </DropdownMenuItemContent>
                   </DropdownMenuSubmenuTrigger>
-                  <ModelSwitchSubmenuPopup
-                    enabledList={enabledList}
-                    model={model}
-                    notice={modelNotice}
-                    provider={provider}
-                    activeSecondaryText={
-                      effortValue ? t(`reasoningEffort.levels.${effortValue}`) : undefined
-                    }
-                    onModelChange={onModelChange}
-                    onOpenChange={handleModelPanelOpenChange}
-                  />
+                  {modelPanel}
                 </DropdownMenuSubmenuRoot>
               ) : (
                 // Locked model (agent-pinned or use-only access): still name it,

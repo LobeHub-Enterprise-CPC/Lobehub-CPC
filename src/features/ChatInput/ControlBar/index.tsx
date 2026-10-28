@@ -1,9 +1,9 @@
-import { Flexbox } from '@lobehub/ui';
-import { Skeleton } from '@lobehub/ui/base-ui';
-import { createStaticStyles } from 'antd-style';
+import { COMPOSER_AGENT_ONLY_LAYOUT } from '@lobechat/business-const';
+import { createStaticStyles, Flexbox } from '@lobehub/ui';
 import { memo } from 'react';
 
 import ChatInputCredits from '@/business/client/features/ChatInputCredits';
+import { SkeletonBar } from '@/components/Skeleton';
 import { useAgentStore } from '@/store/agent';
 import { agentByIdSelectors } from '@/store/agent/selectors';
 
@@ -14,6 +14,7 @@ import { useEffectiveAgentMode } from '../hooks/useEffectiveAgentMode';
 import { useChatInputStore } from '../store';
 import ApprovalMode from './ApprovalMode';
 import ModeSelector from './ModeSelector';
+import { resolveControlBarView } from './resolveControlBarView';
 import WorkspaceControls from './WorkspaceControls';
 
 const styles = createStaticStyles(({ css }) => ({
@@ -45,9 +46,27 @@ const styles = createStaticStyles(({ css }) => ({
   `,
 }));
 
+interface ControlBarSkeletonProps {
+  /** Mirror the right-pinned context-window pill only when the loaded bar renders it. */
+  showContextWindow?: boolean;
+}
+
+/**
+ * Same-height stand-in for the control bar: the 28px row with the mode pill on the
+ * left and, when configured, the context-window pill pinned right. Pill sizes follow
+ * the settled DOM (mode button ~70x23, context-window tag ~89x24), so the composer
+ * does not move when the real controls replace it.
+ */
+export const ControlBarSkeleton = ({ showContextWindow }: ControlBarSkeletonProps) => (
+  <Flexbox aria-busy horizontal align={'center'} className={styles.bar} justify={'space-between'}>
+    <SkeletonBar height={22} radius={4} width={68} />
+    {showContextWindow && <SkeletonBar height={22} radius={4} width={88} />}
+  </Flexbox>
+);
+
 const ControlBar = memo(() => {
   const agentId = useAgentId();
-  const { canShowControls } = useChatInputResourceAccess();
+  const { canShowControls, isAccessLoading } = useChatInputResourceAccess();
   const showContextWindow = useChatInputStore((s) =>
     s.rightActions.flat().includes('contextWindow'),
   );
@@ -55,29 +74,28 @@ const ControlBar = memo(() => {
   const isLoading = useAgentStore((s) => agentByIdSelectors.isAgentConfigLoadingById(agentId)(s));
   const { isAgentRuntimeMode, isPreferenceLoading } = useEffectiveAgentMode(agentId);
 
-  if (!canShowControls || isPreferenceLoading) return null;
+  const view = resolveControlBarView({
+    agentId,
+    canShowControls,
+    isAccessLoading,
+    isAgentConfigLoading: isLoading,
+    isPreferenceLoading,
+  });
 
-  // Skeleton placeholder to prevent layout jump during loading
-  if (!agentId || isLoading) {
-    return (
-      <Flexbox horizontal align={'center'} className={styles.bar} gap={4}>
-        <Skeleton style={{ height: 22, minWidth: 64, width: 64 }} />
-        <Skeleton style={{ height: 22, minWidth: 100, width: 100 }} />
-      </Flexbox>
-    );
-  }
+  if (view === 'hidden') return null;
+  if (view === 'skeleton') return <ControlBarSkeleton showContextWindow={showContextWindow} />;
 
   return (
     <Flexbox horizontal align={'center'} className={styles.bar} justify={'space-between'}>
       {/* Left: chat-mode switcher + (agent-only) execution device + working directory */}
       <Flexbox horizontal align={'center'} className={styles.leftGroup} gap={4}>
-        <ModeSelector />
+        {!COMPOSER_AGENT_ONLY_LAYOUT && <ModeSelector />}
         {isAgentRuntimeMode && <WorkspaceControls agentId={agentId} />}
       </Flexbox>
 
       <Flexbox horizontal align={'center'} className={styles.rightGroup} gap={4}>
         <ChatInputCredits />
-        {isAgentRuntimeMode && <ApprovalMode />}
+        {isAgentRuntimeMode && !COMPOSER_AGENT_ONLY_LAYOUT && <ApprovalMode />}
         {showContextWindow && <ContextWindow />}
       </Flexbox>
     </Flexbox>

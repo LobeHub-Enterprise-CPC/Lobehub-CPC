@@ -33,29 +33,30 @@ LobeHub 支持使用 Better Auth 配置外部身份验证服务，供企业 / �
 | `AUTH_SECRET`          | 必选  | 用于加密会话令牌的密钥。使用以下命令生成：`openssl rand -base64 32`                                                                                                                                    |
 | `APP_URL`              | 必选  | 本实例的公网访问地址（例如 `https://lobe.example.com`）。Better Auth 将其作为 `baseURL` 生成 OAuth 回调与 trusted origins。Vercel 上未设置时可回退到 `VERCEL_*`；其他环境若省略会默认 `http://localhost:<PORT>`，导致公网域名 SSO 失败。 |
 | `NEXT_PUBLIC_AUTH_URL` | 已废弃 | 已移除的 NextAuth / 浏览器认证 URL。设置该变量会导致部署失败，请改用 `APP_URL`。                                                                                                                             |
-| `AUTH_SSO_PROVIDERS`   | 可选  | 启用的 SSO 提供商列表，以逗号分隔，例如 `google,github,microsoft`                                                                                                                                  |
 
 ## 支持的 SSO 提供商
 
-| 提供商                   | 值                       | 环境变量                                                                                                               |
-| --------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Google                | `google`                | `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`                                                                             |
-| GitHub                | `github`                | `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET`                                                                             |
-| Microsoft             | `microsoft`             | `AUTH_MICROSOFT_ID`, `AUTH_MICROSOFT_SECRET`, `AUTH_MICROSOFT_AUTHORITY_URL`, `AUTH_MICROSOFT_TENANT_ID`           |
-| Apple                 | `apple`                 | `AUTH_APPLE_CLIENT_ID`, `AUTH_APPLE_CLIENT_SECRET`                                                                 |
-| AWS Cognito           | `cognito`               | `AUTH_COGNITO_ID`, `AUTH_COGNITO_SECRET`, `AUTH_COGNITO_DOMAIN`, `AUTH_COGNITO_REGION`, `AUTH_COGNITO_USERPOOL_ID` |
-| Auth0                 | `auth0`                 | `AUTH_AUTH0_ID`, `AUTH_AUTH0_SECRET`, `AUTH_AUTH0_ISSUER`                                                          |
-| Authelia              | `authelia`              | `AUTH_AUTHELIA_ID`, `AUTH_AUTHELIA_SECRET`, `AUTH_AUTHELIA_ISSUER`                                                 |
-| Authentik             | `authentik`             | `AUTH_AUTHENTIK_ID`, `AUTH_AUTHENTIK_SECRET`, `AUTH_AUTHENTIK_ISSUER`                                              |
-| Casdoor               | `casdoor`               | `AUTH_CASDOOR_ID`, `AUTH_CASDOOR_SECRET`, `AUTH_CASDOOR_ISSUER`                                                    |
-| Cloudflare Zero Trust | `cloudflare-zero-trust` | `AUTH_CLOUDFLARE_ZERO_TRUST_ID`, `AUTH_CLOUDFLARE_ZERO_TRUST_SECRET`, `AUTH_CLOUDFLARE_ZERO_TRUST_ISSUER`          |
-| Keycloak              | `keycloak`              | `AUTH_KEYCLOAK_ID`, `AUTH_KEYCLOAK_SECRET`, `AUTH_KEYCLOAK_ISSUER`                                                 |
-| Logto                 | `logto`                 | `AUTH_LOGTO_ID`, `AUTH_LOGTO_SECRET`, `AUTH_LOGTO_ISSUER`                                                          |
-| Okta                  | `okta`                  | `AUTH_OKTA_ID`, `AUTH_OKTA_SECRET`, `AUTH_OKTA_ISSUER`                                                             |
-| ZITADEL               | `zitadel`               | `AUTH_ZITADEL_ID`, `AUTH_ZITADEL_SECRET`, `AUTH_ZITADEL_ISSUER`                                                    |
-| Generic OIDC          | `generic-oidc`          | `AUTH_GENERIC_OIDC_ID`, `AUTH_GENERIC_OIDC_SECRET`, `AUTH_GENERIC_OIDC_ISSUER`                                     |
-| 飞书                    | `feishu`                | `AUTH_FEISHU_APP_ID`, `AUTH_FEISHU_APP_SECRET`                                                                     |
-| 微信                    | `wechat`                | `AUTH_WECHAT_ID`, `AUTH_WECHAT_SECRET`                                                                             |
+SSO 由每个租户在 Admin 中配置（该租户的 SSO 提供商），不再使用环境变量。各提供商在 Admin 中的添加方式如下；内置提供商（Google、GitHub、Microsoft、Apple）的提供商 ID 必须与表中完全一致，其他预设填写表中的 ID 即使用该预设（其他 ID 按普通 OIDC 处理）。
+
+| 提供商                   | 在 Admin 中添加为        | 提供商 ID                               |
+| --------------------- | ------------------- | ------------------------------------ |
+| Google                | OIDC                | `google`                             |
+| GitHub                | OAuth 2.0，预设 GitHub | `github`                             |
+| Microsoft             | OIDC                | `microsoft`                          |
+| Apple                 | OIDC                | `apple`                              |
+| AWS Cognito           | OIDC（普通）            | 除 `cognito` 外的任意 ID（如 `aws-cognito`） |
+| Auth0                 | OIDC                | `auth0`                              |
+| Authelia              | OIDC                | `authelia`                           |
+| Authentik             | OIDC                | `authentik`                          |
+| Casdoor               | OIDC                | `casdoor`                            |
+| Cloudflare Zero Trust | OIDC                | `cloudflare-zero-trust`              |
+| Keycloak              | OIDC                | `keycloak`                           |
+| Logto                 | OIDC                | `logto`                              |
+| Okta                  | OIDC                | `okta`                               |
+| ZITADEL               | OIDC                | `zitadel`                            |
+| Generic OIDC          | OIDC                | 任意 ID                                |
+| 飞书                    | OAuth 2.0，预设飞书      | 任意 ID                                |
+| 微信                    | OIDC                | `wechat`                             |
 
 点击下方提供商查看详细配置指南：
 
@@ -101,8 +102,8 @@ LobeHub 支持使用 Better Auth 配置外部身份验证服务，供企业 / �
 
 配置 OAuth 提供商时，请使用以下回调 URL 格式：
 
-- **开发环境**：`http://localhost:3210/api/auth/callback/{provider}`
-- **生产环境**：`https://yourdomain.com/api/auth/callback/{provider}`
+- **开发环境**：`http://localhost:3210/t/{tenant}/api/auth/callback/{provider-id}`
+- **生产环境**：`https://yourdomain.com/t/{tenant}/api/auth/callback/{provider-id}`
 
 ## 追加可信来源
 
@@ -124,46 +125,21 @@ AUTH_ADDITIONAL_TRUSTED_ORIGINS=https://gateway.example.com
 
 **限制注册邮箱或域名：**
 
-设置 `AUTH_ALLOWED_EMAILS`，以逗号分隔多个值：
-
-```bash
-# 仅允许 @example.com 邮箱
-AUTH_ALLOWED_EMAILS=example.com
-
-# 允许多个域名和特定邮箱
-AUTH_ALLOWED_EMAILS=example.com,company.org,admin@other.com
-```
-
-<Callout type={'info'}>
-  `AUTH_ALLOWED_EMAILS` 仅限制哪些邮箱可以注册，不会验证邮箱所有权。结合 `AUTH_EMAIL_VERIFICATION=1`
-  可确保用户确实拥有其注册邮箱。
-</Callout>
+允许注册的邮箱或域名由每个租户在 Admin 中配置（租户白名单），不再有全局的 `AUTH_ALLOWED_EMAILS` 环境变量。
 
 ## OAuth 快速配置示例
 
 **Google OAuth：**
 
 1. 在 [Google Cloud Console](https://console.cloud.google.com/apis/credentials) 创建 OAuth 凭据
-2. 设置授权重定向 URI：`https://yourdomain.com/api/auth/callback/google`
-3. 配置环境变量：
-
-```bash
-AUTH_SSO_PROVIDERS=google
-AUTH_GOOGLE_ID=xxxxx.apps.googleusercontent.com
-AUTH_GOOGLE_SECRET=GOCSPX-xxxxxxxxxxxxxxxxxxxx
-```
+2. 设置授权重定向 URI：`https://yourdomain.com/t/{tenant}/api/auth/callback/google`
+3. 在 Admin 中添加一个 **OIDC** 提供商：提供商 ID 填 `google`，填写 Client ID 和 Secret，Issuer 为 `https://accounts.google.com`。
 
 **GitHub OAuth：**
 
 1. 在 [GitHub 开发者设置](https://github.com/settings/developers) 创建 OAuth App
-2. 设置回调 URL：`https://yourdomain.com/api/auth/callback/github`
-3. 配置环境变量：
-
-```bash
-AUTH_SSO_PROVIDERS=github
-AUTH_GITHUB_ID=Ov23xxxxxxxxxxxxx
-AUTH_GITHUB_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
+2. 设置回调 URL：`https://yourdomain.com/t/{tenant}/api/auth/callback/github`
+3. 在 Admin 中添加一个 **OAuth 2.0** 提供商：预设选 **GitHub**，提供商 ID 填 `github`，填写 Client ID 和 Secret。
 
 ## 邮件服务配置
 
@@ -207,7 +183,7 @@ Better Auth 支持内置提供商（Google、GitHub、Microsoft、Apple、AWS Co
 
 ### 如何启用多个 SSO 提供商？
 
-设置 `AUTH_SSO_PROVIDERS` 环境变量，使用逗号分隔多个提供商，例如 `google,github,microsoft`。顺序决定登录页面上的显示顺序。
+在 Admin 中为租户逐个添加提供商。登录页面列出该租户已启用的提供商，按提供商 ID 排序。
 
 ### Casdoor 用户只有 username 没有 email 怎么办？
 
@@ -233,18 +209,11 @@ Better Auth 支持内置提供商（Google、GitHub、Microsoft、Apple、AWS Co
 - 注册页面将重定向到登录页面
 - 用户只能通过配置的 SSO 提供商登录
 
-启用此选项前，请确保已通过 `AUTH_SSO_PROVIDERS` 配置了至少一个 SSO 提供商。
+启用此选项前，请确保每个租户都已在 Admin 中配置了至少一个 SSO 提供商。
 
 ### 如何限制只允许特定邮箱或域名注册？
 
-设置 `AUTH_ALLOWED_EMAILS` 环境变量，支持完整邮箱地址或域名，以逗号分隔。例如：
-
-- 只允许 `example.com` 域名：`AUTH_ALLOWED_EMAILS=example.com`
-- 允许多个域名和特定邮箱：`AUTH_ALLOWED_EMAILS=example.com,company.org,admin@other.com`
-
-<Callout type={'info'}>
-  注意：`AUTH_ALLOWED_EMAILS` 仅限制哪些邮箱地址可以注册，但不会验证邮箱所有权。如果需要确保用户确实拥有其注册的邮箱地址，请设置 `AUTH_EMAIL_VERIFICATION=1` 以启用邮箱验证。这需要配置邮件服务（SMTP）。
-</Callout>
+允许注册的邮箱或域名由每个租户在 Admin 中配置（租户白名单），不再有全局的 `AUTH_ALLOWED_EMAILS` 环境变量。
 
 ### Webhook 支持
 

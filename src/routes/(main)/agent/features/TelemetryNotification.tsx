@@ -1,9 +1,7 @@
 'use client';
 
 import { BRANDING_NAME } from '@lobechat/business-const';
-import { Flexbox, Icon } from '@lobehub/ui';
-import { Avatar, Button } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+import { Avatar, Button, createStaticStyles, cssVar, Flexbox, Icon } from '@lobehub/ui';
 import { LucideArrowUpRightFromSquare, TelescopeIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -12,6 +10,7 @@ import Notification from '@/components/Notification';
 import { PRIVACY_URL } from '@/const/url';
 import { useUserStore } from '@/store/user';
 import { preferenceSelectors } from '@/store/user/selectors';
+import { vendorLink } from '@/utils/vendorLink';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
   desc: css`
@@ -22,6 +21,8 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
     font-weight: bold;
   `,
 }));
+
+const privacyUrl = vendorLink(PRIVACY_URL);
 
 const TelemetryNotification = memo<{ mobile?: boolean }>(({ mobile }) => {
   const { t } = useTranslation('common');
@@ -55,12 +56,16 @@ const TelemetryNotification = memo<{ mobile?: boolean }>(({ mobile }) => {
           </Flexbox>
           <div className={styles.desc}>
             {t('telemetry.desc', { appName: BRANDING_NAME })}
-            <span>
-              <a href={PRIVACY_URL} rel="noreferrer" target="_blank">
-                {t('telemetry.learnMore')}
-                <Icon icon={LucideArrowUpRightFromSquare} style={{ marginInlineStart: 4 }} />
-              </a>
-            </span>
+            {/* "Learn more" leads to the vendor's privacy policy; a rebranded
+                build has none of its own to link, so the link is dropped. */}
+            {privacyUrl && (
+              <span>
+                <a href={privacyUrl} rel="noreferrer" target="_blank">
+                  {t('telemetry.learnMore')}
+                  <Icon icon={LucideArrowUpRightFromSquare} style={{ marginInlineStart: 4 }} />
+                </a>
+              </span>
+            )}
           </div>
         </Flexbox>
         <Flexbox horizontal gap={8}>

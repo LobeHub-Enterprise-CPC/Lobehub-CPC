@@ -1,8 +1,10 @@
+import { ssrfSafeFetch } from '@lobechat/ssrf-safe-fetch';
 import { imageUrlToBase64, videoUrlToBase64 } from '@lobechat/utils';
 import type OpenAI from 'openai';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { OpenAIChatMessage } from '../../types';
+import { clearReferenceImageCache } from '../../utils/referenceImageCache';
 import { serializeScopedSignature, type SignatureScope } from '../../utils/signatureScope';
 import { parseDataUri } from '../../utils/uriParser';
 import {
@@ -19,6 +21,7 @@ vi.mock('@lobechat/utils', () => ({
   videoUrlToBase64: vi.fn(),
 }));
 vi.mock('../../utils/uriParser');
+vi.mock('@lobechat/ssrf-safe-fetch', () => ({ ssrfSafeFetch: vi.fn() }));
 
 const MP3_BASE64 = 'SUQzBAAAAAA=';
 const WAV_BASE64 = 'UklGRjAwMDBXQVZFZm10IA==';
@@ -1622,6 +1625,7 @@ describe('convertOpenAIResponseInputs', () => {
 describe('convertImageUrlToFile', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    clearReferenceImageCache();
   });
 
   afterEach(() => {
@@ -1672,15 +1676,9 @@ describe('convertImageUrlToFile', () => {
   });
 
   describe('HTTP URL handling', () => {
-    const mockFetch = vi.fn();
-
-    beforeEach(() => {
-      // Mock global fetch using vi.stubGlobal for better isolation
-      vi.stubGlobal('fetch', mockFetch);
-    });
+    const mockFetch = vi.mocked(ssrfSafeFetch);
 
     afterEach(() => {
-      vi.unstubAllGlobals();
       vi.clearAllMocks();
     });
 
@@ -1732,7 +1730,23 @@ describe('convertImageUrlToFile', () => {
         expect(result).toHaveProperty('type', testCase.contentType || 'image/png');
 
         vi.clearAllMocks();
+        clearReferenceImageCache();
       }
+    });
+
+    it('should reuse one download for repeated conversions of the same URL', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+        headers: new Headers({ 'content-type': 'image/png' }),
+      } satisfies Partial<Response>);
+
+      const first = await convertImageUrlToFile('https://example.com/reference.png');
+      const second = await convertImageUrlToFile('https://example.com/reference.png');
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(first).not.toBe(second);
+      expect(second).toHaveProperty('type', 'image/png');
     });
 
     it('should throw error when HTTP request fails', async () => {

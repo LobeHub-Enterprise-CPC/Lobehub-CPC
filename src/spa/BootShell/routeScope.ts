@@ -16,6 +16,12 @@ const MAIN_LAYOUT_PATH = '/';
  * genuinely does render the main layout. Only the explicit siblings are
  * excluded. That also means the basename must be passed — otherwise a
  * `/_dangerous_local_dev_proxy/...` url has its prefix eaten as a slug.
+ *
+ * The tenant prefix `/t/{slug}` rides that same basename (see
+ * `spa/appBasename.ts`), so this function needs no tenant-specific branch — but
+ * it does need the COMPOSED basename. Passing only the proxy base, or nothing,
+ * puts the bug back: `/t/acme/agent` would match with `workspaceSlug = 't'` and
+ * report the wrong layout scope without erroring.
  */
 export const isMainLayoutLocation = (
   routes: RouteObject[],

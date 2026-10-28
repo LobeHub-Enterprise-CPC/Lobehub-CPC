@@ -38,7 +38,15 @@ export type MainBroadcastParams<T extends MainBroadcastEventKey> = Parameters<
   MainBroadcastEvents[T]
 >[0];
 
-export type { GatewayConnectionStatus } from './gatewayConnection';
+export type {
+  GatewayConnectionError,
+  GatewayConnectionErrorCode,
+  GatewayConnectionState,
+  GatewayConnectionStatus,
+  GatewayConnectResult,
+  GatewayEndpointInfo,
+  GatewayEndpointSource,
+} from './gatewayConnection';
 export type {
   DetectAppsResult,
   DetectedApp,
@@ -47,9 +55,16 @@ export type {
   OpenInAppResult,
 } from './openInApp';
 export type {
+  AuthorizationConfirmDismissReason,
+  AuthorizationConfirmParams,
+  AuthorizationConfirmRequest,
+  AuthorizationConfirmResult,
+  AuthorizationErrorCode,
   AuthorizationPhase,
   AuthorizationProgress,
+  AuthorizationStartResult,
   MarketAuthorizationParams,
+  TenantEndpointChangedKind,
 } from './remoteServer';
 export type { OverlayDispatchMessagePayload } from './screenCapture';
 export type { OpenSettingsWindowOptions } from './windows';

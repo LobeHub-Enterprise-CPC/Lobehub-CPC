@@ -1,6 +1,8 @@
 import type { Client } from '@upstash/qstash';
 import debug from 'debug';
 
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
+
 import type { GoalSchedulerImpl, ScheduleGoalAdvanceParams } from './type';
 
 const log = debug('goal-scheduler:qstash');
@@ -32,7 +34,7 @@ export class QStashGoalScheduler implements GoalSchedulerImpl {
 
   async scheduleAdvance(params: ScheduleGoalAdvanceParams): Promise<string> {
     const { delay = 0, goalId, trigger, userId, workspaceId } = params;
-    const url = `${this.baseUrl}${GOAL_ADVANCE_PATH}`;
+    const url = buildTenantCallbackUrl(GOAL_ADVANCE_PATH, this.baseUrl);
 
     log('publishing advance: goal=%s delay=%ds url=%s', goalId, delay, url);
     const response = await this.qstashClient.publishJSON({

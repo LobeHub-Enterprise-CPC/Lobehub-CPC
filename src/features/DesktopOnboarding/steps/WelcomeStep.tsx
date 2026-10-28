@@ -2,17 +2,14 @@
 
 import { DEFAULT_INBOX_TITLE } from '@lobechat/const';
 import { type IconProps } from '@lobehub/ui';
-import { Block, Flexbox, Icon } from '@lobehub/ui';
+import { Block, Button, cssVar, Flexbox, Icon, Steps, Text } from '@lobehub/ui';
 import { TypewriterEffect } from '@lobehub/ui/awesome';
-import { Button, Steps, Text } from '@lobehub/ui/base-ui';
 import { LoadingDots } from '@lobehub/ui/chat';
-import { cssVar } from 'antd-style';
 import { BrainIcon, HeartHandshakeIcon, PencilRulerIcon } from 'lucide-react';
 import { memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ProductLogo } from '@/components/Branding';
-import { useUserStore } from '@/store/user';
 
 interface WelcomeStepProps {
   onNext: () => void;
@@ -21,13 +18,6 @@ interface WelcomeStepProps {
 const WelcomeStep = memo<WelcomeStepProps>(({ onNext }) => {
   const { t, i18n } = useTranslation('onboarding');
   const locale = i18n.language;
-  const updateGeneralConfig = useUserStore((s) => s.updateGeneralConfig);
-
-  const handleNext = () => {
-    // Enable telemetry by default
-    updateGeneralConfig({ telemetry: true });
-    onNext();
-  };
 
   // eslint-disable-next-line @eslint-react/no-nested-component-definitions
   const IconAvatar = useCallback(({ icon }: { icon: IconProps['icon'] }) => {
@@ -120,7 +110,7 @@ const WelcomeStep = memo<WelcomeStepProps>(({ onNext }) => {
           marginBlock: 8,
           maxWidth: 240,
         }}
-        onClick={handleNext}
+        onClick={onNext}
       >
         {t('telemetry.next')}
       </Button>

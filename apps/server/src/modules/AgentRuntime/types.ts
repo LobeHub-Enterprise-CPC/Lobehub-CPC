@@ -4,7 +4,7 @@ import type {
   ToolExecuteData,
 } from '@lobechat/agent-gateway-client';
 import { type AgentState } from '@lobechat/agent-runtime';
-import { type UIChatMessage } from '@lobechat/types';
+import { type GatewayExecutionIntent, type UIChatMessage } from '@lobechat/types';
 
 import { type AgentOperationMetadata, type StepResult } from './AgentStateManager';
 import { type StreamChunkData, type StreamEvent } from './StreamEventManager';
@@ -196,6 +196,9 @@ export interface IStreamEventManager {
   /** Optional: the relayed attempt is over; the gateway stops replaying it. */
   closeLlmCall?: (operationId: string, callId: string) => Promise<void>;
 
+  /** Optional: end a one-shot relay channel's gateway session. */
+  closeLlmRelayChannel?: (channel: string) => Promise<void>;
+
   /**
    * Close connections
    */
@@ -217,6 +220,12 @@ export interface IStreamEventManager {
    * Get stream event history
    */
   getStreamHistory: (operationId: string, count?: number) => Promise<StreamEvent[]>;
+
+  /**
+   * Optional: open a one-shot relay channel on the gateway, owned by `userId`.
+   * Present only with a gateway, like {@link sendLlmExecute}.
+   */
+  openLlmRelayChannel?: (channel: string, userId: string) => Promise<void>;
 
   /**
    * Publish Agent runtime end event.
@@ -287,7 +296,12 @@ export interface IStreamEventManager {
    * Only present on implementations that speak to a live gateway (not on the
    * in-memory / Redis-only managers).
    */
-  sendToolExecute?: (operationId: string, data: ToolExecuteData) => Promise<void>;
+  sendToolExecute?: (
+    operationId: string,
+    data: ToolExecuteData & {
+      intent?: GatewayExecutionIntent;
+    },
+  ) => Promise<void>;
 
   /**
    * Subscribe to stream events (for SSE endpoint)

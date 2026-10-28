@@ -15,6 +15,8 @@ export interface UserAuthState {
   isLoadedAuthProviders?: boolean;
 
   isSignedIn?: boolean;
+  /** Intentional sign-out owns auth cleanup and redirects until the page reloads. */
+  isSigningOut?: boolean;
   oAuthSSOProviders?: string[];
   user?: LobeUser;
 }

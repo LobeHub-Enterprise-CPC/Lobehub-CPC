@@ -12,6 +12,47 @@ import debug from 'debug';
 const log = debug('lobe-desktop:processes');
 const exec = promisify(execFile);
 
+/**
+ * Windows sampling pays for a fresh PowerShell start plus a WMI enumeration; on slow
+ * machines that measures 2.6-3.6s, so the previous 2s budget killed the command on every
+ * attempt. This bounds the sampling call only — the kill paths below keep their own 2s
+ * timeout, because a slow exit is worse than a slow sample.
+ */
+const WINDOWS_SAMPLE_TIMEOUT_MS = 9000;
+
+/**
+ * How long a completed sample is reused. The renderer polls every 2s, so a window shorter
+ * than the poll interval started a new PowerShell for every poll and, on a slow device,
+ * degraded into back-to-back retries.
+ */
+const SNAPSHOT_FRESHNESS_MS = 5000;
+
+/**
+ * Prefix of the error raised when sampling times out, so the renderer can tell a slow
+ * device apart from an unavailable one. It rides on both `code` and `message` because the
+ * IPC error envelope preserves `code` while a plain rethrow only keeps `message`.
+ * Keep in sync with state.ts in the desktop app.
+ */
+const SAMPLE_TIMEOUT_MARK = 'MANAGED_PROCESS_SAMPLE_TIMEOUT';
+
+/**
+ * A timeout kills the child, so execFile rejects with no stderr and the generic
+ * "Command failed: <cmd>" message. A missing or denied binary is ENOENT/EPERM instead, and
+ * a failing command carries its own stderr, so only the termination signal marks a slow host.
+ */
+const tagSampleFailure = (error: unknown) => {
+  const failure = error as { code?: null | string; killed?: boolean; signal?: null | string };
+  const killedByTimeout =
+    failure?.killed === true && failure.signal === 'SIGTERM' && (failure.code ?? null) === null;
+  if (!killedByTimeout) return error as Error;
+  return Object.assign(
+    new Error(
+      `${SAMPLE_TIMEOUT_MARK}: process enumeration did not finish within ${WINDOWS_SAMPLE_TIMEOUT_MS}ms`,
+    ),
+    { code: SAMPLE_TIMEOUT_MARK },
+  );
+};
+
 export interface ProcessOwner {
   agentId?: string;
   label?: string;
@@ -75,16 +116,21 @@ const parseCpuTime = (value: string) => {
 
 const readProcesses = async (): Promise<ProcessIdentity[]> => {
   if (process.platform === 'win32') {
-    const { stdout } = await exec(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CreationDate,WorkingSetSize,KernelModeTime,UserModeTime,Name | ConvertTo-Json -Compress',
-      ],
-      { timeout: 2000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
-    );
+    let stdout: string;
+    try {
+      ({ stdout } = await exec(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CreationDate,WorkingSetSize,KernelModeTime,UserModeTime,Name | ConvertTo-Json -Compress',
+        ],
+        { timeout: WINDOWS_SAMPLE_TIMEOUT_MS, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
+      ));
+    } catch (error) {
+      throw tagSampleFailure(error);
+    }
     const rows = JSON.parse(stdout) as Array<{
       ProcessId: number;
       ParentProcessId: number;
@@ -172,7 +218,7 @@ export class ManagedProcessRegistry {
   async snapshot(): Promise<ManagedProcessSnapshot> {
     // Share a recent sample across windows instead of measuring tiny CPU intervals.
     const age = Date.now() - this.sampledAt;
-    if (!this.sampledAt || age < 0 || age >= 500) await this.sample();
+    if (!this.sampledAt || age < 0 || age >= SNAPSHOT_FRESHNESS_MS) await this.sample();
     return {
       processes: this.rows,
       sampledAt: this.sampledAt,

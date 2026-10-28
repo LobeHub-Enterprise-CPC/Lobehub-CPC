@@ -6,6 +6,8 @@ interface GatewayDeviceInfo {
 // directory; SSR has no gateway device, so every reader takes its web branch.
 const emptyState = {
   gatewayDeviceInfo: undefined as GatewayDeviceInfo | undefined,
+  // No desktop identity in SSR, so no topic pin is ever written from here.
+  resolveGatewayDeviceId: async (): Promise<string | undefined> => undefined,
 };
 
 // Renderable stand-in, not a throwing proxy: shared components may call the
@@ -14,5 +16,7 @@ export const useElectronStore = <T = unknown>(selector?: (state: typeof emptySta
   selector ? selector(emptyState) : (emptyState as T);
 
 useElectronStore.getState = () => emptyState;
+// SSR state never changes, so a subscriber is never called.
+useElectronStore.subscribe = (_listener: () => void) => () => {};
 
 export const getElectronStoreState = () => emptyState;

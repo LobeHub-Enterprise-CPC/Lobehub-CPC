@@ -1,7 +1,7 @@
 import type { LobeChatDatabase } from '@lobechat/database';
+import { commandExecutionLogs } from '@lobechat/database/privateSchemas';
 import { and, count, desc, eq, gte, lte } from 'drizzle-orm';
 
-import { commandExecutionLogs } from './schema';
 import type {
   CommandExecutionLogItem,
   CommandExecutionTarget,

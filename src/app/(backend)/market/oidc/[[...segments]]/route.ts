@@ -2,6 +2,7 @@ import { type NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
 import { getTrustedClientTokenForSession } from '@/libs/trusted-client';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { MarketService } from '@/server/services/market';
 
 const MARKET_BASE_URL = process.env.MARKET_BASE_URL || 'https://market.lobehub.com';
@@ -11,6 +12,9 @@ type RouteContext = {
     segments?: string[];
   }>;
 };
+const MARKET_TIMEOUT_MS = 8000;
+/** Market answers about the caller or the quota; these are passed on rather than masked as a proxy failure. */
+const PASSTHROUGH_STATUSES = new Set([401, 403, 429]);
 const ALLOWED_ENDPOINTS = new Set(['handoff', 'token', 'userinfo']);
 
 const ensureEndpoint = (segments?: string[]) => {
@@ -103,8 +107,7 @@ const handleProxy = async (req: NextRequest, context: RouteContext) => {
         const form = new URLSearchParams(body);
 
         const grantType = (form.get('grant_type') || 'authorization_code') as
-          | 'authorization_code'
-          | 'refresh_token';
+          'authorization_code' | 'refresh_token';
 
         if (grantType === 'authorization_code') {
           const clientId = form.get('client_id');
@@ -182,13 +185,42 @@ const handleProxy = async (req: NextRequest, context: RouteContext) => {
 
           // Use trustedClientToken to directly call the Market userinfo endpoint
           const userInfoUrl = `${MARKET_BASE_URL}/lobehub-oidc/userinfo`;
-          const response = await fetch(userInfoUrl, {
-            headers: {
-              'Content-Type': 'application/json',
-              'x-lobe-trust-token': trustedClientToken,
-            },
-            method: 'GET',
-          });
+          let response: Response;
+          try {
+            response = await fetch(userInfoUrl, {
+              headers: {
+                'Content-Type': 'application/json',
+                'x-lobe-trust-token': trustedClientToken,
+              },
+              method: 'GET',
+              signal: AbortSignal.timeout(MARKET_TIMEOUT_MS),
+            });
+          } catch (error) {
+            console.error('[MarketOIDC] Market is unreachable for userinfo:', error);
+            return NextResponse.json(
+              {
+                error: 'market_unreachable',
+                message: 'Market could not be reached.',
+                status: 'error',
+              },
+              { status: 502 },
+            );
+          }
+
+          if (PASSTHROUGH_STATUSES.has(response.status)) {
+            const retryAfter = response.headers.get('Retry-After');
+            return NextResponse.json(
+              {
+                error: 'market_rejected',
+                message: `Market answered ${response.status}.`,
+                status: 'error',
+              },
+              {
+                headers: retryAfter ? { 'Retry-After': retryAfter } : undefined,
+                status: response.status,
+              },
+            );
+          }
 
           if (!response.ok) {
             throw new Error(`Failed to fetch user info: ${response.status} ${response.statusText}`);
@@ -226,7 +258,10 @@ const handleProxy = async (req: NextRequest, context: RouteContext) => {
   }
 };
 
-export const GET = (req: NextRequest, context: RouteContext) => handleProxy(req, context);
-export const POST = (req: NextRequest, context: RouteContext) => handleProxy(req, context);
+const handleGet = (req: NextRequest, context: RouteContext) => handleProxy(req, context);
+const handlePost = (req: NextRequest, context: RouteContext) => handleProxy(req, context);
 
 export const dynamic = 'force-dynamic';
+
+export const GET = withTenantRequest(handleGet);
+export const POST = withTenantRequest(handlePost);

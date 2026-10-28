@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { toast } from '@lobehub/ui/base-ui';
+import { initializeTenant } from '@lobechat/business-tenant/client';
+import { toast } from '@lobehub/ui';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fileService } from '@/services/file';
@@ -8,7 +9,7 @@ import { getFileIdForUrl, registerAttachment } from './attachmentRegistry';
 import { needsImageRehost, rehostImage } from './rehostImage';
 
 vi.mock('@/services/file', () => ({ fileService: { rehostImage: vi.fn() } }));
-vi.mock('@lobehub/ui/base-ui', () => ({ toast: { error: vi.fn() } }));
+vi.mock('@lobehub/ui', () => ({ toast: { error: vi.fn() } }));
 vi.mock('i18next', () => ({ t: (key: string) => key }));
 
 const setWindowUrl = (url: string) => {
@@ -21,6 +22,7 @@ describe('editor image rehosting', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setWindowUrl(defaultUrl);
+    initializeTenant(new URL(defaultUrl));
   });
 
   it('transfers Discord and external image URLs', () => {
@@ -53,6 +55,19 @@ describe('editor image rehosting', () => {
     }
     registerAttachment('https://storage.example/uploaded.png', 'stored-file');
     expect(needsImageRehost('https://storage.example/uploaded.png')).toBe(false);
+  });
+
+  it("does not transfer this tenant's own file proxy images", () => {
+    initializeTenant(new URL('/t/acme/agent', window.location.origin));
+    expect(needsImageRehost('/t/acme/f/image-id')).toBe(false);
+    expect(needsImageRehost(`${window.location.origin}/t/acme/f/image-id`)).toBe(false);
+    expect(needsImageRehost('https://external.example/t/acme/f/image-id')).toBe(true);
+  });
+
+  it("transfers another tenant's file proxy images into this tenant", () => {
+    initializeTenant(new URL('/t/acme/agent', window.location.origin));
+    expect(needsImageRehost('/t/beta/f/image-id')).toBe(true);
+    expect(needsImageRehost(`${window.location.origin}/t/beta/f/image-id`)).toBe(true);
   });
 
   it('registers the returned file for document persistence and prevents repeat rehosting', async () => {

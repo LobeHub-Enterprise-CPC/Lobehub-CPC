@@ -29,7 +29,7 @@ import { nanoid } from '@lobechat/utils';
 import { parseDataUri } from '@lobechat/utils/uriParser';
 
 import { MessageModel } from '@/database/models/message';
-import { toolsEnv } from '@/envs/tools';
+import { getServerSystemModels } from '@/server/globalConfig/systemModels';
 import { getAgentRuntimeRedisClient } from '@/server/modules/AgentRuntime/redis';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
 import { FileService } from '@/server/services/file';
@@ -103,6 +103,54 @@ const getCreditErrorType = (error: unknown): string | undefined => {
   const errorType = (error as { errorType?: unknown }).errorType;
 
   return typeof errorType === 'string' && CREDIT_ERROR_TYPES.has(errorType) ? errorType : undefined;
+};
+
+/**
+ * Structured rejection from the model gateway (e.g. `{ errorType: 403,
+ * message: "Request blocked.", _responseBody: { provider, reason:
+ * "not_onboarded" } }`). The raw message alone gives the agent nothing to act
+ * on — the gateway's `reason` is the only actionable signal, and rethrowing
+ * collapses the whole payload into that bare string before the tool result is
+ * built. Surface it instead of letting the failure degrade to "Request
+ * blocked." with no code, no cause, and no recovery path.
+ */
+const getGatewayRejection = (error: unknown): { content: string; code: string } | undefined => {
+  if (!error || typeof error !== 'object') return;
+
+  const raw = error as {
+    _responseBody?: { provider?: unknown; reason?: unknown };
+    errorType?: unknown;
+    message?: unknown;
+  };
+
+  const errorType = typeof raw.errorType === 'number' ? raw.errorType : undefined;
+  const provider =
+    typeof raw._responseBody?.provider === 'string' ? raw._responseBody.provider : undefined;
+  const reason =
+    typeof raw._responseBody?.reason === 'string' ? raw._responseBody.reason : undefined;
+  const message = typeof raw.message === 'string' ? raw.message : undefined;
+
+  // Numeric error types are part of the generic model-runtime error contract
+  // (429 rate limits, 4xx validation, provider-policy refusals), and
+  // `normalizeChatMessageError` propagates `provider` (and other display
+  // metadata) into every error body — so neither establishes a gateway-level
+  // refusal on its own. `_responseBody.reason` is the gateway-specific marker:
+  // require it before suppressing the throw, and keep ordinary structured
+  // errors (including provider-only response bodies, e.g. a 429 rate limit)
+  // transparent and retryable via the existing rethrow behavior.
+  if (errorType === undefined || !reason) return;
+
+  const parts = [
+    `Media analysis was rejected by the platform model gateway (HTTP ${errorType}${provider ? `, provider: ${provider}` : ''}).`,
+    `Gateway reason: ${reason}.`,
+    message && message !== 'error' ? `Upstream message: ${message}.` : undefined,
+    'This is an account/gateway-level refusal, not a content-policy verdict on the media. Do not retry blindly or treat the media as blocked content.',
+  ].filter(Boolean);
+
+  return {
+    code: `GATEWAY_${reason.toUpperCase().replaceAll(/[^A-Z0-9]+/g, '_')}`,
+    content: parts.join(' '),
+  };
 };
 
 const BASE64_CONTENT_PATTERN = /^[A-Z\d+/]+={0,2}$/i;
@@ -397,15 +445,16 @@ class LobeAgentExecutionRuntime {
   };
 
   analyzeMedia = async (params: AnalyzeMediaParams): Promise<BuiltinServerRuntimeOutput> => {
-    const provider = toolsEnv.MULTIMODAL_UNDERSTANDING_PROVIDER;
-    const model = toolsEnv.MULTIMODAL_UNDERSTANDING_MODEL;
+    const { multimodalUnderstanding } = await getServerSystemModels();
 
-    if (!provider || !model) {
+    if (!multimodalUnderstanding) {
       return buildError(
-        'Multimodal understanding is not configured. Set MULTIMODAL_UNDERSTANDING_PROVIDER and MULTIMODAL_UNDERSTANDING_MODEL.',
+        'Multimodal understanding is not configured by the administrator.',
         'MULTIMODAL_UNDERSTANDING_NOT_CONFIGURED',
       );
     }
+
+    const { imageFormats, model, provider } = multimodalUnderstanding;
 
     if (!params.question || typeof params.question !== 'string') {
       return buildError('question is required.', 'INVALID_ARGUMENTS');
@@ -531,10 +580,7 @@ class LobeAgentExecutionRuntime {
     let modelItems = selectedItems;
     if (hasImages) {
       try {
-        modelItems = await normalizeMultimodalImageItems(
-          selectedItems,
-          toolsEnv.MULTIMODAL_UNDERSTANDING_IMAGE_FORMATS,
-        );
+        modelItems = await normalizeMultimodalImageItems(selectedItems, imageFormats);
       } catch (error) {
         console.error('Failed to prepare images for multimodal understanding:', {
           name: error instanceof Error ? error.name : 'UnknownError',
@@ -581,7 +627,12 @@ class LobeAgentExecutionRuntime {
       await consumeStreamUntilDone(response);
     } catch (error) {
       const creditErrorType = getCreditErrorType(error);
-      if (!creditErrorType) throw error;
+      if (!creditErrorType) {
+        const rejection = getGatewayRejection(error);
+        if (!rejection) throw error;
+
+        return buildError(rejection.content, rejection.code);
+      }
 
       return buildError(
         `Media analysis could not run: it uses the platform model "${provider}/${model}", which is billed to the user's ${BRANDING_NAME} credits, and those credits are exhausted (${creditErrorType}). ` +

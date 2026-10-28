@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791947944049,
+      "tag": "0000_platform_baseline",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791947944570,
+      "tag": "0001_tenant_runtime_claims",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791947945092,
+      "tag": "0002_tenant_endpoints",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791991743408,
+      "tag": "0003_readiness_diagnostics",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792408890873,
+      "tag": "0004_tenant_process_lease",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792585535354,
+      "tag": "0005_tenant_destruction_terminal",
+      "breakpoints": true
+    }
+  ]
+}

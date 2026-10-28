@@ -1,6 +1,7 @@
 /**
  * @vitest-environment happy-dom
  */
+import { initializeTenant } from '@lobechat/business-tenant/client';
 import type { TaskTemplateConnectorReference } from '@lobechat/const';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -79,6 +80,22 @@ describe('useConnectorConnection', () => {
     expect(mocks.marketAuth.signIn).toHaveBeenCalledWith('connector');
     expect(mocks.toolState.getLobehubSkillAuthorizeUrl).not.toHaveBeenCalled();
     expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it('returns from provider OAuth to the callback page under the tenant path', async () => {
+    mocks.marketAuth.isAuthenticated = true;
+    initializeTenant(new URL(`${window.location.origin}/t/acme/tasks`));
+    const { result, unmount } = renderHook(() => useConnectorConnection([lobehubSpec]));
+
+    await act(async () => {
+      await result.current.connect();
+    });
+    initializeTenant(new URL(window.location.href));
+
+    expect(mocks.toolState.getLobehubSkillAuthorizeUrl).toHaveBeenCalledWith('linear', {
+      redirectUri: `${window.location.origin}/t/acme/oauth/callback/success?provider=linear`,
+    });
+    unmount();
   });
 
   it('opens provider OAuth directly when Market is authenticated', async () => {

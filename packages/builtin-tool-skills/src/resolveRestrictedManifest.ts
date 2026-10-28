@@ -52,8 +52,8 @@ export const agentShareSystemPrompt = `You have access to a Skills tool that loa
  *
  * Like the Documents projection, the semantic rewrite lives in the tool's own
  * package so Share orchestration never has to know which of this tool's APIs
- * the systemRole talks about. `shareToolManifest.ts` re-checks that the
- * returned manifest's API set matches the policy-approved one exactly, so this
+ * the systemRole talks about. The caller re-checks that the returned
+ * manifest's API set matches the policy-approved one exactly, so this
  * resolver can never widen the surface the gate decided on.
  */
 export const resolveSkillsRestrictedManifest: BuiltinRestrictedManifestResolver = ({

@@ -1,4 +1,4 @@
-import { BRANDING_NAME } from '@lobechat/business-const';
+import { BRANDING_NAME, CLI_PRIMARY_BIN } from '@lobechat/business-const';
 
 export interface BuildTopicPromptParams {
   id: string;
@@ -20,7 +20,7 @@ export const buildTopicPrompt = ({ id, title, workspaceId }: BuildTopicPromptPar
     '',
     `Use the ${BRANDING_NAME} CLI to read the full conversation history of this topic:`,
     '',
-    `lh topic view ${id} -L 500${workspaceId ? ` --workspace ${workspaceId}` : ''}`,
+    `${CLI_PRIMARY_BIN} topic view ${id} -L 500${workspaceId ? ` --workspace ${workspaceId}` : ''}`,
     '',
     'If the topic has more than 500 messages, page through the remainder with --from and --to.',
   ].join('\n');

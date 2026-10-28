@@ -93,6 +93,8 @@ export interface AgentRunOrigin {
   groupId?: string;
   // --- Run tree ---
   lineage?: AgentRunLineage;
+  /** Project the conversation (or the run's task) belongs to. */
+  projectId?: string;
   scope?: string;
   sessionId?: string;
   /** Run-scoped Agent Signal marker for background self-iteration / memory runs. */
@@ -172,6 +174,13 @@ export interface AgentRunPlan {
  */
 export interface AgentRunHostEnvelope {
   /**
+   * The client that started this run renders `file` Works, so the pushed
+   * `uiMessages` snapshots and `message_patch` revisions may carry them.
+   * Declared by the client, like `clientProtocol`; absent keeps them out, which
+   * is what a released desktop build without the `file` descriptor needs.
+   */
+  acceptsFileWorks?: boolean;
+  /**
    * Wire protocol the client that started this run asked for. `2` means that
    * client reconciles its message list from `message_patch` revisions, so the
    * host may stop pushing whole `uiMessages` snapshots with the step and
@@ -230,6 +239,13 @@ export interface AgentRunClientLlmWait {
 export interface AgentRunLlmExecutor {
   /** Relay protocol versions the client speaks, e.g. `llm_relay@1`. */
   capabilities: string[];
+  /**
+   * Operation whose gateway channel the client listens on, when it is not the
+   * run's own: a sub-agent inherits its parent's executor, but the tab only
+   * subscribed to the parent's run, so the sub-agent's `llm_execute` rides that
+   * channel. Set by the server, never by the client.
+   */
+  channelOperationId?: string;
   /** Stable id of the declaring client (tab / desktop window), preferred as the executor. */
   clientId: string;
   /** Provider ids this client confirmed it can reach directly. */
@@ -349,7 +365,6 @@ export interface AgentState {
    * business slot the host may write after creation.
    */
   binding?: AgentRunBinding;
-
   /**
    * Current calculated cost for this session.
    * Updated after each billable operation.
@@ -359,6 +374,7 @@ export interface AgentState {
    * needs the user's device and no client was there to run it.
    */
   clientLlmWait?: AgentRunClientLlmWait;
+
   cost: Cost;
   /**
    * Optional cost limits configuration.
@@ -377,6 +393,7 @@ export interface AgentState {
   /** @deprecated Use `world.enableExpertise`. */
   enableExpertise?: boolean;
   error?: any;
+  execution?: { readonly tenantId: string; readonly sourceAcceptedVersion: number };
   /** @deprecated Use `world.expertise`. */
   expertise?: ExpertiseContextSnapshot;
   /**

@@ -46,7 +46,7 @@ vi.mock('@lobechat/database/schemas', () => ({
 }));
 
 vi.mock('@/libs/oidc-provider/config', () => ({
-  defaultClients: [{ client_id: 'lobehub-desktop' }],
+  defaultClients: [{ client_id: 'tituwork-desktop' }],
 }));
 
 const createMockProvider = () => {
@@ -288,7 +288,7 @@ describe('OIDCService', () => {
     });
 
     const service = new OIDCService(provider as any);
-    const metadata = await service.getConsentClientMetadata('lobehub-desktop');
+    const metadata = await service.getConsentClientMetadata('tituwork-desktop');
 
     expect(metadata).toEqual({
       clientName: 'LobeHub Desktop',

@@ -18,6 +18,7 @@ import { AgentOperationModel } from '@/database/models/agentOperation';
 import { MessageModel } from '@/database/models/message';
 import { WorkModel } from '@/database/models/work';
 import { type LobeChatDatabase } from '@/database/type';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { FileService } from '@/server/services/file';
 import { MarketService } from '@/server/services/market';
 import { createSandboxService } from '@/server/services/sandbox';
@@ -551,7 +552,14 @@ export const registerWorksForOperation = async (
 
   // The sandbox is derived from userId + topicId and outlives the operation, so
   // it is safe to build once here for every export.
-  const marketService = new MarketService({ userInfo: { userId } });
+  const marketService = new MarketService({
+    userInfo: await resolveMarketServiceIdentity({
+      // An Agent Share visitor's run exports files under the creator's userId.
+      proxyExecution: Boolean(params.agentShareVisitor),
+      serverDB,
+      userId,
+    }),
+  });
   const fileService = new FileService(serverDB, userId, workspaceId);
   const sandboxService = createSandboxService({
     fileService,

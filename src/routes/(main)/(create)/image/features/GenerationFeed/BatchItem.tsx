@@ -1,9 +1,18 @@
 'use client';
 
 import { useAutoAnimate } from '@formkit/auto-animate/react';
-import { ActionIconGroup, Block, Flexbox, Grid, Image, Markdown } from '@lobehub/ui';
-import { Tag, Text, toast } from '@lobehub/ui/base-ui';
-import { createStaticStyles } from 'antd-style';
+import {
+  ActionIconGroup,
+  Block,
+  createStaticStyles,
+  Flexbox,
+  Grid,
+  Image,
+  Markdown,
+  Tag,
+  Text,
+  toast,
+} from '@lobehub/ui';
 import dayjs from 'dayjs';
 import { omit } from 'es-toolkit/compat';
 import { CopyIcon, RotateCcwSquareIcon, Trash2 } from 'lucide-react';
@@ -98,11 +107,12 @@ export const GenerationBatchItem = memo<GenerationBatchItemProps>(({ batch }) =>
   };
 
   const handleReuseSettings = () => {
-    reuseSettings(
+    const reused = reuseSettings(
       batch.model,
       batch.provider,
       omit(batch.config as RuntimeImageGenParams, ['seed']),
     );
+    if (!reused) toast.error(t('generation.actions.reuseSettingsUnavailable'));
   };
 
   const handleDeleteBatch = async () => {

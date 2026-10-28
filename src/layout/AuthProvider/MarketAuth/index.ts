@@ -1,4 +1,5 @@
 export { MarketAuthProvider, useMarketAuth } from './MarketAuthProvider';
+export { getMarketProfileKey } from './profileKey';
 export type { MarketAuthScene } from './scenes';
 export type {
   MarketAuthContextType,

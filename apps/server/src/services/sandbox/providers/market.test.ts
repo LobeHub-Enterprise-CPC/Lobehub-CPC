@@ -1,7 +1,11 @@
+import { SkillsExecutionRuntime } from '@lobechat/builtin-tool-skills/executionRuntime';
+import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { describe, expect, it, vi } from 'vitest';
 
+import { openDirectoryData } from '@/server/crypto/tenantKeys';
 import type { MarketService } from '@/server/services/market';
 
+import { normalizeSandboxCommandResult } from '../service';
 import { MarketSandboxProvider, redactSandboxParams } from './market';
 
 describe('MarketSandboxProvider', () => {
@@ -15,6 +19,40 @@ describe('MarketSandboxProvider', () => {
       })),
     }) as unknown as MarketService;
 
+  it('preserves the exact sandbox specification for reconciliation without plaintext secrets', async () => {
+    vi.stubEnv('KEY_VAULTS_SECRET', 'local-test-key');
+    try {
+      const provider = new MarketSandboxProvider({
+        marketService: {
+          getSandboxReceiptIdentity: () => ({ userId: 'user-1' }),
+        } as unknown as MarketService,
+        userId: 'user-1',
+        topicId: 'topic-1',
+        sandboxMode: 'persistent',
+        sandboxSpecification: {
+          env: { PRIVATE_TOKEN: 'test-sensitive-value' },
+          sources: [{ kind: 'git', uri: 'fixture' }],
+        },
+      });
+      await runWithTenantScope({ tenantId: 'tenant-1' } as TenantScope, async () => {
+        const context = provider.getReceiptContext('work-1')!;
+        expect(JSON.stringify(context)).not.toContain('test-sensitive-value');
+        expect(
+          JSON.parse(
+            openDirectoryData(
+              context.sealedSpecification as string,
+              'tenant-1|sandbox:work-1|specification',
+            ),
+          ),
+        ).toEqual({
+          env: { PRIVATE_TOKEN: 'test-sensitive-value' },
+          sources: [{ kind: 'git', uri: 'fixture' }],
+        });
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it('keeps the previous Market sandbox callTool success response shape', async () => {
     const marketService = createMarketService({
       data: {
@@ -88,12 +126,161 @@ describe('MarketSandboxProvider', () => {
 
     expect(result).toEqual({
       error: {
+        code: 'token_expired',
         message: 'expired',
         name: 'token_expired',
       },
       result: null,
       sessionExpiredAndRecreated: false,
       success: false,
+    });
+  });
+
+  it('keeps the real shell observation and recreation from a failed Market envelope', async () => {
+    const marketService = createMarketService({
+      data: {
+        result: { exitCode: 7, stderr: 'permission denied', stdout: 'partial output' },
+        sessionExpiredAndRecreated: true,
+      },
+      error: { code: 'TOOL_EXECUTION_FAILED', message: 'permission denied' },
+      success: false,
+    });
+    const provider = new MarketSandboxProvider({
+      marketService,
+      topicId: 'topic-1',
+      userId: 'user-1',
+    });
+
+    const result = await provider.callTool('runCommand', { command: 'exit 7' });
+
+    expect(result).toEqual({
+      result: { exitCode: 7, stderr: 'permission denied', stdout: 'partial output' },
+      sessionExpiredAndRecreated: true,
+      success: true,
+    });
+  });
+
+  it('keeps the structured governance error and recreation from a failed Market envelope', async () => {
+    const marketService = createMarketService({
+      data: {
+        result: {
+          code: 'COMMAND_GOVERNANCE_UNAVAILABLE',
+          message: 'governance temporarily unavailable',
+        },
+        sessionExpiredAndRecreated: true,
+      },
+      error: {
+        code: 'COMMAND_GOVERNANCE_UNAVAILABLE',
+        message: 'governance temporarily unavailable',
+      },
+      success: false,
+    });
+    const provider = new MarketSandboxProvider({
+      marketService,
+      topicId: 'topic-1',
+      userId: 'user-1',
+    });
+
+    const result = await provider.callTool('runCommand', { command: 'echo ok' });
+
+    expect(result).toEqual({
+      error: {
+        code: 'COMMAND_GOVERNANCE_UNAVAILABLE',
+        message: 'governance temporarily unavailable',
+        name: 'COMMAND_GOVERNANCE_UNAVAILABLE',
+      },
+      result: {
+        code: 'COMMAND_GOVERNANCE_UNAVAILABLE',
+        message: 'governance temporarily unavailable',
+      },
+      sessionExpiredAndRecreated: true,
+      success: false,
+    });
+  });
+
+  describe('failure envelope through normalize and the skills consumer', () => {
+    const skillsRuntime = (result: ReturnType<typeof normalizeSandboxCommandResult>) =>
+      new SkillsExecutionRuntime({
+        service: {
+          findAll: vi.fn(),
+          findById: vi.fn(),
+          findByName: vi.fn(),
+          readResource: vi.fn(),
+          runCommand: vi.fn(async () => result),
+        },
+      });
+
+    it('renders a real non-zero exit with its output instead of losing the observation', async () => {
+      const provider = new MarketSandboxProvider({
+        marketService: createMarketService({
+          data: {
+            result: { exitCode: 7, stderr: 'permission denied', stdout: 'partial output' },
+            sessionExpiredAndRecreated: true,
+          },
+          error: { code: 'TOOL_EXECUTION_FAILED', message: 'permission denied' },
+          success: false,
+        }),
+        topicId: 'topic-1',
+        userId: 'user-1',
+      });
+
+      const envelope = await provider.callTool('runCommand', { command: 'exit 7' });
+      const output = await skillsRuntime(normalizeSandboxCommandResult(envelope)).runCommand({
+        command: 'exit 7',
+      });
+
+      expect(output.success).toBe(false);
+      expect(output.content).toContain('Command failed with exit code 7');
+      expect(output.content).toContain('partial output');
+      expect(output.content).toContain('permission denied');
+      expect(output.content).toContain('sandbox session expired and was recreated');
+      expect(output.content).not.toContain('exit code 1');
+      expect(output.state).toMatchObject({
+        exitCode: 7,
+        sessionExpiredAndRecreated: true,
+        success: false,
+      });
+    });
+
+    it('reports a governance outage without borrowing exit code 1', async () => {
+      const provider = new MarketSandboxProvider({
+        marketService: createMarketService({
+          data: {
+            result: {
+              code: 'COMMAND_GOVERNANCE_UNAVAILABLE',
+              message: 'governance temporarily unavailable',
+            },
+            sessionExpiredAndRecreated: true,
+          },
+          error: {
+            code: 'COMMAND_GOVERNANCE_UNAVAILABLE',
+            message: 'governance temporarily unavailable',
+          },
+          success: false,
+        }),
+        topicId: 'topic-1',
+        userId: 'user-1',
+      });
+
+      const envelope = await provider.callTool('runCommand', { command: 'echo ok' });
+      const output = await skillsRuntime(normalizeSandboxCommandResult(envelope)).runCommand({
+        command: 'echo ok',
+      });
+
+      expect(output.success).toBe(false);
+      expect(output.content).toContain('Command failed: governance temporarily unavailable');
+      expect(output.content).not.toContain('exit code');
+      expect(output.content).toContain('sandbox session expired and was recreated');
+      expect(output.state).not.toHaveProperty('exitCode');
+      expect(output.state).toMatchObject({
+        error: {
+          code: 'COMMAND_GOVERNANCE_UNAVAILABLE',
+          message: 'governance temporarily unavailable',
+        },
+        sessionExpiredAndRecreated: true,
+        success: false,
+      });
+      expect(output.error).toMatchObject({ name: 'COMMAND_GOVERNANCE_UNAVAILABLE' });
     });
   });
 
@@ -241,7 +428,7 @@ describe('MarketSandboxProvider', () => {
 describe('MarketSandboxProvider · persistence fields on the wire', () => {
   const callWithRealSDK = async () => {
     const { MarketSDK } = await import('@lobehub/market-sdk');
-    const fetchMock = vi.fn(async () => ({
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => ({
       headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({ data: { result: { exitCode: 0, stdout: '' } }, success: true }),
       ok: true,

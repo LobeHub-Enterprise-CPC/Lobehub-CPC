@@ -24,6 +24,10 @@ const runTaskMock = vi.hoisted(() => vi.fn());
 const toggleTaskAgentPanelMock = vi.hoisted(() => vi.fn());
 const messageErrorMock = vi.hoisted(() => vi.fn());
 const messageSuccessMock = vi.hoisted(() => vi.fn());
+const createProjectTopicMock = vi.hoisted(() => vi.fn());
+const summaryTopicTitleMock = vi.hoisted(() => vi.fn());
+const setHomeSelectedProjectIdMock = vi.hoisted(() => vi.fn());
+const flags = vi.hoisted(() => ({ agentProfileNavigation: false, projectFirst: false }));
 
 const chatState = vi.hoisted(() => ({
   inputMessage: 'hello',
@@ -32,6 +36,7 @@ const chatState = vi.hoisted(() => ({
     getJSONState: vi.fn(() => ({ type: 'doc' })),
   },
   sendMessage: sendMessageMock,
+  summaryTopicTitle: summaryTopicTitleMock,
 }));
 
 const fileState = vi.hoisted(() => ({
@@ -42,19 +47,23 @@ const fileState = vi.hoisted(() => ({
   restoreChatContextSelections: restoreChatContextSelectionsMock,
 }));
 
+const refreshRecentsMock = vi.hoisted(() => vi.fn());
 const homeState = vi.hoisted(() => ({
   agentGroups: [],
   homeInputLoading: false,
+  homeSelectedProjectId: undefined as string | undefined,
   inputActiveMode: null as any,
   isAgentListInit: true,
   pinnedAgents: [],
   privateAgentGroups: [],
   privatePinnedAgents: [],
+  refreshRecents: refreshRecentsMock,
   privateUngroupedAgents: [],
   sendAsAgent: vi.fn(),
   sendAsGroup: vi.fn(),
   sendAsResearch: vi.fn(),
   sendAsWrite: vi.fn(),
+  setHomeSelectedProjectId: setHomeSelectedProjectIdMock,
   ungroupedAgents: [] as any[],
 }));
 
@@ -93,7 +102,22 @@ const activeWorkspaceIdMock = vi.hoisted(() => ({
   value: null as string | null,
 }));
 
-vi.mock('@lobehub/ui/base-ui', async (importOriginal) => ({
+// Distributions flip this slot constant; pin it so both layouts are covered.
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  get AGENT_PROFILE_NAVIGATION() {
+    return flags.agentProfileNavigation;
+  },
+  get PROJECT_FIRST_NAVIGATION() {
+    return flags.projectFirst;
+  },
+}));
+
+vi.mock('@/store/projectWorkingDirectory', () => ({
+  useProjectDirectoryStore: { getState: () => ({ createProjectTopic: createProjectTopicMock }) },
+}));
+
+vi.mock('@lobehub/ui', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   toast: { error: messageErrorMock, success: messageSuccessMock },
 }));
@@ -196,6 +220,14 @@ describe('Home InputArea useSend', () => {
     toggleTaskAgentPanelMock.mockReset();
     messageErrorMock.mockReset();
     messageSuccessMock.mockReset();
+    createProjectTopicMock.mockReset();
+    summaryTopicTitleMock.mockReset();
+    summaryTopicTitleMock.mockResolvedValue(undefined);
+    setHomeSelectedProjectIdMock.mockReset();
+    flags.projectFirst = false;
+    flags.agentProfileNavigation = false;
+    refreshRecentsMock.mockReset();
+    homeState.homeSelectedProjectId = undefined;
     homeDailyBriefState.advance.mockReset();
     homeDailyBriefState.currentPair = undefined;
     chatState.inputMessage = 'hello';
@@ -451,6 +483,7 @@ describe('Home InputArea useSend', () => {
           clearContent: vi.fn(),
           editor: {} as Parameters<SendButtonHandler>[0]['editor'],
           getMarkdownContent: () => 'Report',
+          getEditorData: () => undefined,
         });
       });
       expect(createTaskMock).not.toHaveBeenCalled();
@@ -492,6 +525,110 @@ describe('Home InputArea useSend', () => {
     });
 
     expect(routerMock.replace).toHaveBeenCalledWith('/agent/agt_inbox/tpc_created');
+  });
+
+  it('lists the created conversation in "Recent" once the server has it', async () => {
+    flags.agentProfileNavigation = true;
+    const { result } = renderHook(() => useSend());
+
+    await act(async () => {
+      await result.current.send({
+        clearContent: vi.fn(),
+        editor: {} as Parameters<SendButtonHandler>[0]['editor'],
+        getEditorData: () => undefined,
+        getMarkdownContent: () => 'hello',
+      });
+    });
+    expect(refreshRecentsMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await sendMessageMock.mock.calls[0][0].onTopicCreated('tpc_created');
+    });
+
+    expect(refreshRecentsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('files a conversation under the project picked on Home', async () => {
+    flags.projectFirst = true;
+    homeState.homeSelectedProjectId = 'prj_1';
+    createProjectTopicMock.mockResolvedValue({ id: 'tpc_project' });
+
+    const { result } = renderHook(() => useSend());
+    const params: Parameters<SendButtonHandler>[0] = {
+      clearContent: vi.fn(),
+      editor: {} as Parameters<SendButtonHandler>[0]['editor'],
+      getEditorData: () => undefined,
+      getMarkdownContent: () => 'draft the proposal',
+    };
+
+    await act(async () => {
+      await result.current.send(params);
+    });
+
+    // The topic exists in the project before the message goes into it.
+    expect(createProjectTopicMock).toHaveBeenCalledWith({
+      agentId: 'agt_inbox',
+      projectId: 'prj_1',
+      title: 'draft the proposal',
+    });
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: { agentId: 'agt_inbox', topicId: 'tpc_project' },
+        message: 'draft the proposal',
+      }),
+    );
+    expect(sendMessageMock.mock.calls[0][0].context.isolatedTopic).toBeUndefined();
+    expect(summaryTopicTitleMock).toHaveBeenCalledWith('tpc_project', [
+      expect.objectContaining({ content: 'draft the proposal', role: 'user' }),
+    ]);
+    expect(routerMock.push).toHaveBeenCalledWith('/project/prj_1/conversation/tpc_project');
+    // The pick lasts for one conversation.
+    expect(setHomeSelectedProjectIdMock).toHaveBeenCalledWith(undefined);
+    expect(clearContentMock).toHaveBeenCalled();
+  });
+
+  it('keeps the draft when the project topic could not be created', async () => {
+    flags.projectFirst = true;
+    homeState.homeSelectedProjectId = 'prj_1';
+    createProjectTopicMock.mockRejectedValue(new Error('Project not found or access denied'));
+
+    const { result } = renderHook(() => useSend());
+    const params: Parameters<SendButtonHandler>[0] = {
+      clearContent: vi.fn(),
+      editor: {} as Parameters<SendButtonHandler>[0]['editor'],
+      getEditorData: () => undefined,
+      getMarkdownContent: () => 'draft the proposal',
+    };
+
+    await act(async () => {
+      await result.current.send(params);
+    });
+
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(routerMock.push).not.toHaveBeenCalled();
+    expect(setHomeSelectedProjectIdMock).not.toHaveBeenCalled();
+    expect(clearContentMock).not.toHaveBeenCalled();
+  });
+
+  it('ignores a picked project where projects do not lead navigation', async () => {
+    homeState.homeSelectedProjectId = 'prj_1';
+
+    const { result } = renderHook(() => useSend());
+    const params: Parameters<SendButtonHandler>[0] = {
+      clearContent: vi.fn(),
+      editor: {} as Parameters<SendButtonHandler>[0]['editor'],
+      getEditorData: () => undefined,
+      getMarkdownContent: () => 'hello',
+    };
+
+    await act(async () => {
+      await result.current.send(params);
+    });
+
+    expect(createProjectTopicMock).not.toHaveBeenCalled();
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({ context: { agentId: 'agt_inbox', isolatedTopic: true } }),
+    );
   });
 
   it('sends chat-mode messages to the Agent selected on Home', async () => {

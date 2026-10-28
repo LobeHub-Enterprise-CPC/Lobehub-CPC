@@ -15,12 +15,12 @@ export const SkillsApiName = {
  *
  * The exec-class APIs (`runCommand` / `execScript`) stay excluded even though
  * share runs now honor the visitor's approval flow: opening skill script
- * execution to visitors is a separate decision (LOBE-14296). `exportFile` is
+ * execution to visitors is a separate decision. `exportFile` is
  * excluded because its only purpose is pulling artifacts out of an execution
  * those APIs would have started.
  *
  * Shared with the server share gate (`DATA_TOOL_ACCESS_RULES` in
- * `apps/server/src/services/aiAgent/shareGate.ts`), which derives its block
+ * `apps/server/src/services/aiAgent/shareGate/dataToolRules.ts`), which derives its block
  * list as "every API of this tool that is NOT in this set" — so a newly added
  * skill API is denied to visitors by default rather than silently exposed.
  */
@@ -68,10 +68,12 @@ export interface ExecScriptParams {
 
 export interface ExecScriptState {
   command: string;
+  /** Upstream failure object for a command that never produced an observation. */
+  error?: unknown;
   executionEnv?: 'device' | 'sandbox';
   /**
    * Undefined means the command was still running when the observation window
-   * elapsed — mirrors `CommandResult.exitCode`.
+   * elapsed or never executed — never synthesized as 0/1.
    */
   exitCode?: number;
   outputFiles?: CommandResult['outputFiles'];

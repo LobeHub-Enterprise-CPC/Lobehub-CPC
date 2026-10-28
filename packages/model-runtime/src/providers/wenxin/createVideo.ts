@@ -26,13 +26,13 @@ interface WenxinVideoStatusResponse {
  */
 export async function queryWenxinVideoStatus(
   task_id: string,
-  options: { apiKey: string; baseURL: string },
+  options: { apiKey: string; baseURL: string; fetch?: typeof fetch },
 ): Promise<WenxinVideoStatusResponse> {
   const statusUrl = `${options.baseURL}/video/generations?task_id=${task_id}`;
 
   log('Querying video status for task: %s', task_id);
 
-  const response = await fetch(statusUrl, {
+  const response = await (options.fetch ?? fetch)(statusUrl, {
     headers: {
       'Authorization': `Bearer ${options.apiKey}`,
       'Content-Type': 'application/json',
@@ -56,7 +56,7 @@ export async function queryWenxinVideoStatus(
  */
 export async function pollWenxinVideoStatus(
   task_id: string,
-  options: { apiKey: string; baseURL: string },
+  options: { apiKey: string; baseURL: string; fetch?: typeof fetch },
 ): Promise<
   | { status: 'success'; videoUrl: string }
   | { status: 'failed'; error: string }
@@ -131,7 +131,7 @@ export async function createWenxinVideo(
 
   log('Wenxin video API request body: %O', body);
 
-  const response = await fetch(`${baseURL}/video/generations`, {
+  const response = await (options.fetch ?? fetch)(`${baseURL}/video/generations`, {
     body: JSON.stringify(body),
     headers: {
       'Authorization': `Bearer ${options.apiKey}`,

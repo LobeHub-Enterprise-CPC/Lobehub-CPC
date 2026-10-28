@@ -1,9 +1,10 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 import { deviceMetricsBacklogFileName } from '@lobechat/device-control/metrics';
+import { deviceGatewayServerKey, normalizeDeviceGatewayUrl } from '@lobechat/device-gateway-client';
 
 import { readCliCommandModeEnv, resolveCliDirName } from '../constants/identity';
 import { OFFICIAL_AGENT_GATEWAY_URL, OFFICIAL_SERVER_URL } from '../constants/urls';
@@ -15,6 +16,16 @@ export interface StoredSettings {
   agentGatewayUrl?: string;
   /** How commands dispatched to this device are fenced. See {@link CommandMode}. */
   commandMode?: CommandMode;
+  /**
+   * Device gateway address saved per server (keyed by `deviceGatewayServerKey`)
+   * by `--gateway`. Used ahead of that server's own advertisement, and never
+   * for another server.
+   */
+  deviceGatewayUrls?: Record<string, string>;
+  /**
+   * Pre-discovery global device gateway. Read only as the saved address of the
+   * login it was saved with (`serverUrl`, or official cloud when that is unset).
+   */
   gatewayUrl?: string;
   /**
    * Whether a fence this device imposes itself may reach the package-registry
@@ -41,8 +52,12 @@ const WORKSPACE_ENROLLMENTS_FILE = path.join(SETTINGS_DIR, 'workspace-enrollment
 const ACTIVE_WORKSPACE_FILE = path.join(SETTINGS_DIR, 'active-workspace');
 const WORKSPACE_ID_PATTERN = /^[\w-]{1,64}$/;
 
+/**
+ * Drop trailing slashes. The path is kept: the server URL may be a tenant address
+ * (`https://host/t/acme`) whose prefix every request path is appended to.
+ */
 export function normalizeUrl(url: string | undefined): string | undefined {
-  return url ? url.replace(/\/$/, '') : undefined;
+  return url ? url.replace(/\/+$/, '') : undefined;
 }
 
 export function resolveServerUrl(): string {
@@ -59,9 +74,19 @@ export function resolveAgentGatewayUrl(): string | undefined {
   return envUrl || settingsUrl || OFFICIAL_AGENT_GATEWAY_URL;
 }
 
+function normalizeDeviceGatewayUrls(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+
+  const entries = Object.entries(value).flatMap(([server, url]) => {
+    const key = deviceGatewayServerKey(server);
+    const normalized = normalizeDeviceGatewayUrl(url);
+    return key && normalized ? [[key, normalized] as const] : [];
+  });
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 function normalizeSettings(settings: StoredSettings): StoredSettings {
   const agentGatewayUrl = normalizeUrl(settings.agentGatewayUrl);
-  const gatewayUrl = normalizeUrl(settings.gatewayUrl);
   const serverUrl = normalizeUrl(settings.serverUrl);
   const commandMode = parseCommandMode(settings.commandMode);
 
@@ -70,7 +95,8 @@ function normalizeSettings(settings: StoredSettings): StoredSettings {
     // The default carries no information — persisting it would keep a file
     // alive that says nothing, and `isEmptySettings` treats it as absent.
     commandMode: commandMode === DEFAULT_COMMAND_MODE ? undefined : commandMode,
-    gatewayUrl,
+    deviceGatewayUrls: normalizeDeviceGatewayUrls(settings.deviceGatewayUrls),
+    gatewayUrl: normalizeUrl(settings.gatewayUrl),
     sandboxNetwork: settings.sandboxNetwork === true ? true : undefined,
     serverUrl: serverUrl === OFFICIAL_SERVER_URL ? undefined : serverUrl,
   };
@@ -92,6 +118,7 @@ function isEmptySettings(settings: StoredSettings): boolean {
     !settings.gatewayUrl &&
     !settings.agentGatewayUrl &&
     !settings.commandMode &&
+    !settings.deviceGatewayUrls &&
     !settings.sandboxNetwork
   );
 }
@@ -112,7 +139,11 @@ export function saveSettings(settings: StoredSettings): void {
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(normalized, null, 2), { mode: 0o600 });
 }
 
-/** Per-device machine-health samples waiting for the next gateway connection. */
+/**
+ * Machine health samples not yet uploaded, one file per device identity so a
+ * personal and a workspace connection on the same machine keep separate
+ * backlogs.
+ */
 export function resolveDeviceMetricsBacklogPath(deviceId: string): string {
   return path.join(SETTINGS_DIR, 'device-metrics', deviceMetricsBacklogFileName(deviceId));
 }
@@ -147,9 +178,18 @@ export function loadOrCreateConnectionId(): string {
  * Missing / corrupt file degrades to "no enrollments" — the server remains the
  * source of truth, this list is only the reconnect hint.
  */
-export function loadWorkspaceEnrollments(): string[] {
+function workspaceEnrollmentsPath(scope?: string) {
+  return scope
+    ? path.join(
+        SETTINGS_DIR,
+        `workspace-enrollments-${createHash('sha256').update(scope).digest('hex')}.json`,
+      )
+    : WORKSPACE_ENROLLMENTS_FILE;
+}
+
+export function loadWorkspaceEnrollments(scope?: string): string[] {
   try {
-    const data = fs.readFileSync(WORKSPACE_ENROLLMENTS_FILE, 'utf8');
+    const data = fs.readFileSync(workspaceEnrollmentsPath(scope), 'utf8');
     const parsed: unknown = JSON.parse(data);
     if (Array.isArray(parsed)) return parsed.filter((v): v is string => typeof v === 'string');
   } catch {
@@ -158,14 +198,14 @@ export function loadWorkspaceEnrollments(): string[] {
   return [];
 }
 
-function saveWorkspaceEnrollments(workspaceIds: string[]): void {
+function saveWorkspaceEnrollments(workspaceIds: string[], scope?: string): void {
   try {
     if (workspaceIds.length === 0) {
-      fs.unlinkSync(WORKSPACE_ENROLLMENTS_FILE);
+      fs.unlinkSync(workspaceEnrollmentsPath(scope));
       return;
     }
     fs.mkdirSync(SETTINGS_DIR, { mode: 0o700, recursive: true });
-    fs.writeFileSync(WORKSPACE_ENROLLMENTS_FILE, JSON.stringify(workspaceIds, null, 2), {
+    fs.writeFileSync(workspaceEnrollmentsPath(scope), JSON.stringify(workspaceIds, null, 2), {
       mode: 0o600,
     });
   } catch {
@@ -173,16 +213,19 @@ function saveWorkspaceEnrollments(workspaceIds: string[]): void {
   }
 }
 
-export function addWorkspaceEnrollment(workspaceId: string): void {
-  const current = loadWorkspaceEnrollments();
+export function addWorkspaceEnrollment(workspaceId: string, scope?: string): void {
+  const current = loadWorkspaceEnrollments(scope);
   if (current.includes(workspaceId)) return;
-  saveWorkspaceEnrollments([...current, workspaceId]);
+  saveWorkspaceEnrollments([...current, workspaceId], scope);
 }
 
-export function removeWorkspaceEnrollment(workspaceId: string): void {
-  const current = loadWorkspaceEnrollments();
+export function removeWorkspaceEnrollment(workspaceId: string, scope?: string): void {
+  const current = loadWorkspaceEnrollments(scope);
   if (!current.includes(workspaceId)) return;
-  saveWorkspaceEnrollments(current.filter((id) => id !== workspaceId));
+  saveWorkspaceEnrollments(
+    current.filter((id) => id !== workspaceId),
+    scope,
+  );
 }
 
 /**
@@ -254,6 +297,71 @@ export function loadSettings(): StoredSettings | null {
     );
     return null;
   }
+}
+
+/**
+ * The server a pre-discovery `gatewayUrl` belongs to: the saved login it was
+ * used with (`serverUrl` is only stored for a non-official server).
+ */
+const legacyGatewayOwner = (settings: StoredSettings | null) =>
+  settings?.gatewayUrl
+    ? deviceGatewayServerKey(settings.serverUrl || OFFICIAL_SERVER_URL)
+    : undefined;
+
+/**
+ * Device gateway address saved for `serverUrl` — the server the current
+ * credential belongs to, which may differ from `settings.serverUrl` when
+ * `LOBEHUB_SERVER` points elsewhere. Never another server's address.
+ */
+export function loadDeviceGatewayUrl(serverUrl: string): string | undefined {
+  const key = deviceGatewayServerKey(serverUrl);
+  const settings = loadSettings();
+  if (!key || !settings) return undefined;
+
+  return (
+    settings.deviceGatewayUrls?.[key] ??
+    (legacyGatewayOwner(settings) === key ? settings.gatewayUrl : undefined)
+  );
+}
+
+/** Remember `gatewayUrl` as the device gateway of `serverUrl`. */
+export function saveDeviceGatewayUrl(serverUrl: string, gatewayUrl: string): void {
+  const key = deviceGatewayServerKey(serverUrl);
+  if (!key) return;
+
+  const settings = loadSettings() ?? {};
+  saveSettings({
+    ...settings,
+    deviceGatewayUrls: { ...settings.deviceGatewayUrls, [key]: gatewayUrl },
+    // Superseded by the entry just written for the same server.
+    gatewayUrl: legacyGatewayOwner(settings) === key ? undefined : settings.gatewayUrl,
+  });
+}
+
+/**
+ * Settings after logging in to `serverUrl`, from the `existing` ones. Saved
+ * device gateway addresses are keyed by server, so they all carry over; a
+ * pre-discovery `gatewayUrl` stays with the server it was saved for instead of
+ * following the login to another one.
+ */
+export function settingsForLogin(
+  existing: StoredSettings | null,
+  serverUrl: string,
+): StoredSettings {
+  const sameServer = (existing?.serverUrl || OFFICIAL_SERVER_URL) === serverUrl;
+  const deviceGatewayUrls = { ...existing?.deviceGatewayUrls };
+
+  const gatewayUrl = sameServer ? existing?.gatewayUrl : undefined;
+  const owner = legacyGatewayOwner(existing);
+  if (!sameServer && owner && !deviceGatewayUrls[owner]) {
+    deviceGatewayUrls[owner] = existing!.gatewayUrl!;
+  }
+
+  return {
+    ...(Object.keys(deviceGatewayUrls).length > 0 && { deviceGatewayUrls }),
+    ...(gatewayUrl && { gatewayUrl }),
+    serverUrl,
+  };
 }
 
 /**

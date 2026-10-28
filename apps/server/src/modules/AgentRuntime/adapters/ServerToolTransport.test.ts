@@ -42,6 +42,7 @@ describe('ServerToolTransport.run', () => {
 
   const run = async (channel?: Record<string, unknown>) => {
     const transport = new ServerToolTransport({
+      messageModel: { findMessagePlugin: vi.fn() },
       operationId: 'op-1',
       serverDB: {},
       stepIndex: 0,
@@ -71,6 +72,16 @@ describe('ServerToolTransport.run', () => {
     await run(channelContext);
 
     expect(executeTool).toHaveBeenCalledWith(payload, expect.objectContaining({ channelContext }));
+  });
+
+  // The retry loop's own count names the execution in telemetry.
+  it('tells the tool execution service which attempt of the retry loop it is', async () => {
+    await run();
+
+    expect(executeTool).toHaveBeenCalledWith(
+      payload,
+      expect.objectContaining({ executionAttempt: 1, operationId: 'op-1' }),
+    );
   });
 
   it('passes undefined channel context for an ordinary run', async () => {

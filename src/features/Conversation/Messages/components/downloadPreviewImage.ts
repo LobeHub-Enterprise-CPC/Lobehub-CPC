@@ -12,7 +12,7 @@ const fileNameFromUrl = (source: string) => {
 };
 
 export const downloadPreviewImage = async (source: string) => {
-  const downloadUrl = getFileDownloadUrl(source, { appOrigin: window.location.origin });
+  const downloadUrl = getFileDownloadUrl(source);
 
   // The file proxy redirects to a presigned URL on an origin that sends no CORS
   // headers — and a cross-origin redirect strips the Origin header to `null`, so

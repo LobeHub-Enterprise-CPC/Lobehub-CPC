@@ -18,6 +18,8 @@ import { z } from 'zod';
 import { fileEnv } from '@/envs/file';
 import { YEAR } from '@/utils/units';
 
+import { tenantObjectKey } from './tenantKey';
+
 export const fileSchema = z.object({
   Key: z.string(),
   LastModified: z.date(),
@@ -100,7 +102,7 @@ export class S3 {
   public async deleteFile(key: string) {
     const command = new DeleteObjectCommand({
       Bucket: this.bucket,
-      Key: key,
+      Key: tenantObjectKey(key),
     });
 
     return this.client.send(command);
@@ -117,7 +119,7 @@ export class S3 {
     for (const batch of batches) {
       const command = new DeleteObjectsCommand({
         Bucket: this.bucket,
-        Delete: { Objects: batch.map((key) => ({ Key: key })) },
+        Delete: { Objects: batch.map((key) => ({ Key: tenantObjectKey(key) })) },
       });
       results.push(await this.client.send(command));
     }
@@ -129,7 +131,7 @@ export class S3 {
     const boundedLength = byteLength ? Math.max(1, Math.floor(byteLength)) : undefined;
     const command = new GetObjectCommand({
       Bucket: this.bucket,
-      Key: key,
+      Key: tenantObjectKey(key),
       ...(boundedLength ? { Range: `bytes=0-${boundedLength - 1}` } : {}),
     });
 
@@ -145,7 +147,7 @@ export class S3 {
   public async getFileByteArray(key: string): Promise<Uint8Array> {
     const command = new GetObjectCommand({
       Bucket: this.bucket,
-      Key: key,
+      Key: tenantObjectKey(key),
     });
 
     const response = await this.client.send(command);
@@ -166,7 +168,7 @@ export class S3 {
   ): Promise<{ contentLength: number; contentType?: string }> {
     const command = new HeadObjectCommand({
       Bucket: this.bucket,
-      Key: key,
+      Key: tenantObjectKey(key),
     });
 
     const response = await this.client.send(command);
@@ -190,7 +192,7 @@ export class S3 {
       ACL: this.setAcl ? PUBLIC_READ_ACL_HEADER : undefined,
       Bucket: this.bucket,
       ...(contentLength === undefined ? {} : { ContentLength: contentLength }),
-      Key: key,
+      Key: tenantObjectKey(key),
     });
 
     const url = await getSignedUrl(this.presignClient, command, { expiresIn: 3600 });
@@ -207,7 +209,7 @@ export class S3 {
         ACL: this.setAcl ? PUBLIC_READ_ACL_HEADER : undefined,
         Bucket: this.bucket,
         ContentType: contentType || undefined,
-        Key: key,
+        Key: tenantObjectKey(key),
       }),
     );
 
@@ -225,7 +227,7 @@ export class S3 {
     const command = new UploadPartCommand({
       Bucket: this.bucket,
       ...(contentLength === undefined ? {} : { ContentLength: contentLength }),
-      Key: key,
+      Key: tenantObjectKey(key),
       PartNumber: partNumber,
       UploadId: uploadId,
     });
@@ -246,7 +248,7 @@ export class S3 {
     if (!uploadedParts || expectedFile) {
       for await (const page of paginateListParts(
         { client: this.client },
-        { Bucket: this.bucket, Key: key, UploadId: uploadId },
+        { Bucket: this.bucket, Key: tenantObjectKey(key), UploadId: uploadId },
       )) {
         for (const part of page.Parts ?? []) {
           if (!part.ETag || !part.PartNumber) continue;
@@ -283,7 +285,7 @@ export class S3 {
     return this.client.send(
       new CompleteMultipartUploadCommand({
         Bucket: this.bucket,
-        Key: key,
+        Key: tenantObjectKey(key),
         MultipartUpload: {
           Parts: parts.map(({ ETag, PartNumber }) => ({ ETag, PartNumber })),
         },
@@ -296,7 +298,7 @@ export class S3 {
     return this.client.send(
       new AbortMultipartUploadCommand({
         Bucket: this.bucket,
-        Key: key,
+        Key: tenantObjectKey(key),
         UploadId: uploadId,
       }),
     );
@@ -305,7 +307,7 @@ export class S3 {
   public async createPreSignedUrlForPreview(key: string, expiresIn?: number): Promise<string> {
     const command = new GetObjectCommand({
       Bucket: this.bucket,
-      Key: key,
+      Key: tenantObjectKey(key),
     });
 
     return getSignedUrl(this.presignClient, command, {
@@ -320,7 +322,7 @@ export class S3 {
   ): Promise<string> {
     const command = new GetObjectCommand({
       Bucket: this.bucket,
-      Key: key,
+      Key: tenantObjectKey(key),
       ResponseContentDisposition: `attachment; filename*=UTF-8''${encodeContentDispositionFilename(fileName)}`,
     });
 
@@ -352,7 +354,7 @@ export class S3 {
       CacheControl: cacheControl,
       ContentType: contentType,
       IfMatch: options?.ifMatch,
-      Key: path,
+      Key: tenantObjectKey(path),
     });
 
     return this.client.send(command, { abortSignal: options?.abortSignal });
@@ -363,7 +365,7 @@ export class S3 {
       ACL: this.setAcl ? 'public-read' : undefined,
       Body: content,
       Bucket: this.bucket,
-      Key: path,
+      Key: tenantObjectKey(path),
     });
 
     return this.client.send(command);
@@ -380,7 +382,7 @@ export class S3 {
       Bucket: this.bucket,
       CacheControl: `public, max-age=${YEAR}`,
       ContentType: contentType,
-      Key: key,
+      Key: tenantObjectKey(key),
     });
 
     await this.client.send(command);

@@ -1,4 +1,8 @@
+export type { GatewayIdentityProvider, GatewayIdentityResponse } from '../../types/src/gateway';
 export { AgentStreamClient } from './client';
+export { assertGatewayIdentityContinuity } from './identity';
+export type { GatewayIdentityMinterOptions } from './identityMint';
+export { createGatewayIdentityMinter } from './identityMint';
 export { sanitizeAgentInterventionRequestForReview } from './intervention';
 export {
   MirroredTerminalEchoGuard,
@@ -44,11 +48,26 @@ export type {
   ToolResultPayload,
 } from './mux/types';
 export {
+  buildLlmRelayChannelId,
   CLIENT_LLM_WAIT_CAPABILITY,
   CLIENT_PROTOCOL_VERSION,
+  isLlmRelayChannelId,
+  isOwnLlmRelayChannelId,
+  isScopedLlmRelayChannelId,
   LLM_RELAY_CAPABILITY,
+  LLM_RELAY_CHANNEL_HEADER,
+  LLM_RELAY_CHANNEL_PREFIX,
+  LLM_RELAY_CLIENT_ID_HEADER,
   LLM_RELAY_LEASE_HEADER,
+  llmRelayChannelScope,
 } from './protocol';
+export type { GatewayCommandBinding, GatewayConfirmation } from './tenancy';
+export {
+  gatewayEnrollmentHint,
+  gatewayIdentityHint,
+  gatewayTicketClaims,
+  strictGatewayUrl,
+} from './tenancy';
 export { isSessionTerminalEvent } from './terminalEvent';
 export type {
   AgentInterventionInteractionKind,
@@ -70,6 +89,7 @@ export type {
   LlmRelayBatch,
   LlmRelayBatchAck,
   LlmRelayDeadlines,
+  LlmRelayMethod,
   MessagePatchData,
   MessagePatchUpsert,
   SessionStatus,

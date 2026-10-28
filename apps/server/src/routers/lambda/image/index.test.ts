@@ -18,6 +18,7 @@ const {
   mockInsertValues,
   mockIsLobeHubModelAvailable,
   mockResolveBusinessModelMapping,
+  mockGetFeatureFlags,
 } = vi.hoisted(() => ({
   mockServerDB: {
     transaction: vi.fn(),
@@ -33,6 +34,11 @@ const {
   mockInsertValues: [] as unknown[],
   mockIsLobeHubModelAvailable: vi.fn(),
   mockResolveBusinessModelMapping: vi.fn(),
+  mockGetFeatureFlags: vi.fn(),
+}));
+
+vi.mock('@/server/featureFlags', () => ({
+  getServerFeatureFlagsStateFromRuntimeConfig: mockGetFeatureFlags,
 }));
 
 // Mock debug
@@ -164,6 +170,7 @@ describe('imageRouter', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockInsertValues.length = 0;
+    mockGetFeatureFlags.mockResolvedValue({ showAiImage: true });
 
     // Default mock implementations
     mockResolveBusinessModelMapping.mockImplementation(
@@ -236,6 +243,19 @@ describe('imageRouter', () => {
   });
 
   describe('createImage', () => {
+    it('refuses image generation before charging or writing when ai_image is disabled', async () => {
+      mockGetFeatureFlags.mockResolvedValue({ showAiImage: false });
+      const caller = imageRouter.createCaller(createMockCtx());
+      await expect(caller.createImage(createDefaultInput())).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: 'Image generation is not enabled for this account',
+      });
+      expect(mockGetFeatureFlags).toHaveBeenCalledWith(mockUserId);
+      expect(mockChargeBeforeGenerate).not.toHaveBeenCalled();
+      expect(mockServerDB.transaction).not.toHaveBeenCalled();
+      expect(mockCreateAsyncCaller).not.toHaveBeenCalled();
+    });
+
     it('should create image generation batch and generations successfully', async () => {
       const ctx = createMockCtx();
       const input = createDefaultInput();

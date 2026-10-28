@@ -257,8 +257,6 @@ export interface GetAgentInterventionReviewBySourceParams {
   actorUserId: string;
   batchId: string;
   operationId: string;
-  /** Set only by the share-visitor path; see {@link AgentInterventionShareVisitorScope}. */
-  shareVisitor?: AgentInterventionShareVisitorScope;
   targets: AgentInterventionSourceTarget[];
   workspaceId?: string;
 }
@@ -280,27 +278,12 @@ export type GetAgentInterventionReviewBySourceResult =
       sourceItemMap: Record<string, string>;
     });
 
-/**
- * A share visitor resolving an intervention on their OWN share run. The caller
- * (`shareChat.resolveInterventionBySource`) has already authenticated the visitor and
- * proved they own `topicId` under a live share of `agentId`; the business slot
- * must still bind the durable batch to exactly this owner/agent/topic and to a
- * share-run operation, and must refuse every other actor for a share run.
- */
-export interface AgentInterventionShareVisitorScope {
-  agentId: string;
-  ownerUserId: string;
-  topicId: string;
-}
-
 export interface ResolveAgentInterventionBySourceParams {
   action: AgentInterventionSourceAction;
   actorUserId: string;
   batchId: string;
   operationId: string;
   resolutionRequestId: string;
-  /** Set only by the share-visitor resolve path; see {@link AgentInterventionShareVisitorScope}. */
-  shareVisitor?: AgentInterventionShareVisitorScope;
   targets: AgentInterventionSourceTarget[];
   workspaceId?: string;
 }
@@ -320,6 +303,13 @@ export interface AgentInterventionRuntimeAppContext {
    * resumes with no target (the run is owned by the builder itself).
    */
   editingAgentId?: string;
+  /**
+   * The group a Group Agent Builder run edits. Without it a `group_agent_builder`
+   * continuation falls back to `topics.metadata.editingGroupId`, which older
+   * topics never received — the member tools then answer `NoGroupContext`.
+   * Cloud rebuilds it from the parked operation's durable row.
+   */
+  editingGroupId?: string;
   groupId?: string | null;
   scope?: MessageMapScope;
   sessionId?: string;
@@ -560,7 +550,13 @@ export async function getAgentInterventionReviewBySource(
   return { handled: false };
 }
 
-/** Atomic, idempotent first-winner claim. OSS fails closed for token-based v2 resolution. */
+/**
+ * Atomic, idempotent first-winner claim. Keep submitted answers in the private
+ * resolution/outbox; never write raw content or result state into chat messages.
+ * Runtime dispatch applies afterToolCall before publishing the final result.
+ * MessageModel.resolveHumanApproval defaults to this claim-only behavior.
+ * OSS fails closed for token-based v2 resolution.
+ */
 export async function resolveAgentIntervention(
   _params: ResolveAgentInterventionParams,
 ): Promise<ResolveAgentInterventionResult> {
@@ -571,6 +567,7 @@ export async function resolveAgentIntervention(
  * Authenticated Web bridge into the generic first-winner claim.
  *
  * Cloud resolves the source locators and builds the canonical item action.
+ * Like resolveAgentIntervention, it claims only; runtime dispatch publishes answers.
  * For a mixed partially-settled Stop it supplies a full-batch version/revision
  * snapshot while selecting only rows that are still pending; terminal siblings
  * remain immutable. OSS has no durable generic store and falls back to its

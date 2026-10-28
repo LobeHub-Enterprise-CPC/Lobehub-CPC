@@ -2,8 +2,7 @@
 
 import { ORG_NAME, UTM_SOURCE } from '@lobechat/business-const';
 import { type FlexboxProps } from '@lobehub/ui';
-import { Flexbox } from '@lobehub/ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+import { createStaticStyles, cssVar, Flexbox } from '@lobehub/ui';
 import { memo } from 'react';
 
 import { ProductLogo } from '@/components/Branding/ProductLogo';

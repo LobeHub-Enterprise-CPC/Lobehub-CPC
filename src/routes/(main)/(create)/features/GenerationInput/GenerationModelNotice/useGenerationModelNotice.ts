@@ -14,6 +14,14 @@ interface EnabledModelGroup {
   id: string;
 }
 
+/**
+ * Every notice shape `resolveGenerationModelNotice` can return. `provider` is only set
+ * when the notice is about a specific provider (it feeds the `{{name}}` interpolation).
+ */
+export type GenerationModelNotice =
+  | { key: 'notice.modelRemoved' | 'notice.providerDisabled'; provider: string; type: 'warning' }
+  | { key: 'notice.noModelAvailable'; provider?: undefined; type: 'warning' };
+
 interface ResolveGenerationModelNoticeParams {
   enabledModelList: EnabledModelGroup[];
   isModelConfigReady: boolean;
@@ -23,13 +31,15 @@ interface ResolveGenerationModelNoticeParams {
 
 /**
  * Pure resolver for the "current model unavailable" notice on the image/video
- * generation pages. Distinguishes the two distinct root causes so the UI can show
- * precise copy (both keys interpolate the provider display name via `{{name}}`):
+ * generation pages. Distinguishes the distinct root causes so the UI can show
+ * precise copy (the provider keys interpolate the provider display name via `{{name}}`):
  *
  * - `notice.providerDisabled`: the provider group is absent from the enabled list
  *   entirely (provider disabled or removed).
  * - `notice.modelRemoved`: the provider group exists but no longer lists the
  *   selected model id among its children.
+ * - `notice.noModelAvailable`: no model of this type is enabled at all, so there is
+ *   nothing to switch to; the copy is provider-agnostic and points to the administrator.
  *
  * We gate on `isModelConfigReady` (aiProvider runtime state initialized) so we do
  * NOT flash a false warning while the provider runtime config is still loading and
@@ -44,8 +54,15 @@ export const resolveGenerationModelNotice = ({
   isModelConfigReady,
   model,
   provider,
-}: ResolveGenerationModelNoticeParams) => {
+}: ResolveGenerationModelNoticeParams): GenerationModelNotice | undefined => {
   if (!isModelConfigReady) return;
+
+  // Nothing of this type is enabled at all (e.g. the tenant directory has no image/video
+  // model): the store's hard-coded default provider/model is meaningless here, so report
+  // the empty state instead of blaming a specific provider.
+  if (!enabledModelList.some((item) => item.children.length > 0)) {
+    return { key: 'notice.noModelAvailable', type: 'warning' };
+  }
 
   // Match the provider group by id first, mirroring `findEnabledChatModel` in the
   // chat input notice.
@@ -55,9 +72,6 @@ export const resolveGenerationModelNotice = ({
   const currentModel = providerGroup.children.find((item) => item.id === model);
   if (!currentModel) return { key: 'notice.modelRemoved', provider, type: 'warning' } as const;
 };
-
-/** Union of every notice shape `resolveGenerationModelNotice` can return. */
-export type GenerationModelNotice = NonNullable<ReturnType<typeof resolveGenerationModelNotice>>;
 
 export interface UseGenerationModelNoticeResult {
   /** Whether the currently selected model is unavailable (notice present). */

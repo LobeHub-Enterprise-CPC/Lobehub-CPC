@@ -1,10 +1,11 @@
 import { TraceEventType } from '@lobechat/types';
-import { after } from 'next/server';
 
 import { TraceClient } from '@/libs/traces';
+import { withTenantRequest } from '@/server/modules/Tenant/gate';
+import { after } from '@/server/utils/scheduleAfterResponse';
 import { type TraceEventBasePayload, type TraceEventPayloads } from '@/types/trace';
 
-export const POST = async (req: Request) => {
+const handlePost = async (req: Request) => {
   type RequestData = TraceEventPayloads & TraceEventBasePayload;
   const data = (await req.json()) as RequestData;
   const { traceId, eventType } = data;
@@ -41,3 +42,5 @@ export const POST = async (req: Request) => {
 
   return new Response(undefined, { status: 201 });
 };
+
+export const POST = withTenantRequest(handlePost);

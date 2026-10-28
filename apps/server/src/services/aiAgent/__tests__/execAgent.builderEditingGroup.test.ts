@@ -280,3 +280,7 @@ describe('AiAgentService.execAgent - group builder editing target', () => {
     expect(createdAppContext().editingGroupId).toBeUndefined();
   });
 });
+
+vi.mock('@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite');
+
+vi.mock('@/server/services/gatewayAuthorization');

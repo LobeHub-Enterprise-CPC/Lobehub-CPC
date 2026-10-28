@@ -1,7 +1,13 @@
-import { type MenuProps } from '@lobehub/ui';
-import { Center, DropdownMenu, Flexbox, Icon, Tooltip } from '@lobehub/ui';
-import { Button } from '@lobehub/ui/base-ui';
-import { createStaticStyles } from 'antd-style';
+import { type DropdownItem } from '@lobehub/ui';
+import {
+  Button,
+  Center,
+  createStaticStyles,
+  DropdownMenu,
+  Flexbox,
+  Icon,
+  Tooltip,
+} from '@lobehub/ui';
 import { Check, ChevronDown, Hand, ListChecks, Zap } from 'lucide-react';
 import { type LucideIcon } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
@@ -58,7 +64,21 @@ const ModeItemLabel = memo<{ desc: string; icon: LucideIcon; title: string }>(
   ),
 );
 
-const ModeSelector = memo(() => {
+const MODE_ICONS: Record<ApprovalMode, LucideIcon> = {
+  'allow-list': ListChecks,
+  'auto-run': Zap,
+  'manual': Hand,
+};
+
+interface ModeSelectorProps {
+  /**
+   * Rendered inside the composer action row: the trigger leads with the mode's
+   * icon instead of trailing a chevron, and the menu opens from its left edge.
+   */
+  inline?: boolean;
+}
+
+const ModeSelector = memo<ModeSelectorProps>(({ inline }) => {
   const { t } = useTranslation('chat');
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const { allowed: canCreateContent, reason } = usePermission('create_content');
@@ -97,7 +117,7 @@ const ModeSelector = memo(() => {
   );
 
   const menuItems = useCallback(
-    (): MenuProps['items'] => [
+    (): DropdownItem[] => [
       {
         extra: approvalMode === 'auto-run' ? <Icon icon={Check} /> : undefined,
         key: 'auto-run',
@@ -141,9 +161,10 @@ const ModeSelector = memo(() => {
   const button = (
     <Button
       className={styles.modeButton}
+      data-brand-slot={inline ? 'composer-approval-mode' : undefined}
       disabled={disabled}
-      icon={ChevronDown}
-      iconPosition="end"
+      icon={inline ? MODE_ICONS[approvalMode] : ChevronDown}
+      iconPosition={inline ? 'start' : 'end'}
       size="small"
       type={'text'}
     >
@@ -168,7 +189,7 @@ const ModeSelector = memo(() => {
     <DropdownMenu
       items={menuItems}
       open={!disabled && dropdownOpen}
-      placement="bottomRight"
+      placement={inline ? 'topLeft' : 'bottomRight'}
       onOpenChange={handleOpenChange}
     >
       <div className={styles.trigger}>
