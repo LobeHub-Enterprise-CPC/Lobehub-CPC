@@ -1,11 +1,14 @@
-import '@/styles/stylex.css';
+// Tenant fetch/asset prefixing (`/t/{slug}`) and the StyleX sheet, like the main SPA.
+import '@/initialize';
 import '@/spa/initialize';
 
+import { getTenant } from '@lobechat/business-tenant/client';
 import { RouterProvider } from 'react-router/dom';
 
 import BootErrorBoundary from '@/components/BootErrorBoundary';
 import NextThemeProvider from '@/layout/GlobalProvider/NextThemeProvider';
 import { setReplicaScopeSource } from '@/libs/replica';
+import { resolveAppBasename } from '@/spa/appBasename';
 import { createSPABrowserRouter, createSPARoot } from '@/spa/runtime';
 
 import { workbenchRoutes } from './router';
@@ -17,7 +20,12 @@ import { workbenchReplicaScope } from './shell/workbenchReplicaScope';
 // hydrate-then-verify by running the session check (`enableWorkbenchIdentity`).
 setReplicaScopeSource(workbenchReplicaScope);
 
-const router = createSPABrowserRouter(workbenchRoutes);
+const { basename } = resolveAppBasename({
+  debugProxy: window.__DEBUG_PROXY__,
+  pathname: window.location.pathname,
+  tenant: getTenant(),
+});
+const router = createSPABrowserRouter(workbenchRoutes, { basename });
 
 createSPARoot(document.getElementById('root')!).render(
   <BootErrorBoundary>
