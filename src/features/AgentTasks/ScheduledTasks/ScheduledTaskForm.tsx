@@ -31,10 +31,13 @@ import { TIMEZONE_OPTIONS } from '../AgentTaskDetail/scheduler/CronConfig';
 import { useAgentDisplayMeta } from '../shared/useAgentDisplayMeta';
 import { FieldRow } from './FieldRow';
 import { ScheduleFields } from './ScheduleFields';
+import type { ScheduleFrequency } from './scheduleForm';
 import { buildSchedule, initialSchedule, validateScheduleForm } from './scheduleForm';
 import { styles } from './style';
 
 interface ScheduledTaskFormProps {
+  initialInstruction?: string;
+  initialFrequency?: ScheduleFrequency;
   agentId?: string;
   lockAssignee?: boolean;
   onSaved?: (task: { identifier: string; agentId?: string; name?: string }) => void;
@@ -45,6 +48,8 @@ interface ScheduledTaskFormProps {
 export const ScheduledTaskForm = ({
   agentId,
   lockAssignee,
+  initialInstruction,
+  initialFrequency,
   onSaved,
   projectId,
   task,
@@ -53,11 +58,12 @@ export const ScheduledTaskForm = ({
   const { close, setCanDismissByClickOutside } = useModalContext();
   const { allowed } = usePermission('create_content');
   const inboxId = useAgentStore(builtinAgentSelectors.inboxAgentId);
-  const [instruction, setInstruction] = useState(task?.instruction || '');
+  const [instruction, setInstruction] = useState(task?.instruction || initialInstruction || '');
   const [name, setName] = useState(task?.name || '');
-  const [schedule, setSchedule] = useState(() =>
-    initialSchedule(task?.schedule?.pattern, task?.schedule?.timezone, task?.config),
-  );
+  const [schedule, setSchedule] = useState(() => ({
+    ...initialSchedule(task?.schedule?.pattern, task?.schedule?.timezone, task?.config),
+    ...(!task && initialFrequency ? { frequency: initialFrequency } : {}),
+  }));
   const [scheduleTouched, setScheduleTouched] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [assignee, setAssignee] = useState(task?.agentId || agentId || inboxId);

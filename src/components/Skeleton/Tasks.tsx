@@ -2,8 +2,10 @@
 
 import { Block, Divider, Flexbox } from '@lobehub/ui';
 import { Fragment } from 'react';
-import { useSearchParams } from 'react-router';
+import { useLocation } from 'react-router';
 import ScheduledTasksSkeleton from './ScheduledTasks';
+
+import { isScheduledTasksWorkspace } from '@/features/NavPanel/isScheduledTasksWorkspace';
 
 import TaskItemSkeleton from '@/features/AgentTasks/AgentTaskList/TaskItemSkeleton';
 import NavHeader from '@/features/NavHeader';
@@ -11,8 +13,11 @@ import WideScreenContainer from '@/features/WideScreenContainer';
 import type { RouteSkeletonProps } from '@/spa/router/routeMeta';
 
 const TasksSkeleton = ({ chrome = 'page' }: RouteSkeletonProps) => {
-  const [params] = useSearchParams();
-  if (params.get('collection') === 'scheduled') return <ScheduledTasksSkeleton />;
+  const { pathname, search } = useLocation();
+  if (isScheduledTasksWorkspace(pathname, search))
+    return (
+      <ScheduledTasksSkeleton showWelcome={!new URLSearchParams(search).has('scheduledTask')} />
+    );
   return (
     <Flexbox aria-busy flex={1} height={'100%'}>
       {chrome !== 'body' && <NavHeader />}

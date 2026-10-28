@@ -61,6 +61,7 @@ export const COMPLETE_TASK_LIST_PAGE_SIZE = 100;
 export const TASK_COLLECTION_PAGE_SIZE = 50;
 
 export interface ScheduledTaskListOptions {
+  statuses?: TaskStatus[];
   includeFinishedAutomation?: boolean;
   agentId?: string;
   limit?: number;
@@ -76,12 +77,14 @@ export interface ScheduledTaskListOptions {
 export const scheduledTaskListQuery = ({
   agentId,
   includeFinishedAutomation,
+  statuses,
   limit,
   offset,
   projectId,
 }: ScheduledTaskListOptions): TaskListQuery => ({
   agentId: projectId ? undefined : agentId,
   automated: true,
+  statuses: statuses?.length ? [...statuses].sort() : undefined,
   ...(includeFinishedAutomation ? { includeFinishedAutomation } : {}),
   limit,
   offset,

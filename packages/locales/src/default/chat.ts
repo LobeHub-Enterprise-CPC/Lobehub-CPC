@@ -1,4 +1,44 @@
 export default {
+  'scheduledTasks.previousPage': 'Previous page',
+  'scheduledTasks.welcome': 'What would you like to do today?',
+  'scheduledTasks.newTask': 'New task',
+  'scheduledTasks.filterBy': 'Filter by',
+  'scheduledTasks.filters.active': 'Enabled',
+  'scheduledTasks.filters.paused': 'Paused',
+  'scheduledTasks.filters.completed': 'Completed',
+  'scheduledTasks.noFilterMatches': 'No scheduled tasks match your filters',
+  'scheduledTasks.runActions': 'Run actions: {{title}}',
+  'scheduledTasks.templates.brief.title': 'Daily work brief',
+  'scheduledTasks.templates.brief.description':
+    'Yesterday\u2019s tasks, today\u2019s meetings and key updates, ready when you start.',
+  'scheduledTasks.templates.brief.instruction':
+    'Every morning, summarize yesterday\u2019s outstanding tasks, today\u2019s meetings and key updates into a concise work brief.',
+  'scheduledTasks.templates.customers.title': 'Customer follow-up reminders',
+  'scheduledTasks.templates.customers.description':
+    'Find customers who need attention and prioritize the next follow-ups.',
+  'scheduledTasks.templates.customers.instruction':
+    'Each day, review customers not contacted this week and prioritize follow-ups by last contact and urgency.',
+  'scheduledTasks.templates.weekly.title': 'Weekly report draft',
+  'scheduledTasks.templates.weekly.description':
+    'Turn this week\u2019s progress and risks into an editable report.',
+  'scheduledTasks.templates.weekly.instruction':
+    'Each week, summarize project progress, key decisions, risks and next week\u2019s plans into an editable weekly report.',
+  'scheduledTasks.templates.mail.title': 'Email priorities',
+  'scheduledTasks.templates.mail.description':
+    'Review your inbox and highlight messages that need action today.',
+  'scheduledTasks.templates.mail.instruction':
+    'Each day, review the inbox, categorize messages by urgency and list today\u2019s actionable emails with suggested next steps.',
+  'scheduledTasks.templates.meetings.title': 'Meeting notes archive',
+  'scheduledTasks.templates.meetings.description':
+    'Extract decisions and action items from yesterday\u2019s meetings.',
+  'scheduledTasks.templates.meetings.instruction':
+    'Each day, organize yesterday\u2019s meeting notes, extract confirmed decisions, owners and action items, and archive the summary.',
+  'scheduledTasks.templates.sales.title': 'Sales pipeline report',
+  'scheduledTasks.templates.sales.description':
+    'Track stages and conversion, and highlight stalled opportunities.',
+  'scheduledTasks.templates.sales.instruction':
+    'Each week, summarize opportunity stages and conversions in the sales pipeline, highlight stalled opportunities and suggest follow-up actions.',
+
   'scheduledTasks.name': 'Task name',
   'scheduledTasks.title': 'Scheduled tasks',
   'scheduledTasks.create': 'New scheduled task',

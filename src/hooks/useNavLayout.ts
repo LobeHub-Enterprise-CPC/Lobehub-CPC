@@ -1,4 +1,4 @@
-import { HomeIcon, SearchIcon } from 'lucide-react';
+import { Clock3, HomeIcon, SearchIcon } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -63,9 +63,9 @@ export const useNavLayout = (): NavLayout => {
           url: '/',
         },
         {
-          icon: getRouteById('tasks')!.icon,
+          icon: Clock3,
           key: SidebarTabKey.Tasks,
-          title: t('tab.tasks'),
+          title: t('tab.scheduledTasks'),
           url: '/tasks',
         },
         {
