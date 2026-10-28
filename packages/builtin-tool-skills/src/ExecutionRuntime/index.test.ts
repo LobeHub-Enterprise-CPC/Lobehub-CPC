@@ -75,6 +75,75 @@ describe('SkillsExecutionRuntime', () => {
         expect(result.state).toEqual({ command: 'echo hello', exitCode: 1, success: false });
       });
 
+      it('should report a command that never ran without a fabricated exit code', async () => {
+        const service = createMockService({
+          execScript: vi.fn().mockResolvedValue({
+            error: {
+              code: 'COMMAND_GOVERNANCE_UNAVAILABLE',
+              message: 'governance temporarily unavailable',
+              name: 'COMMAND_GOVERNANCE_UNAVAILABLE',
+            },
+            output: '',
+            success: false,
+          } satisfies CommandResult),
+        });
+        const runtime = new SkillsExecutionRuntime({ service });
+
+        const result = await runtime.execScript(args);
+
+        expect(result.success).toBe(false);
+        expect(result.content).toBe('Command failed: governance temporarily unavailable');
+        expect(result.content).not.toContain('exit code');
+        expect(result.state).not.toHaveProperty('exitCode');
+        expect(result.state).toMatchObject({
+          error: {
+            code: 'COMMAND_GOVERNANCE_UNAVAILABLE',
+            name: 'COMMAND_GOVERNANCE_UNAVAILABLE',
+          },
+          success: false,
+        });
+        expect(result.error).toMatchObject({ name: 'COMMAND_GOVERNANCE_UNAVAILABLE' });
+      });
+
+      it('should keep a real non-zero exit code and both output streams', async () => {
+        const service = createMockService({
+          execScript: vi.fn().mockResolvedValue({
+            exitCode: 7,
+            output: 'partial output',
+            stderr: 'permission denied',
+            success: false,
+          } satisfies CommandResult),
+        });
+        const runtime = new SkillsExecutionRuntime({ service });
+
+        const result = await runtime.execScript(args);
+
+        expect(result.success).toBe(false);
+        expect(result.content).toBe(
+          'Command failed with exit code 7\n\nStdout:\npartial output\n\nStderr:\npermission denied',
+        );
+        expect(result.state).toMatchObject({ exitCode: 7, success: false });
+      });
+
+      it('should keep a running observation without claiming exit code 0', async () => {
+        const service = createMockService({
+          execScript: vi.fn().mockResolvedValue({
+            output: 'partial output',
+            shellId: 'shell-9',
+            success: true,
+          } satisfies CommandResult),
+        });
+        const runtime = new SkillsExecutionRuntime({ service });
+
+        const result = await runtime.execScript(args);
+
+        expect(result.success).toBe(true);
+        expect(result.content).toContain('still running');
+        expect(result.content).toContain('shell-9');
+        expect(result.content).not.toContain('completed successfully');
+        expect(result.state).not.toHaveProperty('exitCode');
+      });
+
       it('should combine output and stderr', async () => {
         const service = createMockService({
           execScript: vi.fn().mockResolvedValue({

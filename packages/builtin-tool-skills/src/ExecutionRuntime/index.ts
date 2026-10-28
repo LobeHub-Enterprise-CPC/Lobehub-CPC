@@ -537,7 +537,21 @@ export class SkillsExecutionRuntime {
    * This ensures consistent content format across all runtimes.
    */
   private formatCommandOutput(command: string, result: CommandResult): BuiltinServerRuntimeOutput {
+    // `error` is the upstream failure object (it carries `name`/`code` for the
+    // tool error channel); the formatter only renders a message. A command that
+    // never ran has no `exitCode`, so it reads as "Command failed: <reason>"
+    // instead of borrowing exit code 1.
+    const errorMessage =
+      typeof result.error === 'string'
+        ? result.error
+        : result.error &&
+            typeof result.error === 'object' &&
+            typeof (result.error as { message?: unknown }).message === 'string'
+          ? (result.error as { message: string }).message
+          : undefined;
+
     const content = formatCommandResult({
+      error: errorMessage,
       stderr: result.stderr,
       stdout: result.output,
       success: result.success,
@@ -556,8 +570,11 @@ export class SkillsExecutionRuntime {
       state: {
         command,
         ...(result.sessionExpiredAndRecreated && { sessionExpiredAndRecreated: true }),
+        ...(result.error !== undefined && { error: result.error }),
         ...(result.executionEnv && { executionEnv: result.executionEnv }),
-        exitCode: result.exitCode,
+        // Omitted, not synthesized: undefined means never executed or still
+        // running, and 0 would falsely claim a successful completion.
+        ...(result.exitCode !== undefined && { exitCode: result.exitCode }),
         ...(result.outputFiles && { outputFiles: result.outputFiles }),
         ...(result.shellId && { shellId: result.shellId }),
         success: result.success,

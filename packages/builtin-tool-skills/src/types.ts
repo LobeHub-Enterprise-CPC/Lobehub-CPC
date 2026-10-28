@@ -68,10 +68,12 @@ export interface ExecScriptParams {
 
 export interface ExecScriptState {
   command: string;
+  /** Upstream failure object for a command that never produced an observation. */
+  error?: unknown;
   executionEnv?: 'device' | 'sandbox';
   /**
    * Undefined means the command was still running when the observation window
-   * elapsed — mirrors `CommandResult.exitCode`.
+   * elapsed or never executed — never synthesized as 0/1.
    */
   exitCode?: number;
   outputFiles?: CommandResult['outputFiles'];
