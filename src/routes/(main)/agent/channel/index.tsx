@@ -1,8 +1,11 @@
 'use client';
 
-import { EXTERNAL_INTEGRATIONS_ENABLED } from '@lobechat/business-const';
+import {
+  AGENT_PROFILE_SHOWCASE_LAYOUT,
+  EXTERNAL_INTEGRATIONS_ENABLED,
+} from '@lobechat/business-const';
 import { createStaticStyles, Flexbox } from '@lobehub/ui';
-import { memo, useCallback, useMemo } from 'react';
+import { memo, type ReactNode, useCallback, useMemo } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 
 import NotFound from '@/components/404';
@@ -15,6 +18,7 @@ import PlatformDetail from '@/features/AgentChannel/PlatformDetail';
 import ComingSoonDetail from '@/features/AgentChannel/PlatformDetail/ComingSoon';
 import PlatformGrid from '@/features/AgentChannel/PlatformGrid';
 import { useAgentChannels } from '@/features/AgentChannel/useAgentChannels';
+import { AGENT_PROFILE_SHOWCASE_COLUMN } from '@/features/AgentProfileTabs';
 import ResourceConfigAccessGate from '@/features/ResourcePermission/ResourceConfigAccessGate';
 import { usePermission } from '@/hooks/usePermission';
 
@@ -32,6 +36,17 @@ const styles = createStaticStyles(({ css }) => ({
     height: 100%;
   `,
 }));
+
+// The showcase layout puts each channel page in the profile group's column,
+// under the tabs, instead of letting it centre on its own width.
+const ShowcaseColumn = ({ children }: { children: ReactNode }) =>
+  AGENT_PROFILE_SHOWCASE_LAYOUT ? (
+    <div style={{ maxWidth: AGENT_PROFILE_SHOWCASE_COLUMN, paddingInline: 48, width: '100%' }}>
+      {children}
+    </div>
+  ) : (
+    children
+  );
 
 const ChannelContent = memo(() => {
   const { aid, platform } = useParams<{ aid?: string; platform?: string }>();
@@ -94,25 +109,29 @@ const ChannelContent = memo(() => {
         >
           {!platform ? (
             <div className={styles.container}>
-              <PlatformGrid
-                agentId={aid}
-                platforms={allPlatforms}
-                runtimeStatuses={platformRuntimeStatuses}
-                onSelect={handleSelectPlatform}
-              />
+              <ShowcaseColumn>
+                <PlatformGrid
+                  agentId={aid}
+                  platforms={allPlatforms}
+                  runtimeStatuses={platformRuntimeStatuses}
+                  onSelect={handleSelectPlatform}
+                />
+              </ShowcaseColumn>
             </div>
           ) : activePlatformDef ? (
             <div className={styles.container}>
-              {activePlatformDef.comingSoon ? (
-                <ComingSoonDetail platformDef={activePlatformDef} />
-              ) : (
-                <PlatformDetail
-                  agentId={aid}
-                  currentConfig={currentConfig}
-                  disabled={!canEdit}
-                  platformDef={activePlatformDef}
-                />
-              )}
+              <ShowcaseColumn>
+                {activePlatformDef.comingSoon ? (
+                  <ComingSoonDetail platformDef={activePlatformDef} />
+                ) : (
+                  <PlatformDetail
+                    agentId={aid}
+                    currentConfig={currentConfig}
+                    disabled={!canEdit}
+                    platformDef={activePlatformDef}
+                  />
+                )}
+              </ShowcaseColumn>
             </div>
           ) : (
             <NotFound />

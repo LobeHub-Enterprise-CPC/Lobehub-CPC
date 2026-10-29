@@ -1,12 +1,16 @@
 'use client';
 
+import { AGENT_PROFILE_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { Block, Flexbox, Segmented, Text } from '@lobehub/ui';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import AsyncError from '@/components/AsyncError';
 import AgentBreadcrumb from '@/features/AgentBreadcrumb';
-import AgentProfileTabs, { AGENT_PROFILE_TABS_CENTER_STYLE } from '@/features/AgentProfileTabs';
+import AgentProfileTabs, {
+  AGENT_PROFILE_SHOWCASE_COLUMN,
+  AGENT_PROFILE_TABS_CENTER_STYLE,
+} from '@/features/AgentProfileTabs';
 import NavHeader from '@/features/NavHeader';
 import WideScreenContainer from '@/features/WideScreenContainer';
 import { useAgentStore } from '@/store/agent';
@@ -83,7 +87,17 @@ const AgentUsage = memo(() => {
         {activeAgentId && <AgentProfileTabs active={'statistics'} agentId={activeAgentId} />}
       </NavHeader>
       <Flexbox flex={1} style={styles.body} width={'100%'}>
-        <WideScreenContainer>
+        {/* The showcase layout keeps the dashboard in the profile group's column,
+            under the tabs, instead of the centered conversation width. */}
+        <WideScreenContainer
+          {...(AGENT_PROFILE_SHOWCASE_LAYOUT
+            ? {
+                fullWidth: true,
+                paddingInline: 48,
+                style: { maxWidth: AGENT_PROFILE_SHOWCASE_COLUMN },
+              }
+            : {})}
+        >
           <Flexbox gap={16} paddingBlock={16}>
             <Block
               data-brand-slot={'agent-usage-summary'}

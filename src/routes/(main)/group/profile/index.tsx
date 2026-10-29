@@ -1,5 +1,6 @@
 'use client';
 
+import { GROUP_PROFILE_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { Flexbox } from '@lobehub/ui';
 import { type FC } from 'react';
 import { memo, Suspense } from 'react';
@@ -7,6 +8,7 @@ import { useParams } from 'react-router';
 
 import { delayed } from '@/components/Skeleton/Delayed';
 import ProfileSkeleton from '@/components/Skeleton/Profile';
+import { AGENT_PROFILE_SHOWCASE_COLUMN } from '@/features/AgentProfileTabs';
 import ResourceConfigAccessGate from '@/features/ResourcePermission/ResourceConfigAccessGate';
 import WideScreenContainer from '@/features/WideScreenContainer';
 import { useAgentGroupStore } from '@/store/agentGroup';
@@ -42,7 +44,16 @@ const ProfileArea = memo(() => {
               editor?.focus();
             }}
           >
-            <WideScreenContainer>
+            {/* The showcase group page shares the agent profile's page column. */}
+            <WideScreenContainer
+              {...(GROUP_PROFILE_SHOWCASE_LAYOUT
+                ? {
+                    fullWidth: true,
+                    paddingInline: 48,
+                    style: { maxWidth: AGENT_PROFILE_SHOWCASE_COLUMN },
+                  }
+                : {})}
+            >
               {isGroupTab ? <GroupProfileSettings /> : <MemberProfile />}
             </WideScreenContainer>
           </Flexbox>

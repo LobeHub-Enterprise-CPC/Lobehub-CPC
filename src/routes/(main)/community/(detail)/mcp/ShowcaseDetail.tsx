@@ -10,6 +10,7 @@ import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { brandIcon } from '@/components/BrandIcon';
+import MCPInstallProgress from '@/features/MCP/MCPInstallProgress';
 import { type DiscoverMcpDetail } from '@/types/discover';
 
 import { blockStyles, Tile, VersionList } from '../../features/Showcase/detail/blocks';
@@ -83,9 +84,10 @@ const ShowcaseMcpDetail = memo<{ data: DiscoverMcpDetail }>(({ data }) => {
 
   return (
     <DetailFrame
+      actionsExtra={<MCPInstallProgress identifier={data.identifier} />}
       activeTab={tab}
       avatar={<Avatar avatar={data.icon} shape={'square'} size={64} />}
-      install={<ActionButton label={t('showcase.install.mcp')} />}
+      install={<ActionButton label={t('showcase.install.mcp')} showProgress={false} />}
       kind={'mcp'}
       share={<ShareButton meta={{ avatar: data.icon, desc: data.description, title: data.name }} />}
       title={data.name}

@@ -20,7 +20,17 @@ const styles = createStaticStyles(({ css }) => ({
   `,
 }));
 
-const ActionButton = memo<{ label?: ReactNode }>(({ label }) => {
+interface ActionButtonProps {
+  label?: ReactNode;
+  /**
+   * Render the install progress (and its parameter form) under the button.
+   * Off when the host lays the button out in a row and places
+   * `MCPInstallProgress` itself.
+   */
+  showProgress?: boolean;
+}
+
+const ActionButton = memo<ActionButtonProps>(({ label, showProgress = true }) => {
   const { t } = useTranslation(['discover', 'plugin']);
   const detailContext = useDetailContext();
   const { identifier, haveCloudEndpoint } = detailContext;
@@ -104,7 +114,7 @@ const ActionButton = memo<{ label?: ReactNode }>(({ label }) => {
       >
         {label ?? t('plugins.install')}
       </Button>
-      <MCPInstallProgress identifier={identifier!} />
+      {showProgress && <MCPInstallProgress identifier={identifier!} />}
     </>
   );
 });

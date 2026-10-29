@@ -138,6 +138,8 @@ export interface DetailTab {
 }
 
 interface DetailFrameProps {
+  /** Under the actions, across the side column: e.g. install progress and its form. */
+  actionsExtra?: ReactNode;
   activeTab: string;
   avatar?: ReactNode;
   children: ReactNode;
@@ -162,6 +164,7 @@ interface DetailFrameProps {
  */
 const DetailFrame = memo<DetailFrameProps>(
   ({
+    actionsExtra,
     activeTab,
     avatar,
     children,
@@ -221,6 +224,7 @@ const DetailFrame = memo<DetailFrameProps>(
               {share}
               {install}
             </div>
+            {actionsExtra}
             <CopyPromptCard kind={kind} prompt={prompt} />
           </aside>
         </div>
