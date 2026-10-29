@@ -141,7 +141,7 @@ const UserToolsSection = memo<Props>(
     }
 
     return (
-      <Flexbox data-brand-slot={'agent-user-tools'} gap={8}>
+      <Flexbox data-brand-slot={'agent-user-tools'} gap={AGENT_PROFILE_SHOWCASE_LAYOUT ? 12 : 8}>
         <Text
           data-brand-slot={'agent-config-label'}
           style={{ fontSize: 12, fontWeight: 500 }}

@@ -86,7 +86,13 @@ const AgentHeader = memo(() => {
 
   const nameRow = showNamePrompt ? (
     <Flexbox horizontal align={'center'} gap={8} style={{ minWidth: 0 }}>
-      <Text ellipsis style={{ color: cssVar.colorTextTertiary, fontSize: 20 }}>
+      <Text
+        ellipsis
+        style={{
+          color: cssVar.colorTextTertiary,
+          fontSize: AGENT_PROFILE_SHOWCASE_LAYOUT ? 24 : 20,
+        }}
+      >
         {t('settingAgent.personalName.unnamed', { ns: 'setting' })}
       </Text>
       <Button
@@ -104,7 +110,7 @@ const AgentHeader = memo(() => {
     </Flexbox>
   ) : (
     <Flexbox horizontal align={'center'} gap={8} style={{ minWidth: 0 }}>
-      <Text ellipsis style={{ fontSize: AGENT_PROFILE_SHOWCASE_LAYOUT ? 26 : 36, fontWeight: 600 }}>
+      <Text ellipsis style={{ fontSize: AGENT_PROFILE_SHOWCASE_LAYOUT ? 24 : 36, fontWeight: 600 }}>
         {personalName || t('settingAgent.identity.untitled', { ns: 'setting' })}
       </Text>
       {editButton}
@@ -175,8 +181,9 @@ const AgentHeader = memo(() => {
         horizontal
         align={'center'}
         data-brand-slot={'agent-profile-header'}
-        gap={20}
-        paddingBlock={'8px 24px'}
+        gap={16}
+        // 32px under the tabs and above the config card, as in the design.
+        paddingBlock={32}
         style={{ cursor: 'default' }}
         onClick={(e) => {
           e.stopPropagation();
@@ -184,7 +191,7 @@ const AgentHeader = memo(() => {
         }}
       >
         {artwork}
-        <Flexbox flex={1} gap={4} style={{ minWidth: 0 }}>
+        <Flexbox flex={1} gap={2} style={{ minWidth: 0 }}>
           {nameRow}
           {roleRow}
         </Flexbox>

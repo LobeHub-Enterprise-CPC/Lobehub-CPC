@@ -48,6 +48,8 @@ import { useFileStore } from '@/store/file';
 import { avatarRemountKey, openFilePicker, resolveAgentBackground } from './utils';
 
 const MAX_ARTWORK_SIZE = 1024 * 1024;
+/** The compact header's avatar: the design's 64px identity row. */
+const COMPACT_AVATAR_SIZE = 64;
 
 const styles = createStaticStyles(({ css }) => ({
   avatar: css`
@@ -434,7 +436,7 @@ export const AgentProfileArtwork = memo<AgentProfileArtworkProps>(
               data-brand-slot={'agent-avatar-gallery-trigger'}
               key={avatarRemountKey(avatar)}
               shape={'square'}
-              size={72}
+              size={compact ? COMPACT_AVATAR_SIZE : 72}
               style={{ cursor: canEdit ? 'pointer' : undefined }}
             />
           </Popover>
@@ -457,7 +459,7 @@ export const AgentProfileArtwork = memo<AgentProfileArtworkProps>(
               popupClassName="agent-avatar-artwork-picker"
               popupProps={{ placement: 'bottomLeft' }}
               shape={'square'}
-              size={72}
+              size={compact ? COMPACT_AVATAR_SIZE : 72}
               value={avatar || undefined}
               customTabs={[
                 {
