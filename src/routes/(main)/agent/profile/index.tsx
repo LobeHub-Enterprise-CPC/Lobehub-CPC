@@ -10,6 +10,7 @@ import AsyncBoundary from '@/components/AsyncBoundary';
 import { delayed } from '@/components/Skeleton/Delayed';
 import ProfileSkeleton from '@/components/Skeleton/Profile';
 import AgentBuilder from '@/features/AgentBuilder';
+import { AGENT_PROFILE_SHOWCASE_COLUMN } from '@/features/AgentProfileTabs';
 import ResourceConfigAccessGate from '@/features/ResourcePermission/ResourceConfigAccessGate';
 import WideScreenContainer from '@/features/WideScreenContainer';
 import { usePermission } from '@/hooks/usePermission';
@@ -76,9 +77,15 @@ const ProfileArea = memo(() => {
             onClick={handleContentClick}
           >
             {/* The showcase layout lines the profile up with the tabs above it: the
-                full width of the page, 48px in from either edge. */}
+                shared page column, 48px in from either edge. */}
             <WideScreenContainer
-              {...(AGENT_PROFILE_SHOWCASE_LAYOUT ? { fullWidth: true, paddingInline: 48 } : {})}
+              {...(AGENT_PROFILE_SHOWCASE_LAYOUT
+                ? {
+                    fullWidth: true,
+                    paddingInline: 48,
+                    style: { maxWidth: AGENT_PROFILE_SHOWCASE_COLUMN },
+                  }
+                : {})}
             >
               <ProfileEditor />
             </WideScreenContainer>

@@ -19,6 +19,14 @@ import {
 export type { AgentProfileTab } from './tabOptions';
 
 /**
+ * The showcase layout's page column for the agent profile group and the group
+ * profile: the design's 1119px content frame, a 1023px body 48px in from each
+ * side. The tab bar and every tab's body share it, so they stay aligned at any
+ * window width.
+ */
+export const AGENT_PROFILE_SHOWCASE_COLUMN = 1120;
+
+/**
  * Style for the host `NavHeader`'s `center` slot so the switcher sits on the
  * *header* midpoint with equal gaps on both sides — not merely centered within
  * the leftover flex track between the left/right slots (whose widths differ, so
