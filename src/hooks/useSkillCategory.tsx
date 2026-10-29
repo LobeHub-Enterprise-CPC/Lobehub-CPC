@@ -36,9 +36,16 @@ import {
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { GenericCategoryIcon } from '@/features/DiscoverCategory/categoryIcon';
+import { type DiscoverCategoryItem } from '@/features/DiscoverCategory/mergeCategories';
+import {
+  useDiscoverCategories,
+  type UseDiscoverCategoriesOptions,
+} from '@/features/DiscoverCategory/useDiscoverCategories';
 import { SkillCategory } from '@/types/discover';
 
-export const useSkillCategory = () => {
+/** The bundled list: the pseudo entries, then the built-in categories. */
+const useLocalSkillCategories = (): DiscoverCategoryItem[] => {
   const { t } = useTranslation('discover');
   return useMemo(
     () => [
@@ -246,8 +253,30 @@ export const useSkillCategory = () => {
   );
 };
 
-export const useSkillCategoryItem = (key?: string) => {
+/**
+ * The skill categories a page shows: the pseudo entries, then the ones
+ * Market has configured (its order and localized names), or the bundled list
+ * while Market has none.
+ */
+export const useSkillCategory = (options?: UseDiscoverCategoriesOptions) => {
+  const local = useLocalSkillCategories();
+  return useDiscoverCategories('skill', local, options);
+};
+
+/**
+ * The entry of one asset's category. A category neither Market nor the bundled
+ * list knows keeps a label (its translation if any, else the identifier) and the
+ * generic icon, so a detail header or card never shows a blank.
+ */
+export const useSkillCategoryItem = (key?: string): DiscoverCategoryItem | undefined => {
+  const { t } = useTranslation('discover');
   const items = useSkillCategory();
   if (!key) return;
-  return items.find((item) => item.key === key);
+  return (
+    items.find((item) => item.key === key) ?? {
+      icon: GenericCategoryIcon,
+      key,
+      label: t(`skills.categories.${key}.name` as any, { defaultValue: key }),
+    }
+  );
 };

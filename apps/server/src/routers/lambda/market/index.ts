@@ -90,6 +90,29 @@ export const marketRouter = router({
       }
     }),
 
+  // ============================== Asset Categories ==============================
+  /**
+   * Categories configured in Market for one asset type, localized and in display
+   * order. Empty when the Market deployment has no category directory yet.
+   */
+  getAssetCategories: marketProcedure
+    .input(
+      z.object({
+        assetType: z.enum(['agent', 'mcp', 'skill']),
+        locale: z.string().optional(),
+      }),
+    )
+    .query(async ({ input, ctx }) => {
+      log('getAssetCategories input: %O', input);
+
+      try {
+        return await ctx.discoverService.getAssetCategories(input);
+      } catch (error) {
+        log('Error fetching asset categories: %O', error);
+        throw mapMarketError(error, 'Failed to fetch asset categories');
+      }
+    }),
+
   // ============================== Assistant Market ==============================
   getAssistantCategories: marketProcedure
     .input(

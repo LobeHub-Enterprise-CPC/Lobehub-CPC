@@ -1,14 +1,8 @@
 import { Icon, type ListItemType } from '@lobehub/ui';
-import type { LucideIcon } from 'lucide-react';
 
 import { brandIcon } from '@/components/BrandIcon';
+import type { DiscoverCategoryItem } from '@/features/DiscoverCategory/mergeCategories';
 import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
-
-interface CategoryEntry {
-  icon: LucideIcon;
-  key: string;
-  label: string;
-}
 
 interface ShowcaseCategoryOptions {
   /** `category` keys the showcase drops, e.g. the recommendation-only "discover". */
@@ -17,7 +11,11 @@ interface ShowcaseCategoryOptions {
   /** Hide categories nothing is filed under (the "all" entry always stays). */
   hideEmpty?: boolean;
   kind: 'agent' | 'mcp' | 'skill';
-  /** Category keys in display order after "all"; keys not listed follow in their own order. */
+  /**
+   * Category keys in display order after "all"; keys not listed follow in their
+   * own order. Applies to the bundled list only: a list configured in Market
+   * keeps Market's order.
+   */
   order?: string[];
 }
 
@@ -27,11 +25,10 @@ interface ShowcaseCategoryOptions {
  * selected and hovered entry only.
  */
 export const buildShowcaseCategoryItems = (
-  cates: CategoryEntry[],
-  counts: { category: string; count: number }[],
-  { exclude = [], genUrl, hideEmpty, kind, order = [] }: ShowcaseCategoryOptions,
+  cates: DiscoverCategoryItem[],
+  { exclude = [], genUrl, hideEmpty, kind, order: bundledOrder = [] }: ShowcaseCategoryOptions,
 ): ListItemType[] => {
-  const total = counts.reduce((acc, item) => acc + (item.count || 0), 0);
+  const order = cates.some((item) => item.fromMarket) ? [] : bundledOrder;
   const rank = (key: string) => {
     if (key === 'all') return -1;
     const index = order.indexOf(key);
@@ -43,10 +40,7 @@ export const buildShowcaseCategoryItems = (
     .map((item, index) => ({ index, item }))
     .sort((a, b) => rank(a.item.key) - rank(b.item.key) || a.index - b.index)
     .map(({ item }) => item)
-    .map((item) => ({
-      count: item.key === 'all' ? total : (counts.find((c) => c.category === item.key)?.count ?? 0),
-      item,
-    }))
+    .map((item) => ({ count: item.count ?? 0, item }))
     .filter(({ count, item }) => !hideEmpty || item.key === 'all' || count > 0)
     .map(({ count, item }) => ({
       extra: count > 0 ? <span data-category-count>{count.toLocaleString()}</span> : undefined,

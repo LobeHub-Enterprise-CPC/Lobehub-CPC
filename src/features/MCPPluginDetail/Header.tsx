@@ -34,7 +34,7 @@ import useSWR from 'swr';
 import OfficialIcon from '@/components/OfficialIcon';
 import Scores from '@/features/MCP/Scores';
 import { getLanguageColor, getRecommendedDeployment } from '@/features/MCP/utils';
-import { useCategory } from '@/hooks/useMCPCategory';
+import { useCategoryItem } from '@/hooks/useMCPCategory';
 import { useMarketAuth } from '@/layout/AuthProvider/MarketAuth';
 import { favoriteKeys } from '@/libs/swr/keys';
 import { socialService } from '@/services/social';
@@ -129,8 +129,7 @@ const Header = memo<{ inModal?: boolean; mobile?: boolean }>(({ mobile: isMobile
   };
 
   const recommendedDeployment = getRecommendedDeployment(deploymentOptions);
-  const categories = useCategory();
-  const cate = categories.find((c) => c.key === category);
+  const cate = useCategoryItem(category);
 
   const scores = (
     <Scores

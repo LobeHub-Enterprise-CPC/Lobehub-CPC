@@ -21,6 +21,7 @@ import { brandIcon } from '@/components/BrandIcon';
 import { useDiscoverStore } from '@/store/discover';
 import { skillSelectors } from '@/store/discover/selectors';
 
+import { useCategoryItem } from '../../../(list)/agent/features/Category/useCategory';
 import { blockStyles, Tile, VersionList } from '../../../features/Showcase/detail/blocks';
 import DetailFrame from '../../../features/Showcase/detail/DetailFrame';
 import DetailSection from '../../../features/Showcase/detail/DetailSection';
@@ -81,6 +82,7 @@ const ShowcaseAgentDetail = memo(() => {
     updatedAt,
     versions = [],
   } = detail as any;
+  const categoryLabel = useCategoryItem(category)?.label;
   const [tab, setTab] = useState('overview');
   const plugins: string[] = (config?.plugins ?? []).map((plugin: any) =>
     typeof plugin === 'string' ? plugin : plugin?.identifier,
@@ -105,7 +107,7 @@ const ShowcaseAgentDetail = memo(() => {
       }
       meta={[
         typeof author === 'string' ? author : author?.name,
-        category ? t(`category.assistant.${category}` as any) : undefined,
+        categoryLabel,
         date
           ? t('showcase.detail.updatedAt', { date: dayjs(date).format('YYYY-MM-DD') })
           : undefined,

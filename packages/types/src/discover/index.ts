@@ -5,6 +5,7 @@ import type { DiscoverSkillItem } from './skills';
 
 export * from './assistants';
 export * from './capabilities';
+export * from './categories';
 export * from './fork';
 export * from './groupAgents';
 export * from './mcp';

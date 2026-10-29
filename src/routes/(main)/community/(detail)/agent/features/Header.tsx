@@ -37,7 +37,7 @@ import { favoriteKeys } from '@/libs/swr/keys';
 import { socialService } from '@/services/social';
 import { formatIntergerNumber } from '@/utils/format';
 
-import { useCategory } from '../../../(list)/agent/features/Category/useCategory';
+import { useCategoryItem } from '../../../(list)/agent/features/Category/useCategory';
 import { resolveCommunityProfileLink } from '../../utils/profileLink';
 import AgentForkTag from './AgentForkTag';
 import { useDetailContext } from './DetailProvider';
@@ -111,8 +111,7 @@ const Header = memo<{ mobile?: boolean }>(({ mobile: isMobile }) => {
     }
   };
 
-  const categories = useCategory();
-  const cate = categories.find((c) => c.key === category);
+  const cate = useCategoryItem(category);
 
   const cateButton = (
     <WorkspaceLink

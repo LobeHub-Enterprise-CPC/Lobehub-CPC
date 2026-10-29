@@ -21,6 +21,8 @@ import { globalHelpers } from '@/store/global/helpers';
 import { useUserStore } from '@/store/user';
 import { userGeneralSettingsSelectors } from '@/store/user/selectors';
 import {
+  type AssetCategoryItem,
+  type AssetCategoryType,
   type AssistantListResponse,
   type AssistantMarketSource,
   type AssistantQueryParams,
@@ -124,6 +126,22 @@ class DiscoverService {
       // Log error but don't block the request
       console.warn('Failed to inject MP token, continuing without it:', error);
     }
+  };
+
+  // ============================== Asset Categories ==============================
+
+  /**
+   * Categories configured in Market for one asset type, localized for the
+   * current UI language and in display order. `[]` when Market has none.
+   */
+  getAssetCategories = async (params: {
+    assetType: AssetCategoryType;
+    locale?: string;
+  }): Promise<AssetCategoryItem[]> => {
+    return lambdaClient.market.getAssetCategories.query({
+      ...params,
+      locale: params.locale ?? globalHelpers.getCurrentLanguage(),
+    });
   };
 
   // ============================== Assistant Market ==============================

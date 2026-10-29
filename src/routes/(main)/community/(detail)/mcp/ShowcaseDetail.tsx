@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next';
 
 import { brandIcon } from '@/components/BrandIcon';
 import MCPInstallProgress from '@/features/MCP/MCPInstallProgress';
+import { useCategoryItem } from '@/hooks/useMCPCategory';
 import { type DiscoverMcpDetail } from '@/types/discover';
 
 import { blockStyles, Tile, VersionList } from '../../features/Showcase/detail/blocks';
@@ -75,6 +76,7 @@ const tableStyles = stylex.create({
  */
 const ShowcaseMcpDetail = memo<{ data: DiscoverMcpDetail }>(({ data }) => {
   const { t } = useTranslation('discover');
+  const categoryLabel = useCategoryItem(data.category)?.label;
   const [tab, setTab] = useState('overview');
   const tools = data.tools ?? [];
   const prompts = data.prompts ?? [];
@@ -93,7 +95,7 @@ const ShowcaseMcpDetail = memo<{ data: DiscoverMcpDetail }>(({ data }) => {
       title={data.name}
       meta={[
         author,
-        data.category ? t(`mcp.categories.${data.category}.name` as any) : undefined,
+        categoryLabel,
         date
           ? t('showcase.detail.updatedAt', { date: dayjs(date).format('YYYY-MM-DD') })
           : undefined,
