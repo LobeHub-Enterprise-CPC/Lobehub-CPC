@@ -1,5 +1,6 @@
 'use client';
 
+import { AGENT_PROFILE_SHOWCASE_LAYOUT, PRODUCT_COPY_VARIANT } from '@lobechat/business-const';
 import { upsertPluginMode } from '@lobechat/types';
 import { Button, confirmModal, DropdownMenu, Flexbox, Icon, Text } from '@lobehub/ui';
 import isEqual from 'fast-deep-equal';
@@ -72,15 +73,26 @@ const AgentToolsSection = memo<{ agentId: string; onStartCopy: () => void }>(
     ];
 
     return (
-      <Flexbox data-brand-slot={'agent-tools-section'} gap={8}>
+      <Flexbox data-brand-slot={'agent-tools-section'} gap={AGENT_PROFILE_SHOWCASE_LAYOUT ? 12 : 8}>
         <Text
           data-brand-slot={'agent-config-label'}
           style={{ fontSize: 12, fontWeight: 500 }}
           type={'secondary'}
         >
-          {t('settingAgent.agentTools.tabAgent')} · {agentConnectors.length}
+          {/* The workspace voice calls agents 助理 (assistants), as the rest of the page does. */}
+          {t(
+            PRODUCT_COPY_VARIANT === 'workspace'
+              ? 'settingAgent.agentTools.tabAgentWorkspace'
+              : 'settingAgent.agentTools.tabAgent',
+          )}{' '}
+          · {agentConnectors.length}
         </Text>
-        <Flexbox horizontal align={'center'} gap={8} wrap={'wrap'}>
+        <Flexbox
+          horizontal
+          align={'center'}
+          gap={AGENT_PROFILE_SHOWCASE_LAYOUT ? 12 : 8}
+          wrap={'wrap'}
+        >
           <DropdownMenu items={addMenuItems} placement={'bottomLeft'}>
             <Button
               data-brand-slot={'agent-tools-add'}

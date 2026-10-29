@@ -1,5 +1,6 @@
 'use client';
 
+import { AGENT_PROFILE_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { isDesktop } from '@lobechat/const';
 import {
   isHeterogeneousProviderBindingSupported,
@@ -233,6 +234,8 @@ const ProfileEditor = memo(() => {
     <>
       <Flexbox
         className={styles.topArea}
+        // The showcase leaves 32px between the config card and the instructions.
+        style={AGENT_PROFILE_SHOWCASE_LAYOUT ? { marginBlockEnd: 32 } : undefined}
         onClick={(e) => {
           e.stopPropagation();
         }}
@@ -273,57 +276,65 @@ const ProfileEditor = memo(() => {
               </WorkspaceAgentPolicyCard>
             </>
           ) : (
-            <Flexbox className={styles.configPanel} data-brand-slot={'agent-config-panel'} gap={10}>
-              <Flexbox horizontal align={'center'} gap={12} justify={'space-between'}>
-                <div className={styles.configLabel} data-brand-slot={'agent-config-label'}>
-                  {t('settingAgent.runtimeConfig.title')}
-                </div>
-                <RunPriorityHint agentId={agentId} />
-              </Flexbox>
-              <Flexbox
-                horizontal
-                align={'center'}
-                data-brand-slot={'agent-runtime-row'}
-                gap={12}
-                justify={'flex-start'}
-                wrap={'wrap'}
-              >
-                <ModelSwitchPanel
-                  enabledList={enabledList}
-                  model={config?.model}
-                  open={canEdit ? undefined : false}
-                  openOnHover={false}
-                  placement={'bottomLeft'}
-                  provider={config?.provider}
-                  notice={
-                    enabledList && (
-                      <Alert
-                        showIcon
-                        title={t('share.settings.modelRestriction.title', { ns: 'agent' })}
-                        type={'info'}
-                        description={t('share.settings.modelRestriction.description', {
-                          ns: 'agent',
-                        })}
-                      />
-                    )
-                  }
-                  onModelChange={async (value) => {
-                    if (canEdit) await updateAgentConfigById(agentId, value);
-                  }}
+            <Flexbox
+              className={styles.configPanel}
+              data-brand-slot={'agent-config-panel'}
+              gap={AGENT_PROFILE_SHOWCASE_LAYOUT ? 20 : 10}
+            >
+              {/* Title and pickers are one group: the showcase card spaces groups
+                  20px apart and a title 12px above its controls. */}
+              <Flexbox gap={AGENT_PROFILE_SHOWCASE_LAYOUT ? 12 : 10}>
+                <Flexbox horizontal align={'center'} gap={12} justify={'space-between'}>
+                  <div className={styles.configLabel} data-brand-slot={'agent-config-label'}>
+                    {t('settingAgent.runtimeConfig.title')}
+                  </div>
+                  <RunPriorityHint agentId={agentId} />
+                </Flexbox>
+                <Flexbox
+                  horizontal
+                  align={'center'}
+                  data-brand-slot={'agent-runtime-row'}
+                  gap={12}
+                  justify={'flex-start'}
+                  wrap={'wrap'}
                 >
-                  <Button data-brand-slot={'agent-model-select'} disabled={!canEdit}>
-                    <ModelIcon model={config?.model} size={20} />
-                    {selectedModel?.displayName || config?.model}
-                    <ChevronDown size={14} />
-                  </Button>
-                </ModelSwitchPanel>
-                {config?.model && config.provider && (
-                  <ReasoningEffortSelect
-                    disabled={!canEdit}
-                    model={config.model}
-                    provider={config.provider}
-                  />
-                )}
+                  <ModelSwitchPanel
+                    enabledList={enabledList}
+                    model={config?.model}
+                    open={canEdit ? undefined : false}
+                    openOnHover={false}
+                    placement={'bottomLeft'}
+                    provider={config?.provider}
+                    notice={
+                      enabledList && (
+                        <Alert
+                          showIcon
+                          title={t('share.settings.modelRestriction.title', { ns: 'agent' })}
+                          type={'info'}
+                          description={t('share.settings.modelRestriction.description', {
+                            ns: 'agent',
+                          })}
+                        />
+                      )
+                    }
+                    onModelChange={async (value) => {
+                      if (canEdit) await updateAgentConfigById(agentId, value);
+                    }}
+                  >
+                    <Button data-brand-slot={'agent-model-select'} disabled={!canEdit}>
+                      <ModelIcon model={config?.model} size={20} />
+                      {selectedModel?.displayName || config?.model}
+                      <ChevronDown size={14} />
+                    </Button>
+                  </ModelSwitchPanel>
+                  {config?.model && config.provider && (
+                    <ReasoningEffortSelect
+                      disabled={!canEdit}
+                      model={config.model}
+                      provider={config.provider}
+                    />
+                  )}
+                </Flexbox>
               </Flexbox>
               <AgentTool />
             </Flexbox>

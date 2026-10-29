@@ -424,11 +424,13 @@ const AgentEditorCanvas = memo<AgentEditorCanvasProps>(({ agentId }) => {
   ]);
 
   return (
-    <Flexbox className={styles.root} gap={16}>
+    <Flexbox className={styles.root} data-brand-slot={'agent-prompt'} gap={16}>
       <Flexbox gap={4}>
         <Flexbox horizontal align={'center'} distribution={'space-between'} gap={8}>
           <Flexbox horizontal align={'center'} gap={6}>
-            <div className={styles.title}>{t('settingAgent.prompt.title')}</div>
+            <div className={styles.title} data-brand-slot={'agent-prompt-title'}>
+              {t('settingAgent.prompt.title')}
+            </div>
             <InfoTooltip
               iconStyle={{ cursor: 'help' }}
               size={'small'}
@@ -476,6 +478,7 @@ const AgentEditorCanvas = memo<AgentEditorCanvasProps>(({ agentId }) => {
       </Flexbox>
       <div
         className={styles.editorShell}
+        data-brand-slot={'agent-prompt-editor'}
         style={
           editable ? undefined : { cursor: 'not-allowed', opacity: 0.65, pointerEvents: 'none' }
         }

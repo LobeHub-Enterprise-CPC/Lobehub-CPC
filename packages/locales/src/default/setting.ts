@@ -1087,6 +1087,7 @@ export default {
   'plugin.settings.title': '{{id}} Skill Configuration',
   'plugin.settings.tooltip': 'Skill Configuration',
   'plugin.store': 'Skill Store',
+  'settingAgent.agentTools.tabAgentWorkspace': 'Agent Tools',
   'settingAgent.avatar.sizeExceeded': 'Image size exceeds 1MB limit, please choose a smaller image',
   'settingAgent.avatar.title': 'Avatar',
   'settingAgent.artwork.avatar.generating': 'Creating an image that matches this Agent…',

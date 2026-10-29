@@ -1,5 +1,6 @@
 'use client';
 
+import { AGENT_PROFILE_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { upsertPluginMode } from '@lobechat/types';
 import { Flexbox } from '@lobehub/ui';
 import isEqual from 'fast-deep-equal';
@@ -79,7 +80,7 @@ const AgentUserTools = memo<AgentToolProps>((props) => {
   };
 
   return (
-    <Flexbox gap={16} width={'100%'}>
+    <Flexbox gap={AGENT_PROFILE_SHOWCASE_LAYOUT ? 20 : 16} width={'100%'}>
       <AgentToolsSection agentId={effectiveAgentId} onStartCopy={() => setCopyMode(true)} />
 
       <UserToolsSection
