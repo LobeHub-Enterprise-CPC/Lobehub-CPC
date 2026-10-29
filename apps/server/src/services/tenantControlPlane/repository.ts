@@ -1,4 +1,4 @@
-import type { SafeReadinessDiagnosticCode } from '@lobechat/database/tenant';
+import type { SafeReadinessDiagnosticCode, TenantMemberBudget } from '@lobechat/database/tenant';
 
 import type { DestructionRecord, DrainResult } from '@/server/modules/Tenant/destruction';
 
@@ -44,6 +44,8 @@ export interface ProvisionOperationRecord {
   /** Only this attempt may persist progress until the renewable step lease expires. */
   leaseToken?: string | null;
   leaseUntil?: string | null;
+  /** The root department budget the request carried, for the `seed` step; null means no limit. */
+  memberBudget?: TenantMemberBudget | null;
   name: string;
   operationId: string;
   schemaName: string | null;

@@ -96,6 +96,135 @@
       }
     },
     {
+      "accepts": true,
+      "id": "lobehub-provision-member-budget",
+      "note": "Root department per-member budget in USD (six decimals); budgetDuration null never resets",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "memberBudget": {
+          "budgetDuration": null,
+          "maxBudget": 280.898876
+        }
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-provision-member-budget-negative",
+      "note": "A negative per-member budget is refused",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "memberBudget": {
+          "budgetDuration": "1mo",
+          "maxBudget": -1
+        }
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-provision-member-budget-duration",
+      "note": "Only the 1d, 7d and 1mo periods exist",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "lh_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "lh_e0bab8abe103e646d8c0907b_owner",
+            "username": "lh_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "memberBudget": {
+          "budgetDuration": "1y",
+          "maxBudget": 10
+        }
+      }
+    },
+    {
       "accepts": false,
       "id": "lobehub-provision-tenant-not-uuid",
       "note": "tenantId is a lower-case UUID",
@@ -1639,6 +1768,79 @@
         "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
         "status": "applied",
         "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": true,
+      "id": "admin-market-integration",
+      "note": "the Market integration token of one version (contract C3); a retry sends the same body",
+      "schema": "adminMarketIntegrationRequest",
+      "value": {
+        "integration": {
+          "token": "mki_Fx7kQ2pL9vWm3nZ8rT5yB1cD4eG6hJ0aS2uV7wX9yZQ",
+          "tokenPrefix": "mki_Fx7kQ2pL",
+          "version": 1
+        },
+        "operationId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a:market-integration:v1",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "admin-market-integration-prefix-mismatch",
+      "note": "tokenPrefix is the first 12 characters of the token",
+      "schema": "adminMarketIntegrationRequest",
+      "value": {
+        "integration": {
+          "token": "mki_Fx7kQ2pL9vWm3nZ8rT5yB1cD4eG6hJ0aS2uV7wX9yZQ",
+          "tokenPrefix": "mki_AAAAAAAA",
+          "version": 1
+        },
+        "operationId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a:market-integration:v1",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "admin-market-integration-malformed-token",
+      "note": "mki_ and 43 base64url characters",
+      "schema": "adminMarketIntegrationRequest",
+      "value": {
+        "integration": {
+          "token": "mki_short",
+          "tokenPrefix": "mki_short",
+          "version": 1
+        },
+        "operationId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a:market-integration:v1",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "admin-market-integration-version-zero",
+      "note": "versions start at 1",
+      "schema": "adminMarketIntegrationRequest",
+      "value": {
+        "integration": {
+          "token": "mki_Fx7kQ2pL9vWm3nZ8rT5yB1cD4eG6hJ0aS2uV7wX9yZQ",
+          "tokenPrefix": "mki_Fx7kQ2pL",
+          "version": 0
+        },
+        "operationId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a:market-integration:v1",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": true,
+      "id": "admin-market-integration-result",
+      "note": "applied, also for a repeated request of the same version and token",
+      "schema": "adminMarketIntegrationResult",
+      "value": {
+        "operationId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a:market-integration:v1",
+        "status": "applied",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "tokenPrefix": "mki_Fx7kQ2pL",
+        "version": 1
       }
     }
   ],

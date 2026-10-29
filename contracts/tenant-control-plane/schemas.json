@@ -486,6 +486,82 @@
         "required": ["lobehubSchemaVersion", "schemaVersion"]
       }
     },
+    "adminMarketIntegrationRequest": {
+      "apps": ["admin"],
+      "direction": "request",
+      "jsonSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "integration": {
+            "type": "object",
+            "properties": {
+              "token": {
+                "type": "string",
+                "pattern": "^mki_[\\w-]{43}$"
+              },
+              "tokenPrefix": {
+                "type": "string",
+                "pattern": "^mki_[\\w-]{8}$"
+              },
+              "version": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 2147483647
+              }
+            },
+            "required": ["token", "tokenPrefix", "version"],
+            "additionalProperties": false
+          },
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[\\w.:-]+$"
+          },
+          "tenantId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          }
+        },
+        "required": ["integration", "operationId", "tenantId"],
+        "additionalProperties": false
+      }
+    },
+    "adminMarketIntegrationResult": {
+      "apps": ["admin"],
+      "direction": "response",
+      "jsonSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[\\w.:-]+$"
+          },
+          "status": {
+            "type": "string",
+            "const": "applied"
+          },
+          "tenantId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "tokenPrefix": {
+            "type": "string",
+            "pattern": "^mki_[\\w-]{8}$"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647
+          }
+        },
+        "required": ["operationId", "status", "tenantId", "tokenPrefix", "version"]
+      }
+    },
     "adminProvisionRequest": {
       "apps": ["admin"],
       "direction": "request",
@@ -1386,6 +1462,29 @@
               "tenantId",
               "tls"
             ],
+            "additionalProperties": false
+          },
+          "memberBudget": {
+            "type": "object",
+            "properties": {
+              "budgetDuration": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["1d", "7d", "1mo"]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "maxBudget": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100000000
+              }
+            },
+            "required": ["budgetDuration", "maxBudget"],
             "additionalProperties": false
           },
           "name": {

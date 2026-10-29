@@ -116,6 +116,32 @@ describe('executeProvision', () => {
     expect(db.seed).toHaveBeenCalledTimes(2);
   });
 
+  it('seeds with the name, slug and member budget the request carried, also when resumed', async () => {
+    const memberBudget = { budgetDuration: null, maxBudget: 28.089888 };
+    db.seed.mockRejectedValueOnce(new Error('boom'));
+    await provisionApplied(provision({ memberBudget }));
+    await service.receiveProvision(provision({ memberBudget }));
+    await service.executeProvision(TENANT, 'root-1:lobehub');
+
+    expect(db.seed).toHaveBeenCalledTimes(2);
+    for (const [ctx] of db.seed.mock.calls)
+      expect(ctx).toMatchObject({ memberBudget, name: 'Acme', slug: 'acme' });
+  });
+
+  it('seeds without a member budget when the request has none', async () => {
+    await provisionApplied();
+    expect(db.seed.mock.calls[0][0]).toMatchObject({ memberBudget: null });
+  });
+
+  it('refuses a retry that changes the member budget of the same operation', async () => {
+    await service.receiveProvision(
+      provision({ memberBudget: { budgetDuration: null, maxBudget: 1 } }),
+    );
+    await expect(
+      service.receiveProvision(provision({ memberBudget: { budgetDuration: null, maxBudget: 2 } })),
+    ).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+  });
+
   it('never puts the database error into the result', async () => {
     db.migrate.mockRejectedValueOnce(new Error('postgres://lh:owner-secret@host'));
     expect(JSON.stringify(await provisionApplied())).not.toContain('secret');

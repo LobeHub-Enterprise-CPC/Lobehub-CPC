@@ -289,6 +289,33 @@ export interface TenantMigrationContext {
 }
 
 /**
+ * Per-member budget of the root department, as Console sends it at provisioning: `maxBudget` in
+ * the stored unit (USD), `budgetDuration: null` never resets. Absent means no limit.
+ */
+export interface TenantMemberBudget {
+  budgetDuration: '1d' | '7d' | '1mo' | null;
+  maxBudget: number;
+}
+
+/** What the `seed` provision step knows about the tenant it creates. */
+export interface TenantSeedContext extends TenantMigrationContext {
+  memberBudget: TenantMemberBudget | null;
+  name: string;
+  slug: string;
+}
+
+/**
+ * Initial data a distribution writes into a new tenant, in the `seed` provision step: after every
+ * chain migrated, on the owner connection, inside the step's transaction with the tenant
+ * `search_path` set. It must be idempotent: a failed provision runs the step again. The OSS build
+ * has none (`@lobechat/business-tenant`).
+ */
+export type TenantSeeder = (
+  client: Pick<ClientBase, 'query'>,
+  context: TenantSeedContext,
+) => Promise<void>;
+
+/**
  * One migration chain run inside every tenant schema, on the tenant owner
  * connection, after the chains registered before it. The OSS chain is always
  * first. Distributions append theirs (e.g. Enterprise registers

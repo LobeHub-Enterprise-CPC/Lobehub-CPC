@@ -7,8 +7,11 @@ export { TenantDatabaseError } from './errors';
 export { assertTenantMigrationStatementSafe } from './migrationSafety';
 export type {
   RunTenantMigrationsOptions,
+  TenantMemberBudget,
   TenantMigrationContext,
   TenantMigrator,
+  TenantSeedContext,
+  TenantSeeder,
 } from './migrator';
 export {
   assertTenantMigrationSources,

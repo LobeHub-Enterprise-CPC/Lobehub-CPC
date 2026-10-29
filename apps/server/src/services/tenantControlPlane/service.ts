@@ -209,6 +209,7 @@ export class TenantControlPlaneService {
         diagnosticCode: code === 'DATASOURCE_INVALID' ? 'DATASOURCE_BINDING_INVALID' : null,
         errorCode: code,
         inputHash,
+        memberBudget: request.memberBudget ?? null,
         name: request.name,
         operationId: request.operationId,
         schemaName: null,
@@ -279,6 +280,7 @@ export class TenantControlPlaneService {
       current.status === 'applying' && current.leaseToken === token;
     const ctx: ProvisionStepContext = {
       bundle,
+      memberBudget: op.memberBudget ?? null,
       name: op.name,
       operationId,
       slug: op.slug,

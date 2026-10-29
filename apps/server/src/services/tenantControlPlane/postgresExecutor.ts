@@ -1,5 +1,6 @@
 import {
   businessTenantAllowList,
+  businessTenantSeeders,
   registerBusinessTenantMigrators,
 } from '@lobechat/business-tenant';
 import {
@@ -11,6 +12,7 @@ import {
   type TenantMigrator,
   TenantReadinessError,
   tenantSearchPathSql,
+  type TenantSeeder,
   verifyTenantRuntime,
 } from '@lobechat/database/tenant';
 import { Client, type ClientConfig } from 'pg';
@@ -84,8 +86,8 @@ const ident = (name: string) => {
 export interface PostgresTenantDatabaseExecutorOptions {
   /** Tenant chains to run; defaults to every registered one (OSS first, then Enterprise). */
   migrators?: () => readonly TenantMigrator[];
-  /** Copies default configuration into a new tenant. The OSS build has none. */
-  seeders?: ((ctx: ProvisionStepContext, client: Client) => Promise<void>)[];
+  /** Initial data written into a new tenant; defaults to `@lobechat/business-tenant`'s (none in OSS). */
+  seeders?: readonly TenantSeeder[];
 }
 
 export class PostgresTenantDatabaseExecutor implements TenantDatabaseExecutor {
@@ -250,7 +252,7 @@ export class PostgresTenantDatabaseExecutor implements TenantDatabaseExecutor {
   }
 
   async seed(ctx: ProvisionStepContext): Promise<void> {
-    const seeders = this.options.seeders ?? [];
+    const seeders = this.options.seeders ?? businessTenantSeeders;
     if (seeders.length === 0) return;
     const { schemaName } = tenantDbNames(ctx.tenantId);
     await withClient(ctx.bundle, 'owner', async (client) => {
@@ -259,7 +261,14 @@ export class PostgresTenantDatabaseExecutor implements TenantDatabaseExecutor {
         await client.query(
           `SET LOCAL search_path TO ${ident(schemaName)}, ${TENANT_EXTENSION_SCHEMAS.join(', ')}`,
         );
-        for (const seeder of seeders) await seeder(ctx, client);
+        for (const seeder of seeders)
+          await seeder(client, {
+            memberBudget: ctx.memberBudget ?? null,
+            name: ctx.name,
+            schemaName,
+            slug: ctx.slug,
+            tenantId: ctx.tenantId,
+          });
         await client.query('COMMIT');
       } catch (error) {
         await client.query('ROLLBACK').catch(() => undefined);

@@ -117,6 +117,7 @@ const toOperation = (row: OperationRow): ProvisionOperationRecord => ({
   inputHash: row.inputHash,
   leaseToken: row.leaseToken,
   leaseUntil: row.leaseUntil?.toISOString() ?? null,
+  memberBudget: row.memberBudget,
   name: row.name,
   operationId: row.operationId,
   schemaName: row.schemaName,
@@ -595,6 +596,7 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
       inputHash: record.inputHash,
       leaseToken: record.leaseToken ?? null,
       leaseUntil: record.leaseUntil ? new Date(record.leaseUntil) : null,
+      memberBudget: record.memberBudget ?? null,
       name: record.name,
       operationId: record.operationId,
       schemaName: record.schemaName,
@@ -608,6 +610,7 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
       operationId: _operationId,
       tenantId: _tenantId,
       inputHash: _hash,
+      memberBudget: _memberBudget,
       name: _name,
       slug: _slug,
       ...update
