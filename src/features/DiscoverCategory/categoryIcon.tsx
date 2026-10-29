@@ -1,3 +1,4 @@
+import { CATEGORY_LUCIDE_ICON_NAMES, parseCategoryIcon } from '@lobehub/market-types';
 import type { LucideIcon, LucideProps } from 'lucide-react';
 import {
   AppleIcon,
@@ -147,8 +148,6 @@ const LUCIDE_CATEGORY_ICONS: Record<CategoryLucideIconName, LucideIcon> = {
   'zap': ZapIcon,
 };
 
-const LUCIDE_PREFIX = 'lucide:';
-
 const imageIcons = new Map<string, LucideIcon>();
 
 /**
@@ -193,21 +192,23 @@ const imageIcon = (src: string): LucideIcon => {
 };
 
 /**
- * The component for a Market category icon: `lucide:<name>` from the static
- * table, an HTTP(S) URL as an image, anything else (null, unknown name, other
- * schemes) as the generic icon.
+ * The component for a Market category icon, from the shared `parseCategoryIcon`
+ * reading: a lucide name from the static table, an HTTP(S) URL as an image,
+ * anything else (null, unknown name, other schemes) as the generic icon.
  */
 export const resolveCategoryIcon = (icon: string | null | undefined): LucideIcon => {
-  if (!icon) return GenericCategoryIcon;
+  const parsed = parseCategoryIcon(icon, CATEGORY_LUCIDE_ICON_NAMES);
 
-  if (icon.startsWith(LUCIDE_PREFIX)) {
-    const name = icon.slice(LUCIDE_PREFIX.length);
-    return Object.hasOwn(LUCIDE_CATEGORY_ICONS, name)
-      ? LUCIDE_CATEGORY_ICONS[name as CategoryLucideIconName]
-      : GenericCategoryIcon;
+  switch (parsed.type) {
+    case 'lucide': {
+      // Only names on the allowlist come back as `lucide`, and the table covers it.
+      return LUCIDE_CATEGORY_ICONS[parsed.name as CategoryLucideIconName];
+    }
+    case 'image': {
+      return imageIcon(parsed.url);
+    }
+    default: {
+      return GenericCategoryIcon;
+    }
   }
-
-  if (/^https?:\/\//i.test(icon)) return imageIcon(icon);
-
-  return GenericCategoryIcon;
 };

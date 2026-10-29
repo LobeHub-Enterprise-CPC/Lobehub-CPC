@@ -11,6 +11,8 @@ const apiError = (status: number, message = 'upstream said so') =>
 describe('mapMarketError', () => {
   it.each([
     [400, 'BAD_REQUEST'],
+    // The SDK reads a 422 as invalid input too.
+    [422, 'BAD_REQUEST'],
     [403, 'FORBIDDEN'],
     [404, 'NOT_FOUND'],
     [429, 'TOO_MANY_REQUESTS'],
@@ -28,6 +30,17 @@ describe('mapMarketError', () => {
   // UNAUTHORIZED drives the LobeHub re-login prompt; a Market 401 is not that.
   it('never turns a Market 401 into UNAUTHORIZED', () => {
     expect(mapMarketError(apiError(401), 'fallback').code).toBe('INTERNAL_SERVER_ERROR');
+  });
+
+  it.each([409, 500, 502, 504])('keeps any other Market %s an internal error', (status) => {
+    expect(mapMarketError(apiError(status), 'fallback').code).toBe('INTERNAL_SERVER_ERROR');
+  });
+
+  it('keeps a connection failure an internal error with the fallback message', () => {
+    const mapped = mapMarketError(new TypeError('fetch failed'), 'Failed to fetch');
+
+    expect(mapped.code).toBe('INTERNAL_SERVER_ERROR');
+    expect(mapped.message).toBe('Failed to fetch');
   });
 
   it('keeps the cause, and says why identity could not be established', () => {

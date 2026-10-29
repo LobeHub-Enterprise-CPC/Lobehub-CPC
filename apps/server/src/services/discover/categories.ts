@@ -1,12 +1,12 @@
 import { currentTenantScope } from '@lobechat/database/tenant';
 import type { AssetCategoryItem, AssetCategoryType } from '@lobechat/types';
-import { MarketAPIError } from '@lobehub/market-sdk';
+import { getMarketErrorKind, MarketAPIError } from '@lobehub/market-sdk';
 import { LRUCache } from 'lru-cache';
 
 import { normalizeLocale } from '@/locales/resources';
 
 import type { DiscoverService } from './index';
-import { isMarketNotFound, log } from './utils';
+import { log } from './utils';
 
 /** Same freshness as the other discover category reads (`getMcpCategories`). */
 const CATEGORY_CACHE_TTL_MS = 3600 * 1000;
@@ -26,10 +26,17 @@ const categoryCache = new LRUCache<string, AssetCategoryItem[]>({
 
 /**
  * A Market deployment that predates the category directory answers 404 (no such
- * route) or 501. The discover pages then keep their built-in category lists.
+ * route) or 501. The discover pages then keep their built-in category lists. A
+ * 501 shares the `unavailable` kind with real outages, so it is told apart by
+ * its status.
  */
-const isCategoryDirectoryUnavailable = (error: unknown) =>
-  isMarketNotFound(error) || (error instanceof MarketAPIError && error.status === 501);
+const isCategoryDirectoryUnavailable = (error: unknown) => {
+  const kind = getMarketErrorKind(error);
+  return (
+    kind === 'not_found' ||
+    (kind === 'unavailable' && error instanceof MarketAPIError && error.status === 501)
+  );
+};
 
 export const getAssetCategories = async (
   service: DiscoverService,

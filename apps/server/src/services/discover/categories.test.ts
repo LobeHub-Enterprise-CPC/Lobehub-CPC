@@ -61,23 +61,23 @@ describe('getAssetCategories', () => {
     expect(list).toHaveBeenCalledTimes(2);
   });
 
+  it.each([new MarketAPIError(404, 'Not Found'), new MarketAPIError(501, 'Not Implemented')])(
+    'answers [] when Market has no category directory: %s',
+    async (error) => {
+      list.mockRejectedValueOnce(error);
+
+      await expect(getAssetCategories(service, { assetType: 'skill' })).resolves.toEqual([]);
+
+      // The fallback is not remembered: the next read asks Market again.
+      list.mockResolvedValueOnce([programming]);
+      await expect(getAssetCategories(service, { assetType: 'skill' })).resolves.toEqual([
+        programming,
+      ]);
+    },
+  );
+
   it.each([
-    new MarketAPIError(404, 'Not Found'),
     new MarketAPIError(400, 'Bad Request', { error: { code: 'NOT_FOUND', message: 'Missing' } }),
-    new MarketAPIError(501, 'Not Implemented'),
-  ])('answers [] when Market has no category directory: %s', async (error) => {
-    list.mockRejectedValueOnce(error);
-
-    await expect(getAssetCategories(service, { assetType: 'skill' })).resolves.toEqual([]);
-
-    // The fallback is not remembered: the next read asks Market again.
-    list.mockResolvedValueOnce([programming]);
-    await expect(getAssetCategories(service, { assetType: 'skill' })).resolves.toEqual([
-      programming,
-    ]);
-  });
-
-  it.each([
     new MarketAPIError(403, 'Forbidden'),
     new MarketAPIError(500, 'Internal Server Error'),
     new MarketAPIError(503, 'Service Unavailable'),

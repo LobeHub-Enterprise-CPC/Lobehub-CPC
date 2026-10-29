@@ -1,4 +1,4 @@
-import { MarketAPIError } from '@lobehub/market-sdk';
+import { getMarketErrorKind, MarketAPIError, type MarketErrorKind } from '@lobehub/market-sdk';
 import { TRPCError } from '@trpc/server';
 
 import { MARKET_IDENTITY_ERROR_PREFIX } from '@/libs/swr/normalizeError';
@@ -18,12 +18,25 @@ import { MARKET_IDENTITY_ERROR_PREFIX } from '@/libs/swr/normalizeError';
  * signing in anywhere. So it stays a 500, which is what it is: our problem, not
  * theirs. It is still a failure the caller sees; nothing turns it into a success.
  */
-const MARKET_STATUS_TO_TRPC_CODE: Record<number, TRPCError['code']> = {
-  400: 'BAD_REQUEST',
-  403: 'FORBIDDEN',
-  404: 'NOT_FOUND',
-  429: 'TOO_MANY_REQUESTS',
-  503: 'SERVICE_UNAVAILABLE',
+const MARKET_KIND_TO_TRPC_CODE: Partial<Record<MarketErrorKind, TRPCError['code']>> = {
+  forbidden: 'FORBIDDEN',
+  invalid_input: 'BAD_REQUEST',
+  not_found: 'NOT_FOUND',
+  rate_limited: 'TOO_MANY_REQUESTS',
+};
+
+/**
+ * `unavailable` covers every 5xx as well as a broken connection or a timeout.
+ * Only Market's own "not ready" (503) is passed on as SERVICE_UNAVAILABLE; any
+ * other server failure, and `unauthenticated` / `conflict` / `unknown`, stays a
+ * 500 as it always has.
+ */
+const toTrpcCode = (error: MarketAPIError): TRPCError['code'] => {
+  const kind = getMarketErrorKind(error);
+  if (kind === 'unavailable') {
+    return error.status === 503 ? 'SERVICE_UNAVAILABLE' : 'INTERNAL_SERVER_ERROR';
+  }
+  return MARKET_KIND_TO_TRPC_CODE[kind] ?? 'INTERNAL_SERVER_ERROR';
 };
 
 /**
@@ -49,7 +62,7 @@ export function mapMarketError(
   if (error instanceof MarketAPIError) {
     return new TRPCError({
       cause: error,
-      code: MARKET_STATUS_TO_TRPC_CODE[error.status] ?? 'INTERNAL_SERVER_ERROR',
+      code: toTrpcCode(error),
       message: error.message || fallbackMessage,
     });
   }
@@ -71,4 +84,4 @@ export function mapMarketError(
 
 /** Market answered that the resource is not in the requester's scope. Nothing else is "not found". */
 export const isMarketNotFound = (error: unknown): boolean =>
-  error instanceof MarketAPIError && error.status === 404;
+  error instanceof MarketAPIError && getMarketErrorKind(error) === 'not_found';
