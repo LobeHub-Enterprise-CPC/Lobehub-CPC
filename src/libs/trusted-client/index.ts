@@ -179,10 +179,10 @@ export const generateTrustedClientToken = (userInfo: TrustedClientUserInfo): str
 
     if (!MARKET_KID_PATTERN.test(MARKET_TRUSTED_CLIENT_ID)) throw new Error('unusable client id');
 
-    // `<kid>.<ciphertext>`: the SDK (0.42) returns the bare ciphertext, so the kid is put in front
-    // here. Market requires the signed payload to carry the same `clientId`, which is what binds the
-    // plaintext kid to the token. TODO: drop the prefix once the SDK emits it.
-    return `${MARKET_TRUSTED_CLIENT_ID}.${createTrustedClientToken(signedPayload, MARKET_TRUSTED_CLIENT_SECRET)}`;
+    // `<kid>.<ciphertext>`: the private SDK puts the payload's `clientId` in front as the kid. Market
+    // requires the signed payload to carry that same `clientId`, which is what binds the plaintext kid
+    // to the token.
+    return createTrustedClientToken(signedPayload, MARKET_TRUSTED_CLIENT_SECRET);
   } catch {
     // Neither the error nor its message is logged or chained: the signer's
     // messages can quote the secret or the payload.

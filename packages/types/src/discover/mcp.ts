@@ -65,7 +65,9 @@ export interface McpQueryParams {
 
 export type McpListResponse = PluginListResponse;
 
-export interface DiscoverMcpDetail extends MarketContentSyncState, PluginItemDetail {
+// `contentSync` comes from `MarketContentSyncState`: absent means the response did not say.
+export interface DiscoverMcpDetail
+  extends MarketContentSyncState, Omit<PluginItemDetail, 'contentSync'> {
   agents?: DiscoverAssistantItem[];
   haveCloudEndpoint?: boolean;
   isClaimed?: boolean;

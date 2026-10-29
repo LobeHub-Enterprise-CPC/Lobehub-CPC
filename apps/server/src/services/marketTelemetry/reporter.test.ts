@@ -40,7 +40,10 @@ vi.mock('@/database/models/user', () => ({
 let tokenCounter = 0;
 vi.mock('@lobehub/market-sdk', () => ({
   buildTrustedClientPayload: vi.fn((params) => ({ ...params, nonce: 'n', timestamp: 0 })),
-  createTrustedClientToken: vi.fn(() => `signed-token-${++tokenCounter}`),
+  // Like the private SDK: the payload's clientId goes in front of the ciphertext as the kid.
+  createTrustedClientToken: vi.fn(
+    (payload: { clientId: string }) => `${payload.clientId}.signed-token-${++tokenCounter}`,
+  ),
 }));
 
 /** Market only accepts a canonical UUID as the signed tenant id. */
