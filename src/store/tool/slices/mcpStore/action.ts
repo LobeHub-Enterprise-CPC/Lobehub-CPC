@@ -281,7 +281,8 @@ export class PluginMCPStoreActionImpl {
     if (!plugin) return;
 
     // Extract haveCloudEndpoint after plugin is loaded
-    const { haveCloudEndpoint } = plugin || {};
+    // Market sends it on list rows too; the SDK's list row type just does not declare it.
+    const { haveCloudEndpoint } = (plugin || {}) as { haveCloudEndpoint?: boolean };
 
     const { updateInstallLoadingState, refreshPlugins, updateMCPInstallProgress } = this.#get();
 

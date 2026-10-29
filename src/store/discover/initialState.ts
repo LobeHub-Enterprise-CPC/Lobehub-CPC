@@ -1,5 +1,7 @@
 import type { AssistantSliceState } from './slices/assistant/initialState';
 import { initialAssistantSliceState } from './slices/assistant/initialState';
+import type { CategorySliceState } from './slices/category/initialState';
+import { initialCategorySliceState } from './slices/category/initialState';
 import type { GroupAgentSliceState } from './slices/groupAgent/initialState';
 import { initialGroupAgentSliceState } from './slices/groupAgent/initialState';
 import type { MCPSliceState } from './slices/mcp/initialState';
@@ -22,6 +24,7 @@ import { initialUserSliceState } from './slices/user/initialState';
  * plus each slice's bookkeeping. Slices add their own actions on top.
  */
 export type DiscoverStoreState = AssistantSliceState &
+  CategorySliceState &
   GroupAgentSliceState &
   MCPSliceState &
   ModelSliceState &
@@ -33,6 +36,7 @@ export type DiscoverStoreState = AssistantSliceState &
 
 export const initialState: DiscoverStoreState = {
   ...initialAssistantSliceState,
+  ...initialCategorySliceState,
   ...initialGroupAgentSliceState,
   ...initialMCPSliceState,
   ...initialModelSliceState,

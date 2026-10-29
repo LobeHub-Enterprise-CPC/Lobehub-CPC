@@ -39,7 +39,8 @@ vi.mock('@lobehub/market-sdk', () => ({
     return { user: { getUserInfo } };
   }),
   buildTrustedClientPayload: (params: Record<string, unknown>) => ({ ...params, nonce: 'n' }),
-  createTrustedClientToken: () => 'signed-token',
+  // Like the private SDK: the payload's clientId goes in front of the ciphertext as the kid.
+  createTrustedClientToken: (payload: { clientId: string }) => `${payload.clientId}.signed-token`,
   orgRefToPathSegment: vi.fn(),
 }));
 

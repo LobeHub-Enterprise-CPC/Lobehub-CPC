@@ -36,6 +36,7 @@ import PublishedTime from '@/components/PublishedTime';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 import { usePermission } from '@/hooks/usePermission';
+import { useCategoryItem } from '@/routes/(main)/community/(list)/agent/features/Category/useCategory';
 import { agentService } from '@/services/agent';
 import { discoverService } from '@/services/discover';
 import { useAgentStore } from '@/store/agent';
@@ -140,6 +141,7 @@ const UserAgentCard = memo<UserAgentCardProps>(
     canUnpublish: marketCanUnpublish,
   }) => {
     const { t } = useTranslation(['discover', 'setting']);
+    const categoryLabel = useCategoryItem(category)?.label;
     const navigate = useWorkspaceAwareNavigate();
 
     const { isOwner: isProfileOwner, onStatusChange } = useUserDetailContext();
@@ -409,7 +411,7 @@ const UserAgentCard = memo<UserAgentCardProps>(
               <Icon icon={ClockIcon} size={14} />
               <PublishedTime className={styles.secondaryDesc} date={createdAt} />
             </Flexbox>
-            {category && t(`category.assistant.${category}` as any)}
+            {categoryLabel}
           </Flexbox>
         </Flexbox>
       </Block>

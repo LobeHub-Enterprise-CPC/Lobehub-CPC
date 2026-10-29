@@ -27,6 +27,7 @@ import PublishedTime from '@/components/PublishedTime';
 import Scores from '@/features/MCP/Scores';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
+import { useCategoryItem } from '@/hooks/useMCPCategory';
 import { discoverService } from '@/services/discover';
 import { type DiscoverMcpItem } from '@/types/discover';
 
@@ -91,6 +92,7 @@ const McpItem = memo<DiscoverMcpItem>(
     github,
   }) => {
     const { t } = useTranslation('discover');
+    const categoryLabel = useCategoryItem(category)?.label;
     const navigate = useWorkspaceAwareNavigate();
     const link = urlJoin('/community/mcp', identifier);
 
@@ -110,7 +112,7 @@ const McpItem = memo<DiscoverMcpItem>(
       return (
         <ShowcaseCard
           avatar={<Avatar avatar={icon} shape={'square'} size={32} />}
-          category={t(`mcp.categories.${category}.name` as any)}
+          category={categoryLabel}
           description={description}
           descriptionRows={3}
           subtitle={author}
@@ -235,7 +237,7 @@ const McpItem = memo<DiscoverMcpItem>(
               <PublishedTime className={styles.secondaryDesc} date={updatedAt} />
             </Flexbox>
             <Flexbox horizontal align={'center'} gap={8}>
-              {t(`mcp.categories.${category}.name` as any)}
+              {categoryLabel}
               {isFeatured && (
                 <Tag
                   size={'small'}

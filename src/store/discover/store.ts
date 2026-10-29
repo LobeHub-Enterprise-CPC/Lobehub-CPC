@@ -9,6 +9,8 @@ import { type ResetableStore, ResetableStoreAction } from '../utils/resetableSto
 import { type DiscoverStoreState, initialState } from './initialState';
 import { type AssistantAction } from './slices/assistant/action';
 import { createAssistantSlice } from './slices/assistant/action';
+import { type CategoryAction } from './slices/category';
+import { createCategorySlice } from './slices/category';
 import { type GroupAgentAction } from './slices/groupAgent/action';
 import { createGroupAgentSlice } from './slices/groupAgent/action';
 import { type MCPAction } from './slices/mcp';
@@ -30,6 +32,7 @@ import { createUserSlice } from './slices/user';
 
 export type DiscoverStore = MCPAction &
   AssistantAction &
+  CategoryAction &
   GroupAgentAction &
   ProviderAction &
   ModelAction &
@@ -42,6 +45,7 @@ export type DiscoverStore = MCPAction &
 
 type DiscoverStoreAction = MCPAction &
   AssistantAction &
+  CategoryAction &
   GroupAgentAction &
   ProviderAction &
   ModelAction &
@@ -62,6 +66,7 @@ const createStore: StateCreator<DiscoverStore, [['zustand/devtools', never]]> = 
   ...flattenActions<DiscoverStoreAction>([
     createMCPSlice(...parameters),
     createAssistantSlice(...parameters),
+    createCategorySlice(...parameters),
     createGroupAgentSlice(...parameters),
     createProviderSlice(...parameters),
     createModelSlice(...parameters),

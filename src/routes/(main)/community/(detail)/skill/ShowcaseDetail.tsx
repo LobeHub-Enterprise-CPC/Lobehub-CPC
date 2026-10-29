@@ -15,7 +15,7 @@ import { useTranslation } from 'react-i18next';
 
 import { brandIcon } from '@/components/BrandIcon';
 import { InstallButton } from '@/features/CommunitySkillDetail/Header';
-import { useSkillCategory } from '@/hooks/useSkillCategory';
+import { useSkillCategoryItem } from '@/hooks/useSkillCategory';
 import { type DiscoverSkillDetail } from '@/types/discover';
 
 import { blockStyles } from '../../features/Showcase/detail/blocks';
@@ -36,7 +36,7 @@ const Icons = {
 const ShowcaseSkillDetail = memo<{ data: DiscoverSkillDetail }>(({ data }) => {
   const { t } = useTranslation('discover');
   const [tab, setTab] = useState('overview');
-  const category = useSkillCategory().find((item) => item.key === data.category)?.label;
+  const category = useSkillCategoryItem(data.category)?.label;
   const author = (data.author as any)?.name ?? (data.author as unknown as string | undefined);
   const date = data.updatedAt || data.createdAt;
   const version = (data as any).version ?? (data.manifest as any)?.version;

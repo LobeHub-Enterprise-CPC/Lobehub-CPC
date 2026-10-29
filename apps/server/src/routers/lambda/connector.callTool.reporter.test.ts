@@ -26,7 +26,10 @@ vi.mock('@/database/models/user', () => ({
 }));
 vi.mock('@lobehub/market-sdk', () => ({
   buildTrustedClientPayload: vi.fn((params) => ({ ...params, nonce: 'n', timestamp: 0 })),
-  createTrustedClientToken: vi.fn(() => 'signed-trust-token'),
+  // Like the private SDK: the payload's clientId goes in front of the ciphertext as the kid.
+  createTrustedClientToken: vi.fn(
+    (payload: { clientId: string }) => `${payload.clientId}.signed-trust-token`,
+  ),
 }));
 vi.mock('@/libs/trpc/lambda/middleware', () => ({
   serverDatabase: vi.fn(function (opts: any) {

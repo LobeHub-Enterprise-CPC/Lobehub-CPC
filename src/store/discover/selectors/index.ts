@@ -1,4 +1,5 @@
 export { assistantSelectors } from './assistantSelectors';
+export { categorySelectors } from './categorySelectors';
 export { groupAgentSelectors } from './groupAgentSelectors';
 export { mcpSelectors } from './mcpSelectors';
 export { modelSelectors } from './modelSelectors';

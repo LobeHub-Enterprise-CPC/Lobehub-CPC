@@ -16,6 +16,7 @@ import { discoverService } from '@/services/discover';
 import { type AssistantMarketSource, type DiscoverAssistantItem } from '@/types/discover';
 
 import ShowcaseCard from '../../../../features/Showcase/ShowcaseCard';
+import { useCategoryItem } from '../Category/useCategory';
 import TokenTag from './TokenTag';
 
 const styles = createStaticStyles(({ css, cssVar }) => {
@@ -89,6 +90,7 @@ const AssistantItem = memo<DiscoverAssistantItem>(
     );
 
     const { t } = useTranslation('discover');
+    const categoryLabel = useCategoryItem(category)?.label;
 
     const handleAuthorClick = useCallback(
       (e: React.MouseEvent) => {
@@ -120,7 +122,7 @@ const AssistantItem = memo<DiscoverAssistantItem>(
     if (COMMUNITY_SHOWCASE_LAYOUT)
       return (
         <ShowcaseCard
-          category={t(`category.assistant.${category}` as any)}
+          category={categoryLabel}
           description={description}
           testId={'assistant-item'}
           title={title}
@@ -260,7 +262,7 @@ const AssistantItem = memo<DiscoverAssistantItem>(
                 template={'MMM DD, YYYY'}
               />
             </Flexbox>
-            {t(`category.assistant.${category}` as any)}
+            {categoryLabel}
           </Flexbox>
         </Flexbox>
       </Block>

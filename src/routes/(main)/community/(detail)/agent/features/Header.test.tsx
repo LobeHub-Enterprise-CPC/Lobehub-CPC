@@ -15,7 +15,9 @@ vi.mock('@/features/Workspace/WorkspaceLink', () => ({
 vi.mock('@/layout/AuthProvider/MarketAuth', () => ({
   useMarketAuth: () => ({ isAuthenticated: false, session: undefined, signIn: vi.fn() }),
 }));
-vi.mock('../../../(list)/agent/features/Category/useCategory', () => ({ useCategory: () => [] }));
+vi.mock('../../../(list)/agent/features/Category/useCategory', () => ({
+  useCategoryItem: () => undefined,
+}));
 
 const renderHeader = (detail: Record<string, unknown>) => {
   mocks.detail = { author: 'A', createdAt: '2026-01-01', identifier: 'a1', title: 'T', ...detail };

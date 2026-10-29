@@ -21,6 +21,8 @@ import { globalHelpers } from '@/store/global/helpers';
 import { useUserStore } from '@/store/user';
 import { userGeneralSettingsSelectors } from '@/store/user/selectors';
 import {
+  type AssetCategoryItem,
+  type AssetCategoryType,
   type AssistantListResponse,
   type AssistantMarketSource,
   type AssistantQueryParams,
@@ -51,17 +53,39 @@ import {
 import { type MCPPluginListParams } from '@/types/plugins';
 import { cleanObject } from '@/utils/object';
 
+/**
+ * The event identity (`eventId` / `occurredAt`) is fixed on this side, by the
+ * telemetry execution or `interactionIdentity`, never by the caller.
+ */
+type TelemetryIdentityKey = 'eventId' | 'occurredAt';
+
 /** A client-side install result: the fixed facts come from `execution`. */
 export type McpInstallReport = Omit<
   InstallReportRequest,
-  'errorCode' | 'errorMessage' | 'installDurationMs' | 'installParams' | 'success'
+  | 'errorCode'
+  | 'errorMessage'
+  | 'installDurationMs'
+  | 'installParams'
+  | 'success'
+  | TelemetryIdentityKey
 > & { execution: CompletedTelemetryExecution };
 
 /** A call the client ran itself: the fixed facts come from `execution`. */
 export type PluginCallReport = Omit<
   CallReportRequest,
-  'callDurationMs' | 'clientId' | 'errorCode' | 'errorMessage' | 'success'
+  'callDurationMs' | 'clientId' | 'errorCode' | 'errorMessage' | 'success' | TelemetryIdentityKey
 > & { execution: CompletedTelemetryExecution };
+
+/** A plugin interaction as a caller reports it; the identity is added here. */
+export type McpEventReport = Omit<PluginEventRequest, TelemetryIdentityKey>;
+
+/**
+ * An agent interaction as a caller reports it. Installs go through
+ * `reportAgentInstall`; the interaction endpoint accepts add / chat / click.
+ */
+export type AgentEventReport = Omit<AgentEventRequest, TelemetryIdentityKey | 'event'> & {
+  event: 'add' | 'chat' | 'click';
+};
 
 /**
  * An interaction (click, add, install, …) is an execution of its own: it gets
@@ -102,6 +126,22 @@ class DiscoverService {
       // Log error but don't block the request
       console.warn('Failed to inject MP token, continuing without it:', error);
     }
+  };
+
+  // ============================== Asset Categories ==============================
+
+  /**
+   * Categories configured in Market for one asset type, localized for the
+   * current UI language and in display order. `[]` when Market has none.
+   */
+  getAssetCategories = async (params: {
+    assetType: AssetCategoryType;
+    locale?: string;
+  }): Promise<AssetCategoryItem[]> => {
+    return lambdaClient.market.getAssetCategories.query({
+      ...params,
+      locale: params.locale ?? globalHelpers.getCurrentLanguage(),
+    });
   };
 
   // ============================== Assistant Market ==============================
@@ -307,7 +347,7 @@ class DiscoverService {
       });
   };
 
-  reportMcpEvent = async (eventData: PluginEventRequest) => {
+  reportMcpEvent = async (eventData: McpEventReport) => {
     const allow = userGeneralSettingsSelectors.telemetry(useUserStore.getState());
     if (!allow) return;
 
@@ -342,7 +382,7 @@ class DiscoverService {
       });
   };
 
-  reportAgentEvent = async (eventData: AgentEventRequest) => {
+  reportAgentEvent = async (eventData: AgentEventReport) => {
     const allow = userGeneralSettingsSelectors.telemetry(useUserStore.getState());
     if (!allow) return;
 

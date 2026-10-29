@@ -9,7 +9,7 @@ import Header from './Header';
 vi.mock('@/layout/AuthProvider/MarketAuth', () => ({
   useMarketAuth: () => ({ isAuthenticated: false, session: undefined, signIn: vi.fn() }),
 }));
-vi.mock('@/hooks/useMCPCategory', () => ({ useCategory: () => [] }));
+vi.mock('@/hooks/useMCPCategory', () => ({ useCategoryItem: () => undefined }));
 vi.mock('@/features/MCP/Scores', () => ({ default: () => null }));
 
 const renderHeader = (config: Record<string, unknown>) =>

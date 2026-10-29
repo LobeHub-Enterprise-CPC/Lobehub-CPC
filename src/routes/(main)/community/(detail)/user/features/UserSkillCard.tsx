@@ -15,12 +15,12 @@ import {
 } from '@lobehub/ui';
 import { ClockIcon, FileTextIcon, StarIcon } from 'lucide-react';
 import { memo, useCallback } from 'react';
-import { useTranslation } from 'react-i18next';
 import urlJoin from 'url-join';
 
 import PublishedTime from '@/components/PublishedTime';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
+import { useSkillCategoryItem } from '@/hooks/useSkillCategory';
 import { discoverService } from '@/services/discover';
 import { type DiscoverSkillItem } from '@/types/discover';
 
@@ -72,7 +72,7 @@ const UserSkillCard = memo<UserSkillCardProps>(
     commentCount,
     resourcesCount = 0,
   }) => {
-    const { t } = useTranslation('discover');
+    const categoryLabel = useSkillCategoryItem(category)?.label;
     const navigate = useWorkspaceAwareNavigate();
     const link = urlJoin('/community/skill', identifier);
 
@@ -192,7 +192,7 @@ const UserSkillCard = memo<UserSkillCardProps>(
               {(resourcesCount || 0) + 1}
             </Tag>
             <Flexbox horizontal align={'center'} className={styles.secondaryDesc} gap={8}>
-              {category && t(`skills.categories.${category}.name` as any)}
+              {categoryLabel}
             </Flexbox>
           </Flexbox>
         </Flexbox>

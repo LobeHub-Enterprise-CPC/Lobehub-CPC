@@ -7,6 +7,7 @@ import { PluginStore } from '@/server/modules/PluginStore';
 import { MarketService } from '@/server/services/market';
 
 import * as assistants from './assistants';
+import * as categories from './categories';
 import * as groupAgents from './groupAgents';
 import * as mcp from './mcp';
 import * as models from './models';
@@ -146,6 +147,10 @@ export class DiscoverService {
    * Combines the most complete abilities and largest contextWindowTokens
    */
   private selectModelWithBestAbilities = models.selectModelWithBestAbilities;
+
+  // ============================== Asset Categories ==============================
+
+  getAssetCategories = categories.getAssetCategories.bind(null, this);
 
   // ============================== Assistant Market ==============================
 

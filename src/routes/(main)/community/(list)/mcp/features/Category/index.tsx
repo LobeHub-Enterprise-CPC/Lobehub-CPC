@@ -3,7 +3,7 @@
 import { COMMUNITY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { Icon, Tag } from '@lobehub/ui';
 import qs from 'query-string';
-import { memo, useMemo } from 'react';
+import { memo } from 'react';
 
 import { withSuspense } from '@/components/withSuspense';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
@@ -21,15 +21,15 @@ import { buildShowcaseCategoryItems } from '../../../../features/Showcase/catego
 const Category = memo(() => {
   const useMcpCategories = useDiscoverStore((s) => s.useMcpCategories);
   const { category = McpCategory.Discover, q } = useQuery() as {
-    category?: McpCategory;
+    category?: string;
     q?: string;
   };
   const { queryKey } = useMcpCategories({ q });
   const items = useDiscoverStore(mcpSelectors.mcpCategories(queryKey));
   const navigate = useWorkspaceAwareNavigate();
-  const cates = useCategory();
+  const cates = useCategory({ counts: items, searching: !!q });
 
-  const genUrl = (key: McpCategory) =>
+  const genUrl = (key: string) =>
     qs.stringifyUrl(
       {
         query: {
@@ -42,24 +42,23 @@ const Category = memo(() => {
       { skipNull: true },
     );
 
-  const handleClick = (key: McpCategory) => {
+  const handleClick = (key: string) => {
     navigate(genUrl(key));
     const scrollableElement = document?.querySelector(`#${SCROLL_PARENT_ID}`);
     if (!scrollableElement) return;
     scrollableElement.scrollTo({ behavior: 'smooth', top: 0 });
   };
-  const total = useMemo(() => items.reduce((acc, item) => acc + item.count, 0), [items]);
 
   // The showcase market has no "discover" entry: "all" is the default and lists
   // everything in recommended order.
   if (COMMUNITY_SHOWCASE_LAYOUT) {
-    const showcaseUrl = (key: McpCategory) =>
+    const showcaseUrl = (key: string) =>
       key === McpCategory.All ? genUrl(McpCategory.Discover) : genUrl(key);
     return (
       <CategoryMenu
         mode={'inline'}
         selectedKeys={[category === McpCategory.Discover ? McpCategory.All : category]}
-        items={buildShowcaseCategoryItems(cates as any, items as any, {
+        items={buildShowcaseCategoryItems(cates, {
           exclude: [McpCategory.Discover],
           genUrl: showcaseUrl,
           hideEmpty: false,
@@ -83,7 +82,7 @@ const Category = memo(() => {
           kind: 'mcp',
         })}
         onClick={(v) => {
-          const key = v.key as McpCategory;
+          const key = String(v.key);
           navigate(showcaseUrl(key));
         }}
       />
@@ -95,38 +94,25 @@ const Category = memo(() => {
       mode={'inline'}
       selectedKeys={[category]}
       items={cates.map((item) => {
-        const itemData = items.find((i) => i.category === item.key);
+        const { count, fromMarket: _fromMarket, ...rest } = item;
         return {
-          extra:
-            item.key === 'all'
-              ? total > 0 && (
-                  <Tag
-                    size={'small'}
-                    style={{
-                      borderRadius: 12,
-                      paddingInline: 6,
-                    }}
-                  >
-                    {total}
-                  </Tag>
-                )
-              : itemData && (
-                  <Tag
-                    size={'small'}
-                    style={{
-                      borderRadius: 12,
-                      paddingInline: 6,
-                    }}
-                  >
-                    {itemData.count}
-                  </Tag>
-                ),
-          ...item,
+          extra: (item.key === 'all' ? !!count : count !== undefined) && (
+            <Tag
+              size={'small'}
+              style={{
+                borderRadius: 12,
+                paddingInline: 6,
+              }}
+            >
+              {count}
+            </Tag>
+          ),
+          ...rest,
           icon: <Icon icon={item.icon} size={18} />,
           label: <WorkspaceLink to={genUrl(item.key)}>{item.label}</WorkspaceLink>,
         };
       })}
-      onClick={(v) => handleClick(v.key as McpCategory)}
+      onClick={(v) => handleClick(String(v.key))}
     />
   );
 });

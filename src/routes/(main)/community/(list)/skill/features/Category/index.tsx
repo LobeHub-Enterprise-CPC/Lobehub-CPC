@@ -3,7 +3,7 @@
 import { COMMUNITY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { Icon, Tag } from '@lobehub/ui';
 import qs from 'query-string';
-import { memo, useMemo } from 'react';
+import { memo } from 'react';
 
 import { withSuspense } from '@/components/withSuspense';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
@@ -21,15 +21,15 @@ import { buildShowcaseCategoryItems } from '../../../../features/Showcase/catego
 const Category = memo(() => {
   const useSkillCategories = useDiscoverStore((s) => s.useSkillCategories);
   const { category = SkillCategory.All, q } = useQuery() as {
-    category?: SkillCategory;
+    category?: string;
     q?: string;
   };
   const { queryKey } = useSkillCategories({ q });
   const items = useDiscoverStore(skillSelectors.skillCategories(queryKey));
   const navigate = useWorkspaceAwareNavigate();
-  const cates = useSkillCategory();
+  const cates = useSkillCategory({ counts: items, searching: !!q });
 
-  const genUrl = (key: SkillCategory) =>
+  const genUrl = (key: string) =>
     qs.stringifyUrl(
       {
         query: {
@@ -42,13 +42,12 @@ const Category = memo(() => {
       { skipNull: true },
     );
 
-  const handleClick = (key: SkillCategory) => {
+  const handleClick = (key: string) => {
     navigate(genUrl(key));
     const scrollableElement = document?.querySelector(`#${SCROLL_PARENT_ID}`);
     if (!scrollableElement) return;
     scrollableElement.scrollTo({ behavior: 'smooth', top: 0 });
   };
-  const total = useMemo(() => items.reduce((acc, item) => acc + (item.count || 0), 0), [items]);
 
   // The showcase market lists only categories something is filed under.
   if (COMMUNITY_SHOWCASE_LAYOUT) {
@@ -57,14 +56,14 @@ const Category = memo(() => {
       <CategoryMenu
         mode={'inline'}
         selectedKeys={[category]}
-        items={buildShowcaseCategoryItems(cates as any, items as any, {
+        items={buildShowcaseCategoryItems(cates, {
           exclude: [],
           genUrl: showcaseUrl,
           hideEmpty: true,
           kind: 'skill',
         })}
         onClick={(v) => {
-          const key = v.key as SkillCategory;
+          const key = String(v.key);
           navigate(showcaseUrl(key));
         }}
       />
@@ -76,38 +75,25 @@ const Category = memo(() => {
       mode={'inline'}
       selectedKeys={[category]}
       items={cates.map((item) => {
-        const itemData = items.find((i) => i.category === item.key);
+        const { count, fromMarket: _fromMarket, ...rest } = item;
         return {
-          extra:
-            item.key === 'all'
-              ? total > 0 && (
-                  <Tag
-                    size={'small'}
-                    style={{
-                      borderRadius: 12,
-                      paddingInline: 6,
-                    }}
-                  >
-                    {total}
-                  </Tag>
-                )
-              : itemData && (
-                  <Tag
-                    size={'small'}
-                    style={{
-                      borderRadius: 12,
-                      paddingInline: 6,
-                    }}
-                  >
-                    {itemData.count}
-                  </Tag>
-                ),
-          ...item,
+          extra: (item.key === 'all' ? !!count : count !== undefined) && (
+            <Tag
+              size={'small'}
+              style={{
+                borderRadius: 12,
+                paddingInline: 6,
+              }}
+            >
+              {count}
+            </Tag>
+          ),
+          ...rest,
           icon: <Icon icon={item.icon} size={18} />,
           label: <WorkspaceLink to={genUrl(item.key)}>{item.label}</WorkspaceLink>,
         };
       })}
-      onClick={(v) => handleClick(v.key as SkillCategory)}
+      onClick={(v) => handleClick(String(v.key))}
     />
   );
 });

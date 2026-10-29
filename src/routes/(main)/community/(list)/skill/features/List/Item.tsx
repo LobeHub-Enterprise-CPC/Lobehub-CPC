@@ -24,7 +24,7 @@ import PublishedTime from '@/components/PublishedTime';
 import { createSkillDetailModal } from '@/features/CommunitySkillDetail';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
-import { useSkillCategory } from '@/hooks/useSkillCategory';
+import { useSkillCategoryItem } from '@/hooks/useSkillCategory';
 import { discoverService } from '@/services/discover';
 import { type DiscoverSkillItem } from '@/types/discover';
 
@@ -80,7 +80,7 @@ const SkillItem = memo<DiscoverSkillItem>(
   }) => {
     const { t } = useTranslation('discover');
     const link = urlJoin('/community/skill', identifier);
-    const categoryLabel = useSkillCategory().find((item) => item.key === category)?.label;
+    const categoryLabel = useSkillCategoryItem(category)?.label;
     const navigate = useWorkspaceAwareNavigate();
 
     const handleClick = useCallback(() => {
@@ -231,7 +231,7 @@ const SkillItem = memo<DiscoverSkillItem>(
               {(resourcesCount || 0) + 1}
             </Tag>
             <Flexbox horizontal align={'center'} className={styles.secondaryDesc} gap={8}>
-              {category && t(`skills.categories.${category}.name` as any)}
+              {categoryLabel}
               {isFeatured && (
                 <Tag
                   size={'small'}

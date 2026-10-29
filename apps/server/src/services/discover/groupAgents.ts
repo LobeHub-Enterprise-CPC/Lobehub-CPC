@@ -30,7 +30,7 @@ export const getGroupAgentDetail = async (
   try {
     const response = await service.market.agentGroups.getAgentGroupDetail(params.identifier, {
       locale: params.locale,
-      version: params.version ? Number(params.version) : undefined,
+      version: params.version || undefined,
     });
     return response;
   } catch (error) {

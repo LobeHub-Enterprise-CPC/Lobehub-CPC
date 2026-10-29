@@ -32,7 +32,10 @@ vi.mock('@/envs/app', () => ({ appEnv }));
 
 vi.mock('@lobehub/market-sdk', () => ({
   buildTrustedClientPayload: vi.fn((params) => ({ ...params, nonce: 'n', timestamp: 0 })),
-  createTrustedClientToken: vi.fn(() => 'signed-token'),
+  // Like the private SDK: the payload's clientId goes in front of the ciphertext as the kid.
+  createTrustedClientToken: vi.fn(
+    (payload: { clientId: string }) => `${payload.clientId}.signed-token`,
+  ),
 }));
 
 beforeEach(() => {
@@ -271,9 +274,9 @@ describe('generateTrustedClientToken fails closed in tenant mode', () => {
 // Market finds the signing secret from the plaintext kid in front of the ciphertext instead of
 // trying every tenant's secrets (cost grows with the tenant count otherwise). The kid is only a
 // lookup key: the signed payload has to carry the same `clientId` and decrypt under that
-// client's secret. SDK 0.42 cannot add a request header, so the kid rides inside the token.
+// client's secret. The SDK cannot add a request header, so the kid rides inside the token.
 describe('trust token kid', () => {
-  it('puts the client id in plaintext in front of the SDK ciphertext', () => {
+  it('keeps the single client id the SDK puts in front of the ciphertext', () => {
     const token = generateTrustedClientToken({ email: 'a@b.com', userId: 'user_real' });
 
     expect(token).toBe('client-id.signed-token');
