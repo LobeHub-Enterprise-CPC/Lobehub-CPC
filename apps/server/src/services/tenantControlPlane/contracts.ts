@@ -1,6 +1,6 @@
-import { isWellFormedTenantSlug } from '@lobechat/utils/tenantPath';
 import type { SafeReadinessDiagnosticCode } from '@lobechat/database/tenant';
 import { isTenantId, isTenantSchemaName } from '@lobechat/database/tenant';
+import { isWellFormedTenantSlug } from '@lobechat/utils/tenantPath';
 import { z } from 'zod';
 
 /**
@@ -133,9 +133,18 @@ export interface DatasourceReadinessResult {
   tenantId: string;
 }
 
+/** The root department's per-member budget (Console `memberBudgetSchema`): USD, null never resets. */
+export const memberBudgetSchema = z
+  .object({
+    budgetDuration: z.enum(['1d', '7d', '1mo']).nullable(),
+    maxBudget: z.number().min(0).max(100_000_000),
+  })
+  .strict();
+
 export const provisionRequestSchema = z
   .object({
     datasource: datasourceBundleSchema,
+    memberBudget: memberBudgetSchema.optional(),
     name: z.string().trim().min(1).max(256),
     operationId: id,
     rootOperationId: id,

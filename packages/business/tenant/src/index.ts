@@ -1,4 +1,4 @@
-import type { TenantMigrator } from '@lobechat/database/tenant';
+import type { TenantMigrator, TenantSeeder } from '@lobechat/database/tenant';
 
 /**
  * Business slot for the tenant migration chains a distribution runs after
@@ -15,6 +15,12 @@ import type { TenantMigrator } from '@lobechat/database/tenant';
 export const registerBusinessTenantMigrators = (
   _register: (migrator: TenantMigrator) => void,
 ): void => {};
+
+/**
+ * Business slot for the initial data a distribution writes into a new tenant (the provision
+ * `seed` step), e.g. Enterprise's root department. The open-source build seeds nothing.
+ */
+export const businessTenantSeeders: readonly TenantSeeder[] = [];
 
 /**
  * Registration allow-list a distribution keeps in every tenant schema, one

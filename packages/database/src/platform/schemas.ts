@@ -12,6 +12,8 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
+import type { TenantMemberBudget } from '../tenant/migrator';
+
 /**
  * Platform tables in `public` (spec A15, FR-CP-09): only what answers "which
  * tenant does this request address, and where is its database". No account,
@@ -138,6 +140,8 @@ export const tenantProvisionOperation = pgTable(
     inputHash: text('input_hash').notNull(),
     leaseToken: text('lease_token'),
     leaseUntil: timestamptz('lease_until'),
+    /** Root department per-member budget the request carried; null means no limit. */
+    memberBudget: jsonb('member_budget').$type<TenantMemberBudget>(),
     name: text('name').notNull(),
     operationId: text('operation_id').primaryKey(),
     /**

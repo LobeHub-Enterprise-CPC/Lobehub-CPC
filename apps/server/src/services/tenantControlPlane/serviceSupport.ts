@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import type { TenantMemberBudget } from '@lobechat/database/tenant';
+
 import type { DatasourceBundle } from './contracts';
 
 /** Stable digest of a request, so a retry with the same input is recognised. */
@@ -38,6 +40,8 @@ export interface LifecycleHooks {
 
 export interface ProvisionStepContext {
   bundle: DatasourceBundle;
+  /** Only the provision `seed` step reads it; a lifecycle restore never seeds. */
+  memberBudget?: TenantMemberBudget | null;
   name: string;
   operationId: string;
   slug: string;
