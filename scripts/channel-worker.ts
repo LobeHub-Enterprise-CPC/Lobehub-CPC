@@ -14,17 +14,11 @@ async function main() {
     return 0;
   }
   // Disabled deployments must not initialize the database or agent runtime.
-  const [{ ChannelTenantWorker }, { serverDB }, { assertTenantMigrationSources }] =
-    await Promise.all([
-      import('../apps/server/src/services/channel/tenantWorker'),
-      import('../packages/database/src/server'),
-      import('../packages/database/src/tenant'),
-    ]);
+  const [{ ChannelTenantWorker }, { serverDB }] = await Promise.all([
+    import('../apps/server/src/services/channel/tenantWorker'),
+    import('../packages/database/src/server'),
+  ]);
   if (check) {
-    // Entering a tenant verifies its migration history against chain files read from the
-    // working directory (the shared, tenant-only and distribution chains registered by
-    // the imports above). An image without them would fail every tenant at runtime.
-    assertTenantMigrationSources();
     console.info('[channel-worker] Runtime imports OK');
     return 0;
   }

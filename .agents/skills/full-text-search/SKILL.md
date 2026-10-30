@@ -130,12 +130,13 @@ bun run scripts/pgSearchCleanup/index.ts --apply --yes
 
 ## Mapping Generations
 
-Docker startup runs `fts-search-elasticsearch-reindex-tenants.cjs --startup --yes` (the reindex once per tenant,
-each with its own `ES_INDEX_NAMESPACE`-plus-tenant-hash namespace and checkpoint directory) after PostgreSQL
-migrations when the selected provider is Elasticsearch. It blocks serving until index migration
-and catch-up succeed. Persist the same checkpoint volume across application and migration
-containers; failed namespace locks still require explicit recovery. Continuous sync remains a
-separate worker. Hosted and manual workflows keep their explicit migration commands.
+The application never migrates Elasticsearch indexes on startup: search may be down while the
+application keeps serving. Index migration is an explicit step,
+`fts-search-elasticsearch-reindex-tenants.cjs` (the reindex once per tenant, each with its own
+`ES_INDEX_NAMESPACE`-plus-tenant-hash namespace and checkpoint directory), run as a one-off
+container or Job with a durable `ES_REINDEX_STATE_DIR`; `--startup --yes` performs the complete
+version check, backfill, drain and promotion in one run. Failed namespace locks still require
+explicit recovery. Continuous sync remains a separate worker.
 
 For mapping changes, generation operations, repeat/resume behavior, or deployment integration, read
 [Mapping migration workflow](references/mapping-migrations.md). It routes to the public command guide

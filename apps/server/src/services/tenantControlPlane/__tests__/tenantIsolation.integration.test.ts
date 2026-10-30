@@ -524,10 +524,11 @@ suite('tenant isolation on PostgreSQL', () => {
     }
   });
 
-  it('rejects altered schema, missing business tables and writable migration journals', async () => {
+  it('rejects altered schema and writable migration journals; only the executor checks tables', async () => {
     const tenant = TENANTS[0];
     const names = tenantDbNames(tenant.id);
-    const verify = () => executor.verify({ tenantId: tenant.id, bundle: bundles.get(tenant.id)! });
+    const target = { tenantId: tenant.id, bundle: bundles.get(tenant.id)! };
+    const verify = () => executor.verify(target);
     await admin.query(`ALTER SCHEMA "${names.schemaName}" OWNER TO postgres`);
     try {
       await expect(verify()).rejects.toThrow('SCHEMA_NOT_OWNED');
@@ -536,7 +537,8 @@ suite('tenant isolation on PostgreSQL', () => {
     }
     await admin.query(`ALTER TABLE "${names.schemaName}".users RENAME TO users_saved`);
     try {
-      await expect(verify()).rejects.toThrow();
+      await expect(verify()).resolves.toBeUndefined();
+      await expect(executor.verifyMigrations(target)).rejects.toThrow();
     } finally {
       await admin.query(`ALTER TABLE "${names.schemaName}".users_saved RENAME TO users`);
     }
@@ -555,12 +557,12 @@ suite('tenant isolation on PostgreSQL', () => {
 
   it('keeps readiness evidence per version and re-verifies after invalidation', async () => {
     const tenant = TENANTS[0];
-    const { schemaName } = tenantDbNames(tenant.id);
+    const { ownerUsername, schemaName } = tenantDbNames(tenant.id);
     let now = Date.now();
     const clock = () => new Date(now);
     const fresh = testRuntime(() => platformDB, new TenantPoolManager({ maxPools: 2 }), clock);
     await admitScope(fresh, tenant.slug);
-    await admin.query(`ALTER TABLE "${schemaName}".users RENAME TO users_saved`);
+    await admin.query(`ALTER SCHEMA "${schemaName}" OWNER TO postgres`);
     try {
       now += TENANT_ADMISSION_TTL_MS + 1; // evidence is per version, never clock-based
       await expect(admitScope(fresh, tenant.slug)).resolves.toBeDefined();
@@ -569,7 +571,7 @@ suite('tenant isolation on PostgreSQL', () => {
         code: 'TENANT_NOT_READY',
       });
     } finally {
-      await admin.query(`ALTER TABLE "${schemaName}".users_saved RENAME TO users`);
+      await admin.query(`ALTER SCHEMA "${schemaName}" OWNER TO "${ownerUsername}"`);
     }
   });
 

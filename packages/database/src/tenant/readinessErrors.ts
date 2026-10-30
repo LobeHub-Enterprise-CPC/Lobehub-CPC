@@ -50,9 +50,6 @@ export const readinessDiagnosticOf = (error: unknown): SafeReadinessDiagnosticCo
       case 'schema-not-provisioned': {
         return 'SCHEMA_NOT_PROVISIONED';
       }
-      case 'schema-version-incompatible': {
-        return 'SCHEMA_VERSION_INCOMPATIBLE';
-      }
       case 'schema-name-invalid': {
         return 'SCHEMA_NAME_INVALID';
       }

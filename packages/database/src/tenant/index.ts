@@ -14,7 +14,6 @@ export type {
   TenantSeeder,
 } from './migrator';
 export {
-  assertTenantMigrationSources,
   getTenantMigrators,
   materializeTenantMigrations,
   materializeTenantStatement,

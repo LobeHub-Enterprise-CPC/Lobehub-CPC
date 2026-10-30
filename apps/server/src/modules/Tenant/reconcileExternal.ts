@@ -5,7 +5,6 @@ import {
 } from '@lobechat/database/platform';
 import {
   runWithTenantScope,
-  SUPPORTED_TENANT_SCHEMA_VERSIONS,
   TenantDatabaseSession,
   tenantDbNames,
 } from '@lobechat/database/tenant';
@@ -49,7 +48,6 @@ async function withTenantReadScope<T>(
   if (!directory) throw new Error('TENANT_NOT_FOUND');
   const names = tenantDbNames(tenantId);
   if (
-    !SUPPORTED_TENANT_SCHEMA_VERSIONS.has(directory.schemaVersion) ||
     directory.schemaName !== names.schemaName ||
     directory.runtimeUsername !== names.runtimeUsername
   )

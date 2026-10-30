@@ -14,10 +14,10 @@ For initial provider cutover and complete environment setup, use
   The mapping and history tests reject missing registrations, stale pointers and version bumps
   without physical changes. Shared analysis changes require
   version bumps and rebuilds for every entity, even if only one uses the analyzer being changed.
-- Docker startup with `FTS_SEARCH_PROVIDER=elasticsearch` runs `--startup --yes` after PostgreSQL
-  migrations and before serving requests. It checks the declared versions, backfills required
-  generations, drains pending changes, and promotes them. An unchanged completed generation is
-  not scanned again. Other entrypoints retain explicit operator control.
+- `--startup --yes` is the one-shot migration for a deployment step (never the application's own
+  startup): it checks the declared versions, backfills required generations, drains pending
+  changes, and promotes them. An unchanged completed generation is not scanned again. Other
+  commands retain explicit operator control.
 - Rebuild into a new generation for field type/analyzer changes, removals, or when rollback matters.
   Only entities whose declared version changes need a new generation.
 - Rebuild the current schema generation after a projection, eligibility, or capture behavior change
@@ -132,12 +132,13 @@ code zero alone does not mean the backfill is complete.
   fence the base revision only when creating a checkpoint; resume it without another table lock.
   Never lock unrelated capture tables for a single-entity migration.
 
-For Docker self-hosting, startup migration is a blocking maintenance step, not an image-build step.
-The application and manual migration tool must share the same durable `ES_REINDEX_STATE_DIR`.
-The official Compose file mounts the existing reindex volume on both. Do not silently adopt indexes
+For Docker self-hosting, index migration is an explicit maintenance step (`fts-search-reindex` in
+the official Compose file), neither an image-build nor an application-startup step. Every reindex
+run must use the same durable `ES_REINDEX_STATE_DIR`; the official Compose file mounts the reindex
+volume on that service. Do not silently adopt indexes
 after checkpoint loss or steal a retained lock: restore progress and use explicit owner recovery
 after confirming the old process and uncertain requests have stopped. Keep the separate continuous
-sync worker running on the same application version after startup.
+sync worker running on the same application version.
 
 For large hosted deployments, keep the existing explicit migration workflow and isolated preview
 targets. Retain completion/fingerprint/Outbox gates before promotion; starting a migration does not

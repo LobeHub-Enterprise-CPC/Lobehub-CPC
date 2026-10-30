@@ -21,8 +21,6 @@ const { checkGatewayConfig } = require(
 
 // Set file paths
 const DB_MIGRATION_SCRIPT_PATH = '/app/docker.cjs';
-// Runs `/app/fts-search-elasticsearch-reindex.cjs` once per tenant.
-const ES_MIGRATION_SCRIPT_PATH = '/app/fts-search-elasticsearch-reindex-tenants.cjs';
 const SERVER_SCRIPT_PATH = '/app/server.js';
 const PROXYCHAINS_CONF_PATH = '/etc/proxychains4.conf';
 
@@ -257,16 +255,15 @@ const runServer = async () => {
   console.log('🌐 DNS Server:', dns.getServers());
   console.log('-------------------------------------');
 
-  const migrateElasticsearch = process.env.FTS_SEARCH_PROVIDER === 'elasticsearch';
-  if (process.env.DATABASE_DRIVER || migrateElasticsearch) {
+  if (process.env.DATABASE_DRIVER) {
     try {
       await fs.access(DB_MIGRATION_SCRIPT_PATH);
 
-      // Boot tolerates tenants whose chain failed (they answer 503 until the migration Job reruns);
+      // Boot tolerates tenants whose chain failed (reported; rerun the migration to repair them);
       // the standalone `docker.cjs` / `migrate.cjs` run is strict.
       await runScript(DB_MIGRATION_SCRIPT_PATH, false, ['--tolerate-tenant-failures']);
     } catch (err) {
-      if (err.code === 'ENOENT' && !migrateElasticsearch) {
+      if (err.code === 'ENOENT') {
         console.log(
           `⚠️ DB Migration: Not found ${DB_MIGRATION_SCRIPT_PATH}. Skipping DB migration. Ensure to migrate database manually.`,
         );
@@ -276,19 +273,6 @@ const runServer = async () => {
         console.error(err);
         process.exit(1);
       }
-    }
-  }
-
-  /** Search indexes must be ready before the application can accept requests. */
-  if (migrateElasticsearch) {
-    try {
-      const args = ['--startup', '--yes'];
-      if (process.env.ENABLE_TELEMETRY) args.push('--telemetry-environment=production');
-      await runScript(ES_MIGRATION_SCRIPT_PATH, false, args);
-    } catch (err) {
-      console.error('❌ Elasticsearch migration failed; application startup stopped.');
-      console.error(err);
-      process.exit(1);
     }
   }
 
