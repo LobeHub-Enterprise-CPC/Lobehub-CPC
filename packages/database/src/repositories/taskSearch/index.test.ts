@@ -134,6 +134,18 @@ describe('TaskSearchRepo', () => {
     expect(await new TaskSearchRepo(serverDB, userId).search({ query: 'beta' })).toEqual([]);
   });
 
+  it('returns the next page of matches when an offset is given', async () => {
+    const model = new TaskModel(serverDB, userId);
+    await createTasks(model, ['Page one', 'Page two', 'Page three']);
+    const repo = new TaskSearchRepo(serverDB, userId);
+
+    const all = await repo.search({ limit: 3, query: 'page' });
+    const second = await repo.search({ limit: 2, offset: 2, query: 'page' });
+
+    expect(all).toHaveLength(3);
+    expect(second.map((r) => r.id)).toEqual([all[2].id]);
+  });
+
   it('returns nothing for a blank query', async () => {
     await createTasks(new TaskModel(serverDB, userId), ['Anything']);
 

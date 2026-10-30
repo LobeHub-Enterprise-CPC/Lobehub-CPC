@@ -1,7 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { FtsSearchSyncDrainResult } from '../../apps/server/src/services/ftsSearchSync';
-import { runElasticsearchFtsSearchSync, runElasticsearchFtsSearchSyncCli } from './index';
+import {
+  currentTenantScope,
+  runWithTenantScope,
+  type TenantScope,
+} from '../../packages/database/src/tenant/requestScope';
+import {
+  type FtsSearchSyncTenancy,
+  runElasticsearchFtsSearchSync,
+  runElasticsearchFtsSearchSyncCli,
+} from './index';
 
 const drainResult = (
   overrides: Partial<FtsSearchSyncDrainResult> = {},
@@ -30,6 +39,31 @@ const createRuntime = (results: FtsSearchSyncDrainResult[]) => {
     verifyFtsSearchSyncReadiness: vi.fn().mockResolvedValue(undefined),
   };
   return { drainOnce, runtime };
+};
+
+/**
+ * Mirrors the tenant fan-out: every tenant runs in its own scope, one after another, and a failing
+ * tenant is recorded without stopping the others.
+ */
+const createTenancy = (tenantIds: string[] = ['tenant-a']) => {
+  const close = vi.fn(async () => undefined);
+  const forEachTenant: FtsSearchSyncTenancy['forEachTenant'] = vi.fn(async (_job, operation) => {
+    const result = { failed: [], succeeded: [] } as Awaited<
+      ReturnType<FtsSearchSyncTenancy['forEachTenant']>
+    >;
+    for (const tenantId of tenantIds) {
+      try {
+        const value = await runWithTenantScope({ tenantId } as TenantScope, () =>
+          operation(tenantId),
+        );
+        result.succeeded.push({ result: value, tenantId });
+      } catch (error) {
+        result.failed.push({ reason: (error as Error).name, tenantId });
+      }
+    }
+    return result;
+  });
+  return { close, forEachTenant };
 };
 
 describe('runElasticsearchFtsSearchSync', () => {
@@ -116,12 +150,14 @@ describe('runElasticsearchFtsSearchSync', () => {
 describe('runElasticsearchFtsSearchSyncCli', () => {
   it('requires explicit acknowledgement before loading the runtime', async () => {
     const loadRuntime = vi.fn();
+    const loadTenancy = vi.fn();
     const logError = vi.fn();
 
     await expect(
-      runElasticsearchFtsSearchSyncCli({ args: [], loadRuntime, logError }),
+      runElasticsearchFtsSearchSyncCli({ args: [], loadRuntime, loadTenancy, logError }),
     ).resolves.toBe(1);
     expect(loadRuntime).not.toHaveBeenCalled();
+    expect(loadTenancy).not.toHaveBeenCalled();
     expect(logError).toHaveBeenCalledWith(
       'Elasticsearch full-text search sync failed:',
       'Elasticsearch full-text search sync requires --yes after reviewing its documented effects',
@@ -149,6 +185,7 @@ describe('runElasticsearchFtsSearchSyncCli', () => {
       runElasticsearchFtsSearchSyncCli({
         args: ['--yes'],
         loadRuntime: async () => runtime,
+        loadTenancy: async () => createTenancy(),
         logSuccess,
       }),
     ).resolves.toBe(0);
@@ -177,6 +214,7 @@ describe('runElasticsearchFtsSearchSyncCli', () => {
       runElasticsearchFtsSearchSyncCli({
         args: ['--interval-seconds=15', '--max-steps=1', '--yes'],
         loadRuntime: async () => runtime,
+        loadTenancy: async () => createTenancy(),
         logSuccess,
         sleep,
         stopSignal: controller.signal,
@@ -201,6 +239,7 @@ describe('runElasticsearchFtsSearchSyncCli', () => {
       runElasticsearchFtsSearchSyncCli({
         args: ['--interval-seconds=15', '--yes'],
         loadRuntime: async () => runtime,
+        loadTenancy: async () => createTenancy(),
         logError,
         sleep,
         stopSignal: new AbortController().signal,
@@ -208,8 +247,104 @@ describe('runElasticsearchFtsSearchSyncCli', () => {
     ).resolves.toBe(1);
     expect(sleep).not.toHaveBeenCalled();
     expect(logError).toHaveBeenCalledWith(
-      'Elasticsearch full-text search sync failed:',
+      'Elasticsearch full-text search sync failed for tenant %s:',
+      'tenant-a',
       'Elasticsearch full-text search sync created dead-letter work',
     );
+  });
+
+  it('drains every available tenant inside that tenant scope', async () => {
+    const scopes: (string | undefined)[] = [];
+    const drainOnce = vi.fn(async () => {
+      scopes.push(currentTenantScope()?.tenantId);
+      return drainResult();
+    });
+    const runtime = {
+      getFtsSearchSyncService: () => ({ drainOnce, hasDeadLetters: async () => false }),
+      verifyFtsSearchSyncReadiness: vi.fn(async () => {
+        // Readiness resolves the tenant's own index namespace and database.
+        if (!currentTenantScope()) throw new Error('no tenant scope');
+      }),
+    };
+    const tenancy = createTenancy(['tenant-a', 'tenant-b']);
+    const logSuccess = vi.fn();
+
+    await expect(
+      runElasticsearchFtsSearchSyncCli({
+        args: ['--yes'],
+        loadRuntime: async () => runtime,
+        loadTenancy: async () => tenancy,
+        logSuccess,
+      }),
+    ).resolves.toBe(0);
+
+    expect(scopes).toEqual(['tenant-a', 'tenant-b']);
+    expect(runtime.verifyFtsSearchSyncReadiness).toHaveBeenCalledTimes(2);
+    expect(logSuccess).toHaveBeenCalledWith(expect.stringContaining('"tenantId":"tenant-b"'));
+    // The process leaves tenant admission once the run is over.
+    expect(tenancy.close).toHaveBeenCalledOnce();
+  });
+
+  it('keeps draining the other tenants when one fails, then exits non-zero naming it', async () => {
+    const drainOnce = vi.fn(async () =>
+      currentTenantScope()?.tenantId === 'tenant-a' ? drainResult({ failed: 1 }) : drainResult(),
+    );
+    const runtime = {
+      getFtsSearchSyncService: () => ({ drainOnce, hasDeadLetters: async () => false }),
+      verifyFtsSearchSyncReadiness: async () => undefined,
+    };
+    const tenancy = createTenancy(['tenant-a', 'tenant-b']);
+    const logError = vi.fn();
+
+    await expect(
+      runElasticsearchFtsSearchSyncCli({
+        args: ['--yes'],
+        loadRuntime: async () => runtime,
+        loadTenancy: async () => tenancy,
+        logError,
+        logSuccess: vi.fn(),
+      }),
+    ).resolves.toBe(1);
+
+    expect(drainOnce).toHaveBeenCalledTimes(2);
+    expect(logError).toHaveBeenCalledWith(
+      'Elasticsearch full-text search sync failed for tenant %s:',
+      'tenant-a',
+      'Elasticsearch full-text search sync left retryable failed work',
+    );
+    expect(logError).toHaveBeenLastCalledWith(
+      'Elasticsearch full-text search sync failed:',
+      'Elasticsearch full-text search sync failed for 1 tenant(s): tenant-a',
+    );
+    expect(tenancy.close).toHaveBeenCalledOnce();
+  });
+
+  it('keeps going without sleeping while any tenant still has more work', async () => {
+    const controller = new AbortController();
+    const drainOnce = vi.fn(async () =>
+      drainResult({
+        hasMore: currentTenantScope()?.tenantId === 'tenant-b' && drainOnce.mock.calls.length <= 2,
+      }),
+    );
+    const runtime = {
+      getFtsSearchSyncService: () => ({ drainOnce, hasDeadLetters: async () => false }),
+      verifyFtsSearchSyncReadiness: async () => undefined,
+    };
+    const sleep = vi.fn(async () => controller.abort());
+
+    await expect(
+      runElasticsearchFtsSearchSyncCli({
+        args: ['--interval-seconds=15', '--max-steps=1', '--yes'],
+        loadRuntime: async () => runtime,
+        loadTenancy: async () => createTenancy(['tenant-a', 'tenant-b']),
+        logSuccess: vi.fn(),
+        sleep,
+        stopSignal: controller.signal,
+      }),
+    ).resolves.toBe(0);
+
+    // Round 1 leaves work for tenant-b, so round 2 starts at once; round 2 is drained and sleeps.
+    expect(drainOnce).toHaveBeenCalledTimes(4);
+    expect(sleep).toHaveBeenCalledOnce();
   });
 });

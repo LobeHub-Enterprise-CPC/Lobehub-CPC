@@ -30,7 +30,7 @@ const messageResult: FtsSearchMessageResult = {
 };
 
 describe('FtsSearchRepo backend boundary', () => {
-  it('forwards the supported request contract without exposing the legacy ignored offset', async () => {
+  it('forwards the supported request contract to the backend', async () => {
     const search = vi.fn<FtsSearchBackend['search']>().mockResolvedValue({
       candidates: [{ id: messageResult.id, score: 7.25 }],
       items: [messageResult],
@@ -42,7 +42,6 @@ describe('FtsSearchRepo backend boundary', () => {
       repo.search({
         agentId: 'agent-1',
         limitPerType: 7,
-        offset: 4,
         query: '  search text  ',
         type: 'message',
       }),
@@ -59,6 +58,59 @@ describe('FtsSearchRepo backend boundary', () => {
         workspaceId: 'workspace-1',
       },
     });
+  });
+
+  it('returns the next page of each type when an offset is given', async () => {
+    const ranked = Array.from({ length: 12 }, (_, index) => ({
+      ...messageResult,
+      id: `message-${index}`,
+    }));
+    // A backend returns its own display order truncated to the requested limit.
+    const search = vi.fn<FtsSearchBackend['search']>(async (request) => ({
+      candidates: [],
+      items: ranked.slice(0, request.pagination.limit),
+    }));
+    const repo = new FtsSearchRepo(db, 'user-1', undefined, undefined, {
+      backend: { key: 'candidate', search },
+    });
+
+    const firstPage = await repo.search({ limitPerType: 5, query: 'message', type: 'message' });
+    const secondPage = await repo.search({
+      limitPerType: 5,
+      offset: 5,
+      query: 'message',
+      type: 'message',
+    });
+    const lastPage = await repo.search({
+      limitPerType: 5,
+      offset: 10,
+      query: 'message',
+      type: 'message',
+    });
+
+    expect(firstPage.map(({ id }) => id)).toEqual(ranked.slice(0, 5).map(({ id }) => id));
+    expect(secondPage.map(({ id }) => id)).toEqual(ranked.slice(5, 10).map(({ id }) => id));
+    expect(lastPage.map(({ id }) => id)).toEqual(ranked.slice(10).map(({ id }) => id));
+  });
+
+  it('applies the offset to every type of an untyped search separately', async () => {
+    const search = vi.fn<FtsSearchBackend['search']>(async (request) => ({
+      candidates: [],
+      items: Array.from({ length: request.pagination.limit ?? 0 }, (_, index) => ({
+        ...messageResult,
+        id: `${request.entity}-${index}`,
+      })),
+    }));
+    const repo = new FtsSearchRepo(db, 'user-1', undefined, undefined, {
+      backend: { key: 'candidate', search },
+    });
+
+    const results = await repo.search({ offset: 3, query: 'message' });
+
+    // Untyped searches use 3 per type: each type is asked for offset + limit and keeps its own window.
+    for (const call of search.mock.calls) expect(call[0].pagination).toEqual({ limit: 6 });
+    const agentIds = results.filter(({ id }) => id.startsWith('agents-')).map(({ id }) => id);
+    expect(agentIds).toEqual(['agents-3', 'agents-4', 'agents-5']);
   });
 
   it('emits provider-native candidates through the shared measurement hook', async () => {

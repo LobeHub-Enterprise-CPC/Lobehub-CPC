@@ -12,6 +12,24 @@ type FtsSearchSyncRuntime = {
   verifyFtsSearchSyncReadiness: () => Promise<unknown>;
 };
 
+/**
+ * The deployment's tenants as the sync worker sees them. The application runtime resolves the
+ * index namespace and the business database from the current tenant scope, so every drain has to
+ * run inside one admitted tenant.
+ */
+export interface FtsSearchSyncTenancy {
+  /** Leaves tenant admission (process lease) once the worker is done. */
+  close: () => Promise<void>;
+  /** Runs `operation` once per available tenant, in that tenant's own scope; see `forEachTenant`. */
+  forEachTenant: <T>(
+    job: string,
+    operation: (tenantId: string) => Promise<T>,
+  ) => Promise<{
+    failed: { reason: string; tenantId: string }[];
+    succeeded: { result: T; tenantId: string }[];
+  }>;
+}
+
 export interface ElasticsearchFtsSearchSyncRunSummary {
   acknowledged: number;
   bulkBytes: number;
@@ -37,6 +55,20 @@ export interface RunElasticsearchFtsSearchSyncOptions {
 }
 
 const loadRuntime = () => import('../../apps/server/src/services/ftsSearchSync');
+
+/**
+ * The same tenant fan-out the deployment-wide crons use: tenants from the platform directory
+ * (`DATABASE_URL`) that are currently admitted, each entered through its runtime role with this
+ * process holding a tenant process lease, so lifecycle changes (freeze, offline, destruction)
+ * fence the worker like any other tenant work.
+ */
+const loadTenancy = async (): Promise<FtsSearchSyncTenancy> => {
+  const [{ forEachTenant }, { tenantProcessLease }] = await Promise.all([
+    import('../../apps/server/src/modules/Tenant/fanOut'),
+    import('../../apps/server/src/modules/Tenant/postgresClaims'),
+  ]);
+  return { close: () => tenantProcessLease.stop(), forEachTenant };
+};
 
 /** Runs a bounded drain so any cron or process supervisor can schedule it without a daemon. */
 export const runElasticsearchFtsSearchSync = async ({
@@ -104,6 +136,7 @@ type Logger = (...arguments_: unknown[]) => void;
 export interface RunElasticsearchFtsSearchSyncCliOptions {
   args?: readonly string[];
   loadRuntime?: () => Promise<FtsSearchSyncRuntime>;
+  loadTenancy?: () => Promise<FtsSearchSyncTenancy>;
   logError?: Logger;
   logSuccess?: Logger;
   /** Injectable sleep for the long-running interval mode. */
@@ -144,11 +177,13 @@ const createProcessStopSignal = () => {
 export const runElasticsearchFtsSearchSyncCli = async ({
   args = process.argv.slice(2),
   loadRuntime: load,
+  loadTenancy: openTenancy = loadTenancy,
   logError = console.error,
   logSuccess = console.log,
   sleep = defaultSleep,
   stopSignal,
 }: RunElasticsearchFtsSearchSyncCliOptions = {}): Promise<number> => {
+  let tenancy: FtsSearchSyncTenancy | undefined;
   try {
     const options = parseElasticsearchFtsSearchSyncCliOptions(args);
     if (!options.yes) {
@@ -156,16 +191,49 @@ export const runElasticsearchFtsSearchSyncCli = async ({
         'Elasticsearch full-text search sync requires --yes after reviewing its documented effects',
       );
     }
+    tenancy = await openTenancy();
+    const tenants = tenancy;
 
+    /**
+     * One round drains every available tenant with the bounded semantics, one tenant at a time.
+     * A failing tenant is logged and does not stop the others; the round fails afterwards,
+     * naming the failed tenants. Returns whether any tenant still has more work.
+     */
     const runOnce = async (signal?: AbortSignal) => {
-      const summary = await runElasticsearchFtsSearchSync({
-        loadRuntime: load,
-        logStep: (step) => logSuccess(JSON.stringify({ ...step, type: 'fts_search_sync_step' })),
-        maxSteps: options.maxSteps,
-        stopSignal: signal,
-      });
-      logSuccess(JSON.stringify({ ...summary, success: true, type: 'fts_search_sync_completed' }));
-      return summary;
+      const { failed, succeeded } = await tenants.forEachTenant(
+        'fts-search:sync',
+        async (tenantId) => {
+          try {
+            return await runElasticsearchFtsSearchSync({
+              loadRuntime: load,
+              logStep: (step) =>
+                logSuccess(JSON.stringify({ ...step, tenantId, type: 'fts_search_sync_step' })),
+              maxSteps: options.maxSteps,
+              stopSignal: signal,
+            });
+          } catch (error) {
+            logError(
+              'Elasticsearch full-text search sync failed for tenant %s:',
+              tenantId,
+              summarizeFtsSearchReindexError(error),
+            );
+            throw error;
+          }
+        },
+      );
+      for (const { result, tenantId } of succeeded) {
+        logSuccess(
+          JSON.stringify({ ...result, success: true, tenantId, type: 'fts_search_sync_completed' }),
+        );
+      }
+      if (failed.length > 0) {
+        throw new Error(
+          `Elasticsearch full-text search sync failed for ${failed.length} tenant(s): ${failed
+            .map(({ tenantId }) => tenantId)
+            .join(', ')}`,
+        );
+      }
+      return succeeded.some(({ result }) => result.hasMore);
     };
 
     if (options.intervalSeconds === undefined) {
@@ -189,14 +257,21 @@ export const runElasticsearchFtsSearchSyncCli = async ({
       }),
     );
     while (!signal.aborted) {
-      const summary = await runOnce(signal);
+      const hasMore = await runOnce(signal);
       if (signal.aborted) break;
-      if (!summary.hasMore) await sleep(options.intervalSeconds * 1000, signal);
+      if (!hasMore) await sleep(options.intervalSeconds * 1000, signal);
     }
     logSuccess(JSON.stringify({ type: 'fts_search_sync_interval_stopped' }));
     return 0;
   } catch (error) {
     logError('Elasticsearch full-text search sync failed:', summarizeFtsSearchReindexError(error));
     return 1;
+  } finally {
+    await tenancy?.close().catch((error) => {
+      logError(
+        'Elasticsearch full-text search sync could not leave tenant admission:',
+        summarizeFtsSearchReindexError(error),
+      );
+    });
   }
 };

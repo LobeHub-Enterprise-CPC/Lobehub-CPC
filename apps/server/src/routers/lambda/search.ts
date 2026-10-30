@@ -87,7 +87,12 @@ export const searchRouter = router({
         includeMarketplace: z.boolean().optional(),
         limitPerType: z.number().optional(),
         locale: z.string().optional(),
-        offset: z.number().optional(),
+        /**
+         * Per-type page offset for the database-backed types (full-text index and tasks): each
+         * type returns its matches `offset` to `offset + limitPerType`. Marketplace types are not
+         * paged by it.
+         */
+        offset: z.number().int().min(0).optional(),
         query: z.string(),
         type: z
           .enum([
@@ -109,7 +114,7 @@ export const searchRouter = router({
       }),
     )
     .query(async ({ input, ctx }) => {
-      const { query, type, limitPerType = 5, locale } = input;
+      const { query, type, limitPerType = 5, locale, offset } = input;
       const marketApiPageSize = Math.min(limitPerType, MARKET_API_MAX_PAGE_SIZE);
 
       // Early return for empty query
@@ -157,6 +162,7 @@ export const searchRouter = router({
         searchPromises.push(
           new TaskSearchRepo(ctx.serverDB, ctx.userId, ctx.workspaceId ?? undefined).search({
             limit: limitPerType,
+            offset,
             query,
           }),
         );
