@@ -43,6 +43,7 @@ import type {
   SubAgentBridgeParams,
 } from '@/server/services/agentRuntime';
 import { AgentRuntimeService } from '@/server/services/agentRuntime';
+import { createSubAgentDeadlineArmer } from '@/server/services/agentRuntime/SubAgentDeadline';
 import type {
   ExecGroupMemberParams,
   ExecGroupMemberResult,
@@ -200,6 +201,14 @@ export class AiAgentService {
     return {
       agentOperationModel: this.agentOperationModel,
       agentRuntimeService: this.agentRuntimeService,
+      // Spawn-side deadline: ends a `callSubAgent` child that never claims its
+      // first step (and honours an explicit `timeout`) instead of leaving it to
+      // the 30-minute gateway inactivity watchdog.
+      armSubAgentDeadline: createSubAgentDeadlineArmer({
+        db: this.db,
+        userId: this.userId,
+        workspaceId: this.workspaceId,
+      }),
       execAgent: (p) => this.execAgent(p),
       messageModel: this.messageModel,
       threadModel: this.threadModel,

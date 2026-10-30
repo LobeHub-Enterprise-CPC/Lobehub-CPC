@@ -39,6 +39,18 @@ const log = debug('lobe-server:ai-agent-service');
 export interface SubAgentRunDeps {
   agentOperationModel: AgentOperationModel;
   agentRuntimeService: AgentRuntimeService;
+  /**
+   * Arms the spawn-side deadline for a `callSubAgent` child — it ends a child
+   * that never claims its first step, and enforces an explicit `timeout`. See
+   * `agentRuntime/SubAgentDeadline`. Optional so unit tests and embedders that
+   * do not wire it keep working; the deadline is a safety net, not a
+   * precondition for the run.
+   */
+  armSubAgentDeadline?: (params: {
+    operationId: string;
+    spawnedAt: number;
+    timeoutMs?: number;
+  }) => void;
   /** The facade's `execAgent` — thread runs delegate the actual turn to it. */
   execAgent: (params: InternalExecAgentParams) => Promise<ExecAgentResult>;
   messageModel: MessageModel;
@@ -176,6 +188,10 @@ export const execAgentThreadRun = async (
 ): Promise<ExecSubAgentResult> => {
   const { groupId, topicId, parentMessageId, agentId, instruction, title, parentOperationId } =
     params;
+  // `callSubAgent`'s optional hard deadline. Until now only the isolated-member
+  // path consumed it, so a caller that asked for a bound on a virtual sub-agent
+  // silently got none; it is now armed below.
+  const explicitTimeoutMs = params.timeout;
 
   log(
     '%s: agentId=%s, groupId=%s, topicId=%s, instruction=%s',
@@ -428,6 +444,30 @@ export const execAgentThreadRun = async (
         userId: deps.userId,
       })
       .catch(() => {});
+  }
+
+  // The child's step 0 rides a single fire-and-forget queue delivery, and a
+  // delivery that never executes leaves the op `running` with zero steps and no
+  // error while the parent stays parked on this tool call — the only other
+  // thing that notices is the gateway's 30-minute inactivity watchdog. Arm the
+  // deadline here, at the spawn site, so that shape is ended in minutes with a
+  // reason the parent's tool result can carry. Isolated group members are
+  // excluded: their own `scheduleGroupMemberTimeout` owns their deadline and
+  // their parent is resumed through the group K=N bridge, not this one.
+  if (
+    result.success &&
+    result.operationId &&
+    hasCompletionBridge &&
+    options.orchestrationRole !== 'member'
+  ) {
+    deps.armSubAgentDeadline?.({
+      operationId: result.operationId,
+      spawnedAt: new Date(startedAt).getTime(),
+      // `callSubAgent`'s explicit timeout used to be dropped on this path (only
+      // the isolated-member path consumed it), so a caller asking for a bound
+      // got none.
+      timeoutMs: explicitTimeoutMs,
+    });
   }
 
   return {

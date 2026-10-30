@@ -2,7 +2,7 @@ import type { ISnapshotStore } from '@lobechat/agent-tracing';
 import { LOADING_FLAT } from '@lobechat/const';
 import { ABANDONED_OPERATION_ERROR_PREFIX } from '@lobechat/const/goal';
 import type { ChatMessageError, GatewayExecutionContext } from '@lobechat/types';
-import { AgentRuntimeErrorType } from '@lobechat/types';
+import { AgentRuntimeErrorType, ThreadStatus } from '@lobechat/types';
 import debug from 'debug';
 import { and, desc, eq, gt, gte, isNull, lte, ne, or, sql } from 'drizzle-orm';
 
@@ -310,13 +310,23 @@ export class AbandonOperationService {
     // and once abandoned nothing can ever resume it.
     if (origin.userId) {
       try {
-        const settled = await new AgentOperationModel(
-          this.db,
-          origin.userId,
-          origin.workspaceId,
-        ).settleLive(operationId, 'error');
+        const operationModel = new AgentOperationModel(this.db, origin.userId, origin.workspaceId);
+        const settled = await operationModel.settleLive(operationId, 'error');
         if (settled) {
           log('[%s] durable row settled by abandon safety net', operationId);
+          // `settleLive` writes the status and the completion reason, but not the
+          // cause. For a sub-agent child the rich terminal write above never ran
+          // (`lineage.isSubAgent` skips it), so the row retired with an EMPTY
+          // `error` column: the dashboard, the trace and every post-mortem showed
+          // `status=error` with no readable reason, which is exactly what made
+          // this failure mode indistinguishable from a platform-wide outage.
+          // `recordCompletion` only matches a live row or one already in
+          // `error`, so this cannot overwrite a richer successful completion.
+          await operationModel.recordCompletion(operationId, {
+            completionReason: 'error',
+            error: { message, type: String(error.type) },
+            status: 'error',
+          });
         }
       } catch (e) {
         reportSettleFailure(
@@ -325,6 +335,20 @@ export class AbandonOperationService {
         );
       }
     }
+
+    // The run's isolation thread outlives the run: it is switched to
+    // `processing` when the child starts and normally settled by the child's own
+    // thread hooks. An abandoned run never reaches those hooks, so without this
+    // the thread stayed `processing` forever — the UI kept rendering the
+    // sub-agent as running and `claimSubAgentThread` refused every later
+    // follow-up with "still running".
+    await this.settleAbandonedThread({
+      errorMessage: message,
+      operationId,
+      threadId: origin.threadId,
+      userId: origin.userId,
+      workspaceId: origin.workspaceId,
+    });
 
     // Resolve sub-agent → parent linkage. The watchdog killed this op without
     // firing its onComplete bridge, so a parent parked on `callSubAgent` would
@@ -492,6 +516,16 @@ export class AbandonOperationService {
       }
     }
 
+    // Same isolation-thread cleanup as the with-state path: a sub-agent whose
+    // coordinator state is already gone still owns a `processing` thread row.
+    await this.settleAbandonedThread({
+      errorMessage: message,
+      operationId,
+      threadId: op.threadId,
+      userId: op.userId,
+      workspaceId: op.workspaceId,
+    });
+
     // Heterogeneous and device runs never have coordinator state, so this is
     // the only terminal they get when the process dies silently. Their hooks
     // (task lifecycle, bot callbacks) must still hear about it — otherwise the
@@ -533,6 +567,53 @@ export class AbandonOperationService {
         `no-state abandon failed to dispatch its terminal hooks (op=${operationId})`,
         e,
       );
+    }
+  }
+
+  /**
+   * Retire the isolation thread of an abandoned run.
+   *
+   * A `callSubAgent` child runs on its own `ThreadType.Isolation` thread, which
+   * is flipped to `processing` when the run starts and is normally settled by
+   * the child's own thread hooks. An abandonment from the outside — the gateway
+   * inactivity watchdog, the stale-lease sweep, the spawn-race deadline — never
+   * reaches those hooks, so the row kept `processing` forever: the sub-agent
+   * rendered as running in the UI, and `claimSubAgentThread` refused every later
+   * follow-up with "still running".
+   *
+   * Only the thread THIS operation started is settled: a continued sub-agent
+   * reuses its thread, so `metadata.operationId` may belong to a newer run that
+   * is still driving it (or, when the row predates the stamp, to nobody at all).
+   */
+  private async settleAbandonedThread(params: {
+    errorMessage: string;
+    operationId: string;
+    threadId?: string | null;
+    userId?: string | null;
+    workspaceId?: string | null;
+  }): Promise<void> {
+    const { errorMessage, operationId, threadId, userId, workspaceId } = params;
+    if (!threadId || !userId) return;
+
+    try {
+      const threadModel = new ThreadModel(this.db, userId, workspaceId ?? undefined);
+      const thread = await threadModel.findById(threadId);
+      if (!thread || thread.status !== ThreadStatus.Processing) return;
+
+      const metadata = thread.metadata ?? {};
+      if (metadata.operationId && metadata.operationId !== operationId) return;
+
+      await threadModel.update(threadId, {
+        metadata: {
+          ...metadata,
+          completedAt: new Date().toISOString(),
+          error: errorMessage,
+          operationId,
+        },
+        status: ThreadStatus.Failed,
+      });
+    } catch (e) {
+      reportSettleFailure(`abandoned op failed to settle its thread (op=${operationId})`, e);
     }
   }
 

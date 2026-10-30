@@ -67,9 +67,10 @@ vi.mock('../CompletionLifecycle', () => ({
 }));
 
 const findThreadMock = vi.fn().mockResolvedValue(null);
+const threadUpdateMock = vi.fn().mockResolvedValue(undefined);
 vi.mock('@/database/models/thread', () => ({
   ThreadModel: vi.fn().mockImplementation(function () {
-    return { findById: findThreadMock };
+    return { findById: findThreadMock, update: threadUpdateMock };
   }),
 }));
 
@@ -126,6 +127,7 @@ describe('AbandonOperationService', () => {
     findOperationMock.mockReset().mockResolvedValue(null);
     recordCompletionMock.mockClear();
     findThreadMock.mockReset().mockResolvedValue(null);
+    threadUpdateMock.mockReset().mockResolvedValue(undefined);
     settleLiveMock.mockReset().mockResolvedValue(true);
     latestSpineMessageIdMock.mockReset().mockResolvedValue(undefined);
     messageCreateMock.mockReset().mockResolvedValue({ id: 'msg_new_failure' });
@@ -1119,5 +1121,146 @@ describe('AbandonOperationService', () => {
 
     expect(result.subAgentResume).toBeUndefined();
     expect(findOperationMock).not.toHaveBeenCalled();
+  });
+  it('writes the readable reason onto a sub-agent row that skips the rich terminal write', async () => {
+    // The gateway watchdog abandoned this child without firing its onComplete
+    // bridge, and `dispatchHooks` — the only writer of a rich terminal row —
+    // is skipped for `lineage.isSubAgent`. `settleLive` then retired the row
+    // with status/completion_reason but no cause at all: production showed
+    // `status=error`, `completion_reason=error`, `error` NULL, which made the
+    // incident impossible to diagnose from the database alone.
+    const coord = buildCoordinator({
+      loadAgentState: vi.fn().mockResolvedValue(
+        stateWith({
+          metadata: { assistantMessageId: 'msg_assist_1' },
+          origin: {
+            threadId: 'thd_child',
+            topicId: 'tpc_x',
+            userId: 'user_x',
+            workspaceId: 'ws_1',
+            lineage: { isSubAgent: true },
+          },
+        }),
+      ),
+    });
+
+    await new AbandonOperationService(buildDb(), {
+      coordinator: coord as any,
+      snapshotStore: buildPartiallessStore() as any,
+    }).finalizeAbandoned('op_child', 'inactivity_watchdog');
+
+    expect(settleLiveMock).toHaveBeenCalledWith('op_child', 'error');
+    expect(recordCompletionMock).toHaveBeenCalledWith(
+      'op_child',
+      expect.objectContaining({
+        completionReason: 'error',
+        error: expect.objectContaining({
+          message: expect.stringContaining('inactivity_watchdog'),
+        }),
+        status: 'error',
+      }),
+    );
+  });
+
+  it('settles the isolation thread an abandoned sub-agent left in `processing`', async () => {
+    // The thread hooks that normally close the thread never ran, so the row
+    // stayed `processing` forever: the sub-agent rendered as running and
+    // `claimSubAgentThread` refused every later follow-up.
+    findThreadMock.mockResolvedValue({
+      id: 'thd_child',
+      metadata: { operationId: 'op_child', startedAt: '2026-10-26T06:52:41.571Z' },
+      sourceMessageId: 'msg_tool_placeholder',
+      status: 'processing',
+    });
+
+    const coord = buildCoordinator({
+      loadAgentState: vi.fn().mockResolvedValue(
+        stateWith({
+          metadata: { assistantMessageId: 'msg_assist_1' },
+          origin: {
+            threadId: 'thd_child',
+            topicId: 'tpc_x',
+            userId: 'user_x',
+            workspaceId: 'ws_1',
+            lineage: { isSubAgent: true },
+          },
+        }),
+      ),
+    });
+
+    await new AbandonOperationService(buildDb(), {
+      coordinator: coord as any,
+      snapshotStore: buildPartiallessStore() as any,
+    }).finalizeAbandoned('op_child', 'inactivity_watchdog');
+
+    expect(threadUpdateMock).toHaveBeenCalledWith('thd_child', {
+      metadata: expect.objectContaining({
+        error: expect.stringContaining('inactivity_watchdog'),
+        operationId: 'op_child',
+      }),
+      status: 'failed',
+    });
+  });
+
+  it('leaves a thread that a newer run now owns alone', async () => {
+    // A continued sub-agent reuses its thread, so `metadata.operationId` can
+    // point at the run that is driving it right now.
+    findThreadMock.mockResolvedValue({
+      id: 'thd_child',
+      metadata: { operationId: 'op_newer_run' },
+      sourceMessageId: 'msg_tool_placeholder',
+      status: 'processing',
+    });
+
+    const coord = buildCoordinator({
+      loadAgentState: vi.fn().mockResolvedValue(
+        stateWith({
+          metadata: { assistantMessageId: 'msg_assist_1' },
+          origin: {
+            threadId: 'thd_child',
+            topicId: 'tpc_x',
+            userId: 'user_x',
+            lineage: { isSubAgent: true },
+          },
+        }),
+      ),
+    });
+
+    await new AbandonOperationService(buildDb(), {
+      coordinator: coord as any,
+      snapshotStore: buildPartiallessStore() as any,
+    }).finalizeAbandoned('op_child', 'inactivity_watchdog');
+
+    expect(threadUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('settles the isolation thread of a no-state abandoned op', async () => {
+    findThreadMock.mockResolvedValue({
+      id: 'thd_child',
+      metadata: { operationId: 'op_child' },
+      status: 'processing',
+    });
+
+    const coord = buildCoordinator({ loadAgentState: vi.fn().mockResolvedValue(null) });
+
+    await new AbandonOperationService(
+      buildDb({
+        operationRow: {
+          id: 'op_child',
+          startedAt: new Date('2026-10-26T06:52:41.571Z'),
+          status: 'running',
+          threadId: 'thd_child',
+          topicId: 'tpc_x',
+          userId: 'user_x',
+          workspaceId: 'ws_1',
+        },
+      }),
+      { coordinator: coord as any, snapshotStore: buildPartiallessStore() as any },
+    ).finalizeAbandoned('op_child', 'inactivity_watchdog');
+
+    expect(threadUpdateMock).toHaveBeenCalledWith(
+      'thd_child',
+      expect.objectContaining({ status: 'failed' }),
+    );
   });
 });

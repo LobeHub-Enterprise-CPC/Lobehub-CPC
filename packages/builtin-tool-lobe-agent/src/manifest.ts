@@ -265,7 +265,8 @@ export const LobeAgentManifest: BuiltinToolManifest = {
             },
           }),
           timeout: {
-            description: 'Optional timeout in milliseconds. Default is 30 minutes.',
+            description:
+              'Optional hard deadline in milliseconds for the sub-agent run. When it elapses the sub-agent is stopped and its result reports the timeout. Omit it for an open-ended run — a sub-agent that never starts is still ended automatically within a few minutes either way.',
             type: 'number',
           },
         },

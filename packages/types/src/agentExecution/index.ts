@@ -615,7 +615,11 @@ export interface ExecSubAgentParams {
   parentMessageId: string;
   /** Parent operation ID for dispatching callAgent hooks */
   parentOperationId?: string;
-  /** Timeout in milliseconds (optional) */
+  /**
+   * Hard deadline in milliseconds for the child run (optional). Enforced at the
+   * spawn site: a child still live when it elapses is abandoned and its parent's
+   * tool result reports the timeout.
+   */
   timeout?: number;
   /** Thread title shown in UI */
   title?: string;
@@ -676,7 +680,11 @@ export interface ExecVirtualSubAgentParams {
    * keeps its history) instead of a new thread being created.
    */
   threadId?: string;
-  /** Timeout in milliseconds (optional) */
+  /**
+   * Hard deadline in milliseconds for the child run (optional). Enforced at the
+   * spawn site: a child still live when it elapses is abandoned and its parent's
+   * tool result reports the timeout.
+   */
   timeout?: number;
   /** Thread title shown in UI */
   title?: string;

@@ -3,4 +3,5 @@ export * from './AgentRuntimeService';
 export * from './foregroundOperation';
 export * from './opportunisticSweep';
 export * from './StaleOperationReaper';
+export * from './SubAgentDeadline';
 export * from './types';
