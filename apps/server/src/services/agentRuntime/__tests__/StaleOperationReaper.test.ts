@@ -6,11 +6,13 @@ import { StaleOperationReaper } from '../StaleOperationReaper';
 const claimStaleRedriveMock = vi.fn();
 const settleStaleRunningMock = vi.fn();
 const releaseStaleRedriveMock = vi.fn();
+const findOperationByIdMock = vi.fn().mockResolvedValue(null);
 vi.mock('@/server/modules/Tenant/callbackUrl');
 vi.mock('@/database/models/agentOperation', () => ({
   AgentOperationModel: vi.fn().mockImplementation(function () {
     return {
       claimStaleRedrive: claimStaleRedriveMock,
+      findById: findOperationByIdMock,
       releaseStaleRedrive: releaseStaleRedriveMock,
       settleStaleRunning: settleStaleRunningMock,
     };
@@ -24,23 +26,38 @@ vi.mock('../AbandonOperationService', () => ({
   }),
 }));
 
+const resumeAbandonedParentMock = vi.fn().mockResolvedValue(undefined);
+vi.mock('../resumeAbandonedParent', () => ({
+  resumeAbandonedParent: (...args: any[]) => resumeAbandonedParentMock(...args),
+}));
+
 /**
- * Minimal drizzle select chains: the stale-candidate query (`orderBy`) returns
- * `rows`, the concurrent-foreground patrol (`groupBy`) returns `overlapRows`.
+ * Minimal drizzle select chains. The sweep issues two `orderBy` queries in
+ * order — the stale-lease candidates, then the never-claimed children — so the
+ * mock counts `orderBy` calls; the concurrent-foreground patrol (`groupBy`)
+ * returns `overlapRows`.
  */
-const buildDb = (rows: any[], overlapRows: any[] = []) =>
-  ({
+const buildDb = (rows: any[], overlapRows: any[] = [], unclaimedRows: any[] = []) => {
+  let orderByCalls = 0;
+
+  return {
     select: () => ({
       from: () => ({
         where: () => ({
           groupBy: () => ({
             having: () => ({ limit: vi.fn().mockResolvedValue(overlapRows) }),
           }),
-          orderBy: () => ({ limit: vi.fn().mockResolvedValue(rows) }),
+          orderBy: () => {
+            const batch = orderByCalls === 0 ? rows : unclaimedRows;
+            orderByCalls += 1;
+
+            return { limit: vi.fn().mockResolvedValue(batch) };
+          },
         }),
       }),
     }),
-  }) as any;
+  } as any;
+};
 
 const candidate = (id = 'op_x') => ({
   id,
@@ -90,7 +107,9 @@ describe('StaleOperationReaper', () => {
     claimStaleRedriveMock.mockReset().mockResolvedValue(1);
     settleStaleRunningMock.mockReset().mockResolvedValue(true);
     releaseStaleRedriveMock.mockReset().mockResolvedValue(true);
-    finalizeAbandonedMock.mockClear();
+    finalizeAbandonedMock.mockReset().mockResolvedValue({});
+    findOperationByIdMock.mockReset().mockResolvedValue(null);
+    resumeAbandonedParentMock.mockReset().mockResolvedValue(undefined);
     process.env.APP_URL = 'https://app.lobehub.test';
   });
 
@@ -327,5 +346,101 @@ describe('StaleOperationReaper', () => {
     const result = await reaper.sweep();
 
     expect(result).toMatchObject({ concurrentForegroundTopics: 0, redriven: 1 });
+  });
+  describe('a sub-operation that never claimed its first step', () => {
+    const startedAt = new Date(Date.now() - 10 * 60_000);
+
+    /** Exactly the production shape: created, then never touched again. */
+    const unclaimedRow = (overrides: Record<string, any> = {}) => ({
+      id: 'op_child',
+      llmCalls: null,
+      startedAt,
+      status: 'running',
+      stepCount: null,
+      toolCalls: null,
+      // Only the creation write: the step-lock lease never advanced.
+      updatedAt: new Date(startedAt.getTime() + 102),
+      ...overrides,
+    });
+
+    const child = { id: 'op_child', userId: 'user_x', workspaceId: null };
+
+    const sweepWith = async (unclaimedRows: any[] = [child]) =>
+      new StaleOperationReaper(buildDb([], [], unclaimedRows), {
+        coordinator: buildCoordinator(null) as any,
+        queueService: buildQueue() as any,
+      }).sweep();
+
+    it('retires it from the durable row, without needing coordinator state', async () => {
+      // The lease pass cannot help: no state means nothing to resume. The
+      // durable pass reaches the same verdict from the row alone.
+      findOperationByIdMock.mockResolvedValue(unclaimedRow());
+
+      const result = await sweepWith();
+
+      expect(finalizeAbandonedMock).toHaveBeenCalledWith(
+        'op_child',
+        'subagent_first_step_never_started',
+      );
+      expect(result.abandoned).toBe(1);
+    });
+
+    it('hands the parked parent the error it was waiting for', async () => {
+      const resume = {
+        errorMessage: 'Operation abandoned: subagent_first_step_never_started',
+        parentOperationId: 'op_parent',
+        threadId: 'thd_child',
+        toolMessageId: 'msg_tool',
+        userId: 'user_x',
+      };
+      findOperationByIdMock.mockResolvedValue(unclaimedRow());
+      finalizeAbandonedMock.mockResolvedValue({ subAgentResume: resume });
+
+      await sweepWith();
+
+      expect(resumeAbandonedParentMock).toHaveBeenCalledWith(
+        expect.anything(),
+        'op_child',
+        resume,
+      );
+    });
+
+    it('leaves a child that completed a step alone', async () => {
+      findOperationByIdMock.mockResolvedValue(
+        unclaimedRow({ stepCount: 1, updatedAt: new Date(startedAt.getTime() + 120_000) }),
+      );
+
+      await sweepWith();
+
+      expect(finalizeAbandonedMock).not.toHaveBeenCalled();
+    });
+
+    it('leaves a slow first step alone: the lease heartbeat proves it is running', async () => {
+      // `step_count` counts COMPLETED steps, so an in-flight step 0 still reads
+      // 0. Only the untouched lease distinguishes it from a lost delivery.
+      findOperationByIdMock.mockResolvedValue(
+        unclaimedRow({ stepCount: 0, updatedAt: new Date(startedAt.getTime() + 90_000) }),
+      );
+
+      await sweepWith();
+
+      expect(finalizeAbandonedMock).not.toHaveBeenCalled();
+    });
+
+    it('leaves a child whose LLM call was recorded alone', async () => {
+      findOperationByIdMock.mockResolvedValue(unclaimedRow({ llmCalls: 1 }));
+
+      await sweepWith();
+
+      expect(finalizeAbandonedMock).not.toHaveBeenCalled();
+    });
+
+    it('does not retire a child another path already settled', async () => {
+      findOperationByIdMock.mockResolvedValue(unclaimedRow({ status: 'error' }));
+
+      await sweepWith();
+
+      expect(finalizeAbandonedMock).not.toHaveBeenCalled();
+    });
   });
 });

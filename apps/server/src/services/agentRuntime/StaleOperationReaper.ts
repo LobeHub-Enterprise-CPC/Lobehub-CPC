@@ -11,6 +11,11 @@ import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { QueueService } from '@/server/services/queue';
 
 import { AbandonOperationService } from './AbandonOperationService';
+import {
+  FIRST_STEP_NEVER_STARTED,
+  neverClaimedStep,
+  resolveFirstStepSweepMs,
+} from './firstStepPolicy';
 import { BACKGROUND_OPERATION_TRIGGERS } from './foregroundOperation';
 
 const log = debug('lobe-server:stale-operation-reaper');
@@ -92,6 +97,13 @@ export interface ReapStaleOperationsResult {
  * (or the redrive budget is spent) does it fall back to abandoning the
  * operation with a visible error the user can retry from.
  *
+ * A second, dedicated pass retires sub-operations that never claimed their first
+ * step at all (see {@link reapStalledFirstSteps}). Those are invisible to the
+ * lease pass above — there is no step to redrive and often no state to resume —
+ * and they are the shape behind the 2026-10-26 production incident, where a
+ * `callSubAgent` child sat `running` with zero steps until the 30-minute gateway
+ * watchdog killed it and took its parked parent with it.
+ *
  * Safety comes from three existing mechanisms rather than new bookkeeping:
  * - `claimStaleRedrive` consumes the candidate in the same UPDATE that selects
  *   it, so overlapping ticks cannot both re-queue one step.
@@ -148,6 +160,20 @@ export class StaleOperationReaper {
       }
     }
 
+    // A child that never claimed its first step is not a stale lease — there is
+    // no step to redrive and nothing to resume — so it is reaped by its own
+    // pass, from the persisted row alone. This is the durable half of the
+    // spawn-side deadline: it covers the case the in-process timer cannot, the
+    // creating process dying right after dispatch.
+    try {
+      const firstStep = await this.reapStalledFirstSteps(limit);
+      result.abandoned += firstStep.abandoned;
+      result.examined += firstStep.examined;
+    } catch (e) {
+      result.failed += 1;
+      log('first-step pass failed: %O', e);
+    }
+
     try {
       result.concurrentForegroundTopics = await this.reportConcurrentForegroundRuns();
     } catch (e) {
@@ -156,6 +182,108 @@ export class StaleOperationReaper {
 
     log('sweep done: %O', result);
     return result;
+  }
+
+  /**
+   * Retire sub-operations that never claimed their first step.
+   *
+   * The lease pass above cannot help them: it only acts on runs it can resume,
+   * and a child whose step 0 never ran has nothing to resume — no context was
+   * ever produced, and its coordinator state may not even be readable. So this
+   * pass reaches its verdict from the durable row alone, which is exactly the
+   * evidence the production failure left behind: `step_count`, `llm_calls` and
+   * `tool_calls` all NULL, `updated_at` frozen at the creation write, thread
+   * `processing`.
+   *
+   * Nothing has run, so retiring the row is safe: no partial work is lost, no
+   * step can be duplicated, and the parked parent gets a readable error through
+   * the same bridge the gateway watchdog uses. Scoped to `parentOperationId`:
+   * a top-level run that never started is still the watchdog's to judge, since
+   * it may legitimately be queued behind a concurrency limit.
+   *
+   * Returns how many children the sweep examined and how many it retired.
+   */
+  private async reapStalledFirstSteps(
+    limit: number,
+  ): Promise<{ abandoned: number; examined: number }> {
+    const sweepMs = resolveFirstStepSweepMs();
+    const deadlineBefore = new Date(Date.now() - sweepMs);
+    const candidates = await this.listUnclaimedChildren(deadlineBefore, limit);
+    let abandoned = 0;
+
+    for (const candidate of candidates) {
+      const operationId = candidate.id;
+      try {
+        const operationModel = new AgentOperationModel(
+          this.db,
+          candidate.userId,
+          candidate.workspaceId ?? undefined,
+        );
+        // The candidate list is a filter, not a verdict: re-read the row so the
+        // decision is made on what the row says now. `neverClaimedStep` is the
+        // same predicate the spawn-side timer uses.
+        const operation = await operationModel.findById(operationId);
+        if (!operation || operation.status !== 'running') continue;
+        // `startedAt` is guaranteed by the query; NaN keeps the helper
+        // hands-off if a row somehow lost it.
+        if (!neverClaimedStep(operation, Number.NaN)) continue;
+
+        const result = await new AbandonOperationService(this.db).finalizeAbandoned(
+          operationId,
+          FIRST_STEP_NEVER_STARTED,
+        );
+        abandoned += 1;
+        log('[%s] first step never claimed after %dms — abandoned', operationId, sweepMs);
+
+        if (result.subAgentResume) {
+          // Without this the parent stays parked on the `callSubAgent` tool call
+          // until its own inactivity limit kills it — the exact cascade the
+          // production incident showed.
+          try {
+            const { resumeAbandonedParent } = await import('./resumeAbandonedParent');
+            await resumeAbandonedParent(this.db, operationId, result.subAgentResume);
+          } catch (e) {
+            log('[%s] failed to resume the parked parent: %O', operationId, e);
+          }
+        }
+      } catch (e) {
+        // One poisoned row must not abort the rest of the pass.
+        log('[%s] first-step reap failed: %O', operationId, e);
+      }
+    }
+
+    return { abandoned, examined: candidates.length };
+  }
+
+  /**
+   * Sub-operations whose row proves step 0 was never claimed: `running`, a
+   * parent, no completed step, no recorded LLM or tool call, and an
+   * `updated_at` that never left the creation write. A step holding the lock
+   * touches `updated_at` within 90s, so a live first step cannot match this.
+   */
+  private async listUnclaimedChildren(deadlineBefore: Date, limit: number) {
+    return this.db
+      .select({
+        id: agentOperations.id,
+        userId: agentOperations.userId,
+        workspaceId: agentOperations.workspaceId,
+      })
+      .from(agentOperations)
+      .where(
+        and(
+          eq(agentOperations.status, 'running'),
+          isNotNull(agentOperations.parentOperationId),
+          isNotNull(agentOperations.startedAt),
+          or(isNull(agentOperations.stepCount), eq(agentOperations.stepCount, 0)),
+          or(isNull(agentOperations.llmCalls), eq(agentOperations.llmCalls, 0)),
+          or(isNull(agentOperations.toolCalls), eq(agentOperations.toolCalls, 0)),
+          lt(agentOperations.startedAt, deadlineBefore),
+          // The lease may not have advanced past the creation write at all.
+          sql`${agentOperations.updatedAt} <= ${agentOperations.startedAt} + interval '5 seconds'`,
+        ),
+      )
+      .orderBy(asc(agentOperations.updatedAt))
+      .limit(limit);
   }
 
   /**
@@ -454,12 +582,24 @@ export class StaleOperationReaper {
     // so it persists onto that status instead of being refused as a conflicting
     // terminal owner — which would skip `onComplete` / `onError` and leave
     // hook consumers (tasks, bots, parent runs) waiting on a retired operation.
-    await new AbandonOperationService(this.db).finalizeAbandoned(
+    const abandoned = await new AbandonOperationService(this.db).finalizeAbandoned(
       operationId,
       `stale_lease_${reason}`,
       { settledAsAbandoned: true },
     );
     log('[%s] abandoned (reason=%s)', operationId, reason);
+
+    // A retired sub-operation that still holds a parked parent must hand it the
+    // error, or the parent waits on the tool slot until its own inactivity
+    // limit kills it.
+    if (abandoned.subAgentResume) {
+      try {
+        const { resumeAbandonedParent } = await import('./resumeAbandonedParent');
+        await resumeAbandonedParent(this.db, operationId, abandoned.subAgentResume);
+      } catch (e) {
+        log('[%s] failed to resume the parked parent: %O', operationId, e);
+      }
+    }
 
     return 'abandoned';
   }

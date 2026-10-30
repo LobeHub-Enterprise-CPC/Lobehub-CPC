@@ -2,8 +2,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  armSubAgentDeadline,
-  checkSubAgentDeadline,
   CLAIM_SETTLE_MS,
   DEFAULT_FIRST_STEP_DEADLINE_MS,
   FIRST_STEP_DEADLINE_ENV,
@@ -13,7 +11,8 @@ import {
   resolveFirstStepDeadlineMs,
   SUB_AGENT_TIMEOUT,
   subAgentDeadlineViolation,
-} from '../SubAgentDeadline';
+} from '../firstStepPolicy';
+import { armSubAgentDeadline, checkSubAgentDeadline } from '../SubAgentDeadline';
 
 const SPAWNED_AT = Date.parse('2026-10-26T06:52:41.571Z');
 

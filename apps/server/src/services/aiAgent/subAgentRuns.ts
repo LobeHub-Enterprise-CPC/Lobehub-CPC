@@ -451,9 +451,11 @@ export const execAgentThreadRun = async (
   // error while the parent stays parked on this tool call — the only other
   // thing that notices is the gateway's 30-minute inactivity watchdog. Arm the
   // deadline here, at the spawn site, so that shape is ended in minutes with a
-  // reason the parent's tool result can carry. Isolated group members are
-  // excluded: their own `scheduleGroupMemberTimeout` owns their deadline and
-  // their parent is resumed through the group K=N bridge, not this one.
+  // reason the parent's tool result can carry. This is the fast half: the
+  // durable half is the same predicate applied by the stale-operation sweep, for
+  // the case where this process dies before the timer fires. Isolated group
+  // members are excluded: their own `scheduleGroupMemberTimeout` owns their
+  // deadline and their parent is resumed through the group K=N bridge.
   if (
     result.success &&
     result.operationId &&
