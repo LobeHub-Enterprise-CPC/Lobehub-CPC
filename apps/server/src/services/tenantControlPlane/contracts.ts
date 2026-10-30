@@ -57,9 +57,9 @@ export {
   LifecycleFailure,
 } from '@/server/modules/Tenant/lifecycleFailure';
 
-/** `lh_<h24>_owner` and `lh_<h24>_run`: the LobeHub rows of tenant-naming.json `rolePatterns`. */
-const ownerRole = z.string().regex(/^lh_[\da-f]{24}_owner$/);
-const runtimeRole = z.string().regex(/^lh_[\da-f]{24}_run$/);
+/** `titu_<h24>_owner` and `titu_<h24>_run`: the TITU Work rows of tenant-naming.json `rolePatterns`. */
+const ownerRole = z.string().regex(/^titu_[\da-f]{24}_owner$/);
+const runtimeRole = z.string().regex(/^titu_[\da-f]{24}_run$/);
 
 /**
  * The credential bundle Console builds after creating the tenant's schema and

@@ -8,8 +8,8 @@
           "run": "adm_e0bab8abe103e646d8c0907b_run"
         },
         "lobehub": {
-          "owner": "lh_e0bab8abe103e646d8c0907b_owner",
-          "run": "lh_e0bab8abe103e646d8c0907b_run"
+          "owner": "titu_e0bab8abe103e646d8c0907b_owner",
+          "run": "titu_e0bab8abe103e646d8c0907b_run"
         },
         "market": {
           "owner": "mk_e0bab8abe103e646d8c0907b_owner",
@@ -27,8 +27,8 @@
           "run": "adm_db8055e0e0307d5a016bec4d_run"
         },
         "lobehub": {
-          "owner": "lh_db8055e0e0307d5a016bec4d_owner",
-          "run": "lh_db8055e0e0307d5a016bec4d_run"
+          "owner": "titu_db8055e0e0307d5a016bec4d_owner",
+          "run": "titu_db8055e0e0307d5a016bec4d_run"
         },
         "market": {
           "owner": "mk_db8055e0e0307d5a016bec4d_owner",
@@ -46,8 +46,8 @@
           "run": "adm_66c6a0d124855ac03a1a6aad_run"
         },
         "lobehub": {
-          "owner": "lh_66c6a0d124855ac03a1a6aad_owner",
-          "run": "lh_66c6a0d124855ac03a1a6aad_run"
+          "owner": "titu_66c6a0d124855ac03a1a6aad_owner",
+          "run": "titu_66c6a0d124855ac03a1a6aad_run"
         },
         "market": {
           "owner": "mk_66c6a0d124855ac03a1a6aad_owner",
@@ -65,8 +65,8 @@
           "run": "adm_38e4e4acfa60c81027a536d6_run"
         },
         "lobehub": {
-          "owner": "lh_38e4e4acfa60c81027a536d6_owner",
-          "run": "lh_38e4e4acfa60c81027a536d6_run"
+          "owner": "titu_38e4e4acfa60c81027a536d6_owner",
+          "run": "titu_38e4e4acfa60c81027a536d6_run"
         },
         "market": {
           "owner": "mk_38e4e4acfa60c81027a536d6_owner",
@@ -84,8 +84,8 @@
           "run": "adm_2272df623d4a44ed62a6dc9b_run"
         },
         "lobehub": {
-          "owner": "lh_2272df623d4a44ed62a6dc9b_owner",
-          "run": "lh_2272df623d4a44ed62a6dc9b_run"
+          "owner": "titu_2272df623d4a44ed62a6dc9b_owner",
+          "run": "titu_2272df623d4a44ed62a6dc9b_run"
         },
         "market": {
           "owner": "mk_2272df623d4a44ed62a6dc9b_owner",
@@ -124,7 +124,7 @@
   ],
   "prefixes": {
     "admin": "adm",
-    "lobehub": "lh",
+    "lobehub": "titu",
     "market": "mk"
   },
   "rolePatterns": {
@@ -133,8 +133,8 @@
       "run": "^adm_[0-9a-f]{24}_run$"
     },
     "lobehub": {
-      "owner": "^lh_[0-9a-f]{24}_owner$",
-      "run": "^lh_[0-9a-f]{24}_run$"
+      "owner": "^titu_[0-9a-f]{24}_owner$",
+      "run": "^titu_[0-9a-f]{24}_run$"
     },
     "market": {
       "owner": "^mk_[0-9a-f]{24}_owner$",

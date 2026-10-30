@@ -47,6 +47,29 @@ describe('receiveDatasource', () => {
     });
   });
 
+  it('replaces the lh_ role names of a directory row from before the cutover with the retargeted titu_ ones', async () => {
+    await provisionApplied();
+    // What the previous build stored; the cutover renamed the roles, then Ops retargets.
+    const stored = repo.directory.get(TENANT)!;
+    const legacy = (name: string) => name.replace(/^titu_/, 'lh_');
+    stored.bundle.runtimeCredential.username = legacy(stored.bundle.runtimeCredential.username);
+    stored.bundle.schemaOwner.role = legacy(stored.bundle.schemaOwner.role);
+    stored.bundle.schemaOwner.username = legacy(stored.bundle.schemaOwner.username);
+    const retarget = rotate({ connectionVersion: 2 });
+    expect(await service.receiveDatasource(retarget)).toMatchObject({
+      errorCode: null,
+      status: 'applied',
+    });
+    expect(repo.directory.get(TENANT)).toMatchObject({
+      bundle: {
+        runtimeCredential: { username: retarget.datasource.runtimeCredential.username },
+        schemaOwner: { role: retarget.datasource.schemaOwner.role },
+      },
+      record: { connectionVersion: 2, credentialBundleVersion: 2 },
+    });
+    expect(retarget.datasource.runtimeCredential.username).toMatch(/^titu_/);
+  });
+
   it('keeps the old credentials when verification fails', async () => {
     await provisionApplied();
     db.verify.mockRejectedValueOnce(new Error('password authentication failed'));

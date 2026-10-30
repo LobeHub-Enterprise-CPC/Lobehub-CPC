@@ -11,8 +11,8 @@ export const tenantDbNames = (tenantId: string) => {
   const h24 = tenantHash(tenantId);
   return {
     h24,
-    ownerUsername: `lh_${h24}_owner`,
-    runtimeUsername: `lh_${h24}_run`,
+    ownerUsername: `titu_${h24}_owner`,
+    runtimeUsername: `titu_${h24}_run`,
     schemaName: `tenant_${h24}`,
   };
 };
@@ -52,11 +52,11 @@ export const assertTenantSchemaName = (schemaName: string): string => {
 
 /**
  * The owner role of a tenant schema, from the schema name alone (`tenant_<h24>` is owned by
- * `lh_<h24>_owner`). For callers that know the schema but not the tenant id, such as the
+ * `titu_<h24>_owner`). For callers that know the schema but not the tenant id, such as the
  * Enterprise migration runner.
  */
 export const tenantOwnerRoleForSchema = (schemaName: string): string =>
-  `lh_${assertTenantSchemaName(schemaName).slice('tenant_'.length)}_owner`;
+  `titu_${assertTenantSchemaName(schemaName).slice('tenant_'.length)}_owner`;
 
 /** `SET LOCAL search_path` for a tenant transaction. Throws on an unsafe name. */
 export const tenantSearchPathSql = (schemaName: string) => {

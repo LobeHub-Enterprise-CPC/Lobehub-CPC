@@ -38,8 +38,8 @@ describe('tenantDbNames', () => {
     const h24 = createHash('sha256').update(TENANT).digest('hex').slice(0, 24);
     expect(tenantDbNames(TENANT)).toEqual({
       h24,
-      ownerUsername: `lh_${h24}_owner`,
-      runtimeUsername: `lh_${h24}_run`,
+      ownerUsername: `titu_${h24}_owner`,
+      runtimeUsername: `titu_${h24}_run`,
       schemaName: `tenant_${h24}`,
     });
   });
