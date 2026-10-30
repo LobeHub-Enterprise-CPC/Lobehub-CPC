@@ -134,6 +134,24 @@ describe('searchRouter', () => {
     expect(getAssistantList).not.toHaveBeenCalled();
   });
 
+  it('pages the database-backed types with the requested offset', async () => {
+    search.mockResolvedValue([]);
+    searchTasks.mockResolvedValue([]);
+    const caller = searchRouter.createCaller({ userId: 'test-user' } as any);
+
+    await caller.query({ includeMarketplace: false, limitPerType: 5, offset: 5, query: 'T-827' });
+
+    expect(search).toHaveBeenCalledWith(expect.objectContaining({ limitPerType: 5, offset: 5 }));
+    expect(searchTasks).toHaveBeenCalledWith({ limit: 5, offset: 5, query: 'T-827' });
+  });
+
+  it.each([-1, 1.5])('rejects the invalid offset %s', async (offset) => {
+    const caller = searchRouter.createCaller({ userId: 'test-user' } as any);
+
+    await expect(caller.query({ offset, query: 'T-827' })).rejects.toThrow();
+    expect(search).not.toHaveBeenCalled();
+  });
+
   it('merges task matches into the untyped command-menu search', async () => {
     const localResult = { id: 'local-agent', title: 'Local Agent', type: 'agent' };
     const taskResult = { id: 'task_1', identifier: 'T-827', title: 'CMDK', type: 'task' };

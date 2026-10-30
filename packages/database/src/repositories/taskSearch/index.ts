@@ -8,6 +8,8 @@ import type { FtsSearchTaskResult } from '../ftsSearch/types';
 
 export interface TaskSearchOptions {
   limit?: number;
+  /** Matches to skip, for the next page in the same order. */
+  offset?: number;
   query: string;
 }
 
@@ -28,7 +30,11 @@ export class TaskSearchRepo {
     private readonly workspaceId?: string,
   ) {}
 
-  search = async ({ limit = 5, query }: TaskSearchOptions): Promise<FtsSearchTaskResult[]> => {
+  search = async ({
+    limit = 5,
+    offset = 0,
+    query,
+  }: TaskSearchOptions): Promise<FtsSearchTaskResult[]> => {
     const text = query.trim();
     if (!text || limit <= 0) return [];
 
@@ -76,7 +82,8 @@ export class TaskSearchRepo {
         ),
       )
       .orderBy(asc(relevance), desc(tasks.updatedAt), desc(tasks.seq))
-      .limit(limit);
+      .limit(limit)
+      .offset(offset);
 
     return rows.map(({ name, relevance, ...row }) => ({
       ...row,

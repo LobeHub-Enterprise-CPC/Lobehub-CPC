@@ -344,6 +344,30 @@ describe.skipIf(!enabled)(
       await verifyLookupIdentity(lookup);
     });
 
+    it('accepts the admin-only grant PostgreSQL gives the CREATEROLE account that created it', async () => {
+      const creator = `lookup_creator_${process.pid}`;
+      await root.query(`CREATE ROLE ${quote(creator)} NOLOGIN CREATEROLE`);
+      try {
+        // What PostgreSQL 16+ records when a non-superuser (managed PostgreSQL) creates the role.
+        await root.query(
+          `GRANT ${quote(ACCOUNT_LOOKUP_ROLE)} TO ${quote(creator)} WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`,
+        );
+        await verifyLookupIdentity(lookup);
+        for (const option of ['INHERIT', 'SET']) {
+          await root.query(
+            `GRANT ${quote(ACCOUNT_LOOKUP_ROLE)} TO ${quote(creator)} WITH ${option} TRUE`,
+          );
+          await expect(verifyLookupIdentity(lookup)).rejects.toThrow('IDENTITY_INVALID');
+          await root.query(
+            `GRANT ${quote(ACCOUNT_LOOKUP_ROLE)} TO ${quote(creator)} WITH ${option} FALSE`,
+          );
+        }
+        await verifyLookupIdentity(lookup);
+      } finally {
+        await root.query(`DROP ROLE ${quote(creator)}`);
+      }
+    });
+
     it('handles bans and parameterized emails, fails closed on missing privileges/table/wrong DB and RLS', async () => {
       await root.query(`INSERT INTO ${quote(names.schemaName)}.users (id,email,banned,ban_expires) VALUES
       ('a','allowed@example.com',false,NULL),('b','expired@example.com',true,now()-interval '1 hour'),

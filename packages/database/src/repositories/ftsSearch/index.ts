@@ -2,6 +2,7 @@ import type { LobeChatDatabase } from '../../type';
 import { PgSearchFtsSearchBackend } from './pgSearch';
 import type {
   FtsSearchBackendFilters,
+  FtsSearchBackendItem,
   FtsSearchBackendMeasurement,
   FtsSearchBackendRequest,
   FtsSearchBackendResponse,
@@ -136,76 +137,53 @@ export class FtsSearchRepo {
     }
   }
 
-  /** Full-text search across the database-backed product result types. */
+  /**
+   * Full-text search across the database-backed product result types.
+   *
+   * `offset` pages every type separately: each type returns its results `offset` to
+   * `offset + limit` in the backend's display order. Backends only take a limit, so each one is
+   * asked for `offset + limit` results and the window is cut here.
+   */
   async search(options: FtsSearchOptions): Promise<FtsSearchResult[]> {
     const { query, type, limitPerType = 5, agentId, contextType } = options;
     if (!query || query.trim() === '') return [];
 
     const trimmedQuery = query.trim();
+    const offset = options.offset ?? 0;
     const limits = this.calculateLimits(limitPerType, type, agentId, contextType);
     const excludeKnowledgeBaseIds = options.excludeKnowledgeBaseIds ?? [];
-    const searches: Promise<FtsSearchBackendResponse>[] = [];
+    const searches: Promise<FtsSearchBackendItem[]>[] = [];
+    const page = (
+      entity: FtsSearchBackendRequest['entity'],
+      limit: number,
+      filters?: FtsSearchBackendFilters,
+    ) =>
+      searches.push(
+        this.execute(this.createRequest(entity, trimmedQuery, offset + limit, filters)).then(
+          ({ items }) => items.slice(offset, offset + limit),
+        ),
+      );
 
-    if ((!type || type === 'agent') && limits.agent > 0) {
-      searches.push(this.execute(this.createRequest('agents', trimmedQuery, limits.agent)));
-    }
-    if ((!type || type === 'chatGroup') && limits.chatGroup > 0) {
-      searches.push(this.execute(this.createRequest('chatGroups', trimmedQuery, limits.chatGroup)));
-    }
-    if ((!type || type === 'topic') && limits.topic > 0) {
-      searches.push(
-        this.execute(this.createRequest('topics', trimmedQuery, limits.topic, { agentId })),
-      );
-    }
-    if ((!type || type === 'message') && limits.message > 0) {
-      searches.push(
-        this.execute(this.createRequest('messages', trimmedQuery, limits.message, { agentId })),
-      );
-    }
-    if ((!type || type === 'file') && limits.file > 0) {
-      searches.push(
-        this.execute(
-          this.createRequest('files', trimmedQuery, limits.file, { excludeKnowledgeBaseIds }),
-        ),
-      );
-    }
-    if ((!type || type === 'folder') && limits.folder > 0) {
-      searches.push(
-        this.execute(
-          this.createRequest('documents', trimmedQuery, limits.folder, {
-            documentKind: 'folder',
-            excludeKnowledgeBaseIds,
-          }),
-        ),
-      );
-    }
-    if ((!type || type === 'page') && limits.page > 0) {
-      searches.push(
-        this.execute(
-          this.createRequest('documents', trimmedQuery, limits.page, {
-            documentKind: 'page',
-            excludeKnowledgeBaseIds,
-          }),
-        ),
-      );
-    }
-    if ((!type || type === 'memory') && limits.memory > 0) {
-      searches.push(this.execute(this.createRequest('userMemories', trimmedQuery, limits.memory)));
-    }
-    if ((!type || type === 'knowledgeBase') && limits.knowledgeBase > 0) {
-      searches.push(
-        this.execute(
-          this.createRequest('knowledgeBases', trimmedQuery, limits.knowledgeBase, {
-            excludeKnowledgeBaseIds,
-          }),
-        ),
-      );
-    }
+    if ((!type || type === 'agent') && limits.agent > 0) page('agents', limits.agent);
+    if ((!type || type === 'chatGroup') && limits.chatGroup > 0)
+      page('chatGroups', limits.chatGroup);
+    if ((!type || type === 'topic') && limits.topic > 0) page('topics', limits.topic, { agentId });
+    if ((!type || type === 'message') && limits.message > 0)
+      page('messages', limits.message, { agentId });
+    if ((!type || type === 'file') && limits.file > 0)
+      page('files', limits.file, { excludeKnowledgeBaseIds });
+    if ((!type || type === 'folder') && limits.folder > 0)
+      page('documents', limits.folder, { documentKind: 'folder', excludeKnowledgeBaseIds });
+    if ((!type || type === 'page') && limits.page > 0)
+      page('documents', limits.page, { documentKind: 'page', excludeKnowledgeBaseIds });
+    if ((!type || type === 'memory') && limits.memory > 0) page('userMemories', limits.memory);
+    if ((!type || type === 'knowledgeBase') && limits.knowledgeBase > 0)
+      page('knowledgeBases', limits.knowledgeBase, { excludeKnowledgeBaseIds });
 
-    const responses = await Promise.all(searches);
+    const pages = await Promise.all(searches);
 
     /** Each backend item already carries the existing hydrated response schema and display order. */
-    return responses.flatMap((response) => response.items as FtsSearchDatabaseResult[]);
+    return pages.flat() as FtsSearchDatabaseResult[];
   }
 
   /** Candidate-only retrieval for legacy and hybrid paths that own their PostgreSQL hydration. */

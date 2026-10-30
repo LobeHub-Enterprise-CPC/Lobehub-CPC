@@ -142,10 +142,18 @@ export const runFtsSearchSyncCaptureCli = async ({
   }
 };
 
+/** Bundled image entry (a CommonJS bundle has no `import.meta.url`), see the operator tools image. */
+const BUNDLED_ENTRYPOINT = 'fts-search-capture-install.cjs';
+
 const isDirectExecution = () => {
   const entrypoint = process.argv[1];
+  if (entrypoint === undefined) return false;
+  if (path.basename(entrypoint) === BUNDLED_ENTRYPOINT) return true;
 
-  return entrypoint !== undefined && path.resolve(entrypoint) === fileURLToPath(import.meta.url);
+  return (
+    typeof import.meta.url === 'string' &&
+    path.resolve(entrypoint) === fileURLToPath(import.meta.url)
+  );
 };
 
 if (isDirectExecution()) {

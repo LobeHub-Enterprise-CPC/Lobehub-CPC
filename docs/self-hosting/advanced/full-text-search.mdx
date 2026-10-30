@@ -163,7 +163,10 @@ Every tenant has its own data and its own indexes. The capture installer
 (`db:install-fts-search-capture`) and the reindex (`fts-search-reindex`, also run on Docker
 startup) run once per active tenant from the tenant directory: each tenant uses the index
 namespace `ES_INDEX_NAMESPACE` plus its tenant hash, and keeps its progress in its own folder
-under `ES_REINDEX_STATE_DIR`. Add `--tenant <id>` to limit a command to one tenant.
+under `ES_REINDEX_STATE_DIR`. Add `--tenant <id>` to limit a command to one tenant. The sync
+worker (`fts-search:sync`) drains every currently admitted tenant in turn, each inside its own
+tenant scope and index namespace; a failing tenant does not stop the others, and the run exits
+non-zero afterwards, naming the failed tenants.
 
 The optional services in `docker-compose/deploy/docker-compose.yml` are gated by Compose profiles,
 so a default `docker compose up` neither downloads nor starts them:

@@ -1,7 +1,7 @@
 import { businessTenantAllowList } from '@lobechat/business-tenant';
 import type { Client } from 'pg';
 
-export const ACCOUNT_LOOKUP_ROLE = 'lobehub_account_lookup';
+export const ACCOUNT_LOOKUP_ROLE = 'tituwork_account_lookup';
 type Queryable = Pick<Client, 'query'>;
 
 export const requireLookupRole = async (client: Queryable) => {
@@ -64,12 +64,18 @@ export const verifyLookupPermissions = async (client: Queryable, schemaName: str
   if (result.rows.length) throw new Error(`ACCOUNT_LOOKUP_PRIVILEGES_${result.rows[0].violation}`);
 };
 
+/**
+ * The lookup connection is the lookup role and nothing more. Its one allowed membership is the
+ * administration grant PostgreSQL 16+ gives the non-superuser that created it (managed PostgreSQL
+ * has no superuser): ADMIN only, so the creator neither inherits nor can SET to its privileges.
+ */
 export const verifyLookupIdentity = async (client: Queryable) => {
   const result = await client.query<{ valid: boolean }>(
     `
     SELECT session_user = $1 AND current_user = $1 AND rolcanlogin
       AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls OR rolinherit)
-      AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members WHERE roleid = r.oid OR member = r.oid)
+      AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m WHERE (m.roleid = r.oid OR m.member = r.oid)
+        AND NOT (m.roleid = r.oid AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option))
       AND NOT pg_catalog.has_database_privilege($1, current_database(), 'CREATE')
       AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_shdepend WHERE refclassid = 'pg_catalog.pg_authid'::pg_catalog.regclass
         AND refobjid = r.oid AND deptype = 'o') AS valid

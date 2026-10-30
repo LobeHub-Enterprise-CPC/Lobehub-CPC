@@ -14,17 +14,17 @@ describe('ensureAccountLookupRole', () => {
     await ensureAccountLookupRole(db, 'e2e_sync1022_cpc');
 
     expect(db.query).toHaveBeenNthCalledWith(1, 'SELECT 1 FROM pg_roles WHERE rolname = $1', [
-      'lobehub_account_lookup',
+      'tituwork_account_lookup',
     ]);
     expect(db.query).toHaveBeenNthCalledWith(
       2,
       expect.stringContaining(
-        'CREATE ROLE "lobehub_account_lookup" LOGIN PASSWORD \'lobehub_account_lookup-e2e\'',
+        'CREATE ROLE "tituwork_account_lookup" LOGIN PASSWORD \'tituwork_account_lookup-e2e\'',
       ),
     );
     expect(db.query).toHaveBeenNthCalledWith(
       3,
-      'GRANT CONNECT ON DATABASE "e2e_sync1022_cpc" TO "lobehub_account_lookup"',
+      'GRANT CONNECT ON DATABASE "e2e_sync1022_cpc" TO "tituwork_account_lookup"',
     );
   });
 
@@ -36,7 +36,7 @@ describe('ensureAccountLookupRole', () => {
     expect(db.query).toHaveBeenCalledTimes(2);
     expect(db.query.mock.calls[0][0]).toContain('SELECT 1 FROM pg_roles');
     expect(db.query.mock.calls[1][0]).toBe(
-      'GRANT CONNECT ON DATABASE "e2e_sync1022_cpc" TO "lobehub_account_lookup"',
+      'GRANT CONNECT ON DATABASE "e2e_sync1022_cpc" TO "tituwork_account_lookup"',
     );
   });
 });

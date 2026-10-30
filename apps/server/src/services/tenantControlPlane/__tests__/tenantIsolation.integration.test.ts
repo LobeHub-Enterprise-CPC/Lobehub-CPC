@@ -5,7 +5,7 @@
  * connecting role may create databases and roles; otherwise skipped.
  *
  * Console's provisioning function is emulated by the superuser setup below:
- * schema `tenant_<h24>` owned by `lh_<h24>_owner`, runtime `lh_<h24>_run`
+ * schema `tenant_<h24>` owned by `titu_<h24>_owner`, runtime `titu_<h24>_run`
  * with USAGE only. Everything after that is LobeHub code: the provision
  * executor, the Postgres control-plane repository and the tenant runtime.
  */
@@ -796,4 +796,56 @@ suite('tenant isolation on PostgreSQL', () => {
     );
     expect(rows.rows.map((row) => row.id)).toEqual(['resumed-1', 'resumed-2', 'resumed-3']);
   }, 30_000);
+
+  it('reopens a tenant whose lh_ roles the cutover renamed once Ops retargets its bundle', async () => {
+    // Tenant B: active again after the previous case.
+    const tenant = TENANTS[1];
+    const names = tenantDbNames(tenant.id);
+    const legacy = (role: string) => role.replace(/^titu_/, 'lh_');
+    // The state the previous build left: lh_ roles and directory names.
+    for (const role of [names.ownerUsername, names.runtimeUsername])
+      await admin.query(`ALTER ROLE "${role}" RENAME TO "${legacy(role)}"`);
+    await admin.query(
+      `UPDATE public.tenant_directory SET owner_username = $2, runtime_username = $3 WHERE tenant_id = $1`,
+      [tenant.id, legacy(names.ownerUsername), legacy(names.runtimeUsername)],
+    );
+    // The cutover window: rename the roles (password, grants and ownership stay)...
+    for (const role of [names.ownerUsername, names.runtimeUsername])
+      await admin.query(`ALTER ROLE "${legacy(role)}" RENAME TO "${role}"`);
+    runtime.invalidate(tenant.id);
+    await expect(admitScope(runtime, tenant.slug)).rejects.toMatchObject({
+      code: 'TENANT_NOT_READY',
+    });
+    // ...then Ops retargets: same passwords, contract names, both versions up.
+    const current = bundles.get(tenant.id)!;
+    const directory = await admin.query<{ c: number; v: number }>(
+      'SELECT connection_version AS c, credential_bundle_version AS v FROM public.tenant_directory WHERE tenant_id = $1',
+      [tenant.id],
+    );
+    const retarget: DatasourceBundle = {
+      ...current,
+      connectionVersion: directory.rows[0].c + 1,
+      credentialBundleVersion: directory.rows[0].v + 1,
+    };
+    expect(
+      await service.receiveDatasource({
+        datasource: retarget,
+        operationId: `retarget-${tenant.slug}`,
+        tenantId: tenant.id,
+      }),
+    ).toMatchObject({ errorCode: null, status: 'applied' });
+    const after = await admin.query(
+      'SELECT owner_username, runtime_username FROM public.tenant_directory WHERE tenant_id = $1',
+      [tenant.id],
+    );
+    expect(after.rows).toEqual([
+      { owner_username: names.ownerUsername, runtime_username: names.runtimeUsername },
+    ]);
+    runtime.invalidate(tenant.id);
+    const scope = await admitScope(runtime, tenant.slug);
+    const rows = await runWithTenantScope(scope, () =>
+      tenantDB.execute<{ user: string }>(sql`SELECT current_user AS user`),
+    );
+    expect(rows.rows).toEqual([{ user: names.runtimeUsername }]);
+  }, 60_000);
 });
