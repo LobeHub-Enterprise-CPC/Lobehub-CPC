@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { McpSchema } from '../../types/protocol';
 import { generateRFCProtocolUrl, parseProtocolUrl } from '../protocol';
+
+const desktopEnv = vi.hoisted(() => ({ DESKTOP_PROTOCOL_SCHEME: undefined as string | undefined }));
+
+vi.mock('../../env', () => ({ getDesktopEnv: () => desktopEnv }));
 
 describe('Protocol', () => {
   describe('generateRFCProtocolUrl', () => {
@@ -198,6 +202,28 @@ describe('Protocol', () => {
         expect(parsed?.params.test).toBe('value');
         expect(parsed?.originalUrl).toBe(url);
       });
+    });
+  });
+
+  describe('parseProtocolUrl with a white-label scheme', () => {
+    afterEach(() => {
+      desktopEnv.DESKTOP_PROTOCOL_SCHEME = undefined;
+    });
+
+    it('should parse deep links on the scheme the build registered', () => {
+      desktopEnv.DESKTOP_PROTOCOL_SCHEME = 'tituwork';
+
+      expect(parseProtocolUrl('tituwork://device/reconnect?deviceId=dev-1')).toMatchObject({
+        action: 'reconnect',
+        params: { deviceId: 'dev-1' },
+        urlType: 'device',
+      });
+    });
+
+    it('should still reject a scheme the build did not register', () => {
+      desktopEnv.DESKTOP_PROTOCOL_SCHEME = 'tituwork';
+
+      expect(parseProtocolUrl('othervendor://device/reconnect?deviceId=dev-1')).toBeNull();
     });
   });
 });

@@ -1,3 +1,4 @@
+import { BRANDING_NAME } from '@lobechat/business-const';
 import { type LobeToolManifest } from '@lobechat/context-engine';
 import { currentTenantScope } from '@lobechat/database/tenant';
 import { CacheRevalidate, CacheTag } from '@lobechat/types';
@@ -742,7 +743,9 @@ export class MarketService {
     try {
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeout = setTimeout(() => {
-          const error = new Error(`LobeHub Skill execution timed out after ${timeoutMs}ms`);
+          const error = new Error(
+            `${BRANDING_NAME} Skill execution timed out after ${timeoutMs}ms`,
+          );
           error.name = 'TimeoutError';
           reject(error);
           abortController.abort(error);
@@ -774,7 +777,8 @@ export class MarketService {
           dataMessage = JSON.stringify(response.data);
         }
 
-        const message = responseError?.message || dataMessage || 'LobeHub Skill call failed';
+        const message =
+          responseError?.message || dataMessage || `${BRANDING_NAME} Skill call failed`;
         const denial = getToolAccessDeniedError(responseError, message);
         if (denial)
           return { content: JSON.stringify({ error: denial }), error: denial, success: false };
@@ -909,7 +913,7 @@ export class MarketService {
               identifier: providerId,
               meta: {
                 avatar: icon || '🔗',
-                description: `LobeHub Skill: ${providerLabel}`,
+                description: `${BRANDING_NAME} Skill: ${providerLabel}`,
                 tags: ['lobehub-skill', providerId],
                 title: providerLabel,
               },

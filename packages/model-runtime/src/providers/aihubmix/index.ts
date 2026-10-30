@@ -3,6 +3,7 @@ import urlJoin from 'url-join';
 
 import { createRouterRuntime } from '../../core/RouterRuntime';
 import type { CreateRouterRuntimeOptions } from '../../core/RouterRuntime/createRuntime';
+import { aiHubMixAppCodeHeaders } from '../../utils/appAttribution';
 import { detectModelProvider, processMultiProviderModelList } from '../../utils/modelParse';
 import { responsesAPIModels } from '../openai/modelId';
 import { resolveProviderRouteModels } from '../utils/resolveProviderRouteModels';
@@ -155,9 +156,7 @@ export const params: CreateRouterRuntimeOptions = {
   debug: {
     chatCompletion: () => process.env.DEBUG_AIHUBMIX_CHAT_COMPLETION === '1',
   },
-  defaultHeaders: {
-    'APP-Code': 'LobeHub',
-  },
+  defaultHeaders: aiHubMixAppCodeHeaders(),
   id: ModelProvider.AiHubMix,
   models: async ({ client }) => {
     const apiKey = (client as any).apiKey as string;
@@ -173,7 +172,7 @@ export const params: CreateRouterRuntimeOptions = {
     // - https://aihubmix.com/api/v1/models — returns the complete model catalog (800+)
     // Use the full endpoint so users can access all available models.
     // See https://docs.aihubmix.com/cn/api/Models-API
-    // 'APP-Code' is an AiHubMix-required client identifier.
+    // 'APP-Code' is AiHubMix's optional referral code; the catalog answers without it.
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10_000);
 
@@ -182,8 +181,8 @@ export const params: CreateRouterRuntimeOptions = {
       const clientFetch = (client as any).fetch as typeof fetch | undefined;
       const response = await (clientFetch ?? fetch)(urlJoin(rootBaseURL, '/api/v1/models'), {
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'APP-Code': 'LobeHub',
+          Authorization: `Bearer ${apiKey}`,
+          ...aiHubMixAppCodeHeaders(),
         },
         signal: controller.signal,
       });

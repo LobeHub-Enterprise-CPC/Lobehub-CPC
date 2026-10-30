@@ -154,8 +154,9 @@ export const ssrfSafeFetch = async (
     if (isSSRFBlock) {
       console.error('SSRF protection blocked request:', safeError);
       throw new Error(
-        `SSRF blocked: ${errorMessage}. ` +
-          'See: https://lobehub.com/docs/self-hosting/environment-variables/basic#ssrf-allow-private-ip-address',
+        // No vendor documentation link: this message reaches the users and models
+        // of every distribution, rebranded ones included.
+        `SSRF blocked: ${errorMessage}`,
         // eslint-disable-next-line preserve-caught-error -- the cause is the sanitized copy on purpose
         { cause: safeError },
       );

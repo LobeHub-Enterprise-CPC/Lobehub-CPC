@@ -2,6 +2,7 @@ import { ModelProvider } from 'model-bank';
 
 import type { OpenAICompatibleFactoryOptions } from '../../core/openaiCompatibleFactory';
 import { createOpenAICompatibleRuntime } from '../../core/openaiCompatibleFactory';
+import { appAttributionHeaders } from '../../utils/appAttribution';
 import { processMultiProviderModelList } from '../../utils/modelParse';
 
 export interface VercelAIGatewayModelCard {
@@ -78,10 +79,7 @@ export const params = {
     },
   },
   constructorOptions: {
-    defaultHeaders: {
-      'http-referer': 'https://lobehub.com',
-      'x-title': 'LobeHub',
-    },
+    defaultHeaders: appAttributionHeaders(),
   },
   debug: {
     chatCompletion: () => process.env.DEBUG_VERCELAIGATEWAY_CHAT_COMPLETION === '1',

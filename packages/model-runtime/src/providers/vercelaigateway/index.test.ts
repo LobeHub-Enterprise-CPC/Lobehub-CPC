@@ -25,8 +25,8 @@ describe('LobeVercelAIGatewayAI - custom features', () => {
     it('should have constructor options with default headers', () => {
       expect(params.constructorOptions).toBeDefined();
       expect(params.constructorOptions?.defaultHeaders).toEqual({
-        'http-referer': 'https://lobehub.com',
-        'x-title': 'LobeHub',
+        'HTTP-Referer': 'https://lobehub.com',
+        'X-Title': 'LobeHub',
       });
     });
   });

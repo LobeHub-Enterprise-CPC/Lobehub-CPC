@@ -26,6 +26,7 @@ import { useElectronStore } from '@/store/electron';
 
 import { useTopicId } from '../hooks/useTopicId';
 import { getDevicePoolStatus } from './devicePoolStatus';
+import { deviceReconnectUrl } from './deviceReconnectUrl';
 import { useSandboxNetworkToggle } from './useSandboxNetworkToggle';
 import { useTopicAwareTargetSelect } from './useTopicAwareTargetSelect';
 
@@ -78,7 +79,7 @@ export const useExecutionTargetController = (agentId: string) => {
         if (isDesktop && deviceId === currentDeviceId) {
           await useElectronStore.getState().connectGateway();
         } else {
-          window.location.href = `lobehub://device/reconnect?deviceId=${encodeURIComponent(deviceId)}`;
+          window.location.href = deviceReconnectUrl(deviceId);
         }
 
         let connected = false;
