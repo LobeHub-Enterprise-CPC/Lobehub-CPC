@@ -54,10 +54,11 @@ const tenantArgs = () => {
 };
 
 /**
- * Boot callers (the image launchers) pass `--tolerate-tenant-failures`: a tenant whose chain
- * failed answers 503 until a rerun succeeds, and must not keep the other tenants' replicas from
- * starting. Without it this is the standalone migration CLI (release Jobs, `db:migrate`), which
- * exits non-zero when any tenant was left unavailable so the orchestrator cannot go on.
+ * Boot callers (the OSS image launcher) pass `--tolerate-tenant-failures`: a tenant whose chain
+ * failed is reported and must not keep the other tenants' replicas from starting; requests to it
+ * fail where they touch what the migration did not create. Without it this is the standalone
+ * migration CLI (release Jobs, `db:migrate`), which exits non-zero when any tenant's migration
+ * failed so the orchestrator cannot go on.
  */
 const toleratesTenantFailures = () => process.argv.slice(2).includes('--tolerate-tenant-failures');
 
@@ -90,6 +91,7 @@ const runMigrations = async () => {
       // column has no pending migration, and only `migrate` applies owner grants.
       await migrateUnlessReady(
         async () => {
+          await this.verifyMigrations({ bundle: ctx.bundle, tenantId: ctx.tenantId });
           await this.verify({ bundle: ctx.bundle, tenantId: ctx.tenantId });
           await super.verifyDiscovery({ bundle: ctx.bundle, tenantId: ctx.tenantId });
         },

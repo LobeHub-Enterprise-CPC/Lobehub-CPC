@@ -277,13 +277,24 @@ export class PostgresTenantDatabaseExecutor implements TenantDatabaseExecutor {
     });
   }
 
-  /** Verifies the bundle, actual role/schema permissions and every migration chain. */
+  /** Verifies the bundle and the runtime role's actual attributes, privileges and schema ownership. */
   async verify({ bundle, tenantId }: { bundle: DatasourceBundle; tenantId: string }) {
     if (validateDatasourceBundle(tenantId, bundle))
       throw new TenantReadinessError('DATASOURCE_BINDING_INVALID');
     await withClient(bundle, 'runtime', (client) =>
       verifyTenantRuntime(client, { schemaName: bundle.schemaName, tenantId }, this.migrators()),
     );
+  }
+
+  /**
+   * Migration CLI only: every chain's journal holds its exact history and the schema has the
+   * model's columns. Read-only, as the schema owner.
+   */
+  async verifyMigrations({ bundle, tenantId }: { bundle: DatasourceBundle; tenantId: string }) {
+    const context = { schemaName: tenantDbNames(tenantId).schemaName, tenantId };
+    await withClient(bundle, 'owner', async (client) => {
+      for (const migrator of this.migrators()) await migrator.verify(client, context);
+    });
   }
 
   /**

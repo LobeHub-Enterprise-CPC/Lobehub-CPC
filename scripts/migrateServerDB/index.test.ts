@@ -4,8 +4,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   end: vi.fn().mockResolvedValue(undefined),
   migrate: vi.fn().mockResolvedValue(undefined),
+  tenantMigrate: vi.fn().mockResolvedValue(undefined),
   updateDirectory: vi.fn(() => ({ set: () => ({ where: vi.fn() }) })),
   upgrade: vi.fn(),
+  verify: vi.fn().mockResolvedValue(undefined),
+  verifyDiscovery: vi.fn().mockResolvedValue(undefined),
+  verifyMigrations: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Replace only IO boundaries; run the real CLI entry and startup coordinator.
@@ -27,7 +31,21 @@ vi.mock('../../apps/server/src/services/tenantControlPlane/upgrade', () => ({
   upgradeTenantSchemas: mocks.upgrade,
 }));
 vi.mock('../../apps/server/src/services/tenantControlPlane/postgresExecutor', () => ({
-  PostgresTenantDatabaseExecutor: class {},
+  // Prototype methods, so the CLI's subclass overrides and `super` calls behave as on the real class.
+  PostgresTenantDatabaseExecutor: class {
+    migrate(ctx: unknown) {
+      return mocks.tenantMigrate(ctx);
+    }
+    verify(args: unknown) {
+      return mocks.verify(args);
+    }
+    verifyDiscovery(args: unknown) {
+      return mocks.verifyDiscovery(args);
+    }
+    verifyMigrations(args: unknown) {
+      return mocks.verifyMigrations(args);
+    }
+  },
 }));
 
 afterEach(() => {
@@ -102,5 +120,34 @@ describe('migration CLI exit status', () => {
     expect(exit).toHaveBeenCalledExactlyOnceWith(1);
     expect(mocks.upgrade).not.toHaveBeenCalled();
     expect(mocks.end).toHaveBeenCalledOnce();
+  });
+});
+
+describe('migration CLI tenant upgrade', () => {
+  const ctx = { bundle: {}, name: 't', operationId: 'upgrade:t', slug: 't', tenantId: 't' };
+  const upgradeOne = async () => {
+    mocks.upgrade.mockImplementationOnce(async (_db, { executor }) => {
+      await executor.migrate(ctx);
+      return { failed: [], migrated: ['t'] };
+    });
+    vi.resetModules();
+    vi.spyOn(process, 'argv', 'get').mockReturnValue(['node', 'migrate']);
+    vi.stubEnv('DATABASE_URL', 'postgresql://test:test@127.0.0.1:1/unused');
+    const exit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await import('./index');
+    await vi.waitFor(() => expect(exit).toHaveBeenCalled());
+  };
+
+  it('migrates a tenant whose permissions verify but whose migration history does not', async () => {
+    mocks.verifyMigrations.mockRejectedValueOnce(new Error('migration-history-mismatch'));
+    await upgradeOne();
+    expect(mocks.tenantMigrate).toHaveBeenCalledExactlyOnceWith(ctx);
+  });
+
+  it('skips a tenant whose history, permissions and lookup grants all verify', async () => {
+    await upgradeOne();
+    expect(mocks.verifyMigrations).toHaveBeenCalledOnce();
+    expect(mocks.tenantMigrate).not.toHaveBeenCalled();
   });
 });

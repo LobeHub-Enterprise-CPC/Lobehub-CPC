@@ -1,26 +1,32 @@
 # Tenant database readiness
 
 Tenant identity comes from the trusted platform datasource bundle. Business schemas do not
-duplicate it in a marker table. `schemaVersion` is a protocol compatibility declaration;
-it is not proof that migrations completed.
+duplicate it in a marker table. `schemaVersion` is a protocol compatibility declaration the
+control plane validates on bundles Console sends; it is not proof that migrations completed, and
+business processes do not read it.
 
 ## Verification
 
-Provisioning, datasource rotation, request admission and external-work reconciliation use
-the same database verification:
+Business processes are not aware of migrations: they consume the environment and the data, and a
+missing table or column fails as an ordinary database error where it is used. Provisioning,
+datasource rotation, request admission and external-work reconciliation share the same
+security verification:
 
 - Derive schema, owner and runtime names from the tenant ID; validate the bundle binding.
 - Verify the actual runtime role, namespace owner, role attributes and schema privileges.
   Runtime cannot assume the owner, create objects, access other tenants/public, or write
-  migration journals (including advancing their sequences).
-- Compare every registered chain's applied entries, in ID order, with the release's original
-  SQL hashes and exact timestamps. Readiness requires the entire chain. Migration accepts
-  only a valid prefix; it never guesses from the largest timestamp.
-- Check expected business tables and columns exist, their objects belong to the owner,
-  and the runtime role has the required business DML and sequence privileges.
+  migration journals that exist (including advancing their sequences).
+- Check the schema's objects belong to the owner, and the runtime role has the required
+  business DML and sequence privileges.
 
-Request admission keeps a successful verification, keyed by tenant, connection version,
-credential bundle version and schema version, until one of those changes or a lifecycle event or
+Only the migration executor (the provision `migrate` step and `db:migrate`) checks migration
+state: it compares every registered chain's applied entries, in ID order, with the release's
+original SQL hashes and exact timestamps, and the expected business tables and columns. Migration
+accepts only a valid prefix; it never guesses from the largest timestamp. `db:migrate` skips a
+tenant only when its complete history, runtime permissions and lookup grants all verify.
+
+Request admission keeps a successful verification, keyed by tenant, connection version and
+credential bundle version, until one of those changes or a lifecycle event or
 rotation invalidates the tenant. It is not re-run on a timer, so a request never repeats the
 catalog scan; a first verification that takes longer than the five-second admission bound is
 refused. Lifecycle admission facts (state, expiry) are still re-read at most every five seconds.
@@ -133,7 +139,8 @@ platform changes continue using `DRIZZLE_TARGET=platform`.
 
 Each distribution `TenantMigrator` must supply `verify(client, context, allowPending)` in
 addition to `run` and its journal names. Verification must cover its own complete history
-and expected schema. All registered chains are checked before migration writes begin.
+and expected schema; only the migration executor calls it. All registered chains are checked
+before migration writes begin.
 
 The draft tenant chain was regenerated without the redundant marker. Databases that ran
 the earlier draft are rejected with `migration-history-mismatch`; their data and journal

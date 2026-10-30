@@ -18,7 +18,6 @@ export type TenantDatabaseErrorReason =
   | 'pool-closed'
   | 'schema-name-invalid'
   | 'schema-not-provisioned'
-  | 'schema-version-incompatible'
   | 'stale-connection-version'
   | 'status-not-active';
 

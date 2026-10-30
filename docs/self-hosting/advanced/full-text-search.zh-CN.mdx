@@ -122,7 +122,7 @@ PostgreSQL 写入
 ## 使用 Docker Compose 运行 Elasticsearch
 
 每个租户有自己的数据和自己的索引。捕获触发器安装（`db:install-fts-search-capture`）和重建索引
-（`fts-search-reindex`，Docker 启动时也会执行）会按租户目录对每个启用中的租户各执行一次：每个租户使用
+（`fts-search-reindex`，需显式运行，应用容器启动时不会执行）会按租户目录对每个启用中的租户各执行一次：每个租户使用
 `ES_INDEX_NAMESPACE` 加租户哈希作为索引命名空间，进度保存在 `ES_REINDEX_STATE_DIR` 下各自的目录里。
 加 `--tenant <id>` 可以只处理一个租户。增量同步任务（`fts-search:sync`）每轮依次处理当前可用的每个租户，各自在本租户的作用域和索引命名空间内执行；
 单个租户失败不会中断其他租户，本轮结束后以非零状态退出并列出失败的租户。

@@ -1,7 +1,6 @@
 import type { PlatformDatabase } from '@lobechat/database/platform';
 import { getPlatformDB } from '@lobechat/database/platform';
 import {
-  SUPPORTED_TENANT_SCHEMA_VERSIONS,
   TenantDatabaseError,
   TenantDatabaseSession,
   tenantDbNames,
@@ -248,12 +247,8 @@ export class TenantRuntime {
       throw new TenantGateError('TENANT_NOT_READY', undefined, {
         cause: new TenantDatabaseError('TENANT_NOT_READY', 'schema-name-invalid'),
       });
-    if (!SUPPORTED_TENANT_SCHEMA_VERSIONS.has(directory.schemaVersion))
-      throw new TenantGateError('TENANT_NOT_READY', undefined, {
-        cause: new TenantDatabaseError('TENANT_NOT_READY', 'schema-version-incompatible'),
-      });
 
-    const key = `${directory.connectionVersion}|${directory.credentialBundleVersion}|${directory.schemaVersion}`;
+    const key = `${directory.connectionVersion}|${directory.credentialBundleVersion}`;
     const cached = this.sessions.get(directory.tenantId);
     if (cached?.key === key) return cached.session;
 
@@ -296,10 +291,10 @@ export class TenantRuntime {
       });
   }
 
-  /** Verify real connection identity, permissions, schema and release history before use. */
+  /** Verify real connection identity, role attributes, permissions and schema ownership before use. */
   private async openScope(directory: DirectoryRow): Promise<Omit<TenantScope, 'acceptedVersion'>> {
     const session = this.sessionFor(directory);
-    const verifiedKey = `${directory.tenantId}|${directory.connectionVersion}|${directory.credentialBundleVersion}|${directory.schemaVersion}`;
+    const verifiedKey = `${directory.tenantId}|${directory.connectionVersion}|${directory.credentialBundleVersion}`;
     let verification = this.verified.get(verifiedKey);
     if (!verification) {
       verification = (async () => {

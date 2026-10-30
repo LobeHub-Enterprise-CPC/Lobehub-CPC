@@ -4,7 +4,12 @@ import { getTenantMigrators, type TenantMigrationContext, type TenantMigrator } 
 import { TENANT_EXTENSION_OWNED_SCHEMAS, TENANT_EXTENSION_SCHEMAS, tenantDbNames } from './names';
 import { TenantReadinessError } from './readinessErrors';
 
-/** Shared by provisioning, request admission and background reconciliation. Read-only. */
+/**
+ * Security posture of a tenant's runtime connection: role attributes, schema ownership and the
+ * privileges the runtime role holds. Shared by provisioning, request admission and background
+ * reconciliation. Read-only. Migration state is not checked here: the migration executor verifies
+ * its own journals, and business code fails where it actually uses a missing table or column.
+ */
 export const verifyTenantRuntime = async (
   client: Pick<ClientBase, 'query'>,
   { tenantId, schemaName }: TenantMigrationContext,
@@ -58,8 +63,6 @@ export const verifyTenantRuntime = async (
     );
     if (owned.rows[0]?.owner !== ownerUsername || !owned.rows[0]?.usage)
       throw new TenantReadinessError('SCHEMA_NOT_OWNED');
-
-    for (const migrator of migrators) await migrator.verify(client, { schemaName, tenantId });
 
     const foreign = await client.query(
       `SELECT nspname FROM pg_namespace
@@ -135,8 +138,10 @@ export const verifyTenantRuntime = async (
             WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'r'`,
         [schemaName, table],
       );
+      // A journal the schema does not hold grants nothing; an existing one must stay read-only.
+      if (!access.rows[0]) continue;
       if (
-        !access.rows[0]?.can_read ||
+        !access.rows[0].can_read ||
         access.rows[0].can_write ||
         access.rows[0].owner !== ownerUsername
       )

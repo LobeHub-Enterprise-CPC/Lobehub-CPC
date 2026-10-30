@@ -26,7 +26,7 @@ interface StartupMigrationOptions {
   upgradeTenants: () => Promise<TenantUpgradeResult>;
 }
 
-/** Platform failures reject; request-time history verification isolates failed tenants. */
+/** Platform failures reject; a failed tenant is reported and the others are still migrated. */
 export const runStartupMigrations = async ({
   client,
   migratePlatform,
@@ -38,9 +38,8 @@ export const runStartupMigrations = async ({
     await migratePlatform();
     const result = await upgradeTenants();
     for (const { reason, tenantId } of result.failed) {
-      // TenantRuntime.openScope verifies schema history before admitting requests.
-      // Leave Console-owned lifecycle state untouched so a later successful
-      // migration restores readiness without a control-plane status change.
+      // Leave Console-owned lifecycle state untouched: a rerun of the migration
+      // repairs the tenant without a control-plane status change.
       report({
         event: 'tenant_migration_unavailable',
         reason:

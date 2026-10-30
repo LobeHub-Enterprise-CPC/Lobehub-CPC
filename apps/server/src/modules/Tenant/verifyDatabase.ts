@@ -3,5 +3,8 @@ import { registerTenantMigrator, verifyTenantRuntime } from '@lobechat/database/
 
 registerBusinessTenantMigrators(registerTenantMigrator);
 
-/** Uses the same registered distribution chains as provisioning. */
+/**
+ * Security posture only (role, privileges, schema ownership). Registered distribution chains are
+ * consulted for their journal tables, which the runtime role may only read.
+ */
 export const verifyRuntimeTenantDatabase = verifyTenantRuntime;

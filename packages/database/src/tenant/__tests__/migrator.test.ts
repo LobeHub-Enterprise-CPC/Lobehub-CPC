@@ -17,7 +17,6 @@ import { describe, expect, it } from 'vitest';
 
 import { TenantDatabaseError } from '../errors';
 import {
-  assertTenantMigrationSources,
   getTenantMigrators,
   materializeTenantMigrations,
   materializeTenantStatement,
@@ -317,7 +316,7 @@ describe('the shared and tenant-only chains', () => {
           tenant.length,
         );
 
-        // Readiness covers the governance and Channel tables, whoever created them.
+        // The executor's verification covers the governance and Channel tables, whoever created them.
         const [lobehub] = getTenantMigrators();
         const context = { schemaName, tenantId };
         await lobehub.verify(client, context);
@@ -586,48 +585,6 @@ describe('tenant migration sources', () => {
     const cwd = imageLayout(true);
     try {
       expect(resolveTenantMigrationsFolder(cwd)).toBe(path.join(cwd, 'migrations'));
-    } finally {
-      rmSync(cwd, { force: true, recursive: true });
-    }
-  });
-
-  it('accepts a layout where every registered chain can be read', () => {
-    const cwd = imageLayout(true);
-    try {
-      expect(() => assertTenantMigrationSources(cwd)).not.toThrow();
-    } finally {
-      rmSync(cwd, { force: true, recursive: true });
-    }
-  });
-
-  it('refuses a layout without the OSS chains, as every tenant entry would', () => {
-    const cwd = imageLayout(false);
-    try {
-      expect(() => assertTenantMigrationSources(cwd)).toThrow(
-        expect.objectContaining({ code: 'TENANT_NOT_READY', reason: 'migration-failed' }),
-      );
-    } finally {
-      rmSync(cwd, { force: true, recursive: true });
-    }
-  });
-
-  it('asks every registered chain, so a distribution chain cannot go missing', () => {
-    const cwd = imageLayout(true);
-    try {
-      const missing = new Error('Enterprise tenant migrations folder not found');
-      const chain = {
-        assertSources: (received: string) => {
-          expect(received).toBe(cwd);
-          throw missing;
-        },
-        journalTables: [],
-        name: 'distribution',
-        run: async () => {},
-        verify: async () => {},
-      };
-      expect(() => assertTenantMigrationSources(cwd, [...getTenantMigrators(), chain])).toThrow(
-        missing,
-      );
     } finally {
       rmSync(cwd, { force: true, recursive: true });
     }
