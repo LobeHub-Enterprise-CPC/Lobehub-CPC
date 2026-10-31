@@ -1254,10 +1254,8 @@ describe('AgentRuntimeService.executeStep - Redis failure in error handler', () 
 
     expect(coordinator.saveAgentState).toHaveBeenCalledWith(
       'op-fallback-step-count',
-      expect.objectContaining({
-        status: 'error',
-        stepCount: 6,
-      }),
+      expect.objectContaining({ status: 'error', stepCount: 6 }),
+      undefined,
     );
   });
 
@@ -1301,10 +1299,8 @@ describe('AgentRuntimeService.executeStep - Redis failure in error handler', () 
 
     expect(coordinator.saveAgentState).toHaveBeenCalledWith(
       'op-null-step-count',
-      expect.objectContaining({
-        status: 'error',
-        stepCount: 7,
-      }),
+      expect.objectContaining({ status: 'error', stepCount: 7 }),
+      undefined,
     );
   });
 
