@@ -2,6 +2,7 @@ import type { TenantSettings, TenantSystemModels } from '@lobechat/business-conf
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_FILES_CONFIG } from '@/const/settings/knowledge';
+import type { UserServiceModelConfig } from '@/types/user/settings';
 
 import { parseSystemAgent } from './parseSystemAgent';
 import { getServerSystemModels } from './systemModels';
@@ -29,6 +30,13 @@ const asTenant = (systemModels: TenantSystemModels) => {
     loginMethods: { emailPassword: true, magicLink: false, requireEmailVerification: false },
     systemModels,
   };
+};
+
+const withoutMemoryChatSlots = (config: Partial<UserServiceModelConfig>) => {
+  const rest = { ...config };
+  delete rest.memoryAnalysisAgentConfig;
+  delete rest.userMemoryPersonaWriter;
+  return rest;
 };
 
 const setDeploymentEnv = () => {
@@ -89,7 +97,9 @@ describe('getServerSystemModels in business builds', () => {
   });
 
   // The tenant `systemAgent` row and the `SYSTEM_AGENT` variable share one
-  // meaning of `default` (spec FR-TS-03); drive both entries with the same cases.
+  // meaning of `default` (spec FR-TS-03) outside the memory chat slots, which a
+  // tenant's `default` also fills (see the case below); drive both entries with
+  // the same cases.
   it.each<[string, Record<string, string>]>([
     ['default only', { default: 'chat' }],
     ['default with an explicit slot', { default: 'chat', topic: 'topic-model' }],
@@ -105,7 +115,26 @@ describe('getServerSystemModels in business builds', () => {
 
     const { systemAgent } = await getServerSystemModels();
 
-    expect(systemAgent).toStrictEqual(parseSystemAgent(envString));
+    expect(withoutMemoryChatSlots(systemAgent)).toStrictEqual(
+      withoutMemoryChatSlots(parseSystemAgent(envString)),
+    );
+  });
+
+  it("fills the memory chat slots, but not embedding, from the tenant's default", async () => {
+    asTenant({ systemAgent: { default: 'chat', userMemoryPersonaWriter: 'persona' } });
+
+    const { systemAgent } = await getServerSystemModels();
+
+    expect(systemAgent.memoryAnalysisAgentConfig).toMatchObject({
+      model: 'chat',
+      provider: 'lobehub',
+    });
+    expect(systemAgent.userMemoryPersonaWriter).toMatchObject({
+      model: 'persona',
+      provider: 'lobehub',
+    });
+    expect(systemAgent.userMemoryEmbedding).toBeUndefined();
+    expect(systemAgent.asr).toBeUndefined();
   });
 });
 

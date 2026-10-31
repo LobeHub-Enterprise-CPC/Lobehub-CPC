@@ -16,6 +16,7 @@ import type {
   OnboardingUnderstandingSession,
   RetryOnboardingUnderstandingProviderInput,
   ReviseOnboardingUnderstandingInput,
+  UserSystemAgentConfig,
 } from '@lobechat/types';
 import { projectOnboardingUnderstandingSessionStatus } from '@lobechat/types';
 import pMap from 'p-map';
@@ -23,10 +24,12 @@ import pMap from 'p-map';
 import { AgentModel } from '@/database/models/agent';
 import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
+import { UserModel } from '@/database/models/user';
 import { UserPersonaModel } from '@/database/models/userMemory/persona';
 import type { LobeChatDatabase } from '@/database/type';
 import { AiGenerationService } from '@/server/services/aiGeneration';
 import { ConnectorDataService } from '@/server/services/connectorData';
+import { resolveSystemAgentModelConfig } from '@/server/services/systemAgent/modelConfig';
 import { OnboardingUnderstandingWorkflow } from '@/server/workflows/onboardingUnderstanding';
 
 import { understandingProviderMap } from '../providers';
@@ -439,8 +442,14 @@ export const createUnderstandingService = async ({
         BUILTIN_AGENT_SLUGS.onboardingUnderstanding,
       );
       if (!writerAgent) throw new Error('Onboarding Understanding agent is unavailable');
-      const modelConfig = await agentModel.getAgentModelConfig(writerAgent.id);
-      if (!modelConfig) throw new Error('Onboarding Understanding agent is unavailable');
+      // The builtin agent row pins the code default model; resolve the system
+      // agent slot instead so the user's and the deployment's choice apply.
+      const settings = await new UserModel(db, userId).getUserSettings();
+      const userSystemAgent = settings?.systemAgent as Partial<UserSystemAgentConfig> | undefined;
+      const modelConfig = await resolveSystemAgentModelConfig({
+        taskConfig: userSystemAgent?.onboardingUnderstanding,
+        taskKey: 'onboardingUnderstanding',
+      });
       return { ...modelConfig, id: writerAgent.id };
     },
   });
