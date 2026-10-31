@@ -269,6 +269,7 @@ describe('waiting_for_client (U4c)', () => {
           OPERATION_ID,
           expect.objectContaining({ status: 'waiting_for_client' }),
           'waiting_for_client',
+          { assertOwnership: undefined },
         );
       },
     );
@@ -430,7 +431,9 @@ describe('waiting_for_client (U4c)', () => {
 
       expect(t.getStored().status).toBe('error');
       expect(t.scheduleMessage).not.toHaveBeenCalled();
-      expect(t.dispatchHooks).toHaveBeenCalledWith(OPERATION_ID, expect.anything(), 'error');
+      expect(t.dispatchHooks).toHaveBeenCalledWith(OPERATION_ID, expect.anything(), 'error', {
+        assertOwnership: undefined,
+      });
     });
 
     it('honours AGENT_LLM_RELAY_CLIENT_WAIT_MS for the wait window', async () => {

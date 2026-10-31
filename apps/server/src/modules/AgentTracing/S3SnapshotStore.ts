@@ -84,7 +84,7 @@ export class S3SnapshotStore implements ISnapshotStore {
     return JSON.parse(buf.toString('utf8')) as T;
   }
 
-  async save(snapshot: ExecutionSnapshot): Promise<void> {
+  async save(snapshot: ExecutionSnapshot, assertOwnership?: () => Promise<void>): Promise<void> {
     // Recover agentId/topicId from the operationId when the snapshot lacks them,
     // so the key matches what readers reconstruct from the operationId. Only an
     // operationId that doesn't carry the segments falls through to "unknown".
@@ -95,6 +95,7 @@ export class S3SnapshotStore implements ISnapshotStore {
 
     log('Saving snapshot to S3: %s', key);
     const compressed = await this.encodeSnapshot(snapshot);
+    await assertOwnership?.();
     await this.s3.uploadBuffer(key, compressed, ZSTD_CONTENT_TYPE);
   }
 

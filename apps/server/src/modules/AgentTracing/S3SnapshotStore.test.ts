@@ -5,6 +5,9 @@ import { zstdCompress, zstdDecompress } from 'node:zlib';
 import type { ExecutionSnapshot } from '@lobechat/agent-tracing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { StepOwnershipLostError } from '@/server/services/agentRuntime/AgentRuntimeService/executionErrors';
+import { OperationTraceRecorder } from '@/server/services/agentRuntime/OperationTraceRecorder';
+
 const compressZstd = promisify(zstdCompress);
 const decompressZstd = promisify(zstdDecompress);
 
@@ -50,6 +53,66 @@ beforeEach(() => {
 });
 
 describe('S3SnapshotStore.save', () => {
+  it('does not start a stale canonical PUT after ownership is lost during encoding', async () => {
+    const old = new S3SnapshotStore();
+    const originalEncode = (old as any).encodeSnapshot.bind(old);
+    let entered!: () => void, release!: () => void;
+    const encoding = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(old as any, 'encodeSnapshot').mockImplementationOnce(async (snapshot) => {
+      entered();
+      await gate;
+      return originalEncode(snapshot);
+    });
+    let owned = true;
+    const lost = new StepOwnershipLostError('op-trace', 1);
+    const saving = old.save(
+      sampleSnapshot({ completionReason: 'waiting_for_async_tool' } as any),
+      async () => {
+        if (!owned) throw lost;
+      },
+    );
+    await encoding;
+    owned = false;
+    await new S3SnapshotStore().save(sampleSnapshot({ completionReason: 'done' } as any));
+    const rejected = expect(saving).rejects.toBe(lost);
+    release();
+    await rejected;
+    expect(uploadBuffer).toHaveBeenCalledTimes(1);
+    const snapshot = JSON.parse((await decompressZstd(uploadBuffer.mock.calls[0][1])).toString());
+    expect(snapshot.completionReason).toBe('done');
+  });
+
+  it('refuses the final PUT when ownership is lost during encoding and keeps the partial', async () => {
+    const store = new S3SnapshotStore();
+    const snap = sampleSnapshot();
+    const lost = new StepOwnershipLostError(snap.operationId, 1);
+    let owned = true;
+    vi.spyOn(store, 'loadPartial').mockResolvedValue({ steps: [] });
+    vi.spyOn(store as any, 'encodeSnapshot').mockImplementation(async () => {
+      await Promise.resolve();
+      owned = false;
+      return Buffer.from('encoded');
+    });
+    const recorder = new OperationTraceRecorder(store);
+
+    await expect(
+      recorder.finalize(snap.operationId, {
+        assertOwnership: async () => {
+          if (!owned) throw lost;
+        },
+        completionReason: 'done',
+        state: {},
+      }),
+    ).rejects.toBe(lost);
+    expect(uploadBuffer).not.toHaveBeenCalled();
+    expect(deleteFile).not.toHaveBeenCalled();
+  });
+
   it('writes to agent-traces/{agentId}/{topicId}/{operationId}.json.zst with zstd body', async () => {
     const store = new S3SnapshotStore();
     const snap = sampleSnapshot();

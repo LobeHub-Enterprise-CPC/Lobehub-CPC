@@ -30,7 +30,8 @@ export interface ISnapshotStore {
 
   /** Remove partial snapshot (after finalizing) */
   removePartial: (operationId: string) => Promise<void>;
-  save: (snapshot: ExecutionSnapshot) => Promise<void>;
+  /** Recheck ownership after async preparation, immediately before the final write. */
+  save: (snapshot: ExecutionSnapshot, assertOwnership?: () => Promise<void>) => Promise<void>;
   /**
    * Save in-progress partial snapshot. `signal` lets a caller that no longer
    * owns the operation abort an upload it already started, so it cannot land on

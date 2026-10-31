@@ -322,7 +322,7 @@ export class OperationTraceRecorder {
 
       await params.assertOwnership?.();
       if (generation !== this.generation) return;
-      await this.store.save(snapshot as any);
+      await this.store.save(snapshot as any, params.assertOwnership);
       // A loss during the upload must not delete the next owner's partial.
       if (generation !== this.generation) return;
       // Forget the partial before deleting it, so a late `appendStep` on this

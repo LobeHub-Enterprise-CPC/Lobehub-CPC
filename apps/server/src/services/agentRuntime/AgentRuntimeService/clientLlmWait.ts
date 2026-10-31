@@ -25,6 +25,7 @@ import {
 import { CLIENT_LLM_WAIT_CAPABILITY } from '@/server/modules/AgentRuntime/llmRelay/protocol';
 
 import { CLIENT_WAIT_ROW_WRITE_ATTEMPTS } from './constants';
+import { StepOwnershipLostError } from './executionErrors';
 import type { AgentRuntimeServiceContext } from './types';
 
 const log = debug('lobe-server:agent-runtime-service');
@@ -154,8 +155,9 @@ export async function parkForClientLlm(
   // by the notice — and the run waits with nothing left to end it.
   await assertOwnership?.();
   try {
-    await deps.coordinator.saveAgentState(operationId, parkedState);
+    await deps.coordinator.saveAgentState(operationId, parkedState, assertOwnership);
   } catch (error) {
+    if (error instanceof StepOwnershipLostError) throw error;
     log('[%s] Could not save the parked state, failing instead: %O', operationId, error);
     return;
   }
@@ -163,10 +165,14 @@ export async function parkForClientLlm(
   // The notice is the only thing a client that cannot run the provider sees
   // (its relay error handler re-reads the server-owned row), so a transient
   // failure is retried rather than left as a silent park.
-  await deps.updateAssistantRowWithRetry(operationId, assistantMessage.id, {
-    error: buildClientLlmWaitMessageError(wait),
-  });
+  await deps.updateAssistantRowWithRetry(
+    operationId,
+    assistantMessage.id,
+    { error: buildClientLlmWaitMessageError(wait) },
+    assertOwnership,
+  );
 
+  await assertOwnership?.();
   try {
     await deps.queueService.scheduleMessage({
       context: undefined,
@@ -178,6 +184,7 @@ export async function parkForClientLlm(
       stepIndex: parkedState.stepCount,
     });
   } catch (error) {
+    if (error instanceof StepOwnershipLostError) throw error;
     // Without the expiry the run could wait forever: fail it now instead
     // (the run's error then replaces the waiting notice on its row).
     log('[%s] Could not arm the client wait expiry, failing instead: %O', operationId, error);
@@ -498,12 +505,15 @@ export async function updateAssistantRowWithRetry(
   operationId: string,
   messageId: string,
   value: Parameters<MessageModel['update']>[1],
+  assertOwnership?: () => Promise<void>,
 ) {
   for (let attempt = 1; attempt <= CLIENT_WAIT_ROW_WRITE_ATTEMPTS; attempt += 1) {
+    await assertOwnership?.();
     try {
       await deps.messageModel.update(messageId, value);
       return;
     } catch (error) {
+      if (error instanceof StepOwnershipLostError) throw error;
       log('[%s] Failed to write the assistant row (%d): %O', operationId, attempt, error);
       if (attempt < CLIENT_WAIT_ROW_WRITE_ATTEMPTS) {
         await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
