@@ -324,7 +324,11 @@ export class OperationTraceRecorder {
       // Forget the partial before deleting it, so a late `appendStep` on this
       // recorder cannot re-upload the object we just removed.
       this.discardPartial();
-      await this.store.removePartial(operationId);
+      // Human intervention can continue this operation id. Keep its durable
+      // partial as well as the readable waiting snapshot until the real end.
+      if (params.completionReason !== 'waiting_for_human') {
+        await this.store.removePartial(operationId);
+      }
     } catch (e) {
       log('[%s] snapshot finalize failed (reason=%s): %O', operationId, params.completionReason, e);
     }

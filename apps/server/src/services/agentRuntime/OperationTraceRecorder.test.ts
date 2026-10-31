@@ -96,6 +96,28 @@ describe('OperationTraceRecorder partial accumulation', () => {
     expect(store.savePartial.mock.calls.at(-1)?.[1].steps).toHaveLength(3);
   });
 
+  it('keeps a human-wait snapshot readable while the same operation can resume', async () => {
+    let partial: Partial<ExecutionSnapshot> | null = null;
+    store.loadPartial.mockImplementation(async () => structuredClone(partial));
+    store.savePartial.mockImplementation(async (_id, value) => {
+      partial = structuredClone(value);
+    });
+    store.removePartial.mockImplementation(async () => {
+      partial = null;
+    });
+
+    await recorder.appendStep(OPERATION_ID, stepParams(0));
+    await recorder.finalize(OPERATION_ID, { completionReason: 'waiting_for_human', state: {} });
+    expect(store.save.mock.calls[0][0].completionReason).toBe('waiting_for_human');
+
+    const resumedRecorder = new OperationTraceRecorder(store);
+    await resumedRecorder.appendStep(OPERATION_ID, stepParams(1));
+    await resumedRecorder.finalize(OPERATION_ID, { completionReason: 'done', state: {} });
+
+    expect(store.save.mock.calls.at(-1)?.[0].steps.map((step) => step.stepIndex)).toEqual([0, 1]);
+    expect(store.removePartial).toHaveBeenCalledTimes(1);
+  });
+
   it('finalizes from memory and deletes the partial after the final snapshot', async () => {
     await recorder.appendStep(OPERATION_ID, stepParams(0));
     await recorder.finalize(OPERATION_ID, { completionReason: 'done', state: {} });

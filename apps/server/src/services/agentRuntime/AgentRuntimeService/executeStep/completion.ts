@@ -160,6 +160,10 @@ export async function finishOperation(
   // say `waiting_for_async_tool`, re-run the barrier once to recover
   // any resume that raced the park.
   if (stepResult.newState.status === 'waiting_for_async_tool') {
+    // The barrier may hand the run to another invocation. Land the parked
+    // steps before that invocation starts extending the same trajectory.
+    await assertOwnership?.();
+    await deps.traceRecorder.flushPartial();
     try {
       await deps.tryResumeParentFromAsyncTool({ parentOperationId: operationId });
     } catch (selfCheckError) {
@@ -175,11 +179,11 @@ export async function finishOperation(
   // Finalize tracing snapshot. The error catch below uses the same
   // recorder so propagated failures still write the canonical S3
   // snapshot instead of orphaning the partial ().
-  // A client park is no trace boundary: keep the partial so the resumed
+  // A client or async-tool park is no trace boundary: keep the partial so the resumed
   // steps extend the same trajectory and the real end finalizes it whole.
   await assertOwnership?.();
   const newStateError = stepResult.newState.error;
-  if (reason === 'waiting_for_client') {
+  if (reason === 'waiting_for_client' || reason === 'waiting_for_async_tool') {
     await deps.traceRecorder.flushPartial();
   } else
     await deps.traceRecorder.finalize(operationId, {
