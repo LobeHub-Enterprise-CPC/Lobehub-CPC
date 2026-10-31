@@ -17,20 +17,24 @@ const mocks = vi.hoisted(() => ({
   claim: vi.fn(),
   confirm: vi.fn(),
   list: vi.fn(),
+  modelOwners: [] as unknown[][],
   renew: vi.fn(),
   release: vi.fn(),
 }));
 vi.mock('@/database/models/agentOperation', () => ({
   AgentOperationModel: class {
+    constructor(_db: unknown, ...owner: unknown[]) {
+      mocks.modelOwners.push(owner);
+    }
     findById = mocks.findOperation;
     noteAsyncToolResumeScan = mocks.note;
     tryResumeFromAsyncTool = mocks.cas;
     claimAsyncToolResume = mocks.claim;
     confirmAsyncToolResume = mocks.confirm;
-    listPendingAsyncToolResumes = mocks.list;
     renewAsyncToolResume = mocks.renew;
     releaseAsyncToolResume = mocks.release;
   },
+  listPendingAsyncToolResumes: (...args: unknown[]) => mocks.list(...args),
 }));
 vi.mock('@/server/modules/Hatchet/config', () => ({
   isHatchetDeliveryEnabled: () => mocks.enabled,
@@ -92,14 +96,46 @@ const state = {
 const load = vi.fn();
 const probe = vi.fn();
 const schedule = vi.fn();
+const db = {} as never;
 const reconciler = () =>
-  new AsyncToolResumeReconciler({} as never, {
+  new AsyncToolResumeReconciler(db, {
     coordinator: { loadAgentState: load, touchOperation: vi.fn() } as never,
     deliveryProbe: probe,
     queueService: { scheduleMessage: schedule } as never,
   });
+const sweepAt = new Date('2026-10-30T12:00:00.000Z');
+/** Re-publishes one intent may claim; the original publish is not one of them. */
+const MAX_REPUBLISH_ATTEMPTS = 3;
+
+/**
+ * Wires the model mocks to one durable intent with the database's semantics:
+ * the claim is a CAS on the deduplication key that counts attempts against
+ * the given budget, and only a pending intent is listed or confirmed.
+ */
+const useDurableIntent = () => {
+  const store: { intent: typeof intent & { attempts?: number } } = { intent: { ...intent } };
+  mocks.list.mockImplementation(async () =>
+    store.intent.state === 'pending' ? [{ ...candidate, intent: { ...store.intent } }] : [],
+  );
+  mocks.claim.mockImplementation(
+    async (_id, previous, next, _owner, _now, _until, maxAttempts: number) => {
+      const attempts = store.intent.attempts ?? 0;
+      if (store.intent.deduplicationId !== previous || attempts >= maxAttempts) return false;
+      store.intent = { ...store.intent, attempts: attempts + 1, deduplicationId: next };
+      return true;
+    },
+  );
+  mocks.confirm.mockImplementation(async (_id, key) => {
+    if (store.intent.state !== 'pending' || store.intent.deduplicationId !== key) return false;
+    store.intent = { ...store.intent, state: 'confirmed' };
+    return true;
+  });
+  return store;
+};
+
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.modelOwners.length = 0;
   mocks.enabled = true;
   mocks.list.mockResolvedValue([candidate]);
   mocks.claim.mockResolvedValue(true);
@@ -112,7 +148,7 @@ beforeEach(() => {
 });
 
 describe('async tool resume reconciliation', () => {
-  it('redrives the saved resume with a new generation and confirms it', async () => {
+  it('redrives the saved resume with a new generation and leaves it pending', async () => {
     await reconciler().sweep(new Date('2026-10-30T12:00:00.000Z'));
     expect(schedule).toHaveBeenCalledOnce();
     expect(schedule).toHaveBeenCalledWith(
@@ -123,7 +159,131 @@ describe('async tool resume reconciliation', () => {
         deduplicationId: expect.not.stringMatching(/^initial$/),
       }),
     );
-    expect(mocks.confirm).toHaveBeenCalledOnce();
+    // The claim enforces the re-publish budget in the same write that takes the lease.
+    expect(mocks.claim).toHaveBeenCalledWith(
+      'parent',
+      'initial',
+      expect.any(String),
+      expect.any(String),
+      expect.any(Date),
+      expect.any(Date),
+      MAX_REPUBLISH_ATTEMPTS,
+    );
+    // Hatchet accepting the run is no proof it will run: it can still end FAILED.
+    expect(mocks.confirm).not.toHaveBeenCalled();
+  });
+
+  it('re-publishes a resume whose accepted run later failed in Hatchet', async () => {
+    const store = useDurableIntent();
+    await reconciler().sweep(sweepAt);
+    // The accepted run ends FAILED: no delivery is live and the parent still waits.
+    await reconciler().sweep(new Date(sweepAt.getTime() + 60_000));
+
+    expect(schedule).toHaveBeenCalledTimes(2);
+    const [first, second] = schedule.mock.calls.map(([message]) => message.deduplicationId);
+    expect(first).not.toBe(second);
+    expect(store.intent).toMatchObject({ attempts: 2, deduplicationId: second, state: 'pending' });
+  });
+
+  it('stops re-publishing once the attempt budget is spent, and says so', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const store = useDurableIntent();
+      const results = [];
+      for (let sweep = 0; sweep < MAX_REPUBLISH_ATTEMPTS + 2; sweep++)
+        results.push(await reconciler().sweep(new Date(sweepAt.getTime() + sweep * 60_000)));
+
+      expect(schedule).toHaveBeenCalledTimes(MAX_REPUBLISH_ATTEMPTS);
+      expect(store.intent).toMatchObject({ attempts: MAX_REPUBLISH_ATTEMPTS, state: 'pending' });
+      expect(results.at(-1)).toMatchObject({ exhausted: 1, republished: 0 });
+      const line = JSON.parse(warn.mock.calls.at(-1)![0] as string);
+      expect(line).toEqual({
+        attempts: MAX_REPUBLISH_ATTEMPTS,
+        event: 'agent.async_tool_resume.republish_exhausted',
+        operationId: 'parent',
+        stepIndex: 4,
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('confirms the intent once the parent advances past the re-published resume', async () => {
+    const store = useDurableIntent();
+    await reconciler().sweep(sweepAt);
+    expect(mocks.confirm).not.toHaveBeenCalled();
+
+    load.mockResolvedValue({ status: 'running', stepCount: 4 });
+    const result = await reconciler().sweep(new Date(sweepAt.getTime() + 60_000));
+
+    expect(result).toMatchObject({ confirmed: 1, republished: 0 });
+    expect(schedule).toHaveBeenCalledOnce();
+    expect(store.intent.state).toBe('confirmed');
+  });
+
+  it('reports what a sweep did and logs each re-publish', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      mocks.list.mockResolvedValue([candidate, { ...candidate, id: 'broken' }]);
+      mocks.note.mockImplementation(async (id: string) => {
+        if (id === 'broken') throw new Error('database unavailable');
+      });
+
+      const result = await reconciler().sweep(sweepAt);
+
+      expect(result).toEqual({
+        confirmed: 0,
+        examined: 2,
+        exhausted: 0,
+        failed: 1,
+        republished: 1,
+      });
+      const line = JSON.parse(info.mock.calls.at(-1)![0] as string);
+      expect(line).toEqual({
+        attempt: 1,
+        event: 'agent.async_tool_resume.republished',
+        operationId: 'parent',
+        stepIndex: 4,
+      });
+      expect(error).toHaveBeenCalledWith(expect.any(String), 'broken', expect.any(Error));
+    } finally {
+      info.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  it('stops at its time budget, leaving the rest to the next sweep', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      mocks.list.mockResolvedValue(['a', 'b', 'c'].map((id) => ({ ...candidate, id })));
+      // Each delivery probe takes 15 s of the sweep's 20 s budget.
+      probe.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 15_000);
+        return 'active';
+      });
+
+      const result = await reconciler().sweep(sweepAt);
+
+      expect(probe.mock.calls.map(([id]) => id)).toEqual(['a', 'b']);
+      expect(result).toMatchObject({ examined: 2 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('lists candidates tenant-wide without a user-scoped model for an empty user', async () => {
+    await reconciler().sweep(sweepAt);
+
+    expect(mocks.list).toHaveBeenCalledWith(
+      db,
+      new Date(sweepAt.getTime() - 60_000),
+      sweepAt,
+      50,
+      undefined,
+    );
+    expect(mocks.modelOwners).not.toContainEqual(['']);
+    expect(mocks.modelOwners).toContainEqual(['user', undefined]);
   });
   it.each(['active', 'unknown'])('waits when delivery status is %s', async (result) => {
     probe.mockResolvedValue(result);

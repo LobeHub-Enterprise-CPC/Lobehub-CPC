@@ -68,6 +68,16 @@ describe('durable async-tool resume', () => {
       }),
     );
   });
+  it('leaves the intent pending after publishing, for the parent advancing to confirm', async () => {
+    // An accepted run can still end FAILED in Hatchet; the reconciler re-sends
+    // a pending intent whose parent never advanced.
+    await tryResumeParentFromAsyncTool(deps, {
+      parentOperationId: 'parent',
+      childOperationId: 'child',
+    });
+    expect(mocks.schedule).toHaveBeenCalledOnce();
+    expect(mocks.confirm).not.toHaveBeenCalled();
+  });
   it('leaves the existing non-Hatchet scheduling behavior unchanged', async () => {
     mocks.enabled = false;
     await tryResumeParentFromAsyncTool(deps, {

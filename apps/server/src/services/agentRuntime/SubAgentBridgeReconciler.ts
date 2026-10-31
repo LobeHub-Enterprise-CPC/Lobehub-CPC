@@ -14,33 +14,47 @@ const MAX_PER_SWEEP = 200;
 const GRACE_MS = 60_000;
 const WINDOW_MS = 2 * 60 * 60_000;
 const LEASE_MS = 120_000;
+/**
+ * Bounds one sweep the way the reaper's budget does: a replay can run a whole
+ * bridge completion. Stopping early is safe, because a claim moves the binding's
+ * `updatedAt` behind the ones this sweep did not reach.
+ */
+const SWEEP_TIME_BUDGET_MS = 20_000;
 const TERMINAL = new Set(['done', 'error', 'interrupted', 'abandoned']);
 
 const event = (
-  name: 'processed' | 'recovered' | 'failed' | 'skipped',
+  name: 'processed' | 'recovered' | 'failed' | 'skipped' | 'error',
   reason: string,
   childOperationId: string,
+  detail?: Record<string, unknown>,
 ) => {
   const record = JSON.stringify({
     event: `subagent.bridge.reconcile.${name}`,
     reason,
     childOperationId,
+    ...detail,
   });
-  if (name === 'failed') console.warn(record);
+  if (name === 'error') console.error(record);
+  else if (name === 'failed') console.warn(record);
   else console.info(record);
 };
 
 export class SubAgentBridgeReconciler {
   constructor(private readonly db: LobeChatDatabase) {}
 
+  /**
+   * `failed` counts bindings settled as failed; `errors` counts the ones whose
+   * processing threw, which stay pending for the next sweep.
+   */
   async sweep(now = new Date()) {
-    const totals = { processed: 0, recovered: 0, failed: 0, skipped: 0 };
+    const totals = { errors: 0, failed: 0, processed: 0, recovered: 0, skipped: 0 };
     if (!isHatchetDeliveryEnabled()) return totals;
     const model = new AgentSubAgentBridgeModel(this.db);
     const coordinator = new AgentRuntimeCoordinator();
     const before = new Date(now.getTime() - GRACE_MS);
+    const deadline = Date.now() + SWEEP_TIME_BUDGET_MS;
     let cursor: { id: string; updatedAt: Date } | undefined;
-    while (totals.processed < MAX_PER_SWEEP) {
+    while (totals.processed < MAX_PER_SWEEP && Date.now() < deadline) {
       const rows = await model.listTerminalRecoverable({
         before,
         cursor,
@@ -48,6 +62,7 @@ export class SubAgentBridgeReconciler {
       });
       if (!rows.length) break;
       for (const { binding, child } of rows) {
+        if (Date.now() >= deadline) break;
         cursor = { id: binding.id, updatedAt: binding.updatedAt };
         totals.processed++;
         event('processed', 'candidate', binding.childOperationId);
@@ -209,9 +224,14 @@ export class SubAgentBridgeReconciler {
               event('skipped', 'lease_lost', binding.childOperationId);
             }
           }
-        } catch {
-          totals.skipped++;
-          event('skipped', 'processing_error', binding.childOperationId);
+        } catch (error) {
+          // Name and code only: an error message can carry message contents.
+          totals.errors++;
+          event('error', 'processing_error', binding.childOperationId, {
+            errorCode: (error as { code?: unknown } | null)?.code,
+            errorName: error instanceof Error ? error.name : typeof error,
+            id: binding.id,
+          });
         } finally {
           clearInterval(heartbeat);
           await renewal;

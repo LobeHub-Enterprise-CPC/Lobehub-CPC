@@ -330,6 +330,61 @@ describe('sub-agent bridge reconciliation', () => {
     }
   });
 
+  it('counts and logs a binding whose processing threw instead of hiding it as a skip', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      mocks.validate.mockRejectedValue(
+        Object.assign(new Error('could not read tool message "secret"'), { code: '57P01' }),
+      );
+
+      const result = await new SubAgentBridgeReconciler({} as never).sweep(now);
+
+      expect(result).toEqual({ errors: 1, failed: 0, processed: 1, recovered: 0, skipped: 0 });
+      expect(error).toHaveBeenCalledOnce();
+      expect(JSON.parse(error.mock.calls[0][0] as string)).toEqual({
+        childOperationId: 'child',
+        errorCode: '57P01',
+        errorName: 'Error',
+        event: 'subagent.bridge.reconcile.error',
+        id: 'id',
+        reason: 'processing_error',
+      });
+      // Identifiers only: an error message can carry message contents.
+      expect(JSON.stringify(error.mock.calls)).not.toContain('secret');
+      expect(mocks.release).toHaveBeenCalledWith('child', expect.any(String));
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it('stops at its time budget, leaving the remaining bindings to the next sweep', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(now);
+      mocks.list.mockReset().mockResolvedValueOnce(
+        ['a', 'b', 'c'].map((id) => ({
+          binding: { ...binding, childOperationId: `child-${id}`, id },
+          child: { status: 'done', completedAt: binding.createdAt },
+        })),
+      );
+      mocks.list.mockResolvedValue([]);
+      // Each replay takes 15 s of the sweep's 20 s budget.
+      mocks.complete.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 15_000);
+      });
+
+      const result = await new SubAgentBridgeReconciler({} as never).sweep(now);
+
+      expect(mocks.complete.mock.calls.map(([params]) => params.operationId)).toEqual([
+        'child-a',
+        'child-b',
+      ]);
+      expect(result).toMatchObject({ processed: 2, recovered: 2 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('advances by the last (updatedAt, id) pair even when earlier rows settle', async () => {
     const rows = Array.from({ length: 50 }, (_, i) => ({
       binding: { ...binding, id: String(i) },

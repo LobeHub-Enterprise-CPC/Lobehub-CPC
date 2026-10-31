@@ -43,42 +43,73 @@ export const createRedriveQueue = (): QueueService => {
   return queueService;
 };
 
+/** What the fan-out records for a tenant whose work threw. */
+const failureReason = (error: unknown): string =>
+  (error as { code?: string })?.code ?? (error as Error)?.name ?? 'UNKNOWN_ERROR';
+
 /**
  * Deployment-wide stale-operation recovery (see {@link StaleOperationReaper}):
  * sweeps every available tenant in turn. A tenant whose sweep threw answers 5xx
- * so the scheduler records the failed run.
+ * so the scheduler records the failed run. A reconciler that threw is listed
+ * with its `phase`, without dropping what the tenant's other sweeps did.
+ *
+ * `failed` counts recoveries that threw, except in `reconciliation`, where it
+ * counts bindings settled as failed and `errors` the ones that threw.
  */
 export const reapOperationsForAllTenants = async (c: Context): Promise<Response> => {
   const queueService = createRedriveQueue();
   const deliveryProbe = isHatchetDeliveryEnabled() ? createHatchetDeliveryProbe() : undefined;
-  const { failed, succeeded } = await forEachTenant('cron:agent-reap-operations', async () => {
-    const db = await getServerDB();
-    const reaper = await new StaleOperationReaper(db, { deliveryProbe, queueService }).sweep();
-    if (deliveryProbe)
-      await new AsyncToolResumeReconciler(db, { deliveryProbe, queueService }).sweep();
-    const reconciliation = await new SubAgentBridgeReconciler(db).sweep();
-    return { reaper, reconciliation };
-  });
+  const { failed, succeeded } = await forEachTenant(
+    'cron:agent-reap-operations',
+    async (tenantId) => {
+      const db = await getServerDB();
+      const reaper = await new StaleOperationReaper(db, { deliveryProbe, queueService }).sweep();
+      const phaseFailures: { phase: string; reason: string }[] = [];
+      const isolated = async <T>(phase: string, sweep: () => Promise<T>) => {
+        try {
+          return await sweep();
+        } catch (error) {
+          log('%s sweep failed for tenant %s: %O', phase, tenantId, error);
+          phaseFailures.push({ phase, reason: failureReason(error) });
+        }
+      };
+      const asyncToolResume = deliveryProbe
+        ? await isolated('asyncToolResume', () =>
+            new AsyncToolResumeReconciler(db, { deliveryProbe, queueService }).sweep(),
+          )
+        : undefined;
+      const reconciliation = await isolated('subAgentBridge', () =>
+        new SubAgentBridgeReconciler(db).sweep(),
+      );
+      return { asyncToolResume, phaseFailures, reaper, reconciliation };
+    },
+  );
 
   const totals = { abandoned: 0, examined: 0, failed: 0, redriven: 0, skipped: 0 };
   const skippedReasons: Record<string, number> = {};
-  const reconciliation = { processed: 0, recovered: 0, failed: 0, skipped: 0 };
-  for (const {
-    result: { reaper: result, reconciliation: bridge },
-    tenantId,
-  } of succeeded) {
-    for (const key of Object.keys(reconciliation) as (keyof typeof reconciliation)[])
-      reconciliation[key] += bridge[key];
-    for (const key of Object.keys(totals) as (keyof typeof totals)[]) totals[key] += result[key];
-    for (const [reason, count] of Object.entries(result.skippedReasons))
+  const asyncToolResume = { confirmed: 0, examined: 0, exhausted: 0, failed: 0, republished: 0 };
+  const reconciliation = { errors: 0, failed: 0, processed: 0, recovered: 0, skipped: 0 };
+  const failedTenants: { phase?: string; reason: string; tenantId: string }[] = [...failed];
+  for (const { result, tenantId } of succeeded) {
+    const { reaper, asyncToolResume: resume, reconciliation: bridge } = result;
+    for (const key of Object.keys(totals) as (keyof typeof totals)[]) totals[key] += reaper[key];
+    for (const [reason, count] of Object.entries(reaper.skippedReasons))
       skippedReasons[reason] = (skippedReasons[reason] ?? 0) + count;
-    if (result.redriven > 0 || result.abandoned > 0 || result.failed > 0)
-      console.info('[cron:reap-operations] tenant %s: %o', tenantId, result);
+    if (resume)
+      for (const key of Object.keys(asyncToolResume) as (keyof typeof asyncToolResume)[])
+        asyncToolResume[key] += resume[key];
+    if (bridge)
+      for (const key of Object.keys(reconciliation) as (keyof typeof reconciliation)[])
+        reconciliation[key] += bridge[key];
+    for (const failure of result.phaseFailures) failedTenants.push({ ...failure, tenantId });
+    if (reaper.redriven > 0 || reaper.abandoned > 0 || reaper.failed > 0)
+      console.info('[cron:reap-operations] tenant %s: %o', tenantId, reaper);
   }
-  if (failed.length > 0) console.error('[cron:reap-operations] tenant sweeps failed: %o', failed);
+  if (failedTenants.length > 0)
+    console.error('[cron:reap-operations] tenant sweeps failed: %o', failedTenants);
 
   return c.json(
-    { ...totals, failedTenants: failed, reconciliation, skippedReasons },
-    failed.length > 0 ? 500 : 200,
+    { ...totals, asyncToolResume, failedTenants, reconciliation, skippedReasons },
+    failedTenants.length > 0 ? 500 : 200,
   );
 };

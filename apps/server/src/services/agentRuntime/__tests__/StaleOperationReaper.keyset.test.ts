@@ -132,11 +132,29 @@ describe('StaleOperationReaper keyset paging', () => {
     ]);
   });
 
-  it('starts from the oldest when the stored cursor is not usable', async () => {
-    redis.keys.set(
-      'stale_sweep_cursor:v1',
-      JSON.stringify({ id: 'op_mid', updatedAt: 'not-a-time' }),
-    );
+  /** `updated_at` exactly as the reaper stores it in its cursor. */
+  const storedUpdatedAt = async (id: string) => {
+    const [row] = await serverDB
+      .select({ updatedAt: sql<string>`${agentOperations.updatedAt}::text` })
+      .from(agentOperations)
+      .where(eq(agentOperations.id, id));
+    return row.updatedAt;
+  };
+
+  it.each([
+    // A position that is otherwise usable: resuming from it would skip the oldest.
+    [
+      'it has no cycle start',
+      async () => ({ id: 'op_mid', updatedAt: await storedUpdatedAt('op_mid') }),
+    ],
+    // A valid cycle start, so only the timestamp check keeps this value away
+    // from the cursor's `::timestamptz` cast.
+    [
+      'its timestamp is malformed',
+      async () => ({ cycleStart: Date.now(), id: 'op_mid', updatedAt: 'not-a-time' }),
+    ],
+  ])('starts from the oldest when the stored cursor is not usable: %s', async (_label, stored) => {
+    redis.keys.set('stale_sweep_cursor:v1', JSON.stringify(await stored()));
     const visited: string[] = [];
 
     await buildReaper(visited).sweep({ limit: 2 });

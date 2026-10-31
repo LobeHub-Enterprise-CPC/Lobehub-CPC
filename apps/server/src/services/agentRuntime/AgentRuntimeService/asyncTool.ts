@@ -184,8 +184,9 @@ export async function tryResumeParentFromAsyncTool(
       priority: 'high',
       stepIndex: state.stepCount,
     });
-    if (intent)
-      await operationModel.confirmAsyncToolResume(parentOperationId, intent.deduplicationId);
+    // A Hatchet intent stays pending after the publish: the accepted run can
+    // still end FAILED, so `AsyncToolResumeReconciler` confirms it only once the
+    // parent has advanced, and re-sends it otherwise.
   } else {
     log('[%s] queue service disabled, skipping async-tool resume schedule', parentOperationId);
   }
