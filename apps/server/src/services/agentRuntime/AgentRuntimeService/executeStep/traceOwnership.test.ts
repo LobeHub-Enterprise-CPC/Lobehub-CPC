@@ -16,24 +16,27 @@ const operationId = 'op-trace-ownership';
 const span = () => ({ recordException: vi.fn(), setAttributes: vi.fn(), setStatus: vi.fn() });
 
 describe('trace ownership at completion', () => {
-  it('does not finalize a parked parent after its self-check hands execution over', async () => {
+  it('publishes waiting before a fast self-check hands over, never overwriting the new final', async () => {
     let lost = false;
-    const finalize = vi.fn();
+    const writes: string[] = [];
     const ownershipError = new StepOwnershipLostError(operationId, 1);
-    const deps = {
-      completionLifecycle: {
-        dispatchHooks: vi.fn(),
-        emitSignalEvents: vi.fn().mockResolvedValue([]),
-      },
-      determineCompletionReason: () => 'waiting_for_async_tool',
-      traceRecorder: { finalize, flushPartial: vi.fn() },
-      tryResumeParentFromAsyncTool: vi.fn(async () => {
-        lost = true;
-      }),
-    };
-
-    await expect(
-      finishOperation(deps as any, {
+    const finalize = vi.fn(async () => {
+      writes.push('waiting_for_async_tool');
+    });
+    await finishOperation(
+      {
+        completionLifecycle: {
+          dispatchHooks: vi.fn(),
+          emitSignalEvents: vi.fn().mockResolvedValue([]),
+        },
+        determineCompletionReason: () => 'waiting_for_async_tool',
+        traceRecorder: { finalize, flushPartial: vi.fn() },
+        tryResumeParentFromAsyncTool: vi.fn(async () => {
+          lost = true;
+          writes.push('done');
+        }),
+      } as any,
+      {
         assertOwnership: async () => {
           if (lost) throw ownershipError;
         },
@@ -41,10 +44,10 @@ describe('trace ownership at completion', () => {
         operationId,
         stepIndex: 1,
         stepResult: { newState: { status: 'waiting_for_async_tool' } } as any,
-      }),
-    ).rejects.toBe(ownershipError);
-
-    expect(finalize).not.toHaveBeenCalled();
+      },
+    );
+    expect(writes).toEqual(['waiting_for_async_tool', 'done']);
+    expect(finalize).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the complete trajectory when an async-tool parent resumes in another invocation', async () => {
@@ -95,6 +98,10 @@ describe('trace ownership at completion', () => {
         stepResult: { newState: { status: 'waiting_for_async_tool' } } as any,
       },
     );
+
+    expect(snapshot?.completionReason).toBe('waiting_for_async_tool');
+    expect(snapshot?.steps.map((step: any) => step.stepIndex)).toEqual([0, 1]);
+    expect(partial?.steps).toHaveLength(2);
 
     const resumedRecorder = new OperationTraceRecorder(store as any);
     await append(resumedRecorder, 2);

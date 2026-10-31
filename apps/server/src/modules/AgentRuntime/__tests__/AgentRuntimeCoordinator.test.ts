@@ -108,6 +108,32 @@ describe('AgentRuntimeCoordinator', () => {
     });
   });
 
+  it.each(['saveAgentState', 'saveStepResult'] as const)(
+    '%s refuses a commit when ownership is lost during the previous-state read',
+    async (method) => {
+      const lost = new Error('ownership lost');
+      let owned = true;
+      mockStateManager.loadAgentState.mockImplementationOnce(async () => {
+        owned = false;
+        return { status: 'running' };
+      });
+      const assertOwnership = async () => {
+        if (!owned) throw lost;
+      };
+      const state = { status: 'done', stepCount: 2 };
+      await expect(
+        coordinator[method](
+          'op-owned',
+          (method === 'saveAgentState' ? state : { newState: state }) as any,
+          assertOwnership,
+        ),
+      ).rejects.toBe(lost);
+      expect(mockStateManager.saveAgentState).not.toHaveBeenCalled();
+      expect(mockStateManager.saveStepResult).not.toHaveBeenCalled();
+      expect(mockStreamManager.publishAgentRuntimeEnd).not.toHaveBeenCalled();
+    },
+  );
+
   describe('saveAgentState', () => {
     it('should save state and publish end event when status changes to done', async () => {
       const operationId = 'test-operation-id';
@@ -118,7 +144,11 @@ describe('AgentRuntimeCoordinator', () => {
 
       await coordinator.saveAgentState(operationId, newState as any);
 
-      expect(mockStateManager.saveAgentState).toHaveBeenCalledWith(operationId, newState);
+      expect(mockStateManager.saveAgentState).toHaveBeenCalledWith(
+        operationId,
+        newState,
+        undefined,
+      );
       expect(mockStreamManager.publishAgentRuntimeEnd).toHaveBeenCalledWith({
         finalState: newState,
         operationId,
@@ -234,7 +264,11 @@ describe('AgentRuntimeCoordinator', () => {
 
       await coordinator.saveAgentState(operationId, newState as any);
 
-      expect(mockStateManager.saveAgentState).toHaveBeenCalledWith(operationId, newState);
+      expect(mockStateManager.saveAgentState).toHaveBeenCalledWith(
+        operationId,
+        newState,
+        undefined,
+      );
       expect(mockStreamManager.publishAgentRuntimeEnd).not.toHaveBeenCalled();
     });
 
@@ -247,7 +281,11 @@ describe('AgentRuntimeCoordinator', () => {
 
       await coordinator.saveAgentState(operationId, newState as any);
 
-      expect(mockStateManager.saveAgentState).toHaveBeenCalledWith(operationId, newState);
+      expect(mockStateManager.saveAgentState).toHaveBeenCalledWith(
+        operationId,
+        newState,
+        undefined,
+      );
       expect(mockStreamManager.publishAgentRuntimeEnd).not.toHaveBeenCalled();
     });
 
@@ -260,7 +298,11 @@ describe('AgentRuntimeCoordinator', () => {
 
       await coordinator.saveAgentState(operationId, newState as any);
 
-      expect(mockStateManager.saveAgentState).toHaveBeenCalledWith(operationId, newState);
+      expect(mockStateManager.saveAgentState).toHaveBeenCalledWith(
+        operationId,
+        newState,
+        undefined,
+      );
       expect(mockStreamManager.publishAgentRuntimeEnd).not.toHaveBeenCalled();
     });
   });

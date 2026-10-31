@@ -243,11 +243,15 @@ export async function saveAndPublishStep(
 
   // Save state, coordinator will handle event sending automatically
   await assertOwnership?.();
-  await deps.coordinator.saveStepResult(operationId, {
-    ...stepResult,
-    executionTime: Date.now() - startAt,
-    stepIndex, // placeholder
-  });
+  await deps.coordinator.saveStepResult(
+    operationId,
+    {
+      ...stepResult,
+      executionTime: Date.now() - startAt,
+      stepIndex, // placeholder
+    },
+    assertOwnership,
+  );
   logToolCallPc(operationId, stepIndex, 'post.step_result_saved', () => ({
     stateStatus: stepResult.newState.status,
     stateStepCount: stepResult.newState.stepCount,

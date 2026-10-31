@@ -286,6 +286,7 @@ export async function executeStep(
 
       const skipped = await skipUnrunnableStep(deps, {
         agentState,
+        assertOwnership,
         operationId,
         resumeClientLlm,
         stepIndex,
@@ -361,6 +362,7 @@ export async function executeStep(
         toolsCalling,
       });
 
+      await assertOwnership?.();
       await deps.traceRecorder.appendStep(operationId, {
         afterStepSignalEvents,
         agentState,
@@ -375,6 +377,7 @@ export async function executeStep(
       });
 
       await persistStepTracking(deps, {
+        assertOwnership,
         content,
         operationId,
         shouldContinue,
@@ -387,6 +390,7 @@ export async function executeStep(
       let continuation: AgentStepContinuation | undefined;
       if (shouldContinue && stepResult.nextContext && deps.queueService) {
         const scheduled = await scheduleNextStep(deps, {
+          assertOwnership,
           inlineContinuation,
           operationId,
           stepIndex,

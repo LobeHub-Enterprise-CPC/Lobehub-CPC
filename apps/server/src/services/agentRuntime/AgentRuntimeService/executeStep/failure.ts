@@ -166,7 +166,7 @@ export async function failStep(
 
   await assertOwnership?.();
   try {
-    await deps.coordinator.saveAgentState(operationId, finalStateWithError);
+    await deps.coordinator.saveAgentState(operationId, finalStateWithError, assertOwnership);
   } catch (saveError) {
     if (isHatchetDeliveryEnabled()) throw saveError;
     log('[%s] Failed to save error state (infra may be down): %O', operationId, saveError);
@@ -178,6 +178,7 @@ export async function failStep(
   // Dispatch onComplete + onError hooks
   if (isHatchetDeliveryEnabled()) {
     await deps.completionLifecycle.dispatchHooks(operationId, finalStateWithError, 'error', {
+      assertOwnership,
       strict: true,
     });
   } else {
@@ -185,7 +186,7 @@ export async function failStep(
   }
   logToolCallPc(operationId, stepIndex, 'post.completion_hooks', () => ({ reason: 'error' }));
   await assertOwnership?.();
-  await recordCompletionLifecycleCompleted(deps, operationId, finalStateWithError);
+  await recordCompletionLifecycleCompleted(deps, operationId, finalStateWithError, assertOwnership);
 
   // Finalize the partial snapshot into the canonical S3 path so the
   // failed op is observable in the same place as a successful run.
@@ -202,6 +203,7 @@ export async function failStep(
   // triggered the failing call.
   await assertOwnership?.();
   await deps.traceRecorder.finalize(operationId, {
+    assertOwnership,
     completionReason: 'error',
     error: {
       attribution: formattedError.attribution,

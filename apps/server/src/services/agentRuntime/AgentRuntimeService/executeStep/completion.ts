@@ -88,6 +88,7 @@ export async function recordCompletionLifecycleCompleted(
   deps: Pick<AgentRuntimeServiceContext, 'coordinator'>,
   operationId: string,
   state: AgentState,
+  assertOwnership?: () => Promise<void>,
 ): Promise<void> {
   const checkpoint = readCompletionCheckpoint(state);
   if (!isHatchetDeliveryEnabled() || checkpoint?.state !== 'pending') return;
@@ -99,7 +100,7 @@ export async function recordCompletionLifecycleCompleted(
       state: 'completed',
     } satisfies CompletionLifecycleCheckpoint,
   };
-  await deps.coordinator.saveAgentState(operationId, state);
+  await deps.coordinator.saveAgentState(operationId, state, assertOwnership);
 }
 
 /**
@@ -136,58 +137,48 @@ export async function finishOperation(
   // Dispatch completion hooks
   if (isHatchetDeliveryEnabled() && COMPLETION_TERMINAL_STATUSES.has(stepResult.newState.status)) {
     await deps.completionLifecycle.dispatchHooks(operationId, stepResult.newState, reason, {
+      assertOwnership,
       strict: true,
     });
   } else {
-    await deps.completionLifecycle.dispatchHooks(operationId, stepResult.newState, reason);
+    await deps.completionLifecycle.dispatchHooks(operationId, stepResult.newState, reason, {
+      assertOwnership,
+    });
   }
   logToolCallPc(operationId, stepIndex, 'post.completion_hooks', () => ({ reason }));
   if (owesCompletionLifecycle(stepResult.newState)) {
     await assertOwnership?.();
-    await recordCompletionLifecycleCompleted(deps, operationId, stepResult.newState);
+    await recordCompletionLifecycleCompleted(
+      deps,
+      operationId,
+      stepResult.newState,
+      assertOwnership,
+    );
   }
 
   if (reason === 'waiting_for_human') {
     await assertOwnership?.();
-    await deps.recordInterventionLifecycleCompletion(operationId, stepResult.newState, stepIndex);
-  }
-
-  // Park-time self-check: sub-agents are dispatched mid-step, so a
-  // fast child can complete BEFORE this op's parked state/row were
-  // persisted — its resume attempt then no-ops against the status
-  // guard and nothing retries. Now that both the Redis state and the
-  // `agent_operations` row (via dispatchHooks → persistCompletion)
-  // say `waiting_for_async_tool`, re-run the barrier once to recover
-  // any resume that raced the park.
-  if (stepResult.newState.status === 'waiting_for_async_tool') {
-    // The barrier may hand the run to another invocation. Land the parked
-    // steps before that invocation starts extending the same trajectory.
-    await assertOwnership?.();
-    await deps.traceRecorder.flushPartial();
-    try {
-      await deps.tryResumeParentFromAsyncTool({ parentOperationId: operationId });
-    } catch (selfCheckError) {
-      log(
-        '[%s][%d] Park-time async-tool self-check failed (non-fatal): %O',
-        operationId,
-        stepIndex,
-        selfCheckError,
-      );
-    }
+    await deps.recordInterventionLifecycleCompletion(
+      operationId,
+      stepResult.newState,
+      stepIndex,
+      assertOwnership,
+    );
   }
 
   // Finalize tracing snapshot. The error catch below uses the same
   // recorder so propagated failures still write the canonical S3
   // snapshot instead of orphaning the partial ().
-  // A client or async-tool park is no trace boundary: keep the partial so the resumed
-  // steps extend the same trajectory and the real end finalizes it whole.
+  // Async/human waits expose a readable canonical snapshot and retain the partial.
+  // Write it before the self-check can hand this id to another invocation.
   await assertOwnership?.();
   const newStateError = stepResult.newState.error;
-  if (reason === 'waiting_for_client' || reason === 'waiting_for_async_tool') {
+  if (reason === 'waiting_for_client') {
     await deps.traceRecorder.flushPartial();
   } else
     await deps.traceRecorder.finalize(operationId, {
       appendEventsToLastStep: completionSignalEvents,
+      assertOwnership,
       completionReason: reason,
       error: newStateError
         ? {
@@ -208,6 +199,29 @@ export async function finishOperation(
       state: stepResult.newState,
     });
   logToolCallPc(operationId, stepIndex, 'post.trace_finalized', () => ({ reason }));
+
+  // Park-time self-check: sub-agents are dispatched mid-step, so a
+  // fast child can complete BEFORE this op's parked state/row were
+  // persisted — its resume attempt then no-ops against the status
+  // guard and nothing retries. Now that both the Redis state and the
+  // `agent_operations` row (via dispatchHooks → persistCompletion)
+  // say `waiting_for_async_tool`, re-run the barrier once to recover
+  // any resume that raced the park.
+  if (stepResult.newState.status === 'waiting_for_async_tool') {
+    // The readable snapshot and resumable partial are already durable. Never
+    // write either after this barrier can hand execution to another invocation.
+    await assertOwnership?.();
+    try {
+      await deps.tryResumeParentFromAsyncTool({ parentOperationId: operationId });
+    } catch (selfCheckError) {
+      log(
+        '[%s][%d] Park-time async-tool self-check failed (non-fatal): %O',
+        operationId,
+        stepIndex,
+        selfCheckError,
+      );
+    }
+  }
 
   // Follow-ups the user queued behind this run start as the next turn right
   // here, instead of after the client hears the run ended and sends them

@@ -2,6 +2,7 @@ import type { ExecutionSnapshot, ISnapshotStore, StepSnapshot } from '@lobechat/
 import type { ChatMessageErrorAttribution, ChatMessageErrorSeverity } from '@lobechat/types';
 import debug from 'debug';
 
+import { StepOwnershipLostError } from './AgentRuntimeService/executionErrors';
 import type { StepCompletionReason, StepPresentationData } from './types';
 
 const log = debug('lobe-server:operation-trace-recorder');
@@ -50,6 +51,7 @@ export interface FinalizeParams {
    * step. Error path leaves this empty.
    */
   appendEventsToLastStep?: SignalEvent[];
+  assertOwnership?: () => Promise<void>;
   completionReason: StepCompletionReason;
   /**
    * Top-level error on the persisted snapshot. The classification fields
@@ -318,18 +320,24 @@ export class OperationTraceRecorder {
         userId: origin.userId,
       };
 
+      await params.assertOwnership?.();
+      if (generation !== this.generation) return;
       await this.store.save(snapshot as any);
       // A loss during the upload must not delete the next owner's partial.
       if (generation !== this.generation) return;
       // Forget the partial before deleting it, so a late `appendStep` on this
       // recorder cannot re-upload the object we just removed.
       this.discardPartial();
-      // Human intervention can continue this operation id. Keep its durable
+      // Human intervention and async tools can continue this id. Keep its durable
       // partial as well as the readable waiting snapshot until the real end.
-      if (params.completionReason !== 'waiting_for_human') {
+      if (
+        params.completionReason !== 'waiting_for_human' &&
+        params.completionReason !== 'waiting_for_async_tool'
+      ) {
         await this.store.removePartial(operationId);
       }
     } catch (e) {
+      if (e instanceof StepOwnershipLostError) throw e;
       log('[%s] snapshot finalize failed (reason=%s): %O', operationId, params.completionReason, e);
     }
   }

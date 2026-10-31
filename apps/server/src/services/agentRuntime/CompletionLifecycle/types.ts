@@ -57,6 +57,8 @@ export interface OperationCompletionInput {
 
 /** Options shared by {@link CompletionLifecycle.completeOperation} / `dispatchHooks`. */
 export interface CompleteOperationOptions {
+  /** Revalidate the step lease after async preparation, before committing. */
+  assertOwnership?: () => Promise<void>;
   /**
    * The durable row was already retired to `abandoned` / `lease_expired` by the
    * caller's own compare-and-set (`settleStaleRunning`). Persist the terminal

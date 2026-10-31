@@ -363,11 +363,19 @@ export async function replayPendingInterventionLifecycle(
       agentState,
       reason,
     );
-    await deps.completionLifecycle.dispatchHooks(operationId, agentState, reason);
+    await deps.completionLifecycle.dispatchHooks(operationId, agentState, reason, {
+      assertOwnership,
+    });
     await assertOwnership?.();
-    await deps.recordInterventionLifecycleCompletion(operationId, agentState, stepIndex);
+    await deps.recordInterventionLifecycleCompletion(
+      operationId,
+      agentState,
+      stepIndex,
+      assertOwnership,
+    );
     await deps.traceRecorder.finalize(operationId, {
       appendEventsToLastStep: completionSignalEvents,
+      assertOwnership,
       completionReason: reason,
       state: agentState,
     });
@@ -393,11 +401,13 @@ export async function skipUnrunnableStep(
   deps: StepGuardsDeps,
   {
     agentState,
+    assertOwnership,
     operationId,
     resumeClientLlm,
     stepIndex,
   }: {
     agentState: AgentState;
+    assertOwnership?: () => Promise<void>;
     operationId: string;
     resumeClientLlm: AgentExecutionParams['resumeClientLlm'];
     stepIndex: number;
@@ -439,7 +449,9 @@ export async function skipUnrunnableStep(
       await deps.completionLifecycle.emitSignalEvents(operationId, agentState, reason);
 
       // Dispatch completion hooks so consumers (e.g., bot local-mode promise) can finalize
-      await deps.completionLifecycle.dispatchHooks(operationId, agentState, reason);
+      await deps.completionLifecycle.dispatchHooks(operationId, agentState, reason, {
+        assertOwnership,
+      });
     }
 
     return {

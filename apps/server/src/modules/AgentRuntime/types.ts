@@ -143,7 +143,11 @@ export interface IAgentStateManager {
   /**
    * Save Agent state
    */
-  saveAgentState: (operationId: string, state: AgentState) => Promise<void>;
+  saveAgentState: (
+    operationId: string,
+    state: AgentState,
+    assertOwnership?: () => Promise<void>,
+  ) => Promise<void>;
 
   /**
    * Park the envelope for the step an inline loop is about to run, so a

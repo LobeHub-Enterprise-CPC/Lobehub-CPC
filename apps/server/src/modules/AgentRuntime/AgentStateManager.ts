@@ -159,13 +159,19 @@ export class AgentStateManager {
   /**
    * Save Agent state
    */
-  async saveAgentState(operationId: string, state: AgentState): Promise<void> {
+  async saveAgentState(
+    operationId: string,
+    state: AgentState,
+    assertOwnership?: () => Promise<void>,
+  ): Promise<void> {
     const stateKey = `${this.STATE_PREFIX}:${operationId}`;
 
     try {
       const serializedState = this.serializeStateForPersist(state);
       await this.redis.setex(stateKey, this.DEFAULT_TTL, serializedState);
 
+      // The state write may have yielded long enough for this invocation to lose its lease.
+      await assertOwnership?.();
       // Update metadata
       await this.updateOperationMetadata(operationId, {
         lastActiveAt: new Date().toISOString(),

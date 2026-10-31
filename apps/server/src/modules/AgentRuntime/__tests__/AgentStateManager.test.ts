@@ -85,6 +85,24 @@ describe('AgentStateManager', () => {
   });
 
   describe('saveAgentState', () => {
+    it('does not write old metadata when ownership is lost during the state upload', async () => {
+      const lost = new Error('ownership lost');
+      let owned = true;
+      redisMock.setex.mockImplementationOnce(async () => {
+        owned = false;
+      });
+      await expect(
+        stateManager.saveAgentState(
+          'op-owned',
+          { status: 'done', stepCount: 1 } as any,
+          async () => {
+            if (!owned) throw lost;
+          },
+        ),
+      ).rejects.toBe(lost);
+      expect(redisMock.hmset).not.toHaveBeenCalled();
+    });
+
     it('should save agent state successfully', async () => {
       const operationId = 'test-operation-id';
       const state = {

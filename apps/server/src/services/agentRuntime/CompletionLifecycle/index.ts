@@ -18,6 +18,7 @@ import {
 } from '@/server/services/verify';
 import { after } from '@/server/utils/scheduleAfterResponse';
 
+import { StepOwnershipLostError } from '../AgentRuntimeService/executionErrors';
 import { CriticalHookDeliveryError, hookDispatcher } from '../hooks';
 import { recoverLastAssistantContent, resolveErrorMessageId } from './assistantMessage';
 import { registerFileWorks } from './fileWorks';
@@ -181,8 +182,17 @@ export class CompletionLifecycle {
     reason: string,
     settledAsAbandoned?: boolean,
     strict?: boolean,
+    assertOwnership?: () => Promise<void>,
   ): Promise<boolean> {
-    return persistCompletion(this.deps(), operationId, state, reason, settledAsAbandoned, strict);
+    return persistCompletion(
+      this.deps(),
+      operationId,
+      state,
+      reason,
+      settledAsAbandoned,
+      strict,
+      assertOwnership,
+    );
   }
 
   /**
@@ -339,8 +349,22 @@ export class CompletionLifecycle {
       // Finalize the agent_operations row before user hooks fire so
       // downstream consumers see the row in its terminal shape.
       const completionAccepted = options?.strict
-        ? await this.persistCompletion(operationId, state, reason, options.settledAsAbandoned, true)
-        : await this.persistCompletion(operationId, state, reason, options?.settledAsAbandoned);
+        ? await this.persistCompletion(
+            operationId,
+            state,
+            reason,
+            options.settledAsAbandoned,
+            true,
+            options.assertOwnership,
+          )
+        : await this.persistCompletion(
+            operationId,
+            state,
+            reason,
+            options?.settledAsAbandoned,
+            undefined,
+            options?.assertOwnership,
+          );
       if (completionAccepted === false) {
         log('[%s] Skipping hooks for an operation with a conflicting terminal owner', operationId);
         return;
@@ -350,7 +374,7 @@ export class CompletionLifecycle {
       // agent_operations. Verify the tool rows independently before creating a
       // durable Review so a partial batch can never reach notification UI.
       if (reason === 'waiting_for_human') {
-        await this.notifyPendingAgentIntervention(operationId, state);
+        await this.notifyPendingAgentIntervention(operationId, state, options?.assertOwnership);
       }
 
       if (isAsyncToolPark) return;
@@ -382,6 +406,7 @@ export class CompletionLifecycle {
         }
       }
 
+      await options?.assertOwnership?.();
       await hookDispatcher.dispatch(operationId, 'onComplete', event, state?.host?.hooks);
       if (reason !== 'error') criticalAccepted = true;
 
@@ -526,6 +551,7 @@ export class CompletionLifecycle {
       }
     } catch (error) {
       if (
+        error instanceof StepOwnershipLostError ||
         (options?.strict && !criticalAccepted) ||
         error instanceof CriticalHookDeliveryError ||
         error instanceof CriticalAgentInterventionPersistenceError
@@ -551,8 +577,12 @@ export class CompletionLifecycle {
     }
   }
 
-  private async notifyPendingAgentIntervention(operationId: string, state: any): Promise<void> {
-    return notifyPendingAgentIntervention(this.deps(), operationId, state);
+  private async notifyPendingAgentIntervention(
+    operationId: string,
+    state: any,
+    assertOwnership?: () => Promise<void>,
+  ): Promise<void> {
+    return notifyPendingAgentIntervention(this.deps(), operationId, state, assertOwnership);
   }
 
   private async recallUserOnCompletion(

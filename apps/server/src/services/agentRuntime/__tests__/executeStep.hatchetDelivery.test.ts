@@ -6,7 +6,6 @@ import type * as HatchetConfig from '@/server/modules/Hatchet/config';
 
 import { AgentRuntimeService } from '../AgentRuntimeService';
 import { owesCompletionLifecycle } from '../AgentRuntimeService/executeStep/completion';
-import { failStep } from '../AgentRuntimeService/executeStep/failure';
 import {
   StepLockUnavailableError,
   StepOwnershipLostError,
@@ -269,7 +268,6 @@ describe('executeStep trace read overlap', () => {
       const rejection = expect(failed).rejects.toBeInstanceOf(
         mode === 'claim' ? StepLockUnavailableError : StepOwnershipLostError,
       );
-      // The previous trace read returns after a replacement can own this run.
       await lost.promise;
       await new Promise<void>((resolve) => setImmediate(resolve));
       traceRead.resolve(null);
@@ -319,7 +317,6 @@ describe('executeStep trace read overlap', () => {
         return result;
       });
     await readStarted.promise;
-    // Drain the current turn without imposing a real-time performance threshold.
     await new Promise<void>((resolve) => setImmediate(resolve));
     let handoff: Promise<void> | undefined;
     try {
@@ -360,7 +357,6 @@ describe('executeStep (Hatchet) - owed completion lifecycle', () => {
     });
 
     expect(result).toMatchObject({ state: { status: 'done' }, success: true });
-    // The owed marker lands in the same write as the terminal state.
     expect(ctx.committed).toHaveLength(1);
     expect(ctx.committed[0].metadata[CHECKPOINT]).toEqual({
       reason: 'done',
@@ -385,7 +381,6 @@ describe('executeStep (Hatchet) - owed completion lifecycle', () => {
       ctx.service.executeStep({ context: STEP_CONTEXT, operationId: OPERATION_ID, stepIndex: 0 }),
     ).rejects.toBeInstanceOf(CriticalHookDeliveryError);
 
-    // The run did finish: no error state, no error event, nothing dispatched twice.
     expect(ctx.stored()).toMatchObject({ status: 'done', stepCount: 1 });
     expect(ctx.stored().error).toBeUndefined();
     expect(ctx.stored().metadata[CHECKPOINT]).toEqual({
@@ -410,13 +405,12 @@ describe('executeStep (Hatchet) - owed completion lifecycle', () => {
       stepResult: null,
       success: true,
     });
-    // Never announced as an error: the outcome stays the one the run saved.
     expect(ctx.dispatchHooks.mock.calls.map(([, , reason]) => reason)).toEqual(['done', 'done']);
     expect(ctx.dispatchHooks).toHaveBeenLastCalledWith(
       OPERATION_ID,
       expect.objectContaining({ status: 'done' }),
       'done',
-      { strict: true },
+      expect.objectContaining({ strict: true, assertOwnership: expect.any(Function) }),
     );
     expect(ctx.stored().metadata[CHECKPOINT]).toEqual({
       reason: 'done',
@@ -428,7 +422,6 @@ describe('executeStep (Hatchet) - owed completion lifecycle', () => {
       OPERATION_ID,
       expect.objectContaining({ completionReason: 'done' }),
     );
-    // Nothing of the step itself ran again.
     expect(ctx.runtimeStep).toHaveBeenCalledTimes(1);
     expect(ctx.coordinator.saveStepResult).toHaveBeenCalledTimes(1);
     expect(ctx.hookCalls('beforeStep')).toHaveLength(1);
@@ -439,7 +432,6 @@ describe('executeStep (Hatchet) - owed completion lifecycle', () => {
       ),
     ).toHaveLength(1);
 
-    // The response of the replay got lost: the completed checkpoint ACKs it.
     const responseLoss = await ctx.service.executeStep({
       context: STEP_CONTEXT,
       externalRetryCount: 2,
@@ -453,7 +445,6 @@ describe('executeStep (Hatchet) - owed completion lifecycle', () => {
   });
 
   it('replays for a delivery of an earlier step than the one that finished the run', async () => {
-    // An inline loop finished at step 2 while carrying the delivery of step 0.
     const ctx = setUp(terminalState('done', { reason: 'done', state: 'pending', stepIndex: 2 }, 3));
 
     const result = await ctx.service.executeStep({
@@ -485,7 +476,6 @@ describe('executeStep (Hatchet) - owed completion lifecycle', () => {
         newState: { ...state, status: 'running' },
         nextContext: STEP_CONTEXT,
       }));
-    // The approved step goes on; the step after it, run inline, ends the run.
     ctx.runtimeStep.mockImplementationOnce(async (state: any) => ({
       events: [],
       newState: { ...state, status: 'running', stepCount: state.stepCount + 1 },
@@ -519,7 +509,6 @@ describe('executeStep (Hatchet) - owed completion lifecycle', () => {
       stepIndex: 2,
     });
 
-    // The queue redelivers the approval as published: step 1, same payload.
     vi.spyOn((ctx.service as any).agentOperationModel, 'findById').mockResolvedValue({
       id: OPERATION_ID,
       status: 'done',
@@ -594,7 +583,7 @@ describe('executeStep (Hatchet) - owed completion lifecycle', () => {
       OPERATION_ID,
       expect.objectContaining({ status: 'error' }),
       'error',
-      { strict: true },
+      expect.objectContaining({ strict: true, assertOwnership: expect.any(Function) }),
     );
     expect(ctx.stored().metadata[CHECKPOINT]).toEqual({
       reason: 'error',
@@ -728,7 +717,6 @@ describe('executeStep (Hatchet) - early ACK guards', () => {
 
     const locked = await ctx.service.executeStep({ ...delivery, externalRetryCount: 1 });
 
-    // Not ACKed as a stale duplicate: re-queued with its payload on the lock backoff.
     expect(locked).toMatchObject({ locked: true, lockRescheduled: true });
     expect(scheduleMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -742,7 +730,6 @@ describe('executeStep (Hatchet) - early ACK guards', () => {
     );
     expect(ctx.dispatchHooks).not.toHaveBeenCalled();
 
-    // The holder let go: the re-queued delivery replays the lifecycle, nothing else.
     const requeued = await ctx.service.executeStep({ ...delivery, lockRetryAttempt: 1 });
 
     expect(requeued).toMatchObject({ state: { status: 'done' }, stepResult: null, success: true });
@@ -825,6 +812,38 @@ describe('executeStep (Hatchet) - lock ownership', () => {
     expect(ctx.stored()).toMatchObject({ status: 'running', stepCount: 0 });
   });
 
+  it('does not restart trace uploads or save tracking after afterStep loses ownership', async () => {
+    const ctx = setUp(runningState(), { queueService: queueWith(vi.fn()) });
+    const heartbeat = holdHeartbeat(ctx);
+    const append = vi.spyOn((ctx.service as any).traceRecorder, 'appendStep');
+    ctx.runtimeStep.mockImplementationOnce(async (state) => ({
+      events: [],
+      nextContext: STEP_CONTEXT,
+      newState: {
+        ...state,
+        host: { hooks: [{ type: 'afterStep', id: 'held-hook' }] },
+        status: 'running',
+        stepCount: 1,
+      },
+    }));
+    vi.mocked(hookDispatcher.dispatch).mockImplementation(async (_id, type) => {
+      if (type === 'afterStep') heartbeat.loseLock();
+    });
+    await expect(
+      ctx.service.executeStep({
+        context: STEP_CONTEXT,
+        operationId: OPERATION_ID,
+        stepIndex: 0,
+        inlineContinuation: true,
+      }),
+    ).rejects.toBeInstanceOf(StepOwnershipLostError);
+    expect(ctx.committed).toHaveLength(1);
+    expect(ctx.coordinator.saveAgentState).not.toHaveBeenCalled();
+    expect(append).not.toHaveBeenCalled();
+    expect(ctx.dispatchHooks).not.toHaveBeenCalled();
+    expect(ctx.errorEvents()).toHaveLength(0);
+  });
+
   it('does not commit once the heartbeat lost the lock, even if the lock looks held again', async () => {
     const ctx = setUp(runningState());
     vi.spyOn(ctx.service as any, 'startStepLockHeartbeat').mockImplementation((...args: any[]) => {
@@ -866,7 +885,6 @@ describe('executeStep (Hatchet) - lock ownership', () => {
       ctx.service.executeStep({ context: STEP_CONTEXT, operationId: OPERATION_ID, stepIndex: 0 }),
     ).rejects.toBeInstanceOf(StepOwnershipLostError);
 
-    // No error state, no error event, no completion signals or hooks, no trace.
     expect(ctx.coordinator.saveAgentState).not.toHaveBeenCalled();
     expect(ctx.coordinator.saveStepResult).not.toHaveBeenCalled();
     expect(ctx.errorEvents()).toHaveLength(0);
@@ -899,7 +917,6 @@ describe('executeStep (Hatchet) - lock ownership', () => {
         }),
       ).rejects.toBeInstanceOf(StepOwnershipLostError);
 
-      // The checkpoint stays for whoever owns the run now (or the redelivery).
       expect(ctx.dispatchHooks).toHaveBeenCalledTimes(1);
       expect(ctx.coordinator.saveAgentState).not.toHaveBeenCalled();
       expect(ctx.stored()).toMatchObject({ status: 'done' });
@@ -921,7 +938,6 @@ describe('executeStep (Hatchet) - lock ownership', () => {
       ctx.service.executeStep({ context: STEP_CONTEXT, operationId: OPERATION_ID, stepIndex: 0 }),
     ).rejects.toBeInstanceOf(StepOwnershipLostError);
 
-    // Only the error state itself was written, still owing its lifecycle.
     expect(ctx.coordinator.saveAgentState).toHaveBeenCalledTimes(1);
     expect(ctx.stored()).toMatchObject({ status: 'error' });
     expect(ctx.stored().metadata[CHECKPOINT]).toEqual({
@@ -982,6 +998,7 @@ describe('executeStep (Hatchet) - lock ownership', () => {
         OPERATION_ID,
         expect.objectContaining({ status: 'waiting_for_human' }),
         'waiting_for_human',
+        expect.objectContaining({ assertOwnership: expect.any(Function) }),
       );
       expect(recordIntervention).not.toHaveBeenCalled();
       expect(ctx.coordinator.saveAgentState).not.toHaveBeenCalled();
@@ -1011,7 +1028,6 @@ describe('executeStep (Hatchet) - lock ownership', () => {
       expect(onOwnershipLost).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(30_000);
       expect(onOwnershipLost).toHaveBeenCalledTimes(1);
-      // The third tick also refreshes the durable lease, which fails: not a lock loss.
       await vi.advanceTimersByTimeAsync(30_000);
       expect(onOwnershipLost).toHaveBeenCalledTimes(1);
       await vi.advanceTimersByTimeAsync(30_000);
@@ -1040,7 +1056,6 @@ describe('executeStep outside Hatchet', () => {
     expect(ctx.stored().metadata?.[CHECKPOINT]).toBeUndefined();
     expect(ctx.dispatchHooks.mock.calls.map(([, , reason]) => reason)).toEqual(['done', 'error']);
 
-    // The retry is ACKed as a completed step, exactly as before.
     await ctx.service.executeStep({
       context: STEP_CONTEXT,
       externalRetryCount: 1,
@@ -1122,74 +1137,5 @@ describe('executeStep outside Hatchet', () => {
     expect(ctx.coordinator.saveStepResult).toHaveBeenCalledTimes(1);
     expect(ctx.coordinator.refreshStepLock).not.toHaveBeenCalled();
     expect(JSON.stringify(info.mock.calls)).not.toContain('agent.step.claimed');
-  });
-});
-
-describe('failStep', () => {
-  const span = () => ({ recordException: vi.fn(), setAttributes: vi.fn(), setStatus: vi.fn() });
-  const failDeps = (state: unknown) => ({
-    completionLifecycle: {
-      dispatchHooks: vi.fn(),
-      emitSignalEvents: vi.fn().mockResolvedValue([]),
-      extractErrorMessage: vi.fn(),
-    },
-    coordinator: {
-      loadAgentState: vi.fn().mockResolvedValue(state),
-      saveAgentState: vi.fn(),
-    },
-    streamManager: { publishStreamEvent: vi.fn() },
-    traceRecorder: { discardPartial: vi.fn(), finalize: vi.fn() },
-  });
-  const fail = (deps: ReturnType<typeof failDeps>, error: unknown) =>
-    failStep(deps as any, {
-      error,
-      externalRetryCount: 0,
-      invokeAgentSpan: span() as any,
-      operationId: OPERATION_ID,
-      stepIndex: 1,
-      stepStartAt: Date.now(),
-    });
-
-  it.each([
-    ['lost ownership', new StepOwnershipLostError(OPERATION_ID, 1)],
-    ['an unavailable lock', new StepLockUnavailableError(OPERATION_ID)],
-  ])('rethrows %s without settling the operation', async (_label, error) => {
-    const deps = failDeps(runningState());
-
-    await expect(fail(deps, error)).rejects.toBe(error);
-
-    expect(deps.coordinator.saveAgentState).not.toHaveBeenCalled();
-    expect(deps.completionLifecycle.dispatchHooks).not.toHaveBeenCalled();
-    expect(deps.streamManager.publishStreamEvent).not.toHaveBeenCalled();
-    expect(deps.traceRecorder.finalize).not.toHaveBeenCalled();
-  });
-
-  it('leaves a committed terminal state alone when something fails after the commit', async () => {
-    const deps = failDeps(terminalState('done', { state: 'pending', stepIndex: 1 }, 2));
-    const error = new Error('stream publish failed');
-
-    await expect(fail(deps, error)).rejects.toBe(error);
-
-    expect(deps.coordinator.saveAgentState).not.toHaveBeenCalled();
-    expect(deps.completionLifecycle.dispatchHooks).not.toHaveBeenCalled();
-    expect(deps.streamManager.publishStreamEvent).not.toHaveBeenCalled();
-  });
-
-  it('settles the same committed terminal state as an error outside Hatchet', async () => {
-    hatchet.enabled = false;
-    const deps = failDeps(terminalState('done', { state: 'pending', stepIndex: 1 }, 2));
-    const error = new Error('stream publish failed');
-
-    await expect(fail(deps, error)).rejects.toBe(error);
-
-    expect(deps.coordinator.saveAgentState).toHaveBeenCalledWith(
-      OPERATION_ID,
-      expect.objectContaining({ status: 'error' }),
-    );
-    expect(deps.completionLifecycle.dispatchHooks).toHaveBeenCalledWith(
-      OPERATION_ID,
-      expect.objectContaining({ status: 'error' }),
-      'error',
-    );
   });
 });

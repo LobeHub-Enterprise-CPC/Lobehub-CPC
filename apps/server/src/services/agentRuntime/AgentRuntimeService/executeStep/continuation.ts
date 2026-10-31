@@ -26,11 +26,13 @@ export type StepContinuationDeps = Pick<
 export async function scheduleNextStep(
   deps: StepContinuationDeps,
   {
+    assertOwnership,
     inlineContinuation,
     operationId,
     stepIndex,
     stepResult,
   }: {
+    assertOwnership?: () => Promise<void>;
     inlineContinuation: boolean;
     operationId: string;
     stepIndex: number;
@@ -77,7 +79,7 @@ export async function scheduleNextStep(
   // doesn't, fall back to the ordinary queue round-trip: slower by a
   // step boundary, but it keeps the recovery path the queue provides.
   const parked = inlineContinuation
-    ? await deps.coordinator.saveInlineResume(operationId, next)
+    ? await deps.coordinator.saveInlineResume(operationId, next, assertOwnership)
     : false;
 
   if (!parked && inlineContinuation) {
@@ -104,8 +106,10 @@ export async function scheduleNextStep(
     // partial from the store — it has to see this step. The gateway
     // pushes this invocation issued have to land for the same reason:
     // nothing carries them once it stops running.
+    await assertOwnership?.();
     await deps.traceRecorder.flushPartial();
     await deps.streamManager.drainPushes?.(operationId);
+    await assertOwnership?.();
     await deps.queueService.scheduleMessage({ ...next, endpoint: `${deps.baseURL}/run` });
     nextStepScheduled = true;
     logToolCallPc(operationId, stepIndex, 'post.next_step_scheduled', () => ({
