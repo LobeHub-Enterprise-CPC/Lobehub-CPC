@@ -2,6 +2,7 @@ import { ModelProvider } from 'model-bank';
 
 import type { OpenAICompatibleFactoryOptions } from '../../core/openaiCompatibleFactory';
 import { createOpenAICompatibleRuntime } from '../../core/openaiCompatibleFactory';
+import { appAttributionHeaders } from '../../utils/appAttribution';
 import { processMultiProviderModelList } from '../../utils/modelParse';
 import type { OpenRouterModelCard, OpenRouterReasoning } from './type';
 
@@ -97,10 +98,7 @@ export const params = {
     },
   },
   constructorOptions: {
-    defaultHeaders: {
-      'HTTP-Referer': 'https://lobehub.com',
-      'X-Title': 'LobeHub',
-    },
+    defaultHeaders: appAttributionHeaders(),
   },
   debug: {
     chatCompletion: () => process.env.DEBUG_OPENROUTER_CHAT_COMPLETION === '1',

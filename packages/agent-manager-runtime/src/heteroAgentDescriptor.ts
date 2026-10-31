@@ -79,7 +79,7 @@ const HETERO_PROFILES: Record<HeteroType, HeteroTypeProfile> = {
   'deepseek-harness': {
     capabilities: [...CODING_CAPABILITIES, 'subagents'],
     description:
-      'DeepSeek Harness — LobeHub’s built-in DeepSeek agent runtime. It can inspect and modify a working directory, run shell commands, use structured tools, and delegate work to subagents without requiring an external CLI installation.',
+      'DeepSeek Harness — the built-in DeepSeek agent runtime. It can inspect and modify a working directory, run shell commands, use structured tools, and delegate work to subagents without requiring an external CLI installation.',
     displayName: 'DeepSeek Harness',
     kind: 'runtime',
   },

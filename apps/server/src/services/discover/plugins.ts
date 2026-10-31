@@ -1,6 +1,11 @@
 import { builtinTools } from '@lobechat/builtin-tools';
 import { BRANDING_NAME } from '@lobechat/business-const';
-import { COMPOSIO_APP_TYPES, DEFAULT_DISCOVER_PLUGIN_ITEM, OFFICIAL_SITE } from '@lobechat/const';
+import {
+  COMPOSIO_APP_TYPES,
+  DEFAULT_DISCOVER_PLUGIN_ITEM,
+  isCustomBranding,
+  OFFICIAL_SITE,
+} from '@lobechat/const';
 import {
   type DiscoverPluginDetail,
   type DiscoverPluginItem,
@@ -178,12 +183,13 @@ export const getPluginDetail = async (
   if (builtinTool) {
     log('getPluginDetail: found builtin tool for identifier=%s', identifier);
     const plugin: DiscoverPluginDetail = {
-      author: 'LobeHub',
+      author: BRANDING_NAME,
       avatar: builtinTool.manifest.meta.avatar || '',
       category: undefined,
       createdAt: '',
       description: builtinTool.manifest.meta.description || '',
-      homepage: OFFICIAL_SITE,
+      // A rebranded build has no page of its own to send the user to.
+      homepage: isCustomBranding ? '' : OFFICIAL_SITE,
       identifier: builtinTool.identifier,
       manifest: undefined,
       related: [],

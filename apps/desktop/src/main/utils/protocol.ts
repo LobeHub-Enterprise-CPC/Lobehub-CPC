@@ -105,8 +105,15 @@ export const parseProtocolUrl = (url: string): ProtocolUrlParsed | null => {
   try {
     const parsedUrl = new URL(url);
 
-    // Support multiple protocol schemes
-    const validProtocols = ['lobehub:', 'lobehub-dev:', 'lobehub-nightly:', 'lobehub-beta:'];
+    // Support multiple protocol schemes, plus the one this build registered: a
+    // white-label client owns its own scheme and must parse its own deep links.
+    const validProtocols = [
+      'lobehub:',
+      'lobehub-dev:',
+      'lobehub-nightly:',
+      'lobehub-beta:',
+      `${getProtocolScheme()}:`,
+    ];
     if (!validProtocols.includes(parsedUrl.protocol)) {
       return null;
     }

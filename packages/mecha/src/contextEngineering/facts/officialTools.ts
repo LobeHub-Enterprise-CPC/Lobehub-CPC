@@ -1,5 +1,5 @@
 import { builtinTools } from '@lobechat/builtin-tools';
-import { type ConnectorCatalogItem, getConnectorCatalog } from '@lobechat/const';
+import { BRANDING_NAME, type ConnectorCatalogItem, getConnectorCatalog } from '@lobechat/const';
 import type { AvailablePluginInfo, OfficialToolItem } from '@lobechat/context-engine';
 
 import type { ContextFactRequest } from './types';
@@ -55,7 +55,7 @@ export const listOfficialTools = (params: {
   for (const item of catalog) {
     if (item.type === 'composio') {
       officialTools.push({
-        description: `LobeHub Mcp Server: ${item.serverType.label}`,
+        description: `${BRANDING_NAME} Mcp Server: ${item.serverType.label}`,
         enabled: enabledPlugins.includes(item.serverType.identifier),
         identifier: item.serverType.identifier,
         installed: connectedConnectorIds.has(item.serverType.identifier),
@@ -65,7 +65,7 @@ export const listOfficialTools = (params: {
       continue;
     }
     officialTools.push({
-      description: `LobeHub Skill Provider: ${item.provider.label}`,
+      description: `${BRANDING_NAME} Skill Provider: ${item.provider.label}`,
       enabled: enabledPlugins.includes(item.provider.id),
       identifier: item.provider.id,
       installed: connectedConnectorIds.has(item.provider.id),

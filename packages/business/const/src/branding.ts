@@ -66,6 +66,14 @@ export const BRANDING_EMAIL = {
 
 export const BRANDING_PROVIDER = 'lobehub';
 
+/**
+ * Deep-link scheme the distribution's desktop client registers with the OS
+ * (`DESKTOP_PROTOCOL_SCHEME` at package time). The web app opens links such as
+ * `<scheme>://device/reconnect` with it, so it must name the client this
+ * distribution ships, not the vendor's.
+ */
+export const DESKTOP_PROTOCOL_SCHEME = 'lobehub';
+
 export const APPLE_APP_STORE_ID = '';
 
 export const COPYRIGHT = `© ${new Date().getFullYear()} ${ORG_NAME}`;

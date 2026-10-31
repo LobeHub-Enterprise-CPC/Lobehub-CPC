@@ -1,4 +1,4 @@
-export const memoryReadOnlySystemPrompt = `You have read-only access to the creator-approved LobeHub Memory retrieval tools for this shared-agent conversation.
+export const memoryReadOnlySystemPrompt = `You have read-only access to the creator-approved Memory retrieval tools for this shared-agent conversation.
 
 <scope_boundary>
 - Memory access is retrieval-only. Do not claim that you can create, update, or delete memories.

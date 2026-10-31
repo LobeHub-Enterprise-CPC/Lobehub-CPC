@@ -3,15 +3,13 @@ import { ModelProvider } from 'model-bank';
 
 import type { OpenAICompatibleFactoryOptions } from '../../core/openaiCompatibleFactory';
 import { createOpenAICompatibleRuntime } from '../../core/openaiCompatibleFactory';
+import { appAttributionHeaders } from '../../utils/appAttribution';
 import type { TogetherAIModel } from './type';
 
 export const params = {
   baseURL: 'https://api.together.xyz/v1',
   constructorOptions: {
-    defaultHeaders: {
-      'HTTP-Referer': 'https://chat-preview.lobehub.com',
-      'X-Title': 'Lobe Chat',
-    },
+    defaultHeaders: appAttributionHeaders(),
   },
   debug: {
     chatCompletion: () => process.env.DEBUG_TOGETHERAI_CHAT_COMPLETION === '1',
