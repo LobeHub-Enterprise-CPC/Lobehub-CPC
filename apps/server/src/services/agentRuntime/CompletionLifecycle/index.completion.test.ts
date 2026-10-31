@@ -111,6 +111,8 @@ describe('CompletionLifecycle.dispatchHooks — async-tool park', () => {
       parkedState,
       'waiting_for_async_tool',
       undefined,
+      undefined,
+      undefined,
     );
     expect(dispatchSpy).not.toHaveBeenCalled();
     expect(unregisterSpy).not.toHaveBeenCalled();
@@ -125,7 +127,14 @@ describe('CompletionLifecycle.dispatchHooks — async-tool park', () => {
 
     await lifecycle.dispatchHooks('op-1', clientPark, 'waiting_for_client');
 
-    expect(persistSpy).toHaveBeenCalledWith('op-1', clientPark, 'waiting_for_client', undefined);
+    expect(persistSpy).toHaveBeenCalledWith(
+      'op-1',
+      clientPark,
+      'waiting_for_client',
+      undefined,
+      undefined,
+      undefined,
+    );
     expect(dispatchSpy).not.toHaveBeenCalled();
     expect(unregisterSpy).not.toHaveBeenCalled();
   });

@@ -2,6 +2,8 @@ import debug from 'debug';
 import type { Context } from 'hono';
 
 import { getServerDB } from '@/database/core/db-adaptor';
+import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
+import { createHatchetDeliveryProbe } from '@/server/modules/Hatchet/probe';
 import { StaleOperationReaper } from '@/server/services/agentRuntime';
 
 const log = debug('lobe-server:agent:reap-operations');
@@ -15,7 +17,7 @@ const log = debug('lobe-server:agent:reap-operations');
  *
  * Query params (all optional, mainly for manual runs and incident response):
  * - `staleAfterMs` — override the lease window
- * - `limit` — cap the operations examined in this tick
+ * - `limit` — cap the operations acted on in this tick (skipped ones do not count)
  * - `maxRedriveAttempts` — override the per-operation redrive budget
  */
 export async function reapOperations(c: Context): Promise<Response> {
@@ -30,7 +32,9 @@ export async function reapOperations(c: Context): Promise<Response> {
 
   try {
     const serverDB = await getServerDB();
-    const result = await new StaleOperationReaper(serverDB).sweep({
+    const result = await new StaleOperationReaper(serverDB, {
+      deliveryProbe: isHatchetDeliveryEnabled() ? createHatchetDeliveryProbe() : undefined,
+    }).sweep({
       limit: num('limit'),
       maxRedriveAttempts: num('maxRedriveAttempts'),
       staleAfterMs: num('staleAfterMs'),

@@ -46,6 +46,18 @@ describe('FileSnapshotStore', () => {
     expect(await store.get('trace_custom')).toMatchObject({ traceId: 'trace_custom' });
   });
 
+  it('does not write a final snapshot after ownership is lost during preparation', async () => {
+    const store = new FileSnapshotStore(root, 'traces');
+    const lost = new Error('ownership lost');
+
+    await expect(
+      store.save(snapshot('trace_stale'), async () => {
+        throw lost;
+      }),
+    ).rejects.toBe(lost);
+    expect(await fs.readdir(path.join(root, 'traces'))).toEqual([]);
+  });
+
   it('writes partials atomically, leaving no temp file behind', async () => {
     const store = new FileSnapshotStore(root, 'traces');
     await store.savePartial('op_1', { operationId: 'op_1', steps: [] });

@@ -8,6 +8,12 @@ import { readBlobWithLimit } from '@lobechat/utils/readBlobWithLimit';
 import { QstashError } from '@upstash/qstash';
 
 import { OtelQstashClient } from '@/libs/qstash';
+import { toQStashDeduplicationId } from '@/libs/qstash/deduplicationId';
+import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
+import {
+  type DirectDeliveryClient,
+  getDirectDeliveryClient,
+} from '@/server/modules/Hatchet/directDelivery';
 import { tenantCallbackPath } from '@/server/modules/Tenant/callbackUrl';
 
 import type { AgentHookWebhook } from './types';
@@ -147,10 +153,21 @@ async function readControlBody(response: Response, signal: AbortSignal): Promise
   return buffer;
 }
 
+/** The QStash transport builds its client per publish from the current token. */
+function qstashTokenClient(): DirectDeliveryClient {
+  if (!process.env.QSTASH_TOKEN)
+    throw new HookHttpError('configuration', { message: 'QSTASH_TOKEN not available' });
+  return new OtelQstashClient({ token: process.env.QSTASH_TOKEN });
+}
+
 /** Notification transport. A control config must never be sent through a response-ignoring path. */
 export async function deliverWebhook(
   webhook: AgentHookWebhook,
   payload: Record<string, unknown>,
+  options?: {
+    /** Stable per logical event: the queue drops a repeat publish inside its dedup window. */
+    deduplicationId?: string;
+  },
 ): Promise<void> {
   const parsed = agentHookWebhookSchema.safeParse(webhook);
   if (!parsed.success || webhook.responseHandling === 'toolCall')
@@ -163,11 +180,12 @@ export async function deliverWebhook(
   const url = resolveUrl(webhook.url);
   const headers = resolveWebhookHeaders(webhook);
   try {
-    if (!process.env.QSTASH_TOKEN)
-      throw new HookHttpError('configuration', { message: 'QSTASH_TOKEN not available' });
-    const client = new OtelQstashClient({ token: process.env.QSTASH_TOKEN });
+    const client = isHatchetDeliveryEnabled() ? getDirectDeliveryClient() : qstashTokenClient();
     await client.publishJSON({
       body: payload,
+      ...(options?.deduplicationId && {
+        deduplicationId: toQStashDeduplicationId(options.deduplicationId),
+      }),
       headers: {
         ...headers,
         ...(isApplicationOrigin(url) &&

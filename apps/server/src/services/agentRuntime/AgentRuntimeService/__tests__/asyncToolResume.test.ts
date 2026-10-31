@@ -181,6 +181,33 @@ describe('AgentRuntimeService', () => {
       expect(mockQueueService.scheduleMessage).not.toHaveBeenCalled();
     });
 
+    it('holds the parent when one of two children has not finished', async () => {
+      mockCoordinator.loadAgentState.mockResolvedValue({
+        pendingToolsCalling: [{ id: 'tc1' }, { id: 'tc2' }],
+        status: 'waiting_for_async_tool',
+        stepCount: 1,
+      });
+      (service as any).serverDB.query = {
+        messagePlugins: {
+          findFirst: vi
+            .fn()
+            .mockResolvedValueOnce({ id: 'msg-tc1' })
+            .mockResolvedValueOnce({ id: 'msg-tc2' }),
+        },
+      };
+      (service as any).messageModel.findById = vi.fn().mockResolvedValue({ content: '' });
+      const casSpy = vi.spyOn(AgentOperationModel.prototype, 'tryResumeFromAsyncTool');
+
+      const won = await service.tryResumeParentFromAsyncTool(
+        { parentOperationId: parentOpId },
+        { knownFulfilledMessageId: 'msg-tc1' },
+      );
+
+      expect(won).toBe(false);
+      expect(casSpy).not.toHaveBeenCalled();
+      expect(mockQueueService.scheduleMessage).not.toHaveBeenCalled();
+    });
+
     it('does not schedule when it loses the CAS to a concurrent sibling', async () => {
       stubFulfilled();
       vi.spyOn(AgentOperationModel.prototype, 'tryResumeFromAsyncTool').mockResolvedValue(false);

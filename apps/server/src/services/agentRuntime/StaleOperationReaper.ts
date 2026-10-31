@@ -7,11 +7,19 @@ import { AgentOperationModel } from '@/database/models/agentOperation';
 import { agentOperations } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
 import { AgentRuntimeCoordinator } from '@/server/modules/AgentRuntime/AgentRuntimeCoordinator';
+import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
+import type {
+  DeliveryCheckpoint,
+  DeliveryProbe,
+  DeliveryProbeResult,
+} from '@/server/modules/Hatchet/probe';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { QueueService } from '@/server/services/queue';
+import { redisService } from '@/server/services/redis';
 
 import { AbandonOperationService } from './AbandonOperationService';
 import { BACKGROUND_OPERATION_TRIGGERS } from './foregroundOperation';
+import type { AgentStepContinuation } from './types';
 
 const log = debug('lobe-server:stale-operation-reaper');
 
@@ -27,6 +35,8 @@ const log = debug('lobe-server:stale-operation-reaper');
  * legitimately slow first-token latency too).
  */
 const DEFAULT_STALE_AFTER_MS = 5 * 60_000;
+// Two durable lease heartbeats (90s each); the probe protects queued deliveries.
+const HATCHET_STALE_AFTER_MS = 3 * 60_000;
 
 /**
  * Redriving costs a real LLM call, so a step that dies deterministically
@@ -36,11 +46,47 @@ const DEFAULT_STALE_AFTER_MS = 5 * 60_000;
  */
 const DEFAULT_MAX_REDRIVE_ATTEMPTS = 3;
 
-/** Bound the work of a single cron tick so one sweep cannot run long. */
+/**
+ * Bound the work of a single cron tick so one sweep cannot run long: at most
+ * this many candidates are acted on, and candidates are read in pages this size.
+ */
 const DEFAULT_LIMIT = 50;
+
+/**
+ * How far one sweep may page past candidates it skips. A skipped candidate
+ * (its delivery still queued, say) costs nothing and does not count against
+ * the limit, so the oldest rows cannot hide a stranded one behind them; these
+ * two budgets keep that walk bounded instead.
+ */
+const MAX_SWEEP_PAGES = 10;
+const SWEEP_TIME_BUDGET_MS = 20_000;
 
 /** Bound how many overlapping topics one sweep reports. */
 const CONCURRENT_FOREGROUND_REPORT_LIMIT = 20;
+
+/** Why a candidate was left alone; see `recover`. */
+export type StaleSkipReason =
+  /** Hatchet still holds a delivery that will run the next step. */
+  | 'delivery_active'
+  /** Hatchet or the parked envelope could not be read; retried next tick. */
+  | 'delivery_unknown'
+  | 'no_context'
+  | 'no_queue'
+  | 'no_state'
+  /** Parked or terminal runtime state. */
+  | 'not_resumable';
+
+const SKIP_REASONS: readonly StaleSkipReason[] = [
+  'delivery_active',
+  'delivery_unknown',
+  'no_context',
+  'no_queue',
+  'no_state',
+  'not_resumable',
+];
+
+const isSkipReason = (outcome: string): outcome is StaleSkipReason =>
+  (SKIP_REASONS as readonly string[]).includes(outcome);
 
 export interface ReapStaleOperationsParams {
   limit?: number;
@@ -73,7 +119,70 @@ export interface ReapStaleOperationsResult {
   redriven: number;
   /** Candidates this sweep has no authority over — see `recover`. */
   skipped: number;
+  /** `skipped`, by reason. */
+  skippedReasons: Record<StaleSkipReason, number>;
 }
+
+/** A keyset position: the next page starts strictly after this candidate. */
+export interface StaleCursor {
+  id: string;
+  /**
+   * `updated_at` as Postgres text, at full (microsecond) precision. A JS Date
+   * would drop the microseconds and make the next page re-read this row.
+   */
+  updatedAt: string;
+}
+
+/**
+ * Where the previous sweep stopped, so a sweep cut short by its budgets is
+ * continued by the next one instead of starting over at the same oldest rows.
+ * Losing it only means starting from the oldest again.
+ *
+ * If each sweep processes B candidates, a scan takes at most ceil(N / B)
+ * intervals plus one sweep's work for N stable candidates, assuming sweeps
+ * run on schedule. B is at most MAX_SWEEP_PAGES * limit and can be smaller
+ * when the time budget or recovery limit is reached; neither throughput nor
+ * scheduling is guaranteed. A cycle over 30 minutes warns well before the
+ * 2-hour runtime-state TTL, but cannot guarantee refresh under overload.
+ */
+export interface StaleSweepCursorStore {
+  load: () => Promise<StaleSweepPosition | undefined>;
+  /** `undefined` once a sweep reached the newest candidate: the next one wraps around. */
+  save: (position: StaleSweepPosition | undefined) => Promise<void>;
+}
+
+export interface StaleSweepPosition {
+  cursor: StaleCursor;
+  cycleStart: number;
+}
+
+/** A full scan slower than this risks outliving the runtime-state TTL it refreshes. */
+const SLOW_SCAN_CYCLE_MS = 30 * 60_000;
+/** `timestamptz::text` in the ISO date style; anything else would fail the cursor's cast. */
+const PG_TIMESTAMPTZ_TEXT =
+  /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?[+-]\d{2}(?::\d{2}){0,2}$/;
+
+const redisSweepCursor: StaleSweepCursorStore = {
+  load: async () => {
+    const raw = await redisService.staleSweepCursor.load();
+    if (!raw) return undefined;
+    const { cycleStart, id, updatedAt } = JSON.parse(raw) as Partial<StaleCursor> & {
+      cycleStart?: unknown;
+    };
+    return typeof cycleStart === 'number' &&
+      Number.isFinite(cycleStart) &&
+      cycleStart >= 0 &&
+      typeof id === 'string' &&
+      typeof updatedAt === 'string' &&
+      PG_TIMESTAMPTZ_TEXT.test(updatedAt)
+      ? { cursor: { id, updatedAt }, cycleStart }
+      : undefined;
+  },
+  save: (position) =>
+    redisService.staleSweepCursor.save(
+      position ? JSON.stringify({ cycleStart: position.cycleStart, ...position.cursor }) : null,
+    ),
+};
 
 /**
  * Periodic recovery for operations whose executing host died mid-step.
@@ -99,18 +208,41 @@ export interface ReapStaleOperationsResult {
  *   all: the redelivered step loses the lock race and returns without running.
  * - `executeStep` ACKs deliveries for operations already in a terminal state,
  *   so a redrive that races a completion is a no-op.
+ *
+ * With Hatchet delivery (a `deliveryProbe` is given) a quiet lease is not
+ * proof of death: a step can wait in Hatchet (tenant concurrency, retry
+ * backoff) well past it. So in that mode the sweep also:
+ * - asks Hatchet first, and skips without spending an attempt a candidate whose
+ *   next step is still owned there or whose ownership cannot be determined;
+ * - refreshes the runtime state of every candidate it skips that way and of
+ *   every redrive, because a delivery that keeps waiting for its turn can
+ *   outlive the state TTL before any step attempt gets to refresh it;
+ * - continues where the previous sweep stopped (`sweepCursor`), so a backlog
+ *   of skipped candidates larger than one sweep's budget cannot keep hiding
+ *   the newer ones.
  */
 export class StaleOperationReaper {
   private readonly coordinator: AgentRuntimeCoordinator;
+  private readonly deliveryProbe?: DeliveryProbe;
   private readonly queueService: QueueService | null;
+  private readonly sweepCursor?: StaleSweepCursorStore;
 
   constructor(
     private readonly db: LobeChatDatabase,
-    options?: { coordinator?: AgentRuntimeCoordinator; queueService?: QueueService | null },
+    options?: {
+      coordinator?: AgentRuntimeCoordinator;
+      deliveryProbe?: DeliveryProbe;
+      queueService?: QueueService | null;
+      /** Defaults to a Redis key when `deliveryProbe` is given; none otherwise. */
+      sweepCursor?: StaleSweepCursorStore;
+    },
   ) {
     this.coordinator = options?.coordinator ?? new AgentRuntimeCoordinator();
+    this.deliveryProbe = options?.deliveryProbe;
     this.queueService =
       options?.queueService === null ? null : (options?.queueService ?? new QueueService());
+    this.sweepCursor =
+      options?.sweepCursor ?? (options?.deliveryProbe ? redisSweepCursor : undefined);
   }
 
   private get baseURL() {
@@ -121,31 +253,102 @@ export class StaleOperationReaper {
   }
 
   async sweep(params?: ReapStaleOperationsParams): Promise<ReapStaleOperationsResult> {
-    const staleAfterMs = params?.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
+    const staleAfterMs =
+      params?.staleAfterMs ??
+      (isHatchetDeliveryEnabled() ? HATCHET_STALE_AFTER_MS : DEFAULT_STALE_AFTER_MS);
     const maxRedriveAttempts = params?.maxRedriveAttempts ?? DEFAULT_MAX_REDRIVE_ATTEMPTS;
     const limit = params?.limit ?? DEFAULT_LIMIT;
     const staleBefore = new Date(Date.now() - staleAfterMs);
+    const deadline = Date.now() + SWEEP_TIME_BUDGET_MS;
 
-    const candidates = await this.listStaleRunning(staleBefore, limit);
     const result: ReapStaleOperationsResult = {
       abandoned: 0,
       alive: 0,
       concurrentForegroundTopics: 0,
-      examined: candidates.length,
+      examined: 0,
       failed: 0,
       redriven: 0,
       skipped: 0,
+      skippedReasons: Object.fromEntries(SKIP_REASONS.map((reason) => [reason, 0])) as Record<
+        StaleSkipReason,
+        number
+      >,
     };
 
-    for (const candidate of candidates) {
-      try {
-        const outcome = await this.recover(candidate, staleBefore, maxRedriveAttempts);
-        result[outcome] += 1;
-      } catch (e) {
-        // One poisoned row must not abort the rest of the sweep.
-        result.failed += 1;
-        log('[%s] recovery failed: %O', candidate.id, e);
+    const position = await this.sweepCursor?.load().catch((e) => {
+      log('sweep cursor unreadable, starting from the oldest: %O', e);
+      return undefined;
+    });
+
+    // A sweep that starts from the oldest starts a new full scan. A lost
+    // cursor restarts the scan too (only the alarm for the cut-short one is
+    // lost); reaching the newest below closes it.
+    const cycleStart = position?.cycleStart ?? Date.now();
+    const resumedFrom = position?.cursor;
+
+    // Everything but a skip counts against `limit`; skips page on instead.
+    let acted = 0;
+    let cursor = resumedFrom;
+    let lastExamined: StaleCursor | undefined;
+    let reachedEnd = false;
+    for (
+      let page = 0;
+      page < (this.deliveryProbe ? MAX_SWEEP_PAGES : 1) && acted < limit && Date.now() < deadline;
+      page += 1
+    ) {
+      const candidates = await this.listStaleRunning(staleBefore, limit, cursor);
+
+      let cutShort = false;
+      for (const candidate of candidates) {
+        if (acted >= limit || Date.now() >= deadline) {
+          cutShort = true;
+          break;
+        }
+        lastExamined = { id: candidate.id, updatedAt: candidate.updatedAt };
+        result.examined += 1;
+        try {
+          const outcome = await this.recover(candidate, staleBefore, maxRedriveAttempts);
+          if (isSkipReason(outcome)) {
+            result.skipped += 1;
+            result.skippedReasons[outcome] += 1;
+          } else {
+            result[outcome] += 1;
+            acted += 1;
+          }
+        } catch (e) {
+          // One poisoned row must not abort the rest of the sweep.
+          result.failed += 1;
+          acted += 1;
+          log('[%s] recovery failed: %O', candidate.id, e);
+        }
       }
+
+      if (cutShort) break;
+      if (candidates.length < limit) {
+        reachedEnd = true;
+        break;
+      }
+      cursor = candidates.at(-1);
+    }
+
+    const nextCursor = lastExamined ?? resumedFrom;
+    await this.sweepCursor
+      ?.save(!reachedEnd && nextCursor ? { cursor: nextCursor, cycleStart } : undefined)
+      .catch((e) => log('sweep cursor not saved: %O', e));
+
+    // Closing a full scan: warn while the 2h state TTL still has headroom if
+    // the scan outgrew it, then open the next scan. Identifiers and timings
+    // only: never message contents.
+    if (reachedEnd && this.sweepCursor) {
+      const elapsedMs = Date.now() - cycleStart;
+      if (elapsedMs > SLOW_SCAN_CYCLE_MS)
+        console.warn(
+          JSON.stringify({
+            elapsedMs,
+            event: 'agent.reaper.scan_cycle_slow',
+            examined: result.examined,
+          }),
+        );
     }
 
     try {
@@ -215,13 +418,15 @@ export class StaleOperationReaper {
    * model with the row's own owner so ownership is still enforced where it
    * matters.
    */
-  private async listStaleRunning(staleBefore: Date, limit: number) {
+  private async listStaleRunning(staleBefore: Date, limit: number, after?: StaleCursor) {
     return (
       this.db
         // Only what recovery needs: everything else about the run is read from
         // the coordinator state, and the abandon path re-reads the row itself.
         .select({
+          createdAt: agentOperations.createdAt,
           id: agentOperations.id,
+          updatedAt: sql<string>`${agentOperations.updatedAt}::text`,
           userId: agentOperations.userId,
           workspaceId: agentOperations.workspaceId,
         })
@@ -233,20 +438,23 @@ export class StaleOperationReaper {
             // A never-heartbeated row is only meaningful once it is older than
             // the window too; `startedAt` is the lease's initial value.
             or(isNull(agentOperations.startedAt), lt(agentOperations.startedAt, staleBefore)),
+            after
+              ? sql`(${agentOperations.updatedAt}, ${agentOperations.id}) > (${after.updatedAt}::timestamptz, ${after.id}::text)`
+              : undefined,
           ),
         )
-        // Oldest first: a backlog should drain in the order it accumulated, and
-        // it keeps the tick deterministic when `limit` truncates.
-        .orderBy(asc(agentOperations.updatedAt))
+        // Oldest first: a backlog should drain in the order it accumulated.
+        // `id` breaks ties so the keyset above neither skips nor repeats rows.
+        .orderBy(asc(agentOperations.updatedAt), asc(agentOperations.id))
         .limit(limit)
     );
   }
 
   private async recover(
-    candidate: { id: string; userId: string; workspaceId: string | null },
+    candidate: { createdAt?: Date; id: string; userId: string; workspaceId: string | null },
     staleBefore: Date,
     maxRedriveAttempts: number,
-  ): Promise<'abandoned' | 'alive' | 'redriven' | 'skipped'> {
+  ): Promise<'abandoned' | 'alive' | 'redriven' | StaleSkipReason> {
     const operationId = candidate.id;
     const operationModel = new AgentOperationModel(
       this.db,
@@ -274,15 +482,30 @@ export class StaleOperationReaper {
     // job (it reaches them through `finalize-abandoned`), and it has the
     // gateway-side evidence to tell the two apart. This sweep deliberately
     // limits itself to runs it can actually resume.
-    if (!state || !this.queueService) return 'skipped';
+    if (!state) return 'no_state';
+    if (!this.queueService) return 'no_queue';
 
     // Parked operations have their own resume paths; a plain step would run
     // past whatever they are waiting on.
-    if (!this.canRedrive(state)) return 'skipped';
+    if (!this.canRedrive(state)) return 'not_resumable';
 
     // `stepCount` is the number of completed steps, so it is also the index of
     // the step that never finished.
     const stepIndex = state.stepCount;
+
+    if (this.deliveryProbe) {
+      const delivery = await this.probeDelivery(this.deliveryProbe, operationId, {
+        createdAt: candidate.createdAt,
+        stepCount: stepIndex,
+      });
+      if (delivery !== 'none') {
+        // Waiting is legitimate, but it is not refreshing the state: keep it
+        // for as long as this sweep is the one looking after the operation.
+        await this.keepRecoverable(operationId);
+        log('[%s][%d] next step delivery is %s', operationId, stepIndex, delivery);
+        return delivery === 'active' ? 'delivery_active' : 'delivery_unknown';
+      }
+    }
 
     // The context is NOT optional in practice. `runtime.step` falls back to
     // `createInitialContext(state)` when it gets none, which re-enters the run
@@ -302,7 +525,7 @@ export class StaleOperationReaper {
       // once the read succeeds, and the inactivity watchdog still declares it
       // dead if it never does.
       log('[%s][%d] no persisted context to resume from', operationId, stepIndex);
-      return 'skipped';
+      return 'no_context';
     }
 
     const attempt = await operationModel.claimStaleRedrive(
@@ -323,6 +546,9 @@ export class StaleOperationReaper {
         'redrive_exhausted',
       );
     }
+
+    // The redrive can queue in Hatchet as long as any delivery before it runs.
+    if (this.deliveryProbe) await this.keepRecoverable(operationId);
 
     try {
       await this.queueService.scheduleMessage({
@@ -358,6 +584,57 @@ export class StaleOperationReaper {
 
     log('[%s][%d] redriven (attempt %d/%d)', operationId, stepIndex, attempt, maxRedriveAttempts);
     return 'redriven';
+  }
+
+  /**
+   * Ask the delivery layer whether the next step is still owned there. The
+   * parked inline envelope is part of the checkpoint because a plain step
+   * delivery for an older index resumes from it. Anything that cannot be read
+   * is `unknown` and warned about: the candidate stays as it is until it can.
+   */
+  private async probeDelivery(
+    probe: DeliveryProbe,
+    operationId: string,
+    { createdAt, stepCount }: Omit<DeliveryCheckpoint, 'envelopeStepIndex'>,
+  ): Promise<DeliveryProbeResult> {
+    // Identifiers and step indexes only: never the envelope or any message body.
+    const warnUnknown = (detail: { envelopeStepIndex?: number; source: string }) =>
+      console.warn(
+        JSON.stringify({
+          event: 'agent.reaper.delivery_probe_unknown',
+          operationId,
+          stepCount,
+          ...detail,
+        }),
+      );
+
+    let envelopeStepIndex: number | undefined;
+    try {
+      const envelope = await this.coordinator.loadInlineResume<AgentStepContinuation>(operationId);
+      if (typeof envelope?.stepIndex === 'number') envelopeStepIndex = envelope.stepIndex;
+    } catch {
+      warnUnknown({ source: 'envelope' });
+      return 'unknown';
+    }
+
+    const delivery = await probe(operationId, { createdAt, envelopeStepIndex, stepCount }).catch(
+      (e): DeliveryProbeResult => {
+        log('[%s] delivery probe threw: %O', operationId, e);
+        return 'unknown';
+      },
+    );
+    if (delivery === 'unknown') warnUnknown({ envelopeStepIndex, source: 'probe' });
+    return delivery;
+  }
+
+  /**
+   * Re-arm the TTL of the operation's runtime keys. Best effort: a failed
+   * refresh leaves the state exactly as it was, and the next sweep tries again.
+   */
+  private async keepRecoverable(operationId: string): Promise<void> {
+    await this.coordinator.touchOperation(operationId).catch((e) => {
+      log('[%s] runtime state refresh failed: %O', operationId, e);
+    });
   }
 
   /**

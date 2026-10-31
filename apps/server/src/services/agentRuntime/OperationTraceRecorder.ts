@@ -2,6 +2,7 @@ import type { ExecutionSnapshot, ISnapshotStore, StepSnapshot } from '@lobechat/
 import type { ChatMessageErrorAttribution, ChatMessageErrorSeverity } from '@lobechat/types';
 import debug from 'debug';
 
+import { StepOwnershipLostError } from './AgentRuntimeService/executionErrors';
 import type { StepCompletionReason, StepPresentationData } from './types';
 
 const log = debug('lobe-server:operation-trace-recorder');
@@ -50,6 +51,7 @@ export interface FinalizeParams {
    * step. Error path leaves this empty.
    */
   appendEventsToLastStep?: SignalEvent[];
+  assertOwnership?: () => Promise<void>;
   completionReason: StepCompletionReason;
   /**
    * Top-level error on the persisted snapshot. The classification fields
@@ -100,6 +102,12 @@ export class OperationTraceRecorder {
    */
   private cached: { operationId: string; partial: Partial<ExecutionSnapshot> } | null = null;
 
+  /** Ordered trace appends can overlap runtime work, including the first store read. */
+  private pendingAppend: Promise<void> = Promise.resolve();
+
+  /** Invalidates queued appends when this invocation loses ownership. */
+  private generation = 0;
+
   /** In-flight upload, if any. Never rejects — `drainSaves` logs and continues. */
   private pendingSave: Promise<void> | undefined;
 
@@ -119,19 +127,26 @@ export class OperationTraceRecorder {
     if (!this.store) return;
 
     try {
-      const partial = await this.loadCachedPartial(operationId);
-
-      this.initPartialHeader(partial, params.agentState);
-
-      if (!partial.steps) partial.steps = [];
+      // Capture the step now; loading the previous invocation's partial must
+      // not hold up the next inline step. Cross-process boundaries still await
+      // flushPartial(), which joins both this queue and its uploads.
       const newStep = this.buildStepSnapshot(params);
-      this.deduplicateCeSnapshot(newStep, partial.steps);
-      partial.steps.push(newStep);
+      const generation = this.generation;
+      this.pendingAppend = this.pendingAppend
+        .then(async () => {
+          if (generation !== this.generation) return;
+          const partial = await this.loadCachedPartial(operationId);
+          if (generation !== this.generation) return;
 
-      // Upload in the background: the next step only needs the in-memory copy,
-      // and the upload overlaps with it instead of delaying it. Anything that
-      // reads the partial from another process waits via `flushPartial`.
-      this.scheduleSave(operationId);
+          this.initPartialHeader(partial, params.agentState);
+          if (!partial.steps) partial.steps = [];
+          this.deduplicateCeSnapshot(newStep, partial.steps);
+          partial.steps.push(newStep);
+          this.scheduleSave(operationId);
+        })
+        .catch((e) => {
+          log('[%s] snapshot step recording failed: %O', operationId, e);
+        });
     } catch (e) {
       log('[%s] snapshot step recording failed: %O', operationId, e);
     }
@@ -145,6 +160,11 @@ export class OperationTraceRecorder {
   async flushPartial(): Promise<void> {
     if (!this.store) return;
 
+    await this.pendingAppend;
+    await this.flushSaves();
+  }
+
+  private async flushSaves(): Promise<void> {
     if (this.dirty && this.cached) this.scheduleSave(this.cached.operationId);
     await this.pendingSave;
   }
@@ -155,6 +175,7 @@ export class OperationTraceRecorder {
    * and writing ours over it would roll back the steps it recorded.
    */
   discardPartial(): void {
+    this.generation += 1;
     this.dirty = false;
     this.cached = null;
     // An upload already in flight was started while this invocation still owned
@@ -166,13 +187,16 @@ export class OperationTraceRecorder {
 
   private async loadCachedPartial(operationId: string): Promise<Partial<ExecutionSnapshot>> {
     if (this.cached?.operationId === operationId) return this.cached.partial;
+    const generation = this.generation;
 
     // A different operation must not inherit this cache, and its queued upload
     // still points at the object we are about to forget — land it first.
-    if (this.cached) await this.flushPartial();
+    if (this.cached) await this.flushSaves();
 
+    // Only a missing partial starts over. A failed read rejects, and the append
+    // that wanted it is skipped (logged) rather than overwriting the stored steps.
     const partial = (await this.store!.loadPartial(operationId)) ?? { steps: [] };
-    this.cached = { operationId, partial };
+    if (generation === this.generation) this.cached = { operationId, partial };
     return partial;
   }
 
@@ -214,17 +238,20 @@ export class OperationTraceRecorder {
 
   async finalize(operationId: string, params: FinalizeParams): Promise<void> {
     if (!this.store) return;
+    const generation = this.generation;
 
     try {
       // Land whatever is still queued: the upload in flight writes the same
       // object we are about to finalize, and `removePartial` below must not
       // race an upload that would resurrect the partial afterwards.
       await this.flushPartial();
+      if (generation !== this.generation) return;
 
       const partial =
         this.cached?.operationId === operationId
           ? this.cached.partial
           : await this.store.loadPartial(operationId);
+      if (generation !== this.generation) return;
       if (!partial) {
         // No partial recorded — nothing to finalize. Skip rather than write
         // an empty snapshot.
@@ -295,14 +322,37 @@ export class OperationTraceRecorder {
         userId: origin.userId,
       };
 
-      await this.store.save(snapshot as any);
+      await params.assertOwnership?.();
+      if (generation !== this.generation) return;
+      await this.store.save(snapshot as any, params.assertOwnership);
+      // A loss during the upload must not delete the next owner's partial.
+      if (generation !== this.generation) return;
       // Forget the partial before deleting it, so a late `appendStep` on this
       // recorder cannot re-upload the object we just removed.
       this.discardPartial();
-      await this.store.removePartial(operationId);
+      // Human intervention and async tools can continue this id. Keep its durable
+      // partial as well as the readable waiting snapshot until the real end.
+      if (
+        params.completionReason !== 'waiting_for_human' &&
+        params.completionReason !== 'waiting_for_async_tool'
+      ) {
+        await this.store.removePartial(operationId);
+      }
     } catch (e) {
+      if (e instanceof StepOwnershipLostError) throw e;
       log('[%s] snapshot finalize failed (reason=%s): %O', operationId, params.completionReason, e);
     }
+  }
+
+  /**
+   * Delete the stored partial of an operation that will not resume under this
+   * id (a parked approval segment retired for its continuation). Its readable
+   * snapshot is left as it is.
+   */
+  async removePartial(operationId: string): Promise<void> {
+    if (!this.store) return;
+    if (this.cached?.operationId === operationId) this.discardPartial();
+    await this.store.removePartial(operationId);
   }
 
   /**
@@ -388,9 +438,19 @@ export class OperationTraceRecorder {
     // CE data is structural state, not a streaming event — delivered via the
     // typed `contextEngine` field on AppendStepParams (sourced from
     // RuntimeExecutorContext.tracingContextEngine). Uses the same delta
-    // pattern as messagesBaseline/messagesDelta.
+    // pattern as messagesBaseline/messagesDelta. Capture its persisted JSON
+    // values before the next step can mutate the source objects while a trace
+    // read is pending. This also converts Dates once instead of on every
+    // subsequent serialization of the growing partial.
     const contextEngine: StepSnapshot['contextEngine'] = ceInput
-      ? { input: ceInput.input, metadata: ceInput.metadata, output: ceInput.output }
+      ? // eslint-disable-next-line unicorn/prefer-structured-clone -- Capture JSON values; structuredClone retains Dates.
+        JSON.parse(
+          JSON.stringify({
+            input: ceInput.input,
+            metadata: ceInput.metadata,
+            output: ceInput.output,
+          }),
+        )
       : undefined;
 
     // Strip heavy/redundant data from events before persisting to snapshot.

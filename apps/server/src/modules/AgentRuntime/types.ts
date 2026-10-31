@@ -143,7 +143,11 @@ export interface IAgentStateManager {
   /**
    * Save Agent state
    */
-  saveAgentState: (operationId: string, state: AgentState) => Promise<void>;
+  saveAgentState: (
+    operationId: string,
+    state: AgentState,
+    assertOwnership?: () => Promise<void>,
+  ) => Promise<void>;
 
   /**
    * Park the envelope for the step an inline loop is about to run, so a
@@ -163,6 +167,13 @@ export interface IAgentStateManager {
    * the whole run to finish.
    */
   setQueuedMessages: (operationId: string, pending: boolean) => Promise<void>;
+
+  /**
+   * Extend the expiry of every key the operation owns (state, step history,
+   * metadata, interrupt and queued-messages flags, inline envelope). Errors
+   * propagate.
+   */
+  touchOperation: (operationId: string) => Promise<void>;
 
   /**
    * Atomically try to claim a step for execution (distributed lock).

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import type { ExecAgentResult, MessagePluginItem } from '@lobechat/types';
 
 import type { MessageModel } from '@/database/models/message';
@@ -36,7 +38,7 @@ export interface GroupMemberApprovalDeps {
    * status) for a continued isolated member. Hooks are not carried over from
    * the parked op, so without these the thread never leaves processing.
    */
-  createThreadHooks: (threadId: string) => Promise<AgentHook[]>;
+  createThreadHooks: (threadId: string, sourceOperationId: string) => Promise<AgentHook[]>;
   findMessagePlugin: (messageId: string) => Promise<MessagePluginItem | undefined>;
   /**
    * The parked member run's identity and completion bridge — from its runtime
@@ -62,9 +64,14 @@ export const createGroupMemberApprovalDeps = (models: {
 }): GroupMemberApprovalDeps => ({
   createBridgeHook: (bridge) =>
     createGroupActionMemberBridgeHook(models.agentRuntimeService, bridge),
-  createThreadHooks: async (threadId) => {
+  createThreadHooks: async (threadId, sourceOperationId) => {
     const thread = await models.threadModel.findById(threadId);
     if (!thread?.sourceMessageId) return [];
+    // Pure preparation: rejected/reused requests must never rotate the thread.
+    // A retry of this parked operation prepares the exact same generation.
+    const runToken = createHash('sha256')
+      .update(JSON.stringify([thread.id, sourceOperationId]))
+      .digest('hex');
     return createThreadHooks(
       models.agentRuntimeService,
       models.threadModel,
@@ -74,6 +81,7 @@ export const createGroupMemberApprovalDeps = (models: {
       // The recovered group-member bridge owns result publication.
       undefined,
       'execVirtualSubAgent',
+      runToken,
       pickThreadUsageBaseline(thread.metadata),
     );
   },
@@ -128,7 +136,7 @@ export const resolveGroupMemberApprovalContinuation = async (
   const threadId = member.threadId;
   // Same order as the original isolated start: thread hooks first, bridge last
   // so its tool-message backfill is the final write.
-  const threadHooks = threadId ? await deps.createThreadHooks(threadId) : [];
+  const threadHooks = threadId ? await deps.createThreadHooks(threadId, sourceOperationId) : [];
 
   return {
     ...params,
@@ -148,6 +156,36 @@ export const resolveGroupMemberApprovalContinuation = async (
     slug: undefined,
     topicStartOwnerOperationId: bridge.parentOperationId,
   };
+};
+
+/**
+ * Record a started continuation's operation on its isolation thread, as the
+ * initial isolated start does. Until then the thread still names the parked
+ * operation, which a further approval of the continuation must replace.
+ */
+export const linkGroupMemberContinuation = async (
+  deps: { threadModel: ThreadModel },
+  continuationParams: InternalExecAgentParams,
+  continuation: ExecAgentResult,
+): Promise<void> => {
+  const threadId = continuationParams.appContext?.threadId;
+  const runToken = continuationParams.hooks?.find((hook) => hook.id === 'thread-completion')
+    ?.webhook?.body?.runToken;
+  if (!threadId || typeof runToken !== 'string') return;
+  if (!continuation.success || !continuation.operationId) return;
+
+  // Best effort: the continuation already started, and its own thread callbacks
+  // record the same operation id under this run token once they land.
+  try {
+    await deps.threadModel.linkRunOperation(threadId, runToken, continuation.operationId);
+  } catch (error) {
+    console.error(
+      '[groupMemberApproval] failed to link continuation %s to thread %s: %O',
+      continuation.operationId,
+      threadId,
+      error,
+    );
+  }
 };
 
 export interface GroupMemberDeadlineDeps {

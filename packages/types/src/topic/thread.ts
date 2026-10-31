@@ -39,6 +39,8 @@ export interface ThreadMetadata {
   clientMode?: boolean;
   /** Task completion time */
   completedAt?: string;
+  /** Operation whose completion was already applied. */
+  completedOperationId?: string;
   /** Execution duration in milliseconds */
   duration?: number;
   /** Error details when task failed */
@@ -54,6 +56,12 @@ export interface ThreadMetadata {
   onboardingUnderstanding?: OnboardingUnderstandingThreadMarker;
   /** Operation ID for tracking */
   operationId?: string;
+  /** Operation whose monotonic progress is recorded. */
+  progressOperationId?: string;
+  /** Last accepted progress step of the current operation. */
+  progressStep?: number;
+  /** Run generation installed before execution, renewed on approval continuation. */
+  runToken?: string;
   /**
    * The specific tool_use id within `sourceMessageId` that spawned this thread.
    * Used to position the thread inline as a `task` block within the parent

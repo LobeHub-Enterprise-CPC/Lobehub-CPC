@@ -297,6 +297,8 @@ export interface SubAgentBridgeParams {
   operationId: string;
   parentOperationId: string;
   reason: string;
+  /** Internal lease already held by the periodic reconciler. */
+  reconcileLeaseOwner?: string;
   threadId: string;
   /** The parent's placeholder `role: 'tool'` message to backfill. */
   toolMessageId: string;

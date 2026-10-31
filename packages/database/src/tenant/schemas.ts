@@ -19,7 +19,7 @@ import type { SsoOAuth2Config, SsoOidcConfig } from './ssoTypes';
  * `migrations/tenant`, which runs after the shared one (`./migrator.ts`).
  *
  * That includes the fork's private models in `../privateSchemas` (command
- * governance and Channel), re-exported below: this file is the entry of the
+ * governance, Channel, and sub-agent bridges), re-exported below: this file is the entry of the
  * tenant chain's drizzle config, and the chain is the only place their DDL lives.
  * The re-export serves that entry and the readiness check (`import * as`); import
  * the models by name from `@lobechat/database/privateSchemas`, whose explicit

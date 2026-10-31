@@ -1,6 +1,6 @@
-import type { Client } from '@upstash/qstash';
 import debug from 'debug';
 
+import type { DirectDeliveryClient } from '@/server/modules/Hatchet/directDelivery';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 
 import type { GoalSchedulerImpl, ScheduleGoalAdvanceParams } from './type';
@@ -12,7 +12,7 @@ export const GOAL_ADVANCE_PATH = '/api/workflows/goal/advance';
 export interface QStashGoalSchedulerConfig {
   /** Absolute base URL (e.g. `process.env.APP_URL`) used to build the callback URL. */
   baseUrl: string;
-  qstashClient: Client;
+  qstashClient: DirectDeliveryClient;
 }
 
 /**
@@ -25,7 +25,7 @@ export interface QStashGoalSchedulerConfig {
  */
 export class QStashGoalScheduler implements GoalSchedulerImpl {
   private baseUrl: string;
-  private qstashClient: Client;
+  private qstashClient: DirectDeliveryClient;
 
   constructor(config: QStashGoalSchedulerConfig) {
     this.qstashClient = config.qstashClient;

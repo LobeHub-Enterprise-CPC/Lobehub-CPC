@@ -460,6 +460,7 @@ describe('AgentRuntimeService', () => {
           }),
           status: 'error',
         }),
+        undefined,
       );
     });
 
@@ -524,6 +525,7 @@ describe('AgentRuntimeService', () => {
         expect.objectContaining({
           newState: expect.objectContaining({ status: 'interrupted' }),
         }),
+        undefined,
       );
     });
 
@@ -551,6 +553,7 @@ describe('AgentRuntimeService', () => {
         expect.objectContaining({
           newState: expect.objectContaining({ status: 'interrupted' }),
         }),
+        undefined,
       );
     });
 

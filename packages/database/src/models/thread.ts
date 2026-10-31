@@ -1,6 +1,6 @@
 import type { CreateThreadParams, ThreadMetadata } from '@lobechat/types';
 import { RequestTrigger, ThreadStatus } from '@lobechat/types';
-import { and, desc, eq, isNull, notExists, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, notExists, or, sql } from 'drizzle-orm';
 
 import type { ThreadItem } from '../schemas';
 import { agentOperations, messages, threads } from '../schemas';
@@ -195,6 +195,153 @@ export class ThreadModel {
       )
       .returning({ id: threads.id });
 
+    return rows.length > 0;
+  };
+
+  /** Rotate an approval continuation's generation before its operation starts. */
+  setRunToken = async (
+    id: string,
+    runToken: string,
+    sourceOperationId: string,
+  ): Promise<boolean> => {
+    const thread = await this.findById(id);
+    if (!thread) return false;
+    // A crash/retry after rotation must not reset B's progress.
+    if (thread.metadata?.runToken === runToken) return true;
+    if (thread.metadata?.operationId !== sourceOperationId) return false;
+    const rows = await this.db
+      .update(threads)
+      .set({
+        metadata: sql`(COALESCE(${threads.metadata}, '{}'::jsonb) - 'progressStep' - 'progressOperationId') || ${JSON.stringify({ runToken })}::jsonb`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(threads.id, id),
+          this.ownership(),
+          inArray(threads.status, [ThreadStatus.Processing, ThreadStatus.InReview]),
+          sql`${threads.metadata} ->> 'operationId' = ${sourceOperationId}`,
+          // Threads parked before run tokens existed carry no key at all.
+          sql`COALESCE(${threads.metadata} ->> 'runToken', '') = ${thread.metadata?.runToken ?? ''}`,
+        ),
+      )
+      .returning({ id: threads.id });
+    return rows.length > 0;
+  };
+
+  /** Link a newly created operation without clobbering a faster completion. */
+  linkRunOperation = async (
+    id: string,
+    runToken: string,
+    operationId: string,
+  ): Promise<boolean> => {
+    const rows = await this.db
+      .update(threads)
+      .set({
+        metadata: sql`COALESCE(${threads.metadata}, '{}'::jsonb) || ${JSON.stringify({ operationId })}::jsonb`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(threads.id, id),
+          this.ownership(),
+          sql`${threads.metadata} ->> 'runToken' = ${runToken}`,
+        ),
+      )
+      .returning({ id: threads.id });
+    return rows.length > 0;
+  };
+
+  /** A failed startup must not retire a newer generation or an already completed run. */
+  failRun = async (id: string, runToken: string, metadata: ThreadMetadata): Promise<boolean> => {
+    const rows = await this.db
+      .update(threads)
+      .set({
+        metadata: sql`COALESCE(${threads.metadata}, '{}'::jsonb) || ${JSON.stringify({ ...metadata, runToken })}::jsonb`,
+        status: ThreadStatus.Failed,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(threads.id, id),
+          this.ownership(),
+          inArray(threads.status, [ThreadStatus.Processing, ThreadStatus.InReview]),
+          sql`${threads.metadata} ->> 'runToken' = ${runToken}`,
+        ),
+      )
+      .returning({ id: threads.id });
+    return rows.length > 0;
+  };
+
+  /** Progress is monotonic within each operation of the current run generation. */
+  updateProgressForRun = async (
+    id: string,
+    runToken: string,
+    operationId: string,
+    progressStep: number,
+    metadata: ThreadMetadata,
+  ): Promise<boolean> => {
+    const rows = await this.db
+      .update(threads)
+      .set({
+        metadata: sql`COALESCE(${threads.metadata}, '{}'::jsonb) || ${JSON.stringify({ ...metadata, operationId, progressOperationId: operationId, progressStep, runToken })}::jsonb`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(threads.id, id),
+          this.ownership(),
+          inArray(threads.status, [ThreadStatus.Processing, ThreadStatus.InReview]),
+          sql`${threads.metadata} ->> 'runToken' = ${runToken}`,
+          or(
+            sql`COALESCE(${threads.metadata} ->> 'progressOperationId' <> ${operationId}, true)`,
+            sql`COALESCE((${threads.metadata} ->> 'progressStep')::integer, -1) < ${progressStep}`,
+          ),
+        ),
+      )
+      .returning({ id: threads.id });
+    return rows.length > 0;
+  };
+
+  /** Human review is resumable; only a true ending consumes final-completion identity. */
+  completeRun = async (
+    id: string,
+    runToken: string,
+    operationId: string,
+    status: ThreadStatus,
+    metadata: ThreadMetadata,
+  ): Promise<boolean> => {
+    const rows = await this.db
+      .update(threads)
+      .set({
+        metadata: sql`COALESCE(${threads.metadata}, '{}'::jsonb) || ${JSON.stringify({ ...metadata, ...(status !== ThreadStatus.InReview && { completedOperationId: operationId }), operationId, runToken })}::jsonb`,
+        status,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(threads.id, id),
+          this.ownership(),
+          inArray(threads.status, [ThreadStatus.Processing, ThreadStatus.InReview]),
+          sql`${threads.metadata} ->> 'runToken' = ${runToken}`,
+          or(
+            sql`COALESCE(${threads.metadata} ->> 'completedOperationId', '') <> ${operationId}`,
+            // Historical waiting callbacks wrote the final marker too.
+            ...(status !== ThreadStatus.InReview
+              ? [eq(threads.status, ThreadStatus.InReview)]
+              : []),
+          ),
+          ...(status === ThreadStatus.InReview
+            ? [
+                or(
+                  eq(threads.status, ThreadStatus.Processing),
+                  sql`COALESCE(${threads.metadata} ->> 'operationId', '') <> ${operationId}`,
+                ),
+              ]
+            : []),
+        ),
+      )
+      .returning({ id: threads.id });
     return rows.length > 0;
   };
 

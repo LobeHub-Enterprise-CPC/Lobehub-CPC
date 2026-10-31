@@ -2,6 +2,8 @@ import type { AgentState } from '@lobechat/agent-runtime';
 import { appendSubAgentReference, isCallSubAgentCall } from '@lobechat/builtin-tool-lobe-agent';
 import debug from 'debug';
 
+import { AgentSubAgentBridgeModel } from '@/database/models/agentSubAgentBridge';
+import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
 import { gatewayParentMayResume } from '@/server/services/gatewayAuthorization/parentExecution';
 
 import {
@@ -12,6 +14,7 @@ import {
 import { type SubAgentBridgeParams } from '../types';
 import type { AgentRuntimeServiceContext } from './types';
 import { formatErrorForMetadata, formatSubAgentErrorReason } from './utils';
+import { type SubAgentBridgeRejection, validateSubAgentBridge } from './validateSubAgentBridge';
 
 const log = debug('lobe-server:agent-runtime-service');
 
@@ -20,6 +23,7 @@ export type SubAgentBridgeDeps = Pick<
   AgentRuntimeServiceContext,
   | 'controlCompletedToolResult'
   | 'coordinator'
+  | 'includeShareVisitor'
   | 'isCallSubAgentToolMessage'
   | 'messageModel'
   | 'resolveLastAssistantContentFromThread'
@@ -28,6 +32,7 @@ export type SubAgentBridgeDeps = Pick<
   | 'streamManager'
   | 'tryResumeParentFromAsyncTool'
   | 'userId'
+  | 'workspaceId'
 >;
 
 /**
@@ -104,9 +109,74 @@ export async function completeSubAgentBridge(
   deps: SubAgentBridgeDeps,
   params: SubAgentBridgeParams,
 ): Promise<boolean> {
-  const { operationId, parentOperationId, reason, threadId, toolMessageId } = params;
-  if (!(await gatewayParentMayResume(deps.serverDB, operationId, parentOperationId, deps.userId)))
+  if (!isHatchetDeliveryEnabled() || params.reconcileLeaseOwner)
+    return completeSubAgentBridgeWithLease(deps, params);
+
+  const validation = await validateSubAgentBridge(deps, params);
+  // Every Hatchet-mode spawn writes its binding before step 0 is scheduled, so
+  // a missing row is a child spawned without one (older code, local mode, or
+  // Hatchet off at spawn time). Nothing else would ever resume its parent: keep
+  // the pre-binding delivery (gateway check, onlyIfEmpty backfill, CAS resume).
+  if (!validation.allowed && validation.reason === 'binding_missing')
+    return completeSubAgentBridgeWithLease(deps, params, undefined, true);
+  // A call that is no longer pending still gets its card backfilled below.
+  if (!validation.allowed && validation.reason !== 'tool_not_pending') {
+    logBridgeRejection(params, validation.reason);
+    if (validation.reason === 'parent_not_waiting')
+      throw new Error('Sub-agent bridge parent not yet waiting');
     return false;
+  }
+  const model = new AgentSubAgentBridgeModel(deps.serverDB);
+  const owner = crypto.randomUUID();
+  const now = new Date();
+  if (!(await model.claim(params.operationId, owner, now, new Date(now.getTime() + 120_000))))
+    throw new Error('Sub-agent bridge is leased');
+  try {
+    return await completeSubAgentBridgeWithLease(deps, params, owner);
+  } finally {
+    await model.release(params.operationId, owner);
+  }
+}
+
+function logBridgeRejection(params: SubAgentBridgeParams, reason: SubAgentBridgeRejection) {
+  console.info(
+    JSON.stringify({
+      event: 'subagent.bridge.rejected',
+      operationId: params.operationId,
+      parentOperationId: params.parentOperationId,
+      reason,
+    }),
+  );
+}
+
+async function completeSubAgentBridgeWithLease(
+  deps: SubAgentBridgeDeps,
+  params: SubAgentBridgeParams,
+  deliveryLeaseOwner?: string,
+  unboundChild = false,
+): Promise<boolean> {
+  const { operationId, parentOperationId, reason, threadId, toolMessageId } = params;
+  const durable = isHatchetDeliveryEnabled() && !unboundChild;
+  let resumeParent = true;
+  if (durable) {
+    const validation = await validateSubAgentBridge(deps, params);
+    if (!validation.allowed) {
+      logBridgeRejection(params, validation.reason);
+      if (validation.reason === 'parent_not_waiting' || params.reconcileLeaseOwner) {
+        throw new Error('Sub-agent bridge parent not yet waiting');
+      }
+      if (validation.reason !== 'tool_not_pending') return false;
+      // Identity, generation and batch checks passed: the card still gets the
+      // child's result (a parent stopped while parked never resumes). Only the
+      // resume needs the parent to be waiting on this call.
+      resumeParent = false;
+    }
+  }
+  if (!(await gatewayParentMayResume(deps.serverDB, operationId, parentOperationId, deps.userId))) {
+    if (params.reconcileLeaseOwner)
+      throw new Error('Sub-agent bridge gateway authorization failed');
+    return false;
+  }
   const failed = reason === 'error' || reason === 'interrupted';
 
   // Infra errors propagate; a null state (expired) degrades to a stub note.
@@ -171,9 +241,11 @@ export async function completeSubAgentBridge(
       );
     }
   }
-  const errorReason = failed
-    ? formatSubAgentErrorReason(finalState?.error ?? params.errorMessage)
-    : undefined;
+  const bridgeError =
+    params.reconcileLeaseOwner && params.errorMessage
+      ? params.errorMessage
+      : (finalState?.error ?? params.errorMessage);
+  const errorReason = failed ? formatSubAgentErrorReason(bridgeError) : undefined;
   const resultContent = failed
     ? errorReason
       ? `Sub-agent did not complete (${reason}): ${errorReason}`
@@ -193,7 +265,7 @@ export async function completeSubAgentBridge(
     result: {
       content,
       success: !failed,
-      error: failed ? formatErrorForMetadata(finalState?.error ?? params.errorMessage) : undefined,
+      error: failed ? formatErrorForMetadata(bridgeError) : undefined,
       state: {
         model: finalState?.modelRuntimeConfig?.model,
         status: failed ? 'error' : 'completed',
@@ -224,13 +296,28 @@ export async function completeSubAgentBridge(
     );
   }
 
+  // A backfill-only delivery leaves the binding pending for recovery to settle.
+  if (!resumeParent) return false;
+
   // 2. Barrier + CAS + resume the parent op (infra errors propagate too).
   // Pass the just-backfilled message id so the barrier trusts this write
   // instead of re-reading a possibly-stale replica.
-  return deps.tryResumeParentFromAsyncTool(
+  const resumed = await deps.tryResumeParentFromAsyncTool(
     { childOperationId: operationId, parentOperationId },
     { knownFulfilledMessageId: toolMessageId, scheduleVerifyOnHold: true },
   );
+  if (durable && !params.reconcileLeaseOwner) {
+    await new AgentSubAgentBridgeModel(deps.serverDB).markDelivered(operationId, {
+      completionReason:
+        reason === 'done' || reason === 'error' || reason === 'interrupted' ? reason : 'other',
+      parentOperationId,
+      threadId: threadId ?? '',
+      toolMessageId,
+      userId: deps.userId,
+      leaseOwner: deliveryLeaseOwner,
+    });
+  }
+  return resumed;
 }
 
 /**

@@ -4,7 +4,7 @@ import type { Context } from 'hono';
 import { GoalModel } from '@/database/models/goal';
 import { getServerDB } from '@/database/server';
 import { appEnv } from '@/envs/app';
-import { qstashClient } from '@/libs/qstash';
+import { getDirectDeliveryClient } from '@/server/modules/Hatchet/directDelivery';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { advanceGoal } from '@/server/services/goal/advanceGoal';
 import { GOAL_ADVANCE_PATH } from '@/server/services/goal/scheduler';
@@ -103,5 +103,7 @@ const publishAll = async (goals: StalledGoal[]) => {
   }
   const url = buildTenantCallbackUrl(GOAL_ADVANCE_PATH, process.env.APP_URL);
 
-  return Promise.allSettled(goals.map((body) => qstashClient.publishJSON({ body, url })));
+  return Promise.allSettled(
+    goals.map((body) => getDirectDeliveryClient().publishJSON({ body, url })),
+  );
 };

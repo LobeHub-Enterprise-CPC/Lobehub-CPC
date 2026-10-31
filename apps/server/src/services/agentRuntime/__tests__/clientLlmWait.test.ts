@@ -6,6 +6,7 @@ import { formatErrorForState } from '@/server/modules/AgentRuntime/formatErrorFo
 import { createClientLlmExecutorUnavailableError } from '@/server/modules/AgentRuntime/llmRelay/errors';
 
 import { AgentRuntimeService } from '../AgentRuntimeService';
+import { StepOwnershipLostError } from '../AgentRuntimeService/executionErrors';
 
 vi.mock('@/envs/app', () => ({ appEnv: { APP_URL: 'http://localhost:3010' } }));
 vi.mock('@/database/models/message', () => ({
@@ -173,6 +174,29 @@ describe('waiting_for_client (U4c)', () => {
   });
 
   describe('parking', () => {
+    it('does not write a client park after ownership is lost', async () => {
+      const t = createService();
+      t.messageModel.findLatestAssistantByOperationId.mockResolvedValue({
+        id: 'msg-assistant',
+        parentId: 'msg-user',
+      });
+      const lost = new StepOwnershipLostError(OPERATION_ID, 1);
+
+      await expect(
+        (t.service as any).parkForClientLlm(
+          OPERATION_ID,
+          unavailableErrorState('no_executor'),
+          { phase: 'user_input' },
+          undefined,
+          runningState(),
+          async () => {
+            throw lost;
+          },
+        ),
+      ).rejects.toBe(lost);
+      expect(t.operationModel.recordCompletion).not.toHaveBeenCalled();
+      expect(t.coordinator.saveAgentState).not.toHaveBeenCalled();
+    });
     it.each(['no_executor', 'claim_timeout', 'not_delivered'] as const)(
       'parks a step whose LLM call found no client (%s) instead of failing the run',
       async (reason) => {
@@ -245,6 +269,7 @@ describe('waiting_for_client (U4c)', () => {
           OPERATION_ID,
           expect.objectContaining({ status: 'waiting_for_client' }),
           'waiting_for_client',
+          { assertOwnership: undefined },
         );
       },
     );
@@ -406,7 +431,9 @@ describe('waiting_for_client (U4c)', () => {
 
       expect(t.getStored().status).toBe('error');
       expect(t.scheduleMessage).not.toHaveBeenCalled();
-      expect(t.dispatchHooks).toHaveBeenCalledWith(OPERATION_ID, expect.anything(), 'error');
+      expect(t.dispatchHooks).toHaveBeenCalledWith(OPERATION_ID, expect.anything(), 'error', {
+        assertOwnership: undefined,
+      });
     });
 
     it('honours AGENT_LLM_RELAY_CLIENT_WAIT_MS for the wait window', async () => {

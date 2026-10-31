@@ -175,6 +175,118 @@ export function createThreadMetadataCallbacks(
   };
 }
 
+interface ThreadRunWriteParams {
+  operationId: string;
+  runToken: string;
+  startedAt: string;
+  threadId: string;
+  usageBaseline?: ThreadUsageBaseline;
+}
+
+/** Shared by local hooks and queue callbacks. Persistence errors must reach the caller. */
+export async function applyThreadProgress(
+  threadModel: ThreadModel,
+  params: ThreadRunWriteParams & {
+    progressStep: number;
+    totalMessages: number;
+    totalTokens?: number;
+    totalToolCalls?: number;
+  },
+): Promise<boolean> {
+  const {
+    operationId,
+    progressStep,
+    runToken,
+    startedAt,
+    threadId,
+    totalMessages,
+    totalTokens,
+    totalToolCalls,
+    usageBaseline = {},
+  } = params;
+  return threadModel.updateProgressForRun(threadId, runToken, operationId, progressStep, {
+    operationId,
+    startedAt,
+    totalCost: usageBaseline.totalCost,
+    totalMessages,
+    totalTokens: addUsage(usageBaseline.totalTokens, totalTokens),
+    totalToolCalls: addUsage(usageBaseline.totalToolCalls, totalToolCalls),
+  });
+}
+
+/** The conditional completion write owns the summary; a lost CAS never writes it. */
+export async function applyThreadCompletion(
+  threadModel: ThreadModel,
+  messageModel: MessageModel,
+  params: ThreadRunWriteParams & {
+    lastAssistantContent?: string;
+    reason?: string;
+    sourceMessageId?: string;
+    summary?: {
+      error?: unknown;
+      totalCost?: number | null;
+      totalTokens?: number | null;
+      totalToolCalls?: number | null;
+    };
+    totalMessages?: number;
+  },
+): Promise<boolean> {
+  const {
+    lastAssistantContent,
+    operationId,
+    reason,
+    runToken,
+    sourceMessageId,
+    startedAt,
+    summary,
+    threadId,
+    totalMessages,
+    usageBaseline = {},
+  } = params;
+  const now = Date.now();
+  let status: ThreadStatus;
+  switch (reason) {
+    case 'error': {
+      status = ThreadStatus.Failed;
+      break;
+    }
+    case 'interrupted': {
+      status = ThreadStatus.Cancel;
+      break;
+    }
+    case 'waiting_for_human': {
+      status = ThreadStatus.InReview;
+      break;
+    }
+    default: {
+      status = ThreadStatus.Completed;
+    }
+  }
+
+  const matched = await threadModel.completeRun(threadId, runToken, operationId, status, {
+    ...(status !== ThreadStatus.InReview && { completedAt: new Date(now).toISOString() }),
+    duration: now - new Date(startedAt).getTime(),
+    operationId,
+    startedAt,
+    ...(totalMessages !== undefined && { totalMessages }),
+    // An expired state is not evidence of zero usage. Preserve existing values.
+    ...(summary?.error != null && { error: formatErrorForMetadata(summary.error) }),
+    ...(summary?.totalCost != null && {
+      totalCost: addUsage(usageBaseline.totalCost, summary.totalCost),
+    }),
+    ...(summary?.totalTokens != null && {
+      totalTokens: addUsage(usageBaseline.totalTokens, summary.totalTokens),
+    }),
+    ...(summary?.totalToolCalls != null && {
+      totalToolCalls: addUsage(usageBaseline.totalToolCalls, summary.totalToolCalls),
+    }),
+  });
+  if (matched && sourceMessageId && lastAssistantContent) {
+    await messageModel.update(sourceMessageId, { content: lastAssistantContent });
+  }
+  return matched;
+}
+
 /** Create hooks for tracking Thread metadata updates during SubAgent execution. */
 export function createThreadHooks(
   agentRuntimeService: AgentRuntimeService,
@@ -184,126 +296,84 @@ export function createThreadHooks(
   startedAt: string,
   sourceMessageId: string | undefined,
   logScope: 'execSubAgent' | 'execVirtualSubAgent',
+  runToken: string,
   usageBaseline: ThreadUsageBaseline = {},
 ): AgentHook[] {
+  const body = { logScope, runToken, sourceMessageId, startedAt, threadId, usageBaseline };
   return [
     {
       handler: async (event: AgentHookEvent) => {
         const state = event.finalState;
         if (!state) return;
-
         try {
-          await threadModel.update(threadId, {
-            metadata: {
-              operationId: event.operationId,
-              startedAt,
-              totalCost: usageBaseline.totalCost,
-              totalMessages: state.messages?.length ?? 0,
-              totalTokens: addUsage(usageBaseline.totalTokens, calculateTotalTokens(state.usage)),
-              totalToolCalls: addUsage(
-                usageBaseline.totalToolCalls,
-                state.usage?.tools?.totalCalls,
-              ),
-            },
+          await applyThreadProgress(threadModel, {
+            operationId: event.operationId,
+            runToken,
+            progressStep: event.stepIndex ?? state.stepCount,
+            startedAt,
+            threadId,
+            totalMessages: state.messages?.length ?? 0,
+            totalTokens: calculateTotalTokens(state.usage),
+            totalToolCalls: state.usage?.tools?.totalCalls,
+            usageBaseline,
           });
         } catch (error) {
           log('%s: thread hook afterStep failed to update metadata: %O', logScope, error);
         }
       },
       id: 'thread-metadata-update',
-      type: 'afterStep' as const,
+      type: 'afterStep',
+      webhook: {
+        body,
+        delivery: 'qstash',
+        // toolCalls is usage.tools.totalCalls; totalToolCalls is a different
+        // tracking counter. Presentation totalTokens coerces missing usage to
+        // zero, so the callback reads tokens from state to preserve undefined.
+        eventFields: ['operationId', 'stepIndex', 'steps', 'toolCalls'],
+        fallback: 'none',
+        url: '/api/agent/webhooks/thread-callback',
+      },
     },
     {
       handler: async (event: AgentHookEvent) => {
-        const finalState = event.finalState;
-        if (!finalState) return;
-
-        const completedAt = new Date().toISOString();
-        const duration = Date.now() - new Date(startedAt).getTime();
-
-        // Map completion reason to ThreadStatus
-        let status: ThreadStatus;
-        switch (event.reason) {
-          case 'done': {
-            status = ThreadStatus.Completed;
-            break;
-          }
-          case 'error': {
-            status = ThreadStatus.Failed;
-            break;
-          }
-          case 'interrupted': {
-            status = ThreadStatus.Cancel;
-            break;
-          }
-          case 'waiting_for_human': {
-            status = ThreadStatus.InReview;
-            break;
-          }
-          default: {
-            status = ThreadStatus.Completed;
-          }
-        }
-
-        if (event.reason === 'error' && finalState.error) {
-          console.error(
-            '%s: thread hook onComplete run failed for thread %s:',
-            logScope,
-            threadId,
-            finalState.error,
-          );
-        }
-
+        const state = event.finalState;
+        if (!state) return;
         try {
-          // Bridged runs publish through result control; only standalone thread
-          // runs own a source-message summary write here.
-          const lastAssistantMessage = finalState.messages
+          const lastAssistant = state.messages
             ?.slice()
             .reverse()
             .find((m: { role: string }) => m.role === 'assistant');
-
-          if (sourceMessageId && lastAssistantMessage?.content) {
-            await messageModel.update(sourceMessageId, {
-              content: lastAssistantMessage.content,
-            });
-          }
-
-          const formattedError = formatErrorForMetadata(finalState.error);
-
-          await threadModel.update(threadId, {
-            metadata: {
-              completedAt,
-              duration,
-              error: formattedError,
-              operationId: finalState.operationId,
-              startedAt,
-              totalCost: addUsage(usageBaseline.totalCost, finalState.cost?.total),
-              totalMessages: finalState.messages?.length ?? 0,
-              totalTokens: addUsage(
-                usageBaseline.totalTokens,
-                calculateTotalTokens(finalState.usage),
-              ),
-              totalToolCalls: addUsage(
-                usageBaseline.totalToolCalls,
-                finalState.usage?.tools?.totalCalls,
-              ),
+          await applyThreadCompletion(threadModel, messageModel, {
+            lastAssistantContent: lastAssistant?.content,
+            operationId: event.operationId,
+            reason: event.reason,
+            runToken,
+            sourceMessageId,
+            startedAt,
+            summary: {
+              error: state.error,
+              totalCost: state.cost?.total,
+              totalTokens: calculateTotalTokens(state.usage),
+              totalToolCalls: state.usage?.tools?.totalCalls,
             },
-            status,
-          });
-
-          log(
-            '%s: thread hook onComplete thread %s status=%s reason=%s',
-            logScope,
             threadId,
-            status,
-            event.reason,
-          );
+            totalMessages: state.messages?.length ?? 0,
+            usageBaseline,
+          });
+          log('%s: thread hook onComplete thread %s reason=%s', logScope, threadId, event.reason);
         } catch (error) {
           console.error('%s: thread hook onComplete failed to update: %O', logScope, error);
         }
       },
       id: 'thread-completion',
-      type: 'onComplete' as const,
+      type: 'onComplete',
+      webhook: {
+        body,
+        delivery: 'qstash',
+        eventFields: ['operationId', 'reason', 'status'],
+        fallback: 'none',
+        url: '/api/agent/webhooks/thread-callback',
+      },
     },
   ];
 }

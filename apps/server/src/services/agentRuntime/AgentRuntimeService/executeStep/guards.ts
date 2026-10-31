@@ -1,10 +1,13 @@
 import type { AgentState } from '@lobechat/agent-runtime';
 import debug from 'debug';
 
+import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
+
 import { type AgentExecutionParams, type AgentExecutionResult } from '../../types';
 import { STEP_LOCK_RETRY_MAX_ATTEMPTS } from '../constants';
 import type { AgentRuntimeServiceContext } from '../types';
 import { stepLockRetryDelayMs } from '../utils';
+import { owesCompletionLifecycle } from './completion';
 
 const log = debug('lobe-server:agent-runtime-service');
 
@@ -80,24 +83,44 @@ export async function runLockFreeDelivery(
       durableOperation &&
       ['done', 'error', 'interrupted', 'abandoned'].includes(durableOperation.status)
     ) {
-      log(
-        '[%s][%d] Skipping delivery for terminal durable operation (%s)',
-        operationId,
-        stepIndex,
-        durableOperation.status,
-      );
-      return {
-        nextStepScheduled: false,
-        state: {
-          status: durableOperation.status === 'abandoned' ? 'interrupted' : durableOperation.status,
-        },
-        stepResult: null,
-        success: true,
-      };
+      // Hatchet: the row can be terminal while the run still owes its
+      // completion hooks (the publish failed, or the attempt died after the
+      // write). Go on to the lock, where only that lifecycle is replayed.
+      if (
+        isHatchetDeliveryEnabled() &&
+        (await (async () => {
+          const state = await deps.coordinator.loadAgentState(operationId);
+          return state?.status === durableOperation.status && owesCompletionLifecycle(state);
+        })())
+      ) {
+        log(
+          '[%s][%d] Terminal durable operation still owes its completion lifecycle',
+          operationId,
+          stepIndex,
+        );
+      } else {
+        log(
+          '[%s][%d] Skipping delivery for terminal durable operation (%s)',
+          operationId,
+          stepIndex,
+          durableOperation.status,
+        );
+        return {
+          nextStepScheduled: false,
+          state: {
+            status:
+              durableOperation.status === 'abandoned' ? 'interrupted' : durableOperation.status,
+          },
+          stepResult: null,
+          success: true,
+        };
+      }
     }
   } catch (error) {
-    // Preserve runtime availability when the durable store has a transient
-    // read failure. The step lock and normal persistence path still apply.
+    if (isHatchetDeliveryEnabled()) throw error;
+    // Preserve runtime availability when the durable store (or the Hatchet
+    // state read above) has a transient read failure. The step lock and normal
+    // persistence path still apply.
     log('[%s][%d] Durable operation status check failed: %O', operationId, stepIndex, error);
   }
 
@@ -189,18 +212,24 @@ export async function handleStepLockConflict(
       };
     }
 
-    log(
-      '[%s][%d] Step lock conflict is stale (stepCount=%d), skipping',
-      operationId,
-      stepIndex,
-      currentStepCount,
-    );
-    return {
-      nextStepScheduled: false,
-      state: currentState,
-      stepResult: null,
-      success: true,
-    };
+    // Hatchet: a run that still owes its completion lifecycle is no stale
+    // duplicate. The holder may have died mid-dispatch with its lock still
+    // live; wait for the lock like any live conflict below, so a later
+    // delivery replays the lifecycle instead of this one being ACKed.
+    if (!owesCompletionLifecycle(currentState)) {
+      log(
+        '[%s][%d] Step lock conflict is stale (stepCount=%d), skipping',
+        operationId,
+        stepIndex,
+        currentStepCount,
+      );
+      return {
+        nextStepScheduled: false,
+        state: currentState,
+        stepResult: null,
+        success: true,
+      };
+    }
   }
 
   // The lock is held by a live step of this operation, and this delivery is
@@ -300,11 +329,13 @@ export async function replayPendingInterventionLifecycle(
   deps: StepGuardsDeps,
   {
     agentState,
+    assertOwnership,
     externalRetryCount,
     operationId,
     stepIndex,
   }: {
     agentState: AgentState;
+    assertOwnership?: () => Promise<void>;
     externalRetryCount: number;
     operationId: string;
     stepIndex: number;
@@ -332,10 +363,19 @@ export async function replayPendingInterventionLifecycle(
       agentState,
       reason,
     );
-    await deps.completionLifecycle.dispatchHooks(operationId, agentState, reason);
-    await deps.recordInterventionLifecycleCompletion(operationId, agentState, stepIndex);
+    await deps.completionLifecycle.dispatchHooks(operationId, agentState, reason, {
+      assertOwnership,
+    });
+    await assertOwnership?.();
+    await deps.recordInterventionLifecycleCompletion(
+      operationId,
+      agentState,
+      stepIndex,
+      assertOwnership,
+    );
     await deps.traceRecorder.finalize(operationId, {
       appendEventsToLastStep: completionSignalEvents,
+      assertOwnership,
       completionReason: reason,
       state: agentState,
     });
@@ -361,11 +401,13 @@ export async function skipUnrunnableStep(
   deps: StepGuardsDeps,
   {
     agentState,
+    assertOwnership,
     operationId,
     resumeClientLlm,
     stepIndex,
   }: {
     agentState: AgentState;
+    assertOwnership?: () => Promise<void>;
     operationId: string;
     resumeClientLlm: AgentExecutionParams['resumeClientLlm'];
     stepIndex: number;
@@ -401,12 +443,16 @@ export async function skipUnrunnableStep(
       agentState.status,
     );
 
-    const reason = deps.determineCompletionReason(agentState);
+    if (!isHatchetDeliveryEnabled()) {
+      const reason = deps.determineCompletionReason(agentState);
 
-    await deps.completionLifecycle.emitSignalEvents(operationId, agentState, reason);
+      await deps.completionLifecycle.emitSignalEvents(operationId, agentState, reason);
 
-    // Dispatch completion hooks so consumers (e.g., bot local-mode promise) can finalize
-    await deps.completionLifecycle.dispatchHooks(operationId, agentState, reason);
+      // Dispatch completion hooks so consumers (e.g., bot local-mode promise) can finalize
+      await deps.completionLifecycle.dispatchHooks(operationId, agentState, reason, {
+        assertOwnership,
+      });
+    }
 
     return {
       nextStepScheduled: false,

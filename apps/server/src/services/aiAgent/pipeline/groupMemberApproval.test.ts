@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { resolveGroupMemberApprovalContinuation } from './groupMemberApproval';
+import {
+  createGroupMemberApprovalDeps,
+  linkGroupMemberContinuation,
+  resolveGroupMemberApprovalContinuation,
+} from './groupMemberApproval';
 
 const bridgeBody = {
   anchorMessageId: 'msg_speak',
@@ -92,7 +96,7 @@ describe('resolveGroupMemberApprovalContinuation', () => {
 
     const result = await resolveGroupMemberApprovalContinuation(deps as any, approveParams);
 
-    expect(deps.createThreadHooks).toHaveBeenCalledWith('thd_1');
+    expect(deps.createThreadHooks).toHaveBeenCalledWith('thd_1', 'op_carol');
     expect(result?.hooks?.map((hook) => hook.id)).toEqual(['thread-completion', bridgeHook.id]);
   });
 
@@ -138,5 +142,64 @@ describe('resolveGroupMemberApprovalContinuation', () => {
       ),
     ).toBe(undefined);
     expect(deps.findMessagePlugin).not.toHaveBeenCalled();
+  });
+});
+
+describe('createGroupMemberApprovalDeps thread hooks', () => {
+  it('prepares stable hooks without mutating the thread before approval validation', async () => {
+    const threadModel = {
+      findById: vi.fn().mockResolvedValue({
+        id: 'thread',
+        sourceMessageId: 'source',
+        status: 'inReview',
+        metadata: {
+          runToken: 'retired',
+          operationId: 'paused',
+          startedAt: '2026-10-30T00:00:00Z',
+          progressStep: 8,
+        },
+      }),
+      setRunToken: vi.fn().mockResolvedValue(true),
+    };
+    const deps = createGroupMemberApprovalDeps({
+      threadModel,
+      messageModel: {},
+      agentRuntimeService: {},
+    } as any);
+    const hooks = await deps.createThreadHooks('thread', 'paused');
+    const retryHooks = await deps.createThreadHooks('thread', 'paused');
+    const runToken = hooks[0].webhook?.body?.runToken;
+    expect(runToken).toEqual(expect.any(String));
+    expect(runToken).not.toBe('retired');
+    expect(retryHooks[0].webhook?.body?.runToken).toBe(runToken);
+    expect(threadModel.setRunToken).not.toHaveBeenCalled();
+    expect(hooks.every((hook) => hook.webhook?.body?.runToken === runToken)).toBe(true);
+  });
+});
+
+describe('linkGroupMemberContinuation', () => {
+  const continuationParams = {
+    appContext: { threadId: 'thd_member' },
+    hooks: [{ id: 'thread-completion', webhook: { body: { runToken: 'tok_b' } } }],
+  } as any;
+  const started = { operationId: 'op_b', success: true } as any;
+
+  it('links the started continuation to its thread generation', async () => {
+    const threadModel = { linkRunOperation: vi.fn().mockResolvedValue(true) };
+
+    await linkGroupMemberContinuation({ threadModel } as any, continuationParams, started);
+
+    expect(threadModel.linkRunOperation).toHaveBeenCalledWith('thd_member', 'tok_b', 'op_b');
+  });
+
+  it('does not fail an approval whose continuation already started when the link write fails', async () => {
+    const threadModel = { linkRunOperation: vi.fn().mockRejectedValue(new Error('db down')) };
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(
+      linkGroupMemberContinuation({ threadModel } as any, continuationParams, started),
+    ).resolves.toBeUndefined();
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
   });
 });

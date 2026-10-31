@@ -77,6 +77,8 @@ export async function persistCompletion(
   state: any,
   reason: string,
   settledAsAbandoned?: boolean,
+  strict?: boolean,
+  assertOwnership?: () => Promise<void>,
 ): Promise<boolean> {
   const completionReason: any = settledAsAbandoned
     ? 'lease_expired'
@@ -125,6 +127,8 @@ export async function persistCompletion(
     if (!child) return own ?? null;
     return (own ?? 0) + child;
   };
+
+  await assertOwnership?.();
 
   let completionDurable = false;
   let conflictingTerminalOwner = false;
@@ -184,6 +188,7 @@ export async function persistCompletion(
       if (operation) durableStatus = operation.status;
     }
   } catch (error) {
+    if (strict) throw error;
     log('[%s] Failed to persist operation completion (non-fatal): %O', operationId, error);
   }
 
@@ -193,6 +198,7 @@ export async function persistCompletion(
   // operation's own end unproven, and a mark cleared on an unproven ending
   // reads as settled while `agent_operations` still says `running`.
   if (completionDurable) {
+    await assertOwnership?.();
     await settleTopicRunningMark(deps, { operationId, status: durableStatus, topicId });
   }
 
@@ -205,6 +211,7 @@ export async function persistCompletion(
   // tool spend shows up without waiting for the next message mutation.
   // Idempotent (pure derived projection) and non-fatal.
   if (topicId) {
+    await assertOwnership?.();
     try {
       await deps.serverDB.transaction((trx) =>
         recomputeTopicUsage(trx, deps.userId, topicId, deps.workspaceId),

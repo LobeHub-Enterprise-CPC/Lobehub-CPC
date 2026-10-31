@@ -24,6 +24,15 @@ const isPreconditionFailed = (error: unknown): boolean => {
   return status === 412 || (error as { name?: string })?.name === 'PreconditionFailed';
 };
 
+/** The object is not there, as opposed to a read that failed. */
+const isNotFound = (error: unknown): boolean => {
+  const { $metadata, name } = (error ?? {}) as {
+    $metadata?: { httpStatusCode?: number };
+    name?: string;
+  };
+  return name === 'NoSuchKey' || name === 'NotFound' || $metadata?.httpStatusCode === 404;
+};
+
 const TRACE_PREFIX = 'agent-traces';
 const SNAPSHOT_SUFFIX = '.json.zst';
 const LEGACY_SUFFIX = '.json';
@@ -84,7 +93,7 @@ export class S3SnapshotStore implements ISnapshotStore {
     return JSON.parse(buf.toString('utf8')) as T;
   }
 
-  async save(snapshot: ExecutionSnapshot): Promise<void> {
+  async save(snapshot: ExecutionSnapshot, assertOwnership?: () => Promise<void>): Promise<void> {
     // Recover agentId/topicId from the operationId when the snapshot lacks them,
     // so the key matches what readers reconstruct from the operationId. Only an
     // operationId that doesn't carry the segments falls through to "unknown".
@@ -95,6 +104,7 @@ export class S3SnapshotStore implements ISnapshotStore {
 
     log('Saving snapshot to S3: %s', key);
     const compressed = await this.encodeSnapshot(snapshot);
+    await assertOwnership?.();
     await this.s3.uploadBuffer(key, compressed, ZSTD_CONTENT_TYPE);
   }
 
@@ -118,12 +128,18 @@ export class S3SnapshotStore implements ISnapshotStore {
     return [];
   }
 
+  /**
+   * `null` only when no partial exists. A read that failed throws: taken for a
+   * missing partial, it would have the recorder start over and overwrite the
+   * steps already recorded (a parked run's pre-park trajectory included).
+   */
   async loadPartial(operationId: string): Promise<Partial<ExecutionSnapshot> | null> {
     // Current format: .json.zst (zstd-compressed)
     try {
       const bytes = await this.s3.getFileByteArray(this.partialKey(operationId));
       return await this.decodeSnapshot<Partial<ExecutionSnapshot>>(bytes);
-    } catch {
+    } catch (error) {
+      if (!isNotFound(error)) throw error;
       // fall through to legacy
     }
     // Legacy format: uncompressed .json. Kept to bridge in-flight partials across the
@@ -132,7 +148,8 @@ export class S3SnapshotStore implements ISnapshotStore {
     try {
       const content = await this.s3.getFileContent(this.legacyPartialKey(operationId));
       return JSON.parse(content) as Partial<ExecutionSnapshot>;
-    } catch {
+    } catch (error) {
+      if (!isNotFound(error)) throw error;
       return null;
     }
   }

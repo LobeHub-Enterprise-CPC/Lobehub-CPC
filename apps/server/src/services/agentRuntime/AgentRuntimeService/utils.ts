@@ -4,12 +4,14 @@ import { BRANDING_NAME } from '@lobechat/business-const';
 import { ABANDONED_OPERATION_ERROR_PREFIX } from '@lobechat/const/goal';
 import { ChatErrorType } from '@lobechat/types';
 
+import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
 import type { emitAgentSignalSourceEvent } from '@/server/services/agentSignal';
 import { toAgentSignalTraceEvents } from '@/server/services/agentSignal/observability/traceEvents';
 
 import {
   ASYNC_TOOL_VERIFY_DELAY_MS,
   ASYNC_TOOL_VERIFY_MAX_DELAY_MS,
+  STEP_LOCK_FIRST_RETRY_DELAY_MS,
   STEP_LOCK_RETRY_BASE_DELAY_MS,
   STEP_LOCK_RETRY_MAX_DELAY_MS,
 } from './constants';
@@ -32,12 +34,20 @@ export const withoutFrozenModelFacts = (modelRuntimeConfig?: any) => {
 /**
  * Exponential backoff for the Nth (1-based) lock-conflict re-delivery:
  * 15s, 30s, 60s, 120s, then capped at {@link STEP_LOCK_RETRY_MAX_DELAY_MS}.
+ *
+ * Hatchet delivery hands the next step to another instance before the old
+ * holder releases the lock (publish, then release a few ms later), so the
+ * successor's first conflict is usually that gap: it retries after 1s, then
+ * continues with the same 15s, 30s, … sequence.
  */
-export const stepLockRetryDelayMs = (attempt: number): number =>
-  Math.min(
-    STEP_LOCK_RETRY_BASE_DELAY_MS * 2 ** (Math.max(1, attempt) - 1),
-    STEP_LOCK_RETRY_MAX_DELAY_MS,
-  );
+export const stepLockRetryDelayMs = (attempt: number): number => {
+  const n = Math.max(1, attempt);
+  if (isHatchetDeliveryEnabled()) {
+    if (n === 1) return STEP_LOCK_FIRST_RETRY_DELAY_MS;
+    return Math.min(STEP_LOCK_RETRY_BASE_DELAY_MS * 2 ** (n - 2), STEP_LOCK_RETRY_MAX_DELAY_MS);
+  }
+  return Math.min(STEP_LOCK_RETRY_BASE_DELAY_MS * 2 ** (n - 1), STEP_LOCK_RETRY_MAX_DELAY_MS);
+};
 
 /**
  * Exponential backoff delay for the Nth (1-based) watchdog re-check:

@@ -7,6 +7,7 @@ import type { AgentRuntimeService } from '@/server/services/agentRuntime';
 import { isAbortError } from '@/server/services/agentRuntime/abort';
 import { mintOperationGatewayTicket } from '@/server/services/gatewayAuthorization';
 
+import { SubAgentBridgeError } from '../subAgentBridgeError';
 import type { ExecRunContext, InternalExecAgentParams } from '../types';
 import type { ApprovalClaimState } from './approvalResume';
 import type { OperationPrepResult } from './operationPrep';
@@ -409,6 +410,7 @@ export const startOperation = async (
     if (topicStartOwnerOperationId && topicId) {
       await deps.topicModel.removeRunningOperationChild(topicId, operationId).catch(() => false);
     }
+    if (error instanceof SubAgentBridgeError) throw error;
     if (isAbortError(error)) {
       await updateAbortedAssistantMessage(error.message);
       log('execAgent: createOperation aborted for %s: %s', operationId, error.message);

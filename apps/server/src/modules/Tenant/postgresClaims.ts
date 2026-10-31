@@ -83,18 +83,22 @@ const tenantLeaseStore: TenantLeaseStore = {
 };
 
 // Agent steps running here are tenant live work: SIGTERM lets them finish first.
-export const tenantProcessLease = new TenantProcessLease(
+const leaseKey = Symbol.for('lobehub.tenantProcessLease');
+const globals = globalThis as typeof globalThis & { [key: symbol]: unknown };
+export const tenantProcessLease = (globals[leaseKey] ??= new TenantProcessLease(
   tenantLeaseStore,
   undefined,
   undefined,
   undefined,
   drainAgentSteps,
-);
+)) as TenantProcessLease;
 
-export const tenantClaims = new TenantClaims(
+// The shared lease's renewal observes these claims, regardless of which bundle admitted them.
+const claimsKey = Symbol.for('lobehub.tenantClaims');
+export const tenantClaims = (globals[claimsKey] ??= new TenantClaims(
   () => tenantProcessLease.ensure(),
   () => tenantProcessLease.assertValid(),
-);
+)) as TenantClaims;
 
 /** Resource watchers check local lease authority; the timer alone renews it. */
 export const heartbeatTenantProcess = async () => {

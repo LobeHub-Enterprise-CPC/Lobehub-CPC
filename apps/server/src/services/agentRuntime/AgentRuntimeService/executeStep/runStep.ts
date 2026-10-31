@@ -38,6 +38,7 @@ export type StepPresentation = ReturnType<typeof buildStepPresentation>['present
 export async function runAndReconcileStep(
   deps: StepRunStepDeps,
   {
+    assertOwnership,
     currentContext,
     currentState,
     forcedFinishState,
@@ -45,7 +46,12 @@ export async function runAndReconcileStep(
     resumedClientLlmWait,
     runtime,
     stepIndex,
-  }: PreparedStepInput & { operationId: string; runtime: AgentRuntime; stepIndex: number },
+  }: PreparedStepInput & {
+    assertOwnership?: () => Promise<void>;
+    operationId: string;
+    runtime: AgentRuntime;
+    stepIndex: number;
+  },
 ): Promise<{ startAt: number; stepResult: StepRunResult }> {
   // Execute step (skipped when force-finishing a parked supervisor op).
   const startAt = Date.now();
@@ -126,6 +132,7 @@ export async function runAndReconcileStep(
       currentContext,
       resumedClientLlmWait?.expiresAt,
       currentState,
+      assertOwnership,
     );
     if (parkedState) {
       stepResult = { ...stepResult, newState: parkedState, nextContext: undefined };
@@ -144,6 +151,7 @@ export async function runAndReconcileStep(
 export async function saveAndPublishStep(
   deps: StepRunStepDeps,
   {
+    assertOwnership,
     gatewayMessagePatchEnabled,
     operationId,
     startAt,
@@ -151,6 +159,7 @@ export async function saveAndPublishStep(
     stepResult,
     stepStartUiMessages,
   }: {
+    assertOwnership?: () => Promise<void>;
     gatewayMessagePatchEnabled: boolean;
     operationId: string;
     startAt: number;
@@ -233,11 +242,16 @@ export async function saveAndPublishStep(
   }
 
   // Save state, coordinator will handle event sending automatically
-  await deps.coordinator.saveStepResult(operationId, {
-    ...stepResult,
-    executionTime: Date.now() - startAt,
-    stepIndex, // placeholder
-  });
+  await assertOwnership?.();
+  await deps.coordinator.saveStepResult(
+    operationId,
+    {
+      ...stepResult,
+      executionTime: Date.now() - startAt,
+      stepIndex, // placeholder
+    },
+    assertOwnership,
+  );
   logToolCallPc(operationId, stepIndex, 'post.step_result_saved', () => ({
     stateStatus: stepResult.newState.status,
     stateStepCount: stepResult.newState.stepCount,
