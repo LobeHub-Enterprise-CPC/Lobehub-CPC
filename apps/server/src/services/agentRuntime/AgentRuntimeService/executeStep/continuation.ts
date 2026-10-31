@@ -18,6 +18,66 @@ export type StepContinuationDeps = Pick<
   | 'streamManager'
   | 'traceRecorder'
 >;
+
+const nextStepOf = (
+  deps: StepContinuationDeps,
+  operationId: string,
+  stepIndex: number,
+  stepResult: StepRunResult,
+): AgentStepContinuation | undefined => {
+  if (!stepResult.nextContext) return;
+  return {
+    context: stepResult.nextContext,
+    delay: deps.calculateStepDelay(stepResult),
+    operationId,
+    priority: deps.calculatePriority(stepResult),
+    retries:
+      typeof stepResult.newState.host?.queue?.retries === 'number'
+        ? stepResult.newState.host?.queue?.retries
+        : undefined,
+    retryDelay:
+      typeof stepResult.newState.host?.queue?.retryDelay === 'string'
+        ? stepResult.newState.host?.queue?.retryDelay
+        : undefined,
+    stepIndex: stepIndex + 1,
+  };
+};
+
+/**
+ * Hatchet: the step is committed but this attempt lost the lock before handing
+ * the next one on. Queue it anyway, skipping what needs the lock (the trace,
+ * the inline envelope): the redelivery of this step is ACKed as already done,
+ * so nothing else would run the rest of the operation until the stale reaper.
+ * A duplicate is dropped by the next claim and the stale-step guard.
+ */
+export async function queueNextStepAfterOwnershipLoss(
+  deps: StepContinuationDeps,
+  {
+    operationId,
+    stepIndex,
+    stepResult,
+  }: { operationId: string; stepIndex: number; stepResult: StepRunResult },
+): Promise<void> {
+  const next = nextStepOf(deps, operationId, stepIndex, stepResult);
+  if (!next || !deps.queueService) return;
+  try {
+    await deps.queueService.scheduleMessage({ ...next, endpoint: `${deps.baseURL}/run` });
+    log(
+      '[%s][%d] Lost the lock after the commit; queued step %d',
+      operationId,
+      stepIndex,
+      stepIndex + 1,
+    );
+  } catch (error) {
+    log(
+      '[%s][%d] Could not queue the next step after losing the lock: %O',
+      operationId,
+      stepIndex,
+      error,
+    );
+  }
+}
+
 /**
  * Hand the next step back to the caller (inline) or queue it. Inlining needs
  * the envelope parked first, so a redelivery can recover the run when this
@@ -48,26 +108,12 @@ export async function scheduleNextStep(
   let nextStepScheduled = false;
 
   // The caller checks both; repeated here for the type narrowing.
-  if (!deps.queueService || !stepResult.nextContext) {
+  const next = nextStepOf(deps, operationId, stepIndex, stepResult);
+  if (!deps.queueService || !next) {
     return { continuation, handedOffInline, nextStepScheduled };
   }
 
-  const nextStepIndex = stepIndex + 1;
-  const next: AgentStepContinuation = {
-    context: stepResult.nextContext,
-    delay: deps.calculateStepDelay(stepResult),
-    operationId,
-    priority: deps.calculatePriority(stepResult),
-    retries:
-      typeof stepResult.newState.host?.queue?.retries === 'number'
-        ? stepResult.newState.host?.queue?.retries
-        : undefined,
-    retryDelay:
-      typeof stepResult.newState.host?.queue?.retryDelay === 'string'
-        ? stepResult.newState.host?.queue?.retryDelay
-        : undefined,
-    stepIndex: nextStepIndex,
-  };
+  const nextStepIndex = next.stepIndex;
 
   // Park the envelope before handing it over. The caller is about to run
   // this step in-process with nothing queued behind it; if that

@@ -711,6 +711,10 @@ export class AgentStateManager {
       return result === 1;
     } catch (error) {
       console.error('Failed to refresh step lock:', error);
+      // Hatchet: `false` is "someone else holds it". An unreachable Redis says
+      // nothing about the owner, so it must not read as a loss.
+      if (isHatchetDeliveryEnabled())
+        throw new StepLockUnavailableError(operationId, { cause: error });
       return false;
     }
   }

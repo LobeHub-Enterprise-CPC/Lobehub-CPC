@@ -65,6 +65,26 @@ describe('HookDispatcher completion webhook deduplication', () => {
     ]);
   });
 
+  // A park is not the run's end: the same operation can park on approval again
+  // later, and Hatchet would return the first park's run for the second.
+  it('keys a park by its step, so a later park of the same operation is delivered', async () => {
+    const dispatcher = new HookDispatcher();
+    const park = (steps: number) =>
+      event({ reason: 'waiting_for_human', status: 'waiting_for_human', steps });
+
+    await dispatcher.dispatch(operationId, 'onComplete', park(3), hooks);
+    await dispatcher.dispatch(operationId, 'onComplete', park(3), hooks);
+    await dispatcher.dispatch(operationId, 'onComplete', park(7), hooks);
+    await dispatcher.dispatch(operationId, 'onComplete', event({ steps: 9 }), hooks);
+
+    expect(deliveryOptions()).toEqual([
+      { deduplicationId: 'op_dedup:bot-reply:onComplete:waiting_for_human:3' },
+      { deduplicationId: 'op_dedup:bot-reply:onComplete:waiting_for_human:3' },
+      { deduplicationId: 'op_dedup:bot-reply:onComplete:waiting_for_human:7' },
+      { deduplicationId: 'op_dedup:bot-reply:onComplete:error' },
+    ]);
+  });
+
   it('leaves the other hook types without a key', async () => {
     await new HookDispatcher().dispatch(operationId, 'afterStep', event({ stepIndex: 2 }), hooks);
 

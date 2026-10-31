@@ -193,6 +193,8 @@ export class OperationTraceRecorder {
     // still points at the object we are about to forget — land it first.
     if (this.cached) await this.flushSaves();
 
+    // Only a missing partial starts over. A failed read rejects, and the append
+    // that wanted it is skipped (logged) rather than overwriting the stored steps.
     const partial = (await this.store!.loadPartial(operationId)) ?? { steps: [] };
     if (generation === this.generation) this.cached = { operationId, partial };
     return partial;
@@ -340,6 +342,17 @@ export class OperationTraceRecorder {
       if (e instanceof StepOwnershipLostError) throw e;
       log('[%s] snapshot finalize failed (reason=%s): %O', operationId, params.completionReason, e);
     }
+  }
+
+  /**
+   * Delete the stored partial of an operation that will not resume under this
+   * id (a parked approval segment retired for its continuation). Its readable
+   * snapshot is left as it is.
+   */
+  async removePartial(operationId: string): Promise<void> {
+    if (!this.store) return;
+    if (this.cached?.operationId === operationId) this.discardPartial();
+    await this.store.removePartial(operationId);
   }
 
   /**

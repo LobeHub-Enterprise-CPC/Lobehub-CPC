@@ -317,6 +317,37 @@ describe('AgentStateManager', () => {
         await expect(stateManager.tryClaimStep('op-lock', 3, 120, 'owner-1')).resolves.toBe(true);
       });
     });
+
+    describe('when the refresh itself fails', () => {
+      const redisDown = new Error('redis down');
+
+      beforeEach(() => {
+        redisMock.eval.mockRejectedValueOnce(redisDown);
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+      });
+
+      afterEach(() => {
+        hatchet.enabled = false;
+        vi.mocked(console.error).mockRestore();
+      });
+
+      // `false` means "someone else holds it"; an unreachable Redis says nothing
+      // about the owner, and the step heartbeat must not read it as a loss.
+      it('reports the lock unavailable on Hatchet instead of lost', async () => {
+        hatchet.enabled = true;
+
+        const refresh = stateManager.refreshStepLock('op-lock', 3, 120, 'owner-1');
+
+        await expect(refresh).rejects.toBeInstanceOf(StepLockUnavailableError);
+        await expect(refresh).rejects.toMatchObject({ cause: redisDown, operationId: 'op-lock' });
+      });
+
+      it('still reports it not refreshed outside Hatchet', async () => {
+        await expect(stateManager.refreshStepLock('op-lock', 3, 120, 'owner-1')).resolves.toBe(
+          false,
+        );
+      });
+    });
   });
 
   describe('touchOperation', () => {

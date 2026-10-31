@@ -1,4 +1,5 @@
-import type { ToolRunResult } from '@lobechat/agent-runtime';
+import type { AgentState, ToolRunResult } from '@lobechat/agent-runtime';
+import { isParkedStatus } from '@lobechat/agent-runtime';
 import { trackTenantWork } from '@lobechat/database/tenant';
 import type { SerializedAgentHook } from '@lobechat/types';
 import {
@@ -44,7 +45,9 @@ export { deliverWebhook } from './httpWebhook';
 /**
  * Hatchet replays an owed completion lifecycle, so the same onComplete/onError
  * can be published again. A key stable per logical event lets the queue drop
- * the repeat inside its deduplication window.
+ * the repeat inside its deduplication window. A park is not the run's end: the
+ * same operation can park again later, so its key also names the step it
+ * parked at (a replay of that park carries the same one).
  */
 const completionDeduplicationId = (
   operationId: string,
@@ -53,8 +56,10 @@ const completionDeduplicationId = (
   event: AnyHookEvent,
 ): string | undefined => {
   if (!isHatchetDeliveryEnabled() || (type !== 'onComplete' && type !== 'onError')) return;
-  const { reason } = event as { reason?: unknown };
-  return `${operationId}:${hookId}:${type}:${typeof reason === 'string' ? reason : ''}`;
+  const { reason, steps } = event as { reason?: unknown; steps?: unknown };
+  const key = `${operationId}:${hookId}:${type}:${typeof reason === 'string' ? reason : ''}`;
+  if (typeof reason !== 'string' || !isParkedStatus(reason as AgentState['status'])) return key;
+  return `${key}:${typeof steps === 'number' ? steps : ''}`;
 };
 
 /** Discard legacy environment hooks and validate caller configs on every worker restore. */

@@ -158,6 +158,58 @@ describe('AgentRuntimeCoordinator', () => {
       });
     });
 
+    it('runs the after-write callback once the state is written, before the end of the stream', async () => {
+      const order: string[] = [];
+      mockStateManager.loadAgentState.mockResolvedValue({ status: 'running', stepCount: 3 });
+      mockStateManager.saveAgentState.mockImplementation(async () => {
+        order.push('state written');
+      });
+      mockStreamManager.publishStreamEvent.mockImplementation(async () => {
+        order.push('visible_output_end');
+      });
+      mockStreamManager.publishAgentRuntimeEnd.mockImplementation(async () => {
+        order.push('agent_runtime_end');
+      });
+
+      await coordinator.saveAgentState(
+        'test-operation-id',
+        { status: 'error', stepCount: 5 } as any,
+        undefined,
+        async () => {
+          order.push('after write');
+        },
+      );
+
+      expect(order).toEqual([
+        'state written',
+        'after write',
+        'visible_output_end',
+        'agent_runtime_end',
+      ]);
+    });
+
+    it('does not run the after-write callback when the write fails', async () => {
+      const afterWrite = vi.fn();
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockStateManager.saveAgentState.mockRejectedValue(new Error('redis down'));
+
+      try {
+        await expect(
+          coordinator.saveAgentState(
+            'test-operation-id',
+            { status: 'error' } as any,
+            undefined,
+            afterWrite,
+          ),
+        ).rejects.toThrow('redis down');
+      } finally {
+        consoleError.mockRestore();
+      }
+
+      expect(afterWrite).not.toHaveBeenCalled();
+      expect(mockStreamManager.publishAgentRuntimeEnd).not.toHaveBeenCalled();
+    });
+
     it('should still publish end event when visible output event publish fails', async () => {
       const operationId = 'test-operation-id';
       const previousState = { status: 'running', stepCount: 3 };

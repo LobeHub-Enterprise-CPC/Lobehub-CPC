@@ -302,5 +302,17 @@ describe('OperationTraceRecorder partial accumulation', () => {
     const disabled = new OperationTraceRecorder(null);
     await disabled.appendStep(OPERATION_ID, stepParams(0));
     await expect(disabled.flushPartial()).resolves.toBeUndefined();
+    await expect(disabled.removePartial(OPERATION_ID)).resolves.toBeUndefined();
+  });
+
+  it('removes the partial of a parked operation nothing will resume, keeping its snapshot', async () => {
+    await recorder.appendStep(OPERATION_ID, stepParams(0));
+    await recorder.finalize(OPERATION_ID, { completionReason: 'waiting_for_human', state: {} });
+    expect(store.removePartial).not.toHaveBeenCalled();
+
+    await recorder.removePartial(OPERATION_ID);
+
+    expect(store.removePartial).toHaveBeenCalledWith(OPERATION_ID);
+    expect(store.save).toHaveBeenCalledTimes(1);
   });
 });

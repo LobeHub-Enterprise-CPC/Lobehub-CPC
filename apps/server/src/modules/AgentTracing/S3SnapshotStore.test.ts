@@ -45,6 +45,15 @@ const sampleSnapshot = (overrides: Partial<ExecutionSnapshot> = {}): ExecutionSn
     ...overrides,
   }) as unknown as ExecutionSnapshot;
 
+/** What the AWS SDK throws for a GET of an object that does not exist. */
+const noSuchKey = () =>
+  Object.assign(new Error('The specified key does not exist.'), {
+    $metadata: { httpStatusCode: 404 },
+    name: 'NoSuchKey',
+  });
+const transient = () =>
+  Object.assign(new Error('socket hang up'), { $metadata: {}, name: 'TimeoutError' });
+
 beforeEach(() => {
   uploadBuffer.mockReset().mockResolvedValue(undefined);
   getFileByteArray.mockReset();
@@ -224,7 +233,7 @@ describe('S3SnapshotStore.loadPartial', () => {
 
   it('falls back to legacy uncompressed .json when .json.zst is missing', async () => {
     const partial = { operationId: 'op_legacy_1' };
-    getFileByteArray.mockRejectedValueOnce(new Error('NoSuchKey'));
+    getFileByteArray.mockRejectedValueOnce(noSuchKey());
     getFileContent.mockResolvedValueOnce(JSON.stringify(partial));
 
     const store = new S3SnapshotStore();
@@ -236,11 +245,58 @@ describe('S3SnapshotStore.loadPartial', () => {
   });
 
   it('returns null when neither key exists', async () => {
-    getFileByteArray.mockRejectedValueOnce(new Error('NoSuchKey'));
-    getFileContent.mockRejectedValueOnce(new Error('NoSuchKey'));
+    getFileByteArray.mockRejectedValueOnce(noSuchKey());
+    getFileContent.mockRejectedValueOnce(noSuchKey());
 
     const store = new S3SnapshotStore();
     expect(await store.loadPartial('op_missing')).toBeNull();
+  });
+
+  it('reads a bare 404 from an S3-compatible store as missing too', async () => {
+    const notFound = Object.assign(new Error('UnknownError'), {
+      $metadata: { httpStatusCode: 404 },
+      name: 'NotFound',
+    });
+    getFileByteArray.mockRejectedValueOnce(notFound);
+    getFileContent.mockRejectedValueOnce(notFound);
+
+    expect(await new S3SnapshotStore().loadPartial('op_missing_404')).toBeNull();
+  });
+
+  // A failed read is not a missing partial: reading it as one lets the recorder
+  // start over and overwrite the steps already recorded.
+  it.each([
+    ['the current object', () => getFileByteArray.mockRejectedValueOnce(transient())],
+    [
+      'the legacy object',
+      () => {
+        getFileByteArray.mockRejectedValueOnce(noSuchKey());
+        getFileContent.mockRejectedValueOnce(transient());
+      },
+    ],
+  ])('rethrows a failed read of %s', async (_label, arrange) => {
+    arrange();
+
+    await expect(new S3SnapshotStore().loadPartial('op_flaky')).rejects.toThrow('socket hang up');
+  });
+
+  it('keeps the recorded trajectory when the partial read fails transiently', async () => {
+    getFileByteArray.mockRejectedValueOnce(transient());
+    const recorder = new OperationTraceRecorder(new S3SnapshotStore());
+
+    await recorder.appendStep('op_parked', {
+      afterStepSignalEvents: [],
+      agentState: { messages: [] },
+      beforeStepSignalEvents: [],
+      externalRetryCount: 0,
+      presentation: { executionTimeMs: 1, stepType: 'call_llm', thinking: false } as any,
+      startedAt: 0,
+      stepIndex: 4,
+      stepResult: { events: [], newState: { messages: [] } },
+    });
+    await recorder.flushPartial();
+
+    expect(uploadBuffer).not.toHaveBeenCalled();
   });
 });
 

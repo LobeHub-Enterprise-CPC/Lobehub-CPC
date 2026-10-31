@@ -387,6 +387,11 @@ export class AgentRuntimeService {
     return interruptOperation(this.context, ...args);
   }
 
+  /** Drop the resumable trace partial of an operation nothing will continue. */
+  removeTracePartial(operationId: string) {
+    return this.traceRecorder.removePartial(operationId);
+  }
+
   acceptsFileWorks(...args: MethodArgs<typeof acceptsFileWorks>) {
     return acceptsFileWorks(this.context, ...args);
   }

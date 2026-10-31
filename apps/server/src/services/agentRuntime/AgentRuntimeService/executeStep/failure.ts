@@ -24,12 +24,23 @@ export type StepFailureDeps = Pick<
   'completionLifecycle' | 'coordinator' | 'streamManager' | 'traceRecorder'
 >;
 
-const committedTerminalOwesLifecycle = async (
+/**
+ * A terminal state already saved: its lifecycle is owed (a critical hook failed
+ * to publish, a write after the commit failed) or not claimed yet (a Stop that
+ * landed between two steps, see `oweUnannouncedTerminalLifecycle`).
+ */
+const committedTerminalState = async (
   deps: StepFailureDeps,
   operationId: string,
 ): Promise<boolean> => {
   try {
-    return owesCompletionLifecycle(await deps.coordinator.loadAgentState(operationId));
+    const state = await deps.coordinator.loadAgentState(operationId);
+    return (
+      owesCompletionLifecycle(state) ||
+      state?.status === 'done' ||
+      state?.status === 'error' ||
+      state?.status === 'interrupted'
+    );
   } catch (error) {
     log('[%s] Failed to read the state before settling the failure: %O', operationId, error);
     throw error;
@@ -102,12 +113,12 @@ export async function failStep(
     throw error;
   }
 
-  // Hatchet: the run already saved its terminal state and only its completion
-  // lifecycle is owed (a critical hook failed to publish, or a write after the
-  // commit failed). Keep that outcome; the redelivery replays the lifecycle.
-  if (isHatchetDeliveryEnabled() && (await committedTerminalOwesLifecycle(deps, operationId))) {
+  // Hatchet: the run already saved its terminal state, so only its completion
+  // lifecycle can be left to do. Keep that outcome (a user's Stop is not turned
+  // into an error); the redelivery replays or claims the lifecycle.
+  if (isHatchetDeliveryEnabled() && (await committedTerminalState(deps, operationId))) {
     log(
-      '[%s][%d] Run already terminal with its completion lifecycle owed; retrying it',
+      '[%s][%d] Run already terminal, its completion lifecycle left to the retry',
       operationId,
       stepIndex,
     );
@@ -117,25 +128,31 @@ export async function failStep(
   await assertOwnership?.();
   const formattedError = formatErrorForState(error);
 
+  const publishErrorEvent = async () => {
+    try {
+      await deps.streamManager.publishStreamEvent(operationId, {
+        data: {
+          error: formattedError.message,
+          errorType: String(formattedError.type),
+          phase: 'step_execution',
+          stepIndex,
+        },
+        stepIndex,
+        type: 'error',
+      });
+    } catch (publishError) {
+      log('[%s] Failed to publish error event (infra may be down): %O', operationId, publishError);
+    }
+  };
+  // A client takes this event as the run's end. On Hatchet a failure below
+  // retries the delivery and the run goes on, so the event waits for the
+  // error state to be written (still ahead of the end of the stream).
+  if (!isHatchetDeliveryEnabled()) await publishErrorEvent();
+
   // Build error state — try loading current state from coordinator, but if that
   // also fails (e.g. Redis ECONNRESET), fall back to a minimal error state so
   // that completion callbacks and webhooks can still fire.
   let finalStateWithError: any;
-  try {
-    await deps.streamManager.publishStreamEvent(operationId, {
-      data: {
-        error: formattedError.message,
-        errorType: String(formattedError.type),
-        phase: 'step_execution',
-        stepIndex,
-      },
-      stepIndex,
-      type: 'error',
-    });
-  } catch (publishError) {
-    log('[%s] Failed to publish error event (infra may be down): %O', operationId, publishError);
-  }
-
   try {
     const errorState = await deps.coordinator.loadAgentState(operationId);
     finalStateWithError = {
@@ -166,7 +183,16 @@ export async function failStep(
 
   await assertOwnership?.();
   try {
-    await deps.coordinator.saveAgentState(operationId, finalStateWithError, assertOwnership);
+    if (isHatchetDeliveryEnabled()) {
+      await deps.coordinator.saveAgentState(
+        operationId,
+        finalStateWithError,
+        assertOwnership,
+        publishErrorEvent,
+      );
+    } else {
+      await deps.coordinator.saveAgentState(operationId, finalStateWithError, assertOwnership);
+    }
   } catch (saveError) {
     if (isHatchetDeliveryEnabled()) throw saveError;
     log('[%s] Failed to save error state (infra may be down): %O', operationId, saveError);

@@ -23,9 +23,10 @@ import { startStepAbortPoll, type StepAbortPoll } from './abortPoll';
 import {
   finishOperation,
   markCompletionLifecyclePending,
+  oweUnannouncedTerminalLifecycle,
   replayPendingCompletionLifecycle,
 } from './completion';
-import { scheduleNextStep } from './continuation';
+import { queueNextStepAfterOwnershipLoss, scheduleNextStep } from './continuation';
 import { failStep } from './failure';
 import {
   handleStepLockConflict,
@@ -80,8 +81,8 @@ export type ExecuteStepDeps = Pick<
 
 /**
  * Hatchet: commit only while this attempt still owns the operation — the
- * heartbeat never failed to refresh the lock, and a refresh right before the
- * save still finds it ours.
+ * heartbeat never found the lock taken, and a refresh right before the save
+ * still finds it ours (a refresh that cannot reach Redis refuses too).
  *
  * Not atomic with the save: a lock that expires between this refresh and the
  * authoritative write can still let a second owner commit. Nor are LLM or tool
@@ -240,6 +241,13 @@ export async function executeStep(
       });
       if (replayed) return replayed;
 
+      // A Stop between two steps left a terminal state nobody announced.
+      await oweUnannouncedTerminalLifecycle(deps, {
+        agentState,
+        assertOwnership,
+        operationId,
+        stepIndex,
+      });
       const replayedCompletion = await replayPendingCompletionLifecycle(deps, {
         agentState,
         assertOwnership,
@@ -352,53 +360,62 @@ export async function executeStep(
           stepStartUiMessages,
         });
 
-      const afterStepSignalEvents = await dispatchAfterStepHooks(deps, {
-        content,
-        operationId,
-        shouldContinue,
-        stepIndex,
-        stepPresentationData,
-        stepResult,
-        toolsCalling,
-      });
-
-      await assertOwnership?.();
-      await deps.traceRecorder.appendStep(operationId, {
-        afterStepSignalEvents,
-        agentState,
-        beforeStepSignalEvents,
-        contextEngine: contextEnginePayload,
-        currentContext,
-        externalRetryCount,
-        presentation: stepPresentationData,
-        startedAt: startAt,
-        stepIndex,
-        stepResult,
-      });
-
-      await persistStepTracking(deps, {
-        assertOwnership,
-        content,
-        operationId,
-        shouldContinue,
-        stepIndex,
-        stepResult,
-        toolsCalling,
-      });
-
       let nextStepScheduled = false;
       let continuation: AgentStepContinuation | undefined;
-      if (shouldContinue && stepResult.nextContext && deps.queueService) {
-        const scheduled = await scheduleNextStep(deps, {
-          assertOwnership,
-          inlineContinuation,
+      // The step is committed: its redelivery is ACKed as already done, so a
+      // lock lost from here on must still hand the next step on.
+      try {
+        const afterStepSignalEvents = await dispatchAfterStepHooks(deps, {
+          content,
           operationId,
+          shouldContinue,
+          stepIndex,
+          stepPresentationData,
+          stepResult,
+          toolsCalling,
+        });
+
+        await assertOwnership?.();
+        await deps.traceRecorder.appendStep(operationId, {
+          afterStepSignalEvents,
+          agentState,
+          beforeStepSignalEvents,
+          contextEngine: contextEnginePayload,
+          currentContext,
+          externalRetryCount,
+          presentation: stepPresentationData,
+          startedAt: startAt,
           stepIndex,
           stepResult,
         });
-        continuation = scheduled.continuation;
-        nextStepScheduled = scheduled.nextStepScheduled;
-        if (scheduled.handedOffInline) handedOffInline = true;
+
+        await persistStepTracking(deps, {
+          assertOwnership,
+          content,
+          operationId,
+          shouldContinue,
+          stepIndex,
+          stepResult,
+          toolsCalling,
+        });
+
+        if (shouldContinue && stepResult.nextContext && deps.queueService) {
+          const scheduled = await scheduleNextStep(deps, {
+            assertOwnership,
+            inlineContinuation,
+            operationId,
+            stepIndex,
+            stepResult,
+          });
+          continuation = scheduled.continuation;
+          nextStepScheduled = scheduled.nextStepScheduled;
+          if (scheduled.handedOffInline) handedOffInline = true;
+        }
+      } catch (error) {
+        if (error instanceof StepOwnershipLostError && shouldContinue && !nextStepScheduled) {
+          await queueNextStepAfterOwnershipLoss(deps, { operationId, stepIndex, stepResult });
+        }
+        throw error;
       }
 
       // Record final agent-level usage on the invoke_agent span. Done on every

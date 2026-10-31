@@ -80,6 +80,49 @@ export const markCompletionLifecyclePending = (state: AgentState, stepIndex: num
   };
 };
 
+const DURABLE_TERMINAL_STATUSES = new Set(['done', 'error', 'interrupted', 'abandoned']);
+
+/**
+ * Hatchet only: a terminal state saved without a checkpoint while its durable
+ * row is still in flight was never announced. A Stop that lands between two
+ * steps leaves exactly that (`interruptOperation` writes the Redis state and
+ * nothing else); outside Hatchet the next delivery announces any terminal
+ * state it meets (`skipUnrunnableStep`). Owe its lifecycle, in the same kind
+ * of write a terminal step makes, so the replay announces it once and a later
+ * redelivery finds it settled. A stale duplicate of an earlier step is still
+ * ACKed, and without a durable row nothing proves the run unannounced.
+ */
+export async function oweUnannouncedTerminalLifecycle(
+  deps: Pick<AgentRuntimeServiceContext, 'agentOperationModel' | 'coordinator'>,
+  {
+    agentState,
+    assertOwnership,
+    operationId,
+    stepIndex,
+  }: {
+    agentState: AgentState;
+    assertOwnership?: () => Promise<void>;
+    operationId: string;
+    stepIndex: number;
+  },
+): Promise<void> {
+  if (
+    !isHatchetDeliveryEnabled() ||
+    !COMPLETION_TERMINAL_STATUSES.has(agentState.status) ||
+    readCompletionCheckpoint(agentState) ||
+    agentState.stepCount > stepIndex
+  )
+    return;
+
+  const durableOperation = await deps.agentOperationModel.findById(operationId);
+  if (!durableOperation || DURABLE_TERMINAL_STATUSES.has(durableOperation.status)) return;
+
+  log('[%s][%d] Terminal state was never announced; owing its lifecycle', operationId, stepIndex);
+  markCompletionLifecyclePending(agentState, stepIndex);
+  await assertOwnership?.();
+  await deps.coordinator.saveAgentState(operationId, agentState, assertOwnership);
+}
+
 /**
  * The hooks are out. A failed checkpoint write must retry the delivery;
  * critical webhooks carry a stable deduplication id for that replay.
@@ -256,6 +299,10 @@ export type CompletionReplayDeps = StepCompletionDeps &
  * saveStepResult. The delivered step may be older than the one that finished
  * the run (an inline loop carries the delivery it started from); holding the
  * lock is what makes this the only invocation executing the operation.
+ *
+ * The whole tail runs again. Critical webhooks dedupe on their key and the
+ * verify card on its operation; the completion signals (`emitSignalEvents`)
+ * and the user recall (`recallUserOnCompletion`) are at-least-once.
  */
 export async function replayPendingCompletionLifecycle(
   deps: CompletionReplayDeps,

@@ -49,7 +49,11 @@ export function startStepLockHeartbeat(
   operationId: string,
   stepIndex: number,
   ownerId: string,
-  /** Called when a refresh finds the lock no longer ours, or cannot reach it. */
+  /**
+   * Called when a refresh finds the lock no longer ours. A refresh that cannot
+   * reach the lock is not reported: owners are unique, so the refresh before
+   * the commit still tells, and refuses to commit while it cannot reach it.
+   */
   onOwnershipLost?: () => void,
 ): () => void {
   let heartbeatTick = 0;
@@ -59,16 +63,10 @@ export function startStepLockHeartbeat(
 
     const lockRefresh = deps.coordinator
       .refreshStepLock(operationId, stepIndex, STEP_LOCK_TTL_SECONDS, ownerId)
-      .then(
-        (refreshed) => {
-          if (!refreshed) onOwnershipLost?.();
-          return refreshed;
-        },
-        (error: unknown) => {
-          onOwnershipLost?.();
-          throw error;
-        },
-      );
+      .then((refreshed) => {
+        if (!refreshed) onOwnershipLost?.();
+        return refreshed;
+      });
 
     Promise.all([
       lockRefresh,

@@ -11,6 +11,16 @@ import {
   StepOwnershipLostError,
 } from '../AgentRuntimeService/executionErrors';
 import { CriticalHookDeliveryError, hookDispatcher } from '../hooks';
+import {
+  CHECKPOINT,
+  holdHeartbeat,
+  OPERATION_ID,
+  queueWith,
+  runningState,
+  setUp,
+  STEP_CONTEXT,
+  terminalState,
+} from './testUtils';
 
 const hatchet = vi.hoisted(() => ({ enabled: true }));
 
@@ -86,120 +96,6 @@ vi.mock('@/server/services/toolExecution/builtin', () => ({
 vi.mock('@lobechat/builtin-tools/dynamicInterventionAudits', () => ({
   dynamicInterventionAudits: [],
 }));
-
-const OPERATION_ID = 'op-hatchet';
-const CHECKPOINT = '_completionLifecycle';
-const STEP_CONTEXT = { phase: 'user_input' } as any;
-
-const runningState = () => ({
-  cost: { currency: 'USD', total: 0 },
-  host: { hooks: [] },
-  lastModified: new Date().toISOString(),
-  messages: [],
-  metadata: {},
-  operationId: OPERATION_ID,
-  status: 'running',
-  stepCount: 0,
-  toolManifestMap: {},
-  usage: {},
-});
-
-const terminalState = (
-  status: 'done' | 'error',
-  checkpoint?: { reason?: string; state: 'completed' | 'pending'; stepIndex: number },
-  stepCount = 1,
-) => ({
-  ...runningState(),
-  metadata: checkpoint ? { [CHECKPOINT]: { ...checkpoint, reason: status } } : {},
-  status,
-  stepCount,
-});
-
-/**
- * A service whose coordinator stores the state the way Redis does: every
- * load and save is a copy, so only what was saved survives a delivery.
- */
-const setUp = (
-  initialState: object | null,
-  options: { queueService?: any; snapshotStore?: ISnapshotStore } = {},
-) => {
-  const service = new AgentRuntimeService({} as any, 'user-1', {
-    queueService: options.queueService ?? null,
-    snapshotStore: options.snapshotStore,
-  });
-  const coordinator = (service as any).coordinator;
-  const completionLifecycle = (service as any).completionLifecycle;
-  const streamManager = (service as any).streamManager;
-  vi.spyOn((service as any).agentOperationModel, 'findById').mockResolvedValue(null);
-
-  let stored: any = initialState ? structuredClone(initialState) : null;
-  const committed: any[] = [];
-  coordinator.loadAgentState = vi.fn(async () => (stored ? structuredClone(stored) : null));
-  coordinator.saveStepResult = vi.fn(async (_operationId: string, result: any) => {
-    stored = structuredClone(result.newState);
-    committed.push(structuredClone(result.newState));
-  });
-  coordinator.saveAgentState = vi.fn(async (_operationId: string, state: any) => {
-    stored = structuredClone(state);
-  });
-  streamManager.publishStreamEvent = vi.fn().mockResolvedValue(undefined);
-
-  // What a completion dispatch saw of the stored checkpoint when it started.
-  const checkpointsAtDispatch: unknown[] = [];
-  const dispatchHooks = vi
-    .spyOn(completionLifecycle, 'dispatchHooks')
-    .mockImplementation(async () => {
-      checkpointsAtDispatch.push(stored?.metadata?.[CHECKPOINT]);
-    });
-  const emitSignalEvents = vi.spyOn(completionLifecycle, 'emitSignalEvents').mockResolvedValue([]);
-  vi.spyOn(completionLifecycle, 'registerFileWorks').mockResolvedValue(undefined);
-  const hookDispatch = vi.spyOn(hookDispatcher, 'dispatch').mockResolvedValue(undefined as any);
-  const finalizeTrace = vi.spyOn((service as any).traceRecorder, 'finalize');
-
-  const runtimeStep = vi.fn(async (state: any) => ({
-    events: [],
-    newState: { ...state, status: 'done', stepCount: state.stepCount + 1 },
-    nextContext: undefined,
-  }));
-  vi.spyOn(service as any, 'createAgentRuntime').mockResolvedValue({
-    runtime: { step: runtimeStep },
-  });
-
-  const errorEvents = () =>
-    streamManager.publishStreamEvent.mock.calls.filter(([, event]: any) => event.type === 'error');
-  const hookCalls = (type: string) =>
-    hookDispatch.mock.calls.filter(([, hookType]) => hookType === type);
-
-  return {
-    checkpointsAtDispatch,
-    committed,
-    coordinator,
-    dispatchHooks,
-    emitSignalEvents,
-    errorEvents,
-    finalizeTrace,
-    hookCalls,
-    runtimeStep,
-    service,
-    stored: () => stored,
-    streamManager,
-  };
-};
-
-/** Hands the test the heartbeat's "lock lost" callback instead of running timers. */
-const holdHeartbeat = (ctx: ReturnType<typeof setUp>) => {
-  const heartbeat = { loseLock: () => {} };
-  vi.spyOn(ctx.service as any, 'startStepLockHeartbeat').mockImplementation((...args: any[]) => {
-    heartbeat.loseLock = args[3] ?? (() => {});
-    return () => {};
-  });
-  return heartbeat;
-};
-
-const queueWith = (scheduleMessage: ReturnType<typeof vi.fn>) => ({
-  getImpl: () => ({}),
-  scheduleMessage,
-});
 
 afterEach(() => {
   hatchet.enabled = true;
@@ -541,16 +437,22 @@ describe('executeStep (Hatchet) - owed completion lifecycle', () => {
     expect(ctx.coordinator.saveAgentState).not.toHaveBeenCalled();
   });
 
-  it.each([undefined, { state: 'completed' as const, stepIndex: 0 }])(
-    'does not dispatch a settled terminal lifecycle when the step was not committed (%o)',
-    async (checkpoint) => {
-      const ctx = setUp(terminalState('error', checkpoint, 0));
-      await ctx.service.executeStep({ operationId: OPERATION_ID, stepIndex: 0 });
-      expect(ctx.dispatchHooks).not.toHaveBeenCalled();
-      expect(ctx.emitSignalEvents).not.toHaveBeenCalled();
-      expect(ctx.runtimeStep).not.toHaveBeenCalled();
-    },
-  );
+  // No checkpoint is owed only while the durable row is still in flight (a Stop
+  // between two steps, see executeStep.hatchetRecovery.test.ts); without a row
+  // there is nothing to prove the run was never announced.
+  it.each([
+    ['no checkpoint and no durable row', undefined, null],
+    ['a completed checkpoint', { state: 'completed' as const, stepIndex: 0 }, 'running'],
+  ])('does not dispatch a terminal lifecycle with %s', async (_label, checkpoint, rowStatus) => {
+    const ctx = setUp(terminalState('error', checkpoint, 0));
+    vi.spyOn((ctx.service as any).agentOperationModel, 'findById').mockResolvedValue(
+      rowStatus ? { id: OPERATION_ID, status: rowStatus } : null,
+    );
+    await ctx.service.executeStep({ operationId: OPERATION_ID, stepIndex: 0 });
+    expect(ctx.dispatchHooks).not.toHaveBeenCalled();
+    expect(ctx.emitSignalEvents).not.toHaveBeenCalled();
+    expect(ctx.runtimeStep).not.toHaveBeenCalled();
+  });
 
   it('makes a failed step’s own error notification replayable', async () => {
     const ctx = setUp(runningState());
@@ -844,7 +746,8 @@ describe('executeStep (Hatchet) - lock ownership', () => {
     expect(ctx.errorEvents()).toHaveLength(0);
   });
 
-  it('does not commit once the heartbeat lost the lock, even if the lock looks held again', async () => {
+  // The heartbeat reports only a lock found taken (see the heartbeat test below).
+  it('does not commit once the heartbeat found the lock taken, even if a later refresh succeeds', async () => {
     const ctx = setUp(runningState());
     vi.spyOn(ctx.service as any, 'startStepLockHeartbeat').mockImplementation((...args: any[]) => {
       args[3]?.();
@@ -1005,7 +908,9 @@ describe('executeStep (Hatchet) - lock ownership', () => {
     },
   );
 
-  it('reports a lost or unreachable lock from the heartbeat, but not a lease failure', async () => {
+  // An unreachable lock is not a lost one: owners are random, so the refresh
+  // before the commit still tells (and refuses to commit while Redis is down).
+  it('reports a lock found taken from the heartbeat, not an unreachable one or a lease failure', async () => {
     vi.useFakeTimers();
     const service = new AgentRuntimeService({} as any, 'user-1', { queueService: null });
     const coordinator = (service as any).coordinator;
@@ -1014,7 +919,7 @@ describe('executeStep (Hatchet) - lock ownership', () => {
       .mockResolvedValueOnce(true)
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true)
-      .mockRejectedValueOnce(new Error('redis down'));
+      .mockRejectedValueOnce(new StepLockUnavailableError('op-heartbeat'));
     vi.spyOn((service as any).agentOperationModel, 'touchRunning').mockRejectedValue(
       new Error('db down'),
     );
@@ -1031,7 +936,8 @@ describe('executeStep (Hatchet) - lock ownership', () => {
       await vi.advanceTimersByTimeAsync(30_000);
       expect(onOwnershipLost).toHaveBeenCalledTimes(1);
       await vi.advanceTimersByTimeAsync(30_000);
-      expect(onOwnershipLost).toHaveBeenCalledTimes(2);
+      expect(coordinator.refreshStepLock).toHaveBeenCalledTimes(4);
+      expect(onOwnershipLost).toHaveBeenCalledTimes(1);
       stop();
     } finally {
       vi.useRealTimers();

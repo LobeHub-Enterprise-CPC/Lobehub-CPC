@@ -236,6 +236,8 @@ export class CompletionLifecycle {
       const messageModel = new MessageModel(this.serverDB, userId, undefined, undefined, {
         includeShareVisitor: this.includeShareVisitor,
       });
+      // One card per Agent Run: a replayed completion lifecycle comes back here.
+      if (await messageModel.findVerifyMessageByOperationId(operationId)) return;
       await messageModel.create({
         agentId: op.agentId ?? undefined,
         content: '',

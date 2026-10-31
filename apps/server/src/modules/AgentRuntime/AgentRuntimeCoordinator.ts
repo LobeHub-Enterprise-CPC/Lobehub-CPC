@@ -201,6 +201,8 @@ export class AgentRuntimeCoordinator {
     operationId: string,
     state: AgentState,
     assertOwnership?: () => Promise<void>,
+    /** Runs once the state is written, ahead of a terminal state's end-of-stream events. */
+    afterWrite?: () => Promise<void>,
   ): Promise<void> {
     try {
       const previousState = await this.stateManager.loadAgentState(operationId);
@@ -208,6 +210,7 @@ export class AgentRuntimeCoordinator {
       // Save state
       await assertOwnership?.();
       await this.stateManager.saveAgentState(operationId, state, assertOwnership);
+      await afterWrite?.();
 
       // Send a terminal event once the operation first enters a terminal state.
       if (hasEnteredStreamEndState(previousState?.status, state.status)) {
