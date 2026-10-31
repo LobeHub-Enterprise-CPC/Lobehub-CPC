@@ -112,9 +112,8 @@ export class ChatService extends BaseService {
    */
   private async getSystemTranslationModelConfig(): Promise<{ model: string; provider: string }> {
     const defaults = DEFAULT_SYSTEM_AGENT_CONFIG.translation;
-    if (!this.userId) {
-      return { model: defaults.model, provider: defaults.provider };
-    }
+    // Without a user there is no personal setting, but the deployment's choice still applies.
+    if (!this.userId) return resolveSystemAgentModelConfig({ taskKey: 'translation' });
 
     try {
       const userModel = new UserModel(this.db, this.userId);

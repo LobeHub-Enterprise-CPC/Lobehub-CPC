@@ -14,6 +14,7 @@ import { langfuseEnv } from '@/envs/langfuse';
 import { sandboxEnv } from '@/envs/sandbox';
 import { toolsEnv } from '@/envs/tools';
 import { OIDC_ISSUER_PATH } from '@/libs/oidc-provider/routes';
+import { resolveMemoryServiceModelConfig } from '@/server/services/memory/userMemory/systemAgent';
 import { type GlobalServerConfig } from '@/types/serverConfig';
 import { cleanObject } from '@/utils/object';
 
@@ -195,7 +196,9 @@ export const getServerGlobalConfig = async () => {
       defaultImageNum: imageEnv.AI_IMAGE_DEFAULT_IMAGE_NUM,
     }),
     memory: {
-      userMemory: cleanObject(getPublicMemoryExtractionConfig()),
+      userMemory: cleanObject(
+        getPublicMemoryExtractionConfig(await resolveMemoryServiceModelConfig()),
+      ),
     },
     // SSO providers belong to a tenant (`sso_providers`, spec A8): the auth
     // config endpoint lists the ones of the tenant being signed in to.

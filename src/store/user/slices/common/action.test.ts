@@ -9,7 +9,7 @@ import type * as SWRLib from '@/libs/swr';
 import { userService } from '@/services/user';
 import { useUserStore } from '@/store/user';
 import { readUserDisplaySnapshot, writeUserDisplaySnapshot } from '@/store/user/displaySnapshot';
-import { userGeneralSettingsSelectors } from '@/store/user/selectors';
+import { systemAgentSelectors, userGeneralSettingsSelectors } from '@/store/user/selectors';
 import { type GlobalServerConfig } from '@/types/serverConfig';
 import { type UserInitializationState, type UserPreference } from '@/types/user';
 import { withSWR } from '~test-utils';
@@ -435,6 +435,52 @@ describe('createCommonSlice', () => {
       await waitFor(() => {
         expect(useUserStore.getState().isUserStateInit).toBeTruthy();
         expect(useUserStore.getState().settings.general?.responseLanguage).toBeUndefined();
+      });
+    });
+
+    // The global config and the user state are fetched in parallel; when the user
+    // state lands first, the deployment's system agent must still win over the
+    // code default once the global config arrives.
+    it('applies the server system agent that arrives after the user state', async () => {
+      const mockUserState: UserInitializationState = {
+        isOnboard: true,
+        preference: {} as any,
+        settings: {
+          systemAgent: { translation: { model: 'user-translation', provider: 'user-provider' } },
+        },
+        userId: 'user-id',
+      };
+      vi.spyOn(userService, 'getUserState').mockResolvedValueOnce(mockUserState);
+
+      const { rerender } = renderHook(
+        ({ serverConfig }) => useUserStore().useInitUserState(true, serverConfig),
+        {
+          initialProps: { serverConfig: { aiProvider: {}, telemetry: {} } as GlobalServerConfig },
+          wrapper: withSWR,
+        },
+      );
+      await waitFor(() => expect(useUserStore.getState().isUserStateInit).toBe(true));
+
+      rerender({
+        serverConfig: {
+          ...mockServerConfig,
+          systemAgent: {
+            topic: { model: 'tenant-topic', provider: 'lobehub' },
+            translation: { model: 'tenant-translation', provider: 'lobehub' },
+          },
+        },
+      });
+
+      await waitFor(() =>
+        expect(systemAgentSelectors.topic(useUserStore.getState())).toMatchObject({
+          model: 'tenant-topic',
+          provider: 'lobehub',
+        }),
+      );
+      // The user's own choice still sits above the deployment layer.
+      expect(systemAgentSelectors.translation(useUserStore.getState())).toMatchObject({
+        model: 'user-translation',
+        provider: 'user-provider',
       });
     });
 

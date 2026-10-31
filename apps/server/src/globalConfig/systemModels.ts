@@ -38,6 +38,14 @@ export interface ServerSystemModels {
   systemAgent: Partial<UserServiceModelConfig>;
 }
 
+/**
+ * Memory agents that run on a chat model. `SYSTEM_AGENT`'s `default` leaves them
+ * to the `MEMORY_USER_MEMORY_*` variables, which business builds do not read
+ * (spec FR-TS-04), so here the tenant's `default` fills them when they are not
+ * set explicitly. The embedding slot still needs an embedding model of its own.
+ */
+const MEMORY_CHAT_SLOTS = ['memoryAnalysisAgentConfig', 'userMemoryPersonaWriter'] as const;
+
 const fromTenant = ({
   fileEmbedding,
   multimodalUnderstanding,
@@ -48,6 +56,9 @@ const fromTenant = ({
   const assignments: Record<string, SystemAgentModelAssignment> = {};
   for (const [slot, model] of Object.entries(systemAgent)) {
     if (model) assignments[slot] = { model, provider };
+  }
+  if (assignments.default) {
+    for (const slot of MEMORY_CHAT_SLOTS) assignments[slot] ??= assignments.default;
   }
 
   return {
