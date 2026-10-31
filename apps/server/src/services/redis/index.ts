@@ -3,6 +3,7 @@ import { deviceSystemInfo } from './deviceSystemInfo';
 import { gatewayAuthorization } from './gatewayAuthorization';
 import { linear } from './linear';
 import { skillTools } from './skillTools';
+import { staleSweepCursor } from './staleSweepCursor';
 import { steerQueue } from './steerQueue';
 import { tenantDiscovery } from './tenantDiscovery';
 import { threadStartFence } from './threadStartFence';
@@ -15,6 +16,7 @@ export const redisService = {
   gatewayAuthorization,
   linear,
   skillTools,
+  staleSweepCursor,
   steerQueue,
   tenantDiscovery,
   threadStartFence,

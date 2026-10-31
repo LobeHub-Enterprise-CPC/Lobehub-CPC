@@ -64,6 +64,7 @@ export async function parkForClientLlm(
   context: AgentRuntimeContext | undefined,
   notAfter?: string,
   stepStartState?: AgentState,
+  assertOwnership?: () => Promise<void>,
 ): Promise<AgentState | undefined> {
   const reason = getClientLlmWaitableReason(errorState.error);
   if (!reason || !deps.queueService) return;
@@ -132,6 +133,7 @@ export async function parkForClientLlm(
   // Resume, expiry and Stop all key off the durable row, so it must say
   // `waiting_for_client` before anything advertises the wait. If it cannot,
   // fail the step as before rather than park a run nothing could settle.
+  await assertOwnership?.();
   try {
     const recorded = await deps.agentOperationModel.recordCompletion(operationId, {
       completionReason: 'waiting_for_client',
@@ -150,6 +152,7 @@ export async function parkForClientLlm(
   // only on the park it names: the parked state and the waiting notice must
   // already be in place, or it no-ops — or its terminal error is overwritten
   // by the notice — and the run waits with nothing left to end it.
+  await assertOwnership?.();
   try {
     await deps.coordinator.saveAgentState(operationId, parkedState);
   } catch (error) {

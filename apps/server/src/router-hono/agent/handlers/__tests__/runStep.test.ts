@@ -33,6 +33,8 @@ const mockFinalizeAbandoned = vi.hoisted(() => vi.fn());
 const mockSettleStaleRunning = vi.hoisted(() => vi.fn());
 const mockResumeAbandonedParent = vi.hoisted(() => vi.fn());
 const mockScheduleOpportunisticStaleSweep = vi.hoisted(() => vi.fn());
+const mockTouchOperation = vi.hoisted(() => vi.fn());
+const hatchetMode = vi.hoisted(() => ({ draining: false, enabled: false }));
 // Lets a test force the step-boundary flush to report a timeout; undefined
 // means use the real implementation.
 const flushOverride = vi.hoisted(() => ({ settled: undefined as boolean | undefined }));
@@ -54,8 +56,17 @@ vi.mock('@/server/modules/AgentRuntime', () => ({
       clearInlineResume: mockClearInlineResume,
       getOperationMetadata: mockGetOperationMetadata,
       loadInlineResume: mockLoadInlineResume,
+      touchOperation: mockTouchOperation,
     };
   }),
+}));
+
+vi.mock('@/server/modules/Hatchet/config', () => ({
+  isHatchetDeliveryEnabled: () => hatchetMode.enabled,
+}));
+
+vi.mock('@/server/modules/AgentRuntime/stepDrain', () => ({
+  isDrainingAgentSteps: () => hatchetMode.draining,
 }));
 
 vi.mock('@/server/services/aiAgent', () => ({
@@ -964,5 +975,119 @@ describe('runStep inline step loop', () => {
     expect(res.status).toBe(200);
     expect(mockScheduleContinuation).not.toHaveBeenCalled();
     expect(getCaptures()[0].body).toMatchObject({ inlinedSteps: 1 });
+  });
+});
+
+describe('runStep with Hatchet delivery', () => {
+  const metadata = { userId: 'user-1', workspaceId: 'ws-1' };
+  const running = { status: 'running', stepCount: 3 };
+  const pending = {
+    context: { phase: 'llm_result', step: 3 },
+    delay: 50,
+    operationId: 'op-1',
+    priority: 'normal' as const,
+    stepIndex: 3,
+  };
+
+  beforeEach(() => {
+    mockGetOperationMetadata.mockReset();
+    mockGetOperationMetadata.mockResolvedValue(metadata);
+    mockExecuteStep.mockReset();
+    mockScheduleContinuation.mockReset();
+    mockReleaseOperationLock.mockReset();
+    mockClearInlineResume.mockReset();
+    mockLoadInlineResume.mockReset();
+    mockLoadInlineResume.mockResolvedValue(null);
+    mockTouchOperation.mockReset();
+    mockTouchOperation.mockResolvedValue(undefined);
+    mockGetServerDB.mockResolvedValue({} as any);
+  });
+
+  afterEach(() => {
+    hatchetMode.enabled = false;
+    hatchetMode.draining = false;
+  });
+
+  it('refreshes the runtime keys before running a delivered step', async () => {
+    hatchetMode.enabled = true;
+    mockExecuteStep.mockImplementation(async () => {
+      expect(mockTouchOperation).toHaveBeenCalledWith('op-1');
+      return { nextStepScheduled: false, state: { status: 'done', stepCount: 3 }, success: true };
+    });
+
+    const { ctx } = buildContext({ body: validBody });
+    const res = await runStep(ctx);
+
+    expect(res.status).toBe(200);
+    expect(mockExecuteStep).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails the delivery for a retry when the refresh fails', async () => {
+    hatchetMode.enabled = true;
+    mockTouchOperation.mockRejectedValue(new Error('redis down'));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(function () {});
+
+    const { ctx } = buildContext({ body: validBody });
+    const res = await runStep(ctx);
+
+    expect(res.status).toBe(500);
+    expect(mockExecuteStep).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it('does not touch the runtime keys without Hatchet delivery', async () => {
+    mockExecuteStep.mockResolvedValue({
+      nextStepScheduled: false,
+      state: { status: 'done', stepCount: 3 },
+      success: true,
+    });
+
+    const { ctx } = buildContext({ body: validBody });
+    await runStep(ctx);
+
+    expect(mockTouchOperation).not.toHaveBeenCalled();
+  });
+
+  it('hands the next step to the queue at the step boundary while draining', async () => {
+    hatchetMode.enabled = true;
+    mockExecuteStep
+      .mockImplementationOnce(async () => {
+        // SIGTERM arrives while the first step runs.
+        hatchetMode.draining = true;
+        return { continuation: pending, nextStepScheduled: false, state: running, success: true };
+      })
+      .mockResolvedValue({
+        nextStepScheduled: false,
+        state: { status: 'done', stepCount: 4 },
+        success: true,
+      });
+
+    const { ctx, getCaptures } = buildContext({ body: validBody });
+    const res = await runStep(ctx);
+
+    expect(res.status).toBe(200);
+    expect(mockExecuteStep).toHaveBeenCalledTimes(1);
+    expect(mockScheduleContinuation).toHaveBeenCalledWith(pending);
+    expect(getCaptures()[0].body).toMatchObject({ nextStepIndex: 3, nextStepScheduled: true });
+    expect(mockReleaseOperationLock).toHaveBeenCalledWith('op-1', 'op-1:owner');
+  });
+
+  it('keeps inlining while draining without Hatchet delivery', async () => {
+    mockExecuteStep
+      .mockImplementationOnce(async () => {
+        hatchetMode.draining = true;
+        return { continuation: pending, nextStepScheduled: false, state: running, success: true };
+      })
+      .mockResolvedValueOnce({
+        nextStepScheduled: false,
+        state: { status: 'done', stepCount: 4 },
+        success: true,
+      });
+
+    const { ctx } = buildContext({ body: validBody });
+    await runStep(ctx);
+
+    expect(mockExecuteStep).toHaveBeenCalledTimes(2);
+    expect(mockScheduleContinuation).not.toHaveBeenCalled();
   });
 });

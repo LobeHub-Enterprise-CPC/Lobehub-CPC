@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import type * as HatchetConfig from '@/server/modules/Hatchet/config';
+import { StepLockUnavailableError } from '@/server/services/agentRuntime/AgentRuntimeService/executionErrors';
+
 import { AgentStateManager } from '../AgentStateManager';
+
+const hatchet = vi.hoisted(() => ({ enabled: false }));
+
+vi.mock('@/server/modules/Hatchet/config', async (importOriginal) => ({
+  ...(await importOriginal<typeof HatchetConfig>()),
+  isHatchetDeliveryEnabled: () => hatchet.enabled,
+}));
 
 // Mock Redis client. Hoisted so individual tests can assert on the exact
 // payloads handed to `setex` / `lpush`.
@@ -23,6 +33,7 @@ const { redisMock, pipelineMock } = vi.hoisted(() => {
     hmset: vi.fn(),
     keys: vi.fn(),
     multi: vi.fn(() => pipelineMock),
+    pipeline: vi.fn(() => pipelineMock),
     quit: vi.fn(),
     set: vi.fn(),
     setex: vi.fn(),
@@ -260,6 +271,71 @@ describe('AgentStateManager', () => {
         'agent_runtime_operation_lock:op-lock',
         'owner-1',
       );
+    });
+
+    describe('when the claim itself fails', () => {
+      const redisDown = new Error('redis down');
+
+      beforeEach(() => {
+        redisMock.eval.mockRejectedValueOnce(redisDown);
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+      });
+
+      afterEach(() => {
+        hatchet.enabled = false;
+        vi.mocked(console.error).mockRestore();
+      });
+
+      it('refuses to run on Hatchet, so the delivery is retried', async () => {
+        hatchet.enabled = true;
+
+        const claim = stateManager.tryClaimStep('op-lock', 3, 120, 'owner-1');
+
+        await expect(claim).rejects.toBeInstanceOf(StepLockUnavailableError);
+        await expect(claim).rejects.toMatchObject({ cause: redisDown, operationId: 'op-lock' });
+      });
+
+      it('still lets the step run outside Hatchet', async () => {
+        await expect(stateManager.tryClaimStep('op-lock', 3, 120, 'owner-1')).resolves.toBe(true);
+      });
+    });
+  });
+
+  describe('touchOperation', () => {
+    const operationKeys = [
+      'agent_runtime_state:op-touch',
+      'agent_runtime_steps:op-touch',
+      'agent_runtime_meta:op-touch',
+      'agent_runtime_interrupt:op-touch',
+      'agent_runtime_queued_messages:op-touch',
+      'agent_runtime_inline_resume:op-touch',
+    ];
+
+    it('extends every key of the operation by the state TTL in one round-trip', async () => {
+      pipelineMock.exec.mockResolvedValueOnce(operationKeys.map(() => [null, 1]));
+
+      await stateManager.touchOperation('op-touch');
+
+      expect(redisMock.pipeline).toHaveBeenCalledTimes(1);
+      expect(pipelineMock.expire.mock.calls).toEqual(operationKeys.map((key) => [key, 2 * 3600]));
+      expect(pipelineMock.exec).toHaveBeenCalledTimes(1);
+    });
+
+    it('surfaces a command error instead of reporting the TTL refreshed', async () => {
+      const failure = new Error('READONLY You cannot write against a read only replica.');
+      pipelineMock.exec.mockResolvedValueOnce([
+        [null, 1],
+        [failure, null],
+        [null, 0],
+      ]);
+
+      await expect(stateManager.touchOperation('op-touch')).rejects.toBe(failure);
+    });
+
+    it('surfaces a failed round-trip', async () => {
+      pipelineMock.exec.mockRejectedValueOnce(new Error('redis down'));
+
+      await expect(stateManager.touchOperation('op-touch')).rejects.toThrow('redis down');
     });
   });
 

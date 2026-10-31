@@ -165,6 +165,13 @@ export interface IAgentStateManager {
   setQueuedMessages: (operationId: string, pending: boolean) => Promise<void>;
 
   /**
+   * Extend the expiry of every key the operation owns (state, step history,
+   * metadata, interrupt and queued-messages flags, inline envelope). Errors
+   * propagate.
+   */
+  touchOperation: (operationId: string) => Promise<void>;
+
+  /**
    * Atomically try to claim a step for execution (distributed lock).
    * Returns true if the lock was acquired, false if another execution already holds it.
    */

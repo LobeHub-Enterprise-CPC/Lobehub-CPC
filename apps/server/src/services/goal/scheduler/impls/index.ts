@@ -1,5 +1,5 @@
 import { appEnv } from '@/envs/app';
-import { qstashClient } from '@/libs/qstash';
+import { getDirectDeliveryClient } from '@/server/modules/Hatchet/directDelivery';
 
 import { LocalGoalScheduler } from './local';
 import { QStashGoalScheduler } from './qstash';
@@ -22,7 +22,7 @@ export const createGoalSchedulerModule = (): GoalSchedulerImpl => {
   if (appEnv.enableQueueAgentRuntime) {
     const baseUrl = process.env.APP_URL;
     if (!baseUrl) throw new Error('APP_URL is required to schedule goal advances via QStash');
-    cached = new QStashGoalScheduler({ baseUrl, qstashClient });
+    cached = new QStashGoalScheduler({ baseUrl, qstashClient: getDirectDeliveryClient() });
     return cached;
   }
 

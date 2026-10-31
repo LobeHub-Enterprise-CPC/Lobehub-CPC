@@ -5,7 +5,9 @@ import {
   after,
   afterUnscoped,
   flushScheduledWork,
+  pendingHostWorkCount,
   runWithScheduledWorkScope,
+  settleHostWork,
 } from './scheduleAfterResponse';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -160,5 +162,58 @@ describe('scheduled work scope', () => {
 
     await sleep(100);
     expect(finished).toBe(true);
+  });
+});
+
+describe('host work tracking', () => {
+  it('counts work handed to the host until it finishes', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    afterUnscoped(async () => {
+      await gate;
+    });
+
+    expect(pendingHostWorkCount()).toBe(1);
+    let settled = false;
+    const settling = settleHostWork().then(() => {
+      settled = true;
+    });
+    await sleep(5);
+    expect(settled).toBe(false);
+
+    release();
+    await settling;
+    expect(pendingHostWorkCount()).toBe(0);
+  });
+
+  it('tracks what a scope still has running when it returns', async () => {
+    // The scope hands leftovers to the host on exit; a drain started before
+    // that moment must still see them.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await runWithScheduledWorkScope(async () => {
+      after(async () => {
+        await gate;
+      });
+    });
+
+    expect(pendingHostWorkCount()).toBe(1);
+    release();
+    await settleHostWork();
+    expect(pendingHostWorkCount()).toBe(0);
+  });
+
+  it('settles failing host work too', async () => {
+    afterUnscoped(async () => {
+      throw new Error('boom');
+    });
+
+    await settleHostWork();
+    expect(pendingHostWorkCount()).toBe(0);
   });
 });

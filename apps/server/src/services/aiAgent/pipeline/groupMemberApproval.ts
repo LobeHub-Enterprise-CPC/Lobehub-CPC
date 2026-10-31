@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import type { ExecAgentResult, MessagePluginItem } from '@lobechat/types';
 
 import type { MessageModel } from '@/database/models/message';
@@ -65,6 +67,10 @@ export const createGroupMemberApprovalDeps = (models: {
   createThreadHooks: async (threadId) => {
     const thread = await models.threadModel.findById(threadId);
     if (!thread?.sourceMessageId) return [];
+    const runToken = randomUUID();
+    if (!(await models.threadModel.setRunToken(thread.id, runToken))) {
+      throw new Error('Failed to renew thread run token');
+    }
     return createThreadHooks(
       models.agentRuntimeService,
       models.threadModel,
@@ -74,6 +80,7 @@ export const createGroupMemberApprovalDeps = (models: {
       // The recovered group-member bridge owns result publication.
       undefined,
       'execVirtualSubAgent',
+      runToken,
       pickThreadUsageBaseline(thread.metadata),
     );
   },

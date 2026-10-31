@@ -2,8 +2,8 @@ import type { Context } from 'hono';
 
 import { getServerDB } from '@/database/server';
 import { appEnv } from '@/envs/app';
-import { qstashClient } from '@/libs/qstash';
 import { toQStashDeduplicationId } from '@/libs/qstash/deduplicationId';
+import { getDirectDeliveryClient } from '@/server/modules/Hatchet/directDelivery';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { createWidgetSandboxRunner } from '@/server/services/widget/sandbox';
 import {
@@ -60,7 +60,7 @@ export async function tick(c: Context) {
 
           if (isWidgetResumeTarget(target)) {
             const leaseStartedAt = target.leaseStartedAt.toISOString();
-            await qstashClient.publishJSON({
+            await getDirectDeliveryClient().publishJSON({
               body: { leaseStartedAt, runId: target.runId, widgetId: target.widgetId },
               // Overlapping ticks see the same stale lease; publish it once.
               deduplicationId: toQStashDeduplicationId(
@@ -72,7 +72,7 @@ export async function tick(c: Context) {
           }
 
           const slotIso = target.slot.toISOString();
-          await qstashClient.publishJSON({
+          await getDirectDeliveryClient().publishJSON({
             body: { slot: slotIso, widgetId: target.widgetId },
             // Overlapping ticks see the same unclaimed slot; publish it once.
             deduplicationId: toQStashDeduplicationId(

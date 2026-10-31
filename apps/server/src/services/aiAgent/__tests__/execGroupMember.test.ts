@@ -17,6 +17,7 @@ const mockThreadModel = {
   claimForRun: vi.fn(),
   create: vi.fn(),
   findById: vi.fn(),
+  linkRunOperation: vi.fn(),
   update: vi.fn(),
 };
 
@@ -211,6 +212,28 @@ describe('AiAgentService.execGroupMember', () => {
         expect.objectContaining({ userInterventionConfig: { approvalMode: 'headless' } }),
       );
     });
+  });
+
+  it('links an isolated member operation to the same thread run', async () => {
+    const execAgentSpy = vi.spyOn(service, 'execAgent').mockResolvedValue(execAgentResult);
+
+    await service.execGroupMember(memberParams({ mode: 'isolated' }));
+
+    const [threadId, installedRun] = mockThreadModel.update.mock.calls[0];
+    expect(threadId).toBe('thread-123');
+    expect(installedRun.status).toBe(ThreadStatus.Processing);
+    const runToken = installedRun.metadata.runToken;
+    expect(runToken).toEqual(expect.any(String));
+    expect(runToken).not.toBe('');
+    const hooks = execAgentSpy.mock.calls[0][0].hooks ?? [];
+    const threadHooks = hooks.filter((hook) => hook.webhook?.body?.runToken !== undefined);
+    expect(threadHooks.length).toBeGreaterThan(0);
+    expect(threadHooks.every((hook) => hook.webhook?.body?.runToken === runToken)).toBe(true);
+    expect(mockThreadModel.linkRunOperation).toHaveBeenCalledWith(
+      'thread-123',
+      runToken,
+      execAgentResult.operationId,
+    );
   });
 
   // Codex P2 on #20093: the client told a member continuation apart by

@@ -64,12 +64,13 @@ the next free number of that prefix.
 - **L-S20** Read the managed containers' host ports from `docker ps` and pass `DB_PORT`/`REDIS_PORT` to every `init-dev-env.sh` subcommand; `auth_failed` on migrate is a port mismatch.
 - **L-S21** In a worktree, invoke scripts by absolute path and prove the SPA's identity (Vite pid cwd, changed module from the Vite origin) before trusting any gate or evidence.
 - **L-S22** A per-account cap that a round consumes (artifact deployments) is cleared for the account the surface actually authenticates as, and re-cleared between rounds.
-- **L-S23** A hand-built `node_modules` symlink farm runs unit tests but cannot start the dev server; clone a working checkout's `node_modules` instead of a fresh install, which this lockfile-less repo resolves against a moving registry.
+- **L-S23** 启动或构建应用前保持运行 workspace 的完整依赖布局；Enterprise 在 shell root 安装并保留业务 overrides，不混入独立内核的另一套依赖根。核对 Next 和业务包实际解析路径；单测可用不能证明布局正确。
 - **L-S24** Read the dev server's URL from its own log, and treat "ready" as any status but `000` — `/` answers `302` to `/signin` when signed out.
 - **L-S25** `dev:static` 的 Electron 重启会清空 `dist/renderer`（renderer Vite dev server 启动即删 outDir）；`start`/`restart` 后必须重建 renderer 再驱动，否则页面只有 Internal Server Error。
 - **L-S26** A hand-built Electron main bundle bakes its endpoints in: build with `OFFICIAL_CLOUD_SERVER` and `DEVICE_GATEWAY_URL` pointing at local or unreachable hosts, and before launch confirm `dist/main` carries those values (`DEVICE_GATEWAY_URL:` / `OFFICIAL_CLOUD_SERVER:` followed by the local URL, not `void 0`).
 - **L-S27** `apps/desktop` install relinks the shared `packages/*/node_modules` to the desktop store and breaks root type-check (duplicate `@types/react`); snapshot those links before the install and restore them after, or install in an isolated worktree.
 - **L-S28** 本地验收前核对所有对外服务的实际客户端和服务端请求：`MARKET_BASE_URL`、`NEXT_PUBLIC_MARKET_BASE_URL`、设备网关等须指向本地或已隔离的目标；S3、发信、模型等外部例外须有明确范围授权。
+- **L-S29** Hatchet 隔离验收显式选择 `Default` tenant，核对客户端 JWT 的 `sub` 与该 tenant id、worker 注册归属一致；有 worker 但操作零 claim 时先排除 tenant 不一致。
 
 ## Entries
 
@@ -575,13 +576,17 @@ never linked). Falling back to `pnpm install` can fail outright: this repo
 commits no lockfile, so a fresh resolve hits whatever the registry holds today
 (seen: `No matching version found for @aws-sdk/token-providers@3.1134.0`).
 
-**Rule:** for anything that boots the app, copy a working checkout's
-`node_modules` — `cp -Rc` (APFS clonefile) takes \~100s and almost no disk for
-6.8 GB. Copy the per-package `node_modules` too (\~100 of them; the root tree
-alone leaves package-level deps unresolved), then symlink any workspace package
-the branch adds into `node_modules/@lobechat/`. The `@lobechat/*` links inside
-are relative and resolve to the worktree's own `packages/`, which is what keeps
-the code under test in the path. A farm is fine for unit tests only.
+**Rule:** 启动和构建应使用实际运行 workspace 的完整依赖布局。Enterprise
+从 shell root 按其 `pnpm-workspace.yaml` 安装，保留六个业务 override；可复用完整、
+已验证的依赖布局（包括各 package 的 `node_modules`），或从已有 store 离线安装。
+不要将独立内核安装的 `.pnpm` 根叠到 Enterprise 根上。复制或安装后，核对内核入口的
+`next/package.json`、六个业务包及关键共享包的实际解析路径都属于被测副本，并符合该
+workspace 的 overrides；仅根目录存在、单测或类型检查通过不足以证明布局正确。
+
+2026-10-31 的 Hatchet 临时诊断构建曾混入两套依赖根：内核解析 Next 16.3.8，
+Enterprise 解析其覆盖版本 16.3.0，构建触及内存回收边界且无法作为验收版本。
+按 Enterprise workspace 统一离线安装后，六个业务 override 和 Next 解析已核对。
+这些版本号是该次证据，不是新的永久版本要求；性能改善仍需运行证据，不能由布局修正推定。
 
 ### L-S24 — Waiting for a readiness code the server never returns
 
@@ -680,3 +685,20 @@ before handing the checkout back.
 **Rule:** 文本类执行记录用 `.txt` 或 `.json` 保存；必须用 Markdown 排版时，另附一份同内容的
 `.txt`。发布后用 `lh acceptance run result list --run <id> --json` 核对每项 verdict。已发布的轮次
 用 `lh acceptance run result submit --type text --file <x>.txt --verdict ...` 补交，不要新开一轮。
+
+### L-S29 — Hatchet worker 与投递使用了不同 tenant
+
+`since 2026-10-31` · `holds-while: Hatchet v0.114.2 token 的 sub 表示 tenant id，数据库同时包含 internal 与 Default tenant`
+
+**Trap:** 用 `SELECT id FROM "Tenant" LIMIT 1` 创建 token 会选到保留的
+`internal` tenant；worker 已正常注册，业务投递仍排队且零 claim。把 JWT 中
+不存在的 `tenant_id` 字段当身份依据，也不能验证实际归属。
+
+**Rule:** 隔离 harness 以 `WHERE name = 'Default'` 读取目标，启动前解析 token
+的 `sub` 并与该 id 比较，再核对 worker 的 tenant。注册成功或 gRPC 可连通
+不能替代同一 tenant 的真实操作完成；不一致先修 fixture，不归因为执行器停顿。
+
+**Verification:** 本轮错误 token 下操作零 claim；更正后同一隔离源码烟测
+1 done、4 个工具及文档无重复缺失，随后三轮各 30 done/660 唯一 claim。
+复验入口为交付证据 `hatchet-owner-recovery/repro/harness/isolation-check.py`
+中的 tenant/token 强校验，执行完整隔离 smoke 后再计 SLO 窗口。

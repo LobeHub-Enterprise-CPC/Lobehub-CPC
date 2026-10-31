@@ -1,14 +1,26 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 
+import type * as HatchetConfig from '@/server/modules/Hatchet/config';
+
 const mocks = vi.hoisted(() => ({
   agentServices: [] as { args: unknown[]; executeStep: ReturnType<typeof vi.fn> }[],
+  deliveryProbe: async () => 'none' as const,
   forEachTenant: vi.fn(),
   getOperationMetadata: vi.fn(),
+  hatchetDelivery: false,
   sweep: vi.fn(),
+  reconcile: vi.fn(),
 }));
 
 vi.mock('@/database/core/db-adaptor', () => ({ getServerDB: async () => 'tenant-db' }));
+vi.mock('@/server/modules/Hatchet/config', async (importOriginal) => ({
+  ...(await importOriginal<typeof HatchetConfig>()),
+  isHatchetDeliveryEnabled: () => mocks.hatchetDelivery,
+}));
+vi.mock('@/server/modules/Hatchet/probe', () => ({
+  createHatchetDeliveryProbe: () => mocks.deliveryProbe,
+}));
 vi.mock('@/server/modules/AgentRuntime', () => ({
   AgentRuntimeCoordinator: class {
     getOperationMetadata = mocks.getOperationMetadata;
@@ -24,6 +36,16 @@ vi.mock('@/server/services/agentRuntime', () => ({
     sweep = () => mocks.sweep(this.db, this.options);
   },
 }));
+vi.mock('@/server/services/agentRuntime/AsyncToolResumeReconciler', () => ({
+  AsyncToolResumeReconciler: class {
+    sweep = vi.fn();
+  },
+}));
+vi.mock('@/server/services/agentRuntime/SubAgentBridgeReconciler', () => ({
+  SubAgentBridgeReconciler: class {
+    sweep = () => mocks.reconcile();
+  },
+}));
 vi.mock('@/server/services/aiAgent', () => ({
   AiAgentService: class {
     executeStep = vi.fn(async () => ({}));
@@ -37,9 +59,17 @@ const { LocalQueueServiceImpl } = await import('@/server/services/queue/impls');
 const { createRedriveQueue, reapOperationsForAllTenants } = await import('../reapOperations');
 const { default: app } = await import('../index');
 
-const sweepResult = { abandoned: 0, examined: 1, failed: 0, redriven: 1, skipped: 0 };
+const sweepResult = {
+  abandoned: 0,
+  examined: 3,
+  failed: 0,
+  redriven: 1,
+  skipped: 2,
+  skippedReasons: { delivery_active: 1, delivery_unknown: 1, no_state: 0 },
+};
 
 describe('stale-operation cron sweep', () => {
+  mocks.reconcile.mockResolvedValue({ processed: 0, recovered: 0, failed: 0, skipped: 0 });
   it('requires the cron bearer secret', async () => {
     vi.stubEnv('CRON_SECRET', 'cron-secret');
     const denied = await app.request('/api/cron/agent/reap-operations', { method: 'POST' });
@@ -66,7 +96,71 @@ describe('stale-operation cron sweep', () => {
       expect.objectContaining({ queueService: expect.anything() }),
     );
     expect(response.status).toBe(500);
-    expect(response.body).toMatchObject({ examined: 1, redriven: 1 });
+    expect(response.body).toMatchObject({
+      examined: 3,
+      redriven: 1,
+      reconciliation: { processed: 0, recovered: 0, failed: 0, skipped: 0 },
+      skippedReasons: { delivery_active: 1, delivery_unknown: 1 },
+    });
+  });
+
+  it('runs reconciliation after the reaper, with a failing tenant isolated by the fan-out', async () => {
+    const order: string[] = [];
+    mocks.sweep.mockImplementation(async () => {
+      order.push('reaper');
+      return sweepResult;
+    });
+    mocks.reconcile
+      .mockImplementationOnce(async () => {
+        order.push('reconcile');
+        throw new Error('unavailable');
+      })
+      .mockImplementationOnce(async () => {
+        order.push('reconcile');
+        return { processed: 1, recovered: 1, failed: 0, skipped: 0 };
+      });
+    mocks.forEachTenant.mockImplementation(async (_job, operation) => {
+      const succeeded = [];
+      const failed = [];
+      for (const tenantId of ['tenant-a', 'tenant-b']) {
+        try {
+          succeeded.push({ tenantId, result: await operation(tenantId) });
+        } catch {
+          failed.push({ tenantId, reason: 'Error' });
+        }
+      }
+      return { succeeded, failed };
+    });
+    const json = vi.fn((body: unknown, status: number) => ({ body, status }));
+    const response = (await reapOperationsForAllTenants({ json } as never)) as unknown as {
+      body: Record<string, unknown>;
+      status: number;
+    };
+    expect(order).toEqual(['reaper', 'reconcile', 'reaper', 'reconcile']);
+    expect(response.status).toBe(500);
+    expect(response.body).toMatchObject({
+      reconciliation: { processed: 1, recovered: 1 },
+      failedTenants: [{ tenantId: 'tenant-a' }],
+    });
+    mocks.reconcile.mockResolvedValue({ processed: 0, recovered: 0, failed: 0, skipped: 0 });
+  });
+
+  it.each([
+    [true, mocks.deliveryProbe],
+    [false, undefined],
+  ])('asks Hatchet before redriving only in Hatchet delivery mode (%s)', async (enabled, probe) => {
+    mocks.hatchetDelivery = enabled;
+    mocks.sweep.mockClear().mockResolvedValue(sweepResult);
+    mocks.forEachTenant.mockImplementation(async (_job, operation) => ({
+      failed: [],
+      succeeded: [{ result: await operation('tenant-a'), tenantId: 'tenant-a' }],
+    }));
+
+    await reapOperationsForAllTenants({ json: vi.fn() } as never);
+
+    const [, options] = mocks.sweep.mock.calls[0] as [unknown, { deliveryProbe?: unknown }];
+    expect(options.deliveryProbe).toBe(probe);
+    mocks.hatchetDelivery = false;
   });
 
   it('runs a local-mode redrive in-process as the operation owner, in its workspace', async () => {

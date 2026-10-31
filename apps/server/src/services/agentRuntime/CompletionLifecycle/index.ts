@@ -180,8 +180,9 @@ export class CompletionLifecycle {
     state: any,
     reason: string,
     settledAsAbandoned?: boolean,
+    strict?: boolean,
   ): Promise<boolean> {
-    return persistCompletion(this.deps(), operationId, state, reason, settledAsAbandoned);
+    return persistCompletion(this.deps(), operationId, state, reason, settledAsAbandoned, strict);
   }
 
   /**
@@ -325,6 +326,7 @@ export class CompletionLifecycle {
     // operation the same way: it resumes under this id or expires to `error`.
     const isAsyncToolPark = reason === 'waiting_for_async_tool' || reason === 'waiting_for_client';
     let shouldRetainHooksForRetry = false;
+    let criticalAccepted = false;
 
     try {
       const {
@@ -336,12 +338,9 @@ export class CompletionLifecycle {
 
       // Finalize the agent_operations row before user hooks fire so
       // downstream consumers see the row in its terminal shape.
-      const completionAccepted = await this.persistCompletion(
-        operationId,
-        state,
-        reason,
-        options?.settledAsAbandoned,
-      );
+      const completionAccepted = options?.strict
+        ? await this.persistCompletion(operationId, state, reason, options.settledAsAbandoned, true)
+        : await this.persistCompletion(operationId, state, reason, options?.settledAsAbandoned);
       if (completionAccepted === false) {
         log('[%s] Skipping hooks for an operation with a conflicting terminal owner', operationId);
         return;
@@ -384,6 +383,7 @@ export class CompletionLifecycle {
       }
 
       await hookDispatcher.dispatch(operationId, 'onComplete', event, state?.host?.hooks);
+      if (reason !== 'error') criticalAccepted = true;
 
       // Recall the user when a run finishes with a deliverable while they may be
       // away (push / inbox). Fires on every success-like terminal — `done` plus
@@ -492,6 +492,7 @@ export class CompletionLifecycle {
 
       if (reason === 'error') {
         await hookDispatcher.dispatch(operationId, 'onError', event, state?.host?.hooks);
+        criticalAccepted = true;
 
         const assistantMessageId =
           state?.error && !options?.skipErrorMessageWrite
@@ -525,6 +526,7 @@ export class CompletionLifecycle {
       }
     } catch (error) {
       if (
+        (options?.strict && !criticalAccepted) ||
         error instanceof CriticalHookDeliveryError ||
         error instanceof CriticalAgentInterventionPersistenceError
       ) {

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import type { AgentRunLlmExecutor } from '@lobechat/agent-runtime';
 import { isCallSubAgentCall } from '@lobechat/builtin-tool-lobe-agent';
 import type {
@@ -13,8 +15,10 @@ import { isAgentOperationInFlight, ThreadStatus, ThreadType } from '@lobechat/ty
 import debug from 'debug';
 
 import type { AgentOperationModel } from '@/database/models/agentOperation';
+import type { AgentSubAgentBridgeModel } from '@/database/models/agentSubAgentBridge';
 import type { MessageModel } from '@/database/models/message';
 import type { ThreadModel } from '@/database/models/thread';
+import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
 import type { AgentRuntimeService } from '@/server/services/agentRuntime';
 import { hookDispatcher } from '@/server/services/agentRuntime/hooks';
 import type { AgentHook } from '@/server/services/agentRuntime/hooks/types';
@@ -30,6 +34,7 @@ import {
   pickThreadUsageBaseline,
   type ThreadUsageBaseline,
 } from './hooks/threadRunHooks';
+import { SubAgentBridgeError } from './subAgentBridgeError';
 import type { InternalExecAgentParams } from './types';
 
 const HEADLESS_INTERVENTION: UserInterventionConfig = { approvalMode: 'headless' };
@@ -39,11 +44,14 @@ const log = debug('lobe-server:ai-agent-service');
 export interface SubAgentRunDeps {
   agentOperationModel: AgentOperationModel;
   agentRuntimeService: AgentRuntimeService;
+  bridgeModel: AgentSubAgentBridgeModel;
   /** The facade's `execAgent` — thread runs delegate the actual turn to it. */
   execAgent: (params: InternalExecAgentParams) => Promise<ExecAgentResult>;
+  includeShareVisitor?: boolean;
   messageModel: MessageModel;
   threadModel: ThreadModel;
   userId: string;
+  workspaceId?: string;
 }
 
 export interface ExecAgentThreadRunOptions {
@@ -116,9 +124,15 @@ type ThreadRow = NonNullable<Awaited<ReturnType<ThreadModel['findById']>>>;
  */
 const claimSubAgentThread = async (
   deps: SubAgentRunDeps,
-  params: { agentId: string; startedAt: string; threadId: string; topicId: string },
+  params: {
+    agentId: string;
+    runToken: string;
+    startedAt: string;
+    threadId: string;
+    topicId: string;
+  },
 ): Promise<{ error: string } | { thread: ThreadRow; usageBaseline: ThreadUsageBaseline }> => {
-  const { agentId, startedAt, threadId, topicId } = params;
+  const { agentId, runToken, startedAt, threadId, topicId } = params;
   const thread = await deps.threadModel.findById(threadId);
 
   if (
@@ -157,7 +171,7 @@ const claimSubAgentThread = async (
   const claimed = await deps.threadModel.claimForRun(
     thread.id,
     { operationId: previousOperationId ?? null, status: thread.status },
-    { ...usageBaseline, startedAt },
+    { ...usageBaseline, runToken, startedAt },
   );
 
   return claimed ? { thread, usageBaseline } : { error: busyError };
@@ -198,6 +212,7 @@ export const execAgentThreadRun = async (
       .catch(() => {});
   }
 
+  const runToken = randomUUID();
   const startedAt = new Date().toISOString();
   const continueThreadId = 'threadId' in params ? params.threadId : undefined;
   let thread: ThreadRow;
@@ -210,6 +225,7 @@ export const execAgentThreadRun = async (
     // thread anchor; this run reports to the new placeholder (`parentMessageId`).
     const claim = await claimSubAgentThread(deps, {
       agentId,
+      runToken,
       startedAt,
       threadId: continueThreadId,
       topicId,
@@ -260,7 +276,7 @@ export const execAgentThreadRun = async (
 
     // 2. Update Thread status to processing with startedAt timestamp
     await deps.threadModel.update(thread.id, {
-      metadata: { startedAt },
+      metadata: { runToken, startedAt },
       status: ThreadStatus.Processing,
     });
   }
@@ -276,6 +292,7 @@ export const execAgentThreadRun = async (
     startedAt,
     hasCompletionBridge ? undefined : parentMessageId,
     options.logScope,
+    runToken,
     usageBaseline,
   );
   // For the virtual sub-agent path, also register the completion bridge that
@@ -348,6 +365,37 @@ export const execAgentThreadRun = async (
       localDeviceId: options.localDeviceId,
       // Explicit sub-agent model override resolved at the spawn site.
       model: options.model,
+      ...(hasCompletionBridge &&
+      parentOperationId &&
+      !options.bridgeHookFactory &&
+      isHatchetDeliveryEnabled()
+        ? {
+            onOperationCreated: async (childOperationId: string) => {
+              let toolMessage: Awaited<ReturnType<MessageModel['findById']>>;
+              try {
+                toolMessage = await deps.messageModel.findById(parentMessageId);
+              } catch (error) {
+                throw new SubAgentBridgeError('SERVICE_UNAVAILABLE', error);
+              }
+              if (!toolMessage?.parentId) throw new SubAgentBridgeError('PRECONDITION_FAILED');
+              try {
+                await deps.bridgeModel.create({
+                  childOperationId,
+                  childRunToken: runToken,
+                  includeShareVisitor: deps.includeShareVisitor ?? false,
+                  parentOperationId,
+                  threadId: thread.id,
+                  toolMessageId: parentMessageId,
+                  userId: deps.userId,
+                  waitingBatchId: toolMessage.parentId,
+                  workspaceId: deps.workspaceId,
+                });
+              } catch (error) {
+                throw new SubAgentBridgeError('SERVICE_UNAVAILABLE', error);
+              }
+            },
+          }
+        : {}),
       parentOperationId,
       prompt: instruction,
       provider: options.provider,
@@ -358,14 +406,11 @@ export const execAgentThreadRun = async (
     // Without an operation id a `processing` thread reads as "still running"
     // forever, which would lock the sub-agent against any later follow-up.
     await deps.threadModel
-      .update(thread.id, {
-        metadata: {
-          ...usageBaseline,
-          completedAt: new Date().toISOString(),
-          error: String(error),
-          startedAt,
-        },
-        status: ThreadStatus.Failed,
+      .failRun(thread.id, runToken, {
+        ...usageBaseline,
+        completedAt: new Date().toISOString(),
+        error: String(error),
+        startedAt,
       })
       .catch((updateError) =>
         log(
@@ -386,23 +431,18 @@ export const execAgentThreadRun = async (
   );
 
   // 5. Store operationId in Thread metadata
-  await deps.threadModel.update(thread.id, {
-    metadata: { ...usageBaseline, operationId: result.operationId, startedAt },
-  });
+  await deps.threadModel.linkRunOperation(thread.id, runToken, result.operationId);
 
   // 6. If operation failed to start, update thread status
   if (!result.success) {
     const completedAt = new Date().toISOString();
-    await deps.threadModel.update(thread.id, {
-      metadata: {
-        ...usageBaseline,
-        completedAt,
-        duration: Date.now() - new Date(startedAt).getTime(),
-        error: result.error,
-        operationId: result.operationId,
-        startedAt,
-      },
-      status: ThreadStatus.Failed,
+    await deps.threadModel.failRun(thread.id, runToken, {
+      ...usageBaseline,
+      completedAt,
+      duration: Date.now() - new Date(startedAt).getTime(),
+      error: result.error,
+      operationId: result.operationId,
+      startedAt,
     });
 
     // Dispatch onCallAgentError hook

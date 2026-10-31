@@ -77,6 +77,7 @@ export async function persistCompletion(
   state: any,
   reason: string,
   settledAsAbandoned?: boolean,
+  strict?: boolean,
 ): Promise<boolean> {
   const completionReason: any = settledAsAbandoned
     ? 'lease_expired'
@@ -184,6 +185,7 @@ export async function persistCompletion(
       if (operation) durableStatus = operation.status;
     }
   } catch (error) {
+    if (strict) throw error;
     log('[%s] Failed to persist operation completion (non-fatal): %O', operationId, error);
   }
 

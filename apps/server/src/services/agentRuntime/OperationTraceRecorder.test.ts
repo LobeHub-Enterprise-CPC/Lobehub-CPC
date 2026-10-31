@@ -86,6 +86,7 @@ describe('OperationTraceRecorder partial accumulation', () => {
     await recorder.appendStep(OPERATION_ID, stepParams(0));
     await recorder.appendStep(OPERATION_ID, stepParams(1));
     await recorder.appendStep(OPERATION_ID, stepParams(2));
+    await vi.waitFor(() => expect(store.savePartial.mock.calls[0]?.[1].steps).toHaveLength(3));
 
     first.resolve();
     await recorder.flushPartial();
@@ -108,6 +109,43 @@ describe('OperationTraceRecorder partial accumulation', () => {
     );
   });
 
+  it('does not finalize a partial read after ownership is lost', async () => {
+    const reading = deferred();
+    const read = deferred();
+    store.loadPartial.mockImplementation(async () => {
+      reading.resolve();
+      await read.promise;
+      return { steps: [{ stepIndex: 0 } as any] };
+    });
+    const finalizing = recorder.finalize(OPERATION_ID, { completionReason: 'done', state: {} });
+    await reading.promise;
+
+    recorder.discardPartial();
+    read.resolve();
+    await finalizing;
+
+    expect(store.save).not.toHaveBeenCalled();
+    expect(store.removePartial).not.toHaveBeenCalled();
+  });
+
+  it('does not delete the next owner partial after an in-flight final save', async () => {
+    const saving = deferred();
+    const upload = deferred();
+    store.loadPartial.mockResolvedValue({ steps: [{ stepIndex: 0 } as any] });
+    store.save.mockImplementation(async () => {
+      saving.resolve();
+      await upload.promise;
+    });
+    const finalizing = recorder.finalize(OPERATION_ID, { completionReason: 'done', state: {} });
+    await saving.promise;
+
+    recorder.discardPartial();
+    upload.resolve();
+    await finalizing;
+
+    expect(store.removePartial).not.toHaveBeenCalled();
+  });
+
   it('does not upload steps after the operation lock is lost', async () => {
     const first = deferred();
     store.savePartial.mockImplementationOnce(async () => {
@@ -115,6 +153,7 @@ describe('OperationTraceRecorder partial accumulation', () => {
     });
 
     await recorder.appendStep(OPERATION_ID, stepParams(0));
+    await vi.waitFor(() => expect(store.savePartial).toHaveBeenCalledTimes(1));
     await recorder.appendStep(OPERATION_ID, stepParams(1));
     recorder.discardPartial();
 
@@ -133,7 +172,7 @@ describe('OperationTraceRecorder partial accumulation', () => {
     });
 
     await recorder.appendStep(OPERATION_ID, stepParams(0));
-    expect(seenSignal?.aborted).toBe(false);
+    await vi.waitFor(() => expect(seenSignal?.aborted).toBe(false));
 
     recorder.discardPartial();
 
@@ -144,6 +183,97 @@ describe('OperationTraceRecorder partial accumulation', () => {
     upload.resolve();
     await recorder.flushPartial();
     expect(store.savePartial).toHaveBeenCalledTimes(1);
+  });
+
+  it('accumulates ordered steps while the initial trace read is pending and joins it at flush', async () => {
+    const read = deferred();
+    store.loadPartial.mockImplementationOnce(async () => {
+      await read.promise;
+      return { steps: [{ stepIndex: 0 } as any] };
+    });
+    await recorder.appendStep(OPERATION_ID, stepParams(1));
+    await recorder.appendStep(OPERATION_ID, stepParams(2));
+    let durable = false;
+    const flush = recorder.flushPartial().then(() => {
+      durable = true;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(durable).toBe(false);
+    expect(store.savePartial).not.toHaveBeenCalled();
+    read.resolve();
+    await flush;
+    expect(store.loadPartial).toHaveBeenCalledTimes(1);
+    expect(store.savePartial.mock.calls.at(-1)?.[1].steps?.map((step) => step.stepIndex)).toEqual([
+      0, 1, 2,
+    ]);
+  });
+
+  it('discards pending trace reads and queued steps after ownership is lost', async () => {
+    const read = deferred();
+    store.loadPartial.mockImplementationOnce(async () => {
+      await read.promise;
+      return { steps: [] };
+    });
+    await recorder.appendStep(OPERATION_ID, stepParams(0));
+    await recorder.appendStep(OPERATION_ID, stepParams(1));
+    recorder.discardPartial();
+    read.resolve();
+    await recorder.flushPartial();
+    expect(store.savePartial).not.toHaveBeenCalled();
+
+    await recorder.appendStep('new-operation', stepParams(0));
+    await recorder.flushPartial();
+    expect(store.savePartial).toHaveBeenCalledTimes(1);
+    expect(store.savePartial.mock.calls[0][0]).toBe('new-operation');
+    expect(store.savePartial.mock.calls[0][1].steps).toHaveLength(1);
+  });
+
+  it('captures CE JSON values before a pending read lets the next step mutate them', async () => {
+    const read = deferred();
+    store.loadPartial.mockImplementationOnce(async () => {
+      await read.promise;
+      return null;
+    });
+    const document = { createdAt: new Date('2026-10-30T00:00:00.000Z'), title: 'original' };
+    const metadata = { decision: 'keep' };
+    const output = { messages: ['original'] };
+    await recorder.appendStep(OPERATION_ID, {
+      ...stepParams(0),
+      contextEngine: { input: { documents: [document] }, metadata, output },
+    });
+
+    document.title = 'next step';
+    document.createdAt.setUTCFullYear(2027);
+    metadata.decision = 'trim';
+    output.messages.push('next step');
+    read.resolve();
+    await recorder.flushPartial();
+
+    expect(store.savePartial.mock.calls.at(-1)?.[1].steps?.[0].contextEngine).toEqual({
+      input: { documents: [{ createdAt: '2026-10-30T00:00:00.000Z', title: 'original' }] },
+      metadata: { decision: 'keep' },
+      output: { messages: ['original'] },
+    });
+  });
+
+  it('does not reuse a discarded operation cache after waiting for another upload', async () => {
+    const upload = deferred();
+    store.savePartial.mockImplementationOnce(async () => {
+      await upload.promise;
+    });
+    await recorder.appendStep('previous', stepParams(0));
+    await vi.waitFor(() => expect(store.savePartial).toHaveBeenCalledTimes(1));
+    await recorder.appendStep('next', stepParams(0));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    recorder.discardPartial();
+    upload.resolve();
+    await recorder.flushPartial();
+    expect(store.savePartial).toHaveBeenCalledTimes(1);
+
+    await recorder.appendStep('next', stepParams(0));
+    await recorder.flushPartial();
+    expect(store.loadPartial.mock.calls.filter(([id]) => id === 'next')).toHaveLength(2);
+    expect(store.savePartial.mock.calls.at(-1)?.[1].steps).toHaveLength(1);
   });
 
   it('is a no-op without a store', async () => {

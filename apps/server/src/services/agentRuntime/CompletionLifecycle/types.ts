@@ -71,6 +71,8 @@ export interface CompleteOperationOptions {
    * dispatch-failure path, which surfaces a device-specific `detail`).
    */
   skipErrorMessageWrite?: boolean;
+  /** Require terminal persistence and critical notification acceptance. */
+  strict?: boolean;
 }
 
 /** What the extracted completion steps read off a `CompletionLifecycle` instance. */

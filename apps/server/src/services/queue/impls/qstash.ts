@@ -72,6 +72,46 @@ const clampOversizedStrings = (value: unknown, keep: number): unknown => {
 };
 
 /**
+ * Keep a step schedulable when its body outgrew the QStash message quota:
+ * clamp its strings rather than let the publish 500 and take the whole
+ * operation down. The step still runs — it just sees a truncated copy of
+ * whatever ran away. Clamping tightens until the body MEASURES under budget,
+ * so a body that is oversized through many mid-sized strings is handled too,
+ * not only one runaway blob.
+ */
+export const fitBodyToQuota = <T extends { body: unknown }>(request: T, operationId: string): T => {
+  const size = byteLength(request.body);
+  if (size <= QSTASH_BODY_BUDGET_BYTES) return request;
+
+  for (const keep of OVERSIZED_STRING_KEEP_LADDER) {
+    const body = clampOversizedStrings(request.body, keep);
+    const clampedBytes = byteLength(body);
+    if (clampedBytes > QSTASH_BODY_BUDGET_BYTES) continue;
+
+    console.warn(
+      JSON.stringify({
+        bytes: size,
+        clampedBytes,
+        event: 'agent.queue.oversized_message_clamped',
+        limitBytes: QSTASH_MAX_BODY_BYTES,
+        operationId,
+        stringKeep: keep,
+      }),
+    );
+
+    return { ...request, body };
+  }
+
+  // Unreachable through strings — the last rung drops every string to a
+  // notice. Getting here means the body is huge in its non-string structure,
+  // which no truncation can fix; fail with something diagnosable instead of
+  // an opaque `quota maxMessageSize exceeded` 500 from the provider.
+  throw new Error(
+    `QStash message for operation ${operationId} is ${size} bytes and cannot be reduced under the ${QSTASH_MAX_BODY_BYTES} byte quota`,
+  );
+};
+
+/**
  * QStash queue service implementation
  */
 export class QStashQueueServiceImpl implements QueueServiceImpl {
@@ -125,7 +165,7 @@ export class QStashQueueServiceImpl implements QueueServiceImpl {
         retries,
         url: endpoint,
       };
-      const response = await qstashClient.publishJSON(this.fitBodyToQuota(request, operationId));
+      const response = await qstashClient.publishJSON(fitBodyToQuota(request, operationId));
 
       log(
         `[${operationId}] Scheduled step %d to %s with %dms delay (messageId: %s)`,
@@ -140,46 +180,6 @@ export class QStashQueueServiceImpl implements QueueServiceImpl {
       log('Failed to schedule step %d for operation %s: %O', stepIndex, operationId, error);
       throw error;
     }
-  }
-
-  /**
-   * Keep a step schedulable when its body outgrew the QStash message quota:
-   * clamp its strings rather than let the publish 500 and take the whole
-   * operation down. The step still runs — it just sees a truncated copy of
-   * whatever ran away. Clamping tightens until the body MEASURES under budget,
-   * so a body that is oversized through many mid-sized strings is handled too,
-   * not only one runaway blob.
-   */
-  private fitBodyToQuota<T extends { body: unknown }>(request: T, operationId: string): T {
-    const size = byteLength(request.body);
-    if (size <= QSTASH_BODY_BUDGET_BYTES) return request;
-
-    for (const keep of OVERSIZED_STRING_KEEP_LADDER) {
-      const body = clampOversizedStrings(request.body, keep);
-      const clampedBytes = byteLength(body);
-      if (clampedBytes > QSTASH_BODY_BUDGET_BYTES) continue;
-
-      console.warn(
-        JSON.stringify({
-          bytes: size,
-          clampedBytes,
-          event: 'agent.queue.oversized_message_clamped',
-          limitBytes: QSTASH_MAX_BODY_BYTES,
-          operationId,
-          stringKeep: keep,
-        }),
-      );
-
-      return { ...request, body };
-    }
-
-    // Unreachable through strings — the last rung drops every string to a
-    // notice. Getting here means the body is huge in its non-string structure,
-    // which no truncation can fix; fail with something diagnosable instead of
-    // an opaque `quota maxMessageSize exceeded` 500 from the provider.
-    throw new Error(
-      `QStash message for operation ${operationId} is ${size} bytes and cannot be reduced under the ${QSTASH_MAX_BODY_BYTES} byte quota`,
-    );
   }
 
   async scheduleBatchMessages(messages: QueueMessage[]): Promise<string[]> {

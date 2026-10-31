@@ -1,5 +1,5 @@
 import { RequestTrigger, ThreadStatus, ThreadType } from '@lobechat/types';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getTestDB } from '../../core/getTestDB';
@@ -37,6 +37,238 @@ describe('ThreadModel', () => {
 
   afterEach(async () => {
     await serverDB.delete(users);
+  });
+
+  describe('run callback conditional writes', () => {
+    const metadata = {
+      runToken: 'token',
+      operationId: 'old-op',
+      startedAt: '2026-10-30T00:00:00Z',
+      totalTokens: 10,
+    };
+    const createRun = () =>
+      threadModel.create({
+        topicId,
+        type: ThreadType.Standalone,
+        status: ThreadStatus.Processing,
+        metadata,
+      });
+
+    it('accepts only increasing progress per operation and preserves metadata', async () => {
+      const thread = await createRun();
+      expect(
+        await threadModel.updateProgressForRun(thread.id, 'token', 'run', 0, { totalTokens: 20 }),
+      ).toBe(true);
+      expect(
+        await threadModel.updateProgressForRun(thread.id, 'token', 'run', 0, { totalTokens: 1 }),
+      ).toBe(false);
+      expect(await threadModel.updateProgressForRun(thread.id, 'wrong-token', 'run', 5, {})).toBe(
+        false,
+      );
+      expect(
+        await threadModel.updateProgressForRun(thread.id, 'token', 'run', 5, { totalTokens: 30 }),
+      ).toBe(true);
+      expect(
+        await threadModel.updateProgressForRun(thread.id, 'token', 'resume', 0, {
+          totalTokens: 40,
+        }),
+      ).toBe(true);
+      expect((await threadModel.findById(thread.id))?.metadata).toMatchObject({
+        runToken: 'token',
+        operationId: 'resume',
+        progressOperationId: 'resume',
+        progressStep: 0,
+        totalTokens: 40,
+      });
+    });
+
+    it.each([undefined, null, '', 'previous-operation'])(
+      'accepts initial progress with a previous operation marker of %s',
+      async (progressOperationId) => {
+        const thread = await threadModel.create({
+          topicId,
+          type: ThreadType.Standalone,
+          status: ThreadStatus.Processing,
+          metadata,
+        });
+        // Historical JSON can contain null even though current writers omit this field.
+        await serverDB
+          .update(threads)
+          .set({
+            metadata: sql`${JSON.stringify({ ...metadata, progressOperationId, progressStep: 99 })}::jsonb`,
+          })
+          .where(eq(threads.id, thread.id));
+        expect(await threadModel.updateProgressForRun(thread.id, 'token', 'run', 0, {})).toBe(true);
+        expect(await threadModel.updateProgressForRun(thread.id, 'token', 'run', 0, {})).toBe(
+          false,
+        );
+      },
+    );
+
+    it('completes once and rejects late progress and duplicate completion', async () => {
+      const thread = await createRun();
+      expect(
+        await threadModel.completeRun(thread.id, 'token', 'run', ThreadStatus.Completed, {
+          completedAt: 'first',
+          duration: 1,
+        }),
+      ).toBe(true);
+      expect(
+        await threadModel.completeRun(thread.id, 'token', 'run', ThreadStatus.Failed, {
+          completedAt: 'second',
+          duration: 2,
+        }),
+      ).toBe(false);
+      expect(await threadModel.updateProgressForRun(thread.id, 'token', 'run', 9, {})).toBe(false);
+      expect(await threadModel.findById(thread.id)).toMatchObject({
+        status: ThreadStatus.Completed,
+        metadata: {
+          ...metadata,
+          operationId: 'run',
+          completedOperationId: 'run',
+          completedAt: 'first',
+          duration: 1,
+        },
+      });
+    });
+
+    it('allows approval continuation from inReview and rejects the retired token', async () => {
+      const thread = await createRun();
+      expect(
+        await threadModel.completeRun(thread.id, 'token', 'paused', ThreadStatus.InReview, {}),
+      ).toBe(true);
+      expect(
+        await threadModel.completeRun(thread.id, 'token', 'paused', ThreadStatus.InReview, {
+          duration: 999,
+        }),
+      ).toBe(false);
+      expect(
+        await threadModel.completeRun(thread.id, 'token', 'continued', ThreadStatus.InReview, {}),
+      ).toBe(true);
+      await threadModel.updateProgressForRun(thread.id, 'token', 'continued', 5, {});
+      expect(await threadModel.setRunToken(thread.id, 'new-token')).toBe(true);
+      const renewed = await threadModel.findById(thread.id);
+      expect(renewed?.status).toBe(ThreadStatus.InReview);
+      expect(renewed?.metadata?.runToken).toBe('new-token');
+      expect(renewed?.metadata).not.toHaveProperty('progressStep');
+      expect(renewed?.metadata).not.toHaveProperty('progressOperationId');
+      expect(await threadModel.updateProgressForRun(thread.id, 'token', 'continued', 6, {})).toBe(
+        false,
+      );
+      expect(
+        await threadModel.completeRun(thread.id, 'token', 'continued', ThreadStatus.Completed, {}),
+      ).toBe(false);
+      expect(await threadModel.updateProgressForRun(thread.id, 'new-token', 'resumed', 0, {})).toBe(
+        true,
+      );
+      expect(
+        await threadModel.completeRun(
+          thread.id,
+          'new-token',
+          'resumed',
+          ThreadStatus.Completed,
+          {},
+        ),
+      ).toBe(true);
+    });
+
+    it('links an operation after completion without replacing final metadata', async () => {
+      const thread = await createRun();
+      await threadModel.completeRun(thread.id, 'token', 'run', ThreadStatus.Completed, {
+        completedAt: 'first',
+        duration: 12,
+        totalTokens: 40,
+      });
+      expect(await threadModel.linkRunOperation(thread.id, 'token', 'run')).toBe(true);
+      expect(await threadModel.findById(thread.id)).toMatchObject({
+        status: ThreadStatus.Completed,
+        metadata: {
+          runToken: 'token',
+          operationId: 'run',
+          completedAt: 'first',
+          duration: 12,
+          totalTokens: 40,
+        },
+      });
+      expect(await threadModel.linkRunOperation(thread.id, 'retired', 'wrong')).toBe(false);
+      expect(await threadModel.failRun(thread.id, 'retired', { error: 'stale' })).toBe(false);
+      expect(await threadModel.failRun(thread.id, 'token', { error: 'late failure' })).toBe(false);
+    });
+
+    it('merges startup failure metadata and retains the token', async () => {
+      const thread = await createRun();
+      expect(await threadModel.failRun(thread.id, 'retired', { error: 'stale failure' })).toBe(
+        false,
+      );
+      expect(await threadModel.failRun(thread.id, 'token', { error: 'startup failed' })).toBe(true);
+      expect(await threadModel.findById(thread.id)).toMatchObject({
+        status: ThreadStatus.Failed,
+        metadata: { ...metadata, error: 'startup failed' },
+      });
+    });
+
+    it('rolls completion back when the summary transaction fails', async () => {
+      const thread = await createRun();
+      await expect(
+        serverDB.transaction(async (tx) => {
+          await new ThreadModel(tx, userId).completeRun(
+            thread.id,
+            'token',
+            'run',
+            ThreadStatus.Completed,
+            {},
+          );
+          throw new Error('summary unavailable');
+        }),
+      ).rejects.toThrow('summary unavailable');
+      expect(await threadModel.findById(thread.id)).toMatchObject({
+        status: ThreadStatus.Processing,
+        metadata,
+      });
+    });
+
+    it('enforces user and workspace ownership on callback and token writes', async () => {
+      const thread = await createRun();
+      const other = new ThreadModel(serverDB, otherUserId);
+      expect(await other.updateProgressForRun(thread.id, 'token', 'run', 1, {})).toBe(false);
+      expect(await other.completeRun(thread.id, 'token', 'run', ThreadStatus.Completed, {})).toBe(
+        false,
+      );
+      expect(await other.linkRunOperation(thread.id, 'token', 'run')).toBe(false);
+      expect(await other.failRun(thread.id, 'token', {})).toBe(false);
+      expect(await other.setRunToken(thread.id, 'new')).toBe(false);
+      await serverDB.insert(workspaces).values({
+        id: 'callback-workspace',
+        primaryOwnerId: userId,
+        slug: 'callback-workspace',
+        name: 'Callback',
+      });
+      const scoped = new ThreadModel(serverDB, userId, 'callback-workspace');
+      const workspaceThread = await scoped.create({
+        topicId,
+        type: ThreadType.Standalone,
+        status: ThreadStatus.Processing,
+        metadata,
+      });
+      expect(
+        await threadModel.updateProgressForRun(workspaceThread.id, 'token', 'run', 1, {}),
+      ).toBe(false);
+      expect(
+        await threadModel.completeRun(
+          workspaceThread.id,
+          'token',
+          'run',
+          ThreadStatus.Completed,
+          {},
+        ),
+      ).toBe(false);
+      expect(await scoped.updateProgressForRun(workspaceThread.id, 'token', 'run', 1, {})).toBe(
+        true,
+      );
+      expect(
+        await scoped.completeRun(workspaceThread.id, 'token', 'run', ThreadStatus.Completed, {}),
+      ).toBe(true);
+    });
   });
 
   describe('create', () => {

@@ -3,7 +3,8 @@ import { asyncToolResumeCounter } from '@lobechat/observability-otel/modules/age
 import { type ChatToolPayload } from '@lobechat/types';
 import debug from 'debug';
 
-import { AgentOperationModel } from '@/database/models/agentOperation';
+import { AgentOperationModel, type AsyncToolResumeIntent } from '@/database/models/agentOperation';
+import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
 import { assertGatewayStateExecution } from '@/server/services/gatewayAuthorization/operationAuthority';
 
 import { type GroupActionOnComplete } from '../types';
@@ -136,10 +137,26 @@ export async function tryResumeParentFromAsyncTool(
 
   // Version and child linkage are rechecked in the final resume CAS.
   await assertGatewayStateExecution(parentOperationId, state.execution);
-  const won = await new AgentOperationModel(deps.serverDB, deps.userId).tryResumeFromAsyncTool(
-    parentOperationId,
-    params.childOperationId,
-  );
+  const operationModel = new AgentOperationModel(deps.serverDB, deps.userId);
+  const intent: AsyncToolResumeIntent | undefined = isHatchetDeliveryEnabled()
+    ? {
+        createdAt: new Date().toISOString(),
+        deduplicationId: `async-tool-resume:${parentOperationId}:${state.stepCount}:${crypto.randomUUID()}`,
+        execution: state.execution,
+        payload:
+          onComplete === 'finish' ? { finishAfterAsyncTool: true } : { resumeAsyncTool: true },
+        state: 'pending',
+        stepIndex: state.stepCount,
+        waitingToolCallIds: pending.map((tool) => tool.id).sort(),
+      }
+    : undefined;
+  const won = intent
+    ? await operationModel.tryResumeFromAsyncTool(
+        parentOperationId,
+        params.childOperationId,
+        intent,
+      )
+    : await operationModel.tryResumeFromAsyncTool(parentOperationId, params.childOperationId);
   if (!won) {
     log('[%s] lost async-tool resume CAS, no-op', parentOperationId);
     asyncToolResumeCounter.add(1, { outcome: 'lost_cas' });
@@ -158,6 +175,7 @@ export async function tryResumeParentFromAsyncTool(
   if (deps.queueService) {
     await deps.queueService.scheduleMessage({
       context: undefined,
+      ...(intent && { deduplicationId: intent.deduplicationId }),
       delay: 100,
       endpoint: `${deps.baseURL}/run`,
       execution: state.execution,
@@ -166,6 +184,8 @@ export async function tryResumeParentFromAsyncTool(
       priority: 'high',
       stepIndex: state.stepCount,
     });
+    if (intent)
+      await operationModel.confirmAsyncToolResume(parentOperationId, intent.deduplicationId);
   } else {
     log('[%s] queue service disabled, skipping async-tool resume schedule', parentOperationId);
   }

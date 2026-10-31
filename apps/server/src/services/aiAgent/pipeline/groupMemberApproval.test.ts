@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { resolveGroupMemberApprovalContinuation } from './groupMemberApproval';
+import {
+  createGroupMemberApprovalDeps,
+  resolveGroupMemberApprovalContinuation,
+} from './groupMemberApproval';
 
 const bridgeBody = {
   anchorMessageId: 'msg_speak',
@@ -138,5 +141,35 @@ describe('resolveGroupMemberApprovalContinuation', () => {
       ),
     ).toBe(undefined);
     expect(deps.findMessagePlugin).not.toHaveBeenCalled();
+  });
+});
+
+describe('createGroupMemberApprovalDeps thread hooks', () => {
+  it('rotates the token before returning approval continuation hooks', async () => {
+    const threadModel = {
+      findById: vi.fn().mockResolvedValue({
+        id: 'thread',
+        sourceMessageId: 'source',
+        status: 'inReview',
+        metadata: {
+          runToken: 'retired',
+          operationId: 'paused',
+          startedAt: '2026-10-30T00:00:00Z',
+          progressStep: 8,
+        },
+      }),
+      setRunToken: vi.fn().mockResolvedValue(true),
+    };
+    const deps = createGroupMemberApprovalDeps({
+      threadModel,
+      messageModel: {},
+      agentRuntimeService: {},
+    } as any);
+    const hooks = await deps.createThreadHooks('thread');
+    const runToken = hooks[0].webhook?.body?.runToken;
+    expect(runToken).toEqual(expect.any(String));
+    expect(runToken).not.toBe('retired');
+    expect(threadModel.setRunToken).toHaveBeenCalledWith('thread', runToken);
+    expect(hooks.every((hook) => hook.webhook?.body?.runToken === runToken)).toBe(true);
   });
 });

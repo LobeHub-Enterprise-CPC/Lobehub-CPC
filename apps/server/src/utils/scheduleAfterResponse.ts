@@ -18,10 +18,38 @@ const runWork = async (work: ScheduleAfterResponseWork) => {
 };
 
 /**
+ * Work handed to the host and not finished yet, counted from the moment it is
+ * handed over (the host may not start it until the response is sent), so a
+ * shutdown drain can wait for it.
+ */
+const hostPending = new Set<Promise<void>>();
+
+export const pendingHostWorkCount = (): number => hostPending.size;
+
+/** Resolves once nothing handed to the host is pending, including work handed over while it waited. */
+export const settleHostWork = async (): Promise<void> => {
+  while (hostPending.size > 0) await Promise.allSettled(hostPending);
+};
+
+/**
  * Hand work to the host so it runs after the HTTP response is sent. Falls back
  * to running it immediately when there is no host that supports this.
  */
 const scheduleOnHost = (work: () => Promise<void>): void => {
+  let finish!: () => void;
+  const settled = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  hostPending.add(settled);
+  void settled.then(() => hostPending.delete(settled));
+  const tracked = async () => {
+    try {
+      await work();
+    } finally {
+      finish();
+    }
+  };
+
   try {
     const nextServer = require('next/server') as {
       after?: (work: () => Promise<void>) => void;
@@ -29,7 +57,7 @@ const scheduleOnHost = (work: () => Promise<void>): void => {
 
     if (typeof nextServer.after === 'function') {
       try {
-        nextServer.after(work);
+        nextServer.after(tracked);
         return;
       } catch (error) {
         log('next/server after() unavailable, falling back: %O', error);
@@ -39,7 +67,7 @@ const scheduleOnHost = (work: () => Promise<void>): void => {
     // next/server is not available in standalone Hono.
   }
 
-  void work();
+  void tracked();
 };
 
 interface ScheduledWorkScope {

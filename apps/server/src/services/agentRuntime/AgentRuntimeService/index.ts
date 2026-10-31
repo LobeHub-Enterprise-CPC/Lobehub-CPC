@@ -18,7 +18,7 @@ import { QueueService } from '@/server/services/queue';
 import { ToolExecutionService } from '@/server/services/toolExecution';
 import { BuiltinToolsExecutor } from '@/server/services/toolExecution/builtin';
 
-import { CompletionLifecycle } from '../CompletionLifecycle';
+import { CompletionLifecycle, extractTextFromMessage } from '../CompletionLifecycle';
 import { HumanInterventionHandler } from '../HumanInterventionHandler';
 import { OperationTraceRecorder } from '../OperationTraceRecorder';
 import { createDefaultSnapshotStore } from '../snapshotStore';
@@ -147,6 +147,7 @@ export class AgentRuntimeService {
   private readonly serverDB: LobeChatDatabase;
   private readonly userId: string;
   private readonly workspaceId?: string;
+  private readonly includeShareVisitor: boolean;
   private readonly messageModel: RuntimeMessageStore;
   // Lazily constructed because MessageService instantiates a FileService
   // which eagerly creates the S3 client and throws when S3 env vars are
@@ -194,6 +195,7 @@ export class AgentRuntimeService {
     this.workspaceId = options?.workspaceId;
     const workspaceId = this.workspaceId;
     const includeShareVisitor = options?.includeShareVisitor ?? false;
+    this.includeShareVisitor = includeShareVisitor;
     this.agentOperationModel = new AgentOperationModel(db, this.userId, workspaceId);
     this.messageModel =
       options?.messageStore ??
@@ -289,6 +291,9 @@ export class AgentRuntimeService {
       },
       get workspaceId() {
         return self.workspaceId;
+      },
+      get includeShareVisitor() {
+        return self.includeShareVisitor;
       },
       get messageModel() {
         return self.messageModel;
@@ -480,6 +485,13 @@ export class AgentRuntimeService {
 
   private queryMessagesFromDB(...args: MethodArgs<typeof queryMessagesFromDB>) {
     return queryMessagesFromDB(this.context, ...args);
+  }
+
+  /** Restore the runtime message view and the canonical assistant summary for callbacks. */
+  async loadRunMessagesFromDB(state: Parameters<typeof refreshMessagesFromDB>[1]) {
+    const messages = await this.refreshMessagesFromDB(state);
+    const lastAssistant = await this.resolveLastAssistantMessageFromDB(state);
+    return { lastAssistantContent: extractTextFromMessage(lastAssistant) || undefined, messages };
   }
 
   private refreshMessagesFromDB(...args: MethodArgs<typeof refreshMessagesFromDB>) {

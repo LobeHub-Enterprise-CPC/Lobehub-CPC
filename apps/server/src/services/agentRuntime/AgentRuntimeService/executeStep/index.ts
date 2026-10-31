@@ -7,6 +7,7 @@ import {
 } from '@lobechat/observability-otel/modules/agent-runtime';
 import debug from 'debug';
 
+import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
 import { assertGatewayStateExecution } from '@/server/services/gatewayAuthorization/operationAuthority';
 
 import {
@@ -15,10 +16,15 @@ import {
   type AgentStepContinuation,
 } from '../../types';
 import { STEP_LOCK_TTL_SECONDS } from '../constants';
+import { StepOwnershipLostError } from '../executionErrors';
 import type { AgentRuntimeServiceContext } from '../types';
 import { createStepLockOwner } from '../utils';
 import { startStepAbortPoll, type StepAbortPoll } from './abortPoll';
-import { finishOperation } from './completion';
+import {
+  finishOperation,
+  markCompletionLifecyclePending,
+  replayPendingCompletionLifecycle,
+} from './completion';
 import { scheduleNextStep } from './continuation';
 import { failStep } from './failure';
 import {
@@ -73,6 +79,50 @@ export type ExecuteStepDeps = Pick<
 >;
 
 /**
+ * Hatchet: commit only while this attempt still owns the operation — the
+ * heartbeat never failed to refresh the lock, and a refresh right before the
+ * save still finds it ours.
+ *
+ * Not atomic with the save: a lock that expires between this refresh and the
+ * authoritative write can still let a second owner commit. Nor are LLM or tool
+ * calls already in flight interrupted when the lock goes; losing it only stops
+ * the commit.
+ */
+async function assertStepOwnership(
+  deps: ExecuteStepDeps,
+  {
+    heartbeatLostLock,
+    operationId,
+    stepIndex,
+    stepLockOwner,
+  }: {
+    heartbeatLostLock: () => boolean;
+    operationId: string;
+    stepIndex: number;
+    stepLockOwner: string;
+  },
+): Promise<void> {
+  const lost = (cause?: unknown) => {
+    deps.traceRecorder.discardPartial();
+    return new StepOwnershipLostError(operationId, stepIndex, { cause });
+  };
+  if (heartbeatLostLock()) throw lost();
+
+  let refreshed: boolean;
+  try {
+    refreshed = await deps.coordinator.refreshStepLock(
+      operationId,
+      stepIndex,
+      STEP_LOCK_TTL_SECONDS,
+      stepLockOwner,
+    );
+  } catch (error) {
+    throw lost(error);
+  }
+  if (!refreshed || heartbeatLostLock()) throw lost();
+}
+
+/**
  * Execute Agent step
  */
 export async function executeStep(
@@ -89,23 +139,56 @@ export async function executeStep(
     stepLockOwner: providedStepLockOwner,
   } = params;
 
+  const hatchetDelivery = isHatchetDeliveryEnabled();
+
   const lockFree = await runLockFreeDelivery(deps, params);
   if (lockFree) return lockFree;
 
   // ===== Distributed lock: prevent duplicate execution from QStash retries =====
+  // On Hatchet a Redis failure here throws (StepLockUnavailableError) instead
+  // of claiming: it is outside the try below, so no error state is written.
   const stepLockOwner = providedStepLockOwner ?? createStepLockOwner(operationId, stepIndex);
-  const claimed = await deps.coordinator.tryClaimStep(
-    operationId,
-    stepIndex,
-    STEP_LOCK_TTL_SECONDS,
-    stepLockOwner,
-  );
+  const claimed = await deps.coordinator
+    .tryClaimStep(operationId, stepIndex, STEP_LOCK_TTL_SECONDS, stepLockOwner)
+    .catch((error) => {
+      if (hatchetDelivery) deps.traceRecorder.discardPartial();
+      throw error;
+    });
   if (!claimed) return handleStepLockConflict(deps, params);
+
+  // Load tests read when an attempt took a step over from this line: ids only.
+  if (hatchetDelivery) {
+    console.info(
+      JSON.stringify({
+        event: 'agent.step.claimed',
+        operationId,
+        stepIndex,
+        externalRetryCount,
+        at: Date.now(),
+      }),
+    );
+  }
 
   await deps.agentOperationModel.touchRunning(operationId).catch((error) => {
     log('[%s][%d] Operation lease refresh failed: %O', operationId, stepIndex, error);
   });
-  const stopStepLockHeartbeat = deps.startStepLockHeartbeat(operationId, stepIndex, stepLockOwner);
+  let heartbeatLostLock = false;
+  const stopStepLockHeartbeat = hatchetDelivery
+    ? deps.startStepLockHeartbeat(operationId, stepIndex, stepLockOwner, () => {
+        heartbeatLostLock = true;
+        deps.traceRecorder.discardPartial();
+      })
+    : deps.startStepLockHeartbeat(operationId, stepIndex, stepLockOwner);
+
+  const assertOwnership = hatchetDelivery
+    ? () =>
+        assertStepOwnership(deps, {
+          heartbeatLostLock: () => heartbeatLostLock,
+          operationId,
+          stepIndex,
+          stepLockOwner,
+        })
+    : undefined;
 
   // Hoisted so the shared `finally` can stop it on every exit path — an
   // orphaned poll would keep reading Redis for a step that is long gone.
@@ -150,11 +233,21 @@ export async function executeStep(
 
       const replayed = await replayPendingInterventionLifecycle(deps, {
         agentState,
+        assertOwnership,
         externalRetryCount,
         operationId,
         stepIndex,
       });
       if (replayed) return replayed;
+
+      const replayedCompletion = await replayPendingCompletionLifecycle(deps, {
+        agentState,
+        assertOwnership,
+        externalRetryCount,
+        invokeAgentSpan,
+        operationId,
+      });
+      if (replayedCompletion) return replayedCompletion;
 
       const gatewayMessagePatchEnabled = deps.usesGatewayMessagePatch(agentState);
       const { uiMessages: stepStartUiMessages, messages: stepEntryMessages } =
@@ -236,13 +329,20 @@ export async function executeStep(
 
       const { startAt, stepResult } = await runAndReconcileStep(deps, {
         ...input,
+        assertOwnership,
         operationId,
         runtime,
         stepIndex,
       });
 
+      if (hatchetDelivery) {
+        // A terminal step saves its completion lifecycle as owed in the same write.
+        markCompletionLifecyclePending(stepResult.newState, stepIndex);
+      }
+
       const { content, shouldContinue, stepPresentationData, toolsCalling } =
         await saveAndPublishStep(deps, {
+          assertOwnership,
           gatewayMessagePatchEnabled,
           operationId,
           startAt,
@@ -309,7 +409,13 @@ export async function executeStep(
       );
 
       if (!shouldContinue) {
-        await finishOperation(deps, { invokeAgentSpan, operationId, stepIndex, stepResult });
+        await finishOperation(deps, {
+          assertOwnership,
+          invokeAgentSpan,
+          operationId,
+          stepIndex,
+          stepResult,
+        });
       }
 
       return {
@@ -322,6 +428,7 @@ export async function executeStep(
     });
   } catch (error) {
     return await failStep(deps, {
+      assertOwnership,
       error,
       externalRetryCount,
       invokeAgentSpan,

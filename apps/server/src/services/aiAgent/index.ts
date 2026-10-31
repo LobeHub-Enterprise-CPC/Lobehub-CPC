@@ -20,6 +20,7 @@ import debug from 'debug';
 import { AgentModel } from '@/database/models/agent';
 import { AgentOperationModel } from '@/database/models/agentOperation';
 import { AgentShareModel } from '@/database/models/agentShare';
+import { AgentSubAgentBridgeModel } from '@/database/models/agentSubAgentBridge';
 import { ChatGroupModel } from '@/database/models/chatGroup';
 import { ConnectorModel } from '@/database/models/connector';
 import { ConnectorToolModel } from '@/database/models/connectorTool';
@@ -200,6 +201,9 @@ export class AiAgentService {
     return {
       agentOperationModel: this.agentOperationModel,
       agentRuntimeService: this.agentRuntimeService,
+      bridgeModel: new AgentSubAgentBridgeModel(this.db),
+      includeShareVisitor: this.proxyExecution,
+      workspaceId: this.workspaceId,
       execAgent: (p) => this.execAgent(p),
       messageModel: this.messageModel,
       threadModel: this.threadModel,
@@ -382,6 +386,10 @@ export class AiAgentService {
   /** Release a lock retained across an inline step loop. */
   releaseOperationLock(operationId: string, stepLockOwner: string): Promise<void> {
     return this.agentRuntimeService.releaseOperationLock(operationId, stepLockOwner);
+  }
+
+  loadRunMessagesFromDB(state: AgentState) {
+    return this.agentRuntimeService.loadRunMessagesFromDB(state);
   }
 
   /**

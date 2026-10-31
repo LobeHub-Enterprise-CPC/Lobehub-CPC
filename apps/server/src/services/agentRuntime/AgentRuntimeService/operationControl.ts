@@ -49,14 +49,29 @@ export function startStepLockHeartbeat(
   operationId: string,
   stepIndex: number,
   ownerId: string,
+  /** Called when a refresh finds the lock no longer ours, or cannot reach it. */
+  onOwnershipLost?: () => void,
 ): () => void {
   let heartbeatTick = 0;
   const timer = setInterval(() => {
     heartbeatTick += 1;
     const refreshDurableLease = heartbeatTick % DURABLE_LEASE_HEARTBEAT_EVERY_TICKS === 0;
 
+    const lockRefresh = deps.coordinator
+      .refreshStepLock(operationId, stepIndex, STEP_LOCK_TTL_SECONDS, ownerId)
+      .then(
+        (refreshed) => {
+          if (!refreshed) onOwnershipLost?.();
+          return refreshed;
+        },
+        (error: unknown) => {
+          onOwnershipLost?.();
+          throw error;
+        },
+      );
+
     Promise.all([
-      deps.coordinator.refreshStepLock(operationId, stepIndex, STEP_LOCK_TTL_SECONDS, ownerId),
+      lockRefresh,
       refreshDurableLease
         ? deps.agentOperationModel.touchRunning(operationId)
         : Promise.resolve(true),

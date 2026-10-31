@@ -401,6 +401,14 @@ export class AgentRuntimeCoordinator {
   }
 
   /**
+   * Extend the expiry of every runtime key of the operation, so a run waiting
+   * on its next delivery attempt keeps its state. Errors propagate.
+   */
+  async touchOperation(operationId: string): Promise<void> {
+    return this.stateManager.touchOperation(operationId);
+  }
+
+  /**
    * Atomically try to claim a step for execution (distributed lock).
    */
   async tryClaimStep(

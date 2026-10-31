@@ -9,6 +9,8 @@ import {
 } from '@lobechat/types';
 import debug from 'debug';
 
+import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
+import { trackPublish } from '@/server/modules/Hatchet/pending';
 import { isQueueAgentRuntimeEnabled } from '@/server/services/queue/impls';
 
 import { deliverWebhook, executeToolCallWebhook } from './httpWebhook';
@@ -38,6 +40,22 @@ export class CriticalHookDeliveryError extends Error {
 }
 
 export { deliverWebhook } from './httpWebhook';
+
+/**
+ * Hatchet replays an owed completion lifecycle, so the same onComplete/onError
+ * can be published again. A key stable per logical event lets the queue drop
+ * the repeat inside its deduplication window.
+ */
+const completionDeduplicationId = (
+  operationId: string,
+  hookId: string,
+  type: AgentHookType,
+  event: AnyHookEvent,
+): string | undefined => {
+  if (!isHatchetDeliveryEnabled() || (type !== 'onComplete' && type !== 'onError')) return;
+  const { reason } = event as { reason?: unknown };
+  return `${operationId}:${hookId}:${type}:${typeof reason === 'string' ? reason : ''}`;
+};
 
 /** Discard legacy environment hooks and validate caller configs on every worker restore. */
 export function parseSerializedHooks(hooks: SerializedAgentHook[]): SerializedHook[] {
@@ -92,7 +110,20 @@ export class HookDispatcher {
     return this.dispatchHooks(operationId, type, event, serializedHooks);
   }
 
-  private async dispatchHooks(
+  private dispatchHooks(
+    operationId: string,
+    type: AgentHookType,
+    event: AnyHookEvent,
+    serializedHooks?: SerializedAgentHook[],
+    stopAfterHandler?: () => boolean,
+    consumer?: 'handler' | 'webhook',
+  ): Promise<void> {
+    return trackPublish(
+      this.dispatchHooksImpl(operationId, type, event, serializedHooks, stopAfterHandler, consumer),
+    );
+  }
+
+  private async dispatchHooksImpl(
     operationId: string,
     type: AgentHookType,
     event: AnyHookEvent,
@@ -125,7 +156,9 @@ export class HookDispatcher {
           });
           if (payload) {
             delete payload.mock;
-            await deliverWebhook(hook.webhook, payload);
+            const deduplicationId = completionDeduplicationId(operationId, hook.id, type, event);
+            if (deduplicationId) await deliverWebhook(hook.webhook, payload, { deduplicationId });
+            else await deliverWebhook(hook.webhook, payload);
           }
         }
       } catch (error) {

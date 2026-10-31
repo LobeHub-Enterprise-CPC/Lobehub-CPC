@@ -26,6 +26,11 @@ export const RedisKeyNamespace = {
    */
   AGENT_STEER: 'agentSteer',
   /**
+   * Agent runtime housekeeping that is not run state itself (the stale-operation
+   * reaper's scan position).
+   */
+  AGENT_RUNTIME: 'agentRuntime',
+  /**
    * AI generation related keys (agent welcome, placeholders, etc.)
    */
   AI_GENERATION: 'aiGeneration',
@@ -123,6 +128,16 @@ export const RedisKeys = {
     threadStartFence: (threadId: string): string => `thread_start:v1:${threadId}`,
   },
   /**
+   * Agent runtime housekeeping scope — see {@link RedisKeyNamespace.AGENT_RUNTIME}.
+   */
+  agentRuntime: {
+    /**
+     * Where the stale-operation reaper's fair scan stopped, per tenant.
+     * Full key: agentRuntime:stale_sweep_cursor:v1
+     */
+    staleSweepCursor: (): string => 'stale_sweep_cursor:v1',
+  },
+  /**
    * AI generation scope - for AI-generated content like welcome messages
    */
   aiGeneration: {
@@ -188,6 +203,7 @@ export const RedisKeys = {
 export const RedisKeyScopeNamespace = {
   agentSignal: RedisKeyNamespace.AGENT_SIGNAL,
   agentSteer: RedisKeyNamespace.AGENT_STEER,
+  agentRuntime: RedisKeyNamespace.AGENT_RUNTIME,
   aiGeneration: RedisKeyNamespace.AI_GENERATION,
   integrations: RedisKeyNamespace.INTEGRATIONS,
   lobechat: RedisKeyNamespace.LOBEHUB,
