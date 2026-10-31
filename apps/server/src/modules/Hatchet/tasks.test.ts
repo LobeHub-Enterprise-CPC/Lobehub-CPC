@@ -1,9 +1,5 @@
 // @vitest-environment node
-import {
-  ConcurrencyLimitStrategy,
-  NonRetryableError,
-  RetryAfterError,
-} from '@hatchet-dev/typescript-sdk/v1';
+import { NonRetryableError, RetryAfterError } from '@hatchet-dev/typescript-sdk/v1';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { HATCHET_TIMING } from './config';
@@ -58,9 +54,7 @@ describe('Hatchet delivery tasks', () => {
     expect(declared().map((options) => options.name)).toEqual(['cpc-agent-step', 'cpc-delivery']);
   });
 
-  it('gives each task its own timeout and tenant cap, grouped and deduplicated by input fields', async () => {
-    vi.stubEnv('HATCHET_TENANT_STEP_MAX_RUNS', '7');
-    vi.stubEnv('HATCHET_TENANT_DELIVERY_MAX_RUNS', '9');
+  it('gives each task its own timeout and deduplicates by the input key', async () => {
     const tasks = await loadTasks();
     tasks.getAgentStepTask();
     tasks.getDeliveryTask();
@@ -78,14 +72,6 @@ describe('Hatchet delivery tasks', () => {
     });
 
     for (const options of [step, delivery]) {
-      // CEL over the run input: these must name DeliveryInput fields.
-      expect(options.concurrency).toEqual([
-        {
-          expression: 'input.tenantKey',
-          limitStrategy: ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
-          maxRuns: options === step ? 7 : 9,
-        },
-      ]);
       expect(options.idempotency).toEqual({
         expression: 'input.dedupKey',
         strategy: 'ttl',

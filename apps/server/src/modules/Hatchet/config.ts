@@ -45,10 +45,8 @@ const positiveInt = (name: string, fallback: number): number => {
   return value;
 };
 
-/** Worker capacity and per-tenant concurrency; the defaults are starting points to be load-tested. */
+/** Per-worker scheduling capacity. Scale workers/resources rather than imposing tenant quotas. */
 export const getHatchetCapacity = () => ({
   deliverySlots: positiveInt('HATCHET_DELIVERY_SLOTS', 50),
   stepSlots: positiveInt('HATCHET_STEP_SLOTS', 50),
-  tenantDeliveryMaxRuns: positiveInt('HATCHET_TENANT_DELIVERY_MAX_RUNS', 64),
-  tenantStepMaxRuns: positiveInt('HATCHET_TENANT_STEP_MAX_RUNS', 32),
 });

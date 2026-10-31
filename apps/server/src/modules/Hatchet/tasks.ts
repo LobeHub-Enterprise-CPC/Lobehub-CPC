@@ -2,14 +2,13 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import type { Context, Priority } from '@hatchet-dev/typescript-sdk/v1';
 import {
-  ConcurrencyLimitStrategy,
   IdempotencyCollisionError,
   NonRetryableError,
   RetryAfterError,
 } from '@hatchet-dev/typescript-sdk/v1';
 
 import { getHatchetClient } from './client';
-import { AGENT_STEP_TASK, DELIVERY_TASK, getHatchetCapacity, HATCHET_TIMING } from './config';
+import { AGENT_STEP_TASK, DELIVERY_TASK, HATCHET_TIMING } from './config';
 import { deliver } from './deliver';
 import { trackPublish } from './pending';
 import { compileRetryDelay } from './retryDelay';
@@ -43,22 +42,14 @@ const runDelivery = async (
 
 /**
  * Both tasks deliver one QStash-style message; they differ only in how long
- * an attempt may run and in their per-tenant cap. `retries` is a ceiling:
+ * an attempt may run or wait in the queue. `retries` is a ceiling:
  * each message's own budget is enforced by `deliver`.
  */
 const declareDeliveryTask = (
   name: string,
   { executionTimeoutMs, queueTimeoutMs }: { executionTimeoutMs: number; queueTimeoutMs: number },
-  tenantMaxRuns: number,
 ) =>
   getHatchetClient().task<DeliveryTaskInput, DeliveryTaskOutput>({
-    concurrency: [
-      {
-        expression: 'input.tenantKey',
-        limitStrategy: ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
-        maxRuns: tenantMaxRuns,
-      },
-    ],
     executionTimeout: executionTimeoutMs,
     fn: runDelivery,
     idempotency: {
@@ -78,24 +69,16 @@ let agentStepTask: DeliveryTask | undefined;
 let deliveryTask: DeliveryTask | undefined;
 
 export const getAgentStepTask = (): DeliveryTask =>
-  (agentStepTask ??= declareDeliveryTask(
-    AGENT_STEP_TASK,
-    {
-      executionTimeoutMs: HATCHET_TIMING.stepExecutionTimeoutMs,
-      queueTimeoutMs: HATCHET_TIMING.queueTimeoutMs,
-    },
-    getHatchetCapacity().tenantStepMaxRuns,
-  ));
+  (agentStepTask ??= declareDeliveryTask(AGENT_STEP_TASK, {
+    executionTimeoutMs: HATCHET_TIMING.stepExecutionTimeoutMs,
+    queueTimeoutMs: HATCHET_TIMING.queueTimeoutMs,
+  }));
 
 export const getDeliveryTask = (): DeliveryTask =>
-  (deliveryTask ??= declareDeliveryTask(
-    DELIVERY_TASK,
-    {
-      executionTimeoutMs: HATCHET_TIMING.deliveryExecutionTimeoutMs,
-      queueTimeoutMs: HATCHET_TIMING.deliveryQueueTimeoutMs,
-    },
-    getHatchetCapacity().tenantDeliveryMaxRuns,
-  ));
+  (deliveryTask ??= declareDeliveryTask(DELIVERY_TASK, {
+    executionTimeoutMs: HATCHET_TIMING.deliveryExecutionTimeoutMs,
+    queueTimeoutMs: HATCHET_TIMING.deliveryQueueTimeoutMs,
+  }));
 
 /** Publisher deduplication ids are only unique within a tenant. */
 export const deliveryDedupKey = (tenantKey: string, deduplicationId?: string): string =>
