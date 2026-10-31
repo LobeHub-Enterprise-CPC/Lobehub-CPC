@@ -4,5 +4,4 @@ import app from '@/server/router-hono/cron';
 // to every available tenant and runs the work inside that tenant.
 const handler = (request: Request) => app.fetch(request);
 
-export const GET = handler;
 export const POST = handler;

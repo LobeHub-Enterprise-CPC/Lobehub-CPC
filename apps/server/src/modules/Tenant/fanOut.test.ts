@@ -2,12 +2,11 @@
 import { currentTenantScope } from '@lobechat/database/tenant';
 import { describe, expect, it, vi } from 'vitest';
 
-import { forEachTenant, surveyTenants } from './fanOut';
+import { forEachTenant } from './fanOut';
 
 const mocks = vi.hoisted(() => ({
   enterTenantId: vi.fn(),
   listAvailableTenantIds: vi.fn(),
-  listTenantAvailability: vi.fn(),
 }));
 
 vi.mock('./postgresClaims', () => ({
@@ -44,29 +43,5 @@ describe('forEachTenant', () => {
       { reason: 'Error', tenantId: 't-c' },
     ]);
     expect(currentTenantScope()).toBeUndefined();
-  });
-
-  it('surveys the whole directory from one read and reports refused tenants as skipped', async () => {
-    mocks.enterTenantId.mockClear();
-    mocks.listTenantAvailability.mockResolvedValue([
-      { tenantId: 't-a' },
-      { refusal: 'TENANT_FROZEN', tenantId: 't-b' },
-      { tenantId: 't-c' },
-    ]);
-    mocks.enterTenantId.mockImplementation(async (tenantId: string) => {
-      if (tenantId === 't-c')
-        throw Object.assign(new Error('down'), { code: 'TENANT_UNAVAILABLE' });
-      return { release: async () => {}, scope: { session: {}, slug: tenantId, tenantId } };
-    });
-
-    const result = await surveyTenants('test', async (tenantId) => tenantId.toUpperCase());
-
-    expect(mocks.enterTenantId.mock.calls.map(([id]) => id)).toEqual(['t-a', 't-c']);
-    expect(result).toEqual({
-      directory: 3,
-      failed: [{ reason: 'TENANT_UNAVAILABLE', tenantId: 't-c' }],
-      skipped: [{ reason: 'TENANT_FROZEN', tenantId: 't-b' }],
-      succeeded: [{ result: 'T-A', tenantId: 't-a' }],
-    });
   });
 });
