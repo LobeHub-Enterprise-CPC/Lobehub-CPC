@@ -1727,7 +1727,11 @@ export class ChatTopicActionImpl {
     );
     // A gateway-created row can arrive while the mutation is in flight, after
     // optimistic tokens were captured. Confirm the patch in those new views too.
-    if (getCacheScope() === scope) this.#topicEntity.update(id, patchTopic(data));
+    if (getCacheScope() === scope) {
+      this.#topicEntity.update(id, patchTopic(data));
+      // The home sidebar reads a separate Recents replica, not the chat topic lists.
+      if (data.title !== undefined) await getHomeStoreState().refreshRecents();
+    }
     await this.#get().refreshTopic(containerKey);
   };
 
