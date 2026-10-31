@@ -19,7 +19,7 @@ import { connectionFromDirectory } from './directoryConnection';
 import type { TenantDirectoryEntry } from './directoryRepository';
 import { TenantDirectoryRepository } from './directoryRepository';
 import { loadTenantPublicEndpoint } from './endpoints';
-import { type TenantGateCode, TenantGateError } from './errors';
+import { TenantGateError } from './errors';
 import { effectiveTenantState } from './lifecycleState';
 import { tenantClaims } from './postgresClaims';
 import { SnapshotCache } from './snapshotCache';
@@ -178,28 +178,19 @@ export class TenantRuntime {
     }
   }
 
-  /**
-   * Every registered tenant with the admission refusal a cron would meet, if
-   * any (frozen, offline, not ready, destroyed). Read-only: nothing is entered.
-   */
-  async listTenantAvailability(): Promise<{ refusal?: TenantGateCode; tenantId: string }[]> {
-    const rows = await this.directory.list();
-    return rows.map((entry) => {
-      const { tenantId } = entry.directory;
-      try {
-        this.assertAvailable(entry);
-        return { tenantId };
-      } catch (error) {
-        return { refusal: (error as TenantGateError).code, tenantId };
-      }
-    });
-  }
-
   /** Tenants a cron should visit (FR-AS-02): registered and currently admitted. */
   async listAvailableTenantIds(): Promise<string[]> {
-    return (await this.listTenantAvailability())
-      .filter(({ refusal }) => !refusal)
-      .map(({ tenantId }) => tenantId);
+    const rows = await this.directory.list();
+    return rows
+      .filter((entry) => {
+        try {
+          this.assertAvailable(entry);
+          return true;
+        } catch {
+          return false;
+        }
+      })
+      .map(({ directory }) => directory.tenantId);
   }
 
   /**

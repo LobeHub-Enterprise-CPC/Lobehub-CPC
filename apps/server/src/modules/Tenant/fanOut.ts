@@ -10,19 +10,18 @@ export interface TenantFanOutResult<T> {
   succeeded: { result: T; tenantId: string }[];
 }
 
-export interface TenantSurveyResult<T> extends TenantFanOutResult<T> {
-  /** Tenants registered in the directory, visited or not. */
-  directory: number;
-  /** Registered tenants not visited because admission refuses them, with the refusal code. */
-  skipped: { reason: string; tenantId: string }[];
-}
-
-const runEachTenant = async <T>(
+/**
+ * Runs deployment-wide background work once per available tenant (spec
+ * FR-AS-02): startup jobs and crons have no request, so each tenant gets its
+ * own admitted scope and its own tenant database. Tenants run one after
+ * another; one tenant failing is recorded and does not stop the others.
+ */
+export const forEachTenant = async <T>(
   job: string,
-  tenantIds: string[],
   operation: (tenantId: string) => Promise<T>,
 ): Promise<TenantFanOutResult<T>> => {
   const result: TenantFanOutResult<T> = { failed: [], succeeded: [] };
+  const tenantIds = await getTenantRuntime().listAvailableTenantIds();
   for (const tenantId of tenantIds) {
     try {
       const value = await runInTenant(tenantId, () => operation(tenantId));
@@ -36,37 +35,4 @@ const runEachTenant = async <T>(
   }
   log('%s: %d tenant(s) ok, %d failed', job, result.succeeded.length, result.failed.length);
   return result;
-};
-
-/**
- * Runs deployment-wide background work once per available tenant (spec
- * FR-AS-02): startup jobs and crons have no request, so each tenant gets its
- * own admitted scope and its own tenant database. Tenants run one after
- * another; one tenant failing is recorded and does not stop the others.
- */
-export const forEachTenant = async <T>(
-  job: string,
-  operation: (tenantId: string) => Promise<T>,
-): Promise<TenantFanOutResult<T>> =>
-  runEachTenant(job, await getTenantRuntime().listAvailableTenantIds(), operation);
-
-/**
- * {@link forEachTenant} for checks that must account for the whole directory:
- * from one directory read, it also reports the tenants it did not visit because
- * admission refuses them (frozen, offline, not ready, destroyed).
- */
-export const surveyTenants = async <T>(
-  job: string,
-  operation: (tenantId: string) => Promise<T>,
-): Promise<TenantSurveyResult<T>> => {
-  const tenants = await getTenantRuntime().listTenantAvailability();
-  const skipped = tenants.flatMap(({ refusal, tenantId }) =>
-    refusal ? [{ reason: refusal, tenantId }] : [],
-  );
-  const available = tenants.filter(({ refusal }) => !refusal).map(({ tenantId }) => tenantId);
-  return {
-    ...(await runEachTenant(job, available, operation)),
-    directory: tenants.length,
-    skipped,
-  };
 };

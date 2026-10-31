@@ -196,39 +196,6 @@ describe('TenantRuntime.assertAdmitted', () => {
   });
 });
 
-describe('TenantRuntime.listTenantAvailability', () => {
-  it('lists every registered tenant with the admission refusal a cron would meet', async () => {
-    const tenant = (tenantId: string, patch: Record<string, unknown> = {}) => ({
-      ...activeRow,
-      directory: { ...activeRow.directory, tenantId },
-      ...patch,
-    });
-    const rows = [
-      tenant('t-1'),
-      tenant('t-2', { lifecycle: { ...activeRow.lifecycle, desiredState: 'frozen' } }),
-      tenant('t-3', { lifecycle: { ...activeRow.lifecycle, desiredState: 'offline' } }),
-      tenant('t-4', { directory: { status: 'provisioning', tenantId: 't-4' }, lifecycle: null }),
-      tenant('t-5', { destruction: 't-5' }),
-    ];
-    // select().from().leftJoin().leftJoin() resolves to the directory rows.
-    const joined = () => Object.assign(Promise.resolve(rows), { leftJoin: joined });
-    const runtime = new TenantRuntime(
-      () => ({ select: () => ({ from: () => ({ leftJoin: joined }) }) }) as any,
-      {} as TenantPoolManager,
-      () => new Date(1_000_000),
-    );
-
-    await expect(runtime.listTenantAvailability()).resolves.toEqual([
-      { tenantId: 't-1' },
-      { refusal: 'TENANT_FROZEN', tenantId: 't-2' },
-      { refusal: 'TENANT_OFFLINE', tenantId: 't-3' },
-      { refusal: 'TENANT_NOT_READY', tenantId: 't-4' },
-      { refusal: 'TENANT_DESTROYED', tenantId: 't-5' },
-    ]);
-    await expect(runtime.listAvailableTenantIds()).resolves.toEqual(['t-1']);
-  });
-});
-
 describe('TenantRuntime.enterTenantId', () => {
   it('preserves a routing unavailable refusal through real runtime admission and releases claims', async () => {
     const platform = controlledPlatform();
