@@ -1,3 +1,4 @@
+import { BUILTIN_AGENTS } from '@lobechat/builtin-agents';
 import { buildHeteroExecArgs, getHeterogeneousTaskModelProvider } from '@lobechat/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -5,6 +6,13 @@ import type { AgentConfigWithId } from '@/server/services/agent';
 import { resolveMissingTaskModelConfig } from '@/server/services/task/modelSnapshot';
 
 import { resolveRunAgentConfig } from '../pipeline/resolveRunAgentConfig';
+
+const systemModels = vi.hoisted(() => ({
+  defaultModel: undefined as { model: string; provider: string } | undefined,
+}));
+vi.mock('@/server/globalConfig/systemModels', () => ({
+  getServerSystemModels: vi.fn(async () => systemModels),
+}));
 
 const { getInfoForAIGeneration, getPreference, isResourceAuthorOrAdmin } = vi.hoisted(() => ({
   getInfoForAIGeneration: vi.fn(),
@@ -260,4 +268,38 @@ describe('Codex Task model overrides', () => {
     /** @example The dispatch guard still sees an unconfigured binding. */
     expect(agentConfig.agencyConfig?.heterogeneousProvider?.apiConfig).toBeUndefined();
   });
+});
+
+describe('self iteration tenant models', () => {
+  it.each([
+    'nightly-review',
+    'self-feedback-intent',
+    'self-reflection',
+    'skill-management',
+  ] as const)(
+    '%s resolves the tenant default dynamically and retains explicit choices',
+    async (slug) => {
+      const persist = BUILTIN_AGENTS[slug].persist;
+      const row = { id: 'builtin', slug, userId: 'member-1', ...persist } as AgentConfigWithId;
+      const resolve = (agent: AgentConfigWithId, override = {}) =>
+        resolveRunAgentConfig(
+          { ...deps, resolveAgentConfigOrThrow: async () => ({ ...agent }) },
+          { identifier: slug, throwIfExecutionAborted: async () => {}, ...override },
+        );
+      systemModels.defaultModel = { model: 'tenant-background', provider: 'lobehub' };
+      expect((await resolve(row)).agentConfig).toMatchObject(systemModels.defaultModel);
+      expect(
+        (await resolve({ ...row, model: 'explicit', provider: 'openai' })).agentConfig,
+      ).toMatchObject({ model: 'explicit', provider: 'openai' });
+      expect(
+        (await resolve(row, { modelOverride: 'per-run', providerOverride: 'anthropic' }))
+          .agentConfig,
+      ).toMatchObject({ model: 'per-run', provider: 'anthropic' });
+      systemModels.defaultModel = undefined;
+      expect((await resolve(row)).agentConfig).toMatchObject({
+        model: persist.model,
+        provider: persist.provider,
+      });
+    },
+  );
 });

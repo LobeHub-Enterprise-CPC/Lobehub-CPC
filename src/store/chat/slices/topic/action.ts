@@ -1,17 +1,10 @@
 // Note: To make the code more logic and readable, we just disable the auto sort key eslint rule
 // DON'T REMOVE THE FIRST LINE
-import { TRACING_SCENARIOS } from '@lobechat/const';
-import {
-  chainSummaryTitle,
-  TOPIC_TITLE_JSON_SCHEMA,
-  TOPIC_TITLE_PROMPT_VERSION,
-} from '@lobechat/prompts';
 import {
   type ChatTopicMetadata,
   type HeterogeneousReasoningEffort,
   type HeterogeneousSpeedMode,
   type MessageMapScope,
-  RequestTrigger,
   type UIChatMessage,
   type UpdateTopicMetadataInput,
 } from '@lobechat/types';
@@ -22,7 +15,6 @@ import type { AiModelReasoningConfig } from 'model-bank';
 import { type SWRResponse } from 'swr';
 import useSWR from 'swr';
 
-import { LOADING_FLAT } from '@/const/message';
 import {
   createReplicaSlice,
   linkReplicaEntity,
@@ -34,7 +26,6 @@ import { subscribeCacheScope } from '@/libs/replica/cacheScopeEvents';
 import { mutate } from '@/libs/swr';
 import { cronKeys, topicKeys } from '@/libs/swr/keys';
 import { getCacheScope } from '@/libs/swr/useCacheScope';
-import { aiChatService } from '@/services/aiChat';
 import { type GitLinkedPRSummary } from '@/services/git';
 import { messageService } from '@/services/message';
 import type { TopicBatchDeleteScope } from '@/services/topic';
@@ -44,10 +35,6 @@ import { aiModelSelectors } from '@/store/aiInfra/slices/aiModel/selectors';
 import { type ChatStore } from '@/store/chat';
 import { snapshotAgentModel, snapshotAgentReasoning } from '@/store/chat/utils/snapshotAgentModel';
 import { topicMapKey, type TopicMapScope } from '@/store/chat/utils/topicMapKey';
-import {
-  isAudioOnlyFirstUserMessage,
-  normalizeTopicTitleMessages,
-} from '@/store/chat/utils/topicTitle';
 import {
   canReadTopicGitTransport,
   getTopicLinkedPullRequestBase,
@@ -60,11 +47,7 @@ import { useGlobalStore } from '@/store/global';
 import { getHomeStoreState } from '@/store/home';
 import { type StoreSetter } from '@/store/types';
 import { useUserStore } from '@/store/user';
-import {
-  systemAgentSelectors,
-  userGeneralSettingsSelectors,
-  userProfileSelectors,
-} from '@/store/user/selectors';
+import { userProfileSelectors } from '@/store/user/selectors';
 import { type ChatTopic, type ChatTopicStatus, type CreateTopicParams } from '@/types/topic';
 import { setNamespace } from '@/utils/storeDebug';
 
@@ -81,6 +64,7 @@ import {
 } from './projection';
 import { type ChatTopicDispatch } from './reducer';
 import { topicSelectors } from './selectors';
+import { summaryTopicTitle } from './summaryTopicTitle';
 import { createTopicDetailSlice, RUN_WATCH_INTERVAL } from './topicDetail';
 import {
   type TopicLinkedPullRequestRefreshParams,
@@ -475,78 +459,20 @@ export class ChatTopicActionImpl {
     }
   };
 
-  summaryTopicTitle = async (topicId: string, messages: UIChatMessage[]): Promise<void> => {
-    const { internal_updateTopicTitleInSummary } = this.#get();
-    const topic =
-      topicSelectors.getTopicById(topicId)(this.#get()) ??
-      (await topicService.getTopicDetail(topicId));
-    if (!topic) return;
-
-    const messagesForTitle = normalizeTopicTitleMessages(messages);
-
-    // A voice-only first message has no text until the assistant responds. Do not
-    // replace the visible default title with a loading placeholder for an empty
-    // summary request; the run lifecycle retries with the completed reply.
-    const hasTextContent = messagesForTitle.some((message) => {
-      const content = message.content?.trim();
-      return !!content && !(message.role === 'assistant' && content === LOADING_FLAT);
-    });
-    if (!hasTextContent && isAudioOnlyFirstUserMessage(messagesForTitle)) return;
-    if (this.#summarizingTopicTitleIds.has(topicId)) return;
-
-    this.#summarizingTopicTitleIds.add(topicId);
-
-    // Keep an optimistic title like "阅读下面..." stable while AI rename runs;
-    // otherwise the sidebar flickers `title -> ... -> final title`.
-    const shouldShowPlaceholder = !topic.title || topic.title === LOADING_FLAT;
-
-    if (shouldShowPlaceholder) internal_updateTopicTitleInSummary(topicId, LOADING_FLAT);
-
-    const restorePreviousTitle = () => {
-      if (shouldShowPlaceholder) internal_updateTopicTitleInSummary(topicId, topic.title);
-    };
-
-    // Get current agent for topic
-    const { model, provider } = systemAgentSelectors.topic(useUserStore.getState());
-
-    // Structured generation, the same way `SystemAgentService.generateTopicTitle`
-    // does it: the chain asks for `TOPIC_TITLE_JSON_SCHEMA`, so read the title
-    // off the parsed object. Streaming a completion here used to write the raw
-    // answer to `topic.title`, which named topics `{"title":"简单问候"}`.
-    try {
-      const { data } = await aiChatService.generateJSON(
-        {
-          ...chainSummaryTitle(
-            messagesForTitle,
-            userGeneralSettingsSelectors.currentResponseLanguage(useUserStore.getState()),
-          ),
-          metadata: { topicId, trigger: RequestTrigger.TopicTitle },
-          model,
-          provider,
-          schema: TOPIC_TITLE_JSON_SCHEMA,
-          tracing: {
-            promptVersion: TOPIC_TITLE_PROMPT_VERSION,
-            scenario: TRACING_SCENARIOS.TopicTitle,
-            schemaName: TOPIC_TITLE_JSON_SCHEMA.name,
-            topicId,
-          },
-        },
-        new AbortController(),
-      );
-
-      const title = (data as { title?: string } | undefined)?.title?.trim();
-      // An empty result must not blank the title — the placeholder would
-      // otherwise stay in the sidebar forever.
-      if (!title) return restorePreviousTitle();
-
-      await this.#get().internal_updateTopic(topicId, { title });
-    } catch (error) {
-      console.error('[summaryTopicTitle] failed to generate a title:', error);
-      restorePreviousTitle();
-    } finally {
-      this.#summarizingTopicTitleIds.delete(topicId);
-    }
+  internal_setTopicTitlePending = (id: string, pending: boolean): void => {
+    this.#set(
+      (state) => ({
+        topicTitlePendingIds: pending
+          ? [...new Set([...state.topicTitlePendingIds, id])]
+          : state.topicTitlePendingIds.filter((topicId) => topicId !== id),
+      }),
+      false,
+      n('setTopicTitlePending'),
+    );
   };
+
+  summaryTopicTitle = (topicId: string, messages: UIChatMessage[]): Promise<void> =>
+    summaryTopicTitle(this.#get, this.#summarizingTopicTitleIds, topicId, messages);
 
   markTopicCompleted = async (id: string): Promise<void> => {
     await this.#get().internal_updateTopic(id, {
@@ -1795,9 +1721,13 @@ export class ChatTopicActionImpl {
 
     // One overlay per resource holding the topic (sidebar, management page,
     // detail); all commit or all roll back with the single server call.
+    const scope = getCacheScope();
     await this.#topicEntity.optimistic(id, patchTopic(data), () =>
       topicService.updateTopic(id, data),
     );
+    // A gateway-created row can arrive while the mutation is in flight, after
+    // optimistic tokens were captured. Confirm the patch in those new views too.
+    if (getCacheScope() === scope) this.#topicEntity.update(id, patchTopic(data));
     await this.#get().refreshTopic(containerKey);
   };
 

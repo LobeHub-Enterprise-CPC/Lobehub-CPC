@@ -68,6 +68,12 @@ const makeStore = (afterCompletionCallbacks?: Array<() => void>) => {
     sendMessage: vi.fn().mockResolvedValue(undefined),
     summaryTopicTitle: vi.fn().mockResolvedValue(undefined),
     // topicDataMap / messagesMap reads default to empty (no topic, no messages).
+    topicTitlePendingIds: [] as string[],
+    internal_setTopicTitlePending: (id: string, pending: boolean) => {
+      store.topicTitlePendingIds = pending
+        ? [...store.topicTitlePendingIds, id]
+        : store.topicTitlePendingIds.filter((item) => item !== id);
+    },
     topicDataMap: {},
     updateOperationMetadata: vi.fn(),
     updateTopicStatus: vi.fn(async () => {}),
@@ -769,4 +775,53 @@ describe('buildRunLifecycle.onRunResumed — park → resume broadcast seam', ()
     expect(store.completeOperation).not.toHaveBeenCalled();
     expect(agentSignalBridgeMock.emitClientAgentSignalSourceEvent).not.toHaveBeenCalled();
   });
+});
+
+describe('buildRunLifecycle title completion messages', () => {
+  it.each(
+    (['client', 'gateway', 'hetero'] as const).flatMap((runtimeType) => [
+      { runtimeType, missing: false },
+      { runtimeType, missing: true },
+    ]),
+  )(
+    'reads the completed $runtimeType reply across lifecycle instances (missing sidebar row: $missing)',
+    async ({ runtimeType, missing }) => {
+      const { get, store } = makeStore();
+      const key = messageMapKey(CONTEXT);
+      const user = { id: 'u1', role: 'user', content: 'Explain replicas' };
+      const loading = { id: 'a1', role: 'assistant', content: '...' };
+      const complete = { ...loading, content: 'A replica keeps the sidebar synchronized' };
+      store.messagesMap = { [key]: [user, loading] } as any;
+      store.topicDataMap = {
+        [topicMapKey({ agentId: 'a1' })]: {
+          items: [{ id: 't1', title: 'Explain replicas' }],
+          total: 1,
+        },
+      } as any;
+      const hooks = buildRunLifecycle(get, {
+        context: { ...CONTEXT, topicId: null },
+        parentMessageId: 'u1',
+        parentMessageType: 'user',
+        runId: OP,
+        runScope: 'top_level',
+        runtimeType,
+      });
+      await hooks.afterUserMessagePersisted({
+        context: CONTEXT,
+        topicId: 't1',
+        isCreateNewTopic: true,
+        assistantMessageId: 'a1',
+        messages: [user, loading],
+      } as UserMessagePersistedEvent);
+      expect(store.summaryTopicTitle).not.toHaveBeenCalled();
+      store.summaryTopicTitle.mockClear();
+      store.messagesMap = { [key]: [user, complete] } as any;
+      if (missing) store.topicDataMap = {};
+      // Transports build a separate lifecycle instance at run completion.
+      await lifecycle(runtimeType, get).afterRunComplete(
+        completeEvent(runtimeType, { status: 'completed' }),
+      );
+      expect(store.summaryTopicTitle).toHaveBeenCalledWith('t1', [user, complete]);
+    },
+  );
 });

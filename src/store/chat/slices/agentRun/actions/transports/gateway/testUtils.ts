@@ -20,6 +20,8 @@ export function createMockStore() {
     markTopicUnread: vi.fn(),
     messagesMap: {} as Record<string, any>,
     topicDataMap: {},
+    topicTitlePendingIds: [] as string[],
+    internal_setTopicTitlePending: vi.fn(),
     operations: {
       'op-1': {
         context: { agentId: 'agent-1', scope: 'session', topicId: 'topic-1' },

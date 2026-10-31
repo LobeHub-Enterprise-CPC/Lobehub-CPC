@@ -1,4 +1,4 @@
-import { DEFAULT_MINI_SYSTEM_AGENT_ITEM, TRACING_SCENARIOS } from '@lobechat/const';
+import { TRACING_SCENARIOS } from '@lobechat/const';
 import type { TracingOptions } from '@lobechat/llm-generation-tracing';
 import {
   AGENT_SIGNAL_SKILL_INTENT_JSON_SCHEMA,
@@ -11,6 +11,7 @@ import { z } from 'zod';
 
 import type { LobeChatDatabase } from '@/database/type';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { resolveDefaultSystemAgentModelConfig } from '@/server/services/systemAgent/modelConfig';
 
 import type {
   ClassifierDiagnosticsService,
@@ -247,7 +248,7 @@ export interface SkillIntentClassifierAgentModelConfig {
  */
 export class SkillIntentClassifierAgentService implements SkillIntentClassifierService {
   private readonly db: LobeChatDatabase;
-  private readonly modelConfig: SkillIntentClassifierAgentModelConfig;
+  private readonly modelConfig: Partial<SkillIntentClassifierAgentModelConfig>;
   private readonly userId: string;
   private readonly workspaceId?: string;
 
@@ -260,10 +261,7 @@ export class SkillIntentClassifierAgentService implements SkillIntentClassifierS
     this.db = db;
     this.userId = userId;
     this.workspaceId = workspaceId;
-    this.modelConfig = {
-      model: modelConfig.model ?? DEFAULT_MINI_SYSTEM_AGENT_ITEM.model,
-      provider: modelConfig.provider ?? DEFAULT_MINI_SYSTEM_AGENT_ITEM.provider,
-    };
+    this.modelConfig = modelConfig;
   }
 
   /**
@@ -280,23 +278,20 @@ export class SkillIntentClassifierAgentService implements SkillIntentClassifierS
    * - One Zod-validated skill-intent classification
    */
   async classify(input: SkillIntentClassifierInput): Promise<AgentSignalSkillIntentClassification> {
+    const modelConfig = await resolveDefaultSystemAgentModelConfig(this.modelConfig);
     const modelRuntime = await initModelRuntimeFromDB(
       this.db,
       this.userId,
-      this.modelConfig.provider,
+      modelConfig.provider,
       this.workspaceId,
     );
 
-    log(
-      'classifySkillIntent model=%s provider=%s',
-      this.modelConfig.model,
-      this.modelConfig.provider,
-    );
+    log('classifySkillIntent model=%s provider=%s', modelConfig.model, modelConfig.provider);
 
     const result = await modelRuntime.generateObject(
       {
         messages: chainAgentSignalSkillIntent(input),
-        model: this.modelConfig.model,
+        model: modelConfig.model,
         schema: AGENT_SIGNAL_SKILL_INTENT_JSON_SCHEMA,
       },
       {
