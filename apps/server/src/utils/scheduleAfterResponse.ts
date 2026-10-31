@@ -20,15 +20,50 @@ const runWork = async (work: ScheduleAfterResponseWork) => {
 /**
  * Work handed to the host and not finished yet, counted from the moment it is
  * handed over (the host may not start it until the response is sent), so a
- * shutdown drain can wait for it.
+ * shutdown drain can wait for it. Process-wide, like the step drain: route
+ * handlers hand work over from their own bundle, while the drain that waits
+ * for it runs in the instrumentation one.
  */
-const hostPending = new Set<Promise<void>>();
+const hostPendingKey = Symbol.for('lobehub.hostPendingWork');
+const globals = globalThis as typeof globalThis & { [key: symbol]: unknown };
+const hostPending = (globals[hostPendingKey] ??= new Set<Promise<void>>()) as Set<Promise<void>>;
+
+/**
+ * How long one settle waits for host work. The host runs `after()` work only
+ * once its response has finished, so work behind a response that never
+ * finishes would otherwise hold the shutdown drain until SIGKILL.
+ */
+const HOST_WORK_SETTLE_TIMEOUT_MS = 30_000;
 
 export const pendingHostWorkCount = (): number => hostPending.size;
 
-/** Resolves once nothing handed to the host is pending, including work handed over while it waited. */
+/**
+ * Resolves once nothing handed to the host is pending, including work handed
+ * over while it waited. Gives up after {@link HOST_WORK_SETTLE_TIMEOUT_MS}:
+ * whatever is still pending then is no longer counted, though it may still run.
+ */
 export const settleHostWork = async (): Promise<void> => {
-  while (hostPending.size > 0) await Promise.allSettled(hostPending);
+  if (hostPending.size === 0) return;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), HOST_WORK_SETTLE_TIMEOUT_MS);
+  });
+  try {
+    while (hostPending.size > 0) {
+      const outcome = await Promise.race([Promise.allSettled(hostPending), timedOut]);
+      if (outcome === 'timeout') {
+        console.warn({
+          event: 'after_response.settle_timeout',
+          pending: hostPending.size,
+          timeoutMs: HOST_WORK_SETTLE_TIMEOUT_MS,
+        });
+        hostPending.clear();
+      }
+    }
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 /**

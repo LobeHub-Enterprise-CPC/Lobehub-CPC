@@ -1,7 +1,7 @@
 import { request } from 'node:http';
 import { hostname } from 'node:os';
 
-import debug from 'debug';
+import type { Worker as HatchetWorker } from '@hatchet-dev/typescript-sdk/v1';
 
 import { appEnv } from '@/envs/app';
 import {
@@ -17,9 +17,9 @@ import { getHatchetCapacity } from './config';
 import { pendingPublishCount, settlePendingPublishes } from './pending';
 import { type DeliveryTask, getAgentStepTask, getDeliveryTask } from './tasks';
 
-const log = debug('lobe-server:hatchet:worker');
-
 const READY_POLL_MS = 500;
+/** Warn on the first failed readiness probe, then on every this many: about every 30s. */
+const READY_WARN_EVERY = 60;
 const READY_PROBE_TIMEOUT_MS = 2000;
 const LEASE_RETRY_MS = 5000;
 const WORKER_RETRY_MS = 5000;
@@ -118,8 +118,19 @@ const withoutSdkSignalHandlers = async <T>(
   }
 };
 
-/** One loopback GET of `/api/version` through the same address rules deliveries use. */
-const probeReady = (): Promise<boolean> => {
+interface ProbeFailure {
+  error?: string;
+  host?: string;
+  status?: number;
+  url: string;
+}
+
+/**
+ * One loopback GET of `/api/version` through the same address rules deliveries
+ * use. Resolves undefined once it answers 200, otherwise with what was probed
+ * and how it failed.
+ */
+const probeReady = (): Promise<ProbeFailure | undefined> => {
   const target = resolveDeliveryTarget(new URL('/api/version', appEnv.APP_URL).toString(), {
     agentRuntimeBaseUrl: process.env.AGENT_RUNTIME_BASE_URL,
     appUrl: appEnv.APP_URL,
@@ -127,19 +138,21 @@ const probeReady = (): Promise<boolean> => {
     internalAppUrl: appEnv.INTERNAL_APP_URL || appEnv.APP_URL,
     port: process.env.PORT ?? '3210',
   });
-  if (!target.loopback) return Promise.resolve(false);
+  if (!target.loopback)
+    return Promise.resolve({ error: 'not a loopback address', url: target.url.href });
 
+  const probed = { host: target.host, url: target.url.href };
   return new Promise((resolve) => {
     const req = request(
       target.url,
       { headers: { host: target.host }, method: 'GET', timeout: READY_PROBE_TIMEOUT_MS },
       (res) => {
         res.resume();
-        resolve(res.statusCode === 200);
+        resolve(res.statusCode === 200 ? undefined : { ...probed, status: res.statusCode });
       },
     );
-    req.on('timeout', () => req.destroy());
-    req.on('error', () => resolve(false));
+    req.on('timeout', () => req.destroy(new Error(`no answer in ${READY_PROBE_TIMEOUT_MS}ms`)));
+    req.on('error', (error) => resolve({ ...probed, error: error.message }));
     req.end();
   });
 };
@@ -165,6 +178,57 @@ const orUndefined = async <T>(what: string, fn: () => Promise<T>): Promise<T | u
     console.error(`[Hatchet] ${what}`, error);
     return undefined;
   }
+};
+
+/** One kind of worker, steps or deliveries, and whichever worker currently serves it. */
+interface Role {
+  /** Accepted actions not finished yet, of this role's current and earlier workers. */
+  pending: Set<Promise<unknown>>;
+  /** The current worker's start(): settles once its receive loop has ended. */
+  receiver?: Promise<void>;
+  /** Registers a worker for this role; undefined once the process drains. */
+  register: () => Promise<HatchetWorker | undefined>;
+  worker: HatchetWorker;
+}
+
+/**
+ * Starts `worker` as `role`'s current worker. SDK 1.45.0's listener stops
+ * retrying a lost engine after about 3.5 minutes and start() then rejects:
+ * that worker takes nothing more, so unless the process drains, a
+ * replacement is registered and started the same way.
+ */
+const run = (role: Role, worker: HatchetWorker): void => {
+  // Track the whole action, including the dispatcher completion acknowledgement.
+  // SDK 1.45's stop snapshots futures while the receive loop is still live;
+  // a buffered action delivered afterwards can otherwise outlive unregister.
+  const handleAction = worker._internal.handleAction.bind(worker._internal);
+  worker._internal.handleAction = (action) => {
+    const result = handleAction(action);
+    role.pending.add(result);
+    const forget = () => role.pending.delete(result);
+    void result.then(forget, forget);
+    return result;
+  };
+  role.worker = worker;
+  role.receiver = withoutSdkSignalHandlers(() => worker.start()).catch((error: unknown) => {
+    console.error('[Hatchet] worker stopped', error);
+    if (isDrainingAgentSteps()) return;
+    console.info({ event: 'hatchet.worker.restarting', worker: worker.name });
+    // Its heartbeat outlives the listener: stop() unregisters the worker once
+    // the actions it accepted have finished.
+    worker.stop().catch((stopError: unknown) => {
+      console.error('[Hatchet] could not stop worker', stopError);
+    });
+    void (async () => {
+      // Not at once: a start() that keeps failing straight away must not spin.
+      await sleep(WORKER_RETRY_MS);
+      const replacement = await role.register();
+      if (replacement && !isDrainingAgentSteps()) run(role, replacement);
+    })().catch((restartError: unknown) => {
+      console.error('[Hatchet] could not restart worker', restartError);
+    });
+  });
+  console.info({ event: 'hatchet.worker.started', worker: worker.name });
 };
 
 let started = false;
@@ -196,7 +260,7 @@ export const startHatchetWorkers = (): void => {
   void (async () => {
     const capacity = getHatchetCapacity();
     const id = `${hostname()}-${process.pid}`;
-    const create = (name: string, slots: number, task: DeliveryTask) =>
+    const registration = (name: string, slots: number, task: DeliveryTask) => () =>
       retryUntilDraining(
         () =>
           orUndefined(`could not register ${task.name}`, () =>
@@ -208,57 +272,50 @@ export const startHatchetWorkers = (): void => {
           ),
         WORKER_RETRY_MS,
       );
-    const steps = await create(`cpc-steps-${id}`, capacity.stepSlots, getAgentStepTask());
-    const deliveries =
-      steps && (await create(`cpc-delivery-${id}`, capacity.deliverySlots, getDeliveryTask()));
-    if (!steps || !deliveries) return;
+    const roles: Role[] = [];
+    for (const register of [
+      registration(`cpc-steps-${id}`, capacity.stepSlots, getAgentStepTask()),
+      registration(`cpc-delivery-${id}`, capacity.deliverySlots, getDeliveryTask()),
+    ]) {
+      const worker = await register();
+      if (!worker) return;
+      roles.push({ pending: new Set(), register, worker });
+    }
 
-    // Track the whole action, including the dispatcher completion acknowledgement.
-    // SDK 1.45's stop snapshots futures while the receive loop is still live;
-    // a buffered action delivered afterwards can otherwise outlive unregister.
-    const actions = new Map(
-      [steps, deliveries].map((worker) => {
-        const pending = new Set<Promise<unknown>>();
-        const handleAction = worker._internal.handleAction.bind(worker._internal);
-        worker._internal.handleAction = (action) => {
-          const result = handleAction(action);
-          pending.add(result);
-          const forget = () => pending.delete(result);
-          void result.then(forget, forget);
-          return result;
-        };
-        return [worker, pending] as const;
-      }),
-    );
-    const receivers = new Map<typeof steps, Promise<void>>();
     // A worker that was never started has nothing to stop.
     let running = false;
     registerDrainParticipant({
       stop: async () => {
         if (!running) return;
         await Promise.allSettled(
-          [steps, deliveries].map(async (worker) => {
+          roles.map(async ({ pending, receiver, worker }) => {
             await pauseBeforeStop(worker);
             // Close admission but keep the heartbeat and worker registration
             // alive until every accepted action has sent its terminal event.
             // killing also fences start() if listener registration is pending.
             worker._internal.killing = true;
             worker._internal.listener?.stopStream();
-            await receivers.get(worker);
-            const pending = actions.get(worker)!;
+            await receiver;
             while (pending.size > 0) await Promise.allSettled(pending);
             await worker.stop();
+            console.info({ event: 'hatchet.worker.stopped', worker: worker.name });
           }),
         );
       },
     });
 
-    const ready = await retryUntilDraining(
-      async () => (await probeReady()) || undefined,
-      READY_POLL_MS,
-    );
+    let failedProbes = 0;
+    const ready = await retryUntilDraining(async () => {
+      const failure = await probeReady();
+      if (!failure) return true;
+      // Nothing is consumed until this server answers: say so at once, then periodically.
+      failedProbes += 1;
+      if ((failedProbes - 1) % READY_WARN_EVERY === 0)
+        console.warn({ event: 'hatchet.worker.not_ready', failedProbes, ...failure });
+      return undefined;
+    }, READY_POLL_MS);
     if (!ready) return;
-    log('loopback ready');
+    console.info({ event: 'hatchet.worker.loopback_ready', failedProbes });
 
     const leased = await retryUntilDraining(
       () =>
@@ -271,15 +328,7 @@ export const startHatchetWorkers = (): void => {
     if (!leased || isDrainingAgentSteps()) return;
 
     running = true;
-    for (const worker of [steps, deliveries]) {
-      receivers.set(
-        worker,
-        withoutSdkSignalHandlers(() => worker.start()).catch((error) =>
-          console.error('[Hatchet] worker stopped', error),
-        ),
-      );
-    }
-    log('workers started: %s', id);
+    for (const role of roles) run(role, role.worker);
   })().catch((error) => {
     console.error('[Hatchet] failed to start workers', error);
   });

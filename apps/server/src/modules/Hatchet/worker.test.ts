@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as StepDrain from '@/server/modules/AgentRuntime/stepDrain';
 
@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   actionWork: vi.fn(),
   sdkHandlers: [] as Array<(...args: any[]) => void>,
   finishWorkers: [] as Array<() => void>,
+  /** Rejects a worker's start(), as SDK 1.45.0 does once its listener stops retrying. */
+  failWorkers: [] as Array<(error: Error) => void>,
   failRegistrations: 0,
   skipSdkRegistration: false,
   duringRegistration: undefined as (() => void) | undefined,
@@ -22,7 +24,8 @@ const mocks = vi.hoisted(() => ({
     name: string;
     _internal: {
       killing: boolean;
-      handleAction: ReturnType<typeof vi.fn>;
+      /** Replaced by the worker's tracking wrapper once started. */
+      handleAction: (action: unknown) => Promise<unknown>;
       listener: { stopStream: ReturnType<typeof vi.fn> };
     };
     pause: ReturnType<typeof vi.fn>;
@@ -71,10 +74,13 @@ vi.mock('./client', () => ({
         throw new Error('Could not register workflow: UNAVAILABLE');
       }
       let finish!: () => void;
-      const stopped = new Promise<void>((resolve) => {
+      let fail!: (error: Error) => void;
+      const stopped = new Promise<void>((resolve, reject) => {
         finish = resolve;
+        fail = reject;
       });
       mocks.finishWorkers.push(finish);
+      mocks.failWorkers.push(fail);
       const worker = {
         name,
         _internal: {
@@ -127,15 +133,23 @@ const flush = async (ms = 0) => {
 
 describe('startHatchetWorkers', () => {
   const ownSigterm = () => {};
+  let info: ReturnType<typeof vi.spyOn>;
+
+  // The first import transforms the whole module graph; keep that off the first test's clock.
+  beforeAll(async () => {
+    await import('./worker');
+  }, 60_000);
 
   beforeEach(() => {
     vi.useFakeTimers();
+    info = vi.spyOn(console, 'info').mockImplementation(() => {});
     mocks.actionWork.mockReset();
     mocks.actionWork.mockResolvedValue(undefined);
     mocks.ensure.mockReset();
     mocks.ensure.mockResolvedValue(undefined);
     mocks.sdkHandlers = [];
     mocks.finishWorkers = [];
+    mocks.failWorkers = [];
     mocks.failRegistrations = 0;
     mocks.skipSdkRegistration = false;
     mocks.duringRegistration = undefined;
@@ -150,6 +164,7 @@ describe('startHatchetWorkers', () => {
     await Promise.resolve();
     await Promise.resolve();
     vi.useRealTimers();
+    info.mockRestore();
     process.removeListener('SIGTERM', ownSigterm);
     for (const handler of mocks.sdkHandlers) {
       process.removeListener('SIGTERM', handler);
@@ -290,10 +305,12 @@ describe('startHatchetWorkers', () => {
     worker.startHatchetWorkers();
     await flush(10);
     expect(mocks.ensure).toHaveBeenCalledTimes(1);
+    expect(mocks.workers).toHaveLength(2);
     for (const w of mocks.workers) expect(w.start).not.toHaveBeenCalled();
 
     await flush(5000);
     expect(mocks.ensure).toHaveBeenCalledTimes(2);
+    expect(mocks.workers).toHaveLength(2);
     for (const w of mocks.workers) expect(w.start).toHaveBeenCalledTimes(1);
     errorSpy.mockRestore();
   });
@@ -324,6 +341,7 @@ describe('startHatchetWorkers', () => {
     await drained;
 
     expect(mocks.ensure).not.toHaveBeenCalled();
+    expect(mocks.workers).toHaveLength(2);
     for (const w of mocks.workers) expect(w.start).not.toHaveBeenCalled();
   });
 
@@ -334,6 +352,7 @@ describe('startHatchetWorkers', () => {
     await flush(10);
     await drain.drainAgentSteps();
 
+    expect(mocks.workers).toHaveLength(2);
     for (const w of mocks.workers) expect(w.stop).toHaveBeenCalledTimes(1);
   });
   it('finishes an action arriving during stop before unregistering the worker', async () => {
@@ -377,6 +396,7 @@ describe('startHatchetWorkers', () => {
     worker.startHatchetWorkers();
     await flush(10);
     await drain.drainAgentSteps();
+    expect(mocks.workers).toHaveLength(2);
     for (const w of mocks.workers) {
       expect(w.pause).toHaveBeenCalledTimes(1);
       expect(w.pause.mock.invocationCallOrder[0]).toBeLessThan(w.stop.mock.invocationCallOrder[0]);
@@ -397,6 +417,7 @@ describe('startHatchetWorkers', () => {
     await drained;
     expect(target.pause).toHaveBeenCalledTimes(2);
     expect(target.stop).toHaveBeenCalledTimes(1);
+    expect(mocks.workers).toHaveLength(2);
     for (const w of mocks.workers) expect(w.start).toHaveBeenCalledTimes(1);
   });
 
@@ -417,5 +438,128 @@ describe('startHatchetWorkers', () => {
       expect.objectContaining({ event: 'hatchet.worker.pause_failed' }),
     );
     warn.mockRestore();
+  });
+
+  it('warns when its own server does not answer the readiness probe, at once and then periodically', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { worker } = await load();
+    // 61 failed probes, 500ms apart, then the server answers.
+    mocks.probeStatus = ['error', ...Array.from({ length: 60 }, () => 503)];
+    const notReady = () =>
+      warn.mock.calls
+        .map(([entry]) => entry)
+        .filter((entry) => entry?.event === 'hatchet.worker.not_ready');
+
+    worker.startHatchetWorkers();
+    await flush(10);
+    expect(notReady()).toEqual([
+      expect.objectContaining({
+        error: 'ECONNREFUSED',
+        failedProbes: 1,
+        host: 'app.example.com',
+        url: expect.stringMatching(/^http:\/\/.+\/api\/version$/),
+      }),
+    ]);
+
+    await flush(29_900);
+    expect(notReady()).toHaveLength(1);
+    await flush(200);
+    expect(notReady()).toHaveLength(2);
+    expect(notReady()[1]).toEqual(
+      expect.objectContaining({ failedProbes: 61, host: 'app.example.com', status: 503 }),
+    );
+
+    await flush(600);
+    expect(mocks.workers).toHaveLength(2);
+    for (const w of mocks.workers) expect(w.start).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('registers and starts a replacement once a worker gives up on the engine', async () => {
+    const { drain, worker } = await load();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    worker.startHatchetWorkers();
+    await flush(10);
+    expect(mocks.workers).toHaveLength(2);
+    const [steps, deliveries] = mocks.workers;
+
+    // SDK 1.45.0 after an engine outage of a few minutes: start() rejects for good.
+    mocks.failWorkers[0](
+      new Error('Could not run worker: Could not subscribe to the worker after 20 retries'),
+    );
+    await flush(10);
+    expect(mocks.workers).toHaveLength(2);
+    await flush(5000);
+    expect(mocks.workers).toHaveLength(3);
+    const replacement = mocks.workers[2];
+    expect(replacement.name).toBe(steps.name);
+    expect(replacement.start).toHaveBeenCalledTimes(1);
+    expect(deliveries.start).toHaveBeenCalledTimes(1);
+    // The dead worker unregisters once the actions it accepted finish.
+    expect(steps.stop).toHaveBeenCalledTimes(1);
+    expect(info).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'hatchet.worker.restarting', worker: steps.name }),
+    );
+
+    // The drain stops the replacement, after the actions it accepted.
+    let finishAction!: () => void;
+    mocks.actionWork.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finishAction = resolve;
+      }),
+    );
+    void replacement._internal.handleAction({});
+    let done = false;
+    const drained = drain.drainAgentSteps().then(() => {
+      done = true;
+    });
+    await flush(10);
+    expect(done).toBe(false);
+    expect(replacement._internal.killing).toBe(true);
+    expect(replacement.stop).not.toHaveBeenCalled();
+    finishAction();
+    await drained;
+    expect(replacement.pause).toHaveBeenCalledTimes(1);
+    expect(replacement.stop).toHaveBeenCalledTimes(1);
+    expect(deliveries.stop).toHaveBeenCalledTimes(1);
+    errorSpy.mockRestore();
+  });
+
+  it('does not replace a worker that fails while the process drains', async () => {
+    const { drain, worker } = await load();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    worker.startHatchetWorkers();
+    await flush(10);
+    expect(mocks.workers).toHaveLength(2);
+    // The receive loop errors out as shutdown closes it.
+    mocks.workers[0]._internal.listener.stopStream.mockImplementation(() =>
+      mocks.failWorkers[0](new Error('Could not run worker: stream reset')),
+    );
+
+    await drain.drainAgentSteps();
+    await flush(10_000);
+
+    expect(mocks.workers).toHaveLength(2);
+    for (const w of mocks.workers) expect(w.stop).toHaveBeenCalledTimes(1);
+    errorSpy.mockRestore();
+  });
+
+  it('drops a replacement still waiting to register once the process drains', async () => {
+    const { drain, worker } = await load();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    worker.startHatchetWorkers();
+    await flush(10);
+    expect(mocks.workers).toHaveLength(2);
+
+    mocks.failWorkers[0](
+      new Error('Could not run worker: Could not subscribe to the worker after 20 retries'),
+    );
+    await flush(10);
+    await drain.drainAgentSteps();
+    await flush(10_000);
+
+    expect(mocks.workers).toHaveLength(2);
+    expect(mocks.workers[1].stop).toHaveBeenCalledTimes(1);
+    errorSpy.mockRestore();
   });
 });

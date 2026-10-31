@@ -88,9 +88,21 @@ const headersOf = ({ headers }: DirectPublishRequest): Record<string, string> =>
   return Object.fromEntries(forwarded);
 };
 
-/** A tenant-prefixed address names its tenant; otherwise the publishing request's tenant. */
-const tenantKeyOf = (url: URL): string =>
-  parseTenantPath(url.pathname).tenantSlug ?? currentTenantScope()?.tenantId ?? '_';
+/** A tenant-prefixed app address names its tenant; otherwise the publishing request's tenant. */
+const tenantKeyOf = (url: URL): string => {
+  // The app's own origins, as deliveries tell them apart (resolveDeliveryTarget).
+  const appOrigins = [
+    process.env.APP_URL,
+    process.env.INTERNAL_APP_URL,
+    process.env.AGENT_RUNTIME_BASE_URL,
+  ]
+    .filter((value): value is string => !!value)
+    .map((value) => new URL(value).origin);
+  const tenantSlug = appOrigins.includes(url.origin)
+    ? parseTenantPath(url.pathname).tenantSlug
+    : undefined;
+  return tenantSlug ?? currentTenantScope()?.tenantId ?? '_';
+};
 
 const isNotFound = (error: unknown): boolean =>
   isRecord(error) && isRecord(error.response) && error.response.status === 404;

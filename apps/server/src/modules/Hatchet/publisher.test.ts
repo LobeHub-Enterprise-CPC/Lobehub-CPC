@@ -45,6 +45,10 @@ describe('HatchetPublisher', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-30T00:00:00Z'));
+    // The app's own addresses, as deliveries recognize them.
+    vi.stubEnv('APP_URL', 'https://app.example.com');
+    vi.stubEnv('INTERNAL_APP_URL', 'http://cpc-internal:3210');
+    vi.stubEnv('AGENT_RUNTIME_BASE_URL', 'https://runtime.example.com/base');
     hatchet.runNoWait.mockResolvedValue({ runId: Promise.resolve('run-1') });
     hatchet.schedule.mockResolvedValue({ metadata: { id: 'sched-1' } });
     publisher = new HatchetPublisher();
@@ -52,6 +56,7 @@ describe('HatchetPublisher', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
     vi.resetAllMocks();
   });
 
@@ -185,6 +190,46 @@ describe('HatchetPublisher', () => {
     await publisher.publishJSON({ url: external });
 
     expect(runs().map(([, input]) => input.tenantKey)).toEqual(['acme', 'acme', 'tenant-1', '_']);
+  });
+
+  it.each([
+    ['APP_URL', 'https://app.example.com'],
+    ['INTERNAL_APP_URL', 'http://cpc-internal:3210'],
+    ['AGENT_RUNTIME_BASE_URL', 'https://runtime.example.com'],
+  ])('reads the tenant from the path of an address on %s', async (_, origin) => {
+    await runWithTenantScope(tenant('tenant-1', 'other'), () =>
+      publisher.publishJSON({ url: `${origin}/orgs/acme/api/workflows/goal/advance` }),
+    );
+
+    const [, input, options] = lastRun();
+    expect(input.tenantKey).toBe('acme');
+    expect(options.additionalMetadata.tenantId).toBe('acme');
+  });
+
+  it('never reads a tenant from the path of an external address', async () => {
+    // Any receiver can serve /orgs/<slug>: that must not put it in that tenant's dedup namespace.
+    const lookalike = 'https://hooks.example.com/orgs/beta/notify';
+    const deduplicationId = 'notify:1';
+    await publisher.publishJSON({ deduplicationId, url: lookalike });
+    await runWithTenantScope(tenant('tenant-1'), () =>
+      publisher.publishJSON({ deduplicationId, url: lookalike }),
+    );
+    await publisher.publishJSON({ deduplicationId, url: external });
+    await publisher.publishJSON({
+      deduplicationId,
+      url: 'https://app.example.com/orgs/beta/api/workflows/goal/advance',
+    });
+
+    const [outside, inside, plain, beta] = runs().map(([, input, options]) => ({
+      dedupKey: input.dedupKey,
+      metadataTenant: options.additionalMetadata.tenantId,
+      tenantKey: input.tenantKey,
+    }));
+    expect([outside, inside, plain].map((run) => run.tenantKey)).toEqual(['_', 'tenant-1', '_']);
+    expect([outside, inside].map((run) => run.metadataTenant)).toEqual(['_', 'tenant-1']);
+    expect(outside.dedupKey).toBe(plain.dedupKey);
+    expect(beta.tenantKey).toBe('beta');
+    expect(new Set([outside, inside, beta].map((run) => run.dedupKey)).size).toBe(3);
   });
 
   it('scopes deduplication to the tenant', async () => {
