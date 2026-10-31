@@ -9,7 +9,7 @@
  * with USAGE only. Everything after that is LobeHub code: the provision
  * executor, the Postgres control-plane repository and the tenant runtime.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import * as platformSchema from '@lobechat/database/platform';
@@ -161,6 +161,8 @@ suite('tenant isolation on PostgreSQL', () => {
   }, 60_000);
 
   afterAll(async () => {
+    // First, so a failing database teardown below cannot leak the fixture chain.
+    if (chainFolder) rmSync(chainFolder, { force: true, recursive: true });
     process.env.KEY_VAULTS_SECRET = previousSecret;
     await Promise.all(releases.splice(0).map((release) => release()));
     await platformPool?.end();
