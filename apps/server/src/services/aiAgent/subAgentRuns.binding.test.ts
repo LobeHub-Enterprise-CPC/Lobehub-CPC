@@ -72,29 +72,41 @@ describe('sub-agent bridge binding', () => {
     expect(create).not.toHaveBeenCalled();
     expect(queued).toBe(true);
   });
+  // The callSubAgent runner drops its pending placeholder only for a returned
+  // failed start; a throw left that row behind next to a second error row.
+  const expectFailedStart = async (error: string) => {
+    await expect(execAgentThreadRun(deps, params, options)).resolves.toMatchObject({
+      error,
+      success: false,
+      threadId: 'thread',
+    });
+    expect(deps.threadModel.failRun).toHaveBeenCalledWith(
+      'thread',
+      expect.any(String),
+      expect.objectContaining({ error: expect.stringContaining(error) }),
+    );
+    expect(deps.threadModel.linkRunOperation).not.toHaveBeenCalled();
+    expect(queued).toBe(false);
+  };
   it('does not queue a child without a verifiable parent batch', async () => {
     hatchet.enabled = true;
     vi.mocked(deps.messageModel.findById).mockResolvedValueOnce(undefined);
-    await expect(execAgentThreadRun(deps, params, options)).rejects.toMatchObject({
-      code: 'PRECONDITION_FAILED',
-    });
-    expect(queued).toBe(false);
+    await expectFailedStart('Sub-agent bridge parent batch unavailable');
   });
-  it('treats failure to read the parent batch as retryable', async () => {
+  it('treats failure to read the parent batch as a failed start', async () => {
     hatchet.enabled = true;
     vi.mocked(deps.messageModel.findById).mockRejectedValueOnce(new Error('database unavailable'));
-    await expect(execAgentThreadRun(deps, params, options)).rejects.toMatchObject({
-      code: 'SERVICE_UNAVAILABLE',
-    });
+    await expectFailedStart('Sub-agent bridge persistence unavailable');
     expect(create).not.toHaveBeenCalled();
-    expect(queued).toBe(false);
   });
   it('does not queue the child when persistence fails', async () => {
     hatchet.enabled = true;
     create.mockRejectedValue(new Error('database unavailable'));
-    await expect(execAgentThreadRun(deps, params, options)).rejects.toMatchObject({
-      code: 'SERVICE_UNAVAILABLE',
-    });
-    expect(queued).toBe(false);
+    await expectFailedStart('Sub-agent bridge persistence unavailable');
+  });
+  it('still throws other startup failures', async () => {
+    vi.mocked(deps.execAgent).mockRejectedValueOnce(new Error('queue unavailable'));
+    await expect(execAgentThreadRun(deps, params, options)).rejects.toThrow('queue unavailable');
+    expect(deps.threadModel.failRun).toHaveBeenCalledOnce();
   });
 });

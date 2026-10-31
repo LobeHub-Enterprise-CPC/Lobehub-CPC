@@ -14,7 +14,7 @@ import {
 import { type SubAgentBridgeParams } from '../types';
 import type { AgentRuntimeServiceContext } from './types';
 import { formatErrorForMetadata, formatSubAgentErrorReason } from './utils';
-import { validateSubAgentBridge } from './validateSubAgentBridge';
+import { type SubAgentBridgeRejection, validateSubAgentBridge } from './validateSubAgentBridge';
 
 const log = debug('lobe-server:agent-runtime-service');
 
@@ -113,7 +113,15 @@ export async function completeSubAgentBridge(
     return completeSubAgentBridgeWithLease(deps, params);
 
   const validation = await validateSubAgentBridge(deps, params);
-  if (!validation.allowed) {
+  // Every Hatchet-mode spawn writes its binding before step 0 is scheduled, so
+  // a missing row is a child spawned without one (older code, local mode, or
+  // Hatchet off at spawn time). Nothing else would ever resume its parent: keep
+  // the pre-binding delivery (gateway check, onlyIfEmpty backfill, CAS resume).
+  if (!validation.allowed && validation.reason === 'binding_missing')
+    return completeSubAgentBridgeWithLease(deps, params, undefined, true);
+  // A call that is no longer pending still gets its card backfilled below.
+  if (!validation.allowed && validation.reason !== 'tool_not_pending') {
+    logBridgeRejection(params, validation.reason);
     if (validation.reason === 'parent_not_waiting')
       throw new Error('Sub-agent bridge parent not yet waiting');
     return false;
@@ -130,27 +138,38 @@ export async function completeSubAgentBridge(
   }
 }
 
+function logBridgeRejection(params: SubAgentBridgeParams, reason: SubAgentBridgeRejection) {
+  console.info(
+    JSON.stringify({
+      event: 'subagent.bridge.rejected',
+      operationId: params.operationId,
+      parentOperationId: params.parentOperationId,
+      reason,
+    }),
+  );
+}
+
 async function completeSubAgentBridgeWithLease(
   deps: SubAgentBridgeDeps,
   params: SubAgentBridgeParams,
   deliveryLeaseOwner?: string,
+  unboundChild = false,
 ): Promise<boolean> {
   const { operationId, parentOperationId, reason, threadId, toolMessageId } = params;
-  if (isHatchetDeliveryEnabled()) {
+  const durable = isHatchetDeliveryEnabled() && !unboundChild;
+  let resumeParent = true;
+  if (durable) {
     const validation = await validateSubAgentBridge(deps, params);
     if (!validation.allowed) {
-      console.info(
-        JSON.stringify({
-          event: 'subagent.bridge.rejected',
-          operationId,
-          parentOperationId,
-          reason: validation.reason,
-        }),
-      );
+      logBridgeRejection(params, validation.reason);
       if (validation.reason === 'parent_not_waiting' || params.reconcileLeaseOwner) {
         throw new Error('Sub-agent bridge parent not yet waiting');
       }
-      return false;
+      if (validation.reason !== 'tool_not_pending') return false;
+      // Identity, generation and batch checks passed: the card still gets the
+      // child's result (a parent stopped while parked never resumes). Only the
+      // resume needs the parent to be waiting on this call.
+      resumeParent = false;
     }
   }
   if (!(await gatewayParentMayResume(deps.serverDB, operationId, parentOperationId, deps.userId))) {
@@ -277,6 +296,9 @@ async function completeSubAgentBridgeWithLease(
     );
   }
 
+  // A backfill-only delivery leaves the binding pending for recovery to settle.
+  if (!resumeParent) return false;
+
   // 2. Barrier + CAS + resume the parent op (infra errors propagate too).
   // Pass the just-backfilled message id so the barrier trusts this write
   // instead of re-reading a possibly-stale replica.
@@ -284,7 +306,7 @@ async function completeSubAgentBridgeWithLease(
     { childOperationId: operationId, parentOperationId },
     { knownFulfilledMessageId: toolMessageId, scheduleVerifyOnHold: true },
   );
-  if (isHatchetDeliveryEnabled() && !params.reconcileLeaseOwner) {
+  if (durable && !params.reconcileLeaseOwner) {
     await new AgentSubAgentBridgeModel(deps.serverDB).markDelivered(operationId, {
       completionReason:
         reason === 'done' || reason === 'error' || reason === 'interrupted' ? reason : 'other',

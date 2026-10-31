@@ -420,6 +420,18 @@ export const execAgentThreadRun = async (
           updateError,
         ),
       );
+    // A binding failure aborted the child before it was scheduled: report a
+    // failed start so the callSubAgent runner removes its pending placeholder
+    // and the call ends as one inline tool error.
+    if (error instanceof SubAgentBridgeError) {
+      return {
+        assistantMessageId: '',
+        error: error.message,
+        operationId: '',
+        success: false,
+        threadId: thread.id,
+      };
+    }
     throw error;
   }
 

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { completeSubAgentBridge } from './subAgentBridge';
 import { validateSubAgentBridge } from './validateSubAgentBridge';
 
-const mocks = vi.hoisted(() => ({ enabled: true, delivered: vi.fn() }));
+const mocks = vi.hoisted(() => ({ enabled: true, claim: vi.fn(), delivered: vi.fn() }));
 vi.mock('@/server/modules/Hatchet/config', async (original) => ({
   ...(await original<Record<string, unknown>>()),
   isHatchetDeliveryEnabled: () => mocks.enabled,
@@ -14,7 +14,7 @@ vi.mock('@/server/services/gatewayAuthorization/parentExecution', () => ({
 }));
 vi.mock('@/database/models/agentSubAgentBridge', () => ({
   AgentSubAgentBridgeModel: class {
-    claim = vi.fn().mockResolvedValue(true);
+    claim = mocks.claim;
     release = vi.fn().mockResolvedValue(true);
     markDelivered = mocks.delivered;
   },
@@ -105,9 +105,21 @@ function setup() {
 }
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   mocks.enabled = true;
+  mocks.claim.mockReset().mockResolvedValue(true);
   mocks.delivered.mockReset();
 });
+
+const rejectionLogs = (spy: { mock: { calls: unknown[][] } }) =>
+  spy.mock.calls.flatMap(([line]) => {
+    try {
+      const record = JSON.parse(String(line));
+      return record?.event === 'subagent.bridge.rejected' ? [record] : [];
+    } catch {
+      return [];
+    }
+  });
 
 describe('durable sub-agent bridge validation', () => {
   it('retries an early callback and succeeds once the parent waits', async () => {
@@ -128,11 +140,85 @@ describe('durable sub-agent bridge validation', () => {
   });
 
   it('acknowledges an already delivered bridge even if the parent is running again', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
     const x = setup();
     x.binding.status = 'delivered';
     x.parent.status = 'running';
     expect(await completeSubAgentBridge(x.deps as never, params)).toBe(false);
     expect(x.deps.messageModel.updateToolMessage).not.toHaveBeenCalled();
+    expect(rejectionLogs(info)).toEqual([
+      {
+        event: 'subagent.bridge.rejected',
+        operationId: 'child',
+        parentOperationId: 'parent',
+        reason: 'binding_settled',
+      },
+    ]);
+  });
+
+  it('delivers a child spawned without a binding through the pre-binding path', async () => {
+    const x = setup();
+    x.rows.agent_sub_agent_bridges = null;
+    // The parent's resume CAS: only the first delivery can flip the parked parent.
+    let parentResumed = false;
+    x.deps.tryResumeParentFromAsyncTool.mockImplementation(async () => {
+      if (parentResumed) return false;
+      parentResumed = true;
+      return true;
+    });
+
+    expect(await completeSubAgentBridge(x.deps as never, params)).toBe(true);
+    expect(x.deps.messageModel.updateToolMessage).toHaveBeenCalledWith(
+      'tool',
+      expect.objectContaining({ content: 'answer', onlyIfEmpty: true }),
+    );
+    expect(x.deps.tryResumeParentFromAsyncTool).toHaveBeenCalledWith(
+      { childOperationId: 'child', parentOperationId: 'parent' },
+      { knownFulfilledMessageId: 'tool', scheduleVerifyOnHold: true },
+    );
+
+    // A duplicate callback only repeats the idempotent backfill and loses the CAS.
+    expect(await completeSubAgentBridge(x.deps as never, params)).toBe(false);
+    expect(x.deps.messageModel.updateToolMessage).toHaveBeenCalledTimes(2);
+    expect(x.deps.messageModel.updateToolMessage).toHaveBeenLastCalledWith(
+      'tool',
+      expect.objectContaining({ onlyIfEmpty: true }),
+    );
+    expect(parentResumed).toBe(true);
+    // No binding row exists to lease or settle.
+    expect(mocks.claim).not.toHaveBeenCalled();
+    expect(mocks.delivered).not.toHaveBeenCalled();
+  });
+
+  it('backfills the card of a parent stopped while parked without resuming it', async () => {
+    const x = setup();
+    // Stop rewrites the Redis state only; the parked row keeps waiting_for_async_tool.
+    x.state.status = 'interrupted';
+    expect(await completeSubAgentBridge(x.deps as never, params)).toBe(false);
+    expect(x.deps.messageModel.updateToolMessage).toHaveBeenCalledOnce();
+    expect(x.deps.messageModel.updateToolMessage).toHaveBeenCalledWith(
+      'tool',
+      expect.objectContaining({ content: 'answer', onlyIfEmpty: true }),
+    );
+    expect(x.deps.tryResumeParentFromAsyncTool).not.toHaveBeenCalled();
+    // The binding stays pending so recovery can still settle or resume it.
+    expect(mocks.delivered).not.toHaveBeenCalled();
+  });
+
+  it('backfills but does not resume a parent that waits on another call', async () => {
+    const x = setup();
+    x.state.pendingToolsCalling = [{ id: 'other' }];
+    expect(await validateSubAgentBridge(x.deps as never, params)).toEqual({
+      allowed: false,
+      reason: 'tool_not_pending',
+    });
+    expect(await completeSubAgentBridge(x.deps as never, params)).toBe(false);
+    expect(x.deps.messageModel.updateToolMessage).toHaveBeenCalledWith(
+      'tool',
+      expect.objectContaining({ onlyIfEmpty: true }),
+    );
+    expect(x.deps.tryResumeParentFromAsyncTool).not.toHaveBeenCalled();
+    expect(mocks.delivered).not.toHaveBeenCalled();
   });
 
   it('retries while an idle parent has not started', async () => {
@@ -145,12 +231,17 @@ describe('durable sub-agent bridge validation', () => {
   });
 
   it.each(['done', 'abandoned', 'error', 'interrupted'])(
-    'acknowledges a terminal parent (%s)',
+    'backfills but does not resume a terminal parent (%s)',
     async (status) => {
       const x = setup();
       x.parent.status = status;
       expect(await completeSubAgentBridge(x.deps as never, params)).toBe(false);
-      expect(x.deps.messageModel.updateToolMessage).not.toHaveBeenCalled();
+      expect(x.deps.messageModel.updateToolMessage).toHaveBeenCalledWith(
+        'tool',
+        expect.objectContaining({ onlyIfEmpty: true }),
+      );
+      expect(x.deps.tryResumeParentFromAsyncTool).not.toHaveBeenCalled();
+      expect(mocks.delivered).not.toHaveBeenCalled();
     },
   );
 
@@ -162,12 +253,6 @@ describe('durable sub-agent bridge validation', () => {
   });
 
   it.each([
-    [
-      'binding_missing',
-      (x: ReturnType<typeof setup>) => {
-        x.rows.agent_sub_agent_bridges = null;
-      },
-    ],
     [
       'stale_generation',
       (x: ReturnType<typeof setup>) => {
@@ -181,29 +266,32 @@ describe('durable sub-agent bridge validation', () => {
       },
     ],
     [
-      'tool_not_pending',
-      (x: ReturnType<typeof setup>) => {
-        x.state.pendingToolsCalling = [{ id: 'other' }];
-      },
-    ],
-    [
       'ownership_mismatch',
       (x: ReturnType<typeof setup>) => {
         x.child.userId = 'other';
       },
     ],
-  ])('rejects %s before backfill or resume', async (reason, change) => {
+  ])('rejects and logs %s before backfill or resume', async (reason, change) => {
     const x = setup();
     change(x);
     expect(await validateSubAgentBridge(x.deps as never, params)).toEqual({
       allowed: false,
       reason,
     });
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
     expect(await completeSubAgentBridge(x.deps as never, params)).toBe(false);
     expect(x.deps.controlCompletedToolResult).not.toHaveBeenCalled();
     expect(x.deps.messageModel.updateToolMessage).not.toHaveBeenCalled();
     expect(x.deps.tryResumeParentFromAsyncTool).not.toHaveBeenCalled();
     expect(mocks.delivered).not.toHaveBeenCalled();
+    expect(rejectionLogs(info)).toEqual([
+      {
+        event: 'subagent.bridge.rejected',
+        operationId: 'child',
+        parentOperationId: 'parent',
+        reason,
+      },
+    ]);
   });
 
   it.each([

@@ -1,5 +1,6 @@
 import type { AgentState } from '@lobechat/agent-runtime';
-import { ThreadStatus } from '@lobechat/types';
+import { parse } from '@lobechat/conversation-flow';
+import { isAgentOperationInFlight, ThreadStatus } from '@lobechat/types';
 import debug from 'debug';
 import { eq } from 'drizzle-orm';
 import type { Context } from 'hono';
@@ -41,6 +42,21 @@ const callbackSchema = z.object({
     })
     .optional(),
 });
+
+/**
+ * Size of the runtime message list the run restores from the DB, from a single
+ * history read: progress needs only the count, not the final assistant that
+ * `loadRunMessagesFromDB` resolves with a second read. Same scope as the
+ * runtime's own restore, whose topic is already authorized for the run.
+ */
+const countRunMessages = async (messageModel: MessageModel, state: AgentState) => {
+  const { agentId, groupId, threadId, topicId } = state.origin ?? {};
+  const dbMessages = await messageModel.query(
+    { agentId, groupId, threadId, topicId },
+    { allowShareVisitor: true },
+  );
+  return parse(dbMessages, undefined, { threadId }).flatList.length;
+};
 
 /** QStash-authenticated thread lifecycle writes for cross-process execution. */
 export async function threadCallback(c: Context): Promise<Response> {
@@ -91,10 +107,6 @@ export async function threadCallback(c: Context): Promise<Response> {
 
     const state = await coordinator.loadAgentState(operationId);
     if (hookType === 'afterStep' && !state) return c.json({ skipped: true });
-    const aiAgentService = new AiAgentService(serverDB, owner.userId, {
-      includeShareVisitor: !!owner.streamOwnerUserId,
-      workspaceId: owner.workspaceId,
-    });
 
     if (hookType === 'afterStep') {
       // The event index orders writes. The coordinator may already hold a later
@@ -107,14 +119,19 @@ export async function threadCallback(c: Context): Promise<Response> {
       ) {
         return c.json({ skipped: true });
       }
-      const { messages } = await aiAgentService.loadRunMessagesFromDB(state!);
+      const totalMessages = await countRunMessages(
+        new MessageModel(serverDB, owner.userId, owner.workspaceId, undefined, {
+          includeShareVisitor: Boolean(owner.streamOwnerUserId),
+        }),
+        state!,
+      );
       const updated = await applyThreadProgress(threadModel, {
         operationId,
         runToken,
         progressStep,
         startedAt,
         threadId,
-        totalMessages: messages.length,
+        totalMessages,
         totalTokens: calculateTotalTokens(state!.usage),
         totalToolCalls: body.toolCalls,
         usageBaseline,
@@ -131,6 +148,18 @@ export async function threadCallback(c: Context): Promise<Response> {
       : undefined;
     if (!state && !durableOperation)
       return c.json({ error: 'Final operation data unavailable' }, 503);
+    // A row that has not settled yet carries no final usage; retry until it does.
+    // A human-review hook fires once its row is parked, which is its settled shape.
+    if (
+      durableOperation &&
+      isAgentOperationInFlight(durableOperation.status) &&
+      !(body.reason === 'waiting_for_human' && durableOperation.status === 'waiting_for_human')
+    ) {
+      return c.json({ error: 'Final operation data unavailable' }, 503);
+    }
+    // The scalar total columns also roll up child operations' spend; the Redis
+    // path reports the operation's own counters, which the JSONB columns keep.
+    const durableUsage = durableOperation?.usage as AgentState['usage'] | null | undefined;
     const summary = state
       ? {
           cost: state.cost?.total,
@@ -139,12 +168,16 @@ export async function threadCallback(c: Context): Promise<Response> {
           error: state.error,
         }
       : {
-          cost: durableOperation!.totalCost,
-          tokens: durableOperation!.totalTokens,
-          toolCalls: durableOperation!.toolCalls,
+          cost: (durableOperation!.cost as AgentState['cost'] | null)?.total,
+          tokens: calculateTotalTokens(durableUsage ?? undefined),
+          toolCalls: durableUsage?.tools?.totalCalls,
           error: durableOperation!.error,
         };
 
+    const aiAgentService = new AiAgentService(serverDB, owner.userId, {
+      includeShareVisitor: !!owner.streamOwnerUserId,
+      workspaceId: owner.workspaceId,
+    });
     // The durable thread supplies the query scope when the Redis state expired.
     const messageState =
       state ??

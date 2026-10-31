@@ -59,6 +59,7 @@ import type { ApprovalClaimState } from './pipeline/approvalResume';
 import { execAgentTurn, type ExecAgentTurnDeps } from './pipeline/execTurn';
 import {
   createGroupMemberApprovalDeps,
+  linkGroupMemberContinuation,
   rearmGroupMemberDeadline,
   resolveGroupMemberApprovalContinuation,
 } from './pipeline/groupMemberApproval';
@@ -508,6 +509,11 @@ export class AiAgentService {
         memberContinuation.parentOperationId,
       );
       const continuation = await this.execAgent(memberContinuation);
+      await linkGroupMemberContinuation(
+        { threadModel: this.threadModel },
+        memberContinuation,
+        continuation,
+      );
       await rearmGroupMemberDeadline(
         { agentRuntimeService: this.agentRuntimeService },
         memberContinuation,

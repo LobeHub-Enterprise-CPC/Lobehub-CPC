@@ -221,7 +221,8 @@ export class ThreadModel {
           this.ownership(),
           inArray(threads.status, [ThreadStatus.Processing, ThreadStatus.InReview]),
           sql`${threads.metadata} ->> 'operationId' = ${sourceOperationId}`,
-          sql`${threads.metadata} ->> 'runToken' = ${thread.metadata?.runToken ?? ''}`,
+          // Threads parked before run tokens existed carry no key at all.
+          sql`COALESCE(${threads.metadata} ->> 'runToken', '') = ${thread.metadata?.runToken ?? ''}`,
         ),
       )
       .returning({ id: threads.id });

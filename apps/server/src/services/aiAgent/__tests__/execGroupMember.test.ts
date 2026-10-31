@@ -270,6 +270,75 @@ describe('AiAgentService.execGroupMember', () => {
     expect(result).toMatchObject({ groupMemberContinuation: true });
   });
 
+  // A second approval validates against the thread's operation id before the
+  // continuation's own thread callbacks have recorded it.
+  describe('isolated member approval continuation thread link', () => {
+    const continueIsolatedMember = async (continuation: Partial<typeof execAgentResult>) => {
+      mockFindMessagePlugin.mockResolvedValue({
+        intervention: { operationId: 'op-carol', status: 'pending' },
+      });
+      mockLoadGroupMemberBridge.mockResolvedValue({
+        agentId: 'agt_carol',
+        bridge: {
+          anchorMessageId: 'msg-task',
+          expectedMembers: 1,
+          groupToolMessageId: 'msg-task',
+          mode: 'isolated',
+          onComplete: 'resume',
+          parentOperationId: 'op-sup',
+          threadId: 'thread-carol',
+        },
+        groupId: 'group-1',
+        threadId: 'thread-carol',
+        topicId: 'topic-1',
+      });
+      mockThreadModel.findById.mockResolvedValue({
+        id: 'thread-carol',
+        metadata: {
+          operationId: 'op-carol',
+          runToken: 'retired',
+          startedAt: '2026-10-30T00:00:00.000Z',
+        },
+        sourceMessageId: 'msg-task',
+        status: ThreadStatus.InReview,
+      });
+      const original = service.execAgent.bind(service);
+      const execAgentSpy = vi
+        .spyOn(service, 'execAgent')
+        .mockImplementationOnce(original)
+        .mockResolvedValueOnce({ ...execAgentResult, ...continuation });
+
+      await service.execAgent({
+        agentId: 'agt_sup',
+        appContext: { groupId: 'group-1', topicId: 'topic-1' },
+        prompt: '',
+        resumeApproval: { decision: 'approved', parentMessageId: 'msg-tool', toolCallId: 'call-1' },
+      } as any);
+
+      const hooks = execAgentSpy.mock.calls[1][0].hooks ?? [];
+      return hooks.find((hook) => hook.id === 'thread-completion')?.webhook?.body?.runToken;
+    };
+
+    it('records the started continuation under its own generation', async () => {
+      const runToken = await continueIsolatedMember({ operationId: 'op-carol-continued' });
+
+      expect(runToken).toEqual(expect.any(String));
+      expect(runToken).not.toBe('retired');
+      expect(mockThreadModel.linkRunOperation).toHaveBeenCalledOnce();
+      expect(mockThreadModel.linkRunOperation).toHaveBeenCalledWith(
+        'thread-carol',
+        runToken,
+        'op-carol-continued',
+      );
+    });
+
+    it('leaves the thread on the parked operation when the continuation did not start', async () => {
+      await continueIsolatedMember({ operationId: 'op-carol-continued', success: false });
+
+      expect(mockThreadModel.linkRunOperation).not.toHaveBeenCalled();
+    });
+  });
+
   // Codex P1 on #20093: an approval continuation retires the parked member op,
   // which disarmed the member's timeout watchdog.
   describe('member deadline across an approval continuation', () => {

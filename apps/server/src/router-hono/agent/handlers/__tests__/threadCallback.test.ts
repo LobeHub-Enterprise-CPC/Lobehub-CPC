@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   getOperationMetadata: vi.fn(),
   loadAgentState: vi.fn(),
   loadRunMessagesFromDB: vi.fn(),
+  queryMessages: vi.fn(),
   update: vi.fn(),
   updateProgressForRun: vi.fn(),
   rows: [] as unknown[],
@@ -41,7 +42,7 @@ vi.mock('@/database/models/thread', () => ({
 }));
 vi.mock('@/database/models/message', () => ({
   MessageModel: vi.fn(function () {
-    return { update: mocks.update };
+    return { query: mocks.queryMessages, update: mocks.update };
   }),
 }));
 vi.mock('@/server/modules/AgentRuntime', () => ({
@@ -82,7 +83,12 @@ describe('thread callback', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.rows = [];
-    mocks.findOperation.mockResolvedValue({ cost: null, usage: null, error: null });
+    mocks.findOperation.mockResolvedValue({
+      cost: null,
+      usage: null,
+      error: null,
+      status: 'error',
+    });
     mocks.getOperationMetadata.mockResolvedValue({ userId: 'user', workspaceId: 'workspace' });
     mocks.findById.mockResolvedValue({
       id: 'thread',
@@ -92,6 +98,7 @@ describe('thread callback', () => {
     });
     mocks.loadAgentState.mockResolvedValue({
       operationId: 'op',
+      origin: { agentId: 'agent', threadId: 'thread', topicId: 'topic' },
       stepCount: 8,
       usage: { llm: { tokens: { total: 30 } }, tools: { totalCalls: 9 } },
       cost: { total: 0.5 },
@@ -100,30 +107,49 @@ describe('thread callback', () => {
       messages: [{ role: 'assistant', content: 'answer' }],
       lastAssistantContent: 'answer',
     });
+    mocks.queryMessages.mockResolvedValue([
+      { id: 'user-1', role: 'user', content: 'question', threadId: 'thread', createdAt: 1 },
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'answer',
+        parentId: 'user-1',
+        threadId: 'thread',
+        createdAt: 2,
+      },
+    ]);
     mocks.completeRun.mockResolvedValue(true);
     mocks.updateProgressForRun.mockResolvedValue(true);
   });
 
   it('writes event tool usage, DB message count and baseline-adjusted tokens', async () => {
     expect((await call()).status).toBe(200);
-    expect(mocks.loadRunMessagesFromDB).toHaveBeenCalled();
     expect(ThreadModel).toHaveBeenCalledWith(expect.anything(), 'user', 'workspace');
-    expect(AiAgentService).toHaveBeenCalledWith(expect.anything(), 'user', {
-      includeShareVisitor: false,
-      workspaceId: 'workspace',
-    });
     expect(mocks.updateProgressForRun).toHaveBeenCalledWith(
       'thread',
       'token',
       'op',
       2,
       expect.objectContaining({
-        totalMessages: 1,
+        totalMessages: 2,
         totalTokens: 130,
         totalToolCalls: 6,
         startedAt: base.startedAt,
       }),
     );
+  });
+
+  it('counts progress messages with a single history read in the run scope', async () => {
+    expect((await call()).status).toBe(200);
+    expect(mocks.queryMessages).toHaveBeenCalledOnce();
+    expect(mocks.queryMessages).toHaveBeenCalledWith(
+      { agentId: 'agent', groupId: undefined, threadId: 'thread', topicId: 'topic' },
+      { allowShareVisitor: true },
+    );
+    expect(mocks.loadRunMessagesFromDB).not.toHaveBeenCalled();
+    expect(MessageModel).toHaveBeenCalledWith(expect.anything(), 'user', 'workspace', undefined, {
+      includeShareVisitor: false,
+    });
   });
 
   it.each(['completed', 'failed', 'cancel'])(
@@ -180,11 +206,13 @@ describe('thread callback', () => {
     mocks.findOperation.mockResolvedValue({
       userId: 'user',
       workspaceId: 'workspace',
+      // The operation's own counters, as the Redis state reports them.
       cost: { total: 2 },
-      totalCost: 2,
-      totalTokens: 77,
-      toolCalls: 3,
       usage: { llm: { tokens: { total: 77 } }, tools: { totalCalls: 3 } },
+      // Scalar totals also roll up every child operation's spend.
+      totalCost: 9,
+      totalTokens: 900,
+      toolCalls: 30,
       error: { type: 'AgentRuntimeError', message: 'durable error' },
       status: 'error',
     });
@@ -201,6 +229,42 @@ describe('thread callback', () => {
         totalToolCalls: 5,
         error: expect.objectContaining({ message: 'durable error' }),
       }),
+    );
+  });
+
+  it.each(['idle', 'running', 'waiting_for_async_tool'])(
+    'retries instead of freezing a summary from a durable row still %s',
+    async (status) => {
+      mocks.loadAgentState.mockResolvedValue(null);
+      mocks.findOperation.mockResolvedValue({
+        cost: { total: 1 },
+        usage: { llm: { tokens: { total: 10 } }, tools: { totalCalls: 1 } },
+        error: null,
+        status,
+      });
+      const response = await call({ ...base, hookType: 'onComplete', reason: 'done' });
+      expect(response.status).toBe(503);
+      expect(mocks.completeRun).not.toHaveBeenCalled();
+      expect(mocks.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it('accepts the parked durable row of a human-review callback', async () => {
+    mocks.loadAgentState.mockResolvedValue(null);
+    mocks.findOperation.mockResolvedValue({
+      cost: { total: 1 },
+      usage: { llm: { tokens: { total: 10 } }, tools: { totalCalls: 1 } },
+      error: null,
+      status: 'waiting_for_human',
+    });
+    const response = await call({ ...base, hookType: 'onComplete', reason: 'waiting_for_human' });
+    expect(response.status).toBe(200);
+    expect(mocks.completeRun).toHaveBeenCalledWith(
+      'thread',
+      'token',
+      'op',
+      'inReview',
+      expect.objectContaining({ totalCost: 1, totalTokens: 110, totalToolCalls: 3 }),
     );
   });
 
@@ -225,6 +289,10 @@ describe('thread callback', () => {
     expect(mocks.update).toHaveBeenCalledWith('source', { content: 'answer' });
     expect(MessageModel).toHaveBeenCalledWith(expect.anything(), 'user', 'workspace', undefined, {
       includeShareVisitor: false,
+    });
+    expect(AiAgentService).toHaveBeenCalledWith(expect.anything(), 'user', {
+      includeShareVisitor: false,
+      workspaceId: 'workspace',
     });
   });
 
@@ -382,9 +450,12 @@ describe('thread callback', () => {
     ).toBe(500);
   });
 
-  it('retries message recovery failures', async () => {
-    mocks.loadRunMessagesFromDB.mockRejectedValue(new Error('message db down'));
-    expect((await call()).status).toBe(500);
+  it.each([
+    ['afterStep', 'queryMessages'],
+    ['onComplete', 'loadRunMessagesFromDB'],
+  ] as const)('retries %s message recovery failures', async (hookType, method) => {
+    mocks[method].mockRejectedValue(new Error('message db down'));
+    expect((await call({ ...base, hookType })).status).toBe(500);
   });
 
   it.each([

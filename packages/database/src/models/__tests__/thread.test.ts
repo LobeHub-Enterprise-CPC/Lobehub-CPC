@@ -166,6 +166,21 @@ describe('ThreadModel', () => {
       });
     });
 
+    it('installs the first token on a thread parked before run tokens existed', async () => {
+      const { runToken: _, ...legacyMetadata } = metadata;
+      const thread = await threadModel.create({
+        topicId,
+        type: ThreadType.Isolation,
+        status: ThreadStatus.InReview,
+        metadata: legacyMetadata,
+      });
+      expect(await threadModel.setRunToken(thread.id, 'continuation-token', 'old-op')).toBe(true);
+      expect((await threadModel.findById(thread.id))?.metadata).toMatchObject({
+        ...legacyMetadata,
+        runToken: 'continuation-token',
+      });
+    });
+
     it('allows approval continuation from inReview and rejects the retired token', async () => {
       const thread = await createRun();
       expect(

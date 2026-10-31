@@ -158,6 +158,36 @@ export const resolveGroupMemberApprovalContinuation = async (
   };
 };
 
+/**
+ * Record a started continuation's operation on its isolation thread, as the
+ * initial isolated start does. Until then the thread still names the parked
+ * operation, which a further approval of the continuation must replace.
+ */
+export const linkGroupMemberContinuation = async (
+  deps: { threadModel: ThreadModel },
+  continuationParams: InternalExecAgentParams,
+  continuation: ExecAgentResult,
+): Promise<void> => {
+  const threadId = continuationParams.appContext?.threadId;
+  const runToken = continuationParams.hooks?.find((hook) => hook.id === 'thread-completion')
+    ?.webhook?.body?.runToken;
+  if (!threadId || typeof runToken !== 'string') return;
+  if (!continuation.success || !continuation.operationId) return;
+
+  // Best effort: the continuation already started, and its own thread callbacks
+  // record the same operation id under this run token once they land.
+  try {
+    await deps.threadModel.linkRunOperation(threadId, runToken, continuation.operationId);
+  } catch (error) {
+    console.error(
+      '[groupMemberApproval] failed to link continuation %s to thread %s: %O',
+      continuation.operationId,
+      threadId,
+      error,
+    );
+  }
+};
+
 export interface GroupMemberDeadlineDeps {
   agentRuntimeService: AgentRuntimeService;
 }
