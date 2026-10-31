@@ -1,3 +1,8 @@
+import {
+  BUILTIN_AGENTS,
+  type BuiltinAgentSlug,
+  SELF_ITERATION_AGENT_SLUGS,
+} from '@lobechat/builtin-agents';
 import { resolveSubAgentChatConfig } from '@lobechat/const';
 import type { LobeChatDatabase } from '@lobechat/database';
 import { type AgentConfigSnapshot, resolveAgentConfig } from '@lobechat/mecha';
@@ -14,6 +19,7 @@ import { UserModel } from '@/database/models/user';
 import { WorkspaceUserSettingsModel } from '@/database/models/workspaceUserSettings';
 import type { AgentConfigWithId } from '@/server/services/agent';
 import { isResourceAuthorOrAdmin } from '@/server/services/resourcePermission';
+import { resolveDefaultSystemAgentModelConfig } from '@/server/services/systemAgent/modelConfig';
 
 import type { InternalExecAgentParams } from '../types';
 
@@ -171,6 +177,15 @@ export const resolveRunAgentConfig = async (
 
   // --- gather the snapshot ---
   const row = await deps.resolveAgentConfigOrThrow(identifier);
+  // These hidden agents historically persisted the code mini-model defaults.
+  // Resolve that fallback per run so existing rows follow tenant changes too;
+  // a separately configured agent model and per-call overrides still win.
+  if (row.slug && SELF_ITERATION_AGENT_SLUGS.has(row.slug as BuiltinAgentSlug)) {
+    const defaults = BUILTIN_AGENTS[row.slug as BuiltinAgentSlug].persist;
+    if (defaults && row.model === defaults.model && row.provider === defaults.provider) {
+      Object.assign(row, await resolveDefaultSystemAgentModelConfig());
+    }
+  }
   const resolvedAgentId = row.id;
   const agentWorkspaceId = row.workspaceId ?? deps.workspaceId;
   const isPublicWorkspaceAgent = !!agentWorkspaceId && row.visibility !== 'private';

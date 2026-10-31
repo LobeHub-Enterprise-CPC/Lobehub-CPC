@@ -150,11 +150,14 @@ export const buildRunLifecycle = (
   const { agentId, topicId, threadId, groupId, workspaceSlug } = context;
   const messageKey = messageMapKey(context);
   const contextKey = messageKey;
-  let voiceTopicTitleSummaryRequested = false;
+  let topicTitleSummaryRequested = false;
 
-  const summarizeVoiceTopicTitleAfterCompletion = () => {
-    if (voiceTopicTitleSummaryRequested || adapter.runScope === 'sub_agent' || !topicId) return;
+  const summarizeTopicTitleAfterCompletion = (completedContext: ConversationContext) => {
+    const { topicId } = completedContext;
+    const messageKey = messageMapKey(completedContext);
+    if (topicTitleSummaryRequested || adapter.runScope === 'sub_agent' || !topicId) return;
 
+    const deferred = get().topicTitlePendingIds.includes(topicId);
     const topic = topicSelectors.getTopicById(topicId)(get());
     const messages = displayMessageSelectors.getDisplayMessagesByKey(messageKey)(get());
     const isUntitled =
@@ -163,17 +166,18 @@ export const buildRunLifecycle = (
       topic.title === t('defaultTitle', { ns: 'topic' });
 
     if (
-      topic &&
-      isUntitled &&
-      isAudioOnlyFirstUserMessage(messages) &&
+      (topic || deferred) &&
+      (isUntitled || deferred) &&
+      (isAudioOnlyFirstUserMessage(messages) || deferred) &&
       hasCompletedAssistantText(messages)
     ) {
-      voiceTopicTitleSummaryRequested = true;
+      topicTitleSummaryRequested = true;
+      if (deferred) get().internal_setTopicTitlePending(topicId, false);
       void get()
         .summaryTopicTitle(topicId, messages)
         .catch((error) => {
-          voiceTopicTitleSummaryRequested = false;
-          log('Failed to summarize voice topic title: %O', error);
+          topicTitleSummaryRequested = false;
+          log('Failed to summarize topic title: %O', error);
         });
     }
   };
@@ -270,7 +274,21 @@ export const buildRunLifecycle = (
             .refreshTopic()
             .catch(() => {});
         }
-        await applyTopicTitle(topicId, event.messages ?? readStoreChats());
+        const chats = event.messages ?? readStoreChats();
+        // Wait for the first reply rather than summarizing its loading row.
+        // User-only sends still have enough text to generate a title immediately.
+        if (
+          !shouldSliceTopicTitle &&
+          chats.some(
+            (message) =>
+              ['assistant', 'assistantGroup', 'supervisor'].includes(message.role) &&
+              message.content?.trim() === LOADING_FLAT,
+          )
+        ) {
+          get().internal_setTopicTitlePending(topicId, true);
+          return;
+        }
+        await applyTopicTitle(topicId, chats);
         return;
       }
 
@@ -287,6 +305,8 @@ export const buildRunLifecycle = (
       if (adapter.runScope === 'sub_agent') return;
 
       const disposition = resolveTerminalDisposition(event);
+      if (disposition !== 'success' && event.context.topicId)
+        get().internal_setTopicTitlePending(event.context.topicId, false);
       if (disposition === 'failed' && event.notification) {
         await notifyDesktopAgentFailed(get, {
           context: { agentId, groupId, topicId, workspaceSlug },
@@ -296,12 +316,9 @@ export const buildRunLifecycle = (
       }
       if (disposition !== 'success') return;
 
-      // A voice-only first message cannot be summarized at the post-persist seam:
-      // its content is empty and the assistant row is still a loading placeholder.
-      // Once the reply completes, use the now-textual conversation to generate a
-      // meaningful title. This also leaves the visible default title intact if the
-      // title request fails instead of turning the sidebar row blank.
-      summarizeVoiceTopicTitleAfterCompletion();
+      // Read the completed event's conversation, including newly minted topic
+      // ids, rather than the send-time context or the persisted loading rows.
+      summarizeTopicTitleAfterCompletion(event.context);
 
       // Desktop notification + dock badge. Single home for all runtimes'
       // completion notification — every transport funnels through the shared
@@ -371,7 +388,9 @@ export const buildRunLifecycle = (
       // Title recovery is a successful-completion side effect, not a notification
       // side effect. Run it before the queued-message early return so a follow-up
       // cannot strand an audio-first topic without a title.
-      if (disposition === 'success') summarizeVoiceTopicTitleAfterCompletion();
+      if (disposition === 'success') summarizeTopicTitleAfterCompletion(event.context);
+      else if (disposition && event.context.topicId)
+        get().internal_setTopicTitlePending(event.context.topicId, false);
 
       const completeSuccess = () => {
         get().completeOperation(operationId);

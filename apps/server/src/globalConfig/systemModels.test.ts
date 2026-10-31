@@ -165,3 +165,12 @@ describe('getServerSystemModels in other builds', () => {
     expect(result.filesConfig).toEqual(DEFAULT_FILES_CONFIG);
   });
 });
+
+describe('raw system agent default', () => {
+  it('exposes the tenant default independently of explicit slots', async () => {
+    asTenant({ systemAgent: { default: 'tenant-default', topic: 'topic-only' } });
+    expect(await getServerSystemModels()).toMatchObject({
+      defaultModel: { model: 'tenant-default', provider: 'lobehub' },
+    });
+  });
+});

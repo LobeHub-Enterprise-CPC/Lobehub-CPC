@@ -31,6 +31,8 @@ export interface MultimodalUnderstandingModel {
 
 /** Models the server picks for its own work, as configured for this deployment or tenant. */
 export interface ServerSystemModels {
+  /** Raw tenant fallback for system tasks without a named slot. */
+  defaultModel?: SystemAgentModelAssignment;
   filesConfig: SystemEmbeddingConfig;
   /** Unset: the multimodal understanding capability is off. */
   multimodalUnderstanding?: MultimodalUnderstandingModel;
@@ -62,6 +64,7 @@ const fromTenant = ({
   }
 
   return {
+    defaultModel: assignments.default,
     filesConfig: fileEmbedding
       ? { ...DEFAULT_FILES_CONFIG, embeddingModel: { model: fileEmbedding, provider } }
       : DEFAULT_FILES_CONFIG,

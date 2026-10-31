@@ -272,6 +272,8 @@ function createMockStore(overrides: Record<string, any> = {}) {
       };
     }),
     topicDataMap: {},
+    topicTitlePendingIds: [],
+    internal_setTopicTitlePending: vi.fn(),
     updateTopicMetadata: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   } as any;
@@ -280,10 +282,7 @@ function createMockStore(overrides: Record<string, any> = {}) {
     store.updateOperationMetadata = vi.fn((operationId: string, metadata: Record<string, any>) => {
       const operation = store.operations[operationId];
       if (!operation) return;
-      operation.metadata = {
-        ...operation.metadata,
-        ...metadata,
-      };
+      operation.metadata = { ...operation.metadata, ...metadata };
     });
   }
 
