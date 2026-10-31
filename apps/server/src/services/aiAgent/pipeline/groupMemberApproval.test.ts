@@ -95,7 +95,7 @@ describe('resolveGroupMemberApprovalContinuation', () => {
 
     const result = await resolveGroupMemberApprovalContinuation(deps as any, approveParams);
 
-    expect(deps.createThreadHooks).toHaveBeenCalledWith('thd_1');
+    expect(deps.createThreadHooks).toHaveBeenCalledWith('thd_1', 'op_carol');
     expect(result?.hooks?.map((hook) => hook.id)).toEqual(['thread-completion', bridgeHook.id]);
   });
 
@@ -145,7 +145,7 @@ describe('resolveGroupMemberApprovalContinuation', () => {
 });
 
 describe('createGroupMemberApprovalDeps thread hooks', () => {
-  it('rotates the token before returning approval continuation hooks', async () => {
+  it('prepares stable hooks without mutating the thread before approval validation', async () => {
     const threadModel = {
       findById: vi.fn().mockResolvedValue({
         id: 'thread',
@@ -165,11 +165,13 @@ describe('createGroupMemberApprovalDeps thread hooks', () => {
       messageModel: {},
       agentRuntimeService: {},
     } as any);
-    const hooks = await deps.createThreadHooks('thread');
+    const hooks = await deps.createThreadHooks('thread', 'paused');
+    const retryHooks = await deps.createThreadHooks('thread', 'paused');
     const runToken = hooks[0].webhook?.body?.runToken;
     expect(runToken).toEqual(expect.any(String));
     expect(runToken).not.toBe('retired');
-    expect(threadModel.setRunToken).toHaveBeenCalledWith('thread', runToken);
+    expect(retryHooks[0].webhook?.body?.runToken).toBe(runToken);
+    expect(threadModel.setRunToken).not.toHaveBeenCalled();
     expect(hooks.every((hook) => hook.webhook?.body?.runToken === runToken)).toBe(true);
   });
 });

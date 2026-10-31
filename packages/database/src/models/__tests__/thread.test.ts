@@ -132,6 +132,40 @@ describe('ThreadModel', () => {
       });
     });
 
+    it('keeps human waiting resumable under the same id and rejects late waiting', async () => {
+      const thread = await createRun();
+      expect(
+        await threadModel.completeRun(thread.id, 'token', 'same-op', ThreadStatus.InReview, {}),
+      ).toBe(true);
+      expect(
+        (await threadModel.findById(thread.id))?.metadata?.completedOperationId,
+      ).toBeUndefined();
+      expect(
+        await threadModel.completeRun(thread.id, 'token', 'same-op', ThreadStatus.Completed, {
+          totalTokens: 42,
+        }),
+      ).toBe(true);
+      expect(
+        await threadModel.completeRun(thread.id, 'token', 'same-op', ThreadStatus.InReview, {
+          totalTokens: 1,
+        }),
+      ).toBe(false);
+      expect((await threadModel.findById(thread.id))?.metadata?.totalTokens).toBe(42);
+    });
+
+    it('does not rotate or reset progress for a duplicate approval generation', async () => {
+      const thread = await createRun();
+      expect(await threadModel.setRunToken(thread.id, 'continuation-token', 'old-op')).toBe(true);
+      await threadModel.updateProgressForRun(thread.id, 'continuation-token', 'continued', 4, {});
+      expect(await threadModel.setRunToken(thread.id, 'continuation-token', 'old-op')).toBe(true);
+      expect(await threadModel.setRunToken(thread.id, 'other-token', 'old-op')).toBe(false);
+      expect((await threadModel.findById(thread.id))?.metadata).toMatchObject({
+        runToken: 'continuation-token',
+        progressStep: 4,
+        operationId: 'continued',
+      });
+    });
+
     it('allows approval continuation from inReview and rejects the retired token', async () => {
       const thread = await createRun();
       expect(
@@ -146,7 +180,7 @@ describe('ThreadModel', () => {
         await threadModel.completeRun(thread.id, 'token', 'continued', ThreadStatus.InReview, {}),
       ).toBe(true);
       await threadModel.updateProgressForRun(thread.id, 'token', 'continued', 5, {});
-      expect(await threadModel.setRunToken(thread.id, 'new-token')).toBe(true);
+      expect(await threadModel.setRunToken(thread.id, 'new-token', 'continued')).toBe(true);
       const renewed = await threadModel.findById(thread.id);
       expect(renewed?.status).toBe(ThreadStatus.InReview);
       expect(renewed?.metadata?.runToken).toBe('new-token');
@@ -236,7 +270,7 @@ describe('ThreadModel', () => {
       );
       expect(await other.linkRunOperation(thread.id, 'token', 'run')).toBe(false);
       expect(await other.failRun(thread.id, 'token', {})).toBe(false);
-      expect(await other.setRunToken(thread.id, 'new')).toBe(false);
+      expect(await other.setRunToken(thread.id, 'new', 'old-op')).toBe(false);
       await serverDB.insert(workspaces).values({
         id: 'callback-workspace',
         primaryOwnerId: userId,

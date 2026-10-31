@@ -222,7 +222,12 @@ export async function applyThreadCompletion(
     lastAssistantContent?: string;
     reason?: string;
     sourceMessageId?: string;
-    state?: AgentState;
+    summary?: {
+      error?: unknown;
+      totalCost?: number | null;
+      totalTokens?: number | null;
+      totalToolCalls?: number | null;
+    };
     totalMessages?: number;
   },
 ): Promise<boolean> {
@@ -233,7 +238,7 @@ export async function applyThreadCompletion(
     runToken,
     sourceMessageId,
     startedAt,
-    state,
+    summary,
     threadId,
     totalMessages,
     usageBaseline = {},
@@ -259,17 +264,21 @@ export async function applyThreadCompletion(
   }
 
   const matched = await threadModel.completeRun(threadId, runToken, operationId, status, {
-    completedAt: new Date(now).toISOString(),
+    ...(status !== ThreadStatus.InReview && { completedAt: new Date(now).toISOString() }),
     duration: now - new Date(startedAt).getTime(),
     operationId,
     startedAt,
     ...(totalMessages !== undefined && { totalMessages }),
     // An expired state is not evidence of zero usage. Preserve existing values.
-    ...(state && {
-      error: formatErrorForMetadata(state.error),
-      totalCost: addUsage(usageBaseline.totalCost, state.cost?.total),
-      totalTokens: addUsage(usageBaseline.totalTokens, calculateTotalTokens(state.usage)),
-      totalToolCalls: addUsage(usageBaseline.totalToolCalls, state.usage?.tools?.totalCalls),
+    ...(summary?.error != null && { error: formatErrorForMetadata(summary.error) }),
+    ...(summary?.totalCost != null && {
+      totalCost: addUsage(usageBaseline.totalCost, summary.totalCost),
+    }),
+    ...(summary?.totalTokens != null && {
+      totalTokens: addUsage(usageBaseline.totalTokens, summary.totalTokens),
+    }),
+    ...(summary?.totalToolCalls != null && {
+      totalToolCalls: addUsage(usageBaseline.totalToolCalls, summary.totalToolCalls),
     }),
   });
   if (matched && sourceMessageId && lastAssistantContent) {
@@ -341,7 +350,12 @@ export function createThreadHooks(
             runToken,
             sourceMessageId,
             startedAt,
-            state,
+            summary: {
+              error: state.error,
+              totalCost: state.cost?.total,
+              totalTokens: calculateTotalTokens(state.usage),
+              totalToolCalls: state.usage?.tools?.totalCalls,
+            },
             threadId,
             totalMessages: state.messages?.length ?? 0,
             usageBaseline,

@@ -10,6 +10,7 @@ import { threadCallback } from '../threadCallback';
 
 const mocks = vi.hoisted(() => ({
   completeRun: vi.fn(),
+  findOperation: vi.fn(),
   findById: vi.fn(),
   getOperationMetadata: vi.fn(),
   loadAgentState: vi.fn(),
@@ -22,6 +23,11 @@ vi.mock('@/database/core/db-adaptor', () => ({
   getServerDB: async () => ({
     transaction: async (fn: (tx: unknown) => unknown) => fn({}),
     select: () => ({ from: () => ({ where: () => ({ limit: async () => mocks.rows }) }) }),
+  }),
+}));
+vi.mock('@/database/models/agentOperation', () => ({
+  AgentOperationModel: vi.fn(function () {
+    return { findById: mocks.findOperation };
   }),
 }));
 vi.mock('@/database/models/thread', () => ({
@@ -76,6 +82,7 @@ describe('thread callback', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.rows = [];
+    mocks.findOperation.mockResolvedValue({ cost: null, usage: null, error: null });
     mocks.getOperationMetadata.mockResolvedValue({ userId: 'user', workspaceId: 'workspace' });
     mocks.findById.mockResolvedValue({
       id: 'thread',
@@ -155,6 +162,48 @@ describe('thread callback', () => {
     expect(mocks.completeRun).not.toHaveBeenCalled();
   });
 
+  it.each(['missing', 'query-failed'])(
+    'retries an expired-state callback with %s durable data',
+    async (mode) => {
+      mocks.loadAgentState.mockResolvedValue(null);
+      if (mode === 'missing') mocks.findOperation.mockResolvedValue(null);
+      else mocks.findOperation.mockRejectedValue(new Error('database unavailable'));
+      const response = await call({ ...base, hookType: 'onComplete', reason: 'done' });
+      expect(response.status).toBeGreaterThanOrEqual(500);
+      expect(mocks.completeRun).not.toHaveBeenCalled();
+      expect(mocks.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it('recovers final cost, usage and error from the durable operation after Redis expires', async () => {
+    mocks.loadAgentState.mockResolvedValue(null);
+    mocks.findOperation.mockResolvedValue({
+      userId: 'user',
+      workspaceId: 'workspace',
+      cost: { total: 2 },
+      totalCost: 2,
+      totalTokens: 77,
+      toolCalls: 3,
+      usage: { llm: { tokens: { total: 77 } }, tools: { totalCalls: 3 } },
+      error: { type: 'AgentRuntimeError', message: 'durable error' },
+      status: 'error',
+    });
+    const response = await call({ ...base, hookType: 'onComplete', reason: 'error' });
+    expect(response.status).toBe(200);
+    expect(mocks.completeRun).toHaveBeenCalledWith(
+      'thread',
+      'token',
+      'op',
+      'failed',
+      expect.objectContaining({
+        totalCost: 2,
+        totalTokens: 177,
+        totalToolCalls: 5,
+        error: expect.objectContaining({ message: 'durable error' }),
+      }),
+    );
+  });
+
   it('completes and updates the source summary', async () => {
     expect(
       (await call({ ...base, hookType: 'onComplete', reason: 'done', sourceMessageId: 'source' }))
@@ -224,7 +273,7 @@ describe('thread callback', () => {
     expect(mocks.completeRun).toHaveBeenCalledTimes(1);
   });
 
-  it('acknowledges a duplicate waiting_for_human completion while still inReview', async () => {
+  it('lets the conditional write deduplicate human waiting without assuming final completion', async () => {
     mocks.findById.mockResolvedValue({
       status: 'inReview',
       metadata: { runToken: 'token', completedOperationId: 'op' },
@@ -232,7 +281,7 @@ describe('thread callback', () => {
     expect(
       (await call({ ...base, hookType: 'onComplete', reason: 'waiting_for_human' })).status,
     ).toBe(200);
-    expect(mocks.completeRun).not.toHaveBeenCalled();
+    expect(mocks.completeRun).toHaveBeenCalledTimes(1);
   });
 
   it('ignores late callbacks carrying the retired token after approval continuation', async () => {

@@ -6,6 +6,7 @@ import type { Context } from 'hono';
 import { z } from 'zod';
 
 import { getServerDB } from '@/database/core/db-adaptor';
+import { AgentOperationModel } from '@/database/models/agentOperation';
 import { MessageModel } from '@/database/models/message';
 import { ThreadModel } from '@/database/models/thread';
 import { agentOperations } from '@/database/schemas/agentOperations';
@@ -83,8 +84,7 @@ export async function threadCallback(c: Context): Promise<Response> {
     }
     if (
       ![ThreadStatus.Processing, ThreadStatus.InReview].includes(thread.status as ThreadStatus) ||
-      thread.metadata?.runToken !== runToken ||
-      (hookType === 'onComplete' && thread.metadata.completedOperationId === operationId)
+      thread.metadata?.runToken !== runToken
     ) {
       return c.json({ skipped: true });
     }
@@ -122,6 +122,29 @@ export async function threadCallback(c: Context): Promise<Response> {
       return c.json({ success: true, updated });
     }
 
+    // The terminal row is persisted before this hook is accepted. Redis expiry
+    // must not freeze an incomplete final usage/error summary onto the thread.
+    const durableOperation = !state
+      ? await new AgentOperationModel(serverDB, owner.userId, owner.workspaceId).findById(
+          operationId,
+        )
+      : undefined;
+    if (!state && !durableOperation)
+      return c.json({ error: 'Final operation data unavailable' }, 503);
+    const summary = state
+      ? {
+          cost: state.cost?.total,
+          tokens: calculateTotalTokens(state.usage),
+          toolCalls: state.usage?.tools?.totalCalls,
+          error: state.error,
+        }
+      : {
+          cost: durableOperation!.totalCost,
+          tokens: durableOperation!.totalTokens,
+          toolCalls: durableOperation!.toolCalls,
+          error: durableOperation!.error,
+        };
+
     // The durable thread supplies the query scope when the Redis state expired.
     const messageState =
       state ??
@@ -151,7 +174,12 @@ export async function threadCallback(c: Context): Promise<Response> {
           runToken,
           sourceMessageId: body.sourceMessageId,
           startedAt,
-          state: state ?? undefined,
+          summary: {
+            error: summary.error,
+            totalCost: summary.cost,
+            totalTokens: summary.tokens,
+            totalToolCalls: summary.toolCalls,
+          },
           threadId,
           totalMessages: messages.length,
           usageBaseline,

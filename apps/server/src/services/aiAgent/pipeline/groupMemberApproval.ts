@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 
 import type { ExecAgentResult, MessagePluginItem } from '@lobechat/types';
 
@@ -38,7 +38,7 @@ export interface GroupMemberApprovalDeps {
    * status) for a continued isolated member. Hooks are not carried over from
    * the parked op, so without these the thread never leaves processing.
    */
-  createThreadHooks: (threadId: string) => Promise<AgentHook[]>;
+  createThreadHooks: (threadId: string, sourceOperationId: string) => Promise<AgentHook[]>;
   findMessagePlugin: (messageId: string) => Promise<MessagePluginItem | undefined>;
   /**
    * The parked member run's identity and completion bridge — from its runtime
@@ -64,13 +64,14 @@ export const createGroupMemberApprovalDeps = (models: {
 }): GroupMemberApprovalDeps => ({
   createBridgeHook: (bridge) =>
     createGroupActionMemberBridgeHook(models.agentRuntimeService, bridge),
-  createThreadHooks: async (threadId) => {
+  createThreadHooks: async (threadId, sourceOperationId) => {
     const thread = await models.threadModel.findById(threadId);
     if (!thread?.sourceMessageId) return [];
-    const runToken = randomUUID();
-    if (!(await models.threadModel.setRunToken(thread.id, runToken))) {
-      throw new Error('Failed to renew thread run token');
-    }
+    // Pure preparation: rejected/reused requests must never rotate the thread.
+    // A retry of this parked operation prepares the exact same generation.
+    const runToken = createHash('sha256')
+      .update(JSON.stringify([thread.id, sourceOperationId]))
+      .digest('hex');
     return createThreadHooks(
       models.agentRuntimeService,
       models.threadModel,
@@ -135,7 +136,7 @@ export const resolveGroupMemberApprovalContinuation = async (
   const threadId = member.threadId;
   // Same order as the original isolated start: thread hooks first, bridge last
   // so its tool-message backfill is the final write.
-  const threadHooks = threadId ? await deps.createThreadHooks(threadId) : [];
+  const threadHooks = threadId ? await deps.createThreadHooks(threadId, sourceOperationId) : [];
 
   return {
     ...params,

@@ -199,14 +199,31 @@ export class ThreadModel {
   };
 
   /** Rotate an approval continuation's generation before its operation starts. */
-  setRunToken = async (id: string, runToken: string): Promise<boolean> => {
+  setRunToken = async (
+    id: string,
+    runToken: string,
+    sourceOperationId: string,
+  ): Promise<boolean> => {
+    const thread = await this.findById(id);
+    if (!thread) return false;
+    // A crash/retry after rotation must not reset B's progress.
+    if (thread.metadata?.runToken === runToken) return true;
+    if (thread.metadata?.operationId !== sourceOperationId) return false;
     const rows = await this.db
       .update(threads)
       .set({
         metadata: sql`(COALESCE(${threads.metadata}, '{}'::jsonb) - 'progressStep' - 'progressOperationId') || ${JSON.stringify({ runToken })}::jsonb`,
         updatedAt: new Date(),
       })
-      .where(and(eq(threads.id, id), this.ownership()))
+      .where(
+        and(
+          eq(threads.id, id),
+          this.ownership(),
+          inArray(threads.status, [ThreadStatus.Processing, ThreadStatus.InReview]),
+          sql`${threads.metadata} ->> 'operationId' = ${sourceOperationId}`,
+          sql`${threads.metadata} ->> 'runToken' = ${thread.metadata?.runToken ?? ''}`,
+        ),
+      )
       .returning({ id: threads.id });
     return rows.length > 0;
   };
@@ -285,7 +302,7 @@ export class ThreadModel {
     return rows.length > 0;
   };
 
-  /** Exactly one completion per operation, including a paused inReview segment. */
+  /** Human review is resumable; only a true ending consumes final-completion identity. */
   completeRun = async (
     id: string,
     runToken: string,
@@ -296,7 +313,7 @@ export class ThreadModel {
     const rows = await this.db
       .update(threads)
       .set({
-        metadata: sql`COALESCE(${threads.metadata}, '{}'::jsonb) || ${JSON.stringify({ ...metadata, completedOperationId: operationId, operationId, runToken })}::jsonb`,
+        metadata: sql`COALESCE(${threads.metadata}, '{}'::jsonb) || ${JSON.stringify({ ...metadata, ...(status !== ThreadStatus.InReview && { completedOperationId: operationId }), operationId, runToken })}::jsonb`,
         status,
         updatedAt: new Date(),
       })
@@ -306,7 +323,21 @@ export class ThreadModel {
           this.ownership(),
           inArray(threads.status, [ThreadStatus.Processing, ThreadStatus.InReview]),
           sql`${threads.metadata} ->> 'runToken' = ${runToken}`,
-          sql`COALESCE(${threads.metadata} ->> 'completedOperationId', '') <> ${operationId}`,
+          or(
+            sql`COALESCE(${threads.metadata} ->> 'completedOperationId', '') <> ${operationId}`,
+            // Historical waiting callbacks wrote the final marker too.
+            ...(status !== ThreadStatus.InReview
+              ? [eq(threads.status, ThreadStatus.InReview)]
+              : []),
+          ),
+          ...(status === ThreadStatus.InReview
+            ? [
+                or(
+                  eq(threads.status, ThreadStatus.Processing),
+                  sql`COALESCE(${threads.metadata} ->> 'operationId', '') <> ${operationId}`,
+                ),
+              ]
+            : []),
         ),
       )
       .returning({ id: threads.id });
