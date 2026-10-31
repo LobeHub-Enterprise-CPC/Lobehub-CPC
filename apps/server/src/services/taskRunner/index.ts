@@ -167,11 +167,13 @@ export class TaskRunnerService {
         schedulePreferences?.newChatPerRun === false &&
         !existingTopics.some((topic) => topic.status === 'running')
       ) {
-        const previous = existingTopics.find((topic) => topic.status === 'completed');
-        if (previous) {
-          const previousTopic = await this.topicModel.findById(previous.topicId);
+        const previousTopicId = existingTopics.find(
+          (topic) => topic.status === 'completed',
+        )?.topicId;
+        if (previousTopicId) {
+          const previousTopic = await this.topicModel.findById(previousTopicId);
           // Never continue a thread belonging to a previous assignee.
-          if (previousTopic?.agentId === task.assigneeAgentId) continueTopicId = previous.topicId;
+          if (previousTopic?.agentId === task.assigneeAgentId) continueTopicId = previousTopicId;
         }
       }
 

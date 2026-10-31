@@ -14,8 +14,8 @@ export interface ScheduleFormValue {
   ends: boolean;
   frequency: ScheduleFrequency;
   interval: number;
-  monthDay: number;
   maxExecutions?: number | null;
+  monthDay: number;
   time: string;
   timezone: string;
   weekday: number | string;
@@ -83,11 +83,7 @@ export const validateScheduleForm = (
       from: now,
     });
     if (upcoming.valid && upcoming.nextRuns[0] > end.toDate()) return 'invalidEnd';
-    const start =
-      value.frequency === 'once'
-        ? dayjs.tz(`${value.date} ${value.time}`, value.timezone)
-        : dayjs(now);
-    if (!end.isValid() || end.format('YYYY-MM-DD') !== value.endDate || end.isBefore(start))
+    if (!end.isValid() || end.format('YYYY-MM-DD') !== value.endDate || end.isBefore(now))
       return 'invalidEnd';
   }
   return null;
