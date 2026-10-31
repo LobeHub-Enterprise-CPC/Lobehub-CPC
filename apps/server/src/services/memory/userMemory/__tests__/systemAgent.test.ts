@@ -63,13 +63,41 @@ describe('resolveMemoryServiceModelConfig', () => {
     });
   });
 
-  it('does not fill memory slots from the tenant default model', async () => {
+  // Business builds ignore MEMORY_USER_MEMORY_*, so without this the gatekeeper,
+  // layer extractor and persona writer would run on the code default model,
+  // which the tenant's router may not serve at all.
+  it("runs the memory chat agents on the tenant's default model", async () => {
     tenantSystemAgent({ default: 'tenant-chat' });
 
     const result = await resolveMemoryServiceModelConfig(undefined);
 
-    expect(result?.memoryAnalysisAgentConfig).toBeUndefined();
+    expect(result?.memoryAnalysisAgentConfig).toMatchObject({
+      model: 'tenant-chat',
+      provider: 'lobehub',
+    });
+    expect(result?.userMemoryPersonaWriter).toMatchObject({
+      model: 'tenant-chat',
+      provider: 'lobehub',
+    });
+    // `default` is a chat model; embedding needs its own explicit slot.
     expect(result?.userMemoryEmbedding).toBeUndefined();
+  });
+
+  it("prefers the tenant's explicit memory slot over its default model", async () => {
+    tenantSystemAgent({ default: 'tenant-chat', memoryAnalysisAgentConfig: 'tenant-analysis' });
+
+    const result = await resolveMemoryServiceModelConfig(undefined);
+
+    expect(result?.memoryAnalysisAgentConfig?.model).toBe('tenant-analysis');
+    expect(result?.userMemoryPersonaWriter?.model).toBe('tenant-chat');
+  });
+
+  it('leaves memory slots to the code default for a tenant without system agents', async () => {
+    tenantSystemAgent({});
+
+    const result = await resolveMemoryServiceModelConfig(undefined);
+
+    expect(result?.memoryAnalysisAgentConfig).toBeUndefined();
     expect(result?.userMemoryPersonaWriter).toBeUndefined();
   });
 

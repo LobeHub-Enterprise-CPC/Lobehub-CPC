@@ -1,6 +1,6 @@
 import type { RuntimeProcessorResult } from '@lobechat/agent-signal';
 import { AGENT_SIGNAL_SOURCE_TYPES } from '@lobechat/agent-signal/source';
-import { DEFAULT_MINI_SYSTEM_AGENT_ITEM, TRACING_SCENARIOS } from '@lobechat/const';
+import { TRACING_SCENARIOS } from '@lobechat/const';
 import type { TracingOptions } from '@lobechat/llm-generation-tracing';
 import {
   AGENT_SIGNAL_FEEDBACK_SATISFACTION_JSON_SCHEMA,
@@ -13,6 +13,7 @@ import { z } from 'zod';
 
 import type { LobeChatDatabase } from '@/database/type';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { resolveDefaultSystemAgentModelConfig } from '@/server/services/systemAgent/modelConfig';
 
 import type { AgentSignalBudgetDecision } from '../../budget';
 import { classifySatisfaction, transitionToSignals } from '../../processors';
@@ -107,7 +108,7 @@ export interface CreateFeedbackSatisfactionJudgePolicyOptions {
  */
 export class FeedbackSatisfactionJudgeAgentService implements FeedbackSatisfactionJudge {
   private readonly db: LobeChatDatabase;
-  private readonly modelConfig: FeedbackSatisfactionJudgeAgentModelConfig;
+  private readonly modelConfig: Partial<FeedbackSatisfactionJudgeAgentModelConfig>;
   private readonly userId: string;
   private readonly workspaceId?: string;
 
@@ -120,10 +121,7 @@ export class FeedbackSatisfactionJudgeAgentService implements FeedbackSatisfacti
     this.db = db;
     this.userId = userId;
     this.workspaceId = workspaceId;
-    this.modelConfig = {
-      model: modelConfig.model ?? DEFAULT_MINI_SYSTEM_AGENT_ITEM.model,
-      provider: modelConfig.provider ?? DEFAULT_MINI_SYSTEM_AGENT_ITEM.provider,
-    };
+    this.modelConfig = modelConfig;
   }
 
   /**
@@ -142,23 +140,20 @@ export class FeedbackSatisfactionJudgeAgentService implements FeedbackSatisfacti
     params: JudgeFeedbackSatisfactionParams,
   ): Promise<AgentSignalFeedbackSatisfactionStagePayload> {
     const payload = chainAgentSignalAnalyzeIntentFeedbackSatisfaction(params);
+    const modelConfig = await resolveDefaultSystemAgentModelConfig(this.modelConfig);
     const modelRuntime = await initModelRuntimeFromDB(
       this.db,
       this.userId,
-      this.modelConfig.provider,
+      modelConfig.provider,
       this.workspaceId,
     );
 
-    log(
-      'judgeSatisfaction model=%s provider=%s',
-      this.modelConfig.model,
-      this.modelConfig.provider,
-    );
+    log('judgeSatisfaction model=%s provider=%s', modelConfig.model, modelConfig.provider);
 
     const result = await modelRuntime.generateObject(
       {
         messages: payload.messages,
-        model: this.modelConfig.model,
+        model: modelConfig.model,
         schema: AGENT_SIGNAL_FEEDBACK_SATISFACTION_JSON_SCHEMA,
       },
       {

@@ -31,12 +31,22 @@ export interface MultimodalUnderstandingModel {
 
 /** Models the server picks for its own work, as configured for this deployment or tenant. */
 export interface ServerSystemModels {
+  /** Raw tenant fallback for system tasks without a named slot. */
+  defaultModel?: SystemAgentModelAssignment;
   filesConfig: SystemEmbeddingConfig;
   /** Unset: the multimodal understanding capability is off. */
   multimodalUnderstanding?: MultimodalUnderstandingModel;
   /** Deployment layer of the system agent config, below the user's own settings. */
   systemAgent: Partial<UserServiceModelConfig>;
 }
+
+/**
+ * Memory agents that run on a chat model. `SYSTEM_AGENT`'s `default` leaves them
+ * to the `MEMORY_USER_MEMORY_*` variables, which business builds do not read
+ * (spec FR-TS-04), so here the tenant's `default` fills them when they are not
+ * set explicitly. The embedding slot still needs an embedding model of its own.
+ */
+const MEMORY_CHAT_SLOTS = ['memoryAnalysisAgentConfig', 'userMemoryPersonaWriter'] as const;
 
 const fromTenant = ({
   fileEmbedding,
@@ -49,8 +59,12 @@ const fromTenant = ({
   for (const [slot, model] of Object.entries(systemAgent)) {
     if (model) assignments[slot] = { model, provider };
   }
+  if (assignments.default) {
+    for (const slot of MEMORY_CHAT_SLOTS) assignments[slot] ??= assignments.default;
+  }
 
   return {
+    defaultModel: assignments.default,
     filesConfig: fileEmbedding
       ? { ...DEFAULT_FILES_CONFIG, embeddingModel: { model: fileEmbedding, provider } }
       : DEFAULT_FILES_CONFIG,

@@ -127,6 +127,10 @@ const mockGlobalConfigDependencies = (
   vi.doMock('./parseMemoryExtractionConfig', () => ({
     getPublicMemoryExtractionConfig: vi.fn(() => ({})),
   }));
+
+  vi.doMock('@/server/services/memory/userMemory/systemAgent', () => ({
+    resolveMemoryServiceModelConfig: vi.fn(async () => undefined),
+  }));
 };
 
 const loadCapturedProviderConfig = async (enableBusinessFeatures: boolean) => {

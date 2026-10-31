@@ -1,4 +1,4 @@
-import { DEFAULT_SYSTEM_AGENT_CONFIG } from '@lobechat/const';
+import { DEFAULT_MINI_SYSTEM_AGENT_ITEM, DEFAULT_SYSTEM_AGENT_CONFIG } from '@lobechat/const';
 import type { SystemAgentItem, UserSystemAgentConfigKey } from '@lobechat/types';
 
 import { getServerSystemModels } from '@/server/globalConfig/systemModels';
@@ -27,4 +27,15 @@ export const resolveSystemAgentModelConfig = async ({
     override?.provider || taskConfig?.provider || deployment?.provider || defaults.provider;
 
   return { model, provider };
+};
+
+/** Tenant fallback for system tasks with no dedicated system-agent slot. */
+export const resolveDefaultSystemAgentModelConfig = async (
+  override?: Partial<Pick<SystemAgentItem, 'model' | 'provider'>>,
+): Promise<{ model: string; provider: string }> => {
+  const deployment = (await getServerSystemModels()).defaultModel;
+  return {
+    model: override?.model || deployment?.model || DEFAULT_MINI_SYSTEM_AGENT_ITEM.model,
+    provider: override?.provider || deployment?.provider || DEFAULT_MINI_SYSTEM_AGENT_ITEM.provider,
+  };
 };

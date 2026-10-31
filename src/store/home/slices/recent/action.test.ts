@@ -18,6 +18,8 @@ import { setScopedMutate } from '@/libs/swr/mutate';
 import { fileService } from '@/services/file';
 import { recentService } from '@/services/recent';
 import { taskService } from '@/services/task';
+import { topicService } from '@/services/topic';
+import { useChatStore } from '@/store/chat';
 import { useHomeStore } from '@/store/home';
 import { createRecentQueryKey, initialRecentState } from '@/store/home/slices/recent/initialState';
 import {
@@ -392,4 +394,25 @@ describe('resource home recents replica', () => {
     await waitFor(() => expect(result.current.isHydrated).toBe(true));
     expect(homeRecentSelectors.resourceFiles({})(useHomeStore.getState())).toBeUndefined();
   });
+});
+
+it('refreshes the visible Recents title after a chat topic title is persisted', async () => {
+  mockAgentProfileNavigation = true;
+  let persistedTitle = 'First user message';
+  vi.spyOn(recentService, 'getRecentTopics').mockImplementation(async () => [
+    item('title-topic', persistedTitle, 'topic'),
+  ]);
+  vi.spyOn(topicService, 'updateTopic').mockImplementation(async (_id, data) => {
+    persistedTitle = data.title!;
+    return [];
+  });
+  renderHook(() => useHomeStore.getState().useFetchRecents(true, 10), { wrapper });
+  await waitFor(() => expect(titleOf(SIDEBAR, 'topic:title-topic')).toBe('First user message'));
+
+  await act(async () => {
+    await useChatStore.getState().internal_updateTopic('title-topic', { title: 'Generated title' });
+  });
+
+  expect(persistedTitle).toBe('Generated title');
+  expect(titleOf(SIDEBAR, 'topic:title-topic')).toBe('Generated title');
 });

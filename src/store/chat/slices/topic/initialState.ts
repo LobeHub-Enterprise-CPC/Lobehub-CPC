@@ -119,6 +119,8 @@ export interface ChatTopicState {
   topicLoadingIds: string[];
   topicRenamingId?: string;
   topicSearchKeywords: string;
+  /** First-reply title generation deferred across send/runtime lifecycle instances. */
+  topicTitlePendingIds: string[];
 }
 
 export const initialTopicState: ChatTopicState = {
@@ -138,4 +140,5 @@ export const initialTopicState: ChatTopicState = {
   topicLoadingIds: [],
   topicEffortUpdatingIds: [],
   topicSearchKeywords: '',
+  topicTitlePendingIds: [],
 };

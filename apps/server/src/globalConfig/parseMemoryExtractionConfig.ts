@@ -7,6 +7,7 @@ import {
   type MemoryAgentPublicConfig,
   type MemoryLayerExtractorPublicConfig,
 } from '@/types/serverConfig';
+import { type UserServiceModelConfig } from '@/types/user/settings';
 
 const MEMORY_LAYERS: GlobalMemoryLayer[] = [
   'activity',
@@ -367,16 +368,47 @@ export const parseMemoryExtractionConfig = (): MemoryExtractionPrivateConfig => 
   };
 };
 
-export const getPublicMemoryExtractionConfig = (): GlobalMemoryExtractionConfig => {
+type MemoryServiceModels = Pick<
+  Partial<UserServiceModelConfig>,
+  'memoryAnalysisAgentConfig' | 'userMemoryEmbedding'
+>;
+
+const withServiceModel = <T extends MemoryAgentPublicConfig>(
+  agent: T,
+  slot?: { model?: string; provider?: string },
+): T => ({
+  ...agent,
+  model: slot?.model || agent.model,
+  provider: slot?.provider || agent.provider,
+});
+
+/**
+ * @param serviceModels The deployment's memory service models (the tenant's
+ * `system_models` in business builds), reported in place of the extraction
+ * config fallback the same way the extractor resolves them.
+ */
+export const getPublicMemoryExtractionConfig = (
+  serviceModels?: MemoryServiceModels,
+): GlobalMemoryExtractionConfig => {
   const privateConfig = parseMemoryExtractionConfig();
+  const analysis = serviceModels?.memoryAnalysisAgentConfig;
+  const layers = analysis?.model
+    ? (Object.fromEntries(MEMORY_LAYERS.map((layer) => [layer, analysis.model])) as Record<
+        GlobalMemoryLayer,
+        string
+      >)
+    : privateConfig.agentLayerExtractor.layers;
 
   return {
-    agentGateKeeper: sanitizeAgent(privateConfig.agentGateKeeper)!,
+    agentGateKeeper: withServiceModel(sanitizeAgent(privateConfig.agentGateKeeper)!, analysis),
     agentLayerExtractor: {
-      ...sanitizeAgent(privateConfig.agentLayerExtractor),
-      layers: privateConfig.agentLayerExtractor.layers,
+      ...withServiceModel(sanitizeAgent(privateConfig.agentLayerExtractor)!, analysis),
+      layers,
     },
     concurrency: privateConfig.concurrency,
-    embedding: sanitizeAgent(privateConfig.embedding),
+    embedding: withServiceModel(
+      sanitizeAgent(privateConfig.embedding)!,
+      serviceModels?.userMemoryEmbedding,
+    ),
   };
 };

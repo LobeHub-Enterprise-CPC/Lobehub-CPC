@@ -1,4 +1,4 @@
-import { DEFAULT_MINI_SYSTEM_AGENT_ITEM, TRACING_SCENARIOS } from '@lobechat/const';
+import { TRACING_SCENARIOS } from '@lobechat/const';
 import type { TracingOptions } from '@lobechat/llm-generation-tracing';
 import {
   AGENT_SIGNAL_FEEDBACK_DOMAIN_JSON_SCHEMA,
@@ -11,6 +11,7 @@ import { z } from 'zod';
 
 import type { LobeChatDatabase } from '@/database/type';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { resolveDefaultSystemAgentModelConfig } from '@/server/services/systemAgent/modelConfig';
 
 import type {
   AgentSignalFeedbackEvidence,
@@ -74,7 +75,7 @@ export interface JudgeFeedbackDomainsParams {
  */
 export class FeedbackDomainJudgeAgentService {
   private readonly db: LobeChatDatabase;
-  private readonly modelConfig: FeedbackDomainJudgeAgentModelConfig;
+  private readonly modelConfig: Partial<FeedbackDomainJudgeAgentModelConfig>;
   private readonly userId: string;
   private readonly workspaceId?: string;
 
@@ -87,10 +88,7 @@ export class FeedbackDomainJudgeAgentService {
     this.db = db;
     this.userId = userId;
     this.workspaceId = workspaceId;
-    this.modelConfig = {
-      model: modelConfig.model ?? DEFAULT_MINI_SYSTEM_AGENT_ITEM.model,
-      provider: modelConfig.provider ?? DEFAULT_MINI_SYSTEM_AGENT_ITEM.provider,
-    };
+    this.modelConfig = modelConfig;
   }
 
   /**
@@ -108,19 +106,20 @@ export class FeedbackDomainJudgeAgentService {
    */
   async judgeDomains(params: JudgeFeedbackDomainsParams): Promise<FeedbackDomainJudgeAgentResult> {
     const payload = chainAgentSignalAnalyzeIntentRoute(params);
+    const modelConfig = await resolveDefaultSystemAgentModelConfig(this.modelConfig);
     const modelRuntime = await initModelRuntimeFromDB(
       this.db,
       this.userId,
-      this.modelConfig.provider,
+      modelConfig.provider,
       this.workspaceId,
     );
 
-    log('judgeDomains model=%s provider=%s', this.modelConfig.model, this.modelConfig.provider);
+    log('judgeDomains model=%s provider=%s', modelConfig.model, modelConfig.provider);
 
     const result = await modelRuntime.generateObject(
       {
         messages: payload.messages,
-        model: this.modelConfig.model,
+        model: modelConfig.model,
         schema: AGENT_SIGNAL_FEEDBACK_DOMAIN_JSON_SCHEMA,
       },
       {

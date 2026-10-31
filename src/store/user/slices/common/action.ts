@@ -1,7 +1,9 @@
+import { DEFAULT_SETTINGS } from '@lobechat/config';
 import { isDesktop } from '@lobechat/const';
 import type { ReplicaSlice } from '@lobechat/replica/zustand';
 import type { UserGeneralConfig } from '@lobechat/types';
 import isEqual from 'fast-deep-equal';
+import { useEffect } from 'react';
 import { type SWRResponse } from 'swr';
 import useSWR from 'swr';
 import { type PartialDeep } from 'type-fest';
@@ -49,6 +51,17 @@ const USER_STATE_PARAMS = {} as Record<string, never>;
 type UserStateReplica = ReplicaSlice<UserStore, Record<string, never>, UserInitializationState>;
 
 /**
+ * The defaults layer under the user's own settings: code defaults, then the
+ * deployment's (in business builds the tenant's) server config.
+ */
+const buildDefaultSettings = (serverConfig?: GlobalServerConfig): UserSettings =>
+  merge(DEFAULT_SETTINGS, {
+    defaultAgent: serverConfig?.defaultAgent,
+    image: serverConfig?.image,
+    systemAgent: serverConfig?.systemAgent,
+  } as PartialDeep<UserSettings>);
+
+/**
  * Common actions
  */
 
@@ -83,14 +96,7 @@ export class CommonActionImpl {
    * selector already reads. Mirrors the previous hand-written `#set` block.
    */
   #project = (state: UserStore, data: UserInitializationState): Partial<UserStore> => {
-    // merge settings
-    const serverSettings: PartialDeep<UserSettings> = {
-      defaultAgent: this.#serverConfig?.defaultAgent,
-      image: this.#serverConfig?.image,
-      systemAgent: this.#serverConfig?.systemAgent,
-    };
-
-    const defaultSettings = merge(state.defaultSettings, serverSettings);
+    const defaultSettings = buildDefaultSettings(this.#serverConfig);
 
     // merge preference
     const isEmpty = Object.keys(data.preference || {}).length === 0;
@@ -237,6 +243,18 @@ export class CommonActionImpl {
     },
   ): ReplicaSyncResult => {
     this.#serverConfig = serverConfig;
+
+    // The global config and the user state are fetched in parallel, and the
+    // projection only runs when the user state lands. Re-apply the defaults
+    // layer whenever the server config changes, so a user state that arrived
+    // first does not leave system agents (topic naming, translation, ...) on the
+    // code default instead of the deployment's models.
+    useEffect(() => {
+      const defaultSettings = buildDefaultSettings(serverConfig);
+      if (isEqual(defaultSettings, this.#get().defaultSettings)) return;
+
+      this.#set({ defaultSettings }, false, n('applyServerDefaultSettings'));
+    }, [serverConfig]);
 
     return this.#ensureUserState().useSync(USER_STATE_PARAMS, {
       enabled: !!isLogin || isDesktop,

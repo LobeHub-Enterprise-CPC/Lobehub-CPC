@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { parseMemoryExtractionConfig } from './parseMemoryExtractionConfig';
+import {
+  getPublicMemoryExtractionConfig,
+  parseMemoryExtractionConfig,
+} from './parseMemoryExtractionConfig';
 
 const WORKFLOW_PARALLELISM_ENV = 'MEMORY_USER_MEMORY_WORKFLOW_PROCESS_USER_TOPICS_PARALLELISM';
 
@@ -103,5 +106,24 @@ describe('parseMemoryExtractionConfig model selection env', () => {
       model: 'EMBEDDING-model',
     });
     expect(config.agentLayerExtractor.layers.identity).toBe('identity-model');
+  });
+});
+
+describe('getPublicMemoryExtractionConfig', () => {
+  it("reports the deployment's memory models instead of the extraction fallback", () => {
+    const fallback = getPublicMemoryExtractionConfig();
+
+    const config = getPublicMemoryExtractionConfig({
+      memoryAnalysisAgentConfig: { model: 'tenant-analysis', provider: 'lobehub' },
+      userMemoryEmbedding: { model: 'tenant-embedding', provider: 'lobehub' },
+    });
+
+    expect(fallback.agentGateKeeper.model).not.toBe('tenant-analysis');
+    expect(config.agentGateKeeper).toMatchObject({ model: 'tenant-analysis', provider: 'lobehub' });
+    expect(config.agentLayerExtractor).toMatchObject({
+      layers: expect.objectContaining({ identity: 'tenant-analysis' }),
+      model: 'tenant-analysis',
+    });
+    expect(config.embedding).toMatchObject({ model: 'tenant-embedding', provider: 'lobehub' });
   });
 });
