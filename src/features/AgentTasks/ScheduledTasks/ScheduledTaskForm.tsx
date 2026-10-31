@@ -66,7 +66,7 @@ export const ScheduledTaskForm = ({
   }));
   const [scheduleTouched, setScheduleTouched] = useState(false);
   const [advanced, setAdvanced] = useState(false);
-  const [assignee, setAssignee] = useState(task?.agentId || agentId || inboxId);
+  const [assignee, setAssignee] = useState<string | undefined>(task?.agentId || agentId || inboxId);
   const [project, setProject] = useState(task?.projectId || projectId);
   const [newChatPerRun, setNewChatPerRun] = useState(
     (task?.config?.schedule as { newChatPerRun?: boolean } | undefined)?.newChatPerRun !== false,
@@ -109,20 +109,14 @@ export const ScheduledTaskForm = ({
     setError('');
     setCanDismissByClickOutside(false);
     try {
-      const built =
-        !task || scheduleTouched
-          ? buildSchedule(schedule)
-          : {
-              schedule: {},
-              schedulePattern: task.schedule?.pattern,
-              scheduleTimezone: task.schedule?.timezone,
-            };
+      // An untouched edit keeps the stored schedule as it is.
+      const built = !task || scheduleTouched ? buildSchedule(schedule) : undefined;
       const config = {
         ...model,
         execution: toTaskExecutionConfigPatch(execution || {}),
         schedule: {
           ...((task?.config?.schedule || {}) as object),
-          ...built.schedule,
+          ...built?.schedule,
           newChatPerRun,
           archiveSuccessfulRuns,
         },
@@ -147,7 +141,7 @@ export const ScheduledTaskForm = ({
           },
           ...(instruction !== (task.instruction || '') ? { instruction: instruction.trim() } : {}),
           name: name.trim() || instruction.trim().slice(0, 60),
-          ...(scheduleTouched
+          ...(built
             ? { schedulePattern: built.schedulePattern, scheduleTimezone: built.scheduleTimezone }
             : {}),
         });
@@ -161,8 +155,8 @@ export const ScheduledTaskForm = ({
           instruction: instruction.trim(),
           name: instruction.trim().slice(0, 60),
           projectId: project,
-          schedulePattern: built.schedulePattern,
-          scheduleTimezone: built.scheduleTimezone,
+          schedulePattern: built?.schedulePattern,
+          scheduleTimezone: built?.scheduleTimezone,
         });
         if (!created) throw new Error('No task returned');
         identifier = created.identifier;

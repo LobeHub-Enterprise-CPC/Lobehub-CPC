@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { WEEKDAYS } from '../AgentTaskDetail/scheduler/CronConfig';
 import { FieldRow } from './FieldRow';
 import type { ScheduleFormValue, ScheduleFrequency } from './scheduleForm';
+import { weekdayLabel } from './scheduleSummary';
 import { styles } from './style';
 
 export const ScheduleFields = ({
@@ -33,9 +34,9 @@ export const ScheduleFields = ({
           <Select
             id="schedule-frequency"
             style={selectStyle}
+            suffixIcon={null}
             value={value.frequency}
             variant="borderless"
-            suffixIcon={null}
             options={(
               ['daily', 'hourly', 'weekdays', 'weekly', 'monthly'] as ScheduleFrequency[]
             ).map((frequency) => ({
@@ -61,6 +62,10 @@ export const ScheduleFields = ({
         <FieldRow id="schedule-weekday" label={t('scheduledTasks.date')}>
           <Select
             id="schedule-weekday"
+            style={selectStyle}
+            suffixIcon={null}
+            value={value.weekday}
+            variant="borderless"
             options={[
               ...(typeof value.weekday === 'string' && value.weekday.includes(',')
                 ? [
@@ -68,7 +73,7 @@ export const ScheduleFields = ({
                       value: value.weekday,
                       label: value.weekday
                         .split(',')
-                        .map((day) => t(`scheduledTasks.weekday.${day}`))
+                        .map((day) => weekdayLabel(day, t))
                         .join(' / '),
                     },
                   ]
@@ -78,10 +83,6 @@ export const ScheduleFields = ({
                 value: key,
               })),
             ]}
-            style={selectStyle}
-            value={value.weekday}
-            variant="borderless"
-            suffixIcon={null}
             onChange={(weekday) => update({ weekday })}
           />
         </FieldRow>
@@ -91,9 +92,9 @@ export const ScheduleFields = ({
           <Select
             id="schedule-monthday"
             style={selectStyle}
+            suffixIcon={null}
             value={value.monthDay}
             variant="borderless"
-            suffixIcon={null}
             options={Array.from({ length: 31 }, (_, i) => ({
               label: t('scheduledTasks.monthDay', { day: i + 1 }),
               value: i + 1,
@@ -122,8 +123,8 @@ export const ScheduleFields = ({
             maxLength={5}
             placeholder="HH:mm"
             style={{ width: 100, textAlign: 'end' }}
-            variant="borderless"
             value={value.time}
+            variant="borderless"
             onChange={(e) => update({ time: e.target.value })}
           />
         </FieldRow>

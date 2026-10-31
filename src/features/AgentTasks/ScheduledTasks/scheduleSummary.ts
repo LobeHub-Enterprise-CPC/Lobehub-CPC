@@ -4,6 +4,15 @@ import type { TFunction } from 'i18next';
 
 import { initialSchedule } from './scheduleForm';
 
+const WEEKDAY_KEYS = ['0', '1', '2', '3', '4', '5', '6'] as const;
+type WeekdayKey = (typeof WEEKDAY_KEYS)[number];
+const isWeekdayKey = (day: string): day is WeekdayKey =>
+  (WEEKDAY_KEYS as readonly string[]).includes(day);
+
+/** A cron weekday (`0`-`6`, Sunday first) by name; anything else as written. */
+export const weekdayLabel = (day: string, t: TFunction<'chat'>) =>
+  isWeekdayKey(day) ? t(`scheduledTasks.weekday.${day}`) : day;
+
 export const scheduleSummary = (
   pattern: string | null | undefined,
   timezone: string | null | undefined,
@@ -27,7 +36,7 @@ export const scheduleSummary = (
   if (weekdays === '*') return t('scheduledTasks.dailySummary', { time });
   const days = weekdays
     .split(',')
-    .map((day) => t(`scheduledTasks.weekday.${day}`))
+    .map((day) => weekdayLabel(day, t))
     .join('/');
   return t('scheduledTasks.weeklySummary', { days, time });
 };
