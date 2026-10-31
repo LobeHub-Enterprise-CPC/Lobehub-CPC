@@ -47,7 +47,6 @@ const ShowcaseSkillDetail = memo<{ data: DiscoverSkillDetail }>(({ data }) => {
       activeTab={tab}
       avatar={<Avatar avatar={data.icon || data.name} shape={'square'} size={64} />}
       kind={'skill'}
-      share={<ShareButton meta={{ avatar: data.icon, desc: data.description, title: data.name }} />}
       title={data.name}
       install={
         <InstallButton
@@ -69,6 +68,11 @@ const ShowcaseSkillDetail = memo<{ data: DiscoverSkillDetail }>(({ data }) => {
         interpolation: { escapeValue: false },
         name: data.name,
       })}
+      share={
+        <ShareButton
+          meta={{ avatar: data.icon, desc: data.description, title: data.name, url: location.href }}
+        />
+      }
       tabs={[
         { icon: Icons.overview, key: 'overview', label: t('showcase.detail.overview') },
         { icon: Icons.skillFile, key: 'skill', label: t('showcase.detail.skillMd') },

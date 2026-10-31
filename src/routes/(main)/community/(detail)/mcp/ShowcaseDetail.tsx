@@ -91,7 +91,6 @@ const ShowcaseMcpDetail = memo<{ data: DiscoverMcpDetail }>(({ data }) => {
       avatar={<Avatar avatar={data.icon} shape={'square'} size={64} />}
       install={<ActionButton label={t('showcase.install.mcp')} showProgress={false} />}
       kind={'mcp'}
-      share={<ShareButton meta={{ avatar: data.icon, desc: data.description, title: data.name }} />}
       title={data.name}
       meta={[
         author,
@@ -107,6 +106,11 @@ const ShowcaseMcpDetail = memo<{ data: DiscoverMcpDetail }>(({ data }) => {
         name: data.name,
         tools: tools.map((tool) => tool.name).join(', '),
       })}
+      share={
+        <ShareButton
+          meta={{ avatar: data.icon, desc: data.description, title: data.name, url: location.href }}
+        />
+      }
       tabs={[
         { icon: Icons.overview, key: 'overview', label: t('showcase.detail.overview') },
         { icon: Icons.versions, key: 'versions', label: t('showcase.detail.versions') },

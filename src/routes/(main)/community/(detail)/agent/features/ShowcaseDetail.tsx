@@ -95,7 +95,7 @@ const ShowcaseAgentDetail = memo(() => {
       activeTab={tab}
       install={<ForkAndChat label={t('showcase.install.agent')} />}
       kind={'agent'}
-      share={<ShareButton meta={{ avatar, desc: description, title }} />}
+      share={<ShareButton meta={{ avatar, desc: description, title, url: location.href }} />}
       title={title}
       avatar={
         <Avatar

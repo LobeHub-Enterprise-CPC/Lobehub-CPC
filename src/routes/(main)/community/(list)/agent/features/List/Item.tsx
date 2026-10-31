@@ -125,7 +125,7 @@ const AssistantItem = memo<DiscoverAssistantItem>(
           category={categoryLabel}
           description={description}
           testId={'assistant-item'}
-          title={title}
+          title={title || identifier}
           to={link}
           avatar={
             <Avatar

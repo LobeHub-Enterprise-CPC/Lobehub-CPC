@@ -66,7 +66,7 @@ const AssistantPage = memo(() => {
                       backgroundColor={item.backgroundColor}
                       index={index}
                       key={item.identifier}
-                      title={item.title}
+                      title={item.title || item.identifier}
                       to={urlJoin('/community/agent', item.identifier)}
                     />
                   ))}
