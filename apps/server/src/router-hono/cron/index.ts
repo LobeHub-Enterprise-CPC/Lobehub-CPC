@@ -8,6 +8,7 @@ import { startGatewayForAllTenants } from '@/server/services/gateway/tenantStart
 
 import { bearerSecretAuth } from '../agent/middlewares/bearerSecretAuth';
 import { qstashAuth } from '../agent/middlewares/qstashAuth';
+import { listAgentInFlight } from './agentInFlight';
 import { reapOperationsForAllTenants } from './reapOperations';
 
 /**
@@ -64,6 +65,14 @@ app.post(
   '/agent/reap-operations',
   bearerSecretAuth(() => process.env.CRON_SECRET),
   reapOperationsForAllTenants,
+);
+
+// GET /api/cron/agent/in-flight — read-only list of live agent operations in
+// every tenant (Bearer CRON_SECRET), polled by the release gate before a rollout.
+app.get(
+  '/agent/in-flight',
+  bearerSecretAuth(() => process.env.CRON_SECRET),
+  listAgentInFlight,
 );
 
 export default app;

@@ -26,7 +26,7 @@ const log = debug('lobe-server:stale-operation-reaper');
  * watchdog has to use (it can only reason about stream events, which stop for
  * legitimately slow first-token latency too).
  */
-const DEFAULT_STALE_AFTER_MS = 5 * 60_000;
+export const DEFAULT_STALE_AFTER_MS = 5 * 60_000;
 
 /**
  * Redriving costs a real LLM call, so a step that dies deterministically
