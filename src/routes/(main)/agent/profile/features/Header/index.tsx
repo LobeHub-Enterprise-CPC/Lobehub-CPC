@@ -27,7 +27,7 @@ import { useAgentShareSupported } from '@/business/client/useAgentShareSupported
 import { DESKTOP_HEADER_ICON_SMALL_SIZE } from '@/const/layoutTokens';
 import AgentBreadcrumb from '@/features/AgentBreadcrumb';
 import { useAgentMarketSubmission } from '@/features/AgentMarketSubmission/useAgentMarketSubmission';
-import AgentProfileTabs, { AGENT_PROFILE_TABS_CENTER_STYLE } from '@/features/AgentProfileTabs';
+import AgentProfileTabs, { getAgentProfileTabsCenterStyle } from '@/features/AgentProfileTabs';
 import NavHeader from '@/features/NavHeader';
 import { useAdvancedModeMenuItem } from '@/features/NavPanel/useAdvancedModeMenuItem';
 import { formatPageEditorInfoTime } from '@/features/PageEditor/formatPageEditorInfoTime';
@@ -452,7 +452,7 @@ const Header = memo(() => {
         // flex track between the left/right slots — those slots differ in width,
         // so flex centering leaves unequal gaps (it reads as space-between, not
         // centered). Absolute + translateX(-50%) makes the two gaps equal.
-        center: AGENT_PROFILE_TABS_CENTER_STYLE,
+        center: getAgentProfileTabsCenterStyle(),
         left: {
           paddingInlineStart: 8,
         },

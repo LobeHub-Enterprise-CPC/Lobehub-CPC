@@ -431,6 +431,8 @@ export default {
   'navPanel.agentsAndGroups': 'Agents & Groups',
   'navPanel.bottomDivider': 'Items below anchor to bottom',
   'navPanel.customizeSidebar': 'Customize Sidebar',
+  'navPanel.openMenu': 'Open menu',
+  'navPanel.shortcuts': 'Shortcuts',
   'navPanel.displayItems': 'Display Items',
   'navPanel.exitAdvancedMode': 'Exit advanced mode',
   'navPanel.resetDefault': 'Reset to Default',
