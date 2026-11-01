@@ -136,19 +136,30 @@ export class SubAgentBridgeReconciler {
             (validation.allowed && parent && TERMINAL.has(parent.status)) ||
             (!validation.allowed &&
               ['parent_not_waiting', 'tool_not_pending'].includes(validation.reason));
-          if (mayHaveDelivered) {
+          const cardFilled = async () => {
             const message = await messageModel.findById(binding.toolMessageId);
-            if (message?.parentId === binding.waitingBatchId && message.content) {
-              if (await model.markRecovered(binding.childOperationId, owner, new Date())) {
-                totals.recovered++;
-                event('recovered', 'already_delivered', binding.childOperationId);
-              } else {
-                totals.skipped++;
-                event('skipped', 'lease_lost', binding.childOperationId);
-              }
-              continue;
+            return message?.parentId === binding.waitingBatchId && !!message.content;
+          };
+          const settleRecovered = async (reason: string) => {
+            if (await model.markRecovered(binding.childOperationId, owner, new Date())) {
+              totals.recovered++;
+              event('recovered', reason, binding.childOperationId);
+            } else {
+              totals.skipped++;
+              event('skipped', 'lease_lost', binding.childOperationId);
             }
+          };
+          if (mayHaveDelivered && (await cardFilled())) {
+            await settleRecovered('already_delivered');
+            continue;
           }
+          const gatewayAllows = () =>
+            gatewayParentMayResume(
+              this.db,
+              binding.childOperationId,
+              binding.parentOperationId,
+              binding.userId,
+            );
           const expired =
             now.getTime() - (child.completedAt ?? binding.createdAt).getTime() >= WINDOW_MS;
           let failure: string | undefined;
@@ -164,14 +175,7 @@ export class SubAgentBridgeReconciler {
               parent?.status === 'waiting_for_async_tool' &&
               !(await coordinator.loadAgentState(binding.parentOperationId));
             if (missingState) {
-              if (
-                !(await gatewayParentMayResume(
-                  this.db,
-                  binding.childOperationId,
-                  binding.parentOperationId,
-                  binding.userId,
-                ))
-              ) {
+              if (!(await gatewayAllows())) {
                 failure = 'ownership_mismatch';
               } else {
                 const result = await messageModel.updateToolMessage(binding.toolMessageId, {
@@ -187,20 +191,31 @@ export class SubAgentBridgeReconciler {
             else {
               // The callback that would have filled the card can be lost
               // entirely; fill it from the child here, leaving the parent alone.
-              // The next sweep settles the binding as already delivered.
-              if (validation.reason === 'tool_not_pending')
-                await new AiAgentService(this.db, binding.userId, {
-                  workspaceId,
-                  includeShareVisitor: binding.includeShareVisitor,
-                }).completeSubAgentBridge({
-                  ...params,
-                  backfillOnly: true,
-                  reason: replayReason(child.status),
-                  reconcileLeaseOwner: owner,
-                });
-              totals.skipped++;
-              event('skipped', validation.reason, binding.childOperationId);
-              continue;
+              // A gateway that may not deliver it never will: settle it rather
+              // than let the replay throw on every sweep.
+              if (validation.reason === 'tool_not_pending') {
+                if (!(await gatewayAllows())) failure = 'ownership_mismatch';
+                else {
+                  await new AiAgentService(this.db, binding.userId, {
+                    workspaceId,
+                    includeShareVisitor: binding.includeShareVisitor,
+                  }).completeSubAgentBridge({
+                    ...params,
+                    backfillOnly: true,
+                    reason: replayReason(child.status),
+                    reconcileLeaseOwner: owner,
+                  });
+                  if (await cardFilled()) {
+                    await settleRecovered('backfilled');
+                    continue;
+                  }
+                }
+              }
+              if (!failure) {
+                totals.skipped++;
+                event('skipped', validation.reason, binding.childOperationId);
+                continue;
+              }
             }
           } else {
             const service = new AiAgentService(this.db, binding.userId, {
@@ -217,13 +232,7 @@ export class SubAgentBridgeReconciler {
                 : {}),
             });
             if (expired) failure = 'recovery_window_expired';
-            else if (await model.markRecovered(binding.childOperationId, owner, new Date())) {
-              totals.recovered++;
-              event('recovered', 'replayed', binding.childOperationId);
-            } else {
-              totals.skipped++;
-              event('skipped', 'lease_lost', binding.childOperationId);
-            }
+            else await settleRecovered('replayed');
           }
           if (failure) {
             if (await model.markFailed(binding.childOperationId, owner, new Date(), failure)) {

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   loadState: vi.fn(),
   update: vi.fn(),
   findMessage: vi.fn(),
+  gateway: vi.fn(),
 }));
 
 vi.mock('@/server/modules/Hatchet/config', () => ({
@@ -54,7 +55,7 @@ vi.mock('@/server/services/aiAgent', () => ({
   },
 }));
 vi.mock('@/server/services/gatewayAuthorization/parentExecution', () => ({
-  gatewayParentMayResume: async () => true,
+  gatewayParentMayResume: mocks.gateway,
 }));
 vi.mock('./AgentRuntimeService/validateSubAgentBridge', () => ({
   validateSubAgentBridge: mocks.validate,
@@ -92,6 +93,7 @@ beforeEach(() => {
   mocks.complete.mockResolvedValue(true);
   mocks.loadState.mockResolvedValue({ status: 'waiting_for_async_tool' });
   mocks.update.mockResolvedValue({ success: true, applied: true });
+  mocks.gateway.mockResolvedValue(true);
 });
 
 describe('sub-agent bridge reconciliation', () => {
@@ -261,6 +263,9 @@ describe('sub-agent bridge reconciliation', () => {
     // A parent stopped while parked keeps its waiting row; only its Redis state moved on.
     mocks.validate.mockResolvedValue({ allowed: false, reason: 'tool_not_pending' });
     mocks.loadState.mockResolvedValue({ status: 'interrupted' });
+    mocks.findMessage
+      .mockResolvedValueOnce({ parentId: 'batch', content: '' })
+      .mockResolvedValue({ parentId: 'batch', content: 'child answer' });
     const result = await new SubAgentBridgeReconciler({} as never).sweep(now);
     expect(mocks.complete).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -270,10 +275,30 @@ describe('sub-agent bridge reconciliation', () => {
         reconcileLeaseOwner: expect.any(String),
       }),
     );
-    // Settled as already delivered by the next sweep, once the card holds the result.
-    expect(result).toMatchObject({ errors: 0, failed: 0, recovered: 0, skipped: 1 });
+    // Settled in the same sweep once the card holds the result.
+    expect(result).toMatchObject({ errors: 0, failed: 0, recovered: 1, skipped: 0 });
+    expect(mocks.recovered).toHaveBeenCalledOnce();
     expect(mocks.failed).not.toHaveBeenCalled();
-    expect(mocks.recovered).not.toHaveBeenCalled();
+  });
+
+  it('fails a lost callback the gateway may not deliver instead of erroring every sweep', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      mocks.validate.mockResolvedValue({ allowed: false, reason: 'tool_not_pending' });
+      mocks.loadState.mockResolvedValue({ status: 'interrupted' });
+      mocks.gateway.mockResolvedValue(false);
+      const result = await new SubAgentBridgeReconciler({} as never).sweep(now);
+      expect(result).toMatchObject({ errors: 0, failed: 1 });
+      expect(mocks.failed).toHaveBeenCalledWith(
+        'child',
+        expect.any(String),
+        expect.any(Date),
+        'ownership_mismatch',
+      );
+      expect(mocks.complete).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('lets only one concurrent sweeper hold a candidate lease', async () => {
